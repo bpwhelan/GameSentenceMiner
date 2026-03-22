@@ -30,7 +30,10 @@ def build_paths_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "paths", "copy_temp_files_to_output_folder")
     )
     output_folder_layout.addStretch()
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "paths", "output_folder"), output_folder_widget)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "paths", "output_folder"),
+        output_folder_widget,
+    )
 
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "paths", "copy_trimmed_replay_to_output_folder"),
@@ -40,7 +43,10 @@ def build_paths_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "paths", "open_output_folder_on_card_creation"),
         window.open_output_folder_on_card_creation_check,
     )
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "paths", "remove_video"), window.remove_video_check)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "paths", "remove_video"),
+        window.remove_video_check,
+    )
 
     reset_widget = window._create_reset_button("paths", window._create_paths_tab)
     layout.addRow(reset_widget)

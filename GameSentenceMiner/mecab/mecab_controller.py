@@ -122,7 +122,7 @@ class MecabController:
             else:
                 buf.write(out.word)
         return buf.getvalue()
-    
+
     def to_hiragana(self, expr: str) -> str:
         """Converts the input expression to hiragana."""
         buf = io.StringIO()

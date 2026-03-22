@@ -2,9 +2,7 @@ import asyncio
 import importlib
 
 
-window_state_monitor = importlib.import_module(
-    "GameSentenceMiner.util.platform.window_state_monitor"
-)
+window_state_monitor = importlib.import_module("GameSentenceMiner.util.platform.window_state_monitor")
 
 
 class _FakeKernel32:
@@ -106,10 +104,7 @@ def test_set_foreground_aggressive_uses_topmost_and_alt_fallbacks(monkeypatch):
         insert_after == window_state_monitor.HWND_TOPMOST
         for _hwnd, insert_after, _flags in fake_user32.window_pos_calls
     )
-    assert any(
-        attach is False
-        for _a, _b, attach in fake_user32.attach_calls
-    )
+    assert any(attach is False for _a, _b, attach in fake_user32.attach_calls)
 
 
 def test_activate_target_window_retries_until_helper_succeeds(monkeypatch):

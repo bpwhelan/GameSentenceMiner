@@ -218,9 +218,7 @@ class AppliedFilter(betterproto.Message):
     """Supported filter types."""
 
     filter_type: "LensOverlayFilterType" = betterproto.enum_field(1)
-    translate: "AppliedFilterTranslate" = betterproto.message_field(
-        3, group="filter_payload"
-    )
+    translate: "AppliedFilterTranslate" = betterproto.message_field(3, group="filter_payload")
 
 
 @dataclass(eq=False, repr=False)
@@ -305,13 +303,13 @@ class LensOverlayPhaseLatenciesMetadataPhase(betterproto.Message):
     Represents a single point in time during the image preprocessing flow.
     """
 
-    image_downscale_data: "LensOverlayPhaseLatenciesMetadataPhaseImageDownscaleData" = (
-        betterproto.message_field(3, group="phase_data")
+    image_downscale_data: "LensOverlayPhaseLatenciesMetadataPhaseImageDownscaleData" = betterproto.message_field(
+        3, group="phase_data"
     )
     """Data specifically only relevant for IMAGE_DOWNSCALE_END PhaseType."""
 
-    image_encode_data: "LensOverlayPhaseLatenciesMetadataPhaseImageEncodeData" = (
-        betterproto.message_field(4, group="phase_data")
+    image_encode_data: "LensOverlayPhaseLatenciesMetadataPhaseImageEncodeData" = betterproto.message_field(
+        4, group="phase_data"
     )
     """Data specifically only relevant for IMAGE_ENCODE_END PhaseType."""
 
@@ -327,9 +325,7 @@ class LensOverlayPhaseLatenciesMetadataPhaseImageDownscaleData(betterproto.Messa
 
 @dataclass(eq=False, repr=False)
 class LensOverlayPhaseLatenciesMetadataPhaseImageEncodeData(betterproto.Message):
-    original_image_type: "LensOverlayPhaseLatenciesMetadataImageType" = (
-        betterproto.enum_field(1)
-    )
+    original_image_type: "LensOverlayPhaseLatenciesMetadataImageType" = betterproto.enum_field(1)
     """
     The type of the original Image. This only applies to IMAGE_ENCODE_END
      PhaseTypes
@@ -341,17 +337,13 @@ class LensOverlayPhaseLatenciesMetadataPhaseImageEncodeData(betterproto.Message)
 
 @dataclass(eq=False, repr=False)
 class LensOverlayClientLogs(betterproto.Message):
-    phase_latencies_metadata: "LensOverlayPhaseLatenciesMetadata" = (
-        betterproto.message_field(1)
-    )
+    phase_latencies_metadata: "LensOverlayPhaseLatenciesMetadata" = betterproto.message_field(1)
     """
     The phase latency metadata for any image preprocessing required for the
      request.
     """
 
-    lens_overlay_entry_point: "LensOverlayClientLogsLensOverlayEntryPoint" = (
-        betterproto.enum_field(2)
-    )
+    lens_overlay_entry_point: "LensOverlayClientLogsLensOverlayEntryPoint" = betterproto.enum_field(2)
     """The Lens Overlay entry point used to access lens."""
 
     paella_id: int = betterproto.uint64_field(3)
@@ -573,9 +565,7 @@ class TextEntityIdentifier(betterproto.Message):
 
 @dataclass(eq=False, repr=False)
 class DeepGleamData(betterproto.Message):
-    translation: "TranslationData" = betterproto.message_field(
-        10, group="rendering_oneof"
-    )
+    translation: "TranslationData" = betterproto.message_field(10, group="rendering_oneof")
     visual_object_id: List[str] = betterproto.string_field(11)
 
 
@@ -645,9 +635,7 @@ class TranslationDataBackgroundImageData(betterproto.Message):
      padding should be added on the left and half on the right.
     """
 
-    file_format: "TranslationDataBackgroundImageDataFileFormat" = (
-        betterproto.enum_field(6)
-    )
+    file_format: "TranslationDataBackgroundImageDataFileFormat" = betterproto.enum_field(6)
     text_mask: bytes = betterproto.bytes_field(7)
     """Text mask for the generated background image."""
 
@@ -664,9 +652,7 @@ class TranslationDataLine(betterproto.Message):
     end: int = betterproto.int32_field(2)
     style: "TranslationDataTextStyle" = betterproto.message_field(3)
     word: List["TranslationDataLineWord"] = betterproto.message_field(5)
-    background_image_data: "TranslationDataBackgroundImageData" = (
-        betterproto.message_field(9)
-    )
+    background_image_data: "TranslationDataBackgroundImageData" = betterproto.message_field(9)
     """Background image data is set only when inpainting is computed."""
 
 
@@ -781,12 +767,8 @@ class LensOverlayInteractionRequestMetadata(betterproto.Message):
     """Metadata associated with an interaction request."""
 
     type: "LensOverlayInteractionRequestMetadataType" = betterproto.enum_field(1)
-    selection_metadata: "LensOverlayInteractionRequestMetadataSelectionMetadata" = (
-        betterproto.message_field(2)
-    )
-    query_metadata: "LensOverlayInteractionRequestMetadataQueryMetadata" = (
-        betterproto.message_field(4)
-    )
+    selection_metadata: "LensOverlayInteractionRequestMetadataSelectionMetadata" = betterproto.message_field(2)
+    query_metadata: "LensOverlayInteractionRequestMetadataQueryMetadata" = betterproto.message_field(4)
 
 
 @dataclass(eq=False, repr=False)
@@ -795,14 +777,14 @@ class LensOverlayInteractionRequestMetadataSelectionMetadata(betterproto.Message
     Metadata related to the selection associated with this interaction request.
     """
 
-    point: "LensOverlayInteractionRequestMetadataSelectionMetadataPoint" = (
-        betterproto.message_field(1, group="selection")
+    point: "LensOverlayInteractionRequestMetadataSelectionMetadataPoint" = betterproto.message_field(
+        1, group="selection"
     )
-    region: "LensOverlayInteractionRequestMetadataSelectionMetadataRegion" = (
-        betterproto.message_field(2, group="selection")
+    region: "LensOverlayInteractionRequestMetadataSelectionMetadataRegion" = betterproto.message_field(
+        2, group="selection"
     )
-    object: "LensOverlayInteractionRequestMetadataSelectionMetadataObject" = (
-        betterproto.message_field(3, group="selection")
+    object: "LensOverlayInteractionRequestMetadataSelectionMetadataObject" = betterproto.message_field(
+        3, group="selection"
     )
 
 
@@ -858,9 +840,7 @@ class FunctionCall(betterproto.Message):
 class FunctionCallSignals(betterproto.Message):
     """Signals at the function call level"""
 
-    translate_stickiness_signals: "TranslateStickinessSignals" = (
-        betterproto.message_field(311378150)
-    )
+    translate_stickiness_signals: "TranslateStickinessSignals" = betterproto.message_field(311378150)
 
 
 @dataclass(eq=False, repr=False)
@@ -920,9 +900,7 @@ class OverlayObject(betterproto.Message):
     rendering_metadata: "OverlayObjectRenderingMetadata" = betterproto.message_field(8)
     """The rendering metadata for the object."""
 
-    interaction_properties: "OverlayObjectInteractionProperties" = (
-        betterproto.message_field(4)
-    )
+    interaction_properties: "OverlayObjectInteractionProperties" = betterproto.message_field(4)
     is_fulfilled: bool = betterproto.bool_field(9)
     """
     Indicates to the client that this object is eligible to be an object
@@ -1024,9 +1002,7 @@ class LensOverlayInteractionRequest(betterproto.Message):
     request_context: "LensOverlayRequestContext" = betterproto.message_field(1)
     """Basic information and context for the request."""
 
-    interaction_request_metadata: "LensOverlayInteractionRequestMetadata" = (
-        betterproto.message_field(2)
-    )
+    interaction_request_metadata: "LensOverlayInteractionRequestMetadata" = betterproto.message_field(2)
     """Metadata associated with an interaction request."""
 
     image_crop: "ImageCrop" = betterproto.message_field(3)
@@ -1138,9 +1114,7 @@ class LensOverlayServerResponse(betterproto.Message):
     objects_response: "LensOverlayObjectsResponse" = betterproto.message_field(2)
     """The objects response."""
 
-    interaction_response: "LensOverlayInteractionResponse" = betterproto.message_field(
-        3
-    )
+    interaction_response: "LensOverlayInteractionResponse" = betterproto.message_field(3)
     """The interaction response."""
 
 
@@ -1148,9 +1122,7 @@ class LensOverlayServerResponse(betterproto.Message):
 class StickinessSignals(betterproto.Message):
     id_namespace: "StickinessSignalsNamespace" = betterproto.enum_field(1)
     interpretation: "MessageSet" = betterproto.message_field(28)
-    education_input_extension: "EducationInputExtension" = betterproto.message_field(
-        121
-    )
+    education_input_extension: "EducationInputExtension" = betterproto.message_field(121)
 
 
 @dataclass(eq=False, repr=False)
@@ -1166,9 +1138,7 @@ class LensOverlayVideoContextInputParams(betterproto.Message):
 
 @dataclass(eq=False, repr=False)
 class LensOverlayVideoParams(betterproto.Message):
-    video_context_input_params: "LensOverlayVideoContextInputParams" = (
-        betterproto.message_field(1)
-    )
+    video_context_input_params: "LensOverlayVideoContextInputParams" = betterproto.message_field(1)
     """Video context params from input."""
 
 
@@ -1219,9 +1189,7 @@ class UserSelectionData(betterproto.Message):
 class LensOverlayVisualSearchInteractionData(betterproto.Message):
     """Metadata associated with a Lens Visual Search request."""
 
-    interaction_type: "LensOverlayInteractionRequestMetadataType" = (
-        betterproto.enum_field(1)
-    )
+    interaction_type: "LensOverlayInteractionRequestMetadataType" = betterproto.enum_field(1)
     """The type of interaction."""
 
     zoomed_crop: "ZoomedCrop" = betterproto.message_field(7)

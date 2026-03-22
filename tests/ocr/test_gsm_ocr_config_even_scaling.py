@@ -1,4 +1,5 @@
 import sys
+import json
 from types import SimpleNamespace
 
 from GameSentenceMiner.ocr.gsm_ocr_config import Monitor, OCRConfig, Rectangle
@@ -41,3 +42,72 @@ def test_scale_coords_rounds_up_to_even_coordinates(monkeypatch):
 
     assert config.rectangles[0].coordinates == [12, 26, 52, 34]
     assert all(coord % 2 == 0 for coord in config.rectangles[0].coordinates)
+
+
+def test_get_overlay_area_config_reads_overlay_rects(tmp_path, monkeypatch):
+    overlay_config_path = tmp_path / "Scene_overlay.json"
+    overlay_config_path.write_text(
+        json.dumps(
+            {
+                "monitor_index": 2,
+                "coordinate_system": "percentage",
+                "rects": [{"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        gsm_ocr_config, "get_overlay_area_config_path", lambda *args, **kwargs: str(overlay_config_path)
+    )
+    monkeypatch.setattr(gsm_ocr_config.obs, "update_current_game", lambda: None)
+
+    config = gsm_ocr_config.get_overlay_area_config()
+
+    assert config is not None
+    assert config.scene == "Scene"
+    assert config.coordinate_system == "percentage"
+    assert len(config.rectangles) == 1
+    assert config.rectangles[0].monitor.index == 2
+    assert config.rectangles[0].coordinates == [0.1, 0.2, 0.3, 0.4]
+    assert config.rectangles[0].is_excluded is False
+    assert config.rectangles[0].is_secondary is False
+    assert getattr(config, "overlay_coordinate_space", None) == "monitor"
+
+
+def test_get_overlay_area_config_reads_standard_rectangle_schema(tmp_path, monkeypatch):
+    overlay_config_path = tmp_path / "Scene_overlay.json"
+    overlay_config_path.write_text(
+        json.dumps(
+            {
+                "scene": "Scene",
+                "coordinate_system": "percentage",
+                "window_geometry": {"left": 300, "top": 200, "width": 1280, "height": 720},
+                "rectangles": [
+                    {
+                        "monitor": {"index": 0, "left": 0, "top": 0, "width": 1920, "height": 1080},
+                        "coordinates": [0.1, 0.2, 0.3, 0.4],
+                        "is_excluded": False,
+                        "is_secondary": False,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        gsm_ocr_config, "get_overlay_area_config_path", lambda *args, **kwargs: str(overlay_config_path)
+    )
+    monkeypatch.setattr(gsm_ocr_config.obs, "update_current_game", lambda: None)
+
+    config = gsm_ocr_config.get_overlay_area_config()
+
+    assert config is not None
+    assert config.scene == "Scene"
+    assert config.window_geometry.left == 300
+    assert config.window_geometry.top == 200
+    assert config.window_geometry.width == 1280
+    assert config.window_geometry.height == 720
+    assert config.rectangles[0].coordinates == [0.1, 0.2, 0.3, 0.4]
+    assert getattr(config, "overlay_coordinate_space", None) == "window"

@@ -5,7 +5,10 @@ from GameSentenceMiner.util.config.configuration import (
     TextProcessing,
     TextReplacementRule,
 )
-from GameSentenceMiner.util.text_processing import apply_string_replacements, apply_text_processing
+from GameSentenceMiner.util.text_processing import (
+    apply_string_replacements,
+    apply_text_processing,
+)
 
 
 def _cfg(enabled=True, rules=None):

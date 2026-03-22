@@ -87,9 +87,7 @@ def enable_per_monitor_v2_dpi_awareness() -> bool:
             return _process_dpi_enabled
 
         _process_dpi_enabled = (
-            _try_set_process_dpi_awareness_context()
-            or _try_set_process_dpi_awareness()
-            or _try_set_process_dpi_aware()
+            _try_set_process_dpi_awareness_context() or _try_set_process_dpi_awareness() or _try_set_process_dpi_aware()
         )
         _process_dpi_initialized = True
         return _process_dpi_enabled

@@ -484,6 +484,10 @@
             "label": "Close OBS:",
             "tooltip": "Close OBS when the GSM closes."
           },
+          "allow_automatic_updates": {
+            "label": "Allow OBS to Update Itself (Advanced):",
+            "tooltip": "Leave this off to start OBS with updates disabled. Turn it on only if you want OBS to manage its own updates outside GSM."
+          },
           "obs_path": {
             "label": "OBS Path:",
             "tooltip": "Path to the OBS executable. Leave blank to use the default path."
@@ -700,9 +704,29 @@
             "tooltip": "How many local scans to perform per text event (agent, textractor, etc.) before stopping or sending results to the OCR engine. .1s delay between scans for now."
           }
           ,
+          "use_overlay_area_config": {
+            "label": "Use Dedicated Overlay Area (Recommended):",
+            "tooltip": "Use a dedicated overlay-only area config instead of reusing the OCR area config. When enabled, this takes priority over OCR area config options."
+          },
+          "overlay_area_selector_button": {
+            "label": "Set Area",
+            "tooltip": "Open the dedicated overlay area selector for the current overlay monitor."
+          },
           "use_ocr_area_config": {
             "label": "Use OCR Area Config:",
             "tooltip": "When enabled, uses the predefined OCR area configuration for overlay scans instead of attempting automatic region detection. Useful when the overlay should scan only a specific region (e.g., subtitle area); reduces processing and false positives."
+          },
+          "ocr_area_config_include_primary_areas": {
+            "label": "Include Primary Text Areas:",
+            "tooltip": "Use the primary OCR capture areas from the OCR area config. These are the main text regions that were previously shown as green boxes."
+          },
+          "ocr_area_config_include_secondary_areas": {
+            "label": "Include Secondary/Menu Text Areas:",
+            "tooltip": "Use the secondary OCR capture areas from the OCR area config. These are the alternate or menu regions that were previously shown as purple boxes."
+          },
+          "ocr_area_config_use_exclusion_zones": {
+            "label": "Use Exclusion Zones:",
+            "tooltip": "Apply exclusion zones from the OCR area config to mask parts of the overlay capture. These are the regions previously shown as orange boxes."
           },
           "use_ocr_result": {
             "label": "Use OCR Result:",

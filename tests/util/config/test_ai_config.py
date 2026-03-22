@@ -58,8 +58,16 @@ def test_ai_config_changed_detects_gemini_backup_model_updates():
     [
         (
             AI_GROQ,
-            {"groq_model": "llama-3.1-8b-instant", "groq_backup_model": "qwen/qwen3-32b", "groq_api_key": "k"},
-            {"groq_model": "llama-3.1-8b-instant", "groq_backup_model": "openai/gpt-oss-120b", "groq_api_key": "k"},
+            {
+                "groq_model": "llama-3.1-8b-instant",
+                "groq_backup_model": "qwen/qwen3-32b",
+                "groq_api_key": "k",
+            },
+            {
+                "groq_model": "llama-3.1-8b-instant",
+                "groq_backup_model": "openai/gpt-oss-120b",
+                "groq_api_key": "k",
+            },
         ),
         (
             AI_OPENAI,
@@ -78,8 +86,16 @@ def test_ai_config_changed_detects_gemini_backup_model_updates():
         ),
         (
             AI_OLLAMA,
-            {"ollama_url": "http://localhost:11434", "ollama_model": "llama3", "ollama_backup_model": "qwen2.5"},
-            {"ollama_url": "http://localhost:11434", "ollama_model": "llama3", "ollama_backup_model": "mistral"},
+            {
+                "ollama_url": "http://localhost:11434",
+                "ollama_model": "llama3",
+                "ollama_backup_model": "qwen2.5",
+            },
+            {
+                "ollama_url": "http://localhost:11434",
+                "ollama_model": "llama3",
+                "ollama_backup_model": "mistral",
+            },
         ),
         (
             AI_LM_STUDIO,

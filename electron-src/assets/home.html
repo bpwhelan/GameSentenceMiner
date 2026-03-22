@@ -48,12 +48,27 @@
                 </div>
                 <div class="input-group">
                     <button id="runOverlayBtn" style="width: 100%;">Run Overlay</button>
+                    <span id="overlay-platform-warning" class="tooltip tooltip-left" style="display: none;">
+                        <button id="overlay-platform-warning-btn" class="secondary" type="button"
+                            aria-label="Overlay support warning"
+                            style="background-color: #8a5a00; padding: 10px 12px;">
+                            <span style="font-size: 14px;">⚠</span>
+                        </button>
+                        <span class="tooltiptext">
+                            Overlay support on Linux and macOS is experimental. You can still try Run Overlay.
+                            Click this warning for setup details.
+                        </span>
+                    </span>
                     <button id="open-overlay-wiki-btn" class="secondary">
                         <span style="font-size: 14px;">❓</span>
                     </button>
                     <script>
+                        const overlayWikiUrl = 'https://github.com/bpwhelan/GameSentenceMiner/wiki/Overlay-%E2%80%90-Overview';
                         document.getElementById('open-overlay-wiki-btn').addEventListener('click', () => {
-                            window.open('https://github.com/bpwhelan/GameSentenceMiner/wiki/Overlay-%E2%80%90-Overview', '_blank');
+                            window.open(overlayWikiUrl, '_blank');
+                        });
+                        document.getElementById('overlay-platform-warning-btn').addEventListener('click', () => {
+                            window.open(overlayWikiUrl, '_blank');
                         });
                     </script>
                 </div>
@@ -501,7 +516,7 @@
         void refreshScenesAndWindows(true);
 
         // ====================================================================
-        // Shared State: Hide "Run Overlay" button on non-Windows
+        // Shared State: Adjust overlay controls for the current OS
         // ====================================================================
 
         async function applyOSSpecificUI() {
@@ -512,8 +527,9 @@
                 let osInfo = systemInfo;
                 console.log('Using OS info from shared state:', systemInfo);
 
-                // Disable "Run Overlay" button and help icon on non-Windows
+                // Adjust overlay controls for non-Windows platforms
                 const runOverlayBtn = document.getElementById('runOverlayBtn');
+                const overlayPlatformWarning = document.getElementById('overlay-platform-warning');
                 const overlayHelpBtn = document.getElementById('open-overlay-wiki-btn');
                 const refreshWindowsBtn = document.getElementById('refreshWindowsBtn');
                 const createNewSceneBtn = document.getElementById('createNewSceneBtn');
@@ -521,9 +537,10 @@
                 if (isWindows) {
                     if (runOverlayBtn) {
                         runOverlayBtn.disabled = false;
-                        runOverlayBtn.style.opacity = '1';
-                        runOverlayBtn.style.cursor = 'pointer';
                         runOverlayBtn.removeAttribute('title');
+                    }
+                    if (overlayPlatformWarning) {
+                        overlayPlatformWarning.style.display = 'none';
                     }
                     if (overlayHelpBtn) {
                         overlayHelpBtn.disabled = false;
@@ -550,16 +567,14 @@
                     }
                 } else {
                     if (runOverlayBtn) {
-                        // runOverlayBtn.disabled = true;
-                        runOverlayBtn.style.opacity = '0.5';
-                        runOverlayBtn.title = 'Experimental suport on this OS';
+                        runOverlayBtn.disabled = false;
+                        runOverlayBtn.style.opacity = '1';
+                        runOverlayBtn.style.cursor = 'pointer';
+                        runOverlayBtn.removeAttribute('title');
                     }
-                    // if (overlayHelpBtn) {
-                    // overlayHelpBtn.disabled = true;
-                    // overlayHelpBtn.style.opacity = '0.5';
-                    // overlayHelpBtn.style.cursor = 'not-allowed';
-                    // overlayHelpBtn.title = 'Not supported in this OS';
-                    // }
+                    if (overlayPlatformWarning) {
+                        overlayPlatformWarning.style.display = 'inline-flex';
+                    }
                     windowSelect.innerHTML = '<option>Need to set scenes in OBS on this OS.</option>';
                     windowSelect.disabled = true;
                     windowSelect.style.cursor = 'not-allowed';

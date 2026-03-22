@@ -68,6 +68,9 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "globalPauseHotkey": "Ctrl+Shift+P",
         "sendToClipboard": False,
         "keep_newline": False,
+        "keep_newline_auto": None,
+        "keep_newline_menu": None,
+        "keep_newline_area_select": None,
         "obs_capture_preprocess": "none",
         "base_scale": 0.75,
         "duplicate_similarity_threshold": 80,
@@ -304,6 +307,15 @@ def _is_advanced_mode() -> bool:
     return bool(_get_ocr_value("advancedMode", False))
 
 
+def _get_keep_newline_key_for_source(source: str | None = None) -> str:
+    normalized = str(source or "").strip().lower()
+    if normalized == "secondary":
+        return "keep_newline_menu"
+    if normalized == "screen_cropper":
+        return "keep_newline_area_select"
+    return "keep_newline_auto"
+
+
 def _resolve_ocr_engine(engine: Any) -> str:
     if not isinstance(engine, str):
         return ""
@@ -457,7 +469,10 @@ def get_ocr_base_scale() -> float:
         return 0.75
 
 
-def get_ocr_keep_newline() -> bool:
+def get_ocr_keep_newline(source: str | None = None) -> bool:
+    explicit_value = _get_ocr_value(_get_keep_newline_key_for_source(source), None)
+    if isinstance(explicit_value, bool):
+        return explicit_value
     if not _is_advanced_mode():
         return True
     return bool(_get_ocr_value("keep_newline", False))

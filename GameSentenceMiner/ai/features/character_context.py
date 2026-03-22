@@ -22,9 +22,7 @@ class CharacterContextProvider:
             if not game:
                 return ""
 
-            self.logger.debug(
-                f"Found game '{game.title_original}' (id={game.id}) for scene '{game_title}'"
-            )
+            self.logger.debug(f"Found game '{game.title_original}' (id={game.id}) for scene '{game_title}'")
             if game.character_summary:
                 return game.character_summary
 

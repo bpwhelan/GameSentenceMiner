@@ -31,9 +31,15 @@ class FunctionName(Enum):
     OPEN_SETTINGS = "open_settings"
     OPEN_OVERLAY_SETTINGS = "open_overlay_settings"
     OPEN_TEXTHOOKER = "open_texthooker"
+    SWITCH_PROFILE = "switch_profile"
     OPEN_LOG = "open_log"
     TOGGLE_REPLAY_BUFFER = "toggle_replay_buffer"
     RESTART_OBS = "restart_obs"
+    TEST_ANKI_CONFIRMATION = "test_anki_confirmation"
+    TEST_SCREENSHOT_SELECTOR = "test_screenshot_selector"
+    TEST_FURIGANA_FILTER = "test_furigana_filter"
+    TEST_AREA_SELECTOR = "test_area_selector"
+    TEST_SCREEN_CROPPER = "test_screen_cropper"
     EXIT = "exit"
     GET_STATUS = "get_status"
     CONNECT = "on_connect"
@@ -42,6 +48,7 @@ class FunctionName(Enum):
 
 CommandHandler = Callable[[Dict[str, Any]], None]
 _command_handler: Optional[CommandHandler] = None
+
 
 def register_command_handler(handler: CommandHandler) -> None:
     """Register a handler invoked for each parsed GSMCMD JSON object.
@@ -75,11 +82,12 @@ def _stdin_loop() -> None:
         json_part = line[7:]
         try:
             msg = json.loads(json_part)
-            logger.debug(f"IPC Received command: {msg}")
-            if _command_handler:
-                _command_handler(msg)
         except Exception as e:
             logger.warning(f"Failed to parse GSMCMD line: {line} error={e}")
+            continue
+        logger.debug(f"IPC Received command: {msg}")
+        if _command_handler:
+            _command_handler(msg)
 
 
 def start_ipc_listener_in_thread() -> threading.Thread:
@@ -93,11 +101,14 @@ def start_ipc_listener_in_thread() -> threading.Thread:
 def announce_start():
     send_message(FunctionName.START.value)
 
+
 def announce_stop():
     send_message(FunctionName.STOP.value)
 
+
 def announce_connected():
     send_message(FunctionName.CONNECT.value, {"message": "Python Connected"})
+
 
 def announce_status(status: Dict[str, Any]):
     send_message(FunctionName.GET_STATUS.value, status)

@@ -38,8 +38,16 @@ def test_convert_ocr_result_handles_list_and_unrecognized_types():
 
 
 def test_extract_from_api_response_dispatches_formats(monkeypatch):
-    monkeypatch.setattr(converter, "extract_from_google_lens_protobuf_response", lambda *_args, **_kwargs: ["pb"])
-    monkeypatch.setattr(converter, "extract_from_google_lens_json_response", lambda *_args, **_kwargs: ["json"])
+    monkeypatch.setattr(
+        converter,
+        "extract_from_google_lens_protobuf_response",
+        lambda *_args, **_kwargs: ["pb"],
+    )
+    monkeypatch.setattr(
+        converter,
+        "extract_from_google_lens_json_response",
+        lambda *_args, **_kwargs: ["json"],
+    )
 
     assert converter.extract_from_api_response({"objects_response": {}}, "engine") == ["pb"]
     assert converter.extract_from_api_response({"textAnnotations": []}, "engine") == ["json"]

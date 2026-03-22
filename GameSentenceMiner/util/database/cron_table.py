@@ -1,6 +1,6 @@
 import time
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict
+from typing import Optional, List
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.db import SQLiteDBTable
@@ -67,9 +67,7 @@ class CronTable(SQLiteDBTable):
         self.enabled = enabled
         self.created_at = created_at if created_at else time.time()
         self.schedule = (
-            schedule
-            if schedule in ["once", "minutely", "hourly", "daily", "weekly", "monthly", "yearly"]
-            else "once"
+            schedule if schedule in ["once", "minutely", "hourly", "daily", "weekly", "monthly", "yearly"] else "once"
         )
 
     @classmethod
@@ -98,11 +96,17 @@ class CronTable(SQLiteDBTable):
             ValueError: If schedule type is invalid or name already exists
         """
         # Validate schedule type
-        valid_schedules = ["once", "minutely", "hourly", "daily", "weekly", "monthly", "yearly"]
+        valid_schedules = [
+            "once",
+            "minutely",
+            "hourly",
+            "daily",
+            "weekly",
+            "monthly",
+            "yearly",
+        ]
         if schedule not in valid_schedules:
-            raise ValueError(
-                f"Invalid schedule type '{schedule}'. Must be one of: {', '.join(valid_schedules)}"
-            )
+            raise ValueError(f"Invalid schedule type '{schedule}'. Must be one of: {', '.join(valid_schedules)}")
 
         # Check if name already exists
         existing = cls.get_by_name(name)
@@ -164,9 +168,7 @@ class CronTable(SQLiteDBTable):
         Returns:
             List[CronTable]: List of all enabled cron jobs
         """
-        rows = cls._db.fetchall(
-            f"SELECT * FROM {cls._table} WHERE enabled=1 ORDER BY next_run ASC"
-        )
+        rows = cls._db.fetchall(f"SELECT * FROM {cls._table} WHERE enabled=1 ORDER BY next_run ASC")
         return [cls.from_row(row) for row in rows]
 
     def update_last_run(self, timestamp: Optional[float] = None):
@@ -178,9 +180,7 @@ class CronTable(SQLiteDBTable):
         """
         self.last_run = timestamp if timestamp is not None else time.time()
         self.save()
-        logger.debug(
-            f"Updated last_run for cron job '{self.name}' to {datetime.fromtimestamp(self.last_run)}"
-        )
+        logger.debug(f"Updated last_run for cron job '{self.name}' to {datetime.fromtimestamp(self.last_run)}")
 
     def update_next_run(self, next_run: float):
         """
@@ -191,9 +191,7 @@ class CronTable(SQLiteDBTable):
         """
         self.next_run = next_run
         self.save()
-        logger.debug(
-            f"Updated next_run for cron job '{self.name}' to {datetime.fromtimestamp(next_run)}"
-        )
+        logger.debug(f"Updated next_run for cron job '{self.name}' to {datetime.fromtimestamp(next_run)}")
 
     def enable(self):
         """Enable this cron job."""
@@ -266,23 +264,17 @@ class CronTable(SQLiteDBTable):
             # For one-time jobs, disable after running
             cron.enabled = False
             cron.next_run = now  # Set to now since it won't run again
-            logger.debug(
-                f"Cron job '{cron.name}' completed (one-time job) and has been disabled"
-            )
+            logger.debug(f"Cron job '{cron.name}' completed (one-time job) and has been disabled")
         elif cron.schedule == "minutely":
             # Schedule for 1 minute from now
             next_run_dt = now_dt + timedelta(minutes=1)
             cron.next_run = next_run_dt.timestamp()
-            logger.debug(
-                f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}"
-            )
+            logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         elif cron.schedule == "hourly":
             # Schedule for 1 hour from now
             next_run_dt = now_dt + timedelta(hours=1)
             cron.next_run = next_run_dt.timestamp()
-            logger.debug(
-                f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}"
-            )
+            logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         elif cron.schedule == "daily":
             # Schedule for 3am tomorrow
             # If we schedule at + 24 hours
@@ -290,44 +282,26 @@ class CronTable(SQLiteDBTable):
             # tomorrow they open gsm again but at 9am, but the cron is set to run at 6pm
             # so they will have stats from yesterday not rolled up, as stats rollup did not run
             # setting it to 3am means the user always has the full previous day rolled up when they open gsm
-            next_run_dt = (now_dt + timedelta(days=1)).replace(
-                hour=0, minute=1, second=0, microsecond=0
-            )
+            next_run_dt = (now_dt + timedelta(days=1)).replace(hour=0, minute=1, second=0, microsecond=0)
             cron.next_run = next_run_dt.timestamp()
-            logger.debug(
-                f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}"
-            )
+            logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         elif cron.schedule == "weekly":
             # Schedule for 3am next week (same day)
-            next_run_dt = (now_dt + timedelta(weeks=1)).replace(
-                hour=3, minute=0, second=0, microsecond=0
-            )
+            next_run_dt = (now_dt + timedelta(weeks=1)).replace(hour=3, minute=0, second=0, microsecond=0)
             cron.next_run = next_run_dt.timestamp()
-            logger.debug(
-                f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}"
-            )
+            logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         elif cron.schedule == "monthly":
             # Schedule for 3am approximately 30 days from now
-            next_run_dt = (now_dt + timedelta(days=30)).replace(
-                hour=3, minute=0, second=0, microsecond=0
-            )
+            next_run_dt = (now_dt + timedelta(days=30)).replace(hour=3, minute=0, second=0, microsecond=0)
             cron.next_run = next_run_dt.timestamp()
-            logger.debug(
-                f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}"
-            )
+            logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         elif cron.schedule == "yearly":
             # Schedule for 3am approximately 365 days from now
-            next_run_dt = (now_dt + timedelta(days=365)).replace(
-                hour=3, minute=0, second=0, microsecond=0
-            )
+            next_run_dt = (now_dt + timedelta(days=365)).replace(hour=3, minute=0, second=0, microsecond=0)
             cron.next_run = next_run_dt.timestamp()
-            logger.debug(
-                f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}"
-            )
+            logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         else:
-            logger.warning(
-                f"Unknown schedule type '{cron.schedule}' for cron job '{cron.name}'"
-            )
+            logger.warning(f"Unknown schedule type '{cron.schedule}' for cron job '{cron.name}'")
             return
 
         # Save all changes
@@ -338,34 +312,34 @@ class CronTable(SQLiteDBTable):
         """
         Set up the user plugins cron job to run every minute.
         This is called automatically on GSM startup to ensure the plugins cron exists.
-        
+
         The cron will:
         1. Create plugins.py if it doesn't exist
         2. Execute plugins.py main() function every minute
-        
+
         Returns:
             CronTable: The created or existing cron entry
         """
         # Check if cron already exists
-        existing = cls.get_by_name('plugins')
-        
+        existing = cls.get_by_name("plugins")
+
         if existing:
             logger.debug("Plugins cron job already exists")
             return existing
-        
+
         # Create new cron entry to run every minute
         now = time.time()
         next_run = now + 60  # Run in 1 minute
-        
+
         cron = cls.create_cron_entry(
-            name='plugins',
-            description='Execute user-defined plugins from AppData/GameSentenceMiner/plugins.py',
+            name="plugins",
+            description="Execute user-defined plugins from AppData/GameSentenceMiner/plugins.py",
             next_run=next_run,
-            schedule='minutely',
-            enabled=True
+            schedule="minutely",
+            enabled=True,
         )
-        
-        logger.info(f"Created plugins cron job - runs every minute")
-        logger.info(f"Edit your plugins at: %APPDATA%/GameSentenceMiner/plugins.py")
-        
+
+        logger.info("Created plugins cron job - runs every minute")
+        logger.info("Edit your plugins at: %APPDATA%/GameSentenceMiner/plugins.py")
+
         return cron

@@ -52,7 +52,9 @@ def test_apply_window_behavior_preferences_sets_show_without_activating(monkeypa
     assert probe.flags & Qt.WindowType.WindowStaysOnTopHint
 
 
-def test_apply_window_behavior_preferences_clears_show_without_activating_when_focus_enabled(monkeypatch):
+def test_apply_window_behavior_preferences_clears_show_without_activating_when_focus_enabled(
+    monkeypatch,
+):
     config = SimpleNamespace(anki=SimpleNamespace(confirmation_always_on_top=False))
     monkeypatch.setattr(anki_confirmation_qt, "get_config", lambda: config)
 

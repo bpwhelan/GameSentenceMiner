@@ -15,8 +15,14 @@ def build_audio_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     tabs_i18n = i18n.get("tabs", {})
 
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "audio", "enabled"), window.audio_enabled_check)
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "audio", "extension"), window.audio_extension_combo)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "audio", "enabled"),
+        window.audio_enabled_check,
+    )
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "audio", "extension"),
+        window.audio_extension_combo,
+    )
 
     offset_widget = QWidget()
     offset_layout = QHBoxLayout(offset_widget)
@@ -31,10 +37,17 @@ def build_audio_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "audio", "end_offset", color=LabelColor.IMPORTANT),
         window.pre_vad_audio_offset_edit,
     )
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "audio", "ffmpeg_preset"), window.ffmpeg_audio_preset_combo)
-    layout.addRow(window._create_labeled_widget(tabs_i18n, "audio", "ffmpeg_options"), window.audio_ffmpeg_reencode_options_edit)
     layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "audio", "anki_media_collection"), window.anki_media_collection_edit
+        window._create_labeled_widget(tabs_i18n, "audio", "ffmpeg_preset"),
+        window.ffmpeg_audio_preset_combo,
+    )
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "audio", "ffmpeg_options"),
+        window.audio_ffmpeg_reencode_options_edit,
+    )
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "audio", "anki_media_collection"),
+        window.anki_media_collection_edit,
     )
 
     ext_tool_widget = QWidget()

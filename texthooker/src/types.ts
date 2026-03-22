@@ -92,6 +92,9 @@ export interface Settings {
 	showTranslateButton$: boolean;
 	showAudioButton$: boolean;
 	trimAudioWithVAD$: boolean;
+	showTrimVideoButton$: boolean;
+	trimVideoWithVAD$: boolean;
+	showTrimmedVideoInExplorer$: boolean;
 	showGSMCheckboxes$: boolean;
 }
 

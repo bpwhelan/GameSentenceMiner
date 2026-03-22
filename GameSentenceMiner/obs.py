@@ -1,7 +1,5 @@
-
 import asyncio
 import contextlib
-import datetime
 import functools
 import json
 import logging
@@ -141,6 +139,17 @@ def is_image_empty(img) -> bool:
         return extrema[0] == extrema[1]
     except Exception:
         return False
+HELPER_SCENE_NAMES = {"GSM Helper - DONT TOUCH"}
+HELPER_SOURCE_NAMES = {"window_getter", "game_window_getter"}
+
+
+def _should_skip_image_validation(source_name: Optional[str] = None, scene_name: Optional[str] = None) -> bool:
+    normalized_scene_name = str(scene_name or "").strip().casefold()
+    if normalized_scene_name in {name.casefold() for name in HELPER_SCENE_NAMES}:
+        return True
+
+    normalized_source_name = str(source_name or "").strip().casefold()
+    return normalized_source_name in {name.casefold() for name in HELPER_SOURCE_NAMES}
 
 
 def _is_obs_recording_disabled(config_override=None) -> bool:
@@ -522,7 +531,7 @@ class OBSService:
             self._initial_replay_check_done = True
             if not source_active:
                 return
-        
+
         if not get_config().obs.automatically_manage_replay_buffer:
             return
 
@@ -702,9 +711,7 @@ class OBSService:
                 try:
                     replay_status = client.get_replay_buffer_status()
                     with self._state_lock:
-                        self.state.replay_buffer_active = (
-                            replay_status.output_active if replay_status else None
-                        )
+                        self.state.replay_buffer_active = replay_status.output_active if replay_status else None
                 except Exception:
                     pass
 
@@ -734,6 +741,7 @@ class OBSService:
         self.on("OutputStateChanged", self._handle_output_state_changed)
         self.on("OutputStarted", self._handle_output_started)
         self.on("OutputStopped", self._handle_output_stopped)
+
     def _handle_current_program_scene_changed(self, data):
         logger.info("Handling CurrentProgramSceneChanged event." + str(data))
         scene_name = getattr(data, "scene_name", "")
@@ -784,9 +792,7 @@ class OBSService:
             return
         with self._state_lock:
             if old_name in self.state.scene_items_by_scene:
-                self.state.scene_items_by_scene[new_name] = self.state.scene_items_by_scene.pop(
-                    old_name
-                )
+                self.state.scene_items_by_scene[new_name] = self.state.scene_items_by_scene.pop(old_name)
             if self.state.current_scene == old_name:
                 self.state.current_scene = new_name
                 gsm_state.current_game = new_name
@@ -822,13 +828,9 @@ class OBSService:
                 self.state.inputs_by_name[new_name] = self.state.inputs_by_name.pop(old_name)
                 self.state.inputs_by_name[new_name]["inputName"] = new_name
             if old_name in self.state.input_settings_by_name:
-                self.state.input_settings_by_name[new_name] = self.state.input_settings_by_name.pop(
-                    old_name
-                )
+                self.state.input_settings_by_name[new_name] = self.state.input_settings_by_name.pop(old_name)
             if old_name in self.state.input_active_by_name:
-                self.state.input_active_by_name[new_name] = self.state.input_active_by_name.pop(
-                    old_name
-                )
+                self.state.input_active_by_name[new_name] = self.state.input_active_by_name.pop(old_name)
             if old_name in self.state.input_show_by_name:
                 self.state.input_show_by_name[new_name] = self.state.input_show_by_name.pop(old_name)
             if self.state.current_source_name == old_name:
@@ -908,7 +910,9 @@ class OBSService:
         elif internal_change:
             self._auto_start_paused_by_external_replay_stop = False
         else:
-            logger.info("Replay buffer was stopped outside GSM; auto-start is paused until replay buffer is started again.")
+            logger.info(
+                "Replay buffer was stopped outside GSM; auto-start is paused until replay buffer is started again."
+            )
             self._auto_start_paused_by_external_replay_stop = True
 
         with self._state_lock:
@@ -1198,9 +1202,7 @@ class OBSConnectionManager(threading.Thread):
                 logger.info(f"OBS WebSocket connection lost: {e}")
             gsm_status.obs_connected = False
             if not connecting:
-                threading.Thread(
-                    target=connect_to_obs_sync, kwargs={"retry": 1}, daemon=True
-                ).start()
+                threading.Thread(target=connect_to_obs_sync, kwargs={"retry": 1}, daemon=True).start()
             return False
 
     def run(self):
@@ -1233,12 +1235,14 @@ class OBSConnectionManager(threading.Thread):
                         self.last_tick_time = time.time()
                         
 
-            if gsm_state.replay_buffer_stopped_timestamp and time.time() - gsm_state.replay_buffer_stopped_timestamp > 900:
+            if (
+                gsm_state.replay_buffer_stopped_timestamp
+                and time.time() - gsm_state.replay_buffer_stopped_timestamp > 900
+            ):
                 if gsm_state.disable_anki_confirmation_session:
                     gsm_state.disable_anki_confirmation_session = False
                     logger.info("Session expired: Anki confirmation re-enabled.")
                 gsm_state.replay_buffer_stopped_timestamp = None
-            
 
     def stop(self):
         self.running = False
@@ -1273,6 +1277,51 @@ def _resolve_obs_launch_command(obs_path: str):
         return cmd, cwd
 
     return None, None
+
+
+def _remove_obs_startup_artifact(path: str, label: str) -> None:
+    if not os.path.exists(path):
+        return
+
+    try:
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
+        logger.debug(f"Deleted OBS startup {label}: {path}")
+    except Exception as e:
+        logger.error(f"Failed to delete OBS startup {label}: {e}")
+
+
+def _cleanup_obs_startup_artifacts(app_directory: str = None) -> None:
+    base_config_dir = os.path.join(
+        app_directory or configuration.get_app_directory(),
+        "obs-studio",
+        "config",
+        "obs-studio",
+    )
+    _remove_obs_startup_artifact(os.path.join(base_config_dir, ".sentinel"), "sentinel")
+    _remove_obs_startup_artifact(
+        os.path.join(
+            base_config_dir,
+            "plugin_config",
+            "advanced-scene-switcher",
+            ".running",
+        ),
+        "advanced-scene-switcher running file",
+    )
+
+
+def _build_obs_launch_command(base_cmd: list[str], config_override=None) -> list[str]:
+    cfg = config_override or get_config()
+    obs_cfg = cfg.obs
+
+    obs_cmd = [*base_cmd, "--disable-shutdown-check", "--portable"]
+    if not getattr(obs_cfg, "allow_automatic_updates", False):
+        obs_cmd.append("--disable-updater")
+    if not getattr(obs_cfg, "disable_recording", False):
+        obs_cmd.append("--startreplaybuffer")
+    return obs_cmd
 
 
 def is_process_running(pid):
@@ -1316,26 +1365,8 @@ def start_obs(force_restart=False):
         print(f"OBS not found at {obs_path}. Please install OBS.")
         return None
     try:
-        sentinel_folder = os.path.join(
-            configuration.get_app_directory(),
-            "obs-studio",
-            "config",
-            "obs-studio",
-            ".sentinel",
-        )
-        if os.path.exists(sentinel_folder):
-            try:
-                if os.path.isdir(sentinel_folder):
-                    shutil.rmtree(sentinel_folder)
-                else:
-                    os.remove(sentinel_folder)
-                logger.debug(f"Deleted sentinel folder: {sentinel_folder}")
-            except Exception as e:
-                logger.error(f"Failed to delete sentinel folder: {e}")
-
-        obs_cmd = [*base_cmd, "--disable-shutdown-check", "--portable"]
-        if not get_config().obs.disable_recording:
-            obs_cmd.append("--startreplaybuffer")
+        _cleanup_obs_startup_artifacts()
+        obs_cmd = _build_obs_launch_command(base_cmd)
         obs_process = subprocess.Popen(obs_cmd, cwd=base_cwd)
         obs_process_pid = obs_process.pid
         with open(OBS_PID_FILE, "w") as f:
@@ -1374,7 +1405,10 @@ def is_obs_websocket_reachable(host: Optional[str] = None, port: Optional[int] =
 
 
 async def wait_for_obs_websocket_ready(
-    timeout: Optional[float] = None, interval: float = 2.0, host: Optional[str] = None, port: Optional[int] = None
+    timeout: Optional[float] = None,
+    interval: float = 2.0,
+    host: Optional[str] = None,
+    port: Optional[int] = None,
 ):
     start = time.time()
     while True:
@@ -1836,9 +1870,7 @@ def _get_effective_recording_fps(config_override=None) -> int:
 
     try:
         if cfg.screenshot.animated and cfg.screenshot.animated_settings:
-            animated_fps = _clamp_obs_recording_fps(
-                getattr(cfg.screenshot.animated_settings, "fps", target_fps)
-            )
+            animated_fps = _clamp_obs_recording_fps(getattr(cfg.screenshot.animated_settings, "fps", target_fps))
             target_fps = max(target_fps, animated_fps)
     except Exception:
         pass
@@ -2078,9 +2110,7 @@ async def register_scene_change_callback(callback):
 
 @with_obs_client(default=None, error_msg="Error getting screenshot")
 def get_screenshot(client: obs.ReqClient, compression=-1):
-    screenshot = os.path.join(
-        configuration.get_temporary_directory(), make_unique_file_name("screenshot.png")
-    )
+    screenshot = os.path.join(configuration.get_temporary_directory(), make_unique_file_name("screenshot.png"))
     update_current_game()
     if not configuration.current_game:
         logger.error("No active game scene found.")
@@ -2120,7 +2150,11 @@ def get_screenshot_base64(client, compression=75, width=None, height=None):
         return None
 
     response = client.get_source_screenshot(
-        name=current_source_name, img_format="png", quality=compression, width=width, height=height
+        name=current_source_name,
+        img_format="png",
+        quality=compression,
+        width=width,
+        height=height,
     )
 
     if response and response.image_data:
@@ -2129,9 +2163,7 @@ def get_screenshot_base64(client, compression=75, width=None, height=None):
     return None
 
 
-def get_screenshot_PIL_from_source(
-    source_name, compression=75, img_format="png", width=None, height=None, retry=3
-):
+def get_screenshot_PIL_from_source(source_name, compression=75, img_format="png", width=None, height=None, retry=3):
     """
     Get a PIL Image screenshot from a specific OBS source.
     """
@@ -2167,9 +2199,7 @@ def get_screenshot_PIL_from_source(
                 return img
         except AttributeError:
             if attempt >= retry - 1:
-                logger.error(
-                    f"Error getting screenshot from source '{source_name}': Invalid response"
-                )
+                logger.error(f"Error getting screenshot from source '{source_name}': Invalid response")
                 return None
             time.sleep(0.1)
         except Exception:
@@ -2265,9 +2295,7 @@ def get_screenshot_PIL(
                         return src
             return None
 
-        img = get_screenshot_PIL_from_source(
-            source_name, compression, img_format, width, height, retry
-        )
+        img = get_screenshot_PIL_from_source(source_name, compression, img_format, width, height, retry)
         img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
         return img
 
@@ -2307,14 +2335,14 @@ def get_screenshot_PIL(
         if not found_source_name:
             continue
 
-        img = get_screenshot_PIL_from_source(
-            found_source_name, compression, img_format, width, height, retry
-        )
+        img = get_screenshot_PIL_from_source(found_source_name, compression, img_format, width, height, retry)
 
         if not img:
             continue
 
         img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
+        if _should_skip_image_validation(found_source_name, current_scene_name):
+            return source if return_source_dict else img
 
         try:
             if not is_image_empty(img):
@@ -2327,10 +2355,24 @@ def get_screenshot_PIL(
 
 
 def update_current_game():
+    previous_game = gsm_state.current_game
     if obs_service and obs_service.state.current_scene:
         gsm_state.current_game = obs_service.state.current_scene
-        return
-    gsm_state.current_game = get_current_scene()
+    else:
+        gsm_state.current_game = get_current_scene()
+
+    if gsm_state.current_game and gsm_state.current_game != previous_game:
+        try:
+            from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
+                queue_ensure_scene_dictionary,
+            )
+
+            queue_ensure_scene_dictionary(
+                gsm_state.current_game,
+                reason="scene-change",
+            )
+        except Exception as exc:
+            logger.debug(f"Failed to queue Sudachi user dictionary update for '{gsm_state.current_game}': {exc}")
 
 
 def get_current_game(sanitize=False, update=True):
@@ -2405,10 +2447,7 @@ def set_fit_to_screen_for_scene_items(client, scene_name: str):
                     return any(abs(ratio - std) < 0.02 for std in standard_ratios)
 
                 if aspect_ratio_different:
-                    if not (
-                        is_standard_ratio(source_aspect_ratio)
-                        and is_standard_ratio(canvas_aspect_ratio)
-                    ):
+                    if not (is_standard_ratio(source_aspect_ratio) and is_standard_ratio(canvas_aspect_ratio)):
                         aspect_ratio_different = False
 
             fit_to_screen_transform = {
@@ -2440,7 +2479,9 @@ def set_fit_to_screen_for_scene_items(client, scene_name: str):
 
             try:
                 client.set_scene_item_transform(
-                    scene_name=scene_name, item_id=item_id, transform=fit_to_screen_transform
+                    scene_name=scene_name,
+                    item_id=item_id,
+                    transform=fit_to_screen_transform,
                 )
             except obs.error.OBSSDKError as e:
                 logger.error(f"Failed to set transform for source '{source_name}': {e}")
@@ -2546,7 +2587,12 @@ def get_input_audio_tracks(client, input_name: str = None, input_uuid: str = Non
 
 
 @with_obs_client(default=False, error_msg="Error calling SetInputAudioTracks")
-def set_input_audio_tracks(client, input_name: str = None, input_uuid: str = None, input_audio_tracks: dict = None):
+def set_input_audio_tracks(
+    client,
+    input_name: str = None,
+    input_uuid: str = None,
+    input_audio_tracks: dict = None,
+):
     """Set the enable state of audio tracks for a given input."""
     if input_audio_tracks is None:
         logger.error("No `input_audio_tracks` provided to set_input_audio_tracks.")
@@ -2569,7 +2615,12 @@ def set_input_audio_tracks(client, input_name: str = None, input_uuid: str = Non
 @with_obs_client(default=False, error_msg="Error disabling desktop audio")
 def disable_desktop_audio(client):
     """Disable all audio tracks for the desktop audio input."""
-    candidate_names = ["Desktop Audio", "Desktop Audio 2", "Desktop Audio Device", "Desktop"]
+    candidate_names = [
+        "Desktop Audio",
+        "Desktop Audio 2",
+        "Desktop Audio Device",
+        "Desktop",
+    ]
 
     try:
         inputs_resp = client.get_input_list()
@@ -2581,9 +2632,11 @@ def disable_desktop_audio(client):
     for inp in inputs:
         name = inp.get("inputName") or inp.get("name")
         kind = inp.get("inputKind") or inp.get("kind")
-        if name in candidate_names or (
-            isinstance(kind, str) and "audio" in kind.lower()
-        ) or (name and "desktop" in name.lower()):
+        if (
+            name in candidate_names
+            or (isinstance(kind, str) and "audio" in kind.lower())
+            or (name and "desktop" in name.lower())
+        ):
             desktop_input = inp
             break
 
@@ -2611,9 +2664,7 @@ def disable_desktop_audio(client):
     else:
         tracks_payload = {k: False for k in current_tracks.keys()}
 
-    success = set_input_audio_tracks(
-        input_name=input_name, input_uuid=input_uuid, input_audio_tracks=tracks_payload
-    )
+    success = set_input_audio_tracks(input_name=input_name, input_uuid=input_uuid, input_audio_tracks=tracks_payload)
     if success:
         logger.info(f"Disabled desktop audio for input '{input_name}'")
         return True
@@ -2647,7 +2698,10 @@ def main():
         print(f"Could not save replay buffer: {e}")
     current_scene = get_current_scene()
     print("Testing `get_current_scene`:", current_scene)
-    print("Testing `get_source_from_scene` with current scene:", get_source_from_scene(current_scene))
+    print(
+        "Testing `get_source_from_scene` with current scene:",
+        get_source_from_scene(current_scene),
+    )
     print("Testing `get_record_directory`:", get_record_directory())
     print("Testing `get_obs_scenes`:", get_obs_scenes())
     print("Testing `get_screenshot`:", get_screenshot())
@@ -2691,7 +2745,7 @@ if __name__ == "__main__":
 
     # output = get_replay_buffer_output()
     # print(output)
-    
+
     # Test speed of png 75 none none vs jpeg 90 none none vs jpeg 90 1280x720
     # from GameSentenceMiner.owocr.owocr.ocr import OneOCR
     # oneocr = OneOCR()

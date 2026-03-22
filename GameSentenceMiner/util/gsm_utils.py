@@ -11,12 +11,17 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from rapidfuzz import process
 
-from GameSentenceMiner.util.config.configuration import gsm_state, logger, get_config, get_app_directory, \
-    get_temporary_directory
+from GameSentenceMiner.util.config.configuration import (
+    gsm_state,
+    logger,
+    get_config,
+    get_app_directory,
+    get_temporary_directory,
+)
 
 SCRIPTS_DIR = r"E:\Japanese Stuff\agent-v0.1.4-win32-x64\data\scripts"
+
 
 def time_it(func, *args, **kwargs):
     start_time = time.perf_counter()
@@ -26,44 +31,50 @@ def time_it(func, *args, **kwargs):
     logger.info(f"Function executed in {elapsed_time:.4f} seconds.")
     return result
 
-def run_new_thread(func):
-    thread = threading.Thread(target=func, daemon=True)
+
+def run_new_thread(func, *args, **kwargs):
+    thread = threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True)
     thread.start()
     return thread
 
+
 def get_unique_temp_file_for_game(game_title, suffix):
     sanitized_title = sanitize_filename(game_title)
-    current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
+    current_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S-%f")[:-3]
     temp_dir = get_temporary_directory()
     os.makedirs(temp_dir, exist_ok=True)
     return str(Path(temp_dir) / f"{sanitized_title}_{current_time}.{suffix}")
 
+
 def make_unique_temp_file(path):
     path = Path(path)
-    current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
+    current_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S-%f")[:-3]
     temp_dir = get_temporary_directory()
     os.makedirs(temp_dir, exist_ok=True)
     return str(Path(temp_dir) / f"{path.stem}_{current_time}{path.suffix}")
 
+
 def make_unique_file_name(path):
     path = Path(path)
-    current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
+    current_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S-%f")[:-3]
     return str(path.parent / f"{path.stem}_{current_time}{path.suffix}")
+
 
 def make_unique(text):
     """
     Generate a unique string by appending a timestamp to the input text.
     This is useful for creating unique filenames or identifiers.
     """
-    current_time = datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')[:-3]
+    current_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S-%f")[:-3]
     return f"{text}_{current_time}"
 
+
 def sanitize_filename(filename):
-        return re.sub(r'[ <>:"/\\|?*\x00-\x1F]', '', filename)
+    return re.sub(r'[ <>:"/\\|?*\x00-\x1F]', "", filename)
 
 
 def get_random_digit_string():
-    return ''.join(random.choice(string.digits) for i in range(9))
+    return "".join(random.choice(string.digits) for i in range(9))
 
 
 def timedelta_to_ffmpeg_friendly_format(td_obj):
@@ -86,7 +97,11 @@ def remove_html_and_cloze_tags(text):
     2. Removes Anki cloze tags of the form {{c1::text::hint}} or {{c1::text}}
     3. Removes Migaku tags of the form [text]
     """
-    text = re.sub(r'<.*?>', '', re.sub(r'{{c\d+::(.*?)(::.*?)?}}', r'\1', re.sub(r'\[.*?\]', '', text)))
+    text = re.sub(
+        r"<.*?>",
+        "",
+        re.sub(r"{{c\d+::(.*?)(::.*?)?}}", r"\1", re.sub(r"\[.*?\]", "", text)),
+    )
     return text
 
 
@@ -97,7 +112,7 @@ def combine_dialogue(dialogue_lines, new_lines=None):
     if new_lines is None:
         new_lines = []
 
-    if len(dialogue_lines) == 1 and '「' not in dialogue_lines[0]:
+    if len(dialogue_lines) == 1 and "「" not in dialogue_lines[0]:
         new_lines.append(dialogue_lines[0])
         return new_lines
 
@@ -111,12 +126,15 @@ def combine_dialogue(dialogue_lines, new_lines=None):
             new_lines.extend(combine_dialogue(dialogue_lines[i:]))
             break
         else:
-            text +=  (get_config().advanced.multi_line_line_break if i > 0 else "") + line.split("「")[1].rstrip("」") + ""
+            text += (
+                (get_config().advanced.multi_line_line_break if i > 0 else "") + line.split("「")[1].rstrip("」") + ""
+            )
     else:
         text = text + "」"
         new_lines.append(text)
 
     return new_lines
+
 
 def wait_for_stable_file(file_path, timeout=10, check_interval=0.1):
     elapsed_time = 0
@@ -127,7 +145,7 @@ def wait_for_stable_file(file_path, timeout=10, check_interval=0.1):
             current_size = os.path.getsize(file_path)
             if current_size == last_size:
                 try:
-                    with open(file_path, 'rb'):
+                    with open(file_path, "rb"):
                         return True
                 except IOError:
                     pass
@@ -144,6 +162,7 @@ def wait_for_stable_file(file_path, timeout=10, check_interval=0.1):
     logger.warning(f"File '{file_path}' did not stabilize or become accessible within {timeout} seconds. Continuing...")
     return False
 
+
 def isascii(s: str):
     try:
         return s.isascii()
@@ -154,13 +173,14 @@ def isascii(s: str):
         except:
             return False
 
+
 def do_text_replacements(text, replacements_json):
     if not text:
         return text
 
     replacements = {}
     if os.path.exists(replacements_json):
-        with open(replacements_json, 'r', encoding='utf-8') as f:
+        with open(replacements_json, "r", encoding="utf-8") as f:
             replacements.update(json.load(f))
 
     if replacements.get("enabled", False):
@@ -186,7 +206,7 @@ def do_text_replacements(text, replacements_json):
 
 
 def open_audio_in_external(fileabspath, shell=False):
-    logger.info(f"Opening audio in external program...")
+    logger.info("Opening audio in external program...")
     try:
         if shell:
             subprocess.Popen(f' "{get_config().audio.external_tool}" "{fileabspath}" ', shell=True)
@@ -195,6 +215,7 @@ def open_audio_in_external(fileabspath, shell=False):
     except Exception as e:
         logger.error(f"Failed to open audio in external program: {e}")
         return False
+
 
 def is_connected():
     try:
@@ -205,8 +226,8 @@ def is_connected():
         return False
 
 
-TEXT_REPLACEMENTS_FILE = os.path.join(get_app_directory(), 'config', 'text_replacements.json')
-OCR_REPLACEMENTS_FILE = os.path.join(get_app_directory(), 'config', 'ocr_replacements.json')
+TEXT_REPLACEMENTS_FILE = os.path.join(get_app_directory(), "config", "text_replacements.json")
+OCR_REPLACEMENTS_FILE = os.path.join(get_app_directory(), "config", "ocr_replacements.json")
 os.makedirs(os.path.dirname(TEXT_REPLACEMENTS_FILE), exist_ok=True)
 
 
@@ -214,10 +235,11 @@ def add_srt_line(line_time, new_line):
     global srt_index
     if get_config().features.generate_longplay and gsm_state.recording_started_time and new_line.prev:
         # logger.info(f"Adding SRT line {new_line.prev.text}... for longplay")
-        with open(gsm_state.current_srt, 'a', encoding='utf-8') as srt_file:
+        with open(gsm_state.current_srt, "a", encoding="utf-8") as srt_file:
             # Calculate start and end times for the previous line
             prev_start_time = new_line.prev.time - gsm_state.recording_started_time
             prev_end_time = (line_time if line_time else datetime.now()) - gsm_state.recording_started_time
+
             # Format times as SRT timestamps (HH:MM:SS,mmm)
             def format_srt_time(td, offset=0):
                 total_seconds = int(td.total_seconds()) + offset
@@ -226,12 +248,13 @@ def add_srt_line(line_time, new_line):
                 seconds = total_seconds % 60
                 milliseconds = int(td.microseconds / 1000)
                 return f"{hours:02}:{minutes:02}:{seconds:02},{milliseconds:03}"
-            
+
             srt_file.write(f"{gsm_state.srt_index}\n")
             srt_file.write(f"{format_srt_time(prev_start_time)} --> {format_srt_time(prev_end_time, offset=-1)}\n")
             srt_file.write(f"{new_line.prev.text}\n\n")
             gsm_state.srt_index += 1
-            
+
+
 def preserve_html_tags(original_text, new_text):
     """
     Re-apply tags from original_text onto new_text.
@@ -598,9 +621,7 @@ def preserve_html_tags(original_text, new_text):
         return new_text
 
     if _normalize(plain_original) != _normalize(new_text):
-        logger.warning(
-            "HTML preservation: stripped original text does not match new text, applying best-effort remap"
-        )
+        logger.warning("HTML preservation: stripped original text does not match new text, applying best-effort remap")
 
     from difflib import SequenceMatcher
 
@@ -615,11 +636,7 @@ def preserve_html_tags(original_text, new_text):
         original_span_len = span["end"] - span["start"]
         span_text = plain_original[span["start"] : span["end"]]
         mapped_segment = new_text[mapped_start:mapped_end] if mapped_end > mapped_start else ""
-        confidence = (
-            SequenceMatcher(None, span_text, mapped_segment, autojunk=False).ratio()
-            if mapped_segment
-            else 0.0
-        )
+        confidence = SequenceMatcher(None, span_text, mapped_segment, autojunk=False).ratio() if mapped_segment else 0.0
 
         if original_span_len > 0 and confidence < 0.6:
             occurrence = _find_best_occurrence(new_text, span_text, mapped_start)
@@ -719,6 +736,7 @@ class SleepManager:
         # logger.debug(f"SleepManager '{self.name}' async sleeping for {self.current_delay:.2f}s (Max: {max_delay:.2f}s)")
         await asyncio.sleep(self.current_delay)
         self.current_delay = min(self.current_delay * self.backoff_factor, max_delay)
+
 
 # if not os.path.exists(OCR_REPLACEMENTS_FILE):
 #     url = "https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/refs/heads/main/electron-src/assets/ocr_replacements.json"

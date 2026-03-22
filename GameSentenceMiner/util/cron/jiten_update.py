@@ -55,15 +55,11 @@ def fetch_jiten_data_for_game(game: GamesTable) -> Optional[Dict]:
         }
     """
     if not game.deck_id:
-        logger.debug(
-            f"Game {game.id} ({game.title_original}) has no deck_id, skipping jiten fetch"
-        )
+        logger.debug(f"Game {game.id} ({game.title_original}) has no deck_id, skipping jiten fetch")
         return None
 
     try:
-        logger.debug(
-            f"Fetching jiten.moe data for game: {game.title_original} (deck_id: {game.deck_id})"
-        )
+        logger.debug(f"Fetching jiten.moe data for game: {game.title_original} (deck_id: {game.deck_id})")
 
         # Use direct deck detail API endpoint
         data = JitenApiClient.get_deck_detail(game.deck_id)
@@ -80,9 +76,7 @@ def fetch_jiten_data_for_game(game: GamesTable) -> Optional[Dict]:
 
         # Normalize the deck data
         jiten_data = JitenApiClient.normalize_deck_data(main_deck)
-        logger.debug(
-            f"Successfully fetched jiten.moe data for: {jiten_data['title_original']}"
-        )
+        logger.debug(f"Successfully fetched jiten.moe data for: {jiten_data['title_original']}")
         return jiten_data
 
     except Exception as e:
@@ -93,10 +87,10 @@ def fetch_jiten_data_for_game(game: GamesTable) -> Optional[Dict]:
 def update_character_data_from_vndb_anilist(game: GamesTable) -> Dict:
     """
     Fetch and update character data from VNDB/AniList for a game based on its vndb_id or anilist_id.
-    
+
     Args:
         game: GamesTable object to update
-        
+
     Returns:
         Dictionary with update summary:
         {
@@ -107,21 +101,33 @@ def update_character_data_from_vndb_anilist(game: GamesTable) -> Dict:
         }
     """
     import json
-    
+
     try:
         vndb_updated = False
         anilist_updated = False
-        
+
         # Check if it's a Visual Novel and has VNDB ID
         if game.vndb_id:
             try:
                 vndb_id = game.vndb_id
                 logger.info(f"Fetching VNDB character data for VN ID: {vndb_id}")
                 vndb_data = VNDBApiClient.process_vn_characters(vndb_id, max_spoiler=2, preserve_spoiler_metadata=True)
-                
+
                 if vndb_data:
                     game.vndb_character_data = json.dumps(vndb_data, ensure_ascii=False)
                     game.save()
+                    try:
+                        from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
+                            queue_ensure_game_dictionary,
+                        )
+
+                        queue_ensure_game_dictionary(
+                            game,
+                            reason="jiten-update:vndb-character-data",
+                            force=True,
+                        )
+                    except Exception as queue_error:
+                        logger.debug(f"Failed to queue Sudachi user dictionary export after VNDB update: {queue_error}")
                     logger.info(f"Updated VNDB data for {game.title_original}")
                     vndb_updated = True
                 else:
@@ -129,25 +135,42 @@ def update_character_data_from_vndb_anilist(game: GamesTable) -> Dict:
                     game.save()
             except Exception as e:
                 logger.error(f"Failed to fetch VNDB data for game {game.id}: {e}")
-        
+
         # Check if it has AniList ID (Anime or Manga) and doesn't have VNDB
         if game.anilist_id and not game.vndb_id:
             try:
                 media_id = game.anilist_id
                 logger.info(f"Fetching AniList character data for ID: {media_id}")
-                
+
                 # Try to determine media type from game type, or default to ANIME
                 media_type = "ANIME"
                 if game.type == "Manga":
                     media_type = "MANGA"
-                
+
                 anilist_data = AniListApiClient.process_media_characters(
-                    int(media_id), media_type, max_spoiler=2, preserve_spoiler_metadata=True
+                    int(media_id),
+                    media_type,
+                    max_spoiler=2,
+                    preserve_spoiler_metadata=True,
                 )
-                
+
                 if anilist_data:
                     game.vndb_character_data = json.dumps(anilist_data, ensure_ascii=False)
                     game.save()
+                    try:
+                        from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
+                            queue_ensure_game_dictionary,
+                        )
+
+                        queue_ensure_game_dictionary(
+                            game,
+                            reason="jiten-update:anilist-character-data",
+                            force=True,
+                        )
+                    except Exception as queue_error:
+                        logger.debug(
+                            f"Failed to queue Sudachi user dictionary export after AniList update: {queue_error}"
+                        )
                     logger.info(f"Updated AniList data for {game.title_original}")
                     anilist_updated = True
                 else:
@@ -155,46 +178,46 @@ def update_character_data_from_vndb_anilist(game: GamesTable) -> Dict:
                     game.save()
             except Exception as e:
                 logger.exception(f"Failed to fetch AniList data for game {game.id}: {e}")
-        
+
         return {
             "success": True,
             "vndb_updated": vndb_updated,
             "anilist_updated": anilist_updated,
-            "error": None
+            "error": None,
         }
-        
+
     except Exception as e:
         logger.exception(f"Error updating character data for game {game.id}: {e}")
         return {
             "success": False,
             "vndb_updated": False,
             "anilist_updated": False,
-            "error": str(e)
+            "error": str(e),
         }
 
 
 def fetch_cover_image_from_vndb_anilist(game: GamesTable, manual_overrides: List[str]) -> Optional[str]:
     """
     Fetch cover image from VNDB or AniList for a game.
-    
+
     Args:
         game: GamesTable object
         manual_overrides: List of manually overridden fields
-        
+
     Returns:
         Base64-encoded image data, or None if not available or manually overridden
     """
     if "image" in manual_overrides:
         logger.debug(f"Image is manually overridden for game {game.id}")
         return None
-    
+
     # Skip if game already has an image
     if game.image:
         logger.debug(f"Game {game.id} already has an image, skipping VNDB/AniList fetch")
         return None
-    
+
     image_data = None
-    
+
     # Try VNDB first
     if game.vndb_id:
         try:
@@ -205,14 +228,14 @@ def fetch_cover_image_from_vndb_anilist(game: GamesTable, manual_overrides: List
                 return image_data
         except Exception as e:
             logger.error(f"Failed to fetch VNDB cover image for game {game.id}: {e}")
-    
+
     # Try AniList if no VNDB image
     if game.anilist_id:
         try:
             media_type = "ANIME"
             if game.type == "Manga":
                 media_type = "MANGA"
-            
+
             logger.debug(f"Fetching cover image from AniList for {game.anilist_id}")
             image_data = AniListApiClient.download_cover_image(int(game.anilist_id), media_type)
             if image_data:
@@ -220,7 +243,7 @@ def fetch_cover_image_from_vndb_anilist(game: GamesTable, manual_overrides: List
                 return image_data
         except Exception as e:
             logger.error(f"Failed to fetch AniList cover image for game {game.id}: {e}")
-    
+
     return None
 
 
@@ -228,10 +251,10 @@ def update_game_from_vndb_or_anilist(game: GamesTable) -> Dict:
     """
     Update a game that has only vndb_id or anilist_id (no deck_id).
     Fetches metadata and cover image from the respective source.
-    
+
     Args:
         game: GamesTable object to update
-        
+
     Returns:
         Dictionary with update summary
     """
@@ -239,54 +262,54 @@ def update_game_from_vndb_or_anilist(game: GamesTable) -> Dict:
         update_fields = {}
         skipped_fields = []
         sources_used = []
-        
+
         # Ensure manual_overrides is always a list
         manual_overrides = game.manual_overrides if game.manual_overrides is not None else []
         if not isinstance(manual_overrides, list):
             manual_overrides = []
-        
+
         # === VNDB DATA ===
         if game.vndb_id:
             try:
                 vndb_metadata = VNDBApiClient.fetch_vn_metadata(game.vndb_id)
                 if vndb_metadata:
                     sources_used.append("vndb")
-                    
+
                     # Update fields from VNDB if not manually overridden
                     if "title_original" not in manual_overrides and vndb_metadata.get("title_original"):
                         update_fields["title_original"] = vndb_metadata["title_original"]
                     elif "title_original" in manual_overrides:
                         skipped_fields.append("title_original")
-                    
+
                     if "title_romaji" not in manual_overrides and vndb_metadata.get("title_romaji"):
                         update_fields["title_romaji"] = vndb_metadata["title_romaji"]
                     elif "title_romaji" in manual_overrides:
                         skipped_fields.append("title_romaji")
-                    
+
                     if "description" not in manual_overrides and vndb_metadata.get("description"):
                         update_fields["description"] = vndb_metadata["description"]
                     elif "description" in manual_overrides:
                         skipped_fields.append("description")
-                    
+
                     if "release_date" not in manual_overrides and vndb_metadata.get("release_date"):
                         update_fields["release_date"] = vndb_metadata["release_date"]
                     elif "release_date" in manual_overrides:
                         skipped_fields.append("release_date")
-                    
+
                     if "type" not in manual_overrides:
                         update_fields["game_type"] = "Visual Novel"
-                    
+
                     # Add tags and genres from VNDB
                     if "tags" not in manual_overrides and vndb_metadata.get("tags"):
                         update_fields["tags"] = vndb_metadata["tags"]
                     elif "tags" in manual_overrides:
                         skipped_fields.append("tags")
-                    
+
                     if "genres" not in manual_overrides and vndb_metadata.get("genres"):
                         update_fields["genres"] = vndb_metadata["genres"]
                     elif "genres" in manual_overrides:
                         skipped_fields.append("genres")
-                    
+
                     # Fetch cover image
                     if "image" not in manual_overrides:
                         image_data = VNDBApiClient.download_cover_image(game.vndb_id)
@@ -295,61 +318,61 @@ def update_game_from_vndb_or_anilist(game: GamesTable) -> Dict:
                             logger.debug(f"Downloaded VNDB cover image for game {game.id}")
                     elif "image" in manual_overrides:
                         skipped_fields.append("image")
-                        
+
             except Exception as e:
                 logger.error(f"Failed to fetch VNDB data for game {game.id}: {e}")
-        
+
         # === ANILIST DATA ===
         if game.anilist_id and not game.vndb_id:  # Only use AniList if no VNDB
             try:
                 media_type = "ANIME"
                 if game.type == "Manga":
                     media_type = "MANGA"
-                
+
                 anilist_metadata = AniListApiClient.fetch_media_metadata(int(game.anilist_id), media_type)
                 if anilist_metadata:
                     sources_used.append("anilist")
-                    
+
                     # Update fields from AniList if not manually overridden
                     if "title_original" not in manual_overrides and anilist_metadata.get("title_original"):
                         update_fields["title_original"] = anilist_metadata["title_original"]
                     elif "title_original" in manual_overrides:
                         skipped_fields.append("title_original")
-                    
+
                     if "title_romaji" not in manual_overrides and anilist_metadata.get("title_romaji"):
                         update_fields["title_romaji"] = anilist_metadata["title_romaji"]
                     elif "title_romaji" in manual_overrides:
                         skipped_fields.append("title_romaji")
-                    
+
                     if "title_english" not in manual_overrides and anilist_metadata.get("title_english"):
                         update_fields["title_english"] = anilist_metadata["title_english"]
                     elif "title_english" in manual_overrides:
                         skipped_fields.append("title_english")
-                    
+
                     if "description" not in manual_overrides and anilist_metadata.get("description"):
                         update_fields["description"] = anilist_metadata["description"]
                     elif "description" in manual_overrides:
                         skipped_fields.append("description")
-                    
+
                     if "release_date" not in manual_overrides and anilist_metadata.get("release_date"):
                         update_fields["release_date"] = anilist_metadata["release_date"]
                     elif "release_date" in manual_overrides:
                         skipped_fields.append("release_date")
-                    
+
                     if "type" not in manual_overrides and anilist_metadata.get("media_type"):
                         update_fields["game_type"] = anilist_metadata["media_type"]
-                    
+
                     # Add tags and genres from AniList
                     if "tags" not in manual_overrides and anilist_metadata.get("tags"):
                         update_fields["tags"] = anilist_metadata["tags"]
                     elif "tags" in manual_overrides:
                         skipped_fields.append("tags")
-                    
+
                     if "genres" not in manual_overrides and anilist_metadata.get("genres"):
                         update_fields["genres"] = anilist_metadata["genres"]
                     elif "genres" in manual_overrides:
                         skipped_fields.append("genres")
-                    
+
                     # Fetch cover image
                     if "image" not in manual_overrides:
                         image_data = AniListApiClient.download_cover_image(int(game.anilist_id), media_type)
@@ -358,23 +381,23 @@ def update_game_from_vndb_or_anilist(game: GamesTable) -> Dict:
                             logger.debug(f"Downloaded AniList cover image for game {game.id}")
                     elif "image" in manual_overrides:
                         skipped_fields.append("image")
-                        
+
             except Exception as e:
                 logger.error(f"Failed to fetch AniList data for game {game.id}: {e}")
-        
+
         # Apply updates
         if update_fields:
             game.update_all_fields_from_jiten(**update_fields)
             logger.debug(f"Updated game {game.id} from {sources_used}: {len(update_fields)} fields")
-        
+
         return {
             "success": True,
             "sources_used": sources_used,
             "updated_fields": list(update_fields.keys()),
             "skipped_fields": skipped_fields,
-            "error": None
+            "error": None,
         }
-        
+
     except Exception as e:
         logger.exception(f"Error updating game {game.id} from VNDB/AniList: {e}")
         return {
@@ -382,7 +405,7 @@ def update_game_from_vndb_or_anilist(game: GamesTable) -> Dict:
             "sources_used": [],
             "updated_fields": [],
             "skipped_fields": [],
-            "error": str(e)
+            "error": str(e),
         }
 
 
@@ -409,18 +432,12 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
         skipped_fields = []
 
         # Ensure manual_overrides is always a list
-        manual_overrides = (
-            game.manual_overrides if game.manual_overrides is not None else []
-        )
+        manual_overrides = game.manual_overrides if game.manual_overrides is not None else []
         if not isinstance(manual_overrides, list):
-            logger.warning(
-                f"⚠️ manual_overrides is not a list for game {game.id}: {type(manual_overrides)}"
-            )
+            logger.warning(f"⚠️ manual_overrides is not a list for game {game.id}: {type(manual_overrides)}")
             manual_overrides = []
 
-        logger.debug(
-            f"Checking fields for game {game.id} (manual overrides: {manual_overrides})"
-        )
+        logger.debug(f"Checking fields for game {game.id} (manual overrides: {manual_overrides})")
 
         # Check each field against manual overrides
         if "deck_id" not in manual_overrides:
@@ -428,9 +445,7 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
         else:
             skipped_fields.append("deck_id")
 
-        if "title_original" not in manual_overrides and jiten_data.get(
-            "title_original"
-        ):
+        if "title_original" not in manual_overrides and jiten_data.get("title_original"):
             update_fields["title_original"] = jiten_data["title_original"]
         elif "title_original" in manual_overrides:
             skipped_fields.append("title_original")
@@ -448,9 +463,7 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
         if "type" not in manual_overrides and jiten_data.get("media_type"):
             # Map media type to string
             media_type_map = {1: "Anime", 7: "Visual Novel", 2: "Manga"}
-            update_fields["game_type"] = media_type_map.get(
-                jiten_data["media_type"], "Unknown"
-            )
+            update_fields["game_type"] = media_type_map.get(jiten_data["media_type"], "Unknown")
         elif "type" in manual_overrides:
             skipped_fields.append("type")
 
@@ -459,18 +472,12 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
         elif "description" in manual_overrides:
             skipped_fields.append("description")
 
-        if (
-            "difficulty" not in manual_overrides
-            and jiten_data.get("difficulty") is not None
-        ):
+        if "difficulty" not in manual_overrides and jiten_data.get("difficulty") is not None:
             update_fields["difficulty"] = jiten_data["difficulty"]
         elif "difficulty" in manual_overrides:
             skipped_fields.append("difficulty")
 
-        if (
-            "character_count" not in manual_overrides
-            and jiten_data.get("character_count") is not None
-        ):
+        if "character_count" not in manual_overrides and jiten_data.get("character_count") is not None:
             update_fields["character_count"] = jiten_data["character_count"]
         elif "character_count" in manual_overrides:
             skipped_fields.append("character_count")
@@ -509,10 +516,8 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
         # Update the game using the jiten update method (doesn't mark as manual)
         if update_fields:
             game.update_all_fields_from_jiten(**update_fields)
-            logger.debug(
-                f"Updated game {game.id} ({game.title_original}): {len(update_fields)} fields"
-            )
-            
+            logger.debug(f"Updated game {game.id} ({game.title_original}): {len(update_fields)} fields")
+
             return {
                 "success": True,
                 "updated_fields": list(update_fields.keys()),
@@ -520,9 +525,7 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
                 "error": None,
             }
         else:
-            logger.debug(
-                f"No fields updated for game {game.id} - all fields are manually overridden"
-            )
+            logger.debug(f"No fields updated for game {game.id} - all fields are manually overridden")
             return {
                 "success": True,
                 "updated_fields": [],
@@ -531,9 +534,7 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
             }
 
     except Exception as e:
-        logger.error(
-            f"💥 Error updating game {game.id} from jiten data: {e}", exc_info=True
-        )
+        logger.error(f"💥 Error updating game {game.id} from jiten data: {e}", exc_info=True)
         return {
             "success": False,
             "updated_fields": [],
@@ -579,11 +580,11 @@ def update_all_jiten_games() -> Dict:
     jiten_games = [game for game in all_games if game.deck_id]
     vndb_only_games = [game for game in all_games if game.vndb_id and not game.deck_id]
     anilist_only_games = [game for game in all_games if game.anilist_id and not game.deck_id and not game.vndb_id]
-    
+
     jiten_count = len(jiten_games)
     vndb_only_count = len(vndb_only_games)
     anilist_only_count = len(anilist_only_games)
-    
+
     # Games with any source
     linked_games_set = set()
     for game in all_games:
@@ -606,9 +607,7 @@ def update_all_jiten_games() -> Dict:
     # === PHASE 1: Process Jiten-linked games ===
     logger.info(f"Phase 1: Processing {jiten_count} Jiten-linked games...")
     for i, game in enumerate(jiten_games, 1):
-        logger.debug(
-            f"Processing Jiten game {i}/{jiten_count}: {game.title_original} (deck_id: {game.deck_id})"
-        )
+        logger.debug(f"Processing Jiten game {i}/{jiten_count}: {game.title_original} (deck_id: {game.deck_id})")
 
         game_detail = {
             "game_id": game.id,
@@ -643,7 +642,7 @@ def update_all_jiten_games() -> Dict:
                 game_detail["success"] = True
                 game_detail["updated_fields"] = result["updated_fields"]
                 game_detail["skipped_fields"] = result["skipped_fields"]
-                
+
                 # If no image from Jiten, try VNDB/AniList
                 manual_overrides = game.manual_overrides if game.manual_overrides else []
                 if "image" not in result["updated_fields"] and "image" not in manual_overrides:
@@ -660,9 +659,7 @@ def update_all_jiten_games() -> Dict:
             details.append(game_detail)
 
         except Exception as e:
-            logger.error(
-                f"💥 Unexpected error processing game {game.id}: {e}", exc_info=True
-            )
+            logger.error(f"💥 Unexpected error processing game {game.id}: {e}", exc_info=True)
             failed_count += 1
             game_detail["error"] = str(e)
             details.append(game_detail)
@@ -674,9 +671,7 @@ def update_all_jiten_games() -> Dict:
     # === PHASE 2: Process VNDB-only games ===
     logger.info(f"Phase 2: Processing {vndb_only_count} VNDB-only games...")
     for i, game in enumerate(vndb_only_games, 1):
-        logger.debug(
-            f"Processing VNDB game {i}/{vndb_only_count}: {game.title_original} (vndb_id: {game.vndb_id})"
-        )
+        logger.debug(f"Processing VNDB game {i}/{vndb_only_count}: {game.title_original} (vndb_id: {game.vndb_id})")
 
         game_detail = {
             "game_id": game.id,
@@ -691,7 +686,7 @@ def update_all_jiten_games() -> Dict:
 
         try:
             result = update_game_from_vndb_or_anilist(game)
-            
+
             if result["success"]:
                 updated_count += 1
                 total_fields_updated += len(result["updated_fields"])
@@ -706,7 +701,8 @@ def update_all_jiten_games() -> Dict:
 
         except Exception as e:
             logger.error(
-                f"💥 Unexpected error processing VNDB game {game.id}: {e}", exc_info=True
+                f"💥 Unexpected error processing VNDB game {game.id}: {e}",
+                exc_info=True,
             )
             failed_count += 1
             game_detail["error"] = str(e)
@@ -736,7 +732,7 @@ def update_all_jiten_games() -> Dict:
 
         try:
             result = update_game_from_vndb_or_anilist(game)
-            
+
             if result["success"]:
                 updated_count += 1
                 total_fields_updated += len(result["updated_fields"])
@@ -751,7 +747,8 @@ def update_all_jiten_games() -> Dict:
 
         except Exception as e:
             logger.error(
-                f"💥 Unexpected error processing AniList game {game.id}: {e}", exc_info=True
+                f"💥 Unexpected error processing AniList game {game.id}: {e}",
+                exc_info=True,
             )
             failed_count += 1
             game_detail["error"] = str(e)
@@ -773,9 +770,10 @@ def update_all_jiten_games() -> Dict:
                 update_character_data_from_vndb_anilist(game)
             except Exception as e:
                 logger.error(
-                    f"💥 Error updating character data for game {game.id}: {e}", exc_info=True
+                    f"💥 Error updating character data for game {game.id}: {e}",
+                    exc_info=True,
                 )
-        
+
         # Add delay between API calls
         if i < total_games:
             time.sleep(0.5)
@@ -784,7 +782,7 @@ def update_all_jiten_games() -> Dict:
 
     # Log summary
     logger.info("Game data update completed")
-    logger.info(f"Summary:")
+    logger.info("Summary:")
     logger.info(f"   - Total games: {total_games}")
     logger.info(f"   - Jiten-linked: {jiten_count}")
     logger.info(f"   - VNDB-only: {vndb_only_count}")

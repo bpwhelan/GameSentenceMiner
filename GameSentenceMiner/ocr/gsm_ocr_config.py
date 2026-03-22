@@ -9,13 +9,17 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from GameSentenceMiner import obs
-from GameSentenceMiner.ocr.coordinate_math import scale_percentage_rectangle_to_even_pixels
+from GameSentenceMiner.ocr.coordinate_math import (
+    scale_percentage_rectangle_to_even_pixels,
+)
 from GameSentenceMiner.util.config.configuration import logger, get_app_directory
 from GameSentenceMiner.util.config.electron_config import (
     get_ocr_use_window_for_config,
     get_ocr_default_scene_furigana_filter_sensitivity,
 )
-from GameSentenceMiner.util.platform.windows_dpi import enable_per_monitor_v2_dpi_awareness
+from GameSentenceMiner.util.platform.windows_dpi import (
+    enable_per_monitor_v2_dpi_awareness,
+)
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 
@@ -28,11 +32,13 @@ class Monitor:
     width: Optional[int] = None
     height: Optional[int] = None
 
+
 # @dataclass_json
 # @dataclass
 # class Coordinates:
 #     coordinates: List[Union[float, int]]
 #     coordinate_system: str = None
+
 
 @dataclass_json
 @dataclass
@@ -42,6 +48,7 @@ class Rectangle:
     is_excluded: bool
     is_secondary: bool = False
 
+
 @dataclass_json
 @dataclass
 class WindowGeometry:
@@ -49,8 +56,8 @@ class WindowGeometry:
     top: int
     width: int
     height: int
-    
-    
+
+
 @dataclass_json
 @dataclass
 class OCRConfig:
@@ -95,9 +102,14 @@ class OCRConfig:
                     width,
                     height,
                 )
-                
+
+
 def has_config_changed(current_config: OCRConfig) -> bool:
-    new_config = get_scene_ocr_config(use_window_as_config=get_ocr_use_window_for_config(), window=current_config.window, refresh=True)
+    new_config = get_scene_ocr_config(
+        use_window_as_config=get_ocr_use_window_for_config(),
+        window=current_config.window,
+        refresh=True,
+    )
     if new_config.rectangles != current_config.rectangles:
         logger.info("OCR config has changed.")
         return True
@@ -106,6 +118,7 @@ def has_config_changed(current_config: OCRConfig) -> bool:
 
 def get_window(title):
     import pygetwindow as gw
+
     all_windows = gw.getWindowsWithTitle(title)
     if not all_windows:
         return None
@@ -124,7 +137,8 @@ def get_window(title):
     for window in filtered_windows:
         if len(filtered_windows) > 1:
             logger.info(
-                f"Warning: More than 1 non-cmd.exe window with title, Window Title: {window.title}, Geometry: {window.left}, {window.top}, {window.width}, {window.height}")
+                f"Warning: More than 1 non-cmd.exe window with title, Window Title: {window.title}, Geometry: {window.left}, {window.top}, {window.width}, {window.height}"
+            )
 
         if window.title.strip() == title.strip():
             if window.isMinimized or not window.visible:
@@ -133,11 +147,14 @@ def get_window(title):
             return window
     return ret
 
+
 # if windows, set dpi awareness to per-monitor v2
 def set_dpi_awareness():
     enable_per_monitor_v2_dpi_awareness()
-    
+
+
 scene_ocr_config = None
+
 
 def get_scene_ocr_config(use_window_as_config=False, window="", refresh=False) -> OCRConfig | None:
     global scene_ocr_config
@@ -148,14 +165,22 @@ def get_scene_ocr_config(use_window_as_config=False, window="", refresh=False) -
         return None
     with open(path, "r", encoding="utf-8") as f:
         from json import load
+
         data = load(f)
         ocr_config = OCRConfig.from_dict(data)
         scene_ocr_config = ocr_config
         return ocr_config
 
+
 def get_scene_ocr_config_path(use_window_as_config=False, window=""):
     scene = _resolve_scene_name(use_window_as_config, window)
     return os.path.join(get_ocr_config_path(), f"{scene}.json")
+
+
+def get_overlay_area_config_path(use_window_as_config=False, window=""):
+    scene = _resolve_scene_name(use_window_as_config, window)
+    return os.path.join(get_ocr_config_path(), f"{scene}_overlay.json")
+
 
 def get_ocr_config_path():
     ocr_config_dir = os.path.join(get_app_directory(), "ocr_config")
@@ -167,6 +192,7 @@ def get_ocr_config_path():
 # Per-scene settings  ({scene}_config.json)
 # Lives alongside {scene}.json but only stores lightweight settings, not areas.
 # ---------------------------------------------------------------------------
+
 
 def get_scene_settings_defaults() -> dict:
     return {
@@ -198,7 +224,7 @@ def read_scene_settings(use_window_as_config=False, window="") -> dict:
     if not os.path.exists(settings_path):
         return result
     try:
-        with open(settings_path, 'r', encoding='utf-8') as f:
+        with open(settings_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         result.update(data)
     except Exception as e:
@@ -212,7 +238,7 @@ def write_scene_settings(settings: dict, use_window_as_config=False, window="") 
     current.update(settings)
     settings_path = get_scene_settings_path(use_window_as_config, window)
     try:
-        with open(settings_path, 'w', encoding='utf-8') as f:
+        with open(settings_path, "w", encoding="utf-8") as f:
             json.dump(current, f, indent=2)
         logger.debug(f"Wrote scene settings to {settings_path}")
     except Exception as e:
@@ -245,7 +271,7 @@ def write_ocr_config(config_path, config_data: dict) -> None:
             logger.debug(f"Backed up OCR config to {backup_path}")
         except Exception as e:
             logger.warning(f"Failed to create OCR config backup: {e}")
-    with open(config_path, 'w', encoding='utf-8') as f:
+    with open(config_path, "w", encoding="utf-8") as f:
         json.dump(config_data, f, indent=2)
     logger.info(f"Wrote OCR config to {config_path}")
 
@@ -264,11 +290,16 @@ def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
         write_ocr_config(config_path, ocr_config.to_dict())
         return ocr_config
     try:
-        with open(config_path, 'r', encoding="utf-8") as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             config_data = json.load(f)
-        if "rectangles" in config_data and isinstance(config_data["rectangles"], list) and all(
-                isinstance(item, dict) and "coordinates" in item for item in config_data["rectangles"]):
-            return OCRConfig.from_dict(config_data)
+        if (
+            "rectangles" in config_data
+            and isinstance(config_data["rectangles"], list)
+            and all(isinstance(item, dict) and "coordinates" in item for item in config_data["rectangles"])
+        ):
+            overlay_config = OCRConfig.from_dict(config_data)
+            setattr(overlay_config, "overlay_coordinate_space", "window")
+            return overlay_config
         else:
             raise Exception(f"Invalid config format in {config_path}.")
     except json.JSONDecodeError:
@@ -276,4 +307,52 @@ def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
         return None
     except Exception as e:
         print(f"Error loading config: {e}")
+        return None
+
+
+def get_overlay_area_config(window=None, use_window_for_config=False) -> OCRConfig | None:
+    """Loads the dedicated overlay area config from {scene}_overlay.json."""
+    obs.update_current_game()
+    config_path = Path(get_overlay_area_config_path(use_window_for_config, window))
+    if not config_path.exists():
+        return None
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config_data = json.load(f)
+
+        if (
+            "rectangles" in config_data
+            and isinstance(config_data["rectangles"], list)
+            and all(isinstance(item, dict) and "coordinates" in item for item in config_data["rectangles"])
+        ):
+            overlay_config = OCRConfig.from_dict(config_data)
+            setattr(overlay_config, "overlay_coordinate_space", "window")
+            return overlay_config
+
+        monitor_index = int(config_data.get("monitor_index", 0) or 0)
+        coordinate_system = config_data.get("coordinate_system") or "percentage"
+        rectangles = [
+            Rectangle(
+                monitor=Monitor(index=monitor_index),
+                coordinates=[rect_data["x"], rect_data["y"], rect_data["w"], rect_data["h"]],
+                is_excluded=False,
+                is_secondary=False,
+            )
+            for rect_data in config_data.get("rects", [])
+        ]
+
+        overlay_config = OCRConfig(
+            scene=config_path.stem.removesuffix("_overlay"),
+            window=window,
+            rectangles=rectangles,
+            coordinate_system=coordinate_system,
+        )
+        setattr(overlay_config, "overlay_coordinate_space", "monitor")
+        return overlay_config
+    except json.JSONDecodeError:
+        print("Error decoding JSON. Please check your overlay area config file.")
+        return None
+    except Exception as e:
+        print(f"Error loading overlay area config: {e}")
         return None

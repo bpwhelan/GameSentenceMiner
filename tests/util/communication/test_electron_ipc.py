@@ -19,7 +19,7 @@ def test_send_message_prints_structured_payload(monkeypatch):
     raw, flush = lines[0]
     assert flush is True
     assert raw.startswith("GSMMSG:")
-    payload = json.loads(raw[len("GSMMSG:"):])
+    payload = json.loads(raw[len("GSMMSG:") :])
     assert payload == {"function": "start", "data": {"ok": True}, "id": "abc"}
 
 
@@ -28,10 +28,7 @@ def test_stdin_loop_dispatches_only_valid_gsmcmd_lines(monkeypatch):
     electron_ipc.register_command_handler(received.append)
 
     stdin_data = io.StringIO(
-        "ignored\n"
-        "GSMCMD:{\"function\":\"ping\",\"data\":{\"x\":1}}\n"
-        "GSMCMD:not-json\n"
-        "GSMCMD:{\"function\":\"pong\"}\n"
+        'ignored\nGSMCMD:{"function":"ping","data":{"x":1}}\nGSMCMD:not-json\nGSMCMD:{"function":"pong"}\n'
     )
     monkeypatch.setattr(electron_ipc.sys, "stdin", stdin_data)
 
@@ -57,7 +54,11 @@ def test_start_ipc_listener_starts_daemon_thread(monkeypatch):
 
 def test_convenience_announce_helpers(monkeypatch):
     calls = []
-    monkeypatch.setattr(electron_ipc, "send_message", lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(
+        electron_ipc,
+        "send_message",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
 
     electron_ipc.announce_start()
     electron_ipc.announce_stop()
@@ -66,5 +67,8 @@ def test_convenience_announce_helpers(monkeypatch):
 
     assert calls[0][0] == (electron_ipc.FunctionName.START.value,)
     assert calls[1][0] == (electron_ipc.FunctionName.STOP.value,)
-    assert calls[2][0] == (electron_ipc.FunctionName.CONNECT.value, {"message": "Python Connected"})
+    assert calls[2][0] == (
+        electron_ipc.FunctionName.CONNECT.value,
+        {"message": "Python Connected"},
+    )
     assert calls[3][0] == (electron_ipc.FunctionName.GET_STATUS.value, {"ready": True})

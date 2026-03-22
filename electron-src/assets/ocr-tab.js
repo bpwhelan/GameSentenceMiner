@@ -120,6 +120,28 @@
         });
     }
 
+    const keepNewlineSettingKeys = Object.freeze({
+        auto: 'keep_newline_auto',
+        menu: 'keep_newline_menu',
+        areaSelect: 'keep_newline_area_select',
+    });
+
+    function resolveKeepNewlineSetting(settings, key) {
+        if (typeof settings?.[key] === 'boolean') {
+            return settings[key];
+        }
+        if (!settings?.advancedMode) {
+            return true;
+        }
+        return Boolean(settings?.keep_newline);
+    }
+
+    function applyKeepNewlineSettings(settings) {
+        document.getElementById('keep-newline-auto').checked = resolveKeepNewlineSetting(settings, keepNewlineSettingKeys.auto);
+        document.getElementById('keep-newline-menu').checked = resolveKeepNewlineSetting(settings, keepNewlineSettingKeys.menu);
+        document.getElementById('keep-newline-area-select').checked = resolveKeepNewlineSetting(settings, keepNewlineSettingKeys.areaSelect);
+    }
+
     function isRun2RecognizedLog(text) {
         return OCR_RUN_2_RECOGNIZED_PATTERN.test(text);
     }
@@ -342,7 +364,14 @@
             wholeWindowOcrHotkey: document.getElementById('whole-window-ocr-hotkey').value,
             globalPauseHotkey: document.getElementById('global-pause-hotkey').value,
             sendToClipboard: document.getElementById('send-to-clipboard').checked,
-            keep_newline: document.getElementById('keep-newline').checked,
+            keep_newline: (
+                document.getElementById('keep-newline-auto').checked
+                || document.getElementById('keep-newline-menu').checked
+                || document.getElementById('keep-newline-area-select').checked
+            ),
+            keep_newline_auto: document.getElementById('keep-newline-auto').checked,
+            keep_newline_menu: document.getElementById('keep-newline-menu').checked,
+            keep_newline_area_select: document.getElementById('keep-newline-area-select').checked,
             obs_capture_preprocess: document.getElementById('obs-capture-preprocess').value || 'none',
             ignore_ocr_run_1_text: document.getElementById('ignore-ocr-run-1-text').checked,
             processPriority: normalizeProcessPriority(document.getElementById('process-priority').value),
@@ -406,6 +435,7 @@
         const wholeWindowHotkeyGroup = document.getElementById('whole-window-ocr-hotkey-group');
         const globalPauseHotkeyGroup = document.getElementById('global-pause-hotkey-group');
         const clipboardGroup = document.getElementById('send-to-clipboard-group');
+        const keepNewlineGroup = document.getElementById('keep-newline-group');
         const languageGroup = document.getElementById('language-select-group');
 
         let defaultOcr1 = 'oneocr';
@@ -473,6 +503,15 @@
                 }
             }
 
+            if (keepNewlineGroup && keepNewlineGroup.parentElement.id === 'keep-newline-group-basic') {
+                const previousGroup = clipboardGroup && clipboardGroup.parentElement === secondColumn
+                    ? clipboardGroup
+                    : document.getElementById('ocr-screenshots-group');
+                if (previousGroup && previousGroup.parentElement === secondColumn) {
+                    previousGroup.parentNode.insertBefore(keepNewlineGroup, previousGroup.nextSibling);
+                }
+            }
+
             // Load Advanced Configs
             document.getElementById('ocr1-input').value = ocr_settings.ocr1_advanced || defaultOcr1;
             document.getElementById('ocr2-input').value = ocr_settings.ocr2_advanced || 'glens';
@@ -504,6 +543,9 @@
             }
             if (clipboardGroup) {
                 document.getElementById('send-to-clipboard-group-basic').appendChild(clipboardGroup);
+            }
+            if (keepNewlineGroup) {
+                document.getElementById('keep-newline-group-basic').appendChild(keepNewlineGroup);
             }
 
             // Load Basic Configs
@@ -689,7 +731,9 @@
 
         // Checkbox listeners
         document.getElementById('send-to-clipboard').addEventListener('change', saveOCRConfig);
-        document.getElementById('keep-newline').addEventListener('change', saveOCRConfig);
+        document.getElementById('keep-newline-auto').addEventListener('change', saveOCRConfig);
+        document.getElementById('keep-newline-menu').addEventListener('change', saveOCRConfig);
+        document.getElementById('keep-newline-area-select').addEventListener('change', saveOCRConfig);
         document.getElementById('ignore-ocr-run-1-text').addEventListener('change', saveOCRConfig);
         document.getElementById('process-priority').addEventListener('change', saveOCRConfig);
         document.getElementById('default-scene-furigana-filter-sensitivity').addEventListener('change', saveOCRConfig);
@@ -1065,7 +1109,7 @@
             document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate ?? 0.5;
             document.getElementById('languageSelect').value = ocr_settings.language || 'ja';
             document.getElementById('ocr-screenshots').checked = ocr_settings.ocr_screenshots;
-            document.getElementById('keep-newline').checked = ocr_settings.keep_newline;
+            applyKeepNewlineSettings(ocr_settings);
             document.getElementById('obs-capture-preprocess').value = ocr_settings.obs_capture_preprocess || 'none';
             document.getElementById('send-to-clipboard').checked = ocr_settings.sendToClipboard;
             document.getElementById('ignore-ocr-run-1-text').checked = ocr_settings.ignore_ocr_run_1_text === true;

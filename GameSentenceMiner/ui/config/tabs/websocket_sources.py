@@ -1,4 +1,5 @@
 """Reusable WebSocket Sources Editor widget for the config GUI."""
+
 from __future__ import annotations
 
 from PyQt6.QtCore import pyqtSignal

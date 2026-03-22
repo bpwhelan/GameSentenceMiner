@@ -90,6 +90,12 @@ def _audio_cache_key(line_id: str, trim_with_vad: bool) -> str:
     return f"{line_id}|vad={int(bool(trim_with_vad))}"
 
 
+def _remember_previous_audio_variant(line_id: str, trim_with_vad: bool, audio_path: str = ""):
+    gsm_state.previous_audio_cache_key = _audio_cache_key(line_id, trim_with_vad)
+    if audio_path:
+        gsm_state.previous_audio_path = audio_path
+
+
 def _get_cached_audio_path(line_id: str, trim_with_vad: bool) -> str:
     key = _audio_cache_key(line_id, trim_with_vad)
     audio_path = gsm_state.texthooker_audio_cache.get(key, "")
@@ -147,11 +153,11 @@ def stop_current_audio():
 def play_audio_data_safe(data, samplerate, line_id: str = ""):
     """
     Play audio data using the safe audio player.
-    
+
     Args:
         data: Audio data as numpy array
         samplerate: Sample rate of the audio
-        
+
     Returns:
         True if playback started successfully, False otherwise
     """
@@ -166,7 +172,30 @@ def play_audio_data_safe(data, samplerate, line_id: str = ""):
     return success
 
 
-def handle_texthooker_button(video_path=''):
+def _trim_video_for_line(line: GameLine, video_path: str, trim_with_vad: bool) -> str:
+    start_time, end_time, _, _ = get_video_timings(video_path, line)
+
+    if trim_with_vad:
+        try:
+            vad_result = get_audio_from_video(
+                line,
+                getattr(line.next, "time", None),
+                video_path,
+                temporary=False,
+                use_vad_postprocessing=True,
+                timing_only=True,
+                full_text=line.text,
+            )
+            if vad_result and getattr(vad_result, "success", False):
+                start_time = max(0, start_time + float(getattr(vad_result, "start", 0) or 0))
+                end_time = max(start_time, start_time + float(getattr(vad_result, "end", 0) or 0))
+        except Exception as e:
+            logger.warning(f"Failed to compute VAD timings for video trim, using default timings: {e}")
+
+    return ffmpeg.trim_replay_for_gameline(video_path, start_time, end_time, accurate=True)
+
+
+def handle_texthooker_button(video_path=""):
     try:
         if gsm_state.line_for_audio:
             request = gsm_state.texthooker_audio_request or {}
@@ -174,7 +203,7 @@ def handle_texthooker_button(video_path=''):
             trim_with_vad = bool(request.get("trim_with_vad", False))
             use_browser_playback = playback_mode == "browser"
             can_play_from_audio_cache = use_browser_playback or not get_config().advanced.video_player_path
-            
+
             def get_line_cutoff_time(target_line: GameLine):
                 # Texthooker playback should trim at the chronological next line,
                 # even if the line was never "mined" into Anki.
@@ -207,7 +236,7 @@ def handle_texthooker_button(video_path=''):
 
             if cached_audio_path and can_play_from_audio_cache:
                 gsm_state.previous_line_for_audio = line
-                gsm_state.previous_audio_path = cached_audio_path
+                _remember_previous_audio_variant(line.id, trim_with_vad, cached_audio_path)
                 if use_browser_playback:
                     _emit_audio_ready_event(line.id, cached_audio_path)
                 else:
@@ -217,20 +246,18 @@ def handle_texthooker_button(video_path=''):
             if line == gsm_state.previous_line_for_audio:
                 logger.info("Line is the same as the last one, skipping processing.")
 
-                if use_browser_playback and gsm_state.previous_audio_path and os.path.isfile(gsm_state.previous_audio_path):
-                    _emit_audio_ready_event(line.id, gsm_state.previous_audio_path)
-                    return
-
                 if get_config().advanced.video_player_path and not use_browser_playback:
                     play_video_in_external(line, video_path)
                 elif not use_browser_playback:
                     # Use cached audio data with safe playback
-                    if gsm_state.previous_audio:
+                    if gsm_state.previous_audio and getattr(
+                        gsm_state, "previous_audio_cache_key", ""
+                    ) == _audio_cache_key(line.id, trim_with_vad):
                         data, samplerate = gsm_state.previous_audio
                         play_audio_data_safe(data, samplerate, line.id)
                     else:
                         audio_path = extract_audio_path(line)
-                        gsm_state.previous_audio_path = audio_path
+                        _remember_previous_audio_variant(line.id, trim_with_vad, audio_path)
                         if audio_path and os.path.isfile(audio_path):
                             cache_texthooker_audio_path(line.id, trim_with_vad, audio_path)
                             _play_audio_from_file(audio_path, line.id)
@@ -242,7 +269,7 @@ def handle_texthooker_button(video_path=''):
                             )
                 else:
                     audio_path = extract_audio_path(line)
-                    gsm_state.previous_audio_path = audio_path
+                    _remember_previous_audio_variant(line.id, trim_with_vad, audio_path)
                     if audio_path and os.path.isfile(audio_path):
                         cache_texthooker_audio_path(line.id, trim_with_vad, audio_path)
                         _emit_audio_ready_event(line.id, audio_path)
@@ -260,7 +287,7 @@ def handle_texthooker_button(video_path=''):
                 play_video_in_external(line, video_path)
             else:
                 audio_path = extract_audio_path(line)
-                gsm_state.previous_audio_path = audio_path
+                _remember_previous_audio_variant(line.id, trim_with_vad, audio_path)
                 if not audio_path or not os.path.isfile(audio_path):
                     _send_texthooker_audio_event(
                         "audio_error",
@@ -274,6 +301,26 @@ def handle_texthooker_button(video_path=''):
                     _emit_audio_ready_event(line.id, audio_path)
                 else:
                     _play_audio_from_file(audio_path, line.id)
+            return
+
+        if gsm_state.line_for_video_trim:
+            line: GameLine = gsm_state.line_for_video_trim
+            request = gsm_state.texthooker_video_trim_request or {}
+            trim_with_vad = bool(request.get("trim_with_vad", False))
+            show_in_explorer = bool(request.get("show_in_explorer", False))
+
+            gsm_state.line_for_video_trim = None
+            gsm_state.texthooker_video_trim_request = {}
+            gsm_state.previous_line_for_video_trim = line
+
+            trimmed_video = _trim_video_for_line(line, video_path, trim_with_vad)
+            gsm_state.previous_trimmed_video_path = trimmed_video
+
+            if show_in_explorer and trimmed_video and os.path.isfile(trimmed_video):
+                try:
+                    os.startfile(trimmed_video)
+                except AttributeError:
+                    logger.info(f"Trimmed video created: {trimmed_video}")
             return
 
         if gsm_state.line_for_screenshot:
@@ -329,7 +376,7 @@ def play_video_in_external(line, filepath):
     if start:
         if "vlc" in get_config().advanced.video_player_path.lower():
             # VLC uses --start-time with seconds (float or int)
-            command.extend(["--start-time", str(start), '--one-instance'])
+            command.extend(["--start-time", str(start), "--one-instance"])
         else:
             # MPV and most other players use --start with seconds
             command.extend([f"--start={start}"])
@@ -338,8 +385,6 @@ def play_video_in_external(line, filepath):
     # Use shlex.join for proper shell-escaped logging (runnable command)
     logger.info(shlex.join(command))
 
-
-
     try:
         subprocess.Popen(command)
         logger.info(f"Opened {filepath} in {get_config().advanced.video_player_path}.")
@@ -347,4 +392,3 @@ def play_video_in_external(line, filepath):
         logger.error("VLC not found. Make sure it's installed and in your PATH.")
     except Exception as e:
         logger.error(f"An error occurred: {e}")
-        

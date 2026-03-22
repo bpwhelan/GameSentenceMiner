@@ -6,7 +6,7 @@ from GameSentenceMiner.util.text_log import GameLine
 
 @dataclass
 class EventItem:
-    line: 'GameLine'
+    line: "GameLine"
     id: str
     text: str
     time: datetime.datetime
@@ -15,20 +15,20 @@ class EventItem:
 
     def to_dict(self):
         return {
-            'id': self.id,
-            'text': self.text,
-            'time': self.time,
-            'checked': self.checked,
-            'history': self.history,
+            "id": self.id,
+            "text": self.text,
+            "time": self.time,
+            "checked": self.checked,
+            "history": self.history,
         }
 
     def to_serializable(self):
         return {
-            'id': self.id,
-            'text': self.text,
-            'time': self.time.isoformat(),
-            'checked': self.checked,
-            'history': self.history,
+            "id": self.id,
+            "text": self.text,
+            "time": self.time.isoformat(),
+            "checked": self.checked,
+            "history": self.history,
         }
 
 
@@ -49,8 +49,7 @@ class EventManager:
         self.events_dict = {event.id: event for event in new_events}
 
     def add_gameline(self, line: GameLine):
-        new_event = EventItem(line, line.id, line.text,
-                              line.time, False, False)
+        new_event = EventItem(line, line.id, line.text, line.time, False, False)
         self.events_dict[line.id] = new_event
         self.events.append(new_event)
         return new_event
@@ -74,19 +73,17 @@ class EventManager:
 
     def clear_history(self):
         # Clear the in-memory events
-        self.events = [
-            event for event in self.events if not event.history]
-        self.events_dict = {
-            event.id: event for event in self.events}
+        self.events = [event for event in self.events if not event.history]
+        self.events_dict = {event.id: event for event in self.events}
 
     def remove_lines_by_ids(self, ids: list[str], timed_out: bool = False):
         ids_to_remove = set(ids)
-        
+
         self.events = [event for event in self.events if event.id not in ids_to_remove]
-        
+
         for event_id in ids_to_remove:
             self.events_dict.pop(event_id, None)
-        
+
         if timed_out:
             self.timed_out_ids.update(ids_to_remove)
 

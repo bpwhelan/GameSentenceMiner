@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "2026.3.13",
+  "version": "2026.3.21",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -103,6 +103,7 @@
     "cross-env": "^10.0.0",
     "electron": "^35.0.1",
     "electron-builder": "^25.1.8",
+    "jsdom": "^26.1.0",
     "nodemon": "^3.1.10",
     "typescript": "^5.8.2",
     "vite": "^7.1.5",

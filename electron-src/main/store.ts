@@ -57,6 +57,9 @@ interface OCRConfig {
     globalPauseHotkey: string;
     sendToClipboard: boolean;
     keep_newline: boolean;
+    keep_newline_auto?: boolean | null;
+    keep_newline_menu?: boolean | null;
+    keep_newline_area_select?: boolean | null;
     obs_capture_preprocess?: "none" | "grayscale" | "grayscale_unsharp";
     processPriority: 'low' | 'below_normal' | 'normal' | 'above_normal' | 'high';
     base_scale?: number;
@@ -224,6 +227,9 @@ export const store = new Store<StoreConfig>({
             sendToClipboard: false,
             scanRate: 0.5,
             keep_newline: false,
+            keep_newline_auto: null,
+            keep_newline_menu: null,
+            keep_newline_area_select: null,
             obs_capture_preprocess: "none",
             processPriority: "normal",
             base_scale: 0.75,

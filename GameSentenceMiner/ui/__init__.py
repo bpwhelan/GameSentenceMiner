@@ -1,10 +1,13 @@
 import json
 import os
-from PyQt6.QtCore import QPoint, QRect, QSize
-from PyQt6.QtWidgets import QWidget, QApplication
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from GameSentenceMiner.util.config.configuration import logger, get_app_directory
+
+if TYPE_CHECKING:
+    from PyQt6.QtCore import QPoint, QRect
+    from PyQt6.QtWidgets import QWidget
 
 
 class WindowId(Enum):
@@ -14,24 +17,26 @@ class WindowId(Enum):
     SCREENSHOT_SELECTOR = "screenshot_selector"
     SCREEN_CROPPER = "screen_cropper"
 
+
 class WindowStateManager:
     """
     Manages saving and restoring window positions/sizes to a JSON file.
     """
+
     def __init__(self, file_path: str = None):
         if file_path is None:
             directory = get_app_directory()
             self.file_path = os.path.join(directory, "window_layout.json")
         else:
             self.file_path = file_path
-            
+
         # Initial load to get data into memory
         self.data = self._load_data()
 
     def _load_data(self) -> dict:
         if os.path.exists(self.file_path):
             try:
-                with open(self.file_path, 'r', encoding='utf-8') as f:
+                with open(self.file_path, "r", encoding="utf-8") as f:
                     loaded = json.load(f)
                     if isinstance(loaded, dict):
                         return loaded
@@ -47,19 +52,19 @@ class WindowStateManager:
             directory = os.path.dirname(self.file_path)
             if directory:
                 os.makedirs(directory, exist_ok=True)
-            with open(self.file_path, 'w', encoding='utf-8') as f:
+            with open(self.file_path, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, indent=4)
         except Exception as e:
             logger.error(f"Failed to save window state: {e}")
 
-    def restore_geometry(self, window: QWidget, window_id: WindowId) -> bool:
+    def restore_geometry(self, window: "QWidget", window_id: WindowId) -> bool:
         """
         Applies saved geometry to the window if it exists.
         Returns True if restored, False if not found.
         """
         # Handle both Enum and string (just in case)
         key = window_id.value if isinstance(window_id, WindowId) else str(window_id)
-        
+
         # Refresh data in case another window saved recently
         self.data = self._load_data()
 
@@ -83,12 +88,14 @@ class WindowStateManager:
                 logger.error(f"Error restoring geometry for {key}: {e}")
         return False
 
-    def center_window(self, window: QWidget) -> bool:
+    def center_window(self, window: "QWidget") -> bool:
         """
         Places the window near the center of the best available screen.
         Returns True if centered, False if no screen is available.
         """
         try:
+            from PyQt6.QtWidgets import QApplication
+
             screens = QApplication.screens()
             if not screens:
                 return False
@@ -117,11 +124,13 @@ class WindowStateManager:
         except (TypeError, ValueError):
             return None
 
-    def _resolve_geometry(self, window: QWidget, geom: dict) -> QRect | None:
-        x = self._to_int(geom.get('x'))
-        y = self._to_int(geom.get('y'))
-        width = self._to_int(geom.get('w'))
-        height = self._to_int(geom.get('h'))
+    def _resolve_geometry(self, window: "QWidget", geom: dict) -> "QRect | None":
+        from PyQt6.QtCore import QRect
+
+        x = self._to_int(geom.get("x"))
+        y = self._to_int(geom.get("y"))
+        width = self._to_int(geom.get("w"))
+        height = self._to_int(geom.get("h"))
 
         if None in (x, y, width, height):
             return None
@@ -141,12 +150,15 @@ class WindowStateManager:
 
         return self._fit_rect_to_screens(QRect(x, y, width, height))
 
-    def _fit_rect_to_screens(self, rect: QRect) -> QRect | None:
+    def _fit_rect_to_screens(self, rect: "QRect") -> "QRect | None":
         """
         Fits the rectangle to the nearest available screen so stale/off-screen positions
         still restore to a sensible location.
         """
         try:
+            from PyQt6.QtCore import QPoint, QRect, QSize
+            from PyQt6.QtWidgets import QApplication
+
             screens = QApplication.screens()
             if not screens:
                 return None
@@ -174,7 +186,7 @@ class WindowStateManager:
             logger.error(f"Error fitting window geometry to screens: {e}")
             return None
 
-    def _pick_best_screen(self, rect: QRect, screens: list[QRect]) -> QRect | None:
+    def _pick_best_screen(self, rect: "QRect", screens: list["QRect"]) -> "QRect | None":
         if not screens:
             return None
 
@@ -194,37 +206,42 @@ class WindowStateManager:
         # If there is no overlap, choose nearest screen center as a best-guess fallback.
         rect_center = rect.center()
 
-        def distance_sq(point_a: QPoint, point_b: QPoint) -> int:
+        def distance_sq(point_a: "QPoint", point_b: "QPoint") -> int:
             dx = point_a.x() - point_b.x()
             dy = point_a.y() - point_b.y()
             return dx * dx + dy * dy
 
         return min(screens, key=lambda screen: distance_sq(rect_center, screen.center()))
 
-    def save_geometry(self, window: QWidget, window_id: WindowId):
+    def save_geometry(self, window: "QWidget", window_id: WindowId):
         """
         Saves the current geometry of the window.
         """
         key = window_id.value if isinstance(window_id, WindowId) else str(window_id)
-        
+
         # If minimized/maximized/fullscreen, preserve the "normal" window geometry.
-        geometry = window.normalGeometry() if (window.isMinimized() or window.isMaximized() or window.isFullScreen()) else window.geometry()
+        geometry = (
+            window.normalGeometry()
+            if (window.isMinimized() or window.isMaximized() or window.isFullScreen())
+            else window.geometry()
+        )
 
         if geometry.width() <= 1 or geometry.height() <= 1:
             logger.debug(f"Skipping geometry save for {key}: invalid dimensions {geometry.width()}x{geometry.height()}")
             return
-        
+
         # Reload current file state to ensure we don't overwrite other windows' updates
         current_file_data = self._load_data()
-        
+
         current_file_data[key] = {
-            'x': geometry.x(),
-            'y': geometry.y(),
-            'w': geometry.width(),
-            'h': geometry.height()
+            "x": geometry.x(),
+            "y": geometry.y(),
+            "w": geometry.width(),
+            "h": geometry.height(),
         }
-        
+
         self.data = current_file_data
         self._save_data()
-        
+
+
 window_state_manager = WindowStateManager()

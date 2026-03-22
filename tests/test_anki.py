@@ -107,6 +107,10 @@ def _reset_state():
     anki.sentence_audio_cache.clear()
     anki.gsm_state.last_mined_line = None
     anki.gsm_state.replay_buffer_length = 300
+    anki.previous_note_ids = set()
+    anki.first_run = True
+    anki.errors_shown = 0
+    anki.final_warning_shown = False
 
 
 def test_add_wildcards():
@@ -115,7 +119,11 @@ def test_add_wildcards():
 
 def test_normalize_for_signature_uses_html_strip_and_text_normalization(monkeypatch):
     monkeypatch.setattr(anki, "remove_html_and_cloze_tags", lambda text: "Hello, World!")
-    monkeypatch.setattr(anki, "strip_whitespace_and_punctuation", lambda text: text.replace(",", "").replace(" ", ""))
+    monkeypatch.setattr(
+        anki,
+        "strip_whitespace_and_punctuation",
+        lambda text: text.replace(",", "").replace(" ", ""),
+    )
     assert anki._normalize_for_signature("<b>ignored</b>") == "helloworld!"
 
 
@@ -243,6 +251,61 @@ def test_get_sentence_uses_configured_field(monkeypatch):
     assert anki.get_sentence(card) == "value-for-Sentence"
 
 
+def test_check_for_new_cards_does_not_sync_cache_before_note_update_finishes(
+    monkeypatch,
+):
+    anki.previous_note_ids = {10}
+    anki.first_run = False
+    calls = []
+
+    monkeypatch.setattr(anki, "get_note_ids", lambda: {10, 20})
+    monkeypatch.setattr(
+        anki,
+        "update_new_cards",
+        lambda note_ids: calls.append(("update", set(note_ids))),
+    )
+    monkeypatch.setattr(
+        anki,
+        "_trigger_incremental_anki_cache_sync",
+        lambda note_ids: calls.append(("sync", list(note_ids))),
+    )
+
+    assert anki.check_for_new_cards() is True
+    assert calls == [("update", {20})]
+
+
+def test_check_and_update_note_triggers_cache_sync_after_updating_note(monkeypatch):
+    order = []
+    config = SimpleNamespace(anki=SimpleNamespace(word_field="Word"))
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(
+        anki,
+        "_update_anki_note",
+        lambda *_args, **_kwargs: order.append("update") or [],
+    )
+    monkeypatch.setattr(
+        anki,
+        "_trigger_incremental_anki_cache_sync",
+        lambda note_ids: order.append(("sync", list(note_ids))),
+    )
+    monkeypatch.setattr(
+        anki,
+        "_perform_post_update_actions",
+        lambda *_args, **_kwargs: order.append("post"),
+    )
+    monkeypatch.setattr(
+        anki.gsm_status,
+        "remove_word_being_processed",
+        lambda *_args, **_kwargs: None,
+    )
+
+    last_note = SimpleNamespace(noteId=42, get_field=lambda _field: "語")
+    anki.check_and_update_note(last_note, {"fields": {}}, tags=[], assets=None)
+
+    assert order == ["update", ("sync", [42]), "post"]
+
+
 def _base_config():
     return SimpleNamespace(
         anki=SimpleNamespace(
@@ -355,7 +418,10 @@ def test_get_initial_card_info_preserves_html_and_wraps_furigana(monkeypatch):
     note, _ = anki.get_initial_card_info(last_note, selected_lines=[], game_line=game_line)
 
     assert note["fields"]["Sentence"] == sentence_in_anki
-    assert note["fields"]["SentenceFurigana"] == "お前[まえ]が<b>感傷的[かんしょうてき]</b>になって殴[なぐ]りかかったからじゃないか？"
+    assert (
+        note["fields"]["SentenceFurigana"]
+        == "お前[まえ]が<b>感傷的[かんしょうてき]</b>になって殴[なぐ]りかかったからじゃないか？"
+    )
 
 
 def test_get_initial_card_info_keeps_br_and_bold_in_furigana(monkeypatch):
@@ -389,7 +455,9 @@ def test_get_initial_card_info_keeps_br_and_bold_in_furigana(monkeypatch):
     assert note["fields"]["SentenceFurigana"] == "V: hello?<br>M: <b>A[a]B C[c]D E[e]</b>FG"
 
 
-def test_get_initial_card_info_uses_combined_selected_lines_when_sentence_overwrite_disabled(monkeypatch):
+def test_get_initial_card_info_uses_combined_selected_lines_when_sentence_overwrite_disabled(
+    monkeypatch,
+):
     cfg = _base_config()
     cfg.anki.sentence_furigana_field = ""
     cfg.anki.previous_sentence_field = ""
@@ -426,7 +494,9 @@ def test_get_initial_card_info_uses_combined_selected_lines_when_sentence_overwr
     )
 
 
-def test_get_initial_card_info_forces_selected_lines_over_existing_sentence(monkeypatch):
+def test_get_initial_card_info_forces_selected_lines_over_existing_sentence(
+    monkeypatch,
+):
     cfg = _base_config()
     cfg.anki.sentence_furigana_field = ""
     cfg.anki.previous_sentence_field = ""
@@ -463,7 +533,9 @@ def test_get_initial_card_info_forces_selected_lines_over_existing_sentence(monk
     )
 
 
-def test_get_initial_card_info_preserves_selected_line_newlines_when_matching_existing_sentence(monkeypatch):
+def test_get_initial_card_info_preserves_selected_line_newlines_when_matching_existing_sentence(
+    monkeypatch,
+):
     cfg = _base_config()
     cfg.anki.sentence_furigana_field = ""
     cfg.anki.previous_sentence_field = ""
@@ -502,7 +574,9 @@ def test_get_initial_card_info_preserves_selected_line_newlines_when_matching_ex
     )
 
 
-def test_get_initial_card_info_preserves_multiline_selected_events_with_dialogue_quotes(monkeypatch):
+def test_get_initial_card_info_preserves_multiline_selected_events_with_dialogue_quotes(
+    monkeypatch,
+):
     cfg = _base_config()
     cfg.anki.sentence_furigana_field = ""
     cfg.anki.previous_sentence_field = ""
@@ -528,8 +602,12 @@ def test_get_initial_card_info_preserves_multiline_selected_events_with_dialogue
     )
     selected_lines = [
         SimpleNamespace(text="「貴様、名乗らぬ気か！」"),
-        SimpleNamespace(text="「おお、さすがは蛮族。\n無駄に元気なこと！\n下賤の民に名乗る名など持たぬが、\nその蛮勇に免じて教えてやろう」"),
-        SimpleNamespace(text="「我が名はリディア。\n神聖帝国元老院直属、治安維持部隊ルブルムの司令官。\n蛮族により乱された秩序を、取り戻すべく、ここに来た」"),
+        SimpleNamespace(
+            text="「おお、さすがは蛮族。\n無駄に元気なこと！\n下賤の民に名乗る名など持たぬが、\nその蛮勇に免じて教えてやろう」"
+        ),
+        SimpleNamespace(
+            text="「我が名はリディア。\n神聖帝国元老院直属、治安維持部隊ルブルムの司令官。\n蛮族により乱された秩序を、取り戻すべく、ここに来た」"
+        ),
     ]
 
     note, _ = anki.get_initial_card_info(last_note, selected_lines=selected_lines, game_line=game_line)
@@ -558,7 +636,10 @@ def test_preserve_html_tags_for_furigana_v_myers_regression():
 
     result = anki._preserve_html_tags_for_furigana(source, furigana)
 
-    assert result == "Ｖ：<b> 腕[うで]まくり</b>は 済[す]んだか？<br>マイヤーズ： 必要[ひつよう]ない。 １、２の３・・・！ くっ！"
+    assert (
+        result
+        == "Ｖ：<b> 腕[うで]まくり</b>は 済[す]んだか？<br>マイヤーズ： 必要[ひつよう]ない。 １、２の３・・・！ くっ！"
+    )
 
 
 def test_migrate_old_word_folders_exits_when_output_missing(monkeypatch):
@@ -707,12 +788,24 @@ def test_check_and_update_note_runs_pipeline(monkeypatch):
     cfg = _base_config()
     monkeypatch.setattr(anki, "get_config", lambda: cfg)
     monkeypatch.setattr(anki, "_process_screenshot", lambda *args, **kwargs: calls.append("screenshot"))
-    monkeypatch.setattr(anki, "_process_previous_screenshot", lambda *args, **kwargs: calls.append("prev"))
-    monkeypatch.setattr(anki, "_process_animated_screenshot", lambda *args, **kwargs: calls.append("animated"))
+    monkeypatch.setattr(
+        anki,
+        "_process_previous_screenshot",
+        lambda *args, **kwargs: calls.append("prev"),
+    )
+    monkeypatch.setattr(
+        anki,
+        "_process_animated_screenshot",
+        lambda *args, **kwargs: calls.append("animated"),
+    )
     monkeypatch.setattr(anki, "_process_video", lambda *args, **kwargs: calls.append("video"))
     monkeypatch.setattr(anki, "_process_audio", lambda *args, **kwargs: calls.append("audio"))
     monkeypatch.setattr(anki, "_update_anki_note", lambda *args, **kwargs: ["id-1"])
-    monkeypatch.setattr(anki, "_perform_post_update_actions", lambda *args, **kwargs: calls.append("post"))
+    monkeypatch.setattr(
+        anki,
+        "_perform_post_update_actions",
+        lambda *args, **kwargs: calls.append("post"),
+    )
     monkeypatch.setattr(anki, "_cleanup_assets", lambda *args, **kwargs: calls.append("cleanup"))
 
     callback_called = []
@@ -730,7 +823,15 @@ def test_check_and_update_note_runs_pipeline(monkeypatch):
     )
 
     assert callback_called == [True]
-    assert calls == ["screenshot", "prev", "animated", "video", "audio", "post", "cleanup"]
+    assert calls == [
+        "screenshot",
+        "prev",
+        "animated",
+        "video",
+        "audio",
+        "post",
+        "cleanup",
+    ]
 
 
 def test_convert_to_base64_and_request_payload(tmp_path):
@@ -799,7 +900,10 @@ def test_get_last_anki_card_and_get_cards_by_sentence(monkeypatch):
     responses = {
         ("findNotes", "added:1"): [1],
         ("notesInfo", (1,)): [{"noteId": 1}],
-        ("findCards", f"{cfg.anki.sentence_audio_field}: {cfg.anki.sentence_field}:{anki.add_wildcards('abc')}"): [2],
+        (
+            "findCards",
+            f"{cfg.anki.sentence_audio_field}: {cfg.anki.sentence_field}:{anki.add_wildcards('abc')}",
+        ): [2],
         ("notesInfo", (2,)): [{"noteId": 2}],
     }
 

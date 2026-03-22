@@ -50,7 +50,10 @@ def test_build_traits_by_category_filters_by_spoiler_level():
     builder = ContentBuilder(spoiler_level=1)
     traits = builder.build_traits_by_category(
         {
-            "personality": [{"name": "kind", "spoiler": 0}, {"name": "secret", "spoiler": 2}],
+            "personality": [
+                {"name": "kind", "spoiler": 0},
+                {"name": "secret", "spoiler": 2},
+            ],
             "roles": ["hero"],
             "engages_in": [{"name": "fighting", "spoiler": 1}],
             "subject_of": [{"name": "plot_twist", "spoiler": 3}],

@@ -36,6 +36,8 @@ class StatsRollupTable(SQLiteDBTable):
         "type_activity_data",
         "max_chars_in_session",
         "max_time_in_session_seconds",
+        "unique_words_seen",
+        "word_frequency_data",
         "created_at",
         "updated_at",
     ]
@@ -69,6 +71,8 @@ class StatsRollupTable(SQLiteDBTable):
         str,  # type_activity_data (JSON)
         int,
         float,  # peak performance: max_chars_in_session, max_time_in_session_seconds
+        int,
+        str,  # word stats: unique_words_seen, word_frequency_data (JSON)
         float,
         float,  # metadata: created_at, updated_at
     ]
@@ -106,6 +110,8 @@ class StatsRollupTable(SQLiteDBTable):
         type_activity_data: Optional[str] = None,
         max_chars_in_session: int = 0,
         max_time_in_session_seconds: float = 0.0,
+        unique_words_seen: int = 0,
+        word_frequency_data: Optional[str] = None,
         created_at: Optional[float] = None,
         updated_at: Optional[float] = None,
     ):
@@ -129,29 +135,17 @@ class StatsRollupTable(SQLiteDBTable):
         self.lines_with_audio = lines_with_audio
         self.lines_with_translations = lines_with_translations
         self.unique_kanji_seen = unique_kanji_seen
-        self.kanji_frequency_data = (
-            kanji_frequency_data if kanji_frequency_data is not None else "{}"
-        )
-        self.hourly_activity_data = (
-            hourly_activity_data if hourly_activity_data is not None else "{}"
-        )
-        self.hourly_reading_speed_data = (
-            hourly_reading_speed_data if hourly_reading_speed_data is not None else "{}"
-        )
-        self.game_activity_data = (
-            game_activity_data if game_activity_data is not None else "{}"
-        )
-        self.games_played_ids = (
-            games_played_ids if games_played_ids is not None else "[]"
-        )
-        self.genre_activity_data = (
-            genre_activity_data if genre_activity_data is not None else "{}"
-        )
-        self.type_activity_data = (
-            type_activity_data if type_activity_data is not None else "{}"
-        )
+        self.kanji_frequency_data = kanji_frequency_data if kanji_frequency_data is not None else "{}"
+        self.hourly_activity_data = hourly_activity_data if hourly_activity_data is not None else "{}"
+        self.hourly_reading_speed_data = hourly_reading_speed_data if hourly_reading_speed_data is not None else "{}"
+        self.game_activity_data = game_activity_data if game_activity_data is not None else "{}"
+        self.games_played_ids = games_played_ids if games_played_ids is not None else "[]"
+        self.genre_activity_data = genre_activity_data if genre_activity_data is not None else "{}"
+        self.type_activity_data = type_activity_data if type_activity_data is not None else "{}"
         self.max_chars_in_session = max_chars_in_session
         self.max_time_in_session_seconds = max_time_in_session_seconds
+        self.unique_words_seen = unique_words_seen
+        self.word_frequency_data = word_frequency_data if word_frequency_data is not None else "{}"
         self.created_at = created_at if created_at is not None else time.time()
         self.updated_at = updated_at if updated_at is not None else time.time()
 
@@ -184,18 +178,14 @@ class StatsRollupTable(SQLiteDBTable):
     @classmethod
     def get_first_date(cls) -> Optional[str]:
         """Get the earliest date with rollup data."""
-        row = cls._db.fetchone(
-            f"SELECT date FROM {cls._table} ORDER BY date ASC LIMIT 1"
-        )
+        row = cls._db.fetchone(f"SELECT date FROM {cls._table} ORDER BY date ASC LIMIT 1")
         result = row[0] if row else None
         return result
 
     @classmethod
     def get_last_date(cls) -> Optional[str]:
         """Get the most recent date with rollup data."""
-        row = cls._db.fetchone(
-            f"SELECT date FROM {cls._table} ORDER BY date DESC LIMIT 1"
-        )
+        row = cls._db.fetchone(f"SELECT date FROM {cls._table} ORDER BY date DESC LIMIT 1")
         return row[0] if row else None
 
     @classmethod

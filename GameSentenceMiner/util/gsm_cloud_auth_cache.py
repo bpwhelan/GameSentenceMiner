@@ -5,7 +5,12 @@ from typing import Any, Dict, Optional
 
 import requests
 
-from GameSentenceMiner.util.config.configuration import get_config, gsm_state, is_gsm_cloud_preview_enabled, logger
+from GameSentenceMiner.util.config.configuration import (
+    get_config,
+    gsm_state,
+    is_gsm_cloud_preview_enabled,
+    logger,
+)
 
 
 class GsmCloudAuthCacheService:

@@ -6,11 +6,15 @@ from typing import Dict, Optional
 from urllib.parse import urlparse
 
 from GameSentenceMiner.ai.providers.base import ProviderClient
-from GameSentenceMiner.ai.providers.gemini_client import GeminiClient
-from GameSentenceMiner.ai.providers.groq_client import GroqClient
-from GameSentenceMiner.ai.providers.ollama_client import OllamaClient
-from GameSentenceMiner.ai.providers.openai_client import OpenAIClient
-from GameSentenceMiner.util.config.configuration import AI_GEMINI, AI_GROQ, AI_GSM_CLOUD, AI_LM_STUDIO, AI_OLLAMA, AI_OPENAI, Ai
+from GameSentenceMiner.util.config.configuration import (
+    AI_GEMINI,
+    AI_GROQ,
+    AI_GSM_CLOUD,
+    AI_LM_STUDIO,
+    AI_OLLAMA,
+    AI_OPENAI,
+    Ai,
+)
 
 
 @dataclass(frozen=True)
@@ -52,6 +56,8 @@ class ProviderRegistry:
 
     def get_client(self, config: Ai) -> ProviderClient:
         if config.provider == AI_GEMINI:
+            from GameSentenceMiner.ai.providers.gemini_client import GeminiClient
+
             key = self._build_key(config.provider, config.gemini_model, None, config.gemini_api_key)
             if key not in self._clients:
                 self._clients[key] = GeminiClient(
@@ -62,6 +68,8 @@ class ProviderRegistry:
             return self._clients[key]
 
         if config.provider == AI_GROQ:
+            from GameSentenceMiner.ai.providers.groq_client import GroqClient
+
             key = self._build_key(config.provider, config.groq_model, None, config.groq_api_key)
             if key not in self._clients:
                 self._clients[key] = GroqClient(
@@ -71,7 +79,14 @@ class ProviderRegistry:
             return self._clients[key]
 
         if config.provider == AI_OPENAI:
-            key = self._build_key(config.provider, config.open_ai_model, config.open_ai_url, config.open_ai_api_key)
+            from GameSentenceMiner.ai.providers.openai_client import OpenAIClient
+
+            key = self._build_key(
+                config.provider,
+                config.open_ai_model,
+                config.open_ai_url,
+                config.open_ai_api_key,
+            )
             if key not in self._clients:
                 self._clients[key] = OpenAIClient(
                     api_url=config.open_ai_url,
@@ -81,6 +96,8 @@ class ProviderRegistry:
             return self._clients[key]
 
         if config.provider == AI_GSM_CLOUD:
+            from GameSentenceMiner.ai.providers.openai_client import OpenAIClient
+
             gsm_cloud_url = config.get_gsm_cloud_openai_base_url()
             gsm_cloud_model = config.get_gsm_cloud_primary_model()
             key = self._build_key(
@@ -98,6 +115,8 @@ class ProviderRegistry:
             return self._clients[key]
 
         if config.provider == AI_OLLAMA:
+            from GameSentenceMiner.ai.providers.ollama_client import OllamaClient
+
             key = self._build_key(config.provider, config.ollama_model, config.ollama_url, None)
             if key not in self._clients:
                 self._clients[key] = OllamaClient(
@@ -107,7 +126,14 @@ class ProviderRegistry:
             return self._clients[key]
 
         if config.provider == AI_LM_STUDIO:
-            key = self._build_key(config.provider, config.lm_studio_model, config.lm_studio_url, config.lm_studio_api_key)
+            from GameSentenceMiner.ai.providers.openai_client import OpenAIClient
+
+            key = self._build_key(
+                config.provider,
+                config.lm_studio_model,
+                config.lm_studio_url,
+                config.lm_studio_api_key,
+            )
             if key not in self._clients:
                 self._clients[key] = OpenAIClient(
                     api_url=config.lm_studio_url,

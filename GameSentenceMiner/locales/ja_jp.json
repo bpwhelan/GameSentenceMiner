@@ -475,6 +475,10 @@
             "label": "OBSを閉じる:",
             "tooltip": "GSM終了時にOBSを閉じます。"
           },
+          "allow_automatic_updates": {
+            "label": "OBSの自動更新を許可 (上級者向け):",
+            "tooltip": "通常はオフのままにすると、OBS を更新無効で起動します。GSM の外で OBS 自身に更新を管理させたい場合のみ有効にしてください。"
+          },
           "obs_path": {
             "label": "OBSパス:",
             "tooltip": "OBS実行ファイルのパス。空欄の場合はデフォルトパスを使用します。"
@@ -667,9 +671,29 @@
             "tooltip": "停止するかOCRエンジンに送信する前に、イベントごとに実行するローカルスキャンの回数。"
           }
           ,
+          "use_overlay_area_config": {
+            "label": "専用オーバーレイ領域を使う (推奨):",
+            "tooltip": "OCR領域設定を流用せず、オーバーレイ専用の領域設定を使います。有効時はOCR領域設定より優先されます。"
+          },
+          "overlay_area_selector_button": {
+            "label": "領域を設定",
+            "tooltip": "現在のオーバーレイモニター用の専用オーバーレイ領域セレクターを開きます。"
+          },
           "use_ocr_area_config": {
             "label": "OCR領域設定を使用:",
             "tooltip": "有効にすると、オーバーレイスキャンで自動領域検出の代わりに事前定義されたOCR領域設定を使用します。字幕など特定の領域のみをスキャンしたい場合に有効で、処理負荷を減らし誤検出を抑えます。"
+          },
+          "ocr_area_config_include_primary_areas": {
+            "label": "メイン文字領域を含める:",
+            "tooltip": "OCR領域設定のメインキャプチャ領域を使用します。以前は緑色のボックスで表示されていた領域です。"
+          },
+          "ocr_area_config_include_secondary_areas": {
+            "label": "補助 / メニュー文字領域を含める:",
+            "tooltip": "OCR領域設定の補助キャプチャ領域を使用します。以前は紫色のボックスで表示されていた領域です。"
+          },
+          "ocr_area_config_use_exclusion_zones": {
+            "label": "除外ゾーンを使用:",
+            "tooltip": "OCR領域設定の除外ゾーンを適用して、オーバーレイキャプチャの一部をマスクします。以前はオレンジ色のボックスで表示されていた領域です。"
           },
           "use_ocr_result": {
             "label": "OCR結果を使用:",

@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2026.3.13"
+version = "2026.3.22"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
@@ -24,7 +24,6 @@ classifiers = [
 dependencies = [
   "requests~=2.32.5",
   "watchdog~=6.0.0",
-  "DateTime~=5.5",
   "soundfile~=0.13.1",
   "toml~=0.10.2",
   "psutil~=7.1.0",
@@ -34,6 +33,7 @@ dependencies = [
   "websockets~=15.0.1",
   "dataclasses_json~=0.6.7",
   "obsws-python~=1.8.0",
+  "DateTime~=5.5",
   "numpy==2.2.6",
   "faster-whisper~=1.2.1",
   "silero-vad~=6.2.0",
@@ -49,7 +49,6 @@ dependencies = [
   "pystray~=0.19.5",
   "pygetwindow==0.0.9; sys_platform == 'win32'",
   "pywin32==311; sys_platform == 'win32'",
-
   "stable-ts~=2.19.1",
   "torchcodec~=0.8.1",
   "torchaudio~=2.8.0",
@@ -96,6 +95,9 @@ gpu = [
 
 dev = [
   "pytest>=9.0.2",
+  "hypothesis>=6.100.0",
+  "pre-commit>=4.3.0",
+  "ruff>=0.14.0",
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will
@@ -114,3 +116,11 @@ packages = { find = { include = ["GameSentenceMiner*"] } }
 
 [tool.uv.sources]
 pypresence = { url = "https://github.com/qwertyquerty/pypresence/archive/168c0fc3c00d8b974017cfcd18a4e801b6b78dae.zip" }
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+force-exclude = true
+extend-exclude = [
+  "GameSentenceMiner/owocr/owocr/lens_protos/*_pb2.py",
+]

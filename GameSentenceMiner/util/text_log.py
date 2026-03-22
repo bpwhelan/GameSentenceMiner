@@ -1,10 +1,8 @@
-import enum
 import rapidfuzz
 import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from difflib import SequenceMatcher
 from typing import Optional
 
 from GameSentenceMiner.util.config.configuration import logger, get_config, gsm_state
@@ -12,6 +10,7 @@ from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
 from GameSentenceMiner.util.models.model import AnkiCard
 
 initial_time = datetime.now()
+
 
 class TextSource:
     OCR = "ocr"
@@ -36,14 +35,15 @@ class TextSource:
     @classmethod
     def padding_seconds(cls, source: str | None) -> float:
         return float(cls._PADDING_SECONDS.get(source, 0))
-    
+
+
 @dataclass
 class GameLine:
     id: str
     text: str
     time: datetime
-    prev: 'GameLine | None'
-    next: 'GameLine | None'
+    prev: "GameLine | None"
+    next: "GameLine | None"
     index: int = 0
     scene: str = ""
     TL: str = ""
@@ -66,7 +66,7 @@ class GameLine:
 
     def __str__(self):
         return str({"text": self.text, "time": self.time})
-    
+
     def next_line(self):
         return self.next if self.next and self.next.time < self.mined_time else None
 
@@ -115,7 +115,7 @@ class GameText:
             index=self.game_line_index,
             scene=gsm_state.current_game or "",
             source=source,
-            source_padding=TextSource.padding_seconds(source)
+            source_padding=TextSource.padding_seconds(source),
         )
         self.values_dict[line_id] = new_line
         self.game_line_index += 1
@@ -141,13 +141,14 @@ class GameText:
 
 game_log = GameText()
 
+
 def strip_whitespace_and_punctuation(text: str) -> str:
     """
     Strips whitespace and punctuation from the given text.
     """
     # Remove all whitespace and specified punctuation using regex
     # Includes Japanese and common punctuation
-    return re.sub(r'[\s　、。「」【】《》., ]', '', text).strip()
+    return re.sub(r"[\s　、。「」【】《》., ]", "", text).strip()
 
 
 # Do not use partial_ratio here, ever
@@ -161,27 +162,33 @@ def lines_match(texthooker_sentence, anki_sentence, similarity_threshold=80) -> 
     #     logger.debug(f"One contains the other: {texthooker_sentence} in {anki_sentence} - Similarity: {similarity}")
     # elif anki_sentence in texthooker_sentence:
     #     logger.debug(f"One contains the other: {anki_sentence} in {texthooker_sentence} - Similarity: {similarity}")
-    return (anki_sentence in texthooker_sentence) or (texthooker_sentence in anki_sentence) or (similarity >= similarity_threshold)
+    return (
+        (anki_sentence in texthooker_sentence)
+        or (texthooker_sentence in anki_sentence)
+        or (similarity >= similarity_threshold)
+    )
 
 
 def get_matching_line(last_note: AnkiCard, lines=None) -> GameLine:
     """
     Find a matching GameLine for the given AnkiCard.
-    
+
     Args:
         last_note: The AnkiCard to match against
         lines: Optional list of GameLines to search in. If None, uses all game log lines.
-    
+
     Returns:
         GameLine: The matching line or the latest line if no match found
     """
     if not lines:
         lines = get_all_lines()
-    
+
     if not lines:
-        raise Exception("No voicelines in GSM. GSM can only do work on text that has been sent to it since it started. If you are not getting any text into GSM, please check your setup/config.")
-    
-    last_line = lines[-1] # Store reference to the latest line
+        raise Exception(
+            "No voicelines in GSM. GSM can only do work on text that has been sent to it since it started. If you are not getting any text into GSM, please check your setup/config."
+        )
+
+    last_line = lines[-1]  # Store reference to the latest line
 
     if not last_note:
         return last_line
@@ -193,7 +200,9 @@ def get_matching_line(last_note: AnkiCard, lines=None) -> GameLine:
     time_window = datetime.now() - timedelta(seconds=gsm_state.replay_buffer_length) - timedelta(seconds=5)
     for line in reversed(lines):
         if line.time < time_window:
-            logger.info("Could not find matching sentence from GSM's history within the replay buffer time window. Using the latest line.")
+            logger.info(
+                "Could not find matching sentence from GSM's history within the replay buffer time window. Using the latest line."
+            )
             return last_line
         if lines_match(line.text, remove_html_and_cloze_tags(sentence)):
             return line

@@ -91,7 +91,11 @@ class GeminiClient:
             raw_text = result.strip()
             usage: Optional[Dict[str, Any]] = None
             if hasattr(response, "usage_metadata") and response.usage_metadata:
-                usage = response.usage_metadata.model_dump() if hasattr(response.usage_metadata, "model_dump") else dict(response.usage_metadata)
+                usage = (
+                    response.usage_metadata.model_dump()
+                    if hasattr(response.usage_metadata, "model_dump")
+                    else dict(response.usage_metadata)
+                )
 
             latency_ms = int((time.time() - start_time) * 1000)
             return AIResponse(

@@ -1,33 +1,103 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Offset Helper</title>
   <link rel="stylesheet" href="offset-helper.css">
-  <style>
-    html {
-      height: 100%;
-      margin: 0;
-      padding: 0;
-      display: flex;
-      overflow: hidden;
-    }
-    body {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-    }
-  </style>
 </head>
 <body>
-  <div id="instruction-panel">
-    <p>Use Arrow Keys to move the text.</p>
-    <p>Press Enter or Ctrl+S to save.</p>
-    <p>Press Esc to cancel.</p>
-    <p>Current Offset: <span id="offset-display">X: 0, Y: 0</span></p>
-  </div>
+  <button id="toggleHudButton" class="hud-toggle" type="button" aria-expanded="true">
+    Hide Panel
+  </button>
+
+  <aside id="controlPanel" class="control-panel" aria-label="Offset calibration controls">
+    <div class="panel-header">
+      <p class="panel-eyebrow">Linux Offset Helper</p>
+      <h1>Align the bright overlay text to the game text underneath.</h1>
+      <p id="helperStatus" class="helper-status">
+        Waiting for live OCR text. Leave this helper open and trigger text capture in your game.
+      </p>
+    </div>
+
+    <div class="offset-grid">
+      <label class="offset-field" for="offsetXInput">
+        <span class="offset-field__label">X Offset</span>
+        <span class="offset-field__input-row">
+          <input id="offsetXInput" type="number" inputmode="decimal" step="1">
+          <span class="offset-field__unit">px</span>
+        </span>
+        <span id="offsetXPercent" class="offset-field__meta">0.000000%</span>
+      </label>
+
+      <label class="offset-field" for="offsetYInput">
+        <span class="offset-field__label">Y Offset</span>
+        <span class="offset-field__input-row">
+          <input id="offsetYInput" type="number" inputmode="decimal" step="1">
+          <span class="offset-field__unit">px</span>
+        </span>
+        <span id="offsetYPercent" class="offset-field__meta">0.000000%</span>
+      </label>
+    </div>
+
+    <div class="stats-row" aria-label="Calibration status">
+      <div class="stat-card">
+        <span class="stat-card__label">Detected Boxes</span>
+        <strong id="boxCountDisplay" class="stat-card__value">0</strong>
+      </div>
+      <div class="stat-card">
+        <span class="stat-card__label">Display Size</span>
+        <strong id="viewportDisplay" class="stat-card__value">0 x 0</strong>
+      </div>
+    </div>
+
+    <section class="nudge-panel" aria-label="Nudge controls">
+      <div class="section-title-row">
+        <h2>Nudge</h2>
+        <span class="section-subtitle">Arrow keys work anywhere outside the number fields.</span>
+      </div>
+
+      <div class="nudge-grid">
+        <span></span>
+        <button type="button" class="nudge-button" data-dx="0" data-dy="-1" aria-label="Move up">↑</button>
+        <span></span>
+        <button type="button" class="nudge-button" data-dx="-1" data-dy="0" aria-label="Move left">←</button>
+        <button type="button" class="nudge-button nudge-button--center" id="resetButton" aria-label="Reset offset">Reset</button>
+        <button type="button" class="nudge-button" data-dx="1" data-dy="0" aria-label="Move right">→</button>
+        <span></span>
+        <button type="button" class="nudge-button" data-dx="0" data-dy="1" aria-label="Move down">↓</button>
+        <span></span>
+      </div>
+
+      <p class="nudge-hint">
+        Arrow keys = 1px. Shift + Arrow = 10px. Enter or Ctrl+S saves. R resets. Esc cancels.
+      </p>
+    </section>
+
+    <div class="panel-actions">
+      <button id="cancelButton" type="button" class="action-button action-button--secondary">Cancel</button>
+      <button id="saveButton" type="button" class="action-button action-button--primary">Save Offset</button>
+    </div>
+
+    <section class="text-preview" aria-label="Detected text preview">
+      <div class="section-title-row">
+        <h2>Detected Text</h2>
+        <span id="previewMeta" class="section-subtitle">Waiting for text...</span>
+      </div>
+      <pre id="previewText" class="preview-text">Waiting for live OCR text...</pre>
+    </section>
+  </aside>
+
+  <main id="stage" class="stage" tabindex="0" aria-label="Offset calibration canvas">
+    <div id="emptyState" class="empty-state">
+      <p class="empty-state__title">No live OCR text yet</p>
+      <p class="empty-state__copy">
+        Leave this helper open and trigger text capture in your game. New OCR text will appear here automatically.
+      </p>
+    </div>
+    <div id="overlayLayer" class="overlay-layer" aria-hidden="true"></div>
+  </main>
+
   <script src="offset-helper.js"></script>
 </body>
 </html>

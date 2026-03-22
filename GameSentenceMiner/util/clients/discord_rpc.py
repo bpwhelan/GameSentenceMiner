@@ -11,14 +11,16 @@ from GameSentenceMiner.util.stats.live_stats import live_stats_tracker
 # Decorator to guard methods if self.DISABLED is True
 def disabled_guard(method):
     def wrapper(self, *args, **kwargs):
-        if getattr(self, 'DISABLED', False):
+        if getattr(self, "DISABLED", False):
             return
         return method(self, *args, **kwargs)
+
     return wrapper
+
 
 class DiscordRPCManager:
     def __init__(self):
-        self.client_id = '1441571345942052935'  # Public GSM App ID
+        self.client_id = "1441571345942052935"  # Public GSM App ID
         self.rpc = None
         self.rpc_thread = None
         self.running = False
@@ -39,13 +41,13 @@ class DiscordRPCManager:
     def _run(self):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        
+
         while self.running:
             try:
                 config = get_master_config()
                 discord_config = config.discord
-                
-                match(discord_config.icon):
+
+                match discord_config.icon:
                     case "GSM":
                         icon = "gsm"
                     case "Cute":
@@ -56,12 +58,12 @@ class DiscordRPCManager:
                         icon = "gsm_cursed"
                     case _:
                         icon = "gsm"
-                
+
                 # Check if Discord RPC is enabled and not in a blacklisted scene
                 if not discord_config.enabled:
                     self._interruptible_sleep(discord_config.update_interval)
                     continue
-                
+
                 # Check if current scene is blacklisted
                 try:
                     current_scene = obs.get_current_scene()
@@ -73,7 +75,7 @@ class DiscordRPCManager:
                         continue
                 except Exception:
                     pass  # If we can't get scene, continue anyway
-                
+
                 if not self.rpc:
                     self.rpc = Presence(self.client_id, pipe=0)
                     self.rpc.connect()
@@ -82,20 +84,20 @@ class DiscordRPCManager:
 
                 # Build state message based on config
                 state_message = "Mining sentences..."
-                if discord_config.show_reading_stats != 'None':
-                    if discord_config.show_reading_stats == 'Characters per Hour':
+                if discord_config.show_reading_stats != "None":
+                    if discord_config.show_reading_stats == "Characters per Hour":
                         self.current_cph = live_stats_tracker.get_chars_per_hour()
                         if self.current_cph > 0:
                             state_message = f"{self.current_cph:,} char/hr"
-                    elif discord_config.show_reading_stats == 'Total Characters':
+                    elif discord_config.show_reading_stats == "Total Characters":
                         total_chars = live_stats_tracker.get_total_chars()
                         if total_chars > 0:
                             state_message = f"{total_chars:,} chars total"
-                    elif discord_config.show_reading_stats == 'Cards Mined':
+                    elif discord_config.show_reading_stats == "Cards Mined":
                         cards = live_stats_tracker.get_cards_mined()
                         if cards > 0:
                             state_message = f"{cards:,} cards mined"
-                    elif discord_config.show_reading_stats == 'Active Reading Time':
+                    elif discord_config.show_reading_stats == "Active Reading Time":
                         reading_time = live_stats_tracker.get_active_reading_time()
                         if reading_time > 0:
                             hours = int(reading_time // 3600)
@@ -129,12 +131,12 @@ class DiscordRPCManager:
                         large_url="https://github.com/bpwhelan/GameSentenceMiner",
                     )
                 self._interruptible_sleep(discord_config.update_interval)
-            except PyPresenceException as e:
+            except PyPresenceException:
                 # logger.warning(f"Discord RPC connection error: {e}. Retrying in 20s.")
                 if self.rpc:
                     self.stop_rpc_instance()
                 self._interruptible_sleep(20)
-            except Exception as e:
+            except Exception:
                 # logger.error(f"An unexpected error occurred in Discord RPC thread: {e}", exc_info=True)
                 self.running = False
 
@@ -206,13 +208,13 @@ class DiscordRPCManager:
             self.last_game_name = None
             self.start_time = None
             live_stats_tracker.reset()
-            
+
     @disabled_guard
     def clear(self):
         if self.rpc:
             try:
                 self.rpc.clear()
-            except Exception as e:
+            except Exception:
                 pass
 
     @disabled_guard
@@ -221,10 +223,11 @@ class DiscordRPCManager:
             try:
                 self.clear()
                 self.rpc.close()
-            except Exception as e:
+            except Exception:
                 pass
             finally:
                 self.rpc = None
+
 
 # Singleton instance
 discord_rpc_manager = DiscordRPCManager()

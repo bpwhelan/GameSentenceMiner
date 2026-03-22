@@ -1,7 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { Downloader } from 'nodejs-file-downloader';
 import * as tar from 'tar';
 import extract from 'extract-zip';
 import { execFile, spawn } from 'child_process';
@@ -16,6 +15,12 @@ const PYTHON_VERSION = '3.13.2';
 const UV_VERSION = '0.9.22';
 const VENV_DIR = path.join(BASE_DIR, 'python_venv');
 const UV_DIR = path.join(BASE_DIR, 'uv');
+const VENV_CREATION_ATTEMPTS = 4;
+const VENV_CREATION_RETRY_DELAY_MS = 1_500;
+const RETRYABLE_VENV_CREATION_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'ETXTBSY']);
+
+let pythonOperationQueue: Promise<void> = Promise.resolve();
+let activePythonOperationPromise: Promise<string> | null = null;
 
 // --- Path Helpers ---
 
@@ -51,6 +56,134 @@ function isUvInstalled(): boolean {
     return fs.existsSync(getUvExecutablePath());
 }
 
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableDirectoryRemovalError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+        return false;
+    }
+
+    const code =
+        typeof (error as { code?: unknown }).code === 'string'
+            ? ((error as { code: string }).code || '').toUpperCase()
+            : '';
+    return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY' || code === 'ENOTEMPTY';
+}
+
+async function removeDirectoryWithRetry(
+    targetPath: string,
+    label: string,
+    attempts: number = 12,
+    retryDelayMs: number = 250
+): Promise<void> {
+    if (!fs.existsSync(targetPath)) {
+        return;
+    }
+
+    let lastError: unknown;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try {
+            fs.rmSync(targetPath, { recursive: true, force: true });
+            return;
+        } catch (error) {
+            lastError = error;
+            if (!isRetryableDirectoryRemovalError(error) || attempt === attempts - 1) {
+                throw error;
+            }
+
+            console.warn(
+                `Failed to remove ${label} at ${targetPath} (attempt ${attempt + 1}/${attempts}). Retrying...`
+            );
+            await sleep(retryDelayMs);
+        }
+    }
+
+    if (lastError) {
+        throw lastError;
+    }
+}
+
+function toErrorMessage(error: unknown): string {
+    if (error instanceof Error) {
+        return error.message;
+    }
+    return String(error);
+}
+
+function isRetryableVenvCreationError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+        return false;
+    }
+
+    const code =
+        typeof (error as { code?: unknown }).code === 'string'
+            ? ((error as { code: string }).code || '').toUpperCase()
+            : '';
+    if (RETRYABLE_VENV_CREATION_CODES.has(code)) {
+        return true;
+    }
+
+    const message = toErrorMessage(error).toLowerCase();
+    return (
+        message.includes('os error 32') ||
+        message.includes('used by another process') ||
+        message.includes('cannot access the file because it is being used by another process') ||
+        message.includes('venvlauncher.exe') ||
+        message.includes('scripts\\python.exe') ||
+        message.includes('scripts/python.exe')
+    );
+}
+
+function schedulePythonOperation(operation: () => Promise<string>): Promise<string> {
+    const scheduledOperation = pythonOperationQueue
+        .catch(() => undefined)
+        .then(operation);
+
+    activePythonOperationPromise = scheduledOperation;
+    pythonOperationQueue = scheduledOperation.then(
+        () => undefined,
+        () => undefined
+    );
+    scheduledOperation.finally(() => {
+        if (activePythonOperationPromise === scheduledOperation) {
+            activePythonOperationPromise = null;
+        }
+    });
+    return scheduledOperation;
+}
+
+/**
+ * Checks whether the managed uv executable can actually be launched.
+ */
+async function isUvExecutableUsable(): Promise<boolean> {
+    const uvPath = getUvExecutablePath();
+    if (!fs.existsSync(uvPath)) {
+        return false;
+    }
+
+    try {
+        await execFileAsync(uvPath, ['--version'], { windowsHide: true });
+        return true;
+    } catch (error: any) {
+        console.warn(`Managed uv executable is present but unusable: ${error.message || error}`);
+        return false;
+    }
+}
+
+/**
+ * Removes the managed uv installation so it can be rebuilt cleanly.
+ */
+async function clearUvInstallation(): Promise<void> {
+    if (!fs.existsSync(UV_DIR)) {
+        return;
+    }
+
+    console.warn(`Removing managed uv installation at: ${UV_DIR}`);
+    await removeDirectoryWithRetry(UV_DIR, 'managed uv installation');
+}
+
 // --- Core Installation Steps ---
 
 /**
@@ -64,63 +197,40 @@ async function downloadFile(url: string, directory: string, fileName: string): P
     console.log(`Downloading from ${url}...`);
 
     fs.mkdirSync(directory, { recursive: true });
-
-    const downloader = new Downloader({
-        url,
-        directory,
-        fileName,
-        cloneFiles: false,
-    });
     
     const finalFilePath = path.join(directory, fileName);
-
-    const findCompletedDownload = (errorPath?: string): string | null => {
-        const candidatePaths = new Set<string>([finalFilePath]);
-
-        if (typeof errorPath === 'string' && errorPath.length > 0) {
-            candidatePaths.add(errorPath);
-            if (errorPath.endsWith('.download')) {
-                candidatePaths.add(errorPath.slice(0, -'.download'.length));
-            }
-        }
-
-        for (const candidate of candidatePaths) {
-            if (!candidate.endsWith('.download') && fs.existsSync(candidate)) {
-                return candidate;
-            }
-        }
-
-        try {
-            const entries = fs.readdirSync(directory);
-            const exactMatch = entries.find((entry) => entry === fileName);
-            if (exactMatch) {
-                return path.join(directory, exactMatch);
-            }
-        } catch {
-            // Ignore directory enumeration failures and fall through.
-        }
-
-        return null;
-    };
+    const tempFilePath = `${finalFilePath}.download`;
 
     try {
-        const { filePath, downloadStatus } = await downloader.download();
-        if (downloadStatus !== 'COMPLETE' || !filePath) {
-            throw new Error(`Download status was ${downloadStatus}.`);
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status} ${response.statusText}`);
         }
-        console.log(`Download complete: ${filePath}`);
-        return filePath;
-    } catch (error: any) {
-        const completedFilePath =
-            error?.code === 'ENOENT' ? findCompletedDownload(error?.path) : null;
 
-        if (completedFilePath) {
-            console.warn(
-                `Download appears successful, but a non-critical cleanup error occurred. Ignoring. Details: ${error.message}`
-            );
-            console.log(`Download complete: ${completedFilePath}`);
-            return completedFilePath;
+        const buffer = Buffer.from(await response.arrayBuffer());
+
+        if (fs.existsSync(tempFilePath)) {
+            fs.unlinkSync(tempFilePath);
         }
+
+        fs.writeFileSync(tempFilePath, buffer);
+
+        if (fs.existsSync(finalFilePath)) {
+            fs.unlinkSync(finalFilePath);
+        }
+
+        fs.renameSync(tempFilePath, finalFilePath);
+        console.log(`Download complete: ${finalFilePath}`);
+        return finalFilePath;
+    } catch (error: any) {
+        try {
+            if (fs.existsSync(tempFilePath)) {
+                fs.unlinkSync(tempFilePath);
+            }
+        } catch {
+            // Best-effort cleanup only.
+        }
+
         console.error(`Failed to download file from ${url}: ${error.message || error}`);
         throw error;
     }
@@ -158,9 +268,14 @@ async function extractArchive(archivePath: string, extractPath: string): Promise
  * Downloads and installs uv if not already present.
  */
 async function ensureUvInstalled(): Promise<void> {
-    if (isUvInstalled()) {
+    if (await isUvExecutableUsable()) {
         console.log(`uv is already installed at: ${getUvExecutablePath()}`);
         return;
+    }
+
+    if (isUvInstalled() || fs.existsSync(UV_DIR)) {
+        console.warn('Cached uv installation is missing or invalid. Reinstalling.');
+        await clearUvInstallation();
     }
 
     console.log('Downloading uv...');
@@ -226,6 +341,10 @@ async function ensureUvInstalled(): Promise<void> {
         // Make executable on Unix-like systems
         if (!isWindows()) {
             fs.chmodSync(getUvExecutablePath(), 0o755);
+        }
+
+        if (!(await isUvExecutableUsable())) {
+            throw new Error(`uv installation failed verification at: ${getUvExecutablePath()}`);
         }
         
         console.log(`uv installed successfully at: ${getUvExecutablePath()}`);
@@ -414,6 +533,70 @@ async function verifyVenvPython(): Promise<boolean> {
     }
 }
 
+async function resetManagedVenv(reason: string): Promise<void> {
+    if (!fs.existsSync(VENV_DIR)) {
+        return;
+    }
+
+    console.warn(`${reason} Removing managed virtual environment at: ${VENV_DIR}`);
+    await removeDirectoryWithRetry(VENV_DIR, 'Python venv');
+}
+
+async function createManagedVenvWithRetry(uvPath: string): Promise<void> {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= VENV_CREATION_ATTEMPTS; attempt += 1) {
+        if (fs.existsSync(VENV_DIR)) {
+            const existingVenvWorks = await verifyVenvPython();
+            if (existingVenvWorks) {
+                console.log(`Virtual environment already usable at: ${VENV_DIR}`);
+                return;
+            }
+
+            await resetManagedVenv(
+                `Detected partial or unusable virtual environment before attempt ${attempt}/${VENV_CREATION_ATTEMPTS}.`
+            );
+        }
+
+        try {
+            fs.mkdirSync(path.dirname(VENV_DIR), { recursive: true });
+            await execFileAsync(uvPath, ['venv', '--python', PYTHON_VERSION, '--seed', VENV_DIR]);
+
+            const venvWorks = await verifyVenvPython();
+            if (!venvWorks) {
+                throw new Error(
+                    `Virtual environment creation completed but Python verification failed at ${getPythonExecutablePath()}`
+                );
+            }
+
+            console.log(`Virtual environment created successfully at ${VENV_DIR}`);
+            return;
+        } catch (error) {
+            lastError = error;
+            const retryable = isRetryableVenvCreationError(error);
+            console.error(
+                `Failed to create virtual environment using uv (attempt ${attempt}/${VENV_CREATION_ATTEMPTS}): ${toErrorMessage(
+                    error
+                )}`
+            );
+
+            if (!retryable || attempt === VENV_CREATION_ATTEMPTS) {
+                throw error;
+            }
+
+            console.warn(
+                `Virtual environment creation hit a transient file lock. Retrying in ${VENV_CREATION_RETRY_DELAY_MS}ms...`
+            );
+            await sleep(VENV_CREATION_RETRY_DELAY_MS);
+            await resetManagedVenv('Cleaning up after failed virtual environment creation attempt.');
+        }
+    }
+
+    throw lastError instanceof Error
+        ? lastError
+        : new Error('Virtual environment creation failed for an unknown reason.');
+}
+
 /**
  * Uninstalls Python 3.13 globally from Homebrew after venv setup.
  * Only uninstalls if the venv Python is verified to work independently.
@@ -475,6 +658,57 @@ async function _performHomebrewInstallation(): Promise<void> {
     console.log('Python 3.13 installation complete. Global installation left intact to avoid conflicts.');
 }
 
+async function performManagedPythonInstall(): Promise<string> {
+    if (isPythonInstalled()) {
+        const pythonPath = getPythonExecutablePath();
+        console.log(`Python is already installed at: ${pythonPath}`);
+        return pythonPath;
+    }
+
+    // Show notification about installation starting
+    dialog.showMessageBox(mainWindow!, {
+        type: 'info',
+        title: 'First Time Setup',
+        message: 'GSM Running First Time Setup. There are a lot of moving parts, so it may take a few minutes. Please be patient!',
+        detail: 'Click "Learn More" to open the Getting Started guide.',
+        buttons: ['OK', 'Learn More'],
+        defaultId: 0,
+        cancelId: 0,
+    }).then(result => ({ response: result.response })).then(({ response }) => {
+        if (response === 1) {
+            shell.openExternal('https://docs.gamesentenceminer.com/docs/getting-started/');
+        }
+    });
+
+    console.log('Python not found. Starting installation process...');
+    mainWindow?.webContents.send('notification', {
+        title: 'Python Setup',
+        message: isMacOS()
+            ? 'Installing Python using Homebrew. This may take a few minutes...'
+            : 'Installing Python using uv. This may take a moment...',
+    });
+
+    if (isMacOS()) {
+        await _performHomebrewInstallation();
+    } else {
+        await _performInstallation();
+    }
+
+    const pythonExecutablePath = getPythonExecutablePath();
+    if (!fs.existsSync(pythonExecutablePath)) {
+        const errorMessage = 'Python installation failed: executable not found after setup.';
+        console.error(errorMessage);
+        mainWindow?.webContents.send('notification', {
+            title: 'Installation Failed',
+            message: errorMessage,
+        });
+        throw new Error(errorMessage);
+    }
+
+    console.log(`Python successfully installed at: ${pythonExecutablePath}`);
+    return pythonExecutablePath;
+}
+
 /**
  * Performs the actual installation of Python using uv.
  */
@@ -497,9 +731,7 @@ async function _performInstallation(): Promise<void> {
     // Create virtual environment using uv
     console.log(`Creating virtual environment at ${VENV_DIR}...`);
     try {
-        fs.mkdirSync(path.dirname(VENV_DIR), { recursive: true });
-        await execFileAsync(uvPath, ['venv', '--python', PYTHON_VERSION, '--seed', VENV_DIR]);
-        console.log(`Virtual environment created successfully at ${VENV_DIR}`);
+        await createManagedVenvWithRetry(uvPath);
     } catch (error: any) {
         console.error(`Failed to create virtual environment using uv: ${error.message || error}`);
         throw error;
@@ -525,72 +757,28 @@ async function _performInstallation(): Promise<void> {
  * @returns A promise that resolves to the path of the Python executable.
  */
 export async function getOrInstallPython(): Promise<string> {
+    if (activePythonOperationPromise) {
+        return await activePythonOperationPromise;
+    }
+
     if (isPythonInstalled()) {
         const pythonPath = getPythonExecutablePath();
         console.log(`Python is already installed at: ${pythonPath}`);
         return pythonPath;
     }
 
-    // Show notification about installation starting
-    dialog.showMessageBox(mainWindow!, {
-        type: 'info',
-        title: 'First Time Setup',
-        message: 'GSM Running First Time Setup. There are a lot of moving parts, so it may take a few minutes. Please be patient!',
-        detail: 'Click "Learn More" to open the Getting Started guide.',
-        buttons: ['OK', 'Learn More'],
-        defaultId: 0,
-        cancelId: 0,
-    }).then(result => ({ response: result.response })).then(({ response }) => {
-        if (response === 1) {
-            shell.openExternal('https://docs.gamesentenceminer.com/docs/getting-started/');
-        }
-    });
-
-    
-
-    console.log('Python not found. Starting installation process...');
-    mainWindow?.webContents.send('notification', {
-        title: 'Python Setup',
-        message: isMacOS() 
-            ? 'Installing Python using Homebrew. This may take a few minutes...'
-            : 'Installing Python using uv. This may take a moment...',
-    });
-
-    // Use Homebrew on macOS, uv on other platforms
-    if (isMacOS()) {
-        await _performHomebrewInstallation();
-    } else {
-        await _performInstallation();
-    }
-
-    const pythonExecutablePath = getPythonExecutablePath();
-    if (!fs.existsSync(pythonExecutablePath)) {
-        const errorMessage = 'Python installation failed: executable not found after setup.';
-        console.error(errorMessage);
-        mainWindow?.webContents.send('notification', {
-            title: 'Installation Failed',
-            message: errorMessage,
-        });
-        throw new Error(errorMessage);
-    }
-
-    console.log(`Python successfully installed at: ${pythonExecutablePath}`);
-    return pythonExecutablePath;
+    return await schedulePythonOperation(async () => await performManagedPythonInstall());
 }
 
 /**
  * Removes the existing Python installation and reinstalls it.
  */
 export async function reinstallPython(): Promise<void> {
-    console.log('Starting Python reinstallation...');
-
-    // Remove existing venv
-    if (fs.existsSync(VENV_DIR)) {
-        console.log(`Removing existing Python venv at: ${VENV_DIR}`);
-        fs.rmSync(VENV_DIR, { recursive: true, force: true });
-    }
-
-    console.log('Existing installation removed. Proceeding with fresh installation...');
-    await getOrInstallPython();
+    await schedulePythonOperation(async () => {
+        console.log('Starting Python reinstallation...');
+        await resetManagedVenv('Removing existing Python venv before reinstallation.');
+        console.log('Existing installation removed. Proceeding with fresh installation...');
+        return await performManagedPythonInstall();
+    });
     console.log('Python reinstallation complete.');
 }
