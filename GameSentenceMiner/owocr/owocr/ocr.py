@@ -4116,6 +4116,7 @@ class MeikiOCR:
                         line["bounding_rect"]["y1"] - 5,
                         line["bounding_rect"]["x3"] + 5,
                         line["bounding_rect"]["y3"] + 5,
+                        line["text"],
                     )
                 )
 

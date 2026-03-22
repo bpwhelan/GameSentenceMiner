@@ -3192,7 +3192,8 @@ def check_text_is_all_menu(crop_coords: tuple, crop_coords_list: list, crop_offs
     This function checks if ALL detected text areas fall entirely within secondary rectangles (menu areas).
 
     :param crop_coords: Tuple containing (x, y, x2, y2) of the detected text area in cropped image coordinates.
-    :param crop_coords_list: List of tuples, each containing (x, y, x2, y2, text) of detected text areas in cropped image coordinates.
+    :param crop_coords_list: List of tuples, each containing either (x, y, x2, y2) or
+        (x, y, x2, y2, text) of detected text areas in cropped image coordinates.
     :param crop_offset: Tuple containing (offset_x, offset_y) to convert cropped coordinates back to original image coordinates. If None, uses the global crop_offset.
     :return: True if ALL text areas are within menu rectangles, False otherwise.
     """
@@ -3230,7 +3231,11 @@ def check_text_is_all_menu(crop_coords: tuple, crop_coords_list: list, crop_offs
     offset_x, offset_y = crop_offset
 
     # Check if ALL crop coordinates fall entirely within menu rectangles
-    for crop_x, crop_y, crop_x2, crop_y2, text in coords_to_check:
+    for coord_entry in coords_to_check:
+        if len(coord_entry) < 4:
+            return False
+
+        crop_x, crop_y, crop_x2, crop_y2 = coord_entry[:4]
         # Remove 5 pixel padding that was added during OCR cropping
         crop_x += 5
         crop_y += 5
