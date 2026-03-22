@@ -21,17 +21,25 @@ from GameSentenceMiner.util.database.cron_table import CronTable
 cron_bp = Blueprint("cron", __name__)
 
 
+def _get_canonical_task_name(task_name: str) -> str:
+    """Return the canonical cron task name for routing and dedupe decisions."""
+    resolved_task = resolve_cron_task(task_name)
+    if resolved_task:
+        return resolved_task.value
+    return (task_name or "").strip().lower()
+
+
 def _get_task_lookup_names(task_name: str) -> list[str]:
     """Return exact and alias names that may match a requested task."""
     candidate_names = []
 
     normalized_name = (task_name or "").strip().lower()
-    if normalized_name:
-        candidate_names.append(normalized_name)
-
     resolved_task = resolve_cron_task(task_name)
-    if resolved_task and resolved_task.value not in candidate_names:
+    if resolved_task and resolved_task.value:
         candidate_names.append(resolved_task.value)
+
+    if normalized_name and normalized_name not in candidate_names:
+        candidate_names.append(normalized_name)
 
     if resolved_task and resolved_task.value == "user_plugins":
         for alias in ("plugins", "user_plugins"):
@@ -42,13 +50,37 @@ def _get_task_lookup_names(task_name: str) -> list[str]:
 
 
 def _get_task_row(task_name: str):
-    """Find the cron row backing a requested task, preferring exact matches."""
+    """Find the cron row backing a requested task, preferring canonical rows."""
+    canonical_name = _get_canonical_task_name(task_name)
+    candidate_rows = []
+
     for candidate_name in _get_task_lookup_names(task_name):
         task_row = CronTable.get_by_name(candidate_name)
         if task_row:
+            candidate_rows.append(task_row)
+
+    for task_row in candidate_rows:
+        if task_row.name == canonical_name:
             return task_row
 
-    return None
+    return candidate_rows[0] if candidate_rows else None
+
+
+def _select_preferred_tasks(tasks: list[dict]) -> list[dict]:
+    """Collapse legacy aliases down to the canonical task card shown in the UI."""
+    preferred_by_canonical_name: dict[str, dict] = {}
+
+    for task in tasks:
+        canonical_name = task["canonical_name"]
+        existing = preferred_by_canonical_name.get(canonical_name)
+        if existing is None:
+            preferred_by_canonical_name[canonical_name] = task
+            continue
+
+        if task["name"] == canonical_name and existing["name"] != canonical_name:
+            preferred_by_canonical_name[canonical_name] = task
+
+    return list(preferred_by_canonical_name.values())
 
 
 def _serialize_cron_row(task_row: CronTable) -> dict:
@@ -105,7 +137,7 @@ def _run_task_and_wait(task_name: str):
 @cron_bp.route("/api/cron/tasks", methods=["GET"])
 def api_list_cron_tasks():
     """Return all cron rows for the tools/tasks tab."""
-    serialized_tasks = [_serialize_cron_row(task) for task in CronTable.all()]
+    serialized_tasks = _select_preferred_tasks([_serialize_cron_row(task) for task in CronTable.all()])
     tasks = sorted(
         serialized_tasks,
         key=lambda task: (

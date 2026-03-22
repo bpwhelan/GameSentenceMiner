@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from types import SimpleNamespace
 
 import flask
 
@@ -103,3 +104,47 @@ def test_import_exstatic_preserves_identical_lines_with_distinct_given_identifie
     assert len(captured_batches) == 1
     assert [line.id for line in captured_batches[0]] == ["game-1|row-1", "game-1|row-2"]
     assert [line.text for line in captured_batches[0]] == ["Repeated line", "Repeated line"]
+
+
+def test_import_exstatic_treats_legacy_line_ids_as_existing_once(monkeypatch):
+    app = _make_app()
+    client = app.test_client()
+
+    captured_batches = []
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.import_api.GameLinesTable.all",
+        lambda: [SimpleNamespace(id="game-1|Repeated line")],
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.import_api.GameLinesTable.add_lines",
+        lambda batch: captured_batches.append(list(batch)),
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.import_api.cron_scheduler.force_daily_rollup",
+        lambda: None,
+    )
+
+    response = client.post(
+        "/api/import-exstatic",
+        data={
+            "file": (
+                io.BytesIO(
+                    (
+                        "uuid,given_identifier,name,line,time\n"
+                        "game-1,row-1,Game One,Repeated line,1710000000\n"
+                        "game-1,row-2,Game One,Repeated line,1710000060\n"
+                    ).encode("utf-8")
+                ),
+                "import.csv",
+            )
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["imported_count"] == 1
+    assert len(captured_batches) == 1
+    assert [line.id for line in captured_batches[0]] == ["game-1|row-2"]
+    assert [line.text for line in captured_batches[0]] == ["Repeated line"]

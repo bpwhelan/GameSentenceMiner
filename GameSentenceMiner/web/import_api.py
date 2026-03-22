@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import datetime
 import io
+from collections import Counter
 
 from flask import jsonify, request
 
@@ -117,13 +118,17 @@ def register_import_api_routes(app):
                 errors = []
 
                 all_lines = GameLinesTable.all()
-                existing_uuids = {line.id for line in all_lines}
+                existing_uuids = {str(line.id) for line in all_lines if getattr(line, "id", None)}
+                legacy_line_hashes_remaining = Counter(existing_uuids)
                 batch_size = 1000  # For logging progress
                 batch_insert = []
                 imported_count = 0
 
                 def get_line_hash(uuid: str, given_identifier: str) -> str:
                     return uuid + "|" + given_identifier.strip()
+
+                def get_legacy_line_hash(uuid: str, line_text: str) -> str:
+                    return uuid + "|" + line_text.strip()
 
                 for row_num, row in enumerate(csv_reader):
                     try:
@@ -152,9 +157,14 @@ def register_import_api_routes(app):
                             continue
 
                         line_hash = get_line_hash(game_uuid, given_identifier)
+                        legacy_line_hash = get_legacy_line_hash(game_uuid, line)
 
                         # Check if this line already exists in database
                         if line_hash in existing_uuids:
+                            continue
+                        if legacy_line_hashes_remaining[legacy_line_hash] > 0:
+                            legacy_line_hashes_remaining[legacy_line_hash] -= 1
+                            existing_uuids.add(line_hash)
                             continue
 
                         # Convert time to timestamp
