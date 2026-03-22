@@ -20,20 +20,35 @@ def _build_test_client(monkeypatch):
     filtered_lines = ["filtered-lines"]
 
     notes_by_id = {
-        1: SimpleNamespace(note_id=1, mod=1764195220, fields_json=None, tags=[]),
-        2: SimpleNamespace(note_id=2, mod=1764195220, fields_json=None, tags=["Game::Tagged"]),
-        3: SimpleNamespace(note_id=3, mod=1764195220, fields_json=None, tags=["Other"]),
+        1577750400000: SimpleNamespace(
+            note_id=1577750400000,
+            mod=1764195220,
+            fields_json=None,
+            tags=[],
+        ),
+        1578009600000: SimpleNamespace(
+            note_id=1578009600000,
+            mod=1764195220,
+            fields_json=None,
+            tags=["Game::Tagged"],
+        ),
+        1577836800000: SimpleNamespace(
+            note_id=1577836800000,
+            mod=1764195220,
+            fields_json=None,
+            tags=["Other"],
+        ),
     }
     note_fields_by_id = {
-        1: {
+        1577750400000: {
             "Expression": {"value": "漢外"},
             "Sentence": {"value": "語"},
         },
-        2: {
+        1578009600000: {
             "Expression": {"value": "字"},
             "Sentence": {"value": "学"},
         },
-        3: {
+        1577836800000: {
             "Sentence": {"value": "猫"},
         },
     }
@@ -77,7 +92,9 @@ def _build_test_client(monkeypatch):
     monkeypatch.setattr(
         anki_api_endpoints,
         "get_config",
-        lambda: SimpleNamespace(anki=SimpleNamespace(word_field="Expression")),
+        lambda: SimpleNamespace(
+            anki=SimpleNamespace(parent_tag="Game", word_field="Expression")
+        ),
     )
     monkeypatch.setattr(
         anki_api_endpoints,
@@ -120,21 +137,24 @@ def _build_test_client(monkeypatch):
     return app.test_client()
 
 
-def test_anki_kanji_stats_uses_whole_collection_word_field_only(monkeypatch):
+def test_anki_kanji_stats_uses_parent_tagged_word_field_entries(monkeypatch):
     client = _build_test_client(monkeypatch)
 
     response = client.get("/api/anki_kanji_stats")
 
     assert response.status_code == 200
     assert response.get_json() == {
-        "missing_kanji": [{"kanji": "語", "frequency": 3}],
-        "anki_kanji_count": 3,
+        "missing_kanji": [
+            {"kanji": "漢", "frequency": 5},
+            {"kanji": "語", "frequency": 3},
+        ],
+        "anki_kanji_count": 1,
         "gsm_kanji_count": 3,
-        "coverage_percent": 66.7,
+        "coverage_percent": 33.3,
     }
 
 
-def test_anki_kanji_stats_date_range_only_filters_gsm_side(monkeypatch):
+def test_anki_kanji_stats_date_range_filters_gsm_and_anki_sides(monkeypatch):
     client = _build_test_client(monkeypatch)
 
     response = client.get(
@@ -143,8 +163,11 @@ def test_anki_kanji_stats_date_range_only_filters_gsm_side(monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json() == {
-        "missing_kanji": [{"kanji": "語", "frequency": 2}],
-        "anki_kanji_count": 3,
+        "missing_kanji": [
+            {"kanji": "字", "frequency": 4},
+            {"kanji": "語", "frequency": 2},
+        ],
+        "anki_kanji_count": 0,
         "gsm_kanji_count": 2,
-        "coverage_percent": 50.0,
+        "coverage_percent": 0.0,
     }

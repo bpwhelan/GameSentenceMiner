@@ -368,9 +368,9 @@ def _fetch_kanji_stats(
                 "max_frequency": max_frequency,
             }
 
-        # Fetch Anki kanji from the configured word field across the whole collection.
-        # The selected date range only applies to the GSM side for this card.
-        anki_kanji_set = _get_anki_kanji_from_cache()
+        # Fetch Anki kanji from the cached notes using the same parent-tag and
+        # optional creation-time filters as the rest of the Anki stats views.
+        anki_kanji_set = _get_anki_kanji_from_cache(start_timestamp, end_timestamp)
 
         gsm_kanji_list = gsm_kanji_stats.get("kanji_data", [])
         gsm_kanji_set = set([k["kanji"] for k in gsm_kanji_list])
@@ -1281,33 +1281,59 @@ def _get_anki_kanji_from_cache(
     start_timestamp: int | None = None,
     end_timestamp: int | None = None,
 ) -> set[str]:
-    """Extract unique kanji characters from the configured Anki word field.
+    """Extract unique kanji characters from cached Anki notes.
 
-    This intentionally scans the whole cached collection. The optional timestamp
-    arguments are accepted for call-site compatibility but ignored.
+    Notes must match the configured parent tag and, when provided, the optional
+    creation-time bounds. The configured word field is preferred, but we fall
+    back to the first available field for backward compatibility with older
+    configs and tests.
     """
     if _is_cache_empty():
         return set()
 
     try:
+        parent_tag = get_config().anki.parent_tag.strip() or "Game"
+        parent_tag_prefix = f"{parent_tag}::"
         raw_word_field = getattr(get_config().anki, "word_field", "")
         word_field = raw_word_field.strip() if isinstance(raw_word_field, str) else ""
-        if not word_field:
-            logger.warning("Configured Anki word field is blank; kanji coverage will be empty.")
-            return set()
 
         data = _get_anki_data()
         notes = data["notes_by_id"].values()
+        note_tags_by_id = data.get("note_tags_by_id")
         note_fields_by_id = data.get("note_fields_by_id")
         anki_kanji_set: set[str] = set()
 
         for note in notes:
-            fields = _get_note_fields(note, note_fields_by_id)
-            configured_field = fields.get(word_field, {})
-            if not isinstance(configured_field, dict):
+            tags = _get_note_tags(note, note_tags_by_id)
+            if not any(
+                isinstance(tag, str) and tag.startswith(parent_tag_prefix)
+                for tag in tags
+            ):
                 continue
-            value = configured_field.get("value")
-            if not isinstance(value, str) or not value:
+
+            if not _matches_optional_timestamp_range(
+                note.note_id, start_timestamp, end_timestamp
+            ):
+                continue
+
+            fields = _get_note_fields(note, note_fields_by_id)
+            value = None
+
+            if word_field:
+                configured_field = fields.get(word_field, {})
+                if isinstance(configured_field, dict):
+                    configured_value = configured_field.get("value")
+                    if isinstance(configured_value, str):
+                        value = configured_value
+
+            if value is None:
+                first_field = next(iter(fields.values()), None)
+                if isinstance(first_field, dict):
+                    first_value = first_field.get("value")
+                    if isinstance(first_value, str):
+                        value = first_value
+
+            if not isinstance(value, str):
                 continue
 
             for char in value:
