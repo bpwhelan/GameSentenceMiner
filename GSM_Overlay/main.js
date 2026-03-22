@@ -3128,7 +3128,7 @@ app.whenReady().then(async () => {
     titleBarStyle: 'hidden',
     title: "GSM Overlay",
     fullscreen: false,
-    focusable: false,
+    focusable: true,
     // skipTaskbar: true,
     webPreferences: {
       contextIsolation: false,
