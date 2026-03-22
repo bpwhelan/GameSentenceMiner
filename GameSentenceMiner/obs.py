@@ -139,6 +139,8 @@ def is_image_empty(img) -> bool:
         return extrema[0] == extrema[1]
     except Exception:
         return False
+
+
 HELPER_SCENE_NAMES = {"GSM Helper - DONT TOUCH"}
 HELPER_SOURCE_NAMES = {"window_getter", "game_window_getter"}
 
@@ -327,8 +329,11 @@ class OBSService:
         self._handler_accepts_event_name: Dict[Callable, bool] = {}
 
         self._replay_buffer_action_pending: Optional[bool] = None
+        self._replay_buffer_action_pending_deadline = 0.0
         self._last_replay_buffer_action_timestamp = 0.0
-        self._replay_buffer_action_grace_seconds = 3.0
+        self._recent_replay_buffer_start_deadline = 0.0
+        self._recent_replay_buffer_stop_deadline = 0.0
+        self._replay_buffer_action_grace_seconds = 8.0
         self._source_no_output_timestamp: Optional[float] = None
         self._no_output_shutdown_seconds = 300
         self._initial_replay_check_done = False
@@ -364,8 +369,18 @@ class OBSService:
             handlers.remove(handler)
 
     def mark_replay_buffer_action(self, expected_state: Optional[bool] = None):
-        self._last_replay_buffer_action_timestamp = time.time()
+        now = time.monotonic()
+        deadline = now + self._replay_buffer_action_grace_seconds
+        self._last_replay_buffer_action_timestamp = now
         self._replay_buffer_action_pending = expected_state
+        self._replay_buffer_action_pending_deadline = deadline if expected_state is not None else 0.0
+        if expected_state is True:
+            self._recent_replay_buffer_start_deadline = deadline
+        elif expected_state is False:
+            self._recent_replay_buffer_stop_deadline = deadline
+        else:
+            self._recent_replay_buffer_start_deadline = deadline
+            self._recent_replay_buffer_stop_deadline = deadline
 
     def _can_auto_start_replay_buffer(self) -> bool:
         if not self._auto_start_paused_by_external_replay_stop:
@@ -395,9 +410,7 @@ class OBSService:
         overrides = overrides or OBSTickOptions()
         tick_intervals = getattr(self, "tick_intervals", OBSTickIntervals())
 
-        def resolve(
-            override_value: Optional[bool], operation_name: str, interval_seconds: float
-        ) -> bool:
+        def resolve(override_value: Optional[bool], operation_name: str, interval_seconds: float) -> bool:
             if override_value is not None:
                 return override_value
             return self._is_tick_operation_due(
@@ -568,9 +581,7 @@ class OBSService:
         if not scene_name or not scene_items:
             return
 
-        items_to_update = [
-            item for item in scene_items if bool(item.get("sceneItemEnabled", True)) != bool(enabled)
-        ]
+        items_to_update = [item for item in scene_items if bool(item.get("sceneItemEnabled", True)) != bool(enabled)]
         if not items_to_update:
             return
 
@@ -639,9 +650,7 @@ class OBSService:
                 self.state.current_source_name = preferred_game_item.get("sourceName")
             return True
 
-        if preferred_window_item and self._probe_source_has_output(
-            preferred_window_item.get("sourceName")
-        ):
+        if preferred_window_item and self._probe_source_has_output(preferred_window_item.get("sourceName")):
             set_enabled_if_needed(game_items, False)
             set_enabled_if_needed(window_items, True)
             with self._state_lock:
@@ -892,18 +901,29 @@ class OBSService:
         if output_active is None:
             return
 
+        now = time.monotonic()
         expected = self._replay_buffer_action_pending
         recent_internal_action = (
-            time.time() - self._last_replay_buffer_action_timestamp
+            now - self._last_replay_buffer_action_timestamp
         ) <= self._replay_buffer_action_grace_seconds
-        internal_change = expected is not None or recent_internal_action
+        recent_matching_internal_action = (
+            now <= self._recent_replay_buffer_start_deadline
+            if bool(output_active)
+            else now <= self._recent_replay_buffer_stop_deadline
+        )
+        internal_change = recent_matching_internal_action or (expected is None and recent_internal_action)
 
         if expected is not None:
-            if bool(output_active) != bool(expected):
+            if bool(output_active) == bool(expected):
+                self._replay_buffer_action_pending = None
+                self._replay_buffer_action_pending_deadline = 0.0
+                internal_change = True
+            elif now > self._replay_buffer_action_pending_deadline:
                 logger.warning(
                     f"Replay buffer state ({bool(output_active)}) differed from requested state ({bool(expected)})."
                 )
-            self._replay_buffer_action_pending = None
+                self._replay_buffer_action_pending = None
+                self._replay_buffer_action_pending_deadline = 0.0
 
         if bool(output_active):
             self._auto_start_paused_by_external_replay_stop = False
@@ -1233,7 +1253,6 @@ class OBSConnectionManager(threading.Thread):
                     if obs_service.has_tick_work(tick_options):
                         obs_service.tick(tick_options)
                         self.last_tick_time = time.time()
-                        
 
             if (
                 gsm_state.replay_buffer_stopped_timestamp
@@ -2308,11 +2327,23 @@ def get_screenshot_PIL(
             logger.error("No active video sources found in the current scene.")
         return None
 
-    sorted_sources = sort_video_sources_by_preference(
-        current_sources,
-        input_active_by_name=obs_service.state.input_active_by_name if obs_service else None,
-        input_show_by_name=obs_service.state.input_show_by_name if obs_service else None,
-    )
+    current_scene_name = getattr(getattr(obs_service, "state", None), "current_scene", None) or gsm_state.current_game
+    input_active_by_name = getattr(getattr(obs_service, "state", None), "input_active_by_name", None)
+    input_show_by_name = getattr(getattr(obs_service, "state", None), "input_show_by_name", None)
+    helper_sources = [
+        source
+        for source in current_sources
+        if _should_skip_image_validation(source.get("sourceName"), current_scene_name)
+    ]
+    non_helper_sources = [source for source in current_sources if source not in helper_sources]
+    sorted_sources = [
+        *helper_sources,
+        *sort_video_sources_by_preference(
+            non_helper_sources,
+            input_active_by_name=input_active_by_name,
+            input_show_by_name=input_show_by_name,
+        ),
+    ]
 
     if len(sorted_sources) == 1:
         only_source = sorted_sources[0]

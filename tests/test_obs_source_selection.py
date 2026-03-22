@@ -21,6 +21,21 @@ def _valid_test_image_rgb():
     return img
 
 
+def _make_obs_service(monkeypatch):
+    class _DummyConnectionPool:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def connect_all(self):
+            pass
+
+    monkeypatch.setattr(obs_module, "OBSConnectionPool", _DummyConnectionPool)
+    monkeypatch.setattr(obs_module.obs, "EventClient", lambda *args, **kwargs: object())
+    monkeypatch.setattr(obs_module.OBSService, "_register_default_handlers", lambda self: None)
+    monkeypatch.setattr(obs_module.OBSService, "_initialize_state", lambda self: None)
+    return obs_module.OBSService("localhost", 4455, "", check_output=False)
+
+
 def test_sort_video_sources_by_preference_prefers_game_capture():
     sources = [
         {"sourceName": "Window Source", "inputKind": "window_capture"},
@@ -196,9 +211,7 @@ def test_reconcile_capture_source_visibility_disables_window_same_tick_when_game
 
     def fake_probe_source_has_output(source_name):
         if source_name == "Game Source":
-            return bool(
-                service.state.scene_items_by_scene["Test Scene"][0]["sceneItemEnabled"]
-            )
+            return bool(service.state.scene_items_by_scene["Test Scene"][0]["sceneItemEnabled"])
         return source_name == "Window Source"
 
     monkeypatch.setattr(service, "_set_scene_items_enabled", fake_set_scene_items_enabled)
@@ -245,6 +258,44 @@ def test_build_scheduled_tick_options_respects_intervals():
     assert options.refresh_full_state is False
 
 
+def test_replay_buffer_stop_request_survives_non_matching_state_event(monkeypatch):
+    service = _make_obs_service(monkeypatch)
+    clock = {"now": 100.0}
+    warning_calls = []
+
+    monkeypatch.setattr(obs_module.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(obs_module.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(obs_module.logger, "warning", lambda message: warning_calls.append(message))
+
+    service.mark_replay_buffer_action(False)
+    clock["now"] = 101.0
+    service._handle_replay_buffer_state_changed(SimpleNamespace(output_active=True))
+
+    assert service._replay_buffer_action_pending is False
+    assert warning_calls == []
+
+
+def test_replay_buffer_stop_event_is_not_treated_as_external_when_delayed(monkeypatch):
+    service = _make_obs_service(monkeypatch)
+    clock = {"now": 100.0}
+    info_calls = []
+
+    monkeypatch.setattr(obs_module.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(obs_module.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(obs_module.logger, "info", lambda message: info_calls.append(message))
+
+    service.mark_replay_buffer_action(False)
+    clock["now"] = 105.0
+    service._handle_replay_buffer_state_changed(SimpleNamespace(output_active=False))
+
+    assert service._auto_start_paused_by_external_replay_stop is False
+    assert service.state.replay_buffer_active is False
+    assert (
+        "Replay buffer was stopped outside GSM; auto-start is paused until replay buffer is started again."
+        not in info_calls
+    )
+
+
 def test_get_best_source_for_screenshot_falls_back_to_window_capture(monkeypatch):
     sources = [
         {"sourceName": "Game Source", "inputKind": "game_capture"},
@@ -255,9 +306,9 @@ def test_get_best_source_for_screenshot_falls_back_to_window_capture(monkeypatch
     monkeypatch.setattr(
         obs,
         "get_screenshot_PIL_from_source",
-        lambda source_name, *args, **kwargs: Image.new("L", (4, 4), 0)
-        if source_name == "Game Source"
-        else _valid_test_image(),
+        lambda source_name, *args, **kwargs: (
+            Image.new("L", (4, 4), 0) if source_name == "Game Source" else _valid_test_image()
+        ),
     )
 
     best_source = obs.get_best_source_for_screenshot()
@@ -275,9 +326,9 @@ def test_get_best_source_for_screenshot_prefers_game_capture_when_it_has_output(
     monkeypatch.setattr(
         obs,
         "get_screenshot_PIL_from_source",
-        lambda source_name, *args, **kwargs: _valid_test_image()
-        if source_name == "Game Source"
-        else Image.new("L", (4, 4), 0),
+        lambda source_name, *args, **kwargs: (
+            _valid_test_image() if source_name == "Game Source" else Image.new("L", (4, 4), 0)
+        ),
     )
 
     best_source = obs.get_best_source_for_screenshot()
@@ -295,9 +346,9 @@ def test_get_best_source_for_screenshot_handles_rgb_image_validation(monkeypatch
     monkeypatch.setattr(
         obs,
         "get_screenshot_PIL_from_source",
-        lambda source_name, *args, **kwargs: Image.new("RGB", (4, 4), (0, 0, 0))
-        if source_name == "Game Source"
-        else _valid_test_image_rgb(),
+        lambda source_name, *args, **kwargs: (
+            Image.new("RGB", (4, 4), (0, 0, 0)) if source_name == "Game Source" else _valid_test_image_rgb()
+        ),
     )
 
     best_source = obs.get_best_source_for_screenshot()

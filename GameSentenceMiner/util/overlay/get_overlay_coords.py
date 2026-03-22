@@ -378,7 +378,7 @@ class OverlayProcessor:
             if overlay_area_config and overlay_area_config.rectangles:
                 return overlay_area_config
 
-        if bool(getattr(overlay_settings, "use_ocr_area_config", False)):
+        if not overlay_settings.use_ocr_area_config_v2:
             overlay_config = self._get_scaled_overlay_ocr_config(width, height)
             overlay_config = self._build_overlay_area_config(overlay_config)
             if overlay_config and overlay_config.rectangles:
@@ -456,7 +456,7 @@ class OverlayProcessor:
 
     def _is_use_ocr_result_enabled(self) -> bool:
         try:
-            return bool(getattr(get_overlay_config(), "use_ocr_result", True))
+            return get_overlay_config().use_ocr_result_v2
         except Exception:
             return True
 

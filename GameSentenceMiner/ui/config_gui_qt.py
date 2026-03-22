@@ -925,7 +925,7 @@ class ConfigWindow(QWidget):
                     ocr_area_config_include_primary_areas=self.ocr_area_config_include_primary_areas_check.isChecked(),
                     ocr_area_config_include_secondary_areas=self.ocr_area_config_include_secondary_areas_check.isChecked(),
                     ocr_area_config_use_exclusion_zones=self.ocr_area_config_use_exclusion_zones_check.isChecked(),
-                    use_ocr_result=self.use_ocr_result_check.isChecked(),
+                    use_ocr_result_v2=self.use_ocr_result_check.isChecked(),
                     ocr_full_screen_instead_of_obs=bool(
                         getattr(self, "ocr_full_screen_instead_of_obs_checkbox", None)
                         and self.ocr_full_screen_instead_of_obs_checkbox.isChecked()
@@ -2817,7 +2817,7 @@ class ConfigWindow(QWidget):
         self.ocr_area_config_use_exclusion_zones_check.setChecked(
             bool(getattr(s.overlay, "ocr_area_config_use_exclusion_zones", True))
         )
-        self.use_ocr_result_check.setChecked(bool(getattr(s.overlay, "use_ocr_result", True)))
+        self.use_ocr_result_check.setChecked(s.overlay.use_ocr_result_v2)
         # Load debug option for using full-screen mss instead of OBS
         try:
             if hasattr(self, "ocr_full_screen_instead_of_obs_checkbox"):

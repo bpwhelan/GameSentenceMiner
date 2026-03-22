@@ -1264,7 +1264,7 @@ class Overlay:
     ocr_area_config_include_primary_areas: bool = True
     ocr_area_config_include_secondary_areas: bool = True
     ocr_area_config_use_exclusion_zones: bool = True
-    use_ocr_result: bool = True
+    use_ocr_result_v2: bool = False
     ocr_full_screen_instead_of_obs: bool = False
 
     def __post_init__(self):
