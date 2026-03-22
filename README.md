@@ -80,7 +80,7 @@ Track your immersion habits with the stats dashboard.
 
 ## 🚀 Getting Started
 
-1.  **Download:** Get the [latest release](https://github.com/bpwhelan/GameSentenceMiner/releases).
+1.  **Download:** Get the [latest release](https://github.com/bpwhelan/GameSentenceMiner/releases/latest).
 2.  **Install:** Watch the [Installation Guide](https://www.youtube.com/watch?v=sVL9omRbGc4).
 3.  **Requirements:**
     *   An Anki tool (Yomitan, JL, etc.)
