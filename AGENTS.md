@@ -14,4 +14,4 @@
 
 ## Ruff
 - Always run Ruff after Python changes.
-- Use `uvx ruff check GameSentenceMiner tests scripts` from the repo root.
+- Use `uv run ruff format GameSentenceMiner tests scripts` from the repo root.

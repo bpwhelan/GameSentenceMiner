@@ -484,6 +484,10 @@
             "label": "Cerrar OBS:",
             "tooltip": "Cerrar OBS cuando GSM se cierra."
           },
+          "allow_automatic_updates": {
+            "label": "Permitir que OBS se actualice solo (Avanzado):",
+            "tooltip": "Déjelo desactivado para iniciar OBS con las actualizaciones deshabilitadas. Actívelo solo si desea que OBS administre sus propias actualizaciones fuera de GSM."
+          },
           "obs_path": {
             "label": "Ruta de OBS:",
             "tooltip": "Ruta al ejecutable de OBS. Dejar en blanco para usar la ruta predeterminada."
@@ -699,6 +703,14 @@
             "tooltip": "Tamaño mínimo de carácter para detección OCR."
           }
           ,
+          "use_overlay_area_config": {
+            "label": "Usar área dedicada para la superposición (Recomendado):",
+            "tooltip": "Usa una configuración de área exclusiva para la superposición en lugar de reutilizar la configuración de área OCR. Si está activado, tiene prioridad sobre las opciones del área OCR."
+          },
+          "overlay_area_selector_button": {
+            "label": "Definir área",
+            "tooltip": "Abre el selector de área dedicado de la superposición para el monitor configurado."
+          },
           "use_ocr_area_config": {
             "label": "Usar configuración de área OCR:",
             "tooltip": "Al activar, usa la configuración de área OCR predefinida para las exploraciones de la superposición en lugar de intentar detectar la región automáticamente. Útil para escanear solo una región específica (por ejemplo, el área de subtítulos); ahorra procesamiento y reduce falsos positivos."

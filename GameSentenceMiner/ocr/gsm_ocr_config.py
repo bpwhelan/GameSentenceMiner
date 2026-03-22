@@ -177,6 +177,11 @@ def get_scene_ocr_config_path(use_window_as_config=False, window=""):
     return os.path.join(get_ocr_config_path(), f"{scene}.json")
 
 
+def get_overlay_area_config_path(use_window_as_config=False, window=""):
+    scene = _resolve_scene_name(use_window_as_config, window)
+    return os.path.join(get_ocr_config_path(), f"{scene}_overlay.json")
+
+
 def get_ocr_config_path():
     ocr_config_dir = os.path.join(get_app_directory(), "ocr_config")
     os.makedirs(ocr_config_dir, exist_ok=True)
@@ -292,7 +297,9 @@ def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
             and isinstance(config_data["rectangles"], list)
             and all(isinstance(item, dict) and "coordinates" in item for item in config_data["rectangles"])
         ):
-            return OCRConfig.from_dict(config_data)
+            overlay_config = OCRConfig.from_dict(config_data)
+            setattr(overlay_config, "overlay_coordinate_space", "window")
+            return overlay_config
         else:
             raise Exception(f"Invalid config format in {config_path}.")
     except json.JSONDecodeError:
@@ -300,4 +307,52 @@ def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
         return None
     except Exception as e:
         print(f"Error loading config: {e}")
+        return None
+
+
+def get_overlay_area_config(window=None, use_window_for_config=False) -> OCRConfig | None:
+    """Loads the dedicated overlay area config from {scene}_overlay.json."""
+    obs.update_current_game()
+    config_path = Path(get_overlay_area_config_path(use_window_for_config, window))
+    if not config_path.exists():
+        return None
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config_data = json.load(f)
+
+        if (
+            "rectangles" in config_data
+            and isinstance(config_data["rectangles"], list)
+            and all(isinstance(item, dict) and "coordinates" in item for item in config_data["rectangles"])
+        ):
+            overlay_config = OCRConfig.from_dict(config_data)
+            setattr(overlay_config, "overlay_coordinate_space", "window")
+            return overlay_config
+
+        monitor_index = int(config_data.get("monitor_index", 0) or 0)
+        coordinate_system = config_data.get("coordinate_system") or "percentage"
+        rectangles = [
+            Rectangle(
+                monitor=Monitor(index=monitor_index),
+                coordinates=[rect_data["x"], rect_data["y"], rect_data["w"], rect_data["h"]],
+                is_excluded=False,
+                is_secondary=False,
+            )
+            for rect_data in config_data.get("rects", [])
+        ]
+
+        overlay_config = OCRConfig(
+            scene=config_path.stem.removesuffix("_overlay"),
+            window=window,
+            rectangles=rectangles,
+            coordinate_system=coordinate_system,
+        )
+        setattr(overlay_config, "overlay_coordinate_space", "monitor")
+        return overlay_config
+    except json.JSONDecodeError:
+        print("Error decoding JSON. Please check your overlay area config file.")
+        return None
+    except Exception as e:
+        print(f"Error loading overlay area config: {e}")
         return None

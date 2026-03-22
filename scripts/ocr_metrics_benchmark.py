@@ -84,11 +84,7 @@ def _apply_grayscale_autocontrast(img: Image.Image) -> Image.Image:
 
 
 def _apply_grayscale_unsharp(img: Image.Image) -> Image.Image:
-    return (
-        img.convert("L")
-        .convert("RGB")
-        .filter(ImageFilter.UnsharpMask(radius=2, percent=200, threshold=3))
-    )
+    return img.convert("L").convert("RGB").filter(ImageFilter.UnsharpMask(radius=2, percent=200, threshold=3))
 
 
 def _apply_grayscale_sharpen(img: Image.Image) -> Image.Image:
@@ -104,11 +100,7 @@ def _apply_upscale_2x(img: Image.Image) -> Image.Image:
 
 
 def _apply_upscale_2x_gray(img: Image.Image) -> Image.Image:
-    return (
-        img.resize((img.width * 2, img.height * 2), Image.Resampling.LANCZOS)
-        .convert("L")
-        .convert("RGB")
-    )
+    return img.resize((img.width * 2, img.height * 2), Image.Resampling.LANCZOS).convert("L").convert("RGB")
 
 
 # Each entry: name (slug), description, apply callable (Image -> Image)
@@ -161,16 +153,12 @@ _EXTRA_FILTER_CONFIGS: list[dict] = [
     {
         "name": "unsharp_mask",
         "description": "Unsharp mask (radius=2, percent=150, threshold=3)",
-        "apply": lambda img: img.filter(
-            ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3)
-        ),
+        "apply": lambda img: img.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3)),
     },
     {
         "name": "unsharp_mask_strong",
         "description": "Unsharp mask strong (radius=2, percent=300, threshold=2)",
-        "apply": lambda img: img.filter(
-            ImageFilter.UnsharpMask(radius=2, percent=300, threshold=2)
-        ),
+        "apply": lambda img: img.filter(ImageFilter.UnsharpMask(radius=2, percent=300, threshold=2)),
     },
     {
         "name": "sharpen",
@@ -301,15 +289,9 @@ def extract_japanese_chars(text: str) -> str:
     raw = flatten_text(text)
     if unicode_regex is not None:
         # Keep only Japanese scripts: Han (Kanji), Hiragana, Katakana.
-        return "".join(
-            unicode_regex.findall(
-                r"[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]", raw
-            )
-        )
+        return "".join(unicode_regex.findall(r"[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]", raw))
     # Fallback ranges for common Japanese scripts.
-    return "".join(
-        re.findall(r"[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]", raw)
-    )
+    return "".join(re.findall(r"[\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF]", raw))
 
 
 def preprocess_for_japanese_metrics(text: str) -> str:
@@ -317,9 +299,7 @@ def preprocess_for_japanese_metrics(text: str) -> str:
     return extract_japanese_chars(text)
 
 
-def is_non_japanese_reference_gibberish(
-    raw_reference_text: str, processed_reference_text: str
-) -> bool:
+def is_non_japanese_reference_gibberish(raw_reference_text: str, processed_reference_text: str) -> bool:
     # Treat non-empty OCR output with zero Japanese chars as gibberish for this benchmark.
     return bool(flatten_text(raw_reference_text)) and not processed_reference_text
 
@@ -360,9 +340,7 @@ def build_image_fingerprint(image_path: Path) -> dict:
     stat = image_path.stat()
     return {
         "size": int(stat.st_size),
-        "mtime_ns": int(
-            getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))
-        ),
+        "mtime_ns": int(getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))),
     }
 
 
@@ -476,9 +454,7 @@ def run_ocr_for_engine(image_path: Path, engine_name: str) -> tuple[str, float]:
         img = pil_img.convert("RGB")
     start = time.perf_counter()
     result = engine_instance(img, 0)
-    success, text, _coords, _crop_coords_list, _crop_coords, _response_dict = (
-        list(result) + [None] * 6
-    )[:6]
+    success, text, _coords, _crop_coords_list, _crop_coords, _response_dict = (list(result) + [None] * 6)[:6]
     elapsed_ms = (time.perf_counter() - start) * 1000.0
     if not success:
         if (
@@ -499,9 +475,7 @@ def run_ocr_with_image(pil_img: Image.Image, engine_name: str) -> tuple[str, flo
     img = pil_img.convert("RGB")
     start = time.perf_counter()
     result = engine_instance(img, 0)
-    success, text, _coords, _crop_coords_list, _crop_coords, _response_dict = (
-        list(result) + [None] * 6
-    )[:6]
+    success, text, _coords, _crop_coords_list, _crop_coords, _response_dict = (list(result) + [None] * 6)[:6]
     elapsed_ms = (time.perf_counter() - start) * 1000.0
     if not success:
         if (
@@ -635,9 +609,7 @@ def write_graphs(
         drop_counts = []
         for engine in engine_names:
             counter = missed_confusions_by_engine.get(engine, Counter())
-            dropped_total = sum(
-                count for (ref_ch, pred_ch), count in counter.items() if pred_ch == "∅"
-            )
+            dropped_total = sum(count for (ref_ch, pred_ch), count in counter.items() if pred_ch == "∅")
             drop_counts.append(dropped_total)
 
         plt.figure(figsize=(12, 6))
@@ -731,9 +703,7 @@ def run_filter_benchmark(args) -> int:
         pending_samples: list[dict] = []
         for candidate in [latest_run / "input_batch", latest_run / "processed_samples"]:
             if candidate.exists():
-                pending_samples = load_pending_samples(
-                    candidate, args.max_samples or None
-                )
+                pending_samples = load_pending_samples(candidate, args.max_samples or None)
                 if pending_samples:
                     rerun_source_run = latest_run.name
                     break
@@ -764,14 +734,10 @@ def run_filter_benchmark(args) -> int:
     required_engines = list(dict.fromkeys([reference_engine, model_engine]))
     loaded_engines, missing_engines = initialize_engines(required_engines)
     if reference_engine not in loaded_engines:
-        print(
-            f"Reference engine '{reference_engine}' could not be loaded. Missing: {missing_engines}"
-        )
+        print(f"Reference engine '{reference_engine}' could not be loaded. Missing: {missing_engines}")
         return 1
     if model_engine not in loaded_engines:
-        print(
-            f"Model engine '{model_engine}' could not be loaded. Missing: {missing_engines}"
-        )
+        print(f"Model engine '{model_engine}' could not be loaded. Missing: {missing_engines}")
         return 1
 
     # ---- Preflight reference engine ----------------------------------------
@@ -788,9 +754,7 @@ def run_filter_benchmark(args) -> int:
     skipped_non_japanese = 0
     valid_samples: list[dict] = []
 
-    print(
-        f"Gathering reference texts from '{reference_engine}' for {len(pending_samples)} sample(s)..."
-    )
+    print(f"Gathering reference texts from '{reference_engine}' for {len(pending_samples)} sample(s)...")
     for sample in pending_samples:
         metadata = sample["metadata"]
         image_path = sample["image_path"]
@@ -799,11 +763,7 @@ def run_filter_benchmark(args) -> int:
         fingerprint = build_image_fingerprint(image_path)
         cache_key = sample_id
         try:
-            cached_entry = (
-                None
-                if args.refresh_reference_cache
-                else reference_cache["entries"].get(cache_key)
-            )
+            cached_entry = None if args.refresh_reference_cache else reference_cache["entries"].get(cache_key)
             if (
                 cached_entry
                 and cached_entry.get("image_file") == image_file
@@ -843,12 +803,8 @@ def run_filter_benchmark(args) -> int:
         print("No valid samples with Japanese reference text found.")
         return 1
 
-    print(
-        f"Valid samples: {len(valid_samples)}  (skipped non-Japanese: {skipped_non_japanese})"
-    )
-    print(
-        f"Reference cache  hits={reference_cache_hits}  misses={reference_cache_misses}"
-    )
+    print(f"Valid samples: {len(valid_samples)}  (skipped non-Japanese: {skipped_non_japanese})")
+    print(f"Reference cache  hits={reference_cache_hits}  misses={reference_cache_misses}")
     print(f"Testing {len(FILTER_CONFIGS)} filter(s) with engine '{model_engine}'...")
 
     # ---- Run model for each filter -----------------------------------------
@@ -899,9 +855,7 @@ def run_filter_benchmark(args) -> int:
                         "cer_no_punct": 1.0,
                         "similarity_no_punct": 0.0,
                         "levenshtein_distance_no_punct": -1,
-                        "reference_length_no_punct": len(
-                            extract_japanese_chars(reference_text)
-                        ),
+                        "reference_length_no_punct": len(extract_japanese_chars(reference_text)),
                         "predicted_length_no_punct": 0,
                         "error": str(e),
                     }
@@ -912,16 +866,8 @@ def run_filter_benchmark(args) -> int:
     for filter_cfg in FILTER_CONFIGS:
         filter_name = filter_cfg["name"]
         filter_desc = filter_cfg.get("description", filter_name)
-        ok_rows = [
-            r
-            for r in per_filter_rows
-            if r["filter"] == filter_name and r.get("runtime_ms", -1) >= 0
-        ]
-        fail_rows = [
-            r
-            for r in per_filter_rows
-            if r["filter"] == filter_name and r.get("runtime_ms", -1) < 0
-        ]
+        ok_rows = [r for r in per_filter_rows if r["filter"] == filter_name and r.get("runtime_ms", -1) >= 0]
+        fail_rows = [r for r in per_filter_rows if r["filter"] == filter_name and r.get("runtime_ms", -1) < 0]
         filter_summary.append(
             {
                 "filter": filter_name,
@@ -929,23 +875,13 @@ def run_filter_benchmark(args) -> int:
                 "samples": len(ok_rows) + len(fail_rows),
                 "successes": len(ok_rows),
                 "failures": len(fail_rows),
-                "avg_cer": statistics.fmean(r["cer"] for r in ok_rows)
+                "avg_cer": statistics.fmean(r["cer"] for r in ok_rows) if ok_rows else None,
+                "avg_cer_no_punct": statistics.fmean(r["cer_no_punct"] for r in ok_rows) if ok_rows else None,
+                "avg_similarity": statistics.fmean(r["similarity"] for r in ok_rows) if ok_rows else None,
+                "avg_similarity_no_punct": statistics.fmean(r["similarity_no_punct"] for r in ok_rows)
                 if ok_rows
                 else None,
-                "avg_cer_no_punct": statistics.fmean(r["cer_no_punct"] for r in ok_rows)
-                if ok_rows
-                else None,
-                "avg_similarity": statistics.fmean(r["similarity"] for r in ok_rows)
-                if ok_rows
-                else None,
-                "avg_similarity_no_punct": statistics.fmean(
-                    r["similarity_no_punct"] for r in ok_rows
-                )
-                if ok_rows
-                else None,
-                "avg_runtime_ms": statistics.fmean(r["runtime_ms"] for r in ok_rows)
-                if ok_rows
-                else None,
+                "avg_runtime_ms": statistics.fmean(r["runtime_ms"] for r in ok_rows) if ok_rows else None,
             }
         )
 
@@ -980,9 +916,7 @@ def run_filter_benchmark(args) -> int:
 
     if per_filter_rows:
         csv_fields = sorted({k for row in per_filter_rows for k in row.keys()})
-        with open(
-            results_dir / "per_sample_results.csv", "w", encoding="utf-8", newline=""
-        ) as f:
+        with open(results_dir / "per_sample_results.csv", "w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=csv_fields)
             writer.writeheader()
             writer.writerows(per_filter_rows)
@@ -996,22 +930,12 @@ def run_filter_benchmark(args) -> int:
     col_w = max((len(r["filter"]) for r in filter_summary_sorted), default=10)
     print(f"\nFilter benchmark complete.  Run dir: {run_dir}")
     print(f"Model: {model_engine}   Reference: {reference_engine}")
-    print(
-        f"\n{'Rank':<5} {'Filter':<{col_w}}  {'CER':>8}  {'CER_np':>8}  {'RT(ms)':>9}  Description"
-    )
+    print(f"\n{'Rank':<5} {'Filter':<{col_w}}  {'CER':>8}  {'CER_np':>8}  {'RT(ms)':>9}  Description")
     print("-" * (col_w + 50))
     for rank, row in enumerate(filter_summary_sorted, start=1):
         cer_s = f"{row['avg_cer'] * 100:.2f}%" if row["avg_cer"] is not None else "N/A"
-        cer_np_s = (
-            f"{row['avg_cer_no_punct'] * 100:.2f}%"
-            if row["avg_cer_no_punct"] is not None
-            else "N/A"
-        )
-        rt_s = (
-            f"{row['avg_runtime_ms']:.1f}"
-            if row["avg_runtime_ms"] is not None
-            else "N/A"
-        )
+        cer_np_s = f"{row['avg_cer_no_punct'] * 100:.2f}%" if row["avg_cer_no_punct"] is not None else "N/A"
+        rt_s = f"{row['avg_runtime_ms']:.1f}" if row["avg_runtime_ms"] is not None else "N/A"
         marker = " <-- best" if rank == 1 else ""
         print(
             f"{rank:<5} {row['filter']:<{col_w}}  {cer_s:>8}  {cer_np_s:>8}  {rt_s:>9}ms  {row['description']}{marker}"
@@ -1022,17 +946,13 @@ def run_filter_benchmark(args) -> int:
 
 def main() -> int:
     start_time = time.time()
-    parser = argparse.ArgumentParser(
-        description="Run OCR metrics benchmark from captured GSM OCR samples."
-    )
+    parser = argparse.ArgumentParser(description="Run OCR metrics benchmark from captured GSM OCR samples.")
     parser.add_argument(
         "--reference-engine",
         default="glens",
         help="Reference engine (lens/law alias to glens).",
     )
-    parser.add_argument(
-        "--engines", default="", help="Comma-separated engines to compare."
-    )
+    parser.add_argument("--engines", default="", help="Comma-separated engines to compare.")
     parser.add_argument(
         "--max-samples",
         type=int,
@@ -1099,9 +1019,7 @@ def main() -> int:
         candidate_dirs = [latest_run / "input_batch", latest_run / "processed_samples"]
         for candidate in candidate_dirs:
             if candidate.exists():
-                pending_samples = load_pending_samples(
-                    candidate, args.max_samples or None
-                )
+                pending_samples = load_pending_samples(candidate, args.max_samples or None)
                 if pending_samples:
                     rerun_source_dir = candidate
                     rerun_source_run = latest_run.name
@@ -1134,9 +1052,7 @@ def main() -> int:
     required_engines = [reference_engine] + compare_engines
     loaded_engines, missing_engines = initialize_engines(required_engines)
     if reference_engine not in loaded_engines:
-        print(
-            f"Reference engine '{reference_engine}' could not be loaded. Missing: {missing_engines}"
-        )
+        print(f"Reference engine '{reference_engine}' could not be loaded. Missing: {missing_engines}")
         return 1
 
     loaded_compare = [e for e in compare_engines if e in loaded_engines]
@@ -1146,21 +1062,14 @@ def main() -> int:
     reference_cache_hits = 0
     reference_cache_misses = 0
     skipped_non_japanese_references = 0
-    missed_chars_by_engine: dict[str, Counter] = {
-        engine: Counter() for engine in loaded_compare
-    }
-    missed_confusions_by_engine: dict[str, Counter] = {
-        engine: Counter() for engine in loaded_compare
-    }
+    missed_chars_by_engine: dict[str, Counter] = {engine: Counter() for engine in loaded_compare}
+    missed_confusions_by_engine: dict[str, Counter] = {engine: Counter() for engine in loaded_compare}
 
     # Preflight once to avoid noisy per-sample spam when the reference engine is broken.
     try:
         run_ocr_for_engine(pending_samples[0]["image_path"], reference_engine)
     except Exception as e:
-        print(
-            f"Reference engine preflight failed for '{reference_engine}': {e}\n"
-            f"Python executable: {sys.executable}"
-        )
+        print(f"Reference engine preflight failed for '{reference_engine}': {e}\nPython executable: {sys.executable}")
         return 1
 
     for sample in pending_samples:
@@ -1171,11 +1080,7 @@ def main() -> int:
         fingerprint = build_image_fingerprint(image_path)
         cache_key = str(sample_id)
         try:
-            cached_entry = (
-                None
-                if args.refresh_reference_cache
-                else reference_cache["entries"].get(cache_key)
-            )
+            cached_entry = None if args.refresh_reference_cache else reference_cache["entries"].get(cache_key)
             if (
                 cached_entry
                 and cached_entry.get("image_file") == image_file
@@ -1183,24 +1088,16 @@ def main() -> int:
                 and int(cached_entry.get("mtime_ns", -1)) == fingerprint["mtime_ns"]
             ):
                 raw_cached_text = flatten_text(cached_entry.get("text", ""))
-                processed_cached_text = flatten_text(
-                    cached_entry.get("processed_text", "")
-                )
+                processed_cached_text = flatten_text(cached_entry.get("processed_text", ""))
                 if not processed_cached_text and raw_cached_text:
-                    processed_cached_text = preprocess_for_japanese_metrics(
-                        raw_cached_text
-                    )
+                    processed_cached_text = preprocess_for_japanese_metrics(raw_cached_text)
                 reference_text = raw_cached_text
                 processed_reference_text = processed_cached_text
                 reference_ms = float(cached_entry.get("runtime_ms", 0.0))
                 reference_cache_hits += 1
             else:
-                reference_text, reference_ms = run_ocr_for_engine(
-                    image_path, reference_engine
-                )
-                processed_reference_text = preprocess_for_japanese_metrics(
-                    reference_text
-                )
+                reference_text, reference_ms = run_ocr_for_engine(image_path, reference_engine)
+                processed_reference_text = preprocess_for_japanese_metrics(reference_text)
                 reference_cache["entries"][cache_key] = {
                     "sample_id": sample_id,
                     "image_file": image_file,
@@ -1244,18 +1141,10 @@ def main() -> int:
             try:
                 predicted_text, runtime_ms = run_ocr_for_engine(image_path, engine_name)
                 metrics = build_metrics(reference_text, predicted_text)
-                missed_counter = count_missed_reference_chars(
-                    reference_text, predicted_text
-                )
-                confusion_counter = count_missed_char_confusions(
-                    reference_text, predicted_text
-                )
-                missed_chars_by_engine.setdefault(engine_name, Counter()).update(
-                    missed_counter
-                )
-                missed_confusions_by_engine.setdefault(engine_name, Counter()).update(
-                    confusion_counter
-                )
+                missed_counter = count_missed_reference_chars(reference_text, predicted_text)
+                confusion_counter = count_missed_char_confusions(reference_text, predicted_text)
+                missed_chars_by_engine.setdefault(engine_name, Counter()).update(missed_counter)
+                missed_confusions_by_engine.setdefault(engine_name, Counter()).update(confusion_counter)
                 per_sample_rows.append(
                     {
                         "sample_id": sample_id,
@@ -1273,12 +1162,8 @@ def main() -> int:
                 all_success = False
                 missed_counter = count_missed_reference_chars(reference_text, "")
                 confusion_counter = count_missed_char_confusions(reference_text, "")
-                missed_chars_by_engine.setdefault(engine_name, Counter()).update(
-                    missed_counter
-                )
-                missed_confusions_by_engine.setdefault(engine_name, Counter()).update(
-                    confusion_counter
-                )
+                missed_chars_by_engine.setdefault(engine_name, Counter()).update(missed_counter)
+                missed_confusions_by_engine.setdefault(engine_name, Counter()).update(confusion_counter)
                 per_sample_rows.append(
                     {
                         "sample_id": sample_id,
@@ -1297,9 +1182,7 @@ def main() -> int:
                         "cer_no_punct": 1.0,
                         "similarity_no_punct": 0.0,
                         "levenshtein_distance_no_punct": -1,
-                        "reference_length_no_punct": len(
-                            extract_japanese_chars(reference_text)
-                        ),
+                        "reference_length_no_punct": len(extract_japanese_chars(reference_text)),
                         "predicted_length_no_punct": 0,
                         "error": str(e),
                     }
@@ -1309,9 +1192,7 @@ def main() -> int:
     # every image and every required engine. Reruns do not move source files.
     if all_success and not args.rerun:
         for sample in pending_samples:
-            metadata_path = Path(
-                sample.get("source_metadata_path", sample["metadata_path"])
-            )
+            metadata_path = Path(sample.get("source_metadata_path", sample["metadata_path"]))
             image_path = Path(sample.get("source_image_path", sample["image_path"]))
             if metadata_path.exists():
                 shutil.move(str(metadata_path), str(processed_dir / metadata_path.name))
@@ -1332,20 +1213,10 @@ def main() -> int:
                 "successes": len(rows),
                 "failures": len(failures),
                 "avg_cer": statistics.fmean(r["cer"] for r in rows) if rows else None,
-                "avg_cer_no_punct": statistics.fmean(r["cer_no_punct"] for r in rows)
-                if rows
-                else None,
-                "avg_similarity": statistics.fmean(r["similarity"] for r in rows)
-                if rows
-                else None,
-                "avg_similarity_no_punct": statistics.fmean(
-                    r["similarity_no_punct"] for r in rows
-                )
-                if rows
-                else None,
-                "avg_runtime_ms": statistics.fmean(r["runtime_ms"] for r in rows)
-                if rows
-                else None,
+                "avg_cer_no_punct": statistics.fmean(r["cer_no_punct"] for r in rows) if rows else None,
+                "avg_similarity": statistics.fmean(r["similarity"] for r in rows) if rows else None,
+                "avg_similarity_no_punct": statistics.fmean(r["similarity_no_punct"] for r in rows) if rows else None,
+                "avg_runtime_ms": statistics.fmean(r["runtime_ms"] for r in rows) if rows else None,
                 "first_error": first_error,
             }
         )
@@ -1385,16 +1256,12 @@ def main() -> int:
         ]
         for engine, counter in missed_confusions_by_engine.items()
     }
-    with open(
-        results_dir / "missed_char_confusions_by_engine.json", "w", encoding="utf-8"
-    ) as f:
+    with open(results_dir / "missed_char_confusions_by_engine.json", "w", encoding="utf-8") as f:
         json.dump(missed_confusions_output, f, ensure_ascii=False, indent=2)
 
     if per_sample_rows:
         csv_fields = sorted({k for row in per_sample_rows for k in row.keys()})
-        with open(
-            results_dir / "per_sample_results.csv", "w", encoding="utf-8", newline=""
-        ) as f:
+        with open(results_dir / "per_sample_results.csv", "w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=csv_fields)
             writer.writeheader()
             writer.writerows(per_sample_rows)
@@ -1418,13 +1285,9 @@ def main() -> int:
     if all_success:
         print("Archived pending samples: yes (all engines succeeded on all images)")
     else:
-        print(
-            "Archived pending samples: no (at least one engine failed on at least one image)"
-        )
+        print("Archived pending samples: no (at least one engine failed on at least one image)")
     print(f"Loaded engines: {', '.join(loaded_engines)}")
-    print(
-        f"Reference cache hits/misses: {reference_cache_hits}/{reference_cache_misses}"
-    )
+    print(f"Reference cache hits/misses: {reference_cache_hits}/{reference_cache_misses}")
     print(f"Skipped non-Japanese reference samples: {skipped_non_japanese_references}")
     if missing_engines:
         print(f"Missing engines: {', '.join(missing_engines)}")
@@ -1443,9 +1306,7 @@ def main() -> int:
         if row["engine"] in missed_confusions_by_engine:
             top_confusions = missed_confusions_by_engine[row["engine"]].most_common(10)
             if top_confusions:
-                top_confusions_str = ", ".join(
-                    [f"{r}->{p}:{c}" for (r, p), c in top_confusions]
-                )
+                top_confusions_str = ", ".join([f"{r}->{p}:{c}" for (r, p), c in top_confusions])
                 print(f"  top_missed_confusions: {top_confusions_str}")
     print(f"Total runtime: {time.time() - start_time:.2f} seconds")
     return 0

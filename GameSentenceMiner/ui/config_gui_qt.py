@@ -179,6 +179,7 @@ class ConfigWindow(QWidget):
 
     def __init__(self):
         super().__init__()
+        self._active_overlay_selector = None
         self.test_func = None
         self.on_exit = None
         self.first_launch = True
@@ -461,15 +462,15 @@ class ConfigWindow(QWidget):
 
     def show_area_selector_success_indicator(self):
         """Shows a temporary success indicator for area selection completion."""
-        # Get localized text or use default for area selection
-        success_text = self.i18n.get("overlay", {}).get("area_selection_complete", "笨・Area Selection Complete!")
+        # Get localized text or use default for area selection, including a checkmark emoji
+        success_text = self.i18n.get("buttons", {}).get("area_selection_complete", "✓ Area Selection Complete!")
 
         self.save_status_label.setText(success_text)
         self.save_status_label.show()
 
         # Reset to default "Settings Saved" text after 3 seconds
         def reset_to_default():
-            default_text = self.i18n.get("buttons", {}).get("save_success", "笨・Settings Saved Successfully!")
+            default_text = self.i18n.get("buttons", {}).get("save_success", "✓ Settings Saved Successfully!")
             self.save_status_label.setText(default_text)
             self.save_status_label.hide()
 
@@ -813,6 +814,7 @@ class ConfigWindow(QWidget):
                     password=self.obs_password_edit.text(),
                     open_obs=self.obs_open_obs_check.isChecked(),
                     close_obs=self.obs_close_obs_check.isChecked(),
+                    allow_automatic_updates=self.obs_allow_automatic_updates_check.isChecked(),
                     obs_path=self.obs_path_edit.text(),
                     disable_recording=self.obs_disable_recording_check.isChecked(),
                     automatically_manage_replay_buffer=self.automatically_manage_replay_buffer_check.isChecked(),
@@ -918,7 +920,8 @@ class ConfigWindow(QWidget):
                     periodic_ratio=periodic_ratio,
                     periodic_interval=float(self.periodic_interval_edit.text() or 0.0),
                     minimum_character_size=int(self.overlay_minimum_character_size_edit.text() or 0),
-                    use_ocr_area_config=self.use_ocr_area_config_check.isChecked(),
+                    use_overlay_area_config=self.use_overlay_area_config_check.isChecked(),
+                    use_ocr_area_config_v2=self.use_ocr_area_config_check.isChecked(),
                     ocr_area_config_include_primary_areas=self.ocr_area_config_include_primary_areas_check.isChecked(),
                     ocr_area_config_include_secondary_areas=self.ocr_area_config_include_secondary_areas_check.isChecked(),
                     ocr_area_config_use_exclusion_zones=self.ocr_area_config_use_exclusion_zones_check.isChecked(),
@@ -1290,6 +1293,7 @@ class ConfigWindow(QWidget):
         # OBS
         self.obs_open_obs_check = QCheckBox()
         self.obs_close_obs_check = QCheckBox()
+        self.obs_allow_automatic_updates_check = QCheckBox()
         self.obs_path_edit = QLineEdit()
         self.obs_host_edit = QLineEdit()
         self.obs_port_edit = QLineEdit()
@@ -1367,6 +1371,7 @@ class ConfigWindow(QWidget):
         self.number_of_local_scans_per_event_edit = QLineEdit()
         self.overlay_minimum_character_size_edit = QLineEdit()
         self.manual_overlay_scan_hotkey_edit = QKeySequenceEdit()
+        self.use_overlay_area_config_check = QCheckBox()
         self.use_ocr_area_config_check = QCheckBox()
         self.ocr_area_config_include_primary_areas_check = QCheckBox()
         self.ocr_area_config_include_secondary_areas_check = QCheckBox()
@@ -2709,6 +2714,7 @@ class ConfigWindow(QWidget):
         # OBS
         self.obs_open_obs_check.setChecked(s.obs.open_obs)
         self.obs_close_obs_check.setChecked(s.obs.close_obs)
+        self.obs_allow_automatic_updates_check.setChecked(getattr(s.obs, "allow_automatic_updates", False))
         self.obs_path_edit.setText(s.obs.obs_path)
         self.obs_host_edit.setText(s.obs.host)
         self.obs_port_edit.setText(str(s.obs.port))
@@ -2800,7 +2806,8 @@ class ConfigWindow(QWidget):
         # self.number_of_local_scans_per_event_edit.setText(str(s.overlay.number_of_local_scans_per_event))
         self.overlay_minimum_character_size_edit.setText(str(s.overlay.minimum_character_size))
         self.manual_overlay_scan_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.manual_overlay_scan or ""))
-        self.use_ocr_area_config_check.setChecked(s.overlay.use_ocr_area_config)
+        self.use_overlay_area_config_check.setChecked(bool(getattr(s.overlay, "use_overlay_area_config", False)))
+        self.use_ocr_area_config_check.setChecked(s.overlay.use_ocr_area_config_v2)
         self.ocr_area_config_include_primary_areas_check.setChecked(
             bool(getattr(s.overlay, "ocr_area_config_include_primary_areas", True))
         )
@@ -3431,14 +3438,73 @@ class ConfigWindow(QWidget):
         self.save_settings()
 
     def on_selector_finished(self):
-        """Called via signal when the subprocess ends."""
+        """Called via signal when the selector closes."""
+        self._active_overlay_selector = None
         self.showNormal()  # Restores the window
         self.activateWindow()  # Brings it to front
         self.show_area_selector_success_indicator()  # Show success feedback
 
-    def open_monitor_area_selector(self):
-        """Launch the monitor area selector as a separate subprocess."""
+    def _launch_overlay_selector_in_process(self, launch_fn, failure_message: str):
+        """Launch the overlay selector inside the current Qt process after minimizing the config window."""
+        # self.showMinimized()
+
+        def delayed_launch():
+            try:
+                self._active_overlay_selector = launch_fn(lambda _rectangles: self._selector_finished_signal.emit())
+            except Exception as e:
+                logger.exception(f"{failure_message}: {e}")
+                self._active_overlay_selector = None
+                self._selector_finished_signal.emit()
+
+        QTimer.singleShot(1, delayed_launch)
+
+    def open_overlay_area_selector(self):
+        """Open the dedicated overlay area selector."""
         try:
+            from GameSentenceMiner.ocr.owocr_area_selector_qt import show_area_selector
+            from GameSentenceMiner.util.platform.window_state_monitor import WindowStateMonitor
+
+            window_monitor = WindowStateMonitor()
+            hwnd = window_monitor.find_target_hwnd()
+            can_use_obs_window = bool(hwnd)
+        except Exception as e:
+            logger.debug(f"Failed to resolve overlay HWND for selector launch: {e}")
+            can_use_obs_window = False
+
+        if not can_use_obs_window:
+            logger.info("No overlay HWND found; falling back to monitor-based overlay area selection")
+            self.open_monitor_area_selector()
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Prepare for Overlay Area Selection",
+            "The config gui will minimize and the overlay area selector will open in 1 second after you click OK.\n\n"
+            "Ready to continue?",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Ok,
+        )
+
+        if reply != QMessageBox.StandardButton.Ok:
+            logger.info("Overlay area selector cancelled by user")
+            return
+
+        logger.info("Launching overlay area selector in OBS mode")
+        self._launch_overlay_selector_in_process(
+            lambda callback: show_area_selector(
+                "",
+                use_obs_screenshot=True,
+                on_complete=callback,
+                overlay_config_mode=True,
+            ),
+            "Failed to launch overlay area selector",
+        )
+
+    def open_monitor_area_selector(self):
+        """Launch the monitor-based overlay area selector inside the current Qt process."""
+        try:
+            from GameSentenceMiner.ocr.owocr_area_selector_qt import show_monitor_selector
+
             monitor_index = int(self.overlay_monitor_combo.currentIndex() or 0)
         except (ValueError, AttributeError):
             monitor_index = 0
@@ -3446,9 +3512,9 @@ class ConfigWindow(QWidget):
         # Show confirmation dialog
         reply = QMessageBox.question(
             self,  # Use self as parent so it centers on app
-            "Prepare for Area Selection",
+            "Prepare for Overlay Area Selection",
             f"Make sure your game is visible on Monitor {monitor_index + 1} before proceeding.\n\n"
-            "The config gui will minimize and the area selector will open in 1 second after you click OK.\n\n"
+            "The config gui will minimize and the overlay area selector will open in 1 second after you click OK.\n\n"
             "Ready to continue?",
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Ok,
@@ -3458,54 +3524,16 @@ class ConfigWindow(QWidget):
             logger.info("Monitor area selector cancelled by user")
             return
 
-        # Hide the config GUI NOW, before the thread starts
-        self.showMinimized()
-
         logger.info(f"Launching monitor area selector for monitor {monitor_index}")
+        self._launch_overlay_selector_in_process(
+            lambda callback: show_monitor_selector(
+                monitor_index=monitor_index,
+                on_complete=callback,
+                overlay_config_mode=True,
+            ),
+            "Failed to launch monitor area selector",
+        )
 
-        def delayed_launch():
-            try:
-                time.sleep(1)
-                python_executable = sys.executable
-
-                # 2. Add flags to completely detach the process (Windows specific optimization)
-                creationflags = 0
-                if sys.platform == "win32":
-                    creationflags = subprocess.CREATE_NO_WINDOW
-
-                cmd = [
-                    python_executable,
-                    "-m",
-                    "GameSentenceMiner.ocr.owocr_area_selector_qt",
-                    "--monitor",
-                    str(monitor_index),
-                ]
-
-                # 3. Use Popen with DEVNULL for all pipes to prevent deadlocks
-                #    using .wait() keeps this thread alive until the selector closes
-                process = subprocess.Popen(
-                    cmd,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    creationflags=creationflags,
-                )
-
-                process.wait()  # Wait for the selector to be closed by the user
-
-                logger.info("Monitor area selector finished")
-
-            except Exception as e:
-                logger.exception(f"Failed to launch monitor area selector: {e}")
-
-            finally:
-                # 4. Emit signal to restore window (Thread-safe way)
-                self._selector_finished_signal.emit()
-
-        # Start the background thread
-        threading.Thread(target=delayed_launch, daemon=True).start()
-
-        # REMOVED: self.show()
         # (It is now handled by the signal after the process dies)
 
     def refresh_ai_models(self, provider=None):

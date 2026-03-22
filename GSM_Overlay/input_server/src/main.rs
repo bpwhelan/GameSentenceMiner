@@ -330,6 +330,23 @@ struct SudachiService {
     loaded_signature: Option<String>,
 }
 
+/// Emit a structured JSON progress message to stdout for Electron to parse.
+/// Format: GSMPROGRESS:{"stage":"...","percent":N,"totalBytes":N,"error":"..."}
+fn emit_sudachi_progress(stage: &str, percent: u64, total_bytes: Option<u64>, error: Option<&str>) {
+    let mut msg = json!({
+        "stage": stage,
+        "percent": percent,
+    });
+    if let Some(total) = total_bytes {
+        msg["totalBytes"] = json!(total);
+    }
+    if let Some(err) = error {
+        msg["error"] = json!(err);
+    }
+    // Print to stdout with a recognizable prefix for Electron to parse
+    println!("GSMPROGRESS:{}", msg);
+}
+
 impl SudachiService {
     fn new(
         data_dir: PathBuf,
@@ -377,6 +394,7 @@ impl SudachiService {
         ));
         let dict_path = version_dir.join(format!("system_{}.dic", self.dictionary_kind.as_str()));
         if dict_path.is_file() {
+            emit_sudachi_progress("ready", 100, None, None);
             return Ok(dict_path);
         }
 
@@ -388,41 +406,87 @@ impl SudachiService {
             SUDACHI_DICT_RELEASE,
             self.dictionary_kind.as_str()
         );
+        emit_sudachi_progress("downloading", 0, None, None);
+
         let client = HttpClient::builder()
             .user_agent("gsm-overlay-server/0.1.0")
             .build()
-            .map_err(|e| format!("failed to build Sudachi HTTP client: {e}"))?;
-        let response = client
+            .map_err(|e| {
+                let msg = format!("failed to build Sudachi HTTP client: {e}");
+                emit_sudachi_progress("error", 0, None, Some(&msg));
+                msg
+            })?;
+        let mut response = client
             .get(self.dictionary_kind.download_url())
             .send()
             .await
-            .map_err(|e| format!("failed to download Sudachi dictionary: {e}"))?;
+            .map_err(|e| {
+                let msg = format!("failed to download Sudachi dictionary: {e}");
+                emit_sudachi_progress("error", 0, None, Some(&msg));
+                msg
+            })?;
         let status = response.status();
         if !status.is_success() {
-            return Err(format!(
-                "failed to download Sudachi dictionary: HTTP {}",
-                status
-            ));
+            let msg = format!("failed to download Sudachi dictionary: HTTP {}", status);
+            emit_sudachi_progress("error", 0, None, Some(&msg));
+            return Err(msg);
         }
-        let zip_bytes = response
-            .bytes()
-            .await
-            .map_err(|e| format!("failed to read Sudachi dictionary archive: {e}"))?;
-        let digest = sha256_hex(zip_bytes.as_ref());
+
+        let total_size = response.content_length();
+        let mut downloaded: u64 = 0;
+        let mut zip_bytes = Vec::with_capacity(total_size.unwrap_or(0) as usize);
+        let mut last_progress_pct: u64 = 0;
+
+        // Stream download with progress
+        loop {
+            match response.chunk().await {
+                Ok(Some(chunk)) => {
+                    downloaded += chunk.len() as u64;
+                    zip_bytes.extend_from_slice(&chunk);
+                    if let Some(total) = total_size {
+                        if total > 0 {
+                            let pct = (downloaded * 100) / total;
+                            // Emit at most every 2% to avoid flooding
+                            if pct >= last_progress_pct + 2 || pct == 100 {
+                                emit_sudachi_progress("downloading", pct, total_size, None);
+                                last_progress_pct = pct;
+                            }
+                        }
+                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    let msg = format!("failed to read Sudachi dictionary archive: {e}");
+                    emit_sudachi_progress("error", 0, total_size, Some(&msg));
+                    return Err(msg);
+                }
+            }
+        }
+
+        emit_sudachi_progress("verifying", 100, total_size, None);
+        let digest = sha256_hex(&zip_bytes);
         if digest != self.dictionary_kind.zip_sha256() {
-            return Err(format!(
+            let msg = format!(
                 "Sudachi dictionary checksum mismatch: expected {}, got {digest}",
                 self.dictionary_kind.zip_sha256()
-            ));
+            );
+            emit_sudachi_progress("error", 0, total_size, Some(&msg));
+            return Err(msg);
         }
 
+        emit_sudachi_progress("extracting", 100, total_size, None);
         let dict_path_for_extract = dict_path.clone();
         tokio::task::spawn_blocking(move || {
-            extract_sudachi_dictionary(zip_bytes.as_ref(), &dict_path_for_extract)
+            extract_sudachi_dictionary(&zip_bytes, &dict_path_for_extract)
         })
         .await
-        .map_err(|e| format!("Sudachi extraction task failed: {e}"))??;
+        .map_err(|e| {
+            let msg = format!("Sudachi extraction task failed: {e}");
+            emit_sudachi_progress("error", 0, None, Some(&msg));
+            msg
+        })??;
 
+        emit_sudachi_progress("done", 100, total_size, None);
         info!("Sudachi dictionary ready at {}", dict_path.display());
         Ok(dict_path)
     }
@@ -806,14 +870,7 @@ fn default_overlay_data_dir() -> PathBuf {
 }
 
 fn resolve_sudachi_data_dir() -> PathBuf {
-    if let Ok(path) = std::env::var("GSM_OVERLAY_DATA_PATH") {
-        let trimmed = path.trim();
-        if !trimmed.is_empty() {
-            return PathBuf::from(trimmed);
-        }
-    }
-
-    default_overlay_data_dir()
+    default_gsm_app_data_dir()
 }
 
 fn default_gsm_app_data_dir() -> PathBuf {

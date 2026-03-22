@@ -476,6 +476,10 @@
             "label": "关闭 OBS:",
             "tooltip": "GSM 关闭时关闭 OBS。"
           },
+          "allow_automatic_updates": {
+            "label": "允许 OBS 自行更新（高级）:",
+            "tooltip": "默认保持关闭，这样启动 OBS 时会禁用更新。只有当您希望 OBS 在 GSM 之外自行管理更新时才启用。"
+          },
           "obs_path": {
             "label": "OBS 路径:",
             "tooltip": "OBS 可执行文件的路径。留空使用默认路径。"
@@ -656,6 +660,14 @@
             "tooltip": "在停止或将结果发送到OCR引擎之前，每个事件执行的本地扫描次数。"
           }
           ,
+          "use_overlay_area_config": {
+            "label": "使用独立覆盖层区域（推荐）:",
+            "tooltip": "使用覆盖层专用区域配置，而不是复用 OCR 区域配置。启用后会优先于 OCR 区域配置选项。"
+          },
+          "overlay_area_selector_button": {
+            "label": "设置区域",
+            "tooltip": "为当前覆盖层显示器打开专用覆盖层区域选择器。"
+          },
           "use_ocr_area_config": {
             "label": "使用 OCR 区域配置:",
             "tooltip": "启用时，覆盖层扫描将使用预定义的 OCR 区域配置，而不是尝试自动检测区域。适用于仅扫描特定区域（例如字幕）的场景，可减少计算量并降低误报。"

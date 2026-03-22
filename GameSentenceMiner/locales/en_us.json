@@ -484,6 +484,10 @@
             "label": "Close OBS:",
             "tooltip": "Close OBS when the GSM closes."
           },
+          "allow_automatic_updates": {
+            "label": "Allow OBS to Update Itself (Advanced):",
+            "tooltip": "Leave this off to start OBS with updates disabled. Turn it on only if you want OBS to manage its own updates outside GSM."
+          },
           "obs_path": {
             "label": "OBS Path:",
             "tooltip": "Path to the OBS executable. Leave blank to use the default path."
@@ -700,6 +704,14 @@
             "tooltip": "How many local scans to perform per text event (agent, textractor, etc.) before stopping or sending results to the OCR engine. .1s delay between scans for now."
           }
           ,
+          "use_overlay_area_config": {
+            "label": "Use Dedicated Overlay Area (Recommended):",
+            "tooltip": "Use a dedicated overlay-only area config instead of reusing the OCR area config. When enabled, this takes priority over OCR area config options."
+          },
+          "overlay_area_selector_button": {
+            "label": "Set Area",
+            "tooltip": "Open the dedicated overlay area selector for the current overlay monitor."
+          },
           "use_ocr_area_config": {
             "label": "Use OCR Area Config:",
             "tooltip": "When enabled, uses the predefined OCR area configuration for overlay scans instead of attempting automatic region detection. Useful when the overlay should scan only a specific region (e.g., subtitle area); reduces processing and false positives."

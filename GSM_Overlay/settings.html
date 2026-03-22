@@ -552,6 +552,91 @@
       font-style: italic;
     }
 
+    /* Sudachi download progress bar */
+    .sudachi-progress-container {
+      display: none;
+      margin: 10px 0;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(76, 175, 80, 0.2);
+      background: rgba(0, 0, 0, 0.25);
+    }
+
+    .sudachi-progress-container.visible {
+      display: block;
+    }
+
+    .sudachi-progress-container.error {
+      border-color: rgba(244, 67, 54, 0.35);
+      background: rgba(244, 67, 54, 0.08);
+    }
+
+    .sudachi-progress-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+
+    .sudachi-progress-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #c8e6c9;
+    }
+
+    .sudachi-progress-container.error .sudachi-progress-label {
+      color: #ef9a9a;
+    }
+
+    .sudachi-progress-percent {
+      font-size: 11px;
+      color: #aaa;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .sudachi-progress-track {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .sudachi-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #4CAF50, #66BB6A);
+      border-radius: 3px;
+      transition: width 0.3s ease;
+    }
+
+    .sudachi-progress-container.error .sudachi-progress-fill {
+      background: linear-gradient(90deg, #f44336, #ef5350);
+    }
+
+    .sudachi-progress-error {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #ef9a9a;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .sudachi-progress-container.done .sudachi-progress-fill {
+      background: linear-gradient(90deg, #4CAF50, #81C784);
+    }
+
+    .sudachi-progress-container.extracting .sudachi-progress-fill,
+    .sudachi-progress-container.verifying .sudachi-progress-fill {
+      background: linear-gradient(90deg, #FFA726, #FFB74D);
+      animation: sudachi-progress-pulse 1.2s ease-in-out infinite;
+    }
+
+    @keyframes sudachi-progress-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
     /* Hotkey capture styling */
     input:focus.capturing-hotkey {
       background: rgba(76, 175, 80, 0.2) !important;
@@ -690,7 +775,7 @@
       <label>
         <span class="label-text">
           Calibrate/Reset Offset
-          <div class="hotkey-info">Opens a tool to help you find the correct offset for your setup, or resets current offsets to 0.</div>
+          <div class="hotkey-info">Opens a full-screen helper that shows the latest OCR text, supports 1px arrow-key nudging, and saves the new offset back here. Reset sets both offsets to 0.</div>
         </span>
         <div class="input-container">
           <button type="button" id="openOffsetHelper" class="guide-button">Calibrate</button>
@@ -825,6 +910,16 @@
           <option value="full">Full</option>
         </select>
       </label>
+      <div id="sudachiProgressContainer" class="sudachi-progress-container" data-tokenizer-setting="sudachi">
+        <div class="sudachi-progress-header">
+          <span id="sudachiProgressLabel" class="sudachi-progress-label">Downloading Sudachi dictionary...</span>
+          <span id="sudachiProgressPercent" class="sudachi-progress-percent"></span>
+        </div>
+        <div class="sudachi-progress-track">
+          <div id="sudachiProgressFill" class="sudachi-progress-fill"></div>
+        </div>
+        <div id="sudachiProgressError" class="sudachi-progress-error" style="display: none;"></div>
+      </div>
       <label id="furiganaYomitanApiUrlLabel" data-tokenizer-setting="yomitan-url">
         <span class="label-text">
           Yomitan API URL
@@ -2769,6 +2864,93 @@
 
     ipcRenderer.on("websocket-opened", (event, type) => {
       updateWebSocketStatus(type, true);
+    });
+
+    // ==================== Sudachi Download Progress ====================
+
+    const SUDACHI_STAGE_LABELS = {
+      ready: "Dictionary already downloaded ✓",
+      downloading: "Downloading Sudachi dictionary...",
+      verifying: "Verifying checksum...",
+      extracting: "Extracting dictionary...",
+      done: "Sudachi dictionary ready!",
+      error: "Download failed",
+    };
+
+    function updateSudachiProgress(data) {
+      const container = document.getElementById("sudachiProgressContainer");
+      const label = document.getElementById("sudachiProgressLabel");
+      const percent = document.getElementById("sudachiProgressPercent");
+      const fill = document.getElementById("sudachiProgressFill");
+      const errorEl = document.getElementById("sudachiProgressError");
+      if (!container) return;
+
+      const stage = data.stage || "downloading";
+      const pct = Math.min(100, Math.max(0, data.percent || 0));
+
+      // Remove all state classes
+      container.classList.remove("error", "done", "extracting", "verifying", "ready");
+
+      if (stage === "ready") {
+        container.classList.add("visible", "done", "ready");
+        label.textContent = SUDACHI_STAGE_LABELS.ready;
+        percent.textContent = "";
+        fill.style.width = "100%";
+        errorEl.style.display = "none";
+        // Auto-hide after 3 seconds
+        setTimeout(() => {
+          container.classList.remove("visible");
+        }, 3000);
+        return;
+      }
+
+      if (stage === "error") {
+        container.classList.add("visible", "error");
+        label.textContent = SUDACHI_STAGE_LABELS.error;
+        percent.textContent = "";
+        fill.style.width = "100%";
+        errorEl.textContent = data.error || "Unknown error";
+        errorEl.style.display = "block";
+        return;
+      }
+
+      if (stage === "done") {
+        container.classList.add("visible", "done");
+        label.textContent = SUDACHI_STAGE_LABELS.done;
+        percent.textContent = "";
+        fill.style.width = "100%";
+        errorEl.style.display = "none";
+        // Auto-hide after 4 seconds
+        setTimeout(() => {
+          container.classList.remove("visible");
+        }, 4000);
+        return;
+      }
+
+      container.classList.add("visible");
+      if (stage === "extracting" || stage === "verifying") {
+        container.classList.add(stage);
+      }
+      label.textContent = SUDACHI_STAGE_LABELS[stage] || stage;
+      errorEl.style.display = "none";
+
+      if (stage === "downloading") {
+        fill.style.width = pct + "%";
+        if (data.totalBytes) {
+          const downloadedMB = ((data.totalBytes * pct) / 100 / 1024 / 1024).toFixed(1);
+          const totalMB = (data.totalBytes / 1024 / 1024).toFixed(1);
+          percent.textContent = `${downloadedMB} / ${totalMB} MB (${pct}%)`;
+        } else {
+          percent.textContent = pct > 0 ? pct + "%" : "";
+        }
+      } else {
+        fill.style.width = "100%";
+        percent.textContent = "";
+      }
+    }
+
+    ipcRenderer.on("sudachi-progress", (event, data) => {
+      updateSudachiProgress(data);
     });
 
     ipcRenderer.on("update-offset-values", (event, { offsetX, offsetY }) => {

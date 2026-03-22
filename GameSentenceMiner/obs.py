@@ -68,6 +68,17 @@ longplay_handler = LongPlayHandler(
 
 
 VIDEO_SOURCE_KINDS = {"window_capture", "game_capture", "monitor_capture"}
+HELPER_SCENE_NAMES = {"GSM Helper - DONT TOUCH"}
+HELPER_SOURCE_NAMES = {"window_getter", "game_window_getter"}
+
+
+def _should_skip_image_validation(source_name: Optional[str] = None, scene_name: Optional[str] = None) -> bool:
+    normalized_scene_name = str(scene_name or "").strip().casefold()
+    if normalized_scene_name in {name.casefold() for name in HELPER_SCENE_NAMES}:
+        return True
+
+    normalized_source_name = str(source_name or "").strip().casefold()
+    return normalized_source_name in {name.casefold() for name in HELPER_SOURCE_NAMES}
 
 
 def _is_obs_recording_disabled(config_override=None) -> bool:
@@ -897,6 +908,51 @@ def _resolve_obs_launch_command(obs_path: str):
     return None, None
 
 
+def _remove_obs_startup_artifact(path: str, label: str) -> None:
+    if not os.path.exists(path):
+        return
+
+    try:
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
+        logger.debug(f"Deleted OBS startup {label}: {path}")
+    except Exception as e:
+        logger.error(f"Failed to delete OBS startup {label}: {e}")
+
+
+def _cleanup_obs_startup_artifacts(app_directory: str = None) -> None:
+    base_config_dir = os.path.join(
+        app_directory or configuration.get_app_directory(),
+        "obs-studio",
+        "config",
+        "obs-studio",
+    )
+    _remove_obs_startup_artifact(os.path.join(base_config_dir, ".sentinel"), "sentinel")
+    _remove_obs_startup_artifact(
+        os.path.join(
+            base_config_dir,
+            "plugin_config",
+            "advanced-scene-switcher",
+            ".running",
+        ),
+        "advanced-scene-switcher running file",
+    )
+
+
+def _build_obs_launch_command(base_cmd: list[str], config_override=None) -> list[str]:
+    cfg = config_override or get_config()
+    obs_cfg = cfg.obs
+
+    obs_cmd = [*base_cmd, "--disable-shutdown-check", "--portable"]
+    if not getattr(obs_cfg, "allow_automatic_updates", False):
+        obs_cmd.append("--disable-updater")
+    if not getattr(obs_cfg, "disable_recording", False):
+        obs_cmd.append("--startreplaybuffer")
+    return obs_cmd
+
+
 def is_process_running(pid):
     try:
         process = psutil.Process(pid)
@@ -938,26 +994,8 @@ def start_obs(force_restart=False):
         print(f"OBS not found at {obs_path}. Please install OBS.")
         return None
     try:
-        sentinel_folder = os.path.join(
-            configuration.get_app_directory(),
-            "obs-studio",
-            "config",
-            "obs-studio",
-            ".sentinel",
-        )
-        if os.path.exists(sentinel_folder):
-            try:
-                if os.path.isdir(sentinel_folder):
-                    shutil.rmtree(sentinel_folder)
-                else:
-                    os.remove(sentinel_folder)
-                logger.debug(f"Deleted sentinel folder: {sentinel_folder}")
-            except Exception as e:
-                logger.error(f"Failed to delete sentinel folder: {e}")
-
-        obs_cmd = [*base_cmd, "--disable-shutdown-check", "--portable"]
-        if not get_config().obs.disable_recording:
-            obs_cmd.append("--startreplaybuffer")
+        _cleanup_obs_startup_artifacts()
+        obs_cmd = _build_obs_launch_command(base_cmd)
         obs_process = subprocess.Popen(obs_cmd, cwd=base_cwd)
         obs_process_pid = obs_process.pid
         with open(OBS_PID_FILE, "w") as f:
@@ -1871,6 +1909,7 @@ def get_screenshot_PIL(
         return None
 
     priority_map = {"window_capture": 0, "game_capture": 1, "monitor_capture": 2}
+    current_scene_name = gsm_state.current_game or (obs_service.state.current_scene if obs_service else None)
 
     sorted_sources = sorted(current_sources, key=lambda x: priority_map.get(x.get("inputKind"), 999))
 
@@ -1901,6 +1940,8 @@ def get_screenshot_PIL(
             continue
 
         img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
+        if _should_skip_image_validation(found_source_name, current_scene_name):
+            return source if return_source_dict else img
 
         try:
             lo, hi = img.getextrema()

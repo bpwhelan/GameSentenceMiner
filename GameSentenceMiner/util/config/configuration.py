@@ -977,6 +977,7 @@ class Audio:
 class OBS:
     open_obs: bool = True
     close_obs: bool = True
+    allow_automatic_updates: bool = False
     disable_recording: bool = False
     automatically_manage_replay_buffer: bool = True
     host: str = "127.0.0.1"
@@ -1258,7 +1259,8 @@ class Overlay:
     periodic_interval: float = 1.0
     periodic_ratio: float = 0.9
     minimum_character_size: int = 0
-    use_ocr_area_config: bool = False
+    use_overlay_area_config: bool = False
+    use_ocr_area_config_v2: bool = False
     ocr_area_config_include_primary_areas: bool = True
     ocr_area_config_include_secondary_areas: bool = True
     ocr_area_config_use_exclusion_zones: bool = True
@@ -2200,7 +2202,7 @@ if is_windows():
     sys.stderr.reconfigure(encoding="utf-8")
 
 # Import the new logging system
-from GameSentenceMiner.util.logging_config import (
+from GameSentenceMiner.util.logging_config import (  # noqa: E402
     logger,
     initialize_logging,
     cleanup_old_logs,

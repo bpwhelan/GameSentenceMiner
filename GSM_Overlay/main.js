@@ -562,6 +562,7 @@ function publishOverlaySocketData(type, data) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("overlay-websocket-data", { type, data });
   }
+  sendOffsetHelperData();
 }
 
 function handleOverlayWebSocketControlMessage(type, data) {
@@ -880,7 +881,23 @@ async function startGamepadServer(reason = "unknown") {
       gamepadServerProcess = serverProcess;
 
       serverProcess.stdout.on('data', (data) => {
-        console.log(`[GamepadServer] ${data.toString().trim()}`);
+        const lines = data.toString().split('\n');
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          if (trimmed.startsWith('GSMPROGRESS:')) {
+            try {
+              const progressData = JSON.parse(trimmed.slice('GSMPROGRESS:'.length));
+              if (settingsWindow && !settingsWindow.isDestroyed()) {
+                settingsWindow.webContents.send('sudachi-progress', progressData);
+              }
+            } catch (e) {
+              console.warn('[GamepadServer] Failed to parse progress message:', trimmed);
+            }
+          } else {
+            console.log(`[GamepadServer] ${trimmed}`);
+          }
+        }
       });
 
       serverProcess.stderr.on('data', (data) => {
@@ -2508,10 +2525,54 @@ function openJitenReaderSettings() {
   }, 500);
 }
 
+function parseOffsetHelperTextData(rawData) {
+  if (rawData === null || rawData === undefined || rawData === "") {
+    return null;
+  }
+
+  if (typeof rawData !== "string") {
+    return rawData;
+  }
+
+  try {
+    return JSON.parse(rawData);
+  } catch (e) {
+    return { sentence: rawData };
+  }
+}
+
+function sendOffsetHelperData(windowBounds = null) {
+  if (!offsetHelperWindow || offsetHelperWindow.isDestroyed()) {
+    return;
+  }
+
+  const bounds = windowBounds || offsetHelperWindow.getBounds();
+  const safeBounds = {
+    width: Number(bounds?.width) || 0,
+    height: Number(bounds?.height) || 0,
+  };
+
+  try {
+    offsetHelperWindow.webContents.send("text-data", {
+      textData: parseOffsetHelperTextData(lastWebsocketData),
+      settings: {
+        offsetX: userSettings.offsetX || 0,
+        offsetY: userSettings.offsetY || 0,
+        fontSize: userSettings.fontSize || 42,
+      },
+      windowBounds: safeBounds,
+      receivedAt: Date.now(),
+    });
+  } catch (e) {
+    console.warn("[OffsetHelper] Failed to send helper data:", e);
+  }
+}
+
 function openOffsetHelper() {
   if (offsetHelperWindow && !offsetHelperWindow.isDestroyed()) {
     ensureMainWindowIsOnConnectedDisplay("openOffsetHelper-existing");
     syncOverlayWindowsToCurrentMonitor("openOffsetHelper-existing", { includeMain: false, includeTexthooker: false, includeOffsetHelper: true });
+    sendOffsetHelperData();
     offsetHelperWindow.show();
     offsetHelperWindow.focus();
     return;
@@ -2533,11 +2594,22 @@ function openOffsetHelper() {
     title: "Offset Helper",
     fullscreen: false,
     skipTaskbar: false,
+    focusable: true,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
     },
   });
+
+  offsetHelperWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  offsetHelperWindow.setAlwaysOnTop(true, "screen-saver");
+  if (typeof offsetHelperWindow.moveTop === "function") {
+    try {
+      offsetHelperWindow.moveTop();
+    } catch (e) {
+      console.warn("[OffsetHelper] Failed to move window to top:", e);
+    }
+  }
 
   console.log(display.bounds);
   console.log(offsetHelperWindow.getBounds());
@@ -2545,22 +2617,15 @@ function openOffsetHelper() {
   loadOverlayPage(offsetHelperWindow, "offset-helper.html");
 
   offsetHelperWindow.webContents.on('did-finish-load', () => {
-    if (lastWebsocketData) {
-      // The data from the websocket is a string, so we need to parse it
-      let parsedData = {};
-      try {
-        parsedData = JSON.parse(lastWebsocketData);
-      } catch (e) {
-        // If it's not a JSON string, we can't do much with it
-        console.error("Could not parse websocket data for offset helper:", e);
-        // Send something to at least open the window with some text
-        parsedData = { sentence: lastWebsocketData };
-      }
-      offsetHelperWindow.webContents.send('text-data', {
-        textData: parsedData,
-        settings: userSettings,
-        windowBounds: { width: overlayBounds.width, height: overlayBounds.height }
-      });
+    sendOffsetHelperData({ width: overlayBounds.width, height: overlayBounds.height });
+  });
+
+  offsetHelperWindow.on("show", () => {
+    try {
+      offsetHelperWindow.setAlwaysOnTop(true, "screen-saver");
+      offsetHelperWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    } catch (e) {
+      console.warn("[OffsetHelper] Failed to reassert topmost state:", e);
     }
   });
 

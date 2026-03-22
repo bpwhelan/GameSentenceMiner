@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 )
 from typing import TYPE_CHECKING
 
+from GameSentenceMiner.ui.config.labels import LabelColor
 from GameSentenceMiner.util.docs import DOCS_URLS
 
 if TYPE_CHECKING:
@@ -84,21 +85,30 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "overlay", "minimum_character_size"),
         min_char_widget,
     )
-    main_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "overlay", "use_ocr_area_config"),
-        window.use_ocr_area_config_check,
+    overlay_area_controls_widget = QWidget()
+    overlay_area_controls_layout = QHBoxLayout(overlay_area_controls_widget)
+    overlay_area_controls_layout.setContentsMargins(0, 0, 0, 0)
+    overlay_area_controls_layout.addWidget(window.use_overlay_area_config_check)
+    open_overlay_area_selector_button = QPushButton(
+        tabs_i18n.get("overlay", {}).get("overlay_area_selector_button", {}).get("label", "Open Overlay Area Selector")
     )
-    main_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "overlay", "ocr_area_config_include_primary_areas"),
-        window.ocr_area_config_include_primary_areas_check,
+    open_overlay_area_selector_button.setToolTip(
+        tabs_i18n.get("overlay", {})
+        .get("overlay_area_selector_button", {})
+        .get("tooltip", "Open the dedicated overlay area selector for the current monitor.")
     )
+    open_overlay_area_selector_button.clicked.connect(window.open_overlay_area_selector)
+    overlay_area_controls_layout.addWidget(open_overlay_area_selector_button)
+    overlay_area_controls_layout.addStretch(1)
     main_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "overlay", "ocr_area_config_include_secondary_areas"),
-        window.ocr_area_config_include_secondary_areas_check,
-    )
-    main_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "overlay", "ocr_area_config_use_exclusion_zones"),
-        window.ocr_area_config_use_exclusion_zones_check,
+        window._create_labeled_widget(
+            tabs_i18n,
+            "overlay",
+            "use_overlay_area_config",
+            color=LabelColor.RECOMMENDED,
+            bold=True,
+        ),
+        overlay_area_controls_widget,
     )
     main_layout.addRow(
         window._create_labeled_widget(tabs_i18n, "overlay", "use_ocr_result"),
@@ -112,11 +122,12 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     ]
 
     def _sync_ocr_area_subset_widgets() -> None:
-        enabled = window.use_ocr_area_config_check.isChecked()
+        enabled = window.use_ocr_area_config_check.isChecked() and not window.use_overlay_area_config_check.isChecked()
         for subset_widget in ocr_area_subset_widgets:
             subset_widget.setEnabled(enabled)
 
     window.use_ocr_area_config_check.stateChanged.connect(_sync_ocr_area_subset_widgets)
+    window.use_overlay_area_config_check.stateChanged.connect(_sync_ocr_area_subset_widgets)
     _sync_ocr_area_subset_widgets()
 
     open_overlay_settings_button = QPushButton(
@@ -145,6 +156,22 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     legacy_layout.addRow(
         window._create_labeled_widget(tabs_i18n, "overlay", "periodic_ratio"),
         window.periodic_ratio_edit,
+    )
+    legacy_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "overlay", "use_ocr_area_config"),
+        window.use_ocr_area_config_check,
+    )
+    legacy_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "overlay", "ocr_area_config_include_primary_areas"),
+        window.ocr_area_config_include_primary_areas_check,
+    )
+    legacy_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "overlay", "ocr_area_config_include_secondary_areas"),
+        window.ocr_area_config_include_secondary_areas_check,
+    )
+    legacy_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "overlay", "ocr_area_config_use_exclusion_zones"),
+        window.ocr_area_config_use_exclusion_zones_check,
     )
 
     old_capture_label = tabs_i18n.get("overlay", {}).get(

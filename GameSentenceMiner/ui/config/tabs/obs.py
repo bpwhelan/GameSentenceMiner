@@ -24,6 +24,16 @@ def build_obs_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.obs_close_obs_check,
     )
     layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "obs",
+            "allow_automatic_updates",
+            color=LabelColor.ADVANCED,
+            bold=True,
+        ),
+        window.obs_allow_automatic_updates_check,
+    )
+    layout.addRow(
         window._create_labeled_widget(tabs_i18n, "obs", "obs_path"),
         window._create_browse_widget(window.obs_path_edit, QFileDialog.FileMode.ExistingFile),
     )

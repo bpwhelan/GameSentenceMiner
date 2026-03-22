@@ -72,10 +72,10 @@ class ControlPanelWidget(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
 
         # Instructions label
-        if getattr(self.parent_selector, "select_monitor_area", False):
+        if self.parent_selector._primary_only_mode():
             # Simplified instructions for monitor selection mode
             instr_text = (
-                "Monitor Selection Mode:\n"
+                "Primary Area Selection Mode:\n"
                 "• Left Click + Drag: Create selection area.\n"
                 "• Ctrl + A: Select entire screen.\n"
                 "• Right-Click on a box: Delete it.\n"
@@ -156,6 +156,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         on_complete=None,
         select_monitor_area=False,
         monitor_index=None,
+        overlay_config_mode=False,
     ):
         super().__init__()
         logger.debug("Initializing OWOCRAreaSelectorWidget...")
@@ -164,6 +165,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         logger.debug(f"  use_obs_screenshot: {use_obs_screenshot}")
         logger.debug(f"  select_monitor_area: {select_monitor_area}")
         logger.debug(f"  monitor_index: {monitor_index}")
+        logger.debug(f"  overlay_config_mode: {overlay_config_mode}")
 
         self.window_name = window_name
         self.use_window_as_config = use_window_as_config
@@ -173,6 +175,8 @@ class OWOCRAreaSelectorWidget(QWidget):
         # New mode flag and monitor index
         self.select_monitor_area = select_monitor_area
         self.target_monitor_index = monitor_index
+        self.overlay_config_mode = overlay_config_mode
+        self.quit_app_on_close = False
 
         self.scale_factor_w = 1.0
         self.scale_factor_h = 1.0
@@ -220,6 +224,9 @@ class OWOCRAreaSelectorWidget(QWidget):
             logger.error("Pixmap creation failed, UI will not be initialized")
             raise RuntimeError("Failed to create pixmap during initialization")
 
+    def _primary_only_mode(self) -> bool:
+        return self.select_monitor_area or self.overlay_config_mode
+
     def _initialize(self):
         """Initialize appropriate capture method."""
         try:
@@ -232,8 +239,9 @@ class OWOCRAreaSelectorWidget(QWidget):
                 logger.info("Getting current scene...")
                 self.scene = obs.get_current_scene()
                 logger.info(f"Current scene: {self.scene}")
-                logger.info("Loading existing overlay rectangles...")
-                self._load_existing_overlay_rectangles()
+                if self.overlay_config_mode:
+                    logger.info("Loading existing overlay rectangles...")
+                    self._load_existing_overlay_rectangles()
             else:
                 logger.info("Connecting to OBS...")
                 obs.connect_to_obs_sync()
@@ -248,8 +256,12 @@ class OWOCRAreaSelectorWidget(QWidget):
                     logger.info("Initializing window capture mode...")
                     self._init_window_capture()
 
-                logger.info("Loading existing rectangles...")
-                self._load_existing_rectangles()
+                if self.overlay_config_mode:
+                    logger.info("Loading existing overlay rectangles...")
+                    self._load_existing_overlay_rectangles()
+                else:
+                    logger.info("Loading existing rectangles...")
+                    self._load_existing_rectangles()
 
             # Convert PIL Image to QPixmap
             logger.info("Converting PIL Image to QPixmap...")
@@ -288,7 +300,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             # Display error in a box and exit gracefully
             try:
                 QMessageBox.critical(None, "Initialization Error", str(e))
-            except:
+            except Exception:
                 logger.error("Failed to show error dialog")
             sys.exit(1)
 
@@ -434,7 +446,31 @@ class OWOCRAreaSelectorWidget(QWidget):
             resample=Image.LANCZOS,
         )
 
-        self.target_window_geometry = {
+        target_geometry = None
+        if self.overlay_config_mode and sys.platform == "win32":
+            try:
+                from GameSentenceMiner.util.platform.window_state_monitor import (
+                    WindowStateMonitor,
+                    get_window_client_physical_geometry,
+                    user32,
+                )
+
+                window_monitor = WindowStateMonitor()
+                hwnd = window_monitor.find_target_hwnd()
+                if hwnd and user32 and user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
+                    window_geometry = get_window_client_physical_geometry(hwnd)
+                    if window_geometry:
+                        left, top, width, height = window_geometry
+                        target_geometry = {
+                            "left": int(left),
+                            "top": int(top),
+                            "width": max(1, int(width)),
+                            "height": max(1, int(height)),
+                        }
+            except Exception as e:
+                logger.debug(f"Failed to resolve overlay HWND geometry for selector: {e}")
+
+        self.target_window_geometry = target_geometry or {
             "left": 0,
             "top": 0,
             "width": original_w,
@@ -616,9 +652,8 @@ class OWOCRAreaSelectorWidget(QWidget):
             logger.error(f"Error loading config: {e}")
 
     def _load_existing_overlay_rectangles(self):
-        """Load rectangles from overlay config file for monitor mode."""
+        """Load rectangles from the dedicated overlay config file."""
         try:
-            # Get scene name
             scene = sanitize_filename(self.scene or "Default")
             ocr_config_dir = get_ocr_config_path()
             overlay_config_path = os.path.join(ocr_config_dir, f"{scene}_overlay.json")
@@ -633,55 +668,113 @@ class OWOCRAreaSelectorWidget(QWidget):
             logger.info(f"Loading overlay rectangles from {overlay_config_path}")
             print(f"Existing overlay config: {json.dumps(config_data, indent=2)}")
 
-            # Get actual monitor dimensions (original, before scaling)
-            monitor_width = self.monitor_geometry["width"] if self.monitor_geometry else self.screenshot_img.width
-            monitor_height = self.monitor_geometry["height"] if self.monitor_geometry else self.screenshot_img.height
-
-            # Check if using percentage-based coordinates
-            use_percentage = config_data.get("coordinate_system") == COORD_SYSTEM_PERCENTAGE
-
             loaded_count = 0
-            for rect_data in config_data.get("rects", []):
-                try:
-                    if use_percentage:
-                        # Convert from percentage to pixel coordinates
-                        x_pct = float(rect_data["x"])
-                        y_pct = float(rect_data["y"])
-                        w_pct = float(rect_data["w"])
-                        h_pct = float(rect_data["h"])
+            if "rectangles" in config_data:
+                win_geom = config_data.get("window_geometry", {})
+                win_w = int(win_geom.get("width", self.screenshot_img.width or 1) or 1)
+                win_h = int(win_geom.get("height", self.screenshot_img.height or 1) or 1)
+                win_l = int(win_geom.get("left", 0) or 0)
+                win_t = int(win_geom.get("top", 0) or 0)
 
-                        x_orig = int(x_pct * monitor_width)
-                        y_orig = int(y_pct * monitor_height)
-                        w_orig = int(w_pct * monitor_width)
-                        h_orig = int(h_pct * monitor_height)
-                    else:
-                        # Legacy: absolute pixel coordinates
-                        x_orig = int(rect_data["x"])
-                        y_orig = int(rect_data["y"])
-                        w_orig = int(rect_data["w"])
-                        h_orig = int(rect_data["h"])
+                for rect_data in config_data.get("rectangles", []):
+                    try:
+                        x_pct, y_pct, w_pct, h_pct = map(float, rect_data["coordinates"])
+                        x_abs = int((x_pct * win_w) + win_l)
+                        y_abs = int((y_pct * win_h) + win_t)
+                        w_abs = int(w_pct * win_w)
+                        h_abs = int(h_pct * win_h)
 
-                    # Scale from original monitor coords to scaled widget coords
-                    x_scaled = int(x_orig / self.scale_factor_w)
-                    y_scaled = int(y_orig / self.scale_factor_h)
-                    w_scaled = int(w_orig / self.scale_factor_w)
-                    h_scaled = int(h_orig / self.scale_factor_h)
+                        if self.select_monitor_area:
+                            origin_left = self.monitor_geometry["left"] if self.monitor_geometry else 0
+                            origin_top = self.monitor_geometry["top"] if self.monitor_geometry else 0
+                            x_abs -= origin_left
+                            y_abs -= origin_top
+                        else:
+                            x_abs = int((x_abs - self.bounding_box_original["left"]) / self.scale_factor_w)
+                            y_abs = int((y_abs - self.bounding_box_original["top"]) / self.scale_factor_h)
+                            w_abs = int(w_abs / self.scale_factor_w)
+                            h_abs = int(h_abs / self.scale_factor_h)
+                            monitor_index = rect_data["monitor"]["index"]
+                            self.rectangles.append(
+                                {
+                                    "x": x_abs,
+                                    "y": y_abs,
+                                    "w": w_abs,
+                                    "h": h_abs,
+                                    "monitor_index": monitor_index,
+                                    "is_excluded": False,
+                                    "is_secondary": False,
+                                }
+                            )
+                            self.undo_stack.append(("add", len(self.rectangles) - 1))
+                            loaded_count += 1
+                            continue
 
-                    self.rectangles.append(
-                        {
-                            "x": x_scaled,
-                            "y": y_scaled,
-                            "w": w_scaled,
-                            "h": h_scaled,
-                            "monitor_index": self.target_monitor_index,
-                            "is_excluded": False,
-                            "is_secondary": False,
-                        }
-                    )
-                    self.undo_stack.append(("add", len(self.rectangles) - 1))
-                    loaded_count += 1
-                except (KeyError, ValueError, TypeError) as e:
-                    logger.warning(f"Skipping malformed rectangle: {e}")
+                        x_scaled = int(x_abs / self.scale_factor_w)
+                        y_scaled = int(y_abs / self.scale_factor_h)
+                        w_scaled = int(w_abs / self.scale_factor_w)
+                        h_scaled = int(h_abs / self.scale_factor_h)
+
+                        self.rectangles.append(
+                            {
+                                "x": x_scaled,
+                                "y": y_scaled,
+                                "w": w_scaled,
+                                "h": h_scaled,
+                                "monitor_index": self.target_monitor_index,
+                                "is_excluded": False,
+                                "is_secondary": False,
+                            }
+                        )
+                        self.undo_stack.append(("add", len(self.rectangles) - 1))
+                        loaded_count += 1
+                    except (KeyError, ValueError, TypeError) as e:
+                        logger.warning(f"Skipping malformed overlay rectangle: {e}")
+            else:
+                monitor_width = self.monitor_geometry["width"] if self.monitor_geometry else self.screenshot_img.width
+                monitor_height = (
+                    self.monitor_geometry["height"] if self.monitor_geometry else self.screenshot_img.height
+                )
+                use_percentage = config_data.get("coordinate_system") == COORD_SYSTEM_PERCENTAGE
+
+                for rect_data in config_data.get("rects", []):
+                    try:
+                        if use_percentage:
+                            x_pct = float(rect_data["x"])
+                            y_pct = float(rect_data["y"])
+                            w_pct = float(rect_data["w"])
+                            h_pct = float(rect_data["h"])
+
+                            x_orig = int(x_pct * monitor_width)
+                            y_orig = int(y_pct * monitor_height)
+                            w_orig = int(w_pct * monitor_width)
+                            h_orig = int(h_pct * monitor_height)
+                        else:
+                            x_orig = int(rect_data["x"])
+                            y_orig = int(rect_data["y"])
+                            w_orig = int(rect_data["w"])
+                            h_orig = int(rect_data["h"])
+
+                        x_scaled = int(x_orig / self.scale_factor_w)
+                        y_scaled = int(y_orig / self.scale_factor_h)
+                        w_scaled = int(w_orig / self.scale_factor_w)
+                        h_scaled = int(h_orig / self.scale_factor_h)
+
+                        self.rectangles.append(
+                            {
+                                "x": x_scaled,
+                                "y": y_scaled,
+                                "w": w_scaled,
+                                "h": h_scaled,
+                                "monitor_index": self.target_monitor_index,
+                                "is_excluded": False,
+                                "is_secondary": False,
+                            }
+                        )
+                        self.undo_stack.append(("add", len(self.rectangles) - 1))
+                        loaded_count += 1
+                    except (KeyError, ValueError, TypeError) as e:
+                        logger.warning(f"Skipping malformed rectangle: {e}")
 
             logger.info(f"Loaded {loaded_count} overlay rectangles")
         except Exception as e:
@@ -845,9 +938,9 @@ class OWOCRAreaSelectorWidget(QWidget):
         y_offset = panel_y + 55
         line_height = 20
 
-        if self.select_monitor_area:
+        if self._primary_only_mode():
             instructions = [
-                f"Monitor Selection Mode (Monitor {self.target_monitor_index}):",
+                f"Primary Area Selection Mode (Monitor {self.target_monitor_index}):",
                 "• Left Click + Drag: Create selection area",
                 "• Ctrl + A: Select entire screen",
                 "• Right-Click on box: Delete it",
@@ -890,7 +983,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             self.current_pos = clamped_pos
             self.is_drawing = True
 
-            if self.select_monitor_area:
+            if self._primary_only_mode():
                 # In monitor selection mode, strictly prevent specialized rectangles
                 self.drawing_excluded = False
                 self.drawing_secondary = False
@@ -1034,7 +1127,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         menu.addAction(draw_normal_action)
 
         # Only show specific drawing options if NOT in monitor selection mode
-        if not self.select_monitor_area:
+        if not self._primary_only_mode():
             draw_exclusion_action = QAction("🟠 Draw Exclusion Area(s)", self)
             draw_exclusion_action.triggered.connect(
                 lambda: self._start_box_drawing(pos, excluded=True, secondary=False)
@@ -1091,7 +1184,7 @@ class OWOCRAreaSelectorWidget(QWidget):
 
         # Set the drawing mode flags, but DON'T start drawing yet
         # The user will click/drag to actually start drawing
-        if self.select_monitor_area:
+        if self._primary_only_mode():
             self.drawing_excluded = False
             self.drawing_secondary = False
             self.menu_drawing_mode = False
@@ -1398,7 +1491,11 @@ class OWOCRAreaSelectorWidget(QWidget):
 
         print(config_data)
 
-        config_path = get_scene_ocr_config_path(self.use_window_as_config, self.window_name)
+        if self.overlay_config_mode:
+            scene = sanitize_filename(self.scene or "Default")
+            config_path = os.path.join(get_ocr_config_path(), f"{scene}_overlay.json")
+        else:
+            config_path = get_scene_ocr_config_path(self.use_window_as_config, self.window_name)
 
         try:
             write_ocr_config(config_path, config_data)
@@ -1472,14 +1569,21 @@ class OWOCRAreaSelectorWidget(QWidget):
         # Ensure the widget is properly destroyed
         self.deleteLater()
 
-        # Quit the application after a brief delay to ensure cleanup
-        QTimer.singleShot(
-            100,
-            lambda: QApplication.instance().quit() if QApplication.instance() else None,
-        )
+        if self.quit_app_on_close:
+            # Quit the temporary QApplication only when the selector created it.
+            QTimer.singleShot(
+                100,
+                lambda: QApplication.instance().quit() if QApplication.instance() else None,
+            )
 
 
-def show_area_selector(window_name, use_window_as_config=False, use_obs_screenshot=False, on_complete=None):
+def show_area_selector(
+    window_name,
+    use_window_as_config=False,
+    use_obs_screenshot=False,
+    on_complete=None,
+    overlay_config_mode=False,
+):
     """
     Displays a Qt-based area selector for OCR configuration.
 
@@ -1492,6 +1596,7 @@ def show_area_selector(window_name, use_window_as_config=False, use_obs_screensh
     logger.info(f"  window_name: '{window_name}'")
     logger.info(f"  use_window_as_config: {use_window_as_config}")
     logger.info(f"  use_obs_screenshot: {use_obs_screenshot}")
+    logger.info(f"  overlay_config_mode: {overlay_config_mode}")
 
     # Create QApplication if it doesn't exist
     app = QApplication.instance()
@@ -1507,7 +1612,14 @@ def show_area_selector(window_name, use_window_as_config=False, use_obs_screensh
     # Create and show the selector widget
     logger.info("Creating OWOCRAreaSelectorWidget...")
     try:
-        _selector = OWOCRAreaSelectorWidget(window_name, use_window_as_config, use_obs_screenshot, on_complete)
+        _selector = OWOCRAreaSelectorWidget(
+            window_name,
+            use_window_as_config,
+            use_obs_screenshot,
+            on_complete,
+            overlay_config_mode=overlay_config_mode,
+        )
+        _selector.quit_app_on_close = created_app
         logger.info("OWOCRAreaSelectorWidget created successfully")
     except Exception as e:
         logger.exception(f"Failed to create OWOCRAreaSelectorWidget: {e}")
@@ -1526,12 +1638,14 @@ def show_area_selector(window_name, use_window_as_config=False, use_obs_screensh
     return _selector
 
 
-def show_monitor_selector(monitor_index=0, on_complete=None):
+def show_monitor_selector(monitor_index=0, on_complete=None, overlay_config_mode=False):
     """
     Displays a Qt-based area selector for a specific monitor defined in config.
     Captures via MSS, scales down, and allows basic rectangle selection.
     """
-    logger.info(f"show_monitor_selector called with monitor_index={monitor_index}")
+    logger.info(
+        f"show_monitor_selector called with monitor_index={monitor_index}, overlay_config_mode={overlay_config_mode}"
+    )
 
     app = QApplication.instance()
     created_app = False
@@ -1552,7 +1666,9 @@ def show_monitor_selector(monitor_index=0, on_complete=None):
             on_complete=on_complete,
             select_monitor_area=True,
             monitor_index=monitor_index,
+            overlay_config_mode=overlay_config_mode,
         )
+        _selector.quit_app_on_close = created_app
         logger.info("OWOCRAreaSelectorWidget created successfully")
     except Exception as e:
         logger.exception(f"Failed to create OWOCRAreaSelectorWidget: {e}")
@@ -1591,11 +1707,21 @@ if __name__ == "__main__":
             default=None,
             help="Use monitor selection mode with index (0=Primary)",
         )
+        parser.add_argument(
+            "--overlay-config",
+            action="store_true",
+            help="Save/load the dedicated overlay area config instead of the OCR area config",
+        )
 
         logger.info("Parsing command line arguments...")
         args = parser.parse_args()
         logger.info(
-            f"Parsed arguments: window_name='{args.window_name}', use_window_as_config={args.use_window_as_config}, obs={args.obs}, monitor={args.monitor}"
+            "Parsed arguments: "
+            f"window_name='{args.window_name}', "
+            f"use_window_as_config={args.use_window_as_config}, "
+            f"obs={args.obs}, "
+            f"monitor={args.monitor}, "
+            f"overlay_config={args.overlay_config}"
         )
 
         logger.info("Setting DPI awareness...")
@@ -1607,10 +1733,20 @@ if __name__ == "__main__":
 
         if args.monitor is not None:
             logger.info(f"Starting monitor selection mode for monitor index: {args.monitor}")
-            show_monitor_selector(monitor_index=int(args.monitor), on_complete=on_complete)
+            show_monitor_selector(
+                monitor_index=int(args.monitor),
+                on_complete=on_complete,
+                overlay_config_mode=args.overlay_config,
+            )
         else:
             logger.info(f"Starting area selector for window: '{args.window_name}', OBS mode: {args.obs}")
-            show_area_selector(args.window_name, args.use_window_as_config, args.obs, on_complete)
+            show_area_selector(
+                args.window_name,
+                args.use_window_as_config,
+                args.obs,
+                on_complete,
+                overlay_config_mode=args.overlay_config,
+            )
 
         logger.success("OCR Area Selector completed successfully")
     except Exception as e:

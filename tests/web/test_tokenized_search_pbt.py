@@ -158,7 +158,10 @@ def _compute_expected_ids(
             continue
         if from_date:
             from_dt = datetime.datetime.strptime(from_date, "%Y-%m-%d").replace(
-                hour=0, minute=0, second=0, microsecond=0,
+                hour=0,
+                minute=0,
+                second=0,
+                microsecond=0,
             )
             from_ts = from_dt.timestamp()
             if ts < from_ts:

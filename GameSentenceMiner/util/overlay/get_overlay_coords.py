@@ -14,7 +14,7 @@ from typing import Dict, Any, List, Tuple, Optional
 
 # Updated imports to include window info helpers
 from GameSentenceMiner.obs import get_screenshot_PIL
-from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config
+from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config, get_overlay_area_config
 
 # Local application imports
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness
@@ -217,6 +217,9 @@ class OverlayProcessor:
         self._last_monitor_workarea_warning: Optional[str] = None
         self.last_monitor_left: int = 0
         self.last_monitor_top: int = 0
+        self._last_overlay_capture_used_window_handle: bool = False
+        self._last_overlay_capture_offset_x: int = 0
+        self._last_overlay_capture_offset_y: int = 0
 
     def _build_scaled_ocr_cache_key(self, ocr_config, width: int, height: int) -> Optional[Tuple[Any, ...]]:
         if not ocr_config:
@@ -277,6 +280,68 @@ class OverlayProcessor:
 
         return scaled_config
 
+    def _get_scaled_overlay_area_config(self, width: int, height: int):
+        overlay_area_config = get_overlay_area_config()
+        if not overlay_area_config:
+            return None
+        if not width or not height:
+            return overlay_area_config
+
+        scaled_config = copy.deepcopy(overlay_area_config)
+        coordinate_system = getattr(scaled_config, "coordinate_system", None)
+        coordinate_space = getattr(
+            scaled_config,
+            "overlay_coordinate_space",
+            "window" if getattr(scaled_config, "window_geometry", None) else "monitor",
+        )
+        window_geometry = getattr(scaled_config, "window_geometry", None)
+        base_rectangles = getattr(scaled_config, "pre_scale_rectangles", None) or getattr(
+            scaled_config, "rectangles", []
+        )
+
+        if (
+            coordinate_space == "window"
+            and window_geometry
+            and coordinate_system == "percentage"
+            and not self._last_overlay_capture_used_window_handle
+        ):
+            monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)
+            for rectangle in getattr(scaled_config, "rectangles", []):
+                rectangle.coordinates = [0, 0, 0, 0]
+
+            for rectangle, base_rectangle in zip(scaled_config.rectangles, base_rectangles):
+                x_pct, y_pct, w_pct, h_pct = map(float, base_rectangle.coordinates)
+                rectangle.coordinates = [
+                    int((window_geometry.left - monitor["left"]) + (x_pct * window_geometry.width)),
+                    int((window_geometry.top - monitor["top"]) + (y_pct * window_geometry.height)),
+                    int(w_pct * window_geometry.width),
+                    int(h_pct * window_geometry.height),
+                ]
+        elif coordinate_space == "monitor" and self._last_overlay_capture_used_window_handle:
+            monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)
+            for rectangle in getattr(scaled_config, "rectangles", []):
+                rectangle.coordinates = [0, 0, 0, 0]
+
+            for rectangle, base_rectangle in zip(scaled_config.rectangles, base_rectangles):
+                if coordinate_system == "percentage":
+                    x_val, y_val, w_val, h_val = map(float, base_rectangle.coordinates)
+                    x_pixels = x_val * monitor["width"]
+                    y_pixels = y_val * monitor["height"]
+                    w_pixels = w_val * monitor["width"]
+                    h_pixels = h_val * monitor["height"]
+                else:
+                    x_pixels, y_pixels, w_pixels, h_pixels = map(float, base_rectangle.coordinates)
+
+                rectangle.coordinates = [
+                    int(x_pixels - self._last_overlay_capture_offset_x),
+                    int(y_pixels - self._last_overlay_capture_offset_y),
+                    int(w_pixels),
+                    int(h_pixels),
+                ]
+        elif coordinate_system == "percentage":
+            scaled_config.scale_to_custom_size(width, height)
+        return scaled_config
+
     def _build_overlay_area_config(self, ocr_config):
         if not ocr_config:
             return None
@@ -304,6 +369,22 @@ class OverlayProcessor:
             ]
 
         return filtered_config
+
+    def _get_effective_overlay_area_config(self, width: int, height: int):
+        overlay_settings = get_overlay_config()
+
+        if bool(getattr(overlay_settings, "use_overlay_area_config", False)):
+            overlay_area_config = self._get_scaled_overlay_area_config(width, height)
+            if overlay_area_config and overlay_area_config.rectangles:
+                return overlay_area_config
+
+        if bool(getattr(overlay_settings, "use_ocr_area_config", False)):
+            overlay_config = self._get_scaled_overlay_ocr_config(width, height)
+            overlay_config = self._build_overlay_area_config(overlay_config)
+            if overlay_config and overlay_config.rectangles:
+                return overlay_config
+
+        return None
 
     def init(self):
         """Initializes the OCR engines and configuration."""
@@ -738,6 +819,9 @@ class OverlayProcessor:
                             )
                         self.ss_width = img.width
                         self.ss_height = img.height
+                        self._last_overlay_capture_used_window_handle = False
+                        self._last_overlay_capture_offset_x = 0
+                        self._last_overlay_capture_offset_y = 0
                         return img, 0, 0, monitor_w, monitor_h
                 except Exception as e:
                     logger.debug(f"MSS screenshot (override) failed: {e}")
@@ -783,6 +867,9 @@ class OverlayProcessor:
                             )
                         self.ss_width = obs_img.width
                         self.ss_height = obs_img.height
+                        self._last_overlay_capture_used_window_handle = True
+                        self._last_overlay_capture_offset_x = final_off_x
+                        self._last_overlay_capture_offset_y = final_off_y
                         return obs_img, final_off_x, final_off_y, monitor_w, monitor_h
                 except Exception as e:
                     logger.debug(f"OBS Window capture failed, falling back to MSS: {e}")
@@ -805,6 +892,9 @@ class OverlayProcessor:
                         )
                     self.ss_width = img.width
                     self.ss_height = img.height
+                    self._last_overlay_capture_used_window_handle = False
+                    self._last_overlay_capture_offset_x = 0
+                    self._last_overlay_capture_offset_y = 0
                     return img, 0, 0, monitor_w, monitor_h
             except Exception as e:
                 logger.debug(f"MSS screenshot failed: {e}")
@@ -819,6 +909,9 @@ class OverlayProcessor:
                     obs_img.save(os.path.join(get_temporary_directory(), "latest_overlay_screenshot.png"))
                 self.ss_width = obs_img.width
                 self.ss_height = obs_img.height
+                self._last_overlay_capture_used_window_handle = False
+                self._last_overlay_capture_offset_x = 0
+                self._last_overlay_capture_offset_y = 0
                 return obs_img, 0, 0, monitor_w, monitor_h
         except Exception as e:
             logger.debug(f"OBS fallback screenshot failed: {e}")
@@ -1139,27 +1232,25 @@ class OverlayProcessor:
         if asyncio.current_task().cancelled():
             raise asyncio.CancelledError()
 
-        if get_overlay_config().use_ocr_area_config:
-            overlay_config = self._get_scaled_overlay_ocr_config(self.ss_width, self.ss_height)
-            overlay_config = self._build_overlay_area_config(overlay_config)
-            if overlay_config and overlay_config.rectangles:
-                full_screenshot, crop_offset = apply_ocr_config_to_image(
-                    full_screenshot,
-                    overlay_config,
-                    both_types=True,
-                    return_full_size=True,
-                )
+        overlay_area_config = self._get_effective_overlay_area_config(self.ss_width, self.ss_height)
+        if overlay_area_config and overlay_area_config.rectangles:
+            full_screenshot, crop_offset = apply_ocr_config_to_image(
+                full_screenshot,
+                overlay_area_config,
+                both_types=True,
+                return_full_size=True,
+            )
 
-                off_x += crop_offset[0]
-                off_y += crop_offset[1]
+            off_x += crop_offset[0]
+            off_y += crop_offset[1]
 
-                if SAVE_DEBUG_IMAGES:
-                    full_screenshot.save(
-                        os.path.join(
-                            get_temporary_directory(),
-                            "latest_overlay_screenshot_with_config.png",
-                        )
+            if SAVE_DEBUG_IMAGES:
+                full_screenshot.save(
+                    os.path.join(
+                        get_temporary_directory(),
+                        "latest_overlay_screenshot_with_config.png",
                     )
+                )
 
         # Apply scaling based on SCALE_TYPE
         original_width, original_height = full_screenshot.size

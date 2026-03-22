@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from types import SimpleNamespace
 
-from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, Monitor, Rectangle
+from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, Monitor, Rectangle, WindowGeometry
 from GameSentenceMiner.util.overlay import get_overlay_coords
 
 
@@ -255,3 +255,132 @@ def test_build_overlay_area_config_defaults_to_existing_behavior(monkeypatch):
 
     assert len(filtered.rectangles) == 3
     assert len(filtered.pre_scale_rectangles) == 3
+
+
+def test_get_effective_overlay_area_config_prefers_dedicated_overlay_area(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor()
+    dedicated_config = OCRConfig(
+        scene="scene",
+        coordinate_system="percentage",
+        rectangles=[
+            Rectangle(
+                monitor=Monitor(index=0),
+                coordinates=[0.1, 0.2, 0.3, 0.4],
+                is_excluded=False,
+            )
+        ],
+    )
+
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_overlay_config",
+        lambda: SimpleNamespace(use_overlay_area_config=True, use_ocr_area_config=True),
+    )
+    monkeypatch.setattr(processor, "_get_scaled_overlay_area_config", lambda width, height: dedicated_config)
+    monkeypatch.setattr(
+        processor,
+        "_get_scaled_overlay_ocr_config",
+        lambda width, height: (_ for _ in ()).throw(AssertionError("OCR area config should not be used")),
+    )
+
+    effective = processor._get_effective_overlay_area_config(1920, 1080)
+
+    assert effective is dedicated_config
+
+
+def test_get_effective_overlay_area_config_falls_back_to_ocr_area_config(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor()
+    ocr_config = OCRConfig(
+        scene="scene",
+        coordinate_system="percentage",
+        rectangles=[
+            Rectangle(
+                monitor=Monitor(index=0),
+                coordinates=[0.05, 0.1, 0.2, 0.25],
+                is_excluded=False,
+            )
+        ],
+    )
+
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_overlay_config",
+        lambda: SimpleNamespace(use_overlay_area_config=True, use_ocr_area_config=True),
+    )
+    monkeypatch.setattr(processor, "_get_scaled_overlay_area_config", lambda width, height: None)
+    monkeypatch.setattr(processor, "_get_scaled_overlay_ocr_config", lambda width, height: ocr_config)
+    monkeypatch.setattr(processor, "_build_overlay_area_config", lambda config: config)
+
+    effective = processor._get_effective_overlay_area_config(1920, 1080)
+
+    assert effective is ocr_config
+
+
+def test_get_scaled_overlay_area_config_uses_saved_window_geometry_without_hwnd(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor()
+    processor._last_overlay_capture_used_window_handle = False
+    overlay_area_config = OCRConfig(
+        scene="scene",
+        coordinate_system="percentage",
+        rectangles=[
+            Rectangle(
+                monitor=Monitor(index=0),
+                coordinates=[0.1, 0.2, 0.3, 0.4],
+                is_excluded=False,
+            )
+        ],
+        window_geometry=WindowGeometry(left=300, top=200, width=1280, height=720),
+    )
+
+    monkeypatch.setattr(get_overlay_coords, "get_overlay_area_config", lambda: overlay_area_config)
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_overlay_config",
+        lambda: SimpleNamespace(monitor_to_capture=0),
+    )
+    monkeypatch.setattr(
+        processor,
+        "get_monitor_workarea",
+        lambda monitor_index: {"left": 100, "top": 50, "width": 1920, "height": 1079},
+    )
+
+    scaled = processor._get_scaled_overlay_area_config(1920, 1080)
+
+    assert scaled is not None
+    assert scaled.rectangles[0].coordinates == [328, 294, 384, 288]
+
+
+def test_get_scaled_monitor_overlay_area_config_maps_into_window_capture(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor()
+    processor._last_overlay_capture_used_window_handle = True
+    processor._last_overlay_capture_offset_x = 220
+    processor._last_overlay_capture_offset_y = 140
+    overlay_area_config = OCRConfig(
+        scene="scene",
+        coordinate_system="percentage",
+        rectangles=[
+            Rectangle(
+                monitor=Monitor(index=0),
+                coordinates=[0.2, 0.25, 0.1, 0.15],
+                is_excluded=False,
+            )
+        ],
+    )
+    setattr(overlay_area_config, "overlay_coordinate_space", "monitor")
+
+    monkeypatch.setattr(get_overlay_coords, "get_overlay_area_config", lambda: overlay_area_config)
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_overlay_config",
+        lambda: SimpleNamespace(monitor_to_capture=0),
+    )
+    monkeypatch.setattr(
+        processor,
+        "get_monitor_workarea",
+        lambda monitor_index: {"left": 0, "top": 0, "width": 1920, "height": 1079},
+    )
+
+    scaled = processor._get_scaled_overlay_area_config(1280, 720)
+
+    assert scaled is not None
+    assert scaled.rectangles[0].coordinates == [164, 129, 192, 161]
