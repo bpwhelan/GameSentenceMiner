@@ -7,12 +7,18 @@ import { exec } from 'child_process';
 import OBSWebSocket from 'obs-websocket-js';
 import Store from 'electron-store';
 import * as fs from 'node:fs';
+import { inflateSync } from 'node:zlib';
 import { sendStartOBS, sendQuitOBS } from '../main.js';
 import axios from 'axios';
 import {
+    OBS_DSHOW_INPUT_KIND,
+    OBS_WASAPI_INPUT_CAPTURE_KIND,
+    buildCaptureCardOptions,
+    getObsWindowTitle,
     buildWindowsSceneCaptureInputs,
     mergeObsWindowItems,
     type ObsCaptureMode,
+    type ObsDevicePropertyItem,
     type ObsSceneCaptureWindowSelection,
     type ObsWindowOption,
     type ObsWindowPropertyItem,
@@ -29,6 +35,9 @@ export interface ObsScene {
     id: string;
 }
 
+const OBS_OUTPUT_PROBE_WIDTH = 8;
+const OBS_OUTPUT_PROBE_HEIGHT = 8;
+
 // -------------------------------------------------------------------------
 // WINDOW FILTER CONFIGURATION
 // -------------------------------------------------------------------------
@@ -44,6 +53,7 @@ interface WindowFilter {
  * List of windows to filter out from the window list.
  * Can filter by exe name, window class, or window title.
  * If multiple properties are specified in a single filter, ALL must match (AND logic).
+ * MANY OF THESE ARE FOR ME, AND MAY NOT BE RELEVANT TO OTHER USERS. THIS IS NOT AN EXHAUSTIVE LIST.
  */
 const WINDOW_FILTERS: WindowFilter[] = [
     // Developer tools and IDEs
@@ -81,6 +91,11 @@ const WINDOW_FILTERS: WindowFilter[] = [
     { titlePattern: 'iCUE' },
     { titlePattern: 'Magpie' },
     { titlePattern: 'Calculator' },
+    { titlePattern: '[Select a window to capture]' },
+    { titlePattern: 'Microsoft Edge Game Assist' },
+    { titlePattern: /^.*Prism Launcher .*$/ },
+    { titlePattern: /^.*mRemoteNG.*$/ },
+    { titlePattern: "Task Manager" }
 
 ];
 
@@ -292,6 +307,8 @@ const OLD_HELPER_SCENE = "GSM Helper";
 const HELPER_SCENE = 'GSM Helper - DONT TOUCH';
 const WINDOW_GETTER_INPUT = 'window_getter';
 const GAME_WINDOW_INPUT = 'game_window_getter';
+const CAPTURE_CARD_GETTER_INPUT = 'capture_card_getter';
+const AUDIO_INPUT_GETTER_INPUT = 'audio_input_getter';
 let sceneSwitcherRegistered = false;
 
 let connectionPromise: Promise<void> | null = null;
@@ -330,7 +347,7 @@ function shouldFilterWindow(item: any): boolean {
     const parts = windowValue.split(':');
     const exeName = parts[parts.length - 1]?.trim() || '';
     const windowClass = parts[parts.length - 2]?.trim() || '';
-    const title = itemName.split(':').slice(1).join(':').trim();
+    const title = getObsWindowTitle(itemName);
 
     for (const filter of WINDOW_FILTERS) {
         let matches = true; // Assume match unless proven otherwise
@@ -378,6 +395,10 @@ function generateFallbackWindowName(): string {
     const now = new Date();
     const dateStr = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
     return `Scene-${dateStr}`;
+}
+
+function getObsDialogParent(): BrowserWindow | undefined {
+    return obsWindow ?? BrowserWindow.getFocusedWindow() ?? undefined;
 }
 
 function getObsErrorMessage(error: unknown): string {
@@ -598,10 +619,34 @@ async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): P
 
     await getOBSConnection();
 
-    const rawWindowTitle = window.title || 'Unknown Window';
-    
-    // Process the window title to get the clean Name and the Regex for the switcher
-    const { sceneName, switcherRegex } = getGameInfoFromWindow(rawWindowTitle);
+    const targetKind =
+        window.targetKind === 'capture_card' || typeof window.videoDeviceId === 'string'
+            ? 'capture_card'
+            : 'window';
+    const rawWindowTitle =
+        typeof window.title === 'string' && window.title.trim()
+            ? window.title.trim()
+            : generateFallbackWindowName();
+    const requestedSceneName =
+        typeof window.sceneName === 'string' && window.sceneName.trim()
+            ? window.sceneName.trim()
+            : rawWindowTitle;
+    const detectedWindowSceneInfo =
+        targetKind === 'window' ? getGameInfoFromWindow(rawWindowTitle) : null;
+    const sceneInfo =
+        targetKind === 'window'
+            ? {
+                  sceneName:
+                      requestedSceneName === rawWindowTitle
+                          ? (detectedWindowSceneInfo?.sceneName ?? requestedSceneName)
+                          : requestedSceneName,
+                  switcherRegex: detectedWindowSceneInfo?.switcherRegex ?? null,
+              }
+            : {
+                  sceneName: requestedSceneName,
+                  switcherRegex: null,
+              };
+    const sceneName = sceneInfo.sceneName.trim() || generateFallbackWindowName();
 
     let sceneExisted = false;
     try {
@@ -621,12 +666,14 @@ async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): P
         try {
             const sceneItems = await callOBS('GetSceneItemList', { sceneName });
             for (const item of sceneItems.sceneItems) {
-                // Remove each input/source from the scene
-                if (typeof item.sourceName === 'string') {
+                if (typeof item.sceneItemId === 'number') {
                     try {
-                        await callOBS('RemoveInput', { inputName: item.sourceName });
-                    } catch (removeErr) {
-                        // Ignore errors if input doesn't exist or can't be removed
+                        await callOBS('RemoveSceneItem', {
+                            sceneName,
+                            sceneItemId: item.sceneItemId,
+                        });
+                    } catch {
+                        // Ignore errors if a scene item cannot be removed.
                     }
                 }
             }
@@ -645,17 +692,83 @@ async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): P
 
     // Create the fallback source first so the preferred game capture lands on top.
     for (const captureInput of captureInputs) {
-        await callOBS('CreateInput', {
-            sceneName,
-            ...captureInput,
-        });
+        try {
+            await callOBS('GetInputSettings', { inputName: captureInput.inputName });
+            await callOBS('SetInputSettings', {
+                inputName: captureInput.inputName,
+                inputSettings: captureInput.inputSettings,
+                overlay: false,
+            });
+
+            let existingSceneItemId: number | null = null;
+            try {
+                const sceneItem = await callOBS('GetSceneItemId', {
+                    sceneName,
+                    sourceName: captureInput.inputName,
+                });
+                if (typeof sceneItem.sceneItemId === 'number') {
+                    existingSceneItemId = sceneItem.sceneItemId;
+                }
+            } catch {
+                existingSceneItemId = null;
+            }
+
+            if (existingSceneItemId === null) {
+                await callOBS('CreateSceneItem', {
+                    sceneName,
+                    sourceName: captureInput.inputName,
+                    sceneItemEnabled: captureInput.sceneItemEnabled,
+                });
+            } else {
+                await callOBS('SetSceneItemEnabled', {
+                    sceneName,
+                    sceneItemId: existingSceneItemId,
+                    sceneItemEnabled: captureInput.sceneItemEnabled,
+                });
+            }
+        } catch {
+            await callOBS('CreateInput', {
+                sceneName,
+                ...captureInput,
+            });
+        }
     }
 
-    // Configure auto scene switcher with the generated REGEX pattern
-    await modifyAutoSceneSwitcherInJSON(sceneName, switcherRegex);
+    if (sceneInfo.switcherRegex) {
+        // Configure auto scene switcher with the generated REGEX pattern.
+        await modifyAutoSceneSwitcherInJSON(sceneName, sceneInfo.switcherRegex);
+    } else {
+        const audioWasConfigured = captureInputs.some(
+            (captureInput) =>
+                captureInput.inputKind === OBS_WASAPI_INPUT_CAPTURE_KIND ||
+                (captureInput.inputKind === OBS_DSHOW_INPUT_KIND &&
+                    typeof captureInput.inputSettings.audio_device_id === 'string' &&
+                    captureInput.inputSettings.audio_device_id.length > 0)
+        );
+
+        const guidanceLines = [
+            'Capture-card scenes do not get an automatic window-title scene-switch rule.',
+            audioWasConfigured
+                ? 'Audio was paired automatically with this capture device.'
+                : 'Audio was not auto-detected. If your card carries audio, add it in OBS using the new source properties or a separate Audio Input Capture source.',
+        ];
+
+        const dialogOptions = {
+            type: 'info' as const,
+            title: 'Capture Card Scene Created',
+            message: `Created "${sceneName}" using a Video Capture Device source.`,
+            detail: guidanceLines.join('\n'),
+        };
+        const dialogParent = getObsDialogParent();
+        if (dialogParent) {
+            await dialog.showMessageBox(dialogParent, dialogOptions);
+        } else {
+            await dialog.showMessageBox(dialogOptions);
+        }
+    }
 
     console.log(
-        `Scene and capture setup for window: "${rawWindowTitle}" -> Scene: "${sceneName}"`
+        `Scene and capture setup for ${targetKind}: "${rawWindowTitle}" -> Scene: "${sceneName}"`
     );
 }
 
@@ -1086,92 +1199,145 @@ export async function registerOBSIPC() {
         sendStartOBS();
     });
 
-    // Only allow one getWindowsFromSource to run at a time
-    let getWindowsFromSourcePromise: Promise<ObsWindowPropertyItem[]> | null = null;
+    const inputPropertyItemsPromises = new Map<string, Promise<ObsDevicePropertyItem[]>>();
+
+    async function ensureHelperSceneExists(): Promise<void> {
+        try {
+            await callOBS('GetSceneItemList', { sceneName: HELPER_SCENE });
+        } catch (sceneError: any) {
+            const sceneErrorMessage = getObsErrorMessage(sceneError);
+            if (sceneErrorMessage.includes('No source was found')) {
+                await callOBS('CreateScene', { sceneName: HELPER_SCENE });
+            }
+        }
+
+        try {
+            await callOBS('GetSceneItemList', { sceneName: OLD_HELPER_SCENE });
+            await callOBS('RemoveScene', { sceneName: OLD_HELPER_SCENE });
+        } catch {
+            // Ignore stale helper scene cleanup failures.
+        }
+    }
+
+    async function getInputPropertyItems(
+        inputName: string,
+        inputKind: string,
+        propertyName: string,
+        inputSettings: Record<string, unknown> = {}
+    ): Promise<ObsDevicePropertyItem[]> {
+        const requestKey = JSON.stringify([
+            inputName,
+            inputKind,
+            propertyName,
+            inputSettings,
+        ]);
+        const existingPromise = inputPropertyItemsPromises.get(requestKey);
+        if (existingPromise) {
+            return existingPromise;
+        }
+
+        const requestPromise = (async () => {
+            try {
+                await getOBSConnection();
+                const response = await callOBS('GetInputPropertiesListPropertyItems', {
+                    inputName,
+                    propertyName,
+                });
+                return (response.propertyItems ?? []) as ObsDevicePropertyItem[];
+            } catch (error: any) {
+                const errorMessage = getObsErrorMessage(error);
+                if (!errorMessage.includes('No source was found')) {
+                    return [];
+                }
+
+                await ensureHelperSceneExists();
+                await callOBS('CreateInput', {
+                    sceneName: HELPER_SCENE,
+                    inputName,
+                    inputKind,
+                    inputSettings,
+                });
+
+                const retryResponse = await callOBS('GetInputPropertiesListPropertyItems', {
+                    inputName,
+                    propertyName,
+                });
+                return (retryResponse.propertyItems ?? []) as ObsDevicePropertyItem[];
+            }
+        })();
+
+        inputPropertyItemsPromises.set(requestKey, requestPromise);
+        try {
+            return await requestPromise;
+        } finally {
+            inputPropertyItemsPromises.delete(requestKey);
+        }
+    }
 
     async function getWindowsFromSource(
         sourceName: string,
         capture_mode: ObsCaptureMode
     ): Promise<ObsWindowPropertyItem[]> {
-        if (getWindowsFromSourcePromise) {
-            return getWindowsFromSourcePromise;
-        }
-        getWindowsFromSourcePromise = (async () => {
-            try {
-                await getOBSConnection();
-                const response = await callOBS('GetInputPropertiesListPropertyItems', {
-                    inputName: sourceName,
-                    propertyName: 'window',
-                });
-                return response.propertyItems.map((item: any) => ({
-                    ...item,
-                    captureMode: capture_mode,
-                }));
-            } catch (error: any) {
-                if (error.message.includes('No source was found')) {
-                    try {
-                        await callOBS('GetSceneItemList', { sceneName: HELPER_SCENE });
-                    } catch (sceneError: any) {
-                        if (sceneError.message.includes('No source was found')) {
-                            await callOBS('CreateScene', { sceneName: HELPER_SCENE });
-                        }
-                        try {
-                            await callOBS('GetSceneItemList', { sceneName: OLD_HELPER_SCENE });
-                            await callOBS('RemoveScene', { sceneName: OLD_HELPER_SCENE });
-                        } catch (oldSceneError: any) {
-                            // Do nothing
-                        }
-                    }
+        const propertyItems = await getInputPropertyItems(
+            sourceName,
+            capture_mode,
+            'window'
+        );
+        return propertyItems.map((item) => ({
+            ...item,
+            captureMode: capture_mode,
+        }));
+    }
 
-                    // Create the 'window_getter' input
-                    await callOBS('CreateInput', {
-                        sceneName: HELPER_SCENE,
-                        inputName: sourceName,
-                        inputKind: capture_mode,
-                        inputSettings: {},
-                    });
+    async function getCaptureCardList(): Promise<ObsWindowOption[]> {
+        const [videoDevices, directShowAudioDevices, wasapiInputDevices] =
+            await Promise.all([
+                getInputPropertyItems(
+                    CAPTURE_CARD_GETTER_INPUT,
+                    OBS_DSHOW_INPUT_KIND,
+                    'video_device_id'
+                ),
+                getInputPropertyItems(
+                    CAPTURE_CARD_GETTER_INPUT,
+                    OBS_DSHOW_INPUT_KIND,
+                    'audio_device_id'
+                ),
+                getInputPropertyItems(
+                    AUDIO_INPUT_GETTER_INPUT,
+                    OBS_WASAPI_INPUT_CAPTURE_KIND,
+                    'device_id',
+                    { device_id: 'default' }
+                ),
+            ]);
 
-                    // Retry getting the window list
-                    const retryResponse = await callOBS('GetInputPropertiesListPropertyItems', {
-                        inputName: sourceName,
-                        propertyName: 'window',
-                    });
-                    return retryResponse.propertyItems.map((item: any) => ({
-                        ...item,
-                        captureMode: capture_mode,
-                    }));
-                }
-
-                return [];
-            }
-        })();
-
-        try {
-            return await getWindowsFromSourcePromise;
-        } finally {
-            getWindowsFromSourcePromise = null;
-        }
+        return buildCaptureCardOptions(
+            videoDevices,
+            directShowAudioDevices,
+            wasapiInputDevices.filter(
+                (device) => device.itemValue !== 'default'
+            )
+        );
     }
 
     async function getWindowList(): Promise<ObsWindowOption[]> {
         try {
-            const windowCaptureWindows = await getWindowsFromSource(
-                WINDOW_GETTER_INPUT,
-                'window_capture'
-            );
-            const gameCaptureWindows = await getWindowsFromSource(
-                GAME_WINDOW_INPUT,
-                'game_capture'
-            );
+            const [windowCaptureWindows, gameCaptureWindows, captureCards] =
+                await Promise.all([
+                    getWindowsFromSource(WINDOW_GETTER_INPUT, 'window_capture'),
+                    getWindowsFromSource(GAME_WINDOW_INPUT, 'game_capture'),
+                    getCaptureCardList(),
+                ]);
             const allWindows = [...windowCaptureWindows, ...gameCaptureWindows].filter(
                 (item) => !shouldFilterWindow(item)
             );
-            return mergeObsWindowItems(allWindows);
+            return [...mergeObsWindowItems(allWindows), ...captureCards].sort((left, right) =>
+                left.title.localeCompare(right.title)
+            );
         } catch (error) {
             if (!isOBSInitializingError(error)) {
                 logObsError('Error getting window list:', error);
             }
-            return []; // Return an empty array in case of an error
+            return [];
         }
     }
 
@@ -1286,6 +1452,191 @@ export async function getWindowTitleFromSource(
             `Error getting window title from source in scene "${obsSceneID}":`,
             error.message
         );
+        return null;
+    }
+}
+
+function getScreenshotPayload(imageData: string): string {
+    const trimmed = imageData.trim();
+    const delimiterIndex = trimmed.indexOf(',');
+    return delimiterIndex >= 0 ? trimmed.slice(delimiterIndex + 1) : trimmed;
+}
+
+function getPngBytesPerPixel(colorType: number): number {
+    switch (colorType) {
+        case 0:
+            return 1;
+        case 2:
+            return 3;
+        case 6:
+            return 4;
+        default:
+            return 0;
+    }
+}
+
+function paethPredictor(left: number, above: number, upperLeft: number): number {
+    const initial = left + above - upperLeft;
+    const leftDistance = Math.abs(initial - left);
+    const aboveDistance = Math.abs(initial - above);
+    const upperLeftDistance = Math.abs(initial - upperLeft);
+
+    if (leftDistance <= aboveDistance && leftDistance <= upperLeftDistance) {
+        return left;
+    }
+    if (aboveDistance <= upperLeftDistance) {
+        return above;
+    }
+    return upperLeft;
+}
+
+function isPngPayloadEffectivelyEmpty(payload: string): boolean {
+    const bytes = Buffer.from(payload, 'base64');
+    if (bytes.length < 8 || !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+        return payload.length < 32;
+    }
+
+    let width = 0;
+    let height = 0;
+    let bitDepth = 0;
+    let colorType = 0;
+    let interlaceMethod = 0;
+    const idatChunks: Buffer[] = [];
+
+    for (let offset = 8; offset + 8 <= bytes.length;) {
+        const length = bytes.readUInt32BE(offset);
+        const type = bytes.toString('ascii', offset + 4, offset + 8);
+        const dataStart = offset + 8;
+        const dataEnd = dataStart + length;
+        if (dataEnd + 4 > bytes.length) {
+            break;
+        }
+
+        if (type === 'IHDR') {
+            width = bytes.readUInt32BE(dataStart);
+            height = bytes.readUInt32BE(dataStart + 4);
+            bitDepth = bytes[dataStart + 8];
+            colorType = bytes[dataStart + 9];
+            interlaceMethod = bytes[dataStart + 12];
+        } else if (type === 'IDAT') {
+            idatChunks.push(bytes.subarray(dataStart, dataEnd));
+        } else if (type === 'IEND') {
+            break;
+        }
+
+        offset = dataEnd + 4;
+    }
+
+    const bytesPerPixel = getPngBytesPerPixel(colorType);
+    if (
+        width <= 0 ||
+        height <= 0 ||
+        bitDepth !== 8 ||
+        interlaceMethod !== 0 ||
+        bytesPerPixel === 0 ||
+        idatChunks.length === 0
+    ) {
+        return payload.length < 32;
+    }
+
+    const inflated = inflateSync(Buffer.concat(idatChunks));
+    const stride = width * bytesPerPixel;
+    const expectedLength = height * (stride + 1);
+    if (inflated.length < expectedLength) {
+        return payload.length < 32;
+    }
+
+    const previousRow = Buffer.alloc(stride);
+    const currentRow = Buffer.alloc(stride);
+    let firstPixel: number[] | null = null;
+
+    for (let row = 0; row < height; row += 1) {
+        const rowOffset = row * (stride + 1);
+        const filterType = inflated[rowOffset];
+
+        for (let column = 0; column < stride; column += 1) {
+            const raw = inflated[rowOffset + 1 + column];
+            const left = column >= bytesPerPixel ? currentRow[column - bytesPerPixel] : 0;
+            const above = previousRow[column];
+            const upperLeft =
+                column >= bytesPerPixel ? previousRow[column - bytesPerPixel] : 0;
+
+            let value = raw;
+            switch (filterType) {
+                case 0:
+                    break;
+                case 1:
+                    value = (raw + left) & 0xff;
+                    break;
+                case 2:
+                    value = (raw + above) & 0xff;
+                    break;
+                case 3:
+                    value = (raw + Math.floor((left + above) / 2)) & 0xff;
+                    break;
+                case 4:
+                    value = (raw + paethPredictor(left, above, upperLeft)) & 0xff;
+                    break;
+                default:
+                    return payload.length < 32;
+            }
+
+            currentRow[column] = value;
+        }
+
+        for (let column = 0; column < stride; column += bytesPerPixel) {
+            const pixel = Array.from(currentRow.subarray(column, column + bytesPerPixel));
+            if (firstPixel === null) {
+                firstPixel = pixel;
+                continue;
+            }
+
+            if (pixel.some((channel, index) => channel !== firstPixel?.[index])) {
+                return false;
+            }
+        }
+
+        currentRow.copy(previousRow);
+    }
+
+    return true;
+}
+
+function isScreenshotImageDataEffectivelyEmpty(imageData: string): boolean {
+    if (typeof imageData !== 'string' || imageData.trim().length === 0) {
+        return true;
+    }
+
+    try {
+        return isPngPayloadEffectivelyEmpty(getScreenshotPayload(imageData));
+    } catch {
+        return getScreenshotPayload(imageData).length < 32;
+    }
+}
+
+export async function sceneHasVisibleOutput(
+    scene: Pick<ObsScene, 'name'>
+): Promise<boolean | null> {
+    const sceneName = scene.name?.trim();
+    if (!sceneName || sceneName.toLowerCase() === HELPER_SCENE.toLowerCase()) {
+        return null;
+    }
+
+    try {
+        await getOBSConnection();
+        const response = await callOBS('GetSourceScreenshot', {
+            sourceName: sceneName,
+            imageFormat: 'png',
+            imageWidth: OBS_OUTPUT_PROBE_WIDTH,
+            imageHeight: OBS_OUTPUT_PROBE_HEIGHT,
+        });
+        if (!response?.imageData) {
+            return null;
+        }
+
+        return !isScreenshotImageDataEffectivelyEmpty(response.imageData);
+    } catch (error: any) {
+        logObsError(`Error probing scene output for "${sceneName}":`, error?.message ?? error);
         return null;
     }
 }

@@ -22,19 +22,23 @@
             <button id="removeSceneBtn" class="danger">Remove Game</button>
         </div>
         <div class="input-group">
-            <label for="windowSelect">Setup New Game:</label>
+            <label for="windowSelect">Setup New Scene:</label>
             <select id="windowSelect"></select>
             <button id="refreshWindowsBtn">&#x21bb;</button>
             <button id="createNewSceneBtn" style="width: 300px">Setup Capture</button>
             <span class="tooltip tooltip-left">❓
                 <span class="tooltiptext">
-                    Setup Capture adds both Window Capture and Game Capture on Windows.
+                    Setup Capture adds Window/Game Capture for windows, or Video Capture Device for capture cards and cameras.
                     <br>
-                    GSM prefers Game Capture when it works and falls back to Window Capture.
+                    GSM prefers Game Capture when it works, and capture-card scenes use Video Capture Device.
                     <br>
-                    If not on Windows, you need to setup OBS Scenes manually.
+                    Capture-card scenes are created without automatic window-title scene switching.
                 </span>
             </span>
+        </div>
+        <div class="input-group">
+            <label for="setupSceneNameInput">Override Scene Name (Optional):</label>
+            <input id="setupSceneNameInput" type="text" autocomplete="off" />
         </div>
     </div>
     <div class="card">
@@ -149,6 +153,7 @@
         const obsStatusBtn = document.getElementById('obs-status');
         const sceneSelect = document.getElementById('sceneSelect');
         const windowSelect = document.getElementById('windowSelect');
+        const setupSceneNameInput = document.getElementById('setupSceneNameInput');
         const renameSceneModal = document.getElementById('renameSceneModal');
         const renameSceneInput = document.getElementById('renameSceneInput');
         const renameSceneCancelBtn = document.getElementById('renameSceneCancelBtn');
@@ -162,6 +167,30 @@
         let scenes = [];
         let windows = [];
         let renameSceneTarget = null;
+
+        function getSetupTargetLabel(windowEntry) {
+            if (windowEntry?.targetKind === 'capture_card') {
+                return `Capture Card: ${windowEntry.title}`;
+            }
+            return windowEntry?.title || '';
+        }
+
+        function appendWindowOptions(container, entries) {
+            entries.forEach(windowEntry => {
+                const option = document.createElement('option');
+                option.value = windowEntry.value;
+                option.textContent = getSetupTargetLabel(windowEntry);
+                container.appendChild(option);
+            });
+        }
+
+        function appendWindowSectionHeader(container, label) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = `--- ${label} ---`;
+            option.disabled = true;
+            container.appendChild(option);
+        }
 
         function getSelectedScene() {
             return scenes.find(scene => scene.id === sceneSelect.value) || null;
@@ -257,16 +286,34 @@
             const windowsRes = await ipcRenderer.invoke('obs.getWindows');
             windows = windowsRes;
             windowSelect.innerHTML = '';
-            windows.forEach(window => {
-                const option = document.createElement('option');
-                option.value = window.value;
-                option.textContent = window.title;
-                windowSelect.appendChild(option);
-            });
+
+            const windowTargets = windows.filter(window => window?.targetKind !== 'capture_card');
+            const captureCardTargets = windows.filter(window => window?.targetKind === 'capture_card');
+
+            if (windowTargets.length > 0) {
+                appendWindowSectionHeader(windowSelect, 'Windows / Games');
+                appendWindowOptions(windowSelect, windowTargets);
+            }
+
+            if (captureCardTargets.length > 0) {
+                appendWindowSectionHeader(windowSelect, 'Capture Cards / Cameras');
+                appendWindowOptions(windowSelect, captureCardTargets);
+            }
+
+            if (windows.length === 0) {
+                windowSelect.innerHTML = '<option value="">No capture targets found</option>';
+            }
 
             // Restore previous selection if it still exists in the list (compare by value)
             if (previousSelection && windows.some(w => w.value === previousSelection)) {
                 windowSelect.value = previousSelection;
+            }
+
+            const selectedTarget = windows.find(w => w.value === windowSelect.value) || windows[0];
+            if (selectedTarget && (!setupSceneNameInput.value.trim() || selectedTarget.value !== previousSelection)) {
+                setupSceneNameInput.value = selectedTarget.title || '';
+            } else if (!selectedTarget) {
+                setupSceneNameInput.value = '';
             }
         }
 
@@ -351,6 +398,8 @@
                 title: selectedWindow.textContent,
                 path: selectedWindow.value
             };
+            const selectedTarget = windows.find(w => w.value === selectedWindow.value);
+            setupSceneNameInput.value = selectedTarget?.title || '';
         });
 
         document.getElementById('refreshWindowsBtn').addEventListener('click', () => {
@@ -360,12 +409,20 @@
         document.getElementById('createNewSceneBtn').addEventListener('click', () => {
             const selectedWindow = document.getElementById('windowSelect').selectedOptions[0];
             const windowDataFromOBS = windows.filter(w => w.value === selectedWindow.value);
+            const selectedTarget = windowDataFromOBS[0];
+            if (!selectedTarget) {
+                return;
+            }
             console.log(selectedWindow)
             const windowData = {
-                title: selectedWindow.textContent,
-                value: selectedWindow.value,
-                sceneName: selectedWindow.textContent,
-                captureValues: windowDataFromOBS[0]?.captureValues || {},
+                title: selectedTarget.title,
+                value: selectedTarget.value,
+                sceneName: setupSceneNameInput.value.trim() || selectedTarget.title,
+                targetKind: selectedTarget.targetKind || 'window',
+                captureValues: selectedTarget.captureValues || {},
+                videoDeviceId: selectedTarget.videoDeviceId,
+                audioDeviceId: selectedTarget.audioDeviceId,
+                wasapiInputDeviceId: selectedTarget.wasapiInputDeviceId,
             };
             console.log(windowData)
             ipcRenderer.invoke('obs.createScene', windowData);
@@ -553,6 +610,11 @@
                         windowSelect.style.cursor = '';
                         windowSelect.removeAttribute('title');
                     }
+                    if (setupSceneNameInput) {
+                        setupSceneNameInput.disabled = false;
+                        setupSceneNameInput.style.cursor = '';
+                        setupSceneNameInput.removeAttribute('title');
+                    }
                     if (refreshWindowsBtn) {
                         refreshWindowsBtn.disabled = false;
                         refreshWindowsBtn.style.opacity = '';
@@ -579,6 +641,10 @@
                     windowSelect.disabled = true;
                     windowSelect.style.cursor = 'not-allowed';
                     windowSelect.title = 'Not supported in this OS';
+                    setupSceneNameInput.value = '';
+                    setupSceneNameInput.disabled = true;
+                    setupSceneNameInput.style.cursor = 'not-allowed';
+                    setupSceneNameInput.title = 'Not supported in this OS';
                     if (refreshWindowsBtn) {
                         refreshWindowsBtn.disabled = true;
                         refreshWindowsBtn.style.opacity = '0.5';

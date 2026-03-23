@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { LauncherTab } from "./components/tabs/LauncherTab";
+import { OCRTab } from "./components/tabs/OCRTab";
 import { SettingsTab } from "./components/tabs/SettingsTab";
 import { SetupWizard } from "./components/SetupWizard";
 import type { ControlledTab } from "./types/models";
@@ -1008,7 +1009,7 @@ export default function App() {
 
       <main className="tab-content-area">
         <LegacyFrame src={getLegacyAssetPath("home.html")} active={activeTab === "obs"} />
-        <LegacyFrame src={getLegacyAssetPath("ocr.html")} active={activeTab === "ocr"} />
+        <OCRTab active={activeTab === "ocr"} />
         <StatsPanel active={activeTab === "stats"} />
         <LauncherTab active={activeTab === "launcher"} />
         <SettingsTab active={activeTab === "settings"} />

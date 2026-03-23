@@ -120,6 +120,137 @@
         });
     }
 
+    function getSelectedOptionLabel(id) {
+        const element = document.getElementById(id);
+        if (!element || element.selectedIndex < 0) return '';
+        return element.options[element.selectedIndex]?.textContent?.trim() || '';
+    }
+
+    function setSettingsHeaderTitle(text) {
+        const element = document.getElementById('settings-header-title');
+        if (element) {
+            element.textContent = text;
+        }
+    }
+
+    function setDefaultDisplay(id) {
+        const element = document.getElementById(id);
+        if (element) {
+            element.style.display = '';
+        }
+    }
+
+    function setVisibleDisplay(id, displayValue) {
+        const element = document.getElementById(id);
+        if (element) {
+            element.style.display = displayValue;
+        }
+    }
+
+    function appendGroupsInOrder(parent, groups) {
+        if (!parent) return;
+        groups.forEach((group) => {
+            if (group) {
+                parent.appendChild(group);
+            }
+        });
+    }
+
+    function updateModePresentation(isAdvanced) {
+        const modeLabel = document.getElementById('ocr-mode-label');
+        const modeCopy = document.getElementById('ocr-mode-copy');
+        const currentMode = document.getElementById('ocr-current-mode');
+
+        if (modeLabel) {
+            modeLabel.textContent = isAdvanced ? 'Advanced mode' : 'Basic mode';
+        }
+        if (modeCopy) {
+            modeCopy.textContent = isAdvanced
+                ? 'Advanced mode exposes engine selection, hotkeys, screenshot OCR, and text comparison tuning.'
+                : 'Basic mode keeps the common controls front and center. Switch to advanced when you need engine selection, extra hotkeys, or comparison tuning.';
+        }
+        if (currentMode) {
+            currentMode.textContent = isAdvanced ? 'Advanced' : 'Basic';
+        }
+    }
+
+    function updateSettingsOverview() {
+        const isAdvanced = document.getElementById('settings-mode-toggle')?.checked ?? false;
+        updateModePresentation(isAdvanced);
+
+        const setupScene = document.getElementById('ocr-setup-scene');
+        if (setupScene) {
+            setupScene.textContent = getSelectedOptionLabel('sceneSelect') || 'No scene selected';
+        }
+
+        const currentRate = document.getElementById('ocr-current-rate');
+        if (currentRate) {
+            if (isAdvanced) {
+                const scanRateValue = Number.parseFloat(document.getElementById('ocr-scan-rate')?.value || '0');
+                currentRate.textContent = Number.isFinite(scanRateValue) ? `${scanRateValue.toFixed(1)}s scan` : 'Custom';
+            } else {
+                currentRate.textContent = getSelectedOptionLabel('text-appearance-speed') || 'Normal';
+            }
+        }
+
+        const currentEngine = document.getElementById('ocr-current-engine');
+        if (currentEngine) {
+            const mainEngine = getSelectedOptionLabel('ocr2-input') || 'Main OCR';
+            if (!isAdvanced) {
+                let basicStabilityEngine = 'OneOCR';
+                if (platform === 'darwin') {
+                    basicStabilityEngine = 'Apple Live Text';
+                } else if (platform === 'linux') {
+                    basicStabilityEngine = 'Meiki Text Detector';
+                }
+                currentEngine.textContent = `${basicStabilityEngine} -> ${mainEngine}`;
+            } else if (document.getElementById('two-pass-ocr')?.checked) {
+                const stabilityEngine = getSelectedOptionLabel('ocr1-input') || 'Stability OCR';
+                currentEngine.textContent = `${stabilityEngine} -> ${mainEngine}`;
+            } else {
+                currentEngine.textContent = mainEngine;
+            }
+        }
+    }
+
+    function applyConfigSummary(config) {
+        const rectangleCount = config?.rectangles?.length || 0;
+        const hasUsableAreas = rectangleCount > 0;
+        const sceneLabel = config?.scene || getSelectedOptionLabel('sceneSelect') || 'Current scene';
+        const configTooltip = document.getElementById('config-tooltip');
+        const configSummary = document.getElementById('ocr-config-summary');
+        const setupSummary = document.getElementById('ocr-setup-summary');
+        const areaCount = document.getElementById('ocr-setup-area-count');
+
+        if (areaCount) {
+            areaCount.textContent = `${rectangleCount}`;
+        }
+
+        if (configTooltip) {
+            configTooltip.textContent = hasUsableAreas ? 'Ready' : 'Needs Areas';
+            configTooltip.classList.toggle('is-ready', hasUsableAreas);
+        }
+
+        if (!config || !hasUsableAreas) {
+            if (configSummary) {
+                configSummary.textContent = 'No OCR area config is ready for this scene. Run Select OCR Areas before starting auto OCR.';
+            }
+            if (setupSummary) {
+                setupSummary.textContent = config
+                    ? 'This scene has a config file but no OCR areas saved yet.'
+                    : 'No OCR area config was found for the selected scene yet.';
+            }
+            return;
+        }
+
+        if (configSummary) {
+            configSummary.textContent = `${sceneLabel}: ${rectangleCount} configured ${rectangleCount === 1 ? 'area' : 'areas'}. Auto OCR is ready.`;
+        }
+        if (setupSummary) {
+            setupSummary.textContent = `${sceneLabel} currently has ${rectangleCount} OCR ${rectangleCount === 1 ? 'area' : 'areas'} configured.`;
+        }
+    }
+
     const keepNewlineSettingKeys = Object.freeze({
         auto: 'keep_newline_auto',
         menu: 'keep_newline_menu',
@@ -219,15 +350,15 @@
         if (hideGlobalPauseHotkey)
             document.getElementById('global-pause-hotkey-group').style.display = 'none';
         if (updateSettingsHeader)
-            document.getElementById('settings-header').firstChild.innerText = 'OCR Settings (Some Options Hidden)';
+            setSettingsHeaderTitle('OCR Settings (Some Options Hidden)');
         if (hideScreenshotsGroup)
             document.getElementById('ocr-screenshots-group').style.display = 'none';
         if (showSelectAreasButton) {
             const isBasicMode = !document.getElementById('settings-mode-toggle').checked;
             if (isBasicMode) {
-                document.getElementById('select_areas_button_basic').style.display = 'block';
+                document.getElementById('select_areas_button_basic').style.display = 'flex';
             } else {
-                document.getElementById('select_areas_button_2').style.display = 'block';
+                document.getElementById('select_areas_button_2').style.display = 'flex';
             }
         }
 
@@ -269,28 +400,19 @@
         document.getElementById('start-ocr-controls').style.display = 'flex';
         document.getElementById('stop-ocr-controls').style.display = 'none';
         document.getElementById('stop-ocr').innerText = "Stop OCR (Open Settings)";
-        document.getElementById('manual-ocr-hotkey-group').style.display = 'flex';
-        document.getElementById('area-select-ocr-hotkey-group').style.display = 'flex';
-        document.getElementById('whole-window-ocr-hotkey-group').style.display = 'flex';
-        document.getElementById('global-pause-hotkey-group').style.display = 'flex';
-        document.getElementById('two-pass-ocr-group').style.display = 'flex';
-        document.getElementById('settings-header').firstChild.innerText = '3. OCR Settings';
-        document.getElementById('ocr-screenshots-group').style.display = 'flex';
+        ['manual-ocr-hotkey-group', 'area-select-ocr-hotkey-group', 'whole-window-ocr-hotkey-group',
+            'global-pause-hotkey-group', 'two-pass-ocr-group', 'ocr-screenshots-group'].forEach(setDefaultDisplay);
+        setSettingsHeaderTitle('Put the high-impact settings where you can see them.');
         document.getElementById('ocr-status-label').innerText = "";
         document.getElementById('select_areas_button_2').style.display = 'none';
         document.getElementById('select_areas_button_basic').style.display = 'none';
         refreshActiveOCRWindow();
+        updateSettingsOverview();
     }
 
     function refreshActiveOCRWindow() {
         ipcRenderer.invoke('ocr.getActiveOCRConfig').then(config => {
-            if (!config) {
-                document.getElementById('config-tooltip').innerText = '✗';
-                document.getElementById('ocr-config-summary').textContent = 'No active OCR configuration found.';
-                return;
-            }
-            document.getElementById('config-tooltip').innerText = '✓';
-            document.getElementById('ocr-config-summary').innerHTML = `Selected Config: ${config.scene || 'None'}<br> Rectangles: ${config.rectangles?.length || 0}`;
+            applyConfigSummary(config);
         });
         // Load per-scene settings (furigana sensitivity, etc.) from {scene}_config.json
         ipcRenderer.invoke('ocr.getActiveSceneSettings').then(settings => {
@@ -301,6 +423,7 @@
             if (ocr_settings) {
                 ocr_settings.furigana_filter_sensitivity = sensitivity;
             }
+            updateSettingsOverview();
         });
     }
 
@@ -308,8 +431,10 @@
         const sceneSelect = document.getElementById('sceneSelect');
         const previousSceneSelection = sceneSelect.value;
 
-        if (showLoading)
+        if (showLoading) {
             sceneSelect.innerHTML = '<option>Loading...</option>';
+            updateSettingsOverview();
+        }
 
         ipcRenderer.invoke('obs.getScenes').then(obsScenes => {
             scenes = obsScenes;
@@ -331,7 +456,10 @@
                 if (activeScene && scenes.some(s => s.id === activeScene.id)) {
                     sceneSelect.value = activeScene.id;
                 }
+                updateSettingsOverview();
+                refreshActiveOCRWindow();
             });
+            updateSettingsOverview();
             refreshActiveOCRWindow();
         });
     }
@@ -401,6 +529,7 @@
             ocr_settings.scanRate_basic = parseFloat(scanRate);
         }
 
+        updateSettingsOverview();
         await ipcRenderer.send('ocr.save-ocr-config', ocr_settings);
     }
 
@@ -430,6 +559,7 @@
         const comparisonSettings = document.getElementById('ocr-comparison-settings-section');
 
         const furiganaGroup = document.getElementById('furigana-filter-group');
+        const baseScaleGroup = document.getElementById('base-scale-group');
         const manualHotkeyGroup = document.getElementById('manual-ocr-hotkey-group');
         const areaHotkeyGroup = document.getElementById('area-select-ocr-hotkey-group');
         const wholeWindowHotkeyGroup = document.getElementById('whole-window-ocr-hotkey-group');
@@ -437,6 +567,16 @@
         const clipboardGroup = document.getElementById('send-to-clipboard-group');
         const keepNewlineGroup = document.getElementById('keep-newline-group');
         const languageGroup = document.getElementById('language-select-group');
+        const screenshotsGroup = document.getElementById('ocr-screenshots-group');
+        const twoPassGroup = document.getElementById('two-pass-ocr-group');
+        const ocr1Group = document.getElementById('ocr1-select-group');
+        const ocr2Group = document.getElementById('ocr2-select-group');
+        const optimizeGroup = document.getElementById('optimize-second-scan-group');
+        const scanRateGroup = document.getElementById('ocr-scan-rate-group');
+        const advancedCoreColumn = document.getElementById('ocr-advanced-core-column');
+        const advancedActionsColumn = document.getElementById('ocr-advanced-actions-column');
+        const basicSelectAreasButton = document.getElementById('select_areas_button_basic');
+        const advancedSelectAreasButton = document.getElementById('select_areas_button_2');
 
         let defaultOcr1 = 'oneocr';
         if (platform === 'darwin') {
@@ -444,90 +584,58 @@
         } else if (platform === 'linux') {
             defaultOcr1 = 'meiki_text_detector';
         }
+        const settings = ocr_settings || {};
 
         if (isAdvanced) {
             basicSettings.style.display = 'none';
             advancedSettings.style.display = 'grid';
             comparisonSettings.style.display = 'block';
 
-            // Move shared elements back to advanced grid
-            const firstColumn = document.querySelector('#ocr-settings-grid-container .form-group:nth-child(1)');
-            const secondColumn = document.querySelector('#ocr-settings-grid-container .form-group:nth-child(2)');
-
-            if (languageGroup && languageGroup.parentElement.id === 'language-select-group-basic') {
-                const ocr2Group = document.getElementById('ocr2-select-group');
-                if (ocr2Group && ocr2Group.parentElement === firstColumn) {
-                    ocr2Group.parentNode.insertBefore(languageGroup, ocr2Group.nextSibling);
-                }
-            }
-
-            if (furiganaGroup && furiganaGroup.parentElement.id === 'furigana-filter-group-basic') {
-                const optimizeGroup = document.getElementById('optimize-second-scan-group');
-                if (optimizeGroup && optimizeGroup.parentElement === firstColumn) {
-                    optimizeGroup.parentNode.insertBefore(furiganaGroup, optimizeGroup.nextSibling);
-                }
-            }
-
-            if (areaHotkeyGroup && areaHotkeyGroup.parentElement.id === 'area-select-ocr-hotkey-group-basic') {
-                const scanRateGroup = document.getElementById('ocr-scan-rate-group');
-                if (scanRateGroup && scanRateGroup.parentElement === secondColumn) {
-                    scanRateGroup.parentNode.insertBefore(areaHotkeyGroup, scanRateGroup.nextSibling);
-                }
-            }
-
-            if (manualHotkeyGroup && manualHotkeyGroup.parentElement.id === 'manual-ocr-hotkey-group-basic') {
-                if (areaHotkeyGroup && areaHotkeyGroup.parentElement === secondColumn) {
-                    areaHotkeyGroup.parentNode.insertBefore(manualHotkeyGroup, areaHotkeyGroup.nextSibling);
-                }
-            }
-
-            if (wholeWindowHotkeyGroup && wholeWindowHotkeyGroup.parentElement.id === 'whole-window-ocr-hotkey-group-basic') {
-                if (manualHotkeyGroup && manualHotkeyGroup.parentElement === secondColumn) {
-                    manualHotkeyGroup.parentNode.insertBefore(wholeWindowHotkeyGroup, manualHotkeyGroup.nextSibling);
-                }
-            }
-
-            if (globalPauseHotkeyGroup && globalPauseHotkeyGroup.parentElement.id === 'global-pause-hotkey-group-basic') {
-                const previousGroup = wholeWindowHotkeyGroup && wholeWindowHotkeyGroup.parentElement === secondColumn
-                    ? wholeWindowHotkeyGroup
-                    : manualHotkeyGroup;
-                if (previousGroup && previousGroup.parentElement === secondColumn) {
-                    previousGroup.parentNode.insertBefore(globalPauseHotkeyGroup, previousGroup.nextSibling);
-                }
-            }
-
-            if (clipboardGroup && clipboardGroup.parentElement.id === 'send-to-clipboard-group-basic') {
-                const screenshotsGroup = document.getElementById('ocr-screenshots-group');
-                if (screenshotsGroup && screenshotsGroup.parentElement === secondColumn) {
-                    screenshotsGroup.parentNode.insertBefore(clipboardGroup, screenshotsGroup.nextSibling);
-                }
-            }
-
-            if (keepNewlineGroup && keepNewlineGroup.parentElement.id === 'keep-newline-group-basic') {
-                const previousGroup = clipboardGroup && clipboardGroup.parentElement === secondColumn
-                    ? clipboardGroup
-                    : document.getElementById('ocr-screenshots-group');
-                if (previousGroup && previousGroup.parentElement === secondColumn) {
-                    previousGroup.parentNode.insertBefore(keepNewlineGroup, previousGroup.nextSibling);
-                }
-            }
+            appendGroupsInOrder(advancedCoreColumn, [
+                languageGroup,
+                ocr2Group,
+                twoPassGroup,
+                ocr1Group,
+                optimizeGroup,
+                scanRateGroup,
+                baseScaleGroup,
+                furiganaGroup,
+            ]);
+            appendGroupsInOrder(advancedActionsColumn, [
+                manualHotkeyGroup,
+                areaHotkeyGroup,
+                wholeWindowHotkeyGroup,
+                globalPauseHotkeyGroup,
+                screenshotsGroup,
+                clipboardGroup,
+                keepNewlineGroup,
+                advancedSelectAreasButton,
+            ]);
 
             // Load Advanced Configs
-            document.getElementById('ocr1-input').value = ocr_settings.ocr1_advanced || defaultOcr1;
-            document.getElementById('ocr2-input').value = ocr_settings.ocr2_advanced || 'glens';
-            document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate_advanced ?? 0.5;
+            document.getElementById('ocr1-input').value = settings.ocr1_advanced || defaultOcr1;
+            document.getElementById('ocr2-input').value = settings.ocr2_advanced || 'glens';
+            document.getElementById('ocr-scan-rate').value = settings.scanRate_advanced ?? 0.5;
 
         } else {
             basicSettings.style.display = 'grid';
             advancedSettings.style.display = 'none';
             comparisonSettings.style.display = 'none';
 
-            // Move shared elements to basic grid
             if (languageGroup) {
                 document.getElementById('language-select-group-basic').appendChild(languageGroup);
             }
+            if (baseScaleGroup) {
+                document.getElementById('base-scale-group-basic').appendChild(baseScaleGroup);
+            }
             if (furiganaGroup) {
                 document.getElementById('furigana-filter-group-basic').appendChild(furiganaGroup);
+            }
+            if (clipboardGroup) {
+                document.getElementById('send-to-clipboard-group-basic').appendChild(clipboardGroup);
+            }
+            if (keepNewlineGroup) {
+                document.getElementById('keep-newline-group-basic').appendChild(keepNewlineGroup);
             }
             if (manualHotkeyGroup) {
                 document.getElementById('manual-ocr-hotkey-group-basic').appendChild(manualHotkeyGroup);
@@ -541,18 +649,15 @@
             if (globalPauseHotkeyGroup) {
                 document.getElementById('global-pause-hotkey-group-basic').appendChild(globalPauseHotkeyGroup);
             }
-            if (clipboardGroup) {
-                document.getElementById('send-to-clipboard-group-basic').appendChild(clipboardGroup);
-            }
-            if (keepNewlineGroup) {
-                document.getElementById('keep-newline-group-basic').appendChild(keepNewlineGroup);
+            if (basicSelectAreasButton) {
+                document.getElementById('ocr-basic-actions-column').appendChild(basicSelectAreasButton);
             }
 
             // Load Basic Configs
             document.getElementById('ocr1-input').value = defaultOcr1;
             document.getElementById('ocr2-input').value = 'glens';
 
-            const scanRate = ocr_settings.scanRate_basic ?? 0.5;
+            const scanRate = settings.scanRate_basic ?? 0.5;
             const appearanceSpeed = document.getElementById('text-appearance-speed');
             // Map scanRate to appearance speed dropdown
             if (scanRate <= 0.3) {
@@ -565,6 +670,16 @@
             // Update the hidden scan rate input too, just in case
             document.getElementById('ocr-scan-rate').value = scanRate;
         }
+
+        if (document.getElementById('two-pass-ocr').checked) {
+            setDefaultDisplay('ocr1-select-group');
+            setDefaultDisplay('optimize-second-scan-group');
+        } else {
+            document.getElementById('ocr1-select-group').style.display = 'none';
+            document.getElementById('optimize-second-scan-group').style.display = 'none';
+        }
+
+        updateSettingsOverview();
     }
 
     function setupCollapsibleSections() {
@@ -634,7 +749,7 @@
         ocrFitAddon = new FitAddon.FitAddon();
         ocrTerm.loadAddon(ocrFitAddon);
         ocrTerm.open(document.getElementById('ocr-terminal'));
-        document.getElementById('ocr-terminal').style.height = '300px';
+        document.getElementById('ocr-terminal').style.height = '320px';
         ocrFitAddon.fit();
 
         ocrTerm.onData(e => {
@@ -681,7 +796,8 @@
             const result = await ipcRenderer.invoke('ocr.import-ocr-config');
             if (result.success) {
                 alert('Import successful!');
-                loadCurrentConfig();
+                refreshScenesAndWindows(false);
+                refreshActiveOCRWindow();
             } else {
                 alert('Import failed: ' + result.message);
             }
@@ -702,6 +818,7 @@
             console.log('Furigana filter sensitivity set to:', sensitivity);
             document.getElementById('furigana-filter-sensitivity').value = sensitivity;
             document.getElementById('furigana-filter-sensitivity-value').innerText = sensitivity;
+            saveOCRConfig();
         });
 
         // Hotkey inputs
@@ -844,6 +961,7 @@
         // Scene selection
         document.getElementById('sceneSelect').addEventListener('change', (event) => {
             ipcRenderer.invoke('obs.switchScene.id', event.target.value);
+            updateSettingsOverview();
             setTimeout(() => refreshActiveOCRWindow(), 500);
         });
 
@@ -854,12 +972,13 @@
             if (id === 'two-pass-ocr') {
                 document.getElementById('two-pass-ocr').addEventListener('change', (event) => {
                     if (event.target.checked) {
-                        document.getElementById('ocr1-select-group').style.display = 'flex';
-                        document.getElementById('optimize-second-scan-group').style.display = 'flex';
+                        setDefaultDisplay('ocr1-select-group');
+                        setDefaultDisplay('optimize-second-scan-group');
                     } else {
                         document.getElementById('ocr1-select-group').style.display = 'none';
                         document.getElementById('optimize-second-scan-group').style.display = 'none';
                     }
+                    updateSettingsOverview();
                 });
             }
             document.getElementById(id).addEventListener('change', saveOCRConfig);
@@ -1121,8 +1240,8 @@
             document.getElementById('ocr-base-scale-value').textContent = Math.round(baseScale * 100) + '%';
 
             if (ocr_settings.twoPassOCR) {
-                document.getElementById('ocr1-select-group').style.display = 'flex';
-                document.getElementById('optimize-second-scan-group').style.display = 'flex';
+                setDefaultDisplay('ocr1-select-group');
+                setDefaultDisplay('optimize-second-scan-group');
             } else {
                 document.getElementById('ocr1-select-group').style.display = 'none';
                 document.getElementById('optimize-second-scan-group').style.display = 'none';
@@ -1159,7 +1278,11 @@
             document.getElementById('process-priority').value = 'normal';
             document.getElementById('default-scene-furigana-filter-sensitivity').value = 0;
             applyComparisonThresholdSettings(null);
+            document.getElementById('settings-mode-toggle').checked = false;
+            toggleSettingsMode(false, true);
         }
+
+        updateSettingsOverview();
 
         refreshScenesAndWindows();
         setInterval(() => refreshScenesAndWindows(false), 5000);

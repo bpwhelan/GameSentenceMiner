@@ -583,6 +583,19 @@ def _get_pid_for_hwnd(hwnd: int) -> int:
     return int(pid.value)
 
 
+def _is_tracked_suspended_pid(pid: int) -> bool:
+    if pid <= 0:
+        return False
+
+    with _suspended_pids_lock:
+        record = dict(_suspended_pids.get(pid) or {})
+
+    if not record:
+        return False
+
+    return _process_matches_record(pid, record)
+
+
 def _get_process_creation_time(pid: int) -> Optional[int]:
     if not is_windows() or not kernel32:
         return None
@@ -2001,6 +2014,13 @@ class WindowStateMonitor:
 
     def _set_foreground_aggressive(self, hwnd: int, attempt_number: int = 1) -> bool:
         if not is_windows() or not hwnd:
+            return False
+
+        target_pid = _get_pid_for_hwnd(hwnd)
+        if _is_tracked_suspended_pid(target_pid):
+            logger.debug(
+                f"Skipping target window activation for HWND {hwnd} / PID {target_pid}: process is currently paused."
+            )
             return False
 
         try:

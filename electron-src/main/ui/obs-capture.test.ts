@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    buildCaptureCardOptions,
     buildWindowsSceneCaptureInputs,
     mergeObsWindowItems,
 } from './obs-capture.js';
@@ -23,11 +24,97 @@ describe('mergeObsWindowItems', () => {
         expect(merged).toHaveLength(1);
         expect(merged[0]).toMatchObject({
             title: 'Example Game',
+            targetKind: 'window',
             captureValues: {
                 window_capture: 'Example Game:GameWindowClass:ExampleGame.exe',
                 game_capture: 'Example Game:GameWindowClass:ExampleGame.exe',
             },
         });
+    });
+
+    it('skips invalid OBS window entries with no title, class, or executable', () => {
+        const merged = mergeObsWindowItems([
+            {
+                itemName: '',
+                itemValue: '::',
+                captureMode: 'window_capture',
+            },
+            {
+                itemName: 'Window Capture: Example Game',
+                itemValue: 'Example Game:GameWindowClass:ExampleGame.exe',
+                captureMode: 'window_capture',
+            },
+        ]);
+
+        expect(merged).toHaveLength(1);
+        expect(merged[0]).toMatchObject({
+            title: 'Example Game',
+            value: '["example game","gamewindowclass","examplegame.exe"]',
+        });
+    });
+});
+
+describe('buildCaptureCardOptions', () => {
+    it('matches directshow and wasapi audio devices to a video capture device', () => {
+        const captureCards = buildCaptureCardOptions(
+            [
+                {
+                    itemName: 'Logi C525 HD Webcam',
+                    itemValue: 'video-device-id',
+                },
+            ],
+            [
+                {
+                    itemName: 'Microphone (Logi C525 HD WebCam)',
+                    itemValue: 'dshow-audio-id',
+                },
+            ],
+            [
+                {
+                    itemName: 'Microphone (Logi C525 HD WebCam)',
+                    itemValue: 'wasapi-audio-id',
+                },
+            ]
+        );
+
+        expect(captureCards).toEqual([
+            {
+                title: 'Logi C525 HD Webcam',
+                value: '["capture_card","video-device-id"]',
+                targetKind: 'capture_card',
+                videoDeviceId: 'video-device-id',
+                audioDeviceId: 'dshow-audio-id',
+                wasapiInputDeviceId: 'wasapi-audio-id',
+            },
+        ]);
+    });
+
+    it('filters obvious virtual cameras out of the capture-card list', () => {
+        const captureCards = buildCaptureCardOptions(
+            [
+                {
+                    itemName: 'OBS Virtual Camera',
+                    itemValue: 'obs-virtual-camera',
+                },
+                {
+                    itemName: 'HD60 X',
+                    itemValue: 'hd60x',
+                },
+            ],
+            [],
+            []
+        );
+
+        expect(captureCards).toEqual([
+            {
+                title: 'HD60 X',
+                value: '["capture_card","hd60x"]',
+                targetKind: 'capture_card',
+                videoDeviceId: 'hd60x',
+                audioDeviceId: undefined,
+                wasapiInputDeviceId: undefined,
+            },
+        ]);
     });
 });
 
@@ -38,6 +125,7 @@ describe('buildWindowsSceneCaptureInputs', () => {
             {
                 title: 'Example Game',
                 value: '["example game","gamewindowclass","examplegame.exe"]',
+                targetKind: 'window',
                 captureValues: {
                     window_capture: 'Example Game:GameWindowClass:ExampleGame.exe',
                     game_capture: 'Example Game:GameWindowClass:ExampleGame.exe',
@@ -83,6 +171,72 @@ describe('buildWindowsSceneCaptureInputs', () => {
         expect(plan[2].inputSettings).not.toHaveProperty('capture_audio');
     });
 
+    it('creates a capture-card scene with a paired audio input when a wasapi device matches', () => {
+        const plan = buildWindowsSceneCaptureInputs(
+            'Nintendo Switch',
+            {
+                title: 'HD60 X',
+                value: '["capture_card","hd60x"]',
+                targetKind: 'capture_card',
+                videoDeviceId: 'hd60x-video-id',
+                audioDeviceId: 'hd60x-dshow-audio-id',
+                wasapiInputDeviceId: 'hd60x-wasapi-id',
+            },
+            {
+                isWindows: true,
+                isWindows10OrHigher: true,
+            }
+        );
+
+        expect(plan).toHaveLength(2);
+        expect(plan[0]).toMatchObject({
+            inputName: 'HD60 X - Video Capture Device',
+            inputKind: 'dshow_input',
+            sceneItemEnabled: true,
+            inputSettings: {
+                video_device_id: 'hd60x-video-id',
+            },
+        });
+        expect(plan[0].inputSettings).not.toHaveProperty('audio_device_id');
+        expect(plan[1]).toMatchObject({
+            inputName: 'HD60 X - Capture Card Audio',
+            inputKind: 'wasapi_input_capture',
+            sceneItemEnabled: true,
+            inputSettings: {
+                device_id: 'hd60x-wasapi-id',
+            },
+        });
+    });
+
+    it('falls back to directshow audio when no wasapi input match is available', () => {
+        const plan = buildWindowsSceneCaptureInputs(
+            'Nintendo Switch',
+            {
+                title: 'HD60 X',
+                value: '["capture_card","hd60x"]',
+                targetKind: 'capture_card',
+                videoDeviceId: 'hd60x-video-id',
+                audioDeviceId: 'hd60x-dshow-audio-id',
+            },
+            {
+                isWindows: true,
+                isWindows10OrHigher: true,
+            }
+        );
+
+        expect(plan).toEqual([
+            {
+                inputName: 'HD60 X - Video Capture Device',
+                inputKind: 'dshow_input',
+                sceneItemEnabled: true,
+                inputSettings: {
+                    video_device_id: 'hd60x-video-id',
+                    audio_device_id: 'hd60x-dshow-audio-id',
+                },
+            },
+        ]);
+    });
+
     it('rejects automatic scene setup outside Windows', () => {
         expect(() =>
             buildWindowsSceneCaptureInputs(
@@ -90,6 +244,7 @@ describe('buildWindowsSceneCaptureInputs', () => {
                 {
                     title: 'Example Game',
                     value: 'legacy:value',
+                    targetKind: 'window',
                 },
                 {
                     isWindows: false,

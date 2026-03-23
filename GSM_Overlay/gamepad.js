@@ -2824,13 +2824,58 @@ class GamepadHandler {
     return false;
   }
 
+  getBlockSelectionMetrics(block) {
+    if (!block) {
+      return { area: 0, textLength: 0 };
+    }
+
+    const rect = this.getBlockBoundingRect(block);
+    const width = Number.isFinite(rect?.width) ? Math.max(0, rect.width) : 0;
+    const height = Number.isFinite(rect?.height) ? Math.max(0, rect.height) : 0;
+    const textLength = (block.textContent || '').trim().length;
+
+    return {
+      area: width * height,
+      textLength,
+    };
+  }
+
   findFirstSelectableBlockIndex() {
+    const selectableBlocks = [];
+
     for (let i = 0; i < this.textBlocks.length; i++) {
       if (this.blockHasSelectableCharacters(this.textBlocks[i])) {
-        return i;
+        selectableBlocks.push({
+          index: i,
+          ...this.getBlockSelectionMetrics(this.textBlocks[i]),
+        });
       }
     }
-    return this.textBlocks.length > 0 ? 0 : -1;
+
+    if (selectableBlocks.length === 0) {
+      return this.textBlocks.length > 0 ? 0 : -1;
+    }
+
+    if (selectableBlocks.length >= 3) {
+      const rankedBlocks = [...selectableBlocks].sort((a, b) => (
+        (b.area - a.area) ||
+        (b.textLength - a.textLength) ||
+        (a.index - b.index)
+      ));
+
+      const largestBlock = rankedBlocks[0];
+      const secondLargestBlock = rankedBlocks[1];
+      const compareByArea = largestBlock.area > 0 || secondLargestBlock.area > 0;
+      const dominantMetric = compareByArea ? 'area' : 'textLength';
+      const dominantValue = largestBlock[dominantMetric];
+      const nextValue = secondLargestBlock[dominantMetric];
+
+      if (dominantValue > 0 && dominantValue >= nextValue * 2) {
+        return largestBlock.index;
+      }
+    }
+
+    return selectableBlocks[0].index;
   }
 
   resetSelectionToSingleBlockStart() {

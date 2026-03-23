@@ -99,3 +99,45 @@ describe("legacy gamepad button bindings", () => {
     expect(handler.isButtonBindingHeld(comboBinding, "pad-1")).toBe(false);
   });
 });
+
+describe("legacy gamepad start block selection", () => {
+  function createStartSelectionHandler(blocks: Array<{ area: number; text: string }>) {
+    const handler = Object.create(GamepadHandler.prototype) as {
+      textBlocks: Array<{ __area: number; textContent: string }>;
+      blockHasSelectableCharacters: (block: { textContent: string }) => boolean;
+      getBlockBoundingRect: (block: { __area: number }) => { width: number; height: number };
+      getBlockSelectionMetrics: (block: { __area: number; textContent: string }) => { area: number; textLength: number };
+      findFirstSelectableBlockIndex: () => number;
+    };
+
+    handler.textBlocks = blocks.map((block) => ({
+      __area: block.area,
+      textContent: block.text
+    }));
+    handler.blockHasSelectableCharacters = (block) => block.textContent.trim().length > 0;
+    handler.getBlockBoundingRect = (block) => ({ width: block.__area, height: 1 });
+
+    return handler;
+  }
+
+  it("prefers the dominant large block when one block is much larger than the rest", () => {
+    const handler = createStartSelectionHandler([
+      { area: 12, text: "small 1" },
+      { area: 90, text: "big block" },
+      { area: 15, text: "small 2" },
+      { area: 10, text: "small 3" }
+    ]);
+
+    expect(handler.findFirstSelectableBlockIndex()).toBe(1);
+  });
+
+  it("keeps the first selectable block when sizes are similar", () => {
+    const handler = createStartSelectionHandler([
+      { area: 30, text: "first" },
+      { area: 40, text: "second" },
+      { area: 35, text: "third" }
+    ]);
+
+    expect(handler.findFirstSelectableBlockIndex()).toBe(0);
+  });
+});

@@ -68,11 +68,7 @@ def is_evolving_text(
         return False
     n = len(shorter)
     active_settings = _resolve_settings(settings)
-    resolved_threshold = (
-        active_settings.evolving_prefix_threshold
-        if prefix_threshold is None
-        else prefix_threshold
-    )
+    resolved_threshold = active_settings.evolving_prefix_threshold if prefix_threshold is None else prefix_threshold
     return fuzz.ratio(shorter, longer[:n]) >= resolved_threshold
 
 
@@ -115,9 +111,8 @@ def _compare_flat_strings(
         and (shorter_len / longer_len) >= min_ratio
     ):
         # Require base similarity to already be in roughly the same ballpark.
-        if (
-            threshold >= active_settings.anchored_truncation_strict_threshold
-            and similarity < (threshold - active_settings.anchored_truncation_base_margin)
+        if threshold >= active_settings.anchored_truncation_strict_threshold and similarity < (
+            threshold - active_settings.anchored_truncation_base_margin
         ):
             return False
         shorter_str = norm_prev if len(norm_prev) <= len(norm_new) else norm_new

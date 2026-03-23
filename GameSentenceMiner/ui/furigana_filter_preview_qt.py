@@ -23,7 +23,7 @@ try:
     from PIL import Image
 
     from GameSentenceMiner import obs
-    from GameSentenceMiner.util.config.configuration import logger, get_overlay_config
+    from GameSentenceMiner.util.config.configuration import logger
     from GameSentenceMiner.util.config.electron_config import get_ocr_language
     from GameSentenceMiner.ocr.image_scaling import (
         scale_pil_image,
@@ -38,41 +38,18 @@ except Exception as e:
         sys.exit(1)
 
 
-def get_overlay_screenshot() -> Image.Image:
-    """
-    Captures a screenshot from the configured overlay monitor using mss.
+def get_overlay_preview_capture() -> tuple[Image.Image, str]:
+    """Capture an overlay preview image using the same precedence as overlay OCR."""
+    from GameSentenceMiner.util.overlay.get_overlay_coords import (
+        get_overlay_preview_capture as _get_overlay_preview_capture,
+    )
 
-    Returns:
-        A PIL Image object of the screenshot from the overlay monitor.
-    """
     try:
-        import mss
-
-        overlay_config = get_overlay_config()
-        monitor_index = overlay_config.monitor_to_capture
-
-        with mss.mss() as sct:
-            # mss.monitors[0] is all monitors combined, mss.monitors[1] is the first monitor.
-            # Add 1 to the monitor_index to get the correct monitor.
-            monitor_slot = monitor_index + 1
-            if monitor_slot >= len(sct.monitors):
-                raise IndexError(f"Monitor index {monitor_slot} not found. Available monitors: {len(sct.monitors) - 1}")
-            monitor = sct.monitors[monitor_slot]
-            screenshot = sct.grab(monitor)
-
-            # Convert to PIL Image
-            img = Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
-            logger.info(f"Screenshot captured from monitor {monitor_index + 1} ({img.width}x{img.height})")
-            return img
-
-    except ImportError:
-        logger.error("mss library not found. Please install it to use overlay functionality.")
-        raise
-    except IndexError as e:
-        logger.error(str(e))
-        raise
+        image, title_suffix = _get_overlay_preview_capture()
+        logger.info(f"Overlay preview screenshot captured ({image.width}x{image.height}) from {title_suffix}")
+        return image, title_suffix
     except Exception as e:
-        logger.error(f"Failed to capture overlay screenshot: {e}")
+        logger.error(f"Failed to capture overlay preview screenshot: {e}")
         raise
 
 
@@ -693,13 +670,11 @@ def show_furigana_filter_preview(
     # Get screenshot if not provided
     if image is None:
         if for_overlay:
-            logger.info("Using overlay mode - capturing from configured monitor...")
+            logger.info("Using overlay mode - capturing from overlay preview source...")
             try:
-                screenshot_img = get_overlay_screenshot()
+                screenshot_img, resolved_title_suffix = get_overlay_preview_capture()
                 if not title_suffix:
-                    overlay_config = get_overlay_config()
-                    monitor_num = overlay_config.monitor_to_capture + 1
-                    title_suffix = f"Overlay Monitor {monitor_num}"
+                    title_suffix = resolved_title_suffix
             except Exception as e:
                 logger.error(f"Failed to get overlay screenshot: {e}")
                 return None
@@ -772,9 +747,9 @@ def main():
                 logger.warning(f"Invalid sensitivity value: {args[0]}. Using default value 0.")
 
     if use_overlay:
-        logger.info("Using overlay mode - capturing from configured monitor...")
+        logger.info("Using overlay mode - capturing from overlay preview source...")
         try:
-            screenshot_img = get_overlay_screenshot()
+            screenshot_img, title_suffix = get_overlay_preview_capture()
         except Exception as e:
             logger.error(f"Failed to get overlay screenshot: {e}")
             return
@@ -812,9 +787,7 @@ def main():
 
     # Update window title to reflect source
     if use_overlay:
-        overlay_config = get_overlay_config()
-        monitor_num = overlay_config.monitor_to_capture + 1
-        dialog.set_title_prefix(f"Furigana Filter Visualizer - Overlay Monitor {monitor_num}")
+        dialog.set_title_prefix(f"Furigana Filter Visualizer - {title_suffix}")
 
     logger.debug("Starting OCR Worker...")
     _ = _start_ocr_worker(screenshot_img, dialog.update_with_ocr_data)

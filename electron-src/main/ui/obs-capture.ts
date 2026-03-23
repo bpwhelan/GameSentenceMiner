@@ -1,8 +1,13 @@
 export type ObsCaptureMode = 'window_capture' | 'game_capture';
+export type ObsSetupTargetKind = 'window' | 'capture_card';
 export const OBS_APPLICATION_AUDIO_INPUT_KIND = 'wasapi_process_output_capture';
+export const OBS_WASAPI_INPUT_CAPTURE_KIND = 'wasapi_input_capture';
+export const OBS_DSHOW_INPUT_KIND = 'dshow_input';
 export type ObsSceneCaptureInputKind =
     | ObsCaptureMode
-    | typeof OBS_APPLICATION_AUDIO_INPUT_KIND;
+    | typeof OBS_APPLICATION_AUDIO_INPUT_KIND
+    | typeof OBS_WASAPI_INPUT_CAPTURE_KIND
+    | typeof OBS_DSHOW_INPUT_KIND;
 
 export interface ObsWindowPropertyItem {
     itemName: string;
@@ -16,11 +21,23 @@ export interface ObsWindowCaptureValues {
     game_capture?: string;
 }
 
-export interface ObsWindowOption {
+export interface ObsDevicePropertyItem {
+    itemName: string;
+    itemValue: string;
+    [key: string]: unknown;
+}
+
+export interface ObsSceneSetupOption {
     title: string;
     value: string;
-    captureValues: ObsWindowCaptureValues;
+    targetKind: ObsSetupTargetKind;
+    captureValues?: ObsWindowCaptureValues;
+    videoDeviceId?: string;
+    audioDeviceId?: string;
+    wasapiInputDeviceId?: string;
 }
+
+export type ObsWindowOption = ObsSceneSetupOption;
 
 export interface ObsSceneCaptureInput {
     inputName: string;
@@ -32,7 +49,12 @@ export interface ObsSceneCaptureInput {
 export interface ObsSceneCaptureWindowSelection {
     title?: string;
     value?: string;
+    sceneName?: string;
+    targetKind?: ObsSetupTargetKind;
     captureValues?: ObsWindowCaptureValues | null;
+    videoDeviceId?: string | null;
+    audioDeviceId?: string | null;
+    wasapiInputDeviceId?: string | null;
 }
 
 interface WindowsCapturePlanOptions {
@@ -73,6 +95,89 @@ function compactSettings(
 
 function isLegacyObsWindowValue(value: string | undefined): value is string {
     return Boolean(value && value.includes(':') && !value.trim().startsWith('['));
+}
+
+function getCaptureCardSourceNameBase(
+    sceneName: string,
+    selectedWindow: ObsSceneCaptureWindowSelection
+): string {
+    const preferredName =
+        typeof selectedWindow.title === 'string' && selectedWindow.title.trim()
+            ? selectedWindow.title.trim()
+            : sceneName;
+    return preferredName || sceneName;
+}
+
+function tokenizeDeviceName(name: string): string[] {
+    return name
+        .toLowerCase()
+        .replace(/microphone\s*\(/g, '')
+        .replace(/digital audio interface\s*\(/g, '')
+        .replace(/[()]/g, ' ')
+        .split(/[^a-z0-9]+/)
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 3);
+}
+
+function normalizeComparableDeviceName(name: string): string {
+    return tokenizeDeviceName(name).join('');
+}
+
+function scoreDeviceNameMatch(left: string, right: string): number {
+    const normalizedLeft = normalizeComparableDeviceName(left);
+    const normalizedRight = normalizeComparableDeviceName(right);
+
+    if (!normalizedLeft || !normalizedRight) {
+        return 0;
+    }
+
+    if (normalizedLeft === normalizedRight) {
+        return 500;
+    }
+
+    if (
+        normalizedLeft.includes(normalizedRight) ||
+        normalizedRight.includes(normalizedLeft)
+    ) {
+        return 300;
+    }
+
+    const leftTokens = new Set(tokenizeDeviceName(left));
+    const rightTokens = new Set(tokenizeDeviceName(right));
+    let sharedTokenCount = 0;
+
+    for (const token of leftTokens) {
+        if (rightTokens.has(token)) {
+            sharedTokenCount += 1;
+        }
+    }
+
+    return sharedTokenCount >= 2 ? sharedTokenCount * 100 : 0;
+}
+
+function findBestMatchingDevice(
+    videoDeviceName: string,
+    devices: ObsDevicePropertyItem[]
+): ObsDevicePropertyItem | null {
+    let bestMatch: ObsDevicePropertyItem | null = null;
+    let bestScore = 0;
+
+    for (const device of devices) {
+        const score = scoreDeviceNameMatch(videoDeviceName, device.itemName);
+        if (score > bestScore) {
+            bestMatch = device;
+            bestScore = score;
+        }
+    }
+
+    return bestMatch;
+}
+
+function isVirtualCaptureDevice(deviceName: string): boolean {
+    return (
+        /virtual camera/i.test(deviceName) ||
+        /^screen-capture-recorder$/i.test(deviceName.trim())
+    );
 }
 
 function normalizeCaptureValues(
@@ -131,10 +236,17 @@ export function mergeObsWindowItems(
 
     for (const item of items) {
         const title = getObsWindowTitle(item.itemName);
+        const parsedWindow = parseObsWindowValue(item.itemValue);
+        if (!title && !parsedWindow.windowClass && !parsedWindow.executable) {
+            continue;
+        }
         const key = getObsWindowKey(item);
         const existing = windowsByKey.get(key);
 
         if (existing) {
+            if (!existing.captureValues) {
+                existing.captureValues = {};
+            }
             existing.captureValues[item.captureMode] = item.itemValue;
             if (!existing.title && title) {
                 existing.title = title;
@@ -145,6 +257,7 @@ export function mergeObsWindowItems(
         windowsByKey.set(key, {
             title,
             value: key,
+            targetKind: 'window',
             captureValues: {
                 [item.captureMode]: item.itemValue,
             },
@@ -154,6 +267,35 @@ export function mergeObsWindowItems(
     return [...windowsByKey.values()].sort((left, right) =>
         left.title.localeCompare(right.title)
     );
+}
+
+export function buildCaptureCardOptions(
+    videoDevices: ObsDevicePropertyItem[],
+    directShowAudioDevices: ObsDevicePropertyItem[],
+    wasapiInputDevices: ObsDevicePropertyItem[]
+): ObsSceneSetupOption[] {
+    return videoDevices
+        .filter((device) => !isVirtualCaptureDevice(device.itemName))
+        .map((videoDevice) => {
+            const matchedDirectShowAudio = findBestMatchingDevice(
+                videoDevice.itemName,
+                directShowAudioDevices
+            );
+            const matchedWasapiInput = findBestMatchingDevice(
+                videoDevice.itemName,
+                wasapiInputDevices
+            );
+
+            return {
+                title: videoDevice.itemName,
+                value: JSON.stringify(['capture_card', videoDevice.itemValue]),
+                targetKind: 'capture_card' as const,
+                videoDeviceId: videoDevice.itemValue,
+                audioDeviceId: matchedDirectShowAudio?.itemValue,
+                wasapiInputDeviceId: matchedWasapiInput?.itemValue,
+            };
+        })
+        .sort((left, right) => left.title.localeCompare(right.title));
 }
 
 function buildWindowsApplicationAudioCaptureInput(
@@ -179,6 +321,47 @@ export function buildWindowsSceneCaptureInputs(
         throw new Error(
             'Automatic OBS capture setup is currently only supported on Windows.'
         );
+    }
+
+    if (
+        selectedWindow.targetKind === 'capture_card' ||
+        typeof selectedWindow.videoDeviceId === 'string'
+    ) {
+        const videoDeviceId = selectedWindow.videoDeviceId?.trim();
+        if (!videoDeviceId) {
+            throw new Error('No OBS video capture device was selected.');
+        }
+
+        const wasapiInputDeviceId = selectedWindow.wasapiInputDeviceId?.trim();
+        const directShowAudioDeviceId = selectedWindow.audioDeviceId?.trim();
+        const sourceNameBase = getCaptureCardSourceNameBase(sceneName, selectedWindow);
+
+        const videoCaptureInput: ObsSceneCaptureInput = {
+            inputName: `${sourceNameBase} - Video Capture Device`,
+            inputKind: OBS_DSHOW_INPUT_KIND,
+            inputSettings: compactSettings({
+                video_device_id: videoDeviceId,
+                audio_device_id: wasapiInputDeviceId
+                    ? undefined
+                    : directShowAudioDeviceId,
+            }),
+            sceneItemEnabled: true,
+        };
+
+        const captureInputs: ObsSceneCaptureInput[] = [videoCaptureInput];
+
+        if (wasapiInputDeviceId) {
+            captureInputs.push({
+                inputName: `${sourceNameBase} - Capture Card Audio`,
+                inputKind: OBS_WASAPI_INPUT_CAPTURE_KIND,
+                inputSettings: {
+                    device_id: wasapiInputDeviceId,
+                },
+                sceneItemEnabled: true,
+            });
+        }
+
+        return captureInputs;
     }
 
     const captureValues = normalizeCaptureValues(selectedWindow);

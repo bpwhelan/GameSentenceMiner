@@ -1,78 +1,655 @@
-<div id="ocr-tab-container" class="tab-container">
-    <div id="ocr-grid-container" class="grid-container">
-        <div id='config-card' class="card">
-            <h2 id="config-header" class="collapsible-header">1. Select Source <span class="arrow-icon">▲</span>
+<div id="ocr-tab-container" class="tab-container ocr-workspace">
+    <style>
+        #ocr-tab-container.ocr-workspace {
+            --ocr-accent: #6ec1ff;
+            --ocr-accent-strong: #2f8ee5;
+            --ocr-accent-warm: #f2b35d;
+            --ocr-panel-bg: linear-gradient(180deg, rgba(45, 53, 64, 0.96) 0%, rgba(28, 34, 43, 0.96) 100%);
+            --ocr-panel-border: rgba(110, 193, 255, 0.18);
+            --ocr-panel-border-strong: rgba(110, 193, 255, 0.35);
+            --ocr-text-soft: rgba(224, 224, 224, 0.78);
+            gap: 18px;
+            padding: 0 0 120px;
+            background: radial-gradient(circle at top left, rgba(47, 142, 229, 0.16), transparent 38%);
+        }
+
+        #ocr-tab-container .card {
+            background: linear-gradient(180deg, rgba(45, 53, 64, 0.96) 0%, rgba(28, 34, 43, 0.96) 100%);
+            border-radius: 18px;
+            border: 1px solid var(--ocr-panel-border);
+            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+            padding: 18px;
+        }
+
+        #ocr-tab-container h2 {
+            margin: 0;
+            padding: 0;
+            border: none;
+            color: #f4f8fb;
+        }
+
+        #ocr-grid-container.ocr-top-grid {
+            display: block;
+        }
+
+        .ocr-section-kicker {
+            margin: 0 0 6px 0;
+            color: var(--ocr-accent);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .ocr-source-card,
+        #ocr-settings-card,
+        #debug-tools-card,
+        #ocr-log-card,
+        #ocr-controls-card {
+            overflow: hidden;
+        }
+
+        .ocr-source-card .collapsible-header,
+        .ocr-settings-header,
+        #debug-header {
+            gap: 16px;
+            align-items: flex-start;
+        }
+
+        .ocr-source-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
+            gap: 18px;
+            margin-top: 16px;
+        }
+
+        .ocr-source-main {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        #scene-select-group.ocr-source-field {
+            display: grid;
+            grid-template-columns: minmax(160px, 220px) minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: center;
+            padding: 16px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        #screen-selector-group.ocr-action-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            padding: 0;
+        }
+
+        #screen-selector-group.ocr-action-row button {
+            min-height: 42px;
+        }
+
+        .ocr-source-summary {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            padding: 18px;
+            border-radius: 16px;
+            background: linear-gradient(160deg, rgba(110, 193, 255, 0.12), rgba(242, 179, 93, 0.08));
+            border: 1px solid rgba(110, 193, 255, 0.2);
+        }
+
+        .ocr-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .ocr-summary-stat {
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: rgba(12, 18, 24, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .ocr-summary-label {
+            display: block;
+            margin-bottom: 6px;
+            color: var(--ocr-text-soft);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .ocr-summary-stat strong {
+            display: block;
+            font-size: 15px;
+            line-height: 1.35;
+            color: #f8fbff;
+        }
+
+        .ocr-summary-copy {
+            margin: 0;
+            line-height: 1.5;
+            color: var(--ocr-text-soft);
+        }
+
+        .ocr-settings-header {
+            justify-content: space-between;
+        }
+
+        .ocr-settings-header-copy {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 0;
+        }
+
+        #settings-header-title {
+            font-size: 1.35rem;
+            line-height: 1.25;
+            font-weight: 700;
+        }
+
+        #ocr-mode-copy {
+            color: var(--ocr-text-soft);
+            font-size: 0.95rem;
+            line-height: 1.45;
+            font-weight: 500;
+        }
+
+        .ocr-settings-header-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: flex-end;
+            flex-shrink: 0;
+        }
+
+        .ocr-mode-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 32px;
+            padding: 0 12px;
+            border-radius: 999px;
+            background: rgba(110, 193, 255, 0.16);
+            border: 1px solid rgba(110, 193, 255, 0.28);
+            color: #f5fbff;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .ocr-mode-toggle-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--ocr-text-soft);
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .ocr-focus-strip {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 18px;
+            margin-bottom: 18px;
+        }
+
+        .ocr-focus-chip {
+            display: inline-flex;
+            align-items: center;
+            min-height: 34px;
+            padding: 0 12px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: #edf6ff;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .ocr-settings-layout {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 16px;
+        }
+
+        .ocr-settings-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            padding: 18px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.035);
+            border: 1px solid rgba(255, 255, 255, 0.07);
+        }
+
+        .ocr-settings-panel-emphasis {
+            background: linear-gradient(180deg, rgba(110, 193, 255, 0.08), rgba(255, 255, 255, 0.035));
+            border-color: rgba(110, 193, 255, 0.18);
+        }
+
+        .ocr-panel-heading {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .ocr-panel-heading h3 {
+            margin: 0;
+            font-size: 1.05rem;
+            color: #f7fbff;
+        }
+
+        .ocr-panel-heading p {
+            margin: 0;
+            color: var(--ocr-text-soft);
+            line-height: 1.45;
+        }
+
+        #ocr-tab-container .ocr-settings-panel .form-group,
+        #ocr-tab-container .ocr-settings-panel .grid-container,
+        #debug-grid-container {
+            gap: 14px;
+        }
+
+        #ocr-tab-container .ocr-settings-panel .input-group,
+        #debug-grid-container > .input-group,
+        #debug-grid-container .form-group > .input-group {
+            display: grid;
+            gap: 8px;
+            align-items: stretch;
+            padding: 14px;
+            border-radius: 16px;
+            background: rgba(11, 17, 23, 0.32);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        #ocr-tab-container .ocr-settings-panel label,
+        #debug-grid-container label {
+            color: #eef6ff;
+            line-height: 1.4;
+        }
+
+        #ocr-tab-container .ocr-settings-panel select,
+        #ocr-tab-container .ocr-settings-panel input[type="text"],
+        #ocr-tab-container .ocr-settings-panel input[type="number"],
+        #debug-grid-container select,
+        #debug-grid-container input[type="number"] {
+            width: 100%;
+            max-width: none;
+            min-height: 42px;
+        }
+
+        #ocr-tab-container .ocr-settings-panel input[type="range"] {
+            width: 100%;
+            max-width: none;
+        }
+
+        #ocr-tab-container .ocr-settings-panel input[type="checkbox"],
+        #debug-grid-container input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            margin: 2px 0 0;
+            justify-self: start;
+        }
+
+        #text-appearance-speed-group,
+        #two-pass-ocr-group,
+        #optimize-second-scan-group,
+        #ocr-screenshots-group,
+        #send-to-clipboard-group,
+        #debug-log-filters-group,
+        #process-priority-group,
+        #default-scene-furigana-group,
+        #obs-capture-preprocess-group {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        #furigana-filter-group,
+        #keep-newline-group {
+            gap: 12px;
+        }
+
+        #furigana-filter-label,
+        #keep-newline-group > label {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        #dynamic-size-display {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 36px;
+            padding: 0 12px;
+            border-radius: 999px;
+            background: rgba(110, 193, 255, 0.12);
+            border: 1px solid rgba(110, 193, 255, 0.2);
+            color: #bfe2ff;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        #ocr-base-scale-value,
+        #furigana-filter-sensitivity-value {
+            color: var(--ocr-accent-warm);
+        }
+
+        #keep-newline-group > div {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px 16px;
+            align-items: center;
+        }
+
+        #keep-newline-group > div label {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0;
+            padding: 8px 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        #select_areas_button_basic,
+        #select_areas_button_2 {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            padding: 0;
+            background: none;
+            border: none;
+        }
+
+        #select_areas_button_basic button,
+        #select_areas_button_2 button {
+            min-height: 42px;
+        }
+
+        .ocr-comparison-panel {
+            margin-top: 16px;
+        }
+
+        #ocr-comparison-expert-settings {
+            width: 100%;
+            border-radius: 14px;
+            background: rgba(0, 0, 0, 0.16);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 14px 16px;
+        }
+
+        #ocr-comparison-expert-settings summary {
+            cursor: pointer;
+            font-weight: 700;
+            color: #eef6ff;
+        }
+
+        .ocr-log-card {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .ocr-log-header h3 {
+            margin: 0;
+            color: #f6fbff;
+            font-size: 1.05rem;
+        }
+
+        .ocr-log-header p {
+            margin: 0;
+            color: var(--ocr-text-soft);
+            line-height: 1.45;
+        }
+
+        #ocr-terminal {
+            min-height: 320px;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(5, 8, 12, 0.75);
+            overflow: hidden;
+        }
+
+        .ocr-controls-card {
+            position: sticky;
+            bottom: 16px;
+            z-index: 30;
+            border-color: var(--ocr-panel-border-strong);
+            background: linear-gradient(135deg, rgba(14, 27, 39, 0.97), rgba(28, 39, 49, 0.97));
+            box-shadow: 0 26px 56px rgba(0, 0, 0, 0.38);
+        }
+
+        #start-ocr-controls,
+        #stop-ocr-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 18px;
+            flex-wrap: wrap;
+            padding: 0;
+        }
+
+        .ocr-controls-summary {
+            display: flex;
+            gap: 14px;
+            align-items: flex-start;
+            flex: 1 1 280px;
+            min-width: 0;
+        }
+
+        #config-tooltip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 96px;
+            min-height: 34px;
+            padding: 0 12px;
+            border-radius: 999px;
+            background: rgba(242, 179, 93, 0.16);
+            border: 1px solid rgba(242, 179, 93, 0.3);
+            color: #ffe3ba;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        #config-tooltip.is-ready {
+            background: rgba(100, 208, 137, 0.18);
+            border-color: rgba(100, 208, 137, 0.32);
+            color: #d6ffdf;
+        }
+
+        .ocr-controls-copy h3 {
+            margin: 0 0 6px 0;
+            font-size: 1.05rem;
+            color: #f7fbff;
+        }
+
+        #ocr-config-summary,
+        #ocr-status-label {
+            margin: 0;
+            color: var(--ocr-text-soft);
+            line-height: 1.5;
+        }
+
+        .ocr-controls-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            justify-content: flex-end;
+        }
+
+        .ocr-controls-actions button {
+            min-width: 180px;
+            min-height: 46px;
+            border-radius: 999px;
+            padding: 0 18px;
+        }
+
+        #debug-grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        }
+
+        #debug-grid-container .form-group {
+            gap: 12px;
+        }
+
+        #debug-grid-container .form-group button {
+            width: 100%;
+        }
+
+        @media (max-width: 980px) {
+            .ocr-source-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .ocr-settings-header,
+            .ocr-settings-header-actions {
+                align-items: flex-start;
+            }
+
+            .ocr-settings-header {
+                flex-direction: column;
+            }
+        }
+
+        @media (max-width: 720px) {
+            #scene-select-group.ocr-source-field {
+                grid-template-columns: 1fr;
+            }
+
+            .ocr-summary-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .ocr-controls-actions {
+                width: 100%;
+                justify-content: stretch;
+            }
+
+            .ocr-controls-actions button {
+                width: 100%;
+                min-width: 0;
+            }
+        }
+    </style>
+
+    <div id="ocr-grid-container" class="ocr-top-grid">
+        <div id="config-card" class="card ocr-source-card">
+            <h2 id="config-header" class="collapsible-header">
+                <span>Source and Area Setup</span>
+                <span class="arrow-icon">▲</span>
             </h2>
             <div id="config-collapsible-content" class="collapsible-content" style="display: block;">
-                <div class="form-group" style="justify-content: center; align-items: center;">
-                    <div id="scene-select-group" class="input-group">
-                        <label for="sceneSelect" class="tooltip-indicator">Game (OBS Scene):
-                            <span class="tooltiptext tooltiptext-right">Select the OBS Scene to Capture for OCR.
-                                You can make a new Scene in the "Home" Tab</span>
-                        </label>
-                        <select id="sceneSelect"></select>
-                        <button id="refreshScenesBtn" class="secondary">↻</button>
+                <div class="ocr-source-layout">
+                    <div class="ocr-source-main">
+                        <div>
+                            <p class="ocr-section-kicker">Start Here</p>
+                            <p class="ocr-summary-copy">Pick the OBS scene GSM should watch, then set or import the OCR areas for that scene.</p>
+                        </div>
+                        <div id="scene-select-group" class="input-group ocr-source-field">
+                            <label for="sceneSelect" class="tooltip-indicator">
+                                OBS Scene
+                                <span class="tooltiptext tooltiptext-right">Select the OBS scene to capture for OCR. You can make a new scene in the Home tab.</span>
+                            </label>
+                            <select id="sceneSelect"></select>
+                            <button id="refreshScenesBtn" class="secondary">Refresh</button>
+                        </div>
+                        <div id="screen-selector-group" class="ocr-action-row">
+                            <button id="run-screen-selector">Select OCR Areas</button>
+                            <button id="import-config-btn" class="secondary" title="Import OCR config">Import Areas</button>
+                            <button id="export-config-btn" class="secondary" title="Export OCR config">Export Areas</button>
+                            <button id="open-ocr-wiki-btn" class="secondary" title="Open OCR documentation">OCR Guide</button>
+                        </div>
                     </div>
-                    <div id="screen-selector-group" class="input-group" style="justify-content: center;">
-                        <button id="run-screen-selector">Run Area(s) Selector</button>
-                        <button id="import-config-btn" class="secondary" title="Import OCR Config">📋</button>
-                        <button id="export-config-btn" class="secondary" title="Export OCR Config">📤</button>
-                        <button id="open-ocr-wiki-btn" class="secondary" title="Open OCR documentation">
-                            OCR Guide
-                        </button>
-                    </div>
+                    <aside class="ocr-source-summary">
+                        <div>
+                            <p class="ocr-section-kicker">Current Setup</p>
+                            <p id="ocr-setup-summary" class="ocr-summary-copy">Checking the active OCR configuration for this scene.</p>
+                        </div>
+                        <div class="ocr-summary-grid">
+                            <div class="ocr-summary-stat">
+                                <span class="ocr-summary-label">Scene</span>
+                                <strong id="ocr-setup-scene">Loading...</strong>
+                            </div>
+                            <div class="ocr-summary-stat">
+                                <span class="ocr-summary-label">Configured Areas</span>
+                                <strong id="ocr-setup-area-count">0</strong>
+                            </div>
+                            <div class="ocr-summary-stat">
+                                <span class="ocr-summary-label">Mode</span>
+                                <strong id="ocr-current-mode">Basic</strong>
+                            </div>
+                            <div class="ocr-summary-stat">
+                                <span class="ocr-summary-label">Scan Profile</span>
+                                <strong id="ocr-current-rate">Normal</strong>
+                            </div>
+                        </div>
+                        <div class="ocr-summary-stat">
+                            <span class="ocr-summary-label">OCR Flow</span>
+                            <strong id="ocr-current-engine">Google Lens</strong>
+                        </div>
+                    </aside>
                 </div>
             </div>
-    </div>
-    </div>
-
-    <div id="ocr-controls-card" class="card">
-        <div id="start-ocr-controls" class="input-group" style="justify-content: center;">
-            <label class="tooltip">
-                <span id="config-tooltip">✗</span>
-                <span class="tooltiptext" id="ocr-config-summary"></span>
-            </label>
-            <button id="start-ocr">Start Auto OCR</button>
-            <button id="start-ocr-ss-only" class="secondary">Start Manual OCR</button>
         </div>
-        <div id="stop-ocr-controls" class="input-group"
-            style="display: none; position: relative; justify-content: center; align-items: center; gap: 16px;">
-            <label id="ocr-status-label"
-                style="position: absolute; left: 0; text-align: left; font-size: 18px; padding-bottom: 15px"></label>
-            <div style="display: flex; gap: 16px;">
-                <button id="stop-ocr" class="danger">Stop OCR (Open Settings)</button>
-                <button id="pause-ocr" class="secondary">Pause OCR</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="ocr-log-card" class="card" style="display: none;">
-        <div class="terminal-container" id="ocr-terminal"></div>
     </div>
 
     <div class="card" id="ocr-settings-card">
-        <h2 id="settings-header" class="collapsible-header">
-            <span>2. OCR Settings</span>
-            <span style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
-                <label for="settings-mode-toggle" style="font-size: 14px; font-weight: normal; cursor: pointer;">
-                    <input type="checkbox" id="settings-mode-toggle" style="margin-right: 4px;">
-                    Advanced Mode
+        <h2 id="settings-header" class="collapsible-header ocr-settings-header">
+            <span class="ocr-settings-header-copy">
+                <span class="ocr-section-kicker">OCR Settings</span>
+                <span id="settings-header-title">Put the high-impact settings where you can see them.</span>
+                <span id="ocr-mode-copy">Basic mode keeps the common controls front and center. Switch to advanced when you need engine selection, extra hotkeys, or comparison tuning.</span>
+            </span>
+            <span class="ocr-settings-header-actions">
+                <span id="ocr-mode-label" class="ocr-mode-pill">Basic mode</span>
+                <label for="settings-mode-toggle" class="ocr-mode-toggle-label">
+                    <span>Advanced view</span>
+                    <input type="checkbox" id="settings-mode-toggle">
                 </label>
             </span>
         </h2>
         <div id="ocr-settings-collapsible-content" class="collapsible-content" style="display: block;">
-            <!-- Basic Mode Settings -->
-            <div id="ocr-basic-settings" style="display: none;">
-                <div class="grid-container">
-                    <div class="form-group">
+            <div class="ocr-focus-strip">
+                <span class="ocr-focus-chip">Scene plus OCR areas</span>
+                <span class="ocr-focus-chip">Language</span>
+                <span class="ocr-focus-chip">Text speed or scan rate</span>
+                <span class="ocr-focus-chip">Scan image quality</span>
+                <span class="ocr-focus-chip">Furigana filter</span>
+            </div>
+
+            <div id="ocr-basic-settings" class="ocr-settings-layout" style="display: none;">
+                <section class="ocr-settings-panel ocr-settings-panel-emphasis">
+                    <div class="ocr-panel-heading">
+                        <h3>Quick Setup</h3>
+                        <p>These are the settings most people adjust before starting OCR.</p>
+                    </div>
+                    <div id="ocr-basic-core-column" class="form-group">
                         <div id="text-appearance-speed-group" class="input-group">
                             <label for="text-appearance-speed" class="tooltip-indicator">
-                                Text Appearance Speed:
+                                Text Appearance Speed
                                 <span class="tooltiptext tooltiptext-right">
                                     How quickly the text appears in your game.
-                                    <br>• Instant: For text that appears immediately - Most CPU usage
-                                    <br>• Normal: For most games with standard dialogue - Moderate CPU usage
-                                    <br>• Slow: For text that appears gradually - Least CPU usage
+                                    <br>Instant: best for immediate text, highest CPU usage
+                                    <br>Normal: balanced for most dialogue
+                                    <br>Slow: better for gradually revealed text
                                 </span>
                             </label>
                             <select id="text-appearance-speed">
@@ -82,362 +659,297 @@
                                 <option value="1.0">Very Slow</option>
                             </select>
                         </div>
-                        <div id="language-select-group-basic">
-                            <!-- Will be moved here dynamically -->
-                        </div>
-                        <div id="furigana-filter-group-basic">
-                            <!-- Will be moved here dynamically -->
-                        </div>
-                        <div id="send-to-clipboard-group-basic">
-                            <!-- Will be moved here dynamically -->
-                        </div>
-                        <div id="keep-newline-group-basic">
-                            <!-- Will be moved here dynamically -->
-                        </div>
+                        <div id="language-select-group-basic"></div>
+                        <div id="base-scale-group-basic"></div>
+                        <div id="furigana-filter-group-basic"></div>
+                        <div id="send-to-clipboard-group-basic"></div>
+                        <div id="keep-newline-group-basic"></div>
                     </div>
-                    <div class="form-group">
-                        <div id="manual-ocr-hotkey-group-basic">
-                            <!-- Will be moved here dynamically -->
-                        </div>
-                        <div id="area-select-ocr-hotkey-group-basic">
-                            <!-- Will be moved here dynamically -->
-                        </div>
-                        <div id="whole-window-ocr-hotkey-group-basic">
-                            <!-- Will be moved here dynamically -->
-                        </div>
-                        <div id="global-pause-hotkey-group-basic">
-                            <!-- Will be moved here dynamically -->
-                        </div>
-                        <div id="select_areas_button_basic" class="input-group" style="display:none;">
+                </section>
+
+                <section class="ocr-settings-panel">
+                    <div class="ocr-panel-heading">
+                        <h3>Hotkeys and Area Tools</h3>
+                        <p>Manual OCR and pause controls stay nearby, without the full advanced panel.</p>
+                    </div>
+                    <div id="ocr-basic-actions-column" class="form-group">
+                        <div id="manual-ocr-hotkey-group-basic"></div>
+                        <div id="area-select-ocr-hotkey-group-basic"></div>
+                        <div id="whole-window-ocr-hotkey-group-basic"></div>
+                        <div id="global-pause-hotkey-group-basic"></div>
+                        <div id="select_areas_button_basic" class="input-group" style="display: none;">
                             <button id="select-areas-button-basic">Change Area Config</button>
-                            <div class="tooltip">❓
-                                <span class="tooltiptext">Select areas to OCR. This will open a window to select areas.</span>
+                            <div class="tooltip">?
+                                <span class="tooltiptext">Select areas to OCR. This opens the area selector window.</span>
                             </div>
                         </div>
                     </div>
-                </div>
+                </section>
             </div>
-            <!-- Advanced Mode Settings -->
-            <div id="ocr-settings-grid-container" class="grid-container">
-                <div class="form-group">
-                    <div id="ocr1-select-group" class="input-group">
-                        <label for="ocr1-input" class="tooltip-indicator">
-                            Text Stability:
-                            <span class="tooltiptext tooltiptext-right">
-                                This will run at the set scan rate, and when the text stabilizes, it will
-                                trigger the main OCR.
-                                This should preferably be a fast engine. On Windows, OneOCR is recommended.
-                            </span>
-                        </label>
-                        <select id="ocr1-input">
-                            <option value="" disabled selected>Select Stability OCR</option>
-                            <option value="oneocr">OneOCR (Recommended)</option>
-                            <option value="screenai">ScreenAI OCR (Good, Inconsistent)</option>
-                            <option value="meiki_text_detector">Meiki Text Detector (Experimental, Faster)</option>
-                            <!-- <option value="opencv_east_text_detector">OpenCV EAST Text Detector (Fastest?)</option> -->
-                            <!-- <option value="opencv_classic_text_detector">OpenCV Classical CV Text Detector (Fast CPU)</option> -->
-                            <option value="meikiocr">Meiki OCR (Experimental, JP Only, Use this if meikiocr main)</option>
-                            <option value="alivetext">Apple Live Text (Mac Only)</option>
-                            <option value="local_llm_ocr">Local LLM OCR</option>
-                            <option value="mlkitocr">MLKit OCR (Android Server Required)</option>
-                        </select>
+
+            <div id="ocr-settings-grid-container" class="ocr-settings-layout">
+                <section class="ocr-settings-panel ocr-settings-panel-emphasis">
+                    <div class="ocr-panel-heading">
+                        <h3>Recognition Pipeline</h3>
+                        <p>Language, OCR engines, scan cadence, image quality, and cleanup all in one place.</p>
                     </div>
-                    <div id="ocr2-select-group" class="input-group">
-                        <label for="ocr2-input" class="tooltip-indicator">Main OCR:
-                            <span class="tooltiptext tooltiptext-right">
-                                This engine will be used to send the result to clipboard/websocket. This should
-                                be an accurate engine. If Two Pass is enabled, it will be triggered after the
-                                text has stabilized on screen.
-                            </span>
-                        </label>
-                        <select id="ocr2-input">
-                            <option value="" disabled selected>Select Main OCR</option>
-                            <option value="glens">Google Lens (Accurate, Recommended)</option>
-                            <option value="bing">Bing (Accurate) </option>
-                            <option value="oneocr">OneOCR (Fast)</option>
-                            <option value="screenai">ScreenAI OCR (Good, Inconsistent)</option>
-                            <option value="meikiocr">Meiki OCR (Experimental, JP Only)</option>
-                            <option value="gemini">Gemini (Accurate, API Key Required)</option>
-                            <option value="gvision">Google Vision</option>
-                            <option value="azure">Azure Image Analysis</option>
-                            <option value="ocrspace">OCRSpace</option>
-                            <option value="local_llm_ocr">Local LLM OCR</option>
-                            <option value="alivetext">Apple Live Text (Mac Only)</option>
-                            <option value="mlkitocr">MLKit OCR (Android Server Required)</option>
-                        </select>
-                    </div>
-                    <div id="language-select-group" class="input-group">
-                        <label for="languageSelect", class="tooltip-indicator">
-                            Language:
-                            <span class="tooltiptext tooltiptext-right">
-                                Select the language for OCR Processing. This ensures only blocks with the correct characters are captured.
-                                <br>
-                                Note: All Latin Languages (English, Spanish, French, German, etc.) are supported under English.
-                            </span>
-                        </label>
-                        <select id="languageSelect">
-                            <option value="ja">Japanese</option>
-                            <option value="zh">Chinese</option>
-                            <option value="ko">Korean</option>
-                            <option value="en">English (All Languages with Latin script)</option>
-                            <option value="es">Spanish</option>
-                            <option value="fr">French</option>
-                            <option value="de">German</option>
-                            <option value="ru">Russian</option>
-                            <option value="ar">Arabic</option>
-                            <option value="hi">Hindi</option>
-                        </select>
-                    </div>
-                    <div id="two-pass-ocr-group" class="input-group">
-                        <label for="two-pass-ocr" class="tooltip-indicator tooltip-bottom tooltip-right">
-                            <span class="tooltiptext">
-                                OCR Option 1 runs at the set scan rate.
-                                If two pass is enabled, and the text does not change by the next scan,
-                                it will then do the second scan.
-                            </span>
-                            Enable Two Pass OCR:
-                        </label>
-                        <input type="checkbox" id="two-pass-ocr">
-                    </div>
-                    <div id="optimize-second-scan-group" class="input-group">
-                        <label for="optimize-second-scan"
-                            class="tooltip-indicator tooltip-bottom tooltip-right">
-                            <span class="tooltiptext">Trim Image for second scan to improve performance. (OneOCR
-                                1st ONLY)<br> If your game's text is odd, and some text doesn't get captured,
-                                maybe try turning this off.</span>
-                            Optimize 2nd scan:
-                        </label>
-                        <input type="checkbox" id="optimize-second-scan" checked>
-                    </div>
-                    <div id="furigana-filter-group" class="input-group">
-                        <label id="furigana-filter-label" for="furigana-filter-sensitivity"
-                            class="tooltip-indicator tooltip-bottom tooltip-right">
-                            Furigana Filter Sensitivity:
-                            <span class="tooltiptext">
-                                Filters characters smaller than the selected text size. Very experimental, if
-                                you
-                                notice real text being filtered out, either lower this or disable by setting to
-                                0.
-                                <br><br>
-                                <strong>Tip:</strong> Click <span style="color: blue;">Preview</span> to open a window that will help you select the best sensitivity for your current game.
-                            </span>
-                            <span id="furigana-filter-sensitivity-value">0</span>
-                            <input type="range" id="furigana-filter-sensitivity" min="0" max="100" value="0"
-                                step="1">
-                        </label>
-                        <span id="dynamic-size-display" style="cursor:pointer;">Preview</span>
-                    </div>
-                    <div id="base-scale-group" class="input-group">
-                        <label for="ocr-base-scale" class="tooltip-indicator tooltip-bottom tooltip-right">
-                            Scan Image Quality:
-                            <span id="ocr-base-scale-value" style="font-weight:bold;">75%</span>
-                            <span class="tooltiptext">
-                                Controls how much the screenshot is scaled down before scanning.
-                                Lower = Faster scans and less CPU usage, but may miss very small text.
-                                Higher = More accurate on small fonts, but uses more CPU.
-                                <br><br>
-                                <table style="border-collapse:collapse; width:100%; font-size:11px; margin-top:4px;">
-                                    <tr style="border-bottom:1px solid #aaa;">
-                                        <th style="text-align:left; padding:2px 5px;">Setting</th>
-                                        <th style="text-align:left; padding:2px 5px;">Accuracy</th>
-                                        <th style="text-align:left; padding:2px 5px;">CPU / Speed</th>
-                                    </tr>
-                                    <tr><td style="padding:2px 5px;">50%</td><td>★★★</td><td>⚡⚡⚡ Fast</td></tr>
-                                    <tr style="color:#90EE90;"><td style="padding:2px 5px;">75% ✓</td><td>★★★★</td><td>⚡⚡ Balanced</td></tr>
-                                    <tr><td style="padding:2px 5px;">100%</td><td>★★★★★</td><td>⚡ Slowest</td></tr>
-                                </table>
-                                <br>
-                                <strong>Tip:</strong> If OCR misses small kanji or skips characters, try increasing this value.
-                            </span>
-                        </label>
-                        <input type="range" id="ocr-base-scale" min="0.50" max="1.0" step="0.05" value="0.75" style="flex:1; min-width:80px;">
-                    </div>
-                </div>
-                <div class="form-group">
-                    <div id="ocr-scan-rate-group" class="input-group">
-                        <label for="ocr-scan-rate" class="tooltip-indicator tooltip-bottom tooltip-right">Scan
-                            Rate (s):
-                            <span class="tooltiptext">
-                                <ul>
-                                    <li>The OCR scan rate determines how frequently the OCR process scans the
-                                        screen.</li>
-                                    <li>Lower values increase responsiveness but may consume more resources.
-                                    </li>
-                                    <li>Higher values reduce resource usage but may delay updates.</li>
-                                    <li>If your text doesn't appear instantly, lower values may result in
-                                        partial text results.</li>
-                                </ul>
-                            </span>
-                        </label>
-                        <input type="number" id="ocr-scan-rate" value=".5" min="0" max="2.0" step=".1">
-                    </div>
-                    <div id="area-select-ocr-hotkey-group" class="input-group">
-                        <label for="area-select-ocr-hotkey"
-                            class="tooltip-indicator tooltip-bottom tooltip-right">Area Select Hotkey:
-                            <span class="tooltiptext">On Press, will allow you to select an area to OCR one
-                                time. Useful for menus</span>
-                        </label>
-                        <input type="text" id="area-select-ocr-hotkey" value="Ctrl+Shift+O">
-                    </div>
-                    <div id="manual-ocr-hotkey-group" class="input-group">
-                        <label for="manual-ocr-hotkey"
-                            class="tooltip-indicator tooltip-bottom tooltip-right">Manual/Menu OCR Hotkey:
-                            <span class="tooltiptext">
-                                Hotkey to manually OCR the selected area. This will run the OCR on the selected
-                                area and return the result. <strong>Note:</strong> This uses the OCR Option 2,
-                                and is also used to OCR Menus (Ctrl+Click in Area Selector)</span>
-                        </label>
-                        <input type="text" id="manual-ocr-hotkey" value="Ctrl+Shift+G">
-                    </div>
-                    <div id="whole-window-ocr-hotkey-group" class="input-group">
-                        <label for="whole-window-ocr-hotkey"
-                            class="tooltip-indicator tooltip-bottom tooltip-right">Whole Window OCR Hotkey:
-                            <span class="tooltiptext">
-                                Runs a one-time OCR scan on the full active OCR source (typically your OBS game source),
-                                bypassing area rectangles. Useful when text appears outside configured regions.
-                            </span>
-                        </label>
-                        <input type="text" id="whole-window-ocr-hotkey" value="Ctrl+Shift+W">
-                    </div>
-                    <div id="global-pause-hotkey-group" class="input-group">
-                        <label for="global-pause-hotkey"
-                            class="tooltip-indicator tooltip-bottom tooltip-right">Global Pause Hotkey:
-                            <span class="tooltiptext">
-                                Hotkey to pause/resume OCR scanning. When paused, OCR will not process any new images
-                                until resumed. Useful for cutscenes or when you want to temporarily stop OCR.</span>
-                        </label>
-                        <input type="text" id="global-pause-hotkey" value="Ctrl+Shift+P">
-                    </div>
-                    <div id="ocr-screenshots-group" class="input-group">
-                        <label for="ocr-screenshots" class="tooltip-indicator tooltip-bottom tooltip-right">OCR
-                            Clipboard Screenshots:
-                            <span class="tooltiptext">If enabled, OCR will also process screenshots taken from
-                                the clipboard.</span>
-                        </label>
-                        <input type="checkbox" id="ocr-screenshots">
-                    </div>
-                    <div id="send-to-clipboard-group" class="input-group">
-                        <label for="send-to-clipboard" class="tooltip-indicator tooltip-bottom tooltip-right">
-                            <span class="tooltiptext">OCR Sends text to Websocket by default, with this enabled,
-                                it will also copy to clipboard.</span>
-                            (Optional) Send Text to Clipboard:
-                        </label>
-                        <input type="checkbox" id="send-to-clipboard">
-                    </div>
-                    <div id="keep-newline-group" class="input-group" style="align-items: flex-start;">
-                        <label class="tooltip-indicator tooltip-bottom tooltip-right">
-                            <span class="tooltiptext">If enabled, OCR will attempt to keep newlines in the
-                                output text (for
-                                better readability) NOT GUARANTEED.</span>
-                            Preserve line breaks:
-                        </label>
-                        <div style="display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;">
-                            <label for="keep-newline-auto" style="display: flex; align-items: center; gap: 6px; color: #90EE90;">
-                                <span>Auto (Green)</span>
-                                <input type="checkbox" id="keep-newline-auto">
+                    <div id="ocr-advanced-core-column" class="form-group">
+                        <div id="language-select-group" class="input-group">
+                            <label for="languageSelect" class="tooltip-indicator">
+                                Language
+                                <span class="tooltiptext tooltiptext-right">
+                                    Select the language for OCR processing. This helps GSM focus on the correct character set.
+                                    <br>Latin-script languages can use English.
+                                </span>
                             </label>
-                            <label for="keep-newline-menu" style="display: flex; align-items: center; gap: 6px; color: #D6A4FF;">
-                                <span>Menu (Purple)</span>
-                                <input type="checkbox" id="keep-newline-menu">
+                            <select id="languageSelect">
+                                <option value="ja">Japanese</option>
+                                <option value="zh">Chinese</option>
+                                <option value="ko">Korean</option>
+                                <option value="en">English (Latin script)</option>
+                                <option value="es">Spanish</option>
+                                <option value="fr">French</option>
+                                <option value="de">German</option>
+                                <option value="ru">Russian</option>
+                                <option value="ar">Arabic</option>
+                                <option value="hi">Hindi</option>
+                            </select>
+                        </div>
+                        <div id="ocr2-select-group" class="input-group">
+                            <label for="ocr2-input" class="tooltip-indicator">
+                                Main OCR
+                                <span class="tooltiptext tooltiptext-right">This engine sends the final OCR result to the websocket or clipboard. Pick the most accurate option that works well for your game.</span>
                             </label>
-                            <label for="keep-newline-area-select" style="display: flex; align-items: center; gap: 6px; color: #7FDBFF;">
-                                <span>Area Select</span>
-                                <input type="checkbox" id="keep-newline-area-select">
+                            <select id="ocr2-input">
+                                <option value="" disabled selected>Select Main OCR</option>
+                                <option value="glens">Google Lens (Recommended)</option>
+                                <option value="bing">Bing</option>
+                                <option value="oneocr">OneOCR</option>
+                                <option value="screenai">ScreenAI OCR</option>
+                                <option value="meikiocr">Meiki OCR</option>
+                                <option value="gemini">Gemini</option>
+                                <option value="gvision">Google Vision</option>
+                                <option value="azure">Azure Image Analysis</option>
+                                <option value="ocrspace">OCRSpace</option>
+                                <option value="local_llm_ocr">Local LLM OCR</option>
+                                <option value="alivetext">Apple Live Text</option>
+                                <option value="mlkitocr">MLKit OCR</option>
+                            </select>
+                        </div>
+                        <div id="two-pass-ocr-group" class="input-group">
+                            <label for="two-pass-ocr" class="tooltip-indicator tooltip-bottom tooltip-right">
+                                Enable Two Pass OCR
+                                <span class="tooltiptext">OCR option 1 runs at the set scan rate. If the text stays stable by the next scan, GSM runs the second OCR pass for the final result.</span>
                             </label>
+                            <input type="checkbox" id="two-pass-ocr">
+                        </div>
+                        <div id="ocr1-select-group" class="input-group">
+                            <label for="ocr1-input" class="tooltip-indicator">
+                                Text Stability OCR
+                                <span class="tooltiptext tooltiptext-right">This OCR runs first to watch for text changes and stability. Fast engines work best here. On Windows, OneOCR is usually the safest choice.</span>
+                            </label>
+                            <select id="ocr1-input">
+                                <option value="" disabled selected>Select Stability OCR</option>
+                                <option value="oneocr">OneOCR (Recommended)</option>
+                                <option value="screenai">ScreenAI OCR</option>
+                                <option value="meiki_text_detector">Meiki Text Detector</option>
+                                <option value="meikiocr">Meiki OCR</option>
+                                <option value="alivetext">Apple Live Text</option>
+                                <option value="local_llm_ocr">Local LLM OCR</option>
+                                <option value="mlkitocr">MLKit OCR</option>
+                            </select>
+                        </div>
+                        <div id="optimize-second-scan-group" class="input-group">
+                            <label for="optimize-second-scan" class="tooltip-indicator tooltip-bottom tooltip-right">
+                                Optimize 2nd Scan
+                                <span class="tooltiptext">Trim the image for the second scan to improve performance. If your game uses unusual text layouts, turning this off may capture more text.</span>
+                            </label>
+                            <input type="checkbox" id="optimize-second-scan" checked>
+                        </div>
+                        <div id="ocr-scan-rate-group" class="input-group">
+                            <label for="ocr-scan-rate" class="tooltip-indicator tooltip-bottom tooltip-right">
+                                Scan Rate (s)
+                                <span class="tooltiptext">Lower values scan more often and react faster, but use more resources. Higher values scan less often and may feel calmer on slower text.</span>
+                            </label>
+                            <input type="number" id="ocr-scan-rate" value=".5" min="0" max="2.0" step=".1">
+                        </div>
+                        <div id="base-scale-group" class="input-group">
+                            <label for="ocr-base-scale" class="tooltip-indicator tooltip-bottom tooltip-right">
+                                Scan Image Quality
+                                <span id="ocr-base-scale-value">75%</span>
+                                <span class="tooltiptext">Controls how much the screenshot is scaled before scanning. Lower values are faster. Higher values help with small text but use more CPU.</span>
+                            </label>
+                            <input type="range" id="ocr-base-scale" min="0.50" max="1.0" step="0.05" value="0.75">
+                        </div>
+                        <div id="furigana-filter-group" class="input-group">
+                            <label id="furigana-filter-label" for="furigana-filter-sensitivity" class="tooltip-indicator tooltip-bottom tooltip-right">
+                                Furigana Filter Sensitivity
+                                <span class="tooltiptext">Filters characters smaller than the selected text size. If real dialogue disappears, lower this value or set it to 0.<br><br>Tip: Use Preview to test against the current game.</span>
+                                <span id="furigana-filter-sensitivity-value">0</span>
+                                <input type="range" id="furigana-filter-sensitivity" min="0" max="100" value="0" step="1">
+                            </label>
+                            <span id="dynamic-size-display">Preview</span>
                         </div>
                     </div>
-                    <div id="select_areas_button_2" class="input-group" style="display:none;">
-                        <button id="select-areas-button">Change Area Config</button>
-                        <div class="tooltip">❓
-                            <span class="tooltiptext">Select areas to OCR. This will open a window to select
-                                areas.</span>
+                </section>
+
+                <section class="ocr-settings-panel">
+                    <div class="ocr-panel-heading">
+                        <h3>Output and Controls</h3>
+                        <p>Hotkeys, clipboard behavior, line breaks, screenshot OCR, and quick access to area changes.</p>
+                    </div>
+                    <div id="ocr-advanced-actions-column" class="form-group">
+                        <div id="manual-ocr-hotkey-group" class="input-group">
+                            <label for="manual-ocr-hotkey" class="tooltip-indicator tooltip-bottom tooltip-right">
+                                Manual or Menu OCR Hotkey
+                                <span class="tooltiptext">Runs OCR on the selected area using the main OCR engine. This is also used for menu OCR from the area selector.</span>
+                            </label>
+                            <input type="text" id="manual-ocr-hotkey" value="Ctrl+Shift+G">
+                        </div>
+                        <div id="area-select-ocr-hotkey-group" class="input-group">
+                            <label for="area-select-ocr-hotkey" class="tooltip-indicator tooltip-bottom tooltip-right">
+                                Area Select Hotkey
+                                <span class="tooltiptext">Lets you draw a temporary OCR area one time. Useful for menus or one-off text.</span>
+                            </label>
+                            <input type="text" id="area-select-ocr-hotkey" value="Ctrl+Shift+O">
+                        </div>
+                        <div id="whole-window-ocr-hotkey-group" class="input-group">
+                            <label for="whole-window-ocr-hotkey" class="tooltip-indicator tooltip-bottom tooltip-right">
+                                Whole Window OCR Hotkey
+                                <span class="tooltiptext">Runs a one-time OCR scan on the full active OCR source instead of the configured rectangles.</span>
+                            </label>
+                            <input type="text" id="whole-window-ocr-hotkey" value="Ctrl+Shift+W">
+                        </div>
+                        <div id="global-pause-hotkey-group" class="input-group">
+                            <label for="global-pause-hotkey" class="tooltip-indicator tooltip-bottom tooltip-right">
+                                Global Pause Hotkey
+                                <span class="tooltiptext">Pauses or resumes OCR scanning everywhere. Useful during cutscenes or when you want OCR temporarily out of the way.</span>
+                            </label>
+                            <input type="text" id="global-pause-hotkey" value="Ctrl+Shift+P">
+                        </div>
+                        <div id="ocr-screenshots-group" class="input-group">
+                            <label for="ocr-screenshots" class="tooltip-indicator tooltip-bottom tooltip-right">
+                                OCR Clipboard Screenshots
+                                <span class="tooltiptext">If enabled, GSM also OCRs screenshots copied into the clipboard.</span>
+                            </label>
+                            <input type="checkbox" id="ocr-screenshots">
+                        </div>
+                        <div id="send-to-clipboard-group" class="input-group">
+                            <label for="send-to-clipboard" class="tooltip-indicator tooltip-bottom tooltip-right">
+                                Send Text to Clipboard
+                                <span class="tooltiptext">OCR sends to the websocket by default. Enable this if you also want the final text copied to the clipboard.</span>
+                            </label>
+                            <input type="checkbox" id="send-to-clipboard">
+                        </div>
+                        <div id="keep-newline-group" class="input-group" style="align-items: flex-start;">
+                            <label class="tooltip-indicator tooltip-bottom tooltip-right">
+                                Preserve Line Breaks
+                                <span class="tooltiptext">GSM will try to keep line breaks in the OCR output for better readability. This is best-effort, not guaranteed.</span>
+                            </label>
+                            <div>
+                                <label for="keep-newline-auto" style="color: #90ee90;">
+                                    <span>Auto</span>
+                                    <input type="checkbox" id="keep-newline-auto">
+                                </label>
+                                <label for="keep-newline-menu" style="color: #d6a4ff;">
+                                    <span>Menu</span>
+                                    <input type="checkbox" id="keep-newline-menu">
+                                </label>
+                                <label for="keep-newline-area-select" style="color: #7fdbff;">
+                                    <span>Area Select</span>
+                                    <input type="checkbox" id="keep-newline-area-select">
+                                </label>
+                            </div>
+                        </div>
+                        <div id="select_areas_button_2" class="input-group" style="display: none;">
+                            <button id="select-areas-button">Change Area Config</button>
+                            <div class="tooltip">?
+                                <span class="tooltiptext">Select areas to OCR. This opens the area selector window.</span>
+                            </div>
                         </div>
                     </div>
-                </div>
+                </section>
             </div>
-            <div id="ocr-comparison-settings-section" style="display: none; margin-top: 18px; border-top: 1px solid rgba(255,255,255,0.12); padding-top: 18px;">
-                <h3 style="margin: 0 0 10px 0;">Text Comparison Tuning</h3>
-                <p style="margin: 0 0 14px 0; font-size: 13px; opacity: 0.85;">
-                    Controls how GSM decides whether OCR text is stable, changed, or a duplicate.
-                </p>
+
+            <div id="ocr-comparison-settings-section" class="ocr-settings-panel ocr-comparison-panel" style="display: none;">
+                <div class="ocr-panel-heading">
+                    <h3>Text Comparison Tuning</h3>
+                    <p>Control how GSM decides whether OCR text is stable, changed, or a duplicate.</p>
+                </div>
                 <div class="grid-container">
                     <div class="form-group">
                         <div id="duplicate-similarity-threshold-group" class="input-group">
                             <label for="duplicate-similarity-threshold" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                Duplicate Match Threshold (%):
-                                <span class="tooltiptext">
-                                    Higher values are stricter. Increase this if different lines are being treated as duplicates.
-                                </span>
+                                Duplicate Match Threshold (%)
+                                <span class="tooltiptext">Higher values are stricter. Raise this if different lines are being treated as duplicates.</span>
                             </label>
                             <input type="number" id="duplicate-similarity-threshold" min="0" max="100" step="1" value="80">
                         </div>
                         <div id="change-detection-threshold-group" class="input-group">
                             <label for="change-detection-threshold" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                Text Change Threshold (%):
-                                <span class="tooltiptext">
-                                    Lower values trigger OCR2 sooner on partial changes. Higher values wait for more obvious changes.
-                                </span>
+                                Text Change Threshold (%)
+                                <span class="tooltiptext">Lower values trigger OCR2 sooner on partial changes. Higher values wait for clearer changes.</span>
                             </label>
                             <input type="number" id="change-detection-threshold" min="0" max="100" step="1" value="20">
                         </div>
                     </div>
                     <div class="form-group">
-                        <details id="ocr-comparison-expert-settings" style="width: 100%;">
-                            <summary style="cursor: pointer; font-weight: 600; margin-bottom: 10px;">Expert Heuristics</summary>
-                            <div class="grid-container" style="margin-top: 12px;">
+                        <details id="ocr-comparison-expert-settings">
+                            <summary>Expert Heuristics</summary>
+                            <div class="grid-container" style="margin-top: 14px;">
                                 <div class="form-group">
                                     <div class="input-group">
                                         <label for="evolving-prefix-similarity-threshold" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                            Evolving Prefix Match (%):
+                                            Evolving Prefix Match (%)
                                             <span class="tooltiptext">Used when checking whether a short line looks like the beginning of a longer line.</span>
                                         </label>
                                         <input type="number" id="evolving-prefix-similarity-threshold" min="0" max="100" step="1" value="85">
                                     </div>
                                     <div class="input-group">
                                         <label for="truncation-compare-threshold-min" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                            Truncation Fallback Min Threshold (%):
-                                            <span class="tooltiptext">Minimum compare threshold required before prefix/suffix truncation matching is allowed.</span>
+                                            Truncation Fallback Min Threshold (%)
+                                            <span class="tooltiptext">Minimum compare threshold required before prefix or suffix truncation matching is allowed.</span>
                                         </label>
                                         <input type="number" id="truncation-compare-threshold-min" min="0" max="100" step="1" value="70">
                                     </div>
                                     <div class="input-group">
                                         <label for="truncation-strict-threshold-min" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                            Truncation Strict Threshold (%):
+                                            Truncation Strict Threshold (%)
                                             <span class="tooltiptext">Above this threshold, GSM also requires a stronger base similarity before treating a truncation as the same text.</span>
                                         </label>
                                         <input type="number" id="truncation-strict-threshold-min" min="0" max="100" step="1" value="75">
                                     </div>
                                     <div class="input-group">
                                         <label for="truncation-similarity-margin" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                            Truncation Base Margin:
+                                            Truncation Base Margin
                                             <span class="tooltiptext">How far below the compare threshold the base similarity may be before truncation fallback is rejected.</span>
                                         </label>
                                         <input type="number" id="truncation-similarity-margin" min="0" max="100" step="1" value="15">
                                     </div>
                                     <div class="input-group">
                                         <label for="truncation-min-length" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                            Truncation Min Length (chars):
+                                            Truncation Min Length (chars)
                                             <span class="tooltiptext">Shortest normalized string length allowed for truncation matching.</span>
                                         </label>
                                         <input type="number" id="truncation-min-length" min="1" max="1000" step="1" value="8">
                                     </div>
                                     <div class="input-group">
                                         <label for="truncation-min-ratio-percent" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                            Truncation Min Length Ratio (%):
+                                            Truncation Min Length Ratio (%)
                                             <span class="tooltiptext">How much of the longer line the shorter line must cover before truncation matching is considered.</span>
                                         </label>
                                         <input type="number" id="truncation-min-ratio-percent" min="0" max="100" step="1" value="25">
                                     </div>
                                     <div class="input-group">
                                         <label for="subset-chunk-min-length" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                            Subset Chunk Min Length (chars):
+                                            Subset Chunk Min Length (chars)
                                             <span class="tooltiptext">Incoming OCR chunks shorter than this skip the chunk-coverage fallback unless they are exact matches.</span>
                                         </label>
                                         <input type="number" id="subset-chunk-min-length" min="1" max="1000" step="1" value="5">
                                     </div>
                                     <div class="input-group">
                                         <label for="matching-block-short-chunk-char-limit" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                            Short Chunk Limit (chars):
+                                            Short Chunk Limit (chars)
                                             <span class="tooltiptext">Chunks at or below this length use the smaller matching-block minimum.</span>
                                         </label>
                                         <input type="number" id="matching-block-short-chunk-char-limit" min="1" max="1000" step="1" value="4">
@@ -446,49 +958,49 @@
                                 <div class="form-group">
                                     <div class="input-group">
                                         <label for="matching-block-small-chunk-min-size" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                            Short Chunk Match Min Size:
+                                            Short Chunk Match Min Size
                                             <span class="tooltiptext">Minimum contiguous match size counted for short chunks.</span>
                                         </label>
                                         <input type="number" id="matching-block-small-chunk-min-size" min="1" max="1000" step="1" value="1">
                                     </div>
                                     <div class="input-group">
                                         <label for="matching-block-default-min-size" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                            Default Match Min Size:
+                                            Default Match Min Size
                                             <span class="tooltiptext">Minimum contiguous match size counted for longer chunks.</span>
                                         </label>
                                         <input type="number" id="matching-block-default-min-size" min="1" max="1000" step="1" value="2">
                                     </div>
                                     <div class="input-group">
                                         <label for="subset-coverage-floor-percent" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                            Subset Coverage Floor (%):
+                                            Subset Coverage Floor (%)
                                             <span class="tooltiptext">Lowest allowed chunk-coverage requirement for dedupe fallback.</span>
                                         </label>
                                         <input type="number" id="subset-coverage-floor-percent" min="0" max="100" step="1" value="80">
                                     </div>
                                     <div class="input-group">
                                         <label for="subset-coverage-ceiling-percent" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                            Subset Coverage Ceiling (%):
+                                            Subset Coverage Ceiling (%)
                                             <span class="tooltiptext">Highest allowed chunk-coverage requirement for dedupe fallback.</span>
                                         </label>
                                         <input type="number" id="subset-coverage-ceiling-percent" min="0" max="100" step="1" value="95">
                                     </div>
                                     <div class="input-group">
                                         <label for="subset-coverage-threshold-offset" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                            Coverage Threshold Offset:
+                                            Coverage Threshold Offset
                                             <span class="tooltiptext">Offset applied before converting the current compare threshold into a coverage requirement.</span>
                                         </label>
                                         <input type="number" id="subset-coverage-threshold-offset" min="0" max="100" step="1" value="5">
                                     </div>
                                     <div class="input-group">
                                         <label for="subset-longest-block-min-chars" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                            Longest Block Minimum (chars):
+                                            Longest Block Minimum (chars)
                                             <span class="tooltiptext">Minimum contiguous block size required in subset coverage mode.</span>
                                         </label>
                                         <input type="number" id="subset-longest-block-min-chars" min="1" max="1000" step="1" value="2">
                                     </div>
                                     <div class="input-group">
                                         <label for="subset-longest-block-divisor" class="tooltip-indicator tooltip-bottom tooltip-right">
-                                            Longest Block Divisor:
+                                            Longest Block Divisor
                                             <span class="tooltiptext">Larger values reduce the required contiguous block length for longer chunks.</span>
                                         </label>
                                         <input type="number" id="subset-longest-block-divisor" min="1" max="1000" step="1" value="4">
@@ -502,31 +1014,25 @@
         </div>
     </div>
 
-    <div id="debug-tools-card" class="card">
+    <div id="debug-tools-card" class="card ocr-debug-card">
         <h2 id="debug-header" class="collapsible-header">
-            Extra & Debug Tools <span class="arrow-icon">▼</span>
+            <span>Extra and Debug Tools</span>
+            <span class="arrow-icon">▼</span>
         </h2>
         <div id="extra-debug-content" class="collapsible-content" style="display: none;">
-            
             <div id="debug-grid-container" class="grid-container">
                 <div id="debug-log-filters-group" class="input-group">
                     <label for="ignore-ocr-run-1-text" class="tooltip-indicator tooltip-bottom tooltip-right">
-                        Ignore "OCR Run 1: Text recognized" logs:
-                        <span class="tooltiptext">
-                            Hides OCR terminal lines that contain "OCR Run 1: Text recognized...".
-                            Useful to reduce duplicate output noise when two-pass OCR is enabled.
-                        </span>
+                        Ignore "OCR Run 1: Text recognized" logs
+                        <span class="tooltiptext">Hide OCR terminal lines that contain "OCR Run 1: Text recognized..." to reduce duplicate output noise when two-pass OCR is enabled.</span>
                     </label>
                     <input type="checkbox" id="ignore-ocr-run-1-text">
-                    <span style="font-size: 12px; color: #00FF00;">OCR Run 2 recognized lines are highlighted in green.</span>
+                    <span style="font-size: 12px; color: #90ee90;">OCR Run 2 recognized lines stay highlighted in green.</span>
                 </div>
                 <div id="process-priority-group" class="input-group">
                     <label for="process-priority" class="tooltip-indicator tooltip-bottom tooltip-right">
-                        OCR Process Priority (Windows):
-                        <span class="tooltiptext">
-                            Sets the process priority for the OCR Python process on Windows.
-                            Higher values may improve OCR responsiveness but can reduce system responsiveness.
-                        </span>
+                        OCR Process Priority (Windows)
+                        <span class="tooltiptext">Sets the process priority for the OCR Python process on Windows. Higher values may improve OCR responsiveness but can reduce system responsiveness.</span>
                     </label>
                     <select id="process-priority">
                         <option value="low">Low</option>
@@ -538,21 +1044,15 @@
                 </div>
                 <div id="default-scene-furigana-group" class="input-group">
                     <label for="default-scene-furigana-filter-sensitivity" class="tooltip-indicator tooltip-bottom tooltip-right">
-                        Default Furigana Sensitivity (New Scenes):
-                        <span class="tooltiptext">
-                            Used when a scene does not yet have a {scene}_config.json file.
-                            Existing scenes keep their own saved value.
-                        </span>
+                        Default Furigana Sensitivity (New Scenes)
+                        <span class="tooltiptext">Used when a scene does not yet have a {scene}_config.json file. Existing scenes keep their own saved value.</span>
                     </label>
                     <input type="number" id="default-scene-furigana-filter-sensitivity" min="0" max="100" step="1" value="0">
                 </div>
                 <div id="obs-capture-preprocess-group" class="input-group">
                     <label for="obs-capture-preprocess" class="tooltip-indicator tooltip-bottom tooltip-right">
-                        OBS Capture Preprocess:
-                        <span class="tooltiptext">
-                            Applies preprocessing to OBS screenshots before OCR-area cropping.
-                            Grayscale + Autocontrast + Unsharp can improve subtitle OCR in noisy scenes.
-                        </span>
+                        OBS Capture Preprocess
+                        <span class="tooltiptext">Applies preprocessing to OBS screenshots before OCR-area cropping. Grayscale plus autocontrast plus unsharp can improve subtitle OCR in noisy scenes.</span>
                     </label>
                     <select id="obs-capture-preprocess">
                         <option value="none" selected>Off</option>
@@ -561,18 +1061,16 @@
                     </select>
                 </div>
                 <div id="dependency-select-group" class="input-group">
-                    <label for="dependency-select">Optional:</label>
+                    <label for="dependency-select">Optional Dependency Install</label>
                     <select id="dependency-select">
-                        <option value="pip install fpng-py">Faster PNG (Recommended if w11)
-                        </option>
-                        <option value="pip install owocr[gvision]">Google Vision (apikey required)</option>
-                        <option value="pip install owocr[azure]">Azure (apikey required)</option>
-                        <option value="pip install owocr[ocrspace]">OCRSpace (apikey required)</option>
+                        <option value="pip install fpng-py">Faster PNG (Recommended on Windows 11)</option>
+                        <option value="pip install owocr[gvision]">Google Vision</option>
+                        <option value="pip install owocr[azure]">Azure</option>
+                        <option value="pip install owocr[ocrspace]">OCRSpace</option>
                     </select>
                     <button id="install-selected-dep" class="secondary">Install</button>
-                    <div class="tooltip">❓
-                        <span class="tooltiptext">Install the selected dependency. If unsure, choose a
-                            recommended option.</span>
+                    <div class="tooltip">?
+                        <span class="tooltiptext">Install the selected dependency. If you are unsure, use the recommended option only.</span>
                     </div>
                 </div>
                 <div class="form-group">
@@ -580,11 +1078,11 @@
                     <button id="open-config-json" class="secondary">Open Config File</button>
                     <button id="open-config-folder" class="secondary">Open OCR Config Folder</button>
                     <button id="open-global-owocr-config" class="secondary">Open Global OWOCR Config</button>
-                    <button id="open-temp-folder" class="secondary">Open Temp Folder (To see OCR'd Image
-                        Samples)</button>
+                    <button id="open-temp-folder" class="secondary">Open Temp Folder</button>
                 </div>
                 <div class="form-group">
                     <div id="dependency-removal-group" class="input-group">
+                        <label for="dependency-select-removal">Uninstall Dependency</label>
                         <select id="dependency-select-removal">
                             <option value="owocr">OWOCR Base</option>
                             <option value="protobuf">Google Lens</option>
@@ -599,6 +1097,45 @@
                     </div>
                     <div id="uninstall-status"></div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="ocr-log-card" class="card ocr-log-card" style="display: none;">
+        <div class="ocr-log-header">
+            <div>
+                <h3>OCR Console</h3>
+                <p>Live OCR engine output and runtime status appear here while selectors, installs, or OCR sessions are active.</p>
+            </div>
+        </div>
+        <div class="terminal-container" id="ocr-terminal"></div>
+    </div>
+
+    <div id="ocr-controls-card" class="card ocr-controls-card">
+        <div id="start-ocr-controls">
+            <div class="ocr-controls-summary">
+                <span id="config-tooltip">Needs Areas</span>
+                <div class="ocr-controls-copy">
+                    <h3>Ready to Run</h3>
+                    <p id="ocr-config-summary">Select a scene and create OCR areas before starting auto OCR.</p>
+                </div>
+            </div>
+            <div class="ocr-controls-actions">
+                <button id="start-ocr">Start Auto OCR</button>
+                <button id="start-ocr-ss-only" class="secondary">Start Manual OCR</button>
+            </div>
+        </div>
+
+        <div id="stop-ocr-controls" style="display: none;">
+            <div class="ocr-controls-summary">
+                <div class="ocr-controls-copy">
+                    <h3>OCR Runtime</h3>
+                    <p id="ocr-status-label"></p>
+                </div>
+            </div>
+            <div class="ocr-controls-actions">
+                <button id="stop-ocr" class="danger">Stop OCR (Open Settings)</button>
+                <button id="pause-ocr" class="secondary">Pause OCR</button>
             </div>
         </div>
     </div>

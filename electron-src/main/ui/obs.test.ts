@@ -6,6 +6,11 @@ const obsDisconnectMock = vi.fn();
 const obsOnMock = vi.fn();
 const obsRemoveAllListenersMock = vi.fn();
 
+const UNIFORM_PNG_DATA_URL =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAkSURBVChThcihAQAACIAw/n9asxAMKwOYR8ISlrCEJSxhiWMBgkg/wTHeyiUAAAAASUVORK5CYII=';
+const NON_UNIFORM_PNG_DATA_URL =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAVSURBVChTY2BgYPiPjP+jYYaRoQAAI4hfoUYt8SsAAAAASUVORK5CYII=';
+
 vi.mock('electron', () => ({
     BrowserWindow: class BrowserWindow {},
     dialog: {
@@ -107,5 +112,50 @@ describe('renameOBSScene', () => {
         await renameOBSScene('scene-123', '   ');
 
         expect(obsCallMock).not.toHaveBeenCalled();
+    });
+});
+
+describe('sceneHasVisibleOutput', () => {
+    it('detects visible scene output from a non-uniform screenshot', async () => {
+        const { sceneHasVisibleOutput } = await loadObsModule();
+
+        obsCallMock.mockImplementation(async (requestType: string) => {
+            if (requestType === 'GetVersion') {
+                return {};
+            }
+            if (requestType === 'GetSourceScreenshot') {
+                return { imageData: NON_UNIFORM_PNG_DATA_URL };
+            }
+            return {};
+        });
+
+        await expect(
+            sceneHasVisibleOutput({ id: 'scene-123', name: 'Octopath Traveler 0' })
+        ).resolves.toBe(true);
+
+        expect(obsCallMock).toHaveBeenLastCalledWith('GetSourceScreenshot', {
+            sourceName: 'Octopath Traveler 0',
+            imageFormat: 'png',
+            imageWidth: 8,
+            imageHeight: 8,
+        });
+    });
+
+    it('treats a uniform screenshot as no visible output', async () => {
+        const { sceneHasVisibleOutput } = await loadObsModule();
+
+        obsCallMock.mockImplementation(async (requestType: string) => {
+            if (requestType === 'GetVersion') {
+                return {};
+            }
+            if (requestType === 'GetSourceScreenshot') {
+                return { imageData: UNIFORM_PNG_DATA_URL };
+            }
+            return {};
+        });
+
+        await expect(
+            sceneHasVisibleOutput({ id: 'scene-123', name: 'Empty Scene' })
+        ).resolves.toBe(false);
     });
 });

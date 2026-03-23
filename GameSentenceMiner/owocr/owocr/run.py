@@ -2428,6 +2428,8 @@ class OBSScreenshotThread(threading.Thread):
         self.current_scene = None
         self.width = width
         self.height = height
+        self.source_width = None
+        self.source_height = None
         self.use_periodic_queue = not screen_capture_on_combo
         self.is_manual_ocr = is_manual_ocr
         self.source_refresh_interval = max(float(interval or 1), 0.25)
@@ -2441,6 +2443,12 @@ class OBSScreenshotThread(threading.Thread):
         else:
             image_queue.put((result, True, metadata))
         screenshot_event.clear()
+
+    def get_capture_original_size(self, capture_width, capture_height):
+        return _size_dict(
+            getattr(self, "source_width", None) or capture_width,
+            getattr(self, "source_height", None) or capture_height,
+        )
 
     def connect_obs(self):
         import GameSentenceMiner.obs as obs
@@ -2462,6 +2470,11 @@ class OBSScreenshotThread(threading.Thread):
         )
         self.current_source = source if isinstance(source, dict) else None
         self.current_source_name = self.current_source.get("sourceName") if self.current_source else None
+        scene_item_transform = self.current_source.get("sceneItemTransform") if self.current_source else None
+        if not isinstance(scene_item_transform, dict):
+            scene_item_transform = {}
+        self.source_width = scene_item_transform.get("sourceWidth")
+        self.source_height = scene_item_transform.get("sourceHeight")
         return self.current_source_name
 
     def init_config(self, source=None, scene=None):
@@ -2484,6 +2497,8 @@ class OBSScreenshotThread(threading.Thread):
                 time.sleep(min(1.0, self.source_refresh_interval))
 
         if not self.current_source:
+            self.source_width = None
+            self.source_height = None
             self.current_source_name = None
             return False
 
@@ -2578,10 +2593,7 @@ class OBSScreenshotThread(threading.Thread):
                         primary_rectangles.append(list(rect.coordinates))
                 frame_metadata = {
                     "capture_source": "obs",
-                    "capture_original_size": _size_dict(
-                        self.source_width or capture_width,
-                        self.source_height or capture_height,
-                    ),
+                    "capture_original_size": self.get_capture_original_size(capture_width, capture_height),
                     "capture_scaled_size": _size_dict(capture_width, capture_height),
                     "ocr_area_crop_offset": {
                         "x": _safe_int(crop_offset[0]),
@@ -2654,10 +2666,7 @@ def apply_ocr_config_to_image(
 
         # Some runtime paths still pass normalized OCR rectangles directly to the compositor.
         # Resolve those against the actual captured frame size before cropping.
-        if all(
-            isinstance(value, (int, float)) and 0.0 <= float(value) <= 1.0
-            for value in raw_coordinates[:4]
-        ):
+        if all(isinstance(value, (int, float)) and 0.0 <= float(value) <= 1.0 for value in raw_coordinates[:4]):
             resolved_coordinates = scale_percentage_rectangle_to_even_pixels(
                 raw_coordinates,
                 img.width,

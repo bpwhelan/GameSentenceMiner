@@ -191,10 +191,17 @@ def test_describe_obs_source_selection_handles_no_valid_source():
     )
 
     assert message == (
-        "Multiple active video sources found, but no valid source has output yet. "
-        "Retrying screenshot capture."
+        "Multiple active video sources found, but no valid source has output yet. Retrying screenshot capture."
     )
-    
+
+
+def test_obs_screenshot_thread_capture_original_size_falls_back_when_source_dimensions_missing():
+    thread = run_module.OBSScreenshotThread(SimpleNamespace(rectangles=[]), screen_capture_on_combo=False)
+    del thread.source_width
+    del thread.source_height
+
+    assert thread.get_capture_original_size(2560, 1440) == {"width": 2560, "height": 1440}
+
 
 def test_websocket_server_buffers_until_first_client_connects():
     server = gsm_ocr.WebsocketServerThread(read=True)

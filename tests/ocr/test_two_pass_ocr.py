@@ -1981,12 +1981,15 @@ class TestCompareModuleCoverageGaps:
         prefix_text = "今日はいい天気ですね"
         custom = OCRCompareSettings(anchored_truncation_min_length=100)
 
-        assert compare_ocr_results(
-            long_text,
-            prefix_text,
-            threshold=80,
-            settings=custom,
-        ) is False
+        assert (
+            compare_ocr_results(
+                long_text,
+                prefix_text,
+                threshold=80,
+                settings=custom,
+            )
+            is False
+        )
 
 
 # ===================================================================

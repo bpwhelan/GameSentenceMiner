@@ -385,6 +385,7 @@ class GSMApplication:
         self._tray = GSMTray(self)
         self._threads: list[threading.Thread] = []
         self._obs_connect_task: Optional[asyncio.Task] = None
+        self._obs_launch_thread: Optional[threading.Thread] = None
 
     def _start_thread(self, target, name: str) -> threading.Thread:
         thread = threading.Thread(target=target, name=name, daemon=True)
@@ -399,6 +400,18 @@ class GSMApplication:
         except FileNotFoundError:
             logger.error("FFmpeg not found, please install it and add it to your PATH.")
             raise
+
+    def _launch_obs_early(self) -> None:
+        if self._obs_launch_thread and self._obs_launch_thread.is_alive():
+            return
+
+        logger.info("Launching OBS asynchronously during early startup.")
+        self._obs_launch_thread = threading.Thread(
+            target=obs.start_obs,
+            name="obs-launch",
+            daemon=True,
+        )
+        self._obs_launch_thread.start()
 
     def register_hotkeys(self) -> None:
         hotkey_manager.clear()
@@ -685,9 +698,12 @@ class GSMApplication:
             get_temporary_directory(delete=True)
             if is_windows():
                 download_obs_if_needed()
+                write_obs_configs(obs.get_base_obs_dir())
+            if get_config().obs.open_obs:
+                self._launch_obs_early()
+            if is_windows():
                 download_ffmpeg_if_needed()
                 download_oneocr_dlls_if_needed()
-                write_obs_configs(obs.get_base_obs_dir())
                 if shutil.which("ffmpeg") is None:
                     os.environ["PATH"] += os.pathsep + os.path.dirname(get_ffmpeg_path())
             if is_mac():
@@ -711,9 +727,6 @@ class GSMApplication:
                     logger.info(f"Initial rollup complete: processed {rollup_result.get('processed', 0)} dates")
             except Exception as e:
                 logger.warning(f"Failed to check/populate rollup table on startup: {e}")
-
-            if get_config().obs.open_obs:
-                obs.start_obs()
 
             try:
                 os.makedirs(get_config().paths.folder_to_watch, exist_ok=True)

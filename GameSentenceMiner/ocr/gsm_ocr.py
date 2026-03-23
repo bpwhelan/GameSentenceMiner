@@ -53,14 +53,31 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_scan_rate,
     has_ocr_config_changed,
     reload_electron_config,
+    get_ocr_change_detection_threshold,
+    get_ocr_duplicate_similarity_threshold,
+    get_ocr_evolving_prefix_similarity_threshold,
     get_ocr_two_pass_ocr,
     get_ocr_optimize_second_scan,
     get_ocr_language,
     get_ocr_manual_ocr_hotkey,
+    get_ocr_matching_block_default_min_size,
+    get_ocr_matching_block_short_chunk_char_limit,
+    get_ocr_matching_block_small_chunk_min_size,
     get_ocr_ocr1,
     get_ocr_keep_newline,
     get_ocr_area_select_ocr_hotkey,
     get_ocr_global_pause_hotkey,
+    get_ocr_subset_chunk_min_length,
+    get_ocr_subset_coverage_ceiling_percent,
+    get_ocr_subset_coverage_floor_percent,
+    get_ocr_subset_coverage_threshold_offset,
+    get_ocr_subset_longest_block_divisor,
+    get_ocr_subset_longest_block_min_chars,
+    get_ocr_truncation_compare_threshold_min,
+    get_ocr_truncation_min_length,
+    get_ocr_truncation_min_ratio_percent,
+    get_ocr_truncation_similarity_margin,
+    get_ocr_truncation_strict_threshold_min,
     get_ocr_whole_window_ocr_hotkey,
 )
 
@@ -312,7 +329,9 @@ class TwoPassOCRController:
         if self.force_stable:
             return True
 
-        is_low_similarity = not compare_ocr_results(p_orig_text, orig_text_string, self.CHANGE_THRESHOLD, settings=self.config.compare_settings)
+        is_low_similarity = not compare_ocr_results(
+            p_orig_text, orig_text_string, self.config.change_threshold, settings=self.config.compare_settings
+        )
         if is_low_similarity and p_orig_text and orig_text_string:
             starts_diff = p_orig_text[0] != orig_text_string[0]
             ends_diff = p_orig_text[-1] != orig_text_string[-1]
@@ -328,7 +347,12 @@ class TwoPassOCRController:
         """True when incoming text is an evolution of the pending text."""
         if not self._pending:
             return False
-        return compare_ocr_results(self._pending.orig_text, orig_text_string, self.CHANGE_THRESHOLD, settings=self.config.compare_settings)
+        return compare_ocr_results(
+            self._pending.orig_text,
+            orig_text_string,
+            self.config.change_threshold,
+            settings=self.config.compare_settings,
+        )
 
     def _update_pending(
         self,
@@ -2015,28 +2039,29 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
             except Exception as e:
                 logger.debug(f"IPC: Failed to read scene furigana setting: {e}")
 
-            mode_switched = '_mode_switched' in changes or 'advancedMode' in changes
+            mode_switched = "_mode_switched" in changes or "advancedMode" in changes
             compare_config_keys = {
-                'duplicate_similarity_threshold',
-                'change_detection_threshold',
-                'evolving_prefix_similarity_threshold',
-                'truncation_compare_threshold_min',
-                'truncation_strict_threshold_min',
-                'truncation_similarity_margin',
-                'truncation_min_length',
-                'truncation_min_ratio_percent',
-                'subset_chunk_min_length',
-                'matching_block_short_chunk_char_limit',
-                'matching_block_small_chunk_min_size',
-                'matching_block_default_min_size',
-                'subset_coverage_floor_percent',
-                'subset_coverage_ceiling_percent',
-                'subset_coverage_threshold_offset',
-                'subset_longest_block_min_chars',
-                'subset_longest_block_divisor',
+                "duplicate_similarity_threshold",
+                "change_detection_threshold",
+                "evolving_prefix_similarity_threshold",
+                "truncation_compare_threshold_min",
+                "truncation_strict_threshold_min",
+                "truncation_similarity_margin",
+                "truncation_min_length",
+                "truncation_min_ratio_percent",
+                "subset_chunk_min_length",
+                "matching_block_short_chunk_char_limit",
+                "matching_block_small_chunk_min_size",
+                "matching_block_default_min_size",
+                "subset_coverage_floor_percent",
+                "subset_coverage_ceiling_percent",
+                "subset_coverage_threshold_offset",
+                "subset_longest_block_min_chars",
+                "subset_longest_block_divisor",
             }
-            config_needs_reset = any(c in changes for c in (
-                'ocr1', 'ocr2', 'language', 'furigana_filter_sensitivity', 'basic', 'advanced'))
+            config_needs_reset = any(
+                c in changes for c in ("ocr1", "ocr2", "language", "furigana_filter_sensitivity", "basic", "advanced")
+            )
             if not config_needs_reset:
                 config_needs_reset = any(key in changes for key in compare_config_keys)
             if config_needs_reset:

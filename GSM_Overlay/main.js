@@ -1154,6 +1154,19 @@ function isMac() {
   return process.platform === 'darwin';
 }
 
+function getWindowsFramelessWindowOptions() {
+  if (!isWindows()) {
+    return {};
+  }
+
+  return {
+    // Electron keeps the native WS_THICKFRAME style by default on Windows
+    // frameless windows, which can let the title bar/frame leak back in.
+    thickFrame: false,
+    roundedCorners: false,
+  };
+}
+
 function getOverlayAppIconPath() {
   return path.join(__dirname, isWindows() ? 'overlay.ico' : 'overlay-256.png');
 }
@@ -2053,6 +2066,7 @@ function createTexthookerWindow() {
     icon: getOverlayAppIconPath(),
     transparent: true,
     frame: false,
+    ...getWindowsFramelessWindowOptions(),
     show: false,
     alwaysOnTop: true,
     resizable: false,
@@ -2588,6 +2602,7 @@ function openOffsetHelper() {
     icon: getOverlayAppIconPath(),
     transparent: true,
     frame: false,
+    ...getWindowsFramelessWindowOptions(),
     alwaysOnTop: true,
     resizable: false,
     titleBarStyle: 'hidden',
@@ -3123,6 +3138,7 @@ app.whenReady().then(async () => {
     icon: getOverlayAppIconPath(),
     transparent: true,
     frame: false,
+    ...getWindowsFramelessWindowOptions(),
     alwaysOnTop: true,
     resizable: false,
     titleBarStyle: 'hidden',

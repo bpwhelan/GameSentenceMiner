@@ -33,6 +33,7 @@ from GameSentenceMiner.ocr.gsm_ocr_config import (
     get_window,
     get_scene_ocr_config_path,
     get_ocr_config_path,
+    read_overlay_scene_settings,
     write_ocr_config,
 )
 from GameSentenceMiner.ocr.image_scaling import (
@@ -326,6 +327,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         else:
             try:
                 from GameSentenceMiner.util.config.configuration import get_config
+
                 config = get_config()
                 target_idx = config.overlay.monitor
             except Exception as e:
@@ -394,7 +396,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         source_selection_message = describe_obs_source_selection(sources, best_source)
         if source_selection_message:
             logger.warning(source_selection_message)
-        
+
         # Attempt to get screenshot with retry logic
         self.screenshot_img = None
         retry_count = 10
@@ -1440,6 +1442,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                 "coordinate_system": COORD_SYSTEM_PERCENTAGE,
                 "rects": final_rects,
             }
+            output_data.update(read_overlay_scene_settings())
 
             # Print to stdout
             print(json.dumps(output_data, indent=2))
@@ -1503,6 +1506,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             "rectangles": output_rectangles,
             "window_geometry": win_geom,
         }
+        config_data.update(read_overlay_scene_settings())
 
         print(config_data)
 

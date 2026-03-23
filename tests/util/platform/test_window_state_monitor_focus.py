@@ -107,6 +107,25 @@ def test_set_foreground_aggressive_uses_topmost_and_alt_fallbacks(monkeypatch):
     assert any(attach is False for _a, _b, attach in fake_user32.attach_calls)
 
 
+def test_set_foreground_aggressive_skips_paused_target(monkeypatch):
+    _set_focus_constants(monkeypatch)
+    fake_user32 = _FakeUser32()
+
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+    monkeypatch.setattr(window_state_monitor, "user32", fake_user32)
+    monkeypatch.setattr(window_state_monitor, "kernel32", _FakeKernel32())
+    monkeypatch.setattr(window_state_monitor, "_get_pid_for_hwnd", lambda hwnd: 222 if hwnd == 20 else 0)
+    monkeypatch.setattr(window_state_monitor, "_is_tracked_suspended_pid", lambda pid: pid == 222)
+
+    monitor = window_state_monitor.WindowStateMonitor()
+
+    assert monitor._set_foreground_aggressive(20, attempt_number=1) is False
+    assert fake_user32.foreground_hwnd == 10
+    assert fake_user32.set_foreground_attempts == 0
+    assert fake_user32.window_pos_calls == []
+    assert fake_user32.keybd_event_calls == []
+
+
 def test_activate_target_window_retries_until_helper_succeeds(monkeypatch):
     monitor = window_state_monitor.WindowStateMonitor()
     monitor.target_hwnd = 20
