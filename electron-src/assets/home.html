@@ -32,6 +32,8 @@
                     <br>
                     GSM prefers Game Capture when it works, and capture-card scenes use Video Capture Device.
                     <br>
+                    On Linux/Steam Deck, Setup Capture currently uses XComposite Window Capture.
+                    <br>
                     Capture-card scenes are created without automatic window-title scene switching.
                 </span>
             </span>
@@ -274,7 +276,7 @@
         });
 
         async function getWindows(showLoading = true) {
-            if (isWindows === false) {
+            if (!isWindows && !isLinux) {
                 return;
             }
             // Remember the previously selected window
@@ -591,20 +593,23 @@
                 const refreshWindowsBtn = document.getElementById('refreshWindowsBtn');
                 const createNewSceneBtn = document.getElementById('createNewSceneBtn');
 
-                if (isWindows) {
-                    if (runOverlayBtn) {
-                        runOverlayBtn.disabled = false;
-                        runOverlayBtn.removeAttribute('title');
-                    }
-                    if (overlayPlatformWarning) {
-                        overlayPlatformWarning.style.display = 'none';
-                    }
-                    if (overlayHelpBtn) {
-                        overlayHelpBtn.disabled = false;
-                        overlayHelpBtn.style.opacity = '1';
-                        overlayHelpBtn.style.cursor = 'pointer';
-                        overlayHelpBtn.removeAttribute('title');
-                    }
+                if (runOverlayBtn) {
+                    runOverlayBtn.disabled = false;
+                    runOverlayBtn.style.opacity = '1';
+                    runOverlayBtn.style.cursor = 'pointer';
+                    runOverlayBtn.removeAttribute('title');
+                }
+                if (overlayPlatformWarning) {
+                    overlayPlatformWarning.style.display = isWindows ? 'none' : 'inline-flex';
+                }
+                if (overlayHelpBtn) {
+                    overlayHelpBtn.disabled = false;
+                    overlayHelpBtn.style.opacity = '1';
+                    overlayHelpBtn.style.cursor = 'pointer';
+                    overlayHelpBtn.removeAttribute('title');
+                }
+
+                if (isWindows || isLinux) {
                     if (windowSelect) {
                         windowSelect.disabled = false;
                         windowSelect.style.cursor = '';
@@ -628,15 +633,6 @@
                         createNewSceneBtn.removeAttribute('title');
                     }
                 } else {
-                    if (runOverlayBtn) {
-                        runOverlayBtn.disabled = false;
-                        runOverlayBtn.style.opacity = '1';
-                        runOverlayBtn.style.cursor = 'pointer';
-                        runOverlayBtn.removeAttribute('title');
-                    }
-                    if (overlayPlatformWarning) {
-                        overlayPlatformWarning.style.display = 'inline-flex';
-                    }
                     windowSelect.innerHTML = '<option>Need to set scenes in OBS on this OS.</option>';
                     windowSelect.disabled = true;
                     windowSelect.style.cursor = 'not-allowed';

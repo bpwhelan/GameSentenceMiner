@@ -3,11 +3,13 @@ export type ObsSetupTargetKind = 'window' | 'capture_card';
 export const OBS_APPLICATION_AUDIO_INPUT_KIND = 'wasapi_process_output_capture';
 export const OBS_WASAPI_INPUT_CAPTURE_KIND = 'wasapi_input_capture';
 export const OBS_DSHOW_INPUT_KIND = 'dshow_input';
+export const OBS_XCOMPOSITE_INPUT_KIND = 'xcomposite_input';
 export type ObsSceneCaptureInputKind =
     | ObsCaptureMode
     | typeof OBS_APPLICATION_AUDIO_INPUT_KIND
     | typeof OBS_WASAPI_INPUT_CAPTURE_KIND
-    | typeof OBS_DSHOW_INPUT_KIND;
+    | typeof OBS_DSHOW_INPUT_KIND
+    | typeof OBS_XCOMPOSITE_INPUT_KIND;
 
 export interface ObsWindowPropertyItem {
     itemName: string;
@@ -19,6 +21,7 @@ export interface ObsWindowPropertyItem {
 export interface ObsWindowCaptureValues {
     window_capture?: string;
     game_capture?: string;
+    xcomposite_input?: string;
 }
 
 export interface ObsDevicePropertyItem {
@@ -95,6 +98,10 @@ function compactSettings(
 
 function isLegacyObsWindowValue(value: string | undefined): value is string {
     return Boolean(value && value.includes(':') && !value.trim().startsWith('['));
+}
+
+function isLinuxXCompositeWindowValue(value: string | undefined): value is string {
+    return Boolean(value && value.includes('\r\n'));
 }
 
 function getCaptureCardSourceNameBase(
@@ -409,4 +416,44 @@ export function buildWindowsSceneCaptureInputs(
     }
 
     return captureInputs;
+}
+
+export function buildLinuxSceneCaptureInputs(
+    sceneName: string,
+    selectedWindow: ObsSceneCaptureWindowSelection,
+    options: { isLinux: boolean }
+): ObsSceneCaptureInput[] {
+    if (!options.isLinux) {
+        throw new Error(
+            'Automatic Linux OBS capture setup is currently only supported for XComposite window capture.'
+        );
+    }
+
+    const captureWindow =
+        typeof selectedWindow.captureValues?.xcomposite_input === 'string'
+            ? selectedWindow.captureValues.xcomposite_input
+            : isLinuxXCompositeWindowValue(selectedWindow.value)
+              ? selectedWindow.value
+              : undefined;
+
+    if (!captureWindow) {
+        const windowLabel = selectedWindow.title || sceneName;
+        throw new Error(
+            `No OBS XComposite capture source was available for "${windowLabel}".`
+        );
+    }
+
+    return [
+        {
+            inputName: `${sceneName} - XComposite Window Capture`,
+            inputKind: OBS_XCOMPOSITE_INPUT_KIND,
+            inputSettings: {
+                capture_window: captureWindow,
+                show_cursor: false,
+                include_border: false,
+                exclude_alpha: false,
+            },
+            sceneItemEnabled: true,
+        },
+    ];
 }

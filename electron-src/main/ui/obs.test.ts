@@ -54,6 +54,8 @@ vi.mock('../util.js', () => ({
 }));
 
 vi.mock('./obs-capture.js', () => ({
+    OBS_XCOMPOSITE_INPUT_KIND: 'xcomposite_input',
+    buildLinuxSceneCaptureInputs: vi.fn(),
     buildWindowsSceneCaptureInputs: vi.fn(),
     mergeObsWindowItems: vi.fn(),
 }));

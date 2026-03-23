@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - develop
-      - overlay-controller
+      - unify-capture
   workflow_dispatch:
 
 concurrency:

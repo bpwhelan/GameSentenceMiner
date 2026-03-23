@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     buildCaptureCardOptions,
+    buildLinuxSceneCaptureInputs,
     buildWindowsSceneCaptureInputs,
     mergeObsWindowItems,
 } from './obs-capture.js';
@@ -252,5 +253,56 @@ describe('buildWindowsSceneCaptureInputs', () => {
                 }
             )
         ).toThrow(/only supported on Windows/i);
+    });
+});
+
+describe('buildLinuxSceneCaptureInputs', () => {
+    it('creates an XComposite capture plan from a Linux window selection', () => {
+        const plan = buildLinuxSceneCaptureInputs(
+            'NineSols',
+            {
+                title: 'NineSols',
+                value: '161480705\r\nNineSols\r\nsteam_app_1809540',
+                targetKind: 'window',
+                captureValues: {
+                    xcomposite_input:
+                        '161480705\r\nNineSols\r\nsteam_app_1809540',
+                },
+            },
+            {
+                isLinux: true,
+            }
+        );
+
+        expect(plan).toEqual([
+            {
+                inputName: 'NineSols - XComposite Window Capture',
+                inputKind: 'xcomposite_input',
+                sceneItemEnabled: true,
+                inputSettings: {
+                    capture_window:
+                        '161480705\r\nNineSols\r\nsteam_app_1809540',
+                    show_cursor: false,
+                    include_border: false,
+                    exclude_alpha: false,
+                },
+            },
+        ]);
+    });
+
+    it('rejects Linux scene setup when no XComposite value is available', () => {
+        expect(() =>
+            buildLinuxSceneCaptureInputs(
+                'NineSols',
+                {
+                    title: 'NineSols',
+                    value: '',
+                    targetKind: 'window',
+                },
+                {
+                    isLinux: true,
+                }
+            )
+        ).toThrow(/xcomposite/i);
     });
 });

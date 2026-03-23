@@ -13,7 +13,9 @@ import axios from 'axios';
 import {
     OBS_DSHOW_INPUT_KIND,
     OBS_WASAPI_INPUT_CAPTURE_KIND,
+    OBS_XCOMPOSITE_INPUT_KIND,
     buildCaptureCardOptions,
+    buildLinuxSceneCaptureInputs,
     getObsWindowTitle,
     buildWindowsSceneCaptureInputs,
     mergeObsWindowItems,
@@ -95,7 +97,10 @@ const WINDOW_FILTERS: WindowFilter[] = [
     { titlePattern: 'Microsoft Edge Game Assist' },
     { titlePattern: /^.*Prism Launcher .*$/ },
     { titlePattern: /^.*mRemoteNG.*$/ },
-    { titlePattern: "Task Manager" }
+    { titlePattern: "Task Manager" },
+    { windowClass: 'obs' },
+    { windowClass: 'plasmashell' },
+    { titlePattern: /^Desktop @ QRect/i }
 
 ];
 
@@ -307,6 +312,7 @@ const OLD_HELPER_SCENE = "GSM Helper";
 const HELPER_SCENE = 'GSM Helper - DONT TOUCH';
 const WINDOW_GETTER_INPUT = 'window_getter';
 const GAME_WINDOW_INPUT = 'game_window_getter';
+const XCOMPOSITE_WINDOW_GETTER_INPUT = 'xcomposite_window_getter';
 const CAPTURE_CARD_GETTER_INPUT = 'capture_card_getter';
 const AUDIO_INPUT_GETTER_INPUT = 'audio_input_getter';
 let sceneSwitcherRegistered = false;
@@ -342,12 +348,23 @@ function escapeRegexCharacters(str: string): string {
 function shouldFilterWindow(item: any): boolean {
     const windowValue = item.itemValue || '';
     const itemName = item.itemName || '';
-    
-    // Parse window value format: "Title:ClassName:ExeName.exe"
-    const parts = windowValue.split(':');
-    const exeName = parts[parts.length - 1]?.trim() || '';
-    const windowClass = parts[parts.length - 2]?.trim() || '';
-    const title = getObsWindowTitle(itemName);
+    let exeName = '';
+    let windowClass = '';
+    let title = '';
+
+    if (typeof windowValue === 'string' && windowValue.includes('\r\n')) {
+        const [, encodedTitle = '', encodedWindowClass = ''] = windowValue
+            .split(/\r?\n/)
+            .map((part) => part.trim());
+        title = itemName.trim() || encodedTitle;
+        windowClass = encodedWindowClass;
+    } else {
+        // Parse window value format: "Title:ClassName:ExeName.exe"
+        const parts = windowValue.split(':');
+        exeName = parts[parts.length - 1]?.trim() || '';
+        windowClass = parts[parts.length - 2]?.trim() || '';
+        title = getObsWindowTitle(itemName);
+    }
 
     for (const filter of WINDOW_FILTERS) {
         let matches = true; // Assume match unless proven otherwise
@@ -611,9 +628,9 @@ async function isOBSHealthy(): Promise<boolean> {
 
 // Shared scene creation logic
 async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): Promise<void> {
-    if (!isWindows()) {
+    if (!isWindows() && !isLinux()) {
         throw new Error(
-            'Automatic OBS capture setup is currently only supported on Windows.'
+            'Automatic OBS capture setup is currently only supported on Windows and Linux XComposite.'
         );
     }
 
@@ -640,7 +657,8 @@ async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): P
                       requestedSceneName === rawWindowTitle
                           ? (detectedWindowSceneInfo?.sceneName ?? requestedSceneName)
                           : requestedSceneName,
-                  switcherRegex: detectedWindowSceneInfo?.switcherRegex ?? null,
+                  switcherRegex:
+                      isWindows() ? detectedWindowSceneInfo?.switcherRegex ?? null : null,
               }
             : {
                   sceneName: requestedSceneName,
@@ -685,10 +703,14 @@ async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): P
     // Set the new scene as the current program scene
     await callOBS('SetCurrentProgramScene', { sceneName });
 
-    const captureInputs = buildWindowsSceneCaptureInputs(sceneName, window, {
-        isWindows: isWindows(),
-        isWindows10OrHigher: isWindows10OrHigher(),
-    });
+    const captureInputs = isWindows()
+        ? buildWindowsSceneCaptureInputs(sceneName, window, {
+              isWindows: isWindows(),
+              isWindows10OrHigher: isWindows10OrHigher(),
+          })
+        : buildLinuxSceneCaptureInputs(sceneName, window, {
+              isLinux: isLinux(),
+          });
 
     // Create the fallback source first so the preferred game capture lands on top.
     for (const captureInput of captureInputs) {
@@ -737,7 +759,7 @@ async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): P
     if (sceneInfo.switcherRegex) {
         // Configure auto scene switcher with the generated REGEX pattern.
         await modifyAutoSceneSwitcherInJSON(sceneName, sceneInfo.switcherRegex);
-    } else {
+    } else if (targetKind === 'capture_card') {
         const audioWasConfigured = captureInputs.some(
             (captureInput) =>
                 captureInput.inputKind === OBS_WASAPI_INPUT_CAPTURE_KIND ||
@@ -1289,6 +1311,31 @@ export async function registerOBSIPC() {
         }));
     }
 
+    async function getLinuxXCompositeWindows(): Promise<ObsWindowOption[]> {
+        const propertyItems = await getInputPropertyItems(
+            XCOMPOSITE_WINDOW_GETTER_INPUT,
+            OBS_XCOMPOSITE_INPUT_KIND,
+            'capture_window',
+            {
+                show_cursor: false,
+                include_border: false,
+                exclude_alpha: false,
+            }
+        );
+
+        return propertyItems
+            .filter((item) => !shouldFilterWindow(item))
+            .map((item) => ({
+                title: item.itemName?.trim() || generateFallbackWindowName(),
+                value: item.itemValue,
+                targetKind: 'window' as const,
+                captureValues: {
+                    xcomposite_input: item.itemValue,
+                },
+            }))
+            .sort((left, right) => left.title.localeCompare(right.title));
+    }
+
     async function getCaptureCardList(): Promise<ObsWindowOption[]> {
         const [videoDevices, directShowAudioDevices, wasapiInputDevices] =
             await Promise.all([
@@ -1321,6 +1368,10 @@ export async function registerOBSIPC() {
 
     async function getWindowList(): Promise<ObsWindowOption[]> {
         try {
+            if (isLinux()) {
+                return await getLinuxXCompositeWindows();
+            }
+
             const [windowCaptureWindows, gameCaptureWindows, captureCards] =
                 await Promise.all([
                     getWindowsFromSource(WINDOW_GETTER_INPUT, 'window_capture'),
@@ -1343,7 +1394,7 @@ export async function registerOBSIPC() {
 
     ipcMain.handle('obs.getWindows', async () => {
         try {
-            if (!isWindows()) {
+            if (!isWindows() && !isLinux()) {
                 return [];
             }
             await getOBSConnection();
