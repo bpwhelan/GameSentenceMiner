@@ -25,6 +25,18 @@ protocol.registerSchemesAsPrivileged([
   }
 ]);
 
+const TRANSPARENT_WINDOW_BACKGROUND = '#00000000';
+const TRANSPARENT_WINDOW_COMPAT_MODE = process.platform === 'linux' || process.platform === 'win32';
+
+if (TRANSPARENT_WINDOW_COMPAT_MODE) {
+  // Steam Deck, Windows handhelds, and some desktop compositors can present
+  // Electron transparent windows as an opaque black surface unless we force a
+  // safer software-rendered path for the overlay process.
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch('enable-transparent-visuals');
+  app.commandLine.appendSwitch('disable-gpu-compositing');
+}
+
 let dataPath = process.env.APPDATA
   ? path.join(process.env.APPDATA, "gsm_overlay") // Windows
   : path.join(os.homedir(), '.config', "gsm_overlay"); // macOS/Linux
@@ -1167,6 +1179,38 @@ function getWindowsFramelessWindowOptions() {
   };
 }
 
+function getTransparentWindowOptions() {
+  const options = {
+    transparent: true,
+    backgroundColor: TRANSPARENT_WINDOW_BACKGROUND,
+  };
+
+  if (isLinux()) {
+    options.hasShadow = false;
+  }
+
+  return options;
+}
+
+function forceWindowRepaint(win, reason, delayMs = 150) {
+  setTimeout(() => {
+    if (!win || win.isDestroyed()) {
+      return;
+    }
+
+    try {
+      const [width, height] = win.getSize();
+      win.setSize(width, height);
+      if (typeof win.webContents.invalidate === 'function') {
+        win.webContents.invalidate();
+      }
+      console.log(`[WindowRepaint] Forced repaint for ${reason}`);
+    } catch (error) {
+      console.warn(`[WindowRepaint] Failed to force repaint for ${reason}:`, error);
+    }
+  }, delayMs);
+}
+
 function getOverlayAppIconPath() {
   return path.join(__dirname, isWindows() ? 'overlay.ico' : 'overlay-256.png');
 }
@@ -2064,7 +2108,7 @@ function createTexthookerWindow() {
     width: overlayBounds.width,
     height: overlayBounds.height,
     icon: getOverlayAppIconPath(),
-    transparent: true,
+    ...getTransparentWindowOptions(),
     frame: false,
     ...getWindowsFramelessWindowOptions(),
     show: false,
@@ -2092,6 +2136,7 @@ function createTexthookerWindow() {
 
   texthookerWindow.on('show', () => {
     texthookerWindow.setAlwaysOnTop(true, "screen-saver");
+    forceWindowRepaint(texthookerWindow, "texthooker-show");
   });
 }
 
@@ -2600,7 +2645,7 @@ function openOffsetHelper() {
     width: overlayBounds.width,
     height: overlayBounds.height,
     icon: getOverlayAppIconPath(),
-    transparent: true,
+    ...getTransparentWindowOptions(),
     frame: false,
     ...getWindowsFramelessWindowOptions(),
     alwaysOnTop: true,
@@ -2639,6 +2684,7 @@ function openOffsetHelper() {
     try {
       offsetHelperWindow.setAlwaysOnTop(true, "screen-saver");
       offsetHelperWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+      forceWindowRepaint(offsetHelperWindow, "offset-helper-show");
     } catch (e) {
       console.warn("[OffsetHelper] Failed to reassert topmost state:", e);
     }
@@ -3136,7 +3182,7 @@ app.whenReady().then(async () => {
     width: displayBounds.width,
     height: displayBounds.height,
     icon: getOverlayAppIconPath(),
-    transparent: true,
+    ...getTransparentWindowOptions(),
     frame: false,
     ...getWindowsFramelessWindowOptions(),
     alwaysOnTop: true,
@@ -3156,7 +3202,7 @@ app.whenReady().then(async () => {
       allowFileAccessFromFileURLs: true,
       backgroundThrottling: false, // Required for gamepad polling when unfocused
     },
-    // show: false,
+    show: false,
   });
   lastDisplaySyncSignature = getOverlayDisplaySyncSignature();
 
@@ -3346,16 +3392,17 @@ app.whenReady().then(async () => {
   // Fix for ghost title bar
   // https://github.com/electron/electron/issues/39959#issuecomment-1758736966
   mainWindow.on('blur', () => {
-    mainWindow.setBackgroundColor('#00000000')
+    mainWindow.setBackgroundColor(TRANSPARENT_WINDOW_BACKGROUND)
   })
 
   mainWindow.on('focus', () => {
-    mainWindow.setBackgroundColor('#00000000')
+    mainWindow.setBackgroundColor(TRANSPARENT_WINDOW_BACKGROUND)
   })
 
   // Update tray menu when window visibility changes
   mainWindow.on('show', () => {
     updateTrayMenu();
+    forceWindowRepaint(mainWindow, "main-window-show");
   });
 
   mainWindow.on('hide', () => {
@@ -3394,6 +3441,7 @@ app.whenReady().then(async () => {
     mainWindow.webContents.send("display-info", buildOverlayDisplayInfo(display));
     mainWindow.webContents.send("gamepad-input-test-active", { active: gamepadInputTestActive });
     mainWindow.setAlwaysOnTop(true, 'screen-saver');
+    forceWindowRepaint(mainWindow, "main-window-ready-to-show");
 
     if (isWindows() || isMac()) {
       // Windows and macOS - use setIgnoreMouseEvents
