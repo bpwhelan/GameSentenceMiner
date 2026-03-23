@@ -398,28 +398,39 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
+            function parseVersionParts(version) {
+              if (!/^\d+(?:\.\d+)*$/.test(version || '')) return null;
+              return version.split('.').map((segment) => Number(segment));
+            }
+
             function parseStable(tag) {
-              const m = /^v(\d+)\.(\d+)\.(\d+)$/.exec(tag || '');
+              const m = /^v(\d+(?:\.\d+)*)$/.exec(tag || '');
               if (!m) return null;
-              return { year: Number(m[1]), month: Number(m[2]), patch: Number(m[3]) };
+              const parts = parseVersionParts(m[1]);
+              if (!parts) return null;
+              return { parts };
             }
 
             function parsePre(tag) {
-              const m = /^v(\d+)\.(\d+)\.(\d+)-([0-9a-z-]+)\.(\d+)$/.exec(tag || '');
+              const m = /^v(\d+(?:\.\d+)*)-([0-9a-z-]+)\.(\d+)$/.exec(tag || '');
               if (!m) return null;
+              const parts = parseVersionParts(m[1]);
+              if (!parts) return null;
               return {
-                year: Number(m[1]),
-                month: Number(m[2]),
-                patch: Number(m[3]),
-                preId: m[4],
-                preN: Number(m[5]),
+                parts,
+                preId: m[2],
+                preN: Number(m[3]),
               };
             }
 
             function compareBase(a, b) {
-              if (a.year !== b.year) return a.year - b.year;
-              if (a.month !== b.month) return a.month - b.month;
-              return a.patch - b.patch;
+              const maxLength = Math.max(a.parts.length, b.parts.length);
+              for (let i = 0; i < maxLength; i += 1) {
+                const left = a.parts[i] ?? 0;
+                const right = b.parts[i] ?? 0;
+                if (left !== right) return left - right;
+              }
+              return 0;
             }
 
             const releases = await github.paginate(github.rest.repos.listReleases, {
