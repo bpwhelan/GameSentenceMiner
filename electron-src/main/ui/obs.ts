@@ -1,7 +1,14 @@
 // electron-src/main/launchers/obs.ts
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import path from 'path';
-import { BASE_DIR, getAssetsDir, isLinux, isWindows, isWindows10OrHigher } from '../util.js';
+import {
+    BASE_DIR,
+    execFileAsync,
+    getAssetsDir,
+    isLinux,
+    isWindows,
+    isWindows10OrHigher,
+} from '../util.js';
 import { isQuitting } from '../main.js';
 import { exec } from 'child_process';
 import OBSWebSocket from 'obs-websocket-js';
@@ -13,7 +20,6 @@ import axios from 'axios';
 import {
     OBS_DSHOW_INPUT_KIND,
     OBS_WASAPI_INPUT_CAPTURE_KIND,
-    OBS_XCOMPOSITE_INPUT_KIND,
     buildCaptureCardOptions,
     buildLinuxSceneCaptureInputs,
     getObsWindowTitle,
@@ -312,7 +318,6 @@ const OLD_HELPER_SCENE = "GSM Helper";
 const HELPER_SCENE = 'GSM Helper - DONT TOUCH';
 const WINDOW_GETTER_INPUT = 'window_getter';
 const GAME_WINDOW_INPUT = 'game_window_getter';
-const XCOMPOSITE_WINDOW_GETTER_INPUT = 'xcomposite_window_getter';
 const CAPTURE_CARD_GETTER_INPUT = 'capture_card_getter';
 const AUDIO_INPUT_GETTER_INPUT = 'audio_input_getter';
 let sceneSwitcherRegistered = false;
@@ -336,6 +341,7 @@ const VIDEO_CAPTURE_INPUT_KINDS = new Set([
     'window_capture',
     'game_capture',
     'monitor_capture',
+    'xcomposite_input',
 ]);
 
 // Utility function to escape regex special characters in window titles
@@ -405,6 +411,101 @@ function shouldFilterWindow(item: any): boolean {
     }
 
     return false;
+}
+
+function parseLinuxXCompositeWindowValue(windowValue: string): {
+    windowId: string;
+    title: string;
+    windowClass: string;
+} {
+    const [windowId = '', title = '', windowClass = ''] = windowValue
+        .split(/\r?\n/)
+        .map((part) => part.trim());
+    return { windowId, title, windowClass };
+}
+
+function encodeLinuxXCompositeWindowValue(
+    windowId: string,
+    title: string,
+    windowClass: string
+): string {
+    return [windowId.trim(), title.trim(), windowClass.trim()].join('\r\n');
+}
+
+function decodeXPropStringValue(rawValue: string): string {
+    const trimmed = rawValue.trim();
+    if (trimmed.length === 0) {
+        return '';
+    }
+
+    const jsonCandidate = `[${trimmed}]`;
+    try {
+        const parsed = JSON.parse(jsonCandidate);
+        const firstValue = parsed.find(
+            (value: unknown) => typeof value === 'string' && value.trim().length > 0
+        );
+        return typeof firstValue === 'string' ? firstValue.trim() : '';
+    } catch {
+        return trimmed.replace(/^"+|"+$/g, '').trim();
+    }
+}
+
+async function listLinuxX11WindowIds(): Promise<
+    Array<{ xpropWindowId: string; obsWindowId: string }>
+> {
+    const { stdout } = await execFileAsync('xprop', ['-root', '_NET_CLIENT_LIST']);
+    const ids = stdout.match(/0x[0-9a-fA-F]+/g) ?? [];
+
+    return ids
+        .map((xpropWindowId) => {
+            try {
+                return {
+                    xpropWindowId,
+                    obsWindowId: BigInt(xpropWindowId).toString(10),
+                };
+            } catch {
+                return null;
+            }
+        })
+        .filter(
+            (
+                windowId
+            ): windowId is { xpropWindowId: string; obsWindowId: string } =>
+                windowId !== null
+        );
+}
+
+async function getLinuxX11WindowDetails(windowId: string): Promise<{
+    title: string;
+    windowClass: string;
+} | null> {
+    try {
+        const { stdout } = await execFileAsync('xprop', [
+            '-id',
+            windowId,
+            '_NET_WM_NAME',
+            'WM_NAME',
+            'WM_CLASS',
+        ]);
+        const lines = stdout.split(/\r?\n/);
+        const titleLine =
+            lines.find((line) => line.startsWith('_NET_WM_NAME')) ??
+            lines.find((line) => line.startsWith('WM_NAME'));
+        const classLine = lines.find((line) => line.startsWith('WM_CLASS'));
+
+        const title = titleLine ? decodeXPropStringValue(titleLine.split('=').slice(1).join('=')) : '';
+        const windowClass = classLine
+            ? decodeXPropStringValue(classLine.split('=').slice(1).join('='))
+            : '';
+
+        if (!title || !windowClass) {
+            return null;
+        }
+
+        return { title, windowClass };
+    } catch {
+        return null;
+    }
 }
 
 // Generate a random fallback window name
@@ -1312,28 +1413,50 @@ export async function registerOBSIPC() {
     }
 
     async function getLinuxXCompositeWindows(): Promise<ObsWindowOption[]> {
-        const propertyItems = await getInputPropertyItems(
-            XCOMPOSITE_WINDOW_GETTER_INPUT,
-            OBS_XCOMPOSITE_INPUT_KIND,
-            'capture_window',
-            {
-                show_cursor: false,
-                include_border: false,
-                exclude_alpha: false,
-            }
+        const windowIds = await listLinuxX11WindowIds();
+        const windows = await Promise.all(
+            windowIds.map(async ({ xpropWindowId, obsWindowId }) => {
+                const details = await getLinuxX11WindowDetails(xpropWindowId);
+                if (!details) {
+                    return null;
+                }
+
+                const itemValue = encodeLinuxXCompositeWindowValue(
+                    obsWindowId,
+                    details.title,
+                    details.windowClass
+                );
+                const item = {
+                    itemName: details.title,
+                    itemValue,
+                };
+
+                if (shouldFilterWindow(item)) {
+                    return null;
+                }
+
+                return {
+                    title: details.title,
+                    value: itemValue,
+                    targetKind: 'window' as const,
+                    captureValues: {
+                        xcomposite_input: itemValue,
+                    },
+                };
+            })
         );
 
-        return propertyItems
-            .filter((item) => !shouldFilterWindow(item))
-            .map((item) => ({
-                title: item.itemName?.trim() || generateFallbackWindowName(),
-                value: item.itemValue,
-                targetKind: 'window' as const,
-                captureValues: {
-                    xcomposite_input: item.itemValue,
-                },
-            }))
-            .sort((left, right) => left.title.localeCompare(right.title));
+        const windowsByValue = new Map<string, ObsWindowOption>();
+        for (const window of windows) {
+            if (!window) {
+                continue;
+            }
+            windowsByValue.set(window.value, window);
+        }
+
+        return [...windowsByValue.values()].sort((left, right) =>
+            left.title.localeCompare(right.title)
+        );
     }
 
     async function getCaptureCardList(): Promise<ObsWindowOption[]> {
@@ -1434,6 +1557,13 @@ export async function getExecutableNameFromSource(
 
                 return windowValue.split(':').at(-1)?.trim();
             }
+
+            if (inputProperties.inputSettings?.capture_window) {
+                const captureWindowValue = inputProperties.inputSettings
+                    .capture_window as string;
+
+                return parseLinuxXCompositeWindowValue(captureWindowValue).windowClass || null;
+            }
         }
 
         return null;
@@ -1494,6 +1624,12 @@ export async function getWindowTitleFromSource(
 
                 // Fallback to the stored (possibly stale) window title
                 return windowValue.split(':').at(0)?.trim();
+            }
+
+            if (inputProperties.inputSettings?.capture_window) {
+                const captureWindowValue = inputProperties.inputSettings
+                    .capture_window as string;
+                return parseLinuxXCompositeWindowValue(captureWindowValue).title || null;
             }
         }
 

@@ -47,6 +47,7 @@ vi.mock('../main.js', () => ({
 
 vi.mock('../util.js', () => ({
     BASE_DIR: 'C:\\test-gsm',
+    execFileAsync: vi.fn(),
     getAssetsDir: () => 'C:\\test-gsm\\assets',
     isLinux: () => false,
     isWindows: () => true,
@@ -159,5 +160,81 @@ describe('sceneHasVisibleOutput', () => {
         await expect(
             sceneHasVisibleOutput({ id: 'scene-123', name: 'Empty Scene' })
         ).resolves.toBe(false);
+    });
+});
+
+describe('linux xcomposite scene metadata', () => {
+    beforeEach(() => {
+        obsCallMock.mockReset();
+        obsConnectMock.mockReset();
+        obsDisconnectMock.mockReset();
+        obsOnMock.mockReset();
+        obsRemoveAllListenersMock.mockReset();
+        obsConnectMock.mockResolvedValue(undefined);
+        obsDisconnectMock.mockResolvedValue(undefined);
+    });
+
+    it('parses the window class from capture_window settings', async () => {
+        const { getExecutableNameFromSource } = await loadObsModule();
+
+        obsCallMock.mockImplementation(async (requestType: string) => {
+            if (requestType === 'GetVersion') {
+                return {};
+            }
+            if (requestType === 'GetSceneItemList') {
+                return {
+                    sceneItems: [
+                        {
+                            sourceUuid: 'source-1',
+                            sourceName: 'NineSols - XComposite Window Capture',
+                        },
+                    ],
+                };
+            }
+            if (requestType === 'GetInputSettings') {
+                return {
+                    inputSettings: {
+                        capture_window:
+                            '161480705\r\nNineSols\r\nsteam_app_1809540',
+                    },
+                };
+            }
+            return {};
+        });
+
+        await expect(getExecutableNameFromSource('scene-123')).resolves.toBe(
+            'steam_app_1809540'
+        );
+    });
+
+    it('parses the title from capture_window settings', async () => {
+        const { getWindowTitleFromSource } = await loadObsModule();
+
+        obsCallMock.mockImplementation(async (requestType: string) => {
+            if (requestType === 'GetVersion') {
+                return {};
+            }
+            if (requestType === 'GetSceneItemList') {
+                return {
+                    sceneItems: [
+                        {
+                            sourceUuid: 'source-1',
+                            sourceName: 'NineSols - XComposite Window Capture',
+                        },
+                    ],
+                };
+            }
+            if (requestType === 'GetInputSettings') {
+                return {
+                    inputSettings: {
+                        capture_window:
+                            '161480705\r\nNineSols\r\nsteam_app_1809540',
+                    },
+                };
+            }
+            return {};
+        });
+
+        await expect(getWindowTitleFromSource('scene-123')).resolves.toBe('NineSols');
     });
 });
