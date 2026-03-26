@@ -1699,7 +1699,7 @@ class WindowStateMonitor:
             self.last_obs_check_time = now
             try:
                 current_scene = get_current_scene()
-                if current_scene != self.last_scene_name:
+                if current_scene and current_scene != self.last_scene_name:
                     if self.last_scene_name:
                         logger.info(
                             f"Scene changed from '{self.last_scene_name}' to '{current_scene}' - Resetting OBS dimensions."
@@ -1713,7 +1713,8 @@ class WindowStateMonitor:
                     scene_changed = True
                     self.last_scene_name = current_scene
 
-                new_info = get_window_info_from_source(scene_name=current_scene)
+                lookup_scene = current_scene or self.last_scene_name
+                new_info = get_window_info_from_source(scene_name=lookup_scene) if lookup_scene else None
 
                 if new_info and self.last_target_info:
                     if (
@@ -1806,7 +1807,6 @@ class WindowStateMonitor:
         # Update Magpie info
         self.update_magpie_info()
         magpie_changed = self.magpie_info != self.last_magpie_info
-        magpie_active = bool(self.magpie_info)
 
         game_name_ref = self.last_target_info.get("title", self.last_game_name)
 

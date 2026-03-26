@@ -226,3 +226,59 @@ def test_websocket_server_buffers_until_first_client_connects():
     server.clients.clear()
     asyncio.run(server._queue_or_send_message(json.dumps({"sentence": "later"})))
     assert list(server._pending_messages) == []
+
+
+def test_apply_ipc_config_reload_refreshes_hotkeys_and_clipboard_toggle(monkeypatch):
+    events = []
+
+    class FakeHotkeyManager:
+        def refresh(self):
+            events.append("hotkeys-refreshed")
+
+    monkeypatch.setattr(gsm_ocr, "reload_electron_config", lambda: None)
+    monkeypatch.setattr(
+        gsm_ocr, "refresh_runtime_hotkey_settings_from_config", lambda: events.append("runtime-hotkeys")
+    )
+    monkeypatch.setattr(gsm_ocr, "_get_hotkey_manager", lambda: FakeHotkeyManager())
+    monkeypatch.setattr(gsm_ocr, "get_ocr_ocr_screenshots", lambda: True)
+    monkeypatch.setattr(gsm_ocr, "get_scene_furigana_filter_sensitivity", lambda **kwargs: 0)
+    monkeypatch.setattr(gsm_ocr, "reset_callback_vars", lambda: events.append("reset"))
+    monkeypatch.setattr(gsm_ocr, "has_config_changed", lambda _config: False)
+
+    gsm_ocr.ss_clipboard = False
+    gsm_ocr.apply_ipc_config_reload(
+        {
+            "reload_electron": True,
+            "reload_area": False,
+            "changes": {
+                "globalPauseHotkey": ("ctrl+shift+p", "ctrl+alt+p"),
+                "ocr_screenshots": (False, True),
+            },
+        }
+    )
+
+    assert gsm_ocr.ss_clipboard is True
+    assert "runtime-hotkeys" in events
+    assert "hotkeys-refreshed" in events
+
+
+def test_handle_command_reload_config_announces_reloaded_status(monkeypatch):
+    announced = []
+
+    monkeypatch.setattr(gsm_ocr, "apply_ipc_config_reload", lambda data=None: announced.append(("reload", data)))
+    monkeypatch.setattr(gsm_ocr, "_build_status_payload", lambda: {"paused": False, "scan_rate": 0.5})
+    monkeypatch.setattr(gsm_ocr.ocr_ipc, "announce_config_reloaded", lambda: announced.append(("config", None)))
+    monkeypatch.setattr(gsm_ocr.ocr_ipc, "announce_status", lambda payload: announced.append(("status", payload)))
+    monkeypatch.delattr(gsm_ocr.run, "paused", raising=False)
+
+    response = gsm_ocr._handle_command(
+        {"command": "reload_config", "data": {"reload_electron": True}},
+        announce_ipc=True,
+    )
+
+    assert response["success"] is True
+    assert announced == [
+        ("reload", {"reload_electron": True}),
+        ("config", None),
+        ("status", {"paused": False, "scan_rate": 0.5}),
+    ]

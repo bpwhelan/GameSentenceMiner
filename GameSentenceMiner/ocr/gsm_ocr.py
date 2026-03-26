@@ -65,6 +65,7 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_matching_block_small_chunk_min_size,
     get_ocr_ocr1,
     get_ocr_keep_newline,
+    get_ocr_ocr_screenshots,
     get_ocr_area_select_ocr_hotkey,
     get_ocr_global_pause_hotkey,
     get_ocr_subset_chunk_min_length,
@@ -934,6 +935,16 @@ def _get_current_engine_name() -> str:
     return readable_name if readable_name else "unknown"
 
 
+def _build_status_payload() -> dict[str, Any]:
+    return {
+        "paused": run.paused if hasattr(run, "paused") else False,
+        "current_engine": _get_current_engine_name(),
+        "scan_rate": get_ocr_scan_rate(),
+        "force_stable": get_controller().force_stable,
+        "manual": globals().get("manual", False),
+    }
+
+
 def _get_qt_main_module():
     import GameSentenceMiner.ui.qt_main as qt_main
 
@@ -1050,13 +1061,7 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
                     ocr_ipc.announce_unpaused()
 
         elif command == ocr_ipc.OCRCommand.GET_STATUS.value:
-            status_data = {
-                "paused": run.paused,
-                "current_engine": _get_current_engine_name(),
-                "scan_rate": get_ocr_scan_rate(),
-                "force_stable": get_controller().force_stable,
-                "manual": globals().get("manual", False),
-            }
+            status_data = _build_status_payload()
             response["success"] = True
             response["data"] = status_data
             if announce_ipc:
@@ -1107,6 +1112,7 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
             response["success"] = True
             if announce_ipc:
                 ocr_ipc.announce_config_reloaded()
+                ocr_ipc.announce_status(_build_status_payload())
 
         elif command == ocr_ipc.OCRCommand.STOP.value:
             logger.info("IPC: Stop command received")
@@ -2002,7 +2008,7 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
       - reload_area: bool (default True)
       - changes: dict (optional precomputed config diffs)
     """
-    global ocr_config
+    global ocr_config, ss_clipboard
 
     payload = data or {}
     reload_electron = payload.get("reload_electron", True)
@@ -2028,6 +2034,10 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
                 refresh_runtime_hotkey_settings_from_config()
                 _get_hotkey_manager().refresh()
                 logger.info("IPC: OCR hotkeys refreshed")
+
+            if "ocr_screenshots" in changes:
+                ss_clipboard = get_ocr_ocr_screenshots()
+                logger.info(f"IPC: clipboard screenshot OCR set to {ss_clipboard}")
 
             # Always sync furigana from per-scene settings file
             global furigana_filter_sensitivity

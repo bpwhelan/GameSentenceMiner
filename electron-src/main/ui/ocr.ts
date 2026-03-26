@@ -48,11 +48,25 @@ let ocrStdoutManager: OCRStdoutManager | null = null;
 export type OCRStartSource = 'user' | 'auto-launcher';
 type OCRRunMode = 'auto' | 'manual';
 type OCRProcessPriority = 'low' | 'below_normal' | 'normal' | 'above_normal' | 'high';
+type OCRConfigChanges = Record<string, [unknown, unknown]>;
 let activeOcrSource: OCRStartSource | null = null;
 let activeOcrRunMode: OCRRunMode | null = null;
 let gracefulStopTimer: NodeJS.Timeout | null = null;
 const OCR_GRACEFUL_STOP_TIMEOUT_MS = 2000;
 const OCR_PROCESS_PRIORITIES: OCRProcessPriority[] = ['low', 'below_normal', 'normal', 'above_normal', 'high'];
+
+function diffOcrConfigValues(previousConfig: Record<string, any>, nextConfig: Record<string, any>): OCRConfigChanges {
+    const changes: OCRConfigChanges = {};
+    const keys = new Set([...Object.keys(previousConfig || {}), ...Object.keys(nextConfig || {})]);
+
+    for (const key of keys) {
+        if (previousConfig?.[key] !== nextConfig?.[key]) {
+            changes[key] = [previousConfig?.[key], nextConfig?.[key]];
+        }
+    }
+
+    return changes;
+}
 
 function blockOcrStartDuringUpdate(action: string): boolean {
     if (!isPythonLaunchBlockedByUpdate()) {
@@ -198,6 +212,41 @@ function requestOcrConfigReload(reason: string, options?: { reloadArea?: boolean
 
     ocrStdoutManager.reloadConfig(payload);
     console.log(`[OCR] Sent reload config (${reason})`);
+}
+
+function getOcrConfigRestartReason(changes: OCRConfigChanges): string | null {
+    if ('globalPauseHotkey' in changes) {
+        return 'the global pause hotkey change';
+    }
+
+    if ('ocr_screenshots' in changes) {
+        return 'clipboard screenshot input changes';
+    }
+
+    if (activeOcrRunMode === 'manual' && 'manualOcrHotkey' in changes) {
+        return 'the manual capture hotkey change';
+    }
+
+    return null;
+}
+
+async function restartActiveOcrSessionForConfigChange(reason: string) {
+    if (!ocrProcess || !activeOcrRunMode) {
+        return;
+    }
+
+    const source = activeOcrSource ?? 'user';
+    sendToMainWindowFrames(
+        'ocr-log',
+        `[OCR] Restarting active ${activeOcrRunMode} session to apply ${reason}.`
+    );
+
+    if (activeOcrRunMode === 'manual') {
+        startManualOCR({ source });
+        return;
+    }
+
+    await startOCR({ promptForAreaSelection: false, source });
 }
 
 function shouldHideOcrConsole(options?: { source?: OCRStartSource; mode?: OCRRunMode }): boolean {
@@ -957,6 +1006,7 @@ export function registerOCRUtilsIPC() {
         // Update the main store with the new config values
         const currentConfig = getOCRConfig();
         const newConfig = { ...currentConfig, ...config };
+        const changes = diffOcrConfigValues(currentConfig ?? {}, newConfig ?? {});
         setOCRConfig(newConfig);
         // Persist furigana sensitivity to the per-scene settings file
         try {
@@ -967,7 +1017,23 @@ export function registerOCRUtilsIPC() {
             console.warn(`[OCR] Failed to write scene settings: ${err.message}`);
         }
         console.log(`OCR config saved: ${JSON.stringify(newConfig)}`);
-        requestOcrConfigReload('save-ocr-config', { reloadArea: false, reloadElectron: true });
+        if ('processPriority' in changes && ocrProcess) {
+            applyWindowsOcrProcessPriority(ocrProcess);
+        }
+
+        const restartReason = ocrProcess ? getOcrConfigRestartReason(changes) : null;
+        if (restartReason) {
+            await restartActiveOcrSessionForConfigChange(restartReason);
+            return;
+        }
+
+        if (Object.keys(changes).length > 0) {
+            requestOcrConfigReload('save-ocr-config', {
+                reloadArea: false,
+                reloadElectron: true,
+                changes,
+            });
+        }
     });
 
     ipcMain.handle('ocr.getActiveOCRConfig', async () => {

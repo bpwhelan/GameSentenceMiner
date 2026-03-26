@@ -1,9 +1,12 @@
+import base64
 import contextlib
+import io
 import threading
 
 from PIL import Image
 from types import SimpleNamespace
 
+import pytest
 
 import GameSentenceMiner.obs as obs
 import GameSentenceMiner.obs as obs_module
@@ -429,6 +432,176 @@ def test_get_active_video_sources_can_suppress_connection_errors(monkeypatch):
         monkeypatch.setattr(obs, "connection_pool", original_connection_pool)
 
     assert sources is None
+    assert logger_errors == []
+
+
+def test_with_obs_client_retries_retryable_connection_errors(monkeypatch):
+    attempts = []
+    logger_errors = []
+
+    class _RetryPool:
+        @contextlib.contextmanager
+        def get_client(self):
+            attempts.append("get_client")
+            if len(attempts) == 1:
+                raise ConnectionError("socket is already closed")
+            yield SimpleNamespace(answer="recovered")
+
+    monkeypatch.setattr(obs_module, "connection_pool", _RetryPool())
+    monkeypatch.setattr(obs_module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(obs_module.logger, "error", lambda message: logger_errors.append(message))
+
+    @obs_module.with_obs_client(default="fallback", error_msg="Retryable test call")
+    def _decorated(client):
+        return client.answer
+
+    assert _decorated() == "recovered"
+    assert attempts == ["get_client", "get_client"]
+    assert logger_errors == []
+
+
+def test_get_screenshot_pil_from_source_retries_transient_failures(monkeypatch):
+    attempts = []
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (2, 2), (255, 0, 0)).save(image_buffer, format="PNG")
+    encoded_image = "data:image/png;base64," + base64.b64encode(image_buffer.getvalue()).decode("ascii")
+
+    class _RetryingClient:
+        def get_source_screenshot(self, **_kwargs):
+            attempts.append("get_source_screenshot")
+            if len(attempts) == 1:
+                raise ConnectionError("socket is already closed")
+            return SimpleNamespace(image_data=encoded_image)
+
+    class _RetryPool:
+        @contextlib.contextmanager
+        def get_client(self):
+            yield _RetryingClient()
+
+    monkeypatch.setattr(obs_module, "connection_pool", _RetryPool())
+    monkeypatch.setattr(obs_module.time, "sleep", lambda _seconds: None)
+
+    image = obs_module.get_screenshot_PIL_from_source("Game Source", retry=2)
+
+    assert image is not None
+    assert image.size == (2, 2)
+    assert attempts == ["get_source_screenshot", "get_source_screenshot"]
+
+
+def test_obs_connection_pool_recreates_client_after_failed_use(monkeypatch):
+    created_clients = []
+
+    class _FakeClient:
+        def __init__(self, **_kwargs):
+            self.client_id = len(created_clients)
+            self.disconnected = False
+            created_clients.append(self)
+
+        def get_version(self):
+            return SimpleNamespace(obs_version="30.0.0")
+
+        def disconnect(self):
+            self.disconnected = True
+
+    monkeypatch.setattr(obs_module.obs, "ReqClient", _FakeClient)
+
+    pool = obs_module.OBSConnectionPool(host="localhost", port=4455, password="", timeout=1)
+
+    with pytest.raises(RuntimeError):
+        with pool.get_client() as client:
+            first_client_id = client.client_id
+            raise RuntimeError("boom")
+
+    with pool.get_client() as client:
+        second_client_id = client.client_id
+
+    assert first_client_id == 0
+    assert second_client_id == 1
+    assert created_clients[0].disconnected is True
+
+
+def test_toggle_replay_buffer_does_not_retry_non_idempotent_calls(monkeypatch):
+    attempts = []
+    logger_errors = []
+
+    class _BrokenPool:
+        @contextlib.contextmanager
+        def get_client(self):
+            attempts.append("get_client")
+            raise ConnectionError("socket is already closed")
+            yield
+
+    monkeypatch.setattr(obs_module, "connection_pool", _BrokenPool())
+    monkeypatch.setattr(obs_module, "obs_service", None)
+    monkeypatch.setattr(obs_module, "_is_obs_recording_disabled", lambda *args, **kwargs: False)
+    monkeypatch.setattr(obs_module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(obs_module.logger, "error", lambda message: logger_errors.append(message))
+
+    obs_module.toggle_replay_buffer()
+
+    assert attempts == ["get_client"]
+    assert logger_errors
+
+
+def test_obs_connection_manager_refreshes_existing_service_on_recovery(monkeypatch):
+    manager = obs_module.OBSConnectionManager(check_output=False)
+    refresh_calls = []
+
+    class _FakePool:
+        def ping(self):
+            return True
+
+    fake_service = SimpleNamespace(
+        connection_pool=_FakePool(),
+        event_client="old-event",
+    )
+
+    def fake_refresh_after_reconnect():
+        refresh_calls.append("refresh")
+        fake_service.event_client = "new-event"
+
+    fake_service.refresh_after_reconnect = fake_refresh_after_reconnect
+
+    monkeypatch.setattr(obs_module, "obs_service", fake_service)
+    monkeypatch.setattr(obs_module, "connection_pool", fake_service.connection_pool)
+    monkeypatch.setattr(obs_module, "event_client", "stale-event")
+    monkeypatch.setattr(obs_module.gsm_status, "obs_connected", False, raising=False)
+
+    assert manager._recover_obs_connection() is True
+    assert refresh_calls == ["refresh"]
+    assert obs_module.event_client == "new-event"
+    assert obs_module.gsm_status.obs_connected is True
+
+
+def test_get_current_scene_returns_cached_scene_when_obs_is_unavailable(monkeypatch):
+    monkeypatch.setattr(obs_module, "connection_pool", object())
+    monkeypatch.setattr(obs_module, "connecting", False)
+    monkeypatch.setattr(obs_module.gsm_status, "obs_connected", False, raising=False)
+    monkeypatch.setattr(obs_module.gsm_state, "current_game", "Cached Scene", raising=False)
+    monkeypatch.setattr(obs_module, "obs_service", None)
+
+    assert obs_module.get_current_scene() == "Cached Scene"
+
+
+def test_get_window_info_from_source_ignores_empty_scene_name_without_logging(monkeypatch):
+    class _PassiveConnectionPool:
+        @contextlib.contextmanager
+        def get_client(self):
+            yield object()
+
+    logger_errors = []
+    original_connection_pool = obs_module.connection_pool
+    monkeypatch.setattr(obs_module, "connection_pool", _PassiveConnectionPool())
+    monkeypatch.setattr(obs_module, "connecting", False)
+    monkeypatch.setattr(obs_module.gsm_status, "obs_connected", True, raising=False)
+    monkeypatch.setattr(obs_module.logger, "error", lambda message: logger_errors.append(message))
+
+    try:
+        result = obs_module.get_window_info_from_source(scene_name="")
+    finally:
+        monkeypatch.setattr(obs_module, "connection_pool", original_connection_pool)
+
+    assert result is None
     assert logger_errors == []
 
 

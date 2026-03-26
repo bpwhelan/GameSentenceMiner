@@ -2,17 +2,42 @@
 GameUpdateService - Shared logic for game database updates.
 
 This service provides common functionality for updating game records from various sources
-(Jiten, VNDB, AniList), ensuring consistent behavior across API routes and cron jobs.
+(Jiten, VNDB, AniList, IGDB), ensuring consistent behavior across API routes and cron jobs.
 
 Extracted from jiten_upgrader.py and jiten_database_api.py to eliminate code duplication.
 """
 
 import json
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+
+from GameSentenceMiner.util.config.configuration import logger
 
 
 class GameUpdateService:
     """Service for common game database update operations."""
+
+    _FIELD_TO_ATTR = {
+        "deck_id": "deck_id",
+        "title_original": "title_original",
+        "title_romaji": "title_romaji",
+        "title_english": "title_english",
+        "type": "type",
+        "description": "description",
+        "image": "image",
+        "character_count": "character_count",
+        "difficulty": "difficulty",
+        "links": "links",
+        "completed": "completed",
+        "release_date": "release_date",
+        "manual_overrides": "manual_overrides",
+        "obs_scene_name": "obs_scene_name",
+        "genres": "genres",
+        "tags": "tags",
+        "vndb_character_data": "vndb_character_data",
+        "character_summary": "character_summary",
+        "vndb_id": "vndb_id",
+        "anilist_id": "anilist_id",
+    }
 
     @staticmethod
     def build_update_fields(
@@ -23,13 +48,13 @@ class GameUpdateService:
         """
         Build update fields dictionary from game data, respecting manual overrides.
 
-        This method handles data from multiple sources (Jiten, VNDB, AniList) and
+        This method handles data from multiple sources (Jiten, VNDB, AniList, IGDB) and
         constructs an update dictionary that respects any manually overridden fields.
 
         Args:
-            game_data: Normalized game data from API client (Jiten, VNDB, or AniList)
+            game_data: Normalized game data from API client (Jiten, VNDB, AniList, or IGDB)
             manual_overrides: List of field names that should not be updated (default: empty list)
-            source: Data source - 'jiten', 'vndb', or 'anilist' (default: 'jiten')
+            source: Data source - 'jiten', 'vndb', 'anilist', or 'igdb' (default: 'jiten')
 
         Returns:
             Dictionary of fields to update (keys are field names, values are new values)
@@ -84,6 +109,14 @@ class GameUpdateService:
         if "links" not in manual_overrides and game_data.get("links"):
             update_fields["links"] = game_data["links"]
 
+        # Genres
+        if "genres" not in manual_overrides and game_data.get("genres"):
+            update_fields["genres"] = game_data["genres"]
+
+        # Tags
+        if "tags" not in manual_overrides and game_data.get("tags"):
+            update_fields["tags"] = game_data["tags"]
+
         # === JITEN-SPECIFIC FIELDS ===
         if source == "jiten":
             # Difficulty (Jiten only)
@@ -94,15 +127,117 @@ class GameUpdateService:
             if "character_count" not in manual_overrides and game_data.get("character_count") is not None:
                 update_fields["character_count"] = game_data["character_count"]
 
-            # Genres (Jiten only)
-            if "genres" not in manual_overrides and game_data.get("genres"):
-                update_fields["genres"] = game_data["genres"]
-
-            # Tags (Jiten only)
-            if "tags" not in manual_overrides and game_data.get("tags"):
-                update_fields["tags"] = game_data["tags"]
-
         return update_fields
+
+    @staticmethod
+    def normalize_links(links) -> List[Dict]:
+        """Normalize a stored links value into a list of link dictionaries."""
+        if isinstance(links, str):
+            try:
+                links = json.loads(links)
+            except (json.JSONDecodeError, TypeError):
+                return []
+        if not isinstance(links, list):
+            return []
+
+        normalized = []
+        for link in links:
+            if isinstance(link, dict) and link.get("url"):
+                normalized.append(link)
+            elif isinstance(link, str) and link:
+                normalized.append({"url": link, "linkType": 1})
+        return normalized
+
+    @classmethod
+    def _is_field_value_effectively_empty(cls, field_name: str, value: Any) -> bool:
+        """Return True when a stored field value is effectively empty/default."""
+        if field_name == "links":
+            return len(cls.normalize_links(value)) == 0
+
+        if field_name in {"genres", "tags", "manual_overrides"}:
+            return not isinstance(value, list) or len(value) == 0
+
+        if field_name == "completed":
+            return value in (None, False, 0, "")
+
+        if field_name in {"deck_id", "difficulty"}:
+            return value in (None, "")
+
+        if field_name == "character_count":
+            return value in (None, "", 0)
+
+        if value is None:
+            return True
+
+        if isinstance(value, str):
+            return value.strip() == ""
+
+        return not bool(value)
+
+    @classmethod
+    def is_game_linked(cls, game) -> bool:
+        """Return True if the game is linked to any supported external metadata source."""
+        from GameSentenceMiner.util.clients.igdb_api_client import IGDBApiClient
+
+        return bool(
+            getattr(game, "deck_id", None)
+            or getattr(game, "vndb_id", "")
+            or getattr(game, "anilist_id", "")
+            or IGDBApiClient.extract_igdb_url(getattr(game, "links", []))
+        )
+
+    @classmethod
+    def get_manual_overrides_for_initial_link(cls, game) -> List[str]:
+        """
+        Relax manual overrides for blank fields when linking a currently-unlinked game.
+
+        This lets the first real metadata import populate empty placeholders while still
+        preserving meaningful user-entered data.
+        """
+        manual_overrides = getattr(game, "manual_overrides", [])
+        if not isinstance(manual_overrides, list):
+            manual_overrides = []
+
+        if cls.is_game_linked(game):
+            return manual_overrides
+
+        effective_overrides = []
+        relaxed_overrides = []
+
+        for field_name in manual_overrides:
+            attr_name = cls._FIELD_TO_ATTR.get(field_name, field_name)
+            value = getattr(game, attr_name, None)
+            if cls._is_field_value_effectively_empty(field_name, value):
+                relaxed_overrides.append(field_name)
+            else:
+                effective_overrides.append(field_name)
+
+        if relaxed_overrides:
+            logger.info(
+                f"Relaxing empty manual overrides for initial link on game {getattr(game, 'id', 'unknown')}: "
+                f"{relaxed_overrides}"
+            )
+
+        return effective_overrides
+
+    @classmethod
+    def merge_links(cls, *link_groups) -> List[Dict]:
+        """Merge link lists while preserving order and deduplicating by URL."""
+        merged = []
+        seen_urls = set()
+
+        for links in link_groups:
+            for link in cls.normalize_links(links):
+                url = str(link.get("url", "")).strip()
+                if not url:
+                    continue
+                url_key = url.lower()
+                if url_key in seen_urls:
+                    continue
+                merged.append(link)
+                seen_urls.add(url_key)
+
+        return merged
 
     @staticmethod
     def add_jiten_link_to_game(game, deck_id: int) -> None:
@@ -266,10 +401,12 @@ class GameUpdateService:
         jiten_data: Optional[Dict] = None,
         vndb_data: Optional[Dict] = None,
         anilist_data: Optional[Dict] = None,
+        igdb_data: Optional[Dict] = None,
         manual_overrides: Optional[List[str]] = None,
     ) -> Dict:
         """
-        Merge update fields from multiple data sources with priority: Jiten > VNDB > AniList.
+        Merge update fields from multiple data sources with priority:
+        Jiten > VNDB > IGDB > AniList.
 
         This is useful for the repull endpoint where data may come from multiple sources.
 
@@ -277,6 +414,7 @@ class GameUpdateService:
             jiten_data: Normalized Jiten data (highest priority)
             vndb_data: Normalized VNDB data (medium priority)
             anilist_data: Normalized AniList data (lowest priority)
+            igdb_data: Normalized IGDB data
             manual_overrides: List of fields that should not be updated
 
         Returns:
@@ -303,41 +441,62 @@ class GameUpdateService:
             "title_original": [
                 (jiten_data, "title_original"),
                 (vndb_data, "title_original"),
+                (igdb_data, "title_original"),
                 (anilist_data, "title_original"),
             ],
             "title_romaji": [
                 (jiten_data, "title_romaji"),
                 (vndb_data, "title_romaji"),
+                (igdb_data, "title_romaji"),
                 (anilist_data, "title_romaji"),
             ],
             "title_english": [
                 (jiten_data, "title_english"),
+                (igdb_data, "title_english"),
                 (anilist_data, "title_english"),
             ],
             "description": [
                 (jiten_data, "description"),
                 (vndb_data, "description"),
+                (igdb_data, "description"),
                 (anilist_data, "description"),
             ],
             "release_date": [
                 (jiten_data, "release_date"),
                 (vndb_data, "release_date"),
+                (igdb_data, "release_date"),
                 (anilist_data, "release_date"),
             ],
         }
 
-        # Jiten-specific fields
+        # Source-specific and list fields
         if jiten_data:
             if "difficulty" not in manual_overrides and jiten_data.get("difficulty") is not None:
                 update_fields["difficulty"] = jiten_data["difficulty"]
             if "character_count" not in manual_overrides and jiten_data.get("character_count") is not None:
                 update_fields["character_count"] = jiten_data["character_count"]
-            if "genres" not in manual_overrides and jiten_data.get("genres"):
-                update_fields["genres"] = jiten_data["genres"]
-            if "tags" not in manual_overrides and jiten_data.get("tags"):
-                update_fields["tags"] = jiten_data["tags"]
-            if "links" not in manual_overrides and jiten_data.get("links"):
-                update_fields["links"] = jiten_data["links"]
+
+        if "genres" not in manual_overrides:
+            for source_data in [jiten_data, vndb_data, igdb_data, anilist_data]:
+                if source_data and source_data.get("genres"):
+                    update_fields["genres"] = source_data["genres"]
+                    break
+
+        if "tags" not in manual_overrides:
+            for source_data in [jiten_data, vndb_data, igdb_data, anilist_data]:
+                if source_data and source_data.get("tags"):
+                    update_fields["tags"] = source_data["tags"]
+                    break
+
+        if "links" not in manual_overrides:
+            merged_links = GameUpdateService.merge_links(
+                jiten_data.get("links") if jiten_data else None,
+                vndb_data.get("links") if vndb_data else None,
+                igdb_data.get("links") if igdb_data else None,
+                anilist_data.get("links") if anilist_data else None,
+            )
+            if merged_links:
+                update_fields["links"] = merged_links
 
         # Process common fields with priority
         for field_name, sources in field_sources.items():
@@ -363,6 +522,8 @@ class GameUpdateService:
                 update_fields["game_type"] = jiten_data["media_type_string"]
             elif vndb_data:
                 update_fields["game_type"] = "Visual Novel"
+            elif igdb_data and igdb_data.get("media_type_string"):
+                update_fields["game_type"] = igdb_data["media_type_string"]
             elif anilist_data and anilist_data.get("media_type"):
                 update_fields["game_type"] = anilist_data["media_type"]
 

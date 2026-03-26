@@ -713,6 +713,103 @@ function splitComparisonFields() {
 
 const COMPARISON_LAYOUT = splitComparisonFields();
 
+const OCR_TOOLTIPS = {
+  scene:
+    "Choose which OBS scene GSM should use when loading OCR areas. Each scene can have its own rectangles and furigana sensitivity.",
+  refreshScenes:
+    "Reload the OBS scene list and re-read the active scene's OCR area file. Use this after changing scenes or editing OCR areas outside this tab.",
+  selectAreas:
+    "Open the OCR area selector for the current scene. This is where you draw the rectangles GSM should scan.",
+  importAreas:
+    "Replace the current scene's OCR rectangles with JSON from your clipboard. Only the area layout is imported.",
+  exportAreas:
+    "Copy the current scene's OCR rectangles to your clipboard so you can back them up or paste them into another scene.",
+  docs:
+    "Open the OCR guide documentation for setup help, engine notes, and recommended workflows.",
+  advancedMode:
+    "Show engine selection and comparison tuning. Basic mode keeps the common settings visible and hides the expert knobs.",
+  basicScanRate:
+    "How quickly GSM should re-scan for new text in the normal simplified setup. Faster catches short lines sooner but uses more CPU.",
+  advancedScanRate:
+    "Exact OCR polling interval in seconds while auto OCR is running. Lower values scan more often and increase CPU use.",
+  language:
+    "Primary language script expected in the captured text. This affects OCR filtering, post-processing, and some engine behavior.",
+  baseScale:
+    "Scale the captured image before OCR. Higher values can improve accuracy on small text, but they cost more CPU and VRAM.",
+  furiganaFilter:
+    "Filter out small ruby or furigana text from OCR results. Raise this when furigana leaks into lines; lower it if main text disappears.",
+  furiganaPreview:
+    "Open the furigana preview helper so you can tune the sensitivity against a sample character before saving it.",
+  sendToClipboard:
+    "Copy finalized OCR text to the system clipboard each time GSM accepts a line.",
+  keepNewlineAuto:
+    "Keep line breaks for normal automatic OCR results instead of flattening them into one line.",
+  keepNewlineMenu:
+    "Keep line breaks for menu or secondary-rectangle OCR results.",
+  keepNewlineAreaSelect:
+    "Keep line breaks for manual area-select OCR captures.",
+  twoPassOCR:
+    "Use a fast first OCR engine for change detection and a second engine for the final text. Turn this off if you want one engine only.",
+  stabilityOcr:
+    "The first-pass engine used to detect stable text and decide when a line is ready for the final scan.",
+  mainOcr:
+    "The engine used for the final OCR text that gets sent to GSM after filtering and dedupe.",
+  optimizeSecondScan:
+    "Crop the second OCR pass down to the detected text region when possible. This is usually faster and can improve accuracy.",
+  ocrScreenshots:
+    "Also watch clipboard screenshots as an OCR input source. This is useful if you copy images directly instead of relying only on OBS capture.",
+  manualHotkey:
+    "Hotkey used for menu OCR in auto mode, or manual capture in manual mode. Press Escape in the field to clear it.",
+  areaSelectHotkey:
+    "Hotkey that opens the manual screen crop OCR flow. Press Escape in the field to disable it.",
+  wholeWindowHotkey:
+    "Hotkey for a one-shot OCR pass over the full game window or OBS source. Press Escape in the field to disable it.",
+  pauseHotkey:
+    "Global OCR pause or resume hotkey. This toggles background scanning without stopping the OCR process.",
+  processPriority:
+    "Windows process priority for the OCR worker. Higher priorities can reduce OCR lag, but they steal CPU time from the game and the rest of the app.",
+  defaultSceneFurigana:
+    "Fallback furigana sensitivity used when a scene does not have its own saved value yet.",
+  obsCapturePreprocess:
+    "Optional preprocessing applied to OBS captures before OCR. Use this only if a source benefits from grayscale or sharpening.",
+  ignoreRun1Logs:
+    'Hide the noisy "OCR Run 1" recognition logs from the console so the final OCR lines are easier to scan.',
+  installDependency:
+    "Install optional OCR dependencies into the GSM Python environment. Use this when enabling engines that need extra packages.",
+  uninstallDependency:
+    "Remove optional OCR dependencies from the GSM Python environment.",
+  replacements:
+    "Open the OCR replacement rules page for fixing recurring OCR mistakes after text is recognized.",
+  openConfigFile:
+    "Open the active Electron OCR config JSON file.",
+  openConfigFolder:
+    "Open the OCR config folder that stores per-scene area files.",
+  openGlobalConfig:
+    "Open the global OWOCR config used by the OCR engines themselves.",
+  openTempFolder:
+    "Open GSM's temp folder where recent OCR artifacts and helper files are written.",
+  clearConsole:
+    "Clear the OCR console output shown in this tab.",
+  startAuto:
+    "Start continuous OCR scanning for the selected scene's rectangles. GSM will keep polling and send lines automatically.",
+  startManual:
+    "Start manual OCR mode. GSM waits for your manual capture hotkeys instead of scanning continuously.",
+  stop:
+    "Stop the active OCR process completely.",
+  pause:
+    "Pause automatic OCR scanning without closing the OCR process.",
+  resume:
+    "Resume OCR scanning after it has been paused.",
+  advancedRecognition:
+    "Engine, scan, and capture settings that control how OCR runs while advanced mode is enabled.",
+  comparison:
+    "Dedupe and change-detection thresholds that decide when text is considered new, stable, or a subset of a previous line."
+} as const;
+
+function titleProps(title: string) {
+  return { title };
+}
+
 export function OCRTab({ active }: OcrTabProps) {
   const platform = platformFromEnv();
   const [config, setConfig] = useState<OcrUiConfig>(() =>
@@ -1409,37 +1506,42 @@ export function OCRTab({ active }: OcrTabProps) {
 
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
-      <div className="modern-tab ocr-tab-root">
-        <div className="ocr-tab-scroll">
-          <div className="ocr-tab-stack">
-            <section className="card legacy-card ocr-card">
+      <div className="modern-tab ocr-workspace">
+        <div className="legacy-grid ocr-main-grid">
+            <section
+              className={`card legacy-card ocr-card ocr-runtime-card ocr-runtime-card--${footerTone}`}
+            >
               <div className="ocr-card-header-row">
                 <div>
-                  <h2>Source and Areas</h2>
+                  <h2>OCR Runtime</h2>
                   <p className="muted ocr-card-muted">
-                    Pick the OBS scene, then create or import OCR areas for that scene.
+                    Scene setup and OCR area tools live here. Runtime transport stays pinned
+                    at the bottom while you work.
                   </p>
-                </div>
-                <div className="ocr-summary-pill-row">
-                  <span className="ocr-summary-pill">{sceneSummary}</span>
-                  <span className="ocr-summary-pill">{configuredAreaCount} areas</span>
-                  <span className="ocr-summary-pill">
-                    {config.advancedMode ? "Advanced" : "Basic"}
-                  </span>
-                  <span className="ocr-summary-pill">{scanSummary}</span>
                 </div>
               </div>
 
-              <div className="ocr-source-grid">
-                <div className="ocr-field ocr-field--wide">
-                  <label htmlFor="ocr-scene-select" className="ocr-field-label">
-                    OBS Scene
-                  </label>
-                  <div className="ocr-inline-control-row">
+              <div className="ocr-runtime-grid">
+                <div className="ocr-runtime-summary">
+                  <strong className="ocr-runtime-summary-title">{sceneSummary}</strong>
+                  <p className="muted ocr-runtime-summary-copy">
+                    {configuredAreaCount} {configuredAreaCount === 1 ? "OCR area" : "OCR areas"}{" "}
+                    configured. {scanSummary}.{" "}
+                    {config.advancedMode
+                      ? `Advanced flow: ${engineFlowLabel}.`
+                      : "Basic OCR mode is enabled."}
+                  </p>
+                </div>
+
+                <div className="form-group ocr-form-group">
+                  <div className="input-group wrap">
+                    <label htmlFor="ocr-scene-select" {...titleProps(OCR_TOOLTIPS.scene)}>
+                      OBS Scene:
+                    </label>
                     <select
                       id="ocr-scene-select"
                       value={selectedSceneId}
-                      title="Select the OBS scene GSM should watch for OCR."
+                      {...titleProps(OCR_TOOLTIPS.scene)}
                       onChange={(event) => {
                         void switchScene(event.target.value);
                       }}
@@ -1459,36 +1561,27 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary"
+                      {...titleProps(OCR_TOOLTIPS.refreshScenes)}
                       onClick={() => {
                         void refreshScenesAndConfig();
                       }}
                     >
-                      Refresh
+                      Reload Scenes
                     </button>
                   </div>
-                </div>
 
-                <div className="ocr-field">
-                  <span className="ocr-field-label">OCR Flow</span>
-                  <div className="ocr-readonly-value">{engineFlowLabel}</div>
-                </div>
-
-                <div className="ocr-field">
-                  <span className="ocr-field-label">Current Source</span>
-                  <div className="ocr-readonly-value">
-                    {activeSceneAreaConfig?.window || "OBS scene capture"}
-                  </div>
-                </div>
-
-                <div className="ocr-field ocr-field--actions">
-                  <span className="ocr-field-label">Area Tools</span>
-                  <div className="ocr-action-row">
-                    <button type="button" onClick={runScreenSelector}>
+                  <div className="link-row">
+                    <button
+                      type="button"
+                      {...titleProps(OCR_TOOLTIPS.selectAreas)}
+                      onClick={runScreenSelector}
+                    >
                       Select OCR Areas
                     </button>
                     <button
                       type="button"
                       className="secondary"
+                      {...titleProps(OCR_TOOLTIPS.importAreas)}
                       onClick={() => void importAreaConfig()}
                     >
                       Import Areas
@@ -1496,6 +1589,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary"
+                      {...titleProps(OCR_TOOLTIPS.exportAreas)}
                       onClick={() => void exportAreaConfig()}
                     >
                       Export Areas
@@ -1503,6 +1597,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary"
+                      {...titleProps(OCR_TOOLTIPS.docs)}
                       onClick={() => void openOcrDocs()}
                     >
                       OCR Guide
@@ -1523,16 +1618,21 @@ export function OCRTab({ active }: OcrTabProps) {
                 <div>
                   <h2>OCR Settings</h2>
                   <p className="muted ocr-card-muted">
-                    Core settings stay visible first. Advanced mode exposes engine and
-                    comparison tuning.
+                    Core OCR behavior first, with expert controls tucked behind advanced
+                    panels.
                   </p>
                 </div>
-                <label className="ocr-mode-toggle" htmlFor="ocr-advanced-toggle">
+                <label
+                  className="ocr-inline-toggle"
+                  htmlFor="ocr-advanced-toggle"
+                  {...titleProps(OCR_TOOLTIPS.advancedMode)}
+                >
                   <span>Advanced</span>
                   <input
                     id="ocr-advanced-toggle"
                     type="checkbox"
                     checked={config.advancedMode}
+                    {...titleProps(OCR_TOOLTIPS.advancedMode)}
                     onChange={(event) => {
                       setConfig((current) => ({
                         ...current,
@@ -1543,318 +1643,248 @@ export function OCRTab({ active }: OcrTabProps) {
                 </label>
               </div>
 
-              {!config.advancedMode ? (
-                <div className="ocr-settings-grid">
-                  <div className="ocr-settings-panel">
-                    <div className="ocr-panel-header">
-                      <h3>Quick Setup</h3>
-                      <span className="ocr-panel-tag">Most used</span>
-                    </div>
-
-                    <div className="ocr-field">
-                      <label
-                        htmlFor="ocr-basic-speed"
-                        className="ocr-field-label"
-                        title="How quickly text appears in-game."
-                      >
-                        Text Appearance Speed
-                      </label>
-                      <select
-                        id="ocr-basic-speed"
-                        value={String(config.basicScanRate)}
-                        onChange={(event) => {
-                          setConfig((current) => ({
-                            ...current,
-                            basicScanRate: numericValue(event.target.value, 0.5)
-                          }));
-                        }}
-                      >
-                        {BASIC_SCAN_RATE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="ocr-field">
-                      <label htmlFor="ocr-language" className="ocr-field-label">
-                        Language
-                      </label>
-                      <select
-                        id="ocr-language"
-                        value={config.language}
-                        onChange={(event) => {
-                          setConfig((current) => ({
-                            ...current,
-                            language: event.target.value
-                          }));
-                        }}
-                      >
-                        {LANGUAGE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="ocr-field">
-                      <label htmlFor="ocr-base-scale" className="ocr-field-label">
-                        Scan Image Quality
-                        <span className="ocr-inline-value">
-                          {Math.round(config.baseScale * 100)}%
-                        </span>
-                      </label>
-                      <input
-                        id="ocr-base-scale"
-                        type="range"
-                        min={0.5}
-                        max={1}
-                        step={0.05}
-                        value={config.baseScale}
-                        onChange={(event) => {
-                          setConfig((current) => ({
-                            ...current,
-                            baseScale: numericValue(event.target.value, 0.75)
-                          }));
-                        }}
-                      />
-                    </div>
-
-                    <div className="ocr-field">
-                      <label
-                        htmlFor="ocr-furigana-filter"
-                        className="ocr-field-label"
-                      >
-                        Furigana Filter
-                        <span className="ocr-inline-value">
-                          {config.furiganaFilterSensitivity}
-                        </span>
-                      </label>
-                      <div className="ocr-inline-control-row">
-                        <input
-                          id="ocr-furigana-filter"
-                          type="range"
-                          min={0}
-                          max={100}
-                          step={1}
-                          value={config.furiganaFilterSensitivity}
-                          onChange={(event) => {
-                            const next = integerValue(event.target.value, 0);
-                            setConfig((current) => ({
-                              ...current,
-                              furiganaFilterSensitivity: next
-                            }));
-                            sendIpc("update-furigana-character", "龍", next);
-                          }}
-                        />
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={async () => {
-                            const next = await invokeIpc<number>("run-furigana-window");
-                            setConfig((current) => ({
-                              ...current,
-                              furiganaFilterSensitivity: integerValue(next, 0)
-                            }));
-                          }}
-                        >
-                          Preview
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="ocr-toggle-list">
-                      <label className="ocr-toggle-field" htmlFor="ocr-send-clipboard">
-                        <span>Send Text to Clipboard</span>
-                        <input
-                          id="ocr-send-clipboard"
-                          type="checkbox"
-                          checked={config.sendToClipboard}
-                          onChange={(event) => {
-                            setConfig((current) => ({
-                              ...current,
-                              sendToClipboard: event.target.checked
-                            }));
-                          }}
-                        />
-                      </label>
-
-                      <div className="ocr-field">
-                        <span className="ocr-field-label">Preserve Line Breaks</span>
-                        <div className="ocr-chip-toggle-row">
-                          <label className="ocr-chip-toggle" htmlFor="keep-newline-auto">
-                            <input
-                              id="keep-newline-auto"
-                              type="checkbox"
-                              checked={config.keepNewlineAuto}
-                              onChange={(event) => {
-                                setConfig((current) => ({
-                                  ...current,
-                                  keepNewlineAuto: event.target.checked
-                                }));
-                              }}
-                            />
-                            <span>Auto</span>
-                          </label>
-                          <label className="ocr-chip-toggle" htmlFor="keep-newline-menu">
-                            <input
-                              id="keep-newline-menu"
-                              type="checkbox"
-                              checked={config.keepNewlineMenu}
-                              onChange={(event) => {
-                                setConfig((current) => ({
-                                  ...current,
-                                  keepNewlineMenu: event.target.checked
-                                }));
-                              }}
-                            />
-                            <span>Menu</span>
-                          </label>
-                          <label
-                            className="ocr-chip-toggle"
-                            htmlFor="keep-newline-area-select"
-                          >
-                            <input
-                              id="keep-newline-area-select"
-                              type="checkbox"
-                              checked={config.keepNewlineAreaSelect}
-                              onChange={(event) => {
-                                setConfig((current) => ({
-                                  ...current,
-                                  keepNewlineAreaSelect: event.target.checked
-                                }));
-                              }}
-                            />
-                            <span>Area Select</span>
-                          </label>
-                        </div>
-                      </div>
-                    </div>
+              <div className="form-group ocr-form-group">
+                {config.advancedMode ? (
+                  <div className="input-group">
+                    <label
+                      htmlFor="ocr-advanced-scan-rate"
+                      {...titleProps(OCR_TOOLTIPS.advancedScanRate)}
+                    >
+                      Scan Rate (s):
+                    </label>
+                    <input
+                      id="ocr-advanced-scan-rate"
+                      type="number"
+                      min={0.1}
+                      max={10}
+                      step={0.1}
+                      value={config.advancedScanRate}
+                      {...titleProps(OCR_TOOLTIPS.advancedScanRate)}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          advancedScanRate: numericValue(event.target.value, 0.5)
+                        }));
+                      }}
+                    />
                   </div>
+                ) : (
+                  <div className="input-group">
+                    <label
+                      htmlFor="ocr-basic-speed"
+                      {...titleProps(OCR_TOOLTIPS.basicScanRate)}
+                    >
+                      Text Speed:
+                    </label>
+                    <select
+                      id="ocr-basic-speed"
+                      value={String(config.basicScanRate)}
+                      {...titleProps(OCR_TOOLTIPS.basicScanRate)}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          basicScanRate: numericValue(event.target.value, 0.5)
+                        }));
+                      }}
+                    >
+                      {BASIC_SCAN_RATE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
-                  <div className="ocr-settings-panel">
-                    <div className="ocr-panel-header">
-                      <h3>Hotkeys</h3>
-                      <span className="ocr-panel-tag">Basic view</span>
-                    </div>
+                <div className="input-group">
+                  <label htmlFor="ocr-language" {...titleProps(OCR_TOOLTIPS.language)}>
+                    Language:
+                  </label>
+                  <select
+                    id="ocr-language"
+                    value={config.language}
+                    {...titleProps(OCR_TOOLTIPS.language)}
+                    onChange={(event) => {
+                      setConfig((current) => ({
+                        ...current,
+                        language: event.target.value
+                      }));
+                    }}
+                  >
+                    {LANGUAGE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                    <div className="ocr-field">
-                      <label htmlFor="manual-hotkey" className="ocr-field-label">
-                        Manual or Menu OCR
-                      </label>
-                      <input
-                        id="manual-hotkey"
-                        type="text"
-                        readOnly
-                        value={config.manualOcrHotkey}
-                        onKeyDown={(event) => {
-                          const next = captureHotkey(event);
-                          setConfig((current) => ({
-                            ...current,
-                            manualOcrHotkey: next
-                          }));
-                        }}
-                      />
-                    </div>
+                <div className="ocr-slider-field">
+                  <div className="ocr-slider-header">
+                    <label
+                      htmlFor="ocr-base-scale"
+                      {...titleProps(OCR_TOOLTIPS.baseScale)}
+                    >
+                      Scan Image Quality
+                    </label>
+                    <span>{Math.round(config.baseScale * 100)}%</span>
+                  </div>
+                  <input
+                    id="ocr-base-scale"
+                    type="range"
+                    min={0.5}
+                    max={1}
+                    step={0.05}
+                    value={config.baseScale}
+                    {...titleProps(OCR_TOOLTIPS.baseScale)}
+                    onChange={(event) => {
+                      setConfig((current) => ({
+                        ...current,
+                        baseScale: numericValue(event.target.value, 0.75)
+                      }));
+                    }}
+                  />
+                </div>
 
-                    <div className="ocr-field">
-                      <label htmlFor="area-hotkey" className="ocr-field-label">
-                        Area Select OCR
-                      </label>
-                      <input
-                        id="area-hotkey"
-                        type="text"
-                        readOnly
-                        value={config.areaSelectOcrHotkey}
-                        onKeyDown={(event) => {
-                          const next = captureHotkey(event);
-                          setConfig((current) => ({
-                            ...current,
-                            areaSelectOcrHotkey: next
-                          }));
-                        }}
-                      />
-                    </div>
-
-                    <div className="ocr-field">
-                      <label htmlFor="whole-window-hotkey" className="ocr-field-label">
-                        Whole Window OCR
-                      </label>
-                      <input
-                        id="whole-window-hotkey"
-                        type="text"
-                        readOnly
-                        value={config.wholeWindowOcrHotkey}
-                        onKeyDown={(event) => {
-                          const next = captureHotkey(event);
-                          setConfig((current) => ({
-                            ...current,
-                            wholeWindowOcrHotkey: next
-                          }));
-                        }}
-                      />
-                    </div>
-
-                    <div className="ocr-field">
-                      <label htmlFor="pause-hotkey" className="ocr-field-label">
-                        Global Pause
-                      </label>
-                      <input
-                        id="pause-hotkey"
-                        type="text"
-                        readOnly
-                        value={config.globalPauseHotkey}
-                        onKeyDown={(event) => {
-                          const next = captureHotkey(event);
-                          setConfig((current) => ({
-                            ...current,
-                            globalPauseHotkey: next
-                          }));
-                        }}
-                      />
-                    </div>
+                <div className="ocr-slider-field">
+                  <div className="ocr-slider-header">
+                    <label
+                      htmlFor="ocr-furigana-filter"
+                      {...titleProps(OCR_TOOLTIPS.furiganaFilter)}
+                    >
+                      Furigana Filter
+                    </label>
+                    <span>{config.furiganaFilterSensitivity}</span>
+                  </div>
+                  <div className="ocr-slider-row">
+                    <input
+                      id="ocr-furigana-filter"
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={1}
+                      value={config.furiganaFilterSensitivity}
+                      {...titleProps(OCR_TOOLTIPS.furiganaFilter)}
+                      onChange={(event) => {
+                        const next = integerValue(event.target.value, 0);
+                        setConfig((current) => ({
+                          ...current,
+                          furiganaFilterSensitivity: next
+                        }));
+                        sendIpc("update-furigana-character", "龍", next);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="secondary"
+                      {...titleProps(OCR_TOOLTIPS.furiganaPreview)}
+                      onClick={async () => {
+                        const next = await invokeIpc<number>("run-furigana-window");
+                        setConfig((current) => ({
+                          ...current,
+                          furiganaFilterSensitivity: integerValue(next, 0)
+                        }));
+                      }}
+                    >
+                      Preview
+                    </button>
                   </div>
                 </div>
-              ) : (
+
+                <div className="input-group">
+                  <label
+                    htmlFor="ocr-send-clipboard"
+                    {...titleProps(OCR_TOOLTIPS.sendToClipboard)}
+                  >
+                    Send Text to Clipboard:
+                  </label>
+                  <input
+                    id="ocr-send-clipboard"
+                    type="checkbox"
+                    checked={config.sendToClipboard}
+                    {...titleProps(OCR_TOOLTIPS.sendToClipboard)}
+                    onChange={(event) => {
+                      setConfig((current) => ({
+                        ...current,
+                        sendToClipboard: event.target.checked
+                      }));
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="ocr-subsection">
+                <div className="ocr-subsection-header">Preserve Line Breaks</div>
+                <p className="muted ocr-subsection-copy">
+                  Control whether each OCR source keeps embedded line breaks instead of
+                  flattening text into one line.
+                </p>
+                <div className="checkbox-grid ocr-checkbox-grid">
+                  <label className="checkbox-item" htmlFor="keep-newline-auto">
+                    <input
+                      id="keep-newline-auto"
+                      type="checkbox"
+                      checked={config.keepNewlineAuto}
+                      {...titleProps(OCR_TOOLTIPS.keepNewlineAuto)}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          keepNewlineAuto: event.target.checked
+                        }));
+                      }}
+                    />
+                    <span {...titleProps(OCR_TOOLTIPS.keepNewlineAuto)}>Auto OCR</span>
+                  </label>
+                  <label className="checkbox-item" htmlFor="keep-newline-menu">
+                    <input
+                      id="keep-newline-menu"
+                      type="checkbox"
+                      checked={config.keepNewlineMenu}
+                      {...titleProps(OCR_TOOLTIPS.keepNewlineMenu)}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          keepNewlineMenu: event.target.checked
+                        }));
+                      }}
+                    />
+                    <span {...titleProps(OCR_TOOLTIPS.keepNewlineMenu)}>Menu OCR</span>
+                  </label>
+                  <label className="checkbox-item" htmlFor="keep-newline-area-select">
+                    <input
+                      id="keep-newline-area-select"
+                      type="checkbox"
+                      checked={config.keepNewlineAreaSelect}
+                      {...titleProps(OCR_TOOLTIPS.keepNewlineAreaSelect)}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          keepNewlineAreaSelect: event.target.checked
+                        }));
+                      }}
+                    />
+                    <span {...titleProps(OCR_TOOLTIPS.keepNewlineAreaSelect)}>
+                      Area Select
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              {config.advancedMode ? (
                 <>
-                  <div className="ocr-settings-grid">
-                    <div className="ocr-settings-panel">
-                      <div className="ocr-panel-header">
-                        <h3>Recognition</h3>
-                        <span className="ocr-panel-tag">Pipeline</span>
-                      </div>
-
-                      <div className="ocr-field">
-                        <label htmlFor="ocr-language-advanced" className="ocr-field-label">
-                          Language
-                        </label>
-                        <select
-                          id="ocr-language-advanced"
-                          value={config.language}
-                          onChange={(event) => {
-                            setConfig((current) => ({
-                              ...current,
-                              language: event.target.value
-                            }));
-                          }}
-                        >
-                          {LANGUAGE_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="ocr-field">
-                        <label htmlFor="ocr-main-engine" className="ocr-field-label">
-                          Main OCR
+                  <details className="ocr-details-card">
+                    <summary {...titleProps(OCR_TOOLTIPS.advancedRecognition)}>
+                      Recognition Pipeline
+                    </summary>
+                    <div className="form-group ocr-form-group ocr-details-body">
+                      <div className="input-group">
+                        <label htmlFor="ocr-main-engine" {...titleProps(OCR_TOOLTIPS.mainOcr)}>
+                          Main OCR:
                         </label>
                         <select
                           id="ocr-main-engine"
                           value={config.mainOcr}
+                          {...titleProps(OCR_TOOLTIPS.mainOcr)}
                           onChange={(event) => {
                             setConfig((current) => ({
                               ...current,
@@ -1870,12 +1900,41 @@ export function OCRTab({ active }: OcrTabProps) {
                         </select>
                       </div>
 
-                      <label className="ocr-toggle-field" htmlFor="two-pass-ocr">
-                        <span>Enable Two Pass OCR</span>
+                      <div className="input-group">
+                        <label
+                          htmlFor="ocr-stability-engine"
+                          {...titleProps(OCR_TOOLTIPS.stabilityOcr)}
+                        >
+                          Stability OCR:
+                        </label>
+                        <select
+                          id="ocr-stability-engine"
+                          value={config.stabilityOcr}
+                          {...titleProps(OCR_TOOLTIPS.stabilityOcr)}
+                          onChange={(event) => {
+                            setConfig((current) => ({
+                              ...current,
+                              stabilityOcr: event.target.value
+                            }));
+                          }}
+                        >
+                          {STABILITY_OCR_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="input-group">
+                        <label htmlFor="ocr-two-pass" {...titleProps(OCR_TOOLTIPS.twoPassOCR)}>
+                          Two-pass OCR:
+                        </label>
                         <input
-                          id="two-pass-ocr"
+                          id="ocr-two-pass"
                           type="checkbox"
                           checked={config.twoPassOCR}
+                          {...titleProps(OCR_TOOLTIPS.twoPassOCR)}
                           onChange={(event) => {
                             setConfig((current) => ({
                               ...current,
@@ -1883,245 +1942,41 @@ export function OCRTab({ active }: OcrTabProps) {
                             }));
                           }}
                         />
-                      </label>
+                      </div>
 
-                      {config.twoPassOCR ? (
-                        <>
-                          <div className="ocr-field">
-                            <label
-                              htmlFor="ocr-stability-engine"
-                              className="ocr-field-label"
-                            >
-                              Text Stability OCR
-                            </label>
-                            <select
-                              id="ocr-stability-engine"
-                              value={config.stabilityOcr}
-                              onChange={(event) => {
-                                setConfig((current) => ({
-                                  ...current,
-                                  stabilityOcr: event.target.value
-                                }));
-                              }}
-                            >
-                              {STABILITY_OCR_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <label
-                            className="ocr-toggle-field"
-                            htmlFor="optimize-second-scan"
-                          >
-                            <span>Optimize 2nd Scan</span>
-                            <input
-                              id="optimize-second-scan"
-                              type="checkbox"
-                              checked={config.optimizeSecondScan}
-                              onChange={(event) => {
-                                setConfig((current) => ({
-                                  ...current,
-                                  optimizeSecondScan: event.target.checked
-                                }));
-                              }}
-                            />
-                          </label>
-                        </>
-                      ) : null}
-
-                      <div className="ocr-field">
-                        <label htmlFor="ocr-scan-rate" className="ocr-field-label">
-                          Scan Rate (seconds)
+                      <div className="input-group">
+                        <label
+                          htmlFor="ocr-optimize-second-scan"
+                          {...titleProps(OCR_TOOLTIPS.optimizeSecondScan)}
+                        >
+                          Optimize Second Scan:
                         </label>
                         <input
-                          id="ocr-scan-rate"
-                          type="number"
-                          min={0}
-                          max={2}
-                          step={0.1}
-                          value={config.advancedScanRate}
+                          id="ocr-optimize-second-scan"
+                          type="checkbox"
+                          checked={config.optimizeSecondScan}
+                          {...titleProps(OCR_TOOLTIPS.optimizeSecondScan)}
                           onChange={(event) => {
                             setConfig((current) => ({
                               ...current,
-                              advancedScanRate: numericValue(event.target.value, 0.5)
+                              optimizeSecondScan: event.target.checked
                             }));
                           }}
                         />
                       </div>
 
-                      <div className="ocr-field">
-                        <label htmlFor="ocr-base-scale-advanced" className="ocr-field-label">
-                          Scan Image Quality
-                          <span className="ocr-inline-value">
-                            {Math.round(config.baseScale * 100)}%
-                          </span>
-                        </label>
-                        <input
-                          id="ocr-base-scale-advanced"
-                          type="range"
-                          min={0.5}
-                          max={1}
-                          step={0.05}
-                          value={config.baseScale}
-                          onChange={(event) => {
-                            setConfig((current) => ({
-                              ...current,
-                              baseScale: numericValue(event.target.value, 0.75)
-                            }));
-                          }}
-                        />
-                      </div>
-
-                      <div className="ocr-field">
+                      <div className="input-group">
                         <label
-                          htmlFor="ocr-furigana-filter-advanced"
-                          className="ocr-field-label"
+                          htmlFor="ocr-clipboard-screenshots"
+                          {...titleProps(OCR_TOOLTIPS.ocrScreenshots)}
                         >
-                          Furigana Filter
-                          <span className="ocr-inline-value">
-                            {config.furiganaFilterSensitivity}
-                          </span>
+                          OCR Clipboard Screenshots:
                         </label>
-                        <div className="ocr-inline-control-row">
-                          <input
-                            id="ocr-furigana-filter-advanced"
-                            type="range"
-                            min={0}
-                            max={100}
-                            step={1}
-                            value={config.furiganaFilterSensitivity}
-                            onChange={(event) => {
-                              const next = integerValue(event.target.value, 0);
-                              setConfig((current) => ({
-                                ...current,
-                                furiganaFilterSensitivity: next
-                              }));
-                              sendIpc("update-furigana-character", "龍", next);
-                            }}
-                          />
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={async () => {
-                              const next = await invokeIpc<number>("run-furigana-window");
-                              setConfig((current) => ({
-                                ...current,
-                                furiganaFilterSensitivity: integerValue(next, 0)
-                              }));
-                            }}
-                          >
-                            Preview
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="ocr-settings-panel">
-                      <div className="ocr-panel-header">
-                        <h3>Output and Controls</h3>
-                        <span className="ocr-panel-tag">Runtime</span>
-                      </div>
-
-                      <div className="ocr-field">
-                        <label
-                          htmlFor="manual-hotkey-advanced"
-                          className="ocr-field-label"
-                        >
-                          Manual or Menu OCR
-                        </label>
-                        <input
-                          id="manual-hotkey-advanced"
-                          type="text"
-                          readOnly
-                          value={config.manualOcrHotkey}
-                          onKeyDown={(event) => {
-                            const next = captureHotkey(event);
-                            setConfig((current) => ({
-                              ...current,
-                              manualOcrHotkey: next
-                            }));
-                          }}
-                        />
-                      </div>
-
-                      <div className="ocr-field">
-                        <label
-                          htmlFor="area-hotkey-advanced"
-                          className="ocr-field-label"
-                        >
-                          Area Select OCR
-                        </label>
-                        <input
-                          id="area-hotkey-advanced"
-                          type="text"
-                          readOnly
-                          value={config.areaSelectOcrHotkey}
-                          onKeyDown={(event) => {
-                            const next = captureHotkey(event);
-                            setConfig((current) => ({
-                              ...current,
-                              areaSelectOcrHotkey: next
-                            }));
-                          }}
-                        />
-                      </div>
-
-                      <div className="ocr-field">
-                        <label
-                          htmlFor="whole-window-hotkey-advanced"
-                          className="ocr-field-label"
-                        >
-                          Whole Window OCR
-                        </label>
-                        <input
-                          id="whole-window-hotkey-advanced"
-                          type="text"
-                          readOnly
-                          value={config.wholeWindowOcrHotkey}
-                          onKeyDown={(event) => {
-                            const next = captureHotkey(event);
-                            setConfig((current) => ({
-                              ...current,
-                              wholeWindowOcrHotkey: next
-                            }));
-                          }}
-                        />
-                      </div>
-
-                      <div className="ocr-field">
-                        <label
-                          htmlFor="pause-hotkey-advanced"
-                          className="ocr-field-label"
-                        >
-                          Global Pause
-                        </label>
-                        <input
-                          id="pause-hotkey-advanced"
-                          type="text"
-                          readOnly
-                          value={config.globalPauseHotkey}
-                          onKeyDown={(event) => {
-                            const next = captureHotkey(event);
-                            setConfig((current) => ({
-                              ...current,
-                              globalPauseHotkey: next
-                            }));
-                          }}
-                        />
-                      </div>
-
-                      <label
-                        className="ocr-toggle-field"
-                        htmlFor="ocr-clipboard-screenshots"
-                      >
-                        <span>OCR Clipboard Screenshots</span>
                         <input
                           id="ocr-clipboard-screenshots"
                           type="checkbox"
                           checked={config.ocrScreenshots}
+                          {...titleProps(OCR_TOOLTIPS.ocrScreenshots)}
                           onChange={(event) => {
                             setConfig((current) => ({
                               ...current,
@@ -2129,92 +1984,20 @@ export function OCRTab({ active }: OcrTabProps) {
                             }));
                           }}
                         />
-                      </label>
-
-                      <label
-                        className="ocr-toggle-field"
-                        htmlFor="ocr-send-clipboard-advanced"
-                      >
-                        <span>Send Text to Clipboard</span>
-                        <input
-                          id="ocr-send-clipboard-advanced"
-                          type="checkbox"
-                          checked={config.sendToClipboard}
-                          onChange={(event) => {
-                            setConfig((current) => ({
-                              ...current,
-                              sendToClipboard: event.target.checked
-                            }));
-                          }}
-                        />
-                      </label>
-
-                      <div className="ocr-field">
-                        <span className="ocr-field-label">Preserve Line Breaks</span>
-                        <div className="ocr-chip-toggle-row">
-                          <label className="ocr-chip-toggle" htmlFor="keep-newline-auto-adv">
-                            <input
-                              id="keep-newline-auto-adv"
-                              type="checkbox"
-                              checked={config.keepNewlineAuto}
-                              onChange={(event) => {
-                                setConfig((current) => ({
-                                  ...current,
-                                  keepNewlineAuto: event.target.checked
-                                }));
-                              }}
-                            />
-                            <span>Auto</span>
-                          </label>
-                          <label className="ocr-chip-toggle" htmlFor="keep-newline-menu-adv">
-                            <input
-                              id="keep-newline-menu-adv"
-                              type="checkbox"
-                              checked={config.keepNewlineMenu}
-                              onChange={(event) => {
-                                setConfig((current) => ({
-                                  ...current,
-                                  keepNewlineMenu: event.target.checked
-                                }));
-                              }}
-                            />
-                            <span>Menu</span>
-                          </label>
-                          <label
-                            className="ocr-chip-toggle"
-                            htmlFor="keep-newline-area-select-adv"
-                          >
-                            <input
-                              id="keep-newline-area-select-adv"
-                              type="checkbox"
-                              checked={config.keepNewlineAreaSelect}
-                              onChange={(event) => {
-                                setConfig((current) => ({
-                                  ...current,
-                                  keepNewlineAreaSelect: event.target.checked
-                                }));
-                              }}
-                            />
-                            <span>Area Select</span>
-                          </label>
-                        </div>
                       </div>
                     </div>
-                  </div>
+                  </details>
 
-                  <div className="ocr-settings-panel ocr-settings-panel--comparison">
-                    <div className="ocr-panel-header">
-                      <h3>Text Comparison Tuning</h3>
-                      <span className="ocr-panel-tag">Advanced</span>
-                    </div>
-
-                    <div className="ocr-comparison-primary-grid">
+                  <details className="ocr-details-card">
+                    <summary {...titleProps(OCR_TOOLTIPS.comparison)}>
+                      Text Comparison Tuning
+                    </summary>
+                    <div className="ocr-comparison-primary-grid ocr-details-body">
                       {COMPARISON_LAYOUT.primary.map((field) => (
-                        <div key={field.key} className="ocr-field">
+                        <div key={field.key} className="ocr-comparison-field">
                           <label
                             htmlFor={`comparison-${field.key}`}
-                            className="ocr-field-label"
-                            title={field.title}
+                            {...titleProps(field.title)}
                           >
                             {field.label}
                           </label>
@@ -2225,6 +2008,7 @@ export function OCRTab({ active }: OcrTabProps) {
                             max={field.max}
                             step={field.step}
                             value={config.comparison[field.key]}
+                            {...titleProps(field.title)}
                             onChange={(event) => {
                               setComparisonValue(
                                 field.key,
@@ -2239,16 +2023,15 @@ export function OCRTab({ active }: OcrTabProps) {
                       ))}
                     </div>
 
-                    <details className="ocr-details-panel">
+                    <details className="ocr-details-card ocr-details-card--nested">
                       <summary>Expert Heuristics</summary>
-                      <div className="ocr-comparison-expert-grid">
+                      <div className="ocr-comparison-expert-grid ocr-details-body">
                         <div className="ocr-comparison-column">
                           {COMPARISON_LAYOUT.expertLeft.map((field) => (
-                            <div key={field.key} className="ocr-field">
+                            <div key={field.key} className="ocr-comparison-field">
                               <label
                                 htmlFor={`comparison-${field.key}`}
-                                className="ocr-field-label"
-                                title={field.title}
+                                {...titleProps(field.title)}
                               >
                                 {field.label}
                               </label>
@@ -2259,6 +2042,7 @@ export function OCRTab({ active }: OcrTabProps) {
                                 max={field.max}
                                 step={field.step}
                                 value={config.comparison[field.key]}
+                                {...titleProps(field.title)}
                                 onChange={(event) => {
                                   setComparisonValue(
                                     field.key,
@@ -2275,11 +2059,10 @@ export function OCRTab({ active }: OcrTabProps) {
 
                         <div className="ocr-comparison-column">
                           {COMPARISON_LAYOUT.expertRight.map((field) => (
-                            <div key={field.key} className="ocr-field">
+                            <div key={field.key} className="ocr-comparison-field">
                               <label
                                 htmlFor={`comparison-${field.key}`}
-                                className="ocr-field-label"
-                                title={field.title}
+                                {...titleProps(field.title)}
                               >
                                 {field.label}
                               </label>
@@ -2290,6 +2073,7 @@ export function OCRTab({ active }: OcrTabProps) {
                                 max={field.max}
                                 step={field.step}
                                 value={config.comparison[field.key]}
+                                {...titleProps(field.title)}
                                 onChange={(event) => {
                                   setComparisonValue(
                                     field.key,
@@ -2305,39 +2089,111 @@ export function OCRTab({ active }: OcrTabProps) {
                         </div>
                       </div>
                     </details>
-                  </div>
+                  </details>
                 </>
-              )}
+              ) : null}
             </section>
-
             <section className="card legacy-card ocr-card">
               <div className="ocr-card-header-row">
                 <div>
-                  <h2>OCR Console</h2>
+                  <h2>Hotkeys and Tools</h2>
                   <p className="muted ocr-card-muted">
-                    Runtime logs, selector output, and dependency install output.
+                    Capture hotkeys stay editable while OCR is running. Press Escape in a
+                    hotkey field to clear it.
                   </p>
                 </div>
-                <div className="ocr-console-actions">
-                  <span className="ocr-console-status">
-                    {runningState.isRunning
-                      ? paused
-                        ? "Paused"
-                        : "Active"
-                      : "Idle"}
-                  </span>
-                  <button type="button" className="secondary" onClick={clearTerminal}>
-                    Clear
-                  </button>
+              </div>
+
+              <div className="form-group ocr-form-group">
+                <div className="input-group">
+                  <label htmlFor="manual-hotkey" {...titleProps(OCR_TOOLTIPS.manualHotkey)}>
+                    Manual or Menu OCR:
+                  </label>
+                  <input
+                    id="manual-hotkey"
+                    type="text"
+                    readOnly
+                    value={config.manualOcrHotkey}
+                    {...titleProps(OCR_TOOLTIPS.manualHotkey)}
+                    onKeyDown={(event) => {
+                      const next = captureHotkey(event);
+                      setConfig((current) => ({
+                        ...current,
+                        manualOcrHotkey: next
+                      }));
+                    }}
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label htmlFor="area-hotkey" {...titleProps(OCR_TOOLTIPS.areaSelectHotkey)}>
+                    Area Select OCR:
+                  </label>
+                  <input
+                    id="area-hotkey"
+                    type="text"
+                    readOnly
+                    value={config.areaSelectOcrHotkey}
+                    {...titleProps(OCR_TOOLTIPS.areaSelectHotkey)}
+                    onKeyDown={(event) => {
+                      const next = captureHotkey(event);
+                      setConfig((current) => ({
+                        ...current,
+                        areaSelectOcrHotkey: next
+                      }));
+                    }}
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label
+                    htmlFor="whole-window-hotkey"
+                    {...titleProps(OCR_TOOLTIPS.wholeWindowHotkey)}
+                  >
+                    Whole Window OCR:
+                  </label>
+                  <input
+                    id="whole-window-hotkey"
+                    type="text"
+                    readOnly
+                    value={config.wholeWindowOcrHotkey}
+                    {...titleProps(OCR_TOOLTIPS.wholeWindowHotkey)}
+                    onKeyDown={(event) => {
+                      const next = captureHotkey(event);
+                      setConfig((current) => ({
+                        ...current,
+                        wholeWindowOcrHotkey: next
+                      }));
+                    }}
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label htmlFor="pause-hotkey" {...titleProps(OCR_TOOLTIPS.pauseHotkey)}>
+                    Global Pause:
+                  </label>
+                  <input
+                    id="pause-hotkey"
+                    type="text"
+                    readOnly
+                    value={config.globalPauseHotkey}
+                    {...titleProps(OCR_TOOLTIPS.pauseHotkey)}
+                    onKeyDown={(event) => {
+                      const next = captureHotkey(event);
+                      setConfig((current) => ({
+                        ...current,
+                        globalPauseHotkey: next
+                      }));
+                    }}
+                  />
                 </div>
               </div>
-              <div ref={terminalElementRef} className="ocr-terminal-surface" />
-            </section>
 
-            <section className="card legacy-card ocr-card">
-              <div className="ocr-card-header-row">
+              <div className="ocr-card-divider" />
+
+              <div className="ocr-card-header-row ocr-card-header-row--compact">
                 <div>
-                  <h2>Extra and Debug</h2>
+                  <h3>Extra and Debug</h3>
                   <p className="muted ocr-card-muted">
                     Lower-frequency tuning, dependency helpers, and file shortcuts.
                   </p>
@@ -2352,13 +2208,19 @@ export function OCRTab({ active }: OcrTabProps) {
               </div>
 
               {debugExpanded ? (
-                <div className="ocr-debug-grid">
-                  <label className="ocr-toggle-field" htmlFor="ignore-ocr-run-1">
-                    <span>Ignore "OCR Run 1" Logs</span>
+                <div className="form-group ocr-form-group">
+                  <div className="input-group">
+                    <label
+                      htmlFor="ignore-ocr-run-1"
+                      {...titleProps(OCR_TOOLTIPS.ignoreRun1Logs)}
+                    >
+                      Ignore "OCR Run 1" Logs:
+                    </label>
                     <input
                       id="ignore-ocr-run-1"
                       type="checkbox"
                       checked={config.ignoreOcrRun1Text}
+                      {...titleProps(OCR_TOOLTIPS.ignoreRun1Logs)}
                       onChange={(event) => {
                         setConfig((current) => ({
                           ...current,
@@ -2366,15 +2228,19 @@ export function OCRTab({ active }: OcrTabProps) {
                         }));
                       }}
                     />
-                  </label>
+                  </div>
 
-                  <div className="ocr-field">
-                    <label htmlFor="process-priority" className="ocr-field-label">
-                      OCR Process Priority
+                  <div className="input-group">
+                    <label
+                      htmlFor="process-priority"
+                      {...titleProps(OCR_TOOLTIPS.processPriority)}
+                    >
+                      OCR Process Priority:
                     </label>
                     <select
                       id="process-priority"
                       value={config.processPriority}
+                      {...titleProps(OCR_TOOLTIPS.processPriority)}
                       onChange={(event) => {
                         setConfig((current) => ({
                           ...current,
@@ -2390,12 +2256,12 @@ export function OCRTab({ active }: OcrTabProps) {
                     </select>
                   </div>
 
-                  <div className="ocr-field">
+                  <div className="input-group">
                     <label
                       htmlFor="default-furigana-sensitivity"
-                      className="ocr-field-label"
+                      {...titleProps(OCR_TOOLTIPS.defaultSceneFurigana)}
                     >
-                      Default Furigana Sensitivity
+                      Default Furigana Sensitivity:
                     </label>
                     <input
                       id="default-furigana-sensitivity"
@@ -2404,6 +2270,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       max={100}
                       step={1}
                       value={config.defaultSceneFuriganaFilterSensitivity}
+                      {...titleProps(OCR_TOOLTIPS.defaultSceneFurigana)}
                       onChange={(event) => {
                         setConfig((current) => ({
                           ...current,
@@ -2416,13 +2283,17 @@ export function OCRTab({ active }: OcrTabProps) {
                     />
                   </div>
 
-                  <div className="ocr-field">
-                    <label htmlFor="obs-preprocess" className="ocr-field-label">
-                      OBS Capture Preprocess
+                  <div className="input-group">
+                    <label
+                      htmlFor="obs-preprocess"
+                      {...titleProps(OCR_TOOLTIPS.obsCapturePreprocess)}
+                    >
+                      OBS Capture Preprocess:
                     </label>
                     <select
                       id="obs-preprocess"
                       value={config.obsCapturePreprocess}
+                      {...titleProps(OCR_TOOLTIPS.obsCapturePreprocess)}
                       onChange={(event) => {
                         setConfig((current) => ({
                           ...current,
@@ -2438,69 +2309,74 @@ export function OCRTab({ active }: OcrTabProps) {
                     </select>
                   </div>
 
-                  <div className="ocr-field ocr-field--wide">
-                    <label htmlFor="dep-install" className="ocr-field-label">
-                      Optional Dependency Install
+                  <div className="input-group wrap">
+                    <label htmlFor="dep-install" {...titleProps(OCR_TOOLTIPS.installDependency)}>
+                      Optional Dependency Install:
                     </label>
-                    <div className="ocr-inline-control-row">
-                      <select
-                        id="dep-install"
-                        value={installDependency}
-                        onChange={(event) => setInstallDependency(event.target.value)}
-                      >
-                        {DEPENDENCY_INSTALL_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={installSelectedDependency}
-                      >
-                        Install
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="ocr-field ocr-field--wide">
-                    <label htmlFor="dep-remove" className="ocr-field-label">
-                      Dependency Removal
-                    </label>
-                    <div className="ocr-inline-control-row">
-                      <select
-                        id="dep-remove"
-                        value={removeDependency}
-                        onChange={(event) => setRemoveDependency(event.target.value)}
-                      >
-                        {DEPENDENCY_REMOVE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        className="danger"
-                        onClick={uninstallSelectedDependency}
-                      >
-                        Uninstall
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="ocr-action-row ocr-debug-actions">
+                    <select
+                      id="dep-install"
+                      value={installDependency}
+                      {...titleProps(OCR_TOOLTIPS.installDependency)}
+                      onChange={(event) => setInstallDependency(event.target.value)}
+                    >
+                      {DEPENDENCY_INSTALL_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       className="secondary"
+                      {...titleProps(OCR_TOOLTIPS.installDependency)}
+                      onClick={installSelectedDependency}
+                    >
+                      Install
+                    </button>
+                  </div>
+
+                  <div className="input-group wrap">
+                    <label
+                      htmlFor="dep-remove"
+                      {...titleProps(OCR_TOOLTIPS.uninstallDependency)}
+                    >
+                      Dependency Removal:
+                    </label>
+                    <select
+                      id="dep-remove"
+                      value={removeDependency}
+                      {...titleProps(OCR_TOOLTIPS.uninstallDependency)}
+                      onChange={(event) => setRemoveDependency(event.target.value)}
+                    >
+                      {DEPENDENCY_REMOVE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="danger"
+                      {...titleProps(OCR_TOOLTIPS.uninstallDependency)}
+                      onClick={uninstallSelectedDependency}
+                    >
+                      Uninstall
+                    </button>
+                  </div>
+
+                  <div className="link-row">
+                    <button
+                      type="button"
+                      className="secondary"
+                      {...titleProps(OCR_TOOLTIPS.replacements)}
                       onClick={openOcrReplacementsPage}
                     >
-                      Open OCR Error Fixes Page
+                      OCR Error Fixes
                     </button>
                     <button
                       type="button"
                       className="secondary"
+                      {...titleProps(OCR_TOOLTIPS.openConfigFile)}
                       onClick={() => void invokeIpc("ocr.open-config-json")}
                     >
                       Open Config File
@@ -2508,6 +2384,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary"
+                      {...titleProps(OCR_TOOLTIPS.openConfigFolder)}
                       onClick={() => void invokeIpc("ocr.open-config-folder")}
                     >
                       Open OCR Config Folder
@@ -2515,6 +2392,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary"
+                      {...titleProps(OCR_TOOLTIPS.openGlobalConfig)}
                       onClick={() => void invokeIpc("ocr.open-global-owocr-config")}
                     >
                       Open Global OWOCR Config
@@ -2522,6 +2400,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary"
+                      {...titleProps(OCR_TOOLTIPS.openTempFolder)}
                       onClick={() => void invokeIpc("ocr.open-temp-folder")}
                     >
                       Open Temp Folder
@@ -2530,55 +2409,93 @@ export function OCRTab({ active }: OcrTabProps) {
                 </div>
               ) : null}
             </section>
-          </div>
-        </div>
 
-        <div className={`ocr-footer-bar ocr-footer-bar--${footerTone}`}>
-          <div className="ocr-footer-summary">
-            <span className={`ocr-footer-status ocr-footer-status--${footerTone}`}>
-              {footerStatusLabel}
-            </span>
-            <div className="ocr-footer-copy">
-              <div className="ocr-footer-title">
-                {runningState.isRunning
-                  ? runtimeEngine || "OCR Runtime"
-                  : "Ready to Run"}
+            <section className="card legacy-card ocr-card ocr-card--full">
+              <div className="ocr-card-header-row">
+                <div>
+                  <h2>OCR Console</h2>
+                  <p className="muted ocr-card-muted">
+                    Runtime logs, selector output, and dependency install output.
+                  </p>
+                </div>
+                <div className="ocr-console-actions">
+                  <span className="ocr-console-status">
+                    {runningState.isRunning ? (paused ? "Paused" : "Active") : "Idle"}
+                  </span>
+                  <button
+                    type="button"
+                    className="secondary"
+                    {...titleProps(OCR_TOOLTIPS.clearConsole)}
+                    onClick={clearTerminal}
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
-              <div className="ocr-footer-text">{footerSummary}</div>
+              <div ref={terminalElementRef} className="ocr-terminal-surface" />
+            </section>
+          </div>
+          <div className={`ocr-sticky-footer ocr-sticky-footer--${footerTone}`}>
+            <div className="ocr-sticky-footer-status">
+              <span className={`ocr-runtime-badge ocr-runtime-badge--${footerTone}`}>
+                {footerStatusLabel}
+              </span>
+              <div className="ocr-sticky-footer-copy">
+                <strong>{runningState.isRunning ? runtimeEngine || "OCR Runtime" : sceneSummary}</strong>
+                <p className="muted">{footerSummary}</p>
+              </div>
+            </div>
+            <div className="ocr-sticky-footer-actions">
+              {runningState.isRunning ? (
+                <>
+                  <button
+                    type="button"
+                    className="danger"
+                    {...titleProps(OCR_TOOLTIPS.stop)}
+                    onClick={() => void stopOcr()}
+                  >
+                    Stop OCR
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    {...titleProps(paused ? OCR_TOOLTIPS.resume : OCR_TOOLTIPS.pause)}
+                    onClick={togglePause}
+                  >
+                    {paused ? "Resume OCR" : "Pause OCR"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    disabled={!hasConfiguredAreas}
+                    title={
+                      hasConfiguredAreas
+                        ? OCR_TOOLTIPS.startAuto
+                        : "Draw OCR areas for this scene before starting auto OCR."
+                    }
+                    onClick={() => void startOcr(false)}
+                  >
+                    Start Auto OCR
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={!hasConfiguredAreas}
+                    title={
+                      hasConfiguredAreas
+                        ? OCR_TOOLTIPS.startManual
+                        : "Draw OCR areas for this scene before starting manual OCR."
+                    }
+                    onClick={() => void startOcr(true)}
+                  >
+                    Start Manual OCR
+                  </button>
+                </>
+              )}
             </div>
           </div>
-
-          <div className="ocr-footer-actions">
-            {runningState.isRunning ? (
-              <>
-                <button type="button" className="danger" onClick={() => void stopOcr()}>
-                  Stop OCR
-                </button>
-                <button type="button" className="secondary" onClick={togglePause}>
-                  {paused ? "Resume OCR" : "Pause OCR"}
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  disabled={!hasConfiguredAreas}
-                  onClick={() => void startOcr(false)}
-                >
-                  Start Auto OCR
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={!hasConfiguredAreas}
-                  onClick={() => void startOcr(true)}
-                >
-                  Start Manual OCR
-                </button>
-              </>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );

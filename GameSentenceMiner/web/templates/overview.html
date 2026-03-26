@@ -5,6 +5,7 @@
 {% set page_specific_css = 'overview.css' %}
 {% set include_heatmap_css = true %}
 {% set include_chartjs = true %}
+{% set additional_css = ['search.css'] %}
 {% include 'components/html-head.html' %}
 
 <body>
@@ -30,11 +31,50 @@
                     <p class="dashboard-card-subtitle" id="currentGameName">Loading...</p>
                 </div>
                 <div class="dashboard-header-actions">
-                    <!-- Session Navigation -->
-                    <div class="session-navigation">
-                        <button class="prev-session-btn" data-action="prevSession">←</button>
-                        <button class="next-session-btn" data-action="nextSession">→</button>
-                        <button class="delete-session-btn" data-action="deleteSession" title="Delete Current Session">🗑️</button>
+                    <div class="current-session-action-row">
+                        <!-- Session Navigation -->
+                        <div class="session-navigation">
+                            <button class="prev-session-btn" data-action="prevSession">←</button>
+                            <button class="next-session-btn" data-action="nextSession">→</button>
+                            <button class="delete-session-btn" data-action="deleteSession" title="Delete Current Session">🗑️</button>
+                        </div>
+                        <div
+                            class="settings-cog-container current-session-management"
+                            id="currentSessionManagementContainer"
+                            style="display: none;"
+                        >
+                            <button
+                                class="settings-cog-btn"
+                                id="currentSessionSettingsCogBtn"
+                                title="Game Management"
+                            >
+                                &#9881;&#65039;
+                            </button>
+                            <div class="settings-cog-dropdown" id="currentSessionSettingsCogDropdown">
+                                <button class="dropdown-item" data-action="editGame">
+                                    &#9999;&#65039; Edit Metadata
+                                </button>
+                                <button class="dropdown-item" data-action="linkExternal">
+                                    &#128279; Link to Database
+                                </button>
+                                <button class="dropdown-item" data-action="repullMetadata">
+                                    &#128260; Re-pull Metadata
+                                </button>
+                                <button class="dropdown-item" data-action="markComplete">
+                                    &#9989; Mark as Completed
+                                </button>
+                                <button class="dropdown-item" data-action="mergeGames">
+                                    &#128256; Merge Games Into This
+                                </button>
+                                <div class="dropdown-divider"></div>
+                                <button class="dropdown-item dropdown-item-danger" data-action="unlinkGame">
+                                    &#128279; Unlink Game
+                                </button>
+                                <button class="dropdown-item dropdown-item-danger" data-action="deleteGame">
+                                    &#128465;&#65039; Delete Game &amp; Lines
+                                </button>
+                            </div>
+                        </div>
                     </div>
                     <button class="game-completion-btn" id="gameCompletionBtn" style="display: none;">
                         Mark as completed?
@@ -287,6 +327,201 @@
             </div>
         </div>
 
+        <!-- Edit Game Modal -->
+        <div id="editGameModal" class="modal">
+            <div class="modal-content" style="max-width: 800px;">
+                <div class="modal-header">
+                    <h3>Edit Game</h3>
+                    <span class="close-btn" data-action="closeEditModal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p class="info-text">Edit game information. Changes are saved directly.</p>
+                    <form id="editGameForm">
+                        <div class="form-group">
+                            <label class="form-label">Original Title (Japanese) *</label>
+                            <input type="text" id="editTitleOriginal" class="form-input" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Romaji Title</label>
+                            <input type="text" id="editTitleRomaji" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">English Title</label>
+                            <input type="text" id="editTitleEnglish" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Type</label>
+                            <select id="editType" class="form-input">
+                                <option value="">Select type...</option>
+                                <option value="Visual Novel">Visual Novel</option>
+                                <option value="Anime">Anime</option>
+                                <option value="Manga">Manga</option>
+                                <option value="Game">Game</option>
+                                <option value="Light Novel">Light Novel</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Description</label>
+                            <textarea id="editDescription" class="form-textarea" rows="4"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Difficulty (1-5)</label>
+                            <input type="number" id="editDifficulty" class="form-input" min="1" max="5">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Deck ID (jiten.moe)</label>
+                            <input type="number" id="editDeckId" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">VNDB ID</label>
+                            <input type="text" id="editVndbId" class="form-input" placeholder="e.g., v1234">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">AniList ID</label>
+                            <input type="text" id="editAnilistId" class="form-input" placeholder="e.g., 5678">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Character Count</label>
+                            <input type="number" id="editCharacterCount" class="form-input" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Cover Image</label>
+                            <div id="editImagePreview" style="margin-bottom: 10px; display: none;">
+                                <img id="editImagePreviewImg" style="max-width: 200px; max-height: 200px; border-radius: 8px; border: 1px solid var(--border-color);" alt="Cover preview">
+                            </div>
+                            <input type="file" id="editImageUpload" class="form-input" accept="image/png,image/jpeg,image/jpg,image/webp">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Release Date</label>
+                            <input type="date" id="editReleaseDate" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Character Summary (for AI Translation)</label>
+                            <textarea id="editCharacterSummary" class="form-textarea" rows="6" placeholder="Character list for translation context..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Links (one URL per line)</label>
+                            <textarea id="editLinksList" class="form-textarea" rows="4" placeholder="https://example.com&#10;https://vndb.org/v1234"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <div class="checkbox-container">
+                                <input type="checkbox" id="editCompleted" class="checkbox-input">
+                                <label for="editCompleted" class="checkbox-label">Mark as completed</label>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="editGameError" class="error-text" style="display: none;"></div>
+                    <div id="editGameLoading" class="loading-indicator" style="display: none;">
+                        <div class="spinner"></div>
+                        <span>Saving changes...</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="action-btn" data-action="closeEditModal">Cancel</button>
+                    <button class="action-btn success" id="saveGameEditsBtn">Save Changes</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Merge Games Modal -->
+        <div id="mergeGamesModal" class="modal">
+            <div class="modal-content" style="max-width: 700px;">
+                <div class="modal-header">
+                    <h3>Merge Games Into This Game</h3>
+                    <span class="close-btn" data-action="closeMergeModal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p class="info-text">Select games to merge into <strong id="mergeTargetName"></strong>. All sentences from selected games will be moved to this game.</p>
+
+                    <div class="merge-search-container">
+                        <input type="text" id="mergeSearchInput" class="form-input" placeholder="Search games to merge...">
+                    </div>
+
+                    <div class="merge-games-list" id="mergeGamesList"></div>
+
+                    <div class="merge-selected-container" id="mergeSelectedContainer" style="display: none;">
+                        <h4 style="margin: 16px 0 8px; color: var(--text-primary);">Selected games to merge:</h4>
+                        <div class="merge-selected-list" id="mergeSelectedList"></div>
+                    </div>
+
+                    <div id="mergeError" class="error-text" style="display: none;"></div>
+                    <div id="mergeLoading" class="loading-indicator" style="display: none;">
+                        <div class="spinner"></div>
+                        <span>Merging games...</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="action-btn" data-action="closeMergeModal">Cancel</button>
+                    <button class="action-btn warning" id="confirmMergeBtn" disabled>&#128256; Confirm Merge</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Unlink Confirmation Modal -->
+        <div id="unlinkGameModal" class="modal">
+            <div class="modal-content" style="max-width: 500px;">
+                <div class="modal-header">
+                    <h3 style="color: var(--warning-color);">&#128279; Unlink Game</h3>
+                    <span class="close-btn" data-action="closeUnlinkModal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <p class="warning-text">&#9888;&#65039; This will remove the game record but <strong>preserve all sentences</strong>.</p>
+                    <div style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin: 15px 0;">
+                        <div class="stats-row">
+                            <span class="stats-label">Game:</span>
+                            <span class="stats-value" id="unlinkGameName">-</span>
+                        </div>
+                    </div>
+                    <div id="unlinkError" class="error-text" style="display: none;"></div>
+                    <div id="unlinkLoading" class="loading-indicator" style="display: none;">
+                        <div class="spinner"></div>
+                        <span>Unlinking game...</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="action-btn" data-action="closeUnlinkModal">Cancel</button>
+                    <button class="action-btn warning" id="confirmUnlinkBtn">Unlink Game</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Delete Confirmation Modal -->
+        <div id="deleteGameModal" class="modal">
+            <div class="modal-content" style="max-width: 600px;">
+                <div class="modal-header">
+                    <h3 style="color: var(--danger-color);">&#128465;&#65039; Delete Game &amp; Lines</h3>
+                    <span class="close-btn" data-action="closeDeleteModal">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div style="background: var(--danger-color); color: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; text-align: center;">
+                        <h4 style="margin: 0 0 8px;">&#128680; PERMANENT DELETION</h4>
+                        <p style="margin: 0; font-weight: 600;">All sentences will be deleted forever. This cannot be undone.</p>
+                    </div>
+                    <div style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                        <div class="stats-row">
+                            <span class="stats-label">Game:</span>
+                            <span class="stats-value" id="deleteGameName">-</span>
+                        </div>
+                        <div class="stats-row">
+                            <span class="stats-label">Sentences:</span>
+                            <span class="stats-value" style="color: var(--danger-color); font-weight: 700;" id="deleteGameSentences">-</span>
+                        </div>
+                    </div>
+                    <div id="deleteError" class="error-text" style="display: none;"></div>
+                    <div id="deleteLoading" class="loading-indicator" style="display: none;">
+                        <div class="spinner"></div>
+                        <span>Deleting game...</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="action-btn" data-action="closeDeleteModal">Cancel</button>
+                    <button class="action-btn danger" id="confirmDeleteBtn">&#128465;&#65039; Delete Forever</button>
+                </div>
+            </div>
+        </div>
+
+        {% include 'components/game-import-modals.html' %}
 
         <!-- Include shared settings modal -->
         {% include 'components/settings-modal.html' %}
@@ -315,6 +550,7 @@
     {% set config_object_name = 'statsConfig' %}
     {% set include_heatmap_js = true %}
     {% set page_specific_js = 'overview.js' %}
+    {% set additional_js = ['unified-search.js', 'game-import-widget.js'] %}
     {% include 'components/js-config.html' %}
 
 </body>

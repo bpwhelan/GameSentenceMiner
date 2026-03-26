@@ -159,6 +159,56 @@ def _is_obs_recording_disabled(config_override=None) -> bool:
     return bool(getattr(cfg.obs, "disable_recording", False))
 
 
+OBS_DEFAULT_RETRY_COUNT = 2
+OBS_RETRY_BASE_DELAY_SECONDS = 0.2
+OBS_RETRY_MAX_DELAY_SECONDS = 0.75
+OBS_RETRYABLE_ERROR_SUBSTRINGS = (
+    "broken pipe",
+    "connection aborted",
+    "connection closed",
+    "connection refused",
+    "connection reset",
+    "not identified",
+    "session invalid",
+    "socket is already closed",
+    "timed out",
+    "timeout",
+    "transport endpoint",
+    "websocket",
+)
+
+
+def _get_obs_retry_delay_seconds(attempt_index: int) -> float:
+    return min(OBS_RETRY_BASE_DELAY_SECONDS * (attempt_index + 1), OBS_RETRY_MAX_DELAY_SECONDS)
+
+
+def _is_retryable_obs_exception(exc: Exception) -> bool:
+    if isinstance(exc, AttributeError):
+        return False
+
+    retryable_types = (
+        BrokenPipeError,
+        ConnectionAbortedError,
+        ConnectionError,
+        ConnectionRefusedError,
+        ConnectionResetError,
+        EOFError,
+        OSError,
+        TimeoutError,
+        socket.timeout,
+        obs.error.OBSSDKTimeoutError,
+    )
+    if isinstance(exc, retryable_types):
+        return True
+
+    if isinstance(exc, (obs.error.OBSSDKError, obs.error.OBSSDKRequestError)):
+        message = str(exc).lower()
+        return any(token in message for token in OBS_RETRYABLE_ERROR_SUBSTRINGS)
+
+    message = str(exc).lower()
+    return any(token in message for token in OBS_RETRYABLE_ERROR_SUBSTRINGS)
+
+
 class OBSConnectionPool:
     """Manages a pool of thread-safe connections to the OBS WebSocket."""
 
@@ -172,6 +222,8 @@ class OBSConnectionPool:
 
         self._next_idx = 0
         self._idx_lock = threading.Lock()
+        self._healthcheck_client = None
+        self._healthcheck_lock = threading.Lock()
 
         self.connected_once = False
         self.last_error_shown = [None] * self.size
@@ -184,6 +236,21 @@ class OBSConnectionPool:
             self._attempt_connect(i, initial=True)
         return True
 
+    def _disconnect_client_instance(self, client):
+        if not client:
+            return
+        try:
+            client.disconnect()
+        except Exception:
+            pass
+
+    def _invalidate_client(self, index: int, reset_backoff: bool = False):
+        client = self._clients[index]
+        self._disconnect_client_instance(client)
+        self._clients[index] = None
+        if reset_backoff:
+            self._last_connect_attempt[index] = 0.0
+
     def _attempt_connect(self, index, initial=False):
         """Internal helper to connect a specific slot with cooldown handling."""
         now = time.time()
@@ -194,10 +261,7 @@ class OBSConnectionPool:
 
         try:
             if self._clients[index]:
-                try:
-                    self._clients[index].disconnect()
-                except Exception:
-                    pass
+                self._disconnect_client_instance(self._clients[index])
 
             self._clients[index] = obs.ReqClient(**self.connection_kwargs)
             self._clients[index].get_version()
@@ -206,7 +270,7 @@ class OBSConnectionPool:
             self.last_error_shown[index] = None
             return True
         except Exception as e:
-            self._clients[index] = None
+            self._invalidate_client(index)
             err_str = str(e)
             if err_str != self.last_error_shown[index]:
                 if self.connected_once:
@@ -217,13 +281,9 @@ class OBSConnectionPool:
 
     def disconnect_all(self):
         """Disconnects all clients in the pool."""
-        for i, client in enumerate(self._clients):
-            if client:
-                try:
-                    client.disconnect()
-                except Exception:
-                    pass
-            self._clients[i] = None
+        for i in range(self.size):
+            self._invalidate_client(i)
+        self.reset_healthcheck_client()
         logger.info("Disconnected all clients in OBSConnectionPool.")
 
     @contextlib.contextmanager
@@ -249,19 +309,39 @@ class OBSConnectionPool:
 
         except Exception as e:
             logger.debug(f"Error during OBS client usage (Slot {idx}): {e}")
-            self._clients[idx] = None
+            self._invalidate_client(idx, reset_backoff=True)
             raise e
         finally:
             lock.release()
 
+    def call(self, operation: Callable[[obs.ReqClient], object], retries: int = 0, retryable: bool = True):
+        attempts = 1 + max(0, retries if retryable else 0)
+        last_exception = None
+        for attempt_index in range(attempts):
+            try:
+                with self.get_client() as client:
+                    return operation(client)
+            except Exception as exc:
+                last_exception = exc
+                if not retryable or attempt_index >= attempts - 1 or not _is_retryable_obs_exception(exc):
+                    raise
+                time.sleep(_get_obs_retry_delay_seconds(attempt_index))
+        raise last_exception
+
     def get_healthcheck_client(self):
         """Returns a dedicated client for health checks, separate from the main pool."""
-        if not hasattr(self, "_healthcheck_client") or self._healthcheck_client is None:
-            try:
-                self._healthcheck_client = obs.ReqClient(**self.connection_kwargs)
-            except Exception:
-                self._healthcheck_client = None
-        return self._healthcheck_client
+        with self._healthcheck_lock:
+            if self._healthcheck_client is None:
+                try:
+                    self._healthcheck_client = obs.ReqClient(**self.connection_kwargs)
+                except Exception:
+                    self._healthcheck_client = None
+            return self._healthcheck_client
+
+    def reset_healthcheck_client(self):
+        with self._healthcheck_lock:
+            self._disconnect_client_instance(self._healthcheck_client)
+            self._healthcheck_client = None
 
 
 @dataclass
@@ -305,22 +385,30 @@ class OBSTickOptions:
 
 class OBSService:
     def __init__(self, host, port, password, connections=2, check_output=False):
+        self.host = host
+        self.port = port
+        self.password = password
+        self.connections = connections
         self.check_output = check_output
+        self._pool_kwargs = {
+            "host": host,
+            "port": port,
+            "password": password,
+            "timeout": 3,
+        }
+        self._event_client_kwargs = {
+            "host": host,
+            "port": port,
+            "password": password,
+            "timeout": 1,
+        }
         self.connection_pool = OBSConnectionPool(
             size=connections,
-            host=host,
-            port=port,
-            password=password,
-            timeout=3,
+            **self._pool_kwargs,
         )
         self.connection_pool.connect_all()
 
-        self.event_client = obs.EventClient(
-            host=host,
-            port=port,
-            password=password,
-            timeout=1,
-        )
+        self.event_client = obs.EventClient(**self._event_client_kwargs)
 
         self.state = OBSState()
         self._state_lock = threading.Lock()
@@ -356,6 +444,51 @@ class OBSService:
                 self.connection_pool.disconnect_all()
         except Exception:
             pass
+
+    def refresh_after_reconnect(self) -> bool:
+        old_pool = self.connection_pool
+        old_event_client = self.event_client
+        new_pool = None
+        new_event_client = None
+
+        try:
+            new_pool = OBSConnectionPool(size=self.connections, **self._pool_kwargs)
+            new_pool.connect_all()
+            new_event_client = obs.EventClient(**self._event_client_kwargs)
+            self.connection_pool = new_pool
+            self.event_client = new_event_client
+            self._event_callbacks = {}
+            for event_name in list(self._event_handlers):
+                self._ensure_event_callback(event_name)
+            self.initialized = False
+            self._initialize_state()
+            logger.info("Refreshed OBS clients after reconnect.")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to refresh OBS clients after reconnect: {e}")
+            if new_event_client:
+                try:
+                    new_event_client.disconnect()
+                except Exception:
+                    pass
+            if new_pool:
+                try:
+                    new_pool.disconnect_all()
+                except Exception:
+                    pass
+            return False
+        finally:
+            if self.connection_pool is new_pool:
+                try:
+                    if old_event_client:
+                        old_event_client.disconnect()
+                except Exception:
+                    pass
+                try:
+                    if old_pool:
+                        old_pool.disconnect_all()
+                except Exception:
+                    pass
 
     def on(self, event_name: str, handler: Callable):
         handlers = self._event_handlers.setdefault(event_name, [])
@@ -585,12 +718,14 @@ class OBSService:
         if not items_to_update:
             return
 
-        with self.connection_pool.get_client() as client:
+        def _update_items(client):
             for item in items_to_update:
                 item_id = item.get("sceneItemId")
                 if item_id is None:
                     continue
                 client.set_scene_item_enabled(scene_name, item_id, bool(enabled))
+
+        self.connection_pool.call(_update_items, retries=OBS_DEFAULT_RETRY_COUNT)
 
         with self._state_lock:
             cached_items = self.state.scene_items_by_scene.get(scene_name, [])
@@ -703,7 +838,8 @@ class OBSService:
 
     def _initialize_state(self):
         try:
-            with self.connection_pool.get_client() as client:
+
+            def _initialize(client):
                 response = client.get_current_program_scene()
                 scene_name = response.scene_name if response else ""
 
@@ -727,6 +863,8 @@ class OBSService:
                 if self.check_output:
                     self._refresh_replay_buffer_settings(client=client)
                 self.initialized = True
+
+            self.connection_pool.call(_initialize, retries=OBS_DEFAULT_RETRY_COUNT)
         except Exception as e:
             logger.error(f"Failed to initialize OBS state: {e}")
 
@@ -1014,8 +1152,10 @@ class OBSService:
         if not scene_name:
             return
         if client is None:
-            with self.connection_pool.get_client() as client:
-                response = client.get_scene_item_list(name=scene_name)
+            response = self.connection_pool.call(
+                lambda req_client: req_client.get_scene_item_list(name=scene_name),
+                retries=OBS_DEFAULT_RETRY_COUNT,
+            )
         else:
             response = client.get_scene_item_list(name=scene_name)
 
@@ -1058,8 +1198,10 @@ class OBSService:
 
         if client is None:
             try:
-                with self.connection_pool.get_client() as client:
-                    replay_status = client.get_replay_buffer_status()
+                replay_status = self.connection_pool.call(
+                    lambda req_client: req_client.get_replay_buffer_status(),
+                    retries=OBS_DEFAULT_RETRY_COUNT,
+                )
             except Exception:
                 replay_status = None
         else:
@@ -1161,7 +1303,99 @@ class OBSService:
             return
 
 
-def with_obs_client(default=None, error_msg=None, raise_exc=False):
+def _bind_obs_service_clients():
+    global connection_pool, event_client
+    if obs_service:
+        connection_pool = obs_service.connection_pool
+        event_client = obs_service.event_client
+    else:
+        connection_pool = None
+        event_client = None
+
+
+def _resolve_obs_default(default=None, fallback=None):
+    if fallback is not None:
+        try:
+            return fallback()
+        except Exception as e:
+            logger.debug(f"OBS fallback resolution failed: {e}")
+    return default
+
+
+def _recover_obs_service_clients_sync() -> bool:
+    if connecting or not obs_service:
+        return False
+    recovered = obs_service.refresh_after_reconnect()
+    if recovered is False:
+        return False
+    _bind_obs_service_clients()
+    gsm_status.obs_connected = True
+    return True
+
+
+def _call_with_pool(pool, operation: Callable[[obs.ReqClient], object], retries: int = 0, retryable: bool = True):
+    if hasattr(pool, "call") and callable(getattr(pool, "call")):
+        return pool.call(operation, retries=retries, retryable=retryable)
+
+    attempts = 1 + max(0, int(retries if retryable else 0))
+    last_exception = None
+    for attempt_index in range(attempts):
+        try:
+            with pool.get_client() as client:
+                return operation(client)
+        except Exception as exc:
+            last_exception = exc
+            if not retryable or attempt_index >= attempts - 1 or not _is_retryable_obs_exception(exc):
+                raise
+            time.sleep(_get_obs_retry_delay_seconds(attempt_index))
+    raise last_exception
+
+
+def _call_with_obs_client(
+    operation: Callable[[obs.ReqClient], object],
+    *,
+    default=None,
+    error_msg=None,
+    raise_exc=False,
+    retryable=True,
+    retries=OBS_DEFAULT_RETRY_COUNT,
+    suppress_obs_errors=False,
+    debug_errors=False,
+    fallback=None,
+):
+    if obs_service and (not connection_pool or not gsm_status.obs_connected):
+        _recover_obs_service_clients_sync()
+
+    if not connection_pool:
+        return _resolve_obs_default(default=default, fallback=fallback)
+
+    try:
+        effective_retries = max(0, int(retries if retryable else 0))
+        return _call_with_pool(
+            connection_pool,
+            operation,
+            retries=effective_retries,
+            retryable=bool(retryable),
+        )
+    except Exception as e:
+        if raise_exc:
+            raise e
+
+        if suppress_obs_errors:
+            return _resolve_obs_default(default=default, fallback=fallback)
+
+        if error_msg:
+            if debug_errors:
+                logger.debug(f"{error_msg}: {e}")
+            else:
+                logger.error(f"{error_msg}: {e}")
+
+        return _resolve_obs_default(default=default, fallback=fallback)
+
+
+def with_obs_client(
+    default=None, error_msg=None, raise_exc=False, retryable=True, retries=OBS_DEFAULT_RETRY_COUNT, fallback=None
+):
     """
     Decorator to automatically acquire an OBS client from the pool and pass it
     as the first argument to the decorated function.
@@ -1171,24 +1405,20 @@ def with_obs_client(default=None, error_msg=None, raise_exc=False):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             suppress_obs_errors = bool(kwargs.pop("_suppress_obs_errors", False))
-            if not connection_pool:
-                return default
-            try:
-                with connection_pool.get_client() as client:
-                    return func(client, *args, **kwargs)
-            except Exception as e:
-                if raise_exc:
-                    raise e
-
-                msg = error_msg if error_msg else f"Error in {func.__name__}"
-                if suppress_obs_errors:
-                    return default
-                if func.__name__ in ("get_replay_buffer_status", "get_current_scene"):
-                    logger.debug(f"{msg}: {e}")
-                else:
-                    logger.error(f"{msg}: {e}")
-
-                return default
+            override_retryable = bool(kwargs.pop("_retry_obs_errors", retryable))
+            override_retries = kwargs.pop("_obs_retries", retries)
+            msg = error_msg if error_msg else f"Error in {func.__name__}"
+            return _call_with_obs_client(
+                lambda client: func(client, *args, **kwargs),
+                default=default,
+                error_msg=msg,
+                raise_exc=raise_exc,
+                retryable=override_retryable,
+                retries=override_retries,
+                suppress_obs_errors=suppress_obs_errors,
+                debug_errors=func.__name__ in ("get_replay_buffer_status", "get_current_scene"),
+                fallback=fallback,
+            )
 
         return wrapper
 
@@ -1201,10 +1431,41 @@ class OBSConnectionManager(threading.Thread):
         self.daemon = True
         self.running = True
         self.check_connection_interval = 1.0
+        self.recovery_cooldown_seconds = 2.0
         self.last_errors = []
         self._check_lock = threading.Lock()
         self.check_output = check_output
         self.last_tick_time = 0
+        self._last_recovery_attempt = 0.0
+
+    def _recover_obs_connection(self) -> bool:
+        now = time.monotonic()
+        if connecting:
+            return False
+        if (now - self._last_recovery_attempt) < self.recovery_cooldown_seconds:
+            return False
+
+        self._last_recovery_attempt = now
+
+        if connection_pool:
+            try:
+                connection_pool.reset_healthcheck_client()
+            except Exception:
+                pass
+
+        if obs_service:
+            if _recover_obs_service_clients_sync():
+                logger.info("Recovered OBS WebSocket connection.")
+                return True
+            return False
+
+        if not connecting:
+            threading.Thread(
+                target=connect_to_obs_sync,
+                kwargs={"retry": 1, "check_output": self.check_output},
+                daemon=True,
+            ).start()
+        return False
 
     def _check_obs_connection(self):
         if connecting:
@@ -1218,12 +1479,15 @@ class OBSConnectionManager(threading.Thread):
                 return True
             raise ConnectionError("Healthcheck client creation failed")
         except Exception as e:
+            if connection_pool:
+                try:
+                    connection_pool.reset_healthcheck_client()
+                except Exception:
+                    pass
             if gsm_status.obs_connected:
                 logger.info(f"OBS WebSocket connection lost: {e}")
             gsm_status.obs_connected = False
-            if not connecting:
-                threading.Thread(target=connect_to_obs_sync, kwargs={"retry": 1}, daemon=True).start()
-            return False
+            return self._recover_obs_connection()
 
     def run(self):
         from GameSentenceMiner.util.gsm_utils import SleepManager
@@ -1661,34 +1925,30 @@ def disconnect_from_obs():
 
 def do_obs_call(method_name: str, from_dict=None, retry=3, **kwargs):
     if not connection_pool:
-        connect_to_obs_sync(retry=1)
+        if obs_service:
+            _recover_obs_service_clients_sync()
+        elif not connecting:
+            connect_to_obs_sync(retry=1)
     if not connection_pool:
         return None
 
-    last_exception = None
-    for _ in range(retry + 1):
-        try:
-            with connection_pool.get_client() as client:
-                method_to_call = getattr(client, method_name)
-                response = method_to_call(**kwargs)
-                if response and response.ok:
-                    return from_dict(response.datain) if from_dict else response.datain
-            time.sleep(0.3)
-        except AttributeError:
-            logger.error(f"OBS client has no method '{method_name}'")
-            return None
-        except Exception as e:
-            last_exception = e
-            logger.error(f"Error calling OBS ('{method_name}'): {e}")
-            if "socket is already closed" in str(e) or "object has no attribute" in str(e):
-                time.sleep(0.3)
-            else:
-                return None
-    logger.error(f"OBS call '{method_name}' failed after retries. Last error: {last_exception}")
-    return None
+    def _invoke(client):
+        method_to_call = getattr(client, method_name)
+        response = method_to_call(**kwargs)
+        if response and getattr(response, "ok", False):
+            return from_dict(response.datain) if from_dict else response.datain
+        return None
+
+    return _call_with_obs_client(
+        _invoke,
+        default=None,
+        error_msg=f"Error calling OBS ('{method_name}')",
+        retryable=True,
+        retries=retry,
+    )
 
 
-@with_obs_client(error_msg="Error toggling buffer")
+@with_obs_client(error_msg="Error toggling buffer", retryable=False)
 def toggle_replay_buffer(client: obs.ReqClient):
     if _is_obs_recording_disabled():
         logger.warning("OBS replay buffer toggle blocked: OBS recording/replay is disabled in GSM settings.")
@@ -1719,6 +1979,16 @@ def start_replay_buffer(client: obs.ReqClient, initial=False):
     if _is_obs_recording_disabled():
         logger.warning("OBS replay buffer start blocked: OBS recording/replay is disabled in GSM settings.")
         return
+    try:
+        replay_status = client.get_replay_buffer_status()
+        if bool(getattr(replay_status, "output_active", False)):
+            if obs_service:
+                with obs_service._state_lock:
+                    obs_service.state.replay_buffer_active = True
+            gsm_state.replay_buffer_stopped_timestamp = None
+            return
+    except Exception:
+        pass
     if obs_service:
         obs_service.mark_replay_buffer_action(True)
     client.start_replay_buffer()
@@ -1741,6 +2011,16 @@ def get_replay_buffer_status(client: obs.ReqClient):
 
 @with_obs_client(error_msg="Error stopping replay buffer")
 def stop_replay_buffer(client: obs.ReqClient):
+    try:
+        replay_status = client.get_replay_buffer_status()
+        if not bool(getattr(replay_status, "output_active", False)):
+            if obs_service:
+                with obs_service._state_lock:
+                    obs_service.state.replay_buffer_active = False
+            gsm_state.replay_buffer_stopped_timestamp = time.time()
+            return
+    except Exception:
+        pass
     if obs_service:
         obs_service.mark_replay_buffer_action(False)
     client.stop_replay_buffer()
@@ -1754,7 +2034,7 @@ def stop_replay_buffer(client: obs.ReqClient):
     logger.info("Replay buffer stopped.")
 
 
-@with_obs_client(error_msg="Error saving replay buffer", raise_exc=True)
+@with_obs_client(error_msg="Error saving replay buffer", raise_exc=True, retryable=False)
 def save_replay_buffer(client: obs.ReqClient):
     client.save_replay_buffer()
     logger.info(
@@ -1767,6 +2047,14 @@ def start_recording(client: obs.ReqClient, longplay=False):
     if _is_obs_recording_disabled():
         logger.warning("OBS recording start blocked: OBS recording/replay is disabled in GSM settings.")
         return
+    try:
+        record_status = client.get_record_status()
+        if bool(getattr(record_status, "output_active", False)):
+            if longplay:
+                longplay_handler.on_record_start_requested()
+            return
+    except Exception:
+        pass
     client.start_record()
     if longplay:
         longplay_handler.on_record_start_requested()
@@ -1775,6 +2063,12 @@ def start_recording(client: obs.ReqClient, longplay=False):
 
 @with_obs_client(error_msg="Error stopping recording")
 def stop_recording(client: obs.ReqClient):
+    try:
+        record_status = client.get_record_status()
+        if not bool(getattr(record_status, "output_active", False)):
+            return None
+    except Exception:
+        pass
     resp = client.stop_record()
     output_path = resp.output_path if resp else None
     longplay_handler.on_record_stop_response(output_path=output_path)
@@ -1792,7 +2086,15 @@ def get_last_recording_filename(client: obs.ReqClient):
     return response.recording_filename if response else ""
 
 
-@with_obs_client(default="", error_msg="Couldn't get scene")
+@with_obs_client(
+    default="",
+    error_msg="Couldn't get scene",
+    fallback=lambda: (
+        obs_service.state.current_scene
+        if obs_service and obs_service.state.current_scene
+        else gsm_state.current_game or ""
+    ),
+)
 def get_current_scene(client: obs.ReqClient):
     if obs_service and obs_service.state.current_scene:
         return obs_service.state.current_scene
@@ -2195,36 +2497,29 @@ def get_screenshot_PIL_from_source(source_name, compression=75, img_format="png"
         logger.error("No source name provided.")
         return None
 
-    if not connection_pool:
-        return None
+    def _capture(client):
+        response = client.get_source_screenshot(
+            name=source_name,
+            img_format=img_format,
+            quality=compression,
+            width=width,
+            height=height,
+        )
+        if not response or not hasattr(response, "image_data") or not response.image_data:
+            raise AttributeError("Invalid screenshot response")
+        image_data = response.image_data.split(",", 1)[-1]
+        image_data = base64.b64decode(image_data)
+        img = Image.open(io.BytesIO(image_data))
+        img.load()
+        return img
 
-    for attempt in range(retry):
-        try:
-            with connection_pool.get_client() as client:
-                client: obs.ReqClient
-                response = client.get_source_screenshot(
-                    name=source_name,
-                    img_format=img_format,
-                    quality=compression,
-                    width=width,
-                    height=height,
-                )
-
-            if response and hasattr(response, "image_data") and response.image_data:
-                image_data = response.image_data.split(",", 1)[-1]
-                image_data = base64.b64decode(image_data)
-                img = Image.open(io.BytesIO(image_data))
-                img.load()
-                return img
-        except AttributeError:
-            if attempt >= retry - 1:
-                logger.error(f"Error getting screenshot from source '{source_name}': Invalid response")
-                return None
-            time.sleep(0.1)
-        except Exception:
-            pass
-
-    return None
+    return _call_with_obs_client(
+        _capture,
+        default=None,
+        error_msg=f"Error getting screenshot from source '{source_name}'",
+        retryable=True,
+        retries=max(0, retry - 1),
+    )
 
 
 def _normalize_ocr_preprocess_mode(preprocess_mode=None, grayscale=False):
@@ -2556,11 +2851,9 @@ def get_window_info_from_source(client, scene_name: str = None):
     """
     Get window information from an OBS scene's capture source.
     """
-    if scene_name:
-        scene_items_response = client.get_scene_item_list(name=scene_name)
-    else:
-        logger.error("Either obs_scene_id or scene_name must be provided")
+    if not scene_name:
         return None
+    scene_items_response = client.get_scene_item_list(name=scene_name)
 
     if not scene_items_response or not scene_items_response.scene_items:
         logger.warning("No scene items found in scene")
@@ -2744,7 +3037,7 @@ def main():
     disconnect_from_obs()
 
 
-@with_obs_client()
+@with_obs_client(retryable=False)
 def create_scene(client):
     request_json = r'{"sceneName":"SILENT HILL f","inputName":"SILENT HILL f - Capture","inputKind":"window_capture","inputSettings":{"mode":"window","window":"SILENT HILL f  :UnrealWindow:SHf-Win64-Shipping.exe","capture_audio":true,"cursor":false,"method":"2"}}'
     request_dict = json.loads(request_json)

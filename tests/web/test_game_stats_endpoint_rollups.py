@@ -149,6 +149,46 @@ def test_game_stats_prefers_game_daily_rollups_when_available(client, monkeypatc
     assert payload["dailySpeed"]["cardsData"] == [2, 1]
 
 
+def test_game_stats_includes_full_game_management_metadata(client):
+    game_id = "game-management-fields"
+
+    GamesTable(
+        id=game_id,
+        deck_id=4321,
+        title_original="Managed Game",
+        title_romaji="Kanri Game",
+        title_english="Managed Game EN",
+        game_type="Visual Novel",
+        description="Editable metadata",
+        image="raw-image",
+        character_count=12345,
+        difficulty=4,
+        links=[{"linkType": 4, "url": "https://vndb.org/v123"}],
+        completed=True,
+        release_date="2024-01-02",
+        manual_overrides=["title_original", "description"],
+        obs_scene_name="Managed Scene",
+        genres=["Mystery"],
+        tags=["Drama"],
+        character_summary="Protagonist, Heroine",
+        vndb_id="v123",
+        anilist_id="456",
+    ).save()
+
+    response = client.get(f"/api/game/{game_id}/stats")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+
+    assert payload["game"]["deck_id"] == 4321
+    assert payload["game"]["difficulty"] == 4
+    assert payload["game"]["release_date"] == "2024-01-02"
+    assert payload["game"]["manual_overrides"] == ["title_original", "description"]
+    assert payload["game"]["character_summary"] == "Protagonist, Heroine"
+    assert payload["game"]["vndb_id"] == "v123"
+    assert payload["game"]["anilist_id"] == "456"
+
+
 def test_game_stats_counts_media_only_cards_without_rollups(client):
     game_id = "game-media-only"
     today = datetime.date.today()

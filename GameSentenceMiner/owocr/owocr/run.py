@@ -297,6 +297,77 @@ def _size_dict(width, height):
     return {"width": _safe_int(width), "height": _safe_int(height)}
 
 
+def _normalize_segment_source_text(text):
+    return str(text or "").replace("BLANK_LINE", "\n").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _join_selected_blocks_with_source_separators(source_text, blocks, selected_indexes, fallback_separator="\n"):
+    selected_indexes = list(selected_indexes or [])
+    if not selected_indexes:
+        return ""
+
+    normalized_source = _normalize_segment_source_text(source_text)
+    normalized_blocks = [_normalize_segment_source_text(block) for block in (blocks or [])]
+    spans = []
+    cursor = 0
+
+    for block in normalized_blocks:
+        idx = normalized_source.find(block, cursor)
+        if idx < 0:
+            return fallback_separator.join(
+                normalized_blocks[i].strip() for i in selected_indexes if 0 <= i < len(normalized_blocks)
+            )
+        spans.append((idx, idx + len(block)))
+        cursor = idx + len(block)
+
+    result_parts = []
+    previous_selected_index = None
+
+    for selected_index in selected_indexes:
+        if not (0 <= selected_index < len(normalized_blocks)):
+            continue
+
+        block_text = normalized_blocks[selected_index].strip()
+        if not block_text:
+            continue
+
+        if previous_selected_index is not None:
+            if selected_index == previous_selected_index + 1:
+                previous_end = spans[previous_selected_index][1]
+                current_start = spans[selected_index][0]
+                separator = normalized_source[previous_end:current_start]
+            else:
+                separator = fallback_separator
+            result_parts.append(separator)
+
+        result_parts.append(block_text)
+        previous_selected_index = selected_index
+
+    return "".join(result_parts)
+
+
+def _rebuild_text_from_structured_result(raw_response_dict, coords, filtering):
+    if raw_response_dict and isinstance(raw_response_dict, dict) and "paragraphs" in raw_response_dict and filtering:
+        try:
+            ocr_result = dict_to_ocr_result(raw_response_dict)
+            if ocr_result:
+                ordered_ocr_result = filtering.order_paragraphs_and_lines(ocr_result)
+                return filtering.extract_text_from_ocr_result(ordered_ocr_result)
+        except Exception as e:
+            logger.warning(f"Error applying advanced layout analysis: {e}")
+
+    if isinstance(coords, list) and coords:
+        try:
+            return build_spatial_text(
+                [line_dict_to_spatial_entry(line) for line in coords if isinstance(line, dict)],
+                blank_line_token="BLANK_LINE",
+            )
+        except Exception as e:
+            logger.warning(f"Error rebuilding text from OCR geometry: {e}")
+
+    return None
+
+
 def _normalize_queue_item(item, default_filter=False):
     if isinstance(item, tuple):
         if len(item) >= 3:
@@ -1698,6 +1769,7 @@ class TextFiltering:
                 block_compare = self.latin_extended_regex.findall(block)
             return "".join(block_compare) if block_compare else None
 
+        source_text = _normalize_segment_source_text(text)
         orig_text = self.segmenter.segment(text)
         orig_text_filtered = []
         orig_text_compare = []
@@ -1792,27 +1864,29 @@ class TextFiltering:
 
         all_blocks = []
         new_blocks = []
+        new_block_indexes = []
         for idx, block in enumerate(orig_text):
             if orig_text_filtered[idx]:
                 all_blocks.append(str(block).strip().replace("BLANK_LINE", "\n"))
             if orig_text_compare[idx] and (orig_text_compare[idx] not in last_text):
                 new_blocks.append(str(block).strip().replace("BLANK_LINE", "\n"))
+                new_block_indexes.append(idx)
 
-        final_blocks = []
+        selected_block_indexes = []
         if self.accurate_filtering:
             detection_results = self.pipe(new_blocks, top_k=3, truncation=True)
             for idx, block in enumerate(new_blocks):
                 for result in detection_results[idx]:
                     if result["label"] == lang:
-                        final_blocks.append(block)
+                        selected_block_indexes.append(new_block_indexes[idx])
                         break
         else:
-            for block in new_blocks:
+            for idx, block in enumerate(new_blocks):
                 # This only filters out NON JA/ZH from text when lang is JA/ZH
                 if lang not in ["ja", "zh"] or self.classify(block)[0] in ["ja", "zh"] or block == "\n":
-                    final_blocks.append(block)
+                    selected_block_indexes.append(new_block_indexes[idx])
 
-        text = "\n".join(final_blocks)
+        text = _join_selected_blocks_with_source_separators(source_text, orig_text, selected_block_indexes)
         return text, all_blocks
 
 
@@ -3137,18 +3211,9 @@ def process_and_write_results(
                 return "", "", detection_payload
             return str(detection_payload), str(detection_payload)
 
-        # New Layout Analysis Logic
-        if raw_response_dict and isinstance(raw_response_dict, dict) and "paragraphs" in raw_response_dict:
-            try:
-                ocr_result = dict_to_ocr_result(raw_response_dict)
-                if ocr_result and filtering:
-                    # Apply improved layout ordering and furigana filtering
-                    ordered_ocr_result = filtering.order_paragraphs_and_lines(ocr_result)
-
-                    # Regenerate text string from ordered result
-                    text = filtering.extract_text_from_ocr_result(ordered_ocr_result)
-            except Exception as e:
-                logger.warning(f"Error applying advanced layout analysis: {e}")
+        rebuilt_text = _rebuild_text_from_structured_result(raw_response_dict, coords, filtering)
+        if rebuilt_text is not None:
+            text = rebuilt_text
 
         if isinstance(text, list):
             for i, line in enumerate(text):
