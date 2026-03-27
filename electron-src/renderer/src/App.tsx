@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { LauncherTab } from "./components/tabs/LauncherTab";
-import { OCRTab } from "./components/tabs/OCRTab";
 import { SettingsTab } from "./components/tabs/SettingsTab";
 import { SetupWizard } from "./components/SetupWizard";
 import type { ControlledTab } from "./types/models";
+import { OCRTab } from "./components/tabs/OCRTab";
 
 type TabId =
   | "obs"

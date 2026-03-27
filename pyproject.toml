@@ -124,3 +124,6 @@ force-exclude = true
 extend-exclude = [
   "GameSentenceMiner/owocr/owocr/lens_protos/*_pb2.py",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"GameSentenceMiner/obs/__init__.py" = ["E402", "F401"]

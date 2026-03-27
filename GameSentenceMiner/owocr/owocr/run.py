@@ -3339,6 +3339,9 @@ def check_text_is_all_menu(crop_coords: tuple, crop_coords_list: list, crop_offs
     original_width = obs_screenshot_thread.width
     original_height = obs_screenshot_thread.height
 
+    if original_width is None or original_height is None:
+        return False
+
     ocr_config = get_scaled_scene_ocr_config(original_width, original_height)
 
     # Early exit if no secondary rectangles are defined
