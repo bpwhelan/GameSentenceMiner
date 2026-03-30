@@ -86,6 +86,96 @@ def test_run_oneocr_uses_manual_combo_in_manual_mode(monkeypatch):
     assert captured["screen_capture_combo"] == "<alt>+b"
 
 
+def test_no_text_similarity_backoff_only_starts_after_no_text_cap():
+    assert (
+        run_module._should_check_no_text_similarity(
+            base_scan_rate=0.5,
+            sleep_time_to_add=0.49,
+            sleep_reason="no_text",
+        )
+        is False
+    )
+
+    assert (
+        run_module._should_check_no_text_similarity(
+            base_scan_rate=0.5,
+            sleep_time_to_add=0.5,
+            sleep_reason="no_text",
+        )
+        is True
+    )
+
+    assert (
+        run_module._should_check_no_text_similarity(
+            base_scan_rate=0.5,
+            sleep_time_to_add=3.0,
+            sleep_reason="identical",
+        )
+        is False
+    )
+
+
+def test_no_text_similarity_backoff_requires_cached_last_image():
+    assert (
+        run_module._can_check_no_text_similarity(
+            base_scan_rate=0.5,
+            sleep_time_to_add=0.5,
+            sleep_reason="no_text",
+            last_image=None,
+            last_image_np=None,
+        )
+        is False
+    )
+
+    assert (
+        run_module._can_check_no_text_similarity(
+            base_scan_rate=0.5,
+            sleep_time_to_add=0.5,
+            sleep_reason="no_text",
+            last_image=object(),
+            last_image_np=object(),
+        )
+        is True
+    )
+
+
+def test_update_image_comparison_cache_copies_image_and_builds_numpy_cache():
+    img = Image.new("RGB", (3, 2), color=(10, 20, 30))
+
+    cached_image, cached_image_np = run_module._update_image_comparison_cache(None, img)
+
+    assert cached_image is not img
+    assert cached_image.size == img.size
+    assert cached_image_np.shape == (2, 3, 3)
+    assert tuple(cached_image_np[0, 0]) == (10, 20, 30)
+
+
+def test_no_text_similarity_backoff_extends_beyond_normal_cap():
+    sleep_time_to_add, sleep_reason = run_module._update_no_text_similarity_sleep_state(
+        base_scan_rate=0.5,
+        sleep_time_to_add=0.5,
+        sleep_reason="no_text",
+        is_similar=True,
+    )
+
+    assert sleep_reason == "no_text_similar"
+    assert sleep_time_to_add > 0.5
+    assert run_module._get_adjusted_scan_rate(0.5, sleep_time_to_add, sleep_reason) > 1.0
+
+
+def test_no_text_similarity_backoff_clamps_back_to_normal_cap_when_frame_changes():
+    sleep_time_to_add, sleep_reason = run_module._update_no_text_similarity_sleep_state(
+        base_scan_rate=0.5,
+        sleep_time_to_add=2.75,
+        sleep_reason="no_text_similar",
+        is_similar=False,
+    )
+
+    assert sleep_reason == "no_text"
+    assert sleep_time_to_add == 0.5
+    assert run_module._get_adjusted_scan_rate(0.5, sleep_time_to_add, sleep_reason) == 1.0
+
+
 def test_apply_ocr_config_to_image_supports_grayscale_masking():
     img = Image.new("L", (12, 12), color=255)
     config = SimpleNamespace(

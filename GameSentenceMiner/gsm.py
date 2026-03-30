@@ -46,6 +46,7 @@ def handle_error_in_initialization(exc: Exception) -> None:
 
 
 try:
+    import atexit
     import asyncio
     import os
     import shutil
@@ -126,10 +127,76 @@ if os.name == "nt":
 
 
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+_instance_lock_handle = None
 
 
 def _is_running_under_electron() -> bool:
     return os.getenv("GSM_ELECTRON", "").strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _acquire_single_instance_lock() -> bool:
+    global _instance_lock_handle
+    if _instance_lock_handle is not None:
+        return True
+
+    lock_path = os.path.join(get_app_directory(), "gsm_single_instance.lock")
+    handle = open(lock_path, "a+")
+
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            existing = handle.read(1)
+            if not existing:
+                handle.seek(0)
+                handle.write("0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+        handle.seek(0)
+        handle.truncate()
+        handle.write(str(os.getpid()))
+        handle.flush()
+        _instance_lock_handle = handle
+        return True
+    except OSError:
+        handle.close()
+        return False
+
+
+def _release_single_instance_lock() -> None:
+    global _instance_lock_handle
+    handle = _instance_lock_handle
+    _instance_lock_handle = None
+    if handle is None:
+        return
+
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except Exception:
+        pass
+    finally:
+        try:
+            handle.close()
+        except Exception:
+            pass
+
+
+atexit.register(_release_single_instance_lock)
 
 
 def _get_anki_module():
@@ -905,7 +972,12 @@ class GSMApplication:
         if not gsm_state.keep_running:
             return
 
-        await obs.connect_to_obs(connections=3, check_output=True)
+        await obs.connect_to_obs(
+            connections=2,
+            check_output=True,
+            healthcheck_enabled=True,
+            start_manager=True,
+        )
         if not gsm_status.obs_connected:
             return
 
@@ -952,9 +1024,13 @@ class GSMApplication:
         )
 
     async def check_if_script_is_running(self) -> bool:
-        if os.path.exists(os.path.join(get_app_directory(), "current_pid.txt")):
-            with open(os.path.join(get_app_directory(), "current_pid.txt"), "r") as f:
+        pid_path = os.path.join(get_app_directory(), "current_pid.txt")
+        current_pid = os.getpid()
+        if os.path.exists(pid_path):
+            with open(pid_path, "r") as f:
                 pid = int(f.read().strip())
+                if pid == current_pid:
+                    return False
                 if psutil.pid_exists(pid) and "python" in psutil.Process(pid).name().lower():
                     logger.info(f"Script is already running with PID: {pid}")
                     psutil.Process(pid).terminate()
@@ -1038,7 +1114,13 @@ For more information, see: https://github.com/bpwhelan/GameSentenceMiner
         )
         sys.exit(0)
     try:
+        if not _acquire_single_instance_lock():
+            logger.info("GSM is already running. Exiting duplicate startup.")
+            return
         app = GSMApplication()
+        if asyncio.run(app.check_if_script_is_running()):
+            return
+        asyncio.run(app.log_current_pid())
         app.run()
     except KeyboardInterrupt:
         sys.exit(0)

@@ -756,7 +756,12 @@ def main():
     else:
         try:
             logger.info("Connecting to OBS...")
-            obs.connect_to_obs_sync()
+            obs.connect_to_obs_sync(
+                connections=1,
+                check_output=False,
+                healthcheck_enabled=False,
+                start_manager=False,
+            )
         except Exception as e:
             logger.error(
                 f"Failed to connect to OBS. Please ensure OBS is running and the WebSocket server is enabled. Error: {e}"

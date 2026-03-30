@@ -249,7 +249,12 @@ class OWOCRAreaSelectorWidget(QWidget):
                 logger.info("Initializing monitor capture mode...")
                 self._init_monitor_capture()
                 logger.info("Connecting to OBS...")
-                obs.connect_to_obs_sync()
+                obs.connect_to_obs_sync(
+                    connections=1,
+                    check_output=False,
+                    healthcheck_enabled=False,
+                    start_manager=False,
+                )
                 logger.info("Getting current scene...")
                 self.scene = obs.get_current_scene()
                 logger.info(f"Current scene: {self.scene}")
@@ -258,7 +263,12 @@ class OWOCRAreaSelectorWidget(QWidget):
                     self._load_existing_overlay_rectangles()
             else:
                 logger.info("Connecting to OBS...")
-                obs.connect_to_obs_sync()
+                obs.connect_to_obs_sync(
+                    connections=1,
+                    check_output=False,
+                    healthcheck_enabled=False,
+                    start_manager=False,
+                )
                 logger.info("Getting current scene...")
                 self.scene = obs.get_current_scene()
                 logger.info(f"Current scene: {self.scene}")

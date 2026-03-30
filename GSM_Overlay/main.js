@@ -133,9 +133,11 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "weburl1": DEFAULT_ENFORCED_PLAINTEXT_WS_URL,
   "weburl2": DEFAULT_ENFORCED_OVERLAY_WS_URL,
   "hideOnStartup": true,
+  "openSettingsOnStartup": true,
   "focusOverlayOnYomitanLookup": false,
   "manualMode": false,
   "manualModeType": "hold", // "hold" or "toggle"
+  "manualModeRescanOnShow": false,
   "showHotkey": DEFAULT_MANUAL_HOTKEY,
   "toggleFuriganaHotkey": "Alt+F",
   "toggleWindowHotkey": "Alt+Shift+H",
@@ -1040,17 +1042,69 @@ function loadOverlayPage(win, relativePath) {
   return win.loadFile(relativePath);
 }
 
+const EXTENSION_READY_TIMEOUT_MS = 15000;
+
+function getExtensionSessionApi() {
+  const extensionsApi = session.defaultSession?.extensions;
+  if (extensionsApi) {
+    return {
+      events: extensionsApi,
+      loadExtension: (extensionPath, options) => extensionsApi.loadExtension(extensionPath, options),
+      removeExtension: (extensionId) => extensionsApi.removeExtension(extensionId),
+    };
+  }
+
+  return {
+    events: session.defaultSession,
+    loadExtension: (extensionPath, options) => session.defaultSession.loadExtension(extensionPath, options),
+    removeExtension: (extensionId) => session.defaultSession.removeExtension(extensionId),
+  };
+}
+
 async function loadExtension(name) {
   const extDir = isDev ? path.join(__dirname, name) : path.join(process.resourcesPath, name);
   const extTargetDir = ensureExtensionCopy(name, extDir);
+  const extensionApi = getExtensionSessionApi();
+  const observedReadyIds = new Set();
+  let readyTimeout = null;
+  let resolveReady;
+  let loadedExt = null;
+  const onExtensionReady = (_event, extension) => {
+    const extensionId = extension && typeof extension.id === 'string' ? extension.id : null;
+    if (!extensionId) {
+      return;
+    }
+    observedReadyIds.add(extensionId);
+    if (loadedExt && extensionId === loadedExt.id) {
+      clearTimeout(readyTimeout);
+      resolveReady();
+    }
+  };
+  const readyPromise = new Promise((resolve) => {
+    resolveReady = resolve;
+    readyTimeout = setTimeout(() => {
+      console.warn(`[Extensions] Timed out waiting for ${name} extension-ready event after ${EXTENSION_READY_TIMEOUT_MS}ms`);
+      resolve();
+    }, EXTENSION_READY_TIMEOUT_MS);
+  });
+
   try {
-    const loadedExt = await session.defaultSession.loadExtension(extTargetDir, { allowFileAccess: true });
+    extensionApi.events.on('extension-ready', onExtensionReady);
+    loadedExt = await extensionApi.loadExtension(extTargetDir, { allowFileAccess: true });
+    if (observedReadyIds.has(loadedExt.id)) {
+      clearTimeout(readyTimeout);
+      resolveReady();
+    }
+    await readyPromise;
     console.log(`${name} extension loaded.`);
     console.log('Extension ID:', loadedExt.id);
     return loadedExt;
   } catch (e) {
     console.error(`Failed to load extension ${name}:`, e);
     return null;
+  } finally {
+    clearTimeout(readyTimeout);
+    extensionApi.events.off('extension-ready', onExtensionReady);
   }
 }
 
@@ -1418,6 +1472,11 @@ if (hasPersistedOverlaySettings) {
 
     if (!Object.prototype.hasOwnProperty.call(oldUserSettings, "hideOnStartup")) {
       userSettings.hideOnStartup = true;
+      shouldPersistOverlaySettings = true;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(oldUserSettings, "openSettingsOnStartup")) {
+      userSettings.openSettingsOnStartup = true;
       shouldPersistOverlaySettings = true;
     }
 
@@ -1821,6 +1880,21 @@ function releaseAllOverlayPauseRequests() {
   requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
   requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
   requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
+}
+
+function requestManualOverlayScan(source = "overlay") {
+  const safeSource = String(source || "overlay");
+  if (!backend || !backend.connected) {
+    console.warn(`[OverlayScan] Cannot request manual overlay scan: backend not connected (source=${safeSource})`);
+    return false;
+  }
+
+  backend.send({
+    type: "manual-overlay-scan-request",
+    source: safeSource,
+  });
+  console.log(`[OverlayScan] Manual overlay scan requested (source=${safeSource})`);
+  return true;
 }
 
 function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY) {
@@ -2262,7 +2336,10 @@ function registerManualShowHotkey(oldHotkey) {
 
   // Helper: Consolidated Show Logic
   const showOverlay = (triggerSource) => {
-    showOverlayUsingManualFlow(`ManualHotkey ${triggerSource}`, OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+    const shown = showOverlayUsingManualFlow(`ManualHotkey ${triggerSource}`, OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+    if (shown && userSettings.manualModeRescanOnShow) {
+      requestManualOverlayScan("manual-mode-enter");
+    }
   };
 
   // Helper: Consolidated Hide Logic
@@ -3403,6 +3480,9 @@ app.whenReady().then(async () => {
     }
 
     // Start the activity timer
+    if (userSettings.openSettingsOnStartup) {
+      openSettings();
+    }
     resetActivityTimer();
   });
 
@@ -3422,25 +3502,10 @@ app.whenReady().then(async () => {
     openJitenReaderSettings();
   });
 
-  function requestManualOverlayScanFromOverlay(source = "overlay") {
-    const safeSource = String(source || "overlay");
-    if (!backend || !backend.connected) {
-      console.warn(`[OverlayScan] Cannot request manual overlay scan: backend not connected (source=${safeSource})`);
-      return false;
-    }
-
-    backend.send({
-      type: "manual-overlay-scan-request",
-      source: safeSource,
-    });
-    console.log(`[OverlayScan] Manual overlay scan requested (source=${safeSource})`);
-    return true;
-  }
-
   // Action panel button handlers
   ipcMain.on("action-scan", () => {
     console.log("Action: Scan requested from overlay");
-    requestManualOverlayScanFromOverlay("overlay-action-panel");
+    requestManualOverlayScan("overlay-action-panel");
   });
 
   ipcMain.on("action-translate", () => {
@@ -3713,7 +3778,7 @@ app.whenReady().then(async () => {
             // Disable
             if (jitenReaderExt) {
                 try {
-                    session.defaultSession.removeExtension(jitenReaderExt.id);
+                    getExtensionSessionApi().removeExtension(jitenReaderExt.id);
                     jitenReaderExt = null;
                     console.log("Jiten Reader disabled and unloaded.");
                 } catch (e) {
@@ -3988,7 +4053,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("gamepad-manual-overlay-scan", () => {
-    requestManualOverlayScanFromOverlay("gamepad");
+    requestManualOverlayScan("gamepad");
   });
 
   // Handler to manually send navigation commands (can be triggered from other sources)

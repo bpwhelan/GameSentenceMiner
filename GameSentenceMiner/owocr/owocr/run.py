@@ -2307,24 +2307,34 @@ def apply_adaptive_threshold_filter(img):
     return Image.fromarray(result)
 
 
-def set_last_image(image):
-    global last_image, last_image_np
-    if image is None:
-        last_image = None
-        last_image_np = None
+def _close_cached_image(image):
     try:
-        if image == last_image:
-            return
-    except Exception:
-        last_image = None
-        return
-    try:
-        if last_image is not None and hasattr(last_image, "close"):
-            last_image.close()
+        if image is not None and hasattr(image, "close"):
+            image.close()
     except Exception:
         pass
-    last_image = image
-    last_image_np = np.array(last_image)
+
+
+def _update_image_comparison_cache(cached_image, image):
+    if image is None:
+        _close_cached_image(cached_image)
+        return None, None
+
+    try:
+        cached_snapshot = image.copy() if isinstance(image, Image.Image) else image
+        cached_snapshot_np = np.array(cached_snapshot)
+    except Exception:
+        logger.debug("Failed to cache image for comparison.")
+        _close_cached_image(cached_image)
+        return None, None
+
+    _close_cached_image(cached_image)
+    return cached_snapshot, cached_snapshot_np
+
+
+def set_last_image(image):
+    global last_image, last_image_np
+    last_image, last_image_np = _update_image_comparison_cache(last_image, image)
     # last_image = apply_adaptive_threshold_filter(image)
 
 
@@ -2431,6 +2441,9 @@ def calculate_ssim_score(imageA: ImageType, imageB: ImageType) -> float:
     return score
 
 
+showed = False
+
+
 def are_images_similar(imageA: Image.Image, imageB: Image.Image, threshold: float = 0.98) -> bool:
     """
     Compares two images and returns True if their similarity score is above a threshold.
@@ -2445,15 +2458,93 @@ def are_images_similar(imageA: Image.Image, imageB: Image.Image, threshold: floa
     Returns:
         True if the images are similar, False otherwise.
     """
+    return False
     if None in (imageA, imageB):
         logger.info("One of the images is None, cannot compare.")
         return False
     try:
+        global showed
+        if not showed:
+            imageA.show()
+            imageB.show()
+            showed = True
         score = calculate_ssim_score(imageA, imageB)
+        logger.info(f"SSIM score between images: {score}")
     except Exception as e:
         logger.info(e)
         return False
     return score > threshold
+
+
+EMPTY_SCAN_RATE_MAX = 5.0
+NO_TEXT_SCAN_RATE_MAX = 2.0
+NO_TEXT_SIMILAR_SCAN_RATE_MAX = 5.0
+NO_TEXT_SLEEP_INCREMENT = 0.005
+NO_TEXT_SIMILAR_SLEEP_INCREMENT = 0.25
+NO_TEXT_SIMILARITY_THRESHOLD = 0.98
+
+
+def _get_sleep_scan_rate_cap(base_scan_rate: float, sleep_reason: str) -> float:
+    if sleep_reason in ("empty", "no_text_similar"):
+        return EMPTY_SCAN_RATE_MAX
+    return NO_TEXT_SCAN_RATE_MAX
+
+
+def _get_adjusted_scan_rate(base_scan_rate: float, sleep_time_to_add: float, sleep_reason: str) -> float:
+    return max(
+        base_scan_rate, min(base_scan_rate + sleep_time_to_add, _get_sleep_scan_rate_cap(base_scan_rate, sleep_reason))
+    )
+
+
+def _get_sleep_add_for_target_rate(base_scan_rate: float, target_scan_rate: float) -> float:
+    return max(0.0, target_scan_rate - base_scan_rate)
+
+
+def _get_no_text_scan_rate_cap(base_scan_rate: float) -> float:
+    return max(base_scan_rate, NO_TEXT_SCAN_RATE_MAX)
+
+
+def _should_check_no_text_similarity(base_scan_rate: float, sleep_time_to_add: float, sleep_reason: str) -> bool:
+    if sleep_reason not in ("no_text", "no_text_similar"):
+        return False
+    current_scan_rate = _get_adjusted_scan_rate(base_scan_rate, sleep_time_to_add, sleep_reason)
+    return current_scan_rate >= _get_no_text_scan_rate_cap(base_scan_rate)
+
+
+def _can_check_no_text_similarity(
+    base_scan_rate: float,
+    sleep_time_to_add: float,
+    sleep_reason: str,
+    last_image,
+    last_image_np,
+) -> bool:
+    return (
+        last_image is not None
+        and last_image_np is not None
+        and _should_check_no_text_similarity(base_scan_rate, sleep_time_to_add, sleep_reason)
+    )
+
+
+def _update_no_text_similarity_sleep_state(
+    base_scan_rate: float,
+    sleep_time_to_add: float,
+    sleep_reason: str,
+    is_similar: bool,
+) -> tuple[float, str]:
+    if is_similar:
+        max_sleep_add = max(0.0, NO_TEXT_SIMILAR_SCAN_RATE_MAX - base_scan_rate)
+        min_sleep_add = _get_sleep_add_for_target_rate(base_scan_rate, _get_no_text_scan_rate_cap(base_scan_rate))
+        next_sleep_add = max(sleep_time_to_add, min_sleep_add) + NO_TEXT_SIMILAR_SLEEP_INCREMENT
+        return min(next_sleep_add, max_sleep_add), "no_text_similar"
+
+    if sleep_reason == "no_text_similar":
+        sleep_time_to_add = min(
+            sleep_time_to_add,
+            _get_sleep_add_for_target_rate(base_scan_rate, _get_no_text_scan_rate_cap(base_scan_rate)),
+        )
+        return sleep_time_to_add, "no_text"
+
+    return sleep_time_to_add, sleep_reason
 
 
 def quick_text_detection(pil_image, threshold_ratio=0.01):
@@ -2527,7 +2618,12 @@ class OBSScreenshotThread(threading.Thread):
     def connect_obs(self):
         import GameSentenceMiner.obs as obs
 
-        obs.connect_to_obs_sync(check_output=False)
+        obs.connect_to_obs_sync(
+            connections=2,
+            check_output=False,
+            healthcheck_enabled=False,
+            start_manager=False,
+        )
 
     def refresh_source_name(self, force=False, suppress_errors=False):
         import GameSentenceMiner.obs as obs
@@ -3792,11 +3888,11 @@ def run(
     last_result_time = time.time()
     has_seen_text_result = False
     sleep_reason = ""
+    last_no_text_compare_image = None
+    last_no_text_compare_image_np = None
 
     def get_adjusted_scan_rate():
-        base_scan_rate = get_ocr_scan_rate()
-        max_scan_rate = 5 if sleep_reason == "empty" else 1
-        return max(base_scan_rate, min(base_scan_rate + sleep_time_to_add, max_scan_rate))
+        return _get_adjusted_scan_rate(get_ocr_scan_rate(), sleep_time_to_add, sleep_reason)
 
     while not terminated:
         ocr_start_time = datetime.now()
@@ -3843,6 +3939,7 @@ def run(
             break
         elif img:
             if filter_img:
+                base_scan_rate = get_ocr_scan_rate()
                 # Check if the image is completely empty (all white or all black), this is pretty much 0 cpu usage and saves a lot of useless OCR attempts
                 try:
                     extrema = img.getextrema()
@@ -3853,8 +3950,7 @@ def run(
                         is_empty = extrema[0] == extrema[1]
                     if is_empty:
                         logger.background("Image is empty (all pixels same), sleeping.")
-                        base_scan_rate = get_ocr_scan_rate()
-                        max_empty_add = max(0, 5.0 - base_scan_rate)
+                        max_empty_add = max(0, EMPTY_SCAN_RATE_MAX - base_scan_rate)
                         if sleep_reason != "empty":
                             sleep_time_to_add = 0
                         sleep_reason = "empty"
@@ -3866,6 +3962,38 @@ def run(
                 if sleep_reason == "empty":
                     sleep_time_to_add = 0
                     sleep_reason = ""
+
+                if _can_check_no_text_similarity(
+                    base_scan_rate,
+                    sleep_time_to_add,
+                    sleep_reason,
+                    last_no_text_compare_image,
+                    last_no_text_compare_image_np,
+                ):
+                    is_similar = are_images_identical(img, last_no_text_compare_image, last_no_text_compare_image_np)
+                    if not is_similar:
+                        is_similar = are_images_similar(
+                            img,
+                            last_no_text_compare_image,
+                            threshold=NO_TEXT_SIMILARITY_THRESHOLD,
+                        )
+                    if is_similar:
+                        sleep_time_to_add, sleep_reason = _update_no_text_similarity_sleep_state(
+                            base_scan_rate,
+                            sleep_time_to_add,
+                            sleep_reason,
+                            is_similar=True,
+                        )
+                        logger.info(
+                            f"No-text frame still >= {NO_TEXT_SIMILARITY_THRESHOLD:.0%} similar to last OCR frame, extending sleep."
+                        )
+                        continue
+                    sleep_time_to_add, sleep_reason = _update_no_text_similarity_sleep_state(
+                        base_scan_rate,
+                        sleep_time_to_add,
+                        sleep_reason,
+                        is_similar=False,
+                    )
 
                 # Compare images, but only if it's one box, multiple boxes skews results way too much and produces false positives
                 # if ocr_config and len(ocr_config.rectangles) < 2:
@@ -3892,11 +4020,15 @@ def run(
                     furigana_filter_sensitivity=None if get_ocr_two_pass_ocr() else get_furigana_filter_sensitivity(),
                     image_metadata=image_metadata,
                 )
+                last_no_text_compare_image, last_no_text_compare_image_np = _update_image_comparison_cache(
+                    last_no_text_compare_image,
+                    img,
+                )
                 if not text:
                     no_text_streak += 1
                     enough_idle_time = (time.time() - last_result_time) > 10
                     if no_text_streak > 1 and (not has_seen_text_result or enough_idle_time):
-                        sleep_time_to_add += 0.005
+                        sleep_time_to_add += NO_TEXT_SLEEP_INCREMENT
                         sleep_reason = "no_text"
                         logger.background("No text detected, sleeping.")
                     else:
@@ -3948,6 +4080,7 @@ def run(
         key_combo_listener.stop()
     if config_check_thread:
         config_check_thread.join()
+    _close_cached_image(last_no_text_compare_image)
 
 
 def get_engine_names():

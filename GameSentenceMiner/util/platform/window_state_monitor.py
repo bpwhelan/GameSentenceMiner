@@ -1429,8 +1429,8 @@ class WindowStateMonitor:
 
             # Allow small tolerance (1-2 pixels) for matching
             matches_monitor = (
-                abs(window_rect.left - mon_rect.left) <= 2
-                and abs(window_rect.top - mon_rect.top) <= 2
+                abs(window_left - mon_rect.left) <= 2
+                and abs(window_top - mon_rect.top) <= 2
                 and abs(window_width - monitor_width) <= 2
                 and abs(window_height - monitor_height) <= 2
             )

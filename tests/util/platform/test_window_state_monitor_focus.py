@@ -1,6 +1,8 @@
 import asyncio
 import importlib
 
+import pytest
+
 
 window_state_monitor = importlib.import_module("GameSentenceMiner.util.platform.window_state_monitor")
 
@@ -149,3 +151,30 @@ def test_activate_target_window_retries_until_helper_succeeds(monkeypatch):
     assert asyncio.run(monitor.activate_target_window()) is True
     assert attempt_numbers == [(20, 1), (20, 2)]
     assert sleep_delays == [0.08]
+
+
+def test_is_exclusive_fullscreen_accepts_tuple_window_rects(monkeypatch):
+    if not hasattr(window_state_monitor, "MONITORINFO"):
+        pytest.skip("Windows-only monitor APIs")
+
+    class _FakeUser32:
+        def GetWindowLongW(self, _hwnd, _index):
+            return window_state_monitor.WS_POPUP
+
+        def MonitorFromWindow(self, _hwnd, _flag):
+            return 500
+
+        def GetMonitorInfoW(self, _monitor, info_ptr):
+            info = info_ptr._obj
+            info.rcMonitor.left = 0
+            info.rcMonitor.top = 0
+            info.rcMonitor.right = 1920
+            info.rcMonitor.bottom = 1080
+            return 1
+
+    monkeypatch.setattr(window_state_monitor, "user32", _FakeUser32())
+    monkeypatch.setattr(window_state_monitor, "get_window_rect_physical", lambda _hwnd: (0, 0, 1920, 1080))
+
+    monitor = window_state_monitor.WindowStateMonitor()
+
+    assert monitor._is_exclusive_fullscreen(123) is True

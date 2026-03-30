@@ -2623,7 +2623,12 @@ if __name__ == "__main__":
         obs_ocr = args.obs_ocr
         global_pause_hotkey = _normalize_hotkey_for_keyboard(args.global_pause_hotkey, "ctrl+shift+p")
 
-        obs.connect_to_obs_sync(check_output=False)
+        obs.connect_to_obs_sync(
+            connections=2,
+            check_output=False,
+            healthcheck_enabled=False,
+            start_manager=False,
+        )
 
         # Override furigana from per-scene settings (takes priority over CLI arg)
         try:

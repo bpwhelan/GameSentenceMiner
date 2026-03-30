@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import contextlib
 import io
@@ -10,6 +11,9 @@ import pytest
 
 import GameSentenceMiner.obs as obs
 import GameSentenceMiner.obs as obs_module
+import GameSentenceMiner.obs.actions as obs_actions_module
+import GameSentenceMiner.obs.launch as obs_launch_module
+import GameSentenceMiner.obs.service as obs_service_module
 
 
 def _valid_test_image():
@@ -32,11 +36,11 @@ def _make_obs_service(monkeypatch):
         def connect_all(self):
             pass
 
-    monkeypatch.setattr(obs_module, "OBSConnectionPool", _DummyConnectionPool)
-    monkeypatch.setattr(obs_module.obs, "EventClient", lambda *args, **kwargs: object())
-    monkeypatch.setattr(obs_module.OBSService, "_register_default_handlers", lambda self: None)
-    monkeypatch.setattr(obs_module.OBSService, "_initialize_state", lambda self: None)
-    return obs_module.OBSService("localhost", 4455, "", check_output=False)
+    monkeypatch.setattr(obs_service_module, "OBSConnectionPool", _DummyConnectionPool)
+    monkeypatch.setattr(obs_service_module.obs, "EventClient", lambda *args, **kwargs: object())
+    monkeypatch.setattr(obs_service_module.OBSService, "_register_default_handlers", lambda self: None)
+    monkeypatch.setattr(obs_service_module.OBSService, "_initialize_state", lambda self: None)
+    return obs_service_module.OBSService("localhost", 4455, "", check_output=False)
 
 
 def test_sort_video_sources_by_preference_prefers_game_capture():
@@ -229,6 +233,35 @@ def test_reconcile_capture_source_visibility_disables_window_same_tick_when_game
     ]
 
 
+def test_probe_source_has_output_skips_screenshot_when_target_window_is_missing(monkeypatch):
+    service = obs.OBSService.__new__(obs.OBSService)
+    service._state_lock = threading.Lock()
+    service.state = obs.OBSState()
+    service._get_input_settings_for_source = lambda source_name: {"window": "Game Window:UnrealWindow:game.exe"}
+
+    monkeypatch.setattr(obs_service_module, "_window_target_exists", lambda target: False)
+    monkeypatch.setattr(
+        obs_service_module,
+        "get_screenshot_PIL_from_source",
+        lambda *args, **kwargs: pytest.fail(
+            "Screenshot probe should be skipped when the OBS target window is missing."
+        ),
+        raising=False,
+    )
+
+    assert service._probe_source_has_output("Window Source") is False
+
+
+def test_parse_obs_window_target_preserves_colons_in_title():
+    parsed = obs.parse_obs_window_target("Game: Chapter 1:UnrealWindow:game.exe")
+
+    assert parsed == {
+        "title": "Game: Chapter 1",
+        "window_class": "UnrealWindow",
+        "exe": "game.exe",
+    }
+
+
 def test_build_scheduled_tick_options_respects_intervals():
     service = obs.OBSService.__new__(obs.OBSService)
     service.tick_intervals = obs.OBSTickIntervals(
@@ -249,6 +282,7 @@ def test_build_scheduled_tick_options_respects_intervals():
         "manage_replay_buffer": 198.5,
         "full_state_refresh": 150.0,
     }
+    service._fit_to_screen_grace_deadline = 250.0
 
     options = service.build_scheduled_tick_options(now=200.0)
 
@@ -259,6 +293,113 @@ def test_build_scheduled_tick_options_respects_intervals():
     assert options.output_probe is False
     assert options.manage_replay_buffer is True
     assert options.refresh_full_state is False
+
+
+def test_build_scheduled_tick_options_skips_fit_to_screen_outside_grace_window():
+    service = obs.OBSService.__new__(obs.OBSService)
+    service.tick_intervals = obs.OBSTickIntervals(fit_to_screen_seconds=20.0)
+    service._tick_last_run_by_operation = {"fit_to_screen": 100.0}
+    service._fit_to_screen_grace_deadline = 150.0
+
+    options = service.build_scheduled_tick_options(now=200.0)
+
+    assert options.fit_to_screen is False
+
+
+def test_initialize_state_opens_fit_to_screen_window_on_first_success(monkeypatch):
+    class _FakeClient:
+        def get_current_program_scene(self):
+            return SimpleNamespace(scene_name="Boot Scene")
+
+        def get_output_list(self):
+            return SimpleNamespace(outputs=[])
+
+    class _FakePool:
+        def call(self, operation, retries=0):
+            assert retries >= 0
+            return operation(_FakeClient())
+
+    service = obs.OBSService.__new__(obs.OBSService)
+    service._state_lock = threading.Lock()
+    service.state = obs.OBSState()
+    service.connection_pool = _FakePool()
+    service.check_output = False
+    service.initialized = False
+    service._fit_to_screen_grace_deadline = 0.0
+    service._refresh_scene_items = lambda scene_name, client=None: None
+    service._update_output_cache = lambda outputs: None
+
+    monkeypatch.setattr(obs_module.time, "time", lambda: 100.0)
+
+    service._initialize_state()
+
+    assert service.initialized is True
+    assert service._fit_to_screen_grace_deadline == 160.0
+
+
+def test_refresh_scene_items_ignores_unexpected_response_shape(monkeypatch):
+    service = obs.OBSService.__new__(obs.OBSService)
+    service._state_lock = threading.Lock()
+    service.state = obs.OBSState(
+        current_scene="Test Scene",
+        current_source_name="Existing Source",
+        scene_items_by_scene={"Test Scene": [{"sourceName": "Existing Source", "inputKind": "window_capture"}]},
+    )
+
+    warning_calls = []
+    bad_response = type("GetInputSettingsDataclass", (), {"input_settings": {"window": "bad"}})
+    client = SimpleNamespace(get_scene_item_list=lambda name: bad_response)
+
+    monkeypatch.setattr(obs_service_module.logger, "warning", lambda message: warning_calls.append(message))
+
+    service._refresh_scene_items("Test Scene", client=client)
+
+    assert service.state.scene_items_by_scene["Test Scene"] == [
+        {"sourceName": "Existing Source", "inputKind": "window_capture"}
+    ]
+    assert service.state.current_source_name == "Existing Source"
+    assert warning_calls == [
+        "OBS returned unexpected scene item list response for 'Test Scene': GetInputSettingsDataclass"
+    ]
+
+
+def test_obs_service_constructor_initializes_flag_before_state_bootstrap(monkeypatch):
+    class _FakeClient:
+        def get_current_program_scene(self):
+            return SimpleNamespace(scene_name="Boot Scene")
+
+        def get_output_list(self):
+            return SimpleNamespace(outputs=[])
+
+    class _FakePool:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def connect_all(self):
+            pass
+
+        def call(self, operation, retries=0):
+            assert retries >= 0
+            return operation(_FakeClient())
+
+    class _FakeEventClient:
+        def __init__(self, *args, **kwargs):
+            self.callback = SimpleNamespace(register=lambda handler: None)
+
+    monkeypatch.setattr(obs_service_module, "OBSConnectionPool", _FakePool)
+    monkeypatch.setattr(obs_service_module.obs, "EventClient", _FakeEventClient)
+    monkeypatch.setattr(obs_service_module.time, "time", lambda: 100.0)
+    monkeypatch.setattr(
+        obs_service_module.OBSService, "_refresh_scene_items", lambda self, scene_name, client=None: None
+    )
+    monkeypatch.setattr(obs_service_module.OBSService, "_update_output_cache", lambda self, outputs: None)
+    monkeypatch.setattr(obs_service_module.gsm_state, "current_game", None, raising=False)
+
+    service = obs_service_module.OBSService("localhost", 4455, "", check_output=False)
+
+    assert service.initialized is True
+    assert service.state.current_scene == "Boot Scene"
+    assert service._fit_to_screen_grace_deadline == 160.0
 
 
 def test_replay_buffer_stop_request_survives_non_matching_state_event(monkeypatch):
@@ -305,9 +446,9 @@ def test_get_best_source_for_screenshot_falls_back_to_window_capture(monkeypatch
         {"sourceName": "Window Source", "inputKind": "window_capture"},
     ]
 
-    monkeypatch.setattr(obs, "get_active_video_sources", lambda: sources)
+    monkeypatch.setattr(obs_actions_module, "get_active_video_sources", lambda: sources)
     monkeypatch.setattr(
-        obs,
+        obs_actions_module,
         "get_screenshot_PIL_from_source",
         lambda source_name, *args, **kwargs: (
             Image.new("L", (4, 4), 0) if source_name == "Game Source" else _valid_test_image()
@@ -325,9 +466,9 @@ def test_get_best_source_for_screenshot_prefers_game_capture_when_it_has_output(
         {"sourceName": "Game Source", "inputKind": "game_capture"},
     ]
 
-    monkeypatch.setattr(obs, "get_active_video_sources", lambda: sources)
+    monkeypatch.setattr(obs_actions_module, "get_active_video_sources", lambda: sources)
     monkeypatch.setattr(
-        obs,
+        obs_actions_module,
         "get_screenshot_PIL_from_source",
         lambda source_name, *args, **kwargs: (
             _valid_test_image() if source_name == "Game Source" else Image.new("L", (4, 4), 0)
@@ -345,9 +486,9 @@ def test_get_best_source_for_screenshot_handles_rgb_image_validation(monkeypatch
         {"sourceName": "Window Source", "inputKind": "window_capture"},
     ]
 
-    monkeypatch.setattr(obs, "get_active_video_sources", lambda: sources)
+    monkeypatch.setattr(obs_actions_module, "get_active_video_sources", lambda: sources)
     monkeypatch.setattr(
-        obs,
+        obs_actions_module,
         "get_screenshot_PIL_from_source",
         lambda source_name, *args, **kwargs: (
             Image.new("RGB", (4, 4), (0, 0, 0)) if source_name == "Game Source" else _valid_test_image_rgb()
@@ -369,10 +510,13 @@ def test_obs_service_tick_applies_fit_before_screenshot_probe(monkeypatch):
     service._is_output_active_from_screenshot = lambda: None
     service._tick_last_run_by_operation = {}
     service.tick_intervals = obs.OBSTickIntervals()
+    service._pending_scene_item_refresh = None
+    service._scene_item_refresh_deadline = 0.0
+    service._scene_item_debounce_seconds = 2.0
 
     fit_calls = []
     monkeypatch.setattr(
-        obs,
+        obs_actions_module,
         "set_fit_to_screen_for_scene_items",
         lambda scene_name: fit_calls.append(scene_name),
     )
@@ -401,8 +545,8 @@ def test_get_best_source_for_screenshot_can_suppress_missing_source_logs(monkeyp
         kwargs_seen.append(kwargs)
         return None
 
-    monkeypatch.setattr(obs, "get_active_video_sources", fake_get_active_video_sources)
-    monkeypatch.setattr(obs.logger, "error", lambda message: logger_errors.append(message))
+    monkeypatch.setattr(obs_actions_module, "get_active_video_sources", fake_get_active_video_sources)
+    monkeypatch.setattr(obs_actions_module.logger, "error", lambda message: logger_errors.append(message))
 
     best_source = obs.get_best_source_for_screenshot(
         log_missing_source=False,
@@ -420,6 +564,10 @@ def test_get_active_video_sources_can_suppress_connection_errors(monkeypatch):
         def get_client(self):
             raise ConnectionError("OBS Client unavailable")
             yield
+
+        def call(self, operation, retries=0, retryable=True):
+            with self.get_client() as client:
+                return operation(client)
 
     logger_errors = []
     original_connection_pool = obs.connection_pool
@@ -447,9 +595,22 @@ def test_with_obs_client_retries_retryable_connection_errors(monkeypatch):
                 raise ConnectionError("socket is already closed")
             yield SimpleNamespace(answer="recovered")
 
+        def call(self, operation, retries=0, retryable=True):
+            max_attempts = 1 + (retries if retryable else 0)
+            last_exc = None
+            for i in range(max_attempts):
+                try:
+                    with self.get_client() as client:
+                        return operation(client)
+                except Exception as e:
+                    last_exc = e
+                    if not retryable or i >= max_attempts - 1:
+                        raise
+            raise last_exc
+
     monkeypatch.setattr(obs_module, "connection_pool", _RetryPool())
-    monkeypatch.setattr(obs_module.time, "sleep", lambda _seconds: None)
-    monkeypatch.setattr(obs_module.logger, "error", lambda message: logger_errors.append(message))
+    monkeypatch.setattr(obs_service_module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(obs_actions_module.logger, "error", lambda message: logger_errors.append(message))
 
     @obs_module.with_obs_client(default="fallback", error_msg="Retryable test call")
     def _decorated(client):
@@ -478,8 +639,21 @@ def test_get_screenshot_pil_from_source_retries_transient_failures(monkeypatch):
         def get_client(self):
             yield _RetryingClient()
 
+        def call(self, operation, retries=0, retryable=True):
+            max_attempts = 1 + (retries if retryable else 0)
+            last_exc = None
+            for i in range(max_attempts):
+                try:
+                    with self.get_client() as client:
+                        return operation(client)
+                except Exception as e:
+                    last_exc = e
+                    if not retryable or i >= max_attempts - 1:
+                        raise
+            raise last_exc
+
     monkeypatch.setattr(obs_module, "connection_pool", _RetryPool())
-    monkeypatch.setattr(obs_module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(obs_service_module.time, "sleep", lambda _seconds: None)
 
     image = obs_module.get_screenshot_PIL_from_source("Game Source", retry=2)
 
@@ -503,9 +677,11 @@ def test_obs_connection_pool_recreates_client_after_failed_use(monkeypatch):
         def disconnect(self):
             self.disconnected = True
 
-    monkeypatch.setattr(obs_module.obs, "ReqClient", _FakeClient)
+    monkeypatch.setattr(obs_service_module.obs, "ReqClient", _FakeClient)
+    monkeypatch.setattr(obs_service_module.time, "sleep", lambda _seconds: None)
 
     pool = obs_module.OBSConnectionPool(host="localhost", port=4455, password="", timeout=1)
+    pool.min_reconnect_interval = 0  # Allow immediate reconnect in tests
 
     with pytest.raises(RuntimeError):
         with pool.get_client() as client:
@@ -520,6 +696,133 @@ def test_obs_connection_pool_recreates_client_after_failed_use(monkeypatch):
     assert created_clients[0].disconnected is True
 
 
+def test_obs_connection_pool_healthcheck_client_is_independent(monkeypatch):
+    created_clients = []
+
+    class _FakeClient:
+        def __init__(self, **_kwargs):
+            created_clients.append(self)
+
+        def get_version(self):
+            return SimpleNamespace(obs_version="30.0.0")
+
+        def disconnect(self):
+            return None
+
+    monkeypatch.setattr(obs_service_module.obs, "ReqClient", _FakeClient)
+
+    pool = obs_service_module.OBSConnectionPool(
+        host="localhost",
+        port=4455,
+        password="",
+        timeout=1,
+    )
+
+    # Healthcheck client is a separate instance
+    hc = pool.get_healthcheck_client()
+    assert hc is not None
+    assert len(created_clients) == 1
+
+    # Reset creates a new one next time
+    pool.reset_healthcheck_client()
+    hc2 = pool.get_healthcheck_client()
+    assert hc2 is not hc
+    assert len(created_clients) == 2
+
+
+def test_wait_for_obs_ready_disconnects_probe_client(monkeypatch):
+    disconnected = []
+
+    class _FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def get_version(self):
+            return SimpleNamespace(obs_version="30.0.0")
+
+        def get_scene_list(self):
+            return SimpleNamespace(scenes=[{"sceneName": "Boot Scene"}])
+
+        def disconnect(self):
+            disconnected.append(True)
+
+    import obsws_python as _obsws
+
+    monkeypatch.setattr(obs_launch_module, "is_obs_websocket_reachable", lambda **_kwargs: True)
+    monkeypatch.setattr(_obsws, "ReqClient", _FakeClient)
+
+    assert asyncio.run(obs_launch_module.wait_for_obs_ready(timeout=0.1, interval=0)) is True
+    assert disconnected == [True]
+
+
+def test_connect_to_obs_sync_creates_service_and_manager(monkeypatch):
+    """Verify connect_to_obs_sync creates OBSService and starts OBSConnectionManager."""
+
+    class _FakePool:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def connect_all(self):
+            pass
+
+        def call(self, operation, retries=0, retryable=True):
+            return None
+
+    class _FakeEventClient:
+        def __init__(self, *args, **kwargs):
+            self.callback = SimpleNamespace(register=lambda handler: None)
+
+    class _FakeManager:
+        def __init__(self, **kwargs):
+            self.started = False
+            self.check_output = kwargs.get("check_output", False)
+
+        def start(self):
+            self.started = True
+
+    monkeypatch.setattr(obs_service_module, "OBSConnectionPool", _FakePool)
+    monkeypatch.setattr(obs_service_module.obs, "EventClient", _FakeEventClient)
+    monkeypatch.setattr(obs_service_module, "OBSConnectionManager", _FakeManager)
+    monkeypatch.setattr(obs_service_module.OBSService, "_register_default_handlers", lambda self: None)
+    monkeypatch.setattr(obs_service_module.OBSService, "_initialize_state", lambda self: None)
+    monkeypatch.setattr(obs_actions_module, "update_current_game", lambda: None)
+    monkeypatch.setattr(obs_actions_module, "apply_obs_performance_settings", lambda **kwargs: None)
+
+    # Reset module state
+    monkeypatch.setattr(obs_module, "obs_service", None)
+    monkeypatch.setattr(obs_module, "connection_pool", None)
+    monkeypatch.setattr(obs_module, "event_client", None)
+    monkeypatch.setattr(obs_module, "connecting", False)
+    monkeypatch.setattr(obs_module, "obs_connection_manager", None)
+
+    obs_service_module.connect_to_obs_sync(retry=1, connections=2, check_output=False)
+
+    assert obs_module.obs_service is not None
+    assert obs_module.connection_pool is not None
+    assert obs_module.obs_connection_manager is not None
+    assert obs_module.obs_connection_manager.started is True
+    assert obs_module.gsm_status.obs_connected is True
+
+
+def test_disconnect_from_obs_clears_module_state(monkeypatch):
+    disconnected = []
+
+    class _FakeService:
+        def disconnect(self):
+            disconnected.append(True)
+
+    monkeypatch.setattr(obs_module, "obs_service", _FakeService())
+    monkeypatch.setattr(obs_module, "connection_pool", "some-pool")
+    monkeypatch.setattr(obs_module, "event_client", "some-event")
+
+    obs_service_module.disconnect_from_obs()
+
+    assert disconnected == [True]
+    assert obs_module.obs_service is None
+    assert obs_module.connection_pool is None
+    assert obs_module.event_client is None
+
+
 def test_toggle_replay_buffer_does_not_retry_non_idempotent_calls(monkeypatch):
     attempts = []
     logger_errors = []
@@ -531,11 +834,15 @@ def test_toggle_replay_buffer_does_not_retry_non_idempotent_calls(monkeypatch):
             raise ConnectionError("socket is already closed")
             yield
 
+        def call(self, operation, retries=0, retryable=True):
+            with self.get_client() as client:
+                return operation(client)
+
     monkeypatch.setattr(obs_module, "connection_pool", _BrokenPool())
     monkeypatch.setattr(obs_module, "obs_service", None)
-    monkeypatch.setattr(obs_module, "_is_obs_recording_disabled", lambda *args, **kwargs: False)
-    monkeypatch.setattr(obs_module.time, "sleep", lambda _seconds: None)
-    monkeypatch.setattr(obs_module.logger, "error", lambda message: logger_errors.append(message))
+    monkeypatch.setattr(obs_actions_module, "_is_obs_recording_disabled", lambda *args, **kwargs: False)
+    monkeypatch.setattr(obs_service_module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(obs_actions_module.logger, "error", lambda message: logger_errors.append(message))
 
     obs_module.toggle_replay_buffer()
 
@@ -548,8 +855,8 @@ def test_obs_connection_manager_refreshes_existing_service_on_recovery(monkeypat
     refresh_calls = []
 
     class _FakePool:
-        def ping(self):
-            return True
+        def reset_healthcheck_client(self):
+            pass
 
     fake_service = SimpleNamespace(
         connection_pool=_FakePool(),
@@ -559,12 +866,15 @@ def test_obs_connection_manager_refreshes_existing_service_on_recovery(monkeypat
     def fake_refresh_after_reconnect():
         refresh_calls.append("refresh")
         fake_service.event_client = "new-event"
+        fake_service.connection_pool = _FakePool()
+        return True
 
     fake_service.refresh_after_reconnect = fake_refresh_after_reconnect
 
     monkeypatch.setattr(obs_module, "obs_service", fake_service)
     monkeypatch.setattr(obs_module, "connection_pool", fake_service.connection_pool)
     monkeypatch.setattr(obs_module, "event_client", "stale-event")
+    monkeypatch.setattr(obs_module, "connecting", False)
     monkeypatch.setattr(obs_module.gsm_status, "obs_connected", False, raising=False)
 
     assert manager._recover_obs_connection() is True
@@ -573,8 +883,96 @@ def test_obs_connection_manager_refreshes_existing_service_on_recovery(monkeypat
     assert obs_module.gsm_status.obs_connected is True
 
 
+def test_obs_connection_manager_retries_with_fresh_healthcheck_client_before_recovery(monkeypatch):
+    manager = obs_module.OBSConnectionManager(check_output=False)
+    reset_calls = []
+    recovery_calls = []
+
+    class _StaleClient:
+        def get_version(self):
+            raise TimeoutError("stale healthcheck socket")
+
+    class _FreshClient:
+        def get_version(self):
+            return SimpleNamespace(obs_version="30.0.0")
+
+    class _FakePool:
+        def __init__(self):
+            self.calls = 0
+
+        def get_healthcheck_client(self):
+            self.calls += 1
+            if self.calls == 1:
+                return _StaleClient()
+            return _FreshClient()
+
+        def reset_healthcheck_client(self):
+            reset_calls.append("reset")
+
+    monkeypatch.setattr(obs_module, "connection_pool", _FakePool())
+    monkeypatch.setattr(obs_module, "obs_service", object())
+    monkeypatch.setattr(obs_module, "connecting", False)
+    monkeypatch.setattr(obs_module.gsm_status, "obs_connected", True, raising=False)
+    monkeypatch.setattr(manager, "_recover_obs_connection", lambda: recovery_calls.append("recover") or False)
+
+    assert manager._check_obs_connection() is True
+    assert reset_calls == ["reset"]
+    assert recovery_calls == []
+    assert obs_module.gsm_status.obs_connected is True
+
+
+def test_recover_obs_service_clients_sync_serializes_refresh_attempts(monkeypatch):
+    refresh_calls = []
+    release_refresh = threading.Event()
+    refresh_started = threading.Event()
+
+    class _FakeService:
+        def __init__(self):
+            self.connection_pool = "new-pool"
+            self.event_client = "new-event"
+
+        def refresh_after_reconnect(self):
+            refresh_calls.append("refresh")
+            refresh_started.set()
+            release_refresh.wait(timeout=1)
+            return True
+
+    fake_service = _FakeService()
+    results = []
+
+    monkeypatch.setattr(obs_module, "obs_service", fake_service)
+    monkeypatch.setattr(obs_module, "connection_pool", None)
+    monkeypatch.setattr(obs_module, "event_client", None)
+    monkeypatch.setattr(obs_module, "connecting", False)
+    monkeypatch.setattr(obs_module.gsm_status, "obs_connected", False, raising=False)
+    monkeypatch.setattr(obs_service_module, "_last_obs_service_refresh_attempt", 0.0)
+
+    def _run_recovery():
+        results.append(obs_service_module._recover_obs_service_clients_sync())
+
+    first = threading.Thread(target=_run_recovery)
+    second = threading.Thread(target=_run_recovery)
+
+    first.start()
+    assert refresh_started.wait(timeout=1), "refresh did not start"
+    second.start()
+    release_refresh.set()
+    first.join(timeout=1)
+    second.join(timeout=1)
+
+    assert refresh_calls == ["refresh"]
+    assert sorted(results) == [False, True]
+    assert obs_module.connection_pool == "new-pool"
+    assert obs_module.event_client == "new-event"
+    assert obs_module.gsm_status.obs_connected is True
+
+
 def test_get_current_scene_returns_cached_scene_when_obs_is_unavailable(monkeypatch):
-    monkeypatch.setattr(obs_module, "connection_pool", object())
+    class _BrokenPool:
+        def call(self, operation, retries=0, retryable=True):
+            raise ConnectionError("OBS Client unavailable")
+
+    monkeypatch.setattr(obs_module, "connection_pool", _BrokenPool())
     monkeypatch.setattr(obs_module, "connecting", False)
     monkeypatch.setattr(obs_module.gsm_status, "obs_connected", False, raising=False)
     monkeypatch.setattr(obs_module.gsm_state, "current_game", "Cached Scene", raising=False)
@@ -589,12 +987,16 @@ def test_get_window_info_from_source_ignores_empty_scene_name_without_logging(mo
         def get_client(self):
             yield object()
 
+        def call(self, operation, retries=0, retryable=True):
+            with self.get_client() as client:
+                return operation(client)
+
     logger_errors = []
     original_connection_pool = obs_module.connection_pool
     monkeypatch.setattr(obs_module, "connection_pool", _PassiveConnectionPool())
     monkeypatch.setattr(obs_module, "connecting", False)
     monkeypatch.setattr(obs_module.gsm_status, "obs_connected", True, raising=False)
-    monkeypatch.setattr(obs_module.logger, "error", lambda message: logger_errors.append(message))
+    monkeypatch.setattr(obs_actions_module.logger, "error", lambda message: logger_errors.append(message))
 
     try:
         result = obs_module.get_window_info_from_source(scene_name="")
@@ -626,7 +1028,7 @@ def test_get_screenshot_pil_skips_validation_for_helper_scene(monkeypatch):
     warning_calls = []
 
     monkeypatch.setattr(
-        obs_module,
+        obs_actions_module,
         "get_active_video_sources",
         lambda: [
             {"sourceName": "some_helper_capture", "inputKind": "window_capture"},
@@ -634,14 +1036,14 @@ def test_get_screenshot_pil_skips_validation_for_helper_scene(monkeypatch):
         ],
     )
     monkeypatch.setattr(
-        obs_module,
+        obs_actions_module,
         "get_screenshot_PIL_from_source",
         lambda source_name, *_args, **_kwargs: helper_image if source_name == "some_helper_capture" else fallback_image,
     )
-    monkeypatch.setattr(obs_module, "_apply_ocr_preprocessing", lambda img, **_kwargs: img)
+    monkeypatch.setattr(obs_actions_module, "_apply_ocr_preprocessing", lambda img, **_kwargs: img)
     monkeypatch.setattr(obs_module.gsm_state, "current_game", "GSM Helper - DONT TOUCH", raising=False)
     monkeypatch.setattr(obs_module, "obs_service", None)
-    monkeypatch.setattr(obs_module.logger, "warning", lambda message: warning_calls.append(message))
+    monkeypatch.setattr(obs_actions_module.logger, "warning", lambda message: warning_calls.append(message))
 
     result = obs_module.get_screenshot_PIL()
 
@@ -655,7 +1057,7 @@ def test_get_screenshot_pil_skips_validation_for_helper_sources(monkeypatch):
     warning_calls = []
 
     monkeypatch.setattr(
-        obs_module,
+        obs_actions_module,
         "get_active_video_sources",
         lambda: [
             {"sourceName": "window_getter", "inputKind": "window_capture"},
@@ -663,16 +1065,16 @@ def test_get_screenshot_pil_skips_validation_for_helper_sources(monkeypatch):
         ],
     )
     monkeypatch.setattr(
-        obs_module,
+        obs_actions_module,
         "get_screenshot_PIL_from_source",
         lambda source_name, *_args, **_kwargs: helper_image if source_name == "window_getter" else fallback_image,
     )
-    monkeypatch.setattr(obs_module, "_apply_ocr_preprocessing", lambda img, **_kwargs: img)
+    monkeypatch.setattr(obs_actions_module, "_apply_ocr_preprocessing", lambda img, **_kwargs: img)
     monkeypatch.setattr(obs_module.gsm_state, "current_game", "Regular Scene", raising=False)
     monkeypatch.setattr(
         obs_module, "obs_service", SimpleNamespace(state=SimpleNamespace(current_scene="Regular Scene"))
     )
-    monkeypatch.setattr(obs_module.logger, "warning", lambda message: warning_calls.append(message))
+    monkeypatch.setattr(obs_actions_module.logger, "warning", lambda message: warning_calls.append(message))
 
     result = obs_module.get_screenshot_PIL()
 
@@ -685,7 +1087,7 @@ def test_get_screenshot_pil_keeps_validation_for_regular_sources(monkeypatch):
     valid_image = _NonUniformImage()
 
     monkeypatch.setattr(
-        obs_module,
+        obs_actions_module,
         "get_active_video_sources",
         lambda: [
             {"sourceName": "blank_capture", "inputKind": "window_capture"},
@@ -693,11 +1095,11 @@ def test_get_screenshot_pil_keeps_validation_for_regular_sources(monkeypatch):
         ],
     )
     monkeypatch.setattr(
-        obs_module,
+        obs_actions_module,
         "get_screenshot_PIL_from_source",
         lambda source_name, *_args, **_kwargs: uniform_image if source_name == "blank_capture" else valid_image,
     )
-    monkeypatch.setattr(obs_module, "_apply_ocr_preprocessing", lambda img, **_kwargs: img)
+    monkeypatch.setattr(obs_actions_module, "_apply_ocr_preprocessing", lambda img, **_kwargs: img)
     monkeypatch.setattr(obs_module.gsm_state, "current_game", "Regular Scene", raising=False)
     monkeypatch.setattr(
         obs_module, "obs_service", SimpleNamespace(state=SimpleNamespace(current_scene="Regular Scene"))

@@ -137,6 +137,12 @@ interface ComparisonFieldDefinition {
   step: number;
 }
 
+interface TerminalRepeatState {
+  dedupeKey: string;
+  count: number;
+  baseMessage: string;
+}
+
 const MAIN_OCR_OPTIONS: Option[] = [
   { value: "glens", label: "Google Lens" },
   { value: "bing", label: "Bing" },
@@ -366,6 +372,23 @@ const COMPARISON_FIELDS: ComparisonFieldDefinition[] = [
     step: 1
   }
 ];
+
+const MENU_ONLY_LOG_MESSAGE =
+  "Text is identified as all menu items, skipping further processing.";
+const MENU_ONLY_CONSOLE_MESSAGE = "\x1b[33mSkipped OCR result: detected only menu text\x1b[0m";
+const ANSI_RESET = "\x1b[0m";
+
+function formatRepeatedTerminalLine(message: string, count: number): string {
+  if (count <= 1) {
+    return message;
+  }
+
+  if (message.endsWith(ANSI_RESET)) {
+    return `${message.slice(0, -ANSI_RESET.length)} x${count}${ANSI_RESET}`;
+  }
+
+  return `${message} x${count}`;
+}
 
 const COMPARISON_DEFAULTS: Record<ComparisonFieldKey, number> = {
   duplicate_similarity_threshold: 80,
@@ -868,6 +891,7 @@ export function OCRTab({ active }: OcrTabProps) {
   const runningStateRef = useRef(runningState);
   const pausedRef = useRef(paused);
   const previousLogLineRef = useRef("");
+  const repeatedTerminalLineRef = useRef<TerminalRepeatState | null>(null);
 
   const selectedScene = useMemo(
     () => scenes.find((scene) => scene.id === selectedSceneId) ?? null,
@@ -1028,11 +1052,43 @@ export function OCRTab({ active }: OcrTabProps) {
   }, [active, fitTerminal]);
 
   const appendTerminalLine = useCallback(
-    (message: string) => {
-      if (!message.trim()) {
+    (message: string, options?: { dedupeKey?: string }) => {
+      const trimmedMessage = message.trim();
+      if (!trimmedMessage) {
         return;
       }
-      terminalRef.current?.writeln(message);
+      const terminal = terminalRef.current;
+      if (!terminal) {
+        return;
+      }
+
+      const dedupeKey = options?.dedupeKey?.trim();
+      const previousRepeatedLine = repeatedTerminalLineRef.current;
+      if (dedupeKey && previousRepeatedLine?.dedupeKey === dedupeKey) {
+        const nextCount = previousRepeatedLine.count + 1;
+        terminal.write(
+          `\x1b[1A\r\x1b[2K${formatRepeatedTerminalLine(
+            previousRepeatedLine.baseMessage,
+            nextCount
+          )}\r\n`
+        );
+        repeatedTerminalLineRef.current = {
+          dedupeKey,
+          count: nextCount,
+          baseMessage: previousRepeatedLine.baseMessage
+        };
+        fitTerminal();
+        return;
+      }
+
+      terminal.writeln(message);
+      repeatedTerminalLineRef.current = dedupeKey
+        ? {
+            dedupeKey,
+            count: 1,
+            baseMessage: message
+          }
+        : null;
       fitTerminal();
     },
     [fitTerminal]
@@ -1041,6 +1097,7 @@ export function OCRTab({ active }: OcrTabProps) {
   const clearTerminal = useCallback(() => {
     terminalRef.current?.clear();
     previousLogLineRef.current = "";
+    repeatedTerminalLineRef.current = null;
   }, []);
 
   const persistConfig = useCallback(() => {
@@ -1296,11 +1353,16 @@ export function OCRTab({ active }: OcrTabProps) {
         return;
       }
 
-      const nextTerminalLine = OCR_RUN_2_RECOGNIZED_PATTERN.test(trimmedLine)
-        ? `\x1b[92m${trimmedLine}\x1b[0m`
-        : replaceEngineLabelsWithAnsi(trimmedLine);
+      const isMenuOnlyLog = lowerLine.includes(MENU_ONLY_LOG_MESSAGE.toLowerCase());
+      const nextTerminalLine = isMenuOnlyLog
+        ? MENU_ONLY_CONSOLE_MESSAGE
+        : OCR_RUN_2_RECOGNIZED_PATTERN.test(trimmedLine)
+          ? `\x1b[92m${trimmedLine}\x1b[0m`
+          : replaceEngineLabelsWithAnsi(trimmedLine);
 
-      appendTerminalLine(nextTerminalLine);
+      appendTerminalLine(nextTerminalLine, {
+        dedupeKey: isMenuOnlyLog ? MENU_ONLY_LOG_MESSAGE : undefined
+      });
       previousLogLineRef.current = trimmedLine;
     });
 
