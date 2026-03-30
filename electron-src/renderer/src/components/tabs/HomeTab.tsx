@@ -173,7 +173,7 @@ export function HomeTab({ active }: HomeTabProps) {
     [windows, selectedWindowValue]
   );
 
-  const refreshWindows = useCallback(async () => {
+  const refreshWindows = useCallback(async (quick = false) => {
     if (!isWindows) {
       setWindows([]);
       setSelectedWindowValue("");
@@ -181,11 +181,11 @@ export function HomeTab({ active }: HomeTabProps) {
       return;
     }
 
-    setLoadingWindows(true);
+    if (!quick) setLoadingWindows(true);
     const previousSelection = selectedWindowValue;
 
     try {
-      const response = await invokeIpc<unknown>("obs.getWindows");
+      const response = await invokeIpc<unknown>("obs.getWindows", { quick });
       const nextWindows = toObsWindows(response);
       setWindows(nextWindows);
 
@@ -216,8 +216,8 @@ export function HomeTab({ active }: HomeTabProps) {
     }
   }, [isWindows, selectedWindowValue]);
 
-  const refreshScenesAndWindows = useCallback(async () => {
-    setLoadingScenes(true);
+  const refreshScenesAndWindows = useCallback(async (quick = false) => {
+    if (!quick) setLoadingScenes(true);
     const previousSceneSelection = selectedSceneId;
 
     try {
@@ -253,7 +253,7 @@ export function HomeTab({ active }: HomeTabProps) {
       setLoadingScenes(false);
     }
 
-    await refreshWindows();
+    await refreshWindows(quick);
   }, [refreshWindows, selectedSceneId]);
 
   const pollGsmStatus = useCallback(async () => {
@@ -272,9 +272,10 @@ export function HomeTab({ active }: HomeTabProps) {
       return;
     }
     void refreshScenesAndWindows();
+    // Fast poll: only window/game captures (no capture card enumeration)
     const timer = setInterval(() => {
-      void refreshScenesAndWindows();
-    }, 5000);
+      void refreshScenesAndWindows(true);
+    }, 3000);
     return () => clearInterval(timer);
   }, [active, refreshScenesAndWindows]);
 

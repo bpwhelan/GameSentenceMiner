@@ -1149,7 +1149,14 @@ function setOBSSceneSwitcherCallback() {
     });
 }
 
+let obsIPCRegistered = false;
+
 export async function registerOBSIPC() {
+    if (obsIPCRegistered) {
+        return;
+    }
+    obsIPCRegistered = true;
+
     ipcMain.handle('obs.launch', async () => {
         exec('obs', (error: any) => {
             if (error) {
@@ -1323,6 +1330,8 @@ export async function registerOBSIPC() {
     });
 
     const inputPropertyItemsPromises = new Map<string, Promise<ObsDevicePropertyItem[]>>();
+    // Track probe inputs created in the helper scene so we can remove them after use.
+    const createdProbeInputs = new Set<string>();
 
     async function ensureHelperSceneExists(): Promise<void> {
         try {
@@ -1340,6 +1349,22 @@ export async function registerOBSIPC() {
         } catch {
             // Ignore stale helper scene cleanup failures.
         }
+    }
+
+    /**
+     * Remove all probe inputs created in the helper scene.
+     * Called after a full window-list query so that dshow_input / wasapi_input_capture
+     * sources do not linger with open device handles.
+     */
+    async function cleanupProbeInputs(): Promise<void> {
+        for (const inputName of createdProbeInputs) {
+            try {
+                await callOBS('RemoveInput', { inputName });
+            } catch {
+                // Input may already have been removed or never fully created.
+            }
+        }
+        createdProbeInputs.clear();
     }
 
     async function getInputPropertyItems(
@@ -1380,6 +1405,7 @@ export async function registerOBSIPC() {
                     inputKind,
                     inputSettings,
                 });
+                createdProbeInputs.add(inputName);
 
                 const retryResponse = await callOBS('GetInputPropertiesListPropertyItems', {
                     inputName,
@@ -1489,7 +1515,53 @@ export async function registerOBSIPC() {
         );
     }
 
-    async function getWindowList(): Promise<ObsWindowOption[]> {
+    // Cache for getWindowList results to avoid hammering OBS with device
+    // enumeration every poll cycle.
+    // "fast" = window/game capture only (cheap), "full" = also capture cards (expensive probes).
+    const WINDOW_LIST_FAST_CACHE_TTL_MS = 3_000;
+    const WINDOW_LIST_FULL_CACHE_TTL_MS = 30_000;
+    let windowListFastCache: { data: ObsWindowOption[]; timestamp: number } | null = null;
+    let windowListFullCache: { data: ObsWindowOption[]; timestamp: number } | null = null;
+
+    /**
+     * Fetch only window_capture + game_capture lists (cheap OBS calls, no device probing).
+     */
+    async function getWindowListFast(): Promise<ObsWindowOption[]> {
+        try {
+            if (isLinux()) {
+                return await getLinuxXCompositeWindows();
+            }
+
+            const [windowCaptureWindows, gameCaptureWindows] =
+                await Promise.all([
+                    getWindowsFromSource(WINDOW_GETTER_INPUT, 'window_capture'),
+                    getWindowsFromSource(GAME_WINDOW_INPUT, 'game_capture'),
+                ]);
+
+            const allWindows = [...windowCaptureWindows, ...gameCaptureWindows].filter(
+                (item) => !shouldFilterWindow(item)
+            );
+
+            // Merge in the last-known capture card list so the dropdown stays complete.
+            const cachedCaptureCards = windowListFullCache?.data.filter(
+                (item) => item.targetKind === 'capture_card'
+            ) ?? [];
+
+            return [...mergeObsWindowItems(allWindows), ...cachedCaptureCards].sort((left, right) =>
+                left.title.localeCompare(right.title)
+            );
+        } catch (error) {
+            if (!isOBSInitializingError(error)) {
+                logObsError('Error getting window list (fast):', error);
+            }
+            return [];
+        }
+    }
+
+    /**
+     * Full fetch including capture card / device enumeration (expensive).
+     */
+    async function getWindowListFull(): Promise<ObsWindowOption[]> {
         try {
             if (isLinux()) {
                 return await getLinuxXCompositeWindows();
@@ -1501,6 +1573,11 @@ export async function registerOBSIPC() {
                     getWindowsFromSource(GAME_WINDOW_INPUT, 'game_capture'),
                     getCaptureCardList(),
                 ]);
+
+            // Clean up DirectShow / WASAPI probe sources so they don't hold
+            // video-capture device handles and audio device buffers open.
+            await cleanupProbeInputs();
+
             const allWindows = [...windowCaptureWindows, ...gameCaptureWindows].filter(
                 (item) => !shouldFilterWindow(item)
             );
@@ -1515,13 +1592,41 @@ export async function registerOBSIPC() {
         }
     }
 
-    ipcMain.handle('obs.getWindows', async () => {
+    ipcMain.handle('obs.getWindows', async (_, options?: { quick?: boolean }) => {
         try {
             if (!isWindows() && !isLinux()) {
                 return [];
             }
+
+            const quick = options?.quick === true;
+
+            if (quick) {
+                if (
+                    windowListFastCache &&
+                    Date.now() - windowListFastCache.timestamp < WINDOW_LIST_FAST_CACHE_TTL_MS
+                ) {
+                    return windowListFastCache.data;
+                }
+                await getOBSConnection();
+                const result = await getWindowListFast();
+                windowListFastCache = { data: result, timestamp: Date.now() };
+                return result;
+            }
+
+            // Full query (includes capture cards).
+            if (
+                windowListFullCache &&
+                Date.now() - windowListFullCache.timestamp < WINDOW_LIST_FULL_CACHE_TTL_MS
+            ) {
+                return windowListFullCache.data;
+            }
+
             await getOBSConnection();
-            return await getWindowList();
+            const result = await getWindowListFull();
+            windowListFullCache = { data: result, timestamp: Date.now() };
+            // Also refresh the fast cache so the next quick poll is instant.
+            windowListFastCache = { data: result, timestamp: Date.now() };
+            return result;
         } catch (error) {
             if (!isOBSInitializingError(error)) {
                 logObsError('Error getting windows:', error);

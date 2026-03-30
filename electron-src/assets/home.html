@@ -275,7 +275,7 @@
             await ipcRenderer.invoke('runOverlay');
         });
 
-        async function getWindows(showLoading = true) {
+        async function getWindows(showLoading = true, quick = false) {
             if (!isWindows && !isLinux) {
                 return;
             }
@@ -285,7 +285,7 @@
             if (showLoading)
                 windowSelect.innerHTML = '<option>Loading...</option>';
 
-            const windowsRes = await ipcRenderer.invoke('obs.getWindows');
+            const windowsRes = await ipcRenderer.invoke('obs.getWindows', { quick });
             windows = windowsRes;
             windowSelect.innerHTML = '';
 
@@ -319,7 +319,8 @@
             }
         }
 
-        async function refreshScenesAndWindows(showLoading = true, setIntervalFlag = true) {
+        let refreshIntervalId = null;
+        async function refreshScenesAndWindows(showLoading = true, setIntervalFlag = true, quick = false) {
             // Remember the previously selected scene
             if (showLoading)
                 sceneSelect.innerHTML = '<option>Loading...</option>';
@@ -346,11 +347,13 @@
             }
 
             updateSceneActionButtons();
-            await getWindows(showLoading);
-            if (setIntervalFlag)
-                setInterval(() => {
-                    void refreshScenesAndWindows(false, false);
-                }, 5000);
+            await getWindows(showLoading, quick);
+            if (setIntervalFlag && !refreshIntervalId) {
+                // Fast poll: only window/game capture (no capture card enumeration)
+                refreshIntervalId = setInterval(() => {
+                    void refreshScenesAndWindows(false, false, true);
+                }, 3000);
+            }
         }
 
         document.getElementById('refreshScenesBtn').addEventListener('click', () => {

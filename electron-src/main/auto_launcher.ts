@@ -35,7 +35,7 @@ export class AutoLauncher {
     private lastHookedGameId: string = "";
     private readonly defaultPollingInterval: number = 5000;
     private readonly fastPollingInterval: number = 500;
-    private readonly ocrPollingInterval: number = 1000;
+    private readonly ocrPollingInterval: number = 5000;
     private readonly minLoopDelayMs: number = 500;
     private readonly backoffStep: number = 50;
     private currentPollingInterval: number = this.defaultPollingInterval;

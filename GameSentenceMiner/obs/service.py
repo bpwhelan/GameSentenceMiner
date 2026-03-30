@@ -240,7 +240,7 @@ class OBSState:
 
 
 # ---------------------------------------------------------------------------
-# Backward-compat stubs (used in tests)
+# Tick intervals & options
 # ---------------------------------------------------------------------------
 @dataclass
 class OBSTickIntervals:
@@ -269,8 +269,6 @@ class OBSTickOptions:
 # OBSService
 # ---------------------------------------------------------------------------
 class OBSService:
-    PERIODIC_LOOP_INTERVAL = 20  # seconds
-
     def __init__(self, host, port, password, connections=2, check_output=False):
         self.host = host
         self.port = port
@@ -309,9 +307,10 @@ class OBSService:
         self._fit_timer: Optional[threading.Timer] = None
         self._fit_to_screen_grace_deadline = 0.0
 
-        # Tick compat (tests reference these)
+        # Tick scheduling & guards
         self.tick_intervals = OBSTickIntervals()
         self._tick_last_run_by_operation: Dict[str, float] = {}
+        self._tick_running = False
 
         # Scene-item refresh debounce
         self._pending_scene_item_refresh: Optional[str] = None
@@ -960,7 +959,7 @@ class OBSService:
                 stop_replay_buffer()
                 self._source_no_output_timestamp = None
 
-    # -- tick (backward compat for tests) ------------------------------------
+    # -- tick scheduling -----------------------------------------------------
 
     def build_scheduled_tick_options(self, now=None, overrides=None):
         now = time.time() if now is None else now
@@ -1037,7 +1036,16 @@ class OBSService:
         )
 
     def tick(self, options=None):
-        """Backward-compat tick entry point. Delegates to _periodic_work."""
+        """Main tick entry point. Each operation runs on its own interval."""
+        if self._tick_running:
+            return
+        self._tick_running = True
+        try:
+            self._tick_inner(options)
+        finally:
+            self._tick_running = False
+
+    def _tick_inner(self, options=None):
         if not self.initialized:
             self._initialize_state()
 
@@ -1115,6 +1123,9 @@ class OBSService:
             elif now - self._source_no_output_timestamp >= self._no_output_shutdown_seconds:
                 stop_replay_buffer()
                 self._source_no_output_timestamp = None
+
+    def _mark_tick_operation(self, operation_name: str, now: float):
+        self._tick_last_run_by_operation[operation_name] = now
 
 
 # ---------------------------------------------------------------------------
@@ -1217,7 +1228,7 @@ class OBSConnectionManager(threading.Thread):
         super().__init__()
         self.daemon = True
         self.running = True
-        self.check_connection_interval = 1.0
+        self.check_connection_interval = 5.0
         self.recovery_cooldown_seconds = 2.0
         self.check_output = check_output
         self._last_recovery_attempt = 0.0
@@ -1313,27 +1324,13 @@ class OBSConnectionManager(threading.Thread):
             if not self._check_obs_connection():
                 continue
 
-            # Periodic work (~every PERIODIC_LOOP_INTERVAL seconds)
+            # Tick — each operation runs on its own interval
             with self._check_lock:
                 if _obs_pkg.obs_service:
-                    now = time.time()
-                    interval = getattr(_obs_pkg.obs_service, "PERIODIC_LOOP_INTERVAL", 20)
-                    if now - self.last_tick_time >= interval:
-                        try:
-                            _obs_pkg.obs_service._periodic_work()
-                        except Exception as e:
-                            logger.debug(f"Periodic work failed: {e}")
-                        # Also run fit-to-screen as fallback
-                        with _obs_pkg.obs_service._state_lock:
-                            scene = _obs_pkg.obs_service.state.current_scene
-                        if scene:
-                            try:
-                                from GameSentenceMiner.obs.actions import set_fit_to_screen_for_scene_items
-
-                                set_fit_to_screen_for_scene_items(scene)
-                            except Exception:
-                                pass
-                        self.last_tick_time = now
+                    try:
+                        _obs_pkg.obs_service.tick()
+                    except Exception as e:
+                        logger.debug(f"Tick failed: {e}")
 
             # Session expiry check
             if (
