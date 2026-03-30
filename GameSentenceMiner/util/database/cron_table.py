@@ -311,7 +311,7 @@ class CronTable(SQLiteDBTable):
     def setup_plugins_cron(cls) -> "CronTable":
         """
         Set up the user plugins cron job to run every minute.
-        This is called automatically on GSM startup to ensure the plugins cron exists.
+        This is called automatically on GSM startup to ensure the user_plugins cron exists.
 
         The cron will:
         1. Create plugins.py if it doesn't exist
@@ -321,25 +321,34 @@ class CronTable(SQLiteDBTable):
             CronTable: The created or existing cron entry
         """
         # Check if cron already exists
-        existing = cls.get_by_name("plugins")
+        existing = cls.get_by_name("user_plugins")
 
         if existing:
-            logger.debug("Plugins cron job already exists")
+            logger.debug("User plugins cron job already exists")
             return existing
+
+        legacy = cls.get_by_name("plugins")
+        if legacy:
+            legacy.name = "user_plugins"
+            if not legacy.description:
+                legacy.description = "Execute user-defined plugins from AppData/GameSentenceMiner/plugins.py"
+            legacy.save()
+            logger.info("Renamed legacy plugins cron job to user_plugins")
+            return legacy
 
         # Create new cron entry to run every minute
         now = time.time()
         next_run = now + 60  # Run in 1 minute
 
         cron = cls.create_cron_entry(
-            name="plugins",
+            name="user_plugins",
             description="Execute user-defined plugins from AppData/GameSentenceMiner/plugins.py",
             next_run=next_run,
             schedule="minutely",
             enabled=True,
         )
 
-        logger.info("Created plugins cron job - runs every minute")
+        logger.info("Created user_plugins cron job - runs every minute")
         logger.info("Edit your plugins at: %APPDATA%/GameSentenceMiner/plugins.py")
 
         return cron

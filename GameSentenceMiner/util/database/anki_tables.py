@@ -301,21 +301,22 @@ class CardKanjiLinksTable(SQLiteDBTable):
 # Setup / teardown / index helpers
 # ---------------------------------------------------------------------------
 
-_ANKI_TABLE_CLASSES = [
+_ANKI_CORE_TABLE_CLASSES = [
     AnkiNotesTable,
     AnkiCardsTable,
     AnkiReviewsTable,
+]
+
+_ANKI_LINK_TABLE_CLASSES = [
     WordAnkiLinksTable,
     CardKanjiLinksTable,
 ]
 
+_ANKI_TABLE_CLASSES = _ANKI_CORE_TABLE_CLASSES + _ANKI_LINK_TABLE_CLASSES
 
-def _create_anki_indexes(db: SQLiteDB) -> None:
-    """Create indexes for the Anki cache tables.
 
-    Includes lookup indexes on foreign keys and UNIQUE indexes on the link tables
-    to enforce the (word_id, note_id) and (card_id, kanji_id) constraints.
-    """
+def _create_anki_core_indexes(db: SQLiteDB) -> None:
+    """Create indexes for the core Anki cache tables."""
     # Lookup index: cards by note
     db.execute(
         "CREATE INDEX IF NOT EXISTS idx_anki_cards_note_id ON anki_cards(note_id)",
@@ -326,6 +327,14 @@ def _create_anki_indexes(db: SQLiteDB) -> None:
         "CREATE INDEX IF NOT EXISTS idx_anki_reviews_card_id ON anki_reviews(card_id)",
         commit=True,
     )
+
+
+def _create_anki_link_indexes(db: SQLiteDB) -> None:
+    """Create indexes for the tokenization-owned Anki link tables.
+
+    Includes UNIQUE indexes on the link tables to enforce the
+    (word_id, note_id) and (card_id, kanji_id) constraints.
+    """
     # UNIQUE constraint on word_anki_links(word_id, note_id)
     db.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_word_anki_links_unique ON word_anki_links(word_id, note_id)",
@@ -358,24 +367,57 @@ def _create_anki_indexes(db: SQLiteDB) -> None:
     )
 
 
-def setup_anki_tables(db: SQLiteDB) -> None:
-    """Register all Anki cache tables with the database and create indexes."""
-    for cls in _ANKI_TABLE_CLASSES:
+def setup_anki_cache_tables(db: SQLiteDB) -> None:
+    """Register the core Anki cache tables with the database and create indexes."""
+    for cls in _ANKI_CORE_TABLE_CLASSES:
         cls.set_db(db)
 
-    _create_anki_indexes(db)
+    _create_anki_core_indexes(db)
+    logger.info("Anki core cache tables setup complete")
+
+
+def setup_anki_link_tables(db: SQLiteDB) -> None:
+    """Register tokenization-owned Anki link tables with the database and create indexes."""
+    for cls in _ANKI_LINK_TABLE_CLASSES:
+        cls.set_db(db)
+
+    _create_anki_link_indexes(db)
+    logger.info("Anki tokenization link tables setup complete")
+
+
+def setup_anki_tables(db: SQLiteDB) -> None:
+    """Compatibility wrapper that sets up both core cache and link tables."""
+    setup_anki_cache_tables(db)
+    setup_anki_link_tables(db)
     logger.info("Anki cache tables setup complete")
 
 
-def teardown_anki_tables(db: SQLiteDB) -> None:
-    """Drop all Anki cache tables (used when feature is disabled)."""
-    # Drop link tables first (reference the main tables)
-    for cls in reversed(_ANKI_TABLE_CLASSES):
+def teardown_anki_link_tables(db: SQLiteDB) -> None:
+    """Drop tokenization-owned Anki link tables."""
+    for cls in reversed(_ANKI_LINK_TABLE_CLASSES):
         cls._db = db
         cls._column_order_cache = None
         cls._row_field_mapping_cache = None
         db.execute(f"DROP TABLE IF EXISTS {cls._table}", commit=True)
 
+    logger.info("Anki tokenization link tables teardown complete")
+
+
+def teardown_anki_cache_tables(db: SQLiteDB) -> None:
+    """Drop the core Anki cache tables."""
+    for cls in reversed(_ANKI_CORE_TABLE_CLASSES):
+        cls._db = db
+        cls._column_order_cache = None
+        cls._row_field_mapping_cache = None
+        db.execute(f"DROP TABLE IF EXISTS {cls._table}", commit=True)
+
+    logger.info("Anki core cache tables teardown complete")
+
+
+def teardown_anki_tables(db: SQLiteDB) -> None:
+    """Compatibility wrapper that drops both link and core cache tables."""
+    teardown_anki_link_tables(db)
+    teardown_anki_cache_tables(db)
     logger.info("Anki cache tables teardown complete")
 
 
@@ -408,17 +450,6 @@ def _migrate_anki_card_sync_cron() -> None:
         old_cron.enabled = False
         old_cron.save()
         logger.info("Disabled anki_word_sync cron job (superseded by anki_card_sync)")
-
-
-def _disable_anki_card_sync_cron() -> None:
-    """Disable the Anki cache sync cron when tokenization is off."""
-    from GameSentenceMiner.util.database.cron_table import CronTable
-
-    existing = CronTable.get_by_name("anki_card_sync")
-    if existing and existing.enabled:
-        existing.enabled = False
-        existing.save()
-        logger.info("Disabled anki_card_sync cron job")
 
 
 try:

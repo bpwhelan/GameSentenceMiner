@@ -39,21 +39,12 @@ class MockCron:
     name: str
     description: str
 
-
-CRON_NAME_ALIASES = {
-    "plugins": Crons.USER_PLUGINS,
-}
-
-
 def resolve_cron_task(task_name: str) -> Optional[Crons]:
-    """Resolve a cron task name, including legacy aliases."""
+    """Resolve a cron task name."""
     if not task_name:
         return None
 
     normalized_name = task_name.strip().lower()
-
-    if normalized_name in CRON_NAME_ALIASES:
-        return CRON_NAME_ALIASES[normalized_name]
 
     for cron in Crons:
         if cron.value == normalized_name:
@@ -63,10 +54,8 @@ def resolve_cron_task(task_name: str) -> Optional[Crons]:
 
 
 def get_supported_cron_names() -> set[str]:
-    """Return all supported cron names, including legacy aliases."""
-    supported_names = {cron.value for cron in Crons}
-    supported_names.update(CRON_NAME_ALIASES.keys())
-    return supported_names
+    """Return all supported canonical cron names."""
+    return {cron.value for cron in Crons}
 
 
 def create_forced_cron(task: Crons, description: Optional[str] = None) -> MockCron:

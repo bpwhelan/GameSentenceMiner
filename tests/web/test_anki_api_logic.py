@@ -991,6 +991,47 @@ class TestCombinedEndpointIntegration:
         assert set(data.keys()) == {"kanji_stats", "reading_impact"}
         assert called == ["kanji_stats", "reading_impact"]
 
+    def test_returns_cache_backed_sections_when_tokenization_disabled(self, app_and_client, anki_mod, monkeypatch):
+        _stub_config(monkeypatch, anki_mod, parent_tag="Game", word_field="Word")
+        monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: False)
+        monkeypatch.setattr(
+            anki_mod,
+            "_get_anki_data",
+            lambda: _make_anki_data(
+                [FakeNote(note_id=1700000000000, tags=["Game::FF7"], fields_json={"Word": {"value": "猫"}})],
+                [FakeCard(card_id=1, note_id=1700000000000)],
+                [FakeReview(card_id=1, review_time=1700001000000, ease=2, time_taken=1500)],
+            ),
+        )
+
+        fake_tokenization = types.ModuleType("GameSentenceMiner.web.tokenization_api")
+        fake_tokenization.is_tokenization_enabled = lambda: False
+        fake_tokenization._get_db = lambda: object()
+        fake_tokenization._get_first_mature_word_dates = lambda db: {}
+        fake_tokenization._get_first_mature_kanji_dates = lambda db: {}
+        monkeypatch.setitem(
+            sys.modules,
+            "GameSentenceMiner.web.tokenization_api",
+            fake_tokenization,
+        )
+
+        app, client = app_and_client
+        resp = client.get("/api/anki_stats_combined?sections=earliest_date,game_stats")
+        assert resp.status_code == 200
+
+        data = resp.get_json()
+        assert data["earliest_date"] == 1700000000.0
+        assert data["game_stats"] == [
+            {
+                "game_name": "FF7",
+                "card_count": 1,
+                "avg_time_per_card": 1.5,
+                "retention_pct": 100.0,
+                "total_reviews": 1,
+                "mined_lines": 0,
+            }
+        ]
+
 
 class TestReadingImpactEndpoint:
     """Tests for /api/anki-reading-impact."""

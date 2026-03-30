@@ -29,7 +29,9 @@ from GameSentenceMiner.mecab.basic_types import (
     Inflection,
 )
 from GameSentenceMiner.util.database.anki_tables import (
+    AnkiNotesTable,
     AnkiCardsTable,
+    AnkiReviewsTable,
     CardKanjiLinksTable,
     WordAnkiLinksTable,
     setup_anki_tables,
@@ -1189,7 +1191,7 @@ class TestTokenizationDisableAndMigration:
         _ensure_tokenization_tables()
         _reset_game_lines()
 
-    def test_disabled_startup_tears_down_tokenization_and_anki_cache_tables(self, monkeypatch):
+    def test_disabled_startup_tears_down_tokenization_tables_but_preserves_core_anki_cache(self, monkeypatch):
         _insert_line("disable_1", "既知語")
         word_id = WordsTable.get_or_create("既知語", "キチゴ", "名詞")
         kanji_id = KanjiTable.get_or_create("既")
@@ -1197,6 +1199,38 @@ class TestTokenizationDisableAndMigration:
         KanjiOccurrencesTable.insert_occurrence(kanji_id, "disable_1")
         WordAnkiLinksTable.link(word_id, 9001)
         CardKanjiLinksTable.link(8001, kanji_id)
+        AnkiNotesTable(
+            note_id=9001,
+            model_name="Basic",
+            fields_json="{}",
+            tags='["Game::Test"]',
+            mod=0,
+            synced_at=1.0,
+        ).save()
+        AnkiCardsTable(
+            card_id=8001,
+            note_id=9001,
+            deck_name="Default",
+            queue=0,
+            type=0,
+            due=0,
+            interval=0,
+            factor=0,
+            reps=0,
+            lapses=0,
+            synced_at=1.0,
+        ).save()
+        AnkiReviewsTable(
+            review_id="8001_123",
+            card_id=8001,
+            note_id=9001,
+            review_time=123,
+            ease=2,
+            interval=1,
+            last_interval=0,
+            time_taken=1000,
+            synced_at=1.0,
+        ).save()
 
         monkeypatch.setattr("GameSentenceMiner.util.database.db._is_tokenization_enabled", lambda: False)
         sync_tokenization_schema_state(gsm_db)
@@ -1207,13 +1241,21 @@ class TestTokenizationDisableAndMigration:
             "words",
             "kanji",
             WORD_STATS_CACHE_TABLE,
-            "anki_notes",
-            "anki_cards",
-            "anki_reviews",
             "word_anki_links",
             "card_kanji_links",
         ]:
             assert gsm_db.table_exists(table) is False
+
+        for table in [
+            "anki_notes",
+            "anki_cards",
+            "anki_reviews",
+        ]:
+            assert gsm_db.table_exists(table) is True
+
+        assert AnkiNotesTable.get(9001) is not None
+        assert AnkiCardsTable.get(8001) is not None
+        assert AnkiReviewsTable.get("8001_123") is not None
 
     def test_kanji_unique_index_migration_deduplicates_repointed_occurrences(self):
         fd, path = tempfile.mkstemp(suffix=".db")

@@ -662,13 +662,14 @@ def setup_tokenization(db: SQLiteDB):
     1. Create tables (set_db handles CREATE TABLE IF NOT EXISTS)
     2. Add tokenized column to game_lines
     3. Create indexes
-    4. Create trigger
-    5. Register cron
+    4. Create Anki cache + link tables
+    5. Create trigger
+    6. Register cron
     6. Reset tokenized column to 0 ONLY on fresh setup (first enable or re-enable after teardown)
     """
     from GameSentenceMiner.util.database.anki_tables import (
-        setup_anki_tables,
-        _migrate_anki_card_sync_cron,
+        setup_anki_cache_tables,
+        setup_anki_link_tables,
     )
 
     # Check BEFORE creating tables whether they already exist.
@@ -703,8 +704,9 @@ def setup_tokenization(db: SQLiteDB):
     # 3. Create indexes
     create_tokenization_indexes(db)
 
-    # 3b. Create Anki cache tables
-    setup_anki_tables(db)
+    # 3b. Ensure Anki cache + tokenization link tables exist.
+    setup_anki_cache_tables(db)
+    setup_anki_link_tables(db)
 
     # 4. Create trigger
     create_tokenization_trigger(db)
@@ -717,7 +719,6 @@ def setup_tokenization(db: SQLiteDB):
 
     # 5. Register crons
     _migrate_tokenize_backfill_cron_job()
-    _migrate_anki_card_sync_cron()
 
     # 6. Reset tokenized = 0 ONLY on fresh setup (first enable or re-enable after
     #    teardown which drops the tables). On normal repeat startup the tables already
@@ -734,17 +735,17 @@ def teardown_tokenization(db: SQLiteDB):
     Full teardown when tokenization is disabled:
     1. Drop occurrence tables first (FK order)
     2. Drop dimension tables
-    3. Disable cron
+    3. Drop tokenization-owned Anki link tables
+    4. Disable tokenization-only crons
     4. Drop trigger
     NOTE: tokenized column on game_lines is NOT removed (SQLite compat)
     """
     from GameSentenceMiner.util.database.anki_tables import (
-        _disable_anki_card_sync_cron,
-        teardown_anki_tables,
+        teardown_anki_link_tables,
     )
 
     drop_tokenization_trigger(db)
-    teardown_anki_tables(db)
+    teardown_anki_link_tables(db)
 
     # 1-2. Drop tables (order matters for FK safety, but SQLite doesn't enforce FKs by default)
     db.execute("DROP TABLE IF EXISTS word_occurrences", commit=True)
@@ -756,7 +757,6 @@ def teardown_tokenization(db: SQLiteDB):
     # 3. Disable crons
     _disable_tokenize_backfill_cron()
     _disable_anki_word_sync_cron()
-    _disable_anki_card_sync_cron()
 
     teardown_global_frequency_sources(db)
     try:
@@ -766,7 +766,7 @@ def teardown_tokenization(db: SQLiteDB):
     except Exception:
         pass
 
-    logger.info("Tokenization teardown complete: tokenization and Anki cache tables dropped; cron disabled")
+    logger.info("Tokenization teardown complete: tokenization tables dropped and tokenization crons disabled")
 
 
 def _migrate_tokenize_backfill_cron_job():

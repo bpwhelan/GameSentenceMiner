@@ -1556,6 +1556,14 @@ def sync_tokenization_schema_state(db: SQLiteDB) -> None:
         logger.info("Skipping tokenization schema sync in read-only mode")
         return
 
+    from GameSentenceMiner.util.database.anki_tables import (
+        _migrate_anki_card_sync_cron,
+        setup_anki_cache_tables,
+    )
+
+    setup_anki_cache_tables(db)
+    _migrate_anki_card_sync_cron()
+
     if _is_tokenization_enabled():
         from GameSentenceMiner.util.database.tokenization_tables import (
             setup_tokenization,
@@ -1586,48 +1594,37 @@ def _should_defer_tokenization_schema_sync() -> bool:
     return anki_tables_mod is not None and not hasattr(anki_tables_mod, "setup_anki_tables")
 
 
-def _migrate_user_plugins_cron_job() -> None:
-    """Create or migrate the user plugins cron job without leaving the legacy
-    ``plugins`` row enabled.
-    """
+def migrate_user_plugins_cron_job() -> None:
+    """Ensure the canonical ``user_plugins`` cron exists and repair branch-local ``plugins`` rows."""
     from datetime import datetime, timedelta
     from GameSentenceMiner.util.database.cron_table import CronTable
 
-    existing_cron = CronTable.get_by_name("user_plugins")
+    canonical_cron = CronTable.get_by_name("user_plugins")
     legacy_cron = CronTable.get_by_name("plugins")
 
-    if existing_cron:
-        if legacy_cron and legacy_cron.enabled:
-            logger.info("Disabling legacy plugins scheduled task in favor of user_plugins")
-            legacy_cron.disable()
+    if canonical_cron:
+        if legacy_cron:
+            CronTable._db.execute(
+                f"DELETE FROM {CronTable._table} WHERE id=?",
+                (legacy_cron.id,),
+                commit=True,
+            )
+            logger.info("Removed stale plugins scheduled task in favor of user_plugins")
         else:
             logger.debug("user_plugins scheduled task already exists, skipping creation.")
+        return
+
+    if legacy_cron:
+        legacy_cron.name = "user_plugins"
+        if not legacy_cron.description:
+            legacy_cron.description = "Custom user plugins"
+        legacy_cron.save()
+        logger.info("Migrated plugins scheduled task back to user_plugins")
         return
 
     logger.info("Creating user_plugins scheduled task...")
     now = datetime.now()
     two_minutes_ago = now - timedelta(minutes=2)
-
-    if legacy_cron:
-        new_cron = CronTable.create_cron_entry(
-            name="user_plugins",
-            description=legacy_cron.description or "Custom user plugins",
-            next_run=legacy_cron.next_run if legacy_cron.next_run is not None else two_minutes_ago.timestamp(),
-            schedule=legacy_cron.schedule or "minutely",
-            enabled=legacy_cron.enabled,
-        )
-        new_cron.last_run = legacy_cron.last_run
-        new_cron.save()
-
-        if legacy_cron.enabled:
-            legacy_cron.disable()
-
-        logger.info(
-            "Migrated legacy plugins scheduled task to user_plugins "
-            f"(next_run: {datetime.fromtimestamp(new_cron.next_run).strftime('%Y-%m-%d %H:%M:%S')})"
-        )
-        return
-
     CronTable.create_cron_entry(
         name="user_plugins",
         description="Custom user plugins",
@@ -2095,7 +2092,7 @@ def check_and_run_migrations():
     migrate_populate_games_cron_job()  # Run BEFORE daily_rollup to ensure games exist
     migrate_daily_rollup_cron_job()
     migrate_genres_and_tags()  # Add genres and tags columns
-    _migrate_user_plugins_cron_job()
+    migrate_user_plugins_cron_job()
     migrate_jiten_upgrader_cron_job()  # Weekly check for new Jiten entries
     migrate_daily_goals_completion_cron_job()  # Hourly check for auto-completing daily goals
 

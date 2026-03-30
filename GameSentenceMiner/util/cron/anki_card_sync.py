@@ -335,6 +335,8 @@ def _delete_stale_rows(live_note_ids: set[int], live_card_ids: set[int] | None =
     stale_note_list = list(stale_note_ids)
 
     db = AnkiNotesTable._db
+    has_word_link_table = db.table_exists("word_anki_links")
+    has_kanji_link_table = db.table_exists("card_kanji_links")
     stale_card_ids: set[int] = set()
     if stale_note_ids or live_card_ids is not None:
         rows = db.fetchall(f"SELECT card_id, note_id FROM {AnkiCardsTable._table}")
@@ -355,12 +357,14 @@ def _delete_stale_rows(live_note_ids: set[int], live_card_ids: set[int] | None =
 
     # 3. Delete from child tables first, then parent tables
     if stale_card_list:
-        result["deleted_card_kanji_links"] = db.delete_where_in("card_kanji_links", "card_id", stale_card_list)
+        if has_kanji_link_table:
+            result["deleted_card_kanji_links"] = db.delete_where_in("card_kanji_links", "card_id", stale_card_list)
         result["deleted_reviews"] = db.delete_where_in("anki_reviews", "card_id", stale_card_list)
         result["deleted_cards"] = db.delete_where_in("anki_cards", "card_id", stale_card_list)
 
     if stale_note_list:
-        result["deleted_word_anki_links"] = db.delete_where_in("word_anki_links", "note_id", stale_note_list)
+        if has_word_link_table:
+            result["deleted_word_anki_links"] = db.delete_where_in("word_anki_links", "note_id", stale_note_list)
         result["deleted_notes"] = db.delete_where_in("anki_notes", "note_id", stale_note_list)
 
     logger.info(
@@ -410,6 +414,14 @@ def _build_sync_query() -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _has_word_linking_tables(db) -> bool:
+    return db.table_exists("words") and db.table_exists("word_anki_links")
+
+
+def _has_kanji_linking_tables(db) -> bool:
+    return db.table_exists("kanji") and db.table_exists("card_kanji_links")
+
+
 def _rebuild_word_links(note_ids: list[int] | None = None) -> int:
     """Rebuild ``word_anki_links`` by matching the configured word field in each
     note against the ``words`` table.
@@ -432,6 +444,9 @@ def _rebuild_word_links(note_ids: list[int] | None = None) -> int:
         return 0
 
     db = AnkiNotesTable._db
+    if not _has_word_linking_tables(db):
+        logger.info("Skipping word link rebuild: tokenization tables unavailable")
+        return 0
 
     # Delete existing links before rebuilding
     if note_ids is None:
@@ -502,6 +517,9 @@ def _rebuild_kanji_links(note_ids: list[int] | None = None) -> int:
         return 0
 
     db = AnkiNotesTable._db
+    if not _has_kanji_linking_tables(db):
+        logger.info("Skipping kanji link rebuild: tokenization tables unavailable")
+        return 0
 
     # Delete existing links before rebuilding
     if note_ids is None:
@@ -590,6 +608,9 @@ def _update_in_anki_flags() -> int:
     from GameSentenceMiner.util.database.anki_tables import AnkiNotesTable
 
     db = AnkiNotesTable._db
+    if not _has_word_linking_tables(db):
+        logger.info("Skipping in_anki flag update: tokenization tables unavailable")
+        return 0
 
     cur_set = db.execute(
         "UPDATE words SET in_anki = 1 WHERE id IN (SELECT DISTINCT word_id FROM word_anki_links)",
@@ -630,24 +651,17 @@ def run_full_sync() -> dict:
     """Daily cron entry point. Performs a complete sync of all Anki data.
 
     Steps:
-      1. Check tokenization is enabled
-      2. Fetch scoped note IDs and card IDs
-      3. Upsert notes
-      4. Upsert cards
-      5. Fetch reviews for all cards
-      6. Delete stale rows (notes/cards in cache but not in Anki)
-      7. Rebuild word_anki_links
-      8. Rebuild card_kanji_links
-      9. Update in_anki flags on words table
+      1. Fetch scoped note IDs and card IDs
+      2. Upsert notes
+      3. Upsert cards
+      4. Fetch reviews for all cards
+      5. Delete stale rows (notes/cards in cache but not in Anki)
+      6. Rebuild tokenization link tables when available
+      7. Update in_anki flags when tokenization tables are available
 
     Returns:
         Summary dict with counts for each step.
     """
-    from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
-
-    if not is_tokenization_enabled():
-        return {"skipped": True, "reason": "tokenization disabled"}
-
     # Step 1: Fetch scoped note IDs
     sync_query = _build_sync_query()
     if sync_query is None:
@@ -680,14 +694,17 @@ def run_full_sync() -> dict:
             # Step 6: Delete stale rows
             deletion_counts = _delete_stale_rows(set(note_ids), set(card_ids))
 
-            # Step 7: Rebuild word links (full rebuild)
-            word_links = _rebuild_word_links()
+            if _has_word_linking_tables(AnkiNotesTable._db):
+                word_links = _rebuild_word_links()
+                flags_updated = _update_in_anki_flags()
+            else:
+                word_links = 0
+                flags_updated = 0
 
-            # Step 8: Rebuild kanji links (full rebuild)
-            kanji_links = _rebuild_kanji_links()
-
-            # Step 9: Update in_anki flags
-            flags_updated = _update_in_anki_flags()
+            if _has_kanji_linking_tables(AnkiNotesTable._db):
+                kanji_links = _rebuild_kanji_links()
+            else:
+                kanji_links = 0
     except Exception as exc:
         logger.error(f"Full sync aborted and rolled back: {exc}")
         return {"skipped": True, "reason": str(exc)}
@@ -720,14 +737,12 @@ def run_incremental_sync(note_ids: list[int]) -> dict:
     """Sync specific notes immediately. Called from ``check_for_new_cards()``.
 
     Steps:
-      1. Check tokenization is enabled
-      2. Fetch and upsert the given notes
-      3. Find card IDs belonging to those notes via AnkiConnect
-      4. Fetch and upsert those cards
-      5. Fetch and upsert reviews for those cards
-      6. Rebuild word_anki_links for these notes only
-      7. Rebuild card_kanji_links for these notes only
-      8. Update in_anki flags
+      1. Fetch and upsert the given notes
+      2. Find card IDs belonging to those notes via AnkiConnect
+      3. Fetch and upsert those cards
+      4. Fetch and upsert reviews for those cards
+      5. Rebuild tokenization links for these notes only when available
+      6. Update in_anki flags when tokenization tables are available
 
     Args:
         note_ids: Anki note IDs to sync.
@@ -735,11 +750,6 @@ def run_incremental_sync(note_ids: list[int]) -> dict:
     Returns:
         Summary dict with counts for each step.
     """
-    from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
-
-    if not is_tokenization_enabled():
-        return {"skipped": True, "reason": "tokenization disabled"}
-
     if not note_ids:
         return {"skipped": True, "reason": "no note IDs provided"}
 
@@ -768,14 +778,17 @@ def run_incremental_sync(note_ids: list[int]) -> dict:
     # Step 4: Fetch and upsert reviews
     reviews_upserted = _fetch_and_upsert_reviews(card_ids)
 
-    # Step 5: Rebuild word links for these notes only
-    word_links = _rebuild_word_links(note_ids)
+    if _has_word_linking_tables(AnkiNotesTable._db):
+        word_links = _rebuild_word_links(note_ids)
+        flags_updated = _update_in_anki_flags()
+    else:
+        word_links = 0
+        flags_updated = 0
 
-    # Step 6: Rebuild kanji links for these notes only
-    kanji_links = _rebuild_kanji_links(note_ids)
-
-    # Step 7: Update in_anki flags
-    flags_updated = _update_in_anki_flags()
+    if _has_kanji_linking_tables(AnkiNotesTable._db):
+        kanji_links = _rebuild_kanji_links(note_ids)
+    else:
+        kanji_links = 0
 
     summary = {
         "skipped": False,

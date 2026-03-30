@@ -30,7 +30,7 @@ def _get_canonical_task_name(task_name: str) -> str:
 
 
 def _get_task_lookup_names(task_name: str) -> list[str]:
-    """Return exact and alias names that may match a requested task."""
+    """Return exact names that may match a requested task."""
     candidate_names = []
 
     normalized_name = (task_name or "").strip().lower()
@@ -40,11 +40,6 @@ def _get_task_lookup_names(task_name: str) -> list[str]:
 
     if normalized_name and normalized_name not in candidate_names:
         candidate_names.append(normalized_name)
-
-    if resolved_task and resolved_task.value == "user_plugins":
-        for alias in ("plugins", "user_plugins"):
-            if alias not in candidate_names:
-                candidate_names.append(alias)
 
     return candidate_names
 

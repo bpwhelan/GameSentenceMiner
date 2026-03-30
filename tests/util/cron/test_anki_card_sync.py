@@ -575,3 +575,189 @@ class TestRunFullSync:
         assert result == {"skipped": True, "reason": "cardsInfo failed"}
         assert invalidations == []
         assert AnkiNotesTable.get(100) is None
+
+    def test_syncs_core_cache_when_tokenization_tables_are_missing(self, db, monkeypatch):
+        db.execute("DROP TABLE IF EXISTS word_anki_links", commit=True)
+        db.execute("DROP TABLE IF EXISTS card_kanji_links", commit=True)
+
+        monkeypatch.setattr(sync_mod, "_build_sync_query", lambda: "deck:All")
+
+        def fake_anki_invoke(action, raise_on_error=False, **kwargs):
+            if action == "findNotes":
+                return [100]
+            if action == "findCards":
+                return [200]
+            raise AssertionError(f"Unexpected action: {action}")
+
+        def fake_fetch_notes(note_ids, *, strict=False):
+            assert note_ids == [100]
+            assert strict is True
+            AnkiNotesTable(
+                note_id=100,
+                model_name="Basic",
+                fields_json="{}",
+                tags="[]",
+                mod=0,
+                synced_at=0.0,
+            ).save()
+            return 1
+
+        def fake_fetch_cards(card_ids, *, strict=False):
+            assert card_ids == [200]
+            assert strict is True
+            AnkiCardsTable(
+                card_id=200,
+                note_id=100,
+                deck_name="Default",
+                queue=0,
+                type=0,
+                due=0,
+                interval=0,
+                factor=0,
+                reps=0,
+                lapses=0,
+                synced_at=0.0,
+            ).save()
+            return 1
+
+        def fake_fetch_reviews(card_ids, *, strict=False):
+            assert card_ids == [200]
+            assert strict is True
+            AnkiReviewsTable(
+                review_id="200_1",
+                card_id=200,
+                note_id=100,
+                review_time=1,
+                ease=2,
+                interval=1,
+                last_interval=0,
+                time_taken=1000,
+                synced_at=0.0,
+            ).save()
+            return 1
+
+        monkeypatch.setattr(sync_mod, "anki_invoke", fake_anki_invoke)
+        monkeypatch.setattr(sync_mod, "_fetch_and_upsert_notes", fake_fetch_notes)
+        monkeypatch.setattr(sync_mod, "_fetch_and_upsert_cards", fake_fetch_cards)
+        monkeypatch.setattr(sync_mod, "_fetch_and_upsert_reviews", fake_fetch_reviews)
+        monkeypatch.setattr(
+            sync_mod,
+            "_rebuild_word_links",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("word links should be skipped")),
+        )
+        monkeypatch.setattr(
+            sync_mod,
+            "_rebuild_kanji_links",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("kanji links should be skipped")),
+        )
+        monkeypatch.setattr(
+            sync_mod,
+            "_update_in_anki_flags",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("flag updates should be skipped")),
+        )
+
+        result = sync_mod.run_full_sync()
+
+        assert result["skipped"] is False
+        assert result["notes_upserted"] == 1
+        assert result["cards_upserted"] == 1
+        assert result["reviews_upserted"] == 1
+        assert result["word_links"] == 0
+        assert result["kanji_links"] == 0
+        assert result["flags_updated"] == 0
+        assert AnkiNotesTable.get(100) is not None
+        assert AnkiCardsTable.get(200) is not None
+        assert AnkiReviewsTable.get("200_1") is not None
+
+
+class TestRunIncrementalSync:
+    def test_syncs_core_cache_when_tokenization_tables_are_missing(self, db, monkeypatch):
+        db.execute("DROP TABLE IF EXISTS word_anki_links", commit=True)
+        db.execute("DROP TABLE IF EXISTS card_kanji_links", commit=True)
+
+        monkeypatch.setattr(sync_mod, "_scope_note_ids", lambda note_ids: [100])
+
+        def fake_anki_invoke(action, raise_on_error=False, **kwargs):
+            if action == "findCards":
+                return [200]
+            raise AssertionError(f"Unexpected action: {action}")
+
+        def fake_fetch_notes(note_ids, *, strict=False):
+            assert note_ids == [100]
+            assert strict is False
+            AnkiNotesTable(
+                note_id=100,
+                model_name="Basic",
+                fields_json="{}",
+                tags="[]",
+                mod=0,
+                synced_at=0.0,
+            ).save()
+            return 1
+
+        def fake_fetch_cards(card_ids, *, strict=False):
+            assert card_ids == [200]
+            assert strict is False
+            AnkiCardsTable(
+                card_id=200,
+                note_id=100,
+                deck_name="Default",
+                queue=0,
+                type=0,
+                due=0,
+                interval=0,
+                factor=0,
+                reps=0,
+                lapses=0,
+                synced_at=0.0,
+            ).save()
+            return 1
+
+        def fake_fetch_reviews(card_ids, *, strict=False):
+            assert card_ids == [200]
+            assert strict is False
+            AnkiReviewsTable(
+                review_id="200_2",
+                card_id=200,
+                note_id=100,
+                review_time=2,
+                ease=2,
+                interval=1,
+                last_interval=0,
+                time_taken=1000,
+                synced_at=0.0,
+            ).save()
+            return 1
+
+        monkeypatch.setattr(sync_mod, "anki_invoke", fake_anki_invoke)
+        monkeypatch.setattr(sync_mod, "_fetch_and_upsert_notes", fake_fetch_notes)
+        monkeypatch.setattr(sync_mod, "_fetch_and_upsert_cards", fake_fetch_cards)
+        monkeypatch.setattr(sync_mod, "_fetch_and_upsert_reviews", fake_fetch_reviews)
+        monkeypatch.setattr(
+            sync_mod,
+            "_rebuild_word_links",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("word links should be skipped")),
+        )
+        monkeypatch.setattr(
+            sync_mod,
+            "_rebuild_kanji_links",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("kanji links should be skipped")),
+        )
+        monkeypatch.setattr(
+            sync_mod,
+            "_update_in_anki_flags",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("flag updates should be skipped")),
+        )
+
+        result = sync_mod.run_incremental_sync([100])
+
+        assert result["skipped"] is False
+        assert result["notes_upserted"] == 1
+        assert result["cards_upserted"] == 1
+        assert result["reviews_upserted"] == 1
+        assert result["word_links"] == 0
+        assert result["kanji_links"] == 0
+        assert result["flags_updated"] == 0
+        assert AnkiNotesTable.get(100) is not None
+        assert AnkiCardsTable.get(200) is not None
+        assert AnkiReviewsTable.get("200_2") is not None

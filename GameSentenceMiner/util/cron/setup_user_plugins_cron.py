@@ -1,7 +1,7 @@
 """
 Setup script for User Plugins cron job.
 
-This script manages the plugins cron entry that executes user-defined plugins every minute.
+This script manages the user_plugins cron entry that executes user-defined plugins every minute.
 The plugins.py file is automatically created in the user's AppData directory if it doesn't exist.
 
 Run this to enable/disable the user plugins system:
@@ -32,19 +32,19 @@ def setup_user_plugins_cron(enabled: bool = True) -> CronTable:
     print(f"User plugins file location: {plugin_path}")
 
     # Check if cron already exists
-    existing = CronTable.get_by_name("plugins")
+    existing = CronTable.get_by_name("user_plugins")
 
     if existing:
-        print("Plugins scheduled task already exists")
+        print("User plugins scheduled task already exists")
         if enabled and not existing.enabled:
             existing.enable()
-            print("✅ Enabled existing plugins scheduled task")
+            print("✅ Enabled existing user_plugins scheduled task")
         elif not enabled and existing.enabled:
             existing.disable()
-            print("✅ Disabled existing plugins scheduled task")
+            print("✅ Disabled existing user_plugins scheduled task")
         else:
             status = "enabled" if existing.enabled else "disabled"
-            print(f"Plugins scheduled task is already {status}")
+            print(f"User plugins scheduled task is already {status}")
         return existing
 
     # Create new cron entry using the setup method from CronTable
@@ -52,9 +52,9 @@ def setup_user_plugins_cron(enabled: bool = True) -> CronTable:
 
     if not enabled:
         cron.disable()
-        print("✅ Created plugins scheduled task (disabled)")
+        print("✅ Created user_plugins scheduled task (disabled)")
     else:
-        print("✅ Created plugins scheduled task (enabled)")
+        print("✅ Created user_plugins scheduled task (enabled)")
 
     return cron
 

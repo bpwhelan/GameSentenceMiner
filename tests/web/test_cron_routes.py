@@ -58,7 +58,7 @@ def test_list_cron_tasks_sorts_using_serialized_next_run():
         os.unlink(path)
 
 
-def test_list_cron_tasks_hides_legacy_plugins_alias_when_canonical_exists():
+def test_list_cron_tasks_includes_user_plugins_task():
     original_db = CronTable._db
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
@@ -69,17 +69,10 @@ def test_list_cron_tasks_hides_legacy_plugins_alias_when_canonical_exists():
 
         CronTable.create_cron_entry(
             name="user_plugins",
-            description="Canonical plugins task",
+            description="User plugins task",
             next_run=1000.0,
             schedule="minutely",
             enabled=True,
-        )
-        CronTable.create_cron_entry(
-            name="plugins",
-            description="Legacy plugins task",
-            next_run=900.0,
-            schedule="minutely",
-            enabled=False,
         )
 
         client = _make_client()
@@ -97,7 +90,7 @@ def test_list_cron_tasks_hides_legacy_plugins_alias_when_canonical_exists():
         os.unlink(path)
 
 
-def test_run_legacy_plugins_alias_prefers_canonical_row(monkeypatch):
+def test_run_user_plugins_task_uses_canonical_row(monkeypatch):
     original_db = CronTable._db
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
@@ -110,17 +103,10 @@ def test_run_legacy_plugins_alias_prefers_canonical_row(monkeypatch):
 
         canonical = CronTable.create_cron_entry(
             name="user_plugins",
-            description="Canonical plugins task",
+            description="User plugins task",
             next_run=1000.0,
             schedule="minutely",
             enabled=True,
-        )
-        CronTable.create_cron_entry(
-            name="plugins",
-            description="Legacy plugins task",
-            next_run=900.0,
-            schedule="minutely",
-            enabled=False,
         )
 
         def fake_run_cron_blocking(task_row):
@@ -134,7 +120,7 @@ def test_run_legacy_plugins_alias_prefers_canonical_row(monkeypatch):
         )
 
         client = _make_client()
-        response = client.post("/api/cron/tasks/plugins/run")
+        response = client.post("/api/cron/tasks/user_plugins/run")
 
         assert response.status_code == 200
         assert captured == {"task_name": "user_plugins", "task_id": canonical.id}
