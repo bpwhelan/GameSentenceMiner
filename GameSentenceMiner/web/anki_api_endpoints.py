@@ -1305,15 +1305,10 @@ def _get_anki_kanji_from_cache(
 
         for note in notes:
             tags = _get_note_tags(note, note_tags_by_id)
-            if not any(
-                isinstance(tag, str) and tag.startswith(parent_tag_prefix)
-                for tag in tags
-            ):
+            if not any(isinstance(tag, str) and tag.startswith(parent_tag_prefix) for tag in tags):
                 continue
 
-            if not _matches_optional_timestamp_range(
-                note.note_id, start_timestamp, end_timestamp
-            ):
+            if not _matches_optional_timestamp_range(note.note_id, start_timestamp, end_timestamp):
                 continue
 
             fields = _get_note_fields(note, note_fields_by_id)

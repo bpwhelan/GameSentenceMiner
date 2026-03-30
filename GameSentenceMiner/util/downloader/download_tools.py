@@ -93,7 +93,6 @@ def cleanup_temp_files(func):
 
 
 def copy_obs_settings(src, dest):
-
     if os.path.exists(src):
         user_input = (
             input(f"Existing OBS install located. Do you want to copy OBS settings from {src} to {dest}? (y/n): ")

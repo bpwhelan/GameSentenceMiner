@@ -750,6 +750,8 @@ def run_incremental_sync(note_ids: list[int]) -> dict:
     Returns:
         Summary dict with counts for each step.
     """
+    from GameSentenceMiner.util.database.anki_tables import AnkiNotesTable
+
     if not note_ids:
         return {"skipped": True, "reason": "no note IDs provided"}
 

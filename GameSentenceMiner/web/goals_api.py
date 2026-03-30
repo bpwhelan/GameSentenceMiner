@@ -2671,9 +2671,7 @@ def register_goals_api_routes(app):
                             window.rollup_end_date.strftime("%Y-%m-%d"),
                         )
                         if cache_key not in rollup_cache:
-                            rollup_cache[cache_key] = get_rollup_stats_for_range(
-                                start_date, window.rollup_end_date
-                            )
+                            rollup_cache[cache_key] = get_rollup_stats_for_range(start_date, window.rollup_end_date)
                         rollup_stats = rollup_cache[cache_key]
 
                     combined_stats = combine_stats_with_third_party(

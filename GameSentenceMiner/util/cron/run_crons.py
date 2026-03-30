@@ -39,6 +39,7 @@ class MockCron:
     name: str
     description: str
 
+
 def resolve_cron_task(task_name: str) -> Optional[Crons]:
     """Resolve a cron task name."""
     if not task_name:
