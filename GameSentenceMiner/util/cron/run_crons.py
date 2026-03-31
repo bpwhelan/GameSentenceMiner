@@ -16,8 +16,6 @@ from typing import Optional
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.cron_table import CronTable
 
-MANUAL_CRON_EXECUTION_TIMEOUT_SECONDS = 60.0
-
 
 class Crons(enum.Enum):
     POPULATE_GAMES = "populate_games"
@@ -52,11 +50,6 @@ def resolve_cron_task(task_name: str) -> Optional[Crons]:
             return cron
 
     return None
-
-
-def get_supported_cron_names() -> set[str]:
-    """Return all supported canonical cron names."""
-    return {cron.value for cron in Crons}
 
 
 def create_forced_cron(task: Crons, description: Optional[str] = None) -> MockCron:
@@ -419,33 +412,6 @@ class CronScheduler:
         async with self._lock:
             return await run_due_crons(force_task)
 
-    async def _execute_selected_cron_safe(self, cron) -> dict:
-        """Run a single cron row while sharing the scheduler lock."""
-        async with self._lock:
-            return await run_selected_cron(cron)
-
-    def run_cron_blocking(self, cron) -> dict:
-        """
-        Run a cron synchronously for API callers.
-
-        If the scheduler loop is active, execute within that loop so the shared
-        lock serializes manual reruns with background runs.
-        """
-        if self.is_running() and self.loop and self.loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(self._execute_selected_cron_safe(cron), self.loop)
-            try:
-                return future.result(timeout=MANUAL_CRON_EXECUTION_TIMEOUT_SECONDS)
-            except TimeoutError as exc:
-                future.cancel()
-                message = (
-                    f"Timed out waiting for manual cron execution after "
-                    f"{MANUAL_CRON_EXECUTION_TIMEOUT_SECONDS:.0f} seconds"
-                )
-                logger.error(message)
-                raise TimeoutError(message) from exc
-
-        return _run_crons_sync([cron])
-
     def is_running(self) -> bool:
         return self._running
 
@@ -456,13 +422,6 @@ async def run_due_crons(force_task: Optional["Crons"] = None) -> dict:
     do not block the async event loop (text input/websocket responsiveness).
     """
     return await asyncio.to_thread(_run_due_crons_sync, force_task)
-
-
-async def run_selected_cron(cron) -> dict:
-    """
-    Run a specific cron row in a worker thread.
-    """
-    return await asyncio.to_thread(_run_crons_sync, [cron])
 
 
 def _run_due_crons_sync(force_task: Optional["Crons"] = None) -> dict:

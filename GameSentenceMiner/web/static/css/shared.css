@@ -437,10 +437,6 @@ h1 {
     overflow: hidden;
 }
 
-.management-card.full-width {
-    grid-column: 1 / -1;
-}
-
 .management-card:hover {
     transform: translateY(-2px);
     box-shadow: 0 8px 24px var(--shadow-color);
@@ -480,30 +476,10 @@ h1 {
     background: linear-gradient(90deg, var(--info-color), #4fc3f7);
 }
 
-.management-card.scheduled-tasks::before {
-    background: linear-gradient(90deg, #ff9800, #ffd54f);
-}
-
 .card-header {
     display: flex;
     align-items: center;
     margin-bottom: 20px;
-}
-
-.scheduled-tasks-header {
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-}
-
-.card-header-main {
-    display: flex;
-    align-items: flex-start;
-    gap: 15px;
-}
-
-.scheduled-tasks-header .card-icon {
-    margin-right: 0;
 }
 
 .card-icon {
@@ -1676,147 +1652,6 @@ input[type="date"].dashboard-date-input:hover {
     padding: 20px;
     flex: 1;
     overflow-y: auto;
-}
-
-.cron-tasks-list {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.cron-task-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
-.cron-task-card-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-}
-
-.cron-task-card-title {
-    margin: 0;
-    color: var(--text-primary);
-}
-
-.cron-task-card-description {
-    margin: 6px 0 0;
-    color: var(--text-secondary);
-    font-size: 14px;
-}
-
-.cron-task-badges {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    justify-content: flex-end;
-}
-
-.cron-task-badge {
-    display: inline-flex;
-    align-items: center;
-    border-radius: 999px;
-    padding: 4px 10px;
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-}
-
-.cron-task-badge.enabled {
-    background: rgba(40, 167, 69, 0.15);
-    color: var(--success-color);
-}
-
-.cron-task-badge.disabled {
-    background: rgba(220, 53, 69, 0.15);
-    color: var(--danger-color);
-}
-
-.cron-task-badge.schedule {
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-}
-
-.cron-task-meta {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 12px;
-}
-
-.cron-task-meta-item {
-    background: var(--bg-tertiary);
-    border-radius: 10px;
-    padding: 12px;
-}
-
-.cron-task-meta-label {
-    display: block;
-    color: var(--text-tertiary);
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    margin-bottom: 4px;
-}
-
-.cron-task-meta-value {
-    color: var(--text-primary);
-    font-weight: 600;
-    word-break: break-word;
-}
-
-.cron-task-actions {
-    display: flex;
-    justify-content: flex-end;
-}
-
-.cron-tasks-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    min-height: 220px;
-    color: var(--text-secondary);
-    text-align: center;
-}
-
-.cron-tasks-empty-icon {
-    font-size: 40px;
-}
-
-@media (max-width: 768px) {
-    .scheduled-tasks-header,
-    .card-header-main {
-        flex-direction: column;
-    }
-
-    .scheduled-tasks-header .action-btn {
-        width: 100%;
-    }
-
-    .cron-task-card-header {
-        flex-direction: column;
-    }
-
-    .cron-task-badges {
-        justify-content: flex-start;
-    }
-
-    .cron-task-actions {
-        justify-content: stretch;
-    }
-
-    .cron-task-actions .action-btn {
-        width: 100%;
-    }
 }
 
 /* Individual Game Action Buttons */
