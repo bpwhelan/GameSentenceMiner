@@ -231,6 +231,36 @@
             </div>
         </div>
 
+        <div class="management-card scheduled-tasks full-width">
+            <div class="card-header scheduled-tasks-header">
+                <div class="card-header-main">
+                    <div class="card-icon">⏱️</div>
+                    <div>
+                        <h2 class="card-title">Scheduled Tasks</h2>
+                        <p class="card-description" style="margin: 8px 0 0;">
+                            GSM regularly runs tasks. If you need to make GSM manually run a task, this is the place to do it. For example, if your stats are lagging you can run "Daily Stats Rollup". Or you can run "Jiten Sync" to sync with Jiten/VNDB/Anilist etc.
+                        </p>
+                    </div>
+                </div>
+                <button class="action-btn primary" data-action="refreshCronTasks">
+                    Refresh Tasks
+                </button>
+            </div>
+
+            <div id="tasksLoadingIndicator" class="loading-indicator">
+                <div class="spinner"></div>
+                <span>Loading tasks...</span>
+            </div>
+
+            <div id="tasksContent" style="display: none;">
+                <div id="tasksList" class="cron-tasks-list"></div>
+            </div>
+
+            <div id="tasksEmptyState" class="cron-tasks-empty" style="display: none;">
+                <div class="cron-tasks-empty-icon">⏱️</div>
+                <p>No scheduled tasks found.</p>
+            </div>
+        </div>
     </div>
 
     {% include 'components/settings-modal.html' %}
@@ -1266,6 +1296,7 @@
 <script src="/static/js/unified-search.js"></script>
 <script src="/static/js/database-jiten-integration.js"></script>
 <script src="/static/js/database-game-operations.js"></script>
+<script src="/static/js/database-cron-tasks.js"></script>
 <script src="/static/js/database-third-party-stats.js"></script>
 <script src="/static/js/database-exstatic-import.js"></script>
 
