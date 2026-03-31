@@ -26,30 +26,6 @@ function formatReleaseDate(releaseDate) {
 }
 
 /**
- * Format a Unix timestamp for display in the local timezone.
- * @param {number|null|undefined} timestamp - Unix timestamp in seconds
- * @param {string} fallback - Fallback label when no timestamp is available
- * @returns {string} Formatted timestamp string
- */
-function formatUnixTimestamp(timestamp, fallback = 'Never') {
-    if (timestamp === null || timestamp === undefined || timestamp === '') {
-        return fallback;
-    }
-
-    const numericTimestamp = Number(timestamp);
-    if (!Number.isFinite(numericTimestamp) || numericTimestamp <= 0) {
-        return fallback;
-    }
-
-    const date = new Date(numericTimestamp * 1000);
-    if (Number.isNaN(date.getTime())) {
-        return fallback;
-    }
-
-    return date.toLocaleString();
-}
-
-/**
  * Format a game difficulty bucket for display.
  * @param {Object|null|undefined} game - Game object with difficulty metadata
  * @returns {string} Difficulty label or empty string when unavailable

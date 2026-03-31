@@ -1586,59 +1586,6 @@ def _should_defer_tokenization_schema_sync() -> bool:
     return anki_tables_mod is not None and not hasattr(anki_tables_mod, "setup_anki_tables")
 
 
-def _migrate_user_plugins_cron_job() -> None:
-    """Create or migrate the user plugins cron job without leaving the legacy
-    ``plugins`` row enabled.
-    """
-    from datetime import datetime, timedelta
-    from GameSentenceMiner.util.database.cron_table import CronTable
-
-    existing_cron = CronTable.get_by_name("user_plugins")
-    legacy_cron = CronTable.get_by_name("plugins")
-
-    if existing_cron:
-        if legacy_cron and legacy_cron.enabled:
-            logger.info("Disabling legacy plugins scheduled task in favor of user_plugins")
-            legacy_cron.disable()
-        else:
-            logger.debug("user_plugins scheduled task already exists, skipping creation.")
-        return
-
-    logger.info("Creating user_plugins scheduled task...")
-    now = datetime.now()
-    two_minutes_ago = now - timedelta(minutes=2)
-
-    if legacy_cron:
-        new_cron = CronTable.create_cron_entry(
-            name="user_plugins",
-            description=legacy_cron.description or "Custom user plugins",
-            next_run=legacy_cron.next_run if legacy_cron.next_run is not None else two_minutes_ago.timestamp(),
-            schedule=legacy_cron.schedule or "minutely",
-            enabled=legacy_cron.enabled,
-        )
-        new_cron.last_run = legacy_cron.last_run
-        new_cron.save()
-
-        if legacy_cron.enabled:
-            legacy_cron.disable()
-
-        logger.info(
-            "Migrated legacy plugins scheduled task to user_plugins "
-            f"(next_run: {datetime.fromtimestamp(new_cron.next_run).strftime('%Y-%m-%d %H:%M:%S')})"
-        )
-        return
-
-    CronTable.create_cron_entry(
-        name="user_plugins",
-        description="Custom user plugins",
-        next_run=two_minutes_ago.timestamp(),
-        schedule="minutely",  # by default gsm checks crons every 5 mins, so this actually runs every 15 mins
-    )
-    logger.info(
-        f"✅ Created user_plugins scheduled task - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})"
-    )
-
-
 # Import GamesTable, CronTable, and StatsRollupTable after gsm_db is created to avoid circular import
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.cron_table import CronTable
@@ -1988,6 +1935,29 @@ def check_and_run_migrations():
         else:
             logger.debug("populate_games scheduled task already exists, skipping creation.")
 
+    def migrate_user_plugins_cron_job():
+        """
+        Create the user_plugins cron job if it doesn't exist.
+        """
+        existing_cron = CronTable.get_by_name("user_plugins")
+        if not existing_cron:
+            logger.info("Creating user_plugins scheduled task...")
+            # Schedule to run immediately (2 minutes ago)
+            now = datetime.now()
+            two_minutes_ago = now - timedelta(minutes=2)
+
+            CronTable.create_cron_entry(
+                name="user_plugins",
+                description="Custom user plugins",
+                next_run=two_minutes_ago.timestamp(),
+                schedule="minutely",  # by default gsm checks crons every 5 mins, so this actually runs every 15 mins
+            )
+            logger.info(
+                f"✅ Created user_plugins scheduled task - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})"
+            )
+        else:
+            logger.debug("user_plugins scheduled task already exists, skipping creation.")
+
     def migrate_jiten_upgrader_cron_job():
         """
         Create the weekly jiten_upgrader cron job if it doesn't exist.
@@ -2095,7 +2065,7 @@ def check_and_run_migrations():
     migrate_populate_games_cron_job()  # Run BEFORE daily_rollup to ensure games exist
     migrate_daily_rollup_cron_job()
     migrate_genres_and_tags()  # Add genres and tags columns
-    _migrate_user_plugins_cron_job()
+    migrate_user_plugins_cron_job()
     migrate_jiten_upgrader_cron_job()  # Weekly check for new Jiten entries
     migrate_daily_goals_completion_cron_job()  # Hourly check for auto-completing daily goals
 

@@ -200,9 +200,7 @@ class JitenApiClient:
 
         difficulty = deck_data.get("difficulty")
         difficulty_raw = deck_data.get("difficultyRaw")
-        difficulty_for_label = (
-            difficulty_raw if difficulty_raw is not None else difficulty
-        )
+        difficulty_for_label = difficulty_raw if difficulty_raw is not None else difficulty
 
         return {
             "deck_id": deck_data.get("deckId"),

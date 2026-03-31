@@ -874,7 +874,15 @@ async function saveGameEdits() {
     
     // Validate difficulty
     const difficulty = document.getElementById('editDifficulty').value;
-    if (difficulty !== '' && (parseInt(difficulty, 10) < 0 || parseInt(difficulty, 10) > 5)) {
+    const difficultyValue = difficulty === '' ? null : Number(difficulty);
+    if (
+        difficulty !== '' && (
+            !Number.isFinite(difficultyValue) ||
+            !Number.isInteger(difficultyValue) ||
+            difficultyValue < 0 ||
+            difficultyValue > 5
+        )
+    ) {
         errorDiv.textContent = 'Difficulty must be between 0 and 5';
         errorDiv.style.display = 'block';
         return;
@@ -921,7 +929,7 @@ async function saveGameEdits() {
         }
         
         if (difficulty !== '') {
-            updateData.difficulty = parseInt(difficulty, 10);
+            updateData.difficulty = difficultyValue;
         }
         
         const characterCount = document.getElementById('editCharacterCount').value;
@@ -1050,12 +1058,10 @@ async function repullJitenData(gameId, gameName) {
                     
                     // Refresh the current tab to show updated data
                     console.log(`🔄 Refreshing current tab to show updated data`);
-                    const activeTabName = typeof getActiveGameDataTabName === 'function'
-                        ? getActiveGameDataTabName()
-                        : null;
-                    if (activeTabName) {
-                        console.log(`🔄 Switching to tab: ${activeTabName}`);
-                        switchTab(activeTabName);
+                    const activeTab = document.querySelector('.tab-btn.active');
+                    if (activeTab) {
+                        console.log(`🔄 Switching to tab: ${activeTab.dataset.tab}`);
+                        switchTab(activeTab.dataset.tab);
                     }
                     
                     // Update dashboard stats

@@ -39,17 +39,6 @@ function switchTab(tabName) {
     }
 }
 
-function getActiveGameDataTabButton() {
-    const modal = document.getElementById('gameDataModal');
-    if (!modal) return null;
-    return modal.querySelector('.tab-btn[data-tab].active');
-}
-
-function getActiveGameDataTabName() {
-    const activeTab = getActiveGameDataTabButton();
-    return activeTab ? activeTab.dataset.tab : null;
-}
-
 /**
  * Open the game data modal and switch to Link Games tab by default
  */

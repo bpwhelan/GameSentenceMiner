@@ -4,8 +4,6 @@ import os
 import sqlite3
 import tempfile
 
-from GameSentenceMiner.util.database import db as db_mod
-from GameSentenceMiner.util.database.cron_table import CronTable
 from GameSentenceMiner.util.database.db import SQLiteDB, sync_tokenization_schema_state
 
 
@@ -50,79 +48,4 @@ def test_sync_tokenization_schema_state_skips_read_only_db(monkeypatch):
         finally:
             read_only_db.close()
     finally:
-        os.unlink(path)
-
-
-def test_user_plugins_migration_disables_legacy_plugins_cron():
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-
-    original_db = CronTable._db
-    test_db = SQLiteDB(path)
-
-    try:
-        CronTable.set_db(test_db)
-        legacy_cron = CronTable.create_cron_entry(
-            name="plugins",
-            description="Legacy plugins cron",
-            next_run=1234567890.0,
-            schedule="minutely",
-            enabled=True,
-        )
-
-        db_mod._migrate_user_plugins_cron_job()
-
-        user_cron = CronTable.get_by_name("user_plugins")
-        legacy_cron = CronTable.get_by_name("plugins")
-
-        assert user_cron is not None
-        assert legacy_cron is not None
-        assert user_cron.enabled is True
-        assert legacy_cron.enabled is False
-        assert [cron.name for cron in CronTable.get_all_enabled()] == ["user_plugins"]
-        assert user_cron.next_run == legacy_cron.next_run
-        assert user_cron.description == "Legacy plugins cron"
-    finally:
-        CronTable.set_db(original_db)
-        test_db.close()
-        os.unlink(path)
-
-
-def test_user_plugins_migration_disables_legacy_cron_when_both_exist():
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-
-    original_db = CronTable._db
-    test_db = SQLiteDB(path)
-
-    try:
-        CronTable.set_db(test_db)
-        CronTable.create_cron_entry(
-            name="user_plugins",
-            description="Canonical user plugins cron",
-            next_run=1234567890.0,
-            schedule="minutely",
-            enabled=True,
-        )
-        CronTable.create_cron_entry(
-            name="plugins",
-            description="Legacy plugins cron",
-            next_run=1234567890.0,
-            schedule="minutely",
-            enabled=True,
-        )
-
-        db_mod._migrate_user_plugins_cron_job()
-
-        user_cron = CronTable.get_by_name("user_plugins")
-        legacy_cron = CronTable.get_by_name("plugins")
-
-        assert user_cron is not None
-        assert legacy_cron is not None
-        assert user_cron.enabled is True
-        assert legacy_cron.enabled is False
-        assert [cron.name for cron in CronTable.get_all_enabled()] == ["user_plugins"]
-    finally:
-        CronTable.set_db(original_db)
-        test_db.close()
         os.unlink(path)

@@ -984,25 +984,6 @@ def _fetch_anki_reading_impact(
     }
 
 
-def _extract_note_field_kanji(notes_info, field_name):
-    anki_kanji_set = set()
-    for note in notes_info:
-        fields = note.get("fields", {})
-        target_field = fields.get(field_name)
-        if not target_field or "value" not in target_field:
-            continue
-
-        field_value = target_field["value"]
-        if not field_value:
-            continue
-
-        for char in str(field_value):
-            if is_kanji(char):
-                anki_kanji_set.add(char)
-
-    return anki_kanji_set
-
-
 def register_anki_api_endpoints(app):
     """Register all Anki API endpoints with the Flask app."""
 
@@ -1063,13 +1044,13 @@ def register_anki_api_endpoints(app):
                         type: integer
                 anki_kanji_count:
                   type: integer
-                  description: Unique kanji in the configured Anki word field across the whole collection
+                  description: Unique kanji in the configured Anki word field after applying the current filters
                 gsm_kanji_count:
                   type: integer
                   description: Unique kanji seen in GSM for the selected GSM date range
                 coverage_percent:
                   type: number
-                  description: Percentage of GSM kanji covered by the configured Anki word field
+                  description: Percentage of GSM kanji covered by the configured Anki word field after applying the current filters
           500:
             description: Failed to fetch kanji stats
         """
@@ -1305,15 +1286,10 @@ def _get_anki_kanji_from_cache(
 
         for note in notes:
             tags = _get_note_tags(note, note_tags_by_id)
-            if not any(
-                isinstance(tag, str) and tag.startswith(parent_tag_prefix)
-                for tag in tags
-            ):
+            if not any(isinstance(tag, str) and tag.startswith(parent_tag_prefix) for tag in tags):
                 continue
 
-            if not _matches_optional_timestamp_range(
-                note.note_id, start_timestamp, end_timestamp
-            ):
+            if not _matches_optional_timestamp_range(note.note_id, start_timestamp, end_timestamp):
                 continue
 
             fields = _get_note_fields(note, note_fields_by_id)
