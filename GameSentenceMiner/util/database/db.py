@@ -1501,6 +1501,7 @@ def get_db_directory(test=False, delete_test=False) -> str:
 
 # Backup and compress the database on load, with today's date, up to 5 days ago (clean up old backups)
 def backup_db(db_path: str):
+
     # Create a of the backups on migration
     pre_jiten_merge_backup = os.path.join(os.path.dirname(db_path), "backup", "database", "pre_jiten")
     if not os.path.exists(pre_jiten_merge_backup):
