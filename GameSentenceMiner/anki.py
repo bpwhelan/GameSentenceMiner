@@ -1305,6 +1305,34 @@ def _preserve_html_tags_for_furigana(source_sentence: str, furigana_text: str) -
     if not furigana_text:
         return furigana_text
 
+    def _peek_whitespace_run(start_index: int) -> Tuple[List[str], int]:
+        whitespace_tokens: List[str] = []
+        idx = start_index
+        while idx < len(tokens) and tokens[idx].isspace():
+            whitespace_tokens.append(tokens[idx])
+            idx += 1
+        return whitespace_tokens, idx
+
+    def _peek_next_visible_char(text: str, start_index: int) -> Optional[str]:
+        idx = start_index
+        while idx < len(text):
+            if text[idx] == "<":
+                tag_end = text.find(">", idx)
+                if tag_end == -1:
+                    return None
+                idx = tag_end + 1
+                continue
+            return text[idx]
+        return None
+
+    def _is_opening_tag(tag_text: str) -> bool:
+        return not re.match(r"<\s*/", tag_text)
+
+    def _chars_equivalent(source_char: str, token_char: str) -> bool:
+        if source_char == token_char:
+            return True
+        return {source_char, token_char} == {"~", "～"}
+
     tokens: List[str] = []
     idx = 0
     while idx < len(furigana_text):
@@ -1321,27 +1349,48 @@ def _preserve_html_tags_for_furigana(source_sentence: str, furigana_text: str) -
             idx += 1
         tokens.append(token)
 
-    base_text = "".join(token[0] for token in tokens if token)
-    tagged_base = preserve_html_tags(source_sentence, base_text)
+    source_template = source_sentence.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
 
     rebuilt: List[str] = []
     token_idx = 0
     pos = 0
-    while pos < len(tagged_base):
-        if tagged_base[pos] == "<":
-            tag_end = tagged_base.find(">", pos)
+    emitted_visible_char = False
+    while pos < len(source_template):
+        if source_template[pos] == "<":
+            tag_end = source_template.find(">", pos)
             if tag_end == -1:
-                rebuilt.append(tagged_base[pos:])
+                rebuilt.append(source_template[pos:])
                 break
-            rebuilt.append(tagged_base[pos : tag_end + 1])
+            tag_text = source_template[pos : tag_end + 1]
+            if _is_opening_tag(tag_text):
+                whitespace_tokens, next_idx = _peek_whitespace_run(token_idx)
+                next_visible = _peek_next_visible_char(source_template, tag_end + 1)
+                if whitespace_tokens and next_visible is not None and next_idx < len(tokens):
+                    if _chars_equivalent(next_visible, tokens[next_idx][0]):
+                        rebuilt.extend(whitespace_tokens)
+                        token_idx = next_idx
+            rebuilt.append(tag_text)
             pos = tag_end + 1
             continue
 
-        if token_idx < len(tokens):
-            rebuilt.append(tokens[token_idx])
+        current_char = source_template[pos]
+
+        if token_idx < len(tokens) and not _chars_equivalent(current_char, tokens[token_idx][0]):
+            whitespace_tokens, next_idx = _peek_whitespace_run(token_idx)
+            if whitespace_tokens and next_idx < len(tokens) and _chars_equivalent(current_char, tokens[next_idx][0]):
+                if emitted_visible_char:
+                    rebuilt.extend(whitespace_tokens)
+                token_idx = next_idx
+
+        if token_idx < len(tokens) and _chars_equivalent(current_char, tokens[token_idx][0]):
+            token = tokens[token_idx]
+            if token[0] != current_char:
+                token = current_char + token[1:]
+            rebuilt.append(token)
             token_idx += 1
         else:
-            rebuilt.append(tagged_base[pos])
+            rebuilt.append(current_char)
+        emitted_visible_char = True
         pos += 1
 
     rebuilt_text = "".join(rebuilt)

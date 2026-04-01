@@ -642,6 +642,44 @@ def test_preserve_html_tags_for_furigana_v_myers_regression():
     )
 
 
+def test_preserve_html_tags_for_furigana_lifetime_regression():
+    source = "私は<b>生涯</b>を捧げ、\n日々、祈り続けているのです"
+    furigana = " 私[わたし]は 生涯[しょうがい]を 捧[ささ]げ、 日々[ひび]、 祈[いの]り 続[つづ]けているのです"
+
+    result = anki._preserve_html_tags_for_furigana(source, furigana)
+
+    assert (
+        result == "私[わたし]は<b> 生涯[しょうがい]</b>を 捧[ささ]げ、 日々[ひび]、 祈[いの]り 続[つづ]けているのです"
+    )
+
+
+def test_preserve_html_tags_for_furigana_shinrabansho_regression():
+    source = "<b>森羅万象</b>の活力の源…クリスタル"
+    furigana = " 森羅万象[しんらばんしょう]の 活力[かつりょく]の 源[みなもと]…クリスタル"
+
+    result = anki._preserve_html_tags_for_furigana(source, furigana)
+
+    assert result == "<b> 森羅万象[しんらばんしょう]</b>の 活力[かつりょく]の 源[みなもと]…クリスタル"
+
+
+def test_preserve_html_tags_for_furigana_keeps_source_spaces_for_latin_text():
+    source = "Survival of the fittest, 弱肉強食"
+    furigana = "Survivalofthefittest, 弱肉強食[じゃくにくきょうしょく]"
+
+    result = anki._preserve_html_tags_for_furigana(source, furigana)
+
+    assert result == "Survival of the fittest, 弱肉強食[じゃくにくきょうしょく]"
+
+
+def test_preserve_html_tags_for_furigana_restores_source_wave_dash():
+    source = "わ～　降って来た！"
+    furigana = "わ~　 降[ふ]って 来[き]た！"
+
+    result = anki._preserve_html_tags_for_furigana(source, furigana)
+
+    assert result == "わ～　 降[ふ]って 来[き]た！"
+
+
 def test_migrate_old_word_folders_exits_when_output_missing(monkeypatch):
     cfg = _base_config()
     cfg.paths.output_folder = ""
