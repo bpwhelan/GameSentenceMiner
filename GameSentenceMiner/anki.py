@@ -477,7 +477,6 @@ def _synchronize_deferred_media_metadata(
     if not assets:
         return
 
-    config = get_config()
     if video_path:
         assets.source_video_path = video_path
 
@@ -1115,6 +1114,22 @@ def _process_audio(
     if not assets.audio_path or assets.audio_in_anki:
         return
 
+    user_audio_options = getattr(config.audio, "ffmpeg_reencode_options_to_use", "")
+    if user_audio_options and os.path.isfile(assets.audio_path):
+        logger.info("Encoding audio with user settings before Anki upload...")
+        try:
+            encoded_audio_path = ffmpeg.reencode_file_with_user_config(
+                assets.audio_path,
+                None,
+                user_audio_options,
+            )
+            if encoded_audio_path and os.path.isfile(encoded_audio_path):
+                assets.audio_path = encoded_audio_path
+            else:
+                logger.warning("Audio encoding did not produce a valid file; uploading the pre-encoded audio instead.")
+        except Exception as e:
+            logger.error(f"Failed to encode audio with user settings: {e}")
+
     logger.info(f"Uploading audio to Anki: {assets.audio_path}...")
     assets.audio_in_anki = store_media_file(assets.audio_path)
     logger.info(f"Stored audio in Anki media collection: {assets.audio_in_anki}")
@@ -1139,9 +1154,9 @@ def _update_anki_note(last_note: AnkiCard, note: dict, tags: list, assets: Media
     if last_note.noteId in selected_notes:
         notification.open_browser_window(1)
 
-    for field in note["fields"]:
-        if note["fields"][field] is None:
-            note["fields"][field] = ""
+    for field_name in note["fields"]:
+        if note["fields"][field_name] is None:
+            note["fields"][field_name] = ""
 
     invoke("updateNoteFields", note=note)
 
@@ -1277,10 +1292,10 @@ def add_image_to_card(last_note: AnkiCard, image_path):
 # the issues being, a ton of new lines randomly, nothing else
 # Handlebars problem, should be fixed but keeping this just in case
 def fix_overlay_whitespace(last_note: AnkiCard, note, lines=None):
-    for field in last_note.fields:
-        if not last_note.fields[field]:
+    for field_name in last_note.fields:
+        if not last_note.fields[field_name]:
             continue
-        text = last_note.get_field(field)
+        text = last_note.get_field(field_name)
         # Count occurrences of excessive whitespace patterns using regex
         whitespace_patterns = [
             r"(\r?\n){3,}",  # 3 or more consecutive newlines
@@ -1292,8 +1307,8 @@ def fix_overlay_whitespace(last_note: AnkiCard, note, lines=None):
         for pattern in whitespace_patterns:
             if re.search(pattern, text):
                 fixed_text = re.sub(pattern, "", text)
-                note["fields"][field] = fixed_text
-                last_note.fields[field].value = fixed_text
+                note["fields"][field_name] = fixed_text
+                last_note.fields[field_name].value = fixed_text
                 break
     return note, last_note
 

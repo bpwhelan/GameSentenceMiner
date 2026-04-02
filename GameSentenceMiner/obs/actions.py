@@ -623,7 +623,29 @@ def get_screenshot_PIL(
     if len(sorted_sources) == 1:
         only_source = sorted_sources[0]
         if return_source_dict:
-            return only_source
+            only_source_name = only_source.get("sourceName")
+            if not only_source_name:
+                return None
+
+            img = get_screenshot_PIL_from_source(
+                only_source_name,
+                compression,
+                img_format,
+                width,
+                height,
+                retry,
+            )
+            if not img:
+                return None
+            if _should_skip_image_validation(only_source_name, current_scene_name):
+                return only_source
+            try:
+                if not is_image_empty(img):
+                    return only_source
+            except Exception as e:
+                logger.warning(f"Failed to validate image from source '{only_source_name}': {e}")
+                return only_source
+            return None
 
         img = get_screenshot_PIL_from_source(
             only_source.get("sourceName"),

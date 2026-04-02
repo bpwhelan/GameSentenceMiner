@@ -62,6 +62,12 @@ def _get_obs_retry_delay_seconds(attempt_index: int) -> float:
 def _is_retryable_obs_exception(exc: Exception) -> bool:
     if isinstance(exc, AttributeError):
         return False
+    message = str(exc).lower()
+    if isinstance(exc, obs.error.OBSSDKRequestError):
+        request_name = str(getattr(exc, "req_name", "") or "").lower()
+        request_code = getattr(exc, "code", None)
+        if request_name == "getsourcescreenshot" and (request_code == 702 or "failed to render screenshot" in message):
+            return True
     retryable_types = (
         BrokenPipeError,
         ConnectionAbortedError,
@@ -77,9 +83,7 @@ def _is_retryable_obs_exception(exc: Exception) -> bool:
     if isinstance(exc, retryable_types):
         return True
     if isinstance(exc, (obs.error.OBSSDKError, obs.error.OBSSDKRequestError)):
-        message = str(exc).lower()
         return any(token in message for token in OBS_RETRYABLE_ERROR_SUBSTRINGS)
-    message = str(exc).lower()
     return any(token in message for token in OBS_RETRYABLE_ERROR_SUBSTRINGS)
 
 

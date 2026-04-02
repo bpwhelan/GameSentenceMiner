@@ -2250,6 +2250,7 @@ class GsmAppState:
         self.current_audio_line_id = None
         self.replay_buffer_length = 300
         self.vad_result = None
+        self.audio_edit_context = None
         self.texthooker_audio_request = {}
         self.texthooker_audio_assets = {}
         self.texthooker_audio_cache = {}

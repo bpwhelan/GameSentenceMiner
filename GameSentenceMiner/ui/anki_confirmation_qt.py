@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
 from urllib.parse import quote
 
 from GameSentenceMiner.ui import window_state_manager, WindowId
-from GameSentenceMiner.ui.audio_waveform_widget import AudioWaveformWidget
+from GameSentenceMiner.ui.audio_waveform_widget import AUDIO_EXPAND_SECONDS, AudioWaveformWidget
 from GameSentenceMiner.util.config.configuration import (
     get_config,
     logger,
@@ -37,7 +37,7 @@ from GameSentenceMiner.util.gsm_utils import (
     sanitize_filename,
 )
 from GameSentenceMiner.util.media.audio_player import AudioPlayer
-from GameSentenceMiner.util.media.ffmpeg import trim_audio
+from GameSentenceMiner.util.media.ffmpeg import get_audio_length, trim_audio
 
 
 # -------------------------------------------------------------------------
@@ -181,6 +181,10 @@ class AnkiConfirmationDialog(QDialog):
         self.result = None
         self.first_launch = True
         self._force_autoplay = False
+        self._audio_edit_context = None
+        self._audio_edit_source_path = None
+        self._audio_edit_source_duration = 0.0
+        self._audio_edit_range = None
 
         # Auto-accept timer
         self._auto_accept_qtimer = None
@@ -353,13 +357,17 @@ class AnkiConfirmationDialog(QDialog):
         audio_layout.addWidget(self.codec_info_label)
 
         self.waveform_widget = AudioWaveformWidget()
-        self.waveform_widget.setMinimumHeight(36)  # Allow shrinking
-        self.waveform_widget.setMaximumHeight(80)
+        self.waveform_widget.setMinimumHeight(54)
+        self.waveform_widget.setMaximumHeight(92)
         self.waveform_widget.set_dark_mode()
         # Connect range change to cancel auto accept
         self.waveform_widget.range_changed.connect(lambda _s, _e: self._cancel_auto_accept())
         # Handle start/end handle moves specifically
         self.waveform_widget.handle_moved.connect(self._on_handle_moved)
+        self.waveform_widget.expand_start_requested.connect(self._cancel_auto_accept)
+        self.waveform_widget.expand_start_requested.connect(self._expand_audio_start)
+        self.waveform_widget.expand_end_requested.connect(self._cancel_auto_accept)
+        self.waveform_widget.expand_end_requested.connect(self._expand_audio_end)
         audio_layout.addWidget(self.waveform_widget)
 
         # Audio controls
@@ -476,6 +484,10 @@ class AnkiConfirmationDialog(QDialog):
         self.vad_result = gsm_state.vad_result
         self.result = None
         self.pending_animated = pending_animated
+        self._audio_edit_context = None
+        self._audio_edit_source_path = None
+        self._audio_edit_source_duration = 0.0
+        self._audio_edit_range = None
 
         self.expr_value_label.setText(expression)
 
@@ -497,6 +509,7 @@ class AnkiConfirmationDialog(QDialog):
         self.audio_path = audio_path
         if not self.audio_path and self.vad_result:
             self.audio_path = self.vad_result.trimmed_audio_path
+        self._load_audio_edit_context(gsm_state.audio_edit_context)
 
         # Translation
         has_translation = bool(translation)
@@ -568,6 +581,7 @@ class AnkiConfirmationDialog(QDialog):
                 self.audio_button.setVisible(False)
                 self.play_original_button.setVisible(False)
                 self.reset_audio_button.setVisible(False)
+                self._update_audio_expand_buttons(allow_buttons=False)
             else:
                 # Supported format - show waveform and trimming controls
                 self.codec_info_label.setVisible(False)
@@ -578,12 +592,14 @@ class AnkiConfirmationDialog(QDialog):
                 self.reset_audio_button.setVisible(True)
                 self.audio_button.setText("▶ Play Range")
                 self.audio_button.setStyleSheet("")
+                self._update_audio_expand_buttons(allow_buttons=True)
         else:
             self.codec_info_label.setVisible(False)
             self.waveform_widget.setVisible(False)
             self.audio_button.setVisible(False)
             self.play_original_button.setVisible(False)
             self.reset_audio_button.setVisible(False)
+            self._update_audio_expand_buttons(allow_buttons=False)
 
         # TTS
         show_tts = False
@@ -778,6 +794,10 @@ class AnkiConfirmationDialog(QDialog):
             tab_sequence.append(self.prev_screenshot_button)
         if self.audio_button.isVisible():
             tab_sequence.append(self.audio_button)
+        if self.waveform_widget.expand_start_button.isVisible():
+            tab_sequence.append(self.waveform_widget.expand_start_button)
+        if self.waveform_widget.expand_end_button.isVisible():
+            tab_sequence.append(self.waveform_widget.expand_end_button)
         if self.tts_button.isVisible():
             tab_sequence.append(self.tts_button)
         tab_sequence.append(self.nsfw_tag_checkbox)
@@ -807,6 +827,132 @@ class AnkiConfirmationDialog(QDialog):
         label_widget = self.prev_image_label if previous else self.image_label
         setattr(self, target_attr, selected_path)
         self._load_image_to_label(selected_path, label_widget)
+
+    @staticmethod
+    def _calculate_audio_expanded_range(start_time, end_time, duration, expand_start=0.0, expand_end=0.0):
+        return max(0.0, start_time - expand_start), min(duration, end_time + expand_end)
+
+    @staticmethod
+    def _normalize_audio_edit_context(context):
+        if not context:
+            return None
+
+        source_audio_path = context.get("source_audio_path")
+        if not source_audio_path or not os.path.isfile(source_audio_path):
+            return None
+
+        source_duration = float(context.get("source_duration") or 0.0)
+        if source_duration <= 0:
+            source_duration = get_audio_length(source_audio_path)
+        if source_duration <= 0:
+            return None
+
+        range_start = max(0.0, float(context.get("range_start") or 0.0))
+        range_end = float(context.get("range_end") or 0.0)
+        if range_end <= 0:
+            range_end = source_duration
+        range_end = max(range_start, min(range_end, source_duration))
+        range_start = min(range_start, range_end)
+
+        return {
+            "source_audio_path": source_audio_path,
+            "source_duration": source_duration,
+            "range_start": range_start,
+            "range_end": range_end,
+        }
+
+    def _load_audio_edit_context(self, context):
+        normalized = self._normalize_audio_edit_context(context)
+        self._audio_edit_context = normalized
+        if not normalized:
+            self._audio_edit_source_path = None
+            self._audio_edit_source_duration = 0.0
+            self._audio_edit_range = None
+            return
+
+        self._audio_edit_source_path = normalized["source_audio_path"]
+        self._audio_edit_source_duration = normalized["source_duration"]
+        self._audio_edit_range = (normalized["range_start"], normalized["range_end"])
+
+    def _update_audio_expand_buttons(self, allow_buttons=True):
+        has_context = bool(
+            allow_buttons
+            and self._audio_edit_source_path
+            and self._audio_edit_range
+            and os.path.isfile(self._audio_edit_source_path)
+        )
+
+        if not has_context:
+            self.waveform_widget.set_expand_controls(False)
+            return
+
+        start_time, end_time = self._audio_edit_range
+        self.waveform_widget.set_expand_controls(
+            True,
+            can_expand_start=start_time > 0.01,
+            can_expand_end=end_time < self._audio_edit_source_duration - 0.01,
+            range_text=f"{start_time:.2f}s -> {end_time:.2f}s",
+        )
+
+    def _render_audio_edit_range(self, start_time, end_time):
+        if not self._audio_edit_source_path:
+            return
+
+        if end_time <= start_time:
+            raise RuntimeError("Expanded audio range is empty.")
+
+        game_name = sanitize_filename(gsm_state.current_game) if gsm_state.current_game else "expanded"
+        orig_ext = os.path.splitext(self._audio_edit_source_path)[1] or ".wav"
+        filename = f"{game_name}_manual_audio_expand_{int(time.time())}{orig_ext}"
+        new_path = make_unique_file_name(os.path.join(get_temporary_directory(), filename))
+
+        trim_audio(
+            input_audio=self._audio_edit_source_path,
+            start_time=start_time,
+            end_time=end_time,
+            output_audio=new_path,
+            trim_beginning=True,
+            fade_in_duration=0,
+            fade_out_duration=0,
+        )
+
+        self.audio_player.stop_audio()
+        self.playback_timer.stop()
+        self.waveform_widget.set_playback_position(-1)
+        self.audio_path = new_path
+        self.waveform_widget.load_audio(self.audio_path)
+        self.waveform_widget.setVisible(True)
+        self.audio_button.setVisible(True)
+        self.play_original_button.setVisible(True)
+        self.reset_audio_button.setVisible(True)
+        self._audio_edit_range = (start_time, end_time)
+        self._update_audio_buttons()
+        self._update_audio_expand_buttons()
+
+    def _expand_audio_start(self):
+        self._expand_audio_window(expand_start=AUDIO_EXPAND_SECONDS)
+
+    def _expand_audio_end(self):
+        self._expand_audio_window(expand_end=AUDIO_EXPAND_SECONDS)
+
+    def _expand_audio_window(self, expand_start=0.0, expand_end=0.0):
+        if not self._audio_edit_range or not self._audio_edit_source_path:
+            return
+
+        try:
+            new_start, new_end = self._calculate_audio_expanded_range(
+                self._audio_edit_range[0],
+                self._audio_edit_range[1],
+                self._audio_edit_source_duration,
+                expand_start=expand_start,
+                expand_end=expand_end,
+            )
+            if (new_start, new_end) == self._audio_edit_range:
+                return
+            self._render_audio_edit_range(new_start, new_end)
+        except Exception as e:
+            logger.error(f"Failed to expand audio range: {e}")
+            QMessageBox.critical(self, "Audio Expand Error", str(e))
 
     def _play_audio(self, audio_path, full=False):
         if self.audio_player.is_playing:
@@ -1001,6 +1147,11 @@ class AnkiConfirmationDialog(QDialog):
             self.waveform_widget.setVisible(True)
             self.play_original_button.setVisible(True)
             self.reset_audio_button.setVisible(True)
+            self._audio_edit_context = None
+            self._audio_edit_source_path = None
+            self._audio_edit_source_duration = 0.0
+            self._audio_edit_range = None
+            self._update_audio_expand_buttons(allow_buttons=False)
 
             self.audio_status_label.setText("✔ TTS audio generated")
             self.audio_status_label.setStyleSheet("color: green;")

@@ -500,10 +500,22 @@ def test_get_best_source_for_screenshot_handles_rgb_image_validation(monkeypatch
     assert best_source["sourceName"] == "Window Source"
 
 
+def test_get_best_source_for_screenshot_does_not_select_single_source_without_renderable_output(monkeypatch):
+    sources = [{"sourceName": "Window Source", "inputKind": "window_capture"}]
+
+    monkeypatch.setattr(obs_actions_module, "get_active_video_sources", lambda: sources)
+    monkeypatch.setattr(obs_actions_module, "get_screenshot_PIL_from_source", lambda *args, **kwargs: None)
+
+    best_source = obs.get_best_source_for_screenshot()
+
+    assert best_source is None
+
+
 def test_obs_service_tick_applies_fit_before_screenshot_probe(monkeypatch):
     service = obs.OBSService.__new__(obs.OBSService)
     service.initialized = True
     service.check_output = True
+    service._tick_running = False
     service._state_lock = threading.Lock()
     service.state = obs.OBSState(current_scene="Test Scene")
     service._initialize_state = lambda: None
@@ -660,6 +672,54 @@ def test_get_screenshot_pil_from_source_retries_transient_failures(monkeypatch):
     assert image is not None
     assert image.size == (2, 2)
     assert attempts == ["get_source_screenshot", "get_source_screenshot"]
+
+
+def test_get_screenshot_pil_from_source_retries_render_failures(monkeypatch):
+    attempts = []
+    logger_errors = []
+    image_buffer = io.BytesIO()
+    Image.new("RGB", (2, 2), (255, 0, 0)).save(image_buffer, format="PNG")
+    encoded_image = "data:image/png;base64," + base64.b64encode(image_buffer.getvalue()).decode("ascii")
+
+    class _RetryingClient:
+        def get_source_screenshot(self, **_kwargs):
+            attempts.append("get_source_screenshot")
+            if len(attempts) == 1:
+                raise obs_actions_module.obs.error.OBSSDKRequestError(
+                    "GetSourceScreenshot",
+                    702,
+                    "Failed to render screenshot.",
+                )
+            return SimpleNamespace(image_data=encoded_image)
+
+    class _RetryPool:
+        @contextlib.contextmanager
+        def get_client(self):
+            yield _RetryingClient()
+
+        def call(self, operation, retries=0, retryable=True):
+            max_attempts = 1 + (retries if retryable else 0)
+            last_exc = None
+            for i in range(max_attempts):
+                try:
+                    with self.get_client() as client:
+                        return operation(client)
+                except Exception as e:
+                    last_exc = e
+                    if not retryable or i >= max_attempts - 1 or not obs_service_module._is_retryable_obs_exception(e):
+                        raise
+            raise last_exc
+
+    monkeypatch.setattr(obs_module, "connection_pool", _RetryPool())
+    monkeypatch.setattr(obs_service_module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(obs_actions_module.logger, "error", lambda message: logger_errors.append(message))
+
+    image = obs_module.get_screenshot_PIL_from_source("Game Source", retry=2)
+
+    assert image is not None
+    assert image.size == (2, 2)
+    assert attempts == ["get_source_screenshot", "get_source_screenshot"]
+    assert logger_errors == []
 
 
 def test_obs_connection_pool_recreates_client_after_failed_use(monkeypatch):

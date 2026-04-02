@@ -1,5 +1,4 @@
 import os
-import shutil
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -25,7 +24,7 @@ from GameSentenceMiner.util.gsm_utils import (
     wait_for_stable_file,
 )
 from GameSentenceMiner.util.media import ffmpeg
-from GameSentenceMiner.util.media.ffmpeg import get_audio_and_trim
+from GameSentenceMiner.util.media.ffmpeg import get_audio_and_trim, get_audio_length
 from GameSentenceMiner.util.models.model import VADResult
 from GameSentenceMiner.vad import vad_processor
 
@@ -43,9 +42,47 @@ class ReplayAudioResult:
     vad_trimmed_audio: str
     start_time: float
     end_time: float
+    audio_edit_context: dict | None = None
 
 
 class ReplayAudioExtractor:
+    @staticmethod
+    def _build_audio_edit_context(source_audio_path, start_time, end_time, vad_result):
+        if not source_audio_path:
+            return None
+
+        source_duration = get_audio_length(source_audio_path)
+        if source_duration <= 0:
+            return None
+
+        current_start = max(0.0, float(start_time or 0.0))
+        current_end = float(end_time) if end_time and end_time > 0 else source_duration
+
+        if vad_result and getattr(vad_result, "tts_used", False):
+            return None
+
+        if (
+            vad_result
+            and getattr(vad_result, "success", False)
+            and getattr(vad_result, "model", "") not in {"", "No VAD"}
+        ):
+            vad_start = max(0.0, float(getattr(vad_result, "start", 0.0) or 0.0))
+            vad_end = float(getattr(vad_result, "end", 0.0) or 0.0)
+            if get_config().vad.trim_beginning:
+                current_start = min(source_duration, current_start + vad_start)
+            if vad_end > 0:
+                current_end = min(source_duration, float(start_time or 0.0) + vad_end)
+
+        current_start = max(0.0, min(current_start, source_duration))
+        current_end = max(current_start, min(current_end, source_duration))
+
+        return {
+            "source_audio_path": source_audio_path,
+            "source_duration": source_duration,
+            "range_start": current_start,
+            "range_end": current_end,
+        }
+
     @staticmethod
     def _build_selected_lines_sentence(selected_lines) -> str:
         if not selected_lines:
@@ -198,6 +235,7 @@ class ReplayAudioExtractor:
 
                 if audio_future:
                     audio_result = audio_future.result()
+                    gsm_state.audio_edit_context = audio_result.audio_edit_context
                     final_audio_output = audio_result.final_audio_output or (
                         audio_result.vad_result.output_audio if audio_result.vad_result else ""
                     )
@@ -213,6 +251,8 @@ class ReplayAudioExtractor:
                     vad_trimmed_audio = audio_result.vad_trimmed_audio
                     start_time = audio_result.start_time
                     end_time = audio_result.end_time
+                else:
+                    gsm_state.audio_edit_context = None
 
                 if media_future:
                     try:
@@ -300,7 +340,7 @@ class ReplayAudioExtractor:
         mined_line=None,
         full_text: str = "",
     ) -> ReplayAudioResult | VADResult | str:
-        trimmed_audio, start_time, end_time = get_audio_and_trim(
+        source_audio_path, trimmed_audio, start_time, end_time = get_audio_and_trim(
             video_path, game_line, next_line_time, anki_card_creation_time
         )
         if temporary:
@@ -331,23 +371,11 @@ class ReplayAudioExtractor:
             except Exception as e:
                 logger.warning(f"Temporary VAD trim failed for texthooker audio, using untrimmed audio: {e}")
             return temporary_audio
-        final_audio_output = make_unique_file_name(
-            os.path.join(
-                get_temporary_directory(),
-                f"{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}",
-            )
-        )
+
         if not get_config().vad.do_vad_postprocessing or not vad_processor.initialized:
             if not vad_processor.initialized:
                 logger.warning("VAD Processor not initialized, skipping VAD processing.")
-            if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
-                final_audio_output = ffmpeg.reencode_file_with_user_config(
-                    trimmed_audio,
-                    final_audio_output,
-                    get_config().audio.ffmpeg_reencode_options_to_use,
-                )
-            else:
-                shutil.move(trimmed_audio, final_audio_output)
+            final_audio_output = trimmed_audio if os.path.exists(trimmed_audio) else ""
             return ReplayAudioResult(
                 final_audio_output=final_audio_output,
                 vad_result=VADResult(
@@ -360,6 +388,12 @@ class ReplayAudioExtractor:
                 vad_trimmed_audio=final_audio_output,
                 start_time=start_time,
                 end_time=end_time,
+                audio_edit_context=ReplayAudioExtractor._build_audio_edit_context(
+                    source_audio_path,
+                    start_time,
+                    end_time,
+                    None,
+                ),
             )
 
         vad_trimmed_audio = make_unique_file_name(
@@ -367,33 +401,25 @@ class ReplayAudioExtractor:
         )
 
         vad_result = vad_processor.trim_audio_with_vad(trimmed_audio, vad_trimmed_audio, game_line, full_text)
+        if vad_result and vad_result.success and not getattr(vad_result, "trimmed_audio_path", None):
+            vad_result.trimmed_audio_path = trimmed_audio
         if timing_only:
             return vad_result
 
         if not vad_result.success:
             # Store the trimmed audio path so it can be offered to the user in the confirmation dialog
             if get_config().anki.show_update_confirmation_dialog_v2:
-                if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
-                    final_audio_output = ffmpeg.reencode_file_with_user_config(
-                        trimmed_audio,
-                        final_audio_output,
-                        get_config().audio.ffmpeg_reencode_options_to_use,
-                    )
-                else:
-                    shutil.move(trimmed_audio, final_audio_output)
-                vad_result.trimmed_audio_path = final_audio_output
+                vad_result.trimmed_audio_path = trimmed_audio
+                if os.path.exists(trimmed_audio):
+                    final_audio_output = trimmed_audio
             if get_config().vad.add_audio_on_no_results:
                 logger.info("No voice activity detected, using full audio.")
-                if get_config().audio.ffmpeg_reencode_options_to_use and os.path.exists(trimmed_audio):
-                    final_audio_output = ffmpeg.reencode_file_with_user_config(
-                        trimmed_audio,
-                        final_audio_output,
-                        get_config().audio.ffmpeg_reencode_options_to_use,
-                    )
+                if os.path.exists(trimmed_audio):
+                    final_audio_output = trimmed_audio
+                    vad_result.output_audio = trimmed_audio
+                    vad_result.success = True
                 else:
-                    shutil.move(trimmed_audio, final_audio_output)
-                vad_result.output_audio = final_audio_output
-                vad_result.success = True
+                    logger.warning(f"Expected trimmed audio file does not exist: {trimmed_audio}")
             elif get_config().vad.use_tts_as_fallback:
                 try:
                     logger.info("No voice activity detected, using TTS as fallback.")
@@ -414,6 +440,7 @@ class ReplayAudioExtractor:
                         vad_result.output_audio = tmpfile.name
                         vad_result.tts_used = True
                         vad_result.success = True
+                        final_audio_output = tmpfile.name
                 except Exception as e:
                     logger.exception(f"Failed to fetch TTS audio: {e}")
                     vad_result.success = False
@@ -421,22 +448,14 @@ class ReplayAudioExtractor:
         else:
             logger.info(vad_result.trim_successful_string())
 
-        if vad_result.output_audio:
-            vad_trimmed_audio = vad_result.output_audio
+        if vad_result.output_audio and os.path.exists(vad_result.output_audio):
+            final_audio_output = vad_result.output_audio
 
-        if os.path.exists(vad_trimmed_audio):
-            if get_config().audio.ffmpeg_reencode_options_to_use:
-                reencoded_output = ffmpeg.reencode_file_with_user_config(
-                    vad_trimmed_audio,
-                    final_audio_output,
-                    get_config().audio.ffmpeg_reencode_options_to_use,
-                )
-                if reencoded_output:
-                    final_audio_output = reencoded_output
-            elif os.path.abspath(vad_trimmed_audio) != os.path.abspath(final_audio_output):
-                shutil.move(vad_trimmed_audio, final_audio_output)
-            vad_result.output_audio = final_audio_output
-        else:
+        if final_audio_output and os.path.exists(final_audio_output):
+            vad_trimmed_audio = final_audio_output
+            if vad_result and vad_result.output_audio and not os.path.exists(vad_result.output_audio):
+                vad_result.output_audio = final_audio_output
+        elif vad_trimmed_audio and not os.path.exists(vad_trimmed_audio):
             logger.warning(f"Expected VAD/trimmed audio file does not exist: {vad_trimmed_audio}")
 
         if final_audio_output and not os.path.isfile(final_audio_output):
@@ -450,6 +469,12 @@ class ReplayAudioExtractor:
             vad_trimmed_audio=vad_trimmed_audio,
             start_time=start_time,
             end_time=end_time,
+            audio_edit_context=ReplayAudioExtractor._build_audio_edit_context(
+                source_audio_path,
+                start_time,
+                end_time,
+                vad_result,
+            ),
         )
 
 

@@ -784,6 +784,39 @@ def test_process_audio_with_existing_files_and_external_tool(monkeypatch):
     assert called and called[0].endswith("audio.mp3")
 
 
+def test_process_audio_reencodes_before_upload(monkeypatch, tmp_path):
+    cfg = _base_config()
+    cfg.audio.extension = "mp3"
+    cfg.audio.ffmpeg_reencode_options_to_use = "-b:a 64k"
+
+    raw = tmp_path / "raw.opus"
+    raw.write_bytes(b"raw")
+    encoded = tmp_path / "encoded.mp3"
+    encoded.write_bytes(b"encoded")
+
+    reencode_calls = []
+    uploads = []
+
+    monkeypatch.setattr(
+        anki.ffmpeg,
+        "reencode_file_with_user_config",
+        lambda path, output, options: reencode_calls.append((path, output, options)) or str(encoded),
+        raising=False,
+    )
+    monkeypatch.setattr(anki, "store_media_file", lambda path: uploads.append(path) or "audio-in-anki.mp3")
+
+    assets = anki.MediaAssets(audio_path=str(raw))
+    note = {"fields": {}}
+
+    anki._process_audio(assets, note, cfg, use_voice=True, use_existing_files=False)
+
+    assert reencode_calls == [(str(raw), None, "-b:a 64k")]
+    assert uploads == [str(encoded)]
+    assert assets.audio_path == str(encoded)
+    assert assets.audio_in_anki == "audio-in-anki.mp3"
+    assert note["fields"]["SentenceAudio"] == "[sound:audio-in-anki.mp3]"
+
+
 def test_cleanup_assets_invokes_callback():
     called = []
     assets = anki.MediaAssets(cleanup_callback=lambda: called.append("ok"))

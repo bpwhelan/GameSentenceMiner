@@ -383,7 +383,9 @@ class OverlayProcessor:
             if overlay_area_config and overlay_area_config.rectangles:
                 return overlay_area_config
 
-        if not overlay_settings.use_ocr_area_config_v2:
+        # Dedicated overlay areas take priority. Only fall back to OCR area config
+        # when that legacy overlay option is explicitly enabled.
+        if bool(getattr(overlay_settings, "use_ocr_area_config_v2", False)):
             overlay_config = self._get_scaled_overlay_ocr_config(width, height)
             overlay_config = self._build_overlay_area_config(overlay_config)
             if overlay_config and overlay_config.rectangles:
