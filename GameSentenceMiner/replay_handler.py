@@ -476,6 +476,7 @@ class ReplayAudioExtractor:
         vad_trimmed_audio = make_unique_file_name(
             f"{os.path.abspath(configuration.get_temporary_directory())}/{obs.get_current_game(sanitize=True)}.{get_config().audio.extension}"
         )
+        final_audio_output = ""
 
         vad_result = vad_processor.trim_audio_with_vad(trimmed_audio, vad_trimmed_audio, game_line, full_text)
         if vad_result and vad_result.success and not getattr(vad_result, "trimmed_audio_path", None):
@@ -532,8 +533,13 @@ class ReplayAudioExtractor:
             vad_trimmed_audio = final_audio_output
             if vad_result and vad_result.output_audio and not os.path.exists(vad_result.output_audio):
                 vad_result.output_audio = final_audio_output
-        elif vad_trimmed_audio and not os.path.exists(vad_trimmed_audio):
-            logger.warning(f"Expected VAD/trimmed audio file does not exist: {vad_trimmed_audio}")
+        else:
+            vad_reported_output = getattr(vad_result, "output_audio", "") if vad_result else ""
+            if vad_reported_output:
+                logger.warning(f"VAD reported an output audio path, but the file does not exist: {vad_reported_output}")
+            elif vad_result and getattr(vad_result, "success", False):
+                logger.warning("VAD reported success but no usable audio file was produced; continuing without audio.")
+            vad_trimmed_audio = ""
 
         if final_audio_output and not os.path.isfile(final_audio_output):
             logger.warning(f"Final audio output path is not a file: {final_audio_output}")

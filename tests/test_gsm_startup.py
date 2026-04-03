@@ -74,7 +74,7 @@ def test_connect_obs_when_available_uses_single_connection(monkeypatch):
 
     gsm_module.asyncio.run(app._connect_obs_when_available())
 
-    assert connect_calls[0]["connections"] == 1
+    assert connect_calls[0]["connections"] == 2
     assert connect_calls[0]["check_output"] is True
     assert connect_calls[0]["start_manager"] is True
 

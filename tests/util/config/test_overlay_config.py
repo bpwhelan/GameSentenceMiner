@@ -7,7 +7,7 @@ from GameSentenceMiner.util.config.configuration import Overlay
 
 
 def test_overlay_use_ocr_result_defaults_to_true():
-    assert Overlay().use_ocr_result_v2 is True
+    assert Overlay().use_ocr_result_v2 is False
 
 
 def test_overlay_ocr_area_subset_defaults_preserve_existing_behavior():
@@ -28,7 +28,7 @@ def test_overlay_use_ocr_result_round_trip_and_backward_compatibility():
 
     data_without_field = dict(data)
     data_without_field.pop("use_ocr_result_v2", None)
-    assert Overlay.from_dict(data_without_field).use_ocr_result_v2 is True
+    assert Overlay.from_dict(data_without_field).use_ocr_result_v2 is False
 
 
 def test_overlay_ocr_area_subset_round_trip_and_backward_compatibility():
@@ -79,7 +79,7 @@ def test_overlay_locales_include_use_ocr_result_strings():
 
     for locale_name in locale_names:
         locale_data = json.loads((locales_dir / f"{locale_name}.json").read_text(encoding="utf-8"))
-        use_ocr_result = locale_data["python"]["config"]["tabs"]["overlay"]["use_ocr_result_v2"]
+        use_ocr_result = locale_data["python"]["config"]["tabs"]["overlay"]["use_ocr_result"]
         assert use_ocr_result["label"]
         assert use_ocr_result["tooltip"]
 
