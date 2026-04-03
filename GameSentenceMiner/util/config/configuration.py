@@ -1271,6 +1271,10 @@ class Overlay:
         if self.monitor_to_capture == -1:
             self.monitor_to_capture = 0  # Default to the first monitor if not set
 
+        # Keep the legacy field for config compatibility, but always use the
+        # current OCR-result overlay behavior.
+        self.use_ocr_result_v2 = False
+
         try:
             import mss as mss
 
@@ -2251,6 +2255,7 @@ class GsmAppState:
         self.replay_buffer_length = 300
         self.vad_result = None
         self.audio_edit_context = None
+        self.current_replay_context = None
         self.texthooker_audio_request = {}
         self.texthooker_audio_assets = {}
         self.texthooker_audio_cache = {}

@@ -468,6 +468,51 @@ def prefetch_animated_screenshot_for_confirmation(
     _start_animated_screenshot_prefetch(assets, get_config())
 
 
+def _parse_confirmation_dialog_result(result):
+    dialog_state = {}
+    if isinstance(result, tuple) and len(result) >= 8 and isinstance(result[7], dict):
+        dialog_state = result[7]
+
+    return (
+        result[0],
+        result[1],
+        result[2],
+        result[3],
+        result[4],
+        result[5],
+        result[6],
+        dialog_state,
+    )
+
+
+def _apply_confirmation_dialog_state(
+    note: Dict,
+    last_note: "AnkiCard",
+    game_line: "GameLine",
+    selected_lines: Optional[List["GameLine"]],
+    start_time: float,
+    end_time: float,
+    vad_result: Any,
+    dialog_state: Optional[Dict],
+):
+    dialog_state = dialog_state or {}
+    selected_lines = dialog_state.get("selected_lines", selected_lines) or []
+
+    if dialog_state.get("line_selection_changed"):
+        refreshed_note, _ = get_initial_card_info(last_note, selected_lines, game_line)
+        note["fields"].update(refreshed_note.get("fields", {}))
+
+    audio_result = dialog_state.get("audio_result")
+    if audio_result:
+        start_time = audio_result.start_time
+        end_time = audio_result.end_time
+        vad_result = audio_result.vad_result
+        gsm_state.vad_result = vad_result
+        gsm_state.audio_edit_context = audio_result.audio_edit_context
+
+    return selected_lines, start_time, end_time, vad_result
+
+
 def _synchronize_deferred_media_metadata(
     assets: MediaAssets,
     video_path: str,
@@ -746,10 +791,23 @@ def update_anki_card(
             new_prev_ss_path,
             add_nsfw_tag,
             new_audio_path,
-        ) = result
+            dialog_state,
+        ) = _parse_confirmation_dialog_result(result)
+        selected_lines, start_time, end_time, vad_result = _apply_confirmation_dialog_state(
+            note,
+            last_note,
+            game_line,
+            selected_lines,
+            start_time,
+            end_time,
+            vad_result,
+            dialog_state,
+        )
         _apply_field_policy(note, last_note, "sentence_field", sentence)
         if config.ai.add_to_anki and config.ai.anki_field:
             note["fields"][config.ai.anki_field] = translation
+        if game_line is not None:
+            game_line.TL = translation
         assets.screenshot_path = new_ss_path or assets.screenshot_path
         assets.prev_screenshot_path = new_prev_ss_path or assets.prev_screenshot_path
         # Update audio path if TTS was generated in the dialog

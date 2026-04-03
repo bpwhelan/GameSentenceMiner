@@ -251,6 +251,81 @@ def test_get_sentence_uses_configured_field(monkeypatch):
     assert anki.get_sentence(card) == "value-for-Sentence"
 
 
+def test_parse_confirmation_dialog_result_supports_legacy_tuple():
+    result = (
+        True,
+        "sentence",
+        "translation",
+        "ss.png",
+        "prev.png",
+        False,
+        "audio.opus",
+    )
+
+    assert anki._parse_confirmation_dialog_result(result) == (
+        True,
+        "sentence",
+        "translation",
+        "ss.png",
+        "prev.png",
+        False,
+        "audio.opus",
+        {},
+    )
+
+
+def test_apply_confirmation_dialog_state_refreshes_note_fields_and_audio_context(monkeypatch):
+    monkeypatch.setattr(anki.gsm_state, "audio_edit_context", None, raising=False)
+    monkeypatch.setattr(anki.gsm_state, "vad_result", None, raising=False)
+
+    updated_selected_lines = [SimpleNamespace(id="line-1"), SimpleNamespace(id="line-2")]
+    audio_result = SimpleNamespace(
+        start_time=10.0,
+        end_time=14.5,
+        vad_result=SimpleNamespace(success=True),
+        audio_edit_context=SimpleNamespace(range_start=10.0, range_end=14.5),
+    )
+    note = {"fields": {"Sentence": "old sentence"}}
+
+    monkeypatch.setattr(
+        anki,
+        "get_initial_card_info",
+        lambda last_note, selected_lines, game_line: (
+            {
+                "fields": {
+                    "Sentence": "combined sentence",
+                    "SentenceFurigana": "combined furigana",
+                }
+            },
+            last_note,
+        ),
+    )
+
+    selected_lines, start_time, end_time, vad_result = anki._apply_confirmation_dialog_state(
+        note,
+        SimpleNamespace(noteId=1),
+        SimpleNamespace(id="mined-line"),
+        [],
+        1.0,
+        2.0,
+        None,
+        {
+            "selected_lines": updated_selected_lines,
+            "line_selection_changed": True,
+            "audio_result": audio_result,
+        },
+    )
+
+    assert selected_lines == updated_selected_lines
+    assert start_time == 10.0
+    assert end_time == 14.5
+    assert vad_result is audio_result.vad_result
+    assert note["fields"]["Sentence"] == "combined sentence"
+    assert note["fields"]["SentenceFurigana"] == "combined furigana"
+    assert anki.gsm_state.audio_edit_context is audio_result.audio_edit_context
+    assert anki.gsm_state.vad_result is audio_result.vad_result
+
+
 def test_check_for_new_cards_does_not_sync_cache_before_note_update_finishes(
     monkeypatch,
 ):
