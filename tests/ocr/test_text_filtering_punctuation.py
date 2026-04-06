@@ -16,6 +16,14 @@ class _PipeSegmenter:
         return str(text).split("|")
 
 
+class _FixedSegmenter:
+    def __init__(self, blocks):
+        self.blocks = list(blocks)
+
+    def segment(self, text):
+        return list(self.blocks)
+
+
 def _make_text_filtering_for_ja(monkeypatch):
     monkeypatch.setattr(run_module, "get_ocr_language", lambda: "ja")
 
@@ -84,3 +92,25 @@ def test_text_filtering_returns_all_current_blocks_for_state(monkeypatch):
 
     assert dispatched == second
     assert current_blocks == [first, second]
+
+
+def test_text_filtering_preserves_original_linebreaks_between_adjacent_blocks(monkeypatch):
+    tf = _make_text_filtering_for_ja(monkeypatch)
+
+    blocks = [
+        "8時間の熟睡から目覚めてみると、昨夜の心配ごとがいったいなんだった\nのか、もう思い出せない。",
+        "やたらと大きな錠剤を半分にかみ砕きながら、",
+        "俺はあれこれ理屈付けをして不安な気持ちを打ち消し続ける。",
+    ]
+    tf.segmenter = _FixedSegmenter(blocks)
+
+    raw = (
+        "8時間の熟睡から目覚めてみると、昨夜の心配ごとがいったいなんだった\n"
+        "のか、もう思い出せない。やたらと大きな錠剤を半分にかみ砕きながら、\n"
+        "俺はあれこれ理屈付けをして不安な気持ちを打ち消し続ける。"
+    )
+
+    text, orig_text = tf(raw, [], engine=None, is_second_ocr=True)
+
+    assert text == raw
+    assert orig_text == blocks

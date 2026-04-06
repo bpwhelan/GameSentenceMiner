@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "2026.3.22",
+  "version": "2026.4.1",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
@@ -124,7 +124,7 @@
     "fuse.js": "^7.1.0",
     "node-window-manager": "^2.2.4",
     "nodejs-file-downloader": "^4.13.0",
-    "obs-websocket-js": "^5.0.6",
+    "obs-websocket-js": "^5.0.8",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "semver": "^7.7.4",

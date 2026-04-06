@@ -110,10 +110,10 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         overlay_area_controls_widget,
     )
-    main_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "overlay", "use_ocr_result"),
-        window.use_ocr_result_check,
-    )
+    # Keep the checkbox instance for config compatibility, but hide the
+    # option since overlay OCR results now always use the current behavior.
+    window.use_ocr_result_check.setChecked(True)
+    window.use_ocr_result_check.hide()
 
     ocr_area_subset_widgets = [
         window.ocr_area_config_include_primary_areas_check,

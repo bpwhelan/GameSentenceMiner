@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
 from urllib.parse import quote
 
 from GameSentenceMiner.ui import window_state_manager, WindowId
-from GameSentenceMiner.ui.audio_waveform_widget import AudioWaveformWidget
+from GameSentenceMiner.ui.audio_waveform_widget import AUDIO_EXPAND_SECONDS, AudioWaveformWidget
 from GameSentenceMiner.util.config.configuration import (
     get_config,
     logger,
@@ -32,12 +32,13 @@ from GameSentenceMiner.util.config.configuration import (
     reload_config,
 )
 from GameSentenceMiner.util.gsm_utils import (
+    get_file_modification_time,
     make_unique_file_name,
     remove_html_and_cloze_tags,
     sanitize_filename,
 )
 from GameSentenceMiner.util.media.audio_player import AudioPlayer
-from GameSentenceMiner.util.media.ffmpeg import trim_audio
+from GameSentenceMiner.util.media.ffmpeg import get_audio_length, get_video_duration, trim_audio
 
 
 # -------------------------------------------------------------------------
@@ -162,6 +163,10 @@ class AspectRatioLabel(QLabel):
 
 _anki_confirmation_dialog_instance = None
 
+EXPERIMENTAL_DIALOGUE_LINE_EXPANSION_ENABLED = True
+AUTO_ADD_DIALOGUE_LINE_EPSILON_SECONDS = 0.05
+AUTO_ADD_DIALOGUE_LINE_DEBOUNCE_MS = 175
+
 
 class AnkiConfirmationDialog(QDialog):
     audio_finished_signal = pyqtSignal()
@@ -181,6 +186,24 @@ class AnkiConfirmationDialog(QDialog):
         self.result = None
         self.first_launch = True
         self._force_autoplay = False
+        self._audio_edit_context = None
+        self._audio_edit_source_path = None
+        self._audio_edit_source_duration = 0.0
+        self._audio_edit_source_window = None
+        self._audio_edit_range = None
+        self._audio_edit_rebase_on_selection_trim = False
+        self._has_performed_audio_expand = False
+        self._replay_context = None
+        self._dialog_selected_lines = []
+        self._dialog_original_selected_line_ids = ()
+        self._dialog_line_selection_changed = False
+        self._dialog_audio_result = None
+        self._dialog_translation_regenerated = False
+        self._dialogue_line_update_in_progress = False
+        self._dialogue_line_start_cache = {}
+        self._replay_video_duration = 0.0
+        self._replay_file_mod_time = None
+        self._pending_auto_line_direction = None
 
         # Auto-accept timer
         self._auto_accept_qtimer = None
@@ -201,6 +224,11 @@ class AnkiConfirmationDialog(QDialog):
         self._trim_autoplay_timer.setSingleShot(True)
         self._trim_autoplay_timer.setInterval(500)  # Wait 500ms after trim stops changing
         self._trim_autoplay_timer.timeout.connect(self._play_range)
+
+        self._auto_line_expand_timer = QTimer(self)
+        self._auto_line_expand_timer.setSingleShot(True)
+        self._auto_line_expand_timer.setInterval(AUTO_ADD_DIALOGUE_LINE_DEBOUNCE_MS)
+        self._auto_line_expand_timer.timeout.connect(self._apply_pending_auto_line_expand)
 
         self.setWindowTitle("Confirm Anki Card Details")
         self._apply_window_behavior_preferences()
@@ -261,6 +289,42 @@ class AnkiConfirmationDialog(QDialog):
         self.sentence_text.setTabChangesFocus(True)
         self.sentence_text.textChanged.connect(self._cancel_auto_accept)
         self.grid_layout.addWidget(self.sentence_text, row, 1)
+        row += 1
+
+        self.dialogue_tools_title = QLabel("Dialogue:")
+        self.dialogue_tools_title.setStyleSheet("font-weight: bold; color: #ff8c00;")
+        self.grid_layout.addWidget(
+            self.dialogue_tools_title,
+            row,
+            0,
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight,
+        )
+
+        dialogue_tools_container = QWidget()
+        dialogue_tools_layout = QHBoxLayout(dialogue_tools_container)
+        dialogue_tools_layout.setContentsMargins(0, 0, 0, 0)
+        dialogue_tools_layout.setSpacing(6)
+
+        self.add_prev_line_button = QPushButton("Add Prev Line")
+        self.add_prev_line_button.clicked.connect(self._cancel_auto_accept)
+        self.add_prev_line_button.clicked.connect(self._add_previous_dialogue_line)
+        dialogue_tools_layout.addWidget(self.add_prev_line_button)
+
+        self.add_next_line_button = QPushButton("Add Next Line")
+        self.add_next_line_button.clicked.connect(self._cancel_auto_accept)
+        self.add_next_line_button.clicked.connect(self._add_next_dialogue_line)
+        dialogue_tools_layout.addWidget(self.add_next_line_button)
+
+        self.regen_translation_checkbox = QCheckBox("Regenerate SentenceMeaning")
+        self.regen_translation_checkbox.stateChanged.connect(self._cancel_auto_accept)
+        dialogue_tools_layout.addWidget(self.regen_translation_checkbox)
+
+        self.dialogue_tools_status = QLabel("")
+        self.dialogue_tools_status.setStyleSheet("color: #666; font-style: italic;")
+        dialogue_tools_layout.addWidget(self.dialogue_tools_status)
+        dialogue_tools_layout.addStretch()
+
+        self.grid_layout.addWidget(dialogue_tools_container, row, 1, 1, 2)
         row += 1
 
         # 3. Translation
@@ -353,13 +417,17 @@ class AnkiConfirmationDialog(QDialog):
         audio_layout.addWidget(self.codec_info_label)
 
         self.waveform_widget = AudioWaveformWidget()
-        self.waveform_widget.setMinimumHeight(36)  # Allow shrinking
-        self.waveform_widget.setMaximumHeight(80)
+        self.waveform_widget.setMinimumHeight(54)
+        self.waveform_widget.setMaximumHeight(92)
         self.waveform_widget.set_dark_mode()
         # Connect range change to cancel auto accept
         self.waveform_widget.range_changed.connect(lambda _s, _e: self._cancel_auto_accept())
         # Handle start/end handle moves specifically
         self.waveform_widget.handle_moved.connect(self._on_handle_moved)
+        self.waveform_widget.expand_start_requested.connect(self._cancel_auto_accept)
+        self.waveform_widget.expand_start_requested.connect(self._expand_audio_start)
+        self.waveform_widget.expand_end_requested.connect(self._cancel_auto_accept)
+        self.waveform_widget.expand_end_requested.connect(self._expand_audio_end)
         audio_layout.addWidget(self.waveform_widget)
 
         # Audio controls
@@ -476,6 +544,26 @@ class AnkiConfirmationDialog(QDialog):
         self.vad_result = gsm_state.vad_result
         self.result = None
         self.pending_animated = pending_animated
+        self._audio_edit_context = None
+        self._audio_edit_source_path = None
+        self._audio_edit_source_duration = 0.0
+        self._audio_edit_source_window = None
+        self._audio_edit_range = None
+        self._audio_edit_rebase_on_selection_trim = False
+        self._has_performed_audio_expand = False
+        self._replay_context = gsm_state.current_replay_context
+        self._dialog_selected_lines = self._dialogue_lines_from_context(self._replay_context)
+        self._dialog_original_selected_line_ids = self._line_ids_for_dialogue(self._dialog_selected_lines)
+        self._dialog_line_selection_changed = False
+        self._dialog_audio_result = self._replay_context.audio_result if self._replay_context else None
+        self._dialog_translation_regenerated = False
+        self._dialogue_line_update_in_progress = False
+        self._dialogue_line_start_cache = {}
+        self._replay_video_duration = 0.0
+        self._replay_file_mod_time = None
+        self._pending_auto_line_direction = None
+        self._auto_line_expand_timer.stop()
+        self._initialize_dialogue_line_timeline()
 
         self.expr_value_label.setText(expression)
 
@@ -484,6 +572,9 @@ class AnkiConfirmationDialog(QDialog):
         self.sentence_text.blockSignals(False)
 
         self.nsfw_tag_checkbox.setChecked(False)
+        self.regen_translation_checkbox.blockSignals(True)
+        self.regen_translation_checkbox.setChecked(False)
+        self.regen_translation_checkbox.blockSignals(False)
         self.autoplay_checkbox.blockSignals(True)
         self.autoplay_checkbox.setChecked(get_config().anki.autoplay_audio)
         self.autoplay_checkbox.blockSignals(False)
@@ -497,6 +588,7 @@ class AnkiConfirmationDialog(QDialog):
         self.audio_path = audio_path
         if not self.audio_path and self.vad_result:
             self.audio_path = self.vad_result.trimmed_audio_path
+        self._load_audio_edit_context(gsm_state.audio_edit_context)
 
         # Translation
         has_translation = bool(translation)
@@ -525,88 +617,8 @@ class AnkiConfirmationDialog(QDialog):
         self.prev_screenshot_button.setVisible(use_prev_image)
         if use_prev_image:
             self._load_image_to_label(self.previous_screenshot_path, self.prev_image_label)
-
-        # Audio Status
-        has_audio_file = bool(self.audio_path and os.path.isfile(self.audio_path))
-
-        vad_ran = self.vad_result is not None and hasattr(self.vad_result, "success")
-        vad_detected_voice = vad_ran and bool(self.vad_result.success)
-
-        status_text = "No audio"
-        status_style = ""
-
-        if has_audio_file:
-            if vad_ran:
-                if vad_detected_voice:
-                    status_text = "✔ Voice audio detected"
-                    status_style = "color: green;"
-                elif getattr(self.vad_result, "tts_used", False):
-                    status_text = "✔ TTS audio generated"
-                    status_style = "color: green;"
-                else:
-                    status_text = "⚠️ VAD ran and found no voice.\n Keep audio by choosing 'Keep Audio'."
-                    status_style = "color: #ff6b00; font-weight: bold; background-color: #fff3cd; padding: 5px; border-radius: 3px;"
-            elif not get_config().vad.do_vad_postprocessing:
-                status_text = "✔ Audio file available (VAD disabled)"
-                status_style = "color: green;"
-
-        self.audio_status_label.setText(status_text)
-        self.audio_status_label.setStyleSheet(status_style)
-
-        # Check for unsupported codecs
-        is_unsupported, codec_name = self._is_unsupported_audio_codec(self.audio_path)
-
-        if has_audio_file:
-            if is_unsupported:
-                # Show informational message and hide waveform controls
-                self.codec_info_label.setText(
-                    f"ℹ️ {codec_name} codec is not supported for manual trimming. "
-                    f"Supported formats: OPUS, OGG, MP3. You can still include the audio in your card."
-                )
-                self.codec_info_label.setVisible(True)
-                self.waveform_widget.setVisible(False)
-                self.audio_button.setVisible(False)
-                self.play_original_button.setVisible(False)
-                self.reset_audio_button.setVisible(False)
-            else:
-                # Supported format - show waveform and trimming controls
-                self.codec_info_label.setVisible(False)
-                self.waveform_widget.load_audio(self.audio_path)
-                self.waveform_widget.setVisible(True)
-                self.audio_button.setVisible(True)
-                self.play_original_button.setVisible(True)
-                self.reset_audio_button.setVisible(True)
-                self.audio_button.setText("▶ Play Range")
-                self.audio_button.setStyleSheet("")
-        else:
-            self.codec_info_label.setVisible(False)
-            self.waveform_widget.setVisible(False)
-            self.audio_button.setVisible(False)
-            self.play_original_button.setVisible(False)
-            self.reset_audio_button.setVisible(False)
-
-        # TTS
-        show_tts = False
-        if get_config().vad.tts_url and get_config().vad.tts_url != "http://127.0.0.1:5050/?term=$s" and sentence:
-            show_tts = True
-
-        self.tts_button.setVisible(show_tts)
-        self.tts_status_label.setVisible(show_tts)
-        self.tts_status_label.setText("")
-
-        if show_tts:
-            tts_used = getattr(self.vad_result, "tts_used", False) if self.vad_result else False
-            self.tts_button.setText("🔊 " + ("Regenerate" if tts_used else "Generate") + " TTS Audio")
-
-        # Buttons
-        if has_audio_file:
-            self.voice_button.setVisible(True)
-            self.no_voice_button.setVisible(True)
-            self.confirm_button.setVisible(False)
-        else:
-            self.voice_button.setVisible(False)
-            self.no_voice_button.setVisible(False)
-            self.confirm_button.setVisible(True)
+        self._refresh_audio_controls(sentence)
+        self._update_dialogue_line_controls(has_translation=has_translation)
 
         self._configure_tab_order()
 
@@ -728,6 +740,9 @@ class AnkiConfirmationDialog(QDialog):
         gsm_state.disable_anki_confirmation_session = state == Qt.CheckState.Checked.value
 
     def _on_handle_moved(self, which, start, end):
+        self._sync_audio_edit_selection_to_current_clip(start, end)
+        self._update_audio_expand_buttons()
+        self._schedule_auto_line_expand(which)
         if which == "start":
             # Stop audio and force restart (debounced)
             self.audio_player.stop_audio()
@@ -771,6 +786,12 @@ class AnkiConfirmationDialog(QDialog):
 
     def _configure_tab_order(self):
         tab_sequence = [self.sentence_text]
+        if self.add_prev_line_button.isVisible():
+            tab_sequence.append(self.add_prev_line_button)
+        if self.add_next_line_button.isVisible():
+            tab_sequence.append(self.add_next_line_button)
+        if self.regen_translation_checkbox.isVisible():
+            tab_sequence.append(self.regen_translation_checkbox)
         if self.translation_text.isVisible():
             tab_sequence.append(self.translation_text)
         tab_sequence.append(self.screenshot_button)
@@ -778,6 +799,10 @@ class AnkiConfirmationDialog(QDialog):
             tab_sequence.append(self.prev_screenshot_button)
         if self.audio_button.isVisible():
             tab_sequence.append(self.audio_button)
+        if self.waveform_widget.expand_start_button.isVisible():
+            tab_sequence.append(self.waveform_widget.expand_start_button)
+        if self.waveform_widget.expand_end_button.isVisible():
+            tab_sequence.append(self.waveform_widget.expand_end_button)
         if self.tts_button.isVisible():
             tab_sequence.append(self.tts_button)
         tab_sequence.append(self.nsfw_tag_checkbox)
@@ -807,6 +832,608 @@ class AnkiConfirmationDialog(QDialog):
         label_widget = self.prev_image_label if previous else self.image_label
         setattr(self, target_attr, selected_path)
         self._load_image_to_label(selected_path, label_widget)
+
+    @staticmethod
+    def _dialogue_lines_from_context(context):
+        if not context:
+            return []
+        if getattr(context, "selected_lines", None):
+            return list(context.selected_lines)
+        if getattr(context, "mined_line", None):
+            return [context.mined_line]
+        return []
+
+    @staticmethod
+    def _line_ids_for_dialogue(lines):
+        return tuple(line.id for line in lines if line)
+
+    def _selected_lines_for_pipeline(self):
+        if not self._dialog_selected_lines:
+            return []
+        if (
+            len(self._dialog_selected_lines) == 1
+            and self._replay_context
+            and getattr(self._replay_context, "mined_line", None)
+            and self._dialog_selected_lines[0].id == self._replay_context.mined_line.id
+        ):
+            return []
+        return list(self._dialog_selected_lines)
+
+    def _dialogue_line_expansion_enabled(self):
+        return bool(
+            EXPERIMENTAL_DIALOGUE_LINE_EXPANSION_ENABLED
+            and self._replay_context
+            and getattr(self._replay_context, "video_path", None)
+            and self._dialog_selected_lines
+        )
+
+    def _initialize_dialogue_line_timeline(self):
+        if not self._dialogue_line_expansion_enabled():
+            return
+
+        try:
+            self._replay_video_duration = get_video_duration(self._replay_context.video_path)
+        except Exception as e:
+            logger.debug(f"Failed to probe replay duration for dialogue expansion: {e}")
+            self._replay_video_duration = 0.0
+
+        try:
+            self._replay_file_mod_time = self._replay_context.anki_card_creation_time or get_file_modification_time(
+                self._replay_context.video_path
+            )
+        except Exception as e:
+            logger.debug(f"Failed to resolve replay timestamp for dialogue expansion: {e}")
+            self._replay_file_mod_time = None
+
+    def _previous_dialogue_line(self):
+        if not self._dialog_selected_lines:
+            return None
+        return self._dialog_selected_lines[0].prev
+
+    def _next_dialogue_line(self):
+        if not self._dialog_selected_lines:
+            return None
+        return self._dialog_selected_lines[-1].next_line()
+
+    def _update_dialogue_line_controls(self, has_translation=None):
+        has_translation = (
+            bool(self.translation_text.toPlainText().strip()) if has_translation is None else bool(has_translation)
+        )
+        feature_enabled = self._dialogue_line_expansion_enabled()
+        prev_line = self._previous_dialogue_line() if feature_enabled else None
+        next_line = self._next_dialogue_line() if feature_enabled else None
+        visible = bool(feature_enabled and (prev_line or next_line or has_translation))
+
+        self.dialogue_tools_title.setVisible(visible)
+        self.add_prev_line_button.setVisible(bool(visible and prev_line))
+        self.add_next_line_button.setVisible(bool(visible and next_line))
+        self.regen_translation_checkbox.setVisible(bool(visible and has_translation))
+        self.dialogue_tools_status.setVisible(visible)
+
+        if not visible:
+            return
+
+        line_count = len(self._dialog_selected_lines)
+        status_text = f"Experimental. {line_count} line{'s' if line_count != 1 else ''} selected."
+        if self._dialog_line_selection_changed:
+            status_text += " Card fields will use the expanded dialogue."
+        self.dialogue_tools_status.setText(status_text)
+
+    def _refresh_audio_controls(self, sentence_text):
+        has_audio_file = bool(self.audio_path and os.path.isfile(self.audio_path))
+
+        vad_ran = self.vad_result is not None and hasattr(self.vad_result, "success")
+        vad_detected_voice = vad_ran and bool(self.vad_result.success)
+
+        status_text = "No audio"
+        status_style = ""
+
+        if has_audio_file:
+            if vad_ran:
+                if vad_detected_voice:
+                    status_text = "✔ Voice audio detected"
+                    status_style = "color: green;"
+                elif getattr(self.vad_result, "tts_used", False):
+                    status_text = "✔ TTS audio generated"
+                    status_style = "color: green;"
+                else:
+                    status_text = "⚠️ VAD ran and found no voice.\n Keep audio by choosing 'Keep Audio'."
+                    status_style = (
+                        "color: #ff6b00; font-weight: bold; background-color: #fff3cd; "
+                        "padding: 5px; border-radius: 3px;"
+                    )
+            elif not get_config().vad.do_vad_postprocessing:
+                status_text = "✔ Audio file available (VAD disabled)"
+                status_style = "color: green;"
+
+        self.audio_status_label.setText(status_text)
+        self.audio_status_label.setStyleSheet(status_style)
+
+        is_unsupported, codec_name = self._is_unsupported_audio_codec(self.audio_path)
+
+        if has_audio_file:
+            if is_unsupported:
+                self.codec_info_label.setText(
+                    f"ℹ️ {codec_name} codec is not supported for manual trimming. "
+                    f"Supported formats: OPUS, OGG, MP3. You can still include the audio in your card."
+                )
+                self.codec_info_label.setVisible(True)
+                self.waveform_widget.setVisible(False)
+                self.audio_button.setVisible(False)
+                self.play_original_button.setVisible(False)
+                self.reset_audio_button.setVisible(False)
+                self._update_audio_expand_buttons(allow_buttons=False)
+            else:
+                self.codec_info_label.setVisible(False)
+                self.waveform_widget.load_audio(self.audio_path)
+                self.waveform_widget.setVisible(True)
+                self.audio_button.setVisible(True)
+                self.play_original_button.setVisible(True)
+                self.reset_audio_button.setVisible(True)
+                self.audio_button.setText("▶ Play Range")
+                self.audio_button.setStyleSheet("")
+                self._update_audio_expand_buttons(allow_buttons=True)
+        else:
+            self.codec_info_label.setVisible(False)
+            self.waveform_widget.setVisible(False)
+            self.audio_button.setVisible(False)
+            self.play_original_button.setVisible(False)
+            self.reset_audio_button.setVisible(False)
+            self._update_audio_expand_buttons(allow_buttons=False)
+
+        show_tts = bool(
+            get_config().vad.tts_url and get_config().vad.tts_url != "http://127.0.0.1:5050/?term=$s" and sentence_text
+        )
+        self.tts_button.setVisible(show_tts)
+        self.tts_status_label.setVisible(show_tts)
+        self.tts_status_label.setText("")
+
+        if show_tts:
+            tts_used = getattr(self.vad_result, "tts_used", False) if self.vad_result else False
+            self.tts_button.setText("🔊 " + ("Regenerate" if tts_used else "Generate") + " TTS Audio")
+
+        if has_audio_file:
+            self.voice_button.setVisible(True)
+            self.no_voice_button.setVisible(True)
+            self.confirm_button.setVisible(False)
+        else:
+            self.voice_button.setVisible(False)
+            self.no_voice_button.setVisible(False)
+            self.confirm_button.setVisible(True)
+
+    def _build_dialogue_sentence(self, selected_lines):
+        if not selected_lines:
+            return self.sentence_text.toPlainText().strip()
+
+        from GameSentenceMiner import anki
+
+        last_note = getattr(self._replay_context, "last_note", None)
+        sentence = anki._build_selected_lines_sentence(last_note, selected_lines)
+        return sentence or self.sentence_text.toPlainText().strip()
+
+    def _regenerate_dialogue_translation(self, sentence_text):
+        if not self.regen_translation_checkbox.isVisible() or not self.regen_translation_checkbox.isChecked():
+            return self.translation_text.toPlainText().strip(), False
+
+        from GameSentenceMiner import anki
+
+        sentence_to_translate = remove_html_and_cloze_tags(sentence_text)
+        translation = anki.prefetch_ai_translation(
+            sentence_to_translate, getattr(self._replay_context, "mined_line", None)
+        )
+        return translation or self.translation_text.toPlainText().strip(), True
+
+    def _regenerate_dialogue_audio(self, selected_lines, sentence_text):
+        if (
+            not self._replay_context
+            or not getattr(self._replay_context, "video_path", None)
+            or not get_config().audio.enabled
+            or not get_config().anki.sentence_audio_field
+            or not selected_lines
+        ):
+            return None
+
+        from GameSentenceMiner.replay_handler import ReplayAudioExtractor
+
+        start_line = selected_lines[0]
+        line_cutoff = selected_lines[-1].get_next_time()
+        return ReplayAudioExtractor.get_audio(
+            start_line,
+            line_cutoff,
+            self._replay_context.video_path,
+            self._replay_context.anki_card_creation_time,
+            mined_line=getattr(self._replay_context, "mined_line", None),
+            full_text=remove_html_and_cloze_tags(sentence_text),
+        )
+
+    def _refresh_dialog_after_line_change(self, sentence_text, translation_text):
+        self.sentence_text.blockSignals(True)
+        self.sentence_text.setPlainText(sentence_text)
+        self.sentence_text.blockSignals(False)
+
+        translation_visible = bool(self.translation_label_title.isVisible() or translation_text)
+        self.translation_label_title.setVisible(translation_visible)
+        self.translation_text.setVisible(translation_visible)
+        if translation_visible:
+            self.translation_text.blockSignals(True)
+            self.translation_text.setPlainText(translation_text)
+            self.translation_text.blockSignals(False)
+
+        self._refresh_audio_controls(sentence_text)
+        self._update_dialogue_line_controls(has_translation=translation_visible)
+        self._configure_tab_order()
+
+    def _line_audio_anchor(self, line):
+        if not line or self._replay_video_duration <= 0 or self._replay_file_mod_time is None:
+            return None
+
+        cached = self._dialogue_line_start_cache.get(line.id)
+        if cached is not None:
+            return cached
+
+        try:
+            time_delta = self._replay_file_mod_time - line.time
+            anchor = self._replay_video_duration - time_delta.total_seconds() + get_config().audio.beginning_offset
+            anchor = max(0.0, min(anchor, self._replay_video_duration))
+        except Exception as e:
+            logger.debug(f"Failed computing dialogue line anchor: {e}")
+            return None
+
+        self._dialogue_line_start_cache[line.id] = anchor
+        return anchor
+
+    def _schedule_auto_line_expand(self, which):
+        if not self._dialogue_line_expansion_enabled() or self._dialogue_line_update_in_progress:
+            return
+        if which not in {"start", "end"}:
+            return
+        self._pending_auto_line_direction = which
+        self._auto_line_expand_timer.start()
+
+    def _apply_pending_auto_line_expand(self):
+        if (
+            not self._dialogue_line_expansion_enabled()
+            or self._dialogue_line_update_in_progress
+            or not self._audio_edit_range
+            or not self._pending_auto_line_direction
+        ):
+            return
+
+        direction = self._pending_auto_line_direction
+        self._pending_auto_line_direction = None
+
+        if direction == "start":
+            prev_line = self._previous_dialogue_line()
+            prev_anchor = self._line_audio_anchor(prev_line)
+            if (
+                prev_line
+                and prev_anchor is not None
+                and self._audio_edit_range[0] <= (prev_anchor + AUTO_ADD_DIALOGUE_LINE_EPSILON_SECONDS)
+            ):
+                self._add_previous_dialogue_line(auto_trigger=True)
+        elif direction == "end":
+            next_line = self._next_dialogue_line()
+            next_anchor = self._line_audio_anchor(next_line)
+            if (
+                next_line
+                and next_anchor is not None
+                and self._audio_edit_range[1] >= (next_anchor - AUTO_ADD_DIALOGUE_LINE_EPSILON_SECONDS)
+            ):
+                self._add_next_dialogue_line(auto_trigger=True)
+
+    def _apply_dialogue_line_change(self, selected_lines):
+        if not self._dialogue_line_expansion_enabled() or not selected_lines:
+            return
+
+        self._dialogue_line_update_in_progress = True
+        self._auto_line_expand_timer.stop()
+        self._pending_auto_line_direction = None
+        try:
+            self._dialog_selected_lines = list(selected_lines)
+            self._dialog_line_selection_changed = (
+                self._line_ids_for_dialogue(self._dialog_selected_lines) != self._dialog_original_selected_line_ids
+            )
+
+            sentence_text = self._build_dialogue_sentence(self._dialog_selected_lines)
+            translation_text, translation_regenerated = self._regenerate_dialogue_translation(sentence_text)
+            self._dialog_translation_regenerated = translation_regenerated
+
+            audio_result = self._regenerate_dialogue_audio(self._dialog_selected_lines, sentence_text)
+            self._dialog_audio_result = None
+            if audio_result:
+                self._dialog_audio_result = audio_result
+                self.vad_result = audio_result.vad_result
+                gsm_state.vad_result = audio_result.vad_result
+                gsm_state.audio_edit_context = audio_result.audio_edit_context
+                self._load_audio_edit_context(audio_result.audio_edit_context)
+                self.audio_path = audio_result.final_audio_output or (
+                    audio_result.vad_result.output_audio if audio_result.vad_result else self.audio_path
+                )
+
+            if self._replay_context:
+                self._replay_context.selected_lines = self._selected_lines_for_pipeline()
+                self._replay_context.start_line = self._dialog_selected_lines[0]
+                self._replay_context.line_cutoff = self._dialog_selected_lines[-1].get_next_time()
+                self._replay_context.full_text = remove_html_and_cloze_tags(sentence_text)
+                self._replay_context.sentence_for_translation = sentence_text
+                self._replay_context.audio_result = audio_result
+
+            self._refresh_dialog_after_line_change(sentence_text, translation_text)
+        except Exception as e:
+            logger.exception(f"Failed applying dialogue line change: {e}")
+            QMessageBox.critical(self, "Dialogue Update Error", str(e))
+        finally:
+            self._dialogue_line_update_in_progress = False
+
+    def _add_previous_dialogue_line(self, checked=False, auto_trigger=False):
+        del checked, auto_trigger
+        prev_line = self._previous_dialogue_line()
+        if not prev_line:
+            return
+        self._apply_dialogue_line_change([prev_line, *self._dialog_selected_lines])
+
+    def _add_next_dialogue_line(self, checked=False, auto_trigger=False):
+        del checked, auto_trigger
+        next_line = self._next_dialogue_line()
+        if not next_line:
+            return
+        self._apply_dialogue_line_change([*self._dialog_selected_lines, next_line])
+
+    @staticmethod
+    def _calculate_audio_expanded_range(start_time, end_time, duration, expand_start=0.0, expand_end=0.0):
+        return max(0.0, start_time - expand_start), min(duration, end_time + expand_end)
+
+    @staticmethod
+    def _audio_edit_context_value(context, key, default=None):
+        if isinstance(context, dict):
+            return context.get(key, default)
+        return getattr(context, key, default)
+
+    @staticmethod
+    def _normalize_audio_edit_context(context):
+        if not context:
+            return None
+
+        source_audio_path = AnkiConfirmationDialog._audio_edit_context_value(context, "source_audio_path")
+        if not source_audio_path or not os.path.isfile(source_audio_path):
+            return None
+
+        source_duration = float(AnkiConfirmationDialog._audio_edit_context_value(context, "source_duration") or 0.0)
+        if source_duration <= 0:
+            source_duration = get_audio_length(source_audio_path)
+        if source_duration <= 0:
+            return None
+
+        range_start = max(0.0, float(AnkiConfirmationDialog._audio_edit_context_value(context, "range_start") or 0.0))
+        range_end = float(AnkiConfirmationDialog._audio_edit_context_value(context, "range_end") or 0.0)
+        if range_end <= 0:
+            range_end = source_duration
+        range_end = max(range_start, min(range_end, source_duration))
+        range_start = min(range_start, range_end)
+
+        return {
+            "source_audio_path": source_audio_path,
+            "source_duration": source_duration,
+            "range_start": range_start,
+            "range_end": range_end,
+            "rebase_on_selection_trim": bool(
+                AnkiConfirmationDialog._audio_edit_context_value(context, "rebase_on_selection_trim", False)
+            ),
+        }
+
+    def _load_audio_edit_context(self, context):
+        normalized = self._normalize_audio_edit_context(context)
+        self._audio_edit_context = normalized
+        if not normalized:
+            self._audio_edit_source_path = None
+            self._audio_edit_source_duration = 0.0
+            self._audio_edit_source_window = None
+            self._audio_edit_range = None
+            self._audio_edit_rebase_on_selection_trim = False
+            self._has_performed_audio_expand = False
+            return
+
+        self._audio_edit_source_path = normalized["source_audio_path"]
+        self._audio_edit_source_duration = normalized["source_duration"]
+        self._audio_edit_source_window = (normalized["range_start"], normalized["range_end"])
+        self._audio_edit_range = self._audio_edit_source_window
+        self._audio_edit_rebase_on_selection_trim = normalized["rebase_on_selection_trim"]
+        self._has_performed_audio_expand = False
+
+    def _sync_audio_edit_selection_to_current_clip(self, start, end):
+        if self.waveform_widget.audio_data is None:
+            return
+
+        if not self._audio_edit_source_window:
+            return
+
+        window_start, window_end = self._audio_edit_source_window
+        window_duration = max(0.0, window_end - window_start)
+        clip_duration = float(self.waveform_widget.duration or 0.0)
+        selection_start = max(0.0, min(float(start), clip_duration))
+        selection_end = max(selection_start, min(float(end), clip_duration))
+
+        if self._audio_edit_rebase_on_selection_trim:
+            if clip_duration <= 0 or window_duration <= 0:
+                self._audio_edit_range = (window_start, window_end)
+                return
+
+            # Preserve the original extracted source so expand controls can continue
+            # to reach outside the current rendered clip. For rebased clips
+            # (condensed/spliced audio), selection->source mapping is approximate.
+            scale = window_duration / clip_duration
+            self._audio_edit_range = (
+                window_start + (selection_start * scale),
+                window_start + (selection_end * scale),
+            )
+            return
+
+        self._audio_edit_range = (
+            window_start + selection_start,
+            window_start + selection_end,
+        )
+
+    def _get_current_clip_selection(self):
+        if self.waveform_widget.audio_data is None:
+            return 0.0, 0.0, 0.0
+
+        clip_duration = float(self.waveform_widget.duration or 0.0)
+        selection_start, selection_end = self.waveform_widget.get_selection_range()
+        selection_start = max(0.0, min(float(selection_start), clip_duration))
+        selection_end = max(selection_start, min(float(selection_end), clip_duration))
+        return selection_start, selection_end, clip_duration
+
+    def _apply_audio_selection(self, selection_start, selection_end):
+        selection_start, selection_end, clip_duration = (
+            max(0.0, float(selection_start)),
+            max(0.0, float(selection_end)),
+            float(self.waveform_widget.duration or 0.0),
+        )
+        selection_start = min(selection_start, clip_duration)
+        selection_end = max(selection_start, min(selection_end, clip_duration))
+
+        self.audio_player.stop_audio()
+        self.playback_timer.stop()
+        self.waveform_widget.set_playback_position(-1)
+        self.waveform_widget.start_time = selection_start
+        self.waveform_widget.end_time = selection_end
+        self._sync_audio_edit_selection_to_current_clip(selection_start, selection_end)
+        self._update_audio_buttons()
+        self._update_audio_expand_buttons()
+        self.waveform_widget.update()
+
+    def _update_audio_expand_buttons(self, allow_buttons=True):
+        has_context = bool(
+            allow_buttons
+            and self._audio_edit_source_path
+            and self._audio_edit_range
+            and os.path.isfile(self._audio_edit_source_path)
+        )
+
+        if not has_context:
+            self.waveform_widget.set_expand_controls(False)
+            return
+
+        start_time, end_time = self._audio_edit_range
+        self.waveform_widget.set_expand_controls(
+            True,
+            can_expand_start=start_time > 0.01,
+            can_expand_end=end_time < self._audio_edit_source_duration - 0.01,
+            range_text=f"{start_time:.2f}s -> {end_time:.2f}s",
+        )
+
+    def _render_audio_edit_range(self, start_time, end_time, selection_start=0.0, selection_end=None):
+        if not self._audio_edit_source_path:
+            return
+
+        if end_time <= start_time:
+            raise RuntimeError("Expanded audio range is empty.")
+
+        game_name = sanitize_filename(gsm_state.current_game) if gsm_state.current_game else "expanded"
+        orig_ext = os.path.splitext(self._audio_edit_source_path)[1] or ".wav"
+        filename = f"{game_name}_manual_audio_expand_{int(time.time())}{orig_ext}"
+        new_path = make_unique_file_name(os.path.join(get_temporary_directory(), filename))
+
+        trim_audio(
+            input_audio=self._audio_edit_source_path,
+            start_time=start_time,
+            end_time=end_time,
+            output_audio=new_path,
+            trim_beginning=True,
+            fade_in_duration=0,
+            fade_out_duration=0,
+        )
+
+        self.audio_player.stop_audio()
+        self.playback_timer.stop()
+        self.waveform_widget.set_playback_position(-1)
+        self.audio_path = new_path
+        self.waveform_widget.load_audio(self.audio_path)
+        self.waveform_widget.setVisible(True)
+        self.audio_button.setVisible(True)
+        self.play_original_button.setVisible(True)
+        self.reset_audio_button.setVisible(True)
+        self._audio_edit_source_window = (start_time, end_time)
+        clip_duration = float(self.waveform_widget.duration or 0.0)
+        if selection_end is None:
+            selection_end = clip_duration
+        selection_start = max(0.0, min(float(selection_start), clip_duration))
+        selection_end = max(selection_start, min(float(selection_end), clip_duration))
+        self.waveform_widget.start_time = selection_start
+        self.waveform_widget.end_time = selection_end
+        self._sync_audio_edit_selection_to_current_clip(selection_start, selection_end)
+        self._update_audio_buttons()
+        self._update_audio_expand_buttons()
+        self.waveform_widget.update()
+
+    def _expand_audio_start(self):
+        self._expand_audio_window(expand_start=AUDIO_EXPAND_SECONDS)
+
+    def _expand_audio_end(self):
+        self._expand_audio_window(expand_end=AUDIO_EXPAND_SECONDS)
+
+    def _expand_audio_window(self, expand_start=0.0, expand_end=0.0):
+        if not self._audio_edit_range or not self._audio_edit_source_path or not self._audio_edit_source_window:
+            return
+
+        try:
+            selection_start, selection_end, clip_duration = self._get_current_clip_selection()
+            current_window_start, current_window_end = self._audio_edit_source_window
+
+            if not self._has_performed_audio_expand:
+                new_start, new_end = self._calculate_audio_expanded_range(
+                    current_window_start,
+                    current_window_end,
+                    self._audio_edit_source_duration,
+                    expand_start=expand_start,
+                    expand_end=expand_end,
+                )
+
+                if (new_start, new_end) != (current_window_start, current_window_end):
+                    self._render_audio_edit_range(new_start, new_end)
+                    self._has_performed_audio_expand = True
+                    return
+
+                if selection_start > 0.01 or selection_end < clip_duration - 0.01:
+                    self._apply_audio_selection(0.0, clip_duration)
+                    self._has_performed_audio_expand = True
+                return
+
+            if expand_start > 0 and selection_start > 0.01:
+                self._apply_audio_selection(0.0, selection_end)
+                return
+
+            if expand_end > 0 and selection_end < clip_duration - 0.01:
+                self._apply_audio_selection(selection_start, clip_duration)
+                return
+
+            new_start, new_end = self._calculate_audio_expanded_range(
+                current_window_start,
+                current_window_end,
+                self._audio_edit_source_duration,
+                expand_start=expand_start,
+                expand_end=expand_end,
+            )
+            if (new_start, new_end) == (current_window_start, current_window_end):
+                return
+
+            if expand_start > 0:
+                start_shift = current_window_start - new_start
+                new_selection_start = 0.0
+                new_selection_end = selection_end + start_shift
+            else:
+                new_selection_start = selection_start
+                new_selection_end = new_end - new_start
+
+            self._render_audio_edit_range(
+                new_start,
+                new_end,
+                selection_start=new_selection_start,
+                selection_end=new_selection_end,
+            )
+        except Exception as e:
+            logger.error(f"Failed to expand audio range: {e}")
+            QMessageBox.critical(self, "Audio Expand Error", str(e))
 
     def _play_audio(self, audio_path, full=False):
         if self.audio_player.is_playing:
@@ -905,7 +1532,9 @@ class AnkiConfirmationDialog(QDialog):
         if self.waveform_widget.audio_data is not None:
             self.waveform_widget.start_time = 0.0
             self.waveform_widget.end_time = self.waveform_widget.duration
+            self._sync_audio_edit_selection_to_current_clip(0.0, self.waveform_widget.duration)
             self.waveform_widget.range_changed.emit(0.0, self.waveform_widget.duration)
+            self._update_audio_expand_buttons()
             self.waveform_widget.update()
 
     def _save_trimmed_audio(self):
@@ -1001,6 +1630,15 @@ class AnkiConfirmationDialog(QDialog):
             self.waveform_widget.setVisible(True)
             self.play_original_button.setVisible(True)
             self.reset_audio_button.setVisible(True)
+            self._audio_edit_context = None
+            self._audio_edit_source_path = None
+            self._audio_edit_source_duration = 0.0
+            self._audio_edit_source_window = None
+            self._audio_edit_range = None
+            self._audio_edit_rebase_on_selection_trim = False
+            self._has_performed_audio_expand = False
+            self._dialog_audio_result = None
+            self._update_audio_expand_buttons(allow_buttons=False)
 
             self.audio_status_label.setText("✔ TTS audio generated")
             self.audio_status_label.setStyleSheet("color: green;")
@@ -1020,6 +1658,14 @@ class AnkiConfirmationDialog(QDialog):
     def _cleanup_audio(self):
         self.audio_player.cleanup()
 
+    def _build_dialog_result_metadata(self):
+        return {
+            "selected_lines": self._selected_lines_for_pipeline(),
+            "line_selection_changed": self._dialog_line_selection_changed,
+            "audio_result": self._dialog_audio_result if self._dialog_line_selection_changed else None,
+            "translation_regenerated": self._dialog_translation_regenerated,
+        }
+
     def _on_voice(self):
         self._cleanup_audio()
 
@@ -1038,6 +1684,7 @@ class AnkiConfirmationDialog(QDialog):
             self.previous_screenshot_path,
             self.nsfw_tag_checkbox.isChecked(),
             final_audio_path,
+            self._build_dialog_result_metadata(),
         )
         self.accept()
 
@@ -1056,6 +1703,7 @@ class AnkiConfirmationDialog(QDialog):
             self.previous_screenshot_path,
             self.nsfw_tag_checkbox.isChecked(),
             self.audio_path,
+            self._build_dialog_result_metadata(),
         )
         self.accept()
 
@@ -1067,6 +1715,7 @@ class AnkiConfirmationDialog(QDialog):
 
     def closeEvent(self, event):
         self._cancel_auto_accept()
+        self._auto_line_expand_timer.stop()
         self._cleanup_audio()
         window_state_manager.save_geometry(self, WindowId.ANKI_CONFIRMATION)
         super().closeEvent(event)
@@ -1139,6 +1788,7 @@ def show_anki_confirmation(
             previous_screenshot_path,
             False,
             final_audio_path,
+            {},
         )
 
     if _anki_confirmation_dialog_instance is None:

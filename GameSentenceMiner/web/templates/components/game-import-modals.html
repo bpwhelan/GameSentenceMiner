@@ -1,0 +1,120 @@
+<!-- Shared Game Import / Linking Modals -->
+
+<div id="linkSearchModal" class="modal">
+    <div class="modal-content" style="max-width: 900px;">
+        <div class="modal-header">
+            <h3>&#128269; Search Databases</h3>
+            <span class="close-btn" data-action="closeLinkSearchModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div class="search-info" style="margin-bottom: 20px;">
+                <p><strong>Searching for:</strong> <span id="linkSearchGameName"></span></p>
+            </div>
+
+            <div class="source-toggles" id="linkSourceToggles">
+                <label class="source-toggle-label">
+                    <input type="checkbox" id="toggle-jiten" class="source-toggle-checkbox" checked>
+                    <span class="source-toggle-text">&#127937; Jiten</span>
+                </label>
+                <label class="source-toggle-label">
+                    <input type="checkbox" id="toggle-vndb" class="source-toggle-checkbox" checked>
+                    <span class="source-toggle-text">&#128309; VNDB</span>
+                </label>
+                <label class="source-toggle-label">
+                    <input type="checkbox" id="toggle-igdb" class="source-toggle-checkbox" checked>
+                    <span class="source-toggle-text">&#128995; IGDB</span>
+                </label>
+                <label class="source-toggle-label">
+                    <input type="checkbox" id="toggle-anilist" class="source-toggle-checkbox" checked>
+                    <span class="source-toggle-text">&#128992; AniList</span>
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Search Term:</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="linkSearchInput" class="form-input" placeholder="Enter game title to search...">
+                    <button class="action-btn primary" id="linkSearchBtn">Search</button>
+                </div>
+                <small style="color: var(--text-tertiary); font-size: 12px;">
+                    Search supports Japanese, romaji, and English titles across all enabled sources.
+                </small>
+            </div>
+
+            <div id="linkSearchResults" style="display: none;">
+                <h4>Search Results:</h4>
+                <div id="linkSearchResultsList" style="max-height: 500px; overflow-y: auto; margin-top: 15px;"></div>
+            </div>
+
+            <div id="linkSearchError" class="error-text" style="display: none;"></div>
+            <div id="linkSearchLoading" class="loading-indicator" style="display: none;">
+                <div class="spinner"></div>
+                <span>Searching databases...</span>
+            </div>
+
+            <div style="margin-top: 20px; padding: 15px; background: var(--bg-tertiary); border-radius: 8px; border-left: 4px solid var(--accent-color);">
+                <p style="margin: 0; color: var(--text-secondary); font-size: 14px;">
+                    <strong>Tips:</strong>
+                </p>
+                <ul style="margin: 8px 0 0 0; padding-left: 20px; color: var(--text-secondary); font-size: 13px;">
+                    <li><strong class="jiten-badge" style="font-size: 11px;">Jiten</strong> - Primary source with full stats support (difficulty, character counts)</li>
+                    <li><strong class="vndb-badge" style="font-size: 11px;">VNDB</strong> - Visual novels only, limited stats integration</li>
+                    <li><strong class="igdb-badge" style="font-size: 11px;">IGDB</strong> - Game metadata, cover art, and external links, but no character data</li>
+                    <li><strong class="anilist-badge" style="font-size: 11px;">AniList</strong> - Anime/Manga only, limited stats integration</li>
+                </ul>
+                <p style="margin: 10px 0 0 0; color: var(--text-secondary); font-size: 13px;">
+                    <strong>Not found?</strong> Contribute to <a href="https://jiten.moe/" target="_blank" rel="noopener noreferrer" style="color: var(--accent-color);">Jiten</a> or use Edit Metadata to create a manual entry.
+                </p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeLinkSearchModal">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div id="linkConfirmModal" class="modal">
+    <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+            <h3 id="linkConfirmTitle">Confirm Game Link</h3>
+            <span class="close-btn" data-action="closeLinkConfirmModal">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div class="link-preview">
+                <div class="current-game" style="margin-bottom: 20px;">
+                    <h4>Your Game:</h4>
+                    <div id="linkConfirmCurrentGame" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px;"></div>
+                </div>
+
+                <div class="matched-game" style="margin-bottom: 20px;">
+                    <h4>Database Match:</h4>
+                    <div id="linkConfirmMatchedGame" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px;"></div>
+                </div>
+            </div>
+
+            <div class="manual-overrides-warning" id="linkConfirmManualOverridesWarning" style="display: none; background: var(--warning-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+                <strong>⚠️ Manual Overrides Detected:</strong>
+                <div id="linkConfirmOverriddenFieldsList"></div>
+                <small>These manually edited fields will NOT be overwritten unless you enable the option below.</small>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 15px;">
+                <div class="checkbox-container">
+                    <input type="checkbox" id="linkConfirmOverwriteMetadata" class="checkbox-input">
+                    <label for="linkConfirmOverwriteMetadata" class="checkbox-label">Overwrite imported metadata even if those fields were manually edited</label>
+                </div>
+                <small style="color: var(--text-tertiary); display: block; margin-top: 6px;">Useful for refreshing empty or stale fields. IGDB still does not include character data.</small>
+            </div>
+
+            <div id="linkConfirmError" class="error-text" style="display: none;"></div>
+            <div id="linkConfirmLoading" class="loading-indicator" style="display: none;">
+                <div class="spinner"></div>
+                <span>Linking game...</span>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeLinkConfirmModal">Cancel</button>
+            <button class="action-btn success" id="confirmLinkBtn">Link Game</button>
+        </div>
+    </div>
+</div>

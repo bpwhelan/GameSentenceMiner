@@ -399,6 +399,7 @@ class GamepadHandler {
     // DOM change tracking for live text updates
     this.textMutationObserver = null;
     this.pendingTextRefresh = false;
+    this.lastSelectionSnapshot = null; // Last known block rect + anchor position for redraw recovery
     
     // Bind methods
     this.onWebSocketMessage = this.onWebSocketMessage.bind(this);
@@ -2824,13 +2825,177 @@ class GamepadHandler {
     return false;
   }
 
-  findFirstSelectableBlockIndex() {
+  getBlockSelectionMetrics(block) {
+    if (!block) {
+      return { area: 0, textLength: 0 };
+    }
+
+    const rect = this.getBlockBoundingRect(block);
+    const width = Number.isFinite(rect?.width) ? Math.max(0, rect.width) : 0;
+    const height = Number.isFinite(rect?.height) ? Math.max(0, rect.height) : 0;
+    const textLength = (block.textContent || '').trim().length;
+
+    return {
+      area: width * height,
+      textLength,
+    };
+  }
+
+  getBlockRectSnapshot(block) {
+    const rect = this.getBlockBoundingRect(block);
+    if (!rect) return null;
+
+    const left = Number.isFinite(rect.left) ? rect.left : 0;
+    const top = Number.isFinite(rect.top) ? rect.top : 0;
+    const width = Number.isFinite(rect.width) ? Math.max(0, rect.width) : 0;
+    const height = Number.isFinite(rect.height) ? Math.max(0, rect.height) : 0;
+
+    return {
+      left,
+      top,
+      width,
+      height,
+      right: left + width,
+      bottom: top + height,
+    };
+  }
+
+  captureCurrentSelectionSnapshot() {
+    if (this.currentBlockIndex < 0 || this.currentBlockIndex >= this.textBlocks.length) {
+      return null;
+    }
+
+    const block = this.textBlocks[this.currentBlockIndex];
+    if (!block || !block.isConnected) {
+      return null;
+    }
+
+    const rect = this.getBlockRectSnapshot(block);
+    if (!rect) {
+      return null;
+    }
+
+    const anchorCenter = this.getNavigationUnitCenter(this.currentCursorIndex);
+    const normalizedWidth = Math.max(1, rect.width);
+    const normalizedHeight = Math.max(1, rect.height);
+
+    const relativeX = anchorCenter
+      ? Math.max(0, Math.min(1, (anchorCenter.x - rect.left) / normalizedWidth))
+      : 0;
+    const relativeY = anchorCenter
+      ? Math.max(0, Math.min(1, (anchorCenter.y - rect.top) / normalizedHeight))
+      : 0;
+
+    return {
+      blockIndex: this.currentBlockIndex,
+      rect,
+      relativeX,
+      relativeY,
+    };
+  }
+
+  rememberCurrentSelectionSnapshot() {
+    const snapshot = this.captureCurrentSelectionSnapshot();
+    if (snapshot) {
+      this.lastSelectionSnapshot = snapshot;
+    }
+    return snapshot;
+  }
+
+  getBlockRectGap(referenceRect, candidateRect) {
+    if (!referenceRect || !candidateRect) return Infinity;
+
+    const gapX = Math.max(
+      0,
+      candidateRect.left - referenceRect.right,
+      referenceRect.left - candidateRect.right
+    );
+    const gapY = Math.max(
+      0,
+      candidateRect.top - referenceRect.bottom,
+      referenceRect.top - candidateRect.bottom
+    );
+
+    return Math.hypot(gapX, gapY);
+  }
+
+  findNearbySelectableBlockIndex(snapshot = this.lastSelectionSnapshot) {
+    if (!snapshot?.rect || this.textBlocks.length === 0) {
+      return -1;
+    }
+
+    const referenceRect = snapshot.rect;
+    const referenceCenterX = referenceRect.left + referenceRect.width / 2;
+    const referenceCenterY = referenceRect.top + referenceRect.height / 2;
+    const proximityThreshold = Math.max(
+      80,
+      Math.min(320, Math.hypot(referenceRect.width, referenceRect.height) * 0.6)
+    );
+
+    let bestCandidate = null;
+
     for (let i = 0; i < this.textBlocks.length; i++) {
-      if (this.blockHasSelectableCharacters(this.textBlocks[i])) {
-        return i;
+      const block = this.textBlocks[i];
+      if (!this.blockHasSelectableCharacters(block)) continue;
+
+      const rect = this.getBlockRectSnapshot(block);
+      if (!rect) continue;
+
+      const edgeGap = this.getBlockRectGap(referenceRect, rect);
+      if (edgeGap > proximityThreshold) continue;
+
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const score = (
+        edgeGap * 1000 +
+        Math.abs(centerY - referenceCenterY) * 4 +
+        Math.abs(centerX - referenceCenterX)
+      );
+
+      if (!bestCandidate || score < bestCandidate.score) {
+        bestCandidate = { index: i, score };
       }
     }
-    return this.textBlocks.length > 0 ? 0 : -1;
+
+    return bestCandidate ? bestCandidate.index : -1;
+  }
+
+  findFirstSelectableBlockIndex() {
+    const selectableBlocks = [];
+
+    for (let i = 0; i < this.textBlocks.length; i++) {
+      if (this.blockHasSelectableCharacters(this.textBlocks[i])) {
+        selectableBlocks.push({
+          index: i,
+          ...this.getBlockSelectionMetrics(this.textBlocks[i]),
+        });
+      }
+    }
+
+    if (selectableBlocks.length === 0) {
+      return this.textBlocks.length > 0 ? 0 : -1;
+    }
+
+    if (selectableBlocks.length >= 3) {
+      const rankedBlocks = [...selectableBlocks].sort((a, b) => (
+        (b.area - a.area) ||
+        (b.textLength - a.textLength) ||
+        (a.index - b.index)
+      ));
+
+      const largestBlock = rankedBlocks[0];
+      const secondLargestBlock = rankedBlocks[1];
+      const compareByArea = largestBlock.area > 0 || secondLargestBlock.area > 0;
+      const dominantMetric = compareByArea ? 'area' : 'textLength';
+      const dominantValue = largestBlock[dominantMetric];
+      const nextValue = secondLargestBlock[dominantMetric];
+
+      if (dominantValue > 0 && dominantValue >= nextValue * 2) {
+        return largestBlock.index;
+      }
+    }
+
+    return selectableBlocks[0].index;
   }
 
   resetSelectionToSingleBlockStart() {
@@ -2896,6 +3061,8 @@ class GamepadHandler {
   }
   
   refreshTextBlocks() {
+    const previousSelectionSnapshot = this.lastSelectionSnapshot;
+
     // Find all text block containers
     this.textBlocks = Array.from(document.querySelectorAll('.text-block-container'))
       .filter(block => this.isElementVisible(block));
@@ -2936,16 +3103,28 @@ class GamepadHandler {
       this.currentBlockIndex >= this.textBlocks.length ||
       !this.blockHasSelectableCharacters(currentBlock)
     );
+    let restoredFromNearbyBlock = false;
 
     if (needsBlockReset) {
-      this.currentBlockIndex = this.findFirstSelectableBlockIndex();
+      const nearbyBlockIndex = this.findNearbySelectableBlockIndex(previousSelectionSnapshot);
+      this.currentBlockIndex = nearbyBlockIndex >= 0
+        ? nearbyBlockIndex
+        : this.findFirstSelectableBlockIndex();
       this.currentCursorIndex = 0;
       this.currentLineIndex = 0;
       this.lineNavPrefersCharacters = false;
+      restoredFromNearbyBlock = nearbyBlockIndex >= 0;
     }
     
     // Update characters for current block
     this.refreshCharacters();
+
+    if (restoredFromNearbyBlock) {
+      this.currentCursorIndex = this.restoreCursorFromSelectionSnapshot(previousSelectionSnapshot);
+      this.currentLineIndex = this.getLineIndexForCursor();
+    }
+
+    this.rememberCurrentSelectionSnapshot();
   }
   
   refreshCharacters() {
@@ -3775,6 +3954,53 @@ class GamepadHandler {
     });
 
     return pool[0].index;
+  }
+
+  findClosestNavigableUnitToPoint(targetX, targetY) {
+    if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
+      return null;
+    }
+
+    const candidateIndices = this.getNavigableUnitIndices();
+    const unitCount = this.getNavigationUnitCount();
+    const sourceIndices = candidateIndices.length > 0
+      ? candidateIndices
+      : Array.from({ length: unitCount }, (_, i) => i);
+
+    let bestIndex = null;
+    let bestScore = Infinity;
+
+    for (const index of sourceIndices) {
+      const center = this.getNavigationUnitCenter(index);
+      if (!center) continue;
+
+      const score = Math.abs(center.y - targetY) * 4 + Math.abs(center.x - targetX);
+      if (score < bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    }
+
+    return bestIndex;
+  }
+
+  restoreCursorFromSelectionSnapshot(snapshot = this.lastSelectionSnapshot) {
+    const fallbackIndex = this.findFirstNavigableUnitIndex(1);
+    if (!snapshot?.rect) {
+      return fallbackIndex;
+    }
+
+    const block = this.textBlocks[this.currentBlockIndex];
+    const blockRect = this.getBlockRectSnapshot(block);
+    if (!blockRect) {
+      return fallbackIndex;
+    }
+
+    const targetX = blockRect.left + blockRect.width * snapshot.relativeX;
+    const targetY = blockRect.top + blockRect.height * snapshot.relativeY;
+    const restoredIndex = this.findClosestNavigableUnitToPoint(targetX, targetY);
+
+    return restoredIndex === null ? fallbackIndex : restoredIndex;
   }
 
   positionCursorAtCurrentUnit() {
@@ -4850,6 +5076,7 @@ class GamepadHandler {
       return;
     }
     this.updateVirtualMouseCursor();
+    this.rememberCurrentSelectionSnapshot();
     
     // Update block highlight
     if (this.currentBlockIndex >= 0 && this.currentBlockIndex < this.textBlocks.length) {

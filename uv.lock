@@ -1139,7 +1139,7 @@ wheels = [
 
 [[package]]
 name = "gamesentenceminer"
-version = "2026.3.22"
+version = "2026.4.2"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -1237,7 +1237,7 @@ requires-dist = [
     { name = "langid", specifier = "~=1.1.6" },
     { name = "loguru", specifier = "~=0.7.3" },
     { name = "matplotlib", specifier = "~=3.10.6" },
-    { name = "meikiocr", specifier = "~=0.1.4" },
+    { name = "meikiocr", specifier = "~=0.3.3" },
     { name = "mss", specifier = ">=10.1.0" },
     { name = "numpy", specifier = "==2.2.6" },
     { name = "obsws-python", specifier = "~=1.8.0" },
@@ -1940,7 +1940,7 @@ wheels = [
 
 [[package]]
 name = "meikiocr"
-version = "0.1.4"
+version = "0.3.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
@@ -1948,9 +1948,9 @@ dependencies = [
     { name = "onnxruntime" },
     { name = "opencv-python-headless" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/51/38/e5801c144aaae1e58c0912510b10efcaf4527ecab0f1e72f3dc41c023169/meikiocr-0.1.4.tar.gz", hash = "sha256:07095eb08e7ceb5248d1c140a0afb257f1f855386b7b1fab038a11d743a2a111", size = 12476, upload-time = "2025-12-16T08:51:53.126Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/62/e3/a76019d53e997918670b868baeb4fae7de2e1b087433398e7e9923fb1555/meikiocr-0.3.3.tar.gz", hash = "sha256:e19c2ea00915a16e3a15975e664f85b635a985166403da521b08a192ea4f511f", size = 18003, upload-time = "2026-04-01T09:55:00.311Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1b/7a/909bade70799d7f778382eaf1d7a7739002e60e164f0a32d49c14c4cc305/meikiocr-0.1.4-py3-none-any.whl", hash = "sha256:a54056adab923f4d51bf75f812b9dabf1cdc5f1c1b021845a520ece0b455116b", size = 12608, upload-time = "2025-12-16T08:51:52.305Z" },
+    { url = "https://files.pythonhosted.org/packages/b0/0f/3aa91744fe3e90a7e8ded6edb235b0fe035fbfd37ac541ca70b84896c7f2/meikiocr-0.3.3-py3-none-any.whl", hash = "sha256:36996177605223200454a87d58b7f6249ba5ac246be4cb62049634f5ae2c22f5", size = 15895, upload-time = "2026-04-01T09:54:59.005Z" },
 ]
 
 [[package]]

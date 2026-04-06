@@ -705,7 +705,7 @@
           }
           ,
           "use_overlay_area_config": {
-            "label": "Use Dedicated Overlay Area (Recommended):",
+            "label": "Use Dedicated Overlay Area:",
             "tooltip": "Use a dedicated overlay-only area config instead of reusing the OCR area config. When enabled, this takes priority over OCR area config options."
           },
           "overlay_area_selector_button": {

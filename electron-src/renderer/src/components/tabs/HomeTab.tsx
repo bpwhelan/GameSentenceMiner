@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invokeIpc } from "../../lib/ipc";
-import type { GsmStatus, ObsScene, ObsWindow } from "../../types/models";
+import type {
+  GsmStatus,
+  ObsCaptureMode,
+  ObsScene,
+  ObsSetupTargetKind,
+  ObsWindow
+} from "../../types/models";
 
 const HELPER_SCENE_NAMES = new Set([
   "GSM HELPER",
@@ -40,19 +46,66 @@ function toObsWindows(value: unknown): ObsWindow[] {
       if (typeof windowEntry.value !== "string") {
         return null;
       }
+      const captureValues =
+        windowEntry.captureValues &&
+        typeof windowEntry.captureValues === "object"
+          ? (Object.fromEntries(
+              Object.entries(windowEntry.captureValues).filter(
+                ([captureMode, captureValue]) =>
+                  (captureMode === "window_capture" ||
+                    captureMode === "game_capture") &&
+                  typeof captureValue === "string"
+              )
+            ) as Partial<Record<ObsCaptureMode, string>>)
+          : undefined;
+
+      const legacyCaptureMode =
+        typeof windowEntry.captureMode === "string" &&
+        (windowEntry.captureMode === "window_capture" ||
+          windowEntry.captureMode === "game_capture")
+          ? windowEntry.captureMode
+          : undefined;
+      const targetKind: ObsSetupTargetKind =
+        windowEntry.targetKind === "capture_card" ? "capture_card" : "window";
+
       return {
         title:
           typeof windowEntry.title === "string"
             ? windowEntry.title
             : windowEntry.value,
         value: windowEntry.value,
-        captureMode:
-          typeof windowEntry.captureMode === "string"
-            ? windowEntry.captureMode
+        targetKind,
+        captureValues:
+          targetKind === "window"
+            ? captureValues ??
+              (legacyCaptureMode
+                ? {
+                    [legacyCaptureMode]: windowEntry.value
+                  }
+                : undefined)
+            : undefined,
+        captureMode: legacyCaptureMode,
+        videoDeviceId:
+          typeof windowEntry.videoDeviceId === "string"
+            ? windowEntry.videoDeviceId
+            : undefined,
+        audioDeviceId:
+          typeof windowEntry.audioDeviceId === "string"
+            ? windowEntry.audioDeviceId
+            : undefined,
+        wasapiInputDeviceId:
+          typeof windowEntry.wasapiInputDeviceId === "string"
+            ? windowEntry.wasapiInputDeviceId
             : undefined
       };
     })
     .filter((windowEntry): windowEntry is ObsWindow => windowEntry !== null);
+}
+
+function getSetupTargetLabel(windowEntry: ObsWindow): string {
+  return windowEntry.targetKind === "capture_card"
+    ? `Capture Card: ${windowEntry.title}`
+    : windowEntry.title;
 }
 
 function getRelativeTime(lastLineReceived?: string): string {
@@ -101,6 +154,7 @@ export function HomeTab({ active }: HomeTabProps) {
   const [selectedSceneId, setSelectedSceneId] = useState("");
   const [windows, setWindows] = useState<ObsWindow[]>([]);
   const [selectedWindowValue, setSelectedWindowValue] = useState("");
+  const [setupSceneName, setSetupSceneName] = useState("");
   const [loadingScenes, setLoadingScenes] = useState(true);
   const [loadingWindows, setLoadingWindows] = useState(isWindows);
 
@@ -119,7 +173,7 @@ export function HomeTab({ active }: HomeTabProps) {
     [windows, selectedWindowValue]
   );
 
-  const refreshWindows = useCallback(async () => {
+  const refreshWindows = useCallback(async (quick = false) => {
     if (!isWindows) {
       setWindows([]);
       setSelectedWindowValue("");
@@ -127,11 +181,11 @@ export function HomeTab({ active }: HomeTabProps) {
       return;
     }
 
-    setLoadingWindows(true);
+    if (!quick) setLoadingWindows(true);
     const previousSelection = selectedWindowValue;
 
     try {
-      const response = await invokeIpc<unknown>("obs.getWindows");
+      const response = await invokeIpc<unknown>("obs.getWindows", { quick });
       const nextWindows = toObsWindows(response);
       setWindows(nextWindows);
 
@@ -143,17 +197,27 @@ export function HomeTab({ active }: HomeTabProps) {
         "";
 
       setSelectedWindowValue(resolvedSelection);
+      const selectedEntry = nextWindows.find(
+        (windowEntry) => windowEntry.value === resolvedSelection
+      );
+      setSetupSceneName((currentValue) => {
+        if (resolvedSelection !== previousSelection || !currentValue.trim()) {
+          return selectedEntry?.title ?? "";
+        }
+        return currentValue;
+      });
     } catch (error) {
       console.error("Failed to load OBS windows:", error);
       setWindows([]);
       setSelectedWindowValue("");
+      setSetupSceneName("");
     } finally {
       setLoadingWindows(false);
     }
   }, [isWindows, selectedWindowValue]);
 
-  const refreshScenesAndWindows = useCallback(async () => {
-    setLoadingScenes(true);
+  const refreshScenesAndWindows = useCallback(async (quick = false) => {
+    if (!quick) setLoadingScenes(true);
     const previousSceneSelection = selectedSceneId;
 
     try {
@@ -189,7 +253,7 @@ export function HomeTab({ active }: HomeTabProps) {
       setLoadingScenes(false);
     }
 
-    await refreshWindows();
+    await refreshWindows(quick);
   }, [refreshWindows, selectedSceneId]);
 
   const pollGsmStatus = useCallback(async () => {
@@ -208,9 +272,10 @@ export function HomeTab({ active }: HomeTabProps) {
       return;
     }
     void refreshScenesAndWindows();
+    // Fast poll: only window/game captures (no capture card enumeration)
     const timer = setInterval(() => {
-      void refreshScenesAndWindows();
-    }, 5000);
+      void refreshScenesAndWindows(true);
+    }, 3000);
     return () => clearInterval(timer);
   }, [active, refreshScenesAndWindows]);
 
@@ -250,7 +315,7 @@ export function HomeTab({ active }: HomeTabProps) {
     await refreshScenesAndWindows();
   };
 
-  const createScene = async (captureType: "window" | "game") => {
+  const createScene = async () => {
     if (!selectedWindow) {
       return;
     }
@@ -258,16 +323,15 @@ export function HomeTab({ active }: HomeTabProps) {
     const payload = {
       title: selectedWindow.title,
       value: selectedWindow.value,
-      sceneName: selectedWindow.title,
-      captureSource: selectedWindow.captureMode ?? "window_capture"
+      sceneName: setupSceneName.trim() || selectedWindow.title,
+      targetKind: selectedWindow.targetKind ?? "window",
+      captureValues: selectedWindow.captureValues ?? {},
+      videoDeviceId: selectedWindow.videoDeviceId,
+      audioDeviceId: selectedWindow.audioDeviceId,
+      wasapiInputDeviceId: selectedWindow.wasapiInputDeviceId
     };
 
-    if (captureType === "window") {
-      await invokeIpc("obs.createScene", payload);
-    } else {
-      await invokeIpc("obs.createScene.Game", payload);
-    }
-
+    await invokeIpc("obs.createScene", payload);
     await refreshScenesAndWindows();
   };
 
@@ -308,7 +372,7 @@ export function HomeTab({ active }: HomeTabProps) {
       <div className="modern-tab">
         <div className="legacy-grid home-layout">
           <section className="card legacy-card">
-            <h2>Game Capture (Required)</h2>
+            <h2>OBS Capture (Required)</h2>
             <div className="form-group">
               <div className="home-control-row home-scene-row">
                 <label htmlFor="obs-scene-select">Game:</label>
@@ -351,13 +415,18 @@ export function HomeTab({ active }: HomeTabProps) {
               </div>
 
               <div className="home-control-row home-window-row">
-                <label htmlFor="obs-window-select">Setup New Game:</label>
+                <label htmlFor="obs-window-select">Setup New Scene:</label>
                 <select
                   id="obs-window-select"
                   value={selectedWindowValue}
                   disabled={!isWindows}
                   onChange={(event) => {
-                    setSelectedWindowValue(event.target.value);
+                    const nextValue = event.target.value;
+                    setSelectedWindowValue(nextValue);
+                    const nextSelectedWindow = windows.find(
+                      (windowEntry) => windowEntry.value === nextValue
+                    );
+                    setSetupSceneName(nextSelectedWindow?.title ?? "");
                   }}
                 >
                   {!isWindows ? (
@@ -367,7 +436,7 @@ export function HomeTab({ active }: HomeTabProps) {
                   ) : (
                     windows.map((windowEntry) => (
                       <option key={windowEntry.value} value={windowEntry.value}>
-                        {windowEntry.title}
+                        {getSetupTargetLabel(windowEntry)}
                       </option>
                     ))
                   )}
@@ -386,20 +455,25 @@ export function HomeTab({ active }: HomeTabProps) {
                   type="button"
                   disabled={!isWindows || !selectedWindow}
                   onClick={() => {
-                    void createScene("window");
+                    void createScene();
                   }}
                 >
-                  Window Capture
+                  Setup Capture
                 </button>
-                <button
-                  type="button"
+              </div>
+
+              <div className="home-control-row home-window-row">
+                <label htmlFor="obs-setup-scene-name">Scene Name:</label>
+                <input
+                  id="obs-setup-scene-name"
+                  type="text"
+                  value={setupSceneName}
                   disabled={!isWindows || !selectedWindow}
-                  onClick={() => {
-                    void createScene("game");
+                  onChange={(event) => {
+                    setSetupSceneName(event.target.value);
                   }}
-                >
-                  Game Capture
-                </button>
+                  placeholder="Enter the OBS scene name"
+                />
               </div>
             </div>
           </section>

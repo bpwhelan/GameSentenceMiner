@@ -255,6 +255,12 @@ document.addEventListener('DOMContentLoaded', function () {
     // Track which game_id is currently displayed in "Overall Game Statistics"
     // so we only re-fetch when navigating to a session for a different game
     let _currentlyDisplayedGameId = null;
+    let _hydratedOverviewGameId = null;
+    let _currentManagedGameData = null;
+    let _currentManagedGameStats = null;
+    let _currentManagedSessionSignature = null;
+    let overviewMergeSelectedGames = [];
+    let overviewAllGamesForMerge = [];
 
     DOM_CACHE.init();
 
@@ -1292,6 +1298,119 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     };
 
+    const currentSessionManagementContainer = document.getElementById('currentSessionManagementContainer');
+    const currentSessionSettingsCogBtn = document.getElementById('currentSessionSettingsCogBtn');
+    const currentSessionSettingsCogDropdown = document.getElementById('currentSessionSettingsCogDropdown');
+    const currentSessionMarkCompleteItem = currentSessionSettingsCogDropdown
+        ? currentSessionSettingsCogDropdown.querySelector('[data-action="markComplete"]')
+        : null;
+
+    function closeCurrentSessionSettingsDropdown() {
+        if (currentSessionSettingsCogDropdown) {
+            currentSessionSettingsCogDropdown.classList.remove('show');
+        }
+    }
+
+    function updateCurrentSessionManagementVisibility(gameId) {
+        if (!currentSessionManagementContainer) {
+            return;
+        }
+
+        currentSessionManagementContainer.style.display = gameId ? 'block' : 'none';
+        if (!gameId) {
+            closeCurrentSessionSettingsDropdown();
+        }
+    }
+
+    function updateCurrentSessionManagedCompletedState(isCompleted) {
+        if (!currentSessionMarkCompleteItem) {
+            return;
+        }
+
+        currentSessionMarkCompleteItem.innerHTML = isCompleted
+            ? '&#9989; Completed'
+            : '&#9989; Mark as Completed';
+        currentSessionMarkCompleteItem.disabled = !!isCompleted;
+        currentSessionMarkCompleteItem.style.opacity = isCompleted ? '0.5' : '';
+        currentSessionMarkCompleteItem.style.cursor = isCompleted ? 'default' : '';
+    }
+
+    function setCurrentManagedGameContext(gameStats, options = {}) {
+        if (!gameStats || !gameStats.game_id) {
+            _currentManagedGameData = null;
+            _currentManagedGameStats = null;
+            _currentManagedSessionSignature = options.sessionSignature || null;
+            updateCurrentSessionManagementVisibility('');
+            updateCurrentSessionManagedCompletedState(false);
+            return;
+        }
+
+        _currentManagedGameData = gameStats;
+        _currentManagedGameStats = gameStats;
+        _currentManagedSessionSignature = options.sessionSignature || null;
+        updateCurrentSessionManagementVisibility(gameStats.game_id);
+        updateCurrentSessionManagedCompletedState(gameStats.completed);
+    }
+
+    function getCurrentManagedGameId() {
+        return (_currentManagedGameData && _currentManagedGameData.game_id)
+            || (_currentManagedGameStats && _currentManagedGameStats.game_id)
+            || '';
+    }
+
+    function getCurrentManagedGameName() {
+        const game = _currentManagedGameData || _currentManagedGameStats;
+        return (game && (game.title_original || game.title_romaji || game.title_english || game.game_name)) || 'this game';
+    }
+
+    function getCurrentManagedGameSceneName() {
+        const game = _currentManagedGameData || _currentManagedGameStats;
+        return (game && (game.obs_scene_name || game.title_original || game.title_romaji || game.title_english)) || '';
+    }
+
+    function getCurrentSessionSignature(session) {
+        if (!session) {
+            return null;
+        }
+
+        return {
+            startTime: Number(session.startTime || 0),
+            endTime: Number(session.endTime || 0),
+            totalChars: Number(session.totalChars || 0),
+            gameId: session.gameMetadata && session.gameMetadata.game_id ? session.gameMetadata.game_id : '',
+            gameName: session.gameName || '',
+            lineCount: Array.isArray(session.lines) ? session.lines.length : 0,
+        };
+    }
+
+    function findSessionIndexBySignature(sessions, signature) {
+        if (!Array.isArray(sessions) || sessions.length === 0 || !signature) {
+            return -1;
+        }
+
+        return sessions.findIndex(session => {
+            const sessionSignature = getCurrentSessionSignature(session);
+            return sessionSignature
+                && sessionSignature.startTime === signature.startTime
+                && sessionSignature.endTime === signature.endTime
+                && sessionSignature.totalChars === signature.totalChars
+                && sessionSignature.gameId === signature.gameId
+                && sessionSignature.gameName === signature.gameName
+                && sessionSignature.lineCount === signature.lineCount;
+        });
+    }
+
+    function getSelectedSessionSignature() {
+        if (!window.todaySessionDetails || window.todaySessionDetails.length === 0) {
+            return null;
+        }
+
+        const index = Number.isInteger(window.currentSessionIndex)
+            ? window.currentSessionIndex
+            : window.todaySessionDetails.length - 1;
+        return getCurrentSessionSignature(window.todaySessionDetails[index]);
+    }
+
     // Maps /api/game/<game_id>/stats response to the format updateCurrentGameDashboard expects
     function mapGameApiResponseToCurrentGameStats(data) {
         const game = data.game;
@@ -1312,17 +1431,26 @@ document.addEventListener('DOMContentLoaded', function () {
         return {
             game_name: game.title_original || '',
             game_id: game.id || '',
+            deck_id: game.deck_id || '',
             title_original: game.title_original || '',
             title_romaji: game.title_romaji || '',
             title_english: game.title_english || '',
+            obs_scene_name: game.obs_scene_name || '',
             type: game.type || '',
             description: game.description || '',
             image: game.image || '',
             game_character_count: charCount,
+            character_count: charCount,
+            difficulty: game.difficulty || '',
             links: game.links || [],
             completed: game.completed || false,
+            release_date: game.release_date || '',
+            manual_overrides: game.manual_overrides || [],
             genres: game.genres || [],
             tags: game.tags || [],
+            character_summary: game.character_summary || '',
+            vndb_id: game.vndb_id || '',
+            anilist_id: game.anilist_id || '',
             total_characters: totalChars,
             total_characters_formatted: stats.total_characters_formatted || '0',
             total_sentences: stats.total_sentences || 0,
@@ -1344,10 +1472,13 @@ document.addEventListener('DOMContentLoaded', function () {
     // Fetch stats for a specific game and update the "Overall Game Statistics" + progress bar
     function fetchAndUpdateGameStatsForSession(session) {
         const gameId = session.gameMetadata && session.gameMetadata.game_id;
+        const sessionSignature = getCurrentSessionSignature(session);
 
         // If no game_id, we can't fetch per-game stats - clear the overall section
         if (!gameId) {
             _currentlyDisplayedGameId = null;
+            _hydratedOverviewGameId = null;
+            setCurrentManagedGameContext(null, { sessionSignature });
             // Show the game name from the session at least
             const currentGameNameEl = document.getElementById('currentGameName');
             if (currentGameNameEl) {
@@ -1373,8 +1504,9 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
-        // Skip fetch if we're already showing this game's stats
-        if (gameId === _currentlyDisplayedGameId) {
+        // Skip fetch if we're already showing a hydrated view for this exact game/session.
+        if (gameId === _currentlyDisplayedGameId && gameId === _hydratedOverviewGameId) {
+            setCurrentManagedGameContext(_currentManagedGameData, { sessionSignature });
             return;
         }
 
@@ -1390,10 +1522,16 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (_currentlyDisplayedGameId !== gameId) return;
 
                 const mappedStats = mapGameApiResponseToCurrentGameStats(data);
+                _hydratedOverviewGameId = gameId;
+                setCurrentManagedGameContext(mappedStats, { sessionSignature });
                 updateCurrentGameDashboard(mappedStats);
             })
             .catch(error => {
                 console.error(`Error fetching stats for game ${gameId}:`, error);
+                if (_currentlyDisplayedGameId === gameId) {
+                    _hydratedOverviewGameId = null;
+                    setCurrentManagedGameContext(null, { sessionSignature });
+                }
             });
     }
 
@@ -1404,6 +1542,9 @@ document.addEventListener('DOMContentLoaded', function () {
         const lastSession = sessionDetails && sessionDetails.length > 0 ? sessionDetails[index] : null;
 
         if (!lastSession) {
+            _currentlyDisplayedGameId = null;
+            _hydratedOverviewGameId = null;
+            setCurrentManagedGameContext(null);
             // No current session - clear session stats
             const sessionHoursEl = document.getElementById('currentSessionTotalHours');
             const sessionCharsEl = document.getElementById('currentSessionTotalChars');
@@ -1647,7 +1788,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Function to load today's stats from new API endpoint
-    function loadTodayStats() {
+    function loadTodayStats(options = {}) {
         fetch('/api/today-stats')
             .then(response => response.json())
             .then(data => {
@@ -1682,13 +1823,25 @@ document.addEventListener('DOMContentLoaded', function () {
                 // Store sessions globally for navigation
                 window.todaySessionDetails = data.sessions || [];
                 
-                // Show the latest session (most recent)
+                let targetSessionIndex = window.todaySessionDetails.length - 1;
+                const preferredSessionSignature =
+                    options.preferredSessionSignature || getSelectedSessionSignature();
+                const matchingSessionIndex = findSessionIndexBySignature(
+                    window.todaySessionDetails,
+                    preferredSessionSignature
+                );
+                if (matchingSessionIndex >= 0) {
+                    targetSessionIndex = matchingSessionIndex;
+                }
+
+                // Show the latest session (most recent) unless a matching session was requested
                 if (window.todaySessionDetails.length > 0) {
-                    showSessionAtIndex(window.todaySessionDetails.length - 1);
+                    showSessionAtIndex(targetSessionIndex);
                 } else {
                     // No sessions - clear session displays
                     document.getElementById('currentSessionTotalChars').textContent = '0';
                     document.getElementById('currentSessionCharsPerHour').textContent = '-';
+                    setCurrentManagedGameContext(null);
                 }
                 
                 // Update session navigation buttons
@@ -1703,11 +1856,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 document.getElementById('todayCharsPerHour').textContent = '-';
                 document.getElementById('currentSessionTotalChars').textContent = '0';
                 document.getElementById('currentSessionCharsPerHour').textContent = '-';
+                setCurrentManagedGameContext(null);
             });
     }
 
     // Dashboard functionality
-    function loadDashboardData(data = null) {
+    function loadDashboardData(data = null, options = {}) {
         function updateOverviewForEndDay() {
             const pad = n => n.toString().padStart(2, '0');
 
@@ -1717,7 +1871,7 @@ document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('todayDate').textContent = targetDateStr;
             
             // Load today's stats from new API
-            loadTodayStats();
+            loadTodayStats(options.todayStats || {});
         }
 
         if (data && data.currentGameStats && data.allGamesStats) {
@@ -1800,7 +1954,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 'mobygames.com': 'MobyGames',
                 'giantbomb.com': 'GiantBomb',
                 'howlongtobeat.com': 'HowLongToBeat',
-                'backloggd.com': 'Backloggd',
+                'igdb.com': 'IGDB',
                 'mangadex.org': 'MangaDex',
                 'animeuknews.net': 'Anime UK News',
                 'mydramalist.com': 'MyDramaList',
@@ -1837,6 +1991,455 @@ document.addEventListener('DOMContentLoaded', function () {
         } catch (e) {
             // If URL parsing fails, return a generic label
             return 'Link';
+        }
+    }
+
+    function getImageSrc(image) {
+        if (!image || image === '') {
+            return '';
+        }
+        if (image.startsWith('data:') || image.startsWith('http')) {
+            return image;
+        }
+        return `data:image/png;base64,${image}`;
+    }
+
+    function normalizeLinksForUpdate(links) {
+        if (!Array.isArray(links)) {
+            return [];
+        }
+
+        return links
+            .map(link => {
+                if (typeof link === 'string') {
+                    return { linkType: 1, url: link };
+                }
+                return link && link.url ? link : null;
+            })
+            .filter(Boolean);
+    }
+
+    function mergeSourceLinks(existingLinks, newLinks) {
+        const merged = [];
+        const seen = new Set();
+
+        normalizeLinksForUpdate(existingLinks)
+            .concat(normalizeLinksForUpdate(newLinks))
+            .forEach(link => {
+                const url = String(link.url || '').trim();
+                const key = url.toLowerCase();
+                if (!url || seen.has(key)) {
+                    return;
+                }
+                seen.add(key);
+                merged.push(link);
+            });
+
+        return merged;
+    }
+
+    function refreshOverviewAfterGameManagement(options = {}) {
+        API_CACHE.clearStatsData();
+        _currentlyDisplayedGameId = null;
+        _hydratedOverviewGameId = null;
+
+        const preferredSessionSignature =
+            options.preserveCurrentSelection === false
+                ? null
+                : (_currentManagedSessionSignature || getSelectedSessionSignature());
+
+        loadDashboardData(null, {
+            todayStats: {
+                preferredSessionSignature,
+            },
+        });
+    }
+
+    function openEditModal() {
+        if (!_currentManagedGameData) {
+            return;
+        }
+
+        const game = _currentManagedGameData;
+        document.getElementById('editTitleOriginal').value = game.title_original || '';
+        document.getElementById('editTitleRomaji').value = game.title_romaji || '';
+        document.getElementById('editTitleEnglish').value = game.title_english || '';
+        document.getElementById('editType').value = game.type || '';
+        document.getElementById('editDescription').value = game.description || '';
+        document.getElementById('editDifficulty').value = game.difficulty || '';
+        document.getElementById('editDeckId').value = game.deck_id || '';
+        document.getElementById('editVndbId').value = game.vndb_id || '';
+        document.getElementById('editAnilistId').value = game.anilist_id || '';
+        document.getElementById('editCharacterCount').value = game.character_count || game.game_character_count || '';
+        document.getElementById('editReleaseDate').value = game.release_date || '';
+        document.getElementById('editCharacterSummary').value = game.character_summary || '';
+        document.getElementById('editCompleted').checked = game.completed || false;
+        document.getElementById('editImageUpload').value = '';
+
+        const links = normalizeLinksForUpdate(game.links);
+        document.getElementById('editLinksList').value = links.map(link => link.url).join('\n');
+
+        const preview = document.getElementById('editImagePreview');
+        const previewImg = document.getElementById('editImagePreviewImg');
+        const imageSrc = getImageSrc(game.image);
+        if (imageSrc) {
+            previewImg.src = imageSrc;
+            preview.style.display = '';
+        } else {
+            preview.style.display = 'none';
+        }
+
+        document.getElementById('editGameError').style.display = 'none';
+        document.getElementById('editGameLoading').style.display = 'none';
+        openModal('editGameModal');
+    }
+
+    async function saveCurrentManagedGameEdits() {
+        const gameId = getCurrentManagedGameId();
+        if (!gameId) {
+            return;
+        }
+
+        const errorEl = document.getElementById('editGameError');
+        const loadingEl = document.getElementById('editGameLoading');
+        errorEl.style.display = 'none';
+        loadingEl.style.display = 'flex';
+
+        try {
+            const linkLines = document.getElementById('editLinksList').value
+                .split('\n')
+                .map(line => line.trim())
+                .filter(Boolean);
+            const links = linkLines.map(url => ({ linkType: 4, url }));
+
+            let imageValue;
+            const fileInput = document.getElementById('editImageUpload');
+            if (fileInput.files && fileInput.files[0]) {
+                imageValue = await new Promise(resolve => {
+                    const reader = new FileReader();
+                    reader.onload = event => resolve(event.target.result);
+                    reader.readAsDataURL(fileInput.files[0]);
+                });
+            }
+
+            const data = {
+                title_original: document.getElementById('editTitleOriginal').value,
+                title_romaji: document.getElementById('editTitleRomaji').value,
+                title_english: document.getElementById('editTitleEnglish').value,
+                type: document.getElementById('editType').value,
+                description: document.getElementById('editDescription').value,
+                difficulty: document.getElementById('editDifficulty').value
+                    ? parseInt(document.getElementById('editDifficulty').value, 10)
+                    : '',
+                deck_id: document.getElementById('editDeckId').value
+                    ? parseInt(document.getElementById('editDeckId').value, 10)
+                    : '',
+                vndb_id: document.getElementById('editVndbId').value,
+                anilist_id: document.getElementById('editAnilistId').value,
+                character_count: document.getElementById('editCharacterCount').value
+                    ? parseInt(document.getElementById('editCharacterCount').value, 10)
+                    : '',
+                release_date: document.getElementById('editReleaseDate').value,
+                character_summary: document.getElementById('editCharacterSummary').value,
+                links,
+                completed: document.getElementById('editCompleted').checked,
+            };
+
+            if (imageValue !== undefined) {
+                data.image = imageValue;
+            }
+
+            const response = await fetch(`/api/games/${gameId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
+            });
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.error || 'Failed to save');
+            }
+
+            closeModal('editGameModal');
+            refreshOverviewAfterGameManagement();
+        } catch (error) {
+            errorEl.textContent = error.message;
+            errorEl.style.display = '';
+        } finally {
+            loadingEl.style.display = 'none';
+        }
+    }
+
+    async function markCurrentManagedGameComplete(options = {}) {
+        const gameId = getCurrentManagedGameId();
+        if (!gameId || (_currentManagedGameData && _currentManagedGameData.completed)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/games/${gameId}/mark-complete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(errData.error || 'Failed to mark as completed');
+            }
+
+            if (options.celebrate && typeof confetti !== 'undefined') {
+                const duration = 3000;
+                const animationEnd = Date.now() + duration;
+                const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 9999 };
+
+                function randomInRange(min, max) {
+                    return Math.random() * (max - min) + min;
+                }
+
+                const interval = setInterval(() => {
+                    const timeLeft = animationEnd - Date.now();
+                    if (timeLeft <= 0) {
+                        clearInterval(interval);
+                        return;
+                    }
+
+                    const particleCount = 50 * (timeLeft / duration);
+                    confetti({
+                        ...defaults,
+                        particleCount,
+                        origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 },
+                    });
+                    confetti({
+                        ...defaults,
+                        particleCount,
+                        origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 },
+                    });
+                }, 250);
+            }
+
+            refreshOverviewAfterGameManagement();
+        } catch (error) {
+            alert(`Failed to mark as completed: ${error.message}`);
+        }
+    }
+
+    async function openMergeModal() {
+        const gameId = getCurrentManagedGameId();
+        if (!gameId || !_currentManagedGameData) {
+            return;
+        }
+
+        overviewMergeSelectedGames = [];
+        document.getElementById('mergeTargetName').textContent = getCurrentManagedGameName();
+        document.getElementById('mergeSearchInput').value = '';
+        document.getElementById('mergeError').style.display = 'none';
+        document.getElementById('mergeLoading').style.display = 'none';
+        document.getElementById('mergeSelectedContainer').style.display = 'none';
+        document.getElementById('confirmMergeBtn').disabled = true;
+        openModal('mergeGamesModal');
+
+        try {
+            const response = await fetch('/api/games-management?sort=title');
+            if (!response.ok) {
+                throw new Error('Failed to load games');
+            }
+            const data = await response.json();
+            overviewAllGamesForMerge = (data.games || []).filter(game => game.id !== gameId);
+            renderMergeGamesList(overviewAllGamesForMerge);
+        } catch (error) {
+            document.getElementById('mergeError').textContent = error.message;
+            document.getElementById('mergeError').style.display = '';
+        }
+    }
+
+    function renderMergeGamesList(games) {
+        const list = document.getElementById('mergeGamesList');
+        list.innerHTML = '';
+
+        if (games.length === 0) {
+            list.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-tertiary);">No games available to merge</div>';
+            return;
+        }
+
+        games.forEach(game => {
+            const item = document.createElement('div');
+            item.className = 'merge-game-item'
+                + (overviewMergeSelectedGames.some(selected => selected.id === game.id) ? ' selected' : '');
+
+            const isChecked = overviewMergeSelectedGames.some(selected => selected.id === game.id);
+            item.innerHTML = `
+                <input type="checkbox" ${isChecked ? 'checked' : ''}>
+                <div class="merge-game-info">
+                    <div class="merge-game-name">${escapeHtml(game.title_original)}</div>
+                    <div class="merge-game-stats">${Number(game.line_count || 0).toLocaleString()} lines, ${Number(game.mined_character_count || 0).toLocaleString()} chars</div>
+                </div>
+            `;
+
+            item.addEventListener('click', () => {
+                toggleMergeSelection(game);
+            });
+
+            list.appendChild(item);
+        });
+    }
+
+    function toggleMergeSelection(game) {
+        const existingIndex = overviewMergeSelectedGames.findIndex(selected => selected.id === game.id);
+        if (existingIndex >= 0) {
+            overviewMergeSelectedGames.splice(existingIndex, 1);
+        } else {
+            overviewMergeSelectedGames.push(game);
+        }
+        updateMergeUI();
+    }
+
+    function updateMergeUI() {
+        const query = document.getElementById('mergeSearchInput').value.trim().toLowerCase();
+        const filteredGames = query
+            ? overviewAllGamesForMerge.filter(game =>
+                (game.title_original || '').toLowerCase().includes(query)
+                || (game.title_romaji || '').toLowerCase().includes(query)
+                || (game.title_english || '').toLowerCase().includes(query)
+            )
+            : overviewAllGamesForMerge;
+
+        renderMergeGamesList(filteredGames);
+
+        const container = document.getElementById('mergeSelectedContainer');
+        const list = document.getElementById('mergeSelectedList');
+        if (overviewMergeSelectedGames.length > 0) {
+            container.style.display = '';
+            list.innerHTML = '';
+            overviewMergeSelectedGames.forEach(game => {
+                const tag = document.createElement('span');
+                tag.className = 'merge-selected-tag';
+                tag.innerHTML = `${escapeHtml(game.title_original)} <button class="remove-btn">&times;</button>`;
+                tag.querySelector('.remove-btn').addEventListener('click', event => {
+                    event.stopPropagation();
+                    toggleMergeSelection(game);
+                });
+                list.appendChild(tag);
+            });
+        } else {
+            container.style.display = 'none';
+        }
+
+        document.getElementById('confirmMergeBtn').disabled = overviewMergeSelectedGames.length === 0;
+    }
+
+    function openUnlinkModal() {
+        if (!_currentManagedGameData) {
+            return;
+        }
+        document.getElementById('unlinkGameName').textContent = getCurrentManagedGameName();
+        document.getElementById('unlinkError').style.display = 'none';
+        document.getElementById('unlinkLoading').style.display = 'none';
+        openModal('unlinkGameModal');
+    }
+
+    function openDeleteModal() {
+        if (!_currentManagedGameData) {
+            return;
+        }
+        document.getElementById('deleteGameName').textContent = getCurrentManagedGameName();
+        document.getElementById('deleteGameSentences').textContent = _currentManagedGameStats
+            ? Number(_currentManagedGameStats.total_sentences || 0).toLocaleString()
+            : '-';
+        document.getElementById('deleteError').style.display = 'none';
+        document.getElementById('deleteLoading').style.display = 'none';
+        openModal('deleteGameModal');
+    }
+
+    async function repullCurrentManagedGameMetadata() {
+        const gameId = getCurrentManagedGameId();
+        if (!gameId || !_currentManagedGameData) {
+            return;
+        }
+
+        const gameName = getCurrentManagedGameName();
+        if (!window.confirm(`Re-pull metadata for "${gameName}"?\n\nThis will update all non-manually-edited fields with fresh data from the linked source (Jiten, VNDB, AniList, or IGDB).`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/games/${gameId}/repull-jiten`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || 'Unknown error');
+            }
+
+            let message = 'Metadata re-pulled successfully!';
+            if (result.sources_used && result.sources_used.length > 0) {
+                message += `\nSources: ${result.sources_used.join(', ')}`;
+            }
+            if (result.updated_fields && result.updated_fields.length > 0) {
+                message += `\nUpdated: ${result.updated_fields.join(', ')}`;
+            }
+            if (result.skipped_fields && result.skipped_fields.length > 0) {
+                message += `\nSkipped (manually edited): ${result.skipped_fields.join(', ')}`;
+            }
+
+            alert(message);
+            refreshOverviewAfterGameManagement();
+        } catch (error) {
+            alert(`Failed to re-pull metadata: ${error.message}`);
+        }
+    }
+
+    let currentSessionGameImportWidget = null;
+
+    function getCurrentSessionGameImportWidget() {
+        if (!currentSessionGameImportWidget) {
+            if (!window.GameImportWidget || typeof window.GameImportWidget.create !== 'function') {
+                throw new Error('Game import widget is not loaded. Please refresh the page.');
+            }
+
+            currentSessionGameImportWidget = window.GameImportWidget.create({
+                buildCurrentPreviewHtml: function(context, helpers) {
+                    return ''
+                        + `<h5>${helpers.escapeHtml(context.displayName || '')}</h5>`
+                        + '<div style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">'
+                            + `${helpers.formatNumber(context.sentenceCount)} sentences, `
+                            + `${helpers.formatNumber(context.characterCount)} characters`
+                        + '</div>';
+                },
+                onSuccess: function(payload) {
+                    if (payload.isJitenSource) {
+                        alert(`Successfully linked to ${payload.sourceLabel}! ${payload.apiResult.lines_linked || 0} lines linked.`);
+                    } else if (payload.source === 'igdb') {
+                        alert(`Successfully updated with ${payload.sourceLabel} metadata!\nNote: IGDB does not include character data.`);
+                    } else {
+                        alert(`Successfully updated with ${payload.sourceLabel} metadata!\nNote: Character counts and difficulty are only available from Jiten.`);
+                    }
+
+                    refreshOverviewAfterGameManagement();
+                },
+            });
+        }
+
+        return currentSessionGameImportWidget;
+    }
+
+    function openLinkSearchModal() {
+        if (!_currentManagedGameData) {
+            return;
+        }
+
+        try {
+            getCurrentSessionGameImportWidget().open({
+                gameId: getCurrentManagedGameId(),
+                game: _currentManagedGameData,
+                displayName: getCurrentManagedGameName(),
+                searchTerm: getCurrentManagedGameName(),
+                sentenceCount: (_currentManagedGameStats && _currentManagedGameStats.total_sentences) || 0,
+                characterCount: (_currentManagedGameStats && _currentManagedGameStats.total_characters) || 0,
+            });
+        } catch (error) {
+            alert(error.message);
         }
     }
 
@@ -2256,119 +2859,250 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     }
-    
+
+    if (currentSessionSettingsCogBtn && currentSessionSettingsCogDropdown) {
+        currentSessionSettingsCogBtn.addEventListener('click', function(event) {
+            event.stopPropagation();
+            if (!getCurrentManagedGameId()) {
+                return;
+            }
+            currentSessionSettingsCogDropdown.classList.toggle('show');
+        });
+
+        currentSessionSettingsCogDropdown.addEventListener('click', function(event) {
+            event.stopPropagation();
+        });
+
+        document.addEventListener('click', function() {
+            closeCurrentSessionSettingsDropdown();
+        });
+
+        currentSessionSettingsCogDropdown.querySelectorAll('.dropdown-item').forEach(item => {
+            item.addEventListener('click', function() {
+                const action = this.getAttribute('data-action');
+                closeCurrentSessionSettingsDropdown();
+
+                switch (action) {
+                    case 'editGame':
+                        openEditModal();
+                        break;
+                    case 'linkExternal':
+                        openLinkSearchModal();
+                        break;
+                    case 'repullMetadata':
+                        repullCurrentManagedGameMetadata();
+                        break;
+                    case 'markComplete':
+                        markCurrentManagedGameComplete();
+                        break;
+                    case 'mergeGames':
+                        openMergeModal();
+                        break;
+                    case 'unlinkGame':
+                        openUnlinkModal();
+                        break;
+                    case 'deleteGame':
+                        openDeleteModal();
+                        break;
+                    default:
+                        break;
+                }
+            });
+        });
+    }
+
+    const editImageUpload = document.getElementById('editImageUpload');
+    if (editImageUpload) {
+        editImageUpload.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (!file) {
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(loadEvent) {
+                document.getElementById('editImagePreviewImg').src = loadEvent.target.result;
+                document.getElementById('editImagePreview').style.display = '';
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    const saveGameEditsBtn = document.getElementById('saveGameEditsBtn');
+    if (saveGameEditsBtn) {
+        saveGameEditsBtn.addEventListener('click', saveCurrentManagedGameEdits);
+    }
+
+    document.querySelectorAll('[data-action="closeEditModal"]').forEach(btn => {
+        btn.addEventListener('click', function() {
+            closeModal('editGameModal');
+        });
+    });
+
+    const mergeSearchInput = document.getElementById('mergeSearchInput');
+    if (mergeSearchInput) {
+        mergeSearchInput.addEventListener('input', function() {
+            const query = this.value.trim().toLowerCase();
+            const filteredGames = query
+                ? overviewAllGamesForMerge.filter(game =>
+                    (game.title_original || '').toLowerCase().includes(query)
+                    || (game.title_romaji || '').toLowerCase().includes(query)
+                    || (game.title_english || '').toLowerCase().includes(query)
+                )
+                : overviewAllGamesForMerge;
+            renderMergeGamesList(filteredGames);
+        });
+    }
+
+    const confirmMergeBtn = document.getElementById('confirmMergeBtn');
+    if (confirmMergeBtn) {
+        confirmMergeBtn.addEventListener('click', async function() {
+            if (overviewMergeSelectedGames.length === 0 || !_currentManagedGameData) {
+                return;
+            }
+
+            const errorEl = document.getElementById('mergeError');
+            const loadingEl = document.getElementById('mergeLoading');
+            errorEl.style.display = 'none';
+            loadingEl.style.display = 'flex';
+            this.disabled = true;
+
+            try {
+                const response = await fetch('/api/merge_games', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        target_game: getCurrentManagedGameSceneName(),
+                        games_to_merge: overviewMergeSelectedGames.map(game =>
+                            game.obs_scene_name || game.title_original || game.title_romaji || game.title_english
+                        ),
+                    }),
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    throw new Error(errData.error || 'Merge failed');
+                }
+
+                closeModal('mergeGamesModal');
+                refreshOverviewAfterGameManagement();
+            } catch (error) {
+                errorEl.textContent = error.message;
+                errorEl.style.display = '';
+            } finally {
+                loadingEl.style.display = 'none';
+                this.disabled = overviewMergeSelectedGames.length === 0;
+            }
+        });
+    }
+
+    document.querySelectorAll('[data-action="closeMergeModal"]').forEach(btn => {
+        btn.addEventListener('click', function() {
+            closeModal('mergeGamesModal');
+        });
+    });
+
+    const confirmUnlinkBtn = document.getElementById('confirmUnlinkBtn');
+    if (confirmUnlinkBtn) {
+        confirmUnlinkBtn.addEventListener('click', async function() {
+            const gameId = getCurrentManagedGameId();
+            if (!gameId) {
+                return;
+            }
+
+            const errorEl = document.getElementById('unlinkError');
+            const loadingEl = document.getElementById('unlinkLoading');
+            errorEl.style.display = 'none';
+            loadingEl.style.display = 'flex';
+            this.disabled = true;
+
+            try {
+                const response = await fetch(`/api/games/${gameId}`, {
+                    method: 'DELETE',
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    throw new Error(errData.error || 'Unlink failed');
+                }
+
+                closeModal('unlinkGameModal');
+                refreshOverviewAfterGameManagement();
+            } catch (error) {
+                errorEl.textContent = error.message;
+                errorEl.style.display = '';
+            } finally {
+                loadingEl.style.display = 'none';
+                this.disabled = false;
+            }
+        });
+    }
+
+    document.querySelectorAll('[data-action="closeUnlinkModal"]').forEach(btn => {
+        btn.addEventListener('click', function() {
+            closeModal('unlinkGameModal');
+        });
+    });
+
+    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+    if (confirmDeleteBtn) {
+        confirmDeleteBtn.addEventListener('click', async function() {
+            const gameId = getCurrentManagedGameId();
+            if (!gameId) {
+                return;
+            }
+
+            const errorEl = document.getElementById('deleteError');
+            const loadingEl = document.getElementById('deleteLoading');
+            errorEl.style.display = 'none';
+            loadingEl.style.display = 'flex';
+            this.disabled = true;
+
+            try {
+                const response = await fetch(`/api/games/${gameId}/delete-lines`, {
+                    method: 'DELETE',
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    throw new Error(errData.error || 'Delete failed');
+                }
+
+                closeModal('deleteGameModal');
+                refreshOverviewAfterGameManagement({ preserveCurrentSelection: false });
+            } catch (error) {
+                errorEl.textContent = error.message;
+                errorEl.style.display = '';
+            } finally {
+                loadingEl.style.display = 'none';
+                this.disabled = false;
+            }
+        });
+    }
+
+    document.querySelectorAll('[data-action="closeDeleteModal"]').forEach(btn => {
+        btn.addEventListener('click', function() {
+            closeModal('deleteGameModal');
+        });
+    });
+
     // Game completion button handler
     const gameCompletionBtn = document.getElementById('gameCompletionBtn');
     if (gameCompletionBtn) {
         gameCompletionBtn.addEventListener('click', async function() {
-            // Don't do anything if already completed
-            if (this.disabled) return;
-            
-            // Get the current game ID from the stats
-            // We need to fetch current stats to get the game_id
+            if (this.disabled || !getCurrentManagedGameId()) {
+                return;
+            }
+
+            const confirmMsg = `Mark "${getCurrentManagedGameName()}" as completed?`;
+            if (!confirm(confirmMsg)) {
+                return;
+            }
+
             try {
-                const response = await fetch('/api/stats');
-                if (!response.ok) throw new Error('Failed to fetch stats');
-                
-                const data = await response.json();
-                const currentGameStats = data.currentGameStats;
-                
-                if (!currentGameStats || !currentGameStats.game_name) {
-                    console.error('No current game found');
-                    return;
-                }
-                
-                // Find the game_id by looking up the game
-                // We need to get the game_id from the games management API
-                const gamesResponse = await fetch('/api/games-management');
-                if (!gamesResponse.ok) throw new Error('Failed to fetch games');
-                
-                const gamesData = await gamesResponse.json();
-                const currentGame = gamesData.games.find(g =>
-                    g.title_original === currentGameStats.game_name ||
-                    g.title_original === currentGameStats.title_original
-                );
-                
-                if (!currentGame) {
-                    console.error('Could not find game ID for current game');
-                    return;
-                }
-                
-                // Confirm with user
-                const confirmMsg = `Mark "${currentGame.title_original}" as completed?`;
-                if (!confirm(confirmMsg)) return;
-                
-                // Call the API to mark as complete
-                const markCompleteResponse = await fetch(`/api/games/${currentGame.id}/mark-complete`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                if (!markCompleteResponse.ok) {
-                    const errorData = await markCompleteResponse.json();
-                    throw new Error(errorData.error || 'Failed to mark game as complete');
-                }
-                
-                const result = await markCompleteResponse.json();
-                console.log('Game marked as complete:', result);
-                
-                // Trigger confetti celebration!
-                if (typeof confetti !== 'undefined') {
-                    // Fire confetti from multiple angles for a nice effect
-                    const duration = 3000; // 3 seconds
-                    const animationEnd = Date.now() + duration;
-                    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 9999 };
-
-                    function randomInRange(min, max) {
-                        return Math.random() * (max - min) + min;
-                    }
-
-                    const interval = setInterval(function() {
-                        const timeLeft = animationEnd - Date.now();
-
-                        if (timeLeft <= 0) {
-                            return clearInterval(interval);
-                        }
-
-                        const particleCount = 50 * (timeLeft / duration);
-                        
-                        // Fire confetti from left side
-                        confetti({
-                            ...defaults,
-                            particleCount,
-                            origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 }
-                        });
-                        
-                        // Fire confetti from right side
-                        confetti({
-                            ...defaults,
-                            particleCount,
-                            origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 }
-                        });
-                    }, 250);
-                }
-                
-                // Update button to completed state
-                this.textContent = 'Completed ✓';
-                this.disabled = true;
-                this.classList.add('completed');
-                
-                // Add completed class to card
-                const currentGameCard = document.getElementById('currentGameCard');
-                if (currentGameCard) {
-                    currentGameCard.classList.add('completed');
-                }
-                
-                // Optionally refresh the dashboard to reflect changes
-                setTimeout(() => {
-                    loadDashboardData();
-                }, 500);
-                
+                await markCurrentManagedGameComplete({ celebrate: true });
             } catch (error) {
                 console.error('Error marking game as complete:', error);
-                alert(`Failed to mark game as complete: ${error.message}`);
             }
         });
     }

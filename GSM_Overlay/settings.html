@@ -805,6 +805,10 @@
     <div class="setting-group" data-tab="general">
       <h4>Behavior</h4>
       <label>
+        <span class="label-text">Open Settings on Startup</span>
+        <input type="checkbox" id="openSettingsOnStartup" />
+      </label>
+      <label>
         <span class="label-text">Show Main Box on Startup (Not Recommended)</span>
         <input type="checkbox" id="showMainBoxOnStartup" />
       </label>
@@ -985,6 +989,13 @@
         <div id="manual-mode-hold-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">
           Hold mode is unreliable on Linux (global hotkeys don't emit key-up/repeat consistently). Use Toggle.
         </div>
+      </label>
+      <label>
+        <span class="label-text">
+          Re-Scan When Entering Manual Mode
+          <div class="hotkey-info">Trigger the same backend scan used by GSM's manual overlay scan actions</div>
+        </span>
+        <input type="checkbox" id="manualModeRescanOnShow" />
       </label>
       <label>
         <span class="label-text">
@@ -2145,6 +2156,7 @@
         normalize: (value) => value === true,
         afterApply: () => syncShowMainBoxStartupUi(),
       },
+      createCheckboxBinding("openSettingsOnStartup", "#openSettingsOnStartup"),
       createCheckboxBinding("focusOverlayOnYomitanLookup", "#focusOverlayOnYomitanLookup"),
       createNumberBinding("afkTimer", "#afkTimer", {
         fallback: 5,
@@ -2188,6 +2200,7 @@
       createSelectBinding("manualModeType", "#manualModeType", {
         normalize: normalizeManualModeTypeValue,
       }),
+      createCheckboxBinding("manualModeRescanOnShow", "#manualModeRescanOnShow"),
       createHotkeyBinding("showHotkey", "#showHotkey"),
       createCheckboxBinding("autoRequestTranslation", "#autoRequestTranslation"),
       createHotkeyBinding("translateHotkey", "#translateHotkey"),

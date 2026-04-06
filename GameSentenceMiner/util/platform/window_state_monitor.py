@@ -583,6 +583,19 @@ def _get_pid_for_hwnd(hwnd: int) -> int:
     return int(pid.value)
 
 
+def _is_tracked_suspended_pid(pid: int) -> bool:
+    if pid <= 0:
+        return False
+
+    with _suspended_pids_lock:
+        record = dict(_suspended_pids.get(pid) or {})
+
+    if not record:
+        return False
+
+    return _process_matches_record(pid, record)
+
+
 def _get_process_creation_time(pid: int) -> Optional[int]:
     if not is_windows() or not kernel32:
         return None
@@ -1416,8 +1429,8 @@ class WindowStateMonitor:
 
             # Allow small tolerance (1-2 pixels) for matching
             matches_monitor = (
-                abs(window_rect.left - mon_rect.left) <= 2
-                and abs(window_rect.top - mon_rect.top) <= 2
+                abs(window_left - mon_rect.left) <= 2
+                and abs(window_top - mon_rect.top) <= 2
                 and abs(window_width - monitor_width) <= 2
                 and abs(window_height - monitor_height) <= 2
             )
@@ -1686,7 +1699,7 @@ class WindowStateMonitor:
             self.last_obs_check_time = now
             try:
                 current_scene = get_current_scene()
-                if current_scene != self.last_scene_name:
+                if current_scene and current_scene != self.last_scene_name:
                     if self.last_scene_name:
                         logger.info(
                             f"Scene changed from '{self.last_scene_name}' to '{current_scene}' - Resetting OBS dimensions."
@@ -1700,7 +1713,8 @@ class WindowStateMonitor:
                     scene_changed = True
                     self.last_scene_name = current_scene
 
-                new_info = get_window_info_from_source(scene_name=current_scene)
+                lookup_scene = current_scene or self.last_scene_name
+                new_info = get_window_info_from_source(scene_name=lookup_scene) if lookup_scene else None
 
                 if new_info and self.last_target_info:
                     if (
@@ -1793,7 +1807,6 @@ class WindowStateMonitor:
         # Update Magpie info
         self.update_magpie_info()
         magpie_changed = self.magpie_info != self.last_magpie_info
-        magpie_active = bool(self.magpie_info)
 
         game_name_ref = self.last_target_info.get("title", self.last_game_name)
 
@@ -2001,6 +2014,13 @@ class WindowStateMonitor:
 
     def _set_foreground_aggressive(self, hwnd: int, attempt_number: int = 1) -> bool:
         if not is_windows() or not hwnd:
+            return False
+
+        target_pid = _get_pid_for_hwnd(hwnd)
+        if _is_tracked_suspended_pid(target_pid):
+            logger.debug(
+                f"Skipping target window activation for HWND {hwnd} / PID {target_pid}: process is currently paused."
+            )
             return False
 
         try:

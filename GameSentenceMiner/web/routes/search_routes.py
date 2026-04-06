@@ -5,6 +5,7 @@ Routes for search operations:
 - Search Jiten.moe
 - Search VNDB
 - Search AniList
+- Search IGDB
 - Unified search across all platforms
 """
 
@@ -77,19 +78,21 @@ def api_jiten_search():
 @search_bp.route("/api/search/unified", methods=["GET"])
 def api_unified_search():
     """
-    Search across Jiten, VNDB, and AniList simultaneously.
+    Search across Jiten, VNDB, AniList, and IGDB simultaneously.
 
     Query Parameters:
     - q: Search query (required)
-    - sources: Comma-separated list of sources (default: jiten,vndb,anilist)
+    - sources: Comma-separated list of sources (default: jiten,vndb,igdb,anilist)
 
     Returns:
     {
         "jiten": {"results": [...], "total": 10, "error": null},
         "vndb": {"results": [...], "total": 5, "error": null},
+        "igdb": {"results": [...], "total": 3, "error": null},
         "anilist": {"results": [...], "total": 8, "error": null}
     }
     """
+    from GameSentenceMiner.util.clients.igdb_api_client import IGDBApiClient
     from GameSentenceMiner.util.clients.vndb_api_client import VNDBApiClient
     from GameSentenceMiner.util.clients.anilist_api_client import AniListApiClient
 
@@ -101,7 +104,7 @@ def api_unified_search():
         return jsonify({"error": "Query parameter 'q' is required"}), 400
 
     # Parse requested sources
-    sources_param = request.args.get("sources", "jiten,vndb,anilist")
+    sources_param = request.args.get("sources", "jiten,vndb,igdb,anilist")
     requested_sources = [s.strip().lower() for s in sources_param.split(",")]
 
     # Initialize results structure
@@ -221,6 +224,50 @@ def api_unified_search():
             logger.error(f"VNDB search error: {e}")
             return {"results": [], "total": 0, "error": str(e)}
 
+    def search_igdb():
+        """Search IGDB and normalize results."""
+        try:
+            logger.info(f"[Unified Search] Searching IGDB for: '{query}'")
+            data = IGDBApiClient.search_game(query, limit=10)
+            if not data:
+                logger.warning(f"[Unified Search] IGDB returned no data for: '{query}'")
+                return {
+                    "results": [],
+                    "total": 0,
+                    "error": "Failed to fetch from IGDB",
+                }
+
+            normalized_results = []
+            for item in data.get("results", []):
+                platforms = item.get("platforms", []) or []
+                normalized_results.append(
+                    {
+                        "id": item.get("igdb_id", "") or item.get("id", "") or item.get("igdb_id", ""),
+                        "title": item.get("title", ""),
+                        "title_en": item.get("title_english", "") or item.get("title", ""),
+                        "title_jp": item.get("title_original", "") or item.get("title", ""),
+                        "cover_url": item.get("cover_url"),
+                        "source": "igdb",
+                        "source_url": item.get("source_url") or item.get("igdb_url") or item.get("igdb_url"),
+                        "description": "",
+                        "media_type": item.get("result_type") or "Game",
+                        "result_type": item.get("result_type") or "Game",
+                        "platforms": platforms,
+                        "year": item.get("year"),
+                        "_raw": item,
+                    }
+                )
+
+            logger.info(f"[Unified Search] IGDB returned {len(normalized_results)} results for '{query}'")
+            return {
+                "results": normalized_results,
+                "total": len(normalized_results),
+                "error": None,
+            }
+        except Exception as e:
+            logger.error(f"IGDB search error: {e}")
+            return {"results": [], "total": 0, "error": str(e)}
+
     def search_anilist_anime():
         """Search AniList for anime and normalize results"""
         try:
@@ -332,13 +379,16 @@ def api_unified_search():
         search_functions["jiten"] = search_jiten
     if "vndb" in requested_sources:
         search_functions["vndb"] = search_vndb
+    if "igdb" in requested_sources:
+        search_functions["igdb"] = search_igdb
     if "anilist" in requested_sources:
         # AniList searches both anime and manga
         search_functions["anilist_anime"] = search_anilist_anime
         search_functions["anilist_manga"] = search_anilist_manga
 
     # Execute searches in parallel with timeout
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    max_workers = max(1, min(len(search_functions), 5))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(func): name for name, func in search_functions.items()}
 
         for future in as_completed(futures, timeout=SEARCH_TIMEOUT + 5):

@@ -4,6 +4,7 @@ The two-pass OCR controller now lives in ``GameSentenceMiner.ocr.gsm_ocr``.
 """
 
 from GameSentenceMiner.ocr.gsm_ocr import (
+    OCRCompareSettings,
     SecondPassResult,
     TextFilteringCallable,
     TwoPassConfig,
@@ -20,6 +21,7 @@ __all__ = [
     "TextFilteringCallable",
     "TwoPassConfig",
     "TwoPassOCRController",
+    "OCRCompareSettings",
     "compare_ocr_results",
     "_copy_img",
     "_coords_close",

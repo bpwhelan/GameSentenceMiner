@@ -468,6 +468,51 @@ def prefetch_animated_screenshot_for_confirmation(
     _start_animated_screenshot_prefetch(assets, get_config())
 
 
+def _parse_confirmation_dialog_result(result):
+    dialog_state = {}
+    if isinstance(result, tuple) and len(result) >= 8 and isinstance(result[7], dict):
+        dialog_state = result[7]
+
+    return (
+        result[0],
+        result[1],
+        result[2],
+        result[3],
+        result[4],
+        result[5],
+        result[6],
+        dialog_state,
+    )
+
+
+def _apply_confirmation_dialog_state(
+    note: Dict,
+    last_note: "AnkiCard",
+    game_line: "GameLine",
+    selected_lines: Optional[List["GameLine"]],
+    start_time: float,
+    end_time: float,
+    vad_result: Any,
+    dialog_state: Optional[Dict],
+):
+    dialog_state = dialog_state or {}
+    selected_lines = dialog_state.get("selected_lines", selected_lines) or []
+
+    if dialog_state.get("line_selection_changed"):
+        refreshed_note, _ = get_initial_card_info(last_note, selected_lines, game_line)
+        note["fields"].update(refreshed_note.get("fields", {}))
+
+    audio_result = dialog_state.get("audio_result")
+    if audio_result:
+        start_time = audio_result.start_time
+        end_time = audio_result.end_time
+        vad_result = audio_result.vad_result
+        gsm_state.vad_result = vad_result
+        gsm_state.audio_edit_context = audio_result.audio_edit_context
+
+    return selected_lines, start_time, end_time, vad_result
+
+
 def _synchronize_deferred_media_metadata(
     assets: MediaAssets,
     video_path: str,
@@ -477,7 +522,6 @@ def _synchronize_deferred_media_metadata(
     if not assets:
         return
 
-    config = get_config()
     if video_path:
         assets.source_video_path = video_path
 
@@ -747,10 +791,23 @@ def update_anki_card(
             new_prev_ss_path,
             add_nsfw_tag,
             new_audio_path,
-        ) = result
+            dialog_state,
+        ) = _parse_confirmation_dialog_result(result)
+        selected_lines, start_time, end_time, vad_result = _apply_confirmation_dialog_state(
+            note,
+            last_note,
+            game_line,
+            selected_lines,
+            start_time,
+            end_time,
+            vad_result,
+            dialog_state,
+        )
         _apply_field_policy(note, last_note, "sentence_field", sentence)
         if config.ai.add_to_anki and config.ai.anki_field:
             note["fields"][config.ai.anki_field] = translation
+        if game_line is not None:
+            game_line.TL = translation
         assets.screenshot_path = new_ss_path or assets.screenshot_path
         assets.prev_screenshot_path = new_prev_ss_path or assets.prev_screenshot_path
         # Update audio path if TTS was generated in the dialog
@@ -1115,6 +1172,22 @@ def _process_audio(
     if not assets.audio_path or assets.audio_in_anki:
         return
 
+    user_audio_options = getattr(config.audio, "ffmpeg_reencode_options_to_use", "")
+    if user_audio_options and os.path.isfile(assets.audio_path):
+        logger.info("Encoding audio with user settings before Anki upload...")
+        try:
+            encoded_audio_path = ffmpeg.reencode_file_with_user_config(
+                assets.audio_path,
+                None,
+                user_audio_options,
+            )
+            if encoded_audio_path and os.path.isfile(encoded_audio_path):
+                assets.audio_path = encoded_audio_path
+            else:
+                logger.warning("Audio encoding did not produce a valid file; uploading the pre-encoded audio instead.")
+        except Exception as e:
+            logger.error(f"Failed to encode audio with user settings: {e}")
+
     logger.info(f"Uploading audio to Anki: {assets.audio_path}...")
     assets.audio_in_anki = store_media_file(assets.audio_path)
     logger.info(f"Stored audio in Anki media collection: {assets.audio_in_anki}")
@@ -1139,9 +1212,9 @@ def _update_anki_note(last_note: AnkiCard, note: dict, tags: list, assets: Media
     if last_note.noteId in selected_notes:
         notification.open_browser_window(1)
 
-    for field in note["fields"]:
-        if note["fields"][field] is None:
-            note["fields"][field] = ""
+    for field_name in note["fields"]:
+        if note["fields"][field_name] is None:
+            note["fields"][field_name] = ""
 
     invoke("updateNoteFields", note=note)
 
@@ -1277,10 +1350,10 @@ def add_image_to_card(last_note: AnkiCard, image_path):
 # the issues being, a ton of new lines randomly, nothing else
 # Handlebars problem, should be fixed but keeping this just in case
 def fix_overlay_whitespace(last_note: AnkiCard, note, lines=None):
-    for field in last_note.fields:
-        if not last_note.fields[field]:
+    for field_name in last_note.fields:
+        if not last_note.fields[field_name]:
             continue
-        text = last_note.get_field(field)
+        text = last_note.get_field(field_name)
         # Count occurrences of excessive whitespace patterns using regex
         whitespace_patterns = [
             r"(\r?\n){3,}",  # 3 or more consecutive newlines
@@ -1292,8 +1365,8 @@ def fix_overlay_whitespace(last_note: AnkiCard, note, lines=None):
         for pattern in whitespace_patterns:
             if re.search(pattern, text):
                 fixed_text = re.sub(pattern, "", text)
-                note["fields"][field] = fixed_text
-                last_note.fields[field].value = fixed_text
+                note["fields"][field_name] = fixed_text
+                last_note.fields[field_name].value = fixed_text
                 break
     return note, last_note
 
@@ -1304,6 +1377,34 @@ def _preserve_html_tags_for_furigana(source_sentence: str, furigana_text: str) -
     """
     if not furigana_text:
         return furigana_text
+
+    def _peek_whitespace_run(start_index: int) -> Tuple[List[str], int]:
+        whitespace_tokens: List[str] = []
+        idx = start_index
+        while idx < len(tokens) and tokens[idx].isspace():
+            whitespace_tokens.append(tokens[idx])
+            idx += 1
+        return whitespace_tokens, idx
+
+    def _peek_next_visible_char(text: str, start_index: int) -> Optional[str]:
+        idx = start_index
+        while idx < len(text):
+            if text[idx] == "<":
+                tag_end = text.find(">", idx)
+                if tag_end == -1:
+                    return None
+                idx = tag_end + 1
+                continue
+            return text[idx]
+        return None
+
+    def _is_opening_tag(tag_text: str) -> bool:
+        return not re.match(r"<\s*/", tag_text)
+
+    def _chars_equivalent(source_char: str, token_char: str) -> bool:
+        if source_char == token_char:
+            return True
+        return {source_char, token_char} == {"~", "～"}
 
     tokens: List[str] = []
     idx = 0
@@ -1321,27 +1422,48 @@ def _preserve_html_tags_for_furigana(source_sentence: str, furigana_text: str) -
             idx += 1
         tokens.append(token)
 
-    base_text = "".join(token[0] for token in tokens if token)
-    tagged_base = preserve_html_tags(source_sentence, base_text)
+    source_template = source_sentence.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
 
     rebuilt: List[str] = []
     token_idx = 0
     pos = 0
-    while pos < len(tagged_base):
-        if tagged_base[pos] == "<":
-            tag_end = tagged_base.find(">", pos)
+    emitted_visible_char = False
+    while pos < len(source_template):
+        if source_template[pos] == "<":
+            tag_end = source_template.find(">", pos)
             if tag_end == -1:
-                rebuilt.append(tagged_base[pos:])
+                rebuilt.append(source_template[pos:])
                 break
-            rebuilt.append(tagged_base[pos : tag_end + 1])
+            tag_text = source_template[pos : tag_end + 1]
+            if _is_opening_tag(tag_text):
+                whitespace_tokens, next_idx = _peek_whitespace_run(token_idx)
+                next_visible = _peek_next_visible_char(source_template, tag_end + 1)
+                if whitespace_tokens and next_visible is not None and next_idx < len(tokens):
+                    if _chars_equivalent(next_visible, tokens[next_idx][0]):
+                        rebuilt.extend(whitespace_tokens)
+                        token_idx = next_idx
+            rebuilt.append(tag_text)
             pos = tag_end + 1
             continue
 
-        if token_idx < len(tokens):
-            rebuilt.append(tokens[token_idx])
+        current_char = source_template[pos]
+
+        if token_idx < len(tokens) and not _chars_equivalent(current_char, tokens[token_idx][0]):
+            whitespace_tokens, next_idx = _peek_whitespace_run(token_idx)
+            if whitespace_tokens and next_idx < len(tokens) and _chars_equivalent(current_char, tokens[next_idx][0]):
+                if emitted_visible_char:
+                    rebuilt.extend(whitespace_tokens)
+                token_idx = next_idx
+
+        if token_idx < len(tokens) and _chars_equivalent(current_char, tokens[token_idx][0]):
+            token = tokens[token_idx]
+            if token[0] != current_char:
+                token = current_char + token[1:]
+            rebuilt.append(token)
             token_idx += 1
         else:
-            rebuilt.append(tagged_base[pos])
+            rebuilt.append(current_char)
+        emitted_visible_char = True
         pos += 1
 
     rebuilt_text = "".join(rebuilt)

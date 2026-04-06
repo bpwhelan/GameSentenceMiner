@@ -67,6 +67,7 @@ def api_games_management():
         description: Failed to fetch games data
     """
     try:
+        from GameSentenceMiner.util.clients.igdb_api_client import IGDBApiClient
         from GameSentenceMiner.util.database.games_table import GamesTable
         from GameSentenceMiner.web.game_profiles import GameProfile, build_game_profiles
 
@@ -92,8 +93,13 @@ def api_games_management():
         for game in all_games:
             profile = profiles.get(game.id, GameProfile())
 
-            # Determine linking status - linked if ANY of Jiten, VNDB, or AniList IDs are present
-            is_linked = bool(game.deck_id) or bool(game.vndb_id) or bool(game.anilist_id)
+            # Determine linking status - linked if ANY external metadata source is present
+            is_linked = (
+                bool(game.deck_id)
+                or bool(game.vndb_id)
+                or bool(game.anilist_id)
+                or bool(IGDBApiClient.extract_igdb_url(game.links))
+            )
             has_manual_overrides = len(game.manual_overrides) > 0
 
             games_data.append(

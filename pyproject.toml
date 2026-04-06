@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2026.3.22"
+version = "2026.4.2"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
@@ -56,7 +56,7 @@ dependencies = [
   "pillow~=12.0.0",
   "openai~=2.6.0",
   "flask-compress~=1.15",
-  "meikiocr~=0.1.4",
+  "meikiocr~=0.3.3",
   "jaconv~=0.4.0",
   "loguru~=0.7.3",
   "pyperclipfix>=1.9.4",
@@ -124,3 +124,6 @@ force-exclude = true
 extend-exclude = [
   "GameSentenceMiner/owocr/owocr/lens_protos/*_pb2.py",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"GameSentenceMiner/obs/__init__.py" = ["E402", "F401"]

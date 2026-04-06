@@ -79,6 +79,10 @@ from GameSentenceMiner.ui.config.tabs.required import build_required_tab
 from GameSentenceMiner.ui.config.tabs.screenshot import build_screenshot_tab
 from GameSentenceMiner.ui.config.tabs.text_processing import build_text_processing_tab
 from GameSentenceMiner.ui.config.tabs.vad import build_vad_tab
+from GameSentenceMiner.ocr.gsm_ocr_config import (
+    get_overlay_minimum_character_size,
+    write_overlay_scene_settings,
+)
 from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.config.configuration import (
     Config,
@@ -925,7 +929,7 @@ class ConfigWindow(QWidget):
                     ocr_area_config_include_primary_areas=self.ocr_area_config_include_primary_areas_check.isChecked(),
                     ocr_area_config_include_secondary_areas=self.ocr_area_config_include_secondary_areas_check.isChecked(),
                     ocr_area_config_use_exclusion_zones=self.ocr_area_config_use_exclusion_zones_check.isChecked(),
-                    use_ocr_result=self.use_ocr_result_check.isChecked(),
+                    use_ocr_result_v2=self.use_ocr_result_check.isChecked(),
                     ocr_full_screen_instead_of_obs=bool(
                         getattr(self, "ocr_full_screen_instead_of_obs_checkbox", None)
                         and self.ocr_full_screen_instead_of_obs_checkbox.isChecked()
@@ -1012,6 +1016,12 @@ class ConfigWindow(QWidget):
                 self.sync_changes_check.setChecked(False)
 
             self.master_config.save()
+            try:
+                write_overlay_scene_settings(
+                    {"minimum_character_size": int(config.overlay.minimum_character_size or 0)}
+                )
+            except Exception as overlay_settings_error:
+                logger.warning(f"Failed to write overlay scene settings: {overlay_settings_error}")
             logger.success("Settings saved successfully!")
             if show_indicator:
                 self.show_save_success_indicator()
@@ -2804,7 +2814,8 @@ class ConfigWindow(QWidget):
         self.periodic_interval_edit.setText(str(s.overlay.periodic_interval))
         self.periodic_ratio_edit.setText(str(s.overlay.periodic_ratio))
         # self.number_of_local_scans_per_event_edit.setText(str(s.overlay.number_of_local_scans_per_event))
-        self.overlay_minimum_character_size_edit.setText(str(s.overlay.minimum_character_size))
+        overlay_minimum_character_size = get_overlay_minimum_character_size(default=s.overlay.minimum_character_size)
+        self.overlay_minimum_character_size_edit.setText(str(overlay_minimum_character_size))
         self.manual_overlay_scan_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.manual_overlay_scan or ""))
         self.use_overlay_area_config_check.setChecked(bool(getattr(s.overlay, "use_overlay_area_config", False)))
         self.use_ocr_area_config_check.setChecked(s.overlay.use_ocr_area_config_v2)
@@ -2817,7 +2828,7 @@ class ConfigWindow(QWidget):
         self.ocr_area_config_use_exclusion_zones_check.setChecked(
             bool(getattr(s.overlay, "ocr_area_config_use_exclusion_zones", True))
         )
-        self.use_ocr_result_check.setChecked(bool(getattr(s.overlay, "use_ocr_result", True)))
+        self.use_ocr_result_check.setChecked(s.overlay.use_ocr_result_v2)
         # Load debug option for using full-screen mss instead of OBS
         try:
             if hasattr(self, "ocr_full_screen_instead_of_obs_checkbox"):

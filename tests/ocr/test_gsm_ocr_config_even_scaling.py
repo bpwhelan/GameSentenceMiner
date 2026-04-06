@@ -111,3 +111,50 @@ def test_get_overlay_area_config_reads_standard_rectangle_schema(tmp_path, monke
     assert config.window_geometry.height == 720
     assert config.rectangles[0].coordinates == [0.1, 0.2, 0.3, 0.4]
     assert getattr(config, "overlay_coordinate_space", None) == "window"
+
+
+def test_get_overlay_minimum_character_size_reads_overlay_scene_setting(tmp_path, monkeypatch):
+    overlay_config_path = tmp_path / "Scene_overlay.json"
+    overlay_config_path.write_text(
+        json.dumps(
+            {
+                "monitor_index": 2,
+                "coordinate_system": "percentage",
+                "rects": [{"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}],
+                "minimum_character_size": 17,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        gsm_ocr_config, "get_overlay_area_config_path", lambda *args, **kwargs: str(overlay_config_path)
+    )
+
+    assert gsm_ocr_config.get_overlay_minimum_character_size(default=3) == 17
+
+
+def test_write_overlay_scene_settings_preserves_existing_overlay_areas(tmp_path, monkeypatch):
+    overlay_config_path = tmp_path / "Scene_overlay.json"
+    overlay_config_path.write_text(
+        json.dumps(
+            {
+                "monitor_index": 1,
+                "coordinate_system": "percentage",
+                "rects": [{"x": 0.2, "y": 0.3, "w": 0.4, "h": 0.5}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        gsm_ocr_config, "get_overlay_area_config_path", lambda *args, **kwargs: str(overlay_config_path)
+    )
+
+    gsm_ocr_config.write_overlay_scene_settings({"minimum_character_size": 11})
+
+    saved_data = json.loads(overlay_config_path.read_text(encoding="utf-8"))
+    assert saved_data["minimum_character_size"] == 11
+    assert saved_data["monitor_index"] == 1
+    assert saved_data["coordinate_system"] == "percentage"
+    assert saved_data["rects"] == [{"x": 0.2, "y": 0.3, "w": 0.4, "h": 0.5}]

@@ -394,6 +394,10 @@
                 'anilist.co': 'AniList',
                 'myanimelist.net': 'MAL',
                 'jiten.moe': 'Jiten.moe',
+                'igdb.com': 'IGDB',
+                'infinitebacklog.net': 'Infinite Backlog',
+                'infinitebacklog.nl': 'Infinite Backlog',
+                'igdb.com': 'IGDB',
                 'store.steampowered.com': 'Steam',
                 'dlsite.com': 'DLsite',
             };
@@ -401,6 +405,38 @@
         } catch {
             return 'Link';
         }
+    }
+
+    function normalizeLinksForUpdate(links) {
+        if (!Array.isArray(links)) {
+            return [];
+        }
+
+        return links
+            .map(function(link) {
+                if (typeof link === 'string') {
+                    return { linkType: 1, url: link };
+                }
+                return link && link.url ? link : null;
+            })
+            .filter(Boolean);
+    }
+
+    function mergeSourceLinks(existingLinks, newLinks) {
+        var merged = [];
+        var seen = new Set();
+
+        normalizeLinksForUpdate(existingLinks).concat(normalizeLinksForUpdate(newLinks)).forEach(function(link) {
+            var url = String(link.url || '').trim();
+            var key = url.toLowerCase();
+            if (!url || seen.has(key)) {
+                return;
+            }
+            seen.add(key);
+            merged.push(link);
+        });
+
+        return merged;
     }
 
     // ================================================================
@@ -1961,7 +1997,7 @@
         if (!currentGameData) return;
 
         var gameName = currentGameData.title_original || 'this game';
-        if (!window.confirm('Re-pull metadata for "' + gameName + '"?\n\nThis will update all non-manually-edited fields with fresh data from the linked source (Jiten, VNDB, or AniList).')) {
+        if (!window.confirm('Re-pull metadata for "' + gameName + '"?\n\nThis will update all non-manually-edited fields with fresh data from the linked source (Jiten, VNDB, AniList, or IGDB).')) {
             return;
         }
 
@@ -1998,252 +2034,58 @@
     }
 
     // ================================================================
-    //  Link to External Sources (Jiten.moe / VNDB / AniList)
+    //  Shared Game Import Widget
     // ================================================================
-    //
-    // TODO(anyone reading this): This search-select-confirm flow is largely
-    // duplicated from database-jiten-integration.js.  Both pages use the same
-    // backend endpoints (/api/unified-search, /api/games/<id>/link-jiten, PUT
-    // /api/games/<id>) and the same UnifiedSearch module.  The two copies
-    // should be unified into a single shared module that both pages import.
-    // The game-stats page just needs its own "after link" callback
-    // (loadGameData) instead of the database page's refreshAfterLinking().
-    //
+    let gameImportWidget = null;
 
-    var selectedLinkResult = null; // Stores the currently selected search result
+    function getGameImportWidget() {
+        if (!gameImportWidget) {
+            if (!window.GameImportWidget || typeof window.GameImportWidget.create !== 'function') {
+                throw new Error('Game import widget is not loaded. Please refresh the page.');
+            }
+
+            gameImportWidget = window.GameImportWidget.create({
+                buildCurrentPreviewHtml: function(context, helpers) {
+                    return ''
+                        + '<h5>' + helpers.escapeHtml(context.game.title_original || context.displayName || '') + '</h5>'
+                        + '<div style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">'
+                            + helpers.formatNumber(context.sentenceCount) + ' sentences, '
+                            + helpers.formatNumber(context.characterCount) + ' characters'
+                        + '</div>';
+                },
+                onSuccess: function(payload) {
+                    if (payload.isJitenSource) {
+                        alert('Successfully linked to ' + payload.sourceLabel + '! ' + formatNumber(payload.apiResult.lines_linked || 0) + ' lines linked.');
+                    } else if (payload.source === 'igdb') {
+                        alert('Successfully updated with ' + payload.sourceLabel + ' metadata!\nNote: IGDB does not include character data.');
+                    } else {
+                        alert('Successfully updated with ' + payload.sourceLabel + ' metadata!\nNote: Character counts and difficulty are only available from Jiten.');
+                    }
+
+                    loadGameData();
+                },
+            });
+        }
+
+        return gameImportWidget;
+    }
 
     function openLinkSearchModal() {
         if (!currentGameData) return;
 
-        selectedLinkResult = null;
-
-        var searchInput = document.getElementById('linkSearchInput');
-        var gameName = document.getElementById('linkSearchGameName');
-        var resultsDiv = document.getElementById('linkSearchResults');
-        var errorDiv = document.getElementById('linkSearchError');
-        var loadingDiv = document.getElementById('linkSearchLoading');
-
-        gameName.textContent = currentGameData.title_original || '';
-        searchInput.value = currentGameData.title_original || '';
-        resultsDiv.style.display = 'none';
-        errorDiv.style.display = 'none';
-        loadingDiv.style.display = 'none';
-
-        openModal('linkSearchModal');
-    }
-
-    async function searchDatabases() {
-        var searchInput = document.getElementById('linkSearchInput');
-        var resultsDiv = document.getElementById('linkSearchResults');
-        var resultsListDiv = document.getElementById('linkSearchResultsList');
-        var errorDiv = document.getElementById('linkSearchError');
-        var loadingDiv = document.getElementById('linkSearchLoading');
-
-        var searchTerm = searchInput.value.trim();
-        if (!searchTerm) {
-            errorDiv.textContent = 'Please enter a search term';
-            errorDiv.style.display = 'block';
-            return;
-        }
-
-        errorDiv.style.display = 'none';
-        resultsDiv.style.display = 'none';
-        loadingDiv.style.display = 'flex';
-
         try {
-            if (typeof UnifiedSearch === 'undefined') {
-                throw new Error('Search module not loaded. Please refresh the page.');
-            }
-
-            var searchResult = await UnifiedSearch.search(searchTerm);
-
-            if (searchResult.error) {
-                errorDiv.textContent = searchResult.error;
-                errorDiv.style.display = 'block';
-            } else if (searchResult.results && searchResult.results.length > 0) {
-                UnifiedSearch.renderResults(searchResult.results, resultsListDiv, onSelectResult);
-                resultsDiv.style.display = 'block';
-            } else {
-                errorDiv.textContent = 'No results found. Try a different search term or enable more sources.';
-                errorDiv.style.display = 'block';
-            }
+            getGameImportWidget().open({
+                gameId: gameId,
+                game: currentGameData,
+                displayName: currentGameData.title_original || '',
+                searchTerm: currentGameData.title_original || '',
+                sentenceCount: currentStatsData ? currentStatsData.total_sentences : 0,
+                characterCount: currentStatsData ? currentStatsData.total_characters : 0,
+            });
         } catch (error) {
-            console.error('Error searching databases:', error);
-            errorDiv.textContent = 'Search failed: ' + error.message;
-            errorDiv.style.display = 'block';
-        } finally {
-            loadingDiv.style.display = 'none';
+            alert(error.message);
         }
     }
-
-    function onSelectResult(result) {
-        if (!result || !currentGameData) return;
-
-        selectedLinkResult = result;
-
-        // Populate current game preview
-        var currentPreview = document.getElementById('linkConfirmCurrentGame');
-        currentPreview.innerHTML =
-            '<h5>' + escapeHtml(currentGameData.title_original || '') + '</h5>' +
-            '<div style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">' +
-                (currentStatsData ? formatNumber(currentStatsData.total_sentences) + ' sentences, ' + formatNumber(currentStatsData.total_characters) + ' characters' : '') +
-            '</div>';
-
-        // Determine source info
-        var source = result.source || 'jiten';
-        var sourceLabels = { jiten: 'Jiten', vndb: 'VNDB', anilist: 'AniList' };
-        var sourceBadgeClasses = { jiten: 'jiten-badge', vndb: 'vndb-badge', anilist: 'anilist-badge' };
-        var sourceEmojis = { jiten: '🟢', vndb: '🔵', anilist: '🟠' };
-        var sourceWarnings = {
-            jiten: '',
-            vndb: '<div class="source-warning" style="margin-top: 10px;">⚠️ Visual Novel data only - character counts and difficulty not available</div>',
-            anilist: '<div class="source-warning" style="margin-top: 10px;">⚠️ Anime/Manga data only - character counts and difficulty not available</div>'
-        };
-
-        var primaryTitle = result.title || result.title_jp || result.title_en || 'Unknown Title';
-        var secondaryTitle = result.title_en && result.title_en !== primaryTitle ? result.title_en : '';
-        var coverUrl = result.cover_url || '';
-        var description = result.description ? escapeHtml(result.description.substring(0, 150)) + (result.description.length > 150 ? '...' : '') : '';
-
-        // Populate matched game preview
-        var matchedPreview = document.getElementById('linkConfirmMatchedGame');
-        matchedPreview.innerHTML =
-            '<div style="display: flex; align-items: flex-start; gap: 10px;">' +
-                (coverUrl
-                    ? '<img src="' + escapeHtml(coverUrl) + '" style="width: 60px; height: 80px; object-fit: cover; border-radius: 4px; flex-shrink: 0;" onerror="this.style.display=\'none\'">'
-                    : '<div style="width: 60px; height: 80px; background: var(--bg-primary); border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">🎮</div>') +
-                '<div style="flex: 1; min-width: 0;">' +
-                    '<div style="margin-bottom: 4px;"><span class="source-badge ' + (sourceBadgeClasses[source] || '') + '">' + (sourceEmojis[source] || '') + ' ' + (sourceLabels[source] || source) + '</span></div>' +
-                    '<h5 style="margin: 0 0 4px 0;">' + escapeHtml(primaryTitle) + '</h5>' +
-                    (secondaryTitle ? '<p style="margin: 2px 0; color: var(--text-secondary); font-size: 13px;">' + escapeHtml(secondaryTitle) + '</p>' : '') +
-                '</div>' +
-            '</div>' +
-            (sourceWarnings[source] || '') +
-            (description ? '<div style="margin-top: 10px; color: var(--text-secondary); font-size: 14px;">' + description + '</div>' : '');
-
-        // Update modal title
-        var titleEl = document.getElementById('linkConfirmTitle');
-        if (titleEl) {
-            titleEl.textContent = source === 'jiten' ? 'Confirm Game Link' : 'Confirm Game Link (' + (sourceLabels[source] || source) + ')';
-        }
-
-        // Reset state
-        document.getElementById('linkConfirmError').style.display = 'none';
-        document.getElementById('linkConfirmLoading').style.display = 'none';
-        document.getElementById('confirmLinkBtn').disabled = false;
-
-        closeModal('linkSearchModal');
-        openModal('linkConfirmModal');
-    }
-
-    async function confirmGameLink() {
-        if (!selectedLinkResult || !currentGameData) return;
-
-        var errorDiv = document.getElementById('linkConfirmError');
-        var loadingDiv = document.getElementById('linkConfirmLoading');
-        var confirmBtn = document.getElementById('confirmLinkBtn');
-
-        errorDiv.style.display = 'none';
-        loadingDiv.style.display = 'flex';
-        confirmBtn.disabled = true;
-
-        var source = selectedLinkResult.source || 'jiten';
-        var isJitenSource = source === 'jiten' && selectedLinkResult._raw && selectedLinkResult._raw.deck_id;
-
-        try {
-            var response, result;
-
-            if (isJitenSource) {
-                // Jiten: use the dedicated link endpoint
-                var cleanJitenData = Object.assign({}, selectedLinkResult._raw);
-
-                response = await fetch('/api/games/' + gameId + '/link-jiten', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        deck_id: selectedLinkResult._raw.deck_id,
-                        jiten_data: cleanJitenData,
-                    }),
-                });
-
-                result = await response.json();
-            } else {
-                // VNDB / AniList: update game metadata via PUT
-                var updateData = {
-                    title_original: selectedLinkResult.title_jp || selectedLinkResult.title || currentGameData.title_original,
-                    title_english: selectedLinkResult.title_en || currentGameData.title_english || '',
-                    title_romaji: selectedLinkResult.title || currentGameData.title_romaji || '',
-                    description: selectedLinkResult.description || currentGameData.description || '',
-                    type: source === 'vndb' ? 'Visual Novel' : 'Anime',
-                };
-
-                if (source === 'vndb' && selectedLinkResult.id) {
-                    updateData.vndb_id = selectedLinkResult.id;
-                } else if (source === 'anilist' && selectedLinkResult.id) {
-                    updateData.anilist_id = selectedLinkResult.id;
-                }
-
-                if (selectedLinkResult.source_url) {
-                    updateData.links = [{
-                        deckId: 1,
-                        linkId: 1,
-                        linkType: source === 'vndb' ? 4 : 5,
-                        url: selectedLinkResult.source_url,
-                    }];
-                }
-
-                response = await fetch('/api/games/' + gameId, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(updateData),
-                });
-
-                result = await response.json();
-            }
-
-            if (!response.ok) {
-                throw new Error(result.error || 'Failed to link game');
-            }
-
-            closeModal('linkConfirmModal');
-
-            var sourceLabel = { jiten: 'Jiten.moe', vndb: 'VNDB', anilist: 'AniList' }[source] || source;
-            if (isJitenSource) {
-                var lineCount = result.lines_linked || 0;
-                alert('Successfully linked to ' + sourceLabel + '! ' + lineCount + ' lines linked.');
-            } else {
-                alert('Successfully updated with ' + sourceLabel + ' metadata!\nNote: Character counts and difficulty are only available from Jiten.');
-            }
-
-            loadGameData();
-        } catch (error) {
-            errorDiv.textContent = error.message;
-            errorDiv.style.display = 'block';
-        } finally {
-            loadingDiv.style.display = 'none';
-            confirmBtn.disabled = false;
-        }
-    }
-
-    // Wire up link search modal events
-    document.getElementById('linkSearchBtn').addEventListener('click', searchDatabases);
-
-    document.getElementById('linkSearchInput').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            searchDatabases();
-        }
-    });
-
-    document.getElementById('confirmLinkBtn').addEventListener('click', confirmGameLink);
-
-    document.querySelectorAll('[data-action="closeLinkSearchModal"]').forEach(function(btn) {
-        btn.addEventListener('click', function() { closeModal('linkSearchModal'); });
-    });
-
-    document.querySelectorAll('[data-action="closeLinkConfirmModal"]').forEach(function(btn) {
-        btn.addEventListener('click', function() { closeModal('linkConfirmModal'); });
-    });
 
     // ================================================================
     //  Initialize

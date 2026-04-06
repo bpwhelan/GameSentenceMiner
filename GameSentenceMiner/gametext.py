@@ -75,6 +75,30 @@ def is_text_monitor_initialized() -> bool:
     return text_monitor_initialized
 
 
+def resolve_websocket_source_name(uri: str) -> str:
+    """Resolve a user-facing source label for a websocket URI."""
+    websocket_source_name = ""
+    if is_ocr_websocket_uri(uri):
+        websocket_source_name = "GSM OCR"
+    try:
+        if not websocket_source_name:
+            for source in get_config().general.websocket_sources:
+                if source.uri.strip() == uri:
+                    websocket_source_name = source.name.strip() if source.name else ""
+                    break
+    except Exception:
+        pass
+    if not websocket_source_name:
+        # Fallback to well-known port names
+        from GameSentenceMiner.util.config.configuration import WELL_KNOWN_WS_SOURCES
+
+        port = uri.split(":")[-1].strip() if ":" in uri else ""
+        websocket_source_name = WELL_KNOWN_WS_SOURCES.get(port, "")
+    if not websocket_source_name:
+        websocket_source_name = uri
+    return websocket_source_name
+
+
 def is_message_rate_limited(source="clipboard"):
     """
     Aggressive rate-based spam detection optimized for game texthookers.
@@ -158,7 +182,11 @@ async def monitor_clipboard():
             if is_message_rate_limited("clipboard"):
                 continue  # Drop message due to rate limiting
             last_clipboard = current_clipboard
-            await handle_new_text_event(current_clipboard, line_time=time_received)
+            await handle_new_text_event(
+                current_clipboard,
+                line_time=time_received,
+                source_display_name="Clipboard",
+            )
         time_received = datetime.now()
         await asyncio.sleep(0.2)
 
@@ -278,26 +306,7 @@ async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
     global current_line, current_line_time, websocket_connected
     try_other = False
 
-    # Resolve a friendly source name from websocket_sources config
-    websocket_source_name = ""
-    if is_ocr_websocket_uri(uri):
-        websocket_source_name = "GSM OCR"
-    try:
-        if not websocket_source_name:
-            for source in get_config().general.websocket_sources:
-                if source.uri.strip() == uri:
-                    websocket_source_name = source.name.strip() if source.name else ""
-                    break
-    except Exception:
-        pass
-    if not websocket_source_name:
-        # Fallback to well-known port names
-        from GameSentenceMiner.util.config.configuration import WELL_KNOWN_WS_SOURCES
-
-        port = uri.split(":")[-1].strip() if ":" in uri else ""
-        websocket_source_name = WELL_KNOWN_WS_SOURCES.get(port, "")
-    if not websocket_source_name:
-        websocket_source_name = uri
+    websocket_source_name = resolve_websocket_source_name(uri)
 
     reconnect_sleep_manager = SleepManager(initial_delay=0.5, name=f"WebSocket_{uri}")
 
@@ -374,6 +383,7 @@ async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
                                 line_time if line_time else message_received_time,
                                 dict_from_ocr=dict_from_ocr,
                                 source=source,
+                                source_display_name=websocket_source_name,
                             )
                     except Exception as e:
                         logger.exception(f"Error handling new text event: {e}")
@@ -399,12 +409,17 @@ async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
             await reconnect_sleep_manager.async_sleep()
 
 
-async def merge_sequential_lines(line, start_time=None):
+async def merge_sequential_lines(line, start_time=None, source=None, source_display_name=None):
     if not get_config().general.merge_matching_sequential_text:
         return
     logger.info(f"Merging Sequential Lines: {line}")
     # Use the sequence start time for the merged line
-    await add_line_to_text_log(line, start_time if start_time else datetime.now())
+    await add_line_to_text_log(
+        line,
+        start_time if start_time else datetime.now(),
+        source=source,
+        source_display_name=source_display_name,
+    )
     timer = None
     # Reset sequence tracking
     current_sequence_start_time = None
@@ -420,7 +435,13 @@ def schedule_merge(wait, coro, args):
     return task
 
 
-async def handle_new_text_event(current_clipboard, line_time=None, dict_from_ocr=None, source=None):
+async def handle_new_text_event(
+    current_clipboard,
+    line_time=None,
+    dict_from_ocr=None,
+    source=None,
+    source_display_name=None,
+):
     global \
         current_line, \
         current_line_time, \
@@ -441,7 +462,7 @@ async def handle_new_text_event(current_clipboard, line_time=None, dict_from_ocr
             timer = schedule_merge(
                 2,
                 merge_sequential_lines,
-                [current_line[:], current_sequence_start_time],
+                [current_line[:], current_sequence_start_time, source, source_display_name],
             )
         else:
             # If the new text starts with the previous, reset the timer (do not update start time)
@@ -451,7 +472,7 @@ async def handle_new_text_event(current_clipboard, line_time=None, dict_from_ocr
                 timer = schedule_merge(
                     2,
                     merge_sequential_lines,
-                    [current_line[:], current_sequence_start_time],
+                    [current_line[:], current_sequence_start_time, source, source_display_name],
                 )
             else:
                 # If not a prefix, treat as a new sequence
@@ -461,16 +482,29 @@ async def handle_new_text_event(current_clipboard, line_time=None, dict_from_ocr
                 timer = schedule_merge(
                     2,
                     merge_sequential_lines,
-                    [current_line[:], current_sequence_start_time],
+                    [current_line[:], current_sequence_start_time, source, source_display_name],
                 )
     else:
-        await add_line_to_text_log(current_line, line_time, dict_from_ocr=dict_from_ocr, source=source)
+        await add_line_to_text_log(
+            current_line,
+            line_time,
+            dict_from_ocr=dict_from_ocr,
+            source=source,
+            source_display_name=source_display_name,
+        )
 
 
-async def add_line_to_text_log(line, line_time=None, dict_from_ocr=None, source=None, skip_overlay=False):
+async def add_line_to_text_log(
+    line,
+    line_time=None,
+    dict_from_ocr=None,
+    source=None,
+    skip_overlay=False,
+    source_display_name=None,
+):
     current_line_after_regex = apply_text_processing(line, get_config().text_processing)
-    source_tag = f" [{source}]" if source else ""
-    logger.opt(colors=True).info(f"<cyan>Line Received from {source_tag}: {current_line_after_regex}</cyan>")
+    source_label = source_display_name or source or "Unknown"
+    logger.opt(colors=True).info(f"<cyan>Line Received from [{source_label}]: {current_line_after_regex}</cyan>")
     current_line_time = line_time if line_time else datetime.now()
     live_stats_tracker.add_line(current_line_after_regex, current_line_time.timestamp())
     gsm_status.last_line_received = current_line_time.strftime("%Y-%m-%d %H:%M:%S")

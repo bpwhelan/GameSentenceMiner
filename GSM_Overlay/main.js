@@ -50,6 +50,7 @@ const DEFAULT_TEXTHOOKER_HOTKEY = "Alt+Shift+W";
 const GSM_APPDATA = process.env.APPDATA
   ? path.join(process.env.APPDATA, "GameSentenceMiner") // Windows
   : path.join(os.homedir(), '.config', "GameSentenceMiner"); // macOS/Linux
+const FIND_IN_PAGE_PRELOAD_PATH = path.join(__dirname, 'find-in-page-preload.js');
 const TEXTHOOKER_HOTKEY_FALLBACKS = [
   DEFAULT_TEXTHOOKER_HOTKEY,
   "Alt+Shift+Q",
@@ -133,9 +134,11 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "weburl1": DEFAULT_ENFORCED_PLAINTEXT_WS_URL,
   "weburl2": DEFAULT_ENFORCED_OVERLAY_WS_URL,
   "hideOnStartup": true,
+  "openSettingsOnStartup": true,
   "focusOverlayOnYomitanLookup": false,
   "manualMode": false,
   "manualModeType": "hold", // "hold" or "toggle"
+  "manualModeRescanOnShow": false,
   "showHotkey": DEFAULT_MANUAL_HOTKEY,
   "toggleFuriganaHotkey": "Alt+F",
   "toggleWindowHotkey": "Alt+Shift+H",
@@ -525,6 +528,9 @@ let yomitanForegroundActive = false;
 
 const FOCUS_RESTORE_THROTTLE_MS = 150;
 const YOMITAN_STATE_STALE_TIMEOUT_MS = 12000;
+const FIND_IN_PAGE_COMMAND_CHANNEL = 'gsm-find-in-page:command';
+const FIND_IN_PAGE_RESULT_CHANNEL = 'gsm-find-in-page:result';
+const FIND_IN_PAGE_SHORTCUT_CHANNEL = 'gsm-find-in-page:shortcut';
 
 let yomitanSettingsWindow = null;
 let jitenReaderSettingsWindow = null;
@@ -542,6 +548,7 @@ let gamepadServerStopPromise = null;
 let gamepadServerLifecycleVersion = 0;
 let registeredGamepadKeyboardHotkey = null;
 let gamepadInputTestActive = false;
+const findInPageStateByWebContentsId = new Map();
 const overlayWebSockets = {
   ws1: { socket: null, url: null, reconnectTimer: null },
   ws2: { socket: null, url: null, reconnectTimer: null },
@@ -555,6 +562,131 @@ function publishOverlaySocketState(type, isOpen) {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.webContents.send(isOpen ? "websocket-opened" : "websocket-closed", type);
   }
+}
+
+function getFindInPageState(contents) {
+  const webContentsId = contents.id;
+  let state = findInPageStateByWebContentsId.get(webContentsId);
+  if (!state) {
+    state = {
+      requestId: null,
+      lastText: '',
+      matchCase: false,
+      visible: false,
+    };
+    findInPageStateByWebContentsId.set(webContentsId, state);
+  }
+  return state;
+}
+
+function clearFindInPage(contents, action = 'clearSelection') {
+  const state = getFindInPageState(contents);
+  try {
+    contents.stopFindInPage(action);
+  } catch (error) {
+    console.warn('[FindInPage] Failed to stop find request:', error);
+  }
+  state.requestId = null;
+  contents.send(FIND_IN_PAGE_RESULT_CHANNEL, {
+    requestId: 0,
+    activeMatchOrdinal: 0,
+    matches: 0,
+    finalUpdate: true,
+    cleared: true,
+  });
+}
+
+function performFindInPage(contents, payload = {}) {
+  const state = getFindInPageState(contents);
+  const text = String(payload.text || '').trim();
+  if (!text) {
+    state.lastText = '';
+    state.matchCase = false;
+    clearFindInPage(contents);
+    return;
+  }
+
+  const forward = payload.forward !== false;
+  const matchCase = !!payload.matchCase;
+  const startNewSearch = (
+    !!payload.startNewSearch ||
+    state.lastText !== text ||
+    state.matchCase !== matchCase
+  );
+
+  state.lastText = text;
+  state.matchCase = matchCase;
+  state.requestId = contents.findInPage(text, {
+    forward,
+    findNext: startNewSearch,
+    matchCase,
+  });
+}
+
+function handleFindInPageShortcut(browserWindow, input) {
+  if (!browserWindow || browserWindow.isDestroyed()) {
+    return false;
+  }
+
+  const { webContents } = browserWindow;
+  const state = getFindInPageState(webContents);
+  const key = String(input.key || '').toLowerCase();
+  const controlOrMeta = !!(input.control || input.meta);
+
+  if (controlOrMeta && key === 'f') {
+    webContents.send(FIND_IN_PAGE_SHORTCUT_CHANNEL, {
+      action: state.visible ? 'hide' : 'show',
+    });
+    return true;
+  }
+
+  if (key === 'escape' && state.visible) {
+    webContents.send(FIND_IN_PAGE_SHORTCUT_CHANNEL, { action: 'hide' });
+    return true;
+  }
+
+  if (state.lastText && (key === 'f3' || (controlOrMeta && key === 'g'))) {
+    performFindInPage(webContents, {
+      text: state.lastText,
+      matchCase: state.matchCase,
+      forward: !input.shift,
+      startNewSearch: false,
+    });
+    return true;
+  }
+
+  return false;
+}
+
+function enableFindInPage(browserWindow) {
+  if (!browserWindow || browserWindow.isDestroyed()) {
+    return;
+  }
+
+  const { webContents } = browserWindow;
+  const webContentsId = webContents.id;
+  getFindInPageState(webContents);
+
+  webContents.on('found-in-page', (_event, result) => {
+    const state = getFindInPageState(webContents);
+    if (state.requestId === null || result.requestId !== state.requestId) {
+      return;
+    }
+    webContents.send(FIND_IN_PAGE_RESULT_CHANNEL, result);
+  });
+
+  webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') {
+      return;
+    }
+    if (handleFindInPageShortcut(browserWindow, input)) {
+      event.preventDefault();
+    }
+  });
+
+  browserWindow.on('closed', () => {
+    findInPageStateByWebContentsId.delete(webContentsId);
+  });
 }
 
 function publishOverlaySocketData(type, data) {
@@ -1040,17 +1172,69 @@ function loadOverlayPage(win, relativePath) {
   return win.loadFile(relativePath);
 }
 
+const EXTENSION_READY_TIMEOUT_MS = 15000;
+
+function getExtensionSessionApi() {
+  const extensionsApi = session.defaultSession?.extensions;
+  if (extensionsApi) {
+    return {
+      events: extensionsApi,
+      loadExtension: (extensionPath, options) => extensionsApi.loadExtension(extensionPath, options),
+      removeExtension: (extensionId) => extensionsApi.removeExtension(extensionId),
+    };
+  }
+
+  return {
+    events: session.defaultSession,
+    loadExtension: (extensionPath, options) => session.defaultSession.loadExtension(extensionPath, options),
+    removeExtension: (extensionId) => session.defaultSession.removeExtension(extensionId),
+  };
+}
+
 async function loadExtension(name) {
   const extDir = isDev ? path.join(__dirname, name) : path.join(process.resourcesPath, name);
   const extTargetDir = ensureExtensionCopy(name, extDir);
+  const extensionApi = getExtensionSessionApi();
+  const observedReadyIds = new Set();
+  let readyTimeout = null;
+  let resolveReady;
+  let loadedExt = null;
+  const onExtensionReady = (_event, extension) => {
+    const extensionId = extension && typeof extension.id === 'string' ? extension.id : null;
+    if (!extensionId) {
+      return;
+    }
+    observedReadyIds.add(extensionId);
+    if (loadedExt && extensionId === loadedExt.id) {
+      clearTimeout(readyTimeout);
+      resolveReady();
+    }
+  };
+  const readyPromise = new Promise((resolve) => {
+    resolveReady = resolve;
+    readyTimeout = setTimeout(() => {
+      console.warn(`[Extensions] Timed out waiting for ${name} extension-ready event after ${EXTENSION_READY_TIMEOUT_MS}ms`);
+      resolve();
+    }, EXTENSION_READY_TIMEOUT_MS);
+  });
+
   try {
-    const loadedExt = await session.defaultSession.loadExtension(extTargetDir, { allowFileAccess: true });
+    extensionApi.events.on('extension-ready', onExtensionReady);
+    loadedExt = await extensionApi.loadExtension(extTargetDir, { allowFileAccess: true });
+    if (observedReadyIds.has(loadedExt.id)) {
+      clearTimeout(readyTimeout);
+      resolveReady();
+    }
+    await readyPromise;
     console.log(`${name} extension loaded.`);
     console.log('Extension ID:', loadedExt.id);
     return loadedExt;
   } catch (e) {
     console.error(`Failed to load extension ${name}:`, e);
     return null;
+  } finally {
+    clearTimeout(readyTimeout);
+    extensionApi.events.off('extension-ready', onExtensionReady);
   }
 }
 
@@ -1152,6 +1336,19 @@ if (isLinux() && !fs.existsSync(settingsPath)) {
 
 function isMac() {
   return process.platform === 'darwin';
+}
+
+function getWindowsFramelessWindowOptions() {
+  if (!isWindows()) {
+    return {};
+  }
+
+  return {
+    // Electron keeps the native WS_THICKFRAME style by default on Windows
+    // frameless windows, which can let the title bar/frame leak back in.
+    thickFrame: false,
+    roundedCorners: false,
+  };
 }
 
 function getOverlayAppIconPath() {
@@ -1405,6 +1602,11 @@ if (hasPersistedOverlaySettings) {
 
     if (!Object.prototype.hasOwnProperty.call(oldUserSettings, "hideOnStartup")) {
       userSettings.hideOnStartup = true;
+      shouldPersistOverlaySettings = true;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(oldUserSettings, "openSettingsOnStartup")) {
+      userSettings.openSettingsOnStartup = true;
       shouldPersistOverlaySettings = true;
     }
 
@@ -1810,6 +2012,21 @@ function releaseAllOverlayPauseRequests() {
   requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
 }
 
+function requestManualOverlayScan(source = "overlay") {
+  const safeSource = String(source || "overlay");
+  if (!backend || !backend.connected) {
+    console.warn(`[OverlayScan] Cannot request manual overlay scan: backend not connected (source=${safeSource})`);
+    return false;
+  }
+
+  backend.send({
+    type: "manual-overlay-scan-request",
+    source: safeSource,
+  });
+  console.log(`[OverlayScan] Manual overlay scan requested (source=${safeSource})`);
+  return true;
+}
+
 function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY) {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
 
@@ -2053,6 +2270,7 @@ function createTexthookerWindow() {
     icon: getOverlayAppIconPath(),
     transparent: true,
     frame: false,
+    ...getWindowsFramelessWindowOptions(),
     show: false,
     alwaysOnTop: true,
     resizable: false,
@@ -2248,7 +2466,10 @@ function registerManualShowHotkey(oldHotkey) {
 
   // Helper: Consolidated Show Logic
   const showOverlay = (triggerSource) => {
-    showOverlayUsingManualFlow(`ManualHotkey ${triggerSource}`, OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+    const shown = showOverlayUsingManualFlow(`ManualHotkey ${triggerSource}`, OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+    if (shown && userSettings.manualModeRescanOnShow) {
+      requestManualOverlayScan("manual-mode-enter");
+    }
   };
 
   // Helper: Consolidated Hide Logic
@@ -2397,10 +2618,12 @@ function openSettings() {
       alwaysOnTop: true,
       title: "Overlay Settings",
       webPreferences: {
+        preload: FIND_IN_PAGE_PRELOAD_PATH,
         nodeIntegration: true,
         contextIsolation: false
       },
     });
+    enableFindInPage(settingsWindow);
 
     settingsWindow.webContents.on('context-menu', () => {
       if (isDev) {
@@ -2462,22 +2685,23 @@ function openYomitanSettings() {
   }
   yomitanSettingsWindow = new BrowserWindow({
     width: 1100,
-    height: 600,
+    height: 800,
     icon: getOverlayAppIconPath(),
     webPreferences: {
+      preload: FIND_IN_PAGE_PRELOAD_PATH,
       nodeIntegration: false
+    }
+  });
+  enableFindInPage(yomitanSettingsWindow);
+
+  yomitanSettingsWindow.webContents.on('context-menu', () => {
+    if (isDev) {
+      yomitanSettingsWindow.webContents.openDevTools({ mode: 'detach' });
     }
   });
 
   yomitanSettingsWindow.removeMenu()
   yomitanSettingsWindow.loadURL(`chrome-extension://${yomitanExt.id}/settings.html`);
-  // Allow search ctrl F in the settings window
-  yomitanSettingsWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.key.toLowerCase() === 'f' && input.control) {
-      yomitanSettingsWindow.webContents.send('focus-search');
-      event.preventDefault();
-    }
-  });
   yomitanSettingsWindow.show();
   // Force a repaint to fix blank/transparent window issue
   setTimeout(() => {
@@ -2588,6 +2812,7 @@ function openOffsetHelper() {
     icon: getOverlayAppIconPath(),
     transparent: true,
     frame: false,
+    ...getWindowsFramelessWindowOptions(),
     alwaysOnTop: true,
     resizable: false,
     titleBarStyle: 'hidden',
@@ -3123,12 +3348,13 @@ app.whenReady().then(async () => {
     icon: getOverlayAppIconPath(),
     transparent: true,
     frame: false,
+    ...getWindowsFramelessWindowOptions(),
     alwaysOnTop: true,
     resizable: false,
     titleBarStyle: 'hidden',
     title: "GSM Overlay",
     fullscreen: false,
-    focusable: false,
+    focusable: true,
     // skipTaskbar: true,
     webPreferences: {
       contextIsolation: false,
@@ -3387,6 +3613,9 @@ app.whenReady().then(async () => {
     }
 
     // Start the activity timer
+    if (userSettings.openSettingsOnStartup) {
+      openSettings();
+    }
     resetActivityTimer();
   });
 
@@ -3406,25 +3635,10 @@ app.whenReady().then(async () => {
     openJitenReaderSettings();
   });
 
-  function requestManualOverlayScanFromOverlay(source = "overlay") {
-    const safeSource = String(source || "overlay");
-    if (!backend || !backend.connected) {
-      console.warn(`[OverlayScan] Cannot request manual overlay scan: backend not connected (source=${safeSource})`);
-      return false;
-    }
-
-    backend.send({
-      type: "manual-overlay-scan-request",
-      source: safeSource,
-    });
-    console.log(`[OverlayScan] Manual overlay scan requested (source=${safeSource})`);
-    return true;
-  }
-
   // Action panel button handlers
   ipcMain.on("action-scan", () => {
     console.log("Action: Scan requested from overlay");
-    requestManualOverlayScanFromOverlay("overlay-action-panel");
+    requestManualOverlayScan("overlay-action-panel");
   });
 
   ipcMain.on("action-translate", () => {
@@ -3538,6 +3752,25 @@ app.whenReady().then(async () => {
   });
   ipcMain.on("open-offset-helper", () => {
     openOffsetHelper();
+  });
+
+  ipcMain.on(FIND_IN_PAGE_COMMAND_CHANNEL, (event, payload = {}) => {
+    const contents = event.sender;
+    const state = getFindInPageState(contents);
+
+    switch (payload.action) {
+      case 'search':
+        performFindInPage(contents, payload);
+        break;
+      case 'clear':
+        clearFindInPage(contents);
+        break;
+      case 'visibility':
+        state.visible = !!payload.visible;
+        break;
+      default:
+        break;
+    }
   });
 
   ipcMain.on("save-offset", (event, { offsetX, offsetY }) => {
@@ -3697,7 +3930,7 @@ app.whenReady().then(async () => {
             // Disable
             if (jitenReaderExt) {
                 try {
-                    session.defaultSession.removeExtension(jitenReaderExt.id);
+                    getExtensionSessionApi().removeExtension(jitenReaderExt.id);
                     jitenReaderExt = null;
                     console.log("Jiten Reader disabled and unloaded.");
                 } catch (e) {
@@ -3972,7 +4205,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("gamepad-manual-overlay-scan", () => {
-    requestManualOverlayScanFromOverlay("gamepad");
+    requestManualOverlayScan("gamepad");
   });
 
   // Handler to manually send navigation commands (can be triggered from other sources)

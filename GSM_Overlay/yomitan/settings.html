@@ -72,6 +72,22 @@
 
     <h1>Yomitan Settings</h1>
 
+    <div class="settings-group settings-group-top-margin">
+        <div class="settings-item"><div class="settings-item-inner settings-item-inner-wrappable">
+            <div class="settings-item-left">
+                <div class="settings-item-label">GSM overlay recommendations</div>
+                <div class="settings-item-description">Reopen the GSM overlay recommendations for the current Yomitan profile.</div>
+            </div>
+            <div class="settings-item-right settings-item-button-group-container">
+                <div class="settings-item-button-group">
+                    <div class="settings-item-button-group-item">
+                        <button type="button" class="low-emphasis" id="gsm-overlay-recommended-settings-open-button">Review Recommendations</button>
+                    </div>
+                </div>
+            </div>
+        </div></div>
+    </div>
+
     <!-- Notifications -->
     <div class="settings-group settings-group-top-margin page-loading-stalled-notification">
         <div class="settings-item"><div class="settings-item-inner settings-item-inner-wrappable">
@@ -1981,31 +1997,6 @@
                             <li>If there are multiple duplicate cards, the first card found will be overwritten.</li>
                             <li>You can customize overwriting for each field in the <code>Configure Anki card format&hellip;</code> menu.</li>
                         </ul>
-                        <p>
-                            <a tabindex="0" class="more-toggle" data-parent-distance="3">Less&hellip;</a>
-                        </p>
-                    </div>
-                </div>
-        <div class="settings-item">
-                    <div class="settings-item-inner settings-item-inner-wrappable">
-                        <div class="settings-item-left">
-                            <div class="settings-item-label">
-                                Prioritize Anki note duplicate checks before note creation
-                                <a tabindex="0" class="more-toggle more-only" data-parent-distance="4">(?)</a>
-                                <div class="settings-item-description">
-                            </div>
-                            </div>
-                        </div>
-                        <div class="settings-item-right">
-                <label class="toggle"><input type="checkbox" data-setting="anki.noteDupeCheckFirst"><span class="toggle-body"><span class="toggle-track"></span><span class="toggle-knob"></span></span></label>
-            </div>
-                    </div>
-                    <div class="settings-item-children more" hidden>
-                        <p>
-                            Recommended to those who with "Maximum number of results" set to a high number, and many active dictionaries. <br>
-                            Normally, Yomitan will create and render the Anki notes for each dictionary entry, perform the duplicate check, and then display the buttons, which may take some time depending on the users' settings. <br>
-                            This option will perform duplicate checks first, and then append the appropriate buttons you would normally see at the end, but earlier, disabled, and opaque. Once the notes are made, they will be re-enabled.<br>
-                        </p>
                         <p>
                             <a tabindex="0" class="more-toggle" data-parent-distance="3">Less&hellip;</a>
                         </p>

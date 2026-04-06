@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024-2026  Yomitan Authors
+ * Copyright (C) 2024-2025  Yomitan Authors
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,7 +33,6 @@ import {removeDoubleAcuteAccents} from './el/modern-greek-processors.js';
 import {englishTransforms} from './en/english-transforms.js';
 import {esperantoTransforms} from './eo/esperanto-transforms.js';
 import {spanishTransforms} from './es/spanish-transforms.js';
-import {basqueTransforms} from './eu/basque-transforms.js';
 import {apostropheVariants} from './fr/french-text-preprocessors.js';
 import {frenchTransforms} from './fr/french-transforms.js';
 import {irishTransforms} from './ga/irish-transforms.js';
@@ -76,12 +75,6 @@ const capitalizationPreprocessors = {
 
 /** @type {import('language-descriptors').LanguageDescriptorAny[]} */
 const languageDescriptors = [
-    {
-        iso: 'xxx',
-        iso639_3: 'xxx',
-        name: 'Any / Unknown',
-        exampleText: '???',
-    },
     {
         iso: 'aii',
         iso639_3: 'aii',
@@ -202,14 +195,6 @@ const languageDescriptors = [
         iso639_3: 'est',
         name: 'Estonian',
         exampleText: 'lugema',
-        textPreprocessors: capitalizationPreprocessors,
-    },
-    {
-        iso: 'eu',
-        iso639_3: 'eus',
-        name: 'Basque',
-        exampleText: 'irakurri',
-        languageTransforms: basqueTransforms,
         textPreprocessors: capitalizationPreprocessors,
     },
     {

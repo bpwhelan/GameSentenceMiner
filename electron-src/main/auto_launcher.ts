@@ -1,6 +1,7 @@
 import {
     getExecutableNameFromSource,
     getCurrentScene,
+    sceneHasVisibleOutput,
     getWindowTitleFromSource,
     ObsScene
 } from './ui/obs.js';
@@ -34,7 +35,7 @@ export class AutoLauncher {
     private lastHookedGameId: string = "";
     private readonly defaultPollingInterval: number = 5000;
     private readonly fastPollingInterval: number = 500;
-    private readonly ocrPollingInterval: number = 1000;
+    private readonly ocrPollingInterval: number = 5000;
     private readonly minLoopDelayMs: number = 500;
     private readonly backoffStep: number = 50;
     private currentPollingInterval: number = this.defaultPollingInterval;
@@ -270,12 +271,14 @@ export class AutoLauncher {
         }
     }
 
-    private async isSceneGameRunning(scene: ObsScene): Promise<boolean> {
+    private async isSceneSessionActive(scene: ObsScene): Promise<boolean> {
         const executableName = await this.resolveSceneExecutableName(scene);
-        if (!executableName) {
-            return false;
+        if (executableName) {
+            return this.isProcessRunningByName(executableName);
         }
-        return this.isProcessRunningByName(executableName);
+
+        const hasVisibleOutput = await sceneHasVisibleOutput(scene);
+        return hasVisibleOutput === true;
     }
 
     private toObsScene(value: unknown): ObsScene | null {
@@ -336,25 +339,30 @@ export class AutoLauncher {
                 }
             }
 
-            const isGameRunning = await this.isSceneGameRunning(currentScene);
-            if (!isGameRunning) {
+            if (ocrMode === "none") {
                 if (this.isAutoOcrSuppressedForScene(currentScene.id)) {
-                    this.clearOcrSuppression("game-not-running");
+                    this.clearOcrSuppression("scene-not-configured");
+                }
+                await this.applyOcrMode("none", currentScene);
+                return;
+            }
+
+            const isSceneActive = await this.isSceneSessionActive(currentScene);
+            if (!isSceneActive) {
+                if (this.isAutoOcrSuppressedForScene(currentScene.id)) {
+                    this.clearOcrSuppression("scene-inactive");
                 }
                 const runtime = getOCRRuntimeState();
                 if (runtime.isRunning && runtime.source === "auto-launcher") {
                     this.logInternal(
-                        `AutoLauncher: Scene "${currentScene.name}" has no active game process. Stopping OCR automation.`
+                        `AutoLauncher: Scene "${currentScene.name}" has no detectable active game/session. Stopping OCR automation.`
                     );
                 }
                 this.stopOcrAutomation();
                 return;
             }
 
-            if (
-                ocrMode !== "none" &&
-                this.isAutoOcrSuppressedForScene(currentScene.id)
-            ) {
+            if (this.isAutoOcrSuppressedForScene(currentScene.id)) {
                 return;
             }
 
