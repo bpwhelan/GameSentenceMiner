@@ -448,6 +448,31 @@ def _normalize_text_detection_payload(payload, *, fallback_crop_coords=None, fal
             score = 1.0
         normalized_boxes.append({"box": [x1, y1, x2, y2], "score": score})
 
+    crop_padding = max(0, _safe_int(payload.get("crop_padding"), 5))
+    crop_coords_list = payload.get("crop_coords_list")
+    normalized_crop_coords_list = []
+    if isinstance(crop_coords_list, list):
+        for item in crop_coords_list:
+            if not isinstance(item, (list, tuple)) or len(item) < 4:
+                continue
+            try:
+                normalized_crop_coords_list.append(tuple(int(item[i]) for i in range(4)))
+            except Exception:
+                continue
+    if not normalized_crop_coords_list and normalized_boxes:
+        for item in normalized_boxes:
+            box = item.get("box")
+            if not isinstance(box, (list, tuple)) or len(box) < 4:
+                continue
+            x1, y1, x2, y2 = box[:4]
+            crop_x = max(0, int(x1 - crop_padding))
+            crop_y = max(0, int(y1 - crop_padding))
+            crop_x2 = int(x2 + crop_padding)
+            crop_y2 = int(y2 + crop_padding)
+            if crop_x2 <= crop_x or crop_y2 <= crop_y:
+                continue
+            normalized_crop_coords_list.append((crop_x, crop_y, crop_x2, crop_y2))
+
     crop_coords = payload.get("crop_coords", fallback_crop_coords)
     if isinstance(crop_coords, (list, tuple)) and len(crop_coords) >= 4:
         try:
@@ -473,7 +498,9 @@ def _normalize_text_detection_payload(payload, *, fallback_crop_coords=None, fal
         "schema": TEXT_DETECTION_RESULT_SCHEMA,
         "detector": str(detector_name),
         "boxes": normalized_boxes,
+        "crop_coords_list": normalized_crop_coords_list,
         "crop_coords": crop_coords,
+        "crop_padding": crop_padding,
     }
 
 
@@ -3275,6 +3302,27 @@ def process_and_write_results(
             getattr(engine_instance, "name", ""),
         )
         if detection_payload is not None:
+            pipeline_metadata = _build_pipeline_metadata(
+                image_metadata,
+                img_or_path,
+                engine_instance.name,
+                is_second_ocr,
+            )
+            current_crop_offset = (
+                _safe_int(pipeline_metadata["processing"]["crop_offset"].get("x")),
+                _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
+            )
+            if write_to is not None and check_text_is_all_menu(
+                detection_payload.get("crop_coords", None),
+                detection_payload.get("crop_coords_list", []),
+                crop_offset=current_crop_offset,
+                crop_padding=detection_payload.get("crop_padding", 5),
+            ):
+                logger.opt(ansi=True).info("Text is identified as all menu items, skipping further processing.")
+                if return_payload:
+                    return "", "", None
+                return "", ""
+
             if write_to == "callback":
                 logger.opt(ansi=True).info(
                     f"{len(detection_payload['boxes'])} text boxes recognized in {end_time - start_time:0.03f}s using "
@@ -3404,7 +3452,12 @@ def process_and_write_results(
     return orig_text, text
 
 
-def check_text_is_all_menu(crop_coords: tuple, crop_coords_list: list, crop_offset: tuple = None) -> bool:
+def check_text_is_all_menu(
+    crop_coords: tuple,
+    crop_coords_list: list,
+    crop_offset: tuple = None,
+    crop_padding: int = 5,
+) -> bool:
     """
     Checks if the recognized text consists entirely of menu items.
     This function checks if ALL detected text areas fall entirely within secondary rectangles (menu areas).
@@ -3415,6 +3468,8 @@ def check_text_is_all_menu(crop_coords: tuple, crop_coords_list: list, crop_offs
     :param crop_offset: Tuple containing (offset_x, offset_y) to convert cropped coordinates back to original image coordinates. If None, uses the global crop_offset.
     :return: True if ALL text areas are within menu rectangles, False otherwise.
     """
+
+    crop_padding = max(0, _safe_int(crop_padding, 5))
 
     # Use global crop_offset if not provided
     if crop_offset is None:
@@ -3457,11 +3512,11 @@ def check_text_is_all_menu(crop_coords: tuple, crop_coords_list: list, crop_offs
             return False
 
         crop_x, crop_y, crop_x2, crop_y2 = coord_entry[:4]
-        # Remove 5 pixel padding that was added during OCR cropping
-        crop_x += 5
-        crop_y += 5
-        crop_x2 -= 5
-        crop_y2 -= 5
+        # Remove OCR crop padding before checking against menu rectangles.
+        crop_x += crop_padding
+        crop_y += crop_padding
+        crop_x2 -= crop_padding
+        crop_y2 -= crop_padding
 
         # Apply offset to convert from cropped image coordinates to original image coordinates
         crop_x += offset_x

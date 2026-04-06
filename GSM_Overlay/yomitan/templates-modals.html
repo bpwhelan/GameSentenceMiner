@@ -361,6 +361,21 @@
             <button type="button" id="recommended-settings-apply-button">Apply</button>
         </div>
     </div></div>
+
+    <div id="gsm-overlay-recommended-settings-modal" class="modal force-interact" tabindex="-1" role="dialog" hidden><div class="modal-content modal-content-medium">
+        <div class="modal-header">
+            <div class="modal-title">GSM Overlay Recommendations</div>
+        </div>
+        <div class="modal-body">
+            <p>GSM works best with a few Yomitan settings tuned for the overlay.</p>
+            <p class="margin-above">Select what you want to apply to the current Yomitan profile.</p>
+            <div id="gsm-overlay-recommended-settings-list" class="gsm-overlay-recommended-settings-list margin-above"></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="low-emphasis" id="gsm-overlay-recommended-settings-dismiss-button">Not now</button>
+            <button type="button" id="gsm-overlay-recommended-settings-apply-button">Apply selected</button>
+        </div>
+    </div></div>
 </template>
 
 <template id="settings-modals-template">

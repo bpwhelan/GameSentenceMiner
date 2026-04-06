@@ -56,6 +56,9 @@ interface OCRConfig {
     wholeWindowOcrHotkey: string;
     globalPauseHotkey: string;
     sendToClipboard: boolean;
+    send_to_clipboard_auto?: boolean | null;
+    send_to_clipboard_menu?: boolean | null;
+    send_to_clipboard_area_select?: boolean | null;
     keep_newline: boolean;
     keep_newline_auto?: boolean | null;
     keep_newline_menu?: boolean | null;
@@ -225,6 +228,9 @@ export const store = new Store<StoreConfig>({
             wholeWindowOcrHotkey: "Ctrl+Shift+W",
             globalPauseHotkey: "Ctrl+Shift+P",
             sendToClipboard: false,
+            send_to_clipboard_auto: null,
+            send_to_clipboard_menu: null,
+            send_to_clipboard_area_select: null,
             scanRate: 0.5,
             keep_newline: false,
             keep_newline_auto: null,

@@ -2413,6 +2413,27 @@ button.hotkey-list-item-enabled-button[data-scope-count='0'] {
     color: var(--danger-color);
 }
 
+.gsm-overlay-recommended-settings-list {
+    padding: 0 0.5em 0.25em;
+}
+.gsm-overlay-recommended-settings-list>.settings-item {
+    margin-left: 0;
+    margin-right: 0;
+}
+.gsm-overlay-recommended-settings-list .settings-item-left {
+    padding-left: 0.75em;
+}
+.gsm-overlay-recommended-settings-list .settings-item-right {
+    padding-right: 0.75em;
+}
+.gsm-overlay-recommended-settings-pack-list {
+    color: var(--text-color-light2);
+    padding-right: 0.5em;
+}
+.gsm-overlay-recommended-settings-pack-list li {
+    margin-top: 0.375em;
+}
+
 
 /* Dictionary settings */
 .dictionary-list {

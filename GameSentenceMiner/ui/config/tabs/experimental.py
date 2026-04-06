@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
+    QHBoxLayout,
     QLabel,
     QFormLayout,
     QWidget,
@@ -58,6 +59,92 @@ def _force_resume_suspended_processes(window: "ConfigWindow") -> None:
         f"Legacy skipped: {result['legacy_missing_created']}"
     )
     QMessageBox.information(window, "Process Resume Complete", summary)
+
+
+def _append_csv_entry_text(current_text: str, entry: str) -> tuple[str, bool]:
+    normalized_entry = str(entry or "").strip()
+    entries = [item.strip() for item in str(current_text or "").split(",") if item.strip()]
+    if not normalized_entry:
+        return ", ".join(entries), False
+
+    existing_entries = {item.lower() for item in entries}
+    if normalized_entry.lower() in existing_entries:
+        return ", ".join(entries), False
+
+    entries.append(normalized_entry)
+    return ", ".join(entries), True
+
+
+def _get_current_target_window_details() -> tuple[str, str]:
+    from GameSentenceMiner.util.config.configuration import is_windows
+    from GameSentenceMiner.util.platform.window_state_monitor import (
+        WindowStateMonitor,
+        get_window_state_monitor,
+    )
+
+    if not is_windows():
+        raise RuntimeError("Current target window detection is only available on Windows.")
+
+    monitor = get_window_state_monitor()
+    if monitor is None:
+        monitor = WindowStateMonitor()
+
+    hwnd = monitor.target_hwnd
+    exe_name = monitor._get_window_exe_name(hwnd) if hwnd else ""
+    title = monitor._get_window_title(hwnd) if hwnd else ""
+
+    if not exe_name:
+        hwnd = monitor.find_target_hwnd()
+        exe_name = monitor._get_window_exe_name(hwnd) if hwnd else ""
+        title = monitor._get_window_title(hwnd) if hwnd else ""
+
+    if not hwnd:
+        raise RuntimeError("No current target window found.")
+    if not exe_name:
+        raise RuntimeError("Found the current target window, but could not resolve its executable name.")
+
+    return exe_name, title
+
+
+def _add_current_target_window_to_list(window: "ConfigWindow", line_edit, list_name: str) -> None:
+    try:
+        exe_name, title = _get_current_target_window_details()
+    except Exception as exc:
+        logger.warning(f"Failed to resolve current target window for {list_name}: {exc}")
+        QMessageBox.warning(window, "Add Current Target Failed", str(exc))
+        return
+
+    updated_text, added = _append_csv_entry_text(line_edit.text(), exe_name)
+    if added:
+        line_edit.setText(updated_text)
+        target_label = f"{exe_name} ({title})" if title else exe_name
+        QMessageBox.information(
+            window,
+            f"{list_name.capitalize()} Updated",
+            f"Added {target_label} to the {list_name}.",
+        )
+        return
+
+    QMessageBox.information(
+        window,
+        f"{list_name.capitalize()} Unchanged",
+        f"{exe_name} is already in the {list_name}.",
+    )
+
+
+def _create_process_list_row(window: "ConfigWindow", line_edit, list_name: str) -> QWidget:
+    row_widget = QWidget()
+    row_layout = QHBoxLayout(row_widget)
+    row_layout.setContentsMargins(0, 0, 0, 0)
+    row_layout.setSpacing(8)
+    row_layout.addWidget(line_edit, 1)
+
+    add_button = QPushButton("Add Current Target")
+    add_button.setToolTip(f"Resolve the current OBS target window and add its executable to the {list_name}.")
+    add_button.clicked.connect(lambda: _add_current_target_window_to_list(window, line_edit, list_name))
+    row_layout.addWidget(add_button)
+
+    return row_widget
 
 
 def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
@@ -213,7 +300,7 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             "allowlist",
             default_tooltip="Comma-separated exe names that are always allowed.",
         ),
-        window.process_pausing_allowlist_edit,
+        _create_process_list_row(window, window.process_pausing_allowlist_edit, "allowlist"),
     )
     process_layout.addRow(
         window._create_labeled_widget(
@@ -222,7 +309,7 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             "denylist",
             default_tooltip="Comma-separated exe names that are always blocked.",
         ),
-        window.process_pausing_denylist_edit,
+        _create_process_list_row(window, window.process_pausing_denylist_edit, "denylist"),
     )
 
     force_resume_button = QPushButton("Force Resume Suspended Processes")

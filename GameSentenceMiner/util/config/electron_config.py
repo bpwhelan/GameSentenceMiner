@@ -67,6 +67,9 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "wholeWindowOcrHotkey": "Ctrl+Shift+W",
         "globalPauseHotkey": "Ctrl+Shift+P",
         "sendToClipboard": False,
+        "send_to_clipboard_auto": None,
+        "send_to_clipboard_menu": None,
+        "send_to_clipboard_area_select": None,
         "keep_newline": False,
         "keep_newline_auto": None,
         "keep_newline_menu": None,
@@ -316,6 +319,15 @@ def _get_keep_newline_key_for_source(source: str | None = None) -> str:
     return "keep_newline_auto"
 
 
+def _get_send_to_clipboard_key_for_source(source: str | None = None) -> str:
+    normalized = str(source or "").strip().lower()
+    if normalized == "secondary":
+        return "send_to_clipboard_menu"
+    if normalized == "screen_cropper":
+        return "send_to_clipboard_area_select"
+    return "send_to_clipboard_auto"
+
+
 def _resolve_ocr_engine(engine: Any) -> str:
     if not isinstance(engine, str):
         return ""
@@ -431,8 +443,15 @@ def get_ocr_global_pause_hotkey() -> str:
     return _get_ocr_hotkey_value("globalPauseHotkey", "Ctrl+Shift+P")
 
 
-def get_ocr_send_to_clipboard() -> bool:
-    return bool(_get_ocr_value("sendToClipboard", False))
+def get_ocr_send_to_clipboard(source: str | None = None) -> bool:
+    explicit_value = _get_ocr_value(_get_send_to_clipboard_key_for_source(source), None)
+    if isinstance(explicit_value, bool):
+        return explicit_value
+
+    if _get_ocr_value("sendToClipboard", False) is True:
+        return True
+
+    return _get_send_to_clipboard_key_for_source(source) == "send_to_clipboard_area_select"
 
 
 def get_ocr_scan_rate() -> float:

@@ -1760,7 +1760,7 @@ async def send_result(text, time, response_dict=None, source=TextSource.OCR):
             overlay_payload = build_overlay_coordinate_payload(response_dict)
         else:
             overlay_payload = None
-        if get_ocr_send_to_clipboard():
+        if get_ocr_send_to_clipboard(source):
             import pyperclipfix
 
             # TODO Test this out and see if i can make it work properly across platforms

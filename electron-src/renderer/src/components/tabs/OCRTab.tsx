@@ -51,6 +51,9 @@ interface OcrStoredConfig {
   wholeWindowOcrHotkey?: string;
   globalPauseHotkey?: string;
   sendToClipboard?: boolean;
+  send_to_clipboard_auto?: boolean | null;
+  send_to_clipboard_menu?: boolean | null;
+  send_to_clipboard_area_select?: boolean | null;
   keep_newline?: boolean;
   keep_newline_auto?: boolean;
   keep_newline_menu?: boolean;
@@ -79,7 +82,9 @@ interface OcrUiConfig {
   areaSelectOcrHotkey: string;
   wholeWindowOcrHotkey: string;
   globalPauseHotkey: string;
-  sendToClipboard: boolean;
+  sendToClipboardAuto: boolean;
+  sendToClipboardMenu: boolean;
+  sendToClipboardAreaSelect: boolean;
   keepNewlineAuto: boolean;
   keepNewlineMenu: boolean;
   keepNewlineAreaSelect: boolean;
@@ -522,6 +527,25 @@ function keepNewlineEnabled(
   return Boolean(config?.keep_newline);
 }
 
+function sendToClipboardEnabled(
+  config: OcrStoredConfig | null | undefined,
+  key:
+    | "send_to_clipboard_auto"
+    | "send_to_clipboard_menu"
+    | "send_to_clipboard_area_select"
+): boolean {
+  const explicitValue = config?.[key];
+  if (typeof explicitValue === "boolean") {
+    return explicitValue;
+  }
+
+  if (config?.sendToClipboard === true) {
+    return true;
+  }
+
+  return key === "send_to_clipboard_area_select";
+}
+
 function getEngineLabel(value: string): string {
   return ENGINE_LABELS.get(value) ?? value;
 }
@@ -605,7 +629,12 @@ function normalizeOcrConfig(
       typeof value?.globalPauseHotkey === "string"
         ? value.globalPauseHotkey
         : "Ctrl+Shift+P",
-    sendToClipboard: Boolean(value?.sendToClipboard),
+    sendToClipboardAuto: sendToClipboardEnabled(value, "send_to_clipboard_auto"),
+    sendToClipboardMenu: sendToClipboardEnabled(value, "send_to_clipboard_menu"),
+    sendToClipboardAreaSelect: sendToClipboardEnabled(
+      value,
+      "send_to_clipboard_area_select"
+    ),
     keepNewlineAuto: keepNewlineEnabled(value, "keep_newline_auto"),
     keepNewlineMenu: keepNewlineEnabled(value, "keep_newline_menu"),
     keepNewlineAreaSelect: keepNewlineEnabled(value, "keep_newline_area_select"),
@@ -642,7 +671,13 @@ function buildPersistedConfig(
     areaSelectOcrHotkey: config.areaSelectOcrHotkey,
     wholeWindowOcrHotkey: config.wholeWindowOcrHotkey,
     globalPauseHotkey: config.globalPauseHotkey,
-    sendToClipboard: config.sendToClipboard,
+    sendToClipboard:
+      config.sendToClipboardAuto ||
+      config.sendToClipboardMenu ||
+      config.sendToClipboardAreaSelect,
+    send_to_clipboard_auto: config.sendToClipboardAuto,
+    send_to_clipboard_menu: config.sendToClipboardMenu,
+    send_to_clipboard_area_select: config.sendToClipboardAreaSelect,
     keep_newline:
       config.keepNewlineAuto ||
       config.keepNewlineMenu ||
@@ -764,7 +799,13 @@ const OCR_TOOLTIPS = {
   furiganaPreview:
     "Open a preview window to tune furigana sensitivity against a sample character from your current game.",
   sendToClipboard:
-    "OCR sends text to the websocket by default. Enable this to also copy the final text to the clipboard.",
+    "OCR sends text to the websocket by default. Choose which OCR modes should also copy the final text to the clipboard.",
+  sendToClipboardAuto:
+    "Copy normal automatic OCR results to the clipboard.",
+  sendToClipboardMenu:
+    "Copy menu OCR results to the clipboard.",
+  sendToClipboardAreaSelect:
+    "Copy manual area-select OCR captures to the clipboard.",
   keepNewline:
     "If enabled, OCR will attempt to keep line breaks in the output text for better readability. Not guaranteed.",
   keepNewlineAuto:
@@ -1864,24 +1905,70 @@ export function OCRTab({ active }: OcrTabProps) {
                   </div>
                 </div>
 
-                <div className="input-group">
-                  <label
-                    htmlFor="ocr-send-clipboard"
-                    {...titleProps(OCR_TOOLTIPS.sendToClipboard)}
-                  >
-                    Send Text to Clipboard:
+                <div className="ocr-linebreak-row">
+                  <Tip text={OCR_TOOLTIPS.sendToClipboard}>
+                    <span className="ocr-linebreak-label">Copy to Clipboard:</span>
+                  </Tip>
+                  <label className="checkbox-item" htmlFor="send-to-clipboard-auto">
+                    <input
+                      id="send-to-clipboard-auto"
+                      type="checkbox"
+                      checked={config.sendToClipboardAuto}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          sendToClipboardAuto: event.target.checked
+                        }));
+                      }}
+                    />
+                    <span
+                      className="ocr-lb-auto"
+                      {...titleProps(OCR_TOOLTIPS.sendToClipboardAuto)}
+                    >
+                      Auto
+                    </span>
                   </label>
-                  <input
-                    id="ocr-send-clipboard"
-                    type="checkbox"
-                    checked={config.sendToClipboard}
-                    onChange={(event) => {
-                      setConfig((current) => ({
-                        ...current,
-                        sendToClipboard: event.target.checked
-                      }));
-                    }}
-                  />
+                  <label className="checkbox-item" htmlFor="send-to-clipboard-menu">
+                    <input
+                      id="send-to-clipboard-menu"
+                      type="checkbox"
+                      checked={config.sendToClipboardMenu}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          sendToClipboardMenu: event.target.checked
+                        }));
+                      }}
+                    />
+                    <span
+                      className="ocr-lb-menu"
+                      {...titleProps(OCR_TOOLTIPS.sendToClipboardMenu)}
+                    >
+                      Menu
+                    </span>
+                  </label>
+                  <label
+                    className="checkbox-item"
+                    htmlFor="send-to-clipboard-area-select"
+                  >
+                    <input
+                      id="send-to-clipboard-area-select"
+                      type="checkbox"
+                      checked={config.sendToClipboardAreaSelect}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          sendToClipboardAreaSelect: event.target.checked
+                        }));
+                      }}
+                    />
+                    <span
+                      className="ocr-lb-area"
+                      {...titleProps(OCR_TOOLTIPS.sendToClipboardAreaSelect)}
+                    >
+                      Area Select
+                    </span>
+                  </label>
                 </div>
 
                 <div className="ocr-linebreak-row">
@@ -1929,7 +2016,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       }}
                     />
                     <span className="ocr-lb-area" {...titleProps(OCR_TOOLTIPS.keepNewlineAreaSelect)}>
-                      Area
+                      Area Select
                     </span>
                   </label>
                 </div>
