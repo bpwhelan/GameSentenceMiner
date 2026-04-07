@@ -25,19 +25,57 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '21'
+          node-version: "22.12.0"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            GSM_Overlay/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-cache-
+
+      - name: Install Linux native build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libudev-dev \
+            libx11-dev \
+            libxtst-dev
+
+      - name: Build gamepad server (Linux)
+        run: |
+          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+          mkdir -p GSM_Overlay/input_server/bin/linux
+          cp GSM_Overlay/input_server/target/release/gsm_overlay_server GSM_Overlay/input_server/bin/linux/gsm_overlay_server
+          chmod +x GSM_Overlay/input_server/bin/linux/gsm_overlay_server
 
       - name: Build Overlay
         id: build_overlay_linux
         working-directory: ./GSM_Overlay
         run: |
-          npm install
+          npm ci --prefer-offline --no-audit --fund=false
           npm run package
 
       - name: Install dependencies
         run: |
-          npm install
-          npm install --save-dev electron electron-builder
+          npm ci --prefer-offline --no-audit --fund=false
 
       - name: Get version from package.json
         id: version_check
