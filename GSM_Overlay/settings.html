@@ -986,10 +986,11 @@
           <option value="hold">Hold (press and hold to show)</option>
           <option value="toggle">Toggle (press once to show, press again to hide)</option>
         </select>
-        <div id="manual-mode-hold-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">
-          Hold mode is unreliable on Linux (global hotkeys don't emit key-up/repeat consistently). Use Toggle.
-        </div>
       </label>
+      <div class="hotkey-info">Standard hotkeys use Electron when possible. Modifier-only hotkeys like Shift use the input server.</div>
+      <div id="manualHotkeyBackendStatus" class="hotkey-info">Backend: Electron</div>
+      <div id="manual-hotkey-platform-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;"></div>
+      <div id="manual-hotkey-runtime-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;"></div>
       <label>
         <span class="label-text">
           Re-Scan When Entering Manual Mode
@@ -1000,7 +1001,7 @@
       <label>
         <span class="label-text">
           Hotkey
-          <div class="hotkey-info">Press to temporarily show overlay in manual mode</div>
+          <div class="hotkey-info">Used for the selected manual mode type above</div>
           <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key
             (modifiers optional)</div>
           <div id="ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning:
@@ -1608,24 +1609,6 @@
             el.title = 'This setting is disabled on Linux.';
           }
         });
-
-        const manualModeTypeSelect = document.getElementById('manualModeType');
-        const manualModeHoldOption = manualModeTypeSelect?.querySelector('option[value="hold"]');
-        const manualModeHoldWarning = document.getElementById('manual-mode-hold-warning');
-        if (manualModeHoldOption) {
-          manualModeHoldOption.disabled = true;
-        }
-        if (manualModeHoldWarning) {
-          manualModeHoldWarning.style.display = 'block';
-        }
-        if (manualModeTypeSelect && manualModeTypeSelect.value === 'hold') {
-          manualModeTypeSelect.value = 'toggle';
-          if (settingBindingMap.has('manualModeType')) {
-            await commitSettingValue('manualModeType', 'toggle', manualModeTypeSelect);
-          } else {
-            await handleSettingChange('manualModeType', 'toggle', manualModeTypeSelect);
-          }
-        }
       }
 
       // Hide Text Offset group on Windows
@@ -1669,18 +1652,6 @@
         }
       }
 
-      if (platform !== 'linux') {
-        const manualModeTypeSelect = document.getElementById('manualModeType');
-        const manualModeHoldOption = manualModeTypeSelect?.querySelector('option[value="hold"]');
-        const manualModeHoldWarning = document.getElementById('manual-mode-hold-warning');
-        if (manualModeHoldOption) {
-          manualModeHoldOption.disabled = false;
-        }
-        if (manualModeHoldWarning) {
-          manualModeHoldWarning.style.display = 'none';
-        }
-      }
-
       const platformOverrideInput = document.getElementById('platform-override');
       const derivedPlatformOverride = platform !== process.platform ? platform : null;
       if (platformOverrideInput) {
@@ -1689,6 +1660,7 @@
       if (settingBindingMap.has('platformOverride')) {
         setSettingValueWithoutPersist('platformOverride', derivedPlatformOverride);
       }
+      syncManualHotkeyStatusUi();
       refreshAllResetButtons();
     }
 
@@ -1727,6 +1699,12 @@
     let overlaySettingDefaults = {};
     const settingBindingMap = new Map();
     const settingBindingState = new Map();
+    let manualHotkeyRuntimeState = {
+      backend: "electron",
+      backendReason: "electron",
+      keyboardAvailable: true,
+      keyboardError: null,
+    };
 
     function toArray(value) {
       return Array.isArray(value) ? value : [value];
@@ -1776,7 +1754,7 @@
     }
 
     function normalizeManualModeTypeValue(value) {
-      const normalized = String(value || "").trim();
+      const normalized = String(value || "").trim().toLowerCase();
       return VALID_MANUAL_MODE_TYPES.has(normalized) ? normalized : "hold";
     }
 
@@ -1918,6 +1896,77 @@
 
       updateBindingResetButtons(binding);
       return normalizedValue;
+    }
+
+    function splitHotkeyParts(hotkey) {
+      return String(hotkey || "")
+        .split("+")
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0);
+    }
+
+    function isModifierOnlyHotkey(hotkey) {
+      const modifierTokens = new Set(["ctrl", "cmd", "alt", "shift"]);
+      const parts = splitHotkeyParts(hotkey).map((part) => part.toLowerCase());
+      return parts.length > 0 && parts.every((part) => modifierTokens.has(part));
+    }
+
+    function predictManualHotkeyBackend(hotkey) {
+      return isModifierOnlyHotkey(hotkey) ? "input_server" : "electron";
+    }
+
+    function syncManualHotkeyStatusUi() {
+      const backendElement = document.getElementById("manualHotkeyBackendStatus");
+      const platformWarning = document.getElementById("manual-hotkey-platform-warning");
+      const runtimeWarning = document.getElementById("manual-hotkey-runtime-warning");
+      if (!backendElement || !platformWarning || !runtimeWarning) {
+        return;
+      }
+
+      const configuredHotkey = settingBindingState.get("showHotkey") || document.getElementById("showHotkey")?.value || "";
+      const manualModeType = normalizeManualModeTypeValue(
+        settingBindingState.get("manualModeType") || document.getElementById("manualModeType")?.value || "hold"
+      );
+      const predictedBackend = predictManualHotkeyBackend(configuredHotkey);
+      const backend = manualHotkeyRuntimeState.backend || predictedBackend;
+      const backendLabel = backend === "input_server" ? "Input Server" : "Electron";
+      let statusText = `Backend: ${backendLabel}`;
+      if (backend === "electron" && predictedBackend !== "electron") {
+        statusText = "Backend: Electron (pending reconfiguration)";
+      } else if (backend === "input_server" && manualHotkeyRuntimeState.backendReason === "electron-registration-failed") {
+        statusText = "Backend: Input Server (Electron registration fallback)";
+      }
+      if (backend === "electron" && manualModeType === "hold") {
+        statusText += " | Hold detection is best-effort";
+      }
+      backendElement.textContent = statusText;
+
+      platformWarning.style.display = "none";
+      runtimeWarning.style.display = "none";
+      platformWarning.textContent = "";
+      runtimeWarning.textContent = "";
+
+      const platform = document.getElementById('platform-override')?.value && document.getElementById('platform-override')?.value !== 'null'
+        ? document.getElementById('platform-override').value
+        : process.platform;
+
+      if (backend === "input_server") {
+        if (platform === "darwin") {
+          platformWarning.textContent = "Input-server manual hotkeys on macOS require Accessibility permission.";
+          platformWarning.style.display = "block";
+        } else if (platform === "linux") {
+          platformWarning.textContent = "Linux manual hotkeys are best-effort. Wayland may block global keyboard hooks.";
+          platformWarning.style.display = "block";
+        }
+      } else if (backend === "electron" && manualModeType === "hold") {
+        platformWarning.textContent = "Electron hold mode uses repeat/watchdog release detection because global shortcuts do not expose key-up.";
+        platformWarning.style.display = "block";
+      }
+
+      if (backend === "input_server" && (manualHotkeyRuntimeState.keyboardAvailable === false || manualHotkeyRuntimeState.keyboardError)) {
+        runtimeWarning.textContent = manualHotkeyRuntimeState.keyboardError || "Input-server keyboard listener unavailable.";
+        runtimeWarning.style.display = "block";
+      }
     }
 
     async function persistBindingValue(binding, value, sourceControl) {
@@ -2199,9 +2248,12 @@
       createCheckboxBinding("manualMode", "#manualMode"),
       createSelectBinding("manualModeType", "#manualModeType", {
         normalize: normalizeManualModeTypeValue,
+        afterApply: () => syncManualHotkeyStatusUi(),
       }),
       createCheckboxBinding("manualModeRescanOnShow", "#manualModeRescanOnShow"),
-      createHotkeyBinding("showHotkey", "#showHotkey"),
+      createHotkeyBinding("showHotkey", "#showHotkey", {
+        afterApply: () => syncManualHotkeyStatusUi(),
+      }),
       createCheckboxBinding("autoRequestTranslation", "#autoRequestTranslation"),
       createHotkeyBinding("translateHotkey", "#translateHotkey"),
       createCheckboxBinding("enableJitenReader", "#enableJitenReader", {
@@ -2409,6 +2461,9 @@
         // If no valid hotkey was captured, restore the previous value
         if (event.target.value === placeholder || event.target.value.trim() === "") {
           event.target.value = previousValue;
+          if (settingKey === "showHotkey") {
+            syncManualHotkeyStatusUi();
+          }
           return;
         }
 
@@ -2426,8 +2481,11 @@
             handleSettingChange(settingKey, event.target.value, event.target);
           }
         } else {
-          alert("Invalid hotkey format. Please use the format: Modifier + Key (e.g., Shift + Space)");
+          alert("Invalid hotkey format. Use a key like Shift+Space or a modifier-only hotkey like Shift.");
           event.target.value = previousValue; // Restore previous value on invalid input
+        }
+        if (settingKey === "showHotkey") {
+          syncManualHotkeyStatusUi();
         }
       });
 
@@ -2442,6 +2500,9 @@
           event.target.value = accelerator;
           if (onCapture) {
             onCapture(accelerator);
+          }
+          if (settingKey === "showHotkey") {
+            syncManualHotkeyStatusUi();
           }
         }
       });
@@ -2668,7 +2729,6 @@
 
     // Capture keyboard event and convert to accelerator format
     function captureKeyboardEvent(event) {
-      const keys = [];
       const modifiers = [];
 
       // Capture modifiers in the correct order for Electron
@@ -2719,9 +2779,18 @@
         mainKey = event.key;
       }
 
-      // Don't allow modifier-only combinations
-      if (!mainKey || ['Control', 'Alt', 'Shift', 'Meta', 'Cmd'].includes(mainKey)) {
+      if (!mainKey) {
         return null;
+      }
+
+      const modifierOnlyTokens = [];
+      if (modifiers.includes('Ctrl')) modifierOnlyTokens.push('Ctrl');
+      if (modifiers.includes('Cmd')) modifierOnlyTokens.push('Cmd');
+      if (modifiers.includes('Alt')) modifierOnlyTokens.push('Alt');
+      if (modifiers.includes('Shift')) modifierOnlyTokens.push('Shift');
+
+      if (['Control', 'Alt', 'Shift', 'Meta', 'Cmd'].includes(mainKey)) {
+        return modifierOnlyTokens.length > 0 ? modifierOnlyTokens.join('+') : null;
       }
 
       // Build the accelerator string
@@ -2773,6 +2842,10 @@
 
       const parts = hotkey.split('+').map(part => part.trim());
 
+      if (parts.every((part) => validModifiers.includes(part))) {
+        return true;
+      }
+
       // Single key (no modifiers) - just validate the key itself
       if (parts.length === 1) {
         return validKeys.includes(parts[0]);
@@ -2816,11 +2889,18 @@
       };
     }
 
-    function applyPreloadedSettings(userSettings = {}, defaultSettings = {}) {
+    function applyPreloadedSettings(userSettings = {}, defaultSettings = {}, runtimeSettings = {}) {
       const resolvedSettings = buildResolvedUserSettings(userSettings);
       overlaySettingDefaults = {
         ...defaultSettings,
         platformOverride: null,
+      };
+      manualHotkeyRuntimeState = {
+        ...manualHotkeyRuntimeState,
+        backend: runtimeSettings.manualHotkeyBackend || manualHotkeyRuntimeState.backend,
+        backendReason: runtimeSettings.manualHotkeyBackendReason || manualHotkeyRuntimeState.backendReason,
+        keyboardAvailable: runtimeSettings.manualHotkeyKeyboardAvailable !== false,
+        keyboardError: runtimeSettings.manualHotkeyKeyboardError || null,
       };
       mainBoxStartupWarningAcknowledged = resolvedSettings.mainBoxStartupWarningAcknowledged === true;
 
@@ -2851,6 +2931,7 @@
       syncJitenReaderUi(resolvedSettings.enableJitenReader !== false);
       updateControllerActivationFieldState();
       updateTokenizerBackendFieldState();
+      syncManualHotkeyStatusUi();
       refreshAllResetButtons();
 
       const configuredPort = Number.parseInt(resolvedSettings.gamepadServerPort, 10) || 7276;
@@ -2859,10 +2940,38 @@
       void applyPlatformSpecifics();
     }
 
-    ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates, defaultSettings }) => {
-      applyPreloadedSettings(userSettings, defaultSettings);
+    ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates, defaultSettings, runtimeSettings }) => {
+      applyPreloadedSettings(userSettings, defaultSettings, runtimeSettings);
       updateWebSocketStatus("ws1", websocketStates.ws1);
       updateWebSocketStatus("ws2", websocketStates.ws2);
+    });
+
+    ipcRenderer.on("settings-updated", (event, updatedSettings = {}) => {
+      Object.entries(updatedSettings).forEach(([key, value]) => {
+        if (key === "manualHotkeyBackend") {
+          manualHotkeyRuntimeState.backend = value || manualHotkeyRuntimeState.backend;
+          return;
+        }
+        if (key === "manualHotkeyBackendReason") {
+          manualHotkeyRuntimeState.backendReason = value || manualHotkeyRuntimeState.backendReason;
+          return;
+        }
+        if (key === "manualHotkeyKeyboardAvailable") {
+          manualHotkeyRuntimeState.keyboardAvailable = value !== false;
+          return;
+        }
+        if (key === "manualHotkeyKeyboardError") {
+          manualHotkeyRuntimeState.keyboardError = value || null;
+          return;
+        }
+
+        if (settingBindingMap.has(key)) {
+          setSettingValueWithoutPersist(key, value);
+        }
+      });
+
+      syncManualHotkeyStatusUi();
+      refreshAllResetButtons();
     });
 
     // Handle websocket status updates

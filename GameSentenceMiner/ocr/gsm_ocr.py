@@ -38,6 +38,7 @@ from GameSentenceMiner.ocr.gsm_ocr_config import (
     get_scene_furigana_filter_sensitivity,
 )
 from GameSentenceMiner.owocr.owocr import run
+from GameSentenceMiner.owocr.owocr.ocr import normalize_japanese_ocr_dashes
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
 from GameSentenceMiner.util.communication import ocr_ipc
 from GameSentenceMiner.util.config.configuration import (
@@ -1366,6 +1367,32 @@ def _is_overlay_supported_engine(engine_name: Any) -> bool:
     return "oneocr" in normalized or "meiki" in normalized or "screenai" in normalized
 
 
+def _normalize_overlay_lookup_lines(lines: Any) -> list[dict[str, Any]]:
+    normalized_lines: list[dict[str, Any]] = []
+
+    for line in lines or []:
+        if not isinstance(line, dict):
+            continue
+
+        normalized_line = dict(line)
+        normalized_line["text"] = normalize_japanese_ocr_dashes(str(normalized_line.get("text", "") or ""))
+
+        raw_words = normalized_line.get("words")
+        if isinstance(raw_words, list):
+            normalized_words = []
+            for word in raw_words:
+                if not isinstance(word, dict):
+                    continue
+                normalized_word = dict(word)
+                normalized_word["text"] = normalize_japanese_ocr_dashes(str(normalized_word.get("text", "") or ""))
+                normalized_words.append(normalized_word)
+            normalized_line["words"] = normalized_words
+
+        normalized_lines.append(normalized_line)
+
+    return normalized_lines
+
+
 def build_overlay_coordinate_payload(response_dict: Any) -> dict[str, Any] | None:
     """
     Convert OCR callback payload to a compact, overlay-ready coordinate payload.
@@ -1375,10 +1402,13 @@ def build_overlay_coordinate_payload(response_dict: Any) -> dict[str, Any] | Non
         return None
 
     if isinstance(response_dict, dict) and response_dict.get("schema") == "gsm_overlay_coords_v1":
-        overlay_lines = response_dict.get("lines")
+        overlay_lines = _normalize_overlay_lookup_lines(response_dict.get("lines"))
         if not _has_word_level_coords(overlay_lines):
             return None
-        return response_dict
+        return {
+            **response_dict,
+            "lines": overlay_lines,
+        }
 
     if isinstance(response_dict, list):
         response_dict = {"line_coords": response_dict}
@@ -1411,9 +1441,9 @@ def build_overlay_coordinate_payload(response_dict: Any) -> dict[str, Any] | Non
 
     offset_x = _safe_int(crop_offset.get("x"))
     offset_y = _safe_int(crop_offset.get("y"))
-    translated_lines = [
-        _translate_line_to_source_space(line, offset_x, offset_y) for line in lines if isinstance(line, dict)
-    ]
+    translated_lines = _normalize_overlay_lookup_lines(
+        [_translate_line_to_source_space(line, offset_x, offset_y) for line in lines if isinstance(line, dict)]
+    )
     if not translated_lines:
         return None
     if not _has_word_level_coords(translated_lines):

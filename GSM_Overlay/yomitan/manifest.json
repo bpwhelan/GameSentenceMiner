@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Yomitan for GSM Overlay",
-  "version": "26.3.16.0",
+  "version": "26.3.30.0",
   "description": "Popup dictionary for language learning",
   "author": {
     "email": "themoeway@googlegroups.com"

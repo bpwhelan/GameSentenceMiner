@@ -1083,11 +1083,32 @@ export class Backend {
      * @param {{action?: unknown, body?: unknown}} params
      * @returns {Promise<{data: unknown, responseStatusCode: number}>}
      */
-    async _onApiGsmYomitanApiInvoke({action, body}) {
+    async _onApiGsmYomitanApiInvoke({action, body}, sender) {
         if (typeof action !== 'string' || action.length === 0) {
             throw new Error('Invalid Yomitan API bridge action');
         }
+        if (action === 'closePopups') {
+            await this._sendBridgeClosePopups(sender);
+            return {data: {closed: true}, responseStatusCode: 200};
+        }
         return await this._yomitanApi.invokeBridgeAction(action, body);
+    }
+
+    /**
+     * @param {chrome.runtime.MessageSender} sender
+     * @returns {Promise<unknown>}
+     */
+    async _sendBridgeClosePopups(sender) {
+        /** @type {import('application').ApiMessage<'applicationClosePopups'>} */
+        const message = {action: 'applicationClosePopups'};
+        if (sender?.tab && typeof sender.tab.id === 'number') {
+            return await this._sendMessageTabPromise(
+                sender.tab.id,
+                message,
+                {frameId: typeof sender.frameId === 'number' ? sender.frameId : 0},
+            );
+        }
+        return await this._webExtension.sendMessagePromise(message);
     }
 
     /** @type {import('api').ApiHandler<'isTextLookupWorthy'>} */

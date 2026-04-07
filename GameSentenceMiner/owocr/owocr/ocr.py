@@ -52,6 +52,18 @@ _ONEOCR_MODULE = _UNINITIALIZED
 _LENS_PROTO_DEPS = _UNINITIALIZED
 _MESSAGE_TO_DICT = _UNINITIALIZED
 
+_JAPANESE_TEXT_CLASS = r"\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}々〆〇〻ヶヵ"
+_JAPANESE_DASH_VARIANTS = "-－―—–−ｰ─━"
+_JAPANESE_DASH_VARIANTS_CLASS = regex.escape(_JAPANESE_DASH_VARIANTS)
+_JAPANESE_LEADING_DASH_OPENERS = regex.escape("「『【（〈《〔［｛〘〚")
+_JAPANESE_DASH_TRAILERS = regex.escape("」』】）〉》〕］｝〙〛、。！？…・!?,.，．")
+_JAPANESE_LEADING_DASH_REGEX = regex.compile(
+    rf"(^|[\n{_JAPANESE_LEADING_DASH_OPENERS}])([{_JAPANESE_DASH_VARIANTS_CLASS}]+)(?=[{_JAPANESE_TEXT_CLASS}])"
+)
+_JAPANESE_CONTEXTUAL_DASH_REGEX = regex.compile(
+    rf"(?<=[{_JAPANESE_TEXT_CLASS}])[{_JAPANESE_DASH_VARIANTS_CLASS}]+(?=(?:[{_JAPANESE_TEXT_CLASS}{_JAPANESE_DASH_TRAILERS}\n])|$)"
+)
+
 
 def _load_fpng_module():
     global _FPNG_MODULE
@@ -399,6 +411,17 @@ def empty_post_process(text):
     return text
 
 
+def normalize_japanese_ocr_dashes(text):
+    if not isinstance(text, str) or not text:
+        return text
+
+    normalized = _JAPANESE_LEADING_DASH_REGEX.sub(
+        lambda match: f"{match.group(1)}{'ー' * len(match.group(2))}",
+        text,
+    )
+    return _JAPANESE_CONTEXTUAL_DASH_REGEX.sub(lambda match: "ー" * len(match.group(0)), normalized)
+
+
 def post_process(text, keep_blank_lines=False):
     import jaconv
 
@@ -411,6 +434,7 @@ def post_process(text, keep_blank_lines=False):
     text = re.sub("[・.]{2,}", lambda x: (x.end() - x.start()) * "・", text)
     text = re.sub(r"・{3,}", "・・・", text)
     text = jaconv.h2z(text, ascii=True, digit=True)
+    text = normalize_japanese_ocr_dashes(text)
     return text
 
 

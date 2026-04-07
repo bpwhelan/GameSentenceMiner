@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import time
+from typing import Any, Dict, Optional
+
 from google import genai
 from google.genai import types
-from typing import Optional, Any, Dict
 
 from GameSentenceMiner.ai.contracts import AIRequest, AIResponse, AIError
 from GameSentenceMiner.util.config.configuration import normalize_gemini_model_name
+
+LOW_LATENCY_TOKEN_LIMITS = {
+    "translation": 128,
+    "context": 192,
+}
 
 
 class GeminiClient:
@@ -45,18 +51,57 @@ class GeminiClient:
             return -1 if "-pro" in model else 0
         return None
 
+    @staticmethod
+    def _build_thinking_config(model_name: str) -> Optional[types.ThinkingConfig]:
+        model = (model_name or "").lower()
+        thinking_fields = getattr(types.ThinkingConfig, "model_fields", {})
+
+        if "thinking_level" in thinking_fields and model.startswith("gemma-4"):
+            return types.ThinkingConfig(
+                thinking_level=types.ThinkingLevel.MINIMAL,
+                include_thoughts=False,
+            )
+
+        thinking_budget = GeminiClient._get_thinking_budget(model_name)
+        if thinking_budget is None:
+            return None
+
+        kwargs: dict[str, Any] = {"thinking_budget": thinking_budget}
+        if "include_thoughts" in thinking_fields:
+            kwargs["include_thoughts"] = False
+        return types.ThinkingConfig(**kwargs)
+
     def _build_generation_config(self, request: AIRequest, model_name: str) -> types.GenerateContentConfig:
+        max_output_tokens = LOW_LATENCY_TOKEN_LIMITS.get(request.request_kind, request.max_tokens)
+        max_output_tokens = min(request.max_tokens, max_output_tokens)
         config = types.GenerateContentConfig(
             temperature=request.temperature,
-            max_output_tokens=request.max_tokens,
+            max_output_tokens=max_output_tokens,
             top_p=request.top_p,
             stop_sequences=None,
+            response_mime_type="text/plain",
             safety_settings=self._safety_settings,
         )
-        thinking_budget = self._get_thinking_budget(model_name)
-        if thinking_budget is not None:
-            config.thinking_config = types.ThinkingConfig(thinking_budget=thinking_budget)
+        thinking_config = self._build_thinking_config(model_name)
+        if thinking_config is not None:
+            config.thinking_config = thinking_config
         return config
+
+    @staticmethod
+    def _extract_response_text(response: Any) -> str:
+        response_text = getattr(response, "text", None)
+        if isinstance(response_text, str) and response_text.strip():
+            return response_text.strip()
+
+        text_parts: list[str] = []
+        for candidate in getattr(response, "candidates", None) or []:
+            for part in getattr(getattr(candidate, "content", None), "parts", None) or []:
+                if getattr(part, "thought", False):
+                    continue
+                part_text = getattr(part, "text", None)
+                if part_text:
+                    text_parts.append(part_text)
+        return "".join(text_parts).strip()
 
     def generate(self, request: AIRequest) -> AIResponse:
         if self.client is None:
@@ -80,15 +125,7 @@ class GeminiClient:
 
             self.logger.debug(f"Gemini raw response: {response}")
 
-            result = ""
-            if response.candidates:
-                for candidate in response.candidates:
-                    if candidate.content and candidate.content.parts:
-                        for part in candidate.content.parts:
-                            if hasattr(part, "text") and part.text:
-                                result += part.text
-
-            raw_text = result.strip()
+            raw_text = self._extract_response_text(response)
             usage: Optional[Dict[str, Any]] = None
             if hasattr(response, "usage_metadata") and response.usage_metadata:
                 usage = (

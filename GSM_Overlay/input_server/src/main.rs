@@ -1,6 +1,7 @@
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
 use gilrs::{Axis, Button, Event, EventType, GamepadId, Gilrs};
+use rdev::{listen as listen_global_keyboard, Event as KeyboardEvent, EventType as KeyboardEventType, Key as KeyboardKey};
 use reqwest::Client as HttpClient;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -11,7 +12,7 @@ use std::io::{BufWriter, Cursor, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::thread;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 use sudachi::analysis::stateless_tokenizer::StatelessTokenizer;
@@ -321,6 +322,42 @@ impl DevInputLogger {
 type SharedStates = Mutex<HashMap<GamepadId, GamepadState>>;
 type SharedMecab = Mutex<MecabService>;
 type SharedSudachi = Mutex<SudachiService>;
+type SharedManualHotkey = Arc<StdMutex<ManualHotkeyState>>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+struct ManualHotkeyModifiers {
+    ctrl: bool,
+    alt: bool,
+    shift: bool,
+    cmd: bool,
+}
+
+impl ManualHotkeyModifiers {
+    fn any(self) -> bool {
+        self.ctrl || self.alt || self.shift || self.cmd
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ManualHotkeyBinding {
+    modifiers: ManualHotkeyModifiers,
+    key: Option<KeyboardKey>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ManualHotkeyStatus {
+    available: bool,
+    error: Option<String>,
+    configured_hotkey: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct ManualHotkeyState {
+    binding: Option<ManualHotkeyBinding>,
+    binding_label: Option<String>,
+    active: bool,
+    status: ManualHotkeyStatus,
+}
 
 struct SudachiService {
     data_dir: PathBuf,
@@ -1276,6 +1313,198 @@ fn furigana_with_sudachi(
     Ok(segments)
 }
 
+fn manual_hotkey_status_payload(state: &ManualHotkeyState) -> Value {
+    json!({
+        "type": "keyboard_listener_status",
+        "available": state.status.available,
+        "error": state.status.error,
+        "configuredHotkey": state.status.configured_hotkey,
+    })
+}
+
+fn set_manual_hotkey_listener_status(
+    manual_hotkey: &SharedManualHotkey,
+    tx: &broadcast::Sender<String>,
+    available: bool,
+    error: Option<String>,
+) {
+    let payload = {
+        let mut guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+        guard.status.available = available;
+        guard.status.error = error;
+        manual_hotkey_status_payload(&guard)
+    };
+    send_broadcast(tx, payload.to_string(), "keyboard_listener_status");
+}
+
+fn parse_manual_hotkey_modifier(token: &str, modifiers: &mut ManualHotkeyModifiers) -> bool {
+    match token.trim().to_ascii_lowercase().as_str() {
+        "ctrl" => {
+            modifiers.ctrl = true;
+            true
+        }
+        "alt" => {
+            modifiers.alt = true;
+            true
+        }
+        "shift" => {
+            modifiers.shift = true;
+            true
+        }
+        "cmd" => {
+            modifiers.cmd = true;
+            true
+        }
+        _ => false,
+    }
+}
+
+fn parse_manual_hotkey_key(token: &str) -> Result<KeyboardKey, String> {
+    let normalized = token.trim().to_ascii_uppercase();
+    let key = match normalized.as_str() {
+        "A" => KeyboardKey::KeyA,
+        "B" => KeyboardKey::KeyB,
+        "C" => KeyboardKey::KeyC,
+        "D" => KeyboardKey::KeyD,
+        "E" => KeyboardKey::KeyE,
+        "F" => KeyboardKey::KeyF,
+        "G" => KeyboardKey::KeyG,
+        "H" => KeyboardKey::KeyH,
+        "I" => KeyboardKey::KeyI,
+        "J" => KeyboardKey::KeyJ,
+        "K" => KeyboardKey::KeyK,
+        "L" => KeyboardKey::KeyL,
+        "M" => KeyboardKey::KeyM,
+        "N" => KeyboardKey::KeyN,
+        "O" => KeyboardKey::KeyO,
+        "P" => KeyboardKey::KeyP,
+        "Q" => KeyboardKey::KeyQ,
+        "R" => KeyboardKey::KeyR,
+        "S" => KeyboardKey::KeyS,
+        "T" => KeyboardKey::KeyT,
+        "U" => KeyboardKey::KeyU,
+        "V" => KeyboardKey::KeyV,
+        "W" => KeyboardKey::KeyW,
+        "X" => KeyboardKey::KeyX,
+        "Y" => KeyboardKey::KeyY,
+        "Z" => KeyboardKey::KeyZ,
+        "0" | ")" => KeyboardKey::Num0,
+        "1" | "!" => KeyboardKey::Num1,
+        "2" | "@" => KeyboardKey::Num2,
+        "3" | "#" => KeyboardKey::Num3,
+        "4" | "$" => KeyboardKey::Num4,
+        "5" | "%" => KeyboardKey::Num5,
+        "6" | "^" => KeyboardKey::Num6,
+        "7" | "&" => KeyboardKey::Num7,
+        "8" | "*" => KeyboardKey::Num8,
+        "9" | "(" => KeyboardKey::Num9,
+        "SPACE" => KeyboardKey::Space,
+        "RETURN" => KeyboardKey::Return,
+        "ESCAPE" => KeyboardKey::Escape,
+        "BACKSPACE" => KeyboardKey::Backspace,
+        "DELETE" => KeyboardKey::Delete,
+        "TAB" => KeyboardKey::Tab,
+        "UP" => KeyboardKey::UpArrow,
+        "DOWN" => KeyboardKey::DownArrow,
+        "LEFT" => KeyboardKey::LeftArrow,
+        "RIGHT" => KeyboardKey::RightArrow,
+        "HOME" => KeyboardKey::Home,
+        "END" => KeyboardKey::End,
+        "PAGEUP" => KeyboardKey::PageUp,
+        "PAGEDOWN" => KeyboardKey::PageDown,
+        "INSERT" => KeyboardKey::Insert,
+        "F1" => KeyboardKey::F1,
+        "F2" => KeyboardKey::F2,
+        "F3" => KeyboardKey::F3,
+        "F4" => KeyboardKey::F4,
+        "F5" => KeyboardKey::F5,
+        "F6" => KeyboardKey::F6,
+        "F7" => KeyboardKey::F7,
+        "F8" => KeyboardKey::F8,
+        "F9" => KeyboardKey::F9,
+        "F10" => KeyboardKey::F10,
+        "F11" => KeyboardKey::F11,
+        "F12" => KeyboardKey::F12,
+        "-" | "_" => KeyboardKey::Minus,
+        "=" | "+" => KeyboardKey::Equal,
+        "[" | "{" => KeyboardKey::LeftBracket,
+        "]" | "}" => KeyboardKey::RightBracket,
+        "\\" | "|" => KeyboardKey::BackSlash,
+        ";" | ":" => KeyboardKey::SemiColon,
+        "'" | "\"" => KeyboardKey::Quote,
+        "," | "<" => KeyboardKey::Comma,
+        "." | ">" => KeyboardKey::Dot,
+        "/" | "?" => KeyboardKey::Slash,
+        "`" | "~" => KeyboardKey::BackQuote,
+        _ => return Err(format!("unsupported manual hotkey token: {token}")),
+    };
+    Ok(key)
+}
+
+fn parse_manual_hotkey_binding(hotkey: &str) -> Result<ManualHotkeyBinding, String> {
+    let tokens = hotkey
+        .split('+')
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>();
+    if tokens.is_empty() {
+        return Err("manual hotkey is empty".to_string());
+    }
+
+    let mut modifiers = ManualHotkeyModifiers::default();
+    let mut key = None;
+    for token in tokens {
+        if parse_manual_hotkey_modifier(token, &mut modifiers) {
+            continue;
+        }
+
+        if key.is_some() {
+            return Err("manual hotkey may contain only one non-modifier key".to_string());
+        }
+        key = Some(parse_manual_hotkey_key(token)?);
+    }
+
+    if key.is_none() && !modifiers.any() {
+        return Err("manual hotkey is empty".to_string());
+    }
+
+    Ok(ManualHotkeyBinding { modifiers, key })
+}
+
+fn pressed_modifiers(pressed_keys: &HashSet<KeyboardKey>) -> ManualHotkeyModifiers {
+    ManualHotkeyModifiers {
+        ctrl: pressed_keys.contains(&KeyboardKey::ControlLeft)
+            || pressed_keys.contains(&KeyboardKey::ControlRight),
+        alt: pressed_keys.contains(&KeyboardKey::Alt)
+            || pressed_keys.contains(&KeyboardKey::AltGr),
+        shift: pressed_keys.contains(&KeyboardKey::ShiftLeft)
+            || pressed_keys.contains(&KeyboardKey::ShiftRight),
+        cmd: pressed_keys.contains(&KeyboardKey::MetaLeft)
+            || pressed_keys.contains(&KeyboardKey::MetaRight),
+    }
+}
+
+fn manual_hotkey_binding_active(binding: &ManualHotkeyBinding, pressed_keys: &HashSet<KeyboardKey>) -> bool {
+    let pressed_modifiers = pressed_modifiers(pressed_keys);
+    if binding.modifiers.ctrl && !pressed_modifiers.ctrl {
+        return false;
+    }
+    if binding.modifiers.alt && !pressed_modifiers.alt {
+        return false;
+    }
+    if binding.modifiers.shift && !pressed_modifiers.shift {
+        return false;
+    }
+    if binding.modifiers.cmd && !pressed_modifiers.cmd {
+        return false;
+    }
+
+    match binding.key {
+        Some(key) => pressed_keys.contains(&key),
+        None => true,
+    }
+}
+
 // ------------------------------ JSON messages --------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -1286,6 +1515,14 @@ enum ClientMsg {
 
     #[serde(rename = "get_state")]
     GetState,
+
+    #[serde(rename = "configure_manual_hotkey")]
+    ConfigureManualHotkey {
+        #[serde(default)]
+        enabled: bool,
+        #[serde(default)]
+        hotkey: String,
+    },
 
     #[serde(rename = "tokenize")]
     Tokenize {
@@ -1354,6 +1591,91 @@ fn send_broadcast(tx: &broadcast::Sender<String>, payload: String, label: &str) 
     match tx.send(payload) {
         Ok(receivers) => debug!("broadcast {label} to {receivers} subscriber(s)"),
         Err(_) => warn!("broadcast {label} dropped: no websocket subscribers"),
+    }
+}
+
+fn configure_manual_hotkey(
+    manual_hotkey: &SharedManualHotkey,
+    tx: &broadcast::Sender<String>,
+    enabled: bool,
+    hotkey: &str,
+) -> Result<(), String> {
+    let release_payload = {
+        let mut guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+        let mut release_payload = None;
+        if guard.active {
+            guard.active = false;
+            release_payload = Some(
+                json!({
+                    "type": "manual_hotkey_event",
+                    "state": "released",
+                })
+                .to_string(),
+            );
+        }
+
+        if !enabled || hotkey.trim().is_empty() {
+            guard.binding = None;
+            guard.binding_label = None;
+            guard.status.configured_hotkey = None;
+        } else {
+            let binding = parse_manual_hotkey_binding(hotkey)?;
+            guard.binding = Some(binding);
+            guard.binding_label = Some(hotkey.trim().to_string());
+            guard.status.configured_hotkey = Some(hotkey.trim().to_string());
+        }
+
+        let status_payload = manual_hotkey_status_payload(&guard).to_string();
+        Ok::<_, String>((release_payload, status_payload))
+    }?;
+
+    if let Some(payload) = release_payload.0 {
+        send_broadcast(tx, payload, "manual_hotkey_event(released)");
+    }
+    send_broadcast(tx, release_payload.1, "keyboard_listener_status");
+    Ok(())
+}
+
+fn handle_manual_keyboard_event(
+    tx: &broadcast::Sender<String>,
+    manual_hotkey: &SharedManualHotkey,
+    pressed_keys: &mut HashSet<KeyboardKey>,
+    event: KeyboardEvent,
+) {
+    match event.event_type {
+        KeyboardEventType::KeyPress(key) => {
+            pressed_keys.insert(key);
+        }
+        KeyboardEventType::KeyRelease(key) => {
+            pressed_keys.remove(&key);
+        }
+        _ => return,
+    }
+
+    let maybe_payload = {
+        let mut guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+        let Some(binding) = guard.binding.as_ref() else {
+            guard.active = false;
+            return;
+        };
+
+        let next_active = manual_hotkey_binding_active(binding, pressed_keys);
+        if next_active == guard.active {
+            return;
+        }
+
+        guard.active = next_active;
+        Some(
+            json!({
+                "type": "manual_hotkey_event",
+                "state": if next_active { "pressed" } else { "released" },
+            })
+            .to_string(),
+        )
+    };
+
+    if let Some(payload) = maybe_payload {
+        send_broadcast(tx, payload, "manual_hotkey_event");
     }
 }
 
@@ -1483,6 +1805,7 @@ async fn handle_socket(
     states: &'static SharedStates,
     mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
+    manual_hotkey: SharedManualHotkey,
 ) {
     let ws = match accept_async(stream).await {
         Ok(ws) => ws,
@@ -1518,6 +1841,19 @@ async fn handle_socket(
             info!("client {peer} disconnected during initial snapshot");
             return;
         }
+    }
+
+    let manual_status_message = {
+        let guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+        manual_hotkey_status_payload(&guard).to_string()
+    };
+    if ws_sink
+        .send(Message::Text(manual_status_message))
+        .await
+        .is_err()
+    {
+        info!("client {peer} disconnected during manual hotkey status snapshot");
+        return;
     }
 
     loop {
@@ -1563,6 +1899,25 @@ async fn handle_socket(
                                         "axes": axes,
                                     });
                                     if ws_sink.send(Message::Text(msg.to_string())).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            }
+                            Ok(ClientMsg::ConfigureManualHotkey { enabled, hotkey }) => {
+                                if let Err(err) =
+                                    configure_manual_hotkey(&manual_hotkey, &_tx, enabled, &hotkey)
+                                {
+                                    let payload = json!({
+                                        "type": "keyboard_listener_status",
+                                        "available": false,
+                                        "error": err,
+                                        "configuredHotkey": Value::Null,
+                                    });
+                                    if ws_sink
+                                        .send(Message::Text(payload.to_string()))
+                                        .await
+                                        .is_err()
+                                    {
                                         break;
                                     }
                                 }
@@ -1676,6 +2031,7 @@ async fn websocket_server(
     states: &'static SharedStates,
     mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
+    manual_hotkey: SharedManualHotkey,
 ) {
     let listener = TcpListener::bind(bind).await.expect("bind failed");
     info!("server running at ws://{bind}");
@@ -1693,7 +2049,14 @@ async fn websocket_server(
         let tx_clone = tx.clone();
 
         tokio::spawn(handle_socket(
-            peer, stream, tx_clone, rx, states, mecab, sudachi,
+            peer,
+            stream,
+            tx_clone,
+            rx,
+            states,
+            mecab,
+            sudachi,
+            manual_hotkey.clone(),
         ));
     }
 }
@@ -2103,6 +2466,29 @@ async fn axis_repeat_loop(
     }
 }
 
+fn keyboard_input_thread(tx: broadcast::Sender<String>, manual_hotkey: SharedManualHotkey) {
+    let mut pressed_keys = HashSet::new();
+    set_manual_hotkey_listener_status(&manual_hotkey, &tx, true, None);
+    info!("global keyboard listener initialized");
+
+    let tx_for_listener = tx.clone();
+    let manual_hotkey_for_listener = manual_hotkey.clone();
+    let result = listen_global_keyboard(move |event| {
+        handle_manual_keyboard_event(
+            &tx_for_listener,
+            &manual_hotkey_for_listener,
+            &mut pressed_keys,
+            event,
+        );
+    });
+
+    if let Err(err) = result {
+        let message = format!("{err:?}");
+        warn!("global keyboard listener unavailable: {message}");
+        set_manual_hotkey_listener_status(&manual_hotkey, &tx, false, Some(message));
+    }
+}
+
 // ---------------------------------- main ------------------------------------
 
 #[tokio::main(flavor = "multi_thread")]
@@ -2135,6 +2521,14 @@ async fn main() {
         sudachi_user_dict_dir,
         sudachi_dictionary_kind,
     ))));
+    let manual_hotkey: SharedManualHotkey = Arc::new(StdMutex::new(ManualHotkeyState {
+        status: ManualHotkeyStatus {
+            available: true,
+            error: None,
+            configured_hotkey: None,
+        },
+        ..ManualHotkeyState::default()
+    }));
     {
         let mut svc = mecab.lock().await;
         if let Err(e) = svc.ensure_bridge().await {
@@ -2151,7 +2545,14 @@ async fn main() {
     let cfg = Config::default();
 
     // Websocket server + axis repeat run on tokio.
-    tokio::spawn(websocket_server(bind, tx.clone(), states, mecab, sudachi));
+    tokio::spawn(websocket_server(
+        bind,
+        tx.clone(),
+        states,
+        mecab,
+        sudachi,
+        manual_hotkey.clone(),
+    ));
     tokio::spawn(axis_repeat_loop(tx.clone(), states, cfg.clone()));
 
     // Gilrs input loop runs on a dedicated OS thread (Gilrs isn't Send).
@@ -2159,6 +2560,11 @@ async fn main() {
         let tx2 = tx.clone();
         let cfg2 = cfg.clone();
         thread::spawn(move || gilrs_input_thread(tx2, states, cfg2, dev_environment));
+    }
+    {
+        let tx2 = tx.clone();
+        let manual_hotkey2 = manual_hotkey.clone();
+        thread::spawn(move || keyboard_input_thread(tx2, manual_hotkey2));
     }
 
     info!("startup complete");
@@ -2201,5 +2607,41 @@ mod tests {
             ServerTokenizerBackend::from_value(None),
             ServerTokenizerBackend::Mecab
         );
+    }
+
+    #[test]
+    fn modifier_only_manual_hotkey_parses() {
+        let binding = parse_manual_hotkey_binding("Shift").expect("shift hotkey should parse");
+        assert_eq!(binding.key, None);
+        assert!(binding.modifiers.shift);
+        assert!(!binding.modifiers.ctrl);
+    }
+
+    #[test]
+    fn modifier_plus_key_manual_hotkey_parses() {
+        let binding =
+            parse_manual_hotkey_binding("Shift+Space").expect("shift+space hotkey should parse");
+        assert_eq!(binding.key, Some(KeyboardKey::Space));
+        assert!(binding.modifiers.shift);
+    }
+
+    #[test]
+    fn manual_hotkey_binding_activation_supports_modifier_only_and_key_bindings() {
+        let modifier_only =
+            parse_manual_hotkey_binding("Shift").expect("modifier-only hotkey should parse");
+        let modifier_with_key =
+            parse_manual_hotkey_binding("Shift+Space").expect("modifier+key hotkey should parse");
+
+        let mut pressed_keys = HashSet::new();
+        pressed_keys.insert(KeyboardKey::ShiftLeft);
+        assert!(manual_hotkey_binding_active(&modifier_only, &pressed_keys));
+        assert!(!manual_hotkey_binding_active(&modifier_with_key, &pressed_keys));
+
+        pressed_keys.insert(KeyboardKey::Space);
+        assert!(manual_hotkey_binding_active(&modifier_with_key, &pressed_keys));
+
+        pressed_keys.remove(&KeyboardKey::ShiftLeft);
+        assert!(!manual_hotkey_binding_active(&modifier_only, &pressed_keys));
+        assert!(!manual_hotkey_binding_active(&modifier_with_key, &pressed_keys));
     }
 }

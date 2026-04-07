@@ -678,6 +678,30 @@ class OWOCRAreaSelectorWidget(QWidget):
         except Exception as e:
             logger.error(f"Error loading config: {e}")
 
+    def _resolve_monitor_geometry_for_index(self, monitor_index):
+        try:
+            resolved_index = int(monitor_index or 0)
+        except (TypeError, ValueError):
+            resolved_index = 0
+
+        try:
+            with mss.mss() as sct:
+                monitors = sct.monitors[1:]
+                if not monitors:
+                    return None
+                safe_index = min(max(resolved_index, 0), len(monitors) - 1)
+                monitor = monitors[safe_index]
+                return {
+                    "index": safe_index,
+                    "left": int(monitor.get("left", 0)),
+                    "top": int(monitor.get("top", 0)),
+                    "width": max(1, int(monitor.get("width", 1))),
+                    "height": max(1, int(monitor.get("height", 1))),
+                }
+        except Exception as e:
+            logger.warning(f"Failed to resolve monitor geometry for index {resolved_index}: {e}")
+            return None
+
     def _load_existing_overlay_rectangles(self):
         """Load rectangles from the dedicated overlay config file."""
         try:
@@ -758,10 +782,23 @@ class OWOCRAreaSelectorWidget(QWidget):
                     except (KeyError, ValueError, TypeError) as e:
                         logger.warning(f"Skipping malformed overlay rectangle: {e}")
             else:
-                monitor_width = self.monitor_geometry["width"] if self.monitor_geometry else self.screenshot_img.width
-                monitor_height = (
-                    self.monitor_geometry["height"] if self.monitor_geometry else self.screenshot_img.height
+                legacy_monitor_index = int(config_data.get("monitor_index", self.target_monitor_index or 0) or 0)
+                legacy_monitor_geometry = self.monitor_geometry
+                if not legacy_monitor_geometry or legacy_monitor_geometry.get("index") != legacy_monitor_index:
+                    legacy_monitor_geometry = self._resolve_monitor_geometry_for_index(legacy_monitor_index)
+
+                monitor_width = (
+                    int(legacy_monitor_geometry.get("width", 0))
+                    if legacy_monitor_geometry
+                    else self.screenshot_img.width
                 )
+                monitor_height = (
+                    int(legacy_monitor_geometry.get("height", 0))
+                    if legacy_monitor_geometry
+                    else self.screenshot_img.height
+                )
+                monitor_left = int(legacy_monitor_geometry.get("left", 0)) if legacy_monitor_geometry else 0
+                monitor_top = int(legacy_monitor_geometry.get("top", 0)) if legacy_monitor_geometry else 0
                 use_percentage = config_data.get("coordinate_system") == COORD_SYSTEM_PERCENTAGE
 
                 for rect_data in config_data.get("rects", []):
@@ -782,8 +819,17 @@ class OWOCRAreaSelectorWidget(QWidget):
                             w_orig = int(rect_data["w"])
                             h_orig = int(rect_data["h"])
 
-                        x_scaled = int(x_orig / self.scale_factor_w)
-                        y_scaled = int(y_orig / self.scale_factor_h)
+                        if self.select_monitor_area:
+                            x_scaled = int(x_orig / self.scale_factor_w)
+                            y_scaled = int(y_orig / self.scale_factor_h)
+                            monitor_index = self.target_monitor_index
+                        else:
+                            screen_x = x_orig + monitor_left
+                            screen_y = y_orig + monitor_top
+                            x_scaled = int((screen_x - self.bounding_box_original["left"]) / self.scale_factor_w)
+                            y_scaled = int((screen_y - self.bounding_box_original["top"]) / self.scale_factor_h)
+                            monitor_index = legacy_monitor_index
+
                         w_scaled = int(w_orig / self.scale_factor_w)
                         h_scaled = int(h_orig / self.scale_factor_h)
 
@@ -793,7 +839,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                                 "y": y_scaled,
                                 "w": w_scaled,
                                 "h": h_scaled,
-                                "monitor_index": self.target_monitor_index,
+                                "monitor_index": monitor_index,
                                 "is_excluded": False,
                                 "is_secondary": False,
                             }

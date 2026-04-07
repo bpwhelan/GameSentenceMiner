@@ -695,6 +695,7 @@ background: rgba(202, 12, 12, 0.692);
   // let currentX = 0;
   // let currentY = 0;
   let magpieReleaseInterval = null;
+  let magpieController = null;
   let manualModeActivatedOnce = false;
   let shouldShowReadyIndicator = true;
 
@@ -736,6 +737,11 @@ background: rgba(202, 12, 12, 0.692);
       return;
     }
 
+    if (magpieController) {
+      magpieController.restorePassThrough(reason);
+      return;
+    }
+
     if (isMagpieActive) {
       requestMagpieMouseRelease(reason);
     } else {
@@ -758,6 +764,10 @@ background: rgba(202, 12, 12, 0.692);
    * @returns {{x: number, y: number}}
    */
   function mapPercentToMagpie(pX, pY) {
+    if (magpieController) {
+      return magpieController.mapPercent(pX, pY, display);
+    }
+
     if (!isMagpieActive || !currentMagpieInfo) {
       return { x: pX, y: pY };
     }
@@ -935,6 +945,29 @@ background: rgba(202, 12, 12, 0.692);
   let lastPopupChangeTime = Date.now();
   let lastPopupCount = 0;
   const STALE_TIMEOUT = 12000;
+
+  async function closeYomitanLookups(reason = 'manual-hide') {
+    if (!yomitanShowing) {
+      return false;
+    }
+
+    hideOnYomitanClose = false;
+
+    const bridge = window.gsmYomitanBridge;
+    if (!bridge || typeof bridge.closePopups !== 'function') {
+      console.warn(`[Yomitan] closePopups bridge unavailable (${reason})`);
+      return false;
+    }
+
+    try {
+      await bridge.closePopups({ timeoutMs: 1500 });
+      console.log(`[Yomitan] Requested popup close (${reason})`);
+      return true;
+    } catch (error) {
+      console.warn(`[Yomitan] Failed to close popups via bridge (${reason}):`, error);
+      return false;
+    }
+  }
   
   setInterval(() => {
     // Track when count last changed
@@ -1097,6 +1130,24 @@ background: rgba(202, 12, 12, 0.692);
   } catch (e) {
     console.warn("Could not require furigana_utils.js:", e);
   }
+  try {
+    const MagpieUtils = require("./magpie.js");
+    window.GSMMagpie = MagpieUtils;
+    magpieController = MagpieUtils.createMagpieRendererController({
+      requestMouseRelease: requestMagpieMouseRelease,
+      restoreMouseIgnore(reason) {
+        ipcRenderer.send('set-ignore-mouse-events', true, { forward: true, reason });
+      },
+      isYomitanShowing() {
+        return yomitanShowing;
+      },
+      isManualHotkeyPressed() {
+        return manualHotkeyPressed;
+      },
+    });
+  } catch (e) {
+    console.warn("Could not require magpie.js:", e);
+  }
 
   const dragBar = document.getElementById("draggable");
   const textEl = document.getElementById("text");
@@ -1139,6 +1190,7 @@ background: rgba(202, 12, 12, 0.692);
   });
   let unHoverTimer = null;
   let manualMode = false;
+  let manualModeType = "hold";
   let showHotkey = "Shift + Space";
   let manualHotkeyPressed = false;
   let showTextIndicators = true;
@@ -1157,6 +1209,28 @@ background: rgba(202, 12, 12, 0.692);
   let workAreaWidth = 2560;
   let workAreaHeight = 1392;
   let workAreaAdjustment = (workAreaHeight / height - 1) * -1;
+
+  function applyMagpieInfo(rawInfo, reason = "magpie-update") {
+    if (magpieController) {
+      const result = magpieController.applyInfo(rawInfo, reason);
+      currentMagpieInfo = result.state.info;
+      isMagpieActive = result.state.active;
+      return result;
+    }
+
+    const oldMagpieActive = isMagpieActive;
+    currentMagpieInfo = rawInfo;
+    isMagpieActive = currentMagpieInfo !== null && currentMagpieInfo !== undefined;
+    return {
+      activeChanged: oldMagpieActive !== isMagpieActive,
+      signatureChanged: oldMagpieActive !== isMagpieActive,
+      state: {
+        active: isMagpieActive,
+        info: currentMagpieInfo,
+        signature: null,
+      },
+    };
+  }
 
   function clampNumber(value, fallback, min, max) {
     const numeric = Number(value);
@@ -1462,16 +1536,16 @@ background: rgba(202, 12, 12, 0.692);
           
           // Process magpie_info from websocket
           if (data.magpie_info !== undefined) {
-            const oldMagpieActive = isMagpieActive;
-            currentMagpieInfo = data.magpie_info;
-            isMagpieActive = currentMagpieInfo !== null && currentMagpieInfo !== undefined;
+            const result = applyMagpieInfo(data.magpie_info, "window-state");
             
             console.log("Magpie info updated from websocket:", currentMagpieInfo);
             console.log("Magpie active state:", isMagpieActive);
             
-            // If magpie state changed, update the behavior
-            if (oldMagpieActive !== isMagpieActive) {
-              console.log("Magpie state changed from", oldMagpieActive, "to", isMagpieActive);
+            if (result.activeChanged || result.signatureChanged) {
+              console.log("Magpie state changed:", result.state.signature || "inactive");
+            }
+
+            if (!magpieController && (result.activeChanged || result.signatureChanged)) {
               updateMagpieCompatibility(isMagpieActive);
             }
           }
@@ -1480,6 +1554,7 @@ background: rgba(202, 12, 12, 0.692);
             state: data.data,
             game: data.game,
             magpieActive: isMagpieActive,
+            magpieInfo: currentMagpieInfo,
             isFullscreen: data.is_fullscreen || false,
             recommendManualMode: data.recommend_manual_mode || false
           });
@@ -2706,6 +2781,7 @@ background: rgba(202, 12, 12, 0.692);
     setupWebSocket(newsettings.weburl2, false)
     hideOnStartup = newsettings.hideOnStartup;
     manualMode = newsettings.manualMode;
+    manualModeType = String(newsettings.manualModeType || "hold").trim().toLowerCase() === "toggle" ? "toggle" : "hold";
     showHotkey = newsettings.showHotkey;
     pinned = newsettings.pinned;
     if (Object.prototype.hasOwnProperty.call(newsettings, "showTextIndicators")) {
@@ -2822,22 +2898,25 @@ background: rgba(202, 12, 12, 0.692);
       mainBox.style.display = "";
     }
 
-    if (magpieReleaseInterval) {
-      clearInterval(magpieReleaseInterval);
-    }
-
-    // Initialize magpie interval based on current websocket state (isMagpieActive)
-    // This will be updated dynamically when window_state messages arrive
-    if (isMagpieActive) {
-      if (!yomitanShowing && !manualHotkeyPressed) {
-        requestMagpieMouseRelease('settings-load');
+    if (magpieController) {
+      magpieController.syncCompatibility('settings-load');
+    } else {
+      if (magpieReleaseInterval) {
+        clearInterval(magpieReleaseInterval);
       }
-      magpieReleaseInterval = setInterval(() => {
-        // && !actionPanelShowing
+
+      // Initialize magpie interval based on current websocket state (isMagpieActive)
+      // This will be updated dynamically when window_state messages arrive
+      if (isMagpieActive) {
         if (!yomitanShowing && !manualHotkeyPressed) {
-          requestMagpieMouseRelease('settings-load-interval');
+          requestMagpieMouseRelease('settings-load');
         }
-      }, 1000);
+        magpieReleaseInterval = setInterval(() => {
+          if (!yomitanShowing && !manualHotkeyPressed) {
+            requestMagpieMouseRelease('settings-load-interval');
+          }
+        }, 1000);
+      }
     }
     
     // Initialize gamepad handler now that settings are loaded
@@ -2878,6 +2957,9 @@ background: rgba(202, 12, 12, 0.692);
           break;
         case "manualMode":
           updateManualMode(value);
+          break;
+        case "manualModeType":
+          manualModeType = String(value || "hold").trim().toLowerCase() === "toggle" ? "toggle" : "hold";
           break;
         case "showHotkey":
           showHotkey = value;
@@ -2935,6 +3017,14 @@ background: rgba(202, 12, 12, 0.692);
     // Magpie intercepts mouse events, so we periodically release mouse
     // control back to it when the user isn't interacting with Yomitan.
     console.log("Magpie compatibility behavior update - Active:", newValue);
+
+    if (magpieController) {
+      magpieController.syncCompatibility('magpie-compatibility');
+      const state = magpieController.getState();
+      currentMagpieInfo = state.info;
+      isMagpieActive = state.active;
+      return;
+    }
 
     if (magpieReleaseInterval) {
       clearInterval(magpieReleaseInterval);
@@ -3038,21 +3128,28 @@ background: rgba(202, 12, 12, 0.692);
       showTextBoxes();
       ipcRenderer.send('set-ignore-mouse-events', false);
     } else {
-      // Always set manualHotkeyPressed to false even if Yomitan is showing
-      // to maintain consistent state
-      if (yomitanShowing) {
-        hideOnYomitanClose = true;
-        // Don't return early - still need to remove force-visible if not pinned
+      const finishManualHotkeyRelease = () => {
         if (!pinned) {
           document.body.classList.remove('force-visible');
         }
+        hideTextBoxes();
+        restoreOverlayPassThrough('manual-hotkey-release');
+      };
+
+      if (yomitanShowing) {
+        if (manualModeType === "hold") {
+          hideOnYomitanClose = true;
+          if (!pinned) {
+            document.body.classList.remove('force-visible');
+          }
+          return;
+        }
+        void closeYomitanLookups('manual-hotkey-release').finally(() => {
+          finishManualHotkeyRelease();
+        });
         return;
       }
-      if (!pinned) {
-        document.body.classList.remove('force-visible');
-      }
-      hideTextBoxes();
-      restoreOverlayPassThrough('manual-hotkey-release');
+      finishManualHotkeyRelease();
     }
   });
 

@@ -200,6 +200,7 @@ if is_windows():
     INPUT_KEYBOARD = 1
     KEYEVENTF_EXTENDEDKEY = 0x0001
     KEYEVENTF_KEYUP = 0x0002
+    KEYEVENTF_SCANCODE = 0x0008
     WM_KEYDOWN = 0x0100
     WM_KEYUP = 0x0101
     VK_MENU = 0x12
@@ -1257,6 +1258,9 @@ class WindowStateMonitor:
             if "RTSS" in title or "RivaTuner" in title:
                 return True
 
+            if "ShareX - Screen recording" in title:
+                return True
+
             # Electron windows have "Chrome" class - check title for GSM-specific overlays
             if "Chrome" in window_class:
                 title_lower = title.lower()
@@ -1289,21 +1293,27 @@ class WindowStateMonitor:
             # Check executable name for known overlay apps (expensive but necessary for some)
             # Only reach here if not Chrome class or Chrome class didn't match deny list
             # exe_name = self._get_window_exe_name(hwnd)
-            # if exe_name:
-            #     exe_lower = exe_name.lower()
+            if exe_name:
+                exe_lower = exe_name.lower()
 
-            #     # TRUE: Transparent overlays that sit on top of games
-            #     if any(name in exe_lower for name in [
-            #         "gsm_overlay.exe",
-            #         "obs64.exe", "obs32.exe",  # OBS Studio
-            #         "streamlabs obs.exe",
-            #         "xsplit.broadcaster.exe",
-            #         "gamebar.exe",  # Windows Game Bar
-            #         "nvidia share.exe", "nvcontainer.exe",  # GeForce Experience overlay
-            #         "lunatranslator.exe",  # LunaTranslator (backup check if class fails)
-            #         "jl.exe"  # JL (Japanese Learning) (backup check if class fails)
-            #     ]):
-            #         return True
+                # TRUE: Transparent overlays that sit on top of games
+                if any(
+                    name in exe_lower
+                    for name in [
+                        "gsm_overlay.exe",
+                        "obs64.exe",
+                        "obs32.exe",  # OBS Studio
+                        "streamlabs obs.exe",
+                        "xsplit.broadcaster.exe",
+                        "gamebar.exe",  # Windows Game Bar
+                        "nvidia share.exe",
+                        "nvcontainer.exe",  # GeForce Experience overlay
+                        "lunatranslator.exe",  # LunaTranslator (backup check if class fails)
+                        "jl.exe"  # JL (Japanese Learning) (backup check if class fails)
+                        "sharex.exe",
+                    ]
+                ):
+                    return True
 
             return False
         except Exception:
@@ -1938,6 +1948,7 @@ class WindowStateMonitor:
         if not is_windows():
             return False
 
+        enter_scan_code = 0x1C
         ULONG_PTR = wintypes.WPARAM
 
         class KEYBDINPUT(ctypes.Structure):
@@ -1960,9 +1971,9 @@ class WindowStateMonitor:
 
         inputs = (INPUT * 2)()
         inputs[0].type = INPUT_KEYBOARD
-        inputs[0].union.ki = KEYBDINPUT(VK_RETURN, 0, 0, 0, 0)
+        inputs[0].union.ki = KEYBDINPUT(0, enter_scan_code, KEYEVENTF_SCANCODE, 0, 0)
         inputs[1].type = INPUT_KEYBOARD
-        inputs[1].union.ki = KEYBDINPUT(VK_RETURN, 0, KEYEVENTF_KEYUP, 0, 0)
+        inputs[1].union.ki = KEYBDINPUT(0, enter_scan_code, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0, 0)
 
         sent = int(user32.SendInput(2, inputs, ctypes.sizeof(INPUT)))
         return sent == 2
@@ -1979,6 +1990,13 @@ class WindowStateMonitor:
             return True
         except Exception:
             return False
+
+    def _send_enter_with_fallbacks(self) -> bool:
+        if self._send_enter_with_keybd_event():
+            return True
+
+        logger.debug("keybd_event Enter injection failed, retrying with SendInput")
+        return self._send_enter_with_sendinput()
 
     def _resolve_target_hwnd(self, target_pid: Optional[int] = None) -> Optional[int]:
         hwnd = self.target_hwnd
@@ -2168,15 +2186,16 @@ class WindowStateMonitor:
         self.target_hwnd = target_hwnd
 
         if activate_window:
-            # Match proven probe behavior: focus target first, then inject Enter via keybd_event.
-            focused = self._set_foreground_aggressive(target_hwnd, attempt_number=1)
+            # Focus handoff can race overlay teardown; reuse the retry helper before injecting Enter.
+            focused = await self.activate_target_window()
             if not focused:
                 return False
-            return self._send_enter_with_keybd_event()
+            await asyncio.sleep(0.03)
+            return self._send_enter_with_fallbacks()
 
         foreground_hwnd = user32.GetForegroundWindow()
         if foreground_hwnd == target_hwnd:
-            return self._send_enter_with_keybd_event()
+            return self._send_enter_with_fallbacks()
         return self._post_enter_to_hwnd(target_hwnd)
 
     def post_enter_to_target_window(self, target_pid: Optional[int] = None) -> bool:

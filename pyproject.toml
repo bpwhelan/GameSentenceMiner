@@ -41,7 +41,6 @@ dependencies = [
   "opencv-python~=4.12.0.88",
   "scikit-image~=0.25.2",
   "oneocr==1.0.10",
-  "google-genai~=1.46.0",
   "sounddevice~=0.5.2",
   "matplotlib~=3.10.6",
   "groq~=0.33.0",
@@ -81,6 +80,7 @@ dependencies = [
   "aiohttp~=3.13.3",
   "fpng~=0.1.0",
   "onnxruntime~=1.23.2",
+  "google-genai~=1.70.0",
 ]
 
 

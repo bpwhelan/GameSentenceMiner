@@ -10,6 +10,7 @@ from PIL import Image
 import GameSentenceMiner.ocr.gsm_ocr as gsm_ocr
 from GameSentenceMiner.ocr import owocr_area_selector_qt as area_selector_qt
 from GameSentenceMiner.ocr.gsm_ocr_config import Monitor, OCRConfig, Rectangle
+from GameSentenceMiner.owocr.owocr.ocr import post_process
 from GameSentenceMiner.owocr.owocr import run as run_module
 
 
@@ -84,6 +85,52 @@ def test_run_oneocr_uses_manual_combo_in_manual_mode(monkeypatch):
     gsm_ocr.run_oneocr(None, [])
 
     assert captured["screen_capture_combo"] == "<alt>+b"
+
+
+def test_post_process_normalizes_contextual_japanese_dashes_to_choonpu():
+    text = post_process("-刻も早く、ス-パ-でA-1を買う")
+
+    assert text == "ー刻も早く、スーパーでＡ－１を買う"
+
+
+def test_build_overlay_coordinate_payload_normalizes_lookup_text_dashes():
+    response_dict = {
+        "line_coords": [
+            {
+                "text": "-刻も早く",
+                "bounding_rect": {"x1": 0, "y1": 0, "x2": 40, "y2": 0, "x3": 40, "y3": 10, "x4": 0, "y4": 10},
+                "words": [
+                    {
+                        "text": "-刻も早く",
+                        "bounding_rect": {"x1": 0, "y1": 0, "x2": 40, "y2": 0, "x3": 40, "y3": 10, "x4": 0, "y4": 10},
+                    },
+                    {
+                        "text": "A-1",
+                        "bounding_rect": {"x1": 45, "y1": 0, "x2": 65, "y2": 0, "x3": 65, "y3": 10, "x4": 45, "y4": 10},
+                    },
+                ],
+            }
+        ],
+        "pipeline": {
+            "capture": {
+                "scaled_size": {"width": 100, "height": 20},
+                "original_size": {"width": 100, "height": 20},
+            },
+            "processing": {
+                "processed_size": {"width": 100, "height": 20},
+                "crop_offset": {"x": 0, "y": 0},
+                "coordinate_mode": "source_content",
+            },
+            "ocr": {},
+        },
+    }
+
+    payload = gsm_ocr.build_overlay_coordinate_payload(response_dict)
+
+    assert payload is not None
+    assert payload["lines"][0]["text"] == "ー刻も早く"
+    assert payload["lines"][0]["words"][0]["text"] == "ー刻も早く"
+    assert payload["lines"][0]["words"][1]["text"] == "A-1"
 
 
 def test_no_text_similarity_backoff_only_starts_after_no_text_cap():

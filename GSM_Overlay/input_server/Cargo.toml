@@ -20,3 +20,4 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 sha2 = "0.10"
 sudachi = { git = "https://github.com/WorksApplications/sudachi.rs.git", tag = "v0.6.10" }
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
+rdev = "0.5.3"

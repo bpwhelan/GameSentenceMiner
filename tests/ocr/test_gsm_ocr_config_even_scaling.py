@@ -136,6 +136,7 @@ def test_get_overlay_minimum_character_size_reads_overlay_scene_setting(tmp_path
 
 def test_write_overlay_scene_settings_preserves_existing_overlay_areas(tmp_path, monkeypatch):
     overlay_config_path = tmp_path / "Scene_overlay.json"
+    overlay_settings_path = tmp_path / "Scene_overlay_settings.json"
     overlay_config_path.write_text(
         json.dumps(
             {
@@ -150,11 +151,60 @@ def test_write_overlay_scene_settings_preserves_existing_overlay_areas(tmp_path,
     monkeypatch.setattr(
         gsm_ocr_config, "get_overlay_area_config_path", lambda *args, **kwargs: str(overlay_config_path)
     )
+    monkeypatch.setattr(gsm_ocr_config, "get_overlay_settings_path", lambda *args, **kwargs: str(overlay_settings_path))
 
     gsm_ocr_config.write_overlay_scene_settings({"minimum_character_size": 11})
 
     saved_data = json.loads(overlay_config_path.read_text(encoding="utf-8"))
-    assert saved_data["minimum_character_size"] == 11
+    settings_data = json.loads(overlay_settings_path.read_text(encoding="utf-8"))
+    assert settings_data["minimum_character_size"] == 11
     assert saved_data["monitor_index"] == 1
     assert saved_data["coordinate_system"] == "percentage"
     assert saved_data["rects"] == [{"x": 0.2, "y": 0.3, "w": 0.4, "h": 0.5}]
+
+
+def test_get_overlay_minimum_character_size_prefers_dedicated_settings_file(tmp_path, monkeypatch):
+    overlay_config_path = tmp_path / "Scene_overlay.json"
+    overlay_settings_path = tmp_path / "Scene_overlay_settings.json"
+    overlay_config_path.write_text(
+        json.dumps(
+            {
+                "monitor_index": 1,
+                "coordinate_system": "percentage",
+                "rects": [{"x": 0.2, "y": 0.3, "w": 0.4, "h": 0.5}],
+                "minimum_character_size": 17,
+            }
+        ),
+        encoding="utf-8",
+    )
+    overlay_settings_path.write_text(json.dumps({"minimum_character_size": 11}), encoding="utf-8")
+
+    monkeypatch.setattr(
+        gsm_ocr_config, "get_overlay_area_config_path", lambda *args, **kwargs: str(overlay_config_path)
+    )
+    monkeypatch.setattr(gsm_ocr_config, "get_overlay_settings_path", lambda *args, **kwargs: str(overlay_settings_path))
+
+    assert gsm_ocr_config.get_overlay_minimum_character_size(default=3) == 11
+
+
+def test_get_overlay_minimum_character_size_falls_back_to_legacy_overlay_file(tmp_path, monkeypatch):
+    overlay_config_path = tmp_path / "Scene_overlay.json"
+    overlay_settings_path = tmp_path / "Scene_overlay_settings.json"
+    overlay_config_path.write_text(
+        json.dumps(
+            {
+                "monitor_index": 1,
+                "coordinate_system": "percentage",
+                "rects": [{"x": 0.2, "y": 0.3, "w": 0.4, "h": 0.5}],
+                "minimum_character_size": 17,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        gsm_ocr_config, "get_overlay_area_config_path", lambda *args, **kwargs: str(overlay_config_path)
+    )
+    monkeypatch.setattr(gsm_ocr_config, "get_overlay_settings_path", lambda *args, **kwargs: str(overlay_settings_path))
+
+    assert gsm_ocr_config.get_overlay_minimum_character_size(default=3) == 17
