@@ -368,7 +368,8 @@ def _fetch_kanji_stats(
                 "max_frequency": max_frequency,
             }
 
-        # Fetch Anki kanji from local cache instead of AnkiConnect
+        # Fetch Anki kanji from the cached notes using the same parent-tag and
+        # optional creation-time filters as the rest of the Anki stats views.
         anki_kanji_set = _get_anki_kanji_from_cache(start_timestamp, end_timestamp)
 
         gsm_kanji_list = gsm_kanji_stats.get("kanji_data", [])
@@ -385,7 +386,8 @@ def _fetch_kanji_stats(
         # Calculate coverage
         anki_kanji_count = len(anki_kanji_set)
         gsm_kanji_count = len(gsm_kanji_set)
-        coverage_percent = (anki_kanji_count / gsm_kanji_count * 100) if gsm_kanji_count else 0.0
+        overlap_count = len(gsm_kanji_set & anki_kanji_set)
+        coverage_percent = (overlap_count / gsm_kanji_count * 100) if gsm_kanji_count else 0.0
 
         return {
             "missing_kanji": missing_kanji,
@@ -1028,6 +1030,27 @@ def register_anki_api_endpoints(app):
         responses:
           200:
             description: Kanji statistics
+            schema:
+              type: object
+              properties:
+                missing_kanji:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      kanji:
+                        type: string
+                      frequency:
+                        type: integer
+                anki_kanji_count:
+                  type: integer
+                  description: Unique kanji in the configured Anki word field after applying the current filters
+                gsm_kanji_count:
+                  type: integer
+                  description: Unique kanji seen in GSM for the selected GSM date range
+                coverage_percent:
+                  type: number
+                  description: Percentage of GSM kanji covered by the configured Anki word field after applying the current filters
           500:
             description: Failed to fetch kanji stats
         """
@@ -1239,10 +1262,12 @@ def _get_anki_kanji_from_cache(
     start_timestamp: int | None = None,
     end_timestamp: int | None = None,
 ) -> set[str]:
-    """Extract unique kanji characters from cached Anki notes, filtered by parent tag.
+    """Extract unique kanji characters from cached Anki notes.
 
-    Replaces the old ``get_anki_kanji()`` inner function that queried AnkiConnect
-    directly via ``findNotes`` / ``notesInfo``.
+    Notes must match the configured parent tag and, when provided, the optional
+    creation-time bounds. The configured word field is preferred, but we fall
+    back to the first available field for backward compatibility with older
+    configs and tests.
     """
     if _is_cache_empty():
         return set()
@@ -1261,16 +1286,15 @@ def _get_anki_kanji_from_cache(
 
         for note in notes:
             tags = _get_note_tags(note, note_tags_by_id)
-            if not any(t.startswith(parent_tag_prefix) for t in tags):
+            if not any(isinstance(tag, str) and tag.startswith(parent_tag_prefix) for tag in tags):
                 continue
 
-            # Filter by timestamp if provided (note.note_id is creation time in ms)
             if not _matches_optional_timestamp_range(note.note_id, start_timestamp, end_timestamp):
                 continue
 
             fields = _get_note_fields(note, note_fields_by_id)
-
             value = None
+
             if word_field:
                 configured_field = fields.get(word_field, {})
                 if isinstance(configured_field, dict):

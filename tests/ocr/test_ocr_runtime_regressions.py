@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import json
 from datetime import datetime
 from types import SimpleNamespace
@@ -377,6 +378,28 @@ def test_websocket_server_buffers_until_first_client_connects():
     server.clients.clear()
     asyncio.run(server._queue_or_send_message(json.dumps({"sentence": "later"})))
     assert list(server._pending_messages) == []
+
+
+def test_send_result_closed_websocket_loop_does_not_leak_coroutine_warning(monkeypatch, recwarn):
+    server = gsm_ocr.WebsocketServerThread(read=True)
+    loop = asyncio.new_event_loop()
+    server._loop = loop
+    server._event.set()
+    loop.close()
+
+    monkeypatch.setattr(gsm_ocr, "websocket_server_thread", server)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_send_to_clipboard", lambda _source: False)
+    monkeypatch.setattr(gsm_ocr, "is_windows", lambda: False)
+
+    asyncio.run(gsm_ocr.send_result("hello", datetime.now()))
+    gc.collect()
+
+    leaked_coroutine_warnings = [
+        warning
+        for warning in recwarn
+        if warning.category is RuntimeWarning and "_queue_or_send_message" in str(warning.message)
+    ]
+    assert leaked_coroutine_warnings == []
 
 
 def test_apply_ipc_config_reload_refreshes_hotkeys_and_clipboard_toggle(monkeypatch):
