@@ -926,7 +926,7 @@ document.addEventListener('DOMContentLoaded', function () {
         counterSelector: '#missingKanjiCount',
         colorMode: 'frequency',
         emptyMessage:
-            `🎉 No missing kanji with frequency ${MISSING_KANJI_GRID_MIN_FREQUENCY}+ in your Anki collection.`,
+            `🎉 No missing kanji with frequency ${MISSING_KANJI_GRID_MIN_FREQUENCY}+ in your configured Anki word field.`,
     });
 
     // Function to render kanji grid (now using shared renderer)
@@ -955,11 +955,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 : '0';
         }
         if (ankiCoverage) {
-            const missingCount = missingKanji.length;
-            let percent = 0;
-            if (gsmKanjiCount > 0) {
-                percent = ((gsmKanjiCount - missingCount) / gsmKanjiCount) * 100;
-            }
+            const percent = Number.isFinite(Number(safeData.coverage_percent))
+                ? Number(safeData.coverage_percent)
+                : 0;
             ankiCoverage.textContent = percent.toFixed(1) + '%';
         }
         if (missingKanjiCount) {

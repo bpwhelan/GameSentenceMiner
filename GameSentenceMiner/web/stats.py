@@ -20,6 +20,7 @@ from GameSentenceMiner.util.config.configuration import (
     get_stats_config,
     logger,
 )
+from GameSentenceMiner.util.jiten_difficulty import get_jiten_difficulty_label
 from GameSentenceMiner.util.stats.stats_util import (
     has_cards,
     MAX_SEC_PER_CHAR as _MAX_SEC_PER_CHAR,
@@ -598,6 +599,7 @@ def calculate_game_milestones(all_lines=None) -> dict | None:
                     "release_date": game.release_date,
                     "first_played": first_played,
                     "difficulty": game.difficulty,
+                    "difficulty_label": get_jiten_difficulty_label(game.difficulty),
                 }
             )
 
@@ -625,6 +627,7 @@ def calculate_game_milestones(all_lines=None) -> dict | None:
             "release_date_full": game["release_date"],
             "first_played": format_first_played(game["first_played"]),
             "difficulty": game["difficulty"],
+            "difficulty_label": game.get("difficulty_label"),
         }
 
     if oldest_game:

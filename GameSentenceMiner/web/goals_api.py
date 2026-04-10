@@ -7,6 +7,7 @@ Provides data for calculating progress on user-defined goals with date ranges.
 
 import datetime
 import json
+from dataclasses import dataclass
 import pytz
 import time
 from flask import request, jsonify
@@ -25,6 +26,33 @@ from GameSentenceMiner.web.rollup_stats import (
 
 
 # Helper Functions
+
+
+@dataclass(frozen=True)
+class GoalProgressWindow:
+    include_today_live: bool
+    rollup_end_date: datetime.date
+    has_rollup_range: bool
+
+
+def calculate_goal_progress_window(
+    start_date: datetime.date, end_date: datetime.date, today: datetime.date
+) -> GoalProgressWindow:
+    """
+    Calculate the historical/live stats window for a goal.
+
+    Historical rollups are capped at the goal's own end date. Live stats are
+    only included while the goal still overlaps today.
+    """
+    include_today_live = end_date >= today
+    yesterday = today - datetime.timedelta(days=1)
+    rollup_end_date = min(end_date, yesterday) if include_today_live else end_date
+
+    return GoalProgressWindow(
+        include_today_live=include_today_live,
+        rollup_end_date=rollup_end_date,
+        has_rollup_range=start_date <= rollup_end_date,
+    )
 
 
 def combine_stats_with_third_party(rollup_stats, live_stats, start_date_str=None, end_date_str=None):
@@ -1391,25 +1419,17 @@ def register_goals_api_routes(app):
                     }
                 ), 200
 
-            # Determine if we need to include today's live data
-            include_today = end_date >= today
-
-            # Get rollup data for the date range (up to yesterday if today is included)
-            if include_today:
-                yesterday = today - datetime.timedelta(days=1)
-                rollup_end_date = min(end_date, yesterday)
-            else:
-                rollup_end_date = end_date
+            window = calculate_goal_progress_window(start_date, end_date, today)
 
             # Only query rollups if we have historical dates and valid date range
             rollup_stats = None
-            if start_date <= rollup_end_date:
-                rollup_stats = get_rollup_stats_for_range(start_date, rollup_end_date)
+            if window.has_rollup_range:
+                rollup_stats = get_rollup_stats_for_range(start_date, window.rollup_end_date)
 
             # Get today's live data if needed
             today_lines = None
             live_stats = None
-            if include_today:
+            if window.include_today_live:
                 today_lines, live_stats = get_todays_live_data(today, user_tz)
 
             # Combine rollup and live stats
@@ -1419,9 +1439,9 @@ def register_goals_api_routes(app):
             progress = extract_metric_value(
                 combined_stats,
                 metric_type,
-                today_lines=today_lines if include_today else None,
-                start_date=start_date if start_date <= rollup_end_date else None,
-                yesterday=rollup_end_date if start_date <= rollup_end_date else None,
+                today_lines=today_lines if window.include_today_live else None,
+                start_date=start_date if window.has_rollup_range else None,
+                yesterday=window.rollup_end_date if window.has_rollup_range else None,
                 goals_settings=goals_settings,
                 media_type=media_type,
             )
@@ -2508,36 +2528,12 @@ def register_goals_api_routes(app):
     @app.route("/api/goals/achieved", methods=["GET"])
     def api_get_achieved_goals():
         """
-        Get all goals that the user has achieved (progress >= target).
-        Covers regular date-range goals, static daily goals, and custom checkbox goals.
-
-        Returns:
-        {
-            "achieved_goals": [
-                {
-                    "goal_id": "goal_17...",
-                    "goal_name": "Read 1M chars in January",
-                    "goal_icon": "📖",
-                    "metric_type": "characters",
-                    "media_type": "ALL",
-                    "target_value": 1000000,
-                    "current_progress": 1234567,
-                    "completion_percentage": 123.5,
-                    "start_date": "2025-01-01",
-                    "end_date": "2025-01-31",
-                    "is_static": false,
-                    "is_custom": false,
-                    "completed_today": false
-                }
-            ],
-            "total_achieved": 3
-        }
+        Get goals that were achieved, plus expired date-range goals that were missed.
         """
         try:
             user_tz = get_user_timezone()
             today = get_today_in_timezone(user_tz)
             today_str = today.strftime("%Y-%m-%d")
-            yesterday = today - datetime.timedelta(days=1)
 
             # Get current goals entry
             current_entry = GoalsTable.get_by_date("current")
@@ -2571,11 +2567,11 @@ def register_goals_api_routes(app):
             seen_ids = set()
             unique_goals = []
             for goal in current_goals:
-                gid = goal.get("id")
-                if gid and gid in seen_ids:
+                goal_id = goal.get("id")
+                if goal_id and goal_id in seen_ids:
                     continue
-                if gid:
-                    seen_ids.add(gid)
+                if goal_id:
+                    seen_ids.add(goal_id)
                 unique_goals.append(goal)
             current_goals = unique_goals
 
@@ -2693,31 +2689,31 @@ def register_goals_api_routes(app):
                         continue
 
                     # Calculate total progress
+                    window = calculate_goal_progress_window(start_date, end_date, today)
+
                     rollup_stats = None
-                    if start_date <= yesterday:
+                    if window.has_rollup_range:
                         cache_key = (
                             start_date.strftime("%Y-%m-%d"),
-                            yesterday.strftime("%Y-%m-%d"),
+                            window.rollup_end_date.strftime("%Y-%m-%d"),
                         )
                         if cache_key not in rollup_cache:
-                            rollup_cache[cache_key] = get_rollup_stats_for_range(start_date, yesterday)
+                            rollup_cache[cache_key] = get_rollup_stats_for_range(start_date, window.rollup_end_date)
                         rollup_stats = rollup_cache[cache_key]
 
-                    # Only include today's live data if today is within the goal range
-                    include_today_live = today <= end_date
                     combined_stats = combine_stats_with_third_party(
                         rollup_stats,
-                        live_stats if include_today_live else None,
+                        live_stats if window.include_today_live else None,
                         start_date.strftime("%Y-%m-%d"),
-                        (today if include_today_live else end_date).strftime("%Y-%m-%d"),
+                        (today if window.include_today_live else end_date).strftime("%Y-%m-%d"),
                     )
 
                     total_progress = extract_metric_value(
                         combined_stats,
                         metric_type,
-                        today_lines=today_lines if include_today_live else None,
-                        start_date=start_date if start_date <= yesterday else None,
-                        yesterday=yesterday if start_date <= yesterday else None,
+                        today_lines=today_lines if window.include_today_live else None,
+                        start_date=start_date if window.has_rollup_range else None,
+                        yesterday=window.rollup_end_date if window.has_rollup_range else None,
                         goals_settings=goals_settings,
                         media_type=media_type,
                     )

@@ -643,142 +643,72 @@
     </div>
     -->
 
-            <!-- Dashboard Statistics Sections -->
-            <div class="dashboard-container">
-                <!-- Missing High-Frequency Kanji Card -->
-                <div
-                    class="dashboard-card current-game"
-                    id="missingKanjiCard"
-                >
-                    <div class="dashboard-card-header">
-                        <div>
-                            <h3 class="dashboard-card-title">
-                                <span class="dashboard-card-icon">🈚</span>
-                                Missing High-Frequency Kanji
-                            </h3>
-                            <p class="dashboard-card-subtitle">
-                                Kanji seen often in GSM but not present in your Anki collection
-                            </p>
-                            <p class="dashboard-card-subtitle">
-                                Note: Please Sort By frequency, as grey means the Kanji might be in
-                                your Anki
-                            </p>
-                        </div>
-                        <div
-                            class="dashboard-streak-indicator"
-                            id="missingKanjiStreak"
-                            style="display: none"
-                        >
-                            <span id="missingStreakValue">0</span> to learn
-                        </div>
-                    </div>
+    <!-- Dashboard Statistics Sections -->
+    <div class="dashboard-container">
+        <!-- Missing High-Frequency Kanji Card -->
+        <div class="dashboard-card current-game" id="missingKanjiCard">
+            <div class="dashboard-card-header">
+                <div>
+                    <h3 class="dashboard-card-title">
+                        <span class="dashboard-card-icon">🈚</span>
+                        Missing High-Frequency Kanji
+                    </h3>
+                    <p class="dashboard-card-subtitle">
+                        Kanji seen often in GSM but missing from your configured Anki word field
+                    </p>
+                    <p class="dashboard-card-subtitle">
+                        Comparison uses your configured word field, usually Expression, and respects the current date filters. Sort by frequency for the clearest view.
+                    </p>
+                </div>
+                <div class="dashboard-streak-indicator" id="missingKanjiStreak" style="display: none;">
+                    <span id="missingStreakValue">0</span> to learn
+                </div>
+            </div>
 
-                    <div
-                        class="dashboard-stats-grid"
-                        id="missingKanjiStats"
-                    >
-                        <div
-                            class="dashboard-stat-item tooltip"
-                            data-tooltip="Number of high-frequency kanji missing from Anki"
-                        >
-                            <span
-                                class="dashboard-stat-value"
-                                id="missingKanjiCount"
-                            >
-                                <div
-                                    class="loading-skeleton"
-                                    style="width: 40px; height: 24px; display: inline-block"
-                                ></div>
-                            </span>
-                            <span class="dashboard-stat-label">Missing Kanji</span>
-                        </div>
-                        <div
-                            class="dashboard-stat-item tooltip"
-                            data-tooltip="Total kanji in your Anki collection"
-                        >
-                            <span
-                                class="dashboard-stat-value"
-                                id="ankiTotalKanji"
-                            >
-                                <div
-                                    class="loading-skeleton"
-                                    style="width: 40px; height: 24px; display: inline-block"
-                                ></div>
-                            </span>
-                            <span class="dashboard-stat-label">Kanji in Anki</span>
-                        </div>
-                        <div
-                            class="dashboard-stat-item tooltip"
-                            data-tooltip="Total unique kanji seen in GSM"
-                        >
-                            <span
-                                class="dashboard-stat-value"
-                                id="gsmTotalKanji"
-                            >
-                                <div
-                                    class="loading-skeleton"
-                                    style="width: 40px; height: 24px; display: inline-block"
-                                ></div>
-                            </span>
-                            <span class="dashboard-stat-label">Kanji in GSM</span>
-                        </div>
-                        <div
-                            class="dashboard-stat-item tooltip"
-                            data-tooltip="Percentage of GSM kanji covered by Anki"
-                        >
-                            <span
-                                class="dashboard-stat-value"
-                                id="ankiCoverage"
-                            >
-                                <div
-                                    class="loading-skeleton"
-                                    style="width: 50px; height: 24px; display: inline-block"
-                                ></div>
-                            </span>
-                            <span class="dashboard-stat-label">Coverage %</span>
-                        </div>
-                    </div>
+            <div class="dashboard-stats-grid" id="missingKanjiStats">
+                <div class="dashboard-stat-item tooltip" data-tooltip="Number of GSM kanji missing from your configured Anki word field after applying the current filters">
+                    <span class="dashboard-stat-value" id="missingKanjiCount">
+                        <div class="loading-skeleton" style="width: 40px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">Missing Kanji</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total unique kanji found in your configured Anki word field after applying the current filters">
+                    <span class="dashboard-stat-value" id="ankiTotalKanji">
+                        <div class="loading-skeleton" style="width: 40px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">Kanji in Anki</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Total unique kanji seen in GSM">
+                    <span class="dashboard-stat-value" id="gsmTotalKanji">
+                        <div class="loading-skeleton" style="width: 40px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">Kanji in GSM</span>
+                </div>
+                <div class="dashboard-stat-item tooltip" data-tooltip="Percentage of GSM kanji covered by your configured Anki word field after applying the current filters">
+                    <span class="dashboard-stat-value" id="ankiCoverage">
+                        <div class="loading-skeleton" style="width: 50px; height: 24px; display: inline-block;"></div>
+                    </span>
+                    <span class="dashboard-stat-label">Coverage %</span>
+                </div>
+            </div>
 
-                    <div class="dashboard-progress-section">
-                        <div class="dashboard-progress-title">Missing Kanji Grid</div>
-                        <div id="missingKanjiGridContainer">
-                            <div
-                                id="missingKanjiGrid"
-                                class="kanji-grid"
-                            ></div>
-                            <div class="kanji-legend">
-                                <span>Rarely Seen</span>
-                                <div
-                                    class="kanji-legend-item"
-                                    style="background-color: #ebedf0"
-                                    title="No encounters"
-                                ></div>
-                                <div
-                                    class="kanji-legend-item"
-                                    style="background-color: #e6342e"
-                                    title="Seen once"
-                                ></div>
-                                <div
-                                    class="kanji-legend-item"
-                                    style="background-color: #e6dc2e"
-                                    title="Occasionally seen"
-                                ></div>
-                                <div
-                                    class="kanji-legend-item"
-                                    style="background-color: #3be62f"
-                                    title="Frequently seen"
-                                ></div>
-                                <div
-                                    class="kanji-legend-item"
-                                    style="background-color: #2ee6e0"
-                                    title="Most frequently seen"
-                                ></div>
-                                <span>Frequently Seen</span>
-                            </div>
-                        </div>
+            <div class="dashboard-progress-section">
+                <div class="dashboard-progress-title">Missing Kanji Grid</div>
+                <div id="missingKanjiGridContainer">
+                    <div id="missingKanjiGrid" class="kanji-grid"></div>
+                    <div class="kanji-legend">
+                        <span>Rarely Seen</span>
+                        <div class="kanji-legend-item" style="background-color: #ebedf0;" title="No encounters"></div>
+                        <div class="kanji-legend-item" style="background-color: #e6342e;" title="Seen once"></div>
+                        <div class="kanji-legend-item" style="background-color: #e6dc2e;" title="Occasionally seen"></div>
+                        <div class="kanji-legend-item" style="background-color: #3be62f;" title="Frequently seen"></div>
+                        <div class="kanji-legend-item" style="background-color: #2ee6e0;" title="Most frequently seen"></div>
+                        <span>Frequently Seen</span>
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
 
             <!-- Words Not In Anki Section -->
             <div class="dashboard-container">
