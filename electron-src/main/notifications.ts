@@ -1,4 +1,4 @@
-import { Notification, shell, NotificationAction } from 'electron';
+import { Notification, shell } from 'electron';
 import { getIconPath } from './main.js';
 
 // Utility logger (replace with your own logger if needed)
@@ -9,6 +9,7 @@ const logger = {
 
 export enum NotificationType {
     AnkiCardUpdated = 'Anki Card Updated',
+    AnkiEnhancementFailed = 'Anki Enhancement Failed',
     AnkiCardOpened = 'Anki Card Opened',
     AnkiBrowserOpened = 'Anki Browser Opened',
     ScreenshotSaved = 'Screenshot Saved',
@@ -16,6 +17,8 @@ export enum NotificationType {
     CheckOBS = 'Check OBS',
     Error = 'Error',
     GSMReady = 'GSM Ready',
+    GSMTextIntakePaused = 'GSM Text Intake Paused',
+    GSMTextIntakeResumed = 'GSM Text Intake Resumed',
 }
 
 // Show a notification, optionally with a click handler
@@ -138,6 +141,9 @@ export function sendNotificationFromPython(data: any) {
         case NotificationType.AnkiCardUpdated:
             sendNoteUpdated(message, noteId);
             break;
+        case NotificationType.AnkiEnhancementFailed:
+            sendAnkiEnhancementFailed(message);
+            break;
         case NotificationType.ScreenshotSaved:
             sendScreenshotSaved(message);
             break;
@@ -152,6 +158,12 @@ export function sendNotificationFromPython(data: any) {
             break;
         case NotificationType.GSMReady:
             sendGSMReadyNotification(message);
+            break;
+        case NotificationType.GSMTextIntakePaused:
+            sendTextIntakePausedNotification(message);
+            break;
+        case NotificationType.GSMTextIntakeResumed:
+            sendTextIntakeResumedNotification(message);
             break;
         default:
             console.warn(`Unknown notification type: ${type}`);
@@ -179,6 +191,14 @@ export function sendScreenshotUpdated(noteID: number) {
         `Screenshot updated on note: ${noteID}`,
         5000,
         () => openAnkiCard(noteID)
+    );
+}
+
+export function sendAnkiEnhancementFailed(message: string) {
+    sendNotification(
+        NotificationType.AnkiEnhancementFailed,
+        message || 'Anki card enhancement failed. Check the console for details.',
+        5000
     );
 }
 
@@ -214,4 +234,20 @@ export function sendGSMReadyNotification(message: string) {
 }
 export function sendErrorNotification(message: string) {
     sendNotification(NotificationType.Error, message, 5000);
+}
+
+export function sendTextIntakePausedNotification(message: string) {
+    sendNotification(
+        NotificationType.GSMTextIntakePaused,
+        message || 'Clipboard and websocket text intake is paused.',
+        5000
+    );
+}
+
+export function sendTextIntakeResumedNotification(message: string) {
+    sendNotification(
+        NotificationType.GSMTextIntakeResumed,
+        message || 'Clipboard and websocket text intake resumed.',
+        5000
+    );
 }

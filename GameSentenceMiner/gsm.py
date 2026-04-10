@@ -498,6 +498,9 @@ class GSMApplication:
 
         hotkey_manager.register(lambda: get_config().hotkeys.play_latest_audio, self.play_most_recent_audio)
         hotkey_manager.register(lambda: get_config().hotkeys.manual_overlay_scan, call_overlay_processor)
+        hotkey_manager.register(
+            lambda: get_config().hotkeys.pause_text_intake, _get_gametext_module().toggle_text_intake_paused
+        )
 
         if is_windows():
             hotkey_manager.register(

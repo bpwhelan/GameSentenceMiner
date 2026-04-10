@@ -42,6 +42,10 @@
             <label for="setupSceneNameInput">Override Scene Name (Optional):</label>
             <input id="setupSceneNameInput" type="text" autocomplete="off" />
         </div>
+        <div class="input-group">
+            <label for="captureCardToggle">Check for Capture Card/Cameras:</label>
+            <input id="captureCardToggle" type="checkbox" />
+        </div>
     </div>
     <div class="card">
         <div class="grid-container">
@@ -155,6 +159,7 @@
         const obsStatusBtn = document.getElementById('obs-status');
         const sceneSelect = document.getElementById('sceneSelect');
         const windowSelect = document.getElementById('windowSelect');
+        const captureCardToggle = document.getElementById('captureCardToggle');
         const setupSceneNameInput = document.getElementById('setupSceneNameInput');
         const renameSceneModal = document.getElementById('renameSceneModal');
         const renameSceneInput = document.getElementById('renameSceneInput');
@@ -319,6 +324,17 @@
             }
         }
 
+        async function syncCaptureCardToggle() {
+            try {
+                captureCardToggle.checked = Boolean(
+                    await ipcRenderer.invoke('obs.getCaptureCardProbeEnabled')
+                );
+            } catch (error) {
+                console.error('Failed to fetch capture-card probe state:', error);
+                captureCardToggle.checked = false;
+            }
+        }
+
         let refreshIntervalId = null;
         async function refreshScenesAndWindows(showLoading = true, setIntervalFlag = true, quick = false) {
             // Remember the previously selected scene
@@ -409,6 +425,21 @@
 
         document.getElementById('refreshWindowsBtn').addEventListener('click', () => {
             getWindows();
+        });
+
+        captureCardToggle.addEventListener('change', async (event) => {
+            const desiredEnabled = Boolean(event.target.checked);
+            try {
+                const enabled = await ipcRenderer.invoke(
+                    'obs.setCaptureCardProbeEnabled',
+                    desiredEnabled
+                );
+                captureCardToggle.checked = Boolean(enabled);
+                await getWindows();
+            } catch (error) {
+                console.error('Failed to toggle capture-card probing:', error);
+                captureCardToggle.checked = !desiredEnabled;
+            }
         });
 
         document.getElementById('createNewSceneBtn').addEventListener('click', () => {
@@ -575,7 +606,8 @@
         // }
 
         updateSceneActionButtons();
-        void refreshScenesAndWindows(true);
+        void syncCaptureCardToggle();
+        void refreshScenesAndWindows(true, true, true);
 
         // ====================================================================
         // Shared State: Adjust overlay controls for the current OS
@@ -595,6 +627,7 @@
                 const overlayHelpBtn = document.getElementById('open-overlay-wiki-btn');
                 const refreshWindowsBtn = document.getElementById('refreshWindowsBtn');
                 const createNewSceneBtn = document.getElementById('createNewSceneBtn');
+                const captureCardToggle = document.getElementById('captureCardToggle');
 
                 if (runOverlayBtn) {
                     runOverlayBtn.disabled = false;
@@ -635,6 +668,11 @@
                         createNewSceneBtn.style.cursor = '';
                         createNewSceneBtn.removeAttribute('title');
                     }
+                    if (captureCardToggle) {
+                        captureCardToggle.disabled = false;
+                        captureCardToggle.style.cursor = '';
+                        captureCardToggle.removeAttribute('title');
+                    }
                 } else {
                     windowSelect.innerHTML = '<option>Need to set scenes in OBS on this OS.</option>';
                     windowSelect.disabled = true;
@@ -655,6 +693,12 @@
                         createNewSceneBtn.style.opacity = '0.5';
                         createNewSceneBtn.style.cursor = 'not-allowed';
                         createNewSceneBtn.title = 'Not supported in this OS';
+                    }
+                    if (captureCardToggle) {
+                        captureCardToggle.checked = false;
+                        captureCardToggle.disabled = true;
+                        captureCardToggle.style.cursor = 'not-allowed';
+                        captureCardToggle.title = 'Not supported in this OS';
                     }
                 }
             }

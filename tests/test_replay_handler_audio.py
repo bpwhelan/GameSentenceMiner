@@ -772,3 +772,107 @@ def test_get_audio_warns_clearly_when_vad_reports_missing_output_file(tmp_path):
         )
 
     assert logger.warnings == [f"VAD reported an output audio path, but the file does not exist: {missing_output}"]
+
+
+def test_get_audio_notifies_when_vad_finds_no_voice_and_no_fallback(tmp_path):
+    source_audio = tmp_path / "source.opus"
+    source_audio.write_bytes(b"source")
+    trimmed_audio = tmp_path / "trimmed.opus"
+    trimmed_audio.write_bytes(b"trimmed")
+
+    logger = _NoopLogger()
+    notifications = []
+    config = SimpleNamespace(
+        vad=SimpleNamespace(
+            do_vad_postprocessing=True,
+            trim_beginning=True,
+            cut_and_splice_segments=False,
+            add_audio_on_no_results=False,
+            use_tts_as_fallback=False,
+        ),
+        audio=SimpleNamespace(extension="opus", ffmpeg_reencode_options_to_use="-b:a 64k"),
+        anki=SimpleNamespace(show_update_confirmation_dialog_v2=False),
+        advanced=SimpleNamespace(multi_line_line_break=" "),
+    )
+
+    anki_stub = ModuleType("GameSentenceMiner.anki")
+    obs_stub = ModuleType("GameSentenceMiner.obs")
+    obs_stub.get_current_game = lambda sanitize=False: "Test Game"
+
+    ffmpeg_stub = ModuleType("GameSentenceMiner.util.media.ffmpeg")
+    ffmpeg_stub.get_audio_and_trim = lambda *_args, **_kwargs: (
+        str(source_audio),
+        str(trimmed_audio),
+        1.0,
+        4.0,
+    )
+    ffmpeg_stub.get_audio_length = lambda path: 3.0 if path == str(trimmed_audio) else 30.0
+
+    media_pkg = ModuleType("GameSentenceMiner.util.media")
+    media_pkg.ffmpeg = ffmpeg_stub
+
+    model_stub = ModuleType("GameSentenceMiner.util.models.model")
+    model_stub.VADResult = _VADResult
+
+    gsm_utils_stub = ModuleType("GameSentenceMiner.util.gsm_utils")
+    gsm_utils_stub.combine_dialogue = lambda lines: lines
+    gsm_utils_stub.make_unique_file_name = lambda path: path
+    gsm_utils_stub.remove_html_and_cloze_tags = lambda text: text
+    gsm_utils_stub.wait_for_stable_file = lambda *_args, **_kwargs: None
+
+    config_module = ModuleType("GameSentenceMiner.util.config.configuration")
+    config_module.AnkiUpdateResult = SimpleNamespace
+    config_module.anki_results = {}
+    config_module.get_config = lambda: config
+    config_module.get_temporary_directory = lambda: str(tmp_path)
+    config_module.gsm_state = SimpleNamespace()
+    config_module.gsm_status = SimpleNamespace(remove_word_being_processed=lambda *_args, **_kwargs: None)
+    config_module.logger = logger
+
+    config_pkg = ModuleType("GameSentenceMiner.util.config")
+    config_pkg.configuration = config_module
+
+    notification_module = ModuleType("GameSentenceMiner.util.platform.notification")
+    notification_module.send_anki_enhancement_failed = lambda message: notifications.append(message)
+    platform_pkg = ModuleType("GameSentenceMiner.util.platform")
+    platform_pkg.notification = notification_module
+
+    vad_stub = ModuleType("GameSentenceMiner.vad")
+    vad_stub.vad_processor = SimpleNamespace(
+        initialized=True,
+        trim_audio_with_vad=lambda *_args, **_kwargs: _VADResult(
+            False,
+            0.0,
+            0.0,
+            "Silero",
+            output_audio="",
+        ),
+    )
+
+    stubs = {
+        "GameSentenceMiner.anki": anki_stub,
+        "GameSentenceMiner.obs": obs_stub,
+        "GameSentenceMiner.util.config": config_pkg,
+        "GameSentenceMiner.util.config.configuration": config_module,
+        "GameSentenceMiner.util.gsm_utils": gsm_utils_stub,
+        "GameSentenceMiner.util.media": media_pkg,
+        "GameSentenceMiner.util.media.ffmpeg": ffmpeg_stub,
+        "GameSentenceMiner.util.models.model": model_stub,
+        "GameSentenceMiner.util.platform": platform_pkg,
+        "GameSentenceMiner.util.platform.notification": notification_module,
+        "GameSentenceMiner.vad": vad_stub,
+    }
+
+    with _temporary_sys_modules(stubs):
+        sys.modules.pop("GameSentenceMiner.replay_handler", None)
+        replay_handler = importlib.import_module("GameSentenceMiner.replay_handler")
+
+        replay_handler.ReplayAudioExtractor.get_audio(
+            game_line=SimpleNamespace(text="line"),
+            next_line_time=None,
+            video_path="video.mp4",
+        )
+
+    assert notifications == [
+        "No voice activity detected for the Anki card audio, and no fallback audio was configured."
+    ]

@@ -106,7 +106,8 @@ const WINDOW_FILTERS: WindowFilter[] = [
     { titlePattern: "Task Manager" },
     { windowClass: 'obs' },
     { windowClass: 'plasmashell' },
-    { titlePattern: /^Desktop @ QRect/i }
+    { titlePattern: /^Desktop @ QRect/i },
+    { titlePattern: "(null)" },
 
 ];
 
@@ -320,7 +321,19 @@ const WINDOW_GETTER_INPUT = 'window_getter';
 const GAME_WINDOW_INPUT = 'game_window_getter';
 const CAPTURE_CARD_GETTER_INPUT = 'capture_card_getter';
 const AUDIO_INPUT_GETTER_INPUT = 'audio_input_getter';
+const HELPER_INPUT_NAMES = new Set([
+    WINDOW_GETTER_INPUT,
+    GAME_WINDOW_INPUT,
+    CAPTURE_CARD_GETTER_INPUT,
+    AUDIO_INPUT_GETTER_INPUT,
+]);
+const CAPTURE_CARD_HELPER_INPUT_NAMES = new Set([
+    CAPTURE_CARD_GETTER_INPUT,
+    AUDIO_INPUT_GETTER_INPUT,
+]);
 let sceneSwitcherRegistered = false;
+let captureCardProbeEnabled = false;
+let captureCardProbeInputsSynced = false;
 
 let connectionPromise: Promise<void> | null = null;
 let resetPromise: Promise<void> | null = null;
@@ -1367,6 +1380,116 @@ export async function registerOBSIPC() {
         createdProbeInputs.clear();
     }
 
+    async function ensureHelperInputExists(
+        inputName: string,
+        inputKind: string,
+        inputSettings: Record<string, unknown> = {}
+    ): Promise<void> {
+        try {
+            await callOBS('GetInputSettings', { inputName });
+        } catch (error: any) {
+            const errorMessage = getObsErrorMessage(error);
+            if (!errorMessage.includes('No source was found')) {
+                throw error;
+            }
+
+            await ensureHelperSceneExists();
+            await callOBS('CreateInput', {
+                sceneName: HELPER_SCENE,
+                inputName,
+                inputKind,
+                inputSettings,
+                sceneItemEnabled: false,
+            });
+        }
+
+        await forceDisableHelperSceneInputs([inputName]);
+    }
+
+    async function setCaptureCardProbeInputsEnabled(enabled: boolean): Promise<boolean> {
+        captureCardProbeEnabled = enabled;
+
+        if (!isWindows()) {
+            return captureCardProbeEnabled;
+        }
+
+        if (enabled) {
+            await ensureHelperInputExists(
+                CAPTURE_CARD_GETTER_INPUT,
+                OBS_DSHOW_INPUT_KIND
+            );
+            await ensureHelperInputExists(
+                AUDIO_INPUT_GETTER_INPUT,
+                OBS_WASAPI_INPUT_CAPTURE_KIND,
+                { device_id: 'default' }
+            );
+            await forceDisableHelperSceneInputs(CAPTURE_CARD_HELPER_INPUT_NAMES);
+        } else {
+            for (const inputName of CAPTURE_CARD_HELPER_INPUT_NAMES) {
+                try {
+                    await callOBS('RemoveInput', { inputName });
+                } catch {
+                    // Ignore missing helper inputs during disable.
+                }
+                createdProbeInputs.delete(inputName);
+                inputPropertyItemsPromises.forEach((_, key) => {
+                    if (key.includes(`"${inputName}"`)) {
+                        inputPropertyItemsPromises.delete(key);
+                    }
+                });
+            }
+        }
+
+        windowListFullCache = null;
+        windowListFastCache = null;
+        return captureCardProbeEnabled;
+    }
+
+    async function syncCaptureCardProbeInputsToStateOnce(): Promise<void> {
+        if (captureCardProbeInputsSynced) {
+            return;
+        }
+
+        await setCaptureCardProbeInputsEnabled(captureCardProbeEnabled);
+        captureCardProbeInputsSynced = true;
+    }
+
+    async function forceDisableHelperSceneInputs(
+        inputNames?: Iterable<string>
+    ): Promise<void> {
+        try {
+            const targetInputNames =
+                inputNames === undefined ? HELPER_INPUT_NAMES : new Set(inputNames);
+            const response = await callOBS('GetSceneItemList', {
+                sceneName: HELPER_SCENE,
+            });
+
+            for (const sceneItem of response.sceneItems ?? []) {
+                const sourceName = sceneItem.sourceName as string | undefined;
+                if (!sourceName || !HELPER_INPUT_NAMES.has(sourceName)) {
+                    continue;
+                }
+                if (!targetInputNames.has(sourceName)) {
+                    continue;
+                }
+                if (typeof sceneItem.sceneItemId !== 'number') {
+                    continue;
+                }
+                if (sceneItem.sceneItemEnabled === false) {
+                    continue;
+                }
+
+                await callOBS('SetSceneItemEnabled', {
+                    sceneName: HELPER_SCENE,
+                    sceneItemId: sceneItem.sceneItemId,
+                    sceneItemEnabled: false,
+                });
+            }
+        } catch {
+            // Ignore missing helper scenes or scene-item lookup failures.
+        }
+    }
+
     async function getInputPropertyItems(
         inputName: string,
         inputKind: string,
@@ -1387,10 +1510,12 @@ export async function registerOBSIPC() {
         const requestPromise = (async () => {
             try {
                 await getOBSConnection();
+                await forceDisableHelperSceneInputs([inputName]);
                 const response = await callOBS('GetInputPropertiesListPropertyItems', {
                     inputName,
                     propertyName,
                 });
+                await forceDisableHelperSceneInputs([inputName]);
                 return (response.propertyItems ?? []) as ObsDevicePropertyItem[];
             } catch (error: any) {
                 const errorMessage = getObsErrorMessage(error);
@@ -1404,13 +1529,16 @@ export async function registerOBSIPC() {
                     inputName,
                     inputKind,
                     inputSettings,
+                    sceneItemEnabled: false,
                 });
                 createdProbeInputs.add(inputName);
+                await forceDisableHelperSceneInputs([inputName]);
 
                 const retryResponse = await callOBS('GetInputPropertiesListPropertyItems', {
                     inputName,
                     propertyName,
                 });
+                await forceDisableHelperSceneInputs([inputName]);
                 return (retryResponse.propertyItems ?? []) as ObsDevicePropertyItem[];
             }
         })();
@@ -1486,6 +1614,10 @@ export async function registerOBSIPC() {
     }
 
     async function getCaptureCardList(): Promise<ObsWindowOption[]> {
+        if (!captureCardProbeEnabled) {
+            return [];
+        }
+
         const [videoDevices, directShowAudioDevices, wasapiInputDevices] =
             await Promise.all([
                 getInputPropertyItems(
@@ -1532,6 +1664,8 @@ export async function registerOBSIPC() {
                 return await getLinuxXCompositeWindows();
             }
 
+            await forceDisableHelperSceneInputs();
+
             const [windowCaptureWindows, gameCaptureWindows] =
                 await Promise.all([
                     getWindowsFromSource(WINDOW_GETTER_INPUT, 'window_capture'),
@@ -1567,16 +1701,14 @@ export async function registerOBSIPC() {
                 return await getLinuxXCompositeWindows();
             }
 
+            await forceDisableHelperSceneInputs();
+
             const [windowCaptureWindows, gameCaptureWindows, captureCards] =
                 await Promise.all([
                     getWindowsFromSource(WINDOW_GETTER_INPUT, 'window_capture'),
                     getWindowsFromSource(GAME_WINDOW_INPUT, 'game_capture'),
                     getCaptureCardList(),
                 ]);
-
-            // Clean up DirectShow / WASAPI probe sources so they don't hold
-            // video-capture device handles and audio device buffers open.
-            await cleanupProbeInputs();
 
             const allWindows = [...windowCaptureWindows, ...gameCaptureWindows].filter(
                 (item) => !shouldFilterWindow(item)
@@ -1608,6 +1740,7 @@ export async function registerOBSIPC() {
                     return windowListFastCache.data;
                 }
                 await getOBSConnection();
+                await syncCaptureCardProbeInputsToStateOnce();
                 const result = await getWindowListFast();
                 windowListFastCache = { data: result, timestamp: Date.now() };
                 return result;
@@ -1622,6 +1755,7 @@ export async function registerOBSIPC() {
             }
 
             await getOBSConnection();
+            await syncCaptureCardProbeInputsToStateOnce();
             const result = await getWindowListFull();
             windowListFullCache = { data: result, timestamp: Date.now() };
             // Also refresh the fast cache so the next quick poll is instant.
@@ -1635,11 +1769,41 @@ export async function registerOBSIPC() {
         }
     });
 
+    ipcMain.handle('obs.getCaptureCardProbeEnabled', async () => {
+        try {
+            await getOBSConnection();
+            await syncCaptureCardProbeInputsToStateOnce();
+        } catch {
+            // Ignore connection failures here and return the remembered toggle state.
+        }
+        return captureCardProbeEnabled;
+    });
+
+    ipcMain.handle(
+        'obs.setCaptureCardProbeEnabled',
+        async (_, enabled: boolean) => {
+            try {
+                await getOBSConnection();
+                return await setCaptureCardProbeInputsEnabled(Boolean(enabled));
+            } catch (error) {
+                if (!isOBSInitializingError(error)) {
+                    logObsError('Error toggling capture-card helper inputs:', error);
+                }
+                return captureCardProbeEnabled;
+            }
+        }
+    );
+
     void getOBSConnection().catch((error) => {
         logObsError(
             `[OBS] Initial OBS connection attempt failed: ${getObsErrorMessage(error)}`
         );
     });
+    void getOBSConnection()
+        .then(() => syncCaptureCardProbeInputsToStateOnce())
+        .catch(() => {
+            // Ignore startup sync failures; normal IPC paths will retry.
+        });
 }
 
 export async function getExecutableNameFromSource(

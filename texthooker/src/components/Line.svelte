@@ -255,6 +255,15 @@
 			{/if}
 		</p>
 		<div class="line-actions-container" class:hidden={$settingsOpen$}>
+			{#if line.excludedFromStats}
+				<div
+					class="line-badge unselectable"
+					title="This line was relayed while GSM text intake was paused, so GSM did not count it toward stats or trigger overlay processing."
+					tabindex="-1"
+				>
+					Not in GSM stats
+				</div>
+			{/if}
 			{#if $lineIDs$ && $lineIDs$.includes(line.id)}
 				<div class="textline-buttons unselectable">
 					{#if $showScreenshotButton$}
@@ -446,6 +455,18 @@
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
+		gap: 10px;
+	}
+
+	.line-badge {
+		background: rgba(255, 193, 7, 0.15);
+		border: 1px solid rgba(255, 193, 7, 0.45);
+		color: #f5d76e;
+		border-radius: 999px;
+		padding: 4px 10px;
+		font-size: 11px;
+		line-height: 1.2;
+		white-space: nowrap;
 	}
 
 	.hidden {

@@ -113,15 +113,28 @@ def is_image_empty(img) -> bool:
 
 
 HELPER_SCENE_NAMES = {"GSM Helper - DONT TOUCH"}
-HELPER_SOURCE_NAMES = {"window_getter", "game_window_getter"}
+HELPER_SOURCE_NAMES = {
+    "window_getter",
+    "game_window_getter",
+    "capture_card_getter",
+    "audio_input_getter",
+}
+_NORMALIZED_HELPER_SCENE_NAMES = {name.casefold() for name in HELPER_SCENE_NAMES}
+_NORMALIZED_HELPER_SOURCE_NAMES = {name.casefold() for name in HELPER_SOURCE_NAMES}
+
+
+def is_helper_scene_name(scene_name: Optional[str]) -> bool:
+    return str(scene_name or "").strip().casefold() in _NORMALIZED_HELPER_SCENE_NAMES
+
+
+def is_helper_source_name(source_name: Optional[str]) -> bool:
+    return str(source_name or "").strip().casefold() in _NORMALIZED_HELPER_SOURCE_NAMES
 
 
 def _should_skip_image_validation(source_name: Optional[str] = None, scene_name: Optional[str] = None) -> bool:
-    normalized_scene_name = str(scene_name or "").strip().casefold()
-    if normalized_scene_name in {name.casefold() for name in HELPER_SCENE_NAMES}:
+    if is_helper_scene_name(scene_name):
         return True
-    normalized_source_name = str(source_name or "").strip().casefold()
-    return normalized_source_name in {name.casefold() for name in HELPER_SOURCE_NAMES}
+    return is_helper_source_name(source_name)
 
 
 # ---------------------------------------------------------------------------

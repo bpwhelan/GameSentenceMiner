@@ -105,6 +105,7 @@ export interface SceneLaunchProfile {
     sceneName: string;
     textHookMode: SceneTextHookMode;
     ocrMode: SceneOcrMode;
+    launchOverlay: boolean;
     agentScriptPath: string;
     launchDelaySeconds: number;
 }
@@ -286,6 +287,7 @@ export const store = new Store<StoreConfig>({
 
 const DEFAULT_SCENE_TEXT_HOOK_MODE: SceneTextHookMode = "none";
 const DEFAULT_SCENE_OCR_MODE: SceneOcrMode = "none";
+const DEFAULT_SCENE_LAUNCH_OVERLAY = false;
 const DEFAULT_SCENE_LAUNCH_DELAY_SECONDS = 0;
 
 function normalizeLaunchDelaySeconds(value: unknown): number {
@@ -329,6 +331,10 @@ function normalizeSceneLaunchProfile(value: unknown): SceneLaunchProfile | null 
         ocrMode: isSceneOcrMode(profile.ocrMode)
             ? profile.ocrMode
             : DEFAULT_SCENE_OCR_MODE,
+        launchOverlay:
+            typeof profile.launchOverlay === "boolean"
+                ? profile.launchOverlay
+                : DEFAULT_SCENE_LAUNCH_OVERLAY,
         agentScriptPath:
             typeof profile.agentScriptPath === "string"
                 ? profile.agentScriptPath.trim()
@@ -384,7 +390,7 @@ function mergeSceneLaunchProfile(
     patch: Partial<
         Pick<
             SceneLaunchProfile,
-            "textHookMode" | "ocrMode" | "agentScriptPath" | "launchDelaySeconds"
+            "textHookMode" | "ocrMode" | "launchOverlay" | "agentScriptPath" | "launchDelaySeconds"
         >
     >
 ): void {
@@ -408,6 +414,7 @@ function mergeSceneLaunchProfile(
                   sceneName,
                   textHookMode: DEFAULT_SCENE_TEXT_HOOK_MODE,
                   ocrMode: DEFAULT_SCENE_OCR_MODE,
+                  launchOverlay: DEFAULT_SCENE_LAUNCH_OVERLAY,
                   agentScriptPath: "",
                 launchDelaySeconds: DEFAULT_SCENE_LAUNCH_DELAY_SECONDS,
               };
@@ -417,6 +424,10 @@ function mergeSceneLaunchProfile(
         sceneName,
         textHookMode: patch.textHookMode ?? existing.textHookMode,
         ocrMode: patch.ocrMode ?? existing.ocrMode,
+        launchOverlay:
+            typeof patch.launchOverlay === "boolean"
+                ? patch.launchOverlay
+                : existing.launchOverlay,
         agentScriptPath:
             typeof patch.agentScriptPath === "string"
                 ? patch.agentScriptPath.trim()
@@ -811,6 +822,7 @@ export function upsertSceneLaunchProfile(profile: SceneLaunchProfile): void {
         {
             textHookMode: normalized.textHookMode,
             ocrMode: normalized.ocrMode,
+            launchOverlay: normalized.launchOverlay,
             agentScriptPath: normalized.agentScriptPath,
             launchDelaySeconds: normalized.launchDelaySeconds,
         }

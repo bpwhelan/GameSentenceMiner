@@ -1,5 +1,6 @@
 import asyncio
 import json
+import uuid
 
 # import pyperclip
 import websockets
@@ -21,8 +22,13 @@ from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.text_processing import apply_text_processing
 from GameSentenceMiner.util.gsm_utils import SleepManager
 from GameSentenceMiner.util.overlay.get_overlay_coords import get_overlay_processor
+from GameSentenceMiner.util.platform.notification import (
+    announce_text_intake_state,
+    send_text_intake_paused_notification,
+    send_text_intake_resumed_notification,
+)
 from GameSentenceMiner.util.stats.live_stats import live_stats_tracker
-from GameSentenceMiner.util.text_log import add_line
+from GameSentenceMiner.util.text_log import GameLine, TextSource, add_line
 
 
 def _get_overlay_websocket():
@@ -73,6 +79,37 @@ def is_ocr_websocket_uri(uri: str) -> bool:
 
 def is_text_monitor_initialized() -> bool:
     return text_monitor_initialized
+
+
+def is_text_intake_paused() -> bool:
+    return bool(getattr(gsm_state, "text_input_paused", False))
+
+
+def set_text_intake_paused(paused: bool) -> bool:
+    new_state = bool(paused)
+    old_state = is_text_intake_paused()
+    gsm_state.text_input_paused = new_state
+    if new_state != old_state:
+        logger.info(f"GSM text intake {'paused' if new_state else 'resumed'}.")
+        announce_text_intake_state(new_state)
+        if new_state:
+            send_text_intake_paused_notification(should_relay_outputs_when_text_intake_paused())
+        else:
+            send_text_intake_resumed_notification()
+    return new_state
+
+
+def toggle_text_intake_paused() -> bool:
+    return set_text_intake_paused(not is_text_intake_paused())
+
+
+def should_relay_outputs_when_text_intake_paused() -> bool:
+    hotkeys_config = getattr(get_config(), "hotkeys", None)
+    return bool(getattr(hotkeys_config, "relay_outputs_when_text_intake_paused", True))
+
+
+def should_drop_text_input_completely() -> bool:
+    return is_text_intake_paused() and not should_relay_outputs_when_text_intake_paused()
 
 
 def resolve_websocket_source_name(uri: str) -> str:
@@ -449,9 +486,12 @@ async def handle_new_text_event(
         timer, \
         current_sequence_start_time, \
         last_raw_clipboard
+    current_line = current_clipboard
+    if should_drop_text_input_completely():
+        logger.debug("Text intake is paused; dropping incoming text without further processing.")
+        return
     obs.update_current_game()
     discord_rpc_manager.update(obs.get_current_game(sanitize=False, update=False))
-    current_line = current_clipboard
     # Only apply this logic if merging is enabled
     if get_config().general.merge_matching_sequential_text:
         # If no timer is active, this is the start of a new sequence
@@ -506,6 +546,15 @@ async def add_line_to_text_log(
     source_label = source_display_name or source or "Unknown"
     logger.opt(colors=True).info(f"<cyan>Line Received from [{source_label}]: {current_line_after_regex}</cyan>")
     current_line_time = line_time if line_time else datetime.now()
+    if is_text_intake_paused():
+        await _handle_paused_text_input(
+            current_line_after_regex,
+            current_line_time,
+            source=source,
+            source_label=source_label,
+        )
+        return
+
     live_stats_tracker.add_line(current_line_after_regex, current_line_time.timestamp())
     gsm_status.last_line_received = current_line_time.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -539,6 +588,37 @@ async def add_line_to_text_log(
         else:
             # Fallback if no scene is set
             GameLinesTable.add_line(new_line)
+
+
+def _build_transient_output_line(text: str, line_time: datetime, source: str | None = None) -> GameLine:
+    line = GameLine(
+        id=str(uuid.uuid4()),
+        text=text,
+        time=line_time,
+        prev=None,
+        next=None,
+        index=-1,
+        scene=gsm_state.current_game or "",
+        source=source,
+        source_padding=TextSource.padding_seconds(source),
+    )
+    line.excluded_from_stats = True
+    return line
+
+
+async def _handle_paused_text_input(
+    processed_line: str,
+    line_time: datetime,
+    *,
+    source: str | None = None,
+    source_label: str = "Unknown",
+) -> None:
+    if not should_relay_outputs_when_text_intake_paused():
+        logger.info(f"Text intake paused; ignored line from [{source_label}].")
+        return
+
+    logger.info(f"Text intake paused; relaying line from [{source_label}] to texthooker/output websocket clients only.")
+    await _add_event_to_texthooker(_build_transient_output_line(processed_line, line_time, source=source))
 
 
 def reset_line_hotkey_pressed():

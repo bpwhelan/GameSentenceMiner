@@ -803,7 +803,7 @@ def get_screenshot():
     event_id = data.get("id")
     if event_id is None:
         return jsonify({"error": "Missing id"}), 400
-    line = get_line_by_id(event_id)
+    line = get_event_line_by_id(event_id)
     if not line:
         return jsonify({"error": "Invalid id"}), 400
     gsm_state.line_for_screenshot = line
@@ -855,7 +855,7 @@ def play_audio():
 
     if event_id is None:
         return jsonify({"error": "Missing id"}), 400
-    line = get_line_by_id(event_id)
+    line = get_event_line_by_id(event_id)
     if not line:
         return jsonify({"error": "Invalid id"}), 400
     gsm_state.line_for_audio = line
@@ -896,7 +896,7 @@ def trim_video():
     if event_id is None:
         return jsonify({"error": "Missing id"}), 400
 
-    line = get_line_by_id(event_id)
+    line = get_event_line_by_id(event_id)
     if not line:
         return jsonify({"error": "Invalid id"}), 400
 
@@ -1004,7 +1004,7 @@ def translate_line():
                 "href": AI_TRANSLATION_SETUP_DOCS_URL,
             }
         ), 400
-    line = get_line_by_id(event_id)
+    line = get_event_line_by_id(event_id)
     if line is None:
         return jsonify({"error": "Invalid id"}), 400
     line_to_translate = text if text else line.text
@@ -1064,7 +1064,7 @@ def translate_multiple():
             }
         ), 400
 
-    lines = [get_line_by_id(event_id) for event_id in event_ids if get_line_by_id(event_id) is not None]
+    lines = [line for event_id in event_ids if (line := get_event_line_by_id(event_id)) is not None]
 
     text = "\n".join(line.text for line in lines)
 
@@ -1226,6 +1226,15 @@ def get_websocket_port():
 
 def get_selected_lines():
     return [item.line for item in event_manager if item.checked]
+
+
+def get_event_line_by_id(event_id: str):
+    line = get_line_by_id(event_id)
+    if line is not None:
+        return line
+
+    event = event_manager.get(event_id)
+    return event.line if event else None
 
 
 def are_lines_selected():

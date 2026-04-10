@@ -143,6 +143,8 @@ const TOOLTIPS = {
     "Delay before starting the selected text hook launcher for this scene.",
   agentScript:
     "Agent script path for this scene. You can set manually, browse, or search.",
+  launchOverlay:
+    "Start the GSM overlay while this scene's game/session is active, and close the auto-launched overlay when the game/session ends.",
   browseScript:
     "Open file picker and choose an Agent script for this scene.",
   searchScript:
@@ -215,6 +217,7 @@ function defaultSceneProfile(scene: ObsScene): SceneLaunchProfile {
     sceneName: scene.name,
     textHookMode: "none",
     ocrMode: "none",
+    launchOverlay: false,
     agentScriptPath: "",
     launchDelaySeconds: 0
   };
@@ -229,6 +232,7 @@ function normalizeSceneProfile(
     sceneName: scene.name,
     textHookMode: isTextHookMode(value?.textHookMode) ? value.textHookMode : "none",
     ocrMode: isOcrMode(value?.ocrMode) ? value.ocrMode : "none",
+    launchOverlay: Boolean(value?.launchOverlay),
     agentScriptPath:
       typeof value?.agentScriptPath === "string" ? value.agentScriptPath : "",
     launchDelaySeconds: normalizeLaunchDelaySeconds(value?.launchDelaySeconds)
@@ -709,7 +713,7 @@ export function LauncherTab({ active }: LauncherTabProps) {
       patch: Partial<
         Pick<
           SceneLaunchProfile,
-          "textHookMode" | "ocrMode" | "agentScriptPath" | "launchDelaySeconds"
+          "textHookMode" | "ocrMode" | "launchOverlay" | "agentScriptPath" | "launchDelaySeconds"
         >
       >
     ) => {
@@ -738,6 +742,7 @@ export function LauncherTab({ active }: LauncherTabProps) {
         scene: configuredScene,
         textHookMode: next.textHookMode,
         ocrMode: next.ocrMode,
+        launchOverlay: next.launchOverlay,
         agentScriptPath: next.agentScriptPath,
         launchDelaySeconds: next.launchDelaySeconds
       });
@@ -1601,6 +1606,24 @@ export function LauncherTab({ active }: LauncherTabProps) {
                       />
                       Manual OCR
                     </label>
+                  </div>
+
+                  <div className="input-group">
+                    <label
+                      htmlFor={`scene-launch-overlay-${configuredScene.id}`}
+                      title={TOOLTIPS.launchOverlay}
+                    >
+                      Launch Overlay With Game:
+                    </label>
+                    <input
+                      id={`scene-launch-overlay-${configuredScene.id}`}
+                      type="checkbox"
+                      title={TOOLTIPS.launchOverlay}
+                      checked={sceneProfile.launchOverlay}
+                      onChange={(event) =>
+                        void patchSceneProfile({ launchOverlay: event.target.checked })
+                      }
+                    />
                   </div>
                 </>
               ) : (

@@ -470,6 +470,24 @@
           "install_ocenaudio_button": "Instalar Ocenaudio",
           "get_anki_media_button": "Obtener Colección de Medios de Anki"
         },
+        "hotkeys": {
+          "title": "Atajos",
+          "description": "Atajos centralizados para GSM. Deja un atajo vacío para desactivarlo.",
+          "groups": {
+            "input": "Entrada",
+            "overlay": "Overlay",
+            "audio": "Audio",
+            "experimental": "Experimental"
+          },
+          "pause_text_intake": {
+            "label": "Atajo para Pausar la Entrada de Texto de GSM:",
+            "tooltip": "Pausa o reanuda temporalmente la entrada de texto por portapapeles y websocket de GSM. Mientras esté en pausa, GSM omite su propio registro de estadísticas/historial y no activa el overlay. Déjalo vacío para desactivar este atajo; no tiene atajo predeterminado."
+          },
+          "relay_outputs_when_paused": {
+            "checkbox": "Reenviar a texthooker/clientes de salida durante la pausa",
+            "tooltip": "Si está activado, el texto pausado aún se envía a la página texthooker y a los clientes websocket de salida después del procesamiento de texto, pero GSM sigue omitiendo sus propias estadísticas/historial y el overlay. Desactívalo para un no-op completo que descarte todo el texto entrante."
+          }
+        },
         "obs": {
           "title": "OBS",
           "enabled": {

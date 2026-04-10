@@ -159,11 +159,12 @@
 
 			return false;
 		}),
-		tap((newLine: [string, LineType, string]) => {
+		tap((newLine: [string, LineType, string, Partial<LineItem>?]) => {
 			const [lineContent] = newLine;
 			const type = newLine.at(1) || LineType.SOCKET;
 			const text = transformLine(lineContent, type !== LineType.TL);
 			const id = newLine.at(2) || generateRandomUUID();
+			const lineMeta = newLine.at(3) || {};
 
 			if ($lineData$?.some(line => line.id === id)) {
 				console.warn(`Skipping new line with duplicate ID: '${id}'`);
@@ -177,7 +178,7 @@
 			if (text) {
 				$lineData$ = applyEqualLineStartMerge([
 					...applyMaxLinesAndGetRemainingLineData(1),
-					{ id: id, text },
+					{ id, text, ...lineMeta },
 				]);
 			}
 		}),
@@ -568,11 +569,11 @@
 				const { id, index } = lineToRevert;
 
 				if (index > $lineData$.length - 1) {
-					$lineData$.push({ id, text });
+					$lineData$.push({ ...lineToRevert, id, text });
 				} else if ($lineData$[index].id === id) {
-					$lineData$[index] = { id, text };
+					$lineData$[index] = { ...lineToRevert, id, text };
 				} else {
-					$lineData$.splice(index, 0, { id, text });
+					$lineData$.splice(index, 0, { ...lineToRevert, id, text });
 				}
 			}
 

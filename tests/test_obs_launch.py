@@ -47,3 +47,13 @@ def test_build_obs_launch_command_can_allow_obs_updates() -> None:
 
     assert "--disable-updater" not in obs_cmd
     assert "--startreplaybuffer" not in obs_cmd
+
+
+def test_should_skip_image_validation_for_all_helper_source_names() -> None:
+    for source_name in (
+        "window_getter",
+        "game_window_getter",
+        "capture_card_getter",
+        "audio_input_getter",
+    ):
+        assert obs_module._should_skip_image_validation(source_name=source_name) is True

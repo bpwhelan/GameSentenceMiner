@@ -3447,9 +3447,15 @@ background: rgba(202, 12, 12, 0.692);
     return gamepadSettings.enabled || showFurigana;
   }
 
-  function shouldConnectGamepadServer() {
+  function usesServerBackedGamepadTokenizer() {
     const tokenizerBackend = String(gamepadSettings.tokenizerBackend || 'mecab').toLowerCase();
-    return gamepadSettings.enabled || (showFurigana && (tokenizerBackend === 'mecab' || tokenizerBackend === 'sudachi'));
+    return tokenizerBackend === 'mecab' || tokenizerBackend === 'sudachi';
+  }
+
+  function shouldConnectGamepadServer() {
+    const navigationNeedsServer = gamepadSettings.enabled && gamepadSettings.controllerEnabled;
+    const tokenizerNeedsServer = (gamepadSettings.enabled || showFurigana) && usesServerBackedGamepadTokenizer();
+    return navigationNeedsServer || tokenizerNeedsServer;
   }
 
   function getEffectiveControllerEnabled() {
@@ -3458,6 +3464,13 @@ background: rgba(202, 12, 12, 0.692);
 
   function getEffectiveKeyboardEnabled() {
     return gamepadSettings.enabled && gamepadSettings.keyboardEnabled;
+  }
+
+  function getGamepadNavigationAvailability() {
+    return {
+      controller: getEffectiveControllerEnabled(),
+      keyboard: getEffectiveKeyboardEnabled(),
+    };
   }
 
   function getGamepadHandlerConfig() {
@@ -3637,6 +3650,8 @@ background: rgba(202, 12, 12, 0.692);
     }
     
     const state = gamepadHandler.getCurrentState();
+    const navigationAvailability = getGamepadNavigationAvailability();
+    const navigationAvailable = navigationAvailability.controller || navigationAvailability.keyboard;
     const serverConnected = gamepadHandler.isServerConnected();
     const gamepadConnected = gamepadHandler.isGamepadConnected();
     const justConnected = !wasGamepadConnected && gamepadConnected;
@@ -3646,11 +3661,13 @@ background: rgba(202, 12, 12, 0.692);
     statusEl.classList.toggle('server-connected', serverConnected);
     statusEl.classList.toggle('active', state.isActive);
     
-    if (!serverConnected) {
+    if (!navigationAvailable && !state.isActive) {
+      statusEl.style.display = 'none';
+    } else if (!serverConnected && navigationAvailability.controller) {
       statusEl.textContent = '🎮 Server disconnected';
       statusEl.style.display = 'block';
       statusEl.style.color = '#ff6b6b';
-    } else if (!gamepadConnected) {
+    } else if (!gamepadConnected && navigationAvailability.controller) {
       statusEl.textContent = '🎮 No controller detected';
       statusEl.style.display = 'block';
       statusEl.style.color = '#ffd43b';
@@ -3667,7 +3684,10 @@ background: rgba(202, 12, 12, 0.692);
       statusEl.style.display = 'block';
       statusEl.style.color = '#00ff88';
     } else {
-      statusEl.textContent = '🎮 Controller ready (hold LB + D-Pad to navigate)';
+      const readyMessage = navigationAvailability.controller
+        ? '🎮 Controller ready (hold LB + D-Pad to navigate)'
+        : '🎮 Navigation ready';
+      statusEl.textContent = readyMessage;
       statusEl.style.display = justConnected ? 'block' : 'none';
       statusEl.style.color = '#00ff88';
       if (justConnected) {

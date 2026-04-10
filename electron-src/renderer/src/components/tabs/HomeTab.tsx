@@ -155,6 +155,7 @@ export function HomeTab({ active }: HomeTabProps) {
   const [windows, setWindows] = useState<ObsWindow[]>([]);
   const [selectedWindowValue, setSelectedWindowValue] = useState("");
   const [setupSceneName, setSetupSceneName] = useState("");
+  const [captureCardEnabled, setCaptureCardEnabled] = useState(false);
   const [loadingScenes, setLoadingScenes] = useState(true);
   const [loadingWindows, setLoadingWindows] = useState(isWindows);
 
@@ -271,7 +272,19 @@ export function HomeTab({ active }: HomeTabProps) {
     if (!active) {
       return;
     }
-    void refreshScenesAndWindows();
+    void invokeIpc<boolean>("obs.getCaptureCardProbeEnabled").then((enabled) => {
+      setCaptureCardEnabled(Boolean(enabled));
+    }).catch((error) => {
+      console.error("Failed to fetch capture-card probe state:", error);
+      setCaptureCardEnabled(false);
+    });
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+    void refreshScenesAndWindows(true);
     // Fast poll: only window/game captures (no capture card enumeration)
     const timer = setInterval(() => {
       void refreshScenesAndWindows(true);
@@ -333,6 +346,21 @@ export function HomeTab({ active }: HomeTabProps) {
 
     await invokeIpc("obs.createScene", payload);
     await refreshScenesAndWindows();
+  };
+
+  const toggleCaptureCard = async (enabled: boolean) => {
+    setCaptureCardEnabled(enabled);
+    try {
+      const nextEnabled = await invokeIpc<boolean>(
+        "obs.setCaptureCardProbeEnabled",
+        enabled
+      );
+      setCaptureCardEnabled(Boolean(nextEnabled));
+      await refreshWindows(false);
+    } catch (error) {
+      console.error("Failed to toggle capture-card probing:", error);
+      setCaptureCardEnabled((current) => !current);
+    }
   };
 
   const openExternalLink = async (url: string) => {
@@ -460,6 +488,19 @@ export function HomeTab({ active }: HomeTabProps) {
                 >
                   Setup Capture
                 </button>
+              </div>
+
+              <div className="home-control-row home-window-row">
+                <label htmlFor="obs-capture-card-toggle">Capture Card:</label>
+                <input
+                  id="obs-capture-card-toggle"
+                  type="checkbox"
+                  checked={captureCardEnabled}
+                  disabled={!isWindows}
+                  onChange={(event) => {
+                    void toggleCaptureCard(event.target.checked);
+                  }}
+                />
               </div>
 
               <div className="home-control-row home-window-row">

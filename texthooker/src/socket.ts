@@ -122,7 +122,13 @@ export class SocketConnection {
 
 		line = payload?.sentence || event.data;
 		const id = payload?.data?.id || '';
+		const lineMeta =
+			payload?.data && typeof payload.data === 'object'
+				? {
+						excludedFromStats: Boolean(payload.data.excluded_from_stats),
+				  }
+				: undefined;
 
-		newLine$.next([line, LineType.SOCKET, id]);
+		newLine$.next([line, LineType.SOCKET, id, lineMeta]);
 	}
 }

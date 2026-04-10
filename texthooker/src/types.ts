@@ -144,6 +144,7 @@ export interface LineItem {
 	index?: number;
 	translation?: string;
 	blurTranslation?: boolean;
+	excludedFromStats?: boolean;
 }
 
 export interface LineItemEditEvent {

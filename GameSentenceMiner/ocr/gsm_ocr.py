@@ -38,7 +38,7 @@ from GameSentenceMiner.ocr.gsm_ocr_config import (
     get_scene_furigana_filter_sensitivity,
 )
 from GameSentenceMiner.owocr.owocr import run
-from GameSentenceMiner.owocr.owocr.ocr import normalize_japanese_ocr_dashes
+from GameSentenceMiner.owocr.owocr.ocr import normalize_japanese_ocr_dashes, normalize_japanese_ocr_text_and_segments
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
 from GameSentenceMiner.util.communication import ocr_ipc
 from GameSentenceMiner.util.config.configuration import (
@@ -1375,18 +1375,28 @@ def _normalize_overlay_lookup_lines(lines: Any) -> list[dict[str, Any]]:
             continue
 
         normalized_line = dict(line)
-        normalized_line["text"] = normalize_japanese_ocr_dashes(str(normalized_line.get("text", "") or ""))
-
         raw_words = normalized_line.get("words")
         if isinstance(raw_words, list):
+            raw_word_texts = [str(word.get("text", "") or "") for word in raw_words if isinstance(word, dict)]
+            normalized_text, normalized_word_texts = normalize_japanese_ocr_text_and_segments(
+                str(normalized_line.get("text", "") or ""),
+                raw_word_texts,
+            )
+            normalized_line["text"] = normalized_text
             normalized_words = []
+            normalized_word_iter = iter(normalized_word_texts or [])
             for word in raw_words:
                 if not isinstance(word, dict):
                     continue
                 normalized_word = dict(word)
-                normalized_word["text"] = normalize_japanese_ocr_dashes(str(normalized_word.get("text", "") or ""))
+                normalized_word["text"] = next(
+                    normalized_word_iter,
+                    normalize_japanese_ocr_dashes(str(normalized_word.get("text", "") or "")),
+                )
                 normalized_words.append(normalized_word)
             normalized_line["words"] = normalized_words
+        else:
+            normalized_line["text"] = normalize_japanese_ocr_dashes(str(normalized_line.get("text", "") or ""))
 
         normalized_lines.append(normalized_line)
 

@@ -6,6 +6,7 @@ import {
     ObsScene
 } from './ui/obs.js';
 import { getOCRRuntimeState, startManualOCR, startOCR, stopOCR } from './ui/ocr.js';
+import { getOverlayRuntimeState, runOverlayWithSource, stopOverlay } from './ui/front.js';
 import {
     getAgentPath,
     getAgentScriptsPath,
@@ -110,6 +111,7 @@ export class AutoLauncher {
         this.logInternal("Stopped AutoLauncher polling.");
         this.resetAgentTracking();
         this.stopOcrAutomation();
+        this.stopOverlayAutomation();
         this.expectedAutoLauncherOcrStop = false;
         this.lastObservedAutoLauncherOcrRunning = false;
         this.clearOcrSuppression("polling-stopped");
@@ -140,6 +142,13 @@ export class AutoLauncher {
         this.stopAutoLauncherOwnedOcr("stop-ocr-automation");
         this.activeOcrMode = "none";
         this.activeOcrSceneId = "";
+    }
+
+    private stopOverlayAutomation() {
+        const stopRequested = stopOverlay({ onlyIfSource: "auto-launcher" });
+        if (stopRequested) {
+            this.logInternal("AutoLauncher: Requested overlay stop.");
+        }
     }
 
     private stopAutoLauncherOwnedOcr(reason: string) {
@@ -369,6 +378,33 @@ export class AutoLauncher {
             await this.applyOcrMode(ocrMode, currentScene);
         } catch (error) {
             this.errorInternal('[AutoLauncher:OCR] poll error:', error);
+        }
+    }
+
+    private async runOverlayAutomation(currentScene: ObsScene) {
+        try {
+            const sceneProfile = getSceneLaunchProfileForScene(currentScene);
+            const shouldLaunchOverlay = sceneProfile?.launchOverlay === true;
+
+            if (!shouldLaunchOverlay) {
+                this.stopOverlayAutomation();
+                return;
+            }
+
+            const isSceneActive = await this.isSceneSessionActive(currentScene);
+            if (!isSceneActive) {
+                this.stopOverlayAutomation();
+                return;
+            }
+
+            const runtime = getOverlayRuntimeState();
+            if (runtime.isRunning) {
+                return;
+            }
+
+            await runOverlayWithSource("auto-launcher");
+        } catch (error) {
+            this.errorInternal('[AutoLauncher:Overlay] poll error:', error);
         }
     }
 
@@ -982,6 +1018,7 @@ export class AutoLauncher {
                 sceneName: currentScene.name,
                 textHookMode: sceneProfile.textHookMode,
                 ocrMode: sceneProfile.ocrMode,
+                launchOverlay: sceneProfile.launchOverlay,
                 agentScriptPath: resolvedScriptPath,
                 launchDelaySeconds: sceneProfile.launchDelaySeconds,
             });
@@ -1069,6 +1106,7 @@ export class AutoLauncher {
 
             if (startTime - this.lastOcrPollAt >= this.ocrPollingInterval) {
                 await this.runOcrAutomation(currentScene);
+                await this.runOverlayAutomation(currentScene);
                 this.lastOcrPollAt = startTime;
             }
         } catch (error) {

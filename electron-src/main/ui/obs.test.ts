@@ -5,6 +5,9 @@ const obsConnectMock = vi.fn();
 const obsDisconnectMock = vi.fn();
 const obsOnMock = vi.fn();
 const obsRemoveAllListenersMock = vi.fn();
+const ipcHandleMock = vi.fn();
+const mergeObsWindowItemsMock = vi.fn(() => []);
+const buildCaptureCardOptionsMock = vi.fn(() => []);
 
 const UNIFORM_PNG_DATA_URL =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAkSURBVChThcihAQAACIAw/n9asxAMKwOYR8ISlrCEJSxhiWMBgkg/wTHeyiUAAAAASUVORK5CYII=';
@@ -17,7 +20,7 @@ vi.mock('electron', () => ({
         showMessageBox: vi.fn(),
     },
     ipcMain: {
-        handle: vi.fn(),
+        handle: ipcHandleMock,
     },
 }));
 
@@ -55,10 +58,14 @@ vi.mock('../util.js', () => ({
 }));
 
 vi.mock('./obs-capture.js', () => ({
+    OBS_DSHOW_INPUT_KIND: 'dshow_input',
+    OBS_WASAPI_INPUT_CAPTURE_KIND: 'wasapi_input_capture',
     OBS_XCOMPOSITE_INPUT_KIND: 'xcomposite_input',
+    buildCaptureCardOptions: buildCaptureCardOptionsMock,
     buildLinuxSceneCaptureInputs: vi.fn(),
     buildWindowsSceneCaptureInputs: vi.fn(),
-    mergeObsWindowItems: vi.fn(),
+    getObsWindowTitle: vi.fn((title: string) => title),
+    mergeObsWindowItems: mergeObsWindowItemsMock,
 }));
 
 vi.mock('obs-websocket-js', () => ({
@@ -83,6 +90,11 @@ describe('renameOBSScene', () => {
         obsDisconnectMock.mockReset();
         obsOnMock.mockReset();
         obsRemoveAllListenersMock.mockReset();
+        ipcHandleMock.mockReset();
+        mergeObsWindowItemsMock.mockReset();
+        buildCaptureCardOptionsMock.mockReset();
+        mergeObsWindowItemsMock.mockReturnValue([]);
+        buildCaptureCardOptionsMock.mockReturnValue([]);
 
         obsCallMock.mockImplementation(async (requestType: string) => {
             if (requestType === 'GetVersion') {
@@ -115,6 +127,364 @@ describe('renameOBSScene', () => {
         await renameOBSScene('scene-123', '   ');
 
         expect(obsCallMock).not.toHaveBeenCalled();
+    });
+
+    it('forces helper sources to stay disabled when enumerating OBS windows', async () => {
+        const { registerOBSIPC } = await loadObsModule();
+
+        obsCallMock.mockImplementation(async (requestType: string, requestData?: any) => {
+            if (requestType === 'GetVersion') {
+                return {};
+            }
+            if (
+                requestType === 'GetSceneItemList' &&
+                requestData?.sceneName === 'GSM Helper - DONT TOUCH'
+            ) {
+                const sceneItems = [
+                    {
+                        sceneItemId: 17,
+                        sourceName: 'window_getter',
+                        sceneItemEnabled: true,
+                    },
+                ];
+                if (
+                    obsCallMock.mock.calls.some(
+                        ([type, data]) =>
+                            type === 'CreateInput' &&
+                            data?.inputName === 'game_window_getter'
+                    )
+                ) {
+                    sceneItems.push({
+                        sceneItemId: 23,
+                        sourceName: 'game_window_getter',
+                        sceneItemEnabled: true,
+                    });
+                }
+                return {
+                    sceneItems,
+                };
+            }
+            if (requestType === 'GetInputPropertiesListPropertyItems') {
+                if (requestData?.inputName === 'window_getter') {
+                    return { propertyItems: [] };
+                }
+                if (requestData?.inputName === 'game_window_getter') {
+                    if (
+                        obsCallMock.mock.calls.filter(
+                            ([type, data]) =>
+                                type === 'CreateInput' &&
+                                data?.inputName === 'game_window_getter'
+                        ).length === 0
+                    ) {
+                        throw new Error('No source was found');
+                    }
+                    return { propertyItems: [] };
+                }
+            }
+            return {};
+        });
+
+        await registerOBSIPC();
+
+        const getWindowsHandler = ipcHandleMock.mock.calls.find(
+            ([channel]) => channel === 'obs.getWindows'
+        )?.[1];
+
+        expect(getWindowsHandler).toBeTypeOf('function');
+
+        await expect(getWindowsHandler({}, { quick: true })).resolves.toEqual([]);
+
+        expect(obsCallMock).toHaveBeenCalledWith('SetSceneItemEnabled', {
+            sceneName: 'GSM Helper - DONT TOUCH',
+            sceneItemId: 17,
+            sceneItemEnabled: false,
+        });
+        expect(obsCallMock).toHaveBeenCalledWith('SetSceneItemEnabled', {
+            sceneName: 'GSM Helper - DONT TOUCH',
+            sceneItemId: 23,
+            sceneItemEnabled: false,
+        });
+        expect(obsCallMock).toHaveBeenCalledWith('CreateInput', {
+            sceneName: 'GSM Helper - DONT TOUCH',
+            inputName: 'game_window_getter',
+            inputKind: 'game_capture',
+            inputSettings: {},
+            sceneItemEnabled: false,
+        });
+    });
+
+    it('forces capture-card helper sources to stay disabled during full enumeration', async () => {
+        const { registerOBSIPC } = await loadObsModule();
+
+        obsCallMock.mockImplementation(async (requestType: string, requestData?: any) => {
+            if (requestType === 'GetVersion') {
+                return {};
+            }
+            if (
+                requestType === 'GetSceneItemList' &&
+                requestData?.sceneName === 'GSM Helper - DONT TOUCH'
+            ) {
+                return {
+                    sceneItems: [
+                        {
+                            sceneItemId: 31,
+                            sourceName: 'capture_card_getter',
+                            sceneItemEnabled: true,
+                        },
+                        {
+                            sceneItemId: 32,
+                            sourceName: 'audio_input_getter',
+                            sceneItemEnabled: true,
+                        },
+                    ],
+                };
+            }
+            if (requestType === 'GetInputPropertiesListPropertyItems') {
+                if (
+                    requestData?.inputName === 'capture_card_getter' ||
+                    requestData?.inputName === 'audio_input_getter'
+                ) {
+                    if (
+                        obsCallMock.mock.calls.filter(
+                            ([type, data]) =>
+                                type === 'CreateInput' &&
+                                data?.inputName === requestData.inputName
+                        ).length === 0
+                    ) {
+                        throw new Error('No source was found');
+                    }
+                    return { propertyItems: [] };
+                }
+
+                if (
+                    requestData?.inputName === 'window_getter' ||
+                    requestData?.inputName === 'game_window_getter'
+                ) {
+                    return { propertyItems: [] };
+                }
+            }
+            if (
+                requestType === 'GetSceneItemList' &&
+                requestData?.sceneName === 'GSM Helper'
+            ) {
+                throw new Error('No source was found');
+            }
+            return {};
+        });
+
+        await registerOBSIPC();
+
+        const setProbeHandler = ipcHandleMock.mock.calls.find(
+            ([channel]) => channel === 'obs.setCaptureCardProbeEnabled'
+        )?.[1];
+        const getWindowsHandler = ipcHandleMock.mock.calls.find(
+            ([channel]) => channel === 'obs.getWindows'
+        )?.[1];
+
+        expect(setProbeHandler).toBeTypeOf('function');
+        expect(getWindowsHandler).toBeTypeOf('function');
+
+        await expect(setProbeHandler({}, true)).resolves.toBe(true);
+        obsCallMock.mockClear();
+
+        await expect(getWindowsHandler({}, { quick: false })).resolves.toEqual([]);
+
+        expect(obsCallMock).toHaveBeenCalledWith('SetSceneItemEnabled', {
+            sceneName: 'GSM Helper - DONT TOUCH',
+            sceneItemId: 31,
+            sceneItemEnabled: false,
+        });
+        expect(obsCallMock).toHaveBeenCalledWith('SetSceneItemEnabled', {
+            sceneName: 'GSM Helper - DONT TOUCH',
+            sceneItemId: 32,
+            sceneItemEnabled: false,
+        });
+    });
+
+    it('creates capture-card helper inputs only when capture-card probing is enabled', async () => {
+        const { registerOBSIPC } = await loadObsModule();
+
+        obsCallMock.mockImplementation(async (requestType: string, requestData?: any) => {
+            if (requestType === 'GetVersion') {
+                return {};
+            }
+            if (requestType === 'GetInputSettings') {
+                throw new Error('No source was found');
+            }
+            if (
+                requestType === 'GetSceneItemList' &&
+                requestData?.sceneName === 'GSM Helper - DONT TOUCH'
+            ) {
+                return {
+                    sceneItems: [
+                        {
+                            sceneItemId: 31,
+                            sourceName: 'capture_card_getter',
+                            sceneItemEnabled: true,
+                        },
+                        {
+                            sceneItemId: 32,
+                            sourceName: 'audio_input_getter',
+                            sceneItemEnabled: true,
+                        },
+                    ],
+                };
+            }
+            if (
+                requestType === 'GetSceneItemList' &&
+                requestData?.sceneName === 'GSM Helper'
+            ) {
+                throw new Error('No source was found');
+            }
+            return {};
+        });
+
+        await registerOBSIPC();
+
+        const setProbeHandler = ipcHandleMock.mock.calls.find(
+            ([channel]) => channel === 'obs.setCaptureCardProbeEnabled'
+        )?.[1];
+
+        expect(setProbeHandler).toBeTypeOf('function');
+
+        await expect(setProbeHandler({}, true)).resolves.toBe(true);
+
+        expect(obsCallMock).toHaveBeenCalledWith('CreateInput', {
+            sceneName: 'GSM Helper - DONT TOUCH',
+            inputName: 'capture_card_getter',
+            inputKind: 'dshow_input',
+            inputSettings: {},
+            sceneItemEnabled: false,
+        });
+        expect(obsCallMock).toHaveBeenCalledWith('CreateInput', {
+            sceneName: 'GSM Helper - DONT TOUCH',
+            inputName: 'audio_input_getter',
+            inputKind: 'wasapi_input_capture',
+            inputSettings: { device_id: 'default' },
+            sceneItemEnabled: false,
+        });
+        expect(obsCallMock).toHaveBeenCalledWith('SetSceneItemEnabled', {
+            sceneName: 'GSM Helper - DONT TOUCH',
+            sceneItemId: 31,
+            sceneItemEnabled: false,
+        });
+        expect(obsCallMock).toHaveBeenCalledWith('SetSceneItemEnabled', {
+            sceneName: 'GSM Helper - DONT TOUCH',
+            sceneItemId: 32,
+            sceneItemEnabled: false,
+        });
+    });
+
+    it('removes capture-card helper inputs when capture-card probing is disabled', async () => {
+        const { registerOBSIPC } = await loadObsModule();
+
+        obsCallMock.mockImplementation(async (requestType: string, requestData?: any) => {
+            if (requestType === 'GetVersion') {
+                return {};
+            }
+            if (requestType === 'GetInputSettings') {
+                throw new Error('No source was found');
+            }
+            if (
+                requestType === 'GetSceneItemList' &&
+                requestData?.sceneName === 'GSM Helper - DONT TOUCH'
+            ) {
+                return {
+                    sceneItems: [
+                        {
+                            sceneItemId: 31,
+                            sourceName: 'capture_card_getter',
+                            sceneItemEnabled: true,
+                        },
+                        {
+                            sceneItemId: 32,
+                            sourceName: 'audio_input_getter',
+                            sceneItemEnabled: true,
+                        },
+                    ],
+                };
+            }
+            if (
+                requestType === 'GetSceneItemList' &&
+                requestData?.sceneName === 'GSM Helper'
+            ) {
+                throw new Error('No source was found');
+            }
+            return {};
+        });
+
+        await registerOBSIPC();
+
+        const setProbeHandler = ipcHandleMock.mock.calls.find(
+            ([channel]) => channel === 'obs.setCaptureCardProbeEnabled'
+        )?.[1];
+
+        expect(setProbeHandler).toBeTypeOf('function');
+
+        await expect(setProbeHandler({}, true)).resolves.toBe(true);
+        obsCallMock.mockClear();
+
+        await expect(setProbeHandler({}, false)).resolves.toBe(false);
+
+        expect(obsCallMock).toHaveBeenCalledWith('RemoveInput', {
+            inputName: 'capture_card_getter',
+        });
+        expect(obsCallMock).toHaveBeenCalledWith('RemoveInput', {
+            inputName: 'audio_input_getter',
+        });
+    });
+
+    it('removes stale capture-card helper inputs on first connect when probing is disabled', async () => {
+        const { registerOBSIPC } = await loadObsModule();
+
+        obsCallMock.mockImplementation(async (requestType: string, requestData?: any) => {
+            if (requestType === 'GetVersion') {
+                return {};
+            }
+            if (
+                requestType === 'GetSceneItemList' &&
+                requestData?.sceneName === 'GSM Helper - DONT TOUCH'
+            ) {
+                return {
+                    sceneItems: [
+                        {
+                            sceneItemId: 31,
+                            sourceName: 'capture_card_getter',
+                            sceneItemEnabled: true,
+                        },
+                        {
+                            sceneItemId: 32,
+                            sourceName: 'audio_input_getter',
+                            sceneItemEnabled: true,
+                        },
+                    ],
+                };
+            }
+            if (
+                requestType === 'GetSceneItemList' &&
+                requestData?.sceneName === 'GSM Helper'
+            ) {
+                throw new Error('No source was found');
+            }
+            return {};
+        });
+
+        await registerOBSIPC();
+
+        const getProbeHandler = ipcHandleMock.mock.calls.find(
+            ([channel]) => channel === 'obs.getCaptureCardProbeEnabled'
+        )?.[1];
+
+        expect(getProbeHandler).toBeTypeOf('function');
+
+        await expect(getProbeHandler({},)).resolves.toBe(false);
+
+        expect(obsCallMock).toHaveBeenCalledWith('RemoveInput', {
+            inputName: 'capture_card_getter',
+        });
+        expect(obsCallMock).toHaveBeenCalledWith('RemoveInput', {
+            inputName: 'audio_input_getter',
+        });
     });
 });
 
