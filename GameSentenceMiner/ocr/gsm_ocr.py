@@ -1800,13 +1800,17 @@ async def send_result(text, time, response_dict=None, source=TextSource.OCR):
             overlay_payload = build_overlay_coordinate_payload(response_dict)
         else:
             overlay_payload = None
-        if get_ocr_send_to_clipboard(source):
-            import pyperclipfix
+        try:
+            if get_ocr_send_to_clipboard(source):
+                import pyperclipfix
 
-            # TODO Test this out and see if i can make it work properly across platforms
-            # from GameSentenceMiner.ui.qt_main import send_to_clipboard
-            # send_to_clipboard(text)
-            pyperclipfix.copy(text)
+                # TODO Test this out and see if i can make it work properly across platforms
+                # from GameSentenceMiner.ui.qt_main import send_to_clipboard
+                # send_to_clipboard(text)
+                pyperclipfix.copy(text)
+        except Exception as e:
+            logger.error(f"Error sending text to clipboard: {e}")
+            
         try:
             await websocket_server_thread.send_text(text, time, response_dict=overlay_payload, source=source)
         except Exception as e:
