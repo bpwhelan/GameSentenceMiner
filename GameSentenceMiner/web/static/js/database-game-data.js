@@ -1,11 +1,15 @@
 // Database Game Data Management Functions
-// Dependencies: shared.js (provides escapeHtml, openModal, closeModal), database-helpers.js (provides formatReleaseDate), database-popups.js
+// Dependencies: shared.js (provides escapeHtml, openModal, closeModal), database-helpers.js (provides formatReleaseDate, formatGameDifficultyLabel), database-popups.js
 
 // Global variables for game data management
 let currentGames = [];
 let currentGameForSearch = null;
 let selectedJitenGame = null;
 let jitenSearchResults = []; // Global storage for search results
+
+function getDifficultyDisplayLabel(game) {
+    return formatGameDifficultyLabel(game);
+}
 
 /**
  * Load games for the Link Games tab (data management)
@@ -85,6 +89,7 @@ function renderGamesList(games, filter = 'all') {
         filteredGames.forEach(game => {
             const gameItem = document.createElement('div');
             gameItem.className = 'game-data-item';
+            const difficultyDisplay = getDifficultyDisplayLabel(game);
             
             // Create status indicators
             const statusIndicators = [];
@@ -115,7 +120,7 @@ function renderGamesList(games, filter = 'all') {
                         ${game.title_romaji ? `<p class="game-title-rom">${escapeHtml(game.title_romaji)}</p>` : ''}
                         <div class="game-type-difficulty">
                             ${game.type ? `<span class="game-type">${escapeHtml(game.type)}</span>` : ''}
-                            ${game.difficulty ? `<span class="game-difficulty">Difficulty: ${game.difficulty}</span>` : ''}
+                            ${difficultyDisplay ? `<span class="game-difficulty">Difficulty: ${escapeHtml(difficultyDisplay)}</span>` : ''}
                         </div>
                     </div>
                     <div class="game-status">
@@ -214,6 +219,7 @@ async function loadGamesForManagement() {
             games.forEach(game => {
                 const gameItem = document.createElement('div');
                 gameItem.className = 'manage-game-item';
+                const difficultyDisplay = getDifficultyDisplayLabel(game);
                 
                 // Create status indicators
                 const statusIndicators = [];
@@ -244,7 +250,7 @@ async function loadGamesForManagement() {
                             ${game.title_romaji ? `<p class="game-title-rom">${escapeHtml(game.title_romaji)}</p>` : ''}
                             <div class="game-type-difficulty">
                                 ${game.type ? `<span class="game-type">${escapeHtml(game.type)}</span>` : ''}
-                                ${game.difficulty ? `<span class="game-difficulty">Difficulty: ${game.difficulty}</span>` : ''}
+                                ${difficultyDisplay ? `<span class="game-difficulty">Difficulty: ${escapeHtml(difficultyDisplay)}</span>` : ''}
                             </div>
                         </div>
                         <div class="game-status">

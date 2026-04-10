@@ -1232,7 +1232,17 @@ class WebsocketServerThread(threading.Thread):
         finally:
             self.clients.discard(websocket)
 
-    async def send_text(self, text, line_time: datetime, response_dict=None, source=TextSource.OCR):
+    def _get_running_loop(self):
+        loop = self._loop
+        if loop is None:
+            raise RuntimeError("OCR websocket event loop is not initialized")
+        if loop.is_closed():
+            raise RuntimeError("OCR websocket event loop is closed")
+        if not loop.is_running():
+            raise RuntimeError("OCR websocket event loop is not running")
+        return loop
+
+    def send_text(self, text, line_time: datetime, response_dict=None, source=TextSource.OCR):
         if text:
             data = {
                 "sentence": text,
@@ -1242,7 +1252,13 @@ class WebsocketServerThread(threading.Thread):
             }
             if response_dict:
                 data["dict_from_ocr"] = response_dict
-            return asyncio.run_coroutine_threadsafe(self._queue_or_send_message(json.dumps(data)), self.loop)
+            loop = self._get_running_loop()
+            send_coro = self._queue_or_send_message(json.dumps(data))
+            try:
+                return asyncio.run_coroutine_threadsafe(send_coro, loop)
+            except Exception:
+                send_coro.close()
+                raise
 
     def stop_server(self):
         self.loop.call_soon_threadsafe(self._stop_event.set)
@@ -1810,9 +1826,16 @@ async def send_result(text, time, response_dict=None, source=TextSource.OCR):
                 pyperclipfix.copy(text)
         except Exception as e:
             logger.error(f"Error sending text to clipboard: {e}")
-            
+
         try:
-            await websocket_server_thread.send_text(text, time, response_dict=overlay_payload, source=source)
+            send_future = websocket_server_thread.send_text(
+                text,
+                time,
+                response_dict=overlay_payload,
+                source=source,
+            )
+            if send_future is not None:
+                await asyncio.wrap_future(send_future)
         except Exception as e:
             logger.debug(f"Error sending text to websocket: {e}")
 
