@@ -470,6 +470,24 @@
           "install_ocenaudio_button": "Install Ocenaudio",
           "get_anki_media_button": "Get Anki Media Collection"
         },
+        "hotkeys": {
+          "title": "Hotkeys",
+          "description": "Centralized hotkeys for GSM. Leave a shortcut blank to disable it.",
+          "groups": {
+            "input": "Input",
+            "overlay": "Overlay",
+            "audio": "Audio",
+            "experimental": "Experimental"
+          },
+          "pause_text_intake": {
+            "label": "Pause GSM Text Intake Hotkey:",
+            "tooltip": "Temporarily pause or resume GSM's clipboard and websocket text intake. While paused, GSM skips its own stats/history logging and overlay triggers. Leave blank to disable this shortcut; no default hotkey is assigned."
+          },
+          "relay_outputs_when_paused": {
+            "checkbox": "Relay to texthooker/output clients while paused",
+            "tooltip": "When enabled, paused text is still forwarded to the texthooker page and output websocket clients after text processing, but GSM still skips its own stats/history logging and overlay triggers. Disable this for a full no-op that drops incoming text entirely."
+          }
+        },
         "obs": {
           "title": "OBS",
           "enabled": {

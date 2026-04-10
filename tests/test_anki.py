@@ -55,6 +55,8 @@ model_stub.AnkiCard = object
 
 notification_stub = ModuleType("GameSentenceMiner.util.platform.notification")
 notification_stub.send_error_no_anki_update = lambda *args, **kwargs: None
+notification_stub.send_anki_enhancement_failed = lambda *args, **kwargs: None
+notification_stub.send_error_notification = lambda *args, **kwargs: None
 platform_pkg = ModuleType("GameSentenceMiner.util.platform")
 platform_pkg.notification = notification_stub
 
@@ -379,6 +381,45 @@ def test_check_and_update_note_triggers_cache_sync_after_updating_note(monkeypat
     anki.check_and_update_note(last_note, {"fields": {}}, tags=[], assets=None)
 
     assert order == ["update", ("sync", [42]), "post"]
+
+
+def test_check_and_update_note_reports_background_failure(monkeypatch):
+    config = SimpleNamespace(anki=SimpleNamespace(word_field="Word"))
+    messages = []
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(
+        anki,
+        "_update_anki_note",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    monkeypatch.setattr(
+        anki.notification,
+        "send_anki_enhancement_failed",
+        lambda message: messages.append(message),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        anki.gsm_status,
+        "remove_word_being_processed",
+        lambda *_args, **_kwargs: None,
+    )
+
+    anki.anki_results.clear()
+    last_note = SimpleNamespace(noteId=42, get_field=lambda _field: "語")
+
+    anki.check_and_update_note(
+        last_note,
+        {"fields": {}},
+        tags=[],
+        assets=None,
+        failure_result_id="line-1",
+        processing_word="語",
+    )
+
+    assert messages == ["Failed to update Anki note 42: boom"]
+    assert anki.anki_results["line-1"].success is False
+    assert anki.anki_results["line-1"].failure_reason == "Failed to update Anki note 42: boom"
 
 
 def _base_config():
@@ -890,6 +931,28 @@ def test_process_audio_reencodes_before_upload(monkeypatch, tmp_path):
     assert assets.audio_path == str(encoded)
     assert assets.audio_in_anki == "audio-in-anki.mp3"
     assert note["fields"]["SentenceAudio"] == "[sound:audio-in-anki.mp3]"
+
+
+def test_process_audio_notifies_when_upload_fails(monkeypatch, tmp_path):
+    cfg = _base_config()
+    raw = tmp_path / "raw.opus"
+    raw.write_bytes(b"raw")
+    messages = []
+
+    monkeypatch.setattr(anki, "store_media_file", lambda _path: None)
+    monkeypatch.setattr(
+        anki.notification,
+        "send_anki_enhancement_failed",
+        lambda message: messages.append(message),
+        raising=False,
+    )
+
+    assets = anki.MediaAssets(audio_path=str(raw))
+    note = {"fields": {}}
+
+    anki._process_audio(assets, note, cfg, use_voice=True, use_existing_files=False)
+
+    assert messages == ["Failed to upload audio to Anki media collection."]
 
 
 def test_cleanup_assets_invokes_callback():

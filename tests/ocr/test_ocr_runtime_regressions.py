@@ -90,7 +90,7 @@ def test_run_oneocr_uses_manual_combo_in_manual_mode(monkeypatch):
 def test_post_process_normalizes_contextual_japanese_dashes_to_choonpu():
     text = post_process("-刻も早く、ス-パ-でA-1を買う")
 
-    assert text == "ー刻も早く、スーパーでＡ－１を買う"
+    assert text == "一刻も早く、スーパーでＡ－１を買う"
 
 
 def test_build_overlay_coordinate_payload_normalizes_lookup_text_dashes():
@@ -128,8 +128,8 @@ def test_build_overlay_coordinate_payload_normalizes_lookup_text_dashes():
     payload = gsm_ocr.build_overlay_coordinate_payload(response_dict)
 
     assert payload is not None
-    assert payload["lines"][0]["text"] == "ー刻も早く"
-    assert payload["lines"][0]["words"][0]["text"] == "ー刻も早く"
+    assert payload["lines"][0]["text"] == "一刻も早く"
+    assert payload["lines"][0]["words"][0]["text"] == "一刻も早く"
     assert payload["lines"][0]["words"][1]["text"] == "A-1"
 
 

@@ -9,6 +9,9 @@ const getOCRRuntimeStateMock = vi.fn();
 const startManualOCRMock = vi.fn();
 const startOCRMock = vi.fn();
 const stopOCRMock = vi.fn();
+const getOverlayRuntimeStateMock = vi.fn();
+const runOverlayWithSourceMock = vi.fn();
+const stopOverlayMock = vi.fn();
 
 const getAgentPathMock = vi.fn();
 const getAgentScriptsPathMock = vi.fn();
@@ -37,6 +40,12 @@ vi.mock('./ui/ocr.js', () => ({
     startManualOCR: startManualOCRMock,
     startOCR: startOCRMock,
     stopOCR: stopOCRMock,
+}));
+
+vi.mock('./ui/front.js', () => ({
+    getOverlayRuntimeState: getOverlayRuntimeStateMock,
+    runOverlayWithSource: runOverlayWithSourceMock,
+    stopOverlay: stopOverlayMock,
 }));
 
 vi.mock('./store.js', () => ({
@@ -84,6 +93,9 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         startManualOCRMock.mockReset();
         startOCRMock.mockReset();
         stopOCRMock.mockReset();
+        getOverlayRuntimeStateMock.mockReset();
+        runOverlayWithSourceMock.mockReset();
+        stopOverlayMock.mockReset();
         getAgentPathMock.mockReset();
         getAgentScriptsPathMock.mockReset();
         getLaunchAgentMinimizedMock.mockReset();
@@ -107,6 +119,12 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         stopOCRMock.mockReturnValue(false);
         startOCRMock.mockResolvedValue(undefined);
         startManualOCRMock.mockReturnValue(undefined);
+        getOverlayRuntimeStateMock.mockReturnValue({
+            isRunning: false,
+            source: null,
+        });
+        runOverlayWithSourceMock.mockResolvedValue(true);
+        stopOverlayMock.mockReturnValue(false);
         getObsOcrScenesMock.mockReturnValue([]);
         getSceneLaunchProfileForSceneMock.mockReturnValue(null);
         getSteamGamesMock.mockReturnValue([]);
@@ -144,6 +162,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             sceneName: scene.name,
             textHookMode: 'none',
             ocrMode: 'auto',
+            launchOverlay: false,
             agentScriptPath: '',
             launchDelaySeconds: 0,
         });
@@ -159,5 +178,54 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             promptForAreaSelection: false,
             source: 'auto-launcher',
         });
+    });
+
+    it('starts overlay when the scene enables overlay automation and the game/session is active', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        const scene = { id: 'scene-1', name: 'Scene 1' };
+
+        getSceneLaunchProfileForSceneMock.mockReturnValue({
+            sceneId: scene.id,
+            sceneName: scene.name,
+            textHookMode: 'none',
+            ocrMode: 'none',
+            launchOverlay: true,
+            agentScriptPath: '',
+            launchDelaySeconds: 0,
+        });
+        getExecutableNameFromSourceMock.mockResolvedValue(null);
+        sceneHasVisibleOutputMock.mockResolvedValue(true);
+
+        await launcher.runOverlayAutomation(scene);
+
+        expect(runOverlayWithSourceMock).toHaveBeenCalledWith('auto-launcher');
+        expect(stopOverlayMock).not.toHaveBeenCalled();
+    });
+
+    it('stops auto-launched overlay when the active scene no longer enables overlay automation', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        const scene = { id: 'scene-1', name: 'Scene 1' };
+
+        getSceneLaunchProfileForSceneMock.mockReturnValue({
+            sceneId: scene.id,
+            sceneName: scene.name,
+            textHookMode: 'none',
+            ocrMode: 'none',
+            launchOverlay: false,
+            agentScriptPath: '',
+            launchDelaySeconds: 0,
+        });
+        getOverlayRuntimeStateMock.mockReturnValue({
+            isRunning: true,
+            source: 'auto-launcher',
+        });
+        stopOverlayMock.mockReturnValue(true);
+
+        await launcher.runOverlayAutomation(scene);
+
+        expect(stopOverlayMock).toHaveBeenCalledWith({ onlyIfSource: 'auto-launcher' });
+        expect(runOverlayWithSourceMock).not.toHaveBeenCalled();
     });
 });

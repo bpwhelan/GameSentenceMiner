@@ -363,6 +363,86 @@ def test_refresh_scene_items_ignores_unexpected_response_shape(monkeypatch):
     ]
 
 
+def test_set_scene_items_enabled_forces_helper_sources_disabled():
+    calls = []
+
+    class _FakeClient:
+        def set_scene_item_enabled(self, scene_name, item_id, enabled):
+            calls.append((scene_name, item_id, enabled))
+
+    class _FakePool:
+        def call(self, operation, retries=0, retryable=True):
+            assert retries >= 0
+            return operation(_FakeClient())
+
+    service = obs.OBSService.__new__(obs.OBSService)
+    service._state_lock = threading.Lock()
+    helper_item = {
+        "sourceName": "capture_card_getter",
+        "inputKind": "dshow_input",
+        "sceneItemEnabled": True,
+        "sceneItemId": 11,
+    }
+    regular_item = {
+        "sourceName": "Regular Source",
+        "inputKind": "window_capture",
+        "sceneItemEnabled": False,
+        "sceneItemId": 12,
+    }
+    service.state = obs.OBSState(
+        scene_items_by_scene={
+            "Regular Scene": [helper_item.copy(), regular_item.copy()],
+        }
+    )
+    service.connection_pool = _FakePool()
+
+    service._set_scene_items_enabled("Regular Scene", [helper_item, regular_item], True)
+
+    assert calls == [
+        ("Regular Scene", 11, False),
+        ("Regular Scene", 12, True),
+    ]
+    assert helper_item["sceneItemEnabled"] is False
+    assert regular_item["sceneItemEnabled"] is True
+    assert service.state.scene_items_by_scene["Regular Scene"][0]["sceneItemEnabled"] is False
+    assert service.state.scene_items_by_scene["Regular Scene"][1]["sceneItemEnabled"] is True
+
+
+def test_enforce_helper_scene_items_disabled_reverts_enabled_helper_inputs(monkeypatch):
+    service = obs.OBSService.__new__(obs.OBSService)
+    service._state_lock = threading.Lock()
+    helper_item = {
+        "sourceName": "audio_input_getter",
+        "inputKind": "wasapi_input_capture",
+        "sceneItemEnabled": True,
+        "sceneItemId": 21,
+    }
+    regular_item = {
+        "sourceName": "Regular Source",
+        "inputKind": "window_capture",
+        "sceneItemEnabled": True,
+        "sceneItemId": 22,
+    }
+    service.state = obs.OBSState(
+        scene_items_by_scene={
+            "Regular Scene": [helper_item, regular_item],
+        }
+    )
+
+    updates = []
+
+    def fake_set_scene_items_enabled(scene_name, items, enabled):
+        updates.append((scene_name, tuple(item["sourceName"] for item in items), enabled))
+
+    monkeypatch.setattr(service, "_set_scene_items_enabled", fake_set_scene_items_enabled)
+
+    service._enforce_helper_scene_items_disabled("Regular Scene")
+
+    assert updates == [
+        ("Regular Scene", ("audio_input_getter",), False),
+    ]
+
+
 def test_obs_service_constructor_initializes_flag_before_state_bootstrap(monkeypatch):
     class _FakeClient:
         def get_current_program_scene(self):

@@ -4,9 +4,10 @@ import {
     dialog,
     Menu,
     MenuItem,
+    Notification,
+    nativeImage,
     shell,
     Tray,
-    Notification,
 } from 'electron';
 import { sendNotificationFromPython } from './notifications.js';
 import * as path from 'path';
@@ -59,7 +60,7 @@ import {
 } from './ui/settings.js';
 import { startOCR, stopOCR } from './ui/ocr.js';
 import * as fs from 'node:fs';
-import { runOverlay } from './ui/front.js';
+import { runOverlay, runOverlayWithSource } from './ui/front.js';
 import { execFile } from 'node:child_process';
 import { autoLauncher } from './auto_launcher.js';
 import { registerMainIPC } from './services/main_ipc.js';
@@ -67,6 +68,13 @@ import { UpdateManager } from './services/update_manager.js';
 import type { UpdateStatusSnapshot } from './services/update_manager.js';
 import { devFaultInjector } from './services/dev_fault_injection.js';
 import { runUpdateChaosHarness } from './services/update_chaos_harness.js';
+import {
+    getStatusTrayIconPath,
+    getTrayBaseIconPath,
+    getTrayTooltip,
+    resolveTrayVisualState,
+    type TrayVisualState,
+} from './tray_icons.js';
 import {
     checkAndInstallPython311,
     checkAndInstallUV,
@@ -238,8 +246,20 @@ const originalError = console.error;
 const originalWarn = console.warn;
 let cleanupComplete = false;
 let backendExitRequestedFromPython = false;
+let textIntakePaused = false;
+let pythonIpcConnected = false;
+let backendStatusReady = false;
+let pausedTrayFallbackIconCache: Electron.NativeImage | null = null;
+let loadingTrayFallbackIconCache: Electron.NativeImage | null = null;
+let readyTrayFallbackIconCache: Electron.NativeImage | null = null;
+let backendStatusPollTimer: ReturnType<typeof setInterval> | null = null;
+let trayReadyIndicatorTimer: ReturnType<typeof setTimeout> | null = null;
+let trayReadyIndicatorExpiresAt = 0;
 const UPDATE_PROGRESS_PREFIX = 'UpdateProgress:';
 const STARTUP_REPAIR_WINDOW_MS = 15_000;
+const TRAY_READY_INDICATOR_MS = 10_000;
+const BACKEND_STATUS_POLL_MS = 2_000;
+const BACKEND_STATUS_URL = 'http://localhost:7275/get_status';
 const SIMULATED_STARTUP_FAILURE_MESSAGE = 'Simulated failure before starting GSM';
 let simulatedStartupFailureTriggered = false;
 
@@ -523,13 +543,14 @@ if (getIconStyle().includes('random')) {
 
 export function getIconPath(forTray: boolean = false): string {
     let style = getIconStyle().includes('random') ? iconStyle : getIconStyle();
-    let extension = isWindows() ? 'ico' : 'png';
+    const extension: 'ico' | 'png' = isWindows() ? 'ico' : 'png';
     if (forTray) {
-        if (getIconStyle().includes('[tray]')) {
-            style = style.replace('[tray]', '');
-            return path.join(getAssetsDir(), `${style}.${extension}`);
-        }
-        return path.join(getAssetsDir(), isWindows() ? 'gsm.ico' : 'gsm.png');
+        return getTrayBaseIconPath({
+            assetsDir: getAssetsDir(),
+            configuredIconStyle: getIconStyle(),
+            resolvedRandomStyle: iconStyle,
+            extension,
+        });
     }
     if (useRareIcon) {
         return path.join(getAssetsDir(), isWindows() ? 'gsm_rare.ico' : 'gsm_rare.png');
@@ -537,6 +558,210 @@ export function getIconPath(forTray: boolean = false): string {
     style = style.replace(/\[.*\]/, ''); // Remove any [.*] suffix if present
     let filename = `${style}.${extension}`;
     return path.join(getAssetsDir(), filename);
+}
+
+function createPausedTrayFallbackIcon(): Electron.NativeImage {
+    if (pausedTrayFallbackIconCache && !pausedTrayFallbackIconCache.isEmpty()) {
+        return pausedTrayFallbackIconCache;
+    }
+
+    const pausedIconSvg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="28" fill="#C63B33"/>
+            <rect x="21" y="18" width="8" height="28" rx="3" fill="#FFFFFF"/>
+            <rect x="35" y="18" width="8" height="28" rx="3" fill="#FFFFFF"/>
+        </svg>
+    `.trim();
+    const dataUrl = `data:image/svg+xml;base64,${Buffer.from(pausedIconSvg).toString('base64')}`;
+    pausedTrayFallbackIconCache = nativeImage.createFromDataURL(dataUrl);
+    return pausedTrayFallbackIconCache;
+}
+
+function createLoadingTrayFallbackIcon(): Electron.NativeImage {
+    if (loadingTrayFallbackIconCache && !loadingTrayFallbackIconCache.isEmpty()) {
+        return loadingTrayFallbackIconCache;
+    }
+
+    const loadingIconSvg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="28" fill="#1D4ED8"/>
+            <circle cx="32" cy="32" r="16" fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round"
+                stroke-dasharray="56 30" transform="rotate(-40 32 32)"/>
+        </svg>
+    `.trim();
+    const dataUrl = `data:image/svg+xml;base64,${Buffer.from(loadingIconSvg).toString('base64')}`;
+    loadingTrayFallbackIconCache = nativeImage.createFromDataURL(dataUrl);
+    return loadingTrayFallbackIconCache;
+}
+
+function createReadyTrayFallbackIcon(): Electron.NativeImage {
+    if (readyTrayFallbackIconCache && !readyTrayFallbackIconCache.isEmpty()) {
+        return readyTrayFallbackIconCache;
+    }
+
+    const readyIconSvg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="28" fill="#15803D"/>
+            <path d="M19 33.5 28 42.5 46 23.5" fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    `.trim();
+    const dataUrl = `data:image/svg+xml;base64,${Buffer.from(readyIconSvg).toString('base64')}`;
+    readyTrayFallbackIconCache = nativeImage.createFromDataURL(dataUrl);
+    return readyTrayFallbackIconCache;
+}
+
+function isReadyTrayIndicatorActive(): boolean {
+    return trayReadyIndicatorExpiresAt > Date.now();
+}
+
+function clearTrayReadyIndicatorTimer(): void {
+    if (trayReadyIndicatorTimer) {
+        clearTimeout(trayReadyIndicatorTimer);
+        trayReadyIndicatorTimer = null;
+    }
+}
+
+function clearBackendStatusPollTimer(): void {
+    if (backendStatusPollTimer) {
+        clearInterval(backendStatusPollTimer);
+        backendStatusPollTimer = null;
+    }
+}
+
+function getCurrentTrayVisualState(): TrayVisualState {
+    return resolveTrayVisualState({
+        pythonIpcConnected,
+        backendStatusReady,
+        readyIndicatorActive: isReadyTrayIndicatorActive(),
+        textIntakePaused,
+    });
+}
+
+function getHardcodedStatusTrayIconPath(state: Exclude<TrayVisualState, 'normal'>): string {
+    return getStatusTrayIconPath({
+        assetsDir: getAssetsDir(),
+        state,
+        extension: isWindows() ? 'ico' : 'png',
+    });
+}
+
+function maybeActivateReadyTrayIndicator(): void {
+    if (!pythonIpcConnected || !backendStatusReady || trayReadyIndicatorExpiresAt > 0) {
+        return;
+    }
+
+    trayReadyIndicatorExpiresAt = Date.now() + TRAY_READY_INDICATOR_MS;
+    clearTrayReadyIndicatorTimer();
+    trayReadyIndicatorTimer = setTimeout(() => {
+        trayReadyIndicatorExpiresAt = 0;
+        trayReadyIndicatorTimer = null;
+        refreshTrayPresentation();
+    }, TRAY_READY_INDICATOR_MS);
+    refreshTrayPresentation();
+}
+
+async function pollBackendStatusOnce(): Promise<void> {
+    if (backendStatusReady) {
+        clearBackendStatusPollTimer();
+        return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1500);
+    try {
+        const response = await fetch(BACKEND_STATUS_URL, { signal: controller.signal });
+        if (!response.ok) {
+            return;
+        }
+        backendStatusReady = true;
+        clearBackendStatusPollTimer();
+        maybeActivateReadyTrayIndicator();
+        refreshTrayPresentation();
+    } catch {
+        // Keep polling until ready.
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
+function startBackendStatusPolling(): void {
+    clearBackendStatusPollTimer();
+    void pollBackendStatusOnce();
+    backendStatusPollTimer = setInterval(() => {
+        void pollBackendStatusOnce();
+    }, BACKEND_STATUS_POLL_MS);
+}
+
+function resetStartupTrayState(): void {
+    pythonIpcConnected = false;
+    backendStatusReady = false;
+    trayReadyIndicatorExpiresAt = 0;
+    clearTrayReadyIndicatorTimer();
+    clearBackendStatusPollTimer();
+    refreshTrayPresentation();
+}
+
+function markPythonIPCConnected(): void {
+    if (pythonIpcConnected) {
+        return;
+    }
+    pythonIpcConnected = true;
+    maybeActivateReadyTrayIndicator();
+    refreshTrayPresentation();
+}
+
+function getPausedTrayIcon(): string | Electron.NativeImage {
+    const pausedIconPath = getHardcodedStatusTrayIconPath('paused');
+
+    if (fs.existsSync(pausedIconPath)) {
+        return pausedIconPath;
+    }
+
+    return createPausedTrayFallbackIcon();
+}
+
+function getLoadingTrayIcon(): string | Electron.NativeImage {
+    const loadingIconPath = getHardcodedStatusTrayIconPath('loading');
+    if (fs.existsSync(loadingIconPath)) {
+        return loadingIconPath;
+    }
+    return createLoadingTrayFallbackIcon();
+}
+
+function getReadyTrayIcon(): string | Electron.NativeImage {
+    const readyIconPath = getHardcodedStatusTrayIconPath('ready');
+    if (fs.existsSync(readyIconPath)) {
+        return readyIconPath;
+    }
+    return createReadyTrayFallbackIcon();
+}
+
+function getTrayIcon(): string | Electron.NativeImage {
+    switch (getCurrentTrayVisualState()) {
+        case 'loading':
+            return getLoadingTrayIcon();
+        case 'ready':
+            return getReadyTrayIcon();
+        case 'paused':
+            return getPausedTrayIcon();
+        default:
+            return getIconPath(true);
+    }
+}
+
+function refreshTrayPresentation(): void {
+    if (!tray) {
+        return;
+    }
+
+    const trayIcon = getTrayIcon();
+    tray.setImage(trayIcon);
+    tray.setToolTip(getTrayTooltip(getCurrentTrayVisualState()));
+}
+
+function setTextIntakePausedState(paused: boolean): void {
+    textIntakePaused = paused;
+    refreshTrayPresentation();
 }
 
 interface ManagedGSMProcessState {
@@ -696,6 +921,9 @@ function runGSM(command: string, args: string[]): Promise<void> {
 
         pyProc = proc;
         writeManagedGSMProcessState(taskManagerCommand, args, proc.pid);
+        resetStartupTrayState();
+        setTextIntakePausedState(false);
+        startBackendStatusPolling();
 
         // Attach GSMStdoutManager
         gsmStdoutManager = new GSMStdoutManager(proc);
@@ -709,9 +937,17 @@ function runGSM(command: string, args: string[]): Promise<void> {
                     console.error('Failed to route notification from Python:', e);
                 }
             }
+            if (msg.function === 'text_intake_state') {
+                setTextIntakePausedState(Boolean(msg.data?.paused));
+            }
+            if (msg.function === 'on_connect') {
+                markPythonIPCConnected();
+            }
             if (msg.function === 'initialized') {
+                markPythonIPCConnected();
                 mainWindow?.webContents.send('gsm-initialized', msg.data ?? {});
                 updateTrayMenu();
+                refreshTrayPresentation();
                 if (reopenSettingsAfterBackendRestart) {
                     reopenSettingsAfterBackendRestart = false;
                     setTimeout(() => {
@@ -767,6 +1003,8 @@ function runGSM(command: string, args: string[]): Promise<void> {
 
         proc.on('close', (code) => {
             clearManagedGSMProcessState();
+            resetStartupTrayState();
+            setTextIntakePausedState(false);
             const shouldQuitForPickaxeExit =
                 code === 0 &&
                 backendExitRequestedFromPython &&
@@ -791,6 +1029,8 @@ function runGSM(command: string, args: string[]): Promise<void> {
 
         proc.on('error', (err) => {
             clearManagedGSMProcessState();
+            resetStartupTrayState();
+            setTextIntakePausedState(false);
             reject(err);
         });
     });
@@ -1001,8 +1241,8 @@ function createTray() {
             return;
         }
 
-        tray = new Tray(iconPath);
-        tray.setToolTip('GameSentenceMiner');
+        tray = new Tray(getTrayIcon());
+        refreshTrayPresentation();
         updateTrayMenu();
 
         tray.on('click', () => {
@@ -1417,7 +1657,7 @@ async function processArgsAndStartSettings() {
     }
 
     if (getRunOverlayOnStartup()) {
-        runOverlay();
+        runOverlayWithSource('startup');
     }
 
     if (getRunWindowTransparencyToolOnStartup()) {

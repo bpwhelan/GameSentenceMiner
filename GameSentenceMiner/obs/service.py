@@ -27,6 +27,8 @@ from GameSentenceMiner.obs.launch import (
     get_obs_websocket_config_values,
     get_preferred_video_source,
     get_video_scene_items,
+    is_helper_scene_name,
+    is_helper_source_name,
     is_image_empty,
 )
 
@@ -518,6 +520,7 @@ class OBSService:
             return
         try:
             self._refresh_scene_items(scene_name)
+            self._enforce_helper_scene_items_disabled(scene_name)
         except Exception as e:
             logger.debug(f"Scene item refresh failed: {e}")
 
@@ -687,10 +690,43 @@ class OBSService:
             if scene_name == self.state.current_scene:
                 self.state.current_source_name = self._pick_source_name(scene_items)
 
+    def _enforce_helper_scene_items_disabled(self, scene_name: str):
+        if not scene_name:
+            return
+
+        scene_items = self._get_scene_items_for_scene(scene_name)
+        helper_items = [
+            item
+            for item in scene_items
+            if bool(item.get("sceneItemEnabled", True))
+            and (is_helper_scene_name(scene_name) or is_helper_source_name(item.get("sourceName")))
+        ]
+        if helper_items:
+            self._set_scene_items_enabled(scene_name, helper_items, False)
+
     def _set_scene_items_enabled(self, scene_name: str, scene_items: List[dict], enabled: bool):
         if not scene_name or not scene_items:
             return
-        items_to_update = [item for item in scene_items if bool(item.get("sceneItemEnabled", True)) != bool(enabled)]
+        requested_enabled = bool(enabled)
+        items_to_update = []
+        desired_enabled_by_item_id = {}
+
+        for item in scene_items:
+            item_id = item.get("sceneItemId")
+            if item_id is None:
+                continue
+
+            source_name = item.get("sourceName")
+            desired_enabled = requested_enabled
+            if requested_enabled and (is_helper_scene_name(scene_name) or is_helper_source_name(source_name)):
+                desired_enabled = False
+
+            if bool(item.get("sceneItemEnabled", True)) == desired_enabled:
+                continue
+
+            items_to_update.append(item)
+            desired_enabled_by_item_id[item_id] = desired_enabled
+
         if not items_to_update:
             return
 
@@ -699,7 +735,7 @@ class OBSService:
                 item_id = item.get("sceneItemId")
                 if item_id is None:
                     continue
-                client.set_scene_item_enabled(scene_name, item_id, bool(enabled))
+                client.set_scene_item_enabled(scene_name, item_id, desired_enabled_by_item_id[item_id])
 
         self.connection_pool.call(_update, retries=OBS_DEFAULT_RETRY_COUNT)
 
@@ -707,13 +743,15 @@ class OBSService:
             cached_items = self.state.scene_items_by_scene.get(scene_name, [])
             cached_items_by_id = {item.get("sceneItemId"): item for item in cached_items}
             for item in items_to_update:
-                item["sceneItemEnabled"] = bool(enabled)
-                cached_item = cached_items_by_id.get(item.get("sceneItemId"))
+                item_id = item.get("sceneItemId")
+                desired_enabled = desired_enabled_by_item_id[item_id]
+                item["sceneItemEnabled"] = desired_enabled
+                cached_item = cached_items_by_id.get(item_id)
                 if cached_item is not None:
-                    cached_item["sceneItemEnabled"] = bool(enabled)
+                    cached_item["sceneItemEnabled"] = desired_enabled
                 source_name = item.get("sourceName")
                 if source_name:
-                    self.state.input_show_by_name[source_name] = bool(enabled)
+                    self.state.input_show_by_name[source_name] = desired_enabled
 
     def _pick_source_name(self, scene_items: List[dict]) -> Optional[str]:
         if not scene_items:

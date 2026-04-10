@@ -12,6 +12,7 @@ class EventItem:
     time: datetime.datetime
     checked: bool = False
     history: bool = False
+    excluded_from_stats: bool = False
 
     def to_dict(self):
         return {
@@ -20,6 +21,7 @@ class EventItem:
             "time": self.time,
             "checked": self.checked,
             "history": self.history,
+            "excluded_from_stats": self.excluded_from_stats,
         }
 
     def to_serializable(self):
@@ -29,6 +31,7 @@ class EventItem:
             "time": self.time.isoformat(),
             "checked": self.checked,
             "history": self.history,
+            "excluded_from_stats": self.excluded_from_stats,
         }
 
 
@@ -49,7 +52,15 @@ class EventManager:
         self.events_dict = {event.id: event for event in new_events}
 
     def add_gameline(self, line: GameLine):
-        new_event = EventItem(line, line.id, line.text, line.time, False, False)
+        new_event = EventItem(
+            line,
+            line.id,
+            line.text,
+            line.time,
+            False,
+            False,
+            bool(getattr(line, "excluded_from_stats", False)),
+        )
         self.events_dict[line.id] = new_event
         self.events.append(new_event)
         return new_event

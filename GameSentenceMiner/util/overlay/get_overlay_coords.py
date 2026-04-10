@@ -62,9 +62,15 @@ LOG_RESULTS_TO_JSON = False  # Set to True to log OCR results to JSON files for 
 
 # Conditionally import OCR engines
 try:
-    from GameSentenceMiner.owocr.owocr.ocr import OneOCR
+    from GameSentenceMiner.owocr.owocr.ocr import (
+        OneOCR,
+        normalize_japanese_ocr_dashes,
+        normalize_japanese_ocr_text_and_segments,
+    )
 except ImportError:
     OneOCR = None
+    normalize_japanese_ocr_dashes = lambda text: text
+    normalize_japanese_ocr_text_and_segments = lambda text, segments=None: (text, segments)
 
 try:
     from GameSentenceMiner.owocr.owocr.ocr import (
@@ -715,12 +721,29 @@ class OverlayProcessor:
                         kept_words.append(copy.deepcopy(word))
 
                 if kept_words and (line_matches_language or matched_word):
+                    joined_word_text = "".join(str(word.get("text", "") or "") for word in kept_words)
+                    normalized_line_text, normalized_word_texts = normalize_japanese_ocr_text_and_segments(
+                        joined_word_text,
+                        [str(word.get("text", "") or "") for word in kept_words],
+                    )
                     line_copy["words"] = kept_words
-                    line_copy["text"] = "".join(str(word.get("text", "") or "") for word in kept_words)
+                    for word_copy, normalized_word_text in zip(line_copy["words"], normalized_word_texts or []):
+                        word_copy["text"] = normalized_word_text
+                    line_copy["text"] = normalized_line_text
                     filtered_results.append(line_copy)
                     continue
 
             if line_matches_language:
+                line_copy["text"] = normalize_japanese_ocr_dashes(line_text)
+                if isinstance(words, list) and words:
+                    normalized_words = []
+                    for word in words:
+                        if not isinstance(word, dict):
+                            continue
+                        normalized_word = copy.deepcopy(word)
+                        normalized_word["text"] = normalize_japanese_ocr_dashes(str(word.get("text", "") or ""))
+                        normalized_words.append(normalized_word)
+                    line_copy["words"] = normalized_words
                 filtered_results.append(line_copy)
 
         return filtered_results

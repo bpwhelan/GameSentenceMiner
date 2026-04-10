@@ -71,6 +71,7 @@ from GameSentenceMiner.ui.config.tabs.general import (
     build_general_tab,
     build_discord_tab,
 )
+from GameSentenceMiner.ui.config.tabs.hotkeys import build_hotkeys_tab
 from GameSentenceMiner.ui.config.tabs.obs import build_obs_tab
 from GameSentenceMiner.ui.config.tabs.overlay import build_overlay_tab
 from GameSentenceMiner.ui.config.tabs.paths import build_paths_tab
@@ -829,6 +830,10 @@ class ConfigWindow(QWidget):
                     manual_overlay_scan=self.manual_overlay_scan_hotkey_edit.keySequence().toString(),
                     play_latest_audio=self.play_latest_audio_hotkey_edit.keySequence().toString(),
                     process_pause=self.process_pause_hotkey_edit.keySequence().toString(),
+                    pause_text_intake=self.pause_text_intake_hotkey_edit.keySequence().toString(),
+                    relay_outputs_when_text_intake_paused=(
+                        self.relay_outputs_when_text_intake_paused_check.isChecked()
+                    ),
                 ),
                 vad=VAD(
                     whisper_model=self.whisper_model_combo.currentText(),
@@ -1387,6 +1392,8 @@ class ConfigWindow(QWidget):
         self.ocr_area_config_include_secondary_areas_check = QCheckBox()
         self.ocr_area_config_use_exclusion_zones_check = QCheckBox()
         self.use_ocr_result_check = QCheckBox()
+        self.pause_text_intake_hotkey_edit = QKeySequenceEdit()
+        self.relay_outputs_when_text_intake_paused_check = QCheckBox()
 
         # Advanced
         self.audio_player_path_edit = QLineEdit()
@@ -2012,6 +2019,11 @@ class ConfigWindow(QWidget):
             audio_subtabs, tabs_i18n.get("audio", {}).get("title", "Audio")
         )
 
+        self._settings_tab_indices["hotkeys"] = self.tab_widget.addTab(
+            self._wrap_tab_in_scroll_area(self._create_hotkeys_tab()),
+            tabs_i18n.get("hotkeys", {}).get("title", "Hotkeys"),
+        )
+
         self._settings_tab_indices["obs"] = self.tab_widget.addTab(
             self._wrap_tab_in_scroll_area(self._create_obs_tab()),
             tabs_i18n.get("obs", {}).get("title", "OBS"),
@@ -2530,6 +2542,9 @@ class ConfigWindow(QWidget):
     def _create_overlay_tab(self):
         return build_overlay_tab(self, self.i18n)
 
+    def _create_hotkeys_tab(self):
+        return build_hotkeys_tab(self, self.i18n)
+
     def _create_experimental_tab(self):
         return build_experimental_tab(self, self.i18n)
 
@@ -2829,6 +2844,10 @@ class ConfigWindow(QWidget):
             bool(getattr(s.overlay, "ocr_area_config_use_exclusion_zones", True))
         )
         self.use_ocr_result_check.setChecked(s.overlay.use_ocr_result_v2)
+        self.pause_text_intake_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.pause_text_intake or ""))
+        self.relay_outputs_when_text_intake_paused_check.setChecked(
+            bool(getattr(s.hotkeys, "relay_outputs_when_text_intake_paused", True))
+        )
         # Load debug option for using full-screen mss instead of OBS
         try:
             if hasattr(self, "ocr_full_screen_instead_of_obs_checkbox"):

@@ -48,6 +48,7 @@ export interface SceneLaunchProfile {
   sceneName: string;
   textHookMode: SceneTextHookMode;
   ocrMode: SceneOcrMode;
+  launchOverlay: boolean;
   agentScriptPath: string;
   launchDelaySeconds: number;
 }

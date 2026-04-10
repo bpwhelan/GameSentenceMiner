@@ -67,11 +67,6 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "overlay", "overlay_engine"),
         window.overlay_engine_combo,
     )
-    main_layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "overlay", "manual_overlay_scan_hotkey"),
-        window.manual_overlay_scan_hotkey_edit,
-    )
-
     min_char_widget = QWidget()
     min_char_layout = QHBoxLayout(min_char_widget)
     min_char_layout.setContentsMargins(0, 0, 0, 0)

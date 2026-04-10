@@ -78,6 +78,19 @@ class SentenceAudioCacheEntry:
     created_at: datetime
 
 
+def _notify_anki_enhancement_failure(reason: str) -> None:
+    message = str(reason or "").strip()
+    if not message:
+        message = "Anki card enhancement failed. Check console for reason."
+    notification.send_anki_enhancement_failed(message)
+
+
+def _mark_anki_update_failure(result_id: Optional[str], reason: str, word: str = "") -> None:
+    if not result_id:
+        return
+    anki_results[result_id] = AnkiUpdateResult.failure(reason=reason, word=word or "")
+
+
 # --- Migration Utilities ---
 def migrate_old_word_folders():
     """
@@ -914,6 +927,7 @@ def update_anki_card(
             use_existing_files,
             add_note_to_result,
             processing_word=tango,
+            failure_result_id=game_line.id if game_line and not use_existing_files else None,
         )
     )
     return True
@@ -976,6 +990,10 @@ def _process_screenshot(
         logger.debug("Skipping static screenshot upload because animated screenshot is pending.")
         return
 
+    if update_picture_flag and not assets.screenshot_path:
+        _notify_anki_enhancement_failure("Failed to generate screenshot for the Anki card.")
+        return
+
     if not assets.screenshot_path:
         return
 
@@ -989,6 +1007,8 @@ def _process_screenshot(
         logger.info("Uploading encoded screenshot to Anki...")
         assets.screenshot_in_anki = store_media_file(assets.screenshot_path)
         logger.info(f"Stored screenshot in Anki media collection: {assets.screenshot_in_anki}")
+        if not assets.screenshot_in_anki:
+            _notify_anki_enhancement_failure("Failed to upload screenshot to Anki media collection.")
 
         if update_picture_flag and assets.screenshot_in_anki:
             _apply_field_policy(
@@ -1020,6 +1040,8 @@ def _process_previous_screenshot(
         logger.info("Uploading encoded previous screenshot to Anki...")
         assets.prev_screenshot_in_anki = store_media_file(assets.prev_screenshot_path)
         logger.info(f"Stored previous screenshot in Anki media collection: {assets.prev_screenshot_in_anki}")
+        if not assets.prev_screenshot_in_anki:
+            _notify_anki_enhancement_failure("Failed to upload the previous screenshot to Anki media collection.")
 
         if assets.prev_screenshot_in_anki and config.anki.previous_image_field != config.anki.picture_field:
             _apply_field_policy(
@@ -1067,6 +1089,8 @@ def _process_animated_screenshot(
 
             assets.screenshot_in_anki = store_media_file(path)
             logger.info(f"<bold>Stored animated screenshot in Anki: {assets.screenshot_in_anki}</bold>")
+            if not assets.screenshot_in_anki:
+                _notify_anki_enhancement_failure("Failed to upload animated screenshot to Anki media collection.")
 
             if update_picture_flag and assets.screenshot_in_anki:
                 _apply_field_policy(
@@ -1089,8 +1113,10 @@ def _process_animated_screenshot(
             assets.animated = True
         else:
             logger.error("Failed to generate animated screenshot")
+            _notify_anki_enhancement_failure("Failed to generate animated screenshot for the Anki card.")
     except Exception as e:
         logger.exception(f"Error generating animated screenshot: {e}")
+        _notify_anki_enhancement_failure(f"Failed to generate animated screenshot for the Anki card: {e}")
 
 
 def _process_video(
@@ -1124,6 +1150,8 @@ def _process_video(
 
             assets.video_in_anki = store_media_file(path)
             logger.info(f"Stored video in Anki: {assets.video_in_anki}")
+            if not assets.video_in_anki:
+                _notify_anki_enhancement_failure("Failed to upload replay video to Anki media collection.")
 
             if assets.video_in_anki:
                 _apply_field_policy(
@@ -1138,8 +1166,10 @@ def _process_video(
             assets.video = True
         else:
             logger.error("Failed to generate video")
+            _notify_anki_enhancement_failure("Failed to generate replay video for the Anki card.")
     except Exception as e:
         logger.exception(f"Error generating video: {e}")
+        _notify_anki_enhancement_failure(f"Failed to generate replay video for the Anki card: {e}")
 
 
 def _process_audio(
@@ -1170,6 +1200,8 @@ def _process_audio(
         return
 
     if not assets.audio_path or assets.audio_in_anki:
+        if use_voice and not use_existing_files and not assets.audio_path and not assets.audio_in_anki:
+            _notify_anki_enhancement_failure("Failed to generate audio for the Anki card.")
         return
 
     user_audio_options = getattr(config.audio, "ffmpeg_reencode_options_to_use", "")
@@ -1191,6 +1223,8 @@ def _process_audio(
     logger.info(f"Uploading audio to Anki: {assets.audio_path}...")
     assets.audio_in_anki = store_media_file(assets.audio_path)
     logger.info(f"Stored audio in Anki media collection: {assets.audio_in_anki}")
+    if not assets.audio_in_anki:
+        _notify_anki_enhancement_failure("Failed to upload audio to Anki media collection.")
 
     if assets.audio_in_anki:
         _apply_field_policy(
@@ -1277,6 +1311,7 @@ def check_and_update_note(
     use_existing_files=False,
     assets_ready_callback=None,
     processing_word: str = "",
+    failure_result_id: Optional[str] = None,
 ):
     """Update note in Anki, including uploading media files."""
     config = get_config()
@@ -1313,6 +1348,12 @@ def check_and_update_note(
         selected_notes = _update_anki_note(last_note, note, tags, assets)
         _trigger_incremental_anki_cache_sync([last_note.noteId])
         _perform_post_update_actions(last_note, selected_notes, config)
+    except Exception as e:
+        note_id = getattr(last_note, "noteId", None)
+        reason = f"Failed to update Anki note {note_id}: {e}" if note_id else f"Failed to update Anki note: {e}"
+        logger.exception(reason)
+        _mark_anki_update_failure(failure_result_id, reason, processing_word)
+        _notify_anki_enhancement_failure(reason)
     finally:
         _cleanup_assets(assets)
         if processing_word:
@@ -1892,7 +1933,10 @@ def queue_card_for_processing(last_card, lines, last_mined_line):
                 sentence_audio_cache[reuse_key] = previous_entry
             else:
                 sentence_audio_cache.pop(reuse_key, None)
-        logger.error(f"Error saving replay buffer: {e}")
+        reason = f"Failed to save the OBS replay buffer for note {last_card.noteId}: {e}"
+        logger.error(reason)
+        _mark_anki_update_failure(last_mined_line.id if last_mined_line else None, reason, current_word)
+        _notify_anki_enhancement_failure(reason)
         return
 
 
@@ -1928,8 +1972,9 @@ def update_card_from_same_sentence(last_card, lines, game_line, reuse_result_id:
             reuse_result_id=reuse_result_id,
         )
     else:
-        logger.error(f"Anki update failed for card {last_card.noteId}")
-        notification.send_error_no_anki_update()
+        reason = getattr(anki_result, "failure_reason", "") or f"Anki update failed for card {last_card.noteId}."
+        logger.error(reason)
+        _notify_anki_enhancement_failure(reason)
 
 
 def sentence_is_same_as_previous(last_card, lines=None):

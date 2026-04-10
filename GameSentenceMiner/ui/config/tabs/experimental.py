@@ -240,15 +240,6 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(
             tabs_i18n,
             "game_pausing",
-            "hotkey",
-            default_tooltip="Hotkey to pause/resume the active game process.",
-        ),
-        window.process_pause_hotkey_edit,
-    )
-    process_layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n,
-            "game_pausing",
             "overlay_manual_hotkey_requests_pause",
             default_tooltip="When enabled, overlay manual hotkey requests pause on enter and resume on exit.",
         ),

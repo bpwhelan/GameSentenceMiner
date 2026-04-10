@@ -1008,6 +1008,8 @@ class Hotkeys:
     play_latest_audio: str = "f7"
     manual_overlay_scan: str = ""
     process_pause: str = ""
+    pause_text_intake: str = ""
+    relay_outputs_when_text_intake_paused: bool = True
 
 
 @dataclass_json
@@ -2265,6 +2267,7 @@ class GsmAppState:
         self.videos_with_pending_operations = set()  # Track videos that shouldn't be deleted yet
         self.disable_anki_confirmation_session = False
         self.replay_buffer_stopped_timestamp = None
+        self.text_input_paused = False
 
 
 @dataclass_json
@@ -2280,9 +2283,10 @@ class AnkiUpdateResult:
     word_path: str = ""
     word: str = ""
     extra_tags: List[str] = field(default_factory=list)
+    failure_reason: str = ""
 
     @staticmethod
-    def failure():
+    def failure(reason: str = "", word: str = ""):
         return AnkiUpdateResult(
             success=False,
             audio_in_anki="",
@@ -2292,8 +2296,9 @@ class AnkiUpdateResult:
             multi_line=False,
             video_in_anki="",
             word_path="",
-            word="",
+            word=word,
             extra_tags=[],
+            failure_reason=reason or "",
         )
 
 

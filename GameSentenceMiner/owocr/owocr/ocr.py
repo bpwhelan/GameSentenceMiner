@@ -53,15 +53,20 @@ _LENS_PROTO_DEPS = _UNINITIALIZED
 _MESSAGE_TO_DICT = _UNINITIALIZED
 
 _JAPANESE_TEXT_CLASS = r"\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}々〆〇〻ヶヵ"
+_JAPANESE_HAN_CLASS = r"\p{Script=Han}々〆〇〻"
+_JAPANESE_KANA_CLASS = r"\p{Script=Hiragana}\p{Script=Katakana}ヶヵ"
 _JAPANESE_DASH_VARIANTS = "-－―—–−ｰ─━"
 _JAPANESE_DASH_VARIANTS_CLASS = regex.escape(_JAPANESE_DASH_VARIANTS)
 _JAPANESE_LEADING_DASH_OPENERS = regex.escape("「『【（〈《〔［｛〘〚")
 _JAPANESE_DASH_TRAILERS = regex.escape("」』】）〉》〕］｝〙〛、。！？…・!?,.，．")
-_JAPANESE_LEADING_DASH_REGEX = regex.compile(
-    rf"(^|[\n{_JAPANESE_LEADING_DASH_OPENERS}])([{_JAPANESE_DASH_VARIANTS_CLASS}]+)(?=[{_JAPANESE_TEXT_CLASS}])"
+_JAPANESE_LEADING_HAN_SINGLE_DASH_REGEX = regex.compile(
+    rf"(^|[\n{_JAPANESE_LEADING_DASH_OPENERS}])([{_JAPANESE_DASH_VARIANTS_CLASS}])(?=[{_JAPANESE_HAN_CLASS}])"
 )
-_JAPANESE_CONTEXTUAL_DASH_REGEX = regex.compile(
-    rf"(?<=[{_JAPANESE_TEXT_CLASS}])[{_JAPANESE_DASH_VARIANTS_CLASS}]+(?=(?:[{_JAPANESE_TEXT_CLASS}{_JAPANESE_DASH_TRAILERS}\n])|$)"
+_JAPANESE_LEADING_KANA_DASH_REGEX = regex.compile(
+    rf"(^|[\n{_JAPANESE_LEADING_DASH_OPENERS}])([{_JAPANESE_DASH_VARIANTS_CLASS}]+)(?=[{_JAPANESE_KANA_CLASS}])"
+)
+_JAPANESE_CONTEXTUAL_KANA_DASH_REGEX = regex.compile(
+    rf"(?<=[{_JAPANESE_KANA_CLASS}])[{_JAPANESE_DASH_VARIANTS_CLASS}]+(?=(?:[{_JAPANESE_KANA_CLASS}{_JAPANESE_DASH_TRAILERS}\n])|$)"
 )
 
 
@@ -415,11 +420,37 @@ def normalize_japanese_ocr_dashes(text):
     if not isinstance(text, str) or not text:
         return text
 
-    normalized = _JAPANESE_LEADING_DASH_REGEX.sub(
-        lambda match: f"{match.group(1)}{'ー' * len(match.group(2))}",
+    normalized = _JAPANESE_LEADING_HAN_SINGLE_DASH_REGEX.sub(
+        lambda match: f"{match.group(1)}一",
         text,
     )
-    return _JAPANESE_CONTEXTUAL_DASH_REGEX.sub(lambda match: "ー" * len(match.group(0)), normalized)
+    normalized = _JAPANESE_LEADING_KANA_DASH_REGEX.sub(
+        lambda match: f"{match.group(1)}{'ー' * len(match.group(2))}",
+        normalized,
+    )
+    return _JAPANESE_CONTEXTUAL_KANA_DASH_REGEX.sub(lambda match: "ー" * len(match.group(0)), normalized)
+
+
+def normalize_japanese_ocr_text_and_segments(text, segments=None):
+    normalized_text = normalize_japanese_ocr_dashes(str(text or ""))
+    if not isinstance(segments, list):
+        return normalized_text, None
+
+    raw_segments = [str(segment or "") for segment in segments]
+    joined_segments = "".join(raw_segments)
+    normalized_joined_segments = normalize_japanese_ocr_dashes(joined_segments)
+
+    if len(joined_segments) != len(normalized_joined_segments):
+        return normalized_text, [normalize_japanese_ocr_dashes(segment) for segment in raw_segments]
+
+    normalized_segments = []
+    index = 0
+    for raw_segment in raw_segments:
+        segment_length = len(raw_segment)
+        normalized_segments.append(normalized_joined_segments[index : index + segment_length])
+        index += segment_length
+
+    return normalized_text, normalized_segments
 
 
 def post_process(text, keep_blank_lines=False):

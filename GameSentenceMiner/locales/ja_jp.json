@@ -461,6 +461,24 @@
           "install_ocenaudio_button": "Ocenaudioをインストール",
           "get_anki_media_button": "Ankiメディアパス取得"
         },
+        "hotkeys": {
+          "title": "ホットキー",
+          "description": "GSM のホットキーをここにまとめています。空欄にすると無効になります。",
+          "groups": {
+            "input": "入力",
+            "overlay": "オーバーレイ",
+            "audio": "音声",
+            "experimental": "実験機能"
+          },
+          "pause_text_intake": {
+            "label": "GSM テキスト入力停止ホットキー:",
+            "tooltip": "GSM のクリップボード/WebSocket テキスト入力を一時停止または再開します。停止中は、GSM 自身の統計/履歴記録とオーバーレイトリガーをスキップします。空欄にすると無効になります。デフォルトのホットキーはありません。"
+          },
+          "relay_outputs_when_paused": {
+            "checkbox": "停止中も texthooker/出力クライアントへ転送する",
+            "tooltip": "有効にすると、一時停止中でもテキスト処理後の行を texthooker ページと出力 websocket クライアントへ転送しますが、GSM 自身の統計/履歴記録とオーバーレイトリガーは引き続きスキップされます。無効にすると、受信テキストを完全に破棄します。"
+          }
+        },
         "obs": {
           "title": "OBS",
           "enabled": {
