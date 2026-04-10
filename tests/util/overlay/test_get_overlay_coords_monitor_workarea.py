@@ -3,6 +3,8 @@ from __future__ import annotations
 from copy import deepcopy
 from types import SimpleNamespace
 
+from PIL import Image
+
 from GameSentenceMiner.ocr.gsm_ocr_config import OCRConfig, Monitor, Rectangle, WindowGeometry
 from GameSentenceMiner.util.overlay import get_overlay_coords
 
@@ -173,6 +175,84 @@ def test_resolve_overlay_geometry_uses_unified_client_geometry(monkeypatch):
     )
 
 
+def test_get_screenshot_and_offset_prefers_obs_window_capture(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor()
+    processor.obs_width = 1280
+    processor.obs_height = 720
+    processor.window_monitor = SimpleNamespace(target_hwnd=None, find_target_hwnd=lambda: 456)
+
+    obs_image = Image.new("RGB", (1280, 720), "white")
+
+    monkeypatch.setattr(get_overlay_coords, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_overlay_config",
+        lambda: SimpleNamespace(monitor_to_capture=0, ocr_full_screen_instead_of_obs=False),
+    )
+    monkeypatch.setattr(
+        processor,
+        "get_monitor_workarea",
+        lambda monitor_index: {"left": 100, "top": 50, "width": 1920, "height": 1079},
+    )
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_window_client_physical_geometry",
+        lambda hwnd: (430, 290, 1280, 720),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "user32",
+        SimpleNamespace(IsWindowVisible=lambda hwnd: True, IsIconic=lambda hwnd: False),
+    )
+    monkeypatch.setattr(get_overlay_coords, "get_screenshot_PIL", lambda **kwargs: obs_image)
+
+    image, off_x, off_y, monitor_w, monitor_h = processor._get_screenshot_and_offset()
+
+    assert image is obs_image
+    assert (off_x, off_y, monitor_w, monitor_h) == (330, 240, 1920, 1079)
+    assert processor._last_overlay_capture_used_window_handle is True
+    assert processor._last_overlay_capture_source == "obs_window"
+
+
+def test_get_overlay_preview_capture_uses_obs_title(monkeypatch):
+    preview_image = Image.new("RGB", (640, 360), "white")
+
+    def fake_capture(self):
+        self._last_overlay_capture_source = "obs_scene"
+        return preview_image, 0, 0, 1920, 1079
+
+    monkeypatch.setattr(get_overlay_coords, "is_windows", lambda: False)
+    monkeypatch.setattr(get_overlay_coords.OverlayProcessor, "_get_screenshot_and_offset", fake_capture)
+    monkeypatch.setattr(get_overlay_coords, "get_current_game", lambda: "Test Scene")
+
+    image, title = get_overlay_coords.get_overlay_preview_capture()
+
+    assert image is preview_image
+    assert title == "Test Scene"
+
+
+def test_get_overlay_preview_capture_falls_back_to_monitor_title(monkeypatch):
+    preview_image = Image.new("RGB", (640, 360), "white")
+
+    def fake_capture(self):
+        self._last_overlay_capture_source = "monitor_mss"
+        return preview_image, 0, 0, 1920, 1079
+
+    monkeypatch.setattr(get_overlay_coords, "is_windows", lambda: False)
+    monkeypatch.setattr(get_overlay_coords.OverlayProcessor, "_get_screenshot_and_offset", fake_capture)
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_overlay_config",
+        lambda: SimpleNamespace(monitor_to_capture=1),
+    )
+
+    image, title = get_overlay_coords.get_overlay_preview_capture()
+
+    assert image is preview_image
+    assert title == "Overlay Monitor 2"
+
+
 def test_build_overlay_area_config_filters_primary_secondary_and_exclusions(
     monkeypatch,
 ):
@@ -274,7 +354,7 @@ def test_get_effective_overlay_area_config_prefers_dedicated_overlay_area(monkey
     monkeypatch.setattr(
         get_overlay_coords,
         "get_overlay_config",
-        lambda: SimpleNamespace(use_overlay_area_config=True, use_ocr_area_config=True),
+        lambda: SimpleNamespace(use_overlay_area_config=True, use_ocr_area_config_v2=False),
     )
     monkeypatch.setattr(processor, "_get_scaled_overlay_area_config", lambda width, height: dedicated_config)
     monkeypatch.setattr(
@@ -288,7 +368,7 @@ def test_get_effective_overlay_area_config_prefers_dedicated_overlay_area(monkey
     assert effective is dedicated_config
 
 
-def test_get_effective_overlay_area_config_falls_back_to_ocr_area_config(monkeypatch):
+def test_get_effective_overlay_area_config_uses_ocr_area_config_when_enabled(monkeypatch):
     processor = get_overlay_coords.OverlayProcessor()
     ocr_config = OCRConfig(
         scene="scene",
@@ -305,7 +385,7 @@ def test_get_effective_overlay_area_config_falls_back_to_ocr_area_config(monkeyp
     monkeypatch.setattr(
         get_overlay_coords,
         "get_overlay_config",
-        lambda: SimpleNamespace(use_overlay_area_config=True, use_ocr_area_config=True),
+        lambda: SimpleNamespace(use_overlay_area_config=True, use_ocr_area_config_v2=True),
     )
     monkeypatch.setattr(processor, "_get_scaled_overlay_area_config", lambda width, height: None)
     monkeypatch.setattr(processor, "_get_scaled_overlay_ocr_config", lambda width, height: ocr_config)
@@ -314,6 +394,26 @@ def test_get_effective_overlay_area_config_falls_back_to_ocr_area_config(monkeyp
     effective = processor._get_effective_overlay_area_config(1920, 1080)
 
     assert effective is ocr_config
+
+
+def test_get_effective_overlay_area_config_skips_ocr_area_config_when_disabled(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor()
+
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_overlay_config",
+        lambda: SimpleNamespace(use_overlay_area_config=True, use_ocr_area_config_v2=False),
+    )
+    monkeypatch.setattr(processor, "_get_scaled_overlay_area_config", lambda width, height: None)
+    monkeypatch.setattr(
+        processor,
+        "_get_scaled_overlay_ocr_config",
+        lambda width, height: (_ for _ in ()).throw(AssertionError("OCR area config should not be used")),
+    )
+
+    effective = processor._get_effective_overlay_area_config(1920, 1080)
+
+    assert effective is None
 
 
 def test_get_scaled_overlay_area_config_uses_saved_window_geometry_without_hwnd(monkeypatch):

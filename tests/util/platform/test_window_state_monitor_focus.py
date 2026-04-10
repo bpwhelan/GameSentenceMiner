@@ -1,6 +1,8 @@
 import asyncio
 import importlib
 
+import pytest
+
 
 window_state_monitor = importlib.import_module("GameSentenceMiner.util.platform.window_state_monitor")
 
@@ -107,6 +109,25 @@ def test_set_foreground_aggressive_uses_topmost_and_alt_fallbacks(monkeypatch):
     assert any(attach is False for _a, _b, attach in fake_user32.attach_calls)
 
 
+def test_set_foreground_aggressive_skips_paused_target(monkeypatch):
+    _set_focus_constants(monkeypatch)
+    fake_user32 = _FakeUser32()
+
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+    monkeypatch.setattr(window_state_monitor, "user32", fake_user32)
+    monkeypatch.setattr(window_state_monitor, "kernel32", _FakeKernel32())
+    monkeypatch.setattr(window_state_monitor, "_get_pid_for_hwnd", lambda hwnd: 222 if hwnd == 20 else 0)
+    monkeypatch.setattr(window_state_monitor, "_is_tracked_suspended_pid", lambda pid: pid == 222)
+
+    monitor = window_state_monitor.WindowStateMonitor()
+
+    assert monitor._set_foreground_aggressive(20, attempt_number=1) is False
+    assert fake_user32.foreground_hwnd == 10
+    assert fake_user32.set_foreground_attempts == 0
+    assert fake_user32.window_pos_calls == []
+    assert fake_user32.keybd_event_calls == []
+
+
 def test_activate_target_window_retries_until_helper_succeeds(monkeypatch):
     monitor = window_state_monitor.WindowStateMonitor()
     monitor.target_hwnd = 20
@@ -130,3 +151,74 @@ def test_activate_target_window_retries_until_helper_succeeds(monkeypatch):
     assert asyncio.run(monitor.activate_target_window()) is True
     assert attempt_numbers == [(20, 1), (20, 2)]
     assert sleep_delays == [0.08]
+
+
+def test_send_enter_to_target_window_uses_activation_retry_helper(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+    monkeypatch.setattr(monitor, "_set_foreground_aggressive", lambda *_args, **_kwargs: False)
+
+    activation_calls = []
+
+    async def fake_activate():
+        activation_calls.append(True)
+        return True
+
+    keybd_calls = []
+
+    monkeypatch.setattr(monitor, "activate_target_window", fake_activate)
+    monkeypatch.setattr(monitor, "_send_enter_with_keybd_event", lambda: keybd_calls.append(True) or True)
+
+    assert asyncio.run(monitor.send_enter_to_target_window(activate_window=True)) is True
+    assert activation_calls == [True]
+    assert keybd_calls == [True]
+
+
+def test_send_enter_to_target_window_falls_back_to_sendinput(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+
+    async def fake_activate():
+        return True
+
+    keybd_calls = []
+    sendinput_calls = []
+
+    monkeypatch.setattr(monitor, "activate_target_window", fake_activate)
+    monkeypatch.setattr(monitor, "_send_enter_with_keybd_event", lambda: keybd_calls.append(True) or False)
+    monkeypatch.setattr(monitor, "_send_enter_with_sendinput", lambda: sendinput_calls.append(True) or True)
+
+    assert asyncio.run(monitor.send_enter_to_target_window(activate_window=True)) is True
+    assert keybd_calls == [True]
+    assert sendinput_calls == [True]
+
+
+def test_is_exclusive_fullscreen_accepts_tuple_window_rects(monkeypatch):
+    if not hasattr(window_state_monitor, "MONITORINFO"):
+        pytest.skip("Windows-only monitor APIs")
+
+    class _FakeUser32:
+        def GetWindowLongW(self, _hwnd, _index):
+            return window_state_monitor.WS_POPUP
+
+        def MonitorFromWindow(self, _hwnd, _flag):
+            return 500
+
+        def GetMonitorInfoW(self, _monitor, info_ptr):
+            info = info_ptr._obj
+            info.rcMonitor.left = 0
+            info.rcMonitor.top = 0
+            info.rcMonitor.right = 1920
+            info.rcMonitor.bottom = 1080
+            return 1
+
+    monkeypatch.setattr(window_state_monitor, "user32", _FakeUser32())
+    monkeypatch.setattr(window_state_monitor, "get_window_rect_physical", lambda _hwnd: (0, 0, 1920, 1080))
+
+    monitor = window_state_monitor.WindowStateMonitor()
+
+    assert monitor._is_exclusive_fullscreen(123) is True

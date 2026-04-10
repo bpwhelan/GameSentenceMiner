@@ -87,11 +87,14 @@ def send_notification(title, message, timeout):
     # Map title values to NotificationType enum keys expected by Electron
     title_to_key = {
         "Anki Card Updated": "AnkiCardUpdated",
+        "Anki Enhancement Failed": "AnkiEnhancementFailed",
         "Screenshot Saved": "ScreenshotSaved",
         "Audio Trimmed": "AudioGenerated",  # Python title wording differs; map to AudioGenerated
         "OBS Replay Invalid": "CheckOBS",
         "Error": "Error",
         "GSM Ready": "GSMReady",
+        "GSM Text Intake Paused": "GSMTextIntakePaused",
+        "GSM Text Intake Resumed": "GSMTextIntakeResumed",
     }
     type_key = title_to_key.get(title)
     if type_key and _send_ipc_notification(type_key, message):
@@ -168,11 +171,7 @@ def send_check_obs_notification(reason):
 
 
 def send_error_no_anki_update():
-    send_notification(
-        title="Error",
-        message="Anki Card not updated, Check Console for Reason!",
-        timeout=5,  # Notification disappears after 5 seconds
-    )
+    send_anki_enhancement_failed("Anki Card not updated, Check Console for Reason!")
 
 
 def send_error_notification(message):
@@ -180,6 +179,46 @@ def send_error_notification(message):
         title="Error",
         message=message,
         timeout=5,  # Notification disappears after 5 seconds
+    )
+
+
+def send_anki_enhancement_failed(message):
+    send_notification(
+        title="Anki Enhancement Failed",
+        message=message,
+        timeout=5,
+    )
+
+
+def announce_text_intake_state(paused: bool):
+    if not _ELECTRON_MODE:
+        return
+    try:
+        send_message("text_intake_state", {"paused": bool(paused)})
+    except Exception as e:
+        logger.debug(f"Failed to announce text intake state over IPC: {e}")
+
+
+def send_text_intake_paused_notification(relay_outputs_enabled: bool = True):
+    if relay_outputs_enabled:
+        message = (
+            "Clipboard and websocket text intake is paused. GSM will skip stats and overlay processing, "
+            "but texthooker and output websocket relays stay active."
+        )
+    else:
+        message = "Clipboard and websocket text intake is paused. Incoming text will be fully ignored until resumed."
+    send_notification(
+        title="GSM Text Intake Paused",
+        message=message,
+        timeout=5,
+    )
+
+
+def send_text_intake_resumed_notification():
+    send_notification(
+        title="GSM Text Intake Resumed",
+        message="Clipboard and websocket text intake resumed.",
+        timeout=5,
     )
 
 
@@ -191,3 +230,4 @@ if __name__ == "__main__":
     send_check_obs_notification("Replay buffer not active")
     send_error_no_anki_update()
     send_error_notification("Custom error message for testing")
+    send_anki_enhancement_failed("Audio upload failed.")

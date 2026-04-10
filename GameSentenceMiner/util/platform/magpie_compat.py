@@ -6,6 +6,16 @@ IS_WINDOWS = sys.platform == "win32"
 user32 = ctypes.windll.user32 if IS_WINDOWS else None
 
 MAGPIE_WINDOW_CLASS = "Window_Magpie_967EB565-6F73-4E94-AE53-00CC42592A22"
+MAGPIE_PROPERTY_NAMES = (
+    "magpieWindowTopEdgePosition",
+    "magpieWindowBottomEdgePosition",
+    "magpieWindowLeftEdgePosition",
+    "magpieWindowRightEdgePosition",
+    "sourceWindowLeftEdgePosition",
+    "sourceWindowTopEdgePosition",
+    "sourceWindowRightEdgePosition",
+    "sourceWindowBottomEdgePosition",
+)
 
 
 def get_magpie_window_handle():
@@ -21,6 +31,30 @@ def get_prop(hwnd, prop_name):
     if not IS_WINDOWS or user32 is None:
         return 0
     return user32.GetPropA(hwnd, prop_name.encode("utf-8"))
+
+
+def normalize_magpie_info(info):
+    """Coerces Magpie window metadata into a validated geometry payload."""
+    if not info:
+        return None
+
+    normalized = {}
+    for key in MAGPIE_PROPERTY_NAMES:
+        try:
+            normalized[key] = int(info[key])
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    if normalized["sourceWindowRightEdgePosition"] <= normalized["sourceWindowLeftEdgePosition"]:
+        return None
+    if normalized["sourceWindowBottomEdgePosition"] <= normalized["sourceWindowTopEdgePosition"]:
+        return None
+    if normalized["magpieWindowRightEdgePosition"] <= normalized["magpieWindowLeftEdgePosition"]:
+        return None
+    if normalized["magpieWindowBottomEdgePosition"] <= normalized["magpieWindowTopEdgePosition"]:
+        return None
+
+    return normalized
 
 
 def get_magpie_info():
@@ -39,7 +73,7 @@ def get_magpie_info():
         "sourceWindowRightEdgePosition": get_prop(hwnd, "Magpie.SrcRight"),
         "sourceWindowBottomEdgePosition": get_prop(hwnd, "Magpie.SrcBottom"),
     }
-    return info
+    return normalize_magpie_info(info)
 
 
 def mark_window(hwnd_int):
@@ -74,7 +108,7 @@ def main():
     output = None
 
     if command == "is_scaling":
-        output = {"is_scaling": bool(get_magpie_window_handle())}
+        output = {"is_scaling": bool(get_magpie_info())}
     elif command == "get_info":
         output = get_magpie_info()
     elif command == "mark_window":

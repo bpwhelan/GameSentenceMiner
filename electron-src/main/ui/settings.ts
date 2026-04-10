@@ -759,6 +759,7 @@ function normalizeSceneProfiles(value: unknown): SceneLaunchProfile[] {
                 ? profile.textHookMode
                 : "none",
             ocrMode: isOcrMode(profile.ocrMode) ? profile.ocrMode : "none",
+            launchOverlay: Boolean(profile.launchOverlay),
             agentScriptPath:
                 typeof profile.agentScriptPath === "string"
                     ? profile.agentScriptPath.trim()
@@ -1267,6 +1268,9 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
             ? payload.textHookMode
             : "none";
         const ocrMode = isOcrMode(payload.ocrMode) ? payload.ocrMode : "none";
+        const launchOverlay = typeof payload.launchOverlay === 'boolean'
+            ? payload.launchOverlay
+            : false;
         const agentScriptPath =
             typeof payload.agentScriptPath === 'string'
                 ? payload.agentScriptPath.trim()
@@ -1278,6 +1282,7 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
             sceneName: scene.name,
             textHookMode,
             ocrMode,
+            launchOverlay,
             agentScriptPath,
             launchDelaySeconds,
         });

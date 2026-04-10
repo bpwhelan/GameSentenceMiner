@@ -4,104 +4,93 @@
 // Global flag to prevent concurrent link operations
 let isLinkingInProgress = false;
 
-/**
- * Open jiten.moe search modal for a specific game
- * @param {string} gameId - Game ID to search for
- * @param {string} gameTitle - Game title to search for
- */
+let databaseGameImportWidget = null;
+
+function getDatabaseGameImportWidget() {
+    if (!databaseGameImportWidget) {
+        if (!window.GameImportWidget || typeof window.GameImportWidget.create !== 'function') {
+            throw new Error('Game import widget is not loaded. Please refresh the page.');
+        }
+
+        databaseGameImportWidget = window.GameImportWidget.create({
+            isBusy() {
+                return isLinkingInProgress;
+            },
+            setBusy(isBusy) {
+                isLinkingInProgress = isBusy;
+            },
+            buildCurrentPreviewHtml(context, helpers) {
+                return `
+                    <div class="preview-header">
+                        <h5>${helpers.escapeHtml(context.game.title_original || context.displayName || '')}</h5>
+                        <div class="preview-stats">
+                            ${helpers.formatNumber(context.game.line_count)} lines,
+                            ${helpers.formatNumber(context.game.mined_character_count)} mined characters
+                            ${context.game.jiten_character_count > 0 ? `<br>Game Total: ${helpers.formatNumber(context.game.jiten_character_count)} chars` : ''}
+                        </div>
+                    </div>
+                `;
+            },
+            async onSuccess(payload) {
+                const gameTitle = payload.context.game.title_original || payload.context.displayName || 'Game';
+                const linkedLineCount = payload.apiResult.lines_linked || payload.context.game.line_count || 0;
+
+                if (payload.isJitenSource) {
+                    console.log(`✅ Game linking to ${payload.sourceLabel} successful: ${linkedLineCount} lines linked`);
+                    showDatabaseSuccessPopup(`Successfully linked "${gameTitle}" to ${payload.sourceLabel}! ${linkedLineCount} lines linked.`);
+                } else if (payload.source === 'igdb') {
+                    console.log(`✅ Game metadata updated from ${payload.sourceLabel}`);
+                    showDatabaseSuccessPopup(
+                        `Successfully updated "${gameTitle}" with ${payload.sourceLabel} metadata! Note: IGDB does not include character data.`
+                    );
+                } else {
+                    console.log(`✅ Game metadata updated from ${payload.sourceLabel}`);
+                    showDatabaseSuccessPopup(
+                        `Successfully updated "${gameTitle}" with ${payload.sourceLabel} metadata! Note: Character counts and difficulty are only available from Jiten.`
+                    );
+                }
+
+                await refreshAfterLinking();
+            },
+            onError(error) {
+                console.error('Error linking game:', error);
+            },
+        });
+    }
+
+    return databaseGameImportWidget;
+}
+
 function openJitenSearch(gameId, gameTitle) {
-    // Validate gameId
     if (!gameId || gameId === 'undefined' || gameId === 'null') {
-        showDatabaseErrorPopup(`Cannot link game: Invalid game ID. Please refresh the page and try again.`);
+        showDatabaseErrorPopup('Cannot link game: Invalid game ID. Please refresh the page and try again.');
         console.error(`Invalid gameId provided to openJitenSearch: ${gameId}`);
         return;
     }
-    
+
     currentGameForSearch = currentGames.find(game => game.id === gameId);
     if (!currentGameForSearch) {
         showDatabaseErrorPopup(`Cannot find game with ID: ${gameId}. Please refresh the page and try again.`);
         console.error(`Game not found in currentGames: ${gameId}`);
         return;
     }
-    
-    // Additional validation
-    if (!currentGameForSearch.id) {
-        showDatabaseErrorPopup(`Game data is incomplete (missing ID). Please refresh the page and try again.`);
-        console.error(`Game found but has no ID:`, currentGameForSearch);
-        return;
-    }
-    
-    document.getElementById('searchingForGame').textContent = gameTitle;
-    document.getElementById('jitenSearchInput').value = gameTitle;
-    document.getElementById('jitenSearchResults').style.display = 'none';
-    document.getElementById('jitenSearchError').style.display = 'none';
-    
-    openModal('jitenSearchModal');
-}
 
-/**
- * Search databases using unified search API
- * Searches across Jiten.moe, VNDB, and AniList based on enabled sources
- */
-async function searchJitenMoe() {
-    const searchInput = document.getElementById('jitenSearchInput');
-    const resultsDiv = document.getElementById('jitenSearchResults');
-    const resultsListDiv = document.getElementById('jitenResultsList');
-    const errorDiv = document.getElementById('jitenSearchError');
-    const loadingDiv = document.getElementById('jitenSearchLoading');
-    
-    const searchTerm = searchInput.value.trim();
-    if (!searchTerm) {
-        errorDiv.textContent = 'Please enter a search term';
-        errorDiv.style.display = 'block';
+    if (!currentGameForSearch.id) {
+        showDatabaseErrorPopup('Game data is incomplete (missing ID). Please refresh the page and try again.');
+        console.error('Game found but has no ID:', currentGameForSearch);
         return;
     }
-    
-    // Let the browser URL-encode the search term naturally (keeps hyphens, apostrophes, etc.)
-    // The requests library will handle URL encoding on the backend
-    
-    errorDiv.style.display = 'none';
-    resultsDiv.style.display = 'none';
-    loadingDiv.style.display = 'flex';
-    
+
     try {
-        // Use UnifiedSearch module if available
-        if (typeof UnifiedSearch !== 'undefined') {
-            const searchResult = await UnifiedSearch.search(searchTerm);
-            
-            if (searchResult.error) {
-                errorDiv.textContent = searchResult.error;
-                errorDiv.style.display = 'block';
-            } else if (searchResult.results && searchResult.results.length > 0) {
-                // Render unified results
-                renderUnifiedSearchResults(searchResult.results, resultsListDiv);
-                resultsDiv.style.display = 'block';
-            } else {
-                errorDiv.textContent = 'No results found. Try a different search term or enable more sources.';
-                errorDiv.style.display = 'block';
-            }
-        } else {
-            // Fallback to legacy jiten-only search
-            const response = await fetch(`/api/jiten-search?title=${encodeURIComponent(searchTerm)}`);
-            const data = await response.json();
-            
-            if (response.ok) {
-                if (data.results && data.results.length > 0) {
-                    renderJitenResults(data.results);
-                    resultsDiv.style.display = 'block';
-                } else {
-                    errorDiv.textContent = 'No results found. Try a different search term.';
-                    errorDiv.style.display = 'block';
-                }
-            } else {
-                errorDiv.textContent = data.error || 'Search failed';
-                errorDiv.style.display = 'block';
-            }
-        }
+        getDatabaseGameImportWidget().open({
+            gameId: currentGameForSearch.id,
+            game: currentGameForSearch,
+            displayName: gameTitle || currentGameForSearch.title_original || '',
+            searchTerm: gameTitle || currentGameForSearch.title_original || '',
+        });
     } catch (error) {
-        console.error('Error searching databases:', error);
-        errorDiv.textContent = 'Search failed. Please try again.';
-        errorDiv.style.display = 'block';
+        showDatabaseErrorPopup(error.message);
+        console.error('Failed to open shared game import widget:', error);
     } finally {
         loadingDiv.style.display = 'none';
     }
@@ -989,7 +978,7 @@ async function saveGameEdits() {
 
 /**
  * Repull data from the associated data source for a game
- * Supports Jiten.moe, VNDB, and AniList - will automatically detect the source
+ * Supports Jiten.moe, VNDB, AniList, and IGDB - will automatically detect the source
  * @param {string} gameId - Game ID to repull data for
  * @param {string} gameName - Game name for display
  */
@@ -997,7 +986,7 @@ async function repullJitenData(gameId, gameName) {
     console.log(`🔄 Starting repull operation for game: ${gameName} (ID: ${gameId})`);
     
     showDatabaseConfirmPopup(
-        `Repull data for "${gameName}"? This will update all non-manually edited fields with fresh data from the linked source (Jiten, VNDB, or AniList).`,
+        `Repull data for "${gameName}"? This will update all non-manually edited fields with fresh data from the linked source (Jiten, VNDB, AniList, or IGDB).`,
         async () => {
             console.log(`✅ User confirmed repull for ${gameName}`);
             
@@ -1089,25 +1078,12 @@ async function repullJitenData(gameId, gameName) {
  * Initialize jiten integration event handlers
  */
 function initializeJitenIntegration() {
-    const jitenSearchBtn = document.getElementById('jitenSearchBtn');
-    if (jitenSearchBtn) {
-        jitenSearchBtn.addEventListener('click', searchJitenMoe);
-    }
-
-    // Add Enter key support for jiten search input
-    const jitenSearchInput = document.getElementById('jitenSearchInput');
-    if (jitenSearchInput) {
-        jitenSearchInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                searchJitenMoe();
-            }
-        });
-    }
-
-    const confirmLinkBtn = document.getElementById('confirmLinkBtn');
-    if (confirmLinkBtn) {
-        confirmLinkBtn.addEventListener('click', confirmLinkGame);
+    if (document.getElementById('linkSearchModal')) {
+        try {
+            getDatabaseGameImportWidget();
+        } catch (error) {
+            console.error('Failed to initialize shared game import widget:', error);
+        }
     }
 
     // Handle image upload preview - convert to PNG for preview

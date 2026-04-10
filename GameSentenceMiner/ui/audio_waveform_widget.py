@@ -2,7 +2,10 @@ import numpy as np
 import soundfile as sf
 from PyQt6.QtCore import Qt, pyqtSignal, QPointF
 from PyQt6.QtGui import QPainter, QColor, QPen, QPolygonF
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtWidgets import QLabel, QPushButton, QWidget
+
+AUDIO_EXPAND_SECONDS = 0.25
+EXPAND_BUTTON_SECONDS_TEXT = f"{AUDIO_EXPAND_SECONDS:g}s"
 
 
 class AudioWaveformWidget(QWidget):
@@ -12,6 +15,11 @@ class AudioWaveformWidget(QWidget):
 
     range_changed = pyqtSignal(float, float)  # start_time, end_time
     handle_moved = pyqtSignal(str, float, float)  # which_handle ('start' or 'end'), start_time, end_time
+    expand_start_requested = pyqtSignal()
+    expand_end_requested = pyqtSignal()
+
+    OVERLAY_MARGIN = 4
+    OVERLAY_SPACING = 4
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -33,6 +41,7 @@ class AudioWaveformWidget(QWidget):
 
         # Visual caching
         self._waveform_polygon = None
+        self._expand_controls_visible = False
 
         # Interaction state
         self._dragging_start = False
@@ -50,6 +59,75 @@ class AudioWaveformWidget(QWidget):
         self.color_handle_hover = QColor("#003d80")
         self.color_dim = QColor(0, 0, 0, 50)
         self.color_cursor = QColor("red")
+        self.color_border = QColor("#4a4f57")
+
+        self.expand_start_button = QPushButton(f"◀ +{EXPAND_BUTTON_SECONDS_TEXT}", self)
+        self.expand_start_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.expand_start_button.clicked.connect(self.expand_start_requested.emit)
+
+        self.expand_end_button = QPushButton(f"+{EXPAND_BUTTON_SECONDS_TEXT} ▶", self)
+        self.expand_end_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.expand_end_button.clicked.connect(self.expand_end_requested.emit)
+
+        self.range_chip = QLabel(self)
+        self.range_chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        button_base_style = """
+            QPushButton {
+                color: #eef6ff;
+                background-color: rgba(15, 20, 28, 235);
+                border: 1px solid rgba(122, 168, 255, 120);
+                padding: 1px 7px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background-color: rgba(33, 72, 116, 240);
+                border-color: rgba(193, 222, 255, 190);
+            }
+            QPushButton:pressed {
+                background-color: rgba(24, 58, 93, 245);
+            }
+            QPushButton:disabled {
+                color: rgba(238, 246, 255, 110);
+                background-color: rgba(15, 20, 28, 150);
+                border-color: rgba(122, 168, 255, 55);
+            }
+        """
+        self.expand_start_button.setStyleSheet(
+            button_base_style
+            + """
+            QPushButton {
+                border-top-left-radius: 9px;
+                border-top-right-radius: 0px;
+                border-bottom-left-radius: 0px;
+                border-bottom-right-radius: 9px;
+            }
+            """
+        )
+        self.expand_end_button.setStyleSheet(
+            button_base_style
+            + """
+            QPushButton {
+                border-top-left-radius: 0px;
+                border-top-right-radius: 9px;
+                border-bottom-left-radius: 9px;
+                border-bottom-right-radius: 0px;
+            }
+            """
+        )
+        self.range_chip.setStyleSheet(
+            """
+            QLabel {
+                color: #dcecff;
+                background-color: rgba(10, 16, 24, 215);
+                border: 1px solid rgba(122, 168, 255, 70);
+                border-radius: 7px;
+                padding: 1px 8px;
+                font-weight: 600;
+            }
+            """
+        )
+        self.set_expand_controls(False)
 
     def set_colors(self, colors):
         """
@@ -70,6 +148,8 @@ class AudioWaveformWidget(QWidget):
             self.color_dim = QColor(colors["dim"])
         if "cursor" in colors:
             self.color_cursor = QColor(colors["cursor"])
+        if "border" in colors:
+            self.color_border = QColor(colors["border"])
         self.update()
 
     def set_dark_mode(self):
@@ -83,8 +163,63 @@ class AudioWaveformWidget(QWidget):
                 "handle_hover": "#5b9dd9",
                 "dim": QColor(0, 0, 0, 100),
                 "cursor": "red",
+                "border": "#3d4652",
             }
         )
+
+    def set_expand_controls(self, visible, *, can_expand_start=False, can_expand_end=False, range_text=""):
+        self._expand_controls_visible = visible
+        self.expand_start_button.setVisible(visible)
+        self.expand_end_button.setVisible(visible)
+        self.range_chip.setVisible(visible and bool(range_text))
+        self.expand_start_button.setEnabled(can_expand_start)
+        self.expand_end_button.setEnabled(can_expand_end)
+        self.range_chip.setText(range_text)
+        self._position_overlay_controls()
+
+    def _position_overlay_controls(self):
+        if not self._expand_controls_visible:
+            return
+
+        margin = self.OVERLAY_MARGIN
+        spacing = self.OVERLAY_SPACING
+        rail_rect = self._overlay_rail_rect()
+        y = rail_rect.top()
+
+        self.expand_start_button.adjustSize()
+        self.expand_end_button.adjustSize()
+        self.range_chip.adjustSize()
+
+        left_x = rail_rect.left()
+        right_x = max(rail_rect.left(), rail_rect.right() - self.expand_end_button.width() + 1)
+        self.expand_start_button.move(left_x, y)
+        self.expand_end_button.move(right_x, y)
+
+        chip_x = max(rail_rect.left(), (self.width() - self.range_chip.width()) // 2)
+        min_chip_x = self.expand_start_button.x() + self.expand_start_button.width() + spacing
+        max_chip_x = self.expand_end_button.x() - self.range_chip.width() - spacing
+        chip_x = max(chip_x, min_chip_x)
+        chip_x = min(chip_x, max_chip_x) if max_chip_x >= min_chip_x else max(rail_rect.left(), chip_x)
+        self.range_chip.move(chip_x, y)
+
+    def _overlay_rail_height(self):
+        if not self._expand_controls_visible:
+            return 0
+
+        button_height = max(self.expand_start_button.sizeHint().height(), self.expand_end_button.sizeHint().height())
+        chip_height = self.range_chip.sizeHint().height()
+        return max(button_height, chip_height) + self.OVERLAY_MARGIN * 2
+
+    def _overlay_rail_rect(self):
+        margin = self.OVERLAY_MARGIN
+        rail_height = self._overlay_rail_height()
+        return self.rect().adjusted(margin, margin, -margin, -(self.height() - rail_height))
+
+    def _content_rect(self):
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        if self._expand_controls_visible:
+            rect.adjust(0, self._overlay_rail_height(), 0, 0)
+        return rect
 
     def load_audio(self, file_path):
         """
@@ -111,6 +246,7 @@ class AudioWaveformWidget(QWidget):
             self.playback_position = -1.0
 
             self._generate_waveform_polygon()
+            self._position_overlay_controls()
             self.update()
 
         except Exception as e:
@@ -187,6 +323,7 @@ class AudioWaveformWidget(QWidget):
 
     def resizeEvent(self, event):
         self._generate_waveform_polygon()
+        self._position_overlay_controls()
         super().resizeEvent(event)
 
     def paintEvent(self, event):
@@ -196,12 +333,23 @@ class AudioWaveformWidget(QWidget):
         width = self.width()
         height = self.height()
 
-        # Background
-        painter.fillRect(0, 0, width, height, self.color_background)
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        painter.setPen(QPen(self.color_border, 1))
+        painter.setBrush(self.color_background)
+        painter.drawRoundedRect(rect, 10, 10)
+
+        content_rect = self._content_rect()
+        content_width = max(1, content_rect.width())
+        content_height = max(1, content_rect.height())
+
+        if self._expand_controls_visible:
+            divider_y = content_rect.top() - max(1, self.OVERLAY_MARGIN // 2)
+            painter.setPen(QPen(QColor(255, 255, 255, 24), 1))
+            painter.drawLine(content_rect.left() + 6, divider_y, content_rect.right() - 6, divider_y)
 
         if self.audio_data is None:
             painter.setPen(QColor("black") if self.color_background.lightness() > 128 else QColor("white"))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No Audio Loaded")
+            painter.drawText(content_rect, Qt.AlignmentFlag.AlignCenter, "No Audio Loaded")
             return
 
         # Draw Waveform
@@ -209,7 +357,7 @@ class AudioWaveformWidget(QWidget):
             # Scale polygon to height
             transform_poly = QPolygonF()
             for p in self._waveform_polygon:
-                transform_poly.append(QPointF(p.x(), p.y() * height))
+                transform_poly.append(QPointF(p.x(), content_rect.top() + p.y() * content_height))
 
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(self.color_waveform_unselected)  # Gray for unselected
@@ -224,7 +372,7 @@ class AudioWaveformWidget(QWidget):
 
             # Clip region for selection
             painter.save()
-            painter.setClipRect(int(x_start), 0, int(x_end - x_start), height)
+            painter.setClipRect(int(x_start), content_rect.top(), int(x_end - x_start), content_height)
             painter.setBrush(self.color_waveform_selected)  # Blue for selected
             painter.drawPolygon(transform_poly)
             painter.restore()
@@ -235,33 +383,33 @@ class AudioWaveformWidget(QWidget):
             painter.setBrush(
                 self.color_handle_hover if self._hover_start or self._dragging_start else self.color_handle
             )
-            painter.drawRect(int(x_start), 0, 2, height)  # Vertical line
+            painter.drawRect(int(x_start), content_rect.top(), 2, content_height)  # Vertical line
             # Handle grip
-            painter.drawRect(int(x_start) - self.handle_width // 2, 0, self.handle_width, 10)
+            painter.drawRect(int(x_start) - self.handle_width // 2, content_rect.top(), self.handle_width, 10)
             painter.drawRect(
                 int(x_start) - self.handle_width // 2,
-                height - 10,
+                content_rect.bottom() - 9,
                 self.handle_width,
                 10,
             )
 
             # End Handle
             painter.setBrush(self.color_handle_hover if self._hover_end or self._dragging_end else self.color_handle)
-            painter.drawRect(int(x_end), 0, 2, height)  # Vertical line
-            painter.drawRect(int(x_end) - self.handle_width // 2, 0, self.handle_width, 10)
-            painter.drawRect(int(x_end) - self.handle_width // 2, height - 10, self.handle_width, 10)
+            painter.drawRect(int(x_end), content_rect.top(), 2, content_height)  # Vertical line
+            painter.drawRect(int(x_end) - self.handle_width // 2, content_rect.top(), self.handle_width, 10)
+            painter.drawRect(int(x_end) - self.handle_width // 2, content_rect.bottom() - 9, self.handle_width, 10)
 
             # Dim out unselected areas
             painter.setBrush(self.color_dim)
-            painter.drawRect(0, 0, int(x_start), height)
-            painter.drawRect(int(x_end), 0, width - int(x_end), height)
+            painter.drawRect(0, content_rect.top(), int(x_start), content_height)
+            painter.drawRect(int(x_end), content_rect.top(), width - int(x_end), content_height)
 
             # Draw Playback Cursor
             if self.playback_position >= 0:
                 x_play = (self.playback_position / self.duration) * width
                 if x_start <= x_play <= x_end:
                     painter.setPen(QPen(self.color_cursor, 2))
-                    painter.drawLine(int(x_play), 0, int(x_play), height)
+                    painter.drawLine(int(x_play), content_rect.top(), int(x_play), content_rect.bottom())
 
     def mousePressEvent(self, event):
         if self.audio_data is None:

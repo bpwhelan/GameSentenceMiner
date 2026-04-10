@@ -155,6 +155,7 @@ def _serialise_game_metadata(game) -> dict | None:
         return None
     return {
         "game_id": game.id or "",
+        "deck_id": getattr(game, "deck_id", None),
         "title_original": game.title_original or "",
         "title_romaji": game.title_romaji or "",
         "title_english": game.title_english or "",
@@ -166,8 +167,14 @@ def _serialise_game_metadata(game) -> dict | None:
         "difficulty_label": get_jiten_difficulty_label(game.difficulty),
         "links": game.links or [],
         "completed": game.completed or False,
+        "release_date": getattr(game, "release_date", "") or "",
+        "manual_overrides": getattr(game, "manual_overrides", []) or [],
+        "obs_scene_name": getattr(game, "obs_scene_name", "") or "",
         "genres": game.genres or [],
         "tags": game.tags or [],
+        "character_summary": getattr(game, "character_summary", "") or "",
+        "vndb_id": getattr(game, "vndb_id", "") or "",
+        "anilist_id": getattr(game, "anilist_id", "") or "",
     }
 
 
@@ -195,6 +202,7 @@ def _build_game_stats_response_payload(
     return {
         "game": {
             "id": game.id,
+            "deck_id": getattr(game, "deck_id", None),
             "title_original": game.title_original or "",
             "title_romaji": game.title_romaji or "",
             "title_english": game.title_english or "",
@@ -207,6 +215,12 @@ def _build_game_stats_response_payload(
             "links": game.links or [],
             "completed": game.completed or False,
             "character_count": game.character_count or 0,
+            "difficulty": getattr(game, "difficulty", None),
+            "release_date": getattr(game, "release_date", "") or "",
+            "manual_overrides": getattr(game, "manual_overrides", []) or [],
+            "character_summary": getattr(game, "character_summary", "") or "",
+            "vndb_id": getattr(game, "vndb_id", "") or "",
+            "anilist_id": getattr(game, "anilist_id", "") or "",
         },
         "stats": {
             "total_characters": total_characters,

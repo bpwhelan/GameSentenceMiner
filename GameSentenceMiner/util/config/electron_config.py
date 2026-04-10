@@ -67,12 +67,32 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "wholeWindowOcrHotkey": "Ctrl+Shift+W",
         "globalPauseHotkey": "Ctrl+Shift+P",
         "sendToClipboard": False,
+        "send_to_clipboard_auto": None,
+        "send_to_clipboard_menu": None,
+        "send_to_clipboard_area_select": None,
         "keep_newline": False,
         "keep_newline_auto": None,
         "keep_newline_menu": None,
         "keep_newline_area_select": None,
         "obs_capture_preprocess": "none",
         "base_scale": 0.75,
+        "duplicate_similarity_threshold": 80,
+        "change_detection_threshold": 20,
+        "evolving_prefix_similarity_threshold": 85,
+        "truncation_compare_threshold_min": 70,
+        "truncation_strict_threshold_min": 75,
+        "truncation_similarity_margin": 15,
+        "truncation_min_length": 8,
+        "truncation_min_ratio_percent": 25,
+        "subset_chunk_min_length": 5,
+        "matching_block_short_chunk_char_limit": 4,
+        "matching_block_small_chunk_min_size": 1,
+        "matching_block_default_min_size": 2,
+        "subset_coverage_floor_percent": 80,
+        "subset_coverage_ceiling_percent": 95,
+        "subset_coverage_threshold_offset": 5,
+        "subset_longest_block_min_chars": 2,
+        "subset_longest_block_divisor": 4,
         "advancedMode": False,
         "scanRate_basic": 0.5,
         "ocr1_advanced": "oneocr",
@@ -267,6 +287,25 @@ def _get_ocr_value(key: str, default: Any = None) -> Any:
     return _get_ocr_config().get(key, default)
 
 
+def _get_ocr_int_value(
+    key: str,
+    default: int,
+    *,
+    min_value: int | None = None,
+    max_value: int | None = None,
+) -> int:
+    try:
+        value = int(_get_ocr_value(key, default))
+    except (TypeError, ValueError):
+        value = default
+
+    if min_value is not None:
+        value = max(min_value, value)
+    if max_value is not None:
+        value = min(max_value, value)
+    return value
+
+
 def _is_advanced_mode() -> bool:
     return bool(_get_ocr_value("advancedMode", False))
 
@@ -278,6 +317,15 @@ def _get_keep_newline_key_for_source(source: str | None = None) -> str:
     if normalized == "screen_cropper":
         return "keep_newline_area_select"
     return "keep_newline_auto"
+
+
+def _get_send_to_clipboard_key_for_source(source: str | None = None) -> str:
+    normalized = str(source or "").strip().lower()
+    if normalized == "secondary":
+        return "send_to_clipboard_menu"
+    if normalized == "screen_cropper":
+        return "send_to_clipboard_area_select"
+    return "send_to_clipboard_auto"
 
 
 def _resolve_ocr_engine(engine: Any) -> str:
@@ -395,8 +443,15 @@ def get_ocr_global_pause_hotkey() -> str:
     return _get_ocr_hotkey_value("globalPauseHotkey", "Ctrl+Shift+P")
 
 
-def get_ocr_send_to_clipboard() -> bool:
-    return bool(_get_ocr_value("sendToClipboard", False))
+def get_ocr_send_to_clipboard(source: str | None = None) -> bool:
+    explicit_value = _get_ocr_value(_get_send_to_clipboard_key_for_source(source), None)
+    if isinstance(explicit_value, bool):
+        return explicit_value
+
+    if _get_ocr_value("sendToClipboard", False) is True:
+        return True
+
+    return _get_send_to_clipboard_key_for_source(source) == "send_to_clipboard_area_select"
 
 
 def get_ocr_scan_rate() -> float:
@@ -440,6 +495,74 @@ def get_ocr_keep_newline(source: str | None = None) -> bool:
     if not _is_advanced_mode():
         return True
     return bool(_get_ocr_value("keep_newline", False))
+
+
+def get_ocr_duplicate_similarity_threshold() -> int:
+    return _get_ocr_int_value("duplicate_similarity_threshold", 80, min_value=0, max_value=100)
+
+
+def get_ocr_change_detection_threshold() -> int:
+    return _get_ocr_int_value("change_detection_threshold", 20, min_value=0, max_value=100)
+
+
+def get_ocr_evolving_prefix_similarity_threshold() -> int:
+    return _get_ocr_int_value("evolving_prefix_similarity_threshold", 85, min_value=0, max_value=100)
+
+
+def get_ocr_truncation_compare_threshold_min() -> int:
+    return _get_ocr_int_value("truncation_compare_threshold_min", 70, min_value=0, max_value=100)
+
+
+def get_ocr_truncation_strict_threshold_min() -> int:
+    return _get_ocr_int_value("truncation_strict_threshold_min", 75, min_value=0, max_value=100)
+
+
+def get_ocr_truncation_similarity_margin() -> int:
+    return _get_ocr_int_value("truncation_similarity_margin", 15, min_value=0, max_value=100)
+
+
+def get_ocr_truncation_min_length() -> int:
+    return _get_ocr_int_value("truncation_min_length", 8, min_value=1, max_value=1000)
+
+
+def get_ocr_truncation_min_ratio_percent() -> int:
+    return _get_ocr_int_value("truncation_min_ratio_percent", 25, min_value=0, max_value=100)
+
+
+def get_ocr_subset_chunk_min_length() -> int:
+    return _get_ocr_int_value("subset_chunk_min_length", 5, min_value=1, max_value=1000)
+
+
+def get_ocr_matching_block_short_chunk_char_limit() -> int:
+    return _get_ocr_int_value("matching_block_short_chunk_char_limit", 4, min_value=1, max_value=1000)
+
+
+def get_ocr_matching_block_small_chunk_min_size() -> int:
+    return _get_ocr_int_value("matching_block_small_chunk_min_size", 1, min_value=1, max_value=1000)
+
+
+def get_ocr_matching_block_default_min_size() -> int:
+    return _get_ocr_int_value("matching_block_default_min_size", 2, min_value=1, max_value=1000)
+
+
+def get_ocr_subset_coverage_floor_percent() -> int:
+    return _get_ocr_int_value("subset_coverage_floor_percent", 80, min_value=0, max_value=100)
+
+
+def get_ocr_subset_coverage_ceiling_percent() -> int:
+    return _get_ocr_int_value("subset_coverage_ceiling_percent", 95, min_value=0, max_value=100)
+
+
+def get_ocr_subset_coverage_threshold_offset() -> int:
+    return _get_ocr_int_value("subset_coverage_threshold_offset", 5, min_value=0, max_value=100)
+
+
+def get_ocr_subset_longest_block_min_chars() -> int:
+    return _get_ocr_int_value("subset_longest_block_min_chars", 2, min_value=1, max_value=1000)
+
+
+def get_ocr_subset_longest_block_divisor() -> int:
+    return _get_ocr_int_value("subset_longest_block_divisor", 4, min_value=1, max_value=1000)
 
 
 def get_ocr_obs_capture_preprocess_mode() -> str:

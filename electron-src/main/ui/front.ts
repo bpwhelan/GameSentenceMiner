@@ -19,6 +19,17 @@ import { sendOpenTexthooker } from '../main.js';
 
 const OCR_CONFIG_DIR = path.join(BASE_DIR, 'ocr_config');
 let overlayProcess: any = null;
+export type OverlayLaunchSource = 'manual' | 'startup' | 'auto-launcher';
+let overlayLaunchSource: OverlayLaunchSource | null = null;
+
+export interface OverlayRuntimeState {
+    isRunning: boolean;
+    source: OverlayLaunchSource | null;
+}
+
+interface StopOverlayOptions {
+    onlyIfSource?: OverlayLaunchSource;
+}
 
 export function registerFrontPageIPC() {
     // Save the front page state
@@ -100,29 +111,127 @@ export function registerFrontPageIPC() {
 }
 
 export async function runOverlay() {
+    return runOverlayWithSource('manual');
+}
+
+export function getOverlayRuntimeState(): OverlayRuntimeState {
+    return {
+        isRunning: Boolean(overlayProcess && overlayProcess.exitCode === null),
+        source: overlayLaunchSource,
+    };
+}
+
+export function stopOverlay(options: StopOverlayOptions = {}): boolean {
+    if (!overlayProcess || overlayProcess.exitCode !== null) {
+        overlayProcess = null;
+        overlayLaunchSource = null;
+        return false;
+    }
+
+    if (options.onlyIfSource && overlayLaunchSource !== options.onlyIfSource) {
+        return false;
+    }
+
+    try {
+        overlayProcess.kill();
+        return true;
+    } catch (error) {
+        console.error('Failed to stop overlay process:', error);
+        return false;
+    }
+}
+
+function registerOverlayProcess(processHandle: any, source: OverlayLaunchSource): void {
+    overlayProcess = processHandle;
+    overlayLaunchSource = source;
+    overlayProcess.once('exit', () => {
+        overlayProcess = null;
+        overlayLaunchSource = null;
+    });
+    overlayProcess.once('error', (error: Error) => {
+        console.error('Overlay process error:', error);
+        overlayProcess = null;
+        overlayLaunchSource = null;
+    });
+}
+
+function spawnOverlayFromSource(overlayDir: string) {
+    if (process.platform === 'win32') {
+        return {
+            command: 'cmd.exe',
+            args: ['/d', '/s', '/c', 'npm run start'],
+            options: {
+                cwd: overlayDir,
+                detached: false,
+                stdio: 'ignore' as const,
+            },
+        };
+    }
+
+    return {
+        command: 'npm',
+        args: ['run', 'start'],
+        options: {
+            cwd: overlayDir,
+            detached: false,
+            stdio: 'ignore' as const,
+        },
+    };
+}
+
+export async function runOverlayWithSource(
+    source: OverlayLaunchSource = 'manual'
+): Promise<boolean> {
     if (overlayProcess && overlayProcess.exitCode === null) {
         console.log('Overlay is already running.');
-        return;
+        return true;
     }
-    // if (isDev) {
-    //     const { spawn } = await import('child_process');
-    //     console.log(path.join(getResourcesDir(), 'GSM_Overlay'))
-    //     const overlayDir = path.join(getResourcesDir(), 'GSM_Overlay');
-    //     if (!fs.existsSync(overlayDir)) {
-    //         console.error('Overlay directory does not exist:', overlayDir);
-    //         return;
-    //     }
-    //     overlayProcess = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'start'], { detached: false, stdio: ['ignore', 'ignore', 'ignore'], cwd: overlayDir });
-    // } else {
+
+    const { spawn } = await import('child_process');
+
+    if (isDev) {
+        const overlayDir = path.join(getResourcesDir(), 'GSM_Overlay');
+        const overlayPackagePath = path.join(overlayDir, 'package.json');
+
+        if (!fs.existsSync(overlayPackagePath)) {
+            console.error('Overlay package.json not found at:', overlayPackagePath);
+            overlayProcess = null;
+            overlayLaunchSource = null;
+            return false;
+        }
+
+        const sourceLaunch = spawnOverlayFromSource(overlayDir);
+        let processHandle: any;
+        try {
+            processHandle = spawn(
+                sourceLaunch.command,
+                sourceLaunch.args,
+                sourceLaunch.options
+            );
+        } catch (error) {
+            console.error('Failed to launch overlay from source:', error);
+            overlayProcess = null;
+            overlayLaunchSource = null;
+            return false;
+        }
+
+        registerOverlayProcess(processHandle, source);
+        console.log('Overlay launched successfully from source.');
+        return true;
+    }
+
     const overlayPath = path.join(getOverlayPath(), getOverlayExecName());
     if (fs.existsSync(overlayPath)) {
-        const { spawn } = await import('child_process');
-        overlayProcess = spawn(overlayPath, [], { detached: false, stdio: 'ignore' });
+        const processHandle = spawn(overlayPath, [], { detached: false, stdio: 'ignore' });
+        registerOverlayProcess(processHandle, source);
         console.log('Overlay launched successfully.');
+        return true;
     } else {
         console.error('Overlay executable not found at:', overlayPath);
+        overlayProcess = null;
+        overlayLaunchSource = null;
+        return false;
     }
-    // }
 }
 
 async function getAllOCRConfigs(): Promise<OCRGame[]> {

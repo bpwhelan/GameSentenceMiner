@@ -13,8 +13,12 @@ from rapidfuzz import fuzz
 from typing import Dict, Any, List, Tuple, Optional
 
 # Updated imports to include window info helpers
-from GameSentenceMiner.obs import get_screenshot_PIL
-from GameSentenceMiner.ocr.gsm_ocr_config import get_ocr_config, get_overlay_area_config
+from GameSentenceMiner.obs import get_current_game, get_current_scene, get_screenshot_PIL
+from GameSentenceMiner.ocr.gsm_ocr_config import (
+    get_ocr_config,
+    get_overlay_area_config,
+    get_overlay_minimum_character_size as get_scene_overlay_minimum_character_size,
+)
 
 # Local application imports
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness
@@ -58,9 +62,15 @@ LOG_RESULTS_TO_JSON = False  # Set to True to log OCR results to JSON files for 
 
 # Conditionally import OCR engines
 try:
-    from GameSentenceMiner.owocr.owocr.ocr import OneOCR
+    from GameSentenceMiner.owocr.owocr.ocr import (
+        OneOCR,
+        normalize_japanese_ocr_dashes,
+        normalize_japanese_ocr_text_and_segments,
+    )
 except ImportError:
     OneOCR = None
+    normalize_japanese_ocr_dashes = lambda text: text
+    normalize_japanese_ocr_text_and_segments = lambda text, segments=None: (text, segments)
 
 try:
     from GameSentenceMiner.owocr.owocr.ocr import (
@@ -220,6 +230,7 @@ class OverlayProcessor:
         self._last_overlay_capture_used_window_handle: bool = False
         self._last_overlay_capture_offset_x: int = 0
         self._last_overlay_capture_offset_y: int = 0
+        self._last_overlay_capture_source: str = "unknown"
 
     def _build_scaled_ocr_cache_key(self, ocr_config, width: int, height: int) -> Optional[Tuple[Any, ...]]:
         if not ocr_config:
@@ -378,7 +389,9 @@ class OverlayProcessor:
             if overlay_area_config and overlay_area_config.rectangles:
                 return overlay_area_config
 
-        if bool(getattr(overlay_settings, "use_ocr_area_config", False)):
+        # Dedicated overlay areas take priority. Only fall back to OCR area config
+        # when that legacy overlay option is explicitly enabled.
+        if bool(getattr(overlay_settings, "use_ocr_area_config_v2", False)):
             overlay_config = self._get_scaled_overlay_ocr_config(width, height)
             overlay_config = self._build_overlay_area_config(overlay_config)
             if overlay_config and overlay_config.rectangles:
@@ -456,7 +469,7 @@ class OverlayProcessor:
 
     def _is_use_ocr_result_enabled(self) -> bool:
         try:
-            return bool(getattr(get_overlay_config(), "use_ocr_result", True))
+            return get_overlay_config().use_ocr_result_v2
         except Exception:
             return True
 
@@ -467,6 +480,120 @@ class OverlayProcessor:
             return False
 
         return self.window_monitor is not None and bool(self.window_monitor.target_hwnd)
+
+    def _get_overlay_minimum_character_size(self) -> int:
+        try:
+            default_value = int(get_overlay_config().minimum_character_size or 0)
+        except (TypeError, ValueError, AttributeError):
+            default_value = 0
+        return get_scene_overlay_minimum_character_size(default=default_value)
+
+    @staticmethod
+    def _get_bounding_rect_size(bounding_rect: Any) -> Tuple[float, float]:
+        if not isinstance(bounding_rect, dict):
+            return 0.0, 0.0
+
+        x_values = []
+        y_values = []
+        for idx in range(1, 5):
+            try:
+                x_values.append(float(bounding_rect.get(f"x{idx}", 0.0) or 0.0))
+                y_values.append(float(bounding_rect.get(f"y{idx}", 0.0) or 0.0))
+            except (TypeError, ValueError):
+                return 0.0, 0.0
+
+        return max(x_values) - min(x_values), max(y_values) - min(y_values)
+
+    def _passes_overlay_minimum_character_size(self, bounding_rect: Any, minimum_character_size: int) -> bool:
+        if minimum_character_size <= 0:
+            return True
+
+        width, height = self._get_bounding_rect_size(bounding_rect)
+        return width > minimum_character_size and height > minimum_character_size
+
+    @staticmethod
+    def _merge_bounding_rects(boxes: List[Dict[str, Any]]) -> Optional[Dict[str, float]]:
+        if not boxes:
+            return None
+
+        x_values: List[float] = []
+        y_values: List[float] = []
+        for box in boxes:
+            if not isinstance(box, dict):
+                continue
+            for idx in range(1, 5):
+                try:
+                    x_values.append(float(box.get(f"x{idx}", 0.0) or 0.0))
+                    y_values.append(float(box.get(f"y{idx}", 0.0) or 0.0))
+                except (TypeError, ValueError):
+                    continue
+
+        if not x_values or not y_values:
+            return None
+
+        left = min(x_values)
+        top = min(y_values)
+        right = max(x_values)
+        bottom = max(y_values)
+        return {
+            "x1": left,
+            "y1": top,
+            "x2": right,
+            "y2": top,
+            "x3": right,
+            "y3": bottom,
+            "x4": left,
+            "y4": bottom,
+        }
+
+    def _filter_precomputed_results_by_minimum_character_size(
+        self,
+        ocr_results: List[Dict[str, Any]],
+        minimum_character_size: int,
+    ) -> List[Dict[str, Any]]:
+        if minimum_character_size <= 0 or not ocr_results:
+            return copy.deepcopy(ocr_results)
+
+        filtered_results: List[Dict[str, Any]] = []
+        for line in ocr_results:
+            if not isinstance(line, dict):
+                continue
+
+            line_copy = copy.deepcopy(line)
+            words = line_copy.get("words", [])
+            if isinstance(words, list) and words:
+                kept_words = [
+                    word
+                    for word in words
+                    if isinstance(word, dict)
+                    and self._passes_overlay_minimum_character_size(
+                        word.get("bounding_rect", {}),
+                        minimum_character_size,
+                    )
+                ]
+                if not kept_words:
+                    continue
+
+                line_copy["words"] = kept_words
+                if len(kept_words) != len(words):
+                    line_copy["text"] = "".join(str(word.get("text", "")) for word in kept_words)
+
+                merged_bbox = self._merge_bounding_rects(
+                    [word.get("bounding_rect", {}) for word in kept_words if isinstance(word, dict)]
+                )
+                if merged_bbox is not None:
+                    line_copy["bounding_rect"] = merged_bbox
+
+                filtered_results.append(line_copy)
+                continue
+
+            if self._passes_overlay_minimum_character_size(
+                line_copy.get("bounding_rect", {}),
+                minimum_character_size,
+            ):
+                filtered_results.append(line_copy)
+
+        return filtered_results
 
     async def find_box_and_send_to_overlay(
         self,
@@ -594,12 +721,29 @@ class OverlayProcessor:
                         kept_words.append(copy.deepcopy(word))
 
                 if kept_words and (line_matches_language or matched_word):
+                    joined_word_text = "".join(str(word.get("text", "") or "") for word in kept_words)
+                    normalized_line_text, normalized_word_texts = normalize_japanese_ocr_text_and_segments(
+                        joined_word_text,
+                        [str(word.get("text", "") or "") for word in kept_words],
+                    )
                     line_copy["words"] = kept_words
-                    line_copy["text"] = "".join(str(word.get("text", "") or "") for word in kept_words)
+                    for word_copy, normalized_word_text in zip(line_copy["words"], normalized_word_texts or []):
+                        word_copy["text"] = normalized_word_text
+                    line_copy["text"] = normalized_line_text
                     filtered_results.append(line_copy)
                     continue
 
             if line_matches_language:
+                line_copy["text"] = normalize_japanese_ocr_dashes(line_text)
+                if isinstance(words, list) and words:
+                    normalized_words = []
+                    for word in words:
+                        if not isinstance(word, dict):
+                            continue
+                        normalized_word = copy.deepcopy(word)
+                        normalized_word["text"] = normalize_japanese_ocr_dashes(str(word.get("text", "") or ""))
+                        normalized_words.append(normalized_word)
+                    line_copy["words"] = normalized_words
                 filtered_results.append(line_copy)
 
         return filtered_results
@@ -822,6 +966,7 @@ class OverlayProcessor:
                         self._last_overlay_capture_used_window_handle = False
                         self._last_overlay_capture_offset_x = 0
                         self._last_overlay_capture_offset_y = 0
+                        self._last_overlay_capture_source = "monitor_mss_override"
                         return img, 0, 0, monitor_w, monitor_h
                 except Exception as e:
                     logger.debug(f"MSS screenshot (override) failed: {e}")
@@ -870,6 +1015,7 @@ class OverlayProcessor:
                         self._last_overlay_capture_used_window_handle = True
                         self._last_overlay_capture_offset_x = final_off_x
                         self._last_overlay_capture_offset_y = final_off_y
+                        self._last_overlay_capture_source = "obs_window"
                         return obs_img, final_off_x, final_off_y, monitor_w, monitor_h
                 except Exception as e:
                     logger.debug(f"OBS Window capture failed, falling back to MSS: {e}")
@@ -895,6 +1041,7 @@ class OverlayProcessor:
                     self._last_overlay_capture_used_window_handle = False
                     self._last_overlay_capture_offset_x = 0
                     self._last_overlay_capture_offset_y = 0
+                    self._last_overlay_capture_source = "monitor_mss"
                     return img, 0, 0, monitor_w, monitor_h
             except Exception as e:
                 logger.debug(f"MSS screenshot failed: {e}")
@@ -912,6 +1059,7 @@ class OverlayProcessor:
                 self._last_overlay_capture_used_window_handle = False
                 self._last_overlay_capture_offset_x = 0
                 self._last_overlay_capture_offset_y = 0
+                self._last_overlay_capture_source = "obs_scene"
                 return obs_img, 0, 0, monitor_w, monitor_h
         except Exception as e:
             logger.debug(f"OBS fallback screenshot failed: {e}")
@@ -1166,6 +1314,14 @@ class OverlayProcessor:
         if sentence_to_check:
             corrected_source_lines = self._correct_ocr_with_backlog(corrected_source_lines, sentence_to_check)
 
+        minimum_character_size = self._get_overlay_minimum_character_size()
+        corrected_source_lines = self._filter_precomputed_results_by_minimum_character_size(
+            corrected_source_lines,
+            minimum_character_size,
+        )
+        if not corrected_source_lines:
+            return False
+
         if mode == "absolute_screen":
             final_data = self._convert_absolute_screen_results_to_percentages(
                 corrected_source_lines,
@@ -1364,6 +1520,7 @@ class OverlayProcessor:
         local_ocr_engine = self.oneocr or self.meikiocr or self.screenai
         crop_coords_list = []
         oneocr_final = []
+        minimum_character_size = self._get_overlay_minimum_character_size()
         if local_ocr_engine:
             # Assume Text from Source is already Stable
             source = line.source if line and line.source else source
@@ -1406,7 +1563,7 @@ class OverlayProcessor:
                     return_coords=True,
                     multiple_crop_coords=True,
                     return_one_box=False,
-                    furigana_filter_sensitivity=get_overlay_config().minimum_character_size,
+                    furigana_filter_sensitivity=minimum_character_size,
                 )
                 ocr_end = time.time()
                 total_ocr_time += ocr_end - ocr_start
@@ -1591,7 +1748,7 @@ class OverlayProcessor:
         result = self.lens(
             composite_image,
             return_coords=True,
-            furigana_filter_sensitivity=get_overlay_config().minimum_character_size,
+            furigana_filter_sensitivity=minimum_character_size,
         )
         lens_ocr_time = time.time() - lens_start
         self._log_timing(lens_start, "Google Lens OCR execution")
@@ -2123,6 +2280,23 @@ class OverlayProcessor:
                     transform_box(word_bbox)
 
         return converted_results
+
+
+def get_overlay_preview_capture() -> Tuple[Image.Image, str]:
+    """Capture an image for overlay previews using the same source precedence as overlay OCR."""
+    processor = OverlayProcessor()
+    if is_windows():
+        processor.window_monitor = WindowStateMonitor(processor)
+
+    image, _, _, _, _ = processor._get_screenshot_and_offset()
+    capture_source = processor._last_overlay_capture_source
+
+    if capture_source in {"obs_window", "obs_scene"}:
+        title_suffix = get_current_game() or get_current_scene() or "OBS Scene"
+    else:
+        title_suffix = f"Overlay Monitor {get_overlay_config().monitor_to_capture + 1}"
+
+    return image, title_suffix
 
 
 async def init_overlay_processor():

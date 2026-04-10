@@ -9,6 +9,14 @@ const https = require('https');
 const WebSocket = require('ws');
 const bg = require('./background');
 const BackendConnector = require('./backend_connector');
+const { createMagpieState } = require('./magpie');
+const {
+  MANUAL_HOTKEY_BACKEND_ELECTRON,
+  MANUAL_HOTKEY_BACKEND_INPUT_SERVER,
+  createManualHotkeyController,
+  normalizeManualHotkeyMode,
+  resolveManualHotkeyBackend,
+} = require('./manual_hotkey_controller');
 const { URL } = require('url');
 
 // FIX: Register chrome-extension protocol as privileged to allow image loading and CORS in renderer
@@ -42,6 +50,8 @@ const DEFAULT_TEXTHOOKER_URL = `http://127.0.0.1:${DEFAULT_GSM_SINGLE_PORT}/text
 const DEFAULT_YOMITAN_API_URL = "http://127.0.0.1:19633";
 const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
 const VALID_SUDACHI_DICTIONARIES = new Set(["small", "core", "full"]);
+const VALID_TRACKED_GAME_WINDOW_STATES = new Set(["active", "background", "obscured", "minimized", "closed", "unknown"]);
+const MANUAL_HOTKEY_ALLOWED_GAME_WINDOW_STATES = new Set(["active", "background"]);
 const GAMEPAD_SERVER_BASE_PORT = 7276;
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
 const OVERLAY_WS_COMMAND_OPEN_SETTINGS = "open-overlay-settings";
@@ -50,6 +60,7 @@ const DEFAULT_TEXTHOOKER_HOTKEY = "Alt+Shift+W";
 const GSM_APPDATA = process.env.APPDATA
   ? path.join(process.env.APPDATA, "GameSentenceMiner") // Windows
   : path.join(os.homedir(), '.config', "GameSentenceMiner"); // macOS/Linux
+const FIND_IN_PAGE_PRELOAD_PATH = path.join(__dirname, 'find-in-page-preload.js');
 const TEXTHOOKER_HOTKEY_FALLBACKS = [
   DEFAULT_TEXTHOOKER_HOTKEY,
   "Alt+Shift+Q",
@@ -133,9 +144,11 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "weburl1": DEFAULT_ENFORCED_PLAINTEXT_WS_URL,
   "weburl2": DEFAULT_ENFORCED_OVERLAY_WS_URL,
   "hideOnStartup": true,
+  "openSettingsOnStartup": true,
   "focusOverlayOnYomitanLookup": false,
   "manualMode": false,
-  "manualModeType": "hold", // "hold" or "toggle"
+  "manualModeType": "hold",
+  "manualModeRescanOnShow": false,
   "showHotkey": DEFAULT_MANUAL_HOTKEY,
   "toggleFuriganaHotkey": "Alt+F",
   "toggleWindowHotkey": "Alt+Shift+H",
@@ -197,6 +210,8 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
 });
 
 let userSettings = { ...DEFAULT_USER_SETTINGS };
+
+const MANUAL_HOTKEY_ELECTRON_RELEASE_TIMEOUT_MS = 650;
 
 function enforceOverlayWebSocketUrls(settings) {
   const enforcedUrls = getEnforcedOverlayTransportUrls();
@@ -275,6 +290,59 @@ function normalizeHotkeyForComparison(value) {
     .replace(/\s+/g, "");
 }
 
+function normalizeManualModeType(value) {
+  return normalizeManualHotkeyMode(value);
+}
+
+function normalizeTrackedGameWindowState(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return VALID_TRACKED_GAME_WINDOW_STATES.has(normalized) ? normalized : "unknown";
+}
+
+function setTrackedGameWindowState(state, source = "unknown") {
+  const normalized = normalizeTrackedGameWindowState(state);
+  trackedGameWindowState = normalized;
+  trackedGameWindowStateUpdatedAt = Date.now();
+  console.log(`[WindowState] Tracked game state -> ${normalized} (${source})`);
+  return normalized;
+}
+
+function isTrackedGameWindowVisibleForManualHotkey() {
+  return MANUAL_HOTKEY_ALLOWED_GAME_WINDOW_STATES.has(trackedGameWindowState);
+}
+
+function getManualHotkeyTriggerBlockReason() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return "overlay-window-unavailable";
+  }
+
+  if (mainWindow.isMinimized()) {
+    return "overlay-window-minimized";
+  }
+
+  if (!isTrackedGameWindowVisibleForManualHotkey()) {
+    return `game-window-${trackedGameWindowState}`;
+  }
+
+  return null;
+}
+
+function canStartManualHotkeyActivation(triggerSource = "manual-hotkey") {
+  const blockReason = getManualHotkeyTriggerBlockReason();
+  if (blockReason) {
+    const ageMs = trackedGameWindowStateUpdatedAt > 0
+      ? Date.now() - trackedGameWindowStateUpdatedAt
+      : null;
+    console.log(
+      `[ManualHotkey] Ignoring ${triggerSource} activation: ${blockReason}` +
+      (ageMs !== null ? ` (stateAgeMs=${ageMs})` : "")
+    );
+    return false;
+  }
+
+  return true;
+}
+
 function hotkeysConflict(a, b) {
   const normalizedA = normalizeHotkeyForComparison(a);
   const normalizedB = normalizeHotkeyForComparison(b);
@@ -328,6 +396,42 @@ function ensureManualAndTexthookerHotkeysDistinct(source = "unknown") {
   );
 
   return true;
+}
+
+function isManualHotkeyUsingInputServer(settings = userSettings) {
+  if (!settings.manualMode) {
+    return false;
+  }
+
+  const preferredBackend = resolveManualHotkeyBackend(settings.showHotkey, {
+    forceInputServer:
+      normalizeHotkeyForComparison(settings.showHotkey) ===
+      normalizeHotkeyForComparison(manualHotkeyElectronFailureHotkey),
+  });
+  return preferredBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER;
+}
+
+function getManualHotkeyRuntimeStatus() {
+  const label = manualHotkeyBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER
+    ? "Input Server"
+    : "Electron";
+  return {
+    manualHotkeyBackend,
+    manualHotkeyBackendLabel: label,
+    manualHotkeyBackendReason,
+    manualHotkeyKeyboardAvailable: manualHotkeyInputServerConnection.keyboardAvailable,
+    manualHotkeyKeyboardError: manualHotkeyInputServerConnection.keyboardError,
+  };
+}
+
+function publishManualHotkeyRuntimeStatus() {
+  const status = getManualHotkeyRuntimeStatus();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("settings-updated", status);
+  }
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send("settings-updated", status);
+  }
 }
 
 function normalizeGamepadTokenizerBackend(value) {
@@ -516,15 +620,67 @@ let websocketStates = {
 };
 
 let lastWebsocketData = null;
-let currentMagpieActive = false; // Track magpie state from websocket
+let currentMagpieState = createMagpieState(null);
 let translationRequested = false; // Track if translation has been requested for current text
 let yomitanRecoveryVersion = 0; // Cancels stale async recovery attempts when popup state flips quickly
 let lastFocusRestoreRequestAt = 0;
 let lastYomitanEventAt = 0;
 let yomitanForegroundActive = false;
+let trackedGameWindowState = "unknown";
+let trackedGameWindowStateUpdatedAt = 0;
+let manualHotkeyBackend = MANUAL_HOTKEY_BACKEND_ELECTRON;
+let manualHotkeyBackendReason = "electron";
+let manualHotkeyInputServerConnection = {
+  socket: null,
+  url: null,
+  reconnectTimer: null,
+  keyboardAvailable: true,
+  keyboardError: null,
+};
+let manualHotkeyElectronFailureHotkey = null;
+
+const manualHotkeyController = createManualHotkeyController({
+  holdReleaseTimeoutMs: MANUAL_HOTKEY_ELECTRON_RELEASE_TIMEOUT_MS,
+  getMode: () => normalizeManualModeType(userSettings.manualModeType),
+  onStateChange(snapshot, meta) {
+    const previousActive = !!(manualHotkeyPressed || manualModeToggleState);
+    manualModeToggleState = snapshot.toggleLatched;
+    manualHotkeyPressed = snapshot.holdActive;
+    const nextActive = !!(manualHotkeyPressed || manualModeToggleState);
+
+    if (previousActive === nextActive) {
+      return;
+    }
+
+    if (nextActive) {
+      if (!canStartManualHotkeyActivation(`state-change:${meta.source}:${meta.reason}`)) {
+        clearManualActivationState(`blocked:${meta.source}:${meta.reason}`);
+        requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+        return;
+      }
+
+      const shown = showOverlayUsingManualFlow(`ManualHotkey ${meta.reason}`, OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+      if (shown && userSettings.manualModeRescanOnShow) {
+        requestManualOverlayScan("manual-mode-enter");
+      }
+      return;
+    }
+
+    if (gamepadNavigationActive) {
+      requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+      console.log(`[ManualHotkey] Released (${meta.reason}); keeping overlay visible due gamepad navigation`);
+      return;
+    }
+
+    hideOverlayUsingManualFlow(`ManualHotkey ${meta.reason}`, OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+  },
+});
 
 const FOCUS_RESTORE_THROTTLE_MS = 150;
 const YOMITAN_STATE_STALE_TIMEOUT_MS = 12000;
+const FIND_IN_PAGE_COMMAND_CHANNEL = 'gsm-find-in-page:command';
+const FIND_IN_PAGE_RESULT_CHANNEL = 'gsm-find-in-page:result';
+const FIND_IN_PAGE_SHORTCUT_CHANNEL = 'gsm-find-in-page:shortcut';
 
 let yomitanSettingsWindow = null;
 let jitenReaderSettingsWindow = null;
@@ -542,6 +698,7 @@ let gamepadServerStopPromise = null;
 let gamepadServerLifecycleVersion = 0;
 let registeredGamepadKeyboardHotkey = null;
 let gamepadInputTestActive = false;
+const findInPageStateByWebContentsId = new Map();
 const overlayWebSockets = {
   ws1: { socket: null, url: null, reconnectTimer: null },
   ws2: { socket: null, url: null, reconnectTimer: null },
@@ -555,6 +712,131 @@ function publishOverlaySocketState(type, isOpen) {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.webContents.send(isOpen ? "websocket-opened" : "websocket-closed", type);
   }
+}
+
+function getFindInPageState(contents) {
+  const webContentsId = contents.id;
+  let state = findInPageStateByWebContentsId.get(webContentsId);
+  if (!state) {
+    state = {
+      requestId: null,
+      lastText: '',
+      matchCase: false,
+      visible: false,
+    };
+    findInPageStateByWebContentsId.set(webContentsId, state);
+  }
+  return state;
+}
+
+function clearFindInPage(contents, action = 'clearSelection') {
+  const state = getFindInPageState(contents);
+  try {
+    contents.stopFindInPage(action);
+  } catch (error) {
+    console.warn('[FindInPage] Failed to stop find request:', error);
+  }
+  state.requestId = null;
+  contents.send(FIND_IN_PAGE_RESULT_CHANNEL, {
+    requestId: 0,
+    activeMatchOrdinal: 0,
+    matches: 0,
+    finalUpdate: true,
+    cleared: true,
+  });
+}
+
+function performFindInPage(contents, payload = {}) {
+  const state = getFindInPageState(contents);
+  const text = String(payload.text || '').trim();
+  if (!text) {
+    state.lastText = '';
+    state.matchCase = false;
+    clearFindInPage(contents);
+    return;
+  }
+
+  const forward = payload.forward !== false;
+  const matchCase = !!payload.matchCase;
+  const startNewSearch = (
+    !!payload.startNewSearch ||
+    state.lastText !== text ||
+    state.matchCase !== matchCase
+  );
+
+  state.lastText = text;
+  state.matchCase = matchCase;
+  state.requestId = contents.findInPage(text, {
+    forward,
+    findNext: startNewSearch,
+    matchCase,
+  });
+}
+
+function handleFindInPageShortcut(browserWindow, input) {
+  if (!browserWindow || browserWindow.isDestroyed()) {
+    return false;
+  }
+
+  const { webContents } = browserWindow;
+  const state = getFindInPageState(webContents);
+  const key = String(input.key || '').toLowerCase();
+  const controlOrMeta = !!(input.control || input.meta);
+
+  if (controlOrMeta && key === 'f') {
+    webContents.send(FIND_IN_PAGE_SHORTCUT_CHANNEL, {
+      action: state.visible ? 'hide' : 'show',
+    });
+    return true;
+  }
+
+  if (key === 'escape' && state.visible) {
+    webContents.send(FIND_IN_PAGE_SHORTCUT_CHANNEL, { action: 'hide' });
+    return true;
+  }
+
+  if (state.lastText && (key === 'f3' || (controlOrMeta && key === 'g'))) {
+    performFindInPage(webContents, {
+      text: state.lastText,
+      matchCase: state.matchCase,
+      forward: !input.shift,
+      startNewSearch: false,
+    });
+    return true;
+  }
+
+  return false;
+}
+
+function enableFindInPage(browserWindow) {
+  if (!browserWindow || browserWindow.isDestroyed()) {
+    return;
+  }
+
+  const { webContents } = browserWindow;
+  const webContentsId = webContents.id;
+  getFindInPageState(webContents);
+
+  webContents.on('found-in-page', (_event, result) => {
+    const state = getFindInPageState(webContents);
+    if (state.requestId === null || result.requestId !== state.requestId) {
+      return;
+    }
+    webContents.send(FIND_IN_PAGE_RESULT_CHANNEL, result);
+  });
+
+  webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') {
+      return;
+    }
+    if (handleFindInPageShortcut(browserWindow, input)) {
+      event.preventDefault();
+    }
+  });
+
+  browserWindow.on('closed', () => {
+    findInPageStateByWebContentsId.delete(webContentsId);
+  });
 }
 
 function publishOverlaySocketData(type, data) {
@@ -767,8 +1049,12 @@ function resolveGamepadServerExecutable() {
   return { executablePath: null, candidates };
 }
 
-function shouldRunGamepadServer(settings = userSettings) {
+function shouldRunInputServer(settings = userSettings) {
   if (settings.gamepadEnabled) {
+    return true;
+  }
+
+  if (isManualHotkeyUsingInputServer(settings)) {
     return true;
   }
 
@@ -778,21 +1064,25 @@ function shouldRunGamepadServer(settings = userSettings) {
   );
 }
 
+function shouldRunGamepadServer(settings = userSettings) {
+  return shouldRunInputServer(settings);
+}
+
 function syncGamepadServerState(reason = "unknown") {
-  if (shouldRunGamepadServer()) {
-    console.log(`[GamepadServer] Ensuring server is running (${reason})`);
+  if (shouldRunInputServer()) {
+    console.log(`[InputServer] Ensuring server is running (${reason})`);
     void startGamepadServer(reason);
     return;
   }
 
-  console.log(`[GamepadServer] Stopping server because it is not needed (${reason})`);
+  console.log(`[InputServer] Stopping server because it is not needed (${reason})`);
   void stopGamepadServer(reason);
 }
 
 // Gamepad server management
 async function startGamepadServer(reason = "unknown") {
-  if (!shouldRunGamepadServer()) {
-    console.log('[GamepadServer] Server not required by current settings');
+  if (!shouldRunInputServer()) {
+    console.log('[InputServer] Server not required by current settings');
     return;
   }
 
@@ -806,8 +1096,8 @@ async function startGamepadServer(reason = "unknown") {
       await gamepadServerStopPromise;
     }
 
-    if (!shouldRunGamepadServer()) {
-      console.log(`[GamepadServer] Start skipped because server is no longer needed (${reason})`);
+    if (!shouldRunInputServer()) {
+      console.log(`[InputServer] Start skipped because server is no longer needed (${reason})`);
       return;
     }
 
@@ -826,7 +1116,7 @@ async function startGamepadServer(reason = "unknown") {
     const { spawn } = require('child_process');
     const { executablePath, candidates } = resolveGamepadServerExecutable();
     if (!executablePath) {
-      console.error('[GamepadServer] Rust server binary not found. Checked paths:');
+      console.error('[InputServer] Rust server binary not found. Checked paths:');
       candidates.forEach((candidate) => console.error(`  - ${candidate}`));
       return;
     }
@@ -838,8 +1128,8 @@ async function startGamepadServer(reason = "unknown") {
         : GAMEPAD_SERVER_BASE_PORT;
       const selectedPort = await findAvailablePort(preferredPort);
 
-      if (!shouldRunGamepadServer()) {
-        console.log(`[GamepadServer] Start aborted after port probe because server is no longer needed (${reason})`);
+      if (!shouldRunInputServer()) {
+        console.log(`[InputServer] Start aborted after port probe because server is no longer needed (${reason})`);
         return;
       }
 
@@ -858,11 +1148,12 @@ async function startGamepadServer(reason = "unknown") {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("settings-updated", { gamepadServerPort: selectedPort });
         }
+        publishManualHotkeyRuntimeStatus();
         saveSettings();
       }
 
-      console.log(`[GamepadServer] Starting Rust server binary: ${executablePath}`);
-      console.log(`[GamepadServer] Port: ${selectedPort}`);
+      console.log(`[InputServer] Starting Rust server binary: ${executablePath}`);
+      console.log(`[InputServer] Port: ${selectedPort}`);
 
       const serverProcess = spawn(executablePath, [
         '--host', '127.0.0.1',
@@ -892,35 +1183,37 @@ async function startGamepadServer(reason = "unknown") {
                 settingsWindow.webContents.send('sudachi-progress', progressData);
               }
             } catch (e) {
-              console.warn('[GamepadServer] Failed to parse progress message:', trimmed);
+              console.warn('[InputServer] Failed to parse progress message:', trimmed);
             }
           } else {
-            console.log(`[GamepadServer] ${trimmed}`);
+            console.log(`[InputServer] ${trimmed}`);
           }
         }
       });
 
       serverProcess.stderr.on('data', (data) => {
-        console.error(`[GamepadServer] ${data.toString().trim()}`);
+        console.error(`[InputServer] ${data.toString().trim()}`);
       });
 
       serverProcess.on('close', (code) => {
-        console.log(`[GamepadServer] Process exited with code ${code}`);
+        console.log(`[InputServer] Process exited with code ${code}`);
         if (gamepadServerProcess === serverProcess) {
           gamepadServerProcess = null;
         }
+        syncManualHotkeyInputServerConnection("process-close");
       });
 
       serverProcess.on('error', (err) => {
-        console.error('[GamepadServer] Failed to start:', err);
+        console.error('[InputServer] Failed to start:', err);
         if (gamepadServerProcess === serverProcess) {
           gamepadServerProcess = null;
         }
       });
 
-      console.log('[GamepadServer] Started successfully');
+      console.log('[InputServer] Started successfully');
+      syncManualHotkeyInputServerConnection("start-success");
     } catch (e) {
-      console.error('[GamepadServer] Error starting server:', e);
+      console.error('[InputServer] Error starting server:', e);
       gamepadServerProcess = null;
     } finally {
       gamepadServerStarting = false;
@@ -952,10 +1245,11 @@ async function stopGamepadServer(reason = "unknown") {
     if (pendingStartPromise) {
       await pendingStartPromise;
     }
+    syncManualHotkeyInputServerConnection("stop-no-process");
     return;
   }
 
-  console.log(`[GamepadServer] Stopping (${reason})...`);
+  console.log(`[InputServer] Stopping (${reason})...`);
 
   let stopPromise = null;
   stopPromise = new Promise((resolve) => {
@@ -973,8 +1267,9 @@ async function stopGamepadServer(reason = "unknown") {
       }
 
       if (details) {
-        console.log(`[GamepadServer] Stop completed (${reason}): ${details}`);
+        console.log(`[InputServer] Stop completed (${reason}): ${details}`);
       }
+      syncManualHotkeyInputServerConnection("stop-finished");
       resolve();
     };
 
@@ -985,7 +1280,7 @@ async function stopGamepadServer(reason = "unknown") {
       finish(`exit code=${code} signal=${signal || 'none'}`);
     });
     serverProcess.once('error', (err) => {
-      console.error('[GamepadServer] Stop error:', err);
+      console.error('[InputServer] Stop error:', err);
       finish('error');
     });
 
@@ -995,7 +1290,7 @@ async function stopGamepadServer(reason = "unknown") {
         finish('kill returned false');
       }
     } catch (err) {
-      console.error('[GamepadServer] Failed to kill process:', err);
+      console.error('[InputServer] Failed to kill process:', err);
       finish('kill threw');
     }
   });
@@ -1005,13 +1300,173 @@ async function stopGamepadServer(reason = "unknown") {
 }
 
 async function restartGamepadServer(reason = "unknown") {
-  console.log(`[GamepadServer] Restart requested (${reason})`);
+  console.log(`[InputServer] Restart requested (${reason})`);
   await stopGamepadServer(reason);
-  if (!shouldRunGamepadServer()) {
-    console.log(`[GamepadServer] Restart skipped because server is not needed (${reason})`);
+  if (!shouldRunInputServer()) {
+    console.log(`[InputServer] Restart skipped because server is not needed (${reason})`);
     return;
   }
   return startGamepadServer(`${reason}:restart`);
+}
+
+function getInputServerWebSocketUrl() {
+  const configuredPort = Number.parseInt(userSettings.gamepadServerPort, 10);
+  const port = Number.isFinite(configuredPort) && configuredPort > 0 && configuredPort <= 65535
+    ? configuredPort
+    : GAMEPAD_SERVER_BASE_PORT;
+  return `ws://127.0.0.1:${port}`;
+}
+
+function closeManualHotkeyInputServerConnection({ clearUrl = true, clearReconnect = true } = {}) {
+  const state = manualHotkeyInputServerConnection;
+  if (clearReconnect && state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
+
+  if (state.socket) {
+    try {
+      state.socket.removeAllListeners();
+      state.socket.close();
+    } catch (err) {
+      console.warn("[ManualHotkey] Failed to close input server socket:", err.message);
+    }
+    state.socket = null;
+  }
+
+  if (clearUrl) {
+    state.url = null;
+  }
+}
+
+function sendManualHotkeyInputServerConfig() {
+  const state = manualHotkeyInputServerConnection;
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
+    return;
+  }
+
+  const enabled = isManualMode() && manualHotkeyBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER;
+  state.socket.send(JSON.stringify({
+    type: "configure_manual_hotkey",
+    enabled,
+    hotkey: enabled ? userSettings.showHotkey : "",
+  }));
+}
+
+function scheduleManualHotkeyInputServerReconnect(reason = "unknown") {
+  const state = manualHotkeyInputServerConnection;
+  if (state.reconnectTimer) {
+    return;
+  }
+
+  state.reconnectTimer = setTimeout(() => {
+    state.reconnectTimer = null;
+    syncManualHotkeyInputServerConnection(`reconnect:${reason}`);
+  }, OVERLAY_WS_RECONNECT_DELAY_MS);
+}
+
+function handleManualHotkeyInputServerMessage(rawMessage) {
+  let message = null;
+  try {
+    message = JSON.parse(rawMessage);
+  } catch (err) {
+    console.warn("[ManualHotkey] Failed to parse input server message:", rawMessage);
+    return;
+  }
+
+  switch (message.type) {
+    case "manual_hotkey_event":
+      lastManualActivity = Date.now();
+      if (message.state === "pressed") {
+        if (canStartManualHotkeyActivation("input_server")) {
+          manualHotkeyController.handlePress("input_server");
+        }
+      } else if (message.state === "released") {
+        manualHotkeyController.handleRelease("input_server");
+      }
+      break;
+    case "keyboard_listener_status":
+      manualHotkeyInputServerConnection.keyboardAvailable = message.available !== false;
+      manualHotkeyInputServerConnection.keyboardError = message.error || null;
+      publishManualHotkeyRuntimeStatus();
+      break;
+    default:
+      break;
+  }
+}
+
+function syncManualHotkeyInputServerConnection(reason = "unknown") {
+  const shouldConnect = isManualMode() && manualHotkeyBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER;
+  if (!shouldConnect) {
+    const socket = manualHotkeyInputServerConnection.socket;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      try {
+        socket.send(JSON.stringify({ type: "configure_manual_hotkey", enabled: false, hotkey: "" }));
+      } catch (err) {
+        console.warn("[ManualHotkey] Failed to disable input server hotkey before closing:", err.message);
+      }
+    }
+    closeManualHotkeyInputServerConnection();
+    publishManualHotkeyRuntimeStatus();
+    return;
+  }
+
+  const url = getInputServerWebSocketUrl();
+  const state = manualHotkeyInputServerConnection;
+  if (
+    state.url === url &&
+    state.socket &&
+    (state.socket.readyState === WebSocket.OPEN || state.socket.readyState === WebSocket.CONNECTING)
+  ) {
+    if (state.socket.readyState === WebSocket.OPEN) {
+      sendManualHotkeyInputServerConfig();
+    }
+    return;
+  }
+
+  closeManualHotkeyInputServerConnection({ clearUrl: false });
+  state.url = url;
+  console.log(`[ManualHotkey] Connecting to input server websocket (${reason}) -> ${url}`);
+
+  const socket = new WebSocket(url);
+  state.socket = socket;
+  state.keyboardAvailable = false;
+  state.keyboardError = "Connecting to input server...";
+  publishManualHotkeyRuntimeStatus();
+  socket.on("open", () => {
+    if (manualHotkeyInputServerConnection.socket !== socket) return;
+    console.log("[ManualHotkey] Input server websocket connected");
+    manualHotkeyInputServerConnection.keyboardAvailable = true;
+    manualHotkeyInputServerConnection.keyboardError = null;
+    publishManualHotkeyRuntimeStatus();
+    sendManualHotkeyInputServerConfig();
+  });
+  socket.on("message", (payload) => {
+    if (manualHotkeyInputServerConnection.socket !== socket) return;
+    const text = Buffer.isBuffer(payload) ? payload.toString("utf8") : String(payload);
+    handleManualHotkeyInputServerMessage(text);
+  });
+  socket.on("close", () => {
+    if (manualHotkeyInputServerConnection.socket !== socket) return;
+    manualHotkeyInputServerConnection.socket = null;
+    if (isManualMode() && manualHotkeyBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER) {
+      manualHotkeyInputServerConnection.keyboardAvailable = false;
+      if (!manualHotkeyInputServerConnection.keyboardError) {
+        manualHotkeyInputServerConnection.keyboardError = "Input server connection closed.";
+      }
+      publishManualHotkeyRuntimeStatus();
+    }
+    if (isManualMode() && manualHotkeyBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER) {
+      scheduleManualHotkeyInputServerReconnect(reason);
+    }
+  });
+  socket.on("error", (err) => {
+    if (manualHotkeyInputServerConnection.socket !== socket) return;
+    console.warn("[ManualHotkey] Input server websocket error:", err.message);
+    manualHotkeyInputServerConnection.keyboardAvailable = false;
+    manualHotkeyInputServerConnection.keyboardError = err.message || "Unable to connect to input server.";
+    publishManualHotkeyRuntimeStatus();
+  });
 }
 
 const OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY = "manual_hotkey";
@@ -1040,17 +1495,69 @@ function loadOverlayPage(win, relativePath) {
   return win.loadFile(relativePath);
 }
 
+const EXTENSION_READY_TIMEOUT_MS = 15000;
+
+function getExtensionSessionApi() {
+  const extensionsApi = session.defaultSession?.extensions;
+  if (extensionsApi) {
+    return {
+      events: extensionsApi,
+      loadExtension: (extensionPath, options) => extensionsApi.loadExtension(extensionPath, options),
+      removeExtension: (extensionId) => extensionsApi.removeExtension(extensionId),
+    };
+  }
+
+  return {
+    events: session.defaultSession,
+    loadExtension: (extensionPath, options) => session.defaultSession.loadExtension(extensionPath, options),
+    removeExtension: (extensionId) => session.defaultSession.removeExtension(extensionId),
+  };
+}
+
 async function loadExtension(name) {
   const extDir = isDev ? path.join(__dirname, name) : path.join(process.resourcesPath, name);
   const extTargetDir = ensureExtensionCopy(name, extDir);
+  const extensionApi = getExtensionSessionApi();
+  const observedReadyIds = new Set();
+  let readyTimeout = null;
+  let resolveReady;
+  let loadedExt = null;
+  const onExtensionReady = (_event, extension) => {
+    const extensionId = extension && typeof extension.id === 'string' ? extension.id : null;
+    if (!extensionId) {
+      return;
+    }
+    observedReadyIds.add(extensionId);
+    if (loadedExt && extensionId === loadedExt.id) {
+      clearTimeout(readyTimeout);
+      resolveReady();
+    }
+  };
+  const readyPromise = new Promise((resolve) => {
+    resolveReady = resolve;
+    readyTimeout = setTimeout(() => {
+      console.warn(`[Extensions] Timed out waiting for ${name} extension-ready event after ${EXTENSION_READY_TIMEOUT_MS}ms`);
+      resolve();
+    }, EXTENSION_READY_TIMEOUT_MS);
+  });
+
   try {
-    const loadedExt = await session.defaultSession.loadExtension(extTargetDir, { allowFileAccess: true });
+    extensionApi.events.on('extension-ready', onExtensionReady);
+    loadedExt = await extensionApi.loadExtension(extTargetDir, { allowFileAccess: true });
+    if (observedReadyIds.has(loadedExt.id)) {
+      clearTimeout(readyTimeout);
+      resolveReady();
+    }
+    await readyPromise;
     console.log(`${name} extension loaded.`);
     console.log('Extension ID:', loadedExt.id);
     return loadedExt;
   } catch (e) {
     console.error(`Failed to load extension ${name}:`, e);
     return null;
+  } finally {
+    clearTimeout(readyTimeout);
+    extensionApi.events.off('extension-ready', onExtensionReady);
   }
 }
 
@@ -1146,12 +1653,21 @@ function isLinux() {
   return process.platform === 'linux';
 }
 
-if (isLinux() && !fs.existsSync(settingsPath)) {
-  userSettings.manualModeType = "toggle";
-}
-
 function isMac() {
   return process.platform === 'darwin';
+}
+
+function getWindowsFramelessWindowOptions() {
+  if (!isWindows()) {
+    return {};
+  }
+
+  return {
+    // Electron keeps the native WS_THICKFRAME style by default on Windows
+    // frameless windows, which can let the title bar/frame leak back in.
+    thickFrame: false,
+    roundedCorners: false,
+  };
 }
 
 function getOverlayAppIconPath() {
@@ -1301,7 +1817,7 @@ function restoreOverlayAfterYomitanLookup() {
     blurAndRestoreFocus();
   }
 
-  if (currentMagpieActive) {
+  if (currentMagpieState.active) {
     scheduleYomitanCloseRecovery();
   }
 }
@@ -1363,7 +1879,11 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown") {
   gamepadNavigationActive = nextActive;
 
   if (nextActive) {
-    showOverlayUsingManualFlow(`Gamepad ${triggerSource} Activate`, OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
+    if (isManualMode()) {
+      showOverlayUsingManualFlow(`Gamepad ${triggerSource} Activate`, OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
+    } else {
+      requestOverlayPauseForSource(OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
+    }
     aggressivelyFocusOverlayForGamepadNavigation();
     return;
   }
@@ -1375,7 +1895,17 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown") {
     return;
   }
 
-  hideOverlayUsingManualFlow(`Gamepad ${triggerSource} Deactivate`, OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
+  if (isManualMode()) {
+    hideOverlayUsingManualFlow(`Gamepad ${triggerSource} Deactivate`, OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
+    return;
+  }
+
+  requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
+  restoreAutomaticOverlayPassThrough(`gamepad-navigation:${triggerSource}`);
+
+  if ((isWindows() || isMac()) && mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) {
+    blurAndRestoreFocus({ force: true });
+  }
 }
 
 function scheduleYomitanCloseRecovery() {
@@ -1402,9 +1932,19 @@ if (hasPersistedOverlaySettings) {
     const data = fs.readFileSync(settingsPath, "utf-8");
     const oldUserSettings = JSON.parse(data);
     userSettings = { ...DEFAULT_USER_SETTINGS, ...userSettings, ...oldUserSettings };
+    const normalizedManualModeType = normalizeManualModeType(userSettings.manualModeType);
+    if (userSettings.manualModeType !== normalizedManualModeType) {
+      userSettings.manualModeType = normalizedManualModeType;
+      shouldPersistOverlaySettings = true;
+    }
 
     if (!Object.prototype.hasOwnProperty.call(oldUserSettings, "hideOnStartup")) {
       userSettings.hideOnStartup = true;
+      shouldPersistOverlaySettings = true;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(oldUserSettings, "openSettingsOnStartup")) {
+      userSettings.openSettingsOnStartup = true;
       shouldPersistOverlaySettings = true;
     }
 
@@ -1452,6 +1992,8 @@ if (websocketEndpointsNormalized || texthookerUrlNormalized || furiganaSettingsN
 if (hasPersistedOverlaySettings && shouldPersistOverlaySettings) {
   saveSettings();
 }
+
+userSettings.manualModeType = normalizeManualModeType(userSettings.manualModeType);
 
 function getGSMOverlaySettings() {
   let gsmSettings = getGSMSettings();
@@ -1810,6 +2352,21 @@ function releaseAllOverlayPauseRequests() {
   requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
 }
 
+function requestManualOverlayScan(source = "overlay") {
+  const safeSource = String(source || "overlay");
+  if (!backend || !backend.connected) {
+    console.warn(`[OverlayScan] Cannot request manual overlay scan: backend not connected (source=${safeSource})`);
+    return false;
+  }
+
+  backend.send({
+    type: "manual-overlay-scan-request",
+    source: safeSource,
+  });
+  console.log(`[OverlayScan] Manual overlay scan requested (source=${safeSource})`);
+  return true;
+}
+
 function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY) {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
 
@@ -1834,7 +2391,7 @@ function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
   }
 
   // Mirror manual-mode behavior: bring overlay forward when manual flow is active.
-  if (currentMagpieActive || isManualMode()) {
+  if (currentMagpieState.active || isManualMode()) {
     mainWindow.show();
   }
 
@@ -1857,13 +2414,21 @@ function hideOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
   isOverlayVisible = false;
   mainWindow.webContents.send('show-overlay-hotkey', false);
 
-  if (!yomitanShown && !resizeMode) {
+  const preserveYomitanDuringManualHold =
+    pauseSource === OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY &&
+    normalizeManualModeType(userSettings.manualModeType) === "hold" &&
+    yomitanShown;
+
+  if (!preserveYomitanDuringManualHold && !resizeMode) {
     if (!isLinux()) {
       mainWindow.setIgnoreMouseEvents(true, { forward: true });
     }
     hideAndRestoreFocus();
   } else {
-    console.log(`[OverlayActivation] Skipping Focus Restore. Yomitan: ${yomitanShown}, Resize: ${resizeMode}`);
+    console.log(
+      `[OverlayActivation] Skipping Focus Restore. ` +
+      `YomitanPreserved: ${preserveYomitanDuringManualHold}, Resize: ${resizeMode}`
+    );
   }
 
   return true;
@@ -1900,8 +2465,6 @@ function saveSettings() {
   }
 }
 
-let holdHeartbeat = null; // Store the interval ID
-let lastKeyActivity = 0;  // Timestamp of last key press
 let isOverlayVisible = false; // Internal tracking to prevent redundant calls
 
 const TEXTHOOKER_CONNECTIVITY_INTERVAL_MS = 5000;
@@ -1909,14 +2472,46 @@ let texthookerLoadInterval = null;
 let texthookerLoadInFlight = false;
 
 function clearManualActivationState(reason = "manual-reset") {
-  if (holdHeartbeat) {
-    console.log(`[ManualMode] Clearing holdHeartbeat interval (${reason})`);
-    clearInterval(holdHeartbeat);
-    holdHeartbeat = null;
-  }
-
+  manualHotkeyController.reset(reason);
   manualHotkeyPressed = false;
   manualModeToggleState = false;
+  isOverlayVisible = false;
+}
+
+function resetOverlayInteractionStateForHiddenGameWindow(reason = "game-window-hidden") {
+  const hadManualState = !!(manualHotkeyPressed || manualModeToggleState || overlayPauseSourceActive[OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY]);
+  const hadGamepadNavigation = !!(gamepadNavigationActive || overlayPauseSourceActive[OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION]);
+  const hadVisibleOverlay = !!isOverlayVisible;
+
+  if (!hadManualState && !hadGamepadNavigation && !hadVisibleOverlay) {
+    return;
+  }
+
+  console.log(
+    `[OverlayState] Resetting overlay interaction state for hidden game window (${reason}) ` +
+    `manual=${hadManualState} gamepad=${hadGamepadNavigation} overlayVisible=${hadVisibleOverlay}`
+  );
+
+  manualHotkeyController.reset(reason);
+  manualHotkeyPressed = false;
+  manualModeToggleState = false;
+  gamepadNavigationActive = false;
+  yomitanForegroundActive = false;
+
+  if (hadManualState) {
+    requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+  }
+  if (hadGamepadNavigation) {
+    requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
+  }
+
+  if (hadVisibleOverlay && mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.webContents.send("show-overlay-hotkey", false);
+    } catch (error) {
+      console.warn("[OverlayState] Failed to notify renderer about forced overlay hide:", error);
+    }
+  }
   isOverlayVisible = false;
 }
 
@@ -1934,7 +2529,7 @@ function restoreAutomaticOverlayPassThrough(reason = "auto-reset") {
     return;
   }
 
-  if (currentMagpieActive) {
+  if (currentMagpieState.active) {
     reassertOverlayTopmostWithoutFocus(`auto-pass-through:${reason}`);
   } else {
     mainWindow.show();
@@ -2053,6 +2648,7 @@ function createTexthookerWindow() {
     icon: getOverlayAppIconPath(),
     transparent: true,
     frame: false,
+    ...getWindowsFramelessWindowOptions(),
     show: false,
     alwaysOnTop: true,
     resizable: false,
@@ -2230,106 +2826,59 @@ function registerManualShowHotkey(oldHotkey) {
     registerTexthookerHotkey();
   }
 
-  if (!isManualMode()) {
-    console.log("[ManualHotkey] Not in manual mode, skipping registration.");
-    return;
-  }
-
-  // clean up old shortcut
   if (manualIn) {
-    console.log(`[ManualHotkey] Unregistering old hotkey: ${oldHotkey || userSettings.showHotkey}`);
+    console.log(`[ManualHotkey] Unregistering Electron hotkey: ${oldHotkey || userSettings.showHotkey}`);
     const unregisterTarget = oldHotkey || userSettings.showHotkey;
     if (!hotkeysConflict(unregisterTarget, userSettings.texthookerHotkey)) {
       globalShortcut.unregister(unregisterTarget);
     }
+    manualIn = false;
   }
 
-  console.log(`[ManualHotkey] Registering hotkey: ${userSettings.showHotkey} | Mode: ${userSettings.manualModeType}`);
+  clearManualActivationState("registerManualShowHotkey");
 
-  // Helper: Consolidated Show Logic
-  const showOverlay = (triggerSource) => {
-    showOverlayUsingManualFlow(`ManualHotkey ${triggerSource}`, OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
-  };
+  if (!isManualMode()) {
+    console.log("[ManualHotkey] Not in manual mode, skipping registration.");
+    manualHotkeyBackend = resolveManualHotkeyBackend(userSettings.showHotkey);
+    manualHotkeyBackendReason = manualHotkeyBackend;
+    manualHotkeyElectronFailureHotkey = null;
+    syncManualHotkeyInputServerConnection("manual-mode-disabled");
+    publishManualHotkeyRuntimeStatus();
+    return;
+  }
 
-  // Helper: Consolidated Hide Logic
-  const hideOverlay = (triggerSource) => {
-    hideOverlayUsingManualFlow(`ManualHotkey ${triggerSource}`, OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
-  };
+  const requestedBackend = resolveManualHotkeyBackend(userSettings.showHotkey);
+  manualHotkeyBackend = requestedBackend;
+  manualHotkeyBackendReason = requestedBackend;
+  const manualModeType = normalizeManualModeType(userSettings.manualModeType);
 
-  manualIn = globalShortcut.register(userSettings.showHotkey, () => {
-    const now = Date.now();
-    // console.log(`[ManualHotkey] RAW TRIGGER at ${now}`); // Uncomment if you want to see raw OS repeat rate
+  if (requestedBackend === MANUAL_HOTKEY_BACKEND_ELECTRON) {
+    console.log(`[ManualHotkey] Registering Electron hotkey: ${userSettings.showHotkey} | Mode: ${manualModeType}`);
+    const registered = globalShortcut.register(userSettings.showHotkey, () => {
+      lastManualActivity = Date.now();
+      if (!canStartManualHotkeyActivation("electron")) {
+        return;
+      }
+      manualHotkeyController.handleElectronSignal("electron");
+    });
 
-    // 1. Safety Checks
-    if (!isManualMode()) {
-      console.log("[ManualHotkey] Detected non-manual mode inside callback, unregistering.");
-      globalShortcut.unregister(userSettings.showHotkey);
+    if (registered) {
+      manualIn = true;
+      manualHotkeyElectronFailureHotkey = null;
+      syncManualHotkeyInputServerConnection("electron-registered");
+      publishManualHotkeyRuntimeStatus();
       return;
     }
-    if (!mainWindow) return;
 
-    manualHotkeyPressed = true;
-    lastManualActivity = now;
-    lastKeyActivity = now;
-
-    // 2. TOGGLE MODE
-    if (userSettings.manualModeType === "toggle") {
-      // For toggle, we usually rely on key-up logic or a debounce, 
-      // but since globalShortcut is KeyDown only, we throttle simplisticly.
-      // This part might need a 'canToggle' flag if it bounces, but let's log it first.
-      if (holdHeartbeat) {
-        clearInterval(holdHeartbeat);
-        holdHeartbeat = null;
-      }
-      console.log("[ManualHotkey] Toggle Logic Triggered");
-      manualModeToggleState = !manualModeToggleState;
-      if (isOverlayVisible) {
-        hideOverlay("Toggle Press");
-      } else {
-        showOverlay("Toggle Press");
-      }
-
-      setTimeout(() => manualHotkeyPressed = false, 100);
-    }
-
-    // 3. HOLD MODE (Heartbeat Strategy)
-    else {
-      // If the overlay isn't up yet, show it immediately
-      if (!isOverlayVisible) {
-        showOverlay("Hold Start");
-
-        // Start a heartbeat to check if the user stopped pressing
-        if (holdHeartbeat) {
-          console.log("[ManualHotkey] Clearing existing heartbeat interval");
-          clearInterval(holdHeartbeat);
-        }
-
-        console.log("[ManualHotkey] Starting Heartbeat Interval");
-        holdHeartbeat = setInterval(() => {
-          const checkTime = Date.now();
-          const timeSincePress = checkTime - lastKeyActivity;
-
-          // console.log(`[ManualHotkey] Heartbeat Tick: ${timeSincePress}ms since last signal`);
-
-          const holdReleaseThreshold = 750;
-          if (timeSincePress > holdReleaseThreshold) {
-            console.log(`[ManualHotkey] RELEASE DETECTED. Time since press: ${timeSincePress}ms`);
-            hideOverlay("Hold Release");
-            manualHotkeyPressed = false;
-            clearInterval(holdHeartbeat);
-            holdHeartbeat = null;
-          }
-        }, 100); // Check every 100ms
-      } else {
-        // If visible, we just updated lastKeyActivity, effectively "feeding the watchdog"
-        // console.log("[ManualHotkey] Key Held - Refreshed activity timestamp");
-      }
-    }
-  });
-
-  if (!manualIn) {
-    console.warn(`[ManualHotkey] Failed to register hotkey: ${userSettings.showHotkey}`);
+    manualHotkeyElectronFailureHotkey = userSettings.showHotkey;
+    manualHotkeyBackend = MANUAL_HOTKEY_BACKEND_INPUT_SERVER;
+    manualHotkeyBackendReason = "electron-registration-failed";
+    console.warn(`[ManualHotkey] Electron registration failed for ${userSettings.showHotkey}; falling back to input server (${manualModeType})`);
   }
+
+  syncGamepadServerState("manual-hotkey-input-server");
+  syncManualHotkeyInputServerConnection("manual-hotkey-register");
+  publishManualHotkeyRuntimeStatus();
 }
 
 // DISABLED AFK TIMER FOR NOW
@@ -2397,10 +2946,12 @@ function openSettings() {
       alwaysOnTop: true,
       title: "Overlay Settings",
       webPreferences: {
+        preload: FIND_IN_PAGE_PRELOAD_PATH,
         nodeIntegration: true,
         contextIsolation: false
       },
     });
+    enableFindInPage(settingsWindow);
 
     settingsWindow.webContents.on('context-menu', () => {
       if (isDev) {
@@ -2438,6 +2989,7 @@ function openSettings() {
         userSettings,
         websocketStates,
         defaultSettings: DEFAULT_USER_SETTINGS,
+        runtimeSettings: getManualHotkeyRuntimeStatus(),
       });
     });
     settingsWindow.on("closed", () => {
@@ -2462,22 +3014,23 @@ function openYomitanSettings() {
   }
   yomitanSettingsWindow = new BrowserWindow({
     width: 1100,
-    height: 600,
+    height: 800,
     icon: getOverlayAppIconPath(),
     webPreferences: {
+      preload: FIND_IN_PAGE_PRELOAD_PATH,
       nodeIntegration: false
+    }
+  });
+  enableFindInPage(yomitanSettingsWindow);
+
+  yomitanSettingsWindow.webContents.on('context-menu', () => {
+    if (isDev) {
+      yomitanSettingsWindow.webContents.openDevTools({ mode: 'detach' });
     }
   });
 
   yomitanSettingsWindow.removeMenu()
   yomitanSettingsWindow.loadURL(`chrome-extension://${yomitanExt.id}/settings.html`);
-  // Allow search ctrl F in the settings window
-  yomitanSettingsWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.key.toLowerCase() === 'f' && input.control) {
-      yomitanSettingsWindow.webContents.send('focus-search');
-      event.preventDefault();
-    }
-  });
   yomitanSettingsWindow.show();
   // Force a repaint to fix blank/transparent window issue
   setTimeout(() => {
@@ -2588,6 +3141,7 @@ function openOffsetHelper() {
     icon: getOverlayAppIconPath(),
     transparent: true,
     frame: false,
+    ...getWindowsFramelessWindowOptions(),
     alwaysOnTop: true,
     resizable: false,
     titleBarStyle: 'hidden',
@@ -2761,19 +3315,16 @@ app.whenReady().then(async () => {
 
   if (!isWindows()) {
     userSettings.manualMode = true; // enforce manual mode on non-Windows platforms
-    // Show a warning for now saying that automatic mode is not supported, and to show the overlay manually, use the hotkey
-    // Use electron dialog to show a message box
-    const manualModeNote = isLinux()
-      ? 'Note: Hold mode can feel a bit weird on Linux; toggle is recommended.'
-      : '';
+    const manualModeDescription = normalizeManualModeType(userSettings.manualModeType) === "toggle"
+      ? "press the hotkey once to show the overlay and press it again to hide it"
+      : "hold the hotkey to keep the overlay visible";
     dialog.showMessageBoxSync({
       type: 'warning',
       buttons: ['OK'],
       defaultId: 0,
       title: 'GSM Overlay - Manual Mode Enforced',
       message: 'Overlay requires hotkey to show text for lookups on macOS and Linux due to platform limitations.\n\n' +
-        'Use the configured hotkey: ' + userSettings.showHotkey + ' to show/hide the overlay as needed.' +
-        (manualModeNote ? '\n\n' + manualModeNote : ''),
+        'Use the configured hotkey: ' + userSettings.showHotkey + ' and the selected manual mode type to control the overlay. Current mode: ' + manualModeDescription + '.',
     });
   }
 
@@ -3094,8 +3645,8 @@ app.whenReady().then(async () => {
   backend = new BackendConnector(ipcMain, () => mainWindow);
   backend.connect(userSettings.weburl2);
 
-  // Start gamepad server (Rust process) if enabled
-  void startGamepadServer("app-whenReady");
+  // Start the shared Rust input server if any current feature requires it.
+  syncGamepadServerState("app-whenReady");
 
   app.on('will-quit', () => {
     releaseAllOverlayPauseRequests();
@@ -3123,12 +3674,13 @@ app.whenReady().then(async () => {
     icon: getOverlayAppIconPath(),
     transparent: true,
     frame: false,
+    ...getWindowsFramelessWindowOptions(),
     alwaysOnTop: true,
     resizable: false,
     titleBarStyle: 'hidden',
     title: "GSM Overlay",
     fullscreen: false,
-    focusable: false,
+    focusable: true,
     // skipTaskbar: true,
     webPreferences: {
       contextIsolation: false,
@@ -3315,7 +3867,7 @@ app.whenReady().then(async () => {
         blurAndRestoreFocus();
       }
       // Magpie can race z-order after popup close; reassert top layer without extra focus handoff.
-      if (currentMagpieActive) {
+      if (currentMagpieState.active) {
         scheduleYomitanCloseRecovery();
       }
     }
@@ -3387,6 +3939,9 @@ app.whenReady().then(async () => {
     }
 
     // Start the activity timer
+    if (userSettings.openSettingsOnStartup) {
+      openSettings();
+    }
     resetActivityTimer();
   });
 
@@ -3406,25 +3961,10 @@ app.whenReady().then(async () => {
     openJitenReaderSettings();
   });
 
-  function requestManualOverlayScanFromOverlay(source = "overlay") {
-    const safeSource = String(source || "overlay");
-    if (!backend || !backend.connected) {
-      console.warn(`[OverlayScan] Cannot request manual overlay scan: backend not connected (source=${safeSource})`);
-      return false;
-    }
-
-    backend.send({
-      type: "manual-overlay-scan-request",
-      source: safeSource,
-    });
-    console.log(`[OverlayScan] Manual overlay scan requested (source=${safeSource})`);
-    return true;
-  }
-
   // Action panel button handlers
   ipcMain.on("action-scan", () => {
     console.log("Action: Scan requested from overlay");
-    requestManualOverlayScanFromOverlay("overlay-action-panel");
+    requestManualOverlayScan("overlay-action-panel");
   });
 
   ipcMain.on("action-translate", () => {
@@ -3445,18 +3985,24 @@ app.whenReady().then(async () => {
     // TODO: Implement TTS functionality
   });
 
-  ipcMain.on("window-state-changed", (event, { state, game, magpieActive, isFullscreen, recommendManualMode }) => {
+  ipcMain.on("window-state-changed", (event, { state, game, magpieActive, magpieInfo, isFullscreen, recommendManualMode }) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
     if (isTexthookerMode) return;
 
-    // Update the tracked magpie state
-    currentMagpieActive = magpieActive || false;
+    const normalizedWindowState = setTrackedGameWindowState(state, "window-state-changed");
 
-    console.log(`Window state changed to: ${state} for game: ${game}, magpie active: ${currentMagpieActive}, fullscreen: ${isFullscreen}`);
+    currentMagpieState = magpieInfo !== undefined
+      ? createMagpieState(magpieInfo)
+      : (magpieActive ? currentMagpieState : createMagpieState(null));
+
+    console.log(
+      `Window state changed to: ${normalizedWindowState} for game: ${game}, ` +
+      `magpie active: ${currentMagpieState.active}, signature: ${currentMagpieState.signature || "inactive"}, fullscreen: ${isFullscreen}`
+    );
 
     // Send game state to renderer to control action panel visibility
-    mainWindow.webContents.send("game-state", state);
+    mainWindow.webContents.send("game-state", normalizedWindowState);
 
     // Forward fullscreen recommendation to renderer if applicable
     // if (recommendManualMode && !isManualMode()) {
@@ -3464,7 +4010,7 @@ app.whenReady().then(async () => {
     //   mainWindow.webContents.send("recommend-manual-mode", { game });
     // }
 
-    switch (state) {
+    switch (normalizedWindowState) {
       case "active":
         if (isManualMode()) {
           return; // Do nothing in manual mode
@@ -3481,7 +4027,7 @@ app.whenReady().then(async () => {
           mainWindow.show();
           blurAndRestoreFocus();
           mainWindow.setAlwaysOnTop(true, 'screen-saver');
-        } else if (magpieActive) {
+        } else if (currentMagpieState.active) {
           reassertOverlayTopmostWithoutFocus("window-state-active-magpie");
         }
         break;
@@ -3492,10 +4038,8 @@ app.whenReady().then(async () => {
         break;
 
       case "obscured":
-        if (isManualMode()) {
-          return; // Do nothing in manual mode
-        }
         console.log("[WindowState] Obscured - Game completely covered by other windows");
+        resetOverlayInteractionStateForHiddenGameWindow("window-state:obscured");
         // Game window is completely hidden by other windows - hide overlay
         if (!yomitanShown && !resizeMode && !mainWindow.isMinimized()) {
           mainWindow.hide();
@@ -3504,6 +4048,7 @@ app.whenReady().then(async () => {
 
       case "minimized":
         console.log("[WindowState] Minimized - Game window minimized");
+        resetOverlayInteractionStateForHiddenGameWindow("window-state:minimized");
         // Avoid minimizing the topmost frameless overlay window here; on Windows
         // that can surface/focus the overlay while the game is being minimized.
         // Hiding keeps it out of the way, and the "active" path restores it.
@@ -3514,6 +4059,7 @@ app.whenReady().then(async () => {
 
       case "closed":
         // Game window is closed - hide overlay
+        resetOverlayInteractionStateForHiddenGameWindow("window-state:closed");
         mainWindow.hide();
         break;
 
@@ -3538,6 +4084,25 @@ app.whenReady().then(async () => {
   });
   ipcMain.on("open-offset-helper", () => {
     openOffsetHelper();
+  });
+
+  ipcMain.on(FIND_IN_PAGE_COMMAND_CHANNEL, (event, payload = {}) => {
+    const contents = event.sender;
+    const state = getFindInPageState(contents);
+
+    switch (payload.action) {
+      case 'search':
+        performFindInPage(contents, payload);
+        break;
+      case 'clear':
+        clearFindInPage(contents);
+        break;
+      case 'visibility':
+        state.visible = !!payload.visible;
+        break;
+      default:
+        break;
+    }
   });
 
   ipcMain.on("save-offset", (event, { offsetX, offsetY }) => {
@@ -3607,6 +4172,8 @@ app.whenReady().then(async () => {
       value = normalizeFuriganaColor(value, "#222222");
     } else if (key === "furiganaOutlineWidth") {
       value = normalizeFuriganaOutlineWidth(value);
+    } else if (key === "manualModeType") {
+      value = normalizeManualModeType(value);
     }
     const oldValue = userSettings[key];
     userSettings[key] = value;
@@ -3615,6 +4182,7 @@ app.whenReady().then(async () => {
         {
           const resolved = ensureManualAndTexthookerHotkeysDistinct("setting-changed:showHotkey");
           registerManualShowHotkey(oldValue);
+          syncGamepadServerState("setting-changed:showHotkey");
           if (resolved) {
             registerTexthookerHotkey();
           }
@@ -3625,14 +4193,12 @@ app.whenReady().then(async () => {
         requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
         restoreAutomaticOverlayPassThrough("setting-changed:manualMode");
         registerManualShowHotkey();
+        syncGamepadServerState("setting-changed:manualMode");
         break;
       case "manualModeType":
         clearManualActivationState("setting-changed:manualModeType");
         requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
         restoreAutomaticOverlayPassThrough("setting-changed:manualModeType");
-        if (isLinux() && value === "hold") {
-          console.warn("[ManualHotkey] Hold mode can be unreliable on Linux (globalShortcut has no key-up and no repeat on many setups).");
-        }
         registerManualShowHotkey();
         break;
       case "focusOverlayOnYomitanLookup":
@@ -3697,7 +4263,7 @@ app.whenReady().then(async () => {
             // Disable
             if (jitenReaderExt) {
                 try {
-                    session.defaultSession.removeExtension(jitenReaderExt.id);
+                    getExtensionSessionApi().removeExtension(jitenReaderExt.id);
                     jitenReaderExt = null;
                     console.log("Jiten Reader disabled and unloaded.");
                 } catch (e) {
@@ -3801,6 +4367,7 @@ app.whenReady().then(async () => {
     mainWindow.webContents.send("settings-updated", { manualMode: newValue });
     saveSettings();
     registerManualShowHotkey();
+    syncGamepadServerState("legacy:manualmode-changed");
   });
 
   ipcMain.on("showHotkey-changed", (event, newValue) => {
@@ -3813,6 +4380,7 @@ app.whenReady().then(async () => {
     }
     saveSettings();
     registerManualShowHotkey(oldValue);
+    syncGamepadServerState("legacy:showHotkey-changed");
     if (resolved) {
       registerTexthookerHotkey();
     }
@@ -3894,7 +4462,7 @@ app.whenReady().then(async () => {
     }
 
     // When Magpie is active, ensure overlay stays on top (Magpie can steal z-order)
-    if (currentMagpieActive && !isManualMode()) {
+    if (currentMagpieState.active && !isManualMode()) {
       reassertOverlayTopmostWithoutFocus("text-received-magpie");
 
       setTimeout(() => {
@@ -3972,7 +4540,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("gamepad-manual-overlay-scan", () => {
-    requestManualOverlayScanFromOverlay("gamepad");
+    requestManualOverlayScan("gamepad");
   });
 
   // Handler to manually send navigation commands (can be triggered from other sources)

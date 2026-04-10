@@ -1,10 +1,10 @@
 // Unified Search JavaScript Module
-// Provides search functionality across Jiten.moe, VNDB, and AniList
+// Provides search functionality across Jiten.moe, VNDB, AniList, and IGDB
 // Dependencies: shared.js (provides escapeHtml)
 
 const UnifiedSearch = {
     // Default enabled sources
-    enabledSources: ['jiten', 'vndb', 'anilist'],
+    enabledSources: ['jiten', 'vndb', 'igdb', 'anilist'],
     
     // Debounce timer
     debounceTimer: null,
@@ -14,6 +14,7 @@ const UnifiedSearch = {
     currentResults: {
         jiten: [],
         vndb: [],
+        igdb: [],
         anilist: []
     },
     
@@ -35,6 +36,15 @@ const UnifiedSearch = {
             isPrimary: false,
             description: 'Visual Novel database - limited stats',
             warning: '⚠️ Visual Novel data only - limited stats'
+        },
+        igdb: {
+            label: 'IGDB',
+            emoji: '🟣',
+            badgeClass: 'igdb-badge',
+            color: '#8b5cf6',
+            isPrimary: false,
+            description: 'Game metadata source - no character data',
+            warning: '⚠️ Game metadata only - no character data, character counts, or difficulty'
         },
         anilist: {
             label: 'AniList',
@@ -60,7 +70,7 @@ const UnifiedSearch = {
      * Setup source toggle checkbox event listeners
      */
     setupSourceToggles() {
-        const sources = ['jiten', 'vndb', 'anilist'];
+        const sources = ['jiten', 'vndb', 'igdb', 'anilist'];
         sources.forEach(source => {
             const toggle = document.getElementById(`toggle-${source}`);
             if (toggle) {
@@ -201,7 +211,12 @@ const UnifiedSearch = {
         if (grouped.vndb && grouped.vndb.length > 0) {
             this.renderSourceSection('vndb', grouped.vndb, containerElement, onSelectCallback);
         }
-        
+
+        // Then IGDB
+        if (grouped.igdb && grouped.igdb.length > 0) {
+            this.renderSourceSection('igdb', grouped.igdb, containerElement, onSelectCallback);
+        }
+
         // Then AniList
         if (grouped.anilist && grouped.anilist.length > 0) {
             this.renderSourceSection('anilist', grouped.anilist, containerElement, onSelectCallback);
@@ -217,6 +232,7 @@ const UnifiedSearch = {
         const grouped = {
             jiten: [],
             vndb: [],
+            igdb: [],
             anilist: []
         };
         
@@ -299,6 +315,20 @@ const UnifiedSearch = {
         const description = result.description 
             ? escape(result.description.substring(0, 150)) + (result.description.length > 150 ? '...' : '')
             : '';
+
+        let supplementalMeta = '';
+        if (result.source === 'igdb') {
+            const metaBits = [];
+            if (result.result_type) metaBits.push(result.result_type);
+            if (result.year) metaBits.push(result.year);
+            if (Array.isArray(result.platforms) && result.platforms.length > 0) {
+                const platformText = result.platforms.slice(0, 2).join(' • ');
+                metaBits.push(result.platforms.length > 2 ? `${platformText} +${result.platforms.length - 2}` : platformText);
+            }
+            supplementalMeta = metaBits
+                .map(bit => `<span class="external-id-badge">${escape(bit)}</span>`)
+                .join('');
+        }
         
         // Build card HTML
         card.innerHTML = `
@@ -310,6 +340,7 @@ const UnifiedSearch = {
                     ${tertiaryTitle ? `<p class="search-result-title-tertiary">${escape(tertiaryTitle)}</p>` : ''}
                     <div class="search-result-meta">
                         ${this.getSourceBadge(result.source)}
+                        ${supplementalMeta}
                     </div>
                 </div>
             </div>
@@ -418,6 +449,11 @@ const UnifiedSearch = {
             }
         } else if (result.source === 'vndb') {
             linkData.vndb_id = result.id;
+        } else if (result.source === 'igdb') {
+            linkData.igdb_url = result.source_url || result.igdb_url || '';
+            linkData.result_type = result.result_type || 'Game';
+            linkData.platforms = result.platforms || [];
+            linkData.year = result.year || '';
         } else if (result.source === 'anilist') {
             linkData.anilist_id = result.id;
         }

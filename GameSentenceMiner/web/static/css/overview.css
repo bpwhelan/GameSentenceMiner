@@ -437,6 +437,93 @@
     gap: 8px;
 }
 
+.current-session-action-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.current-session-management {
+    position: relative;
+}
+
+.settings-cog-container {
+    position: relative;
+}
+
+.settings-cog-btn {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    font-size: 20px;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.settings-cog-btn:hover {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+}
+
+.settings-cog-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px var(--shadow-color);
+    min-width: 240px;
+    z-index: 100;
+    overflow: hidden;
+}
+
+.settings-cog-dropdown.show {
+    display: block;
+}
+
+.dropdown-item {
+    display: block;
+    width: 100%;
+    padding: 10px 16px;
+    border: none;
+    background: none;
+    color: var(--text-primary);
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.dropdown-item:hover {
+    background: var(--bg-tertiary);
+}
+
+.dropdown-item-danger {
+    color: var(--danger-color);
+}
+
+.dropdown-item-danger:hover {
+    background: rgba(220, 53, 69, 0.1);
+}
+
+.dropdown-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 4px 0;
+}
+
 .game-completion-btn {
     background: var(--success-color);
     color: white;
@@ -727,6 +814,11 @@
         padding: 20px;
     }
 
+    .current-session-action-row {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
     .game-content-grid {
         flex-direction: column;
         gap: 16px;
@@ -764,6 +856,20 @@
 }
 
 @media (max-width: 480px) {
+    .dashboard-header-actions {
+        width: 100%;
+        align-items: stretch;
+    }
+
+    .current-session-action-row {
+        justify-content: space-between;
+    }
+
+    .settings-cog-dropdown {
+        right: 0;
+        min-width: min(240px, calc(100vw - 48px));
+    }
+
     .game-progress-date {
         font-size: 9px;
     }

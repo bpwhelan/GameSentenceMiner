@@ -1,25 +1,172 @@
+<style>
+    #ocr-tab-container {
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    .ocr-source-grid,
+    .ocr-basic-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 14px;
+    }
+
+    .ocr-panel {
+        padding: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.03);
+    }
+
+    .ocr-panel h3 {
+        margin: 0 0 6px;
+        font-size: 15px;
+        color: #f3f6fb;
+    }
+
+    .ocr-heading-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .ocr-inline-help {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.05);
+        color: #d7e7ff;
+        font-size: 12px;
+        font-weight: 700;
+    }
+
+    .ocr-status-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .ocr-pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 30px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: #dfe6ee;
+        font-size: 13px;
+    }
+
+    .ocr-settings-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .ocr-comparison-primary-grid,
+    .ocr-comparison-expert-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 14px;
+    }
+
+    .ocr-comparison-expert-grid {
+        margin-top: 12px;
+    }
+
+    .ocr-comparison-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .ocr-comparison-field label {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        width: 100%;
+    }
+
+    .ocr-comparison-value {
+        color: #8ab4ff;
+        font-weight: 600;
+    }
+
+    .ocr-comparison-field input {
+        max-width: none;
+    }
+
+    .ocr-details {
+        margin-top: 14px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        padding-top: 12px;
+    }
+
+    .ocr-details summary {
+        cursor: pointer;
+        color: #dfe6ee;
+        font-weight: 600;
+        user-select: none;
+    }
+
+    @media (max-width: 720px) {
+        .ocr-status-pills {
+            flex-direction: column;
+        }
+
+        #start-ocr-controls {
+            flex-wrap: wrap;
+        }
+    }
+</style>
+
 <div id="ocr-tab-container" class="tab-container">
     <div id="ocr-grid-container" class="grid-container">
         <div id='config-card' class="card">
-            <h2 id="config-header" class="collapsible-header">1. Select Source <span class="arrow-icon">▲</span>
+            <h2 id="config-header" class="collapsible-header">1. Select Source
+                <span class="arrow-icon">▲</span>
             </h2>
             <div id="config-collapsible-content" class="collapsible-content" style="display: block;">
-                <div class="form-group" style="justify-content: center; align-items: center;">
-                    <div id="scene-select-group" class="input-group">
-                        <label for="sceneSelect" class="tooltip-indicator">Game (OBS Scene):
-                            <span class="tooltiptext tooltiptext-right">Select the OBS Scene to Capture for OCR.
-                                You can make a new Scene in the "Home" Tab</span>
-                        </label>
-                        <select id="sceneSelect"></select>
-                        <button id="refreshScenesBtn" class="secondary">↻</button>
+                <div class="ocr-source-grid">
+                    <div class="ocr-panel">
+                        <h3 class="ocr-heading-row">Capture Source
+                            <span class="tooltip ocr-inline-help">?
+                                <span class="tooltiptext tooltip-right">Choose the OBS scene GSM should read from. The area config below updates with the currently selected scene.</span>
+                            </span>
+                        </h3>
+                        <div id="scene-select-group" class="input-group">
+                            <label for="sceneSelect" class="tooltip-indicator">Game (OBS Scene):
+                                <span class="tooltiptext tooltiptext-right">Select the OBS Scene to Capture for OCR.
+                                    You can make a new Scene in the "Home" Tab</span>
+                            </label>
+                            <select id="sceneSelect"></select>
+                            <button id="refreshScenesBtn" class="secondary" title="Refresh scenes">↻</button>
+                        </div>
+                        <div class="ocr-status-pills">
+                            <span id="ocr-selected-scene-pill" class="ocr-pill">Scene: None</span>
+                            <span id="ocr-rectangles-pill" class="ocr-pill">Areas: 0</span>
+                            <span id="ocr-mode-pill" class="ocr-pill">Mode: Basic</span>
+                        </div>
                     </div>
-                    <div id="screen-selector-group" class="input-group" style="justify-content: center;">
-                        <button id="run-screen-selector">Run Area(s) Selector</button>
-                        <button id="import-config-btn" class="secondary" title="Import OCR Config">📋</button>
-                        <button id="export-config-btn" class="secondary" title="Export OCR Config">📤</button>
-                        <button id="open-ocr-wiki-btn" class="secondary" title="Open OCR documentation">
-                            OCR Guide
-                        </button>
+                    <div class="ocr-panel">
+                        <h3 class="ocr-heading-row">Setup Tools
+                            <span class="tooltip ocr-inline-help">?
+                                <span class="tooltiptext tooltip-left">Run the selector when setting up a scene for the first time. Import/export only copies the saved OCR rectangles.</span>
+                            </span>
+                        </h3>
+                        <div id="screen-selector-group" class="input-group" style="justify-content: center;">
+                            <button id="run-screen-selector">Run Area(s) Selector</button>
+                            <button id="import-config-btn" class="secondary" title="Import OCR Config">📋</button>
+                            <button id="export-config-btn" class="secondary" title="Export OCR Config">📤</button>
+                            <button id="open-ocr-wiki-btn" class="secondary" title="Open OCR documentation">
+                                OCR Guide
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -28,7 +175,11 @@
 
     <div class="card" id="ocr-settings-card">
         <h2 id="settings-header" class="collapsible-header">
-            <span>2. OCR Settings</span>
+            <span>2. OCR Settings
+                <span class="tooltip ocr-inline-help">?
+                    <span class="tooltiptext tooltip-right" id="ocr-settings-helper-text">Basic Mode is recommended for most games. It keeps the everyday settings visible and uses the default OCR engine setup.</span>
+                </span>
+            </span>
             <span style="margin-left: auto; display: flex; align-items: center; gap: 8px;">
                 <label for="settings-mode-toggle" style="font-size: 14px; font-weight: normal; cursor: pointer;">
                     <input type="checkbox" id="settings-mode-toggle" style="margin-right: 4px;">
@@ -39,61 +190,76 @@
         <div id="ocr-settings-collapsible-content" class="collapsible-content" style="display: block;">
             <!-- Basic Mode Settings -->
             <div id="ocr-basic-settings" style="display: none;">
-                <div class="grid-container">
-                    <div class="form-group">
-                        <div id="text-appearance-speed-group" class="input-group">
-                            <label for="text-appearance-speed" class="tooltip-indicator">
-                                Text Appearance Speed:
-                                <span class="tooltiptext tooltiptext-right">
-                                    How quickly the text appears in your game.
-                                    <br>• Instant: For text that appears immediately - Most CPU usage
-                                    <br>• Normal: For most games with standard dialogue - Moderate CPU usage
-                                    <br>• Slow: For text that appears gradually - Least CPU usage
-                                </span>
-                            </label>
-                            <select id="text-appearance-speed">
-                                <option value="0.2">Instant</option>
-                                <option value="0.5" selected>Normal</option>
-                                <option value="0.8">Slow</option>
-                                <option value="1.0">Very Slow</option>
-                            </select>
-                        </div>
-                        <div id="language-select-group-basic">
-                            <!-- Will be moved here dynamically -->
-                        </div>
-                        <div id="furigana-filter-group-basic">
-                            <!-- Will be moved here dynamically -->
-                        </div>
-                        <div id="send-to-clipboard-group-basic">
-                            <!-- Will be moved here dynamically -->
-                        </div>
-                        <div id="keep-newline-group-basic">
-                            <!-- Will be moved here dynamically -->
+                <div class="ocr-basic-grid">
+                    <div class="ocr-panel">
+                        <h3 class="ocr-heading-row">Recommended Everyday Settings
+                            <span class="tooltip ocr-inline-help">?
+                                <span class="tooltiptext tooltip-right">These are the main settings most players need. Start here before changing Advanced Mode.</span>
+                            </span>
+                        </h3>
+                        <div class="form-group">
+                            <div id="text-appearance-speed-group" class="input-group">
+                                <label for="text-appearance-speed" class="tooltip-indicator">
+                                    Text Appearance Speed:
+                                    <span class="tooltiptext tooltiptext-right">
+                                        How quickly the text appears in your game.
+                                        <br>• Instant: For text that appears immediately - Most CPU usage
+                                        <br>• Normal: For most games with standard dialogue - Moderate CPU usage
+                                        <br>• Slow: For text that appears gradually - Least CPU usage
+                                    </span>
+                                </label>
+                                <select id="text-appearance-speed">
+                                    <option value="0.2">Instant</option>
+                                    <option value="0.5" selected>Normal</option>
+                                    <option value="0.8">Slow</option>
+                                    <option value="1.0">Very Slow</option>
+                                </select>
+                            </div>
+                            <div id="language-select-group-basic">
+                                <!-- Will be moved here dynamically -->
+                            </div>
+                            <div id="furigana-filter-group-basic">
+                                <!-- Will be moved here dynamically -->
+                            </div>
+                            <div id="send-to-clipboard-group-basic">
+                                <!-- Will be moved here dynamically -->
+                            </div>
+                            <div id="keep-newline-group-basic">
+                                <!-- Will be moved here dynamically -->
+                            </div>
                         </div>
                     </div>
-                    <div class="form-group">
-                        <div id="manual-ocr-hotkey-group-basic">
-                            <!-- Will be moved here dynamically -->
-                        </div>
-                        <div id="area-select-ocr-hotkey-group-basic">
-                            <!-- Will be moved here dynamically -->
-                        </div>
-                        <div id="whole-window-ocr-hotkey-group-basic">
-                            <!-- Will be moved here dynamically -->
-                        </div>
-                        <div id="global-pause-hotkey-group-basic">
-                            <!-- Will be moved here dynamically -->
-                        </div>
-                        <div id="select_areas_button_basic" class="input-group" style="display:none;">
-                            <button id="select-areas-button-basic">Change Area Config</button>
-                            <div class="tooltip">❓
-                                <span class="tooltiptext">Select areas to OCR. This will open a window to select areas.</span>
+                    <div class="ocr-panel">
+                        <h3 class="ocr-heading-row">Hotkeys & Output
+                            <span class="tooltip ocr-inline-help">?
+                                <span class="tooltiptext tooltip-left">Use these when OCR needs a manual push, when text appears outside your boxes, or when you want quick pause control.</span>
+                            </span>
+                        </h3>
+                        <div class="form-group">
+                            <div id="manual-ocr-hotkey-group-basic">
+                                <!-- Will be moved here dynamically -->
+                            </div>
+                            <div id="area-select-ocr-hotkey-group-basic">
+                                <!-- Will be moved here dynamically -->
+                            </div>
+                            <div id="whole-window-ocr-hotkey-group-basic">
+                                <!-- Will be moved here dynamically -->
+                            </div>
+                            <div id="global-pause-hotkey-group-basic">
+                                <!-- Will be moved here dynamically -->
+                            </div>
+                            <div id="select_areas_button_basic" class="input-group" style="display:none;">
+                                <button id="select-areas-button-basic">Change Area Config</button>
+                                <div class="tooltip">❓
+                                    <span class="tooltiptext">Select areas to OCR. This will open a window to select areas.</span>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
             <!-- Advanced Mode Settings -->
+            <div class="ocr-settings-stack">
             <div id="ocr-settings-grid-container" class="grid-container">
                 <div class="form-group">
                     <div id="ocr1-select-group" class="input-group">
@@ -331,6 +497,23 @@
                     </div>
                 </div>
             </div>
+                <div id="ocr-comparison-settings-card" class="ocr-panel" style="display: none;">
+                    <h3 class="ocr-heading-row">Text Detection Thresholds
+                        <span class="tooltip ocr-inline-help">?
+                            <span class="tooltiptext tooltip-right">Only change these if OCR repeats the same line, misses text changes, or treats partial text as brand new too early.</span>
+                        </span>
+                    </h3>
+                    <div id="ocr-comparison-primary-grid" class="ocr-comparison-primary-grid"></div>
+                    <details class="ocr-details">
+                        <summary>More comparison heuristics
+                            <span class="tooltip ocr-inline-help">?
+                                <span class="tooltiptext tooltip-right">These map to the OCR comparison settings used by the backend text-matching logic.</span>
+                            </span>
+                        </summary>
+                        <div id="ocr-comparison-expert-grid" class="ocr-comparison-expert-grid"></div>
+                    </details>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -344,6 +527,9 @@
                 <span id="config-tooltip">✗</span>
                 <span class="tooltiptext" id="ocr-config-summary"></span>
             </label>
+            <span class="tooltip ocr-inline-help">?
+                <span class="tooltiptext tooltip-right">Auto OCR continuously watches dialogue. Manual OCR is best for menus, pop-ups, or one-off text you want to capture on demand.</span>
+            </span>
             <button id="start-ocr">Start Auto OCR</button>
             <button id="start-ocr-ss-only" class="secondary">Start Manual OCR</button>
         </div>

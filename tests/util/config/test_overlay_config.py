@@ -7,7 +7,7 @@ from GameSentenceMiner.util.config.configuration import Overlay
 
 
 def test_overlay_use_ocr_result_defaults_to_true():
-    assert Overlay().use_ocr_result is True
+    assert Overlay().use_ocr_result_v2 is False
 
 
 def test_overlay_ocr_area_subset_defaults_preserve_existing_behavior():
@@ -20,15 +20,15 @@ def test_overlay_ocr_area_subset_defaults_preserve_existing_behavior():
 
 
 def test_overlay_use_ocr_result_round_trip_and_backward_compatibility():
-    overlay = Overlay(use_ocr_result=False)
+    overlay = Overlay(use_ocr_result_v2=False)
     data = overlay.to_dict()
 
-    assert data["use_ocr_result"] is False
-    assert Overlay.from_dict(data).use_ocr_result is False
+    assert data["use_ocr_result_v2"] is False
+    assert Overlay.from_dict(data).use_ocr_result_v2 is False
 
     data_without_field = dict(data)
-    data_without_field.pop("use_ocr_result", None)
-    assert Overlay.from_dict(data_without_field).use_ocr_result is True
+    data_without_field.pop("use_ocr_result_v2", None)
+    assert Overlay.from_dict(data_without_field).use_ocr_result_v2 is False
 
 
 def test_overlay_ocr_area_subset_round_trip_and_backward_compatibility():

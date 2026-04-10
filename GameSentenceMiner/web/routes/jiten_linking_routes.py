@@ -5,6 +5,7 @@ Routes for linking games to external databases:
 - Link to Jiten.moe
 - Link to VNDB
 - Link to AniList
+- Link to IGDB
 - Repull game data from linked sources
 - Uses GameUpdateService from GameSentenceMiner/util/shared/game_update_service.py
 """
@@ -66,6 +67,7 @@ def api_link_game_to_jiten(game_id):
         deck_id = data.get("deck_id")
         if not deck_id:
             return jsonify({"error": "deck_id is required"}), 400
+        overwrite_metadata = bool(data.get("overwrite_metadata"))
 
         # Get the game
         game = GamesTable.get(game_id)
@@ -75,16 +77,22 @@ def api_link_game_to_jiten(game_id):
         # Get jiten.moe data to ensure it's valid
         jiten_data = data.get("jiten_data", {})
 
+        effective_manual_overrides = (
+            [] if overwrite_metadata else GameUpdateService.get_manual_overrides_for_initial_link(game)
+        )
+
         # Build update fields using shared service, respecting manual overrides
         jiten_data["deck_id"] = deck_id
         update_fields = GameUpdateService.build_update_fields(
             game_data=jiten_data,
-            manual_overrides=game.manual_overrides,
+            manual_overrides=effective_manual_overrides,
             source="jiten",
         )
+        if "links" in update_fields:
+            update_fields["links"] = GameUpdateService.merge_links(game.links, update_fields["links"])
 
         # Download and encode image if not manually overridden
-        if "image" not in game.manual_overrides and jiten_data.get("cover_name"):
+        if "image" not in effective_manual_overrides and jiten_data.get("cover_name"):
             image_data = JitenApiClient.download_cover_image(jiten_data["cover_name"])
             if image_data:
                 update_fields["image"] = image_data
@@ -262,6 +270,7 @@ def api_link_game_to_jiten(game_id):
                 "message": f"Game linked to jiten.moe deck {deck_id}",
                 "updated_fields": list(update_fields.keys()),
                 "manual_overrides": game.manual_overrides,
+                "overwrite_metadata": overwrite_metadata,
                 "lines_updated": lines_updated,
             }
         ), 200
@@ -271,23 +280,105 @@ def api_link_game_to_jiten(game_id):
         return jsonify({"error": f"Failed to link game: {str(e)}"}), 500
 
 
+@jiten_linking_bp.route("/api/games/<game_id>/link-igdb", methods=["POST"])
+def api_link_game_to_igdb(game_id):
+    """
+    Link a game to IGDB metadata.
+
+    IGDB provides game metadata only. Character data is not available.
+    """
+    try:
+        from GameSentenceMiner.util.clients.igdb_api_client import IGDBApiClient
+        from GameSentenceMiner.util.database.games_table import GamesTable
+
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        igdb_url = data.get("igdb_url", "").strip()
+        if not igdb_url:
+            return jsonify({"error": "igdb_url is required"}), 400
+
+        game = GamesTable.get(game_id)
+        if not game:
+            return jsonify({"error": "Game not found"}), 404
+
+        overwrite_metadata = bool(data.get("overwrite_metadata"))
+
+        metadata = IGDBApiClient.fetch_game_metadata(
+            igdb_url,
+            result_type=data.get("result_type"),
+        )
+        if not metadata:
+            return jsonify({"error": "Failed to fetch metadata from IGDB"}), 500
+        if not metadata.get("tags") and metadata.get("platforms"):
+            metadata["tags"] = [f"Platform: {platform}" for platform in metadata["platforms"]]
+        logger.info(f"IGDB metadata fetched for link request: {json.dumps(metadata, ensure_ascii=False)}")
+
+        effective_manual_overrides = (
+            [] if overwrite_metadata else GameUpdateService.get_manual_overrides_for_initial_link(game)
+        )
+
+        update_fields = GameUpdateService.build_update_fields(
+            game_data=metadata,
+            manual_overrides=effective_manual_overrides,
+            source="igdb",
+        )
+        if "links" in update_fields:
+            update_fields["links"] = GameUpdateService.merge_links(game.links, update_fields["links"])
+
+        if "image" not in effective_manual_overrides and metadata.get("cover_url"):
+            image_data = IGDBApiClient.download_cover_image(metadata["cover_url"])
+            if image_data:
+                update_fields["image"] = image_data
+                logger.info(f"IGDB image downloaded for game {game_id} from {metadata['cover_url']}")
+            else:
+                logger.info(f"IGDB image download returned no data for game {game_id} from {metadata['cover_url']}")
+
+        logger.info(
+            f"IGDB update fields for game {game_id}: {list(update_fields.keys())}, "
+            f"manual_overrides_used={effective_manual_overrides}, overwrite_metadata={overwrite_metadata}"
+        )
+
+        if update_fields:
+            game.update_all_fields_from_jiten(**update_fields)
+
+        return jsonify(
+            {
+                "success": True,
+                "message": f'Game linked to IGDB metadata for "{game.title_original}"',
+                "updated_fields": list(update_fields.keys()),
+                "manual_overrides": game.manual_overrides,
+                "overwrite_metadata": overwrite_metadata,
+                "warning": "IGDB does not include character data.",
+            }
+        ), 200
+
+    except Exception as e:
+        logger.error(f"Error linking game to IGDB: {e}", exc_info=True)
+        return jsonify({"error": f"Failed to link game: {str(e)}"}), 500
+
+
 @jiten_linking_bp.route("/api/games/<game_id>/repull-jiten", methods=["POST"])
 def api_repull_game_from_jiten(game_id):
     """
-    Repull data for a game from all associated sources (Jiten, VNDB, AniList).
+    Repull data for a game from all associated sources (Jiten, VNDB, AniList, IGDB).
     Respects manual overrides. Prioritizes Jiten data but also pulls from other sources.
 
     This endpoint supports games linked to:
     - Jiten.moe (deck_id)
     - VNDB (vndb_id)
     - AniList (anilist_id)
+    - IGDB (link in game.links)
 
     Cover images are downloaded from all available sources, with priority:
     1. Jiten.moe (if deck_id exists)
     2. VNDB (if vndb_id exists and no Jiten image)
-    3. AniList (if anilist_id exists and no Jiten/VNDB image)
+    3. IGDB (if linked and no Jiten/VNDB image)
+    4. AniList (if anilist_id exists and no higher-priority image)
     """
     try:
+        from GameSentenceMiner.util.clients.igdb_api_client import IGDBApiClient
         from GameSentenceMiner.util.database.games_table import GamesTable
         from GameSentenceMiner.util.clients.vndb_api_client import VNDBApiClient
         from GameSentenceMiner.util.clients.anilist_api_client import AniListApiClient
@@ -302,11 +393,17 @@ def api_repull_game_from_jiten(game_id):
         has_jiten = bool(game.deck_id)
         has_vndb = bool(game.vndb_id)
         has_anilist = bool(game.anilist_id)
+        igdb_url = IGDBApiClient.extract_igdb_url(game.links)
+        has_igdb = bool(igdb_url)
 
-        if not has_jiten and not has_vndb and not has_anilist:
+        if not has_jiten and not has_vndb and not has_anilist and not has_igdb:
             logger.error(f"Game {game_id} is not linked to any data source")
             return jsonify(
-                {"error": "Game is not linked to any data source (Jiten, VNDB, or AniList). Please link it first."}
+                {
+                    "error": (
+                        "Game is not linked to any data source (Jiten, VNDB, AniList, or IGDB). Please link it first."
+                    )
+                }
             ), 400
 
         # Track which sources were used
@@ -314,6 +411,7 @@ def api_repull_game_from_jiten(game_id):
         jiten_data = None
         vndb_metadata = None
         anilist_metadata = None
+        igdb_metadata = None
 
         # Ensure manual_overrides is always a list
         manual_overrides = game.manual_overrides if game.manual_overrides is not None else []
@@ -367,13 +465,29 @@ def api_repull_game_from_jiten(game_id):
             except Exception as e:
                 logger.error(f"AniList API request failed: {e}")
 
-        # === APPLY UPDATES (Prioritize Jiten > VNDB > AniList) ===
+        # === BACKLOGGD DATA (Secondary source for games) ===
+        if has_igdb:
+            try:
+                logger.info(f"Fetching IGDB metadata for url: {igdb_url}")
+                igdb_metadata = IGDBApiClient.fetch_game_metadata(igdb_url)
+                if igdb_metadata:
+                    if not igdb_metadata.get("tags") and igdb_metadata.get("platforms"):
+                        igdb_metadata["tags"] = [f"Platform: {platform}" for platform in igdb_metadata["platforms"]]
+                    sources_used.append("igdb")
+                    logger.info(f"Successfully fetched IGDB metadata for {igdb_url}")
+            except Exception as e:
+                logger.error(f"IGDB request failed: {e}")
+
+        # === APPLY UPDATES (Prioritize Jiten > VNDB > IGDB > AniList) ===
         update_fields = GameUpdateService.merge_update_fields_from_multiple_sources(
             jiten_data=jiten_data,
             vndb_data=vndb_metadata,
             anilist_data=anilist_metadata,
+            igdb_data=igdb_metadata,
             manual_overrides=manual_overrides,
         )
+        if "links" in update_fields:
+            update_fields["links"] = GameUpdateService.merge_links(game.links, update_fields["links"])
 
         # Track which fields were skipped due to manual overrides
         all_possible_fields = [
@@ -411,7 +525,14 @@ def api_repull_game_from_jiten(game_id):
                     image_source = "vndb"
                     logger.info("Downloaded cover image from VNDB")
 
-            # Try AniList if no Jiten/VNDB image
+            # Try IGDB if no Jiten/VNDB image
+            if not image_data and igdb_metadata and igdb_metadata.get("cover_url"):
+                image_data = IGDBApiClient.download_cover_image(igdb_metadata["cover_url"])
+                if image_data:
+                    image_source = "igdb"
+                    logger.info("Downloaded cover image from IGDB")
+
+            # Try AniList if no higher-priority image
             if not image_data and has_anilist:
                 media_type = "ANIME"
                 if game.type and game.type.lower() == "manga":
@@ -507,6 +628,7 @@ def api_repull_game_from_jiten(game_id):
                     "deck_id": game.deck_id,
                     "vndb_id": game.vndb_id,
                     "anilist_id": game.anilist_id,
+                    "igdb_url": igdb_url,
                 }
             ), 200
         else:
@@ -525,6 +647,7 @@ def api_repull_game_from_jiten(game_id):
                     "deck_id": game.deck_id,
                     "vndb_id": game.vndb_id,
                     "anilist_id": game.anilist_id,
+                    "igdb_url": igdb_url,
                 }
             ), 200
 

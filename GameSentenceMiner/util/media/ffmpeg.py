@@ -870,9 +870,10 @@ def get_audio_and_trim(video_path, game_line, next_line_time, anki_card_creation
     logger.debug("Doing initial audio extraction")
     FFmpegHelper.run(command, check=False)
 
-    return trim_audio_based_on_last_line(
+    trimmed_audio, start_time, end_time = trim_audio_based_on_last_line(
         untrimmed_audio, video_path, game_line, next_line_time, anki_card_creation_time
     )
+    return untrimmed_audio, trimmed_audio, start_time, end_time
 
 
 def get_video_duration(file_path):

@@ -4,12 +4,17 @@ export interface ObsScene {
 }
 
 export type ObsCaptureMode = "window_capture" | "game_capture";
+export type ObsSetupTargetKind = "window" | "capture_card";
 
 export interface ObsWindow {
   title: string;
   value: string;
+  targetKind?: ObsSetupTargetKind;
   captureValues?: Partial<Record<ObsCaptureMode, string>>;
   captureMode?: ObsCaptureMode;
+  videoDeviceId?: string;
+  audioDeviceId?: string;
+  wasapiInputDeviceId?: string;
 }
 
 export type HookableGameType = "steam" | "yuzu" | "vn" | "none";
@@ -43,6 +48,7 @@ export interface SceneLaunchProfile {
   sceneName: string;
   textHookMode: SceneTextHookMode;
   ocrMode: SceneOcrMode;
+  launchOverlay: boolean;
   agentScriptPath: string;
   launchDelaySeconds: number;
 }

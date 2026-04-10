@@ -30,6 +30,7 @@ import {DictionaryController} from './dictionary-controller.js';
 import {DictionaryImportController} from './dictionary-import-controller.js';
 import {ExtensionKeyboardShortcutController} from './extension-keyboard-shortcuts-controller.js';
 import {GenericSettingController} from './generic-setting-controller.js';
+import {GsmOverlayRecommendedSettingsController} from './gsm-overlay-recommended-settings-controller.js';
 import {KeyboardShortcutController} from './keyboard-shortcuts-controller.js';
 import {LanguagesController} from './languages-controller.js';
 import {MecabController} from './mecab-controller.js';
@@ -181,6 +182,9 @@ await Application.main(true, async (application) => {
 
     const recommendedSettingsController = new RecommendedSettingsController(settingsController);
     preparePromises.push(recommendedSettingsController.prepare());
+
+    const gsmOverlayRecommendedSettingsController = new GsmOverlayRecommendedSettingsController(settingsController, modalController);
+    preparePromises.push(gsmOverlayRecommendedSettingsController.prepare());
 
     await Promise.all(preparePromises);
 

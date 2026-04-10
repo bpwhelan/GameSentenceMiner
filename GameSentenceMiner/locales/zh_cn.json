@@ -462,6 +462,24 @@
           "install_ocenaudio_button": "安装 Ocenaudio",
           "get_anki_media_button": "获取 Anki 媒体集"
         },
+        "hotkeys": {
+          "title": "热键",
+          "description": "集中管理 GSM 的热键。留空即可禁用对应热键。",
+          "groups": {
+            "input": "输入",
+            "overlay": "Overlay",
+            "audio": "音频",
+            "experimental": "实验功能"
+          },
+          "pause_text_intake": {
+            "label": "暂停 GSM 文本输入热键:",
+            "tooltip": "临时暂停或恢复 GSM 的剪贴板/WebSocket 文本输入。暂停时，GSM 会跳过自身的统计/历史记录以及 Overlay 触发。留空即可禁用此热键；默认不分配热键。"
+          },
+          "relay_outputs_when_paused": {
+            "checkbox": "暂停时仍转发到 texthooker/输出客户端",
+            "tooltip": "启用后，暂停期间的文本在完成文本处理后仍会转发到 texthooker 页面和输出 websocket 客户端，但 GSM 仍会跳过自身的统计/历史记录以及 Overlay 触发。关闭后会完全丢弃传入文本。"
+          }
+        },
         "obs": {
           "title": "OBS",
           "enabled": {

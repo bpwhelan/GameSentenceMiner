@@ -55,6 +55,8 @@ model_stub.AnkiCard = object
 
 notification_stub = ModuleType("GameSentenceMiner.util.platform.notification")
 notification_stub.send_error_no_anki_update = lambda *args, **kwargs: None
+notification_stub.send_anki_enhancement_failed = lambda *args, **kwargs: None
+notification_stub.send_error_notification = lambda *args, **kwargs: None
 platform_pkg = ModuleType("GameSentenceMiner.util.platform")
 platform_pkg.notification = notification_stub
 
@@ -251,6 +253,81 @@ def test_get_sentence_uses_configured_field(monkeypatch):
     assert anki.get_sentence(card) == "value-for-Sentence"
 
 
+def test_parse_confirmation_dialog_result_supports_legacy_tuple():
+    result = (
+        True,
+        "sentence",
+        "translation",
+        "ss.png",
+        "prev.png",
+        False,
+        "audio.opus",
+    )
+
+    assert anki._parse_confirmation_dialog_result(result) == (
+        True,
+        "sentence",
+        "translation",
+        "ss.png",
+        "prev.png",
+        False,
+        "audio.opus",
+        {},
+    )
+
+
+def test_apply_confirmation_dialog_state_refreshes_note_fields_and_audio_context(monkeypatch):
+    monkeypatch.setattr(anki.gsm_state, "audio_edit_context", None, raising=False)
+    monkeypatch.setattr(anki.gsm_state, "vad_result", None, raising=False)
+
+    updated_selected_lines = [SimpleNamespace(id="line-1"), SimpleNamespace(id="line-2")]
+    audio_result = SimpleNamespace(
+        start_time=10.0,
+        end_time=14.5,
+        vad_result=SimpleNamespace(success=True),
+        audio_edit_context=SimpleNamespace(range_start=10.0, range_end=14.5),
+    )
+    note = {"fields": {"Sentence": "old sentence"}}
+
+    monkeypatch.setattr(
+        anki,
+        "get_initial_card_info",
+        lambda last_note, selected_lines, game_line: (
+            {
+                "fields": {
+                    "Sentence": "combined sentence",
+                    "SentenceFurigana": "combined furigana",
+                }
+            },
+            last_note,
+        ),
+    )
+
+    selected_lines, start_time, end_time, vad_result = anki._apply_confirmation_dialog_state(
+        note,
+        SimpleNamespace(noteId=1),
+        SimpleNamespace(id="mined-line"),
+        [],
+        1.0,
+        2.0,
+        None,
+        {
+            "selected_lines": updated_selected_lines,
+            "line_selection_changed": True,
+            "audio_result": audio_result,
+        },
+    )
+
+    assert selected_lines == updated_selected_lines
+    assert start_time == 10.0
+    assert end_time == 14.5
+    assert vad_result is audio_result.vad_result
+    assert note["fields"]["Sentence"] == "combined sentence"
+    assert note["fields"]["SentenceFurigana"] == "combined furigana"
+    assert anki.gsm_state.audio_edit_context is audio_result.audio_edit_context
+    assert anki.gsm_state.vad_result is audio_result.vad_result
+
+
 def test_check_for_new_cards_does_not_sync_cache_before_note_update_finishes(
     monkeypatch,
 ):
@@ -304,6 +381,45 @@ def test_check_and_update_note_triggers_cache_sync_after_updating_note(monkeypat
     anki.check_and_update_note(last_note, {"fields": {}}, tags=[], assets=None)
 
     assert order == ["update", ("sync", [42]), "post"]
+
+
+def test_check_and_update_note_reports_background_failure(monkeypatch):
+    config = SimpleNamespace(anki=SimpleNamespace(word_field="Word"))
+    messages = []
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(
+        anki,
+        "_update_anki_note",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    monkeypatch.setattr(
+        anki.notification,
+        "send_anki_enhancement_failed",
+        lambda message: messages.append(message),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        anki.gsm_status,
+        "remove_word_being_processed",
+        lambda *_args, **_kwargs: None,
+    )
+
+    anki.anki_results.clear()
+    last_note = SimpleNamespace(noteId=42, get_field=lambda _field: "語")
+
+    anki.check_and_update_note(
+        last_note,
+        {"fields": {}},
+        tags=[],
+        assets=None,
+        failure_result_id="line-1",
+        processing_word="語",
+    )
+
+    assert messages == ["Failed to update Anki note 42: boom"]
+    assert anki.anki_results["line-1"].success is False
+    assert anki.anki_results["line-1"].failure_reason == "Failed to update Anki note 42: boom"
 
 
 def _base_config():
@@ -642,6 +758,44 @@ def test_preserve_html_tags_for_furigana_v_myers_regression():
     )
 
 
+def test_preserve_html_tags_for_furigana_lifetime_regression():
+    source = "私は<b>生涯</b>を捧げ、\n日々、祈り続けているのです"
+    furigana = " 私[わたし]は 生涯[しょうがい]を 捧[ささ]げ、 日々[ひび]、 祈[いの]り 続[つづ]けているのです"
+
+    result = anki._preserve_html_tags_for_furigana(source, furigana)
+
+    assert (
+        result == "私[わたし]は<b> 生涯[しょうがい]</b>を 捧[ささ]げ、 日々[ひび]、 祈[いの]り 続[つづ]けているのです"
+    )
+
+
+def test_preserve_html_tags_for_furigana_shinrabansho_regression():
+    source = "<b>森羅万象</b>の活力の源…クリスタル"
+    furigana = " 森羅万象[しんらばんしょう]の 活力[かつりょく]の 源[みなもと]…クリスタル"
+
+    result = anki._preserve_html_tags_for_furigana(source, furigana)
+
+    assert result == "<b> 森羅万象[しんらばんしょう]</b>の 活力[かつりょく]の 源[みなもと]…クリスタル"
+
+
+def test_preserve_html_tags_for_furigana_keeps_source_spaces_for_latin_text():
+    source = "Survival of the fittest, 弱肉強食"
+    furigana = "Survivalofthefittest, 弱肉強食[じゃくにくきょうしょく]"
+
+    result = anki._preserve_html_tags_for_furigana(source, furigana)
+
+    assert result == "Survival of the fittest, 弱肉強食[じゃくにくきょうしょく]"
+
+
+def test_preserve_html_tags_for_furigana_restores_source_wave_dash():
+    source = "わ～　降って来た！"
+    furigana = "わ~　 降[ふ]って 来[き]た！"
+
+    result = anki._preserve_html_tags_for_furigana(source, furigana)
+
+    assert result == "わ～　 降[ふ]って 来[き]た！"
+
+
 def test_migrate_old_word_folders_exits_when_output_missing(monkeypatch):
     cfg = _base_config()
     cfg.paths.output_folder = ""
@@ -744,6 +898,61 @@ def test_process_audio_with_existing_files_and_external_tool(monkeypatch):
 
     assert note["fields"]["SentenceAudio"] == "[sound:audio.mp3]"
     assert called and called[0].endswith("audio.mp3")
+
+
+def test_process_audio_reencodes_before_upload(monkeypatch, tmp_path):
+    cfg = _base_config()
+    cfg.audio.extension = "mp3"
+    cfg.audio.ffmpeg_reencode_options_to_use = "-b:a 64k"
+
+    raw = tmp_path / "raw.opus"
+    raw.write_bytes(b"raw")
+    encoded = tmp_path / "encoded.mp3"
+    encoded.write_bytes(b"encoded")
+
+    reencode_calls = []
+    uploads = []
+
+    monkeypatch.setattr(
+        anki.ffmpeg,
+        "reencode_file_with_user_config",
+        lambda path, output, options: reencode_calls.append((path, output, options)) or str(encoded),
+        raising=False,
+    )
+    monkeypatch.setattr(anki, "store_media_file", lambda path: uploads.append(path) or "audio-in-anki.mp3")
+
+    assets = anki.MediaAssets(audio_path=str(raw))
+    note = {"fields": {}}
+
+    anki._process_audio(assets, note, cfg, use_voice=True, use_existing_files=False)
+
+    assert reencode_calls == [(str(raw), None, "-b:a 64k")]
+    assert uploads == [str(encoded)]
+    assert assets.audio_path == str(encoded)
+    assert assets.audio_in_anki == "audio-in-anki.mp3"
+    assert note["fields"]["SentenceAudio"] == "[sound:audio-in-anki.mp3]"
+
+
+def test_process_audio_notifies_when_upload_fails(monkeypatch, tmp_path):
+    cfg = _base_config()
+    raw = tmp_path / "raw.opus"
+    raw.write_bytes(b"raw")
+    messages = []
+
+    monkeypatch.setattr(anki, "store_media_file", lambda _path: None)
+    monkeypatch.setattr(
+        anki.notification,
+        "send_anki_enhancement_failed",
+        lambda message: messages.append(message),
+        raising=False,
+    )
+
+    assets = anki.MediaAssets(audio_path=str(raw))
+    note = {"fields": {}}
+
+    anki._process_audio(assets, note, cfg, use_voice=True, use_existing_files=False)
+
+    assert messages == ["Failed to upload audio to Anki media collection."]
 
 
 def test_cleanup_assets_invokes_callback():

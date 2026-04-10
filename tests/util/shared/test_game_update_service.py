@@ -69,6 +69,68 @@ def test_add_anilist_link_to_game_handles_media_type():
     assert game.links[0]["mediaType"] == "MANGA"
 
 
+def test_merge_links_preserves_existing_and_deduplicates_urls():
+    existing = [
+        {"url": "https://igdb.com/games/persona-5-royal/"},
+        {"url": "https://store.steampowered.com/app/1687950/Persona_5_Royal/"},
+    ]
+    incoming = [
+        {"url": "https://igdb.com/games/persona-5-royal/"},
+        {"url": "https://www.igdb.com/games/persona-5-royal"},
+    ]
+
+    merged = GameUpdateService.merge_links(existing, incoming)
+
+    assert [link["url"] for link in merged] == [
+        "https://igdb.com/games/persona-5-royal/",
+        "https://store.steampowered.com/app/1687950/Persona_5_Royal/",
+        "https://www.igdb.com/games/persona-5-royal",
+    ]
+
+
+def test_get_manual_overrides_for_initial_link_relaxes_empty_fields_on_unlinked_game():
+    game = SimpleNamespace(
+        id="game-1",
+        deck_id=None,
+        vndb_id="",
+        anilist_id="",
+        links=[],
+        manual_overrides=[
+            "title_original",
+            "title_romaji",
+            "description",
+            "links",
+            "image",
+        ],
+        title_original="",
+        title_romaji="",
+        description="",
+        image="",
+    )
+
+    effective = GameUpdateService.get_manual_overrides_for_initial_link(game)
+
+    assert effective == []
+
+
+def test_get_manual_overrides_for_initial_link_preserves_nonempty_fields_on_unlinked_game():
+    game = SimpleNamespace(
+        id="game-2",
+        deck_id=None,
+        vndb_id="",
+        anilist_id="",
+        links=[],
+        manual_overrides=["title_original", "description", "links"],
+        title_original="Custom Title",
+        description="Keep this description",
+        image="",
+    )
+
+    effective = GameUpdateService.get_manual_overrides_for_initial_link(game)
+
+    assert effective == ["title_original", "description"]
+
+
 def test_merge_update_fields_from_multiple_sources_prioritizes_jiten():
     jiten = {
         "deck_id": 1,
@@ -107,3 +169,31 @@ def test_merge_update_fields_from_multiple_sources_prioritizes_jiten():
     assert merged["release_date"] == "2020-01-01"
     assert merged["game_type"] == "Visual Novel"
     assert merged["difficulty"] == 2
+
+
+def test_merge_update_fields_from_multiple_sources_uses_igdb_when_other_sources_missing():
+    igdb = {
+        "title_original": "Persona 5 Royal",
+        "title_romaji": "Persona 5 Royal",
+        "title_english": "Persona 5 Royal",
+        "description": "Enhanced edition",
+        "media_type_string": "Expanded Game",
+        "genres": ["Adventure", "RPG"],
+        "tags": ["Platform: Windows PC", "Platform: PlayStation 5"],
+        "links": [
+            {"url": "https://igdb.com/games/persona-5-royal/"},
+            {"url": "https://www.igdb.com/games/persona-5-royal"},
+        ],
+    }
+
+    merged = GameUpdateService.merge_update_fields_from_multiple_sources(
+        igdb_data=igdb,
+        manual_overrides=[],
+    )
+
+    assert merged["title_original"] == "Persona 5 Royal"
+    assert merged["description"] == "Enhanced edition"
+    assert merged["game_type"] == "Expanded Game"
+    assert merged["genres"] == ["Adventure", "RPG"]
+    assert merged["tags"] == ["Platform: Windows PC", "Platform: PlayStation 5"]
+    assert merged["links"][0]["url"] == "https://igdb.com/games/persona-5-royal/"

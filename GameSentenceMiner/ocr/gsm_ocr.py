@@ -25,7 +25,7 @@ import multiprocessing as mp
 import sys
 from typing import Any, Callable, Protocol, runtime_checkable
 
-from GameSentenceMiner.ocr.compare import compare_ocr_results, normalize_for_comparison
+from GameSentenceMiner.ocr.compare import OCRCompareSettings, compare_ocr_results, normalize_for_comparison
 from GameSentenceMiner import obs
 from GameSentenceMiner.ocr.gsm_ocr_config import (
     OCRConfig,
@@ -38,6 +38,7 @@ from GameSentenceMiner.ocr.gsm_ocr_config import (
     get_scene_furigana_filter_sensitivity,
 )
 from GameSentenceMiner.owocr.owocr import run
+from GameSentenceMiner.owocr.owocr.ocr import normalize_japanese_ocr_dashes, normalize_japanese_ocr_text_and_segments
 from GameSentenceMiner.owocr.owocr.run import TextFiltering
 from GameSentenceMiner.util.communication import ocr_ipc
 from GameSentenceMiner.util.config.configuration import (
@@ -53,14 +54,32 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_scan_rate,
     has_ocr_config_changed,
     reload_electron_config,
+    get_ocr_change_detection_threshold,
+    get_ocr_duplicate_similarity_threshold,
+    get_ocr_evolving_prefix_similarity_threshold,
     get_ocr_two_pass_ocr,
     get_ocr_optimize_second_scan,
     get_ocr_language,
     get_ocr_manual_ocr_hotkey,
+    get_ocr_matching_block_default_min_size,
+    get_ocr_matching_block_short_chunk_char_limit,
+    get_ocr_matching_block_small_chunk_min_size,
     get_ocr_ocr1,
     get_ocr_keep_newline,
+    get_ocr_ocr_screenshots,
     get_ocr_area_select_ocr_hotkey,
     get_ocr_global_pause_hotkey,
+    get_ocr_subset_chunk_min_length,
+    get_ocr_subset_coverage_ceiling_percent,
+    get_ocr_subset_coverage_floor_percent,
+    get_ocr_subset_coverage_threshold_offset,
+    get_ocr_subset_longest_block_divisor,
+    get_ocr_subset_longest_block_min_chars,
+    get_ocr_truncation_compare_threshold_min,
+    get_ocr_truncation_min_length,
+    get_ocr_truncation_min_ratio_percent,
+    get_ocr_truncation_similarity_margin,
+    get_ocr_truncation_strict_threshold_min,
     get_ocr_whole_window_ocr_hotkey,
 )
 
@@ -124,6 +143,9 @@ class TwoPassConfig:
     optimize_second_scan: bool = True
     keep_newline: bool = False
     language: str = "ja"
+    duplicate_threshold: int = 80
+    change_threshold: int = 20
+    compare_settings: OCRCompareSettings = field(default_factory=OCRCompareSettings)
 
     @property
     def same_engine(self) -> bool:
@@ -174,8 +196,6 @@ class _MeikiTracker:
 class TwoPassOCRController:
     """Manages the full lifecycle of the two-pass OCR pipeline."""
 
-    DEDUP_THRESHOLD: int = 80
-    CHANGE_THRESHOLD: int = 20
     MEIKI_TOL: int = 5
 
     def __init__(
@@ -311,7 +331,9 @@ class TwoPassOCRController:
         if self.force_stable:
             return True
 
-        is_low_similarity = not compare_ocr_results(p_orig_text, orig_text_string, self.CHANGE_THRESHOLD)
+        is_low_similarity = not compare_ocr_results(
+            p_orig_text, orig_text_string, self.config.change_threshold, settings=self.config.compare_settings
+        )
         if is_low_similarity and p_orig_text and orig_text_string:
             starts_diff = p_orig_text[0] != orig_text_string[0]
             ends_diff = p_orig_text[-1] != orig_text_string[-1]
@@ -327,7 +349,12 @@ class TwoPassOCRController:
         """True when incoming text is an evolution of the pending text."""
         if not self._pending:
             return False
-        return compare_ocr_results(self._pending.orig_text, orig_text_string, self.CHANGE_THRESHOLD)
+        return compare_ocr_results(
+            self._pending.orig_text,
+            orig_text_string,
+            self.config.change_threshold,
+            settings=self.config.compare_settings,
+        )
 
     def _update_pending(
         self,
@@ -441,7 +468,7 @@ class TwoPassOCRController:
         if self._is_duplicate_candidate(
             self.last_sent_result,
             text,
-            self.DEDUP_THRESHOLD,
+            self.config.duplicate_threshold,
             prev_chunks=self.last_ocr2_result,
             new_chunks=orig_text_list,
         ):
@@ -476,7 +503,7 @@ class TwoPassOCRController:
         if self._is_duplicate_candidate(
             self.last_sent_result,
             text,
-            self.DEDUP_THRESHOLD,
+            self.config.duplicate_threshold,
             prev_chunks=self.last_ocr2_result,
             new_chunks=orig_text,
         ):
@@ -499,8 +526,18 @@ class TwoPassOCRController:
     ) -> bool:
         """Prefer chunk-aware dedupe when OCR block lists are available."""
         if prev_chunks and new_chunks:
-            return compare_ocr_results(prev_chunks, new_chunks, threshold)
-        return compare_ocr_results(prev_text, new_text, threshold)
+            return compare_ocr_results(
+                prev_chunks,
+                new_chunks,
+                threshold,
+                settings=self.config.compare_settings,
+            )
+        return compare_ocr_results(
+            prev_text,
+            new_text,
+            threshold,
+            settings=self.config.compare_settings,
+        )
 
     def _build_ocr2_image(
         self,
@@ -595,7 +632,7 @@ class TwoPassOCRController:
         if self._is_duplicate_candidate(
             self.last_sent_result,
             pending.text,
-            self.DEDUP_THRESHOLD,
+            self.config.duplicate_threshold,
             prev_chunks=self.last_ocr2_result,
             new_chunks=pending.orig_text_list,
         ):
@@ -899,6 +936,16 @@ def _get_current_engine_name() -> str:
     return readable_name if readable_name else "unknown"
 
 
+def _build_status_payload() -> dict[str, Any]:
+    return {
+        "paused": run.paused if hasattr(run, "paused") else False,
+        "current_engine": _get_current_engine_name(),
+        "scan_rate": get_ocr_scan_rate(),
+        "force_stable": get_controller().force_stable,
+        "manual": globals().get("manual", False),
+    }
+
+
 def _get_qt_main_module():
     import GameSentenceMiner.ui.qt_main as qt_main
 
@@ -1015,13 +1062,7 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
                     ocr_ipc.announce_unpaused()
 
         elif command == ocr_ipc.OCRCommand.GET_STATUS.value:
-            status_data = {
-                "paused": run.paused,
-                "current_engine": _get_current_engine_name(),
-                "scan_rate": get_ocr_scan_rate(),
-                "force_stable": get_controller().force_stable,
-                "manual": globals().get("manual", False),
-            }
+            status_data = _build_status_payload()
             response["success"] = True
             response["data"] = status_data
             if announce_ipc:
@@ -1072,6 +1113,7 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
             response["success"] = True
             if announce_ipc:
                 ocr_ipc.announce_config_reloaded()
+                ocr_ipc.announce_status(_build_status_payload())
 
         elif command == ocr_ipc.OCRCommand.STOP.value:
             logger.info("IPC: Stop command received")
@@ -1325,6 +1367,42 @@ def _is_overlay_supported_engine(engine_name: Any) -> bool:
     return "oneocr" in normalized or "meiki" in normalized or "screenai" in normalized
 
 
+def _normalize_overlay_lookup_lines(lines: Any) -> list[dict[str, Any]]:
+    normalized_lines: list[dict[str, Any]] = []
+
+    for line in lines or []:
+        if not isinstance(line, dict):
+            continue
+
+        normalized_line = dict(line)
+        raw_words = normalized_line.get("words")
+        if isinstance(raw_words, list):
+            raw_word_texts = [str(word.get("text", "") or "") for word in raw_words if isinstance(word, dict)]
+            normalized_text, normalized_word_texts = normalize_japanese_ocr_text_and_segments(
+                str(normalized_line.get("text", "") or ""),
+                raw_word_texts,
+            )
+            normalized_line["text"] = normalized_text
+            normalized_words = []
+            normalized_word_iter = iter(normalized_word_texts or [])
+            for word in raw_words:
+                if not isinstance(word, dict):
+                    continue
+                normalized_word = dict(word)
+                normalized_word["text"] = next(
+                    normalized_word_iter,
+                    normalize_japanese_ocr_dashes(str(normalized_word.get("text", "") or "")),
+                )
+                normalized_words.append(normalized_word)
+            normalized_line["words"] = normalized_words
+        else:
+            normalized_line["text"] = normalize_japanese_ocr_dashes(str(normalized_line.get("text", "") or ""))
+
+        normalized_lines.append(normalized_line)
+
+    return normalized_lines
+
+
 def build_overlay_coordinate_payload(response_dict: Any) -> dict[str, Any] | None:
     """
     Convert OCR callback payload to a compact, overlay-ready coordinate payload.
@@ -1334,10 +1412,13 @@ def build_overlay_coordinate_payload(response_dict: Any) -> dict[str, Any] | Non
         return None
 
     if isinstance(response_dict, dict) and response_dict.get("schema") == "gsm_overlay_coords_v1":
-        overlay_lines = response_dict.get("lines")
+        overlay_lines = _normalize_overlay_lookup_lines(response_dict.get("lines"))
         if not _has_word_level_coords(overlay_lines):
             return None
-        return response_dict
+        return {
+            **response_dict,
+            "lines": overlay_lines,
+        }
 
     if isinstance(response_dict, list):
         response_dict = {"line_coords": response_dict}
@@ -1370,9 +1451,9 @@ def build_overlay_coordinate_payload(response_dict: Any) -> dict[str, Any] | Non
 
     offset_x = _safe_int(crop_offset.get("x"))
     offset_y = _safe_int(crop_offset.get("y"))
-    translated_lines = [
-        _translate_line_to_source_space(line, offset_x, offset_y) for line in lines if isinstance(line, dict)
-    ]
+    translated_lines = _normalize_overlay_lookup_lines(
+        [_translate_line_to_source_space(line, offset_x, offset_y) for line in lines if isinstance(line, dict)]
+    )
     if not translated_lines:
         return None
     if not _has_word_level_coords(translated_lines):
@@ -1659,13 +1740,15 @@ class OCRProcessor:
                 is_duplicate = compare_ocr_results(
                     ctrl.last_ocr2_result,
                     orig_text,
-                    threshold=80,
+                    threshold=ctrl.config.duplicate_threshold,
+                    settings=ctrl.config.compare_settings,
                 )
             else:
                 is_duplicate = compare_ocr_results(
                     ctrl.last_sent_result,
                     text,
-                    threshold=80,
+                    threshold=ctrl.config.duplicate_threshold,
+                    settings=ctrl.config.compare_settings,
                 )
             if is_duplicate:
                 if text:
@@ -1717,13 +1800,17 @@ async def send_result(text, time, response_dict=None, source=TextSource.OCR):
             overlay_payload = build_overlay_coordinate_payload(response_dict)
         else:
             overlay_payload = None
-        if get_ocr_send_to_clipboard():
-            import pyperclipfix
+        try:
+            if get_ocr_send_to_clipboard(source):
+                import pyperclipfix
 
-            # TODO Test this out and see if i can make it work properly across platforms
-            # from GameSentenceMiner.ui.qt_main import send_to_clipboard
-            # send_to_clipboard(text)
-            pyperclipfix.copy(text)
+                # TODO Test this out and see if i can make it work properly across platforms
+                # from GameSentenceMiner.ui.qt_main import send_to_clipboard
+                # send_to_clipboard(text)
+                pyperclipfix.copy(text)
+        except Exception as e:
+            logger.error(f"Error sending text to clipboard: {e}")
+            
         try:
             await websocket_server_thread.send_text(text, time, response_dict=overlay_payload, source=source)
         except Exception as e:
@@ -1789,6 +1876,23 @@ def _build_two_pass_config() -> TwoPassConfig:
     """Build a TwoPassConfig snapshot from current electron config."""
     ocr1_name = get_ocr_ocr1() or ""
     ocr2_name = get_ocr_ocr2() or ""
+    compare_settings = OCRCompareSettings(
+        evolving_prefix_threshold=get_ocr_evolving_prefix_similarity_threshold(),
+        anchored_truncation_min_threshold=get_ocr_truncation_compare_threshold_min(),
+        anchored_truncation_strict_threshold=get_ocr_truncation_strict_threshold_min(),
+        anchored_truncation_base_margin=get_ocr_truncation_similarity_margin(),
+        anchored_truncation_min_length=get_ocr_truncation_min_length(),
+        anchored_truncation_min_ratio_percent=get_ocr_truncation_min_ratio_percent(),
+        chunk_subset_min_length=get_ocr_subset_chunk_min_length(),
+        matching_block_short_candidate_limit=get_ocr_matching_block_short_chunk_char_limit(),
+        matching_block_small_candidate_min_size=get_ocr_matching_block_small_chunk_min_size(),
+        matching_block_default_min_size=get_ocr_matching_block_default_min_size(),
+        chunk_coverage_floor_percent=get_ocr_subset_coverage_floor_percent(),
+        chunk_coverage_ceiling_percent=get_ocr_subset_coverage_ceiling_percent(),
+        chunk_coverage_threshold_offset=get_ocr_subset_coverage_threshold_offset(),
+        chunk_longest_block_min=get_ocr_subset_longest_block_min_chars(),
+        chunk_longest_block_divisor=get_ocr_subset_longest_block_divisor(),
+    )
 
     return TwoPassConfig(
         two_pass_enabled=get_ocr_two_pass_ocr(),
@@ -1799,6 +1903,9 @@ def _build_two_pass_config() -> TwoPassConfig:
         optimize_second_scan=get_ocr_optimize_second_scan(),
         keep_newline=get_ocr_keep_newline(),
         language=get_ocr_language(),
+        duplicate_threshold=get_ocr_duplicate_similarity_threshold(),
+        change_threshold=get_ocr_change_detection_threshold(),
+        compare_settings=compare_settings,
     )
 
 
@@ -1945,7 +2052,7 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
       - reload_area: bool (default True)
       - changes: dict (optional precomputed config diffs)
     """
-    global ocr_config
+    global ocr_config, ss_clipboard
 
     payload = data or {}
     reload_electron = payload.get("reload_electron", True)
@@ -1972,6 +2079,10 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
                 _get_hotkey_manager().refresh()
                 logger.info("IPC: OCR hotkeys refreshed")
 
+            if "ocr_screenshots" in changes:
+                ss_clipboard = get_ocr_ocr_screenshots()
+                logger.info(f"IPC: clipboard screenshot OCR set to {ss_clipboard}")
+
             # Always sync furigana from per-scene settings file
             global furigana_filter_sensitivity
             try:
@@ -1983,17 +2094,30 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
                 logger.debug(f"IPC: Failed to read scene furigana setting: {e}")
 
             mode_switched = "_mode_switched" in changes or "advancedMode" in changes
+            compare_config_keys = {
+                "duplicate_similarity_threshold",
+                "change_detection_threshold",
+                "evolving_prefix_similarity_threshold",
+                "truncation_compare_threshold_min",
+                "truncation_strict_threshold_min",
+                "truncation_similarity_margin",
+                "truncation_min_length",
+                "truncation_min_ratio_percent",
+                "subset_chunk_min_length",
+                "matching_block_short_chunk_char_limit",
+                "matching_block_small_chunk_min_size",
+                "matching_block_default_min_size",
+                "subset_coverage_floor_percent",
+                "subset_coverage_ceiling_percent",
+                "subset_coverage_threshold_offset",
+                "subset_longest_block_min_chars",
+                "subset_longest_block_divisor",
+            }
             config_needs_reset = any(
-                c in changes
-                for c in (
-                    "ocr1",
-                    "ocr2",
-                    "language",
-                    "furigana_filter_sensitivity",
-                    "basic",
-                    "advanced",
-                )
+                c in changes for c in ("ocr1", "ocr2", "language", "furigana_filter_sensitivity", "basic", "advanced")
             )
+            if not config_needs_reset:
+                config_needs_reset = any(key in changes for key in compare_config_keys)
             if config_needs_reset:
                 try:
                     run.engine_change_handler_name(get_ocr_ocr1(), switch=True)
@@ -2543,7 +2667,12 @@ if __name__ == "__main__":
         obs_ocr = args.obs_ocr
         global_pause_hotkey = _normalize_hotkey_for_keyboard(args.global_pause_hotkey, "ctrl+shift+p")
 
-        obs.connect_to_obs_sync(check_output=False)
+        obs.connect_to_obs_sync(
+            connections=2,
+            check_output=False,
+            healthcheck_enabled=False,
+            start_manager=False,
+        )
 
         # Override furigana from per-scene settings (takes priority over CLI arg)
         try:

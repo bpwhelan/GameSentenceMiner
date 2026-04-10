@@ -9,6 +9,7 @@ os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")  # Suppress TensorFlow logs
 os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")  # Suppress transformers logs
 
+from GameSentenceMiner.ocr.coordinate_math import scale_percentage_rectangle_to_even_pixels
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_scene_ocr_config
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, OCR_REPLACEMENTS_FILE
 from GameSentenceMiner.util.config.electron_config import (
@@ -296,6 +297,77 @@ def _size_dict(width, height):
     return {"width": _safe_int(width), "height": _safe_int(height)}
 
 
+def _normalize_segment_source_text(text):
+    return str(text or "").replace("BLANK_LINE", "\n").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _join_selected_blocks_with_source_separators(source_text, blocks, selected_indexes, fallback_separator="\n"):
+    selected_indexes = list(selected_indexes or [])
+    if not selected_indexes:
+        return ""
+
+    normalized_source = _normalize_segment_source_text(source_text)
+    normalized_blocks = [_normalize_segment_source_text(block) for block in (blocks or [])]
+    spans = []
+    cursor = 0
+
+    for block in normalized_blocks:
+        idx = normalized_source.find(block, cursor)
+        if idx < 0:
+            return fallback_separator.join(
+                normalized_blocks[i].strip() for i in selected_indexes if 0 <= i < len(normalized_blocks)
+            )
+        spans.append((idx, idx + len(block)))
+        cursor = idx + len(block)
+
+    result_parts = []
+    previous_selected_index = None
+
+    for selected_index in selected_indexes:
+        if not (0 <= selected_index < len(normalized_blocks)):
+            continue
+
+        block_text = normalized_blocks[selected_index].strip()
+        if not block_text:
+            continue
+
+        if previous_selected_index is not None:
+            if selected_index == previous_selected_index + 1:
+                previous_end = spans[previous_selected_index][1]
+                current_start = spans[selected_index][0]
+                separator = normalized_source[previous_end:current_start]
+            else:
+                separator = fallback_separator
+            result_parts.append(separator)
+
+        result_parts.append(block_text)
+        previous_selected_index = selected_index
+
+    return "".join(result_parts)
+
+
+def _rebuild_text_from_structured_result(raw_response_dict, coords, filtering):
+    if raw_response_dict and isinstance(raw_response_dict, dict) and "paragraphs" in raw_response_dict and filtering:
+        try:
+            ocr_result = dict_to_ocr_result(raw_response_dict)
+            if ocr_result:
+                ordered_ocr_result = filtering.order_paragraphs_and_lines(ocr_result)
+                return filtering.extract_text_from_ocr_result(ordered_ocr_result)
+        except Exception as e:
+            logger.warning(f"Error applying advanced layout analysis: {e}")
+
+    if isinstance(coords, list) and coords:
+        try:
+            return build_spatial_text(
+                [line_dict_to_spatial_entry(line) for line in coords if isinstance(line, dict)],
+                blank_line_token="BLANK_LINE",
+            )
+        except Exception as e:
+            logger.warning(f"Error rebuilding text from OCR geometry: {e}")
+
+    return None
+
+
 def _normalize_queue_item(item, default_filter=False):
     if isinstance(item, tuple):
         if len(item) >= 3:
@@ -376,6 +448,31 @@ def _normalize_text_detection_payload(payload, *, fallback_crop_coords=None, fal
             score = 1.0
         normalized_boxes.append({"box": [x1, y1, x2, y2], "score": score})
 
+    crop_padding = max(0, _safe_int(payload.get("crop_padding"), 5))
+    crop_coords_list = payload.get("crop_coords_list")
+    normalized_crop_coords_list = []
+    if isinstance(crop_coords_list, list):
+        for item in crop_coords_list:
+            if not isinstance(item, (list, tuple)) or len(item) < 4:
+                continue
+            try:
+                normalized_crop_coords_list.append(tuple(int(item[i]) for i in range(4)))
+            except Exception:
+                continue
+    if not normalized_crop_coords_list and normalized_boxes:
+        for item in normalized_boxes:
+            box = item.get("box")
+            if not isinstance(box, (list, tuple)) or len(box) < 4:
+                continue
+            x1, y1, x2, y2 = box[:4]
+            crop_x = max(0, int(x1 - crop_padding))
+            crop_y = max(0, int(y1 - crop_padding))
+            crop_x2 = int(x2 + crop_padding)
+            crop_y2 = int(y2 + crop_padding)
+            if crop_x2 <= crop_x or crop_y2 <= crop_y:
+                continue
+            normalized_crop_coords_list.append((crop_x, crop_y, crop_x2, crop_y2))
+
     crop_coords = payload.get("crop_coords", fallback_crop_coords)
     if isinstance(crop_coords, (list, tuple)) and len(crop_coords) >= 4:
         try:
@@ -401,7 +498,9 @@ def _normalize_text_detection_payload(payload, *, fallback_crop_coords=None, fal
         "schema": TEXT_DETECTION_RESULT_SCHEMA,
         "detector": str(detector_name),
         "boxes": normalized_boxes,
+        "crop_coords_list": normalized_crop_coords_list,
         "crop_coords": crop_coords,
+        "crop_padding": crop_padding,
     }
 
 
@@ -1697,6 +1796,7 @@ class TextFiltering:
                 block_compare = self.latin_extended_regex.findall(block)
             return "".join(block_compare) if block_compare else None
 
+        source_text = _normalize_segment_source_text(text)
         orig_text = self.segmenter.segment(text)
         orig_text_filtered = []
         orig_text_compare = []
@@ -1791,27 +1891,29 @@ class TextFiltering:
 
         all_blocks = []
         new_blocks = []
+        new_block_indexes = []
         for idx, block in enumerate(orig_text):
             if orig_text_filtered[idx]:
                 all_blocks.append(str(block).strip().replace("BLANK_LINE", "\n"))
             if orig_text_compare[idx] and (orig_text_compare[idx] not in last_text):
                 new_blocks.append(str(block).strip().replace("BLANK_LINE", "\n"))
+                new_block_indexes.append(idx)
 
-        final_blocks = []
+        selected_block_indexes = []
         if self.accurate_filtering:
             detection_results = self.pipe(new_blocks, top_k=3, truncation=True)
             for idx, block in enumerate(new_blocks):
                 for result in detection_results[idx]:
                     if result["label"] == lang:
-                        final_blocks.append(block)
+                        selected_block_indexes.append(new_block_indexes[idx])
                         break
         else:
-            for block in new_blocks:
+            for idx, block in enumerate(new_blocks):
                 # This only filters out NON JA/ZH from text when lang is JA/ZH
                 if lang not in ["ja", "zh"] or self.classify(block)[0] in ["ja", "zh"] or block == "\n":
-                    final_blocks.append(block)
+                    selected_block_indexes.append(new_block_indexes[idx])
 
-        text = "\n".join(final_blocks)
+        text = _join_selected_blocks_with_source_separators(source_text, orig_text, selected_block_indexes)
         return text, all_blocks
 
 
@@ -2232,24 +2334,34 @@ def apply_adaptive_threshold_filter(img):
     return Image.fromarray(result)
 
 
-def set_last_image(image):
-    global last_image, last_image_np
-    if image is None:
-        last_image = None
-        last_image_np = None
+def _close_cached_image(image):
     try:
-        if image == last_image:
-            return
-    except Exception:
-        last_image = None
-        return
-    try:
-        if last_image is not None and hasattr(last_image, "close"):
-            last_image.close()
+        if image is not None and hasattr(image, "close"):
+            image.close()
     except Exception:
         pass
-    last_image = image
-    last_image_np = np.array(last_image)
+
+
+def _update_image_comparison_cache(cached_image, image):
+    if image is None:
+        _close_cached_image(cached_image)
+        return None, None
+
+    try:
+        cached_snapshot = image.copy() if isinstance(image, Image.Image) else image
+        cached_snapshot_np = np.array(cached_snapshot)
+    except Exception:
+        logger.debug("Failed to cache image for comparison.")
+        _close_cached_image(cached_image)
+        return None, None
+
+    _close_cached_image(cached_image)
+    return cached_snapshot, cached_snapshot_np
+
+
+def set_last_image(image):
+    global last_image, last_image_np
+    last_image, last_image_np = _update_image_comparison_cache(last_image, image)
     # last_image = apply_adaptive_threshold_filter(image)
 
 
@@ -2356,6 +2468,9 @@ def calculate_ssim_score(imageA: ImageType, imageB: ImageType) -> float:
     return score
 
 
+showed = False
+
+
 def are_images_similar(imageA: Image.Image, imageB: Image.Image, threshold: float = 0.98) -> bool:
     """
     Compares two images and returns True if their similarity score is above a threshold.
@@ -2370,15 +2485,93 @@ def are_images_similar(imageA: Image.Image, imageB: Image.Image, threshold: floa
     Returns:
         True if the images are similar, False otherwise.
     """
+    return False
     if None in (imageA, imageB):
         logger.info("One of the images is None, cannot compare.")
         return False
     try:
+        global showed
+        if not showed:
+            imageA.show()
+            imageB.show()
+            showed = True
         score = calculate_ssim_score(imageA, imageB)
+        logger.info(f"SSIM score between images: {score}")
     except Exception as e:
         logger.info(e)
         return False
     return score > threshold
+
+
+EMPTY_SCAN_RATE_MAX = 5.0
+NO_TEXT_SCAN_RATE_MAX = 2.0
+NO_TEXT_SIMILAR_SCAN_RATE_MAX = 5.0
+NO_TEXT_SLEEP_INCREMENT = 0.005
+NO_TEXT_SIMILAR_SLEEP_INCREMENT = 0.25
+NO_TEXT_SIMILARITY_THRESHOLD = 0.98
+
+
+def _get_sleep_scan_rate_cap(base_scan_rate: float, sleep_reason: str) -> float:
+    if sleep_reason in ("empty", "no_text_similar"):
+        return EMPTY_SCAN_RATE_MAX
+    return NO_TEXT_SCAN_RATE_MAX
+
+
+def _get_adjusted_scan_rate(base_scan_rate: float, sleep_time_to_add: float, sleep_reason: str) -> float:
+    return max(
+        base_scan_rate, min(base_scan_rate + sleep_time_to_add, _get_sleep_scan_rate_cap(base_scan_rate, sleep_reason))
+    )
+
+
+def _get_sleep_add_for_target_rate(base_scan_rate: float, target_scan_rate: float) -> float:
+    return max(0.0, target_scan_rate - base_scan_rate)
+
+
+def _get_no_text_scan_rate_cap(base_scan_rate: float) -> float:
+    return max(base_scan_rate, NO_TEXT_SCAN_RATE_MAX)
+
+
+def _should_check_no_text_similarity(base_scan_rate: float, sleep_time_to_add: float, sleep_reason: str) -> bool:
+    if sleep_reason not in ("no_text", "no_text_similar"):
+        return False
+    current_scan_rate = _get_adjusted_scan_rate(base_scan_rate, sleep_time_to_add, sleep_reason)
+    return current_scan_rate >= _get_no_text_scan_rate_cap(base_scan_rate)
+
+
+def _can_check_no_text_similarity(
+    base_scan_rate: float,
+    sleep_time_to_add: float,
+    sleep_reason: str,
+    last_image,
+    last_image_np,
+) -> bool:
+    return (
+        last_image is not None
+        and last_image_np is not None
+        and _should_check_no_text_similarity(base_scan_rate, sleep_time_to_add, sleep_reason)
+    )
+
+
+def _update_no_text_similarity_sleep_state(
+    base_scan_rate: float,
+    sleep_time_to_add: float,
+    sleep_reason: str,
+    is_similar: bool,
+) -> tuple[float, str]:
+    if is_similar:
+        max_sleep_add = max(0.0, NO_TEXT_SIMILAR_SCAN_RATE_MAX - base_scan_rate)
+        min_sleep_add = _get_sleep_add_for_target_rate(base_scan_rate, _get_no_text_scan_rate_cap(base_scan_rate))
+        next_sleep_add = max(sleep_time_to_add, min_sleep_add) + NO_TEXT_SIMILAR_SLEEP_INCREMENT
+        return min(next_sleep_add, max_sleep_add), "no_text_similar"
+
+    if sleep_reason == "no_text_similar":
+        sleep_time_to_add = min(
+            sleep_time_to_add,
+            _get_sleep_add_for_target_rate(base_scan_rate, _get_no_text_scan_rate_cap(base_scan_rate)),
+        )
+        return sleep_time_to_add, "no_text"
+
+    return sleep_time_to_add, sleep_reason
 
 
 def quick_text_detection(pil_image, threshold_ratio=0.01):
@@ -2427,9 +2620,12 @@ class OBSScreenshotThread(threading.Thread):
         self.current_scene = None
         self.width = width
         self.height = height
+        self.source_width = None
+        self.source_height = None
         self.use_periodic_queue = not screen_capture_on_combo
         self.is_manual_ocr = is_manual_ocr
         self.source_refresh_interval = max(float(interval or 1), 0.25)
+        self.inactive_source_retry_interval = 5.0
         self.last_source_refresh_ts = 0.0
         self.init_retry_attempts = 3
 
@@ -2440,12 +2636,23 @@ class OBSScreenshotThread(threading.Thread):
             image_queue.put((result, True, metadata))
         screenshot_event.clear()
 
+    def get_capture_original_size(self, capture_width, capture_height):
+        return _size_dict(
+            getattr(self, "source_width", None) or capture_width,
+            getattr(self, "source_height", None) or capture_height,
+        )
+
     def connect_obs(self):
         import GameSentenceMiner.obs as obs
 
-        obs.connect_to_obs_sync(check_output=False)
+        obs.connect_to_obs_sync(
+            connections=2,
+            check_output=False,
+            healthcheck_enabled=False,
+            start_manager=False,
+        )
 
-    def refresh_source_name(self, force=False):
+    def refresh_source_name(self, force=False, suppress_errors=False):
         import GameSentenceMiner.obs as obs
 
         now = time.time()
@@ -2454,9 +2661,17 @@ class OBSScreenshotThread(threading.Thread):
 
         self.last_source_refresh_ts = now
         obs.update_current_game()
-        source = obs.get_active_source()
+        source = obs.get_best_source_for_screenshot(
+            log_missing_source=not suppress_errors,
+            suppress_errors=suppress_errors,
+        )
         self.current_source = source if isinstance(source, dict) else None
         self.current_source_name = self.current_source.get("sourceName") if self.current_source else None
+        scene_item_transform = self.current_source.get("sceneItemTransform") if self.current_source else None
+        if not isinstance(scene_item_transform, dict):
+            scene_item_transform = {}
+        self.source_width = scene_item_transform.get("sourceWidth")
+        self.source_height = scene_item_transform.get("sourceHeight")
         return self.current_source_name
 
     def init_config(self, source=None, scene=None):
@@ -2467,17 +2682,21 @@ class OBSScreenshotThread(threading.Thread):
 
         for attempt in range(self.init_retry_attempts):
             obs.update_current_game()
-            current_sources = obs.get_active_video_sources() or []
+            current_sources = obs.get_active_video_sources(_suppress_obs_errors=True) or []
             if not self.current_source:
-                self.current_source = obs.get_best_source_for_screenshot()
+                self.current_source = obs.get_best_source_for_screenshot(
+                    log_missing_source=False,
+                    suppress_errors=True,
+                )
             if self.current_source:
                 break
             if attempt < self.init_retry_attempts - 1:
                 time.sleep(min(1.0, self.source_refresh_interval))
 
         if not self.current_source:
+            self.source_width = None
+            self.source_height = None
             self.current_source_name = None
-            logger.error("No active OBS source found for screenshot capture.")
             return False
 
         logger.debug(f"Current OBS source: {self.current_source}")
@@ -2535,11 +2754,12 @@ class OBSScreenshotThread(threading.Thread):
 
             try:
                 if not self.current_source_name:
-                    self.refresh_source_name()
+                    self.refresh_source_name(suppress_errors=True)
 
                 if not self.current_source_name:
                     logger.error("No active source found in the current scene.")
                     self.write_result(None)
+                    time.sleep(self.inactive_source_retry_interval)
                     continue
 
                 capture_preprocess_mode = get_ocr_obs_capture_preprocess_mode()
@@ -2555,6 +2775,7 @@ class OBSScreenshotThread(threading.Thread):
 
                 if img is None:
                     logger.error("Failed to get screenshot data from OBS.")
+                    self.current_source = None
                     self.current_source_name = None
                     self.write_result(None)
                     continue
@@ -2569,10 +2790,7 @@ class OBSScreenshotThread(threading.Thread):
                         primary_rectangles.append(list(rect.coordinates))
                 frame_metadata = {
                     "capture_source": "obs",
-                    "capture_original_size": _size_dict(
-                        self.source_width or capture_width,
-                        self.source_height or capture_height,
-                    ),
+                    "capture_original_size": self.get_capture_original_size(capture_width, capture_height),
                     "capture_scaled_size": _size_dict(capture_width, capture_height),
                     "ocr_area_crop_offset": {
                         "x": _safe_int(crop_offset[0]),
@@ -2638,6 +2856,32 @@ def apply_ocr_config_to_image(
     both_types=False,
     sharpen_after_trim=False,
 ):
+    def resolve_rectangle_coordinates(rectangle):
+        raw_coordinates = list(getattr(rectangle, "coordinates", []) or [])
+        if len(raw_coordinates) < 4:
+            return None
+
+        # Some runtime paths still pass normalized OCR rectangles directly to the compositor.
+        # Resolve those against the actual captured frame size before cropping.
+        if all(isinstance(value, (int, float)) and 0.0 <= float(value) <= 1.0 for value in raw_coordinates[:4]):
+            resolved_coordinates = scale_percentage_rectangle_to_even_pixels(
+                raw_coordinates,
+                img.width,
+                img.height,
+            )
+            if hasattr(rectangle, "coordinates"):
+                rectangle.coordinates = resolved_coordinates
+            return resolved_coordinates
+
+        try:
+            resolved_coordinates = [int(round(float(value))) for value in raw_coordinates[:4]]
+        except (TypeError, ValueError):
+            return None
+
+        if hasattr(rectangle, "coordinates"):
+            rectangle.coordinates = resolved_coordinates
+        return resolved_coordinates
+
     if both_types:
         rectangles = [r for r in ocr_config.rectangles if not r.is_excluded]
     elif not rectangles:
@@ -2645,7 +2889,10 @@ def apply_ocr_config_to_image(
 
     for rectangle in ocr_config.rectangles:
         if rectangle.is_excluded:
-            left, top, width, height = rectangle.coordinates
+            resolved_coordinates = resolve_rectangle_coordinates(rectangle)
+            if not resolved_coordinates:
+                continue
+            left, top, width, height = resolved_coordinates
             draw = ImageDraw.Draw(img)
             draw.rectangle(
                 (left, top, left + width, top + height),
@@ -2664,7 +2911,12 @@ def apply_ocr_config_to_image(
     # Optimization: if only one rectangle and not forced to return full size, just return the cropped area
     if len(rectangles) == 1 and not return_full_size:
         rectangle = rectangles[0]
-        area = rectangle.coordinates
+        area = resolve_rectangle_coordinates(rectangle)
+        if not area:
+            if return_full_size:
+                return img, (0, 0)
+            else:
+                return img, (0, 0)
         # Ensure crop coordinates are within image bounds
         left = max(0, area[0])
         top = max(0, area[1])
@@ -2696,7 +2948,9 @@ def apply_ocr_config_to_image(
 
     valid_rectangles = []
     for rectangle in rectangles:
-        area = rectangle.coordinates
+        area = resolve_rectangle_coordinates(rectangle)
+        if not area:
+            continue
         left = max(0, area[0])
         top = max(0, area[1])
         right = min(img.width, area[0] + area[2])
@@ -3048,6 +3302,27 @@ def process_and_write_results(
             getattr(engine_instance, "name", ""),
         )
         if detection_payload is not None:
+            pipeline_metadata = _build_pipeline_metadata(
+                image_metadata,
+                img_or_path,
+                engine_instance.name,
+                is_second_ocr,
+            )
+            current_crop_offset = (
+                _safe_int(pipeline_metadata["processing"]["crop_offset"].get("x")),
+                _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
+            )
+            if write_to is not None and check_text_is_all_menu(
+                detection_payload.get("crop_coords", None),
+                detection_payload.get("crop_coords_list", []),
+                crop_offset=current_crop_offset,
+                crop_padding=detection_payload.get("crop_padding", 5),
+            ):
+                logger.opt(ansi=True).info("Text is identified as all menu items, skipping further processing.")
+                if return_payload:
+                    return "", "", None
+                return "", ""
+
             if write_to == "callback":
                 logger.opt(ansi=True).info(
                     f"{len(detection_payload['boxes'])} text boxes recognized in {end_time - start_time:0.03f}s using "
@@ -3080,18 +3355,9 @@ def process_and_write_results(
                 return "", "", detection_payload
             return str(detection_payload), str(detection_payload)
 
-        # New Layout Analysis Logic
-        if raw_response_dict and isinstance(raw_response_dict, dict) and "paragraphs" in raw_response_dict:
-            try:
-                ocr_result = dict_to_ocr_result(raw_response_dict)
-                if ocr_result and filtering:
-                    # Apply improved layout ordering and furigana filtering
-                    ordered_ocr_result = filtering.order_paragraphs_and_lines(ocr_result)
-
-                    # Regenerate text string from ordered result
-                    text = filtering.extract_text_from_ocr_result(ordered_ocr_result)
-            except Exception as e:
-                logger.warning(f"Error applying advanced layout analysis: {e}")
+        rebuilt_text = _rebuild_text_from_structured_result(raw_response_dict, coords, filtering)
+        if rebuilt_text is not None:
+            text = rebuilt_text
 
         if isinstance(text, list):
             for i, line in enumerate(text):
@@ -3186,16 +3452,24 @@ def process_and_write_results(
     return orig_text, text
 
 
-def check_text_is_all_menu(crop_coords: tuple, crop_coords_list: list, crop_offset: tuple = None) -> bool:
+def check_text_is_all_menu(
+    crop_coords: tuple,
+    crop_coords_list: list,
+    crop_offset: tuple = None,
+    crop_padding: int = 5,
+) -> bool:
     """
     Checks if the recognized text consists entirely of menu items.
     This function checks if ALL detected text areas fall entirely within secondary rectangles (menu areas).
 
     :param crop_coords: Tuple containing (x, y, x2, y2) of the detected text area in cropped image coordinates.
-    :param crop_coords_list: List of tuples, each containing (x, y, x2, y2, text) of detected text areas in cropped image coordinates.
+    :param crop_coords_list: List of tuples, each containing either (x, y, x2, y2) or
+        (x, y, x2, y2, text) of detected text areas in cropped image coordinates.
     :param crop_offset: Tuple containing (offset_x, offset_y) to convert cropped coordinates back to original image coordinates. If None, uses the global crop_offset.
     :return: True if ALL text areas are within menu rectangles, False otherwise.
     """
+
+    crop_padding = max(0, _safe_int(crop_padding, 5))
 
     # Use global crop_offset if not provided
     if crop_offset is None:
@@ -3216,6 +3490,9 @@ def check_text_is_all_menu(crop_coords: tuple, crop_coords_list: list, crop_offs
     original_width = obs_screenshot_thread.width
     original_height = obs_screenshot_thread.height
 
+    if original_width is None or original_height is None:
+        return False
+
     ocr_config = get_scaled_scene_ocr_config(original_width, original_height)
 
     # Early exit if no secondary rectangles are defined
@@ -3230,12 +3507,16 @@ def check_text_is_all_menu(crop_coords: tuple, crop_coords_list: list, crop_offs
     offset_x, offset_y = crop_offset
 
     # Check if ALL crop coordinates fall entirely within menu rectangles
-    for crop_x, crop_y, crop_x2, crop_y2, text in coords_to_check:
-        # Remove 5 pixel padding that was added during OCR cropping
-        crop_x += 5
-        crop_y += 5
-        crop_x2 -= 5
-        crop_y2 -= 5
+    for coord_entry in coords_to_check:
+        if len(coord_entry) < 4:
+            return False
+
+        crop_x, crop_y, crop_x2, crop_y2 = coord_entry[:4]
+        # Remove OCR crop padding before checking against menu rectangles.
+        crop_x += crop_padding
+        crop_y += crop_padding
+        crop_x2 -= crop_padding
+        crop_y2 -= crop_padding
 
         # Apply offset to convert from cropped image coordinates to original image coordinates
         crop_x += offset_x
@@ -3662,11 +3943,11 @@ def run(
     last_result_time = time.time()
     has_seen_text_result = False
     sleep_reason = ""
+    last_no_text_compare_image = None
+    last_no_text_compare_image_np = None
 
     def get_adjusted_scan_rate():
-        base_scan_rate = get_ocr_scan_rate()
-        max_scan_rate = 5 if sleep_reason == "empty" else 1
-        return max(base_scan_rate, min(base_scan_rate + sleep_time_to_add, max_scan_rate))
+        return _get_adjusted_scan_rate(get_ocr_scan_rate(), sleep_time_to_add, sleep_reason)
 
     while not terminated:
         ocr_start_time = datetime.now()
@@ -3713,6 +3994,7 @@ def run(
             break
         elif img:
             if filter_img:
+                base_scan_rate = get_ocr_scan_rate()
                 # Check if the image is completely empty (all white or all black), this is pretty much 0 cpu usage and saves a lot of useless OCR attempts
                 try:
                     extrema = img.getextrema()
@@ -3723,8 +4005,7 @@ def run(
                         is_empty = extrema[0] == extrema[1]
                     if is_empty:
                         logger.background("Image is empty (all pixels same), sleeping.")
-                        base_scan_rate = get_ocr_scan_rate()
-                        max_empty_add = max(0, 5.0 - base_scan_rate)
+                        max_empty_add = max(0, EMPTY_SCAN_RATE_MAX - base_scan_rate)
                         if sleep_reason != "empty":
                             sleep_time_to_add = 0
                         sleep_reason = "empty"
@@ -3736,6 +4017,38 @@ def run(
                 if sleep_reason == "empty":
                     sleep_time_to_add = 0
                     sleep_reason = ""
+
+                if _can_check_no_text_similarity(
+                    base_scan_rate,
+                    sleep_time_to_add,
+                    sleep_reason,
+                    last_no_text_compare_image,
+                    last_no_text_compare_image_np,
+                ):
+                    is_similar = are_images_identical(img, last_no_text_compare_image, last_no_text_compare_image_np)
+                    if not is_similar:
+                        is_similar = are_images_similar(
+                            img,
+                            last_no_text_compare_image,
+                            threshold=NO_TEXT_SIMILARITY_THRESHOLD,
+                        )
+                    if is_similar:
+                        sleep_time_to_add, sleep_reason = _update_no_text_similarity_sleep_state(
+                            base_scan_rate,
+                            sleep_time_to_add,
+                            sleep_reason,
+                            is_similar=True,
+                        )
+                        logger.info(
+                            f"No-text frame still >= {NO_TEXT_SIMILARITY_THRESHOLD:.0%} similar to last OCR frame, extending sleep."
+                        )
+                        continue
+                    sleep_time_to_add, sleep_reason = _update_no_text_similarity_sleep_state(
+                        base_scan_rate,
+                        sleep_time_to_add,
+                        sleep_reason,
+                        is_similar=False,
+                    )
 
                 # Compare images, but only if it's one box, multiple boxes skews results way too much and produces false positives
                 # if ocr_config and len(ocr_config.rectangles) < 2:
@@ -3762,11 +4075,15 @@ def run(
                     furigana_filter_sensitivity=None if get_ocr_two_pass_ocr() else get_furigana_filter_sensitivity(),
                     image_metadata=image_metadata,
                 )
+                last_no_text_compare_image, last_no_text_compare_image_np = _update_image_comparison_cache(
+                    last_no_text_compare_image,
+                    img,
+                )
                 if not text:
                     no_text_streak += 1
                     enough_idle_time = (time.time() - last_result_time) > 10
                     if no_text_streak > 1 and (not has_seen_text_result or enough_idle_time):
-                        sleep_time_to_add += 0.005
+                        sleep_time_to_add += NO_TEXT_SLEEP_INCREMENT
                         sleep_reason = "no_text"
                         logger.background("No text detected, sleeping.")
                     else:
@@ -3818,6 +4135,7 @@ def run(
         key_combo_listener.stop()
     if config_check_thread:
         config_check_thread.join()
+    _close_cached_image(last_no_text_compare_image)
 
 
 def get_engine_names():

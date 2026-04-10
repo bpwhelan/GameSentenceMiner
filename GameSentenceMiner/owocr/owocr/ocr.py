@@ -52,6 +52,23 @@ _ONEOCR_MODULE = _UNINITIALIZED
 _LENS_PROTO_DEPS = _UNINITIALIZED
 _MESSAGE_TO_DICT = _UNINITIALIZED
 
+_JAPANESE_TEXT_CLASS = r"\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}々〆〇〻ヶヵ"
+_JAPANESE_HAN_CLASS = r"\p{Script=Han}々〆〇〻"
+_JAPANESE_KANA_CLASS = r"\p{Script=Hiragana}\p{Script=Katakana}ヶヵ"
+_JAPANESE_DASH_VARIANTS = "-－―—–−ｰ─━"
+_JAPANESE_DASH_VARIANTS_CLASS = regex.escape(_JAPANESE_DASH_VARIANTS)
+_JAPANESE_LEADING_DASH_OPENERS = regex.escape("「『【（〈《〔［｛〘〚")
+_JAPANESE_DASH_TRAILERS = regex.escape("」』】）〉》〕］｝〙〛、。！？…・!?,.，．")
+_JAPANESE_LEADING_HAN_SINGLE_DASH_REGEX = regex.compile(
+    rf"(^|[\n{_JAPANESE_LEADING_DASH_OPENERS}])([{_JAPANESE_DASH_VARIANTS_CLASS}])(?=[{_JAPANESE_HAN_CLASS}])"
+)
+_JAPANESE_LEADING_KANA_DASH_REGEX = regex.compile(
+    rf"(^|[\n{_JAPANESE_LEADING_DASH_OPENERS}])([{_JAPANESE_DASH_VARIANTS_CLASS}]+)(?=[{_JAPANESE_KANA_CLASS}])"
+)
+_JAPANESE_CONTEXTUAL_KANA_DASH_REGEX = regex.compile(
+    rf"(?<=[{_JAPANESE_KANA_CLASS}])[{_JAPANESE_DASH_VARIANTS_CLASS}]+(?=(?:[{_JAPANESE_KANA_CLASS}{_JAPANESE_DASH_TRAILERS}\n])|$)"
+)
+
 
 def _load_fpng_module():
     global _FPNG_MODULE
@@ -399,6 +416,43 @@ def empty_post_process(text):
     return text
 
 
+def normalize_japanese_ocr_dashes(text):
+    if not isinstance(text, str) or not text:
+        return text
+
+    normalized = _JAPANESE_LEADING_HAN_SINGLE_DASH_REGEX.sub(
+        lambda match: f"{match.group(1)}一",
+        text,
+    )
+    normalized = _JAPANESE_LEADING_KANA_DASH_REGEX.sub(
+        lambda match: f"{match.group(1)}{'ー' * len(match.group(2))}",
+        normalized,
+    )
+    return _JAPANESE_CONTEXTUAL_KANA_DASH_REGEX.sub(lambda match: "ー" * len(match.group(0)), normalized)
+
+
+def normalize_japanese_ocr_text_and_segments(text, segments=None):
+    normalized_text = normalize_japanese_ocr_dashes(str(text or ""))
+    if not isinstance(segments, list):
+        return normalized_text, None
+
+    raw_segments = [str(segment or "") for segment in segments]
+    joined_segments = "".join(raw_segments)
+    normalized_joined_segments = normalize_japanese_ocr_dashes(joined_segments)
+
+    if len(joined_segments) != len(normalized_joined_segments):
+        return normalized_text, [normalize_japanese_ocr_dashes(segment) for segment in raw_segments]
+
+    normalized_segments = []
+    index = 0
+    for raw_segment in raw_segments:
+        segment_length = len(raw_segment)
+        normalized_segments.append(normalized_joined_segments[index : index + segment_length])
+        index += segment_length
+
+    return normalized_text, normalized_segments
+
+
 def post_process(text, keep_blank_lines=False):
     import jaconv
 
@@ -411,6 +465,7 @@ def post_process(text, keep_blank_lines=False):
     text = re.sub("[・.]{2,}", lambda x: (x.end() - x.start()) * "・", text)
     text = re.sub(r"・{3,}", "・・・", text)
     text = jaconv.h2z(text, ascii=True, digit=True)
+    text = normalize_japanese_ocr_dashes(text)
     return text
 
 
@@ -4116,6 +4171,7 @@ class MeikiOCR:
                         line["bounding_rect"]["y1"] - 5,
                         line["bounding_rect"]["x3"] + 5,
                         line["bounding_rect"]["y3"] + 5,
+                        line["text"],
                     )
                 )
 
@@ -5085,6 +5141,23 @@ def _compute_detection_crop_coords(detections: list, img_width: int, img_height:
     return (crop_xmin, crop_ymin, crop_xmax, crop_ymax)
 
 
+def _compute_detection_crop_coords_list(detections: list, img_width: int, img_height: int, pad: int = 5):
+    crop_coords_list = []
+    for det in detections or []:
+        box = det.get("box") if isinstance(det, dict) else None
+        if not isinstance(box, (list, tuple)) or len(box) < 4:
+            continue
+        x1, y1, x2, y2 = box[:4]
+        crop_xmin = max(0, int(x1 - pad))
+        crop_ymin = max(0, int(y1 - pad))
+        crop_xmax = min(int(img_width), int(x2 + pad))
+        crop_ymax = min(int(img_height), int(y2 + pad))
+        if crop_xmax <= crop_xmin or crop_ymax <= crop_ymin:
+            continue
+        crop_coords_list.append((crop_xmin, crop_ymin, crop_xmax, crop_ymax))
+    return crop_coords_list
+
+
 def _build_text_detection_result(
     detector_name: str,
     detections: list,
@@ -5109,6 +5182,9 @@ def _build_text_detection_result(
             score = 1.0
         normalized.append({"box": box, "score": score})
 
+    crop_coords_list = _compute_detection_crop_coords_list(
+        normalized, img_width=img_width, img_height=img_height, pad=int(crop_padding)
+    )
     crop_coords = _compute_detection_crop_coords(
         normalized, img_width=img_width, img_height=img_height, pad=int(crop_padding)
     )
@@ -5116,13 +5192,15 @@ def _build_text_detection_result(
         "schema": TEXT_DETECTION_RESULT_SCHEMA,
         "detector": str(detector_name),
         "boxes": normalized,
+        "crop_coords_list": [list(coords) for coords in crop_coords_list],
         "crop_coords": list(crop_coords) if crop_coords else None,
+        "crop_padding": int(crop_padding),
     }
     return (
         True,
         "",
         [],
-        [],
+        crop_coords_list,
         crop_coords,
         response_payload,
     )

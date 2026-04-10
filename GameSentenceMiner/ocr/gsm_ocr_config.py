@@ -182,6 +182,21 @@ def get_overlay_area_config_path(use_window_as_config=False, window=""):
     return os.path.join(get_ocr_config_path(), f"{scene}_overlay.json")
 
 
+def get_overlay_settings_path(use_window_as_config=False, window=""):
+    scene = _resolve_scene_name(use_window_as_config, window)
+    return os.path.join(get_ocr_config_path(), f"{scene}_overlay_settings.json")
+
+
+OVERLAY_CONFIG_RESERVED_KEYS = {
+    "scene",
+    "coordinate_system",
+    "window_geometry",
+    "rectangles",
+    "monitor_index",
+    "rects",
+}
+
+
 def get_ocr_config_path():
     ocr_config_dir = os.path.join(get_app_directory(), "ocr_config")
     os.makedirs(ocr_config_dir, exist_ok=True)
@@ -215,6 +230,84 @@ def get_scene_settings_path(use_window_as_config=False, window=""):
     """Return the path to {scene}_config.json."""
     scene = _resolve_scene_name(use_window_as_config, window)
     return os.path.join(get_ocr_config_path(), f"{scene}_config.json")
+
+
+def _read_overlay_config_data(use_window_as_config=False, window="") -> dict:
+    overlay_config_path = get_overlay_area_config_path(use_window_as_config, window)
+    if not os.path.exists(overlay_config_path):
+        return {}
+    try:
+        with open(overlay_config_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        logger.warning(f"Failed to read overlay config from {overlay_config_path}: {e}")
+        return {}
+
+
+def _read_overlay_settings_data(use_window_as_config=False, window="") -> dict:
+    overlay_settings_path = get_overlay_settings_path(use_window_as_config, window)
+    if not os.path.exists(overlay_settings_path):
+        return {}
+    try:
+        with open(overlay_settings_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        logger.warning(f"Failed to read overlay settings from {overlay_settings_path}: {e}")
+        return {}
+
+
+def read_overlay_scene_settings(use_window_as_config=False, window="", defaults: Optional[dict] = None) -> dict:
+    """
+    Read lightweight per-scene overlay settings.
+
+    Preferred storage lives in {scene}_overlay_settings.json so normal settings
+    saves do not rewrite {scene}_overlay.json. Legacy settings embedded in
+    {scene}_overlay.json are still supported as a fallback.
+    """
+    result = dict(defaults or {})
+    overlay_settings = _read_overlay_settings_data(use_window_as_config, window)
+    if overlay_settings:
+        result.update(overlay_settings)
+        return result
+
+    legacy_overlay_config = _read_overlay_config_data(use_window_as_config, window)
+    for key, value in legacy_overlay_config.items():
+        if key not in OVERLAY_CONFIG_RESERVED_KEYS:
+            result[key] = value
+    return result
+
+
+def write_overlay_scene_settings(settings: dict, use_window_as_config=False, window="") -> None:
+    """
+    Merge lightweight overlay settings into {scene}_overlay_settings.json.
+    """
+    overlay_settings_path = get_overlay_settings_path(use_window_as_config, window)
+    os.makedirs(os.path.dirname(overlay_settings_path), exist_ok=True)
+    overlay_settings = _read_overlay_settings_data(use_window_as_config, window)
+    overlay_settings.update(settings)
+    try:
+        with open(overlay_settings_path, "w", encoding="utf-8") as f:
+            json.dump(overlay_settings, f, indent=2)
+        logger.debug(f"Wrote overlay scene settings to {overlay_settings_path}")
+    except Exception as e:
+        logger.warning(f"Failed to write overlay scene settings to {overlay_settings_path}: {e}")
+
+
+def get_overlay_minimum_character_size(default=0, use_window_as_config=False, window="") -> int:
+    settings = read_overlay_scene_settings(
+        use_window_as_config=use_window_as_config,
+        window=window,
+        defaults={"minimum_character_size": default},
+    )
+    try:
+        return int(settings.get("minimum_character_size", default) or 0)
+    except (TypeError, ValueError):
+        try:
+            return int(default or 0)
+        except (TypeError, ValueError):
+            return 0
 
 
 def read_scene_settings(use_window_as_config=False, window="") -> dict:

@@ -53,3 +53,89 @@ def test_filter_local_ocr_results_by_language_keeps_standalone_iteration_mark():
 
     assert len(result) == 1
     assert result[0]["text"] == "々"
+
+
+def test_filter_local_ocr_results_by_language_normalizes_leading_stroke_before_kanji():
+    processor = get_overlay_coords.OverlayProcessor()
+    processor.regex = regex.compile(r"[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]")
+
+    source = [
+        {
+            "text": "-際大きな声",
+            "bounding_rect": {"x1": 1},
+            "words": [
+                {"text": "-", "bounding_rect": {"x1": 1}},
+                {"text": "際", "bounding_rect": {"x1": 2}},
+                {"text": "大", "bounding_rect": {"x1": 3}},
+                {"text": "き", "bounding_rect": {"x1": 4}},
+                {"text": "な", "bounding_rect": {"x1": 5}},
+                {"text": "声", "bounding_rect": {"x1": 6}},
+            ],
+        }
+    ]
+
+    result = processor._filter_local_ocr_results_by_language(source)
+
+    assert len(result) == 1
+    assert result[0]["text"] == "一際大きな声"
+    assert [word["text"] for word in result[0]["words"]] == ["一", "際", "大", "き", "な", "声"]
+
+
+def test_filter_local_ocr_results_by_language_normalizes_katakana_long_vowels():
+    processor = get_overlay_coords.OverlayProcessor()
+    processor.regex = regex.compile(r"[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]")
+
+    source = [
+        {
+            "text": "ス-パ-",
+            "bounding_rect": {"x1": 1},
+            "words": [
+                {"text": "ス", "bounding_rect": {"x1": 1}},
+                {"text": "-", "bounding_rect": {"x1": 2}},
+                {"text": "パ", "bounding_rect": {"x1": 3}},
+                {"text": "-", "bounding_rect": {"x1": 4}},
+            ],
+        }
+    ]
+
+    result = processor._filter_local_ocr_results_by_language(source)
+
+    assert len(result) == 1
+    assert result[0]["text"] == "スーパー"
+    assert [word["text"] for word in result[0]["words"]] == ["ス", "ー", "パ", "ー"]
+
+
+def test_filter_precomputed_results_by_minimum_character_size_removes_small_words():
+    processor = get_overlay_coords.OverlayProcessor()
+    source = [
+        {
+            "text": "漢ふ",
+            "bounding_rect": {"x1": 0, "y1": 0, "x2": 24, "y2": 0, "x3": 24, "y3": 24, "x4": 0, "y4": 24},
+            "words": [
+                {
+                    "text": "漢",
+                    "bounding_rect": {"x1": 0, "y1": 0, "x2": 18, "y2": 0, "x3": 18, "y3": 18, "x4": 0, "y4": 18},
+                },
+                {
+                    "text": "ふ",
+                    "bounding_rect": {"x1": 18, "y1": 0, "x2": 24, "y2": 0, "x3": 24, "y3": 6, "x4": 18, "y4": 6},
+                },
+            ],
+        }
+    ]
+
+    result = processor._filter_precomputed_results_by_minimum_character_size(source, 10)
+
+    assert len(result) == 1
+    assert result[0]["text"] == "漢"
+    assert [word["text"] for word in result[0]["words"]] == ["漢"]
+    assert result[0]["bounding_rect"] == {
+        "x1": 0.0,
+        "y1": 0.0,
+        "x2": 18.0,
+        "y2": 0.0,
+        "x3": 18.0,
+        "y3": 18.0,
+        "x4": 0.0,
+        "y4": 18.0,
+    }

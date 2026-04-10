@@ -166,6 +166,62 @@ def test_get_ocr_keep_newline_uses_legacy_value_when_source_specific_missing(
     assert electron_config.get_ocr_keep_newline("screen_cropper") is True
 
 
+def test_get_ocr_send_to_clipboard_uses_source_specific_defaults(monkeypatch):
+    store = _DummyStore(
+        {
+            "OCR": {
+                "sendToClipboard": False,
+                "send_to_clipboard_auto": None,
+                "send_to_clipboard_menu": None,
+                "send_to_clipboard_area_select": None,
+            }
+        }
+    )
+    monkeypatch.setattr(electron_config, "electron_store", store)
+
+    assert electron_config.get_ocr_send_to_clipboard() is False
+    assert electron_config.get_ocr_send_to_clipboard("secondary") is False
+    assert electron_config.get_ocr_send_to_clipboard("screen_cropper") is True
+
+
+def test_get_ocr_send_to_clipboard_uses_legacy_value_when_source_specific_missing(
+    monkeypatch,
+):
+    store = _DummyStore(
+        {
+            "OCR": {
+                "sendToClipboard": True,
+                "send_to_clipboard_auto": None,
+                "send_to_clipboard_menu": None,
+                "send_to_clipboard_area_select": None,
+            }
+        }
+    )
+    monkeypatch.setattr(electron_config, "electron_store", store)
+
+    assert electron_config.get_ocr_send_to_clipboard() is True
+    assert electron_config.get_ocr_send_to_clipboard("secondary") is True
+    assert electron_config.get_ocr_send_to_clipboard("screen_cropper") is True
+
+
+def test_get_ocr_send_to_clipboard_prefers_source_specific_values(monkeypatch):
+    store = _DummyStore(
+        {
+            "OCR": {
+                "sendToClipboard": True,
+                "send_to_clipboard_auto": False,
+                "send_to_clipboard_menu": False,
+                "send_to_clipboard_area_select": True,
+            }
+        }
+    )
+    monkeypatch.setattr(electron_config, "electron_store", store)
+
+    assert electron_config.get_ocr_send_to_clipboard() is False
+    assert electron_config.get_ocr_send_to_clipboard("secondary") is False
+    assert electron_config.get_ocr_send_to_clipboard("screen_cropper") is True
+
+
 def test_get_ocr_obs_capture_preprocess_mode(monkeypatch):
     store = _DummyStore({"OCR": {"obs_capture_preprocess": "  GRAYSCALE_UNSHARP  "}})
     monkeypatch.setattr(electron_config, "electron_store", store)
@@ -174,6 +230,25 @@ def test_get_ocr_obs_capture_preprocess_mode(monkeypatch):
     store = _DummyStore({"OCR": {"obs_capture_preprocess": "invalid"}})
     monkeypatch.setattr(electron_config, "electron_store", store)
     assert electron_config.get_ocr_obs_capture_preprocess_mode() == "none"
+
+
+def test_get_ocr_compare_thresholds_are_clamped(monkeypatch):
+    store = _DummyStore(
+        {
+            "OCR": {
+                "duplicate_similarity_threshold": "120",
+                "change_detection_threshold": "-10",
+                "truncation_min_ratio_percent": "bad",
+                "subset_longest_block_divisor": 0,
+            }
+        }
+    )
+    monkeypatch.setattr(electron_config, "electron_store", store)
+
+    assert electron_config.get_ocr_duplicate_similarity_threshold() == 100
+    assert electron_config.get_ocr_change_detection_threshold() == 0
+    assert electron_config.get_ocr_truncation_min_ratio_percent() == 25
+    assert electron_config.get_ocr_subset_longest_block_divisor() == 1
 
 
 def test_get_ocr_scan_rate_invalid_value(monkeypatch):

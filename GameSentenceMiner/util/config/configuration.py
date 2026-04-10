@@ -1008,6 +1008,8 @@ class Hotkeys:
     play_latest_audio: str = "f7"
     manual_overlay_scan: str = ""
     process_pause: str = ""
+    pause_text_intake: str = ""
+    relay_outputs_when_text_intake_paused: bool = True
 
 
 @dataclass_json
@@ -1264,12 +1266,16 @@ class Overlay:
     ocr_area_config_include_primary_areas: bool = True
     ocr_area_config_include_secondary_areas: bool = True
     ocr_area_config_use_exclusion_zones: bool = True
-    use_ocr_result: bool = True
+    use_ocr_result_v2: bool = False
     ocr_full_screen_instead_of_obs: bool = False
 
     def __post_init__(self):
         if self.monitor_to_capture == -1:
             self.monitor_to_capture = 0  # Default to the first monitor if not set
+
+        # Keep the legacy field for config compatibility, but always use the
+        # current OCR-result overlay behavior.
+        self.use_ocr_result_v2 = False
 
         try:
             import mss as mss
@@ -2250,6 +2256,8 @@ class GsmAppState:
         self.current_audio_line_id = None
         self.replay_buffer_length = 300
         self.vad_result = None
+        self.audio_edit_context = None
+        self.current_replay_context = None
         self.texthooker_audio_request = {}
         self.texthooker_audio_assets = {}
         self.texthooker_audio_cache = {}
@@ -2259,6 +2267,7 @@ class GsmAppState:
         self.videos_with_pending_operations = set()  # Track videos that shouldn't be deleted yet
         self.disable_anki_confirmation_session = False
         self.replay_buffer_stopped_timestamp = None
+        self.text_input_paused = False
 
 
 @dataclass_json
@@ -2274,9 +2283,10 @@ class AnkiUpdateResult:
     word_path: str = ""
     word: str = ""
     extra_tags: List[str] = field(default_factory=list)
+    failure_reason: str = ""
 
     @staticmethod
-    def failure():
+    def failure(reason: str = "", word: str = ""):
         return AnkiUpdateResult(
             success=False,
             audio_in_anki="",
@@ -2286,8 +2296,9 @@ class AnkiUpdateResult:
             multi_line=False,
             video_in_anki="",
             word_path="",
-            word="",
+            word=word,
             extra_tags=[],
+            failure_reason=reason or "",
         )
 
 

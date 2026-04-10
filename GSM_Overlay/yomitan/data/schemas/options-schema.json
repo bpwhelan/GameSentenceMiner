@@ -264,11 +264,11 @@
                                     },
                                     "customPopupCss": {
                                         "type": "string",
-                                        "default": ""
+                                        "default": "body {\n    background: transparent !important;\n    color: #dfdfdf;\n}\n\n.gloss-sc-thead,\n.gloss-sc-tfoot,\n.gloss-sc-th {\n    background-color: transparent;\n}\n\n.headword-term > ruby > rt {\n    color: #979797;\n}"
                                     },
                                     "customPopupOuterCss": {
                                         "type": "string",
-                                        "default": ""
+                                        "default": "iframe.yomitan-popup {\n    background: rgba(45, 45, 55, 0.85) !important;\n    backdrop-filter: blur(6px) !important;\n    -webkit-backdrop-filter: blur(6px) !important;\n    border-radius: 12px !important;\n    border: 1px solid rgba(255, 255, 255, 0.2) !important;\n}"
                                     },
                                     "enableWanakana": {
                                         "type": "boolean",
@@ -515,7 +515,7 @@
                                         "type": "array",
                                         "default": [
                                             {
-                                                "include": "shift",
+                                                "include": "",
                                                 "exclude": "mouse0",
                                                 "types": {
                                                     "mouse": true,
@@ -578,7 +578,7 @@
                                             "properties": {
                                                 "include": {
                                                     "type": "string",
-                                                    "default": "shift"
+                                                    "default": ""
                                                 },
                                                 "exclude": {
                                                     "type": "string",
@@ -757,7 +757,7 @@
                                     },
                                     "autoHideResults": {
                                         "type": "boolean",
-                                        "default": false
+                                        "default": true
                                     },
                                     "delay": {
                                         "type": "number",
@@ -809,12 +809,12 @@
                                     },
                                     "hidePopupOnCursorExit": {
                                         "type": "boolean",
-                                        "default": false
+                                        "default": true
                                     },
                                     "hidePopupOnCursorExitDelay": {
                                         "type": "number",
                                         "minimum": 0,
-                                        "default": 0
+                                        "default": 50
                                     },
                                     "reducedMotionScrolling": {
                                         "type": "boolean",
@@ -1390,7 +1390,8 @@
             "type": "object",
             "required": [
                 "database",
-                "dataTransmissionConsentShown"
+                "dataTransmissionConsentShown",
+                "gsmOverlayRecommendations"
             ],
             "properties": {
                 "database": {
@@ -1408,6 +1409,37 @@
                 "dataTransmissionConsentShown": {
                     "type": "boolean",
                     "default": false
+                },
+                "gsmOverlayRecommendations": {
+                    "type": "object",
+                    "required": [
+                        "appliedPackIds",
+                        "dismissedPackIds",
+                        "freshInstallSuppressedPackIds"
+                    ],
+                    "properties": {
+                        "appliedPackIds": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "dismissedPackIds": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "freshInstallSuppressedPackIds": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        }
+                    }
                 }
             }
         }

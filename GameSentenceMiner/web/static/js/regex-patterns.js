@@ -8,7 +8,7 @@
  * - label: user-friendly description
  * - pattern: the actual regex pattern
  */
-const PRESET_PATTERNS = {
+export const PRESET_PATTERNS = {
     'lines_over_50': {
         label: 'Lines over 50 characters',
         pattern: '.{51,}'
@@ -27,11 +27,11 @@ const PRESET_PATTERNS = {
     },
     'empty_lines': {
         label: 'Empty or whitespace-only lines',
-        pattern: '^\s*$'
+        pattern: '^\\s*$'
     },
     'numbers_only': {
         label: 'Lines with numbers only',
-        pattern: '^\d+$'
+        pattern: '^\\d+$'
     },
     'single_char': {
         label: 'Single character lines',
@@ -52,7 +52,7 @@ const PRESET_PATTERNS = {
  * @param {string} key - Pattern key
  * @returns {string|null} - Pattern string or null if not found
  */
-function getPattern(key) {
+export function getPattern(key) {
     return PRESET_PATTERNS[key]?.pattern || null;
 }
 
@@ -60,7 +60,7 @@ function getPattern(key) {
  * Get all pattern options for dropdown
  * @returns {Array} - Array of {value, label} objects
  */
-function getPatternOptions() {
+export function getPatternOptions() {
     return Object.entries(PRESET_PATTERNS).map(([key, data]) => ({
         value: key,
         label: data.label
@@ -72,7 +72,7 @@ function getPatternOptions() {
  * @param {string} pattern - Regex pattern to validate
  * @returns {Object} - {valid: boolean, error: string|null}
  */
-function validateRegex(pattern) {
+export function validateRegex(pattern) {
     try {
         new RegExp(pattern);
         return { valid: true, error: null };

@@ -80,6 +80,10 @@
       return await this.invoke('tokenize', { text, scanLength }, options);
     }
 
+    async closePopups(options = {}) {
+      return await this.invoke('closePopups', {}, options);
+    }
+
     _onMessage(event) {
       if (!event || event.source !== window) return;
       const data = event.data;
