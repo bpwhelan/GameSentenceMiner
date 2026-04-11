@@ -8,6 +8,7 @@ const {
   MANUAL_HOTKEY_MODE_HOLD,
   MANUAL_HOTKEY_MODE_TOGGLE,
   createManualHotkeyController,
+  isManualHotkeyBlockedByGameWindowState,
   resolveManualHotkeyBackend,
 } = require('../../GSM_Overlay/manual_hotkey_controller.js');
 
@@ -133,5 +134,14 @@ describe('manual_hotkey_controller', () => {
   it('resolves modifier-only bindings to input server and normal hotkeys to electron', () => {
     expect(resolveManualHotkeyBackend('Shift')).toBe(MANUAL_HOTKEY_BACKEND_INPUT_SERVER);
     expect(resolveManualHotkeyBackend('Shift+Space')).toBe(MANUAL_HOTKEY_BACKEND_ELECTRON);
+  });
+
+  it('only blocks manual activation for explicitly hidden game states', () => {
+    expect(isManualHotkeyBlockedByGameWindowState('unknown')).toBe(false);
+    expect(isManualHotkeyBlockedByGameWindowState('active')).toBe(false);
+    expect(isManualHotkeyBlockedByGameWindowState('background')).toBe(false);
+    expect(isManualHotkeyBlockedByGameWindowState('obscured')).toBe(true);
+    expect(isManualHotkeyBlockedByGameWindowState('minimized')).toBe(true);
+    expect(isManualHotkeyBlockedByGameWindowState('closed')).toBe(true);
   });
 });

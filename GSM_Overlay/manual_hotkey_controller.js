@@ -2,6 +2,7 @@ const MANUAL_HOTKEY_BACKEND_ELECTRON = "electron";
 const MANUAL_HOTKEY_BACKEND_INPUT_SERVER = "input_server";
 const MANUAL_HOTKEY_MODE_HOLD = "hold";
 const MANUAL_HOTKEY_MODE_TOGGLE = "toggle";
+const MANUAL_HOTKEY_BLOCKED_GAME_WINDOW_STATES = new Set(["obscured", "minimized", "closed"]);
 
 const MODIFIER_TOKENS = Object.freeze(["ctrl", "cmd", "alt", "shift"]);
 const MODIFIER_TOKEN_SET = new Set(MODIFIER_TOKENS);
@@ -24,6 +25,11 @@ function isModifierToken(token) {
 function isModifierOnlyHotkey(hotkey) {
   const parts = normalizeHotkeyParts(hotkey);
   return parts.length > 0 && parts.every(isModifierToken);
+}
+
+function isManualHotkeyBlockedByGameWindowState(state) {
+  const normalized = String(state || "").trim().toLowerCase();
+  return MANUAL_HOTKEY_BLOCKED_GAME_WINDOW_STATES.has(normalized);
 }
 
 function resolveManualHotkeyBackend(hotkey, options = {}) {
@@ -190,6 +196,7 @@ module.exports = {
   MANUAL_HOTKEY_MODE_HOLD,
   MANUAL_HOTKEY_MODE_TOGGLE,
   createManualHotkeyController,
+  isManualHotkeyBlockedByGameWindowState,
   isModifierOnlyHotkey,
   normalizeManualHotkeyMode,
   resolveManualHotkeyBackend,

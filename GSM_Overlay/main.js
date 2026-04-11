@@ -14,6 +14,7 @@ const {
   MANUAL_HOTKEY_BACKEND_ELECTRON,
   MANUAL_HOTKEY_BACKEND_INPUT_SERVER,
   createManualHotkeyController,
+  isManualHotkeyBlockedByGameWindowState,
   normalizeManualHotkeyMode,
   resolveManualHotkeyBackend,
 } = require('./manual_hotkey_controller');
@@ -51,7 +52,6 @@ const DEFAULT_YOMITAN_API_URL = "http://127.0.0.1:19633";
 const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
 const VALID_SUDACHI_DICTIONARIES = new Set(["small", "core", "full"]);
 const VALID_TRACKED_GAME_WINDOW_STATES = new Set(["active", "background", "obscured", "minimized", "closed", "unknown"]);
-const MANUAL_HOTKEY_ALLOWED_GAME_WINDOW_STATES = new Set(["active", "background"]);
 const GAMEPAD_SERVER_BASE_PORT = 7276;
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
 const OVERLAY_WS_COMMAND_OPEN_SETTINGS = "open-overlay-settings";
@@ -308,7 +308,7 @@ function setTrackedGameWindowState(state, source = "unknown") {
 }
 
 function isTrackedGameWindowVisibleForManualHotkey() {
-  return MANUAL_HOTKEY_ALLOWED_GAME_WINDOW_STATES.has(trackedGameWindowState);
+  return !isManualHotkeyBlockedByGameWindowState(trackedGameWindowState);
 }
 
 function getManualHotkeyTriggerBlockReason() {
