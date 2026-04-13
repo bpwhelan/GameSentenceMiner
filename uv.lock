@@ -1170,7 +1170,7 @@ wheels = [
 
 [[package]]
 name = "gamesentenceminer"
-version = "2026.4.6"
+version = "2026.4.7"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -2020,7 +2020,7 @@ wheels = [
 
 [[package]]
 name = "meikiocr"
-version = "0.3.3"
+version = "0.3.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
@@ -2028,9 +2028,9 @@ dependencies = [
     { name = "onnxruntime" },
     { name = "opencv-python-headless" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/62/e3/a76019d53e997918670b868baeb4fae7de2e1b087433398e7e9923fb1555/meikiocr-0.3.3.tar.gz", hash = "sha256:e19c2ea00915a16e3a15975e664f85b635a985166403da521b08a192ea4f511f", size = 18003, upload-time = "2026-04-01T09:55:00.311Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/08/f8/9a0ca64ebde6c40f215b89c83716156a0c5feca85914afd72185d7c9af08/meikiocr-0.3.4.tar.gz", hash = "sha256:76de1d26c2c4dc141322be7d0e5a54af98e052ca8cfcbaefd2891f372e1344f1", size = 18137, upload-time = "2026-04-11T20:41:40.566Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b0/0f/3aa91744fe3e90a7e8ded6edb235b0fe035fbfd37ac541ca70b84896c7f2/meikiocr-0.3.3-py3-none-any.whl", hash = "sha256:36996177605223200454a87d58b7f6249ba5ac246be4cb62049634f5ae2c22f5", size = 15895, upload-time = "2026-04-01T09:54:59.005Z" },
+    { url = "https://files.pythonhosted.org/packages/5c/e3/bd9d1cd5c35998027e04495b3e31688c6f2ce5316f9789bb6d4d34539a1c/meikiocr-0.3.4-py3-none-any.whl", hash = "sha256:95d03291b1b2c84a9ff8607f63fe14688cec5a038f9b30cffdcdab87a3217a07", size = 16009, upload-time = "2026-04-11T20:41:39.328Z" },
 ]
 
 [[package]]
