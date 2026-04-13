@@ -2320,6 +2320,10 @@ class ConfigWindow(QWidget):
         combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         return combo
 
+    def _set_text_value(self, widget, value):
+        """Normalize config values before writing them into text-backed Qt widgets."""
+        widget.setText("" if value is None else str(value))
+
     def _update_animated_settings_visibility(self):
         """Shows/hides animated screenshot settings based on animated checkbox or video field."""
         should_show = self.animated_screenshot_check.isChecked() or bool(self.video_field_edit.currentText().strip())
@@ -2585,8 +2589,8 @@ class ConfigWindow(QWidget):
         self.string_replacement_edit_button.setEnabled(s.text_processing.string_replacement.enabled)
 
         # Paths
-        self.folder_to_watch_edit.setText(s.paths.folder_to_watch)
-        self.output_folder_edit.setText(s.paths.output_folder)
+        self._set_text_value(self.folder_to_watch_edit, s.paths.folder_to_watch)
+        self._set_text_value(self.output_folder_edit, s.paths.output_folder)
         self.copy_temp_files_to_output_folder_check.setChecked(s.paths.copy_temp_files_to_output_folder)
         self.open_output_folder_on_card_creation_check.setChecked(s.paths.open_output_folder_on_card_creation)
         self.copy_trimmed_replay_to_output_folder_check.setChecked(s.paths.copy_trimmed_replay_to_output_folder)
@@ -2608,7 +2612,7 @@ class ConfigWindow(QWidget):
         self.anki_confirmation_replay_audio_on_tts_generation_check.setChecked(
             bool(getattr(s.anki, "replay_audio_on_tts_generation", True))
         )
-        self.anki_url_edit.setText(s.anki.url)
+        self._set_text_value(self.anki_url_edit, s.anki.url)
         self._suppress_anki_field_refresh = True
         self.anki_note_type_combo.setCurrentText(s.anki.note_type)
         try:
@@ -2651,29 +2655,29 @@ class ConfigWindow(QWidget):
         self.game_name_field_append_check.setChecked(s.anki.game_name_field_append)
         self._apply_anki_field_policy_states()
         self._suppress_anki_field_refresh = False
-        self.custom_tags_edit.setText(", ".join(s.anki.custom_tags))
-        self.tags_to_check_edit.setText(", ".join(s.anki.tags_to_check))
+        self._set_text_value(self.custom_tags_edit, ", ".join(s.anki.custom_tags))
+        self._set_text_value(self.tags_to_check_edit, ", ".join(s.anki.tags_to_check))
         self.add_game_tag_check.setChecked(s.anki.add_game_tag)
-        self.parent_tag_edit.setText(s.anki.parent_tag)
+        self._set_text_value(self.parent_tag_edit, s.anki.parent_tag)
         self.tag_unvoiced_cards_check.setChecked(s.anki.tag_unvoiced_cards)
 
         # Features
         self.full_auto_check.setChecked(s.features.full_auto)
         self.open_anki_edit_check.setChecked(s.features.open_anki_edit)
         self.open_anki_browser_check.setChecked(s.features.open_anki_in_browser)
-        self.browser_query_edit.setText(s.features.browser_query)
+        self._set_text_value(self.browser_query_edit, s.features.browser_query)
         self.generate_longplay_check.setChecked(s.features.generate_longplay)
 
         # Screenshot
         self.screenshot_enabled_check.setChecked(s.screenshot.enabled)
-        self.screenshot_width_edit.setText(s.screenshot.width)
-        self.screenshot_height_edit.setText(s.screenshot.height)
-        self.screenshot_quality_edit.setText(s.screenshot.quality)
+        self._set_text_value(self.screenshot_width_edit, s.screenshot.width)
+        self._set_text_value(self.screenshot_height_edit, s.screenshot.height)
+        self._set_text_value(self.screenshot_quality_edit, s.screenshot.quality)
         self.screenshot_extension_combo.clear()
         self.screenshot_extension_combo.addItems(["webp", "avif", "png", "jpeg"])
         self.screenshot_extension_combo.setCurrentText(s.screenshot.extension)
         self.animated_screenshot_check.setChecked(s.screenshot.animated)
-        self.screenshot_custom_ffmpeg_settings_edit.setText(s.screenshot.custom_ffmpeg_settings)
+        self._set_text_value(self.screenshot_custom_ffmpeg_settings_edit, s.screenshot.custom_ffmpeg_settings)
         self.screenshot_timing_combo.clear()
         self.screenshot_timing_combo.addItems(["beginning", "middle", "end"])
         self.screenshot_timing_combo.setCurrentText(s.screenshot.screenshot_timing_setting)
@@ -2698,9 +2702,9 @@ class ConfigWindow(QWidget):
         self.beginning_offset_edit.setText(str(s.audio.beginning_offset))
         self.pre_vad_audio_offset_edit.setText(str(s.audio.pre_vad_end_offset))
         self._load_ffmpeg_presets()
-        self.audio_ffmpeg_reencode_options_edit.setText(s.audio.ffmpeg_reencode_options)
-        self.anki_media_collection_edit.setText(s.audio.anki_media_collection)
-        self.external_tool_edit.setText(s.audio.external_tool)
+        self._set_text_value(self.audio_ffmpeg_reencode_options_edit, s.audio.ffmpeg_reencode_options)
+        self._set_text_value(self.anki_media_collection_edit, s.audio.anki_media_collection)
+        self._set_text_value(self.external_tool_edit, s.audio.external_tool)
         self.external_tool_enabled_check.setChecked(s.audio.external_tool_enabled)
 
         # VAD
@@ -2725,7 +2729,7 @@ class ConfigWindow(QWidget):
         self.backup_vad_model_combo.setCurrentText(s.vad.backup_vad_model)
         self.add_audio_on_no_results_check.setChecked(s.vad.add_audio_on_no_results)
         self.use_tts_as_fallback_check.setChecked(s.vad.use_tts_as_fallback)
-        self.tts_url_edit.setText(s.vad.tts_url)
+        self._set_text_value(self.tts_url_edit, s.vad.tts_url)
         self.end_offset_edit.setText(str(s.audio.end_offset))
         self.vad_trim_beginning_check.setChecked(s.vad.trim_beginning)
         self.vad_beginning_offset_edit.setText(str(s.vad.beginning_offset))
@@ -2740,10 +2744,10 @@ class ConfigWindow(QWidget):
         self.obs_open_obs_check.setChecked(s.obs.open_obs)
         self.obs_close_obs_check.setChecked(s.obs.close_obs)
         self.obs_allow_automatic_updates_check.setChecked(getattr(s.obs, "allow_automatic_updates", False))
-        self.obs_path_edit.setText(s.obs.obs_path)
-        self.obs_host_edit.setText(s.obs.host)
+        self._set_text_value(self.obs_path_edit, s.obs.obs_path)
+        self._set_text_value(self.obs_host_edit, s.obs.host)
         self.obs_port_edit.setText(str(s.obs.port))
-        self.obs_password_edit.setText(s.obs.password)
+        self._set_text_value(self.obs_password_edit, s.obs.password)
         self.obs_disable_recording_check.setChecked(getattr(s.obs, "disable_recording", False))
         self.automatically_manage_replay_buffer_check.setChecked(s.obs.automatically_manage_replay_buffer)
         self.obs_recording_fps_spin.setValue(max(1, min(120, getattr(s.obs, "recording_fps", 15))))
@@ -2760,21 +2764,21 @@ class ConfigWindow(QWidget):
         self.gemini_backup_model_combo.clear()
         self.gemini_backup_model_combo.addItems([OFF] + RECOMMENDED_GEMINI_MODELS)
         self.gemini_backup_model_combo.setCurrentText(s.ai.gemini_backup_model or OFF)
-        self.gemini_api_key_edit.setText(s.ai.gemini_api_key)
+        self._set_text_value(self.gemini_api_key_edit, s.ai.gemini_api_key)
         self.groq_model_combo.clear()
         self.groq_model_combo.addItems(RECOMMENDED_GROQ_MODELS)
         self.groq_model_combo.setCurrentText(s.ai.groq_model)
         self.groq_backup_model_combo.clear()
         self.groq_backup_model_combo.addItems([OFF] + RECOMMENDED_GROQ_MODELS)
         self.groq_backup_model_combo.setCurrentText(s.ai.groq_backup_model or OFF)
-        self.groq_api_key_edit.setText(s.ai.groq_api_key)
-        self.open_ai_url_edit.setText(s.ai.open_ai_url)
-        self.open_ai_model_edit.setText(s.ai.open_ai_model)
-        self.open_ai_backup_model_edit.setText(s.ai.open_ai_backup_model)
-        self.open_ai_api_key_edit.setText(s.ai.open_ai_api_key)
-        self.gsm_cloud_api_url_edit.setText(s.ai.gsm_cloud_api_url)
-        self.gsm_cloud_auth_url_edit.setText(s.ai.gsm_cloud_auth_url)
-        self.gsm_cloud_client_id_edit.setText(s.ai.gsm_cloud_client_id)
+        self._set_text_value(self.groq_api_key_edit, s.ai.groq_api_key)
+        self._set_text_value(self.open_ai_url_edit, s.ai.open_ai_url)
+        self._set_text_value(self.open_ai_model_edit, s.ai.open_ai_model)
+        self._set_text_value(self.open_ai_backup_model_edit, s.ai.open_ai_backup_model)
+        self._set_text_value(self.open_ai_api_key_edit, s.ai.open_ai_api_key)
+        self._set_text_value(self.gsm_cloud_api_url_edit, s.ai.gsm_cloud_api_url)
+        self._set_text_value(self.gsm_cloud_auth_url_edit, s.ai.gsm_cloud_auth_url)
+        self._set_text_value(self.gsm_cloud_client_id_edit, s.ai.gsm_cloud_client_id)
         self._set_gsm_cloud_auth_state(
             s.ai.gsm_cloud_access_token,
             s.ai.gsm_cloud_refresh_token,
@@ -2783,7 +2787,7 @@ class ConfigWindow(QWidget):
         )
         self._populate_gsm_cloud_models(s.ai.gsm_cloud_models)
         self._refresh_ai_provider_options(preferred_provider=s.ai.provider)
-        self.ollama_url_edit.setText(s.ai.ollama_url)
+        self._set_text_value(self.ollama_url_edit, s.ai.ollama_url)
         self.ollama_backup_model_combo.clear()
         initial_ollama_models = [OFF]
         if s.ai.ollama_model:
@@ -2793,7 +2797,7 @@ class ConfigWindow(QWidget):
         self.ollama_backup_model_combo.addItems(list(dict.fromkeys(initial_ollama_models)))
         self.ollama_model_combo.setCurrentText(s.ai.ollama_model)
         self.ollama_backup_model_combo.setCurrentText(s.ai.ollama_backup_model or OFF)
-        self.lm_studio_url_edit.setText(s.ai.lm_studio_url)
+        self._set_text_value(self.lm_studio_url_edit, s.ai.lm_studio_url)
         self.lm_studio_backup_model_combo.clear()
         initial_lm_models = [OFF]
         if s.ai.lm_studio_model:
@@ -2803,7 +2807,7 @@ class ConfigWindow(QWidget):
         self.lm_studio_backup_model_combo.addItems(list(dict.fromkeys(initial_lm_models)))
         self.lm_studio_model_combo.setCurrentText(s.ai.lm_studio_model)
         self.lm_studio_backup_model_combo.setCurrentText(s.ai.lm_studio_backup_model or OFF)
-        self.lm_studio_api_key_edit.setText(s.ai.lm_studio_api_key)
+        self._set_text_value(self.lm_studio_api_key_edit, s.ai.lm_studio_api_key)
         self.ai_anki_field_edit.setCurrentText(s.ai.anki_field)
         self.ai_dialogue_context_length_edit.setText(str(s.ai.dialogue_context_length))
         self.ai_temperature_edit.setText(str(s.ai.temperature))
@@ -2874,22 +2878,22 @@ class ConfigWindow(QWidget):
         self.process_pausing_overlay_gamepad_navigation_requests_pause_check.setChecked(
             bool(getattr(process_cfg, "overlay_gamepad_navigation_requests_pause", False))
         )
-        self.process_pausing_allowlist_edit.setText(", ".join(process_cfg.allowlist))
-        self.process_pausing_denylist_edit.setText(", ".join(process_cfg.denylist))
+        self._set_text_value(self.process_pausing_allowlist_edit, ", ".join(process_cfg.allowlist))
+        self._set_text_value(self.process_pausing_denylist_edit, ", ".join(process_cfg.denylist))
         self.process_pause_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.process_pause or ""))
 
         # Advanced
-        self.audio_player_path_edit.setText(s.advanced.audio_player_path)
-        self.video_player_path_edit.setText(s.advanced.video_player_path)
+        self._set_text_value(self.audio_player_path_edit, s.advanced.audio_player_path)
+        self._set_text_value(self.video_player_path_edit, s.advanced.video_player_path)
         self.play_latest_audio_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.play_latest_audio or ""))
-        self.multi_line_line_break_edit.setText(s.advanced.multi_line_line_break)
+        self._set_text_value(self.multi_line_line_break_edit, s.advanced.multi_line_line_break)
         self.ocr_websocket_port_edit.setText(str(s.advanced.ocr_websocket_port))
         self.texthooker_communication_websocket_port_edit.setText(
             str(s.advanced.texthooker_communication_websocket_port)
         )
         self.plaintext_websocket_export_port_edit.setText(str(s.advanced.plaintext_websocket_port))
         self.polling_rate_edit.setText(str(s.anki.polling_rate_v2))
-        self.localhost_bind_address_edit.setText(s.advanced.localhost_bind_address)
+        self._set_text_value(self.localhost_bind_address_edit, s.advanced.localhost_bind_address)
         self.longest_sleep_time_edit.setText(str(s.advanced.longest_sleep_time))
         self.dont_collect_stats_check.setChecked(s.advanced.dont_collect_stats)
         self.current_version_label.setText(get_current_version())
