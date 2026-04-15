@@ -945,6 +945,9 @@ background: rgba(202, 12, 12, 0.692);
   let lastPopupChangeTime = Date.now();
   let lastPopupCount = 0;
   const STALE_TIMEOUT = 12000;
+  const GSM_CHARACTER_DICTIONARY_STARTUP_DELAY_MS = 30000;
+  let gsmCharacterDictionaryEnsureStarted = false;
+  let gsmCharacterDictionaryEnsureTimeoutId = null;
 
   async function closeYomitanLookups(reason = 'manual-hide') {
     if (!yomitanShowing) {
@@ -967,6 +970,64 @@ background: rgba(202, 12, 12, 0.692);
       console.warn(`[Yomitan] Failed to close popups via bridge (${reason}):`, error);
       return false;
     }
+  }
+
+  function getGsmDictionaryUrls() {
+    const sourceUrl = overlaySocketUrls.ws1 || overlaySocketUrls.ws2;
+    if (!sourceUrl) {
+      return null;
+    }
+
+    try {
+      const parsed = new URL(sourceUrl);
+      const protocol = parsed.protocol === 'wss:' ? 'https:' : 'http:';
+      const port = parsed.port ? `:${parsed.port}` : '';
+      const baseUrl = `${protocol}//${parsed.hostname}${port}`;
+      return {
+        downloadUrl: `${baseUrl}/api/yomitan-dict`,
+        indexUrl: `${baseUrl}/api/yomitan-index`,
+      };
+    } catch (error) {
+      console.warn('[Yomitan] Failed to derive GSM dictionary URLs from overlay transport:', error);
+      return null;
+    }
+  }
+
+  async function ensureGsmCharacterDictionaryFresh(reason = 'startup') {
+    if (gsmCharacterDictionaryEnsureStarted) {
+      return;
+    }
+    gsmCharacterDictionaryEnsureStarted = true;
+
+    const bridge = window.gsmYomitanBridge;
+    if (!bridge || typeof bridge.ensureGsmCharacterDictionary !== 'function') {
+      console.warn(`[Yomitan] GSM dictionary bridge unavailable (${reason})`);
+      return;
+    }
+
+    const urls = getGsmDictionaryUrls();
+    if (!urls) {
+      console.warn(`[Yomitan] GSM dictionary URLs unavailable (${reason})`);
+      return;
+    }
+
+    try {
+      const result = await bridge.ensureGsmCharacterDictionary(urls, { timeoutMs: 60000 });
+      console.log(`[Yomitan] GSM character dictionary ensure result (${reason}):`, result);
+    } catch (error) {
+      console.warn(`[Yomitan] Failed to ensure GSM character dictionary (${reason}):`, error);
+    }
+  }
+
+  function scheduleGsmCharacterDictionaryEnsure(reason = 'startup') {
+    if (gsmCharacterDictionaryEnsureStarted || gsmCharacterDictionaryEnsureTimeoutId !== null) {
+      return;
+    }
+
+    gsmCharacterDictionaryEnsureTimeoutId = window.setTimeout(() => {
+      gsmCharacterDictionaryEnsureTimeoutId = null;
+      void ensureGsmCharacterDictionaryFresh(reason);
+    }, GSM_CHARACTER_DICTIONARY_STARTUP_DELAY_MS);
   }
   
   setInterval(() => {
@@ -1113,11 +1174,13 @@ background: rgba(202, 12, 12, 0.692);
 
 </script>
 
+<script src="block_detection.js"></script>
 <script>
   const { ipcRenderer } = require("electron");
   // Try to load OverlayUtils if available (since this is an Electron renderer process)
   let OverlayUtils;
   let FuriganaUtils;
+  let BlockDetection = window.GSMBlockDetection;
   try {
     OverlayUtils = require("./overlay_utils.js");
     window.OverlayUtils = OverlayUtils;
@@ -1130,6 +1193,21 @@ background: rgba(202, 12, 12, 0.692);
   } catch (e) {
     console.warn("Could not require furigana_utils.js:", e);
   }
+  if (!BlockDetection) {
+    try {
+      BlockDetection = require("./block_detection.js");
+      window.GSMBlockDetection = BlockDetection;
+    } catch (e) {
+      console.warn("Could not require block_detection.js:", e);
+    }
+  }
+  if (!BlockDetection) {
+    throw new Error("block_detection.js failed to load");
+  }
+  const {
+    detectTextBlocks,
+    getMedianValue,
+  } = BlockDetection;
   try {
     const MagpieUtils = require("./magpie.js");
     window.GSMMagpie = MagpieUtils;
@@ -1295,7 +1373,7 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function shouldShowFuriganaLayer() {
-    return showFurigana && furiganaVisible && !(manualMode && !manualHotkeyPressed);
+    return showFurigana && furiganaVisible && !furiganaAutoHidden && !(manualMode && !manualHotkeyPressed);
   }
 
   function updateFuriganaVisibilityState() {
@@ -1305,6 +1383,24 @@ background: rgba(202, 12, 12, 0.692);
     furiganaLayer.style.display = shouldShowFuriganaLayer() ? 'block' : 'none';
   }
 
+  function clearFuriganaAutoHideTimer() {
+    if (furiganaAutoHideTimer !== null) {
+      clearTimeout(furiganaAutoHideTimer);
+      furiganaAutoHideTimer = null;
+    }
+  }
+
+  function scheduleFuriganaAutoHide() {
+    clearFuriganaAutoHideTimer();
+    if (!(hideFuriganaAfterSeconds > 0) || !furiganaLayer || furiganaLayer.childElementCount === 0) {
+      return;
+    }
+    furiganaAutoHideTimer = setTimeout(() => {
+      furiganaAutoHidden = true;
+      updateFuriganaVisibilityState();
+    }, hideFuriganaAfterSeconds * 1000);
+  }
+
   function clearFuriganaLayer() {
     if (furiganaLayer) {
       furiganaLayer.replaceChildren();
@@ -1312,6 +1408,8 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function resetFuriganaRenderState() {
+    clearFuriganaAutoHideTimer();
+    furiganaAutoHidden = false;
     lastFuriganaRenderSignature = null;
     clearFuriganaLayer();
     updateFuriganaVisibilityState();
@@ -1373,51 +1471,6 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   applyFuriganaStyleSettings();
-
-  // Centralized heuristics for OCR line grouping and other tunable math.
-  // Edit values here instead of searching for inline thresholds.
-  const OVERLAY_TUNING = Object.freeze({
-    blockDetection: Object.freeze({
-      minDimensionPercent: 0.1,
-      minMedianHeightPercent: 0.8,
-      fallbackMedianHeightPercent: 1.8,
-      sameRow: Object.freeze({
-        verticalOverlapRatioMin: 0.35,
-        centerYMultiplier: 1.0,
-        centerYMinPercent: 1.0,
-        centerYMaxPercent: 4.0,
-        horizontalGapWidthMultiplier: 0.5,
-        horizontalGapPaddingPercent: 3,
-        horizontalGapMinPercent: 4,
-        horizontalGapMaxPercent: 32,
-      }),
-      crossRow: Object.freeze({
-        verticalGapMinPercent: 1.2,
-        verticalGapMedianHeightMultiplier: 0.9,
-        verticalGapAvgHeightMultiplier: 0.85,
-        centerYMinPercent: 1.5,
-        centerYMedianHeightMultiplier: 1.1,
-        centerYAvgHeightMultiplier: 1.1,
-        xOverlapRatioMin: 0.28,
-        minCharWidthPercent: 0.15,
-        leftEdgeDiffMinPercent: 2,
-        leftEdgeDiffCharWidthMultiplier: 3,
-        horizontalGapMinPercent: 3.5,
-        horizontalGapCharWidthMultiplier: 4.5,
-      }),
-      crossRowRelaxed: Object.freeze({
-        verticalGapMedianHeightMultiplier: 1.7,
-        verticalGapAvgHeightMultiplier: 1.5,
-        centerYMedianHeightMultiplier: 2.4,
-        centerYAvgHeightMultiplier: 2.2,
-        xSpanCoverageRatioMin: 0.18,
-        edgeDiffMinPercent: 3,
-        edgeDiffCharWidthMultiplier: 6,
-        centerXMinPercent: 5,
-        centerXWidthMultiplier: 0.65,
-      }),
-    }),
-  });
 
   // Loading indicator functions
   let loadingStartTime = null;
@@ -2088,263 +2141,6 @@ background: rgba(202, 12, 12, 0.692);
     };
   }
 
-  function getAxisGap(minA, maxA, minB, maxB) {
-    if (maxA < minB) {
-      return minB - maxA;
-    }
-    if (maxB < minA) {
-      return minA - maxB;
-    }
-    return 0;
-  }
-
-  function getAxisOverlap(minA, maxA, minB, maxB) {
-    return Math.max(0, Math.min(maxA, maxB) - Math.max(minA, minB));
-  }
-
-  function getMedianValue(values) {
-    if (!Array.isArray(values) || values.length === 0) {
-      return 0;
-    }
-    const sorted = values
-      .filter((v) => Number.isFinite(v))
-      .sort((a, b) => a - b);
-    if (sorted.length === 0) {
-      return 0;
-    }
-    const mid = Math.floor(sorted.length / 2);
-    if (sorted.length % 2 === 0) {
-      return (sorted[mid - 1] + sorted[mid]) / 2;
-    }
-    return sorted[mid];
-  }
-
-  function shouldLinesShareBlock(lineA, lineB, medianHeight) {
-    const cfg = OVERLAY_TUNING.blockDetection;
-    const sameRowCfg = cfg.sameRow;
-    const crossRowCfg = cfg.crossRow;
-    const crossRowRelaxedCfg = cfg.crossRowRelaxed;
-    const avgHeight = Math.max(cfg.minDimensionPercent, (lineA.height + lineB.height) / 2);
-    const minHeight = Math.max(cfg.minDimensionPercent, Math.min(lineA.height, lineB.height));
-    const centerYDiff = Math.abs(lineA.centerY - lineB.centerY);
-    const verticalOverlap = getAxisOverlap(lineA.y1, lineA.y3, lineB.y1, lineB.y3);
-    const verticalOverlapRatio = verticalOverlap / minHeight;
-    const horizontalGap = getAxisGap(lineA.x1, lineA.x3, lineB.x1, lineB.x3);
-    const xOverlap = getAxisOverlap(lineA.x1, lineA.x3, lineB.x1, lineB.x3);
-    const minWidth = Math.max(cfg.minDimensionPercent, Math.min(lineA.width, lineB.width));
-    const maxWidth = Math.max(cfg.minDimensionPercent, Math.max(lineA.width, lineB.width));
-    const xOverlapRatio = xOverlap / minWidth;
-    const xSpanCoverageRatio = xOverlap / maxWidth;
-    const leftEdgeDiff = Math.abs(lineA.x1 - lineB.x1);
-    const rightEdgeDiff = Math.abs(lineA.x3 - lineB.x3);
-    const centerXDiff = Math.abs(((lineA.x1 + lineA.x3) / 2) - ((lineB.x1 + lineB.x3) / 2));
-    const avgCharWidth = Math.max(crossRowCfg.minCharWidthPercent, (lineA.charWidth + lineB.charWidth) / 2);
-
-    const sameRowYThreshold = Math.max(
-      sameRowCfg.centerYMinPercent,
-      Math.min(sameRowCfg.centerYMaxPercent, avgHeight * sameRowCfg.centerYMultiplier)
-    );
-    const sameRowGapThreshold = Math.max(
-      sameRowCfg.horizontalGapMinPercent,
-      Math.min(
-        sameRowCfg.horizontalGapMaxPercent,
-        ((lineA.width + lineB.width) * sameRowCfg.horizontalGapWidthMultiplier) + sameRowCfg.horizontalGapPaddingPercent
-      )
-    );
-    const sameRow =
-      (verticalOverlapRatio >= sameRowCfg.verticalOverlapRatioMin || centerYDiff <= sameRowYThreshold) &&
-      horizontalGap <= sameRowGapThreshold;
-
-    if (sameRow) {
-      return true;
-    }
-
-    const verticalGap = getAxisGap(lineA.y1, lineA.y3, lineB.y1, lineB.y3);
-    const verticalGapThreshold = Math.max(
-      crossRowCfg.verticalGapMinPercent,
-      medianHeight * crossRowCfg.verticalGapMedianHeightMultiplier,
-      avgHeight * crossRowCfg.verticalGapAvgHeightMultiplier
-    );
-    const centerYThreshold = Math.max(
-      crossRowCfg.centerYMinPercent,
-      medianHeight * crossRowCfg.centerYMedianHeightMultiplier,
-      avgHeight * crossRowCfg.centerYAvgHeightMultiplier
-    );
-    const strictCrossRowMatch =
-      verticalGap <= verticalGapThreshold &&
-      centerYDiff <= centerYThreshold &&
-      (
-        xOverlapRatio >= crossRowCfg.xOverlapRatioMin ||
-        leftEdgeDiff <= Math.max(crossRowCfg.leftEdgeDiffMinPercent, avgCharWidth * crossRowCfg.leftEdgeDiffCharWidthMultiplier) ||
-        horizontalGap <= Math.max(crossRowCfg.horizontalGapMinPercent, avgCharWidth * crossRowCfg.horizontalGapCharWidthMultiplier)
-      );
-    if (strictCrossRowMatch) {
-      return true;
-    }
-
-    // Relaxed fallback for wrapped subtitle rows that are vertically farther apart.
-    const relaxedVerticalGapThreshold = Math.max(
-      verticalGapThreshold,
-      medianHeight * crossRowRelaxedCfg.verticalGapMedianHeightMultiplier,
-      avgHeight * crossRowRelaxedCfg.verticalGapAvgHeightMultiplier
-    );
-    if (verticalGap > relaxedVerticalGapThreshold) {
-      return false;
-    }
-
-    const relaxedCenterYThreshold = Math.max(
-      centerYThreshold,
-      medianHeight * crossRowRelaxedCfg.centerYMedianHeightMultiplier,
-      avgHeight * crossRowRelaxedCfg.centerYAvgHeightMultiplier
-    );
-    if (centerYDiff > relaxedCenterYThreshold) {
-      return false;
-    }
-
-    if (xSpanCoverageRatio < crossRowRelaxedCfg.xSpanCoverageRatioMin) {
-      return false;
-    }
-
-    const relaxedEdgeThreshold = Math.max(
-      crossRowRelaxedCfg.edgeDiffMinPercent,
-      avgCharWidth * crossRowRelaxedCfg.edgeDiffCharWidthMultiplier
-    );
-    const relaxedCenterXThreshold = Math.max(
-      crossRowRelaxedCfg.centerXMinPercent,
-      maxWidth * crossRowRelaxedCfg.centerXWidthMultiplier
-    );
-
-    return (
-      leftEdgeDiff <= relaxedEdgeThreshold ||
-      rightEdgeDiff <= relaxedEdgeThreshold ||
-      centerXDiff <= relaxedCenterXThreshold
-    );
-  }
-
-  function detectTextBlocks(lines) {
-    const lineBlocks = new Map();
-    const blockBoundaries = new Map();
-
-    if (!Array.isArray(lines) || lines.length === 0) {
-      return { lineBlocks, blockBoundaries, blockCount: 0 };
-    }
-
-    const metrics = lines.map((line, index) => {
-      const rect = line && line.bounding_rect ? line.bounding_rect : {};
-      const rawX1 = Number(rect.x1) * 100;
-      const rawY1 = Number(rect.y1) * 100;
-      const rawX3 = Number(rect.x3) * 100;
-      const rawY3 = Number(rect.y3) * 100;
-
-      const safeX1 = Number.isFinite(rawX1) ? rawX1 : 0;
-      const safeY1 = Number.isFinite(rawY1) ? rawY1 : 0;
-      const safeX3 = Number.isFinite(rawX3) ? rawX3 : safeX1;
-      const safeY3 = Number.isFinite(rawY3) ? rawY3 : safeY1;
-
-      const x1 = Math.min(safeX1, safeX3);
-      const y1 = Math.min(safeY1, safeY3);
-      const x3 = Math.max(safeX1, safeX3);
-      const y3 = Math.max(safeY1, safeY3);
-
-      const textLength = typeof line?.text === 'string' && line.text.length > 0 ? line.text.length : 1;
-      const width = Math.max(OVERLAY_TUNING.blockDetection.minDimensionPercent, x3 - x1);
-      const height = Math.max(OVERLAY_TUNING.blockDetection.minDimensionPercent, y3 - y1);
-
-      return {
-        index,
-        x1,
-        y1,
-        x3,
-        y3,
-        width,
-        height,
-        centerY: (y1 + y3) / 2,
-        charWidth: width / textLength,
-      };
-    });
-
-    const medianHeight = Math.max(
-      OVERLAY_TUNING.blockDetection.minMedianHeightPercent,
-      getMedianValue(metrics.map((m) => m.height).filter((h) => Number.isFinite(h) && h > 0)) || OVERLAY_TUNING.blockDetection.fallbackMedianHeightPercent
-    );
-
-    const parent = metrics.map((_, idx) => idx);
-    const find = (idx) => {
-      let current = idx;
-      while (parent[current] !== current) {
-        parent[current] = parent[parent[current]];
-        current = parent[current];
-      }
-      return current;
-    };
-    const unite = (a, b) => {
-      const rootA = find(a);
-      const rootB = find(b);
-      if (rootA === rootB) {
-        return;
-      }
-      parent[rootB] = rootA;
-    };
-
-    for (let i = 0; i < metrics.length; i++) {
-      for (let j = i + 1; j < metrics.length; j++) {
-        if (shouldLinesShareBlock(metrics[i], metrics[j], medianHeight)) {
-          unite(i, j);
-        }
-      }
-    }
-
-    const components = new Map();
-    for (let i = 0; i < metrics.length; i++) {
-      const root = find(i);
-      if (!components.has(root)) {
-        components.set(root, []);
-      }
-      components.get(root).push(i);
-    }
-
-    const orderedComponents = Array.from(components.values())
-      .map((memberIndexes) => {
-        let top = Infinity;
-        let left = Infinity;
-        let minIndex = Infinity;
-        for (const idx of memberIndexes) {
-          const metric = metrics[idx];
-          top = Math.min(top, metric.y1);
-          left = Math.min(left, metric.x1);
-          minIndex = Math.min(minIndex, metric.index);
-        }
-        return { memberIndexes, top, left, minIndex };
-      })
-      .sort((a, b) => (a.top - b.top) || (a.left - b.left) || (a.minIndex - b.minIndex));
-
-    orderedComponents.forEach((component, blockId) => {
-      for (const idx of component.memberIndexes) {
-        lineBlocks.set(idx, blockId);
-      }
-    });
-
-    for (let i = 0; i < lines.length; i++) {
-      const blockId = lineBlocks.get(i);
-      if (blockId === undefined) {
-        continue;
-      }
-      if (!blockBoundaries.has(blockId)) {
-        blockBoundaries.set(blockId, { start: i, end: i });
-      } else {
-        const boundary = blockBoundaries.get(blockId);
-        boundary.start = Math.min(boundary.start, i);
-        boundary.end = Math.max(boundary.end, i);
-      }
-    }
-
-    return {
-      lineBlocks,
-      blockBoundaries,
-      blockCount: orderedComponents.length,
-    };
-  }
-
   function estimateFontSize(word, widthPercent, heightPercent, rect) {
     if (rect && Number.isFinite(rect.height) && rect.height > 0) {
       return Math.max(8, Math.min(100, Math.round(rect.height)));
@@ -2589,10 +2385,12 @@ background: rgba(202, 12, 12, 0.692);
     }
 
     lastFuriganaRenderSignature = renderSignature;
+    furiganaAutoHidden = false;
     if (furiganaLayer) {
       furiganaLayer.replaceChildren(fragment);
     }
     updateFuriganaVisibilityState();
+    scheduleFuriganaAutoHide();
   }
 
   function isTextInMainBox(rect, mainBoxBounds) {
@@ -2794,6 +2592,7 @@ background: rgba(202, 12, 12, 0.692);
     shouldShowReadyIndicator = newsettings.showReadyIndicator !== false;
     showFurigana = newsettings.showFurigana;
     hideFuriganaOnStartup = newsettings.hideFuriganaOnStartup === true;
+    hideFuriganaAfterSeconds = clampNumber(newsettings.hideFuriganaAfterSeconds, 0, 0, 60);
     applyFuriganaStyleSettings({
       furiganaScale: newsettings.furiganaScale,
       furiganaYOffset: newsettings.furiganaYOffset,
@@ -2813,6 +2612,9 @@ background: rgba(202, 12, 12, 0.692);
     }
     if (newsettings.gamepadTokenizerBackend !== undefined) {
       gamepadSettings.tokenizerBackend = newsettings.gamepadTokenizerBackend;
+    }
+    if (newsettings.gamepadLocalTokenizerFallbackBackend !== undefined) {
+      gamepadSettings.localTokenizerFallbackBackend = newsettings.gamepadLocalTokenizerFallbackBackend;
     }
     if (newsettings.gamepadYomitanApiUrl !== undefined) {
       gamepadSettings.yomitanApiUrl = newsettings.gamepadYomitanApiUrl;
@@ -2865,11 +2667,20 @@ background: rgba(202, 12, 12, 0.692);
     if (newsettings.gamepadAutoConfirmSelection !== undefined) {
       gamepadSettings.autoConfirmSelection = newsettings.gamepadAutoConfirmSelection;
     }
+    if (newsettings.gamepadFocusOverlayOnEntry !== undefined) {
+      gamepadSettings.focusOverlayOnEntry = newsettings.gamepadFocusOverlayOnEntry;
+    }
     if (newsettings.gamepadControllerEnabled !== undefined) {
       gamepadSettings.controllerEnabled = newsettings.gamepadControllerEnabled;
     }
     if (newsettings.gamepadKeyboardEnabled !== undefined) {
       gamepadSettings.keyboardEnabled = newsettings.gamepadKeyboardEnabled;
+    }
+    // Load keyboard binding settings
+    for (const key of KEYBOARD_SETTING_KEYS) {
+      if (newsettings[key] !== undefined) {
+        gamepadSettings[key] = newsettings[key];
+      }
     }
     
     // Apply hide furigana on startup if enabled
@@ -2921,6 +2732,7 @@ background: rgba(202, 12, 12, 0.692);
     
     // Initialize gamepad handler now that settings are loaded
     void initGamepad();
+    scheduleGsmCharacterDictionaryEnsure('startup');
   })
 
   ipcRenderer.on('display-info', (event, newDisplay) => {
@@ -2982,10 +2794,23 @@ background: rgba(202, 12, 12, 0.692);
           break;
         case "showFurigana":
           showFurigana = value;
+          if (!showFurigana) {
+            clearFuriganaAutoHideTimer();
+            furiganaAutoHidden = false;
+          }
           updateFuriganaVisibilityState();
           break;
         case "hideFuriganaOnStartup":
           hideFuriganaOnStartup = value;
+          break;
+        case "hideFuriganaAfterSeconds":
+          hideFuriganaAfterSeconds = clampNumber(value, 0, 0, 60);
+          clearFuriganaAutoHideTimer();
+          furiganaAutoHidden = false;
+          updateFuriganaVisibilityState();
+          if (shouldShowFuriganaLayer()) {
+            scheduleFuriganaAutoHide();
+          }
           break;
         case "furiganaScale":
         case "furiganaYOffset":
@@ -3184,9 +3009,18 @@ background: rgba(202, 12, 12, 0.692);
   // Toggle furigana visibility on hotkey
   let furiganaVisible = true;
   let hideFuriganaOnStartup = true; // default to true
+  let hideFuriganaAfterSeconds = 0;
+  let furiganaAutoHidden = false;
+  let furiganaAutoHideTimer = null;
   
   ipcRenderer.on("toggle-furigana-visibility", () => {
     furiganaVisible = !furiganaVisible;
+    if (furiganaVisible) {
+      furiganaAutoHidden = false;
+      scheduleFuriganaAutoHide();
+    } else {
+      clearFuriganaAutoHideTimer();
+    }
     updateFuriganaVisibilityState();
   });
 
@@ -3212,7 +3046,8 @@ background: rgba(202, 12, 12, 0.692);
       manualMode,
       showTextIndicators,
       fadeTextIndicators,
-      hideFuriganaOnStartup
+      hideFuriganaOnStartup,
+      hideFuriganaAfterSeconds
     });
   })
 
@@ -3432,8 +3267,10 @@ background: rgba(202, 12, 12, 0.692);
     repeatDelay: 400,
     repeatRate: 150,
     autoConfirmSelection: true,
+    focusOverlayOnEntry: true, // Focus overlay window when navigation activates
     tokenMode: false, // Navigate by tokenizer word units instead of characters
     tokenizerBackend: 'sudachi', // "mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api"
+    localTokenizerFallbackBackend: 'mecab', // Local retry backend when the selected tokenizer fails
     yomitanApiUrl: 'http://127.0.0.1:19633', // Base URL for Yomitan API
     yomitanScanLength: 10, // scanLength for Yomitan /tokenize
     jitenApiKey: '', // X-Api-Key used for Jiten/api/reader/parse
@@ -3441,20 +3278,47 @@ background: rgba(202, 12, 12, 0.692);
     controllerEnabled: true, // Enable controller button activation
     keyboardEnabled: true, // Enable keyboard hotkey activation (set from settings)
     inputSuppressed: false, // Temporarily suppress controller processing (settings input test)
+    // Keyboard bindings (parallel to gamepad button bindings)
+    keyboardModifierKey: null,
+    keyboardToggleKey: null,
+    keyboardConfirmKey: 'Enter',
+    keyboardCancelKey: 'Escape',
+    keyboardForwardEnterKey: null,
+    keyboardManualOverlayScanKey: null,
+    keyboardTokenModeToggleKey: null,
+    keyboardNextEntryKey: null,
+    keyboardPrevEntryKey: null,
+    keyboardNavigateUp: 'ArrowUp',
+    keyboardNavigateDown: 'ArrowDown',
+    keyboardNavigateLeft: 'ArrowLeft',
+    keyboardNavigateRight: 'ArrowRight',
+    keyboardMineButton: null,
   };
+
+  // Keyboard setting keys that map directly (settingKey in settings.html -> gamepadSettings key)
+  const KEYBOARD_SETTING_KEYS = [
+    'keyboardModifierKey', 'keyboardToggleKey', 'keyboardConfirmKey', 'keyboardCancelKey',
+    'keyboardForwardEnterKey', 'keyboardManualOverlayScanKey', 'keyboardTokenModeToggleKey',
+    'keyboardNextEntryKey', 'keyboardPrevEntryKey',
+    'keyboardNavigateUp', 'keyboardNavigateDown', 'keyboardNavigateLeft', 'keyboardNavigateRight',
+    'keyboardMineButton',
+  ];
 
   function shouldUseGamepadHandler() {
     return gamepadSettings.enabled || showFurigana;
   }
 
-  function usesServerBackedGamepadTokenizer() {
-    const tokenizerBackend = String(gamepadSettings.tokenizerBackend || 'mecab').toLowerCase();
+  function usesServerBackedGamepadTokenizer(backend) {
+    const tokenizerBackend = String(backend || 'mecab').toLowerCase();
     return tokenizerBackend === 'mecab' || tokenizerBackend === 'sudachi';
   }
 
   function shouldConnectGamepadServer() {
     const navigationNeedsServer = gamepadSettings.enabled && gamepadSettings.controllerEnabled;
-    const tokenizerNeedsServer = (gamepadSettings.enabled || showFurigana) && usesServerBackedGamepadTokenizer();
+    const tokenizerNeedsServer = (gamepadSettings.enabled || showFurigana) && (
+      usesServerBackedGamepadTokenizer(gamepadSettings.tokenizerBackend) ||
+      usesServerBackedGamepadTokenizer(gamepadSettings.localTokenizerFallbackBackend)
+    );
     return navigationNeedsServer || tokenizerNeedsServer;
   }
 
@@ -3488,8 +3352,10 @@ background: rgba(202, 12, 12, 0.692);
       repeatDelay: gamepadSettings.repeatDelay,
       repeatRate: gamepadSettings.repeatRate,
       autoConfirmSelection: gamepadSettings.autoConfirmSelection,
+      focusOverlayOnEntry: gamepadSettings.focusOverlayOnEntry,
       tokenMode: gamepadSettings.tokenMode,
       tokenizerBackend: gamepadSettings.tokenizerBackend,
+      localTokenizerFallbackBackend: gamepadSettings.localTokenizerFallbackBackend,
       yomitanApiUrl: gamepadSettings.yomitanApiUrl,
       yomitanScanLength: gamepadSettings.yomitanScanLength,
       jitenApiKey: gamepadSettings.jitenApiKey,
@@ -3498,6 +3364,21 @@ background: rgba(202, 12, 12, 0.692);
       keyboardEnabled: getEffectiveKeyboardEnabled(),
       connectToServer: shouldConnectGamepadServer(),
       inputSuppressed: gamepadInputSuppressed === true,
+      // Keyboard bindings
+      keyboardModifierKey: gamepadSettings.keyboardModifierKey,
+      keyboardToggleKey: gamepadSettings.keyboardToggleKey,
+      keyboardConfirmKey: gamepadSettings.keyboardConfirmKey,
+      keyboardCancelKey: gamepadSettings.keyboardCancelKey,
+      keyboardForwardEnterKey: gamepadSettings.keyboardForwardEnterKey,
+      keyboardManualOverlayScanKey: gamepadSettings.keyboardManualOverlayScanKey,
+      keyboardTokenModeToggleKey: gamepadSettings.keyboardTokenModeToggleKey,
+      keyboardNextEntryKey: gamepadSettings.keyboardNextEntryKey,
+      keyboardPrevEntryKey: gamepadSettings.keyboardPrevEntryKey,
+      keyboardNavigateUp: gamepadSettings.keyboardNavigateUp,
+      keyboardNavigateDown: gamepadSettings.keyboardNavigateDown,
+      keyboardNavigateLeft: gamepadSettings.keyboardNavigateLeft,
+      keyboardNavigateRight: gamepadSettings.keyboardNavigateRight,
+      keyboardMineButton: gamepadSettings.keyboardMineButton,
     };
   }
 
@@ -3866,6 +3747,10 @@ background: rgba(202, 12, 12, 0.692);
       gamepadSettings.tokenizerBackend = updatedSettings.gamepadTokenizerBackend;
       needsLifecycleSync = true;
     }
+    if (updatedSettings.gamepadLocalTokenizerFallbackBackend !== undefined) {
+      gamepadSettings.localTokenizerFallbackBackend = updatedSettings.gamepadLocalTokenizerFallbackBackend;
+      needsLifecycleSync = true;
+    }
     if (updatedSettings.gamepadYomitanApiUrl !== undefined) {
       gamepadSettings.yomitanApiUrl = updatedSettings.gamepadYomitanApiUrl;
       needsLifecycleSync = true;
@@ -3902,8 +3787,19 @@ background: rgba(202, 12, 12, 0.692);
       gamepadSettings.autoConfirmSelection = updatedSettings.gamepadAutoConfirmSelection;
       needsLifecycleSync = true;
     }
+    if (updatedSettings.gamepadFocusOverlayOnEntry !== undefined) {
+      gamepadSettings.focusOverlayOnEntry = updatedSettings.gamepadFocusOverlayOnEntry;
+      needsLifecycleSync = true;
+    }
     if (updatedSettings.showFurigana !== undefined) {
       needsLifecycleSync = true;
+    }
+    // Handle keyboard binding settings
+    for (const key of KEYBOARD_SETTING_KEYS) {
+      if (updatedSettings[key] !== undefined) {
+        gamepadSettings[key] = updatedSettings[key];
+        needsLifecycleSync = true;
+      }
     }
     
     if (needsLifecycleSync) {

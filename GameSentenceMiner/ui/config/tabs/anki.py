@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 from typing import TYPE_CHECKING
 
+from GameSentenceMiner.ui.config.safety import safe_config_call, safe_config_callback
 from ..labels import LabelColor
 from GameSentenceMiner.util.config.configuration import PACKAGE_NAME
 from GameSentenceMiner.util.docs import DOCS_URLS
@@ -53,6 +54,7 @@ def _create_field_mapping_row(
     return row_widget
 
 
+@safe_config_call(name="anki.show_full_image_preview")
 def _show_full_image_preview(parent: QWidget, pixmap: QPixmap, title: str) -> None:
     dialog = QDialog(parent)
     dialog.setWindowTitle(title)
@@ -317,7 +319,10 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             preview_trigger = QPushButton("Click or hover here to preview")
             preview_trigger.setToolTip(f"<img src='{preview_path.as_posix()}'>")
             preview_trigger.clicked.connect(
-                lambda: _show_full_image_preview(window, pixmap, "Anki Confirmation Example")
+                safe_config_callback(
+                    lambda: _show_full_image_preview(window, pixmap, "Anki Confirmation Example"),
+                    name="anki.preview_confirmation_dialog",
+                )
             )
             layout.addRow("Dialog Example:", preview_trigger)
         else:

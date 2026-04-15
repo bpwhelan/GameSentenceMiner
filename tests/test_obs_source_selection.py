@@ -629,6 +629,39 @@ def test_obs_service_tick_applies_fit_before_screenshot_probe(monkeypatch):
     assert fit_calls == ["Test Scene"]
 
 
+def test_obs_service_tick_notifies_scene_observers_when_scene_is_unchanged(monkeypatch):
+    service = obs.OBSService.__new__(obs.OBSService)
+    service.initialized = True
+    service.check_output = False
+    service._tick_running = False
+    service._state_lock = threading.Lock()
+    service.state = obs.OBSState(current_scene="Boot Scene")
+    service._initialize_state = lambda: None
+    service._tick_last_run_by_operation = {}
+    service.tick_intervals = obs.OBSTickIntervals()
+    service._scene_observed_handlers = []
+
+    seen_scenes = []
+    service.on_scene_observed(seen_scenes.append)
+
+    monkeypatch.setattr(obs_actions_module, "get_current_scene", lambda: "Boot Scene")
+
+    service.tick(
+        obs.OBSTickOptions(
+            refresh_current_scene=True,
+            refresh_scene_items=False,
+            fit_to_screen=False,
+            capture_source_switch=False,
+            output_probe=False,
+            manage_replay_buffer=False,
+            refresh_full_state=False,
+            force=True,
+        )
+    )
+
+    assert seen_scenes == ["Boot Scene"]
+
+
 def test_get_best_source_for_screenshot_can_suppress_missing_source_logs(monkeypatch):
     logger_errors = []
     kwargs_seen = []

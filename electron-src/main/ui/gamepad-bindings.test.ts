@@ -20,7 +20,8 @@ function loadLegacyGamepadHandler() {
     setInterval,
     clearInterval,
     document: {
-      querySelectorAll: () => []
+      querySelectorAll: () => [],
+      querySelector: () => null
     },
     window: {},
     CustomEvent: class CustomEvent {
@@ -287,5 +288,73 @@ describe("legacy gamepad block redraw recovery", () => {
     });
 
     expect(restoredIndex).toBe(1);
+  });
+});
+
+describe("legacy gamepad popup routing", () => {
+  it("routes popup action controls only to the topmost visible popup frame", () => {
+    const hostMessages: unknown[] = [];
+    const parentMessages: unknown[] = [];
+    const hiddenChildMessages: unknown[] = [];
+    const visibleChildMessages: unknown[] = [];
+
+    legacyGamepadContext.window.postMessage = (message: unknown) => {
+      hostMessages.push(message);
+    };
+
+    const parentFrame = {
+      style: { display: "block", visibility: "visible" },
+      getClientRects: () => [1],
+      contentWindow: {
+        postMessage: (message: unknown) => {
+          parentMessages.push(message);
+        }
+      }
+    };
+    const hiddenChildFrame = {
+      style: { display: "block", visibility: "hidden" },
+      getClientRects: () => [],
+      contentWindow: {
+        postMessage: (message: unknown) => {
+          hiddenChildMessages.push(message);
+        }
+      }
+    };
+    const visibleChildFrame = {
+      style: { display: "block", visibility: "visible" },
+      getClientRects: () => [1],
+      contentWindow: {
+        postMessage: (message: unknown) => {
+          visibleChildMessages.push(message);
+        }
+      }
+    };
+
+    legacyGamepadContext.document.querySelectorAll = (selector: string) =>
+      selector === "iframe.yomitan-popup"
+        ? [parentFrame, hiddenChildFrame, visibleChildFrame]
+        : [];
+    legacyGamepadContext.document.querySelector = () => null;
+
+    const handler = Object.create(GamepadHandler.prototype) as {
+      sendYomitanControlMessage: (action: string, params?: Record<string, unknown>) => void;
+    };
+
+    handler.sendYomitanControlMessage("reset-action-selection");
+
+    expect(hostMessages).toEqual([
+      {
+        type: "gsm-yomitan-control",
+        action: "reset-action-selection"
+      }
+    ]);
+    expect(parentMessages).toEqual([]);
+    expect(hiddenChildMessages).toEqual([]);
+    expect(visibleChildMessages).toEqual([
+      {
+        type: "gsm-yomitan-control",
+        action: "reset-action-selection"
+      }
+    ]);
   });
 });

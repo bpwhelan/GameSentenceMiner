@@ -893,10 +893,74 @@ class GSMApplication:
         except Exception as e:
             logger.debug(f"Error getting previous lines for game: {e}")
 
-    async def register_scene_switcher_callback(self) -> None:
-        def scene_switcher_callback(scene):
+    @staticmethod
+    def _get_matching_profiles_for_scene(scene: str) -> list[str]:
+        normalized_scene = str(scene or "").strip()
+        if not normalized_scene:
+            return []
+
+        matching_profiles = []
+        for name, config in get_master_config().configs.items():
+            configured_scenes = {
+                str(configured_scene or "").strip() for configured_scene in getattr(config, "scenes", [])
+            }
+            configured_scenes.discard("")
+            if normalized_scene in configured_scenes:
+                matching_profiles.append(str(name).strip())
+        return matching_profiles
+
+    def _resolve_profile_for_scene(self, scene: str, *, interactive: bool) -> str | None:
+        matching_profiles = self._get_matching_profiles_for_scene(scene)
+        current_profile = get_master_config().current_profile
+
+        if len(matching_profiles) > 1:
+            if current_profile in matching_profiles:
+                return current_profile
+            if not interactive:
+                logger.info(f"Skipping ambiguous profile switch for scene '{scene}': {matching_profiles}")
+                return None
+
             from GameSentenceMiner.ui.qt_main import launch_scene_selection
 
+            return launch_scene_selection(matching_profiles) or None
+
+        if matching_profiles:
+            return matching_profiles[0]
+        if get_master_config().switch_to_default_if_not_found:
+            return configuration.DEFAULT_CONFIG
+        return None
+
+    def _sync_profile_for_scene(
+        self, scene: str, *, interactive: bool, refresh_previous_lines_on_switch: bool = True
+    ) -> str | None:
+        switch_to = self._resolve_profile_for_scene(scene, interactive=interactive)
+        if not switch_to or switch_to == get_master_config().current_profile:
+            return switch_to
+
+        logger.info(f"Switching to profile: {switch_to}")
+        get_master_config().current_profile = switch_to
+        switch_profile_and_save(switch_to)
+        if refresh_previous_lines_on_switch:
+            self.get_previous_lines_for_game()
+        if self.state.settings_window:
+            self.state.settings_window.reload_settings()
+        return switch_to
+
+    def _check_profile_for_scene_tick(self, scene: str) -> None:
+        self._sync_profile_for_scene(scene, interactive=False)
+
+    def _register_scene_observed_profile_check(self) -> None:
+        service = getattr(obs, "obs_service", None)
+        if not service:
+            return
+
+        service.on_scene_observed(self._check_profile_for_scene_tick)
+        current_scene = getattr(getattr(service, "state", None), "current_scene", "")
+        if current_scene:
+            self._check_profile_for_scene_tick(current_scene)
+
+    async def register_scene_switcher_callback(self) -> None:
+        def scene_switcher_callback(scene):
             logger.info(f"Scene changed to: {scene}")
             try:
                 from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
@@ -911,29 +975,8 @@ class GSMApplication:
             except Exception as exc:
                 logger.debug(f"Failed to queue Sudachi user dictionary export from scene callback for '{scene}': {exc}")
             gsm_state.current_game = obs.get_current_game()
-            matching_configs = [
-                name.strip() for name, config in get_master_config().configs.items() if scene.strip() in config.scenes
-            ]
-            switch_to = None
             self.get_previous_lines_for_game()
-
-            if len(matching_configs) > 1:
-                selected_scene = launch_scene_selection(matching_configs)
-                if selected_scene:
-                    switch_to = selected_scene
-                else:
-                    return
-            elif matching_configs:
-                switch_to = matching_configs[0]
-            elif get_master_config().switch_to_default_if_not_found:
-                switch_to = configuration.DEFAULT_CONFIG
-
-            if switch_to and switch_to != get_master_config().current_profile:
-                logger.info(f"Switching to profile: {switch_to}")
-                get_master_config().current_profile = switch_to
-                switch_profile_and_save(switch_to)
-                if self.state.settings_window:
-                    self.state.settings_window.reload_settings()
+            self._sync_profile_for_scene(scene, interactive=True, refresh_previous_lines_on_switch=False)
 
         await obs.register_scene_change_callback(scene_switcher_callback)
 
@@ -985,6 +1028,7 @@ class GSMApplication:
             return
 
         await self.register_scene_switcher_callback()
+        self._register_scene_observed_profile_check()
         await check_obs_folder_is_correct()
         self.on_config_changed()
 

@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 )
 from typing import TYPE_CHECKING
 
+from GameSentenceMiner.ui.config.safety import safe_config_call, safe_config_callback
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.docs import DOCS_URLS
 
@@ -26,6 +27,7 @@ def _get_force_resume_suspended_processes():
     return force_resume_suspended_processes
 
 
+@safe_config_call(name="experimental.force_resume_suspended_processes")
 def _force_resume_suspended_processes(window: "ConfigWindow") -> None:
     reply = QMessageBox.question(
         window,
@@ -106,6 +108,7 @@ def _get_current_target_window_details() -> tuple[str, str]:
     return exe_name, title
 
 
+@safe_config_call(name="experimental.add_current_target_window_to_list")
 def _add_current_target_window_to_list(window: "ConfigWindow", line_edit, list_name: str) -> None:
     try:
         exe_name, title = _get_current_target_window_details()
@@ -141,7 +144,12 @@ def _create_process_list_row(window: "ConfigWindow", line_edit, list_name: str) 
 
     add_button = QPushButton("Add Current Target")
     add_button.setToolTip(f"Resolve the current OBS target window and add its executable to the {list_name}.")
-    add_button.clicked.connect(lambda: _add_current_target_window_to_list(window, line_edit, list_name))
+    add_button.clicked.connect(
+        safe_config_callback(
+            lambda: _add_current_target_window_to_list(window, line_edit, list_name),
+            name="experimental.add_current_target_button",
+        )
+    )
     row_layout.addWidget(add_button)
 
     return row_widget
@@ -305,7 +313,12 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
 
     force_resume_button = QPushButton("Force Resume Suspended Processes")
     force_resume_button.setToolTip("Force resume any tracked suspended game processes and clear pause tracking.")
-    force_resume_button.clicked.connect(lambda: _force_resume_suspended_processes(window))
+    force_resume_button.clicked.connect(
+        safe_config_callback(
+            lambda: _force_resume_suspended_processes(window),
+            name="experimental.force_resume_button",
+        )
+    )
     process_layout.addRow("Recovery:", force_resume_button)
 
     layout.addRow(process_group)

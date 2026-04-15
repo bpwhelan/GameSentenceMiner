@@ -5,6 +5,7 @@ Generates a Yomitan-compatible dictionary from VNDB character data
 for the most recently played games.
 """
 
+import hashlib
 import json
 from flask import jsonify, make_response, request
 from typing import List
@@ -13,6 +14,57 @@ from GameSentenceMiner.util.config.configuration import get_config, logger
 from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.yomitan_dict import FrequencyDictBuilder, YomitanDictBuilder
+
+
+YOMITAN_CHARACTER_DICTIONARY_REVISION_VERSION = 1
+
+
+def _get_game_display_title(game: GamesTable) -> str:
+    """Return the display title used when building the character dictionary."""
+    return game.title_original or game.title_romaji or game.title_english or ""
+
+
+def _normalize_character_data_for_revision(character_data):
+    """
+    Normalize character data so semantically identical payloads hash the same.
+
+    The stored field can be either a JSON string or an already-parsed object.
+    """
+    if isinstance(character_data, str):
+        try:
+            character_data = json.loads(character_data)
+        except (json.JSONDecodeError, TypeError):
+            return character_data
+    return character_data
+
+
+def compute_yomitan_dictionary_revision(recent_games: List[GamesTable], game_count: int, spoiler_level: int) -> str:
+    """
+    Compute a deterministic revision for the GSM character dictionary.
+
+    The revision changes only when the selected source games or their character
+    payloads change, which makes auto-update checks safe to run repeatedly.
+    """
+    revision_payload = {
+        "version": YOMITAN_CHARACTER_DICTIONARY_REVISION_VERSION,
+        "game_count": int(game_count),
+        "spoiler_level": int(spoiler_level),
+        "games": [
+            {
+                "id": game.id,
+                "title": _get_game_display_title(game),
+                "character_data": _normalize_character_data_for_revision(game.vndb_character_data),
+            }
+            for game in recent_games
+        ],
+    }
+    encoded_payload = json.dumps(
+        revision_payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded_payload).hexdigest()[:16]
 
 
 def _has_character_data(game: GamesTable) -> bool:
@@ -228,7 +280,9 @@ def register_yomitan_api_routes(app):
         # 2. Build dictionary combining all games
         port = get_config().general.single_port
         download_url = f"http://127.0.0.1:{port}/api/yomitan-dict?game_count={game_count}&spoiler_level={spoiler_level}"
+        revision = compute_yomitan_dictionary_revision(recent_games, game_count, spoiler_level)
         builder = YomitanDictBuilder(
+            revision=revision,
             download_url=download_url,
             game_count=game_count,
             spoiler_level=spoiler_level,
@@ -338,17 +392,20 @@ def register_yomitan_api_routes(app):
         download_url = f"http://127.0.0.1:{port}/api/yomitan-dict?game_count={game_count}&spoiler_level={spoiler_level}"
         index_url = f"http://127.0.0.1:{port}/api/yomitan-index?game_count={game_count}&spoiler_level={spoiler_level}"
 
+        recent_games = get_recent_games(desired_count=game_count, max_search=50)
+        revision = compute_yomitan_dictionary_revision(recent_games, game_count, spoiler_level)
+
         # Create a builder just to get consistent metadata generation
         builder = YomitanDictBuilder(
+            revision=revision,
             download_url=download_url,
             game_count=game_count,
             spoiler_level=spoiler_level,
         )
 
         # Get game titles for description (without processing all character data)
-        recent_games = get_recent_games(desired_count=game_count, max_search=50)
         for game in recent_games:
-            game_title = game.title_original or game.title_romaji or game.title_english or ""
+            game_title = _get_game_display_title(game)
             if game_title:
                 builder.game_titles.append(game_title)
 

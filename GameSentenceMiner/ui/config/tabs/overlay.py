@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 )
 from typing import TYPE_CHECKING
 
+from GameSentenceMiner.ui.config.safety import safe_config_call, safe_config_callback
 from GameSentenceMiner.ui.config.labels import LabelColor
 from GameSentenceMiner.util.docs import DOCS_URLS
 
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
 
 
+@safe_config_call(name="overlay.open_connected_overlay_settings")
 def _open_connected_overlay_settings(window: "ConfigWindow") -> None:
     from GameSentenceMiner.web.gsm_websocket import request_overlay_settings_open
 
@@ -116,6 +118,7 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.ocr_area_config_use_exclusion_zones_check,
     ]
 
+    @safe_config_call(name="overlay.sync_ocr_area_subset_widgets")
     def _sync_ocr_area_subset_widgets() -> None:
         enabled = window.use_ocr_area_config_check.isChecked() and not window.use_overlay_area_config_check.isChecked()
         for subset_widget in ocr_area_subset_widgets:
@@ -134,7 +137,12 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             "Open the Electron overlay settings window through the connected /ws/overlay session.",
         )
     )
-    open_overlay_settings_button.clicked.connect(lambda: _open_connected_overlay_settings(window))
+    open_overlay_settings_button.clicked.connect(
+        safe_config_callback(
+            lambda: _open_connected_overlay_settings(window),
+            name="overlay.open_connected_overlay_settings_button",
+        )
+    )
     main_layout.addRow(open_overlay_settings_button)
 
     legacy_tab = QWidget()

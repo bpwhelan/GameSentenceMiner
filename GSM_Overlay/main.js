@@ -49,6 +49,7 @@ const DEFAULT_ENFORCED_OVERLAY_WS_URL = `ws://127.0.0.1:${DEFAULT_GSM_SINGLE_POR
 const DEFAULT_TEXTHOOKER_URL = `http://127.0.0.1:${DEFAULT_GSM_SINGLE_PORT}/texthooker`;
 const DEFAULT_YOMITAN_API_URL = "http://127.0.0.1:19633";
 const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
+const VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS = new Set(["mecab", "sudachi"]);
 const VALID_SUDACHI_DICTIONARIES = new Set(["small", "core", "full"]);
 const VALID_TRACKED_GAME_WINDOW_STATES = new Set(["active", "background", "obscured", "minimized", "closed", "unknown"]);
 const MANUAL_HOTKEY_ALLOWED_GAME_WINDOW_STATES = new Set(["active", "background"]);
@@ -194,6 +195,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadNextEntryButton": 7, // RT trigger - navigate to next Yomitan entry
   "gamepadPrevEntryButton": 6, // LT trigger - navigate to previous Yomitan entry
   "gamepadAutoConfirmSelection": true,
+  "gamepadFocusOverlayOnEntry": true,
   "gamepadRepeatDelay": 400,
   "gamepadRepeatRate": 150,
   "gamepadServerPort": GAMEPAD_SERVER_BASE_PORT, // Port for gamepad server
@@ -202,6 +204,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadControllerEnabled": true, // Enable controller button activation
   "gamepadTokenMode": true, // Default to character mode (false) or token mode (true)
   "gamepadTokenizerBackend": "sudachi", // "mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api" for tokenization/furigana
+  "gamepadLocalTokenizerFallbackBackend": "mecab", // Local retry backend used when the selected tokenizer fails
   "gamepadSudachiDictionary": "core", // "small", "core", or "full" for Sudachi auto-download
   "gamepadYomitanApiUrl": DEFAULT_YOMITAN_API_URL, // Base URL for Yomitan API
   "gamepadYomitanScanLength": 10, // scanLength used for Yomitan /tokenize
@@ -442,6 +445,14 @@ function normalizeGamepadTokenizerBackend(value) {
   return "mecab";
 }
 
+function normalizeLocalTokenizerFallbackBackend(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS.has(normalized)) {
+    return normalized;
+  }
+  return "mecab";
+}
+
 function isServerBackedGamepadTokenizerBackend(value) {
   const normalized = normalizeGamepadTokenizerBackend(value);
   return normalized === "mecab" || normalized === "sudachi";
@@ -571,6 +582,12 @@ function normalizeGamepadTokenizerSettings(settings) {
   const normalizedBackend = normalizeGamepadTokenizerBackend(settings.gamepadTokenizerBackend);
   if (settings.gamepadTokenizerBackend !== normalizedBackend) {
     settings.gamepadTokenizerBackend = normalizedBackend;
+    changed = true;
+  }
+
+  const normalizedLocalFallbackBackend = normalizeLocalTokenizerFallbackBackend(settings.gamepadLocalTokenizerFallbackBackend);
+  if (settings.gamepadLocalTokenizerFallbackBackend !== normalizedLocalFallbackBackend) {
+    settings.gamepadLocalTokenizerFallbackBackend = normalizedLocalFallbackBackend;
     changed = true;
   }
 
@@ -1060,7 +1077,10 @@ function shouldRunInputServer(settings = userSettings) {
 
   return (
     settings.showFurigana === true &&
-    isServerBackedGamepadTokenizerBackend(settings.gamepadTokenizerBackend)
+    (
+      isServerBackedGamepadTokenizerBackend(settings.gamepadTokenizerBackend) ||
+      isServerBackedGamepadTokenizerBackend(settings.gamepadLocalTokenizerFallbackBackend)
+    )
   );
 }
 
@@ -1874,8 +1894,9 @@ function requestGamepadNavigationToggleFromMain(source = "unknown") {
   }, 120);
 }
 
-function setGamepadNavigationModeActive(active, triggerSource = "unknown") {
+function setGamepadNavigationModeActive(active, triggerSource = "unknown", options = {}) {
   const nextActive = !!active;
+  const shouldFocusOverlay = options && options.focusOverlay === true;
   gamepadNavigationActive = nextActive;
 
   if (nextActive) {
@@ -1884,7 +1905,9 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown") {
     } else {
       requestOverlayPauseForSource(OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
     }
-    aggressivelyFocusOverlayForGamepadNavigation();
+    if (shouldFocusOverlay) {
+      aggressivelyFocusOverlayForGamepadNavigation();
+    }
     return;
   }
 
@@ -3616,9 +3639,15 @@ app.whenReady().then(async () => {
     }
 
     const registerAndReport = (hotkey) => {
-      const ret = globalShortcut.register(hotkey, () => {
-        requestGamepadNavigationToggleFromMain(`keyboard:${hotkey}`);
-      });
+      let ret = false;
+      try {
+        ret = globalShortcut.register(hotkey, () => {
+          requestGamepadNavigationToggleFromMain(`keyboard:${hotkey}`);
+        });
+      } catch (e) {
+        console.warn(`[Gamepad] Invalid keyboard hotkey ${hotkey}:`, e);
+        return false;
+      }
       if (ret) {
         registeredGamepadKeyboardHotkey = hotkey;
         console.log(`[Gamepad] Keyboard hotkey registered: ${hotkey}`);
@@ -4148,6 +4177,8 @@ app.whenReady().then(async () => {
     }
     if (key === "gamepadTokenizerBackend") {
       value = normalizeGamepadTokenizerBackend(value);
+    } else if (key === "gamepadLocalTokenizerFallbackBackend") {
+      value = normalizeLocalTokenizerFallbackBackend(value);
     } else if (key === "gamepadSudachiDictionary") {
       value = normalizeGamepadSudachiDictionary(value);
     } else if (key === "gamepadYomitanApiUrl") {
@@ -4297,10 +4328,12 @@ app.whenReady().then(async () => {
       case "gamepadNextEntryButton":
       case "gamepadPrevEntryButton":
       case "gamepadAutoConfirmSelection":
+      case "gamepadFocusOverlayOnEntry":
       case "gamepadRepeatDelay":
       case "gamepadRepeatRate":
       case "gamepadControllerEnabled":
       case "gamepadTokenizerBackend":
+      case "gamepadLocalTokenizerFallbackBackend":
       case "gamepadSudachiDictionary":
       case "gamepadYomitanApiUrl":
       case "gamepadYomitanScanLength":
@@ -4309,7 +4342,7 @@ app.whenReady().then(async () => {
         // These settings are handled by the renderer's GamepadHandler
         // Just save and forward - no main process action needed
         console.log(`[Gamepad] Setting changed: ${key} = ${(key === "gamepadJitenApiKey" || key === "gamepadJpdbApiKey") ? "***" : value}`);
-        if (key === "gamepadTokenizerBackend" || key === "gamepadSudachiDictionary") {
+        if (key === "gamepadTokenizerBackend" || key === "gamepadLocalTokenizerFallbackBackend" || key === "gamepadSudachiDictionary") {
           void restartGamepadServer(`setting-changed:${key}`);
           syncGamepadServerState("setting-changed:gamepadTokenizerBackend");
         }
@@ -4512,7 +4545,7 @@ app.whenReady().then(async () => {
   // Handler for gamepad requesting focus
   ipcMain.on("gamepad-request-focus", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      setGamepadNavigationModeActive(true, "renderer-request-focus");
+      setGamepadNavigationModeActive(true, "renderer-request-focus", { focusOverlay: true });
       console.log('[GamepadHandler] Overlay window focused');
     }
   });

@@ -9,6 +9,9 @@ def test_overview_template_includes_current_session_game_management_controls():
 
     assert 'id="currentSessionSettingsCogBtn"' in contents
     assert 'id="currentSessionSettingsCogDropdown"' in contents
+    assert 'data-action="deduplicateGame"' in contents
+    assert "{% include 'components/deduplication-modal.html' %}" in contents
+    assert "database-helpers.js" in contents
     assert 'id="editGameModal"' in contents
     assert 'id="mergeGamesModal"' in contents
     assert "{% include 'components/game-import-modals.html' %}" in contents

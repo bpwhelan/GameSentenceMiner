@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterable, List
 
 from PyQt6.QtCore import Qt
@@ -20,12 +21,24 @@ from PyQt6.QtWidgets import (
 )
 
 from GameSentenceMiner.util.config.configuration import TextReplacementRule
+from GameSentenceMiner.ui.config.safety import safe_config_call, safe_config_callback, safe_config_methods
 
 if TYPE_CHECKING:
     from GameSentenceMiner.ui.config.binding import BindingManager
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
 
 
+@dataclass(frozen=True)
+class _RuleRowState:
+    enabled: bool
+    mode: str
+    find: str
+    replace: str
+    case_sensitive: bool
+    whole_word: bool
+
+
+@safe_config_methods()
 class StringReplacementDialog(QDialog):
     def __init__(self, parent: QWidget, rules: Iterable[TextReplacementRule], i18n: dict):
         super().__init__(parent)
@@ -78,8 +91,12 @@ class StringReplacementDialog(QDialog):
 
         add_button.clicked.connect(self._add_empty_rule)
         remove_button.clicked.connect(self._remove_selected_rule)
-        move_up_button.clicked.connect(lambda: self._move_selected(-1))
-        move_down_button.clicked.connect(lambda: self._move_selected(1))
+        move_up_button.clicked.connect(
+            safe_config_callback(lambda: self._move_selected(-1), name="StringReplacementDialog.move_up")
+        )
+        move_down_button.clicked.connect(
+            safe_config_callback(lambda: self._move_selected(1), name="StringReplacementDialog.move_down")
+        )
         dialog_buttons.accepted.connect(self.accept)
         dialog_buttons.rejected.connect(self.reject)
 
@@ -107,30 +124,35 @@ class StringReplacementDialog(QDialog):
         target = row + direction
         if target < 0 or target >= self.table.rowCount():
             return
-        self._swap_rows(row, target)
+        current_rows = self._snapshot_rows()
+        current_rows.insert(target, current_rows.pop(row))
+        self._rebuild_rows(current_rows)
         self.table.selectRow(target)
 
-    def _swap_rows(self, row_a: int, row_b: int) -> None:
-        for col in range(self.table.columnCount()):
-            item_a = self.table.takeItem(row_a, col)
-            item_b = self.table.takeItem(row_b, col)
-            self.table.setItem(row_a, col, item_b)
-            self.table.setItem(row_b, col, item_a)
+    def _snapshot_rows(self) -> List[_RuleRowState]:
+        return [self._row_state(row) for row in range(self.table.rowCount())]
 
-            widget_a = self.table.cellWidget(row_a, col)
-            widget_b = self.table.cellWidget(row_b, col)
-            if widget_a or widget_b:
-                self.table.removeCellWidget(row_a, col)
-                self.table.removeCellWidget(row_b, col)
-                if widget_a:
-                    self.table.setCellWidget(row_b, col, widget_a)
-                if widget_b:
-                    self.table.setCellWidget(row_a, col, widget_b)
+    def _rebuild_rows(self, rows: List[_RuleRowState]) -> None:
+        self.table.setRowCount(0)
+        for row_state in rows:
+            self._append_row_state(row_state)
 
     def _selected_rows(self) -> List[int]:
         return sorted({index.row() for index in self.table.selectedIndexes()})
 
     def _append_rule_row(self, rule: TextReplacementRule) -> None:
+        self._append_row_state(
+            _RuleRowState(
+                enabled=rule.enabled,
+                mode=(rule.mode or "plain").strip().lower(),
+                find=rule.find or "",
+                replace=rule.replace or "",
+                case_sensitive=rule.case_sensitive,
+                whole_word=rule.whole_word,
+            )
+        )
+
+    def _append_row_state(self, row_state: _RuleRowState) -> None:
         dialog_i18n = self._i18n.get("string_replacement", {}).get("dialog", {})
         mode_labels = {
             "plain": dialog_i18n.get("mode_plain", "Plain Text"),
@@ -140,28 +162,38 @@ class StringReplacementDialog(QDialog):
         row = self.table.rowCount()
         self.table.insertRow(row)
 
-        enabled_item = self._make_checkbox_item(rule.enabled)
+        enabled_item = self._make_checkbox_item(row_state.enabled)
         self.table.setItem(row, 0, enabled_item)
 
         mode_combo = QComboBox()
         for key, label in mode_labels.items():
             mode_combo.addItem(label, key)
-        mode_key = (rule.mode or "plain").strip().lower()
+        mode_key = row_state.mode or "plain"
         mode_index = mode_combo.findData(mode_key)
         if mode_index < 0:
             mode_index = mode_combo.findData("plain")
         mode_combo.setCurrentIndex(mode_index)
         self.table.setCellWidget(row, 1, mode_combo)
 
-        find_item = QTableWidgetItem(rule.find or "")
-        replace_item = QTableWidgetItem(rule.replace or "")
+        find_item = QTableWidgetItem(row_state.find)
+        replace_item = QTableWidgetItem(row_state.replace)
         self.table.setItem(row, 2, find_item)
         self.table.setItem(row, 3, replace_item)
 
-        case_item = self._make_checkbox_item(rule.case_sensitive)
-        whole_item = self._make_checkbox_item(rule.whole_word)
+        case_item = self._make_checkbox_item(row_state.case_sensitive)
+        whole_item = self._make_checkbox_item(row_state.whole_word)
         self.table.setItem(row, 4, case_item)
         self.table.setItem(row, 5, whole_item)
+
+    def _row_state(self, row: int) -> _RuleRowState:
+        return _RuleRowState(
+            enabled=self._item_checked(row, 0),
+            mode=self._mode_value(row) or "plain",
+            find=self._item_text(row, 2),
+            replace=self._item_text(row, 3),
+            case_sensitive=self._item_checked(row, 4),
+            whole_word=self._item_checked(row, 5),
+        )
 
     def _collect_rules(self) -> List[TextReplacementRule]:
         rules: List[TextReplacementRule] = []
@@ -250,6 +282,7 @@ def build_text_processing_tab(window: ConfigWindow, binder: BindingManager, i18n
     layout.addWidget(group)
     layout.addStretch()
 
+    @safe_config_call(name="build_text_processing_tab.open_dialog")
     def open_dialog() -> None:
         dialog = StringReplacementDialog(
             window,
@@ -267,8 +300,11 @@ def build_text_processing_tab(window: ConfigWindow, binder: BindingManager, i18n
 
     window.string_replacement_edit_button.clicked.connect(open_dialog)
     window.string_replacement_enabled_check.stateChanged.connect(
-        lambda *_: window._update_string_replacement_rules_count(
-            window.editor.profile.text_processing.string_replacement.rules
+        safe_config_callback(
+            lambda *_: window._update_string_replacement_rules_count(
+                window.editor.profile.text_processing.string_replacement.rules
+            ),
+            name="build_text_processing_tab.update_rules_count",
         )
     )
     window._update_string_replacement_rules_count(window.editor.profile.text_processing.string_replacement.rules)

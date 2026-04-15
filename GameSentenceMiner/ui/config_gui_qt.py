@@ -52,6 +52,7 @@ from GameSentenceMiner.ui.config.editor import ConfigEditor
 from GameSentenceMiner.ui.config.i18n import load_localization
 from GameSentenceMiner.ui.config.labels import LabelColor, build_label
 from GameSentenceMiner.ui.config.prompt_help import PromptHelpDialog
+from GameSentenceMiner.ui.config.safety import safe_config_callback, safe_config_methods
 from GameSentenceMiner.ui.config.services.ai_models import (
     AIModelFetcher,
     RECOMMENDED_GEMINI_MODELS,
@@ -168,6 +169,7 @@ class HorizontalTextTabBar(QTabBar):
             painter.drawControl(QStyle.ControlElement.CE_TabBarTabLabel, option)
 
 
+@safe_config_methods()
 class ConfigWindow(QWidget):
     # Signals for thread-safe operations
     _show_window_signal = pyqtSignal(str, str)
@@ -673,8 +675,8 @@ class ConfigWindow(QWidget):
             # except ValueError:
             #     local_scans = 1
 
-            # Get selected scenes from profile OBS scene list
-            selected_scenes = [item.text() for item in self.obs_scene_list.selectedItems()]
+            # Keep the saved scene mapping authoritative so OBS refreshes cannot wipe it.
+            selected_scenes = self._get_profile_scene_selection()
 
             # Collect data from UI widgets to build a new config object
             # Sync websocket sources from the editors before building config
@@ -1084,6 +1086,33 @@ class ConfigWindow(QWidget):
         is_default = new_profile_name == DEFAULT_CONFIG
         self.delete_profile_button.setHidden(is_default)
 
+    @staticmethod
+    def _normalize_scene_selection(scene_names):
+        normalized = []
+        seen = set()
+        for scene_name in scene_names or []:
+            text = str(scene_name or "").strip()
+            if not text or text in seen:
+                continue
+            normalized.append(text)
+            seen.add(text)
+        return normalized
+
+    def _get_profile_scene_selection(self):
+        normalized = self._normalize_scene_selection(getattr(self.settings, "scenes", []))
+        if normalized != getattr(self.settings, "scenes", []):
+            self.settings.scenes = list(normalized)
+        return list(normalized)
+
+    @staticmethod
+    def _populate_scene_list_widget(list_widget, scene_names, selected_scene_names):
+        selected_scene_names = set(selected_scene_names or [])
+        list_widget.clear()
+        list_widget.addItems(scene_names)
+        for i in range(list_widget.count()):
+            item = list_widget.item(i)
+            item.setSelected(item.text() in selected_scene_names)
+
     def _on_locale_changed(self):
         if self.locale_combo.currentText() == self.master_config.get_locale().name:
             return
@@ -1107,7 +1136,7 @@ class ConfigWindow(QWidget):
 
     def _on_obs_scene_selection_changed(self):
         selected_items = self.obs_scene_list.selectedItems()
-        self.settings.scenes = [item.text() for item in selected_items]
+        self.settings.scenes = self._normalize_scene_selection(item.text() for item in selected_items)
         self.request_auto_save()
 
     def _on_single_port_editing_finished(self):
@@ -2191,19 +2220,31 @@ class ConfigWindow(QWidget):
         self.ffmpeg_audio_preset_combo.currentTextChanged.connect(self._on_ffmpeg_preset_changed)
         self.single_port_edit.editingFinished.connect(self._on_single_port_editing_finished)
         self.anki_note_type_combo.currentIndexChanged.connect(
-            lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText())
+            safe_config_callback(
+                lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText()),
+                name="ConfigWindow.anki_note_type_current_changed",
+            )
         )
         if self.anki_note_type_combo.lineEdit():
             self.anki_note_type_combo.lineEdit().editingFinished.connect(
-                lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText())
+                safe_config_callback(
+                    lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText()),
+                    name="ConfigWindow.anki_note_type_editing_finished",
+                )
             )
         if hasattr(self, "req_note_type_combo"):
             self.req_note_type_combo.currentIndexChanged.connect(
-                lambda: self._on_anki_note_type_changed(self.req_note_type_combo.currentText())
+                safe_config_callback(
+                    lambda: self._on_anki_note_type_changed(self.req_note_type_combo.currentText()),
+                    name="ConfigWindow.required_note_type_current_changed",
+                )
             )
             if self.req_note_type_combo.lineEdit():
                 self.req_note_type_combo.lineEdit().editingFinished.connect(
-                    lambda: self._on_anki_note_type_changed(self.req_note_type_combo.currentText())
+                    safe_config_callback(
+                        lambda: self._on_anki_note_type_changed(self.req_note_type_combo.currentText()),
+                        name="ConfigWindow.required_note_type_editing_finished",
+                    )
                 )
         if hasattr(self, "anki_fields_refresh_button"):
             self.anki_fields_refresh_button.clicked.connect(self._on_anki_fields_refresh_clicked)
@@ -3026,7 +3067,12 @@ class ConfigWindow(QWidget):
                 }
                 """
             )
-            button.clicked.connect(lambda _checked=False, target=url: self._open_documentation_link(target))
+            button.clicked.connect(
+                safe_config_callback(
+                    lambda _checked=False, target=url: self._open_documentation_link(target),
+                    name="ConfigWindow.open_documentation_link",
+                )
+            )
             layout.addWidget(button)
 
         layout.addStretch()
@@ -3157,7 +3203,12 @@ class ConfigWindow(QWidget):
 
     def _create_browse_button(self, line_edit, mode):
         button = QPushButton(self.i18n.get("buttons", {}).get("browse", "Browse"))
-        button.clicked.connect(lambda: self._browse_for_path(line_edit, mode))
+        button.clicked.connect(
+            safe_config_callback(
+                lambda: self._browse_for_path(line_edit, mode),
+                name="ConfigWindow.browse_for_path",
+            )
+        )
         return button
 
     def _browse_for_path(self, line_edit, mode):
@@ -3189,7 +3240,12 @@ class ConfigWindow(QWidget):
         # Create the reset button
         button = QPushButton(i18n.get("text", "Reset to Default"))
         button.setToolTip(i18n.get("tooltip", "Reset current tab to default."))
-        button.clicked.connect(lambda: self._reset_to_default(category, recreate_func))
+        button.clicked.connect(
+            safe_config_callback(
+                lambda: self._reset_to_default(category, recreate_func),
+                name="ConfigWindow.reset_to_default",
+            )
+        )
         button.setMaximumWidth(200)
 
         # Center the button
@@ -3305,48 +3361,33 @@ class ConfigWindow(QWidget):
             self.delete_profile_button.setHidden(True)
 
     def refresh_obs_scenes(self, force_reload=False):
-        # Save current selections before clearing
-        current_profile_scenes = [item.text() for item in self.obs_scene_list.selectedItems()]
-        current_discord_scenes = [item.text() for item in self.discord_blacklisted_scenes_list.selectedItems()]
-
-        # Use current UI selection if available (and not forcing reload), otherwise use saved config
-        if force_reload:
-            profile_scenes_to_select = self.settings.scenes
-            discord_scenes_to_select = self.master_config.discord.blacklisted_scenes
-        else:
-            profile_scenes_to_select = current_profile_scenes if current_profile_scenes else self.settings.scenes
-            discord_scenes_to_select = (
-                current_discord_scenes if current_discord_scenes else self.master_config.discord.blacklisted_scenes
-            )
-
-        previous_suspend = self._autosave_suspended
-        self._autosave_suspended = True
-        self.obs_scene_list.clear()
-        self.discord_blacklisted_scenes_list.clear()
         try:
             scenes = obs.get_obs_scenes()
             if not scenes:
                 logger.debug("OBS scenes not available yet; skipping refresh.")
                 return
-            scene_names = [scene["sceneName"] for scene in scenes]
+            scene_names = self._normalize_scene_selection(
+                scene.get("sceneName") for scene in scenes if isinstance(scene, dict)
+            )
+            profile_scenes_to_select = self._get_profile_scene_selection()
+            discord_scenes_to_select = self._normalize_scene_selection(
+                getattr(self.master_config.discord, "blacklisted_scenes", [])
+            )
 
-            # Update profile OBS scene list
-            self.obs_scene_list.addItems(scene_names)
-            for i in range(self.obs_scene_list.count()):
-                item = self.obs_scene_list.item(i)
-                if item.text() in profile_scenes_to_select:
-                    item.setSelected(True)
-
-            # Update Discord blacklisted scenes list
-            self.discord_blacklisted_scenes_list.addItems(scene_names)
-            for i in range(self.discord_blacklisted_scenes_list.count()):
-                item = self.discord_blacklisted_scenes_list.item(i)
-                if item.text() in discord_scenes_to_select:
-                    item.setSelected(True)
+            previous_suspend = self._autosave_suspended
+            self._autosave_suspended = True
+            try:
+                with QSignalBlocker(self.obs_scene_list), QSignalBlocker(self.discord_blacklisted_scenes_list):
+                    self._populate_scene_list_widget(self.obs_scene_list, scene_names, profile_scenes_to_select)
+                    self._populate_scene_list_widget(
+                        self.discord_blacklisted_scenes_list,
+                        scene_names,
+                        discord_scenes_to_select,
+                    )
+            finally:
+                self._autosave_suspended = previous_suspend
         except Exception as e:
             logger.error(f"Failed to refresh OBS scenes: {e}")
-        finally:
-            self._autosave_suspended = previous_suspend
 
     # --- Other UI Loaders ---
     def _load_ffmpeg_presets(self):
@@ -3644,7 +3685,10 @@ class ConfigWindow(QWidget):
             # Refresh all providers
             self.model_thread = threading.Thread(target=self.model_fetcher.fetch, daemon=True)
             self.model_fetcher.models_fetched.connect(
-                lambda g, q, o, local_models: self._update_ai_model_combos(g, q, o, local_models, True)
+                safe_config_callback(
+                    lambda g, q, o, local_models: self._update_ai_model_combos(g, q, o, local_models, True),
+                    name="ConfigWindow.update_ai_model_combos_preserve_selection",
+                )
             )
             self.model_thread.start()
 

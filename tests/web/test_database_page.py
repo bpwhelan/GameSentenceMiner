@@ -89,6 +89,17 @@ def test_tools_page_renders_exstatic_import_card(client):
     assert '<script src="/static/js/database-exstatic-import.js"></script>' in html
 
 
+def test_tools_page_renders_deduplication_filter_controls(client):
+    response = client.get("/tools")
+
+    assert response.status_code == 200
+
+    html = response.get_data(as_text=True)
+    assert 'id="gameSelectionSearch"' in html
+    assert 'data-action="selectVisibleDedupGames"' in html
+    assert 'data-action="clearDedupGames"' in html
+
+
 def test_database_route_redirects_to_tools(client):
     response = client.get("/database")
 

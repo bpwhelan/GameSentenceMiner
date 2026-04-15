@@ -236,6 +236,273 @@ function normalizeGamepadBindingValue(value, fallbackValue = null) {
   return createGamepadBindingDescriptor([], true, value);
 }
 
+// ==================== Keyboard Binding Utilities ====================
+
+/**
+ * Set of known modifier key identifiers (matching rdev_key_to_string output).
+ */
+const KEYBOARD_MODIFIER_KEYS = new Set([
+  'ShiftLeft', 'ShiftRight',
+  'ControlLeft', 'ControlRight',
+  'AltLeft', 'AltRight',
+  'MetaLeft', 'MetaRight',
+]);
+
+/**
+ * Map human-readable modifier names to the modifier flag name.
+ * Used when parsing binding strings like "Ctrl+Shift+A".
+ */
+const KEYBOARD_MODIFIER_ALIASES = {
+  ctrl: 'ctrl',
+  control: 'ctrl',
+  alt: 'alt',
+  shift: 'shift',
+  meta: 'meta',
+  cmd: 'meta',
+  win: 'meta',
+  super: 'meta',
+};
+
+/**
+ * Map human-readable key names (lowercase) to the canonical key identifier
+ * (matching rdev_key_to_string output from the Rust server).
+ */
+const KEYBOARD_KEY_ALIASES = (() => {
+  const map = {};
+  // Letters
+  for (let i = 0; i < 26; i++) {
+    const letter = String.fromCharCode(65 + i); // A-Z
+    map[letter.toLowerCase()] = `Key${letter}`;
+    map[`key${letter.toLowerCase()}`] = `Key${letter}`;
+  }
+  // Digits
+  for (let i = 0; i <= 9; i++) {
+    map[String(i)] = `Digit${i}`;
+    map[`digit${i}`] = `Digit${i}`;
+  }
+  // Function keys
+  for (let i = 1; i <= 12; i++) {
+    map[`f${i}`] = `F${i}`;
+  }
+  // Arrows
+  map['arrowup'] = 'ArrowUp';
+  map['arrowdown'] = 'ArrowDown';
+  map['arrowleft'] = 'ArrowLeft';
+  map['arrowright'] = 'ArrowRight';
+  map['up'] = 'ArrowUp';
+  map['down'] = 'ArrowDown';
+  map['left'] = 'ArrowLeft';
+  map['right'] = 'ArrowRight';
+  // Navigation
+  map['home'] = 'Home';
+  map['end'] = 'End';
+  map['pageup'] = 'PageUp';
+  map['pagedown'] = 'PageDown';
+  map['insert'] = 'Insert';
+  // Whitespace/control
+  map['space'] = 'Space';
+  map['enter'] = 'Enter';
+  map['return'] = 'Enter';
+  map['escape'] = 'Escape';
+  map['esc'] = 'Escape';
+  map['backspace'] = 'Backspace';
+  map['delete'] = 'Delete';
+  map['del'] = 'Delete';
+  map['tab'] = 'Tab';
+  map['capslock'] = 'CapsLock';
+  // Symbols
+  map['minus'] = 'Minus';
+  map['-'] = 'Minus';
+  map['equal'] = 'Equal';
+  map['='] = 'Equal';
+  map['bracketleft'] = 'BracketLeft';
+  map['['] = 'BracketLeft';
+  map['bracketright'] = 'BracketRight';
+  map[']'] = 'BracketRight';
+  map['backslash'] = 'Backslash';
+  map['\\'] = 'Backslash';
+  map['semicolon'] = 'Semicolon';
+  map[';'] = 'Semicolon';
+  map['quote'] = 'Quote';
+  map["'"] = 'Quote';
+  map['comma'] = 'Comma';
+  map[','] = 'Comma';
+  map['period'] = 'Period';
+  map['.'] = 'Period';
+  map['slash'] = 'Slash';
+  map['/'] = 'Slash';
+  map['backquote'] = 'Backquote';
+  map['`'] = 'Backquote';
+  return map;
+})();
+
+/**
+ * Get human-readable label for a key identifier.
+ */
+function getKeyboardKeyLabel(keyId) {
+  if (!keyId) return '';
+  // Letters: KeyA -> A
+  const letterMatch = keyId.match(/^Key([A-Z])$/);
+  if (letterMatch) return letterMatch[1];
+  // Digits: Digit0 -> 0
+  const digitMatch = keyId.match(/^Digit(\d)$/);
+  if (digitMatch) return digitMatch[1];
+  // Arrows
+  if (keyId === 'ArrowUp') return '↑';
+  if (keyId === 'ArrowDown') return '↓';
+  if (keyId === 'ArrowLeft') return '←';
+  if (keyId === 'ArrowRight') return '→';
+  // Symbols
+  const symbolLabels = {
+    Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']',
+    Backslash: '\\', Semicolon: ';', Quote: "'", Comma: ',',
+    Period: '.', Slash: '/', Backquote: '`',
+  };
+  if (symbolLabels[keyId]) return symbolLabels[keyId];
+  // Default: use the key name directly
+  return keyId;
+}
+
+/**
+ * Create a keyboard binding descriptor (parallel to createGamepadBindingDescriptor).
+ */
+function createKeyboardBindingDescriptor(key, modifiers, valid = true, rawValue = undefined) {
+  const normalizedModifiers = {
+    ctrl: !!(modifiers && modifiers.ctrl),
+    alt: !!(modifiers && modifiers.alt),
+    shift: !!(modifiers && modifiers.shift),
+    meta: !!(modifiers && modifiers.meta),
+  };
+  const hasModifier = normalizedModifiers.ctrl || normalizedModifiers.alt || normalizedModifiers.shift || normalizedModifiers.meta;
+  const disabled = !key && !hasModifier;
+  const parts = [];
+  if (normalizedModifiers.ctrl) parts.push('Ctrl');
+  if (normalizedModifiers.alt) parts.push('Alt');
+  if (normalizedModifiers.shift) parts.push('Shift');
+  if (normalizedModifiers.meta) parts.push('Meta');
+  if (key) parts.push(getKeyboardKeyLabel(key));
+
+  return {
+    rawValue,
+    valid,
+    disabled,
+    key: key || null,
+    modifiers: normalizedModifiers,
+    label: parts.length > 0 ? parts.join('+') : 'Disabled',
+  };
+}
+
+/**
+ * Parse a keyboard binding value from various formats into a descriptor.
+ * Accepts: null, "Disabled", "Ctrl+A", "ArrowUp", {key, modifiers}, etc.
+ */
+function parseKeyboardBindingValue(value) {
+  if (value === null || value === undefined) {
+    return createKeyboardBindingDescriptor(null, null, false, value);
+  }
+
+  // Object format: {key: "KeyA", modifiers: {ctrl: true}}
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return createKeyboardBindingDescriptor(value.key, value.modifiers, true, value);
+  }
+
+  if (typeof value !== 'string') {
+    return createKeyboardBindingDescriptor(null, null, false, value);
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || /^(disabled|none|off)$/i.test(trimmed)) {
+    return createKeyboardBindingDescriptor(null, null, true, value);
+  }
+
+  const tokens = trimmed.split(/\s*\+\s*/).filter((t) => t.length > 0);
+  if (tokens.length === 0) {
+    return createKeyboardBindingDescriptor(null, null, false, value);
+  }
+
+  const modifiers = { ctrl: false, alt: false, shift: false, meta: false };
+  let key = null;
+
+  for (const token of tokens) {
+    const lower = token.toLowerCase();
+    if (KEYBOARD_MODIFIER_ALIASES[lower]) {
+      modifiers[KEYBOARD_MODIFIER_ALIASES[lower]] = true;
+      continue;
+    }
+    // Try to resolve as a key
+    const resolvedKey = KEYBOARD_KEY_ALIASES[lower] || (KEYBOARD_MODIFIER_KEYS.has(token) ? null : token);
+    if (!resolvedKey) {
+      // Could be a raw modifier key identifier like "ShiftLeft" used as a key — skip
+      continue;
+    }
+    if (key !== null) {
+      // Multiple non-modifier keys — invalid
+      return createKeyboardBindingDescriptor(null, null, false, value);
+    }
+    key = resolvedKey;
+  }
+
+  if (!key && !modifiers.ctrl && !modifiers.alt && !modifiers.shift && !modifiers.meta) {
+    return createKeyboardBindingDescriptor(null, null, false, value);
+  }
+
+  return createKeyboardBindingDescriptor(key, modifiers, true, value);
+}
+
+/**
+ * Normalize a keyboard binding value with fallback support.
+ */
+function normalizeKeyboardBindingValue(value, fallbackValue = null) {
+  const parsed = parseKeyboardBindingValue(value);
+  if (parsed.valid) return parsed;
+
+  if (fallbackValue !== null && fallbackValue !== undefined && fallbackValue !== value) {
+    const fallback = parseKeyboardBindingValue(fallbackValue);
+    if (fallback.valid) return fallback;
+  }
+
+  return createKeyboardBindingDescriptor(null, null, true, value);
+}
+
+/**
+ * Check if a keyboard event matches a keyboard binding descriptor.
+ * @param {object} binding - A keyboard binding descriptor.
+ * @param {string} keyName - The key identifier from the server event.
+ * @param {Set} pressedKeys - Currently pressed key identifiers.
+ * @param {object} modifiers - Current modifier state {ctrl, alt, shift, meta}.
+ * @returns {boolean}
+ */
+function keyboardEventMatchesBinding(binding, keyName, pressedKeys, modifiers) {
+  if (!binding || binding.disabled) return false;
+
+  // Check modifier requirements
+  if (binding.modifiers.ctrl && !modifiers.ctrl) return false;
+  if (binding.modifiers.alt && !modifiers.alt) return false;
+  if (binding.modifiers.shift && !modifiers.shift) return false;
+  if (binding.modifiers.meta && !modifiers.meta) return false;
+
+  // If the binding has a key, the pressed key must match
+  if (binding.key) {
+    return keyName === binding.key;
+  }
+
+  // Modifier-only binding: already satisfied by the modifier checks above
+  return true;
+}
+
+/**
+ * Check if a keyboard binding is currently held (all keys in pressedKeys).
+ */
+function isKeyboardBindingHeld(binding, pressedKeys, modifiers) {
+  if (!binding || binding.disabled) return false;
+  if (binding.modifiers.ctrl && !modifiers.ctrl) return false;
+  if (binding.modifiers.alt && !modifiers.alt) return false;
+  if (binding.modifiers.shift && !modifiers.shift) return false;
+  if (binding.modifiers.meta && !modifiers.meta) return false;
+  if (binding.key) return pressedKeys.has(binding.key);
+  return true;
+}
+
 class GamepadHandler {
   constructor(options = {}) {
     // Configuration
@@ -275,6 +542,7 @@ class GamepadHandler {
       thumbstickNavigationThreshold: options.thumbstickNavigationThreshold || 0.7,
       navigationHideDelay: Number.isFinite(options.navigationHideDelay) ? options.navigationHideDelay : 200,
       autoConfirmSelection: options.autoConfirmSelection !== false,
+      focusOverlayOnEntry: options.focusOverlayOnEntry !== false,
 
       // Text processing backend
       // "mecab": use gsm_overlay_server token/furigana via MeCab
@@ -284,6 +552,7 @@ class GamepadHandler {
       // "jiten-api": call JitenReader API /api/reader/parse directly
       // "jpdb-api": call JPDB API /api/v1/parse directly
       tokenizerBackend: options.tokenizerBackend || 'mecab',
+      localTokenizerFallbackBackend: options.localTokenizerFallbackBackend || 'mecab',
       yomitanApiUrl: options.yomitanApiUrl || 'http://127.0.0.1:19633',
       yomitanScanLength: Number.isFinite(options.yomitanScanLength) ? options.yomitanScanLength : 10,
       yomitanRequestTimeout: Number.isFinite(options.yomitanRequestTimeout) ? options.yomitanRequestTimeout : 1800,
@@ -312,9 +581,26 @@ class GamepadHandler {
       keyboardEnabled: options.keyboardEnabled !== false, // Enable keyboard hotkey activation (handled by main process)
       connectToServer: options.connectToServer !== false, // Keep tokenizer requests usable without forcing controller activation
       inputSuppressed: options.inputSuppressed === true, // Temporarily suppress input handling (e.g., settings input test)
+      
+      // Keyboard bindings (parallel to gamepad buttons — each action can be triggered by keyboard OR controller)
+      keyboardModifierKey: options.keyboardModifierKey || null,
+      keyboardToggleKey: options.keyboardToggleKey || null,
+      keyboardConfirmKey: options.keyboardConfirmKey || 'Enter',
+      keyboardCancelKey: options.keyboardCancelKey || 'Escape',
+      keyboardForwardEnterKey: options.keyboardForwardEnterKey || null,
+      keyboardManualOverlayScanKey: options.keyboardManualOverlayScanKey || null,
+      keyboardTokenModeToggleKey: options.keyboardTokenModeToggleKey || null,
+      keyboardNextEntryKey: options.keyboardNextEntryKey || null,
+      keyboardPrevEntryKey: options.keyboardPrevEntryKey || null,
+      keyboardNavigateUp: options.keyboardNavigateUp || 'ArrowUp',
+      keyboardNavigateDown: options.keyboardNavigateDown || 'ArrowDown',
+      keyboardNavigateLeft: options.keyboardNavigateLeft || 'ArrowLeft',
+      keyboardNavigateRight: options.keyboardNavigateRight || 'ArrowRight',
+      keyboardMineButton: options.keyboardMineButton || null,
     };
     this.config.activationMode = this.normalizeActivationMode(this.config.activationMode);
     this.config.tokenizerBackend = this.normalizeTokenizerBackend(this.config.tokenizerBackend);
+    this.config.localTokenizerFallbackBackend = this.normalizeLocalTokenizerFallbackBackend(this.config.localTokenizerFallbackBackend);
     this.config.yomitanApiUrl = String(this.config.yomitanApiUrl || 'http://127.0.0.1:19633').trim().replace(/\/+$/, '') || 'http://127.0.0.1:19633';
     this.config.yomitanScanLength = Math.max(1, Math.min(100, Number(this.config.yomitanScanLength) || 10));
     this.config.jitenApiKey = this.normalizeJitenApiKey(this.config.jitenApiKey);
@@ -322,12 +608,14 @@ class GamepadHandler {
     this.config.jpdbApiKey = this.normalizeJpdbApiKey(this.config.jpdbApiKey);
     this.config.jpdbParseEndpoint = this.getJpdbApiEndpoint();
     this.refreshButtonBindings();
+    this.refreshKeyboardBindings();
     
     // WebSocket connection
     this.ws = null;
     this.wsConnected = false;
     this.reconnectTimer = null;
     this.reconnectDelay = 2000; // ms
+    this.overlayFocusHeld = false;
     
     // State
     this.gamepads = new Map(); // Connected gamepads from server
@@ -356,6 +644,10 @@ class GamepadHandler {
     
     // Button state tracking
     this.buttonStates = new Map(); // device -> {button: pressed}
+    
+    // Keyboard state tracking
+    this.pressedKeys = new Set(); // Set of currently pressed key identifiers (e.g. "KeyA", "ArrowUp")
+    this.keyboardModifiers = { ctrl: false, alt: false, shift: false, meta: false };
     
     // Repeat handling
     this.repeatTimers = new Map();
@@ -448,14 +740,45 @@ class GamepadHandler {
     }
     return null;
   }
-  
-  destroy() {
-    this.publishNavigationActiveState(false);
+
+  requestOverlayFocus() {
+    if (this.overlayFocusHeld || this.config.focusOverlayOnEntry === false) {
+      return;
+    }
 
     const ipc = this.getIpcRenderer();
-    if (this.isActive && ipc) {
+    if (!ipc) {
+      return;
+    }
+
+    ipc.send('gamepad-request-focus');
+    this.overlayFocusHeld = true;
+  }
+
+  releaseOverlayFocus() {
+    if (!this.overlayFocusHeld) {
+      return;
+    }
+
+    const ipc = this.getIpcRenderer();
+    if (ipc) {
       ipc.send('gamepad-release-focus');
     }
+    this.overlayFocusHeld = false;
+  }
+
+  syncOverlayFocusState() {
+    if (this.isActive && this.config.focusOverlayOnEntry !== false) {
+      this.requestOverlayFocus();
+      return;
+    }
+
+    this.releaseOverlayFocus();
+  }
+
+  destroy() {
+    this.publishNavigationActiveState(false);
+    this.releaseOverlayFocus();
     this.clearPendingMineCandidate();
     this.tokenCacheByBlock.clear();
     this.pendingTokenizationByBlock.clear();
@@ -649,6 +972,10 @@ class GamepadHandler {
       case 'furigana':
         this.onFuriganaReceived(data);
         break;
+
+      case 'keyboard_event':
+        this.onKeyboardEvent(data);
+        break;
         
       case 'pong':
         // Heartbeat response
@@ -836,63 +1163,31 @@ class GamepadHandler {
    * @param {number} timeout - Timeout in ms (default 5000)
    * @returns {Promise<{lineIndex: number, text: string, segments: Array, mecabAvailable: boolean}>}
    */
-  requestFurigana(text, lineIndex = 0, timeout = 5000) {
-    if (this.isUsingYomitanBridge()) {
-      return this.requestFuriganaFromYomitanBridge(text, lineIndex, timeout);
-    }
-    if (this.isUsingYomitanApi()) {
-      return this.requestFuriganaFromYomitanApi(text, lineIndex, timeout);
-    }
-    if (this.isUsingJitenApi()) {
-      return this.requestFuriganaFromJitenApi(text, lineIndex, timeout);
-    }
-    if (this.isUsingJpdbApi()) {
-      return this.requestFuriganaFromJpdbApi(text, lineIndex, timeout);
+  async requestFurigana(text, lineIndex = 0, timeout = 5000) {
+    if (!text) {
+      return {
+        lineIndex,
+        text: '',
+        segments: [],
+        mecabAvailable: this.mecabAvailable,
+        sudachiAvailable: this.sudachiAvailable,
+      };
     }
 
-    return new Promise((resolve, reject) => {
-      if (!this.wsConnected || !this.ws) {
-        reject(new Error('Not connected to server'));
-        return;
+    let lastError = null;
+    for (const backend of this.getBackendAttemptOrder()) {
+      try {
+        return await this.requestFuriganaWithBackend(backend, text, lineIndex, timeout);
+      } catch (error) {
+        lastError = error;
+        console.warn(`[GamepadHandler] Furigana backend "${backend}" failed: ${error.message}`);
       }
-      
-      if (!text) {
-        resolve({
-          lineIndex,
-          text: '',
-          segments: [],
-          mecabAvailable: this.mecabAvailable,
-          sudachiAvailable: this.sudachiAvailable,
-        });
-        return;
-      }
-      
-      const requestId = ++this.furiganaRequestId;
-      
-      // Set up timeout
-      const timeoutId = setTimeout(() => {
-        if (this.pendingFuriganaRequests.has(requestId)) {
-          this.pendingFuriganaRequests.delete(requestId);
-          reject(new Error('Furigana request timed out'));
-        }
-      }, timeout);
-      
-      // Store the pending request
-      this.pendingFuriganaRequests.set(requestId, {
-        resolve,
-        reject,
-        timeout: timeoutId,
-      });
-      
-      // Send the request
-      this.ws.send(JSON.stringify({
-        type: 'get_furigana',
-        text: text,
-        lineIndex: lineIndex,
-        requestId: requestId,
-        backend: this.config.tokenizerBackend,
-      }));
-    });
+    }
+
+    if (lastError) {
+      console.warn(`[GamepadHandler] Furigana fallback exhausted for line ${lineIndex}: ${lastError.message}`);
+    }
+    return this.buildFallbackFuriganaResponse(text, lineIndex);
   }
   
   /**
@@ -904,24 +1199,25 @@ class GamepadHandler {
   }
 
   canRequestFurigana() {
-    if (this.isUsingYomitanBridge()) {
+    const primaryBackend = this.normalizeTokenizerBackend(this.config.tokenizerBackend);
+    if (primaryBackend === 'yomitan-bridge') {
       // Allow trying requests even before first successful ping; request handles fallback.
       return true;
     }
-    if (this.isUsingYomitanApi()) {
+    if (primaryBackend === 'yomitan-api') {
       // Allow trying requests even before first successful ping; request handles fallback.
       return true;
     }
-    if (this.isUsingJitenApi()) {
-      return !!this.getJitenApiKey();
+    if (primaryBackend === 'jiten-api') {
+      return !!this.getJitenApiKey() || this.isLocalTokenizerBackendReady(this.config.localTokenizerFallbackBackend);
     }
-    if (this.isUsingJpdbApi()) {
-      return !!this.getJpdbApiKey();
+    if (primaryBackend === 'jpdb-api') {
+      return !!this.getJpdbApiKey() || this.isLocalTokenizerBackendReady(this.config.localTokenizerFallbackBackend);
     }
-    if (this.isUsingSudachi()) {
-      return this.wsConnected && this.sudachiAvailable;
+    if (primaryBackend === 'sudachi') {
+      return this.isLocalTokenizerBackendReady('sudachi') || this.isLocalTokenizerBackendReady(this.config.localTokenizerFallbackBackend);
     }
-    return this.wsConnected && this.mecabAvailable;
+    return this.isLocalTokenizerBackendReady('mecab') || this.isLocalTokenizerBackendReady(this.config.localTokenizerFallbackBackend);
   }
 
   normalizeTokenizerBackend(value) {
@@ -930,6 +1226,64 @@ class GamepadHandler {
       return normalized;
     }
     return 'mecab';
+  }
+
+  normalizeLocalTokenizerFallbackBackend(value) {
+    const normalized = String(value || 'mecab').trim().toLowerCase();
+    return normalized === 'sudachi' ? 'sudachi' : 'mecab';
+  }
+
+  isLocalTokenizerBackend(value) {
+    const normalized = this.normalizeLocalTokenizerFallbackBackend(value);
+    return normalized === 'mecab' || normalized === 'sudachi';
+  }
+
+  isLocalTokenizerBackendReady(value) {
+    const normalized = this.normalizeLocalTokenizerFallbackBackend(value);
+    if (!this.wsConnected || !this.ws) {
+      return false;
+    }
+    return normalized === 'sudachi' ? this.sudachiAvailable === true : this.mecabAvailable === true;
+  }
+
+  getConfiguredLocalTokenizerFallbackBackend() {
+    return this.normalizeLocalTokenizerFallbackBackend(this.config.localTokenizerFallbackBackend);
+  }
+
+  getBackendAttemptOrder(preferredBackend = this.config.tokenizerBackend) {
+    const normalizedPreferred = this.normalizeTokenizerBackend(preferredBackend);
+    const fallbackLocalBackend = this.getConfiguredLocalTokenizerFallbackBackend();
+    const backends = [normalizedPreferred];
+    if (!backends.includes(fallbackLocalBackend)) {
+      backends.push(fallbackLocalBackend);
+    }
+    return backends;
+  }
+
+  buildFallbackFuriganaResponse(text, lineIndex = 0, backend = null) {
+    return {
+      lineIndex,
+      text: String(text || ''),
+      segments: this.normalizeFuriganaSegments([], text, backend || this.config.tokenizerBackend),
+      mecabAvailable: this.mecabAvailable,
+      sudachiAvailable: this.sudachiAvailable,
+    };
+  }
+
+  emitFallbackTokenizationResult(blockIndex, text, tokenSource = null) {
+    this.onTokensReceived({
+      type: 'tokens',
+      blockIndex,
+      text,
+      tokens: [],
+      tokenSource: tokenSource || this.normalizeTokenizerBackend(this.config.tokenizerBackend),
+      mecabAvailable: this.mecabAvailable,
+      sudachiAvailable: this.sudachiAvailable,
+      yomitanBridgeAvailable: this.yomitanBridgeReachable,
+      yomitanApiAvailable: this.yomitanApiReachable,
+      jitenApiAvailable: this.jitenApiReachable,
+      jpdbApiAvailable: this.jpdbApiReachable,
+    });
   }
 
   normalizeActivationMode(value) {
@@ -946,6 +1300,25 @@ class GamepadHandler {
       forwardEnterButton: normalizeGamepadBindingValue(this.config.forwardEnterButton, -1),
       manualOverlayScanButton: normalizeGamepadBindingValue(this.config.manualOverlayScanButton, -1),
       tokenModeToggleButton: normalizeGamepadBindingValue(this.config.tokenModeToggleButton, 3),
+    };
+  }
+
+  refreshKeyboardBindings() {
+    this.keyboardBindings = {
+      modifierKey: normalizeKeyboardBindingValue(this.config.keyboardModifierKey),
+      toggleKey: normalizeKeyboardBindingValue(this.config.keyboardToggleKey),
+      confirmKey: normalizeKeyboardBindingValue(this.config.keyboardConfirmKey, 'Enter'),
+      cancelKey: normalizeKeyboardBindingValue(this.config.keyboardCancelKey, 'Escape'),
+      forwardEnterKey: normalizeKeyboardBindingValue(this.config.keyboardForwardEnterKey),
+      manualOverlayScanKey: normalizeKeyboardBindingValue(this.config.keyboardManualOverlayScanKey),
+      tokenModeToggleKey: normalizeKeyboardBindingValue(this.config.keyboardTokenModeToggleKey),
+      nextEntryKey: normalizeKeyboardBindingValue(this.config.keyboardNextEntryKey),
+      prevEntryKey: normalizeKeyboardBindingValue(this.config.keyboardPrevEntryKey),
+      navigateUp: normalizeKeyboardBindingValue(this.config.keyboardNavigateUp, 'ArrowUp'),
+      navigateDown: normalizeKeyboardBindingValue(this.config.keyboardNavigateDown, 'ArrowDown'),
+      navigateLeft: normalizeKeyboardBindingValue(this.config.keyboardNavigateLeft, 'ArrowLeft'),
+      navigateRight: normalizeKeyboardBindingValue(this.config.keyboardNavigateRight, 'ArrowRight'),
+      mineButton: normalizeKeyboardBindingValue(this.config.keyboardMineButton),
     };
   }
 
@@ -1096,6 +1469,65 @@ class GamepadHandler {
     });
   }
 
+  requestFuriganaWithBackend(backend, text, lineIndex = 0, timeout = 5000) {
+    const normalizedBackend = this.normalizeTokenizerBackend(backend);
+    if (normalizedBackend === 'yomitan-bridge') {
+      return this.requestFuriganaFromYomitanBridge(text, lineIndex, timeout);
+    }
+    if (normalizedBackend === 'yomitan-api') {
+      return this.requestFuriganaFromYomitanApi(text, lineIndex, timeout);
+    }
+    if (normalizedBackend === 'jiten-api') {
+      return this.requestFuriganaFromJitenApi(text, lineIndex, timeout);
+    }
+    if (normalizedBackend === 'jpdb-api') {
+      return this.requestFuriganaFromJpdbApi(text, lineIndex, timeout);
+    }
+    return this.requestFuriganaFromServer(text, lineIndex, timeout, normalizedBackend);
+  }
+
+  requestFuriganaFromServer(text, lineIndex = 0, timeout = 5000, backend = 'mecab') {
+    return new Promise((resolve, reject) => {
+      const normalizedBackend = this.normalizeLocalTokenizerFallbackBackend(backend);
+      if (!this.wsConnected || !this.ws) {
+        reject(new Error('Not connected to server'));
+        return;
+      }
+
+      if (normalizedBackend === 'sudachi' && !this.sudachiAvailable) {
+        reject(new Error('Sudachi is unavailable'));
+        return;
+      }
+      if (normalizedBackend === 'mecab' && !this.mecabAvailable) {
+        reject(new Error('MeCab is unavailable'));
+        return;
+      }
+
+      const requestId = ++this.furiganaRequestId;
+
+      const timeoutId = setTimeout(() => {
+        if (this.pendingFuriganaRequests.has(requestId)) {
+          this.pendingFuriganaRequests.delete(requestId);
+          reject(new Error('Furigana request timed out'));
+        }
+      }, timeout);
+
+      this.pendingFuriganaRequests.set(requestId, {
+        resolve,
+        reject,
+        timeout: timeoutId,
+      });
+
+      this.ws.send(JSON.stringify({
+        type: 'get_furigana',
+        text,
+        lineIndex,
+        requestId,
+        backend: normalizedBackend,
+      }));
+    });
+  }
+
   async requestYomitanBridgeTokenize(text, timeout = null) {
     const bridge = this.getYomitanBridge();
     if (!bridge) {
@@ -1142,19 +1574,7 @@ class GamepadHandler {
         yomitanBridgeAvailable: true,
       };
     } catch (error) {
-      return {
-        lineIndex,
-        text,
-        segments: [{
-          text,
-          start: 0,
-          end: text.length,
-          hasReading: false,
-          reading: null,
-        }],
-        mecabAvailable: false,
-        yomitanBridgeAvailable: false,
-      };
+      throw error;
     }
   }
 
@@ -1183,19 +1603,7 @@ class GamepadHandler {
         yomitanApiAvailable: true,
       };
     } catch (error) {
-      return {
-        lineIndex,
-        text,
-        segments: [{
-          text,
-          start: 0,
-          end: text.length,
-          hasReading: false,
-          reading: null,
-        }],
-        mecabAvailable: false,
-        yomitanApiAvailable: false,
-      };
+      throw error;
     }
   }
 
@@ -1210,19 +1618,7 @@ class GamepadHandler {
     }
 
     if (!this.getJitenApiKey()) {
-      return {
-        lineIndex,
-        text,
-        segments: [{
-          text,
-          start: 0,
-          end: text.length,
-          hasReading: false,
-          reading: null,
-        }],
-        mecabAvailable: false,
-        jitenApiAvailable: false,
-      };
+      throw new Error('JitenAPI key is missing');
     }
 
     try {
@@ -1240,19 +1636,7 @@ class GamepadHandler {
         jitenApiAvailable: true,
       };
     } catch (error) {
-      return {
-        lineIndex,
-        text,
-        segments: [{
-          text,
-          start: 0,
-          end: text.length,
-          hasReading: false,
-          reading: null,
-        }],
-        mecabAvailable: false,
-        jitenApiAvailable: false,
-      };
+      throw error;
     }
   }
 
@@ -1267,19 +1651,7 @@ class GamepadHandler {
     }
 
     if (!this.getJpdbApiKey()) {
-      return {
-        lineIndex,
-        text,
-        segments: [{
-          text,
-          start: 0,
-          end: text.length,
-          hasReading: false,
-          reading: null,
-        }],
-        mecabAvailable: false,
-        jpdbApiAvailable: false,
-      };
+      throw new Error('JPDB API key is missing');
     }
 
     try {
@@ -1297,19 +1669,7 @@ class GamepadHandler {
         jpdbApiAvailable: true,
       };
     } catch (error) {
-      return {
-        lineIndex,
-        text,
-        segments: [{
-          text,
-          start: 0,
-          end: text.length,
-          hasReading: false,
-          reading: null,
-        }],
-        mecabAvailable: false,
-        jpdbApiAvailable: false,
-      };
+      throw error;
     }
   }
 
@@ -2130,6 +2490,208 @@ class GamepadHandler {
       detail: { device, axis, value }
     }));
   }
+
+  // ==================== Keyboard Event Handling ====================
+
+  onKeyboardEvent(data) {
+    const { key: keyName, pressed, modifiers } = data;
+    if (!keyName) return;
+
+    if (!this.config.keyboardEnabled) return;
+
+    // Track key state
+    if (pressed) {
+      this.pressedKeys.add(keyName);
+    } else {
+      this.pressedKeys.delete(keyName);
+    }
+    this.keyboardModifiers = {
+      ctrl: !!(modifiers && modifiers.ctrl),
+      alt: !!(modifiers && modifiers.alt),
+      shift: !!(modifiers && modifiers.shift),
+      meta: !!(modifiers && modifiers.meta),
+    };
+
+    if (this.isInputSuppressed()) {
+      // Dispatch raw event for settings capture even when suppressed
+      window.dispatchEvent(new CustomEvent('gsm-keyboard-event', {
+        detail: { key: keyName, pressed, modifiers: this.keyboardModifiers }
+      }));
+      return;
+    }
+
+    // Dispatch raw event
+    window.dispatchEvent(new CustomEvent('gsm-keyboard-event', {
+      detail: { key: keyName, pressed, modifiers: this.keyboardModifiers }
+    }));
+
+    if (pressed) {
+      this.onKeyboardKeyDown(keyName);
+    } else {
+      this.onKeyboardKeyUp(keyName);
+    }
+  }
+
+  onKeyboardKeyDown(keyName) {
+    const kb = this.keyboardBindings;
+    const mods = this.keyboardModifiers;
+    const keys = this.pressedKeys;
+
+    // Toggle activation (toggle mode only)
+    if (this.config.activationMode === 'toggle' && keyboardEventMatchesBinding(kb.toggleKey, keyName, keys, mods)) {
+      this.toggleNavigationMode();
+      return;
+    }
+
+    // Forward enter
+    if (keyboardEventMatchesBinding(kb.forwardEnterKey, keyName, keys, mods)) {
+      this.forwardEnterToTargetWindow();
+      return;
+    }
+
+    // Manual overlay scan
+    if (keyboardEventMatchesBinding(kb.manualOverlayScanKey, keyName, keys, mods)) {
+      this.requestManualOverlayScan();
+      return;
+    }
+
+    // Yomitan entry navigation (popup must be visible)
+    if (this.yomitanPopupVisible) {
+      if (keyboardEventMatchesBinding(kb.nextEntryKey, keyName, keys, mods)) {
+        this.navigateYomitanNextEntry();
+        return;
+      }
+      if (keyboardEventMatchesBinding(kb.prevEntryKey, keyName, keys, mods)) {
+        this.navigateYomitanPrevEntry();
+        return;
+      }
+    }
+
+    // Confirm/cancel/token toggle (navigation must be active)
+    if (this.isNavigationActive()) {
+      if (keyboardEventMatchesBinding(kb.confirmKey, keyName, keys, mods)) {
+        this.confirmSelection();
+        return;
+      }
+      if (keyboardEventMatchesBinding(kb.cancelKey, keyName, keys, mods)) {
+        this.cancelSelection();
+        return;
+      }
+      if (keyboardEventMatchesBinding(kb.tokenModeToggleKey, keyName, keys, mods)) {
+        this.toggleTokenMode();
+        return;
+      }
+      if (keyboardEventMatchesBinding(kb.mineButton, keyName, keys, mods)) {
+        this.triggerMining();
+        return;
+      }
+    }
+
+    // Directional navigation
+    if (this.shouldProcessKeyboardNavigation()) {
+      let navigated = false;
+      this.hideVirtualMouseCursorForDpadNavigation();
+
+      if (keyboardEventMatchesBinding(kb.navigateUp, keyName, keys, mods)) {
+        this.navigateBlockUp();
+        navigated = true;
+      } else if (keyboardEventMatchesBinding(kb.navigateDown, keyName, keys, mods)) {
+        this.navigateBlockDown();
+        navigated = true;
+      } else if (keyboardEventMatchesBinding(kb.navigateLeft, keyName, keys, mods)) {
+        this.navigateCursorLeft();
+        navigated = true;
+      } else if (keyboardEventMatchesBinding(kb.navigateRight, keyName, keys, mods)) {
+        this.navigateCursorRight();
+        navigated = true;
+      }
+
+      if (navigated) {
+        if (!this.config.autoConfirmSelection) {
+          this.scanHiddenCharacterToHideYomitan();
+        }
+        // Set up keyboard repeat (same as DPad repeat)
+        const timerKey = `keyboard-${keyName}`;
+        if (!this.repeatTimers.has(timerKey)) {
+          const timer = setTimeout(() => {
+            this.repeatTimers.delete(timerKey);
+            this.startKeyboardRepeatNavigation(keyName);
+          }, this.config.repeatDelay);
+          this.repeatTimers.set(timerKey, timer);
+        }
+      }
+    }
+  }
+
+  onKeyboardKeyUp(keyName) {
+    // Clear repeat timer for this key
+    const timerKey = `keyboard-${keyName}`;
+    if (this.repeatTimers.has(timerKey)) {
+      clearTimeout(this.repeatTimers.get(timerKey));
+      this.repeatTimers.delete(timerKey);
+    }
+
+    // Handle modifier release in modifier mode
+    if (this.config.activationMode === 'modifier' && this.isActive) {
+      const kb = this.keyboardBindings;
+      if (!kb.modifierKey.disabled && !isKeyboardBindingHeld(kb.modifierKey, this.pressedKeys, this.keyboardModifiers)) {
+        this.deactivateNavigation();
+      }
+    }
+  }
+
+  /**
+   * Check if keyboard navigation should be processed (parallel to shouldProcessNavigation for gamepad).
+   */
+  shouldProcessKeyboardNavigation() {
+    if (this.isInputSuppressed()) return false;
+
+    if (this.config.activationMode === 'modifier') {
+      const modifierHeld = !this.keyboardBindings.modifierKey.disabled
+        && isKeyboardBindingHeld(this.keyboardBindings.modifierKey, this.pressedKeys, this.keyboardModifiers);
+
+      if (modifierHeld && !this.isActive) {
+        this.activateNavigation();
+      }
+
+      // Allow navigation if modifier is held OR if already active (e.g., via gamepad activation)
+      return modifierHeld || this.isActive;
+    } else {
+      // Toggle mode — navigation is active when toggle is on
+      return this.toggleModeActive;
+    }
+  }
+
+  startKeyboardRepeatNavigation(keyName) {
+    const timerKey = `keyboard-${keyName}`;
+    const kb = this.keyboardBindings;
+    const repeat = () => {
+      // Check if key is still pressed
+      if (!this.pressedKeys.has(keyName) || !this.shouldProcessKeyboardNavigation()) {
+        this.repeatTimers.delete(timerKey);
+        return;
+      }
+
+      this.hideVirtualMouseCursorForDpadNavigation();
+      const mods = this.keyboardModifiers;
+      const keys = this.pressedKeys;
+      if (keyboardEventMatchesBinding(kb.navigateUp, keyName, keys, mods)) {
+        this.navigateBlockUp();
+      } else if (keyboardEventMatchesBinding(kb.navigateDown, keyName, keys, mods)) {
+        this.navigateBlockDown();
+      } else if (keyboardEventMatchesBinding(kb.navigateLeft, keyName, keys, mods)) {
+        this.navigateCursorLeft();
+      } else if (keyboardEventMatchesBinding(kb.navigateRight, keyName, keys, mods)) {
+        this.navigateCursorRight();
+      }
+
+      // Schedule next repeat
+      const timer = setTimeout(repeat, this.config.repeatRate);
+      this.repeatTimers.set(timerKey, timer);
+    };
+
+    repeat();
+  }
   
   // ==================== Button Handling ====================
   
@@ -2498,7 +3060,7 @@ class GamepadHandler {
       // Ignore local postMessage issues; frame dispatch below is the primary path.
     }
 
-    const popupFrames = this.getYomitanPopupFrames();
+    const popupFrames = this.getYomitanTargetFramesForControlAction(action);
     popupFrames.forEach(frame => {
       try {
         frame.contentWindow?.postMessage(message, '*');
@@ -2516,6 +3078,57 @@ class GamepadHandler {
 
     const fallbackFrame = document.querySelector('iframe');
     return fallbackFrame ? [fallbackFrame] : [];
+  }
+
+  getYomitanTargetFramesForControlAction(action) {
+    const popupFrames = this.getYomitanPopupFrames();
+    if (!this.isPopupFrameScopedYomitanAction(action)) {
+      return popupFrames;
+    }
+
+    const visiblePopupFrames = popupFrames.filter(frame => this.isYomitanPopupFrameVisible(frame));
+    if (visiblePopupFrames.length > 0) {
+      return [visiblePopupFrames[visiblePopupFrames.length - 1]];
+    }
+
+    return popupFrames.length > 0 ? [popupFrames[popupFrames.length - 1]] : [];
+  }
+
+  isPopupFrameScopedYomitanAction(action) {
+    return (
+      action === 'scroll' ||
+      action === 'select-action' ||
+      action === 'reset-action-selection' ||
+      action === 'confirm-action' ||
+      action === 'clear-action-selection' ||
+      action === 'next-entry' ||
+      action === 'previous-entry'
+    );
+  }
+
+  isYomitanPopupFrameVisible(frame) {
+    if (!frame) return false;
+
+    try {
+      const computedStyle = typeof window?.getComputedStyle === 'function'
+        ? window.getComputedStyle(frame)
+        : frame.style;
+      if (computedStyle?.display === 'none' || computedStyle?.visibility === 'hidden') {
+        return false;
+      }
+    } catch (e) {
+      // Fall through and use client rects when style inspection fails.
+    }
+
+    try {
+      if (typeof frame.getClientRects === 'function') {
+        return frame.getClientRects().length > 0;
+      }
+    } catch (e) {
+      // Fall back to treating the frame as visible when DOM inspection fails.
+    }
+
+    return true;
   }
 
   resetYomitanPopupActionSelection() {
@@ -2604,18 +3217,12 @@ class GamepadHandler {
       this.currentBlockIndex = 0;
       this.currentCursorIndex = 0;
     }
-    this.resetSelectionToSingleBlockStart();
 
     this.initializeVirtualMousePosition();
     
     this.updateVisuals();
     this.showModeIndicator(true);
-    
-    // Request window focus via IPC
-    const ipc = this.getIpcRenderer();
-    if (ipc) {
-      ipc.send('gamepad-request-focus');
-    }
+    this.syncOverlayFocusState();
     
     // Auto-confirm selection when navigation is activated
     this.autoConfirmSelection();
@@ -2636,6 +3243,7 @@ class GamepadHandler {
     if (!this.isActive) {
       // Exit requests can still happen while already inactive (state drift);
       // always attempt to dismiss any lingering Yomitan popup.
+      this.releaseOverlayFocus();
       this.scanHiddenCharacterToHideYomitan();
       return;
     }
@@ -2659,12 +3267,7 @@ class GamepadHandler {
     
     // Clear cursor position
     this.clearCursorPosition();
-    
-    // Release window focus via IPC
-    const ipc = this.getIpcRenderer();
-    if (ipc) {
-      ipc.send('gamepad-release-focus');
-    }
+    this.releaseOverlayFocus();
     
     // Trigger scan on hidden character to hide Yomitan popup
     this.scanHiddenCharacterToHideYomitan();
@@ -3482,7 +4085,7 @@ class GamepadHandler {
     }
   }
 
-  requestTokenizationForBlock(blockIndex, textOverride = null) {
+  async requestTokenizationForBlock(blockIndex, textOverride = null) {
     if (blockIndex < 0 || blockIndex >= this.textBlocks.length) {
       return;
     }
@@ -3512,45 +4115,23 @@ class GamepadHandler {
       return;
     }
 
-    if (this.isUsingYomitanBridge()) {
-      console.log(`[GamepadHandler] Requesting tokenization for block ${blockIndex}: "${text.slice(0, 30)}..."`);
-      this.pendingTokenizationByBlock.set(blockIndex, text);
-      this.requestTokenizationFromYomitanBridge(blockIndex, text);
-      return;
-    }
-
-    if (this.isUsingYomitanApi()) {
-      console.log(`[GamepadHandler] Requesting tokenization for block ${blockIndex}: "${text.slice(0, 30)}..."`);
-      this.pendingTokenizationByBlock.set(blockIndex, text);
-      this.requestTokenizationFromYomitanApi(blockIndex, text);
-      return;
-    }
-
-    if (this.isUsingJitenApi()) {
-      console.log(`[GamepadHandler] Requesting tokenization for block ${blockIndex}: "${text.slice(0, 30)}..."`);
-      this.pendingTokenizationByBlock.set(blockIndex, text);
-      this.requestTokenizationFromJitenApi(blockIndex, text);
-      return;
-    }
-    if (this.isUsingJpdbApi()) {
-      console.log(`[GamepadHandler] Requesting tokenization for block ${blockIndex}: "${text.slice(0, 30)}..."`);
-      this.pendingTokenizationByBlock.set(blockIndex, text);
-      this.requestTokenizationFromJpdbApi(blockIndex, text);
-      return;
-    }
-
-    if (!this.wsConnected || !this.ws) {
-      return;
-    }
-
-    console.log(`[GamepadHandler] Requesting tokenization for block ${blockIndex}: "${text.slice(0, 30)}..."`);
     this.pendingTokenizationByBlock.set(blockIndex, text);
-    this.ws.send(JSON.stringify({
-      type: 'tokenize',
-      blockIndex,
-      text,
-      backend: this.config.tokenizerBackend,
-    }));
+    let lastError = null;
+    for (const backend of this.getBackendAttemptOrder()) {
+      try {
+        await this.requestTokenizationWithBackend(blockIndex, text, backend);
+        return;
+      } catch (error) {
+        lastError = error;
+        console.warn(`[GamepadHandler] Tokenization backend "${backend}" failed: ${error.message}`);
+      }
+    }
+
+    this.pendingTokenizationByBlock.delete(blockIndex);
+    if (lastError) {
+      console.warn(`[GamepadHandler] Tokenization fallback exhausted for block ${blockIndex}: ${lastError.message}`);
+    }
+    this.emitFallbackTokenizationResult(blockIndex, text);
   }
   
   requestTokenization() {
@@ -3568,148 +4149,111 @@ class GamepadHandler {
     return this.shouldTokenizeText(this.getBlockText(this.currentBlockIndex, true));
   }
 
-  async requestTokenizationFromYomitanBridge(blockIndex, text) {
-    try {
-      const content = await this.requestYomitanBridgeTokenize(text, this.config.yomitanRequestTimeout);
-      const tokens = this.convertYomitanContentToTokens(content, text);
+  requestTokenizationWithBackend(blockIndex, text, backend) {
+    const normalizedBackend = this.normalizeTokenizerBackend(backend);
+    console.log(`[GamepadHandler] Requesting tokenization for block ${blockIndex} via ${normalizedBackend}: "${text.slice(0, 30)}..."`);
 
-      this.onTokensReceived({
-        type: 'tokens',
-        blockIndex,
-        text,
-        tokens,
-        tokenSource: 'yomitan-bridge',
-        mecabAvailable: false,
-        yomitanBridgeAvailable: true,
-      });
-    } catch (error) {
-      console.warn(`[GamepadHandler] Yomitan bridge tokenization failed: ${error.message}`);
-      const fallbackTokens = this.convertYomitanContentToTokens([], text);
-      this.onTokensReceived({
-        type: 'tokens',
-        blockIndex,
-        text,
-        tokens: fallbackTokens,
-        tokenSource: 'yomitan-bridge',
-        mecabAvailable: false,
-        yomitanBridgeAvailable: false,
-      });
+    if (normalizedBackend === 'yomitan-bridge') {
+      return this.requestTokenizationFromYomitanBridge(blockIndex, text);
     }
+    if (normalizedBackend === 'yomitan-api') {
+      return this.requestTokenizationFromYomitanApi(blockIndex, text);
+    }
+    if (normalizedBackend === 'jiten-api') {
+      return this.requestTokenizationFromJitenApi(blockIndex, text);
+    }
+    if (normalizedBackend === 'jpdb-api') {
+      return this.requestTokenizationFromJpdbApi(blockIndex, text);
+    }
+    return this.requestTokenizationFromServer(blockIndex, text, normalizedBackend);
+  }
+
+  requestTokenizationFromServer(blockIndex, text, backend = 'mecab') {
+    const normalizedBackend = this.normalizeLocalTokenizerFallbackBackend(backend);
+    if (!this.wsConnected || !this.ws) {
+      throw new Error('Not connected to server');
+    }
+    if (normalizedBackend === 'sudachi' && !this.sudachiAvailable) {
+      throw new Error('Sudachi is unavailable');
+    }
+    if (normalizedBackend === 'mecab' && !this.mecabAvailable) {
+      throw new Error('MeCab is unavailable');
+    }
+
+    this.ws.send(JSON.stringify({
+      type: 'tokenize',
+      blockIndex,
+      text,
+      backend: normalizedBackend,
+    }));
+  }
+
+  async requestTokenizationFromYomitanBridge(blockIndex, text) {
+    const content = await this.requestYomitanBridgeTokenize(text, this.config.yomitanRequestTimeout);
+    const tokens = this.convertYomitanContentToTokens(content, text);
+
+    this.onTokensReceived({
+      type: 'tokens',
+      blockIndex,
+      text,
+      tokens,
+      tokenSource: 'yomitan-bridge',
+      mecabAvailable: false,
+      yomitanBridgeAvailable: true,
+    });
   }
 
   async requestTokenizationFromYomitanApi(blockIndex, text) {
-    try {
-      const content = await this.requestYomitanTokenize(text, this.config.yomitanRequestTimeout);
-      const tokens = this.convertYomitanContentToTokens(content, text);
+    const content = await this.requestYomitanTokenize(text, this.config.yomitanRequestTimeout);
+    const tokens = this.convertYomitanContentToTokens(content, text);
 
-      this.onTokensReceived({
-        type: 'tokens',
-        blockIndex,
-        text,
-        tokens,
-        tokenSource: 'yomitan-api',
-        mecabAvailable: false,
-        yomitanApiAvailable: true,
-      });
-    } catch (error) {
-      console.warn(`[GamepadHandler] Yomitan API tokenization failed: ${error.message}`);
-      const fallbackTokens = this.convertYomitanContentToTokens([], text);
-      this.onTokensReceived({
-        type: 'tokens',
-        blockIndex,
-        text,
-        tokens: fallbackTokens,
-        tokenSource: 'yomitan-api',
-        mecabAvailable: false,
-        yomitanApiAvailable: false,
-      });
-    }
+    this.onTokensReceived({
+      type: 'tokens',
+      blockIndex,
+      text,
+      tokens,
+      tokenSource: 'yomitan-api',
+      mecabAvailable: false,
+      yomitanApiAvailable: true,
+    });
   }
 
   async requestTokenizationFromJitenApi(blockIndex, text) {
     if (!this.getJitenApiKey()) {
-      const fallbackTokens = this.convertJitenPayloadToTokens([], text);
-      this.onTokensReceived({
-        type: 'tokens',
-        blockIndex,
-        text,
-        tokens: fallbackTokens,
-        tokenSource: 'jiten-api',
-        mecabAvailable: false,
-        jitenApiAvailable: false,
-      });
-      return;
+      throw new Error('JitenAPI key is missing');
     }
 
-    try {
-      const payload = await this.requestJitenParse(text, this.config.jitenRequestTimeout);
-      const tokens = this.convertJitenPayloadToTokens(payload, text);
+    const payload = await this.requestJitenParse(text, this.config.jitenRequestTimeout);
+    const tokens = this.convertJitenPayloadToTokens(payload, text);
 
-      this.onTokensReceived({
-        type: 'tokens',
-        blockIndex,
-        text,
-        tokens,
-        tokenSource: 'jiten-api',
-        mecabAvailable: false,
-        jitenApiAvailable: true,
-      });
-    } catch (error) {
-      console.warn(`[GamepadHandler] JitenAPI tokenization failed: ${error.message}`);
-      const fallbackTokens = this.convertJitenPayloadToTokens([], text);
-      this.onTokensReceived({
-        type: 'tokens',
-        blockIndex,
-        text,
-        tokens: fallbackTokens,
-        tokenSource: 'jiten-api',
-        mecabAvailable: false,
-        jitenApiAvailable: false,
-      });
-    }
+    this.onTokensReceived({
+      type: 'tokens',
+      blockIndex,
+      text,
+      tokens,
+      tokenSource: 'jiten-api',
+      mecabAvailable: false,
+      jitenApiAvailable: true,
+    });
   }
 
   async requestTokenizationFromJpdbApi(blockIndex, text) {
     if (!this.getJpdbApiKey()) {
-      const fallbackTokens = this.convertJpdbPayloadToTokens([], text);
-      this.onTokensReceived({
-        type: 'tokens',
-        blockIndex,
-        text,
-        tokens: fallbackTokens,
-        tokenSource: 'jpdb-api',
-        mecabAvailable: false,
-        jpdbApiAvailable: false,
-      });
-      return;
+      throw new Error('JPDB API key is missing');
     }
 
-    try {
-      const payload = await this.requestJpdbParse(text, this.config.jpdbRequestTimeout);
-      const tokens = this.convertJpdbPayloadToTokens(payload, text);
+    const payload = await this.requestJpdbParse(text, this.config.jpdbRequestTimeout);
+    const tokens = this.convertJpdbPayloadToTokens(payload, text);
 
-      this.onTokensReceived({
-        type: 'tokens',
-        blockIndex,
-        text,
-        tokens,
-        tokenSource: 'jpdb-api',
-        mecabAvailable: false,
-        jpdbApiAvailable: true,
-      });
-    } catch (error) {
-      console.warn(`[GamepadHandler] JPDB API tokenization failed: ${error.message}`);
-      const fallbackTokens = this.convertJpdbPayloadToTokens([], text);
-      this.onTokensReceived({
-        type: 'tokens',
-        blockIndex,
-        text,
-        tokens: fallbackTokens,
-        tokenSource: 'jpdb-api',
-        mecabAvailable: false,
-        jpdbApiAvailable: false,
-      });
-    }
+    this.onTokensReceived({
+      type: 'tokens',
+      blockIndex,
+      text,
+      tokens,
+      tokenSource: 'jpdb-api',
+      mecabAvailable: false,
+      jpdbApiAvailable: true,
+    });
   }
   
   getNavigationUnits() {
@@ -5342,16 +5886,19 @@ class GamepadHandler {
     const oldServerUrl = this.config.serverUrl;
     const oldActivationMode = this.config.activationMode;
     const oldTokenizerBackend = this.config.tokenizerBackend;
+    const oldLocalTokenizerFallbackBackend = this.config.localTokenizerFallbackBackend;
     const oldYomitanApiUrl = this.config.yomitanApiUrl;
     const oldYomitanScanLength = this.config.yomitanScanLength;
     const oldJitenApiKey = this.config.jitenApiKey;
     const oldJpdbApiKey = this.config.jpdbApiKey;
     const oldConnectToServer = this.config.connectToServer !== false;
     const oldInputSuppressed = this.config.inputSuppressed === true;
+    const oldFocusOverlayOnEntry = this.config.focusOverlayOnEntry !== false;
 
     Object.assign(this.config, newConfig);
     this.config.activationMode = this.normalizeActivationMode(this.config.activationMode);
     this.config.tokenizerBackend = this.normalizeTokenizerBackend(this.config.tokenizerBackend);
+    this.config.localTokenizerFallbackBackend = this.normalizeLocalTokenizerFallbackBackend(this.config.localTokenizerFallbackBackend);
     this.config.yomitanApiUrl = this.getYomitanApiBaseUrl();
     this.config.yomitanScanLength = Math.max(1, Math.min(100, Number(this.config.yomitanScanLength) || 10));
     this.config.jitenApiKey = this.normalizeJitenApiKey(this.config.jitenApiKey);
@@ -5359,9 +5906,15 @@ class GamepadHandler {
     this.config.jpdbApiKey = this.normalizeJpdbApiKey(this.config.jpdbApiKey);
     this.config.jpdbParseEndpoint = this.getJpdbApiEndpoint();
     this.refreshButtonBindings();
+    this.refreshKeyboardBindings();
     this.config.connectToServer = this.config.connectToServer !== false;
     this.config.inputSuppressed = this.config.inputSuppressed === true;
+    this.config.focusOverlayOnEntry = this.config.focusOverlayOnEntry !== false;
     console.log('[GamepadHandler] Config updated:', this.getConfigForLogging());
+
+    if (oldFocusOverlayOnEntry !== this.config.focusOverlayOnEntry) {
+      this.syncOverlayFocusState();
+    }
 
     if (oldActivationMode !== this.config.activationMode) {
       this.toggleModeActive = false;
@@ -5400,20 +5953,30 @@ class GamepadHandler {
 
     const backendChanged = (
       this.config.tokenizerBackend !== oldTokenizerBackend ||
+      this.config.localTokenizerFallbackBackend !== oldLocalTokenizerFallbackBackend ||
       this.config.yomitanApiUrl !== oldYomitanApiUrl ||
       this.config.yomitanScanLength !== oldYomitanScanLength ||
       this.config.jitenApiKey !== oldJitenApiKey ||
       this.config.jpdbApiKey !== oldJpdbApiKey
     );
     if (backendChanged) {
-      this.mecabAvailable = false;
-      this.sudachiAvailable = this.wsConnected && this.isUsingSudachi();
+      if (!this.wsConnected) {
+        this.mecabAvailable = false;
+        this.sudachiAvailable = false;
+      }
       this.yomitanBridgeReachable = false;
       this.yomitanApiReachable = false;
       this.jitenApiReachable = false;
       this.jpdbApiReachable = false;
       this.tokenCacheByBlock.clear();
       this.pendingTokenizationByBlock.clear();
+      if (this.wsConnected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+        try {
+          this.ws.send(JSON.stringify({ type: 'get_state' }));
+        } catch (error) {
+          console.warn('[GamepadHandler] Failed to refresh tokenizer state after backend change:', error);
+        }
+      }
       this.prefetchTokenizationForAllBlocks();
       this.updateModeIndicatorText();
     }
@@ -5448,6 +6011,8 @@ class GamepadHandler {
   enforceInputSuppressedState() {
     this.repeatTimers.forEach(timer => clearTimeout(timer));
     this.repeatTimers.clear();
+    this.pressedKeys.clear();
+    this.keyboardModifiers = { ctrl: false, alt: false, shift: false, meta: false };
     this.toggleModeActive = false;
     this.deactivateNavigation();
   }
@@ -5487,6 +6052,7 @@ class GamepadHandler {
       totalTokens: this.tokens.length,
       tokenMode: this.tokenMode,
       autoConfirmSelection: this.config.autoConfirmSelection !== false,
+      focusOverlayOnEntry: this.config.focusOverlayOnEntry !== false,
       mecabAvailable: this.mecabAvailable,
       sudachiAvailable: this.sudachiAvailable,
       tokenizerBackend: this.config.tokenizerBackend,
@@ -5591,6 +6157,10 @@ GamepadHandler.BUTTON_LABELS = GAMEPAD_BUTTON_LABELS;
 GamepadHandler.parseButtonBindingValue = parseGamepadBindingValue;
 GamepadHandler.normalizeButtonBindingValue = normalizeGamepadBindingValue;
 GamepadHandler.getButtonLabel = getGamepadButtonLabel;
+GamepadHandler.parseKeyboardBindingValue = parseKeyboardBindingValue;
+GamepadHandler.normalizeKeyboardBindingValue = normalizeKeyboardBindingValue;
+GamepadHandler.getKeyboardKeyLabel = getKeyboardKeyLabel;
+GamepadHandler.KEYBOARD_MODIFIER_KEYS = KEYBOARD_MODIFIER_KEYS;
 
 // Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {
@@ -5598,6 +6168,10 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports.parseButtonBindingValue = parseGamepadBindingValue;
   module.exports.normalizeButtonBindingValue = normalizeGamepadBindingValue;
   module.exports.getButtonLabel = getGamepadButtonLabel;
+  module.exports.parseKeyboardBindingValue = parseKeyboardBindingValue;
+  module.exports.normalizeKeyboardBindingValue = normalizeKeyboardBindingValue;
+  module.exports.getKeyboardKeyLabel = getKeyboardKeyLabel;
+  module.exports.KEYBOARD_MODIFIER_KEYS = KEYBOARD_MODIFIER_KEYS;
 }
 
 // Also expose globally for direct script access

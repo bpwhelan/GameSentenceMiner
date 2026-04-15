@@ -295,6 +295,7 @@ class OBSService:
         self._event_handlers: Dict[str, List[Callable]] = {}
         self._event_callbacks: Dict[str, Callable] = {}
         self._handler_accepts_event_name: Dict[Callable, bool] = {}
+        self._scene_observed_handlers: List[Callable[[str], None]] = []
 
         # Replay buffer management
         self._replay_buffer_action_pending: Optional[bool] = None
@@ -434,6 +435,23 @@ class OBSService:
             handler(event_name, data)
         else:
             handler(data)
+
+    def on_scene_observed(self, handler: Callable[[str], None]):
+        if handler not in self._scene_observed_handlers:
+            self._scene_observed_handlers.append(handler)
+
+    def off_scene_observed(self, handler: Callable[[str], None]):
+        if handler in self._scene_observed_handlers:
+            self._scene_observed_handlers.remove(handler)
+
+    def _notify_scene_observed(self, scene_name: str):
+        if not scene_name:
+            return
+        for handler in list(self._scene_observed_handlers):
+            try:
+                handler(scene_name)
+            except Exception as e:
+                logger.debug(f"Scene observed handler failed for '{scene_name}': {e}")
 
     # -- state init ----------------------------------------------------------
 
@@ -1113,6 +1131,7 @@ class OBSService:
                     self.state.current_scene = current_scene
                     self.state.current_source_name = None
                 gsm_state.current_game = current_scene
+            self._notify_scene_observed(current_scene)
             self._tick_last_run_by_operation["refresh_current_scene"] = now
 
         if resolved.refresh_scene_items and current_scene:
