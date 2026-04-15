@@ -150,5 +150,24 @@ class ProviderRegistry:
                     logger=self.logger,
                 )
             return self._clients[key]
+    
+        if config.provider == AI_DEEPL:
+            from GameSentenceMiner.ai.providers.deepl_client import DeepLClient
+
+            key = self._build_key(
+                config.provider,
+                "deepl",
+                None,
+                config.deepl_api_key,
+            )
+
+            if key not in self._clients:
+                self._clients[key] = DeepLClient(
+                    api_key=config.deepl_api_key,
+                    logger=self.logger,
+                    target_lang=config.deepl_target_lang,  # ← Pass from config
+                )
+
+            return self._clients[key]
 
         raise ValueError(f"Unsupported AI provider: {config.provider}")

@@ -643,6 +643,14 @@
           "custom_prompt": {
             "label": "自定义提示:",
             "tooltip": "用于 AI 处理的自定义提示。"
+          },
+          "deepl_api_key": {
+            "label": "DeepL API 密钥:",
+            "tooltip": "您的 DeepL API 密钥。从 https://www.deepl.com/pro-api 获取"
+          },
+          "deepl_target_lang": {
+            "label": "目标语言:",
+            "tooltip": "DeepL 目标语言代码(例如:EN-US、JA、ZH、ES、FR、DE、IT、NL、PL、PT-PT、RU、KO)"
           }
         },
         "overlay": {

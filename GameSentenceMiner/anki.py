@@ -26,6 +26,7 @@ from GameSentenceMiner.util.config.configuration import (
     anki_results,
     gsm_status,
     gsm_state,
+    AI_DEEPL
 )
 from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.gsm_utils import (
@@ -440,12 +441,46 @@ def _resolve_sentence_for_translation(note: Dict, last_note: "AnkiCard") -> str:
 def prefetch_ai_translation(sentence_to_translate: str, game_line: "GameLine") -> str:
     if not sentence_to_translate:
         return ""
+
     try:
+        config = get_config()
+        provider = config.ai.provider
+
+        # 1. If DeepL is used, DO NOT call LLM pipeline
+        # DeepL handling (minimal, non-invasive)
+        if provider == AI_DEEPL:
+            # 1. If already translated earlier → reuse
+            if hasattr(game_line, "translation") and game_line.translation:
+                logger.info("Reusing cached DeepL translation")
+                return game_line.translation
+
+            # 2. If not yet available → call through existing pipeline ONCE
+            # (this ensures Anki never gets empty)
+            translation = (
+                _get_ai_prompt_result()(
+                    get_all_lines(),
+                    sentence_to_translate,
+                    game_line,
+                    get_current_game()
+                ) or ""
+            )
+
+            logger.info(f"DeepL fallback translation: {translation}")
+            return translation
+
+        # LLM path (UNCHANGED)
         translation = (
-            _get_ai_prompt_result()(get_all_lines(), sentence_to_translate, game_line, get_current_game()) or ""
+            _get_ai_prompt_result()(
+                get_all_lines(),
+                sentence_to_translate,
+                game_line,
+                get_current_game()
+            ) or ""
         )
+
         logger.info(f"AI prompt Result: {translation}")
         return translation
+    
     except Exception as e:
         logger.exception(f"Failed to prefetch AI translation: {e}")
         return ""

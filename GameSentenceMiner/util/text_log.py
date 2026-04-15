@@ -50,6 +50,7 @@ class GameLine:
     mined_time: datetime = datetime.min
     source: str = None
     source_padding: float = 0.0
+    translation: str = ""
 
     def get_previous_time(self):
         if self.prev:

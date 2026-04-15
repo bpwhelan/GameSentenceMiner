@@ -124,6 +124,7 @@ from GameSentenceMiner.util.config.configuration import (
     AI_OLLAMA,
     AI_LM_STUDIO,
     AI_GSM_CLOUD,
+    AI_DEEPL,
     GSM_CLOUD_DEFAULT_MODEL,
     is_gsm_cloud_preview_enabled,
     save_full_config,
@@ -908,6 +909,8 @@ class ConfigWindow(QWidget):
                         else self.lm_studio_backup_model_combo.currentText()
                     ),
                     lm_studio_api_key=self.lm_studio_api_key_edit.text(),
+                    deepl_api_key=self.deepl_api_key_edit.text(),  # ← Add this
+                    deepl_target_lang=self.deepl_target_lang_edit.text(),  # ← Add this
                     use_canned_translation_prompt=self.use_canned_translation_prompt_check.isChecked(),
                     use_canned_context_prompt=self.use_canned_context_prompt_check.isChecked(),
                     custom_prompt=self.custom_prompt_textedit.toPlainText(),
@@ -1277,6 +1280,7 @@ class ConfigWindow(QWidget):
         self.gsm_cloud_settings_group = QGroupBox()
         self.ollama_settings_group = QGroupBox()
         self.lm_studio_settings_group = QGroupBox()
+        self.deepl_settings_group = QGroupBox()
 
         # Audio
         self.audio_enabled_check = QCheckBox()
@@ -1351,6 +1355,10 @@ class ConfigWindow(QWidget):
         self.lm_studio_model_combo = QComboBox()
         self.lm_studio_backup_model_combo = QComboBox()
         self.lm_studio_api_key_edit = QLineEdit()
+        self.deepl_api_key_edit = QLineEdit()  # ← Add this
+        self.deepl_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.deepl_target_lang_edit = QLineEdit()  # ← Add this
+        self.deepl_target_lang_edit.setPlaceholderText("EN-US, JA, ZH, ES, FR, DE, IT, NL, PL, PT-PT, RU, KO")
         self.ai_anki_field_edit = self._create_anki_field_combo()
         self.ai_dialogue_context_length_edit = QLineEdit()
         self.ai_temperature_edit = QLineEdit()
@@ -1693,7 +1701,7 @@ class ConfigWindow(QWidget):
             self.gsm_cloud_model_list.blockSignals(False)
 
     def _get_available_ai_providers(self) -> list[str]:
-        providers = [AI_GEMINI, AI_GROQ, AI_OPENAI, AI_OLLAMA, AI_LM_STUDIO]
+        providers = [AI_GEMINI, AI_GROQ, AI_OPENAI, AI_OLLAMA, AI_LM_STUDIO, AI_DEEPL]
         if self._is_gsm_cloud_ai_preview_enabled() and self._is_gsm_cloud_authenticated():
             providers.append(AI_GSM_CLOUD)
         return providers
@@ -2808,6 +2816,10 @@ class ConfigWindow(QWidget):
         self.lm_studio_model_combo.setCurrentText(s.ai.lm_studio_model)
         self.lm_studio_backup_model_combo.setCurrentText(s.ai.lm_studio_backup_model or OFF)
         self._set_text_value(self.lm_studio_api_key_edit, s.ai.lm_studio_api_key)
+
+        self._set_text_value(self.deepl_api_key_edit, s.ai.deepl_api_key)  
+        self._set_text_value(self.deepl_target_lang_edit, s.ai.deepl_target_lang)
+
         self.ai_anki_field_edit.setCurrentText(s.ai.anki_field)
         self.ai_dialogue_context_length_edit.setText(str(s.ai.dialogue_context_length))
         self.ai_temperature_edit.setText(str(s.ai.temperature))
@@ -3144,6 +3156,7 @@ class ConfigWindow(QWidget):
         self.gsm_cloud_settings_group.setVisible(provider == AI_GSM_CLOUD)
         self.ollama_settings_group.setVisible(provider == AI_OLLAMA)
         self.lm_studio_settings_group.setVisible(provider == AI_LM_STUDIO)
+        self.deepl_settings_group.setVisible(provider == AI_DEEPL) 
 
     def _create_browse_widget(self, line_edit, mode):
         """Helper to create a LineEdit with a Browse button."""
