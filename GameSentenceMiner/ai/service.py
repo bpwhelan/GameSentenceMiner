@@ -222,6 +222,11 @@ class AIService:
 
         self.logger.debug(f"DeepL Prompt being sent: {full_prompt[:500]}")
 
+        # NOTE:
+        # DeepL is now primarily handled directly in prefetch_ai_translation() (anki.py)
+        # to avoid going through the LLM prompt pipeline.
+        # This branch is kept for compatibility with other flows (e.g. manual translate).
+
         if self.config_snapshot.ai.provider == AI_DEEPL:
             # DeepL should only receive the raw sentence
             prompt_to_send = sentence

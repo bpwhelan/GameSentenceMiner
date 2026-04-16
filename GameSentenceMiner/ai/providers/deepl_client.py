@@ -15,6 +15,7 @@ class DeepLClient:
         self.url = "https://api-free.deepl.com/v2/translate"
 
     def generate(self, request: AIRequest) -> AIResponse:
+        self.logger.error("[DEEPL CLIENT] generate() CALLED")
         start_time = time.time()
 
         try:
