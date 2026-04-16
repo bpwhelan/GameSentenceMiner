@@ -1,7 +1,9 @@
+import { EventEmitter } from 'events';
 import path from 'path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockExecFileAsync = vi.fn();
+const mockSpawn = vi.fn();
 const mockExtractZip = vi.fn();
 const mockTarExtract = vi.fn();
 const mockShowMessageBox = vi.fn(async () => ({ response: 0 }));
@@ -51,10 +53,14 @@ vi.mock('extract-zip', () => ({
 vi.mock('tar', () => ({
     x: async (...args: unknown[]) => mockTarExtract(...args),
 }));
+vi.mock('child_process', () => ({
+    spawn: mockSpawn,
+}));
 vi.mock('../util.js', () => ({
     BASE_DIR,
     execFileAsync: mockExecFileAsync,
     getPlatform: () => 'win32',
+    getSanitizedPythonEnv: () => ({}),
     isWindows: () => true,
     isMacOS: () => false,
 }));
@@ -73,6 +79,45 @@ vi.mock('electron', () => ({
         openExternal: mockOpenExternal,
     },
 }));
+
+function createSpawnProcess() {
+    const stdout = new EventEmitter();
+    const stderr = new EventEmitter();
+    const listeners = new Map<string, Array<(...args: any[]) => void>>();
+
+    const processHandle = {
+        stdout,
+        stderr,
+        on(event: string, callback: (...args: any[]) => void) {
+            const callbacks = listeners.get(event) ?? [];
+            callbacks.push(callback);
+            listeners.set(event, callbacks);
+            return processHandle;
+        },
+    };
+
+    const emit = (event: string, ...args: any[]) => {
+        for (const callback of listeners.get(event) ?? []) {
+            callback(...args);
+        }
+    };
+
+    return {
+        processHandle,
+        emitStdout(text: string) {
+            stdout.emit('data', Buffer.from(text));
+        },
+        emitStderr(text: string) {
+            stderr.emit('data', Buffer.from(text));
+        },
+        close(code: number) {
+            emit('close', code);
+        },
+        fail(error: Error) {
+            emit('error', error);
+        },
+    };
+}
 
 describe('getOrInstallPython', () => {
     beforeEach(() => {
@@ -93,6 +138,9 @@ describe('getOrInstallPython', () => {
             ok: true,
             status: 200,
             statusText: 'OK',
+            headers: {
+                get: (name: string) => (name.toLowerCase() === 'content-length' ? '4' : null),
+            },
             arrayBuffer: async () => Uint8Array.from([0x50, 0x4b, 0x03, 0x04]).buffer,
         });
 
@@ -128,11 +176,38 @@ describe('getOrInstallPython', () => {
                 return { stdout: 'Python 3.13.2', stderr: '' };
             }
 
-            if (command === PYTHON_PATH && args[0] === '-m' && args[1] === 'ensurepip') {
-                return { stdout: '', stderr: '' };
-            }
-
             throw new Error(`Unexpected execFileAsync call: ${command} ${args.join(' ')}`);
+        });
+
+        mockSpawn.mockImplementation((command: string, args: string[]) => {
+            const spawned = createSpawnProcess();
+
+            queueMicrotask(() => {
+                if (command === UV_PATH && args[0] === 'python' && args[1] === 'install') {
+                    spawned.emitStdout('installed python\n');
+                    spawned.close(0);
+                    return;
+                }
+
+                if (command === UV_PATH && args[0] === 'venv') {
+                    existingPaths.add(VENV_DIR);
+                    existingPaths.add(path.dirname(PYTHON_PATH));
+                    existingPaths.add(PYTHON_PATH);
+                    spawned.emitStdout('created virtual environment\n');
+                    spawned.close(0);
+                    return;
+                }
+
+                if (command === PYTHON_PATH && args[0] === '-m' && args[1] === 'ensurepip') {
+                    spawned.emitStdout('ensurepip complete\n');
+                    spawned.close(0);
+                    return;
+                }
+
+                spawned.fail(new Error(`Unexpected spawn call: ${command} ${args.join(' ')}`));
+            });
+
+            return spawned.processHandle;
         });
     });
 
@@ -144,8 +219,21 @@ describe('getOrInstallPython', () => {
         expect(pythonPath).toBe(PYTHON_PATH);
         expect(fsMock.rmSync).toHaveBeenCalledWith(UV_DIR, { recursive: true, force: true });
         expect(mockFetch).toHaveBeenCalledTimes(1);
-        expect(mockExecFileAsync).toHaveBeenCalledWith(UV_PATH, ['python', 'install', '3.13.2']);
-        expect(mockExecFileAsync).toHaveBeenCalledWith(UV_PATH, ['venv', '--python', '3.13.2', '--seed', VENV_DIR]);
+        expect(mockSpawn).toHaveBeenCalledWith(
+            UV_PATH,
+            ['python', 'install', '3.13.2'],
+            expect.objectContaining({ windowsHide: true })
+        );
+        expect(mockSpawn).toHaveBeenCalledWith(
+            UV_PATH,
+            ['venv', '--python', '3.13.2', '--seed', VENV_DIR],
+            expect.objectContaining({ windowsHide: true })
+        );
+        expect(mockSpawn).toHaveBeenCalledWith(
+            PYTHON_PATH,
+            ['-m', 'ensurepip', '--upgrade'],
+            expect.objectContaining({ windowsHide: true })
+        );
     });
 
     it('shares a single install operation across concurrent callers', async () => {
@@ -156,30 +244,44 @@ describe('getOrInstallPython', () => {
                 return { stdout: 'uv 0.9.22', stderr: '' };
             }
 
-            if (command === UV_PATH && args[0] === 'python' && args[1] === 'install') {
-                return { stdout: '', stderr: '' };
-            }
-
-            if (command === UV_PATH && args[0] === 'venv') {
-                return await new Promise((resolve) => {
-                    resolveVenvCreation = () => {
-                        existingPaths.add(VENV_DIR);
-                        existingPaths.add(path.dirname(PYTHON_PATH));
-                        existingPaths.add(PYTHON_PATH);
-                        resolve({ stdout: '', stderr: '' });
-                    };
-                });
-            }
-
             if (command === PYTHON_PATH && args[0] === '--version') {
                 return { stdout: 'Python 3.13.2', stderr: '' };
             }
 
-            if (command === PYTHON_PATH && args[0] === '-m' && args[1] === 'ensurepip') {
-                return { stdout: '', stderr: '' };
-            }
-
             throw new Error(`Unexpected execFileAsync call: ${command} ${args.join(' ')}`);
+        });
+
+        mockSpawn.mockImplementation((command: string, args: string[]) => {
+            const spawned = createSpawnProcess();
+
+            queueMicrotask(() => {
+                if (command === UV_PATH && args[0] === 'python' && args[1] === 'install') {
+                    spawned.emitStdout('installed python\n');
+                    spawned.close(0);
+                    return;
+                }
+
+                if (command === UV_PATH && args[0] === 'venv') {
+                    resolveVenvCreation = () => {
+                        existingPaths.add(VENV_DIR);
+                        existingPaths.add(path.dirname(PYTHON_PATH));
+                        existingPaths.add(PYTHON_PATH);
+                        spawned.emitStdout('created virtual environment\n');
+                        spawned.close(0);
+                    };
+                    return;
+                }
+
+                if (command === PYTHON_PATH && args[0] === '-m' && args[1] === 'ensurepip') {
+                    spawned.emitStdout('ensurepip complete\n');
+                    spawned.close(0);
+                    return;
+                }
+
+                spawned.fail(new Error(`Unexpected spawn call: ${command} ${args.join(' ')}`));
+            });
+
+            return spawned.processHandle;
         });
 
         const { getOrInstallPython } = await import('./python_downloader.js');
@@ -189,12 +291,11 @@ describe('getOrInstallPython', () => {
 
         await vi.waitFor(() => {
             expect(
-                mockExecFileAsync.mock.calls.filter(
+                mockSpawn.mock.calls.filter(
                     (call) => call[0] === UV_PATH && Array.isArray(call[1]) && call[1][0] === 'venv'
                 ).length
             ).toBe(1);
         });
-        expect(mockShowMessageBox).toHaveBeenCalledTimes(1);
 
         resolveVenvCreation?.();
 
@@ -203,36 +304,10 @@ describe('getOrInstallPython', () => {
     });
 
     it('retries venv creation after a transient Windows file-lock failure', async () => {
-        vi.useFakeTimers();
-
         let venvAttemptCount = 0;
         mockExecFileAsync.mockImplementation(async (command: string, args: string[]) => {
             if (command === UV_PATH && args[0] === '--version') {
                 return { stdout: 'uv 0.9.22', stderr: '' };
-            }
-
-            if (command === UV_PATH && args[0] === 'python' && args[1] === 'install') {
-                return { stdout: '', stderr: '' };
-            }
-
-            if (command === UV_PATH && args[0] === 'venv') {
-                venvAttemptCount += 1;
-                if (venvAttemptCount === 1) {
-                    existingPaths.add(VENV_DIR);
-                    existingPaths.add(path.dirname(PYTHON_PATH));
-                    existingPaths.add(PYTHON_PATH);
-                    throw Object.assign(
-                        new Error(
-                            `failed to copy file from venvlauncher.exe to ${PYTHON_PATH}: The process cannot access the file because it is being used by another process. (os error 32)`
-                        ),
-                        { code: 'EPERM' }
-                    );
-                }
-
-                existingPaths.add(VENV_DIR);
-                existingPaths.add(path.dirname(PYTHON_PATH));
-                existingPaths.add(PYTHON_PATH);
-                return { stdout: '', stderr: '' };
             }
 
             if (command === PYTHON_PATH && args[0] === '--version') {
@@ -252,13 +327,57 @@ describe('getOrInstallPython', () => {
             throw new Error(`Unexpected execFileAsync call: ${command} ${args.join(' ')}`);
         });
 
+        mockSpawn.mockImplementation((command: string, args: string[]) => {
+            const spawned = createSpawnProcess();
+
+            queueMicrotask(() => {
+                if (command === UV_PATH && args[0] === 'python' && args[1] === 'install') {
+                    spawned.emitStdout('installed python\n');
+                    spawned.close(0);
+                    return;
+                }
+
+                if (command === UV_PATH && args[0] === 'venv') {
+                    venvAttemptCount += 1;
+                    existingPaths.add(VENV_DIR);
+                    existingPaths.add(path.dirname(PYTHON_PATH));
+                    existingPaths.add(PYTHON_PATH);
+                    if (venvAttemptCount === 1) {
+                        const error = Object.assign(
+                            new Error(
+                                `failed to copy file from venvlauncher.exe to ${PYTHON_PATH}: The process cannot access the file because it is being used by another process. (os error 32)`
+                            ),
+                            { code: 'EPERM' }
+                        );
+                        spawned.emitStderr(error.message);
+                        spawned.fail(error);
+                        return;
+                    }
+                    spawned.emitStdout('created virtual environment\n');
+                    spawned.close(0);
+                    return;
+                }
+
+                if (command === PYTHON_PATH && args[0] === '-m' && args[1] === 'ensurepip') {
+                    spawned.emitStdout('ensurepip complete\n');
+                    spawned.close(0);
+                    return;
+                }
+
+                spawned.fail(new Error(`Unexpected spawn call: ${command} ${args.join(' ')}`));
+            });
+
+            return spawned.processHandle;
+        });
+
         const { getOrInstallPython } = await import('./python_downloader.js');
 
+        const startedAt = Date.now();
         const installPromise = getOrInstallPython();
-        await vi.runAllTimersAsync();
 
         await expect(installPromise).resolves.toBe(PYTHON_PATH);
         expect(venvAttemptCount).toBe(2);
+        expect(Date.now() - startedAt).toBeGreaterThanOrEqual(1400);
         expect(
             fsMock.rmSync.mock.calls.filter((call) => call[0] === VENV_DIR && call[1]?.recursive && call[1]?.force)
                 .length

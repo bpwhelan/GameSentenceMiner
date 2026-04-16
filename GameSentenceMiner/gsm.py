@@ -70,7 +70,9 @@ try:
     from GameSentenceMiner.util.communication.electron_ipc import (
         FunctionName,
         announce_connected,
+        get_install_session_id,
         register_command_handler,
+        send_install_progress,
         send_message,
         start_ipc_listener_in_thread,
     )
@@ -132,6 +134,30 @@ _instance_lock_handle = None
 
 def _is_running_under_electron() -> bool:
     return os.getenv("GSM_ELECTRON", "").strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _emit_install_stage(
+    stage_id: str,
+    status: str,
+    progress_kind: str = "indeterminate",
+    progress: Optional[float] = None,
+    message: str = "",
+    error: Optional[str] = None,
+) -> None:
+    if not _is_running_under_electron():
+        return
+    try:
+        send_install_progress(
+            stage_id=stage_id,
+            status=status,
+            progress_kind=progress_kind,
+            progress=progress,
+            message=message,
+            error=error,
+            session_id=get_install_session_id(),
+        )
+    except Exception:
+        pass
 
 
 def _acquire_single_instance_lock() -> bool:
@@ -767,15 +793,106 @@ class GSMApplication:
         if not reloading:
             get_temporary_directory(delete=True)
             if is_windows():
-                download_obs_if_needed()
+                _emit_install_stage(
+                    "obs",
+                    "running",
+                    "indeterminate",
+                    0.05,
+                    "Checking OBS runtime files...",
+                )
+                obs_result = download_obs_if_needed(stage_id="obs")
                 write_obs_configs(obs.get_base_obs_dir())
+                if obs_result == "skipped":
+                    _emit_install_stage(
+                        "obs",
+                        "skipped",
+                        "indeterminate",
+                        1,
+                        "OBS runtime already installed.",
+                    )
+                else:
+                    _emit_install_stage(
+                        "obs",
+                        "completed",
+                        "estimated",
+                        1,
+                        "OBS runtime is ready.",
+                    )
             if get_config().obs.open_obs:
                 self._launch_obs_early()
             if is_windows():
-                download_ffmpeg_if_needed()
-                download_oneocr_dlls_if_needed()
+                _emit_install_stage(
+                    "ffmpeg",
+                    "running",
+                    "indeterminate",
+                    0.05,
+                    "Checking FFmpeg runtime files...",
+                )
+                ffmpeg_result = download_ffmpeg_if_needed(stage_id="ffmpeg")
+                if ffmpeg_result == "skipped":
+                    _emit_install_stage(
+                        "ffmpeg",
+                        "skipped",
+                        "indeterminate",
+                        1,
+                        "FFmpeg runtime already installed.",
+                    )
+                else:
+                    _emit_install_stage(
+                        "ffmpeg",
+                        "completed",
+                        "estimated",
+                        1,
+                        "FFmpeg runtime is ready.",
+                    )
+                _emit_install_stage(
+                    "oneocr",
+                    "running",
+                    "indeterminate",
+                    0.05,
+                    "Checking OneOCR runtime files...",
+                )
+                oneocr_result = download_oneocr_dlls_if_needed(stage_id="oneocr")
+                if oneocr_result == "skipped":
+                    _emit_install_stage(
+                        "oneocr",
+                        "skipped",
+                        "indeterminate",
+                        1,
+                        "OneOCR runtime already installed.",
+                    )
+                else:
+                    _emit_install_stage(
+                        "oneocr",
+                        "completed",
+                        "estimated",
+                        1,
+                        "OneOCR runtime is ready.",
+                    )
                 if shutil.which("ffmpeg") is None:
                     os.environ["PATH"] += os.pathsep + os.path.dirname(get_ffmpeg_path())
+            else:
+                _emit_install_stage(
+                    "obs",
+                    "skipped",
+                    "indeterminate",
+                    1,
+                    "OBS dependency bootstrap is only managed automatically on Windows.",
+                )
+                _emit_install_stage(
+                    "ffmpeg",
+                    "skipped",
+                    "indeterminate",
+                    1,
+                    "FFmpeg bootstrap is handled separately on this platform.",
+                )
+                _emit_install_stage(
+                    "oneocr",
+                    "skipped",
+                    "indeterminate",
+                    1,
+                    "OneOCR bootstrap is only available on Windows.",
+                )
             if is_mac():
                 if shutil.which("ffmpeg") is None:
                     os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin"
@@ -807,6 +924,13 @@ class GSMApplication:
             _set_audio_callback(self._replay_extractor.get_audio)
 
         self.initial_checks()
+        _emit_install_stage(
+            "finalize",
+            "running",
+            "estimated",
+            0.5,
+            "Finalizing backend startup...",
+        )
         start_ipc_listener_in_thread()
         register_command_handler(self.handle_ipc_command)
         announce_connected()
@@ -1134,6 +1258,13 @@ class GSMApplication:
         elif Icon and _is_running_under_electron():
             logger.info("Skipping pystray tray icon because GSM is running under Electron.")
 
+        _emit_install_stage(
+            "finalize",
+            "completed",
+            "estimated",
+            1,
+            "Backend startup complete.",
+        )
         send_message(FunctionName.INITIALIZED.value, {"status": "ready"})
         self._start_thread(self._announce_startup_ready, "startup-ready-announcer")
         _get_qt_main_module().start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)

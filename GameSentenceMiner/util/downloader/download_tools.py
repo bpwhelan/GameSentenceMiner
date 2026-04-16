@@ -5,9 +5,12 @@ import requests
 import secrets
 import shutil
 import tempfile
+import time
 import zipfile
+from typing import Optional
 
 from GameSentenceMiner.obs import get_obs_path
+from GameSentenceMiner.util.communication.electron_ipc import send_install_progress
 from GameSentenceMiner.util.config.configuration import (
     get_app_directory,
     get_config,
@@ -19,9 +22,61 @@ from GameSentenceMiner.util.downloader.Untitled_json import scenes
 from GameSentenceMiner.util.downloader.oneocr_dl import Downloader
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
+DOWNLOAD_PROGRESS_MIN_INTERVAL_S = 0.25
+DOWNLOAD_PROGRESS_MIN_BYTES = 512 * 1024
+DOWNLOAD_PROGRESS_MIN_RATIO = 0.01
 
 
-def download_file(url, dest_path, chunk_size=8192):
+def report_install_progress(
+    stage_id: Optional[str],
+    status: str,
+    progress_kind: str = "indeterminate",
+    progress: Optional[float] = None,
+    message: str = "",
+    downloaded_bytes: Optional[int] = None,
+    total_bytes: Optional[int] = None,
+    error: Optional[str] = None,
+):
+    if not stage_id:
+        return
+    try:
+        send_install_progress(
+            stage_id=stage_id,
+            status=status,
+            progress_kind=progress_kind,
+            progress=progress,
+            message=message,
+            downloaded_bytes=downloaded_bytes,
+            total_bytes=total_bytes,
+            error=error,
+        )
+    except Exception:
+        pass
+
+
+def should_emit_download_progress(
+    downloaded_bytes: int,
+    total_bytes: Optional[int],
+    last_reported_bytes: int,
+    last_reported_at: float,
+) -> bool:
+    now = time.monotonic()
+    if downloaded_bytes <= 0:
+        return False
+    if total_bytes and downloaded_bytes >= total_bytes:
+        return True
+
+    bytes_delta = downloaded_bytes - last_reported_bytes
+    ratio_delta = (downloaded_bytes - last_reported_bytes) / total_bytes if total_bytes and total_bytes > 0 else 0
+    time_delta = now - last_reported_at
+    return (
+        bytes_delta >= DOWNLOAD_PROGRESS_MIN_BYTES
+        or ratio_delta >= DOWNLOAD_PROGRESS_MIN_RATIO
+        or time_delta >= DOWNLOAD_PROGRESS_MIN_INTERVAL_S
+    )
+
+
+def download_file(url, dest_path, chunk_size=8192, stage_id: Optional[str] = None, message: str = "Downloading"):
     """
     Downloads a file from a URL to a destination path using streaming.
     Returns True if successful, False otherwise.
@@ -30,15 +85,55 @@ def download_file(url, dest_path, chunk_size=8192):
         logger.info(f"Downloading from {url}...")
         with requests.get(url, stream=True, timeout=60) as r:
             r.raise_for_status()
+            total_size = r.headers.get("Content-Length", "unknown")
+            total_bytes = int(total_size) if str(total_size).isdigit() else None
+            last_reported_bytes = 0
+            last_reported_at = 0.0
             with open(dest_path, "wb") as f:
                 for chunk in r.iter_content(chunk_size=chunk_size):
                     if chunk:
                         f.write(chunk)
-                        logger.info(f"Downloading: {f.tell()} / {r.headers.get('Content-Length', 'unknown')} bytes...")
+                        downloaded_bytes = f.tell()
+                        if should_emit_download_progress(
+                            downloaded_bytes,
+                            total_bytes,
+                            last_reported_bytes,
+                            last_reported_at,
+                        ):
+                            report_install_progress(
+                                stage_id,
+                                status="running",
+                                progress_kind="bytes",
+                                progress=(downloaded_bytes / total_bytes) if total_bytes else None,
+                                message=message,
+                                downloaded_bytes=downloaded_bytes,
+                                total_bytes=total_bytes,
+                            )
+                            last_reported_bytes = downloaded_bytes
+                            last_reported_at = time.monotonic()
+            if os.path.exists(dest_path):
+                final_size = os.path.getsize(dest_path)
+                if final_size and final_size != last_reported_bytes:
+                    report_install_progress(
+                        stage_id,
+                        status="running",
+                        progress_kind="bytes",
+                        progress=(final_size / total_bytes) if total_bytes else None,
+                        message=message,
+                        downloaded_bytes=final_size,
+                        total_bytes=total_bytes,
+                    )
         logger.success(f"Download complete: {dest_path}")
         return True
     except Exception as e:
         logger.error(f"Failed to download file from {url}: {e}")
+        report_install_progress(
+            stage_id,
+            status="failed",
+            progress_kind="estimated",
+            message=f"{message} failed.",
+            error=str(e),
+        )
         if os.path.exists(dest_path):
             try:
                 os.remove(dest_path)
@@ -113,7 +208,7 @@ def copy_obs_settings(src, dest):
     return False
 
 
-def download_scene_switcher_plugin(obs_path):
+def download_scene_switcher_plugin(obs_path, stage_id: Optional[str] = None):
     """Download and install Advanced Scene Switcher plugin for OBS."""
     download_dir = os.path.join(get_app_directory(), "downloads")
     os.makedirs(download_dir, exist_ok=True)
@@ -122,7 +217,7 @@ def download_scene_switcher_plugin(obs_path):
     plugin_dll_path = os.path.join(obs_path, "obs-plugins", "64bit", "advanced-scene-switcher.dll")
     if os.path.exists(plugin_dll_path):
         logger.debug("Advanced Scene Switcher plugin already installed.")
-        return
+        return "skipped"
 
     logger.info("Downloading Advanced Scene Switcher plugin...")
     scene_switcher_url = "https://api.github.com/repos/WarmUpTill/SceneSwitcher/releases/latest"
@@ -139,29 +234,37 @@ def download_scene_switcher_plugin(obs_path):
 
         if plugin_url:
             scene_switcher_zip = os.path.join(download_dir, "advanced-scene-switcher.zip")
-            if download_file(plugin_url, scene_switcher_zip):
+            if download_file(
+                plugin_url,
+                scene_switcher_zip,
+                stage_id=stage_id,
+                message="Downloading OBS Scene Switcher plugin...",
+            ):
                 logger.info(f"Extracting Advanced Scene Switcher to {obs_path}...")
                 try:
                     with zipfile.ZipFile(scene_switcher_zip, "r") as zip_ref:
                         zip_ref.extractall(obs_path)
                     logger.success("Advanced Scene Switcher plugin installed successfully.")
+                    return "completed"
                 except Exception as e:
                     logger.error(f"Failed to extract Advanced Scene Switcher: {e}")
+                    raise RuntimeError(f"Failed to extract Advanced Scene Switcher: {e}") from e
                 finally:
                     if os.path.exists(scene_switcher_zip):
                         os.unlink(scene_switcher_zip)
         else:
-            logger.warning("Could not find Windows x64 version of Advanced Scene Switcher.")
+            raise RuntimeError("Could not find Windows x64 version of Advanced Scene Switcher.")
+    raise RuntimeError("Failed to install Advanced Scene Switcher plugin.")
 
 
-def download_obs_if_needed():
+def download_obs_if_needed(stage_id: Optional[str] = "obs"):
     obs_path = os.path.join(get_app_directory(), "obs-studio")
     obs_exe_path = get_obs_path()
     if os.path.exists(obs_path) and os.path.exists(obs_exe_path):
         logger.debug(f"OBS already installed at {obs_path}.")
         # Check and install plugin even if OBS is already installed
-        download_scene_switcher_plugin(obs_path)
-        return
+        plugin_status = download_scene_switcher_plugin(obs_path, stage_id=stage_id)
+        return "skipped" if plugin_status == "skipped" else "completed"
 
     if os.path.exists(obs_path) and not os.path.exists(obs_exe_path):
         logger.info("OBS directory exists but executable is missing. Re-downloading OBS...")
@@ -171,8 +274,7 @@ def download_obs_if_needed():
     latest_release = get_json_from_url(latest_release_url)
 
     if not latest_release:
-        logger.error("Failed to retrieve latest OBS release info.")
-        return
+        raise RuntimeError("Failed to retrieve latest OBS release info.")
 
     def get_windows_obs_url():
         machine = platform.machine().lower()
@@ -202,14 +304,13 @@ def download_obs_if_needed():
     }.get(platform.system(), lambda: None)()
 
     if obs_url is None:
-        logger.error("Unsupported OS or download URL not found. Please install OBS manually.")
-        return
+        raise RuntimeError("Unsupported OS or download URL not found. Please install OBS manually.")
 
     download_dir = os.path.join(get_app_directory(), "downloads")
     os.makedirs(download_dir, exist_ok=True)
     obs_installer = os.path.join(download_dir, "OBS.zip")
 
-    if download_file(obs_url, obs_installer):
+    if download_file(obs_url, obs_installer, stage_id=stage_id, message="Downloading OBS Studio..."):
         os.makedirs(obs_path, exist_ok=True)
 
         if platform.system() == "Windows":
@@ -222,14 +323,17 @@ def download_obs_if_needed():
                 logger.success(f"OBS extracted to {obs_path}.")
 
                 # Download and install Advanced Scene Switcher plugin
-                download_scene_switcher_plugin(obs_path)
+                download_scene_switcher_plugin(obs_path, stage_id=stage_id)
+                return "completed"
             except Exception as e:
                 logger.error(f"Failed to extract OBS: {e}")
+                raise RuntimeError(f"Failed to extract OBS: {e}") from e
             finally:
                 if os.path.exists(obs_installer):
                     os.unlink(obs_installer)
         else:
-            logger.error(f"Please install OBS manually from {obs_installer}")
+            raise RuntimeError(f"Please install OBS manually from {obs_installer}")
+    raise RuntimeError("Failed to download OBS Studio.")
 
 
 def write_websocket_configs(obs_path):
@@ -329,14 +433,14 @@ def write_obs_configs(obs_path):
     write_default_scene_configs(obs_path)
 
 
-def download_ffmpeg_if_needed():
+def download_ffmpeg_if_needed(stage_id: Optional[str] = "ffmpeg"):
     ffmpeg_dir = os.path.join(get_app_directory(), "ffmpeg")
     ffmpeg_exe_path = get_ffmpeg_path()
     ffprobe_exe_path = get_ffprobe_path()
 
     if os.path.exists(ffmpeg_dir) and os.path.exists(ffmpeg_exe_path) and os.path.exists(ffprobe_exe_path):
         logger.debug(f"FFmpeg already installed at {ffmpeg_dir}.")
-        return
+        return "skipped"
 
     if os.path.exists(ffmpeg_dir) and (not os.path.exists(ffmpeg_exe_path) or not os.path.exists(ffprobe_exe_path)):
         logger.info("FFmpeg directory exists but executables are missing. Re-downloading FFmpeg...")
@@ -361,14 +465,13 @@ def download_ffmpeg_if_needed():
     #     ffmpeg_url = "https://evermeet.cx/ffmpeg/ffmpeg.zip"
 
     if ffmpeg_url is None:
-        logger.error("Unsupported OS/architecture. Please install FFmpeg manually.")
-        return
+        raise RuntimeError("Unsupported OS/architecture. Please install FFmpeg manually.")
 
     download_dir = os.path.join(get_app_directory(), "downloads")
     os.makedirs(download_dir, exist_ok=True)
     ffmpeg_archive = os.path.join(download_dir, f"ffmpeg.{compressed_format}")
 
-    if download_file(ffmpeg_url, ffmpeg_archive):
+    if download_file(ffmpeg_url, ffmpeg_archive, stage_id=stage_id, message="Downloading FFmpeg..."):
         logger.info(f"FFmpeg downloaded. Extracting to {ffmpeg_dir}...")
 
         os.makedirs(ffmpeg_dir, exist_ok=True)
@@ -405,12 +508,15 @@ def download_ffmpeg_if_needed():
 
             flatten_directory(ffmpeg_dir)
             logger.success(f"FFmpeg extracted to {ffmpeg_dir}.")
+            return "completed"
         except Exception as e:
             logger.error(f"Failed to extract FFmpeg: {e}")
+            raise RuntimeError(f"Failed to extract FFmpeg: {e}") from e
         finally:
             if os.path.exists(ffmpeg_archive):
                 os.unlink(ffmpeg_archive)
                 logger.debug(f"Removed FFmpeg archive: {ffmpeg_archive}")
+    raise RuntimeError("Failed to download FFmpeg.")
 
 
 def download_ocenaudio_if_needed():
@@ -444,9 +550,9 @@ def download_ocenaudio_if_needed():
     return ocenaudio_exe_path
 
 
-def download_oneocr_dlls_if_needed():
+def download_oneocr_dlls_if_needed(stage_id: Optional[str] = "oneocr"):
     downloader = Downloader()
-    downloader.download_and_extract()
+    return downloader.download_and_extract(stage_id=stage_id)
 
 
 def main():

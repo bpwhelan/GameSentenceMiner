@@ -2000,3 +2000,495 @@ button[data-tip]:hover::after,
   }
 }
 
+/* ===== Install Session Modal ===== */
+
+.install-session-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 18px;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+}
+
+.install-session-modal {
+  width: min(680px, 100%);
+  max-height: min(90vh, 860px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+/* --- Header --- */
+
+.install-session-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px 0;
+}
+
+.install-session-title-block {
+  min-width: 0;
+}
+
+.install-session-header h2 {
+  margin: 0;
+  font-size: 22px;
+  color: #eee;
+}
+
+.install-session-header p {
+  margin: 6px 0 0;
+  color: #ccc;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.install-session-timing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+  color: #ccc;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.install-session-timing span:first-child {
+  color: #eee;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* --- Overall progress bar --- */
+
+.install-session-progress-wrap {
+  padding: 14px 24px 0;
+}
+
+.install-session-progress {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  background: #3a3a3a;
+  border-radius: 999px;
+}
+
+.install-session-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: #6a9955;
+  transition: width 220ms ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.install-session-progress.is-running .install-session-progress-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.2) 40%,
+    transparent 70%
+  );
+  transform: translateX(-130%);
+  animation: install-session-shimmer 1.6s linear infinite;
+}
+
+/* --- Body --- */
+
+.install-session-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px 24px;
+}
+
+/* --- Current stage highlight --- */
+
+.install-session-current {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+}
+
+.install-session-current.is-running {
+  border-color: #5f88cc;
+}
+
+.install-session-current-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.install-session-current-copy {
+  min-width: 0;
+}
+
+.install-session-current-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.install-session-current-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #eee;
+}
+
+.install-session-current-detail {
+  margin-top: 3px;
+  color: #aaa;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.install-session-current-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.install-session-current-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #3a3a3a;
+  color: #ccc;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.install-session-current-chip.strong {
+  background: rgba(95, 136, 204, 0.2);
+  color: #9bc2ff;
+}
+
+.install-session-current-hint {
+  color: #888;
+  font-size: 12px;
+}
+
+/* --- Stage progress (inline) --- */
+
+.install-session-stage-progress {
+  width: 100%;
+  height: 5px;
+  overflow: hidden;
+  background: #3a3a3a;
+  border-radius: 999px;
+}
+
+.install-session-stage-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: #6a9955;
+  transition: width 220ms ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.install-session-stage-progress.is-running .install-session-stage-progress-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.2) 40%,
+    transparent 70%
+  );
+  transform: translateX(-130%);
+  animation: install-session-shimmer 1.6s linear infinite;
+}
+
+.install-session-stage-progress-fill.is-indeterminate {
+  min-width: 34%;
+}
+
+/* --- Activity dots --- */
+
+.install-session-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.install-session-activity span {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #6a9955;
+  opacity: 0.3;
+  animation: install-session-pulse 1.1s ease-in-out infinite;
+}
+
+.install-session-activity span:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.install-session-activity span:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+/* --- Stage list --- */
+
+.install-session-stage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+}
+
+.install-session-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #2c2c2c;
+  border: 1px solid #3a3a3a;
+}
+
+.install-session-stage-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 13px;
+  color: #ddd;
+}
+
+.install-session-stage-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #888;
+}
+
+.install-session-stage-detail {
+  color: #888;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.install-session-stage-completed {
+  border-color: #4a7a3a;
+}
+
+.install-session-stage-completed .install-session-stage-status {
+  color: #6a9955;
+}
+
+.install-session-stage-skipped {
+  opacity: 0.6;
+}
+
+.install-session-stage-running {
+  border-color: #5f88cc;
+}
+
+.install-session-stage-running .install-session-stage-status {
+  color: #8fb8ff;
+}
+
+.install-session-stage-failed {
+  border-color: #b23028;
+}
+
+.install-session-stage-failed .install-session-stage-status {
+  color: #f44336;
+}
+
+/* --- Logs panel --- */
+
+.install-session-logs-panel {
+  border-radius: 8px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  flex-shrink: 0;
+}
+
+.install-session-logs-panel.expanded {
+  flex: 1 1 0;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.install-session-logs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ccc;
+  cursor: pointer;
+  text-align: left;
+}
+
+.install-session-logs-header:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.install-session-logs-header-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #888;
+}
+
+.install-session-logs-chevron {
+  display: inline-block;
+  transition: transform 180ms ease;
+}
+
+.install-session-logs-chevron.expanded {
+  transform: rotate(180deg);
+}
+
+.install-session-log-list {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 12px 10px;
+  font-family: "Noto Sans Mono", "Courier New", monospace;
+  font-size: 12px;
+}
+
+.install-session-log-entry {
+  color: #aaa;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.45;
+  padding: 1px 0;
+}
+
+/* --- Footer (error state) --- */
+
+.install-session-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 0 24px 18px;
+}
+
+.install-session-footer button {
+  padding: 8px 18px;
+  border-radius: 6px;
+  border: 1px solid #555;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.install-session-footer .install-btn-retry {
+  background: #4a7a3a;
+  color: #fff;
+  border-color: #5a8a4a;
+}
+
+.install-session-footer .install-btn-retry:hover {
+  background: #5a8a4a;
+}
+
+.install-session-footer .install-btn-logs {
+  background: #333;
+  color: #ccc;
+}
+
+.install-session-footer .install-btn-logs:hover {
+  background: #444;
+}
+
+.install-session-footer .install-btn-quit {
+  background: #7f332f;
+  color: #fff2f0;
+  border-color: #bf625c;
+}
+
+.install-session-footer .install-btn-quit:hover {
+  background: #96403b;
+  border-color: #dc7b74;
+}
+
+@keyframes install-session-shimmer {
+  from {
+    transform: translateX(-130%);
+  }
+
+  to {
+    transform: translateX(130%);
+  }
+}
+
+@keyframes install-session-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
+}
+
+@media (max-width: 700px) {
+  .install-session-modal {
+    max-height: 94vh;
+  }
+
+  .install-session-header {
+    flex-direction: column;
+  }
+
+  .install-session-timing {
+    align-items: flex-start;
+  }
+
+  .install-session-current-top {
+    flex-direction: column;
+  }
+
+  .install-session-current-meta {
+    justify-content: flex-start;
+  }
+}

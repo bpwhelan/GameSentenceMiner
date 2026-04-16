@@ -4,8 +4,10 @@ import { Terminal } from "@xterm/xterm";
 import { LauncherTab } from "./components/tabs/LauncherTab";
 import { SettingsTab } from "./components/tabs/SettingsTab";
 import { SetupWizard } from "./components/SetupWizard";
+import { InstallSessionModal } from "./components/InstallSessionModal";
 import type { ControlledTab } from "./types/models";
 import { OCRTab } from "./components/tabs/OCRTab";
+import type { InstallSessionSnapshot } from "../../shared/install_session";
 
 type TabId =
   | "obs"
@@ -834,6 +836,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("obs");
   const [showWizard, setShowWizard] = useState(false);
   const [wizardChecked, setWizardChecked] = useState(false);
+  const [installSession, setInstallSession] = useState<InstallSessionSnapshot | null>(null);
   const [visibleControlledTabs, setVisibleControlledTabs] = useState<
     Record<ControlledTab, boolean>
   >({
@@ -924,6 +927,55 @@ export default function App() {
     );
 
     return () => offNavigateToTab();
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+
+    void window.ipcRenderer
+      .invoke<InstallSessionSnapshot | null>("install-session.getActive")
+      .then((snapshot) => {
+        if (!disposed) {
+          setInstallSession(snapshot);
+        }
+      });
+
+    const offSnapshot = window.ipcRenderer.on(
+      "install-session.snapshot",
+      (_event, payload) => {
+        setInstallSession(payload as InstallSessionSnapshot);
+      }
+    );
+
+    const offFinished = window.ipcRenderer.on(
+      "install-session.finished",
+      (_event, payload) => {
+        const snapshot = payload as InstallSessionSnapshot;
+        if (snapshot?.status === "failed") {
+          setInstallSession(snapshot);
+          return;
+        }
+        setInstallSession(null);
+      }
+    );
+
+    return () => {
+      disposed = true;
+      offSnapshot();
+      offFinished();
+    };
+  }, []);
+
+  const retryInstallSession = useCallback(async () => {
+    await window.ipcRenderer.invoke("install-session.retry");
+  }, []);
+
+  const openInstallLogs = useCallback(async () => {
+    await window.ipcRenderer.invoke("logs.openFolder");
+  }, []);
+
+  const quitInstallFlow = useCallback(() => {
+    window.ipcRenderer.send("app-close");
   }, []);
 
   useEffect(() => {
@@ -1021,6 +1073,14 @@ export default function App() {
           onRequestConsole={switchToConsole}
         />
       </main>
+      {installSession ? (
+        <InstallSessionModal
+          snapshot={installSession}
+          onRetry={() => void retryInstallSession()}
+          onOpenLogs={() => void openInstallLogs()}
+          onQuit={quitInstallFlow}
+        />
+      ) : null}
     </div>
   );
 }

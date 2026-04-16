@@ -5,10 +5,17 @@ import requests
 import shutil
 import subprocess
 import tempfile
+import time
 import zipfile
 from os.path import expanduser
 
+from GameSentenceMiner.util.communication.electron_ipc import send_install_progress
 from GameSentenceMiner.util.config.configuration import logger
+
+
+DOWNLOAD_PROGRESS_MIN_INTERVAL_S = 0.25
+DOWNLOAD_PROGRESS_MIN_BYTES = 512 * 1024
+DOWNLOAD_PROGRESS_MIN_RATIO = 0.01
 
 
 # Placeholder functions/constants for removed proprietary ones
@@ -59,6 +66,55 @@ def dynamiclink(path):
     return path  # Assuming path is a URL here based on usage
 
 
+def report_install_progress(
+    stage_id,
+    status,
+    progress_kind="indeterminate",
+    progress=None,
+    message="",
+    downloaded_bytes=None,
+    total_bytes=None,
+    error=None,
+):
+    if not stage_id:
+        return
+    try:
+        send_install_progress(
+            stage_id=stage_id,
+            status=status,
+            progress_kind=progress_kind,
+            progress=progress,
+            message=message,
+            downloaded_bytes=downloaded_bytes,
+            total_bytes=total_bytes,
+            error=error,
+        )
+    except Exception:
+        pass
+
+
+def should_emit_download_progress(
+    downloaded_bytes,
+    total_bytes,
+    last_reported_bytes,
+    last_reported_at,
+):
+    now = time.monotonic()
+    if downloaded_bytes <= 0:
+        return False
+    if total_bytes and downloaded_bytes >= total_bytes:
+        return True
+
+    bytes_delta = downloaded_bytes - last_reported_bytes
+    ratio_delta = (downloaded_bytes - last_reported_bytes) / total_bytes if total_bytes and total_bytes > 0 else 0
+    time_delta = now - last_reported_at
+    return (
+        bytes_delta >= DOWNLOAD_PROGRESS_MIN_BYTES
+        or ratio_delta >= DOWNLOAD_PROGRESS_MIN_RATIO
+        or time_delta >= DOWNLOAD_PROGRESS_MIN_INTERVAL_S
+    )
+
+
 # Simplified download logic extracted from the question class
 class Downloader:
     def __init__(self):
@@ -66,36 +122,36 @@ class Downloader:
         self.packageFamilyName = "Microsoft.ScreenSketch_8wekyb3d8bbwe"
         self.flist = ["oneocr.dll", "oneocr.onemodel", "onnxruntime.dll"]
 
-    def download_and_extract(self):
+    def download_and_extract(self, stage_id=None):
         """
         Main function to attempt download and extraction.
         Tries official source first, then a fallback URL.
         """
         if checkdir(self.oneocr_dir):
-            return True
-        if self._copy_files_if_needed():
-            return True
+            return "skipped"
+        if self._copy_files_if_needed(stage_id=stage_id):
+            return "completed"
 
         try:
             logger.info("Attempting to download OneOCR files from official source...")
             # raise Exception("")
-            self.downloadofficial()
+            self.downloadofficial(stage_id=stage_id)
             logger.success("Download and extraction from official source successful.")
-            return True
+            return "completed"
         except Exception as e:
             logger.info(f"Download from official source failed: {stringfyerror(e)}")
             logger.info("Attempting to download from fallback URL...")
             try:
                 fallback_url = "https://gsm.beangate.us/oneocr.zip"
-                self.downloadx(fallback_url)
+                self.downloadx(fallback_url, stage_id=stage_id)
                 logger.success("Download and extraction from fallback URL successful.")
-                return True
+                return "completed"
             except Exception as e_fallback:
                 logger.info(f"Download from fallback URL failed: {stringfyerror(e_fallback)}")
                 logger.info("All download attempts failed.")
-                return False
+                raise RuntimeError(f"All OneOCR download attempts failed: {stringfyerror(e_fallback)}") from e_fallback
 
-    def _copy_files_if_needed(self):
+    def _copy_files_if_needed(self, stage_id=None):
         target_path = os.path.join(os.path.expanduser("~"), ".config", "oneocr")
         files_to_copy = ["oneocr.dll", "oneocr.onemodel", "onnxruntime.dll"]
         copy_needed = False
@@ -106,6 +162,13 @@ class Downloader:
                 copy_needed = True
 
         if not copy_needed:
+            report_install_progress(
+                stage_id,
+                status="skipped",
+                progress_kind="indeterminate",
+                progress=1,
+                message="OneOCR runtime already installed.",
+            )
             return True
 
         if int(platform.release()) < 11:
@@ -149,9 +212,16 @@ class Downloader:
             else:
                 logger.info(f"File not found {file_source_path}, OneOCR will not work!")
                 return False
+        report_install_progress(
+            stage_id,
+            status="completed",
+            progress_kind="estimated",
+            progress=1,
+            message="Copied OneOCR runtime from the system Snipping Tool install.",
+        )
         return True
 
-    def downloadofficial(self):
+    def downloadofficial(self, stage_id=None):
         """Downloads the latest SnippingTool MSIX bundle from a store API."""
         headers = {
             "accept": "*/*",
@@ -207,17 +277,32 @@ class Downloader:
         total_size_in_bytes = int(req.headers.get("content-length", 0))
         block_size = 1024 * 32  # 32 Kibibytes
         temp_msixbundle_path = os.path.join(tempfile.gettempdir(), package_name)
+        last_reported_bytes = 0
+        last_reported_at = 0.0
 
         with open(temp_msixbundle_path, "wb") as ff:
             downloaded_size = 0
             for chunk in req.iter_content(chunk_size=block_size):
                 ff.write(chunk)
                 downloaded_size += len(chunk)
-                # Basic progress reporting (can be removed)
-                if total_size_in_bytes:
-                    progress = (downloaded_size / total_size_in_bytes) * 100
-                    logger.info(f"OneOCR Download: {downloaded_size}/{total_size_in_bytes} bytes ({progress:.2f}%)")
-        logger.info("\nDownload complete. Extracting...")
+                if should_emit_download_progress(
+                    downloaded_size,
+                    total_size_in_bytes,
+                    last_reported_bytes,
+                    last_reported_at,
+                ):
+                    report_install_progress(
+                        stage_id,
+                        status="running",
+                        progress_kind="bytes",
+                        progress=(downloaded_size / total_size_in_bytes),
+                        message="Downloading OneOCR from the official source...",
+                        downloaded_bytes=downloaded_size,
+                        total_bytes=total_size_in_bytes,
+                    )
+                    last_reported_bytes = downloaded_size
+                    last_reported_at = time.monotonic()
+        logger.info("Download complete. Extracting...")
 
         namemsix = None
         with zipfile.ZipFile(temp_msixbundle_path) as ff:
@@ -258,7 +343,7 @@ class Downloader:
         os.remove(temp_msixbundle_path)
         os.remove(temp_msix_path)
 
-    def downloadx(self, url: str):
+    def downloadx(self, url: str, stage_id=None):
         """Downloads a zip file from a URL and extracts it."""
         logger.info("Downloading OneOCR from fallback URL")
 
@@ -268,9 +353,30 @@ class Downloader:
         temp_zip_path = os.path.join(tempfile.gettempdir(), os.path.basename(url))
 
         with open(temp_zip_path, "wb") as f:
+            last_reported_bytes = 0
+            last_reported_at = 0.0
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
-                logger.info(f"Downloading: {f.tell()} / {response.headers.get('Content-Length', 'unknown')} bytes...")
+                downloaded_bytes = f.tell()
+                total_bytes = response.headers.get("Content-Length")
+                parsed_total = int(total_bytes) if str(total_bytes).isdigit() else None
+                if should_emit_download_progress(
+                    downloaded_bytes,
+                    parsed_total,
+                    last_reported_bytes,
+                    last_reported_at,
+                ):
+                    report_install_progress(
+                        stage_id,
+                        status="running",
+                        progress_kind="bytes",
+                        progress=(downloaded_bytes / parsed_total) if parsed_total else None,
+                        message="Downloading OneOCR fallback bundle...",
+                        downloaded_bytes=downloaded_bytes,
+                        total_bytes=parsed_total,
+                    )
+                    last_reported_bytes = downloaded_bytes
+                    last_reported_at = time.monotonic()
 
         logger.info("Download complete. Extracting...")
 
