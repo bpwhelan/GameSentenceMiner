@@ -47,6 +47,7 @@ _GOOGLE_VISION_DEPS = _UNINITIALIZED
 _AZURE_VISION_DEPS = _UNINITIALIZED
 _EASYOCR_MODULE = _UNINITIALIZED
 _RAPIDOCR_DEPS = _UNINITIALIZED
+_PADDLEOCR_DEPS = _UNINITIALIZED
 _WINOCR_MODULE = _UNINITIALIZED
 _ONEOCR_MODULE = _UNINITIALIZED
 _LENS_PROTO_DEPS = _UNINITIALIZED
@@ -203,6 +204,19 @@ def _load_rapidocr_dependencies():
         except ImportError:
             _RAPIDOCR_DEPS = None
     return _RAPIDOCR_DEPS
+
+
+def _load_paddleocr_dependencies():
+    global _PADDLEOCR_DEPS
+    if _PADDLEOCR_DEPS is _UNINITIALIZED:
+        try:
+            paddleocr_module = importlib.import_module("paddleocr")
+            _PADDLEOCR_DEPS = {
+                "TextDetection": paddleocr_module.TextDetection,
+            }
+        except Exception:
+            _PADDLEOCR_DEPS = None
+    return _PADDLEOCR_DEPS
 
 
 def _load_winocr_module():
@@ -5206,6 +5220,75 @@ def _build_text_detection_result(
     )
 
 
+def _normalize_paddle_text_detection_payload(payload):
+    if callable(payload):
+        try:
+            payload = payload()
+        except Exception:
+            return None
+
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    nested_payload = payload.get("res")
+    if isinstance(nested_payload, dict):
+        return nested_payload
+    return payload
+
+
+def _extract_paddle_text_detection_payload(prediction):
+    if prediction is None:
+        return {}
+
+    candidates = [
+        prediction,
+        getattr(prediction, "json", None),
+        getattr(prediction, "res", None),
+    ]
+    for candidate in candidates:
+        normalized = _normalize_paddle_text_detection_payload(candidate)
+        if isinstance(normalized, dict):
+            return normalized
+    return {}
+
+
+def _polygon_to_axis_aligned_box(polygon):
+    if isinstance(polygon, np.ndarray):
+        polygon = polygon.tolist()
+
+    if not isinstance(polygon, (list, tuple)):
+        return None
+
+    xs = []
+    ys = []
+    for point in polygon:
+        if isinstance(point, np.ndarray):
+            point = point.tolist()
+        if not isinstance(point, (list, tuple)) or len(point) < 2:
+            continue
+        try:
+            x = float(point[0])
+            y = float(point[1])
+        except (TypeError, ValueError):
+            continue
+        xs.append(x)
+        ys.append(y)
+
+    if len(xs) < 2 or len(ys) < 2:
+        return None
+
+    x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return [x1, y1, x2, y2]
+
+
 class BaseTextDetector:
     crop_padding = 5
     default_confidence_threshold = 0.4
@@ -5307,6 +5390,196 @@ class MeikiTextDetector(BaseTextDetector):
         except Exception as e:
             logger.error(f"MeikiTextDetector error: {e}")
             result = (False, f"MeikiTextDetector error: {e}")
+        finally:
+            if is_path:
+                img_pil.close()
+
+        return result
+
+
+class PaddleOCRTextDetector(BaseTextDetector):
+    """Text detector backed by PaddleOCR's official ``TextDetection`` module."""
+
+    name = "paddleocr_text_detector"
+    readable_name = "PaddleOCR Text Detector"
+    key = "/"
+    config_entry = "paddleocr_text_detector"
+    local = True
+    manual_language = False
+    coordinate_support = True
+    threading_support = True
+    capabilities = EngineCapabilities(
+        words=False,
+        word_bounding_boxes=False,
+        lines=False,
+        line_bounding_boxes=False,
+        paragraphs=False,
+        paragraph_bounding_boxes=False,
+    )
+    default_model_name = "PP-OCRv5_mobile_det"
+
+    def __init__(self, config=None, lang="ja", model_name: str = None):
+        config = config or {}
+        self.default_confidence_threshold = float(config.get("confidence_threshold", config.get("box_thresh", 0.5)))
+        self.crop_padding = int(config.get("crop_padding", 5))
+        self.batch_size = max(1, int(config.get("batch_size", 1)))
+        self.model_name = str(config.get("model_name", model_name or self.default_model_name))
+        self.model_dir = self._coerce_optional_string(config.get("model_dir"))
+        self.limit_side_len = self._coerce_optional_int(config.get("limit_side_len"))
+        self.limit_type = self._coerce_optional_string(config.get("limit_type"))
+        self.thresh = self._coerce_optional_float(config.get("thresh"))
+        self.unclip_ratio = self._coerce_optional_float(config.get("unclip_ratio"))
+        self.input_shape = self._coerce_input_shape(config.get("input_shape"))
+        self.model = None
+        self.available = False
+
+        deps = _load_paddleocr_dependencies()
+        if deps is None:
+            logger.warning("paddleocr not available, PaddleOCRTextDetector will not work!")
+            return
+
+        init_kwargs = {"model_name": self.model_name}
+        if self.model_dir:
+            init_kwargs["model_dir"] = self.model_dir
+        if self.limit_side_len is not None:
+            init_kwargs["limit_side_len"] = self.limit_side_len
+        if self.limit_type is not None:
+            init_kwargs["limit_type"] = self.limit_type
+        if self.thresh is not None:
+            init_kwargs["thresh"] = self.thresh
+        if self.default_confidence_threshold is not None:
+            init_kwargs["box_thresh"] = self.default_confidence_threshold
+        if self.unclip_ratio is not None:
+            init_kwargs["unclip_ratio"] = self.unclip_ratio
+        if self.input_shape is not None:
+            init_kwargs["input_shape"] = self.input_shape
+
+        for key in (
+            "device",
+            "enable_hpi",
+            "use_tensorrt",
+            "precision",
+            "enable_mkldnn",
+            "mkldnn_cache_capacity",
+            "cpu_threads",
+        ):
+            value = config.get(key)
+            if value is not None:
+                init_kwargs[key] = value
+
+        try:
+            self.model = deps["TextDetection"](**init_kwargs)
+            self.available = True
+            logger.info(f"PaddleOCRTextDetector ready with model {self.model_name}")
+        except Exception as e:
+            logger.warning(f"Error initializing PaddleOCRTextDetector: {e}")
+
+    @staticmethod
+    def _coerce_optional_float(value):
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _coerce_optional_int(value):
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _coerce_optional_string(value):
+        if value is None:
+            return None
+        value = str(value).strip()
+        return value or None
+
+    @staticmethod
+    def _coerce_input_shape(value):
+        if not isinstance(value, (list, tuple)) or len(value) != 3:
+            return None
+        try:
+            return tuple(int(part) for part in value)
+        except (TypeError, ValueError):
+            return None
+
+    def _build_predict_kwargs(self, threshold: float):
+        predict_kwargs = {
+            "batch_size": self.batch_size,
+            "box_thresh": threshold,
+        }
+        if self.limit_side_len is not None:
+            predict_kwargs["limit_side_len"] = self.limit_side_len
+        if self.limit_type is not None:
+            predict_kwargs["limit_type"] = self.limit_type
+        if self.thresh is not None:
+            predict_kwargs["thresh"] = self.thresh
+        if self.unclip_ratio is not None:
+            predict_kwargs["unclip_ratio"] = self.unclip_ratio
+        return predict_kwargs
+
+    def _payload_to_detections(self, payload):
+        if not isinstance(payload, dict):
+            return []
+
+        polygons = payload.get("dt_polys")
+        scores = payload.get("dt_scores")
+
+        if isinstance(polygons, np.ndarray):
+            polygons = polygons.tolist()
+        if not isinstance(polygons, (list, tuple)):
+            return []
+
+        if isinstance(scores, np.ndarray):
+            scores = scores.tolist()
+        if not isinstance(scores, (list, tuple)):
+            scores = []
+
+        detections = []
+        for idx, polygon in enumerate(polygons):
+            box = _polygon_to_axis_aligned_box(polygon)
+            if box is None:
+                continue
+            try:
+                score = float(scores[idx]) if idx < len(scores) else 1.0
+            except (TypeError, ValueError):
+                score = 1.0
+            detections.append({"box": box, "score": score})
+        return detections
+
+    def __call__(
+        self,
+        img,
+        furigana_filter_sensitivity=0,
+        confidence_threshold: float = None,
+        **kwargs,
+    ):
+        if not self.available or self.model is None:
+            return (
+                False,
+                "PaddleOCRTextDetector is not available due to an initialization error.",
+            )
+
+        threshold = self._resolve_confidence_threshold(confidence_threshold)
+        img_pil, is_path = input_to_pil_image(img)
+        if not img_pil:
+            return (False, "Invalid image provided")
+
+        input_image = np.array(img_pil.convert("RGB"))
+        try:
+            predictions = self.model.predict(input_image, **self._build_predict_kwargs(threshold))
+            prediction = predictions[0] if isinstance(predictions, list) and predictions else predictions
+            payload = _extract_paddle_text_detection_payload(prediction)
+            detections = self._payload_to_detections(payload)
+            result = self._as_detection_result(detections, input_image.shape[1], input_image.shape[0])
+        except Exception as e:
+            logger.error(f"PaddleOCRTextDetector error: {e}")
+            result = (False, f"PaddleOCRTextDetector error: {e}")
         finally:
             if is_path:
                 img_pil.close()

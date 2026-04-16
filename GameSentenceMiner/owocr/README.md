@@ -33,6 +33,7 @@ Additionally:
 - [Manga OCR](https://github.com/kha-white/manga-ocr): install with `pip install owocr[mangaocr]` ("m" key)
 - [EasyOCR](https://github.com/JaidedAI/EasyOCR): install with `pip install owocr[easyocr]` ("e" key)
 - [RapidOCR](https://github.com/RapidAI/RapidOCR): install with `pip install owocr[rapidocr]` ("r" key)
+- [PaddleOCR Text Detection](https://github.com/PaddlePaddle/PaddleOCR): install with `pip install owocr[paddleocr]` (`paddleocr_text_detector`, "/" key)
 - Apple Vision framework: this will work on macOS Ventura or later. In my experience, the best of the local providers for horizontal text ("a" key)
 - Apple Live Text (VisionKit framework): this will work on macOS Ventura or later. It should be the same as Vision except that in Sonoma Apple added vertical text reading ("d" key)
 - WinRT OCR: install with `pip install owocr[winocr]` on Windows 10 and later. It can also be used by installing winocr on a Windows virtual machine and running the server there (`winocr_serve`) and specifying the IP address of the Windows VM/machine in the config file ("w" key)

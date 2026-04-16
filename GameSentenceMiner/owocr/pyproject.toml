@@ -54,6 +54,10 @@ rapidocr = [
     "rapidocr_onnxruntime"
 ]
 
+paddleocr = [
+    "paddleocr"
+]
+
 mangaocr = [
     "manga-ocr"
 ]

@@ -19,7 +19,7 @@ class OCRConfig:
     def create_default_config(self):
         self.raw_config = {
             "general": [
-                ";engines = avision,alivetext,bing,glens,glensweb,gvision,azure,mangaocr,winrtocr,oneocr,screenai,mlkitocr,easyocr,rapidocr,ocrspace",
+                ";engines = avision,alivetext,bing,glens,glensweb,gvision,azure,mangaocr,winrtocr,oneocr,screenai,mlkitocr,easyocr,rapidocr,paddleocr_text_detector,ocrspace",
                 ";engine = glens",
                 "read_from = screencapture",
                 "write_to = websocket",
@@ -70,6 +70,7 @@ class OCRConfig:
                 "force_cpu = False",
             ],
             "easyocr": ["gpu = True"],
+            "paddleocr_text_detector": [";model_name = PP-OCRv5_mobile_det"],
             "ocrspace": [";api_key = api_key_here"],
         }
         self.config.read_dict(self._parse_config_to_dict())
