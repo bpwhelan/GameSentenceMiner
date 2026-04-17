@@ -480,7 +480,7 @@ def prefetch_ai_translation(sentence_to_translate: str, game_line: "GameLine") -
                 )
             )
 
-            logger.error(f"[PREFETCH] DeepL returned: {response.text[:50]}")
+            logger.error(f"[PREFETCH] DeepL returned: {response.text}")
 
             game_line.translation = response.text
             return response.text
