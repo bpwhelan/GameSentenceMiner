@@ -195,6 +195,23 @@ background: rgba(202, 12, 12, 0.692);
 
   }
 
+  #main-recycled-indicator {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translate(calc(-100% - 10px), -50%);
+    pointer-events: none;
+    z-index: 1001;
+    color: #FFA500;
+    font-size: 32px;
+    font-weight: bold;
+    line-height: 1;
+    text-shadow: 0 0 4px rgba(0, 0, 0, 0.8), 0 0 8px rgba(255, 165, 0, 0.6);
+    opacity: 0.85;
+    user-select: none;
+    display: none;
+  }
+
   .faded {
     background: rgba(0, 0, 0, 0);
   }
@@ -681,6 +698,7 @@ background: rgba(202, 12, 12, 0.692);
       <button class="control-btn" id="btn-close">✖</button>
     </div>
     <div id="text" class="interactive">Hide this box with Alt+Shift+H</div>
+    <div id="main-recycled-indicator" aria-hidden="true">&#x21BB;</div>
     <div draggable="false" id="resize-handle" class="interactive half-interactive"></div>
   </div>
   <!-- <div id="text-box-container" class="text-box-container interactive"></div> -->
@@ -1164,11 +1182,13 @@ background: rgba(202, 12, 12, 0.692);
     const newHeight = startHeight + (e.clientY - startY);
     textElement.style.width = newWidth + "px";
     textElement.style.height = newHeight + "px";
+    updateImmediateRecycledIndicator();
   }
 
   function stopResize() {
     isResizing = false;
     document.removeEventListener("mousemove", resize);
+    updateImmediateRecycledIndicator();
   }
 
 
@@ -1230,6 +1250,7 @@ background: rgba(202, 12, 12, 0.692);
   const dragBar = document.getElementById("draggable");
   const textEl = document.getElementById("text");
   const mainBox = document.getElementById("main-box");
+  const mainRecycledIndicator = document.getElementById("main-recycled-indicator");
   const furiganaLayer = document.getElementById("furigana-layer");
 
   const DEFAULT_FURIGANA_STYLE = Object.freeze({
@@ -1275,11 +1296,13 @@ background: rgba(202, 12, 12, 0.692);
   let fadeTextIndicators = false;
   let showFurigana = false;
   let showRecycledIndicator = true;
+  let immediateSentenceRecycled = false;
   let overlayRenderGeneration = 0;
   const FURIGANA_LINE_CACHE_TTL_MS = 2500;
   const MAX_FURIGANA_LINE_CACHE_ENTRIES = 200;
   let lastFuriganaRenderSignature = null;
   const furiganaLineCache = new Map();
+  const pendingSentenceRecycledStates = new Map();
   let display = null;
   let width = 2560;
   let height = 1440;
@@ -1287,6 +1310,65 @@ background: rgba(202, 12, 12, 0.692);
   let workAreaWidth = 2560;
   let workAreaHeight = 1392;
   let workAreaAdjustment = (workAreaHeight / height - 1) * -1;
+
+  function setPendingSentenceRecycledState(lineId, isSentenceRecycled) {
+    if (!lineId) {
+      return;
+    }
+
+    pendingSentenceRecycledStates.set(String(lineId), !!isSentenceRecycled);
+    while (pendingSentenceRecycledStates.size > 64) {
+      const oldestKey = pendingSentenceRecycledStates.keys().next().value;
+      if (!oldestKey) {
+        break;
+      }
+      pendingSentenceRecycledStates.delete(oldestKey);
+    }
+  }
+
+  function resolvePendingSentenceRecycledState(lineId, fallbackState) {
+    if (!lineId) {
+      return !!fallbackState;
+    }
+
+    const normalizedLineId = String(lineId);
+    if (!pendingSentenceRecycledStates.has(normalizedLineId)) {
+      return !!fallbackState;
+    }
+
+    const resolvedState = pendingSentenceRecycledStates.get(normalizedLineId);
+    pendingSentenceRecycledStates.delete(normalizedLineId);
+    return !!resolvedState;
+  }
+
+  function updateImmediateRecycledIndicator() {
+    if (!mainRecycledIndicator) {
+      return;
+    }
+
+    if (
+      !showRecycledIndicator ||
+      !immediateSentenceRecycled ||
+      !mainBox ||
+      mainBox.style.display === "none" ||
+      mainBox.style.visibility === "hidden"
+    ) {
+      mainRecycledIndicator.style.display = "none";
+      return;
+    }
+
+    const mainBoxRect = mainBox.getBoundingClientRect();
+    const textRect = textEl.getBoundingClientRect();
+    mainRecycledIndicator.style.top = `${(textRect.top - mainBoxRect.top) + (textRect.height / 2)}px`;
+    mainRecycledIndicator.style.display = "block";
+  }
+
+  function setImmediateSentenceRecycled(isSentenceRecycled) {
+    immediateSentenceRecycled = !!isSentenceRecycled;
+    updateImmediateRecycledIndicator();
+  }
+
+  window.addEventListener('resize', updateImmediateRecycledIndicator);
 
   function applyMagpieInfo(rawInfo, reason = "magpie-update") {
     if (magpieController) {
@@ -1620,18 +1702,31 @@ background: rgba(202, 12, 12, 0.692);
           return; // Don't process as text display
         }
 
+        if (data.type === "sentence_recycled_status") {
+          setPendingSentenceRecycledState(data.line_id, data.is_sentence_recycled);
+          if (typeof data.sentence === 'string') {
+            document.getElementById("text").textContent = data.sentence[0] == '\n' ? data.sentence.slice(1) : data.sentence;
+            ipcRenderer.send("text-received", data.sentence);
+          } else if (typeof data.sentence === 'number' || typeof data.sentence === 'boolean') {
+            document.getElementById("text").textContent = String(data.sentence);
+            ipcRenderer.send("text-received", String(data.sentence));
+          }
+          setImmediateSentenceRecycled(data.is_sentence_recycled);
+          return;
+        }
+
         // Clear existing text boxes
         const mainBoxBounds = mainBox.getBoundingClientRect();
 
         console.log(data);
-
-        const isSentenceRecycled = data.is_sentence_recycled;
 
         let renderedTextPayload = false;
 
         // Check if data has words array (new word-level coordinate format)
         if (data.type == "word_coordinates" && Array.isArray(data.data) && data.data.every(item => item.text && item.bounding_rect)) {
           renderedTextPayload = true;
+          const isSentenceRecycled = resolvePendingSentenceRecycledState(data.line_id, data.is_sentence_recycled);
+          setImmediateSentenceRecycled(isSentenceRecycled);
           // Handle array of {text, bounding_rect}
           ipcRenderer.send("text-received", data);
 
@@ -1924,33 +2019,31 @@ background: rgba(202, 12, 12, 0.692);
             document.body.appendChild(blockBox);
           });
 
-          // Add recycled sentence indicator if applicable
-          if (showRecycledIndicator && isSentenceRecycled && data.data && data.data.length > 0) {
-            const firstLine = data.data[0];
-            const firstWord = firstLine.words && firstLine.words[0];
-            
-            if (firstWord && firstWord.bounding_rect) {
-              const rect = firstWord.bounding_rect;
+          // Add recycled sentence indicator if applicable. Anchor it to the
+          // final rendered block bounds so it stays beside the visible text,
+          // including when Magpie remaps coordinates.
+          if (showRecycledIndicator && isSentenceRecycled && blockIndicatorBounds.size > 0) {
+            const renderedBlockBounds = Array.from(blockIndicatorBounds.values());
+            const lastBlockBounds = renderedBlockBounds[renderedBlockBounds.length - 1];
+
+            if (lastBlockBounds) {
               const indicator = document.createElement('div');
               indicator.className = 'recycled-indicator';
-              indicator.innerHTML = '&#x21BB;'; // Unicode clockwise open circle arrow (recycling symbol)
+              indicator.innerHTML = '&#x21BB;';
               indicator.style.position = 'absolute';
               indicator.style.pointerEvents = 'none';
               indicator.style.zIndex = '999';
-              indicator.style.color = '#FFA500'; // Orange color
+              indicator.style.color = '#FFA500';
               indicator.style.fontSize = '32px';
               indicator.style.fontWeight = 'bold';
+              indicator.style.lineHeight = '1';
               indicator.style.textShadow = '0 0 4px rgba(0, 0, 0, 0.8), 0 0 8px rgba(255, 165, 0, 0.6)';
               indicator.style.opacity = '0.85';
               indicator.style.userSelect = 'none';
-              
-              // Position to the left of the first character
-              const indicatorOffsetX = -2; // Shift slightly to the left
-              const indicatorOffsetY = 1; // Align with text baseline
-              
-              indicator.style.left = `${(rect.x1 * 100) + indicatorOffsetX}%`;
-              indicator.style.top = `${(rect.y1 * 100) + indicatorOffsetY}%`;
-              
+              indicator.style.left = `${lastBlockBounds.minx}%`;
+              indicator.style.top = `${(lastBlockBounds.miny + lastBlockBounds.maxy) / 2}%`;
+              indicator.style.transform = 'translate(calc(-100% - 10px), -50%)';
+
               document.body.appendChild(indicator);
             }
           }
@@ -1964,9 +2057,11 @@ background: rgba(202, 12, 12, 0.692);
           if (typeof line === 'string') {
             renderedTextPayload = true;
             document.getElementById("text").textContent = line[0] == '\n' ? line.slice(1) : line;
+            updateImmediateRecycledIndicator();
           } else if (typeof line === 'number' || typeof line === 'boolean') {
             renderedTextPayload = true;
             document.getElementById("text").textContent = String(line);
+            updateImmediateRecycledIndicator();
           }
         }
 
@@ -2708,6 +2803,7 @@ background: rgba(202, 12, 12, 0.692);
     } else {
       mainBox.style.display = "";
     }
+    updateImmediateRecycledIndicator();
 
     if (magpieController) {
       magpieController.syncCompatibility('settings-load');
@@ -2826,6 +2922,7 @@ background: rgba(202, 12, 12, 0.692);
           break;
         case "showRecycledIndicator":
           showRecycledIndicator = value;
+          updateImmediateRecycledIndicator();
           break;
         case "offsetX":
           offsetX = value;
@@ -3058,6 +3155,7 @@ background: rgba(202, 12, 12, 0.692);
     } else {
       mainBox.style.display = 'none';
     }
+    updateImmediateRecycledIndicator();
   });
 
   ipcRenderer.on('new-manualmode', (event, newValue) => {

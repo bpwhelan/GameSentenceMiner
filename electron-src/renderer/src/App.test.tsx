@@ -52,11 +52,18 @@ vi.mock('./components/tabs/OCRTab', () => ({
     OCRTab: ({ active }: { active: boolean }) => (active ? <div>OCR Tab</div> : null),
 }));
 
+vi.mock('./components/tabs/HomeTab', () => ({
+    HomeTab: ({ active }: { active: boolean }) => (active ? <div>Home Tab</div> : null),
+}));
+
 vi.mock('./components/SetupWizard', () => ({
     SetupWizard: () => null,
 }));
 
-function createSnapshot(status: 'running' | 'failed' = 'running'): InstallSessionSnapshot {
+function createSnapshot(
+    status: 'running' | 'failed' = 'running',
+    origin: InstallSessionSnapshot['origin'] = 'startup'
+): InstallSessionSnapshot {
     const stages: InstallStageState[] = INSTALL_STAGE_DEFINITIONS.map((definition) => ({
         id: definition.id,
         label: definition.label,
@@ -96,7 +103,7 @@ function createSnapshot(status: 'running' | 'failed' = 'running'): InstallSessio
 
     return {
         id: 'session-1',
-        origin: 'startup',
+        origin,
         status,
         startedAt: 1,
         finishedAt: status === 'failed' ? 2 : null,
@@ -207,7 +214,7 @@ describe('App install-session integration', () => {
         expect(container.textContent).toContain('2.0 KB / 4.0 KB');
         expect(container.textContent).toContain('Retry');
         expect(container.textContent).toContain('Open Logs');
-        expect(container.textContent).toContain('Quit App');
+        expect(container.textContent).toContain('Quit');
 
         const retryButton = Array.from(container.querySelectorAll('button')).find(
             (button) => button.textContent === 'Retry'
@@ -216,7 +223,7 @@ describe('App install-session integration', () => {
             (button) => button.textContent === 'Open Logs'
         );
         const quitButton = Array.from(container.querySelectorAll('button')).find(
-            (button) => button.textContent === 'Quit App'
+            (button) => button.textContent === 'Quit'
         );
 
         expect(retryButton).toBeDefined();
@@ -230,5 +237,65 @@ describe('App install-session integration', () => {
         expect(invokeMock).toHaveBeenCalledWith('install-session.retry');
         expect(invokeMock).toHaveBeenCalledWith('logs.openFolder');
         expect(sendMock).toHaveBeenCalledWith('app-close');
+    });
+
+    it('does not show the install modal after setup has already completed', async () => {
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') {
+                return createSnapshot('failed', 'startup');
+            }
+            if (channel === 'settings.getSettings') {
+                return { hasCompletedSetup: true };
+            }
+            if (
+                channel === 'state.set' ||
+                channel === 'logs.openFolder' ||
+                channel === 'install-session.retry' ||
+                channel === 'open-external'
+            ) {
+                return null;
+            }
+            return {};
+        });
+
+        const { default: App } = await import('./App.js');
+
+        await act(async () => {
+            root.render(<App />);
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(container.querySelector('.install-session-overlay')).toBeNull();
+    });
+
+    it('does not show the install modal for backend update sessions', async () => {
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') {
+                return createSnapshot('running', 'backend_update');
+            }
+            if (channel === 'settings.getSettings') {
+                return { hasCompletedSetup: false };
+            }
+            if (
+                channel === 'state.set' ||
+                channel === 'logs.openFolder' ||
+                channel === 'install-session.retry' ||
+                channel === 'open-external'
+            ) {
+                return null;
+            }
+            return {};
+        });
+
+        const { default: App } = await import('./App.js');
+
+        await act(async () => {
+            root.render(<App />);
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(container.querySelector('.install-session-overlay')).toBeNull();
     });
 });

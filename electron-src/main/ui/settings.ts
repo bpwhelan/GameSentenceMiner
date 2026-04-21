@@ -29,6 +29,7 @@ import {
     getShowYuzuTab,
     getStartConsoleMinimized,
     getStatsEndpoint,
+    getLocale,
     getTextractorPath32,
     getTextractorPath64,
     getUiMode,
@@ -45,6 +46,7 @@ import {
     setCustomPythonPackage,
     setHasCompletedSetup,
     setIconStyle,
+    setLocale,
     setLaunchLunaTranslatorMinimized,
     setLunaTranslatorPath,
     setLaunchAgentMinimized,
@@ -943,6 +945,7 @@ function getSettingsSnapshot() {
         visibleTabs: getVisibleTabs(),
         statsEndpoint: getStatsEndpoint(),
         iconStyle: store.get('iconStyle') || 'gsm',
+        locale: getLocale(),
         consoleMode: getConsoleMode(),
         setupWizardVersion: getSetupWizardVersion(),
         uiMode: getUiMode(),
@@ -1094,6 +1097,9 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         }
         if (typeof payload.iconStyle === 'string') {
             setIconStyle(payload.iconStyle || 'gsm');
+        }
+        if (typeof payload.locale === 'string') {
+            setLocale(payload.locale || 'en');
         }
         if (payload.consoleMode === 'simple' || payload.consoleMode === 'advanced') {
             setConsoleMode(payload.consoleMode);

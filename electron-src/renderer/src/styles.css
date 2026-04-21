@@ -277,7 +277,7 @@ body {
 
 .modern-tab button:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
-  ):not(.launcher-script-option):not(.status-button):not(.card-header),
+  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn),
 .python-panel button:not(.card-header) {
   border: 1px solid #5f88cc;
   border-radius: 999px;
@@ -294,7 +294,7 @@ body {
 
 .modern-tab button:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
-  ):not(.launcher-script-option):not(.status-button):not(.card-header):hover:not(
+  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn):hover:not(
     :disabled
   ),
 .python-panel button:not(.card-header):hover:not(:disabled) {
@@ -304,7 +304,7 @@ body {
 
 .modern-tab button.secondary:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
-  ):not(.launcher-script-option):not(.status-button):not(.card-header),
+  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn),
 .python-panel button.secondary:not(.card-header),
 button.secondary {
   background: #334055;
@@ -314,7 +314,7 @@ button.secondary {
 
 .modern-tab button.secondary:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
-  ):not(.launcher-script-option):not(.status-button):not(.card-header):hover:not(
+  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn):hover:not(
     :disabled
   ),
 .python-panel button.secondary:not(.card-header):hover:not(:disabled),
@@ -2491,4 +2491,379 @@ button[data-tip]:hover::after,
   .install-session-current-meta {
     justify-content: flex-start;
   }
+}
+
+/* ================================================================== */
+/*  HomeTab                                                            */
+/* ================================================================== */
+
+.home-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.home-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+/* ---- Horizontal form rows (label + controls on one line) --------- */
+
+.home-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+
+.home-row__label {
+  flex-shrink: 0;
+  min-width: 120px;
+  font-size: 0.82rem;
+  color: #aaa;
+  font-weight: 500;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.home-row__controls {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 6px;
+  align-items: center;
+}
+
+.home-select,
+.home-input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  background: #1e1e1e;
+  color: #ddd;
+  font-size: 0.84rem;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.home-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+}
+
+.home-select:focus,
+.home-input:focus {
+  border-color: #5a8ac8;
+}
+
+/* ---- Text buttons (replaces icon-btn) ---------------------------- */
+
+.home-text-btn {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #6a8ec9;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 120ms ease;
+}
+
+.home-text-btn:hover:not(:disabled) {
+  color: #9ab8e8;
+  text-decoration: underline;
+}
+
+.home-text-btn:disabled {
+  color: #555;
+  cursor: default;
+}
+
+.home-text-btn--danger {
+  color: #b06060;
+}
+
+.home-text-btn--danger:hover:not(:disabled) {
+  color: #d08080;
+}
+
+/* ---- Icon-only buttons (refresh, help) --------------------------- */
+
+.home-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  flex-shrink: 0;
+  border: 1px solid #4c4c4c;
+  border-radius: 50%;
+  background: #2a2a2a;
+  color: #b0b8cc;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.home-icon-btn:hover:not(:disabled) {
+  background: #324461;
+  border-color: #5f88cc;
+  color: #cfe2ff;
+}
+
+.home-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* ---- OBS Card ---------------------------------------------------- */
+
+.home-obs-card .card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.home-obs-card__badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(90, 163, 255, 0.12);
+  color: #6a9ad8;
+}
+
+/* ---- Capture Actions Row ----------------------------------------- */
+
+.home-capture-actions {
+  gap: 10px;
+}
+
+/* ---- Setup Card -------------------------------------------------- */
+
+.home-setup-card .card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---- Quick Actions ----------------------------------------------- */
+
+.home-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #2e2e2e;
+  background: #212121;
+}
+
+.home-quick-actions__title {
+  font-size: 0.72rem;
+  color: #555;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.home-quick-actions__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.home-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 11px;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  background: #282828;
+  color: #c0c0c0;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.home-quick-btn:hover {
+  background: #333;
+  border-color: #505050;
+  color: #e0e0e0;
+}
+
+.home-quick-btn__badge {
+  font-size: 0.72rem;
+  margin-left: 2px;
+  color: #c89a2f;
+}
+
+/* ---- Status Card ------------------------------------------------- */
+
+.home-status-card .card-body {
+  padding: 10px 14px;
+}
+
+.home-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 6px;
+}
+
+.home-status-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-radius: 4px;
+  border: 1px solid #2e2e2e;
+  background: #1e1e1e;
+  color: #b0b0b0;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  cursor: default;
+  user-select: none;
+  overflow: hidden;
+  transition: border-color 150ms ease;
+}
+
+.home-status-pill--clickable {
+  cursor: pointer;
+}
+
+.home-status-pill--clickable:hover {
+  border-color: #484848;
+}
+
+.home-status-pill__icon {
+  font-size: 0.82rem;
+  flex-shrink: 0;
+}
+
+.home-status-pill__label {
+  font-weight: 600;
+  color: #c8c8c8;
+  white-space: nowrap;
+}
+
+.home-status-pill__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-left: auto;
+  background: #444;
+}
+
+.home-status-pill--ok .home-status-pill__dot {
+  background: #4db870;
+  box-shadow: 0 0 5px rgba(77, 184, 112, 0.5);
+}
+
+.home-status-pill--bad .home-status-pill__dot {
+  background: #d05555;
+  box-shadow: 0 0 5px rgba(208, 85, 85, 0.5);
+}
+
+.home-status-pill--neutral .home-status-pill__dot {
+  background: #555;
+}
+
+.home-status-pill__text {
+  display: none;
+}
+
+/* ---- Rename Modal ------------------------------------------------ */
+
+.home-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.home-modal {
+  background: #2c2c2c;
+  border: 1px solid #444;
+  border-radius: 10px;
+  padding: 20px 24px;
+  min-width: 340px;
+  max-width: 480px;
+}
+
+.home-modal h3 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  color: #e0e0e0;
+}
+
+.home-modal__desc {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.home-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* ---- Support Footer ---------------------------------------------- */
+
+.home-support {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid #272727;
+}
+
+.home-support__heart {
+  color: #7a4a5a;
+  font-size: 0.9rem;
+}
+
+.home-support__text {
+  font-size: 0.78rem;
+  color: #555;
+  font-weight: 500;
+}
+
+.home-support__link {
+  font-size: 0.76rem;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid #333;
+  background: #222;
+  color: #888;
+  text-decoration: none;
+  transition: border-color 150ms ease, color 150ms ease;
+}
+
+.home-support__link:hover {
+  border-color: #4a4a4a;
+  color: #bbb;
 }

@@ -7,6 +7,7 @@ import { SetupWizard } from "./components/SetupWizard";
 import { InstallSessionModal } from "./components/InstallSessionModal";
 import type { ControlledTab } from "./types/models";
 import { OCRTab } from "./components/tabs/OCRTab";
+import { HomeTab } from "./components/tabs/HomeTab";
 import type { InstallSessionSnapshot } from "../../shared/install_session";
 
 type TabId =
@@ -837,6 +838,7 @@ export default function App() {
   const [showWizard, setShowWizard] = useState(false);
   const [wizardChecked, setWizardChecked] = useState(false);
   const [installSession, setInstallSession] = useState<InstallSessionSnapshot | null>(null);
+  const [hasCompletedSetup, setHasCompletedSetup] = useState<boolean | null>(null);
   const [visibleControlledTabs, setVisibleControlledTabs] = useState<
     Record<ControlledTab, boolean>
   >({
@@ -966,6 +968,22 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let disposed = false;
+
+    void window.ipcRenderer
+      .invoke<{ hasCompletedSetup?: boolean }>("settings.getSettings")
+      .then((settings) => {
+        if (!disposed) {
+          setHasCompletedSetup(settings?.hasCompletedSetup === true);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
   const retryInstallSession = useCallback(async () => {
     await window.ipcRenderer.invoke("install-session.retry");
   }, []);
@@ -977,6 +995,22 @@ export default function App() {
   const quitInstallFlow = useCallback(() => {
     window.ipcRenderer.send("app-close");
   }, []);
+
+  const shouldShowInstallSessionModal = useMemo(() => {
+    if (!installSession) {
+      return false;
+    }
+    if (
+      installSession.origin === "repair" ||
+      installSession.origin === "reset_dependencies"
+    ) {
+      return true;
+    }
+    if (installSession.origin === "startup") {
+      return hasCompletedSetup === false;
+    }
+    return false;
+  }, [hasCompletedSetup, installSession]);
 
   useEffect(() => {
     const platform = window.gsmEnv?.platform ?? "win32";
@@ -1060,7 +1094,7 @@ export default function App() {
       </header>
 
       <main className="tab-content-area">
-        <LegacyFrame src={getLegacyAssetPath("home.html")} active={activeTab === "obs"} />
+        <HomeTab active={activeTab === "obs"} />
         <OCRTab active={activeTab === "ocr"} />
         <StatsPanel active={activeTab === "stats"} />
         <LauncherTab active={activeTab === "launcher"} />
@@ -1073,7 +1107,7 @@ export default function App() {
           onRequestConsole={switchToConsole}
         />
       </main>
-      {installSession ? (
+      {shouldShowInstallSessionModal ? (
         <InstallSessionModal
           snapshot={installSession}
           onRetry={() => void retryInstallSession()}

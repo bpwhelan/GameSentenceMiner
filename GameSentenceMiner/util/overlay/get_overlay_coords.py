@@ -46,7 +46,13 @@ from GameSentenceMiner.util.platform.window_state_monitor import (
     set_window_state_monitor,
     _load_suspended_pids,
 )
-from GameSentenceMiner.util.text_log import GameLine, TextSource, game_log
+from GameSentenceMiner.util.text_log import (
+    GameLine,
+    TextSource,
+    is_line_recycled,
+    is_recycled_line_detection_enabled,
+    normalize_text_for_comparison,
+)
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
 
@@ -208,11 +214,12 @@ class OverlayProcessor:
         self.ss_width = 0
         self.ss_height = 0
         self._current_sequence = 0
-        self.punctuation_regex = regex.compile(r"[\p{P}\p{S}\p{Z}]")
         self.calculated_width_scale_factor = 1.0
         self.calculated_height_scale_factor = 1.0
         self.obs_width = None
         self.obs_height = None
+        self.last_overlay_line_id: Optional[str] = None
+        self.sentence_is_recycled = False
 
         # State for reprocessing without re-scanning
         self.last_raw_results: Optional[Any] = None
@@ -425,7 +432,38 @@ class OverlayProcessor:
 
     def _is_sentence_recycled(self, line_text: str) -> bool:
         """Checks if a line was used before based on the backlog."""
-        return line_text in game_log.previous_lines
+        return is_recycled_line_detection_enabled() and is_line_recycled(line_text)
+
+    def _build_overlay_word_coordinates_payload(
+        self,
+        overlay_data: List[Dict[str, Any]],
+        *,
+        line_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        payload = {
+            "type": "word_coordinates",
+            "data": overlay_data,
+            "is_sentence_recycled": self.sentence_is_recycled,
+        }
+        if line_id:
+            payload["line_id"] = str(line_id)
+        return payload
+
+    def _send_sentence_recycled_status(self, *, line_id: Optional[str], sentence: Optional[str]) -> None:
+        if not line_id or sentence is None:
+            return
+        if not websocket_manager.has_clients(ID_OVERLAY):
+            return
+
+        websocket_manager.send_nowait(
+            ID_OVERLAY,
+            {
+                "type": "sentence_recycled_status",
+                "line_id": str(line_id),
+                "sentence": str(sentence),
+                "is_sentence_recycled": self.sentence_is_recycled,
+            },
+        )
 
     def _get_effective_engine(self) -> str:
         """Determines which engine to use based on platform and configuration."""
@@ -1274,7 +1312,13 @@ class OverlayProcessor:
 
         return converted
 
-    async def _try_send_precomputed_overlay_payload(self, dict_from_ocr, sentence_to_check: Optional[str]) -> bool:
+    async def _try_send_precomputed_overlay_payload(
+        self,
+        dict_from_ocr,
+        sentence_to_check: Optional[str],
+        *,
+        line_id: Optional[str] = None,
+    ) -> bool:
         if not isinstance(dict_from_ocr, dict):
             return False
         if dict_from_ocr.get("schema") != "gsm_overlay_coords_v1":
@@ -1360,11 +1404,7 @@ class OverlayProcessor:
         self.last_img_dimensions = (source_w, source_h)
         self.last_scan_window_offset = (off_x, off_y)
 
-        payload = {
-            "type": "word_coordinates",
-            "data": final_data,
-            "is_sentence_recycled": self.sentence_is_recycled,
-        }
+        payload = self._build_overlay_word_coordinates_payload(final_data, line_id=line_id)
         await send_word_coordinates_to_overlay(payload)
         logger.info(
             "Overlay OCR bypass: used precomputed OCR coordinates ({} text boxes).",
@@ -1484,15 +1524,26 @@ class OverlayProcessor:
             logger.info("Starting OCR workflow timing")
 
         op_start = time.time()
+        line_id = str(getattr(line, "id", "")).strip() or None if line else None
+        self.last_overlay_line_id = line_id
         self.sentence_is_recycled = self._is_sentence_recycled(line.text) if line else False
+        self._send_sentence_recycled_status(
+            line_id=line_id,
+            sentence=getattr(line, "text", None) if line else None,
+        )
         sentence_to_check = (
             line.text.replace(" ", "").replace("\t", "").replace("\n", "").replace("\r", "") if line else None
         )
+        normalized_sentence_to_check = normalize_text_for_comparison(line.text) if line else None
         self._log_timing(op_start, "Sentence preprocessing and recycling check")
 
         if self._is_use_ocr_result_enabled() and dict_from_ocr:
             op_start = time.time()
-            used_precomputed = await self._try_send_precomputed_overlay_payload(dict_from_ocr, sentence_to_check)
+            used_precomputed = await self._try_send_precomputed_overlay_payload(
+                dict_from_ocr,
+                sentence_to_check,
+                line_id=line_id,
+            )
             self._log_timing(op_start, "Use precomputed OCR metadata")
             if used_precomputed:
                 return []
@@ -1614,7 +1665,10 @@ class OverlayProcessor:
                     text_str
                     and last_result_flattened
                     and text_str == last_result_flattened
-                    or (sentence_to_check and self.punctuation_regex.sub("", sentence_to_check) in text_str)
+                    or (
+                        normalized_sentence_to_check
+                        and normalized_sentence_to_check in normalize_text_for_comparison(text_str)
+                    )
                 ):
                     # logger.background(f"Text stabilized after {i+1} tries: {text_str}")
                     stabilized = True
@@ -1657,11 +1711,7 @@ class OverlayProcessor:
                 )
                 self._log_timing(op_start, "Convert OCR results to percentages")
 
-                data = {
-                    "type": "word_coordinates",
-                    "data": oneocr_final,
-                    "is_sentence_recycled": self.sentence_is_recycled,
-                }
+                data = self._build_overlay_word_coordinates_payload(oneocr_final, line_id=line_id)
 
                 send_start_time = time.time()
                 await send_word_coordinates_to_overlay(data)
@@ -1817,11 +1867,7 @@ class OverlayProcessor:
             extracted_data = self._correct_ocr_with_backlog(extracted_data, sentence_to_check)
             self._log_timing(op_start, "Lens OCR correction with backlog")
 
-        data = {
-            "type": "word_coordinates",
-            "data": extracted_data,
-            "is_sentence_recycled": self.sentence_is_recycled,
-        }
+        data = self._build_overlay_word_coordinates_payload(extracted_data, line_id=line_id)
 
         op_start = time.time()
         await send_word_coordinates_to_overlay(data)
@@ -1939,11 +1985,7 @@ class OverlayProcessor:
                 )
 
         if final_data:
-            data = {
-                "type": "word_coordinates",
-                "data": final_data,
-                "is_sentence_recycled": self.sentence_is_recycled,
-            }
+            data = self._build_overlay_word_coordinates_payload(final_data, line_id=self.last_overlay_line_id)
             await send_word_coordinates_to_overlay(data)
             logger.info("Resent {} text boxes with updated coordinates.", len(final_data))
 

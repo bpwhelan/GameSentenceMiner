@@ -65,6 +65,7 @@ from GameSentenceMiner.obs.launch import (  # noqa: E402, F401
 )
 
 from GameSentenceMiner.obs.service import (  # noqa: E402, F401
+    GAME_CAPTURE_REMOVAL_THRESHOLD,
     OBSConnectionManager,
     OBSConnectionPool,
     OBSService,

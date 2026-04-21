@@ -158,6 +158,7 @@ interface StoreConfig {
     runManualOCROnStartup: boolean;
     visibleTabs: string[]; // Array of visible tab IDs
     statsEndpoint: string; // Stats tab endpoint
+    locale: string; // UI language code (e.g. "en", "uk")
     pythonPath: string;
     electronAppVersion: string;
     VN: VNConfig;
@@ -275,6 +276,7 @@ export const store = new Store<StoreConfig>({
         runManualOCROnStartup: false,
         visibleTabs: ['launcher', 'stats', 'console'], // Default all tabs visible
         statsEndpoint: 'overview', // Default stats endpoint
+        locale: 'en', // UI language code
         hasCompletedSetup: false,
         consoleMode: 'simple', // 'simple' = need-to-know only, 'advanced' = full log
         setupWizardVersion: 0,
@@ -852,6 +854,14 @@ export function getIconStyle(): string {
 
 export function setIconStyle(style: string): void {
     store.set("iconStyle", style);
+}
+
+export function getLocale(): string {
+    return store.get("locale", "en");
+}
+
+export function setLocale(locale: string): void {
+    store.set("locale", locale);
 }
 
 export function getHasCompletedSetup(): boolean {

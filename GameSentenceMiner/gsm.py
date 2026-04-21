@@ -103,7 +103,12 @@ try:
         write_obs_configs,
     )
     from GameSentenceMiner.util.platform.hotkey import hotkey_manager
-    from GameSentenceMiner.util.text_log import TextSource, game_log, get_all_lines
+    from GameSentenceMiner.util.text_log import (
+        TextSource,
+        game_log,
+        get_all_lines,
+        normalize_text_for_comparison,
+    )
 
     try:
         from pystray import Icon, Menu, MenuItem
@@ -130,6 +135,13 @@ if os.name == "nt":
 
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 _instance_lock_handle = None
+
+
+def _is_overlay_previous_line_check_enabled() -> bool:
+    try:
+        return bool(getattr(get_config().overlay, "check_previous_lines_for_recycled_indicator", True))
+    except Exception:
+        return True
 
 
 def _is_running_under_electron() -> bool:
@@ -785,6 +797,13 @@ class GSMApplication:
         else:
             logger.debug("Config changed, but watch path unchanged - no restart needed")
 
+        if _is_overlay_previous_line_check_enabled():
+            if not game_log.previous_lines:
+                self.get_previous_lines_for_game()
+        elif game_log.previous_lines:
+            game_log.previous_lines = set()
+            logger.info("Cleared previous line recycle cache because overlay previous-line checking is disabled.")
+
     def initialize(self, reloading: bool = False) -> None:
         import GameSentenceMiner.web as web  # Register API routes after core modules load.
 
@@ -1007,11 +1026,19 @@ class GSMApplication:
             logger.background(f"Error handling IPC command: {e}")
 
     def get_previous_lines_for_game(self) -> None:
+        if not _is_overlay_previous_line_check_enabled():
+            if game_log.previous_lines:
+                game_log.previous_lines = set()
+                logger.info("Cleared previous line recycle cache because overlay previous-line checking is disabled.")
+            return
+
         previous_lines = set()
         try:
             all_lines = db.GameLinesTable.get_all_lines_for_scene(obs.get_current_scene())
             for line in all_lines:
-                previous_lines.add(line.line_text)
+                normalized_line = normalize_text_for_comparison(getattr(line, "line_text", ""))
+                if normalized_line:
+                    previous_lines.add(normalized_line)
             game_log.previous_lines = previous_lines
             logger.info(f"Loaded {len(previous_lines)} previous lines for game '{obs.get_current_game()}'")
         except Exception as e:
@@ -1108,6 +1135,9 @@ class GSMApplication:
         logger.background("Post-Initialization started.")
 
         if gsm_status.obs_connected:
+            await self.register_scene_switcher_callback()
+            self._register_scene_observed_profile_check()
+            self.get_previous_lines_for_game()
             await check_obs_folder_is_correct()
             self.on_config_changed()
         elif not get_config().obs.open_obs:
@@ -1153,6 +1183,7 @@ class GSMApplication:
 
         await self.register_scene_switcher_callback()
         self._register_scene_observed_profile_check()
+        self.get_previous_lines_for_game()
         await check_obs_folder_is_correct()
         self.on_config_changed()
 
