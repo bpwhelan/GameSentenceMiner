@@ -92,7 +92,7 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     open_overlay_area_selector_button.setToolTip(
         tabs_i18n.get("overlay", {})
         .get("overlay_area_selector_button", {})
-        .get("tooltip", "Open the dedicated overlay area selector for the current monitor.")
+        .get("tooltip", "Open the overlay area selector for the current monitor.")
     )
     open_overlay_area_selector_button.clicked.connect(window.open_overlay_area_selector)
     overlay_area_controls_layout.addWidget(open_overlay_area_selector_button)
@@ -107,10 +107,26 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         overlay_area_controls_widget,
     )
-    # Keep the checkbox instance for config compatibility, but hide the
-    # option since overlay OCR results now always use the current behavior.
-    window.use_ocr_result_check.setChecked(True)
-    window.use_ocr_result_check.hide()
+    main_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "overlay",
+            "use_ocr_result",
+            color=LabelColor.ADVANCED,
+            bold=True,
+        ),
+        window.use_ocr_result_check,
+    )
+    main_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "overlay",
+            "check_previous_lines_for_recycled_indicator",
+            color=LabelColor.ADVANCED,
+            bold=True,
+        ),
+        window.check_previous_lines_for_recycled_indicator_check,
+    )
 
     ocr_area_subset_widgets = [
         window.ocr_area_config_include_primary_areas_check,

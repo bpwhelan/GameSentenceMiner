@@ -28,13 +28,29 @@ from GameSentenceMiner.util.platform.notification import (
     send_text_intake_resumed_notification,
 )
 from GameSentenceMiner.util.stats.live_stats import live_stats_tracker
-from GameSentenceMiner.util.text_log import GameLine, TextSource, add_line
+from GameSentenceMiner.util.text_log import (
+    GameLine,
+    TextSource,
+    add_line,
+)
 
 
 def _get_overlay_websocket():
     from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
 
     return ID_OVERLAY, websocket_manager
+
+
+def _log_info(message: str, *, colors: bool = False) -> None:
+    if colors:
+        try:
+            color_logger = logger.opt(colors=True)
+            if color_logger is not None and hasattr(color_logger, "info"):
+                color_logger.info(message)
+                return
+        except Exception:
+            pass
+    logger.info(message)
 
 
 async def _add_event_to_texthooker(new_line):
@@ -134,6 +150,34 @@ def resolve_websocket_source_name(uri: str) -> str:
     if not websocket_source_name:
         websocket_source_name = uri
     return websocket_source_name
+
+
+def _has_connected_websocket(websocket_url: str) -> bool:
+    connected = getattr(gsm_status, "websockets_connected", None)
+    if isinstance(connected, dict):
+        return websocket_url in connected
+    if isinstance(connected, list):
+        return websocket_url in connected
+    return False
+
+
+def _mark_websocket_connected(websocket_url: str, websocket_source_name: str) -> None:
+    connected = getattr(gsm_status, "websockets_connected", None)
+    if isinstance(connected, dict):
+        connected[websocket_url] = websocket_source_name
+        return
+    if isinstance(connected, list):
+        if websocket_url not in connected:
+            connected.append(websocket_url)
+
+
+def _mark_websocket_disconnected(websocket_url: str) -> None:
+    connected = getattr(gsm_status, "websockets_connected", None)
+    if isinstance(connected, dict):
+        connected.pop(websocket_url, None)
+        return
+    if isinstance(connected, list) and websocket_url in connected:
+        connected.remove(websocket_url)
 
 
 def is_message_rate_limited(source="clipboard"):
@@ -368,9 +412,9 @@ async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
                 reconnect_sleep_manager.reset()
 
                 websocket_source = f"websocket_{uri}"
-                if websocket_url not in gsm_status.websockets_connected:
-                    gsm_status.websockets_connected.append(websocket_url)
-                logger.opt(colors=True).info(
+                if not _has_connected_websocket(websocket_url):
+                    _mark_websocket_connected(websocket_url, websocket_source_name)
+                _log_info(
                     f"<cyan>{websocket_source_name} connected Successfully!"
                     + (
                         " Disabling Clipboard Monitor."
@@ -380,7 +424,8 @@ async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
                         )
                         else ""
                     )
-                    + "</cyan>"
+                    + "</cyan>",
+                    colors=True,
                 )
                 websocket_connected[uri] = True
 
@@ -432,8 +477,7 @@ async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
             ConnectionResetError,
             Exception,
         ) as e:
-            if websocket_url in gsm_status.websockets_connected:
-                gsm_status.websockets_connected.remove(websocket_url)
+            _mark_websocket_disconnected(websocket_url)
             websocket_connected[uri] = False
             if isinstance(e, websockets.InvalidStatus) and e.response and e.response.status_code == 404:
                 logger.info(f"WebSocket {uri} returned 404, attempting alternate path.")
@@ -544,7 +588,7 @@ async def add_line_to_text_log(
 ):
     current_line_after_regex = apply_text_processing(line, get_config().text_processing)
     source_label = source_display_name or source or "Unknown"
-    logger.opt(colors=True).info(f"<cyan>Line Received from [{source_label}]: {current_line_after_regex}</cyan>")
+    _log_info(f"<cyan>Line Received from [{source_label}]: {current_line_after_regex}</cyan>", colors=True)
     current_line_time = line_time if line_time else datetime.now()
     if is_text_intake_paused():
         await _handle_paused_text_input(
@@ -565,16 +609,17 @@ async def add_line_to_text_log(
     await _add_event_to_texthooker(new_line)
     id_overlay, websocket_manager = _get_overlay_websocket()
     if websocket_manager.has_clients(id_overlay) and not skip_overlay:
-        if get_overlay_processor().ready:
+        overlay_processor = get_overlay_processor()
+        if overlay_processor.ready:
             # Increment sequence to mark this as the latest request
-            get_overlay_processor()._current_sequence += 1
+            overlay_processor._current_sequence += 1
             asyncio.run_coroutine_threadsafe(
-                get_overlay_processor().find_box_and_send_to_overlay(
+                overlay_processor.find_box_and_send_to_overlay(
                     new_line,
                     dict_from_ocr=dict_from_ocr,
-                    sequence=get_overlay_processor()._current_sequence,
+                    sequence=overlay_processor._current_sequence,
                 ),
-                get_overlay_processor().processing_loop,
+                overlay_processor.processing_loop,
             )
     obs.add_longplay_srt_line(current_line_time, new_line)
 

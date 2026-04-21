@@ -231,6 +231,11 @@ class OBSConnectionPool:
 # ---------------------------------------------------------------------------
 # Minimal state dataclass
 # ---------------------------------------------------------------------------
+# After this many consecutive game_capture probe failures the source is
+# removed from the OBS scene entirely so it can never block window_capture.
+GAME_CAPTURE_REMOVAL_THRESHOLD = 5
+
+
 @dataclass
 class OBSState:
     current_scene: str = ""
@@ -244,6 +249,13 @@ class OBSState:
     record_active: Optional[bool] = None
     current_source_name: Optional[str] = None
 
+    # Tracks consecutive game_capture probe failures per scene.
+    # Once the count reaches GAME_CAPTURE_REMOVAL_THRESHOLD the source is
+    # removed from the OBS scene so window_capture is the sole video source.
+    game_capture_fail_count: Dict[str, int] = field(default_factory=dict)
+    # Scenes where game_capture was already removed — skip probing entirely.
+    game_capture_removed_scenes: set = field(default_factory=set)
+
 
 # ---------------------------------------------------------------------------
 # Tick intervals & options
@@ -253,7 +265,8 @@ class OBSTickIntervals:
     refresh_current_scene_seconds: float = 5.0
     refresh_scene_items_seconds: float = 5.0
     fit_to_screen_seconds: float = 20.0
-    capture_source_switch_seconds: float = 20.0
+    capture_source_switch_seconds: float = 5.0  # fast probe; backs off once stable
+    capture_source_switch_stable_seconds: float = 30.0
     output_probe_seconds: float = 10.0
     replay_buffer_seconds: float = 5.0
     full_state_refresh_seconds: float = 15.0
@@ -313,6 +326,10 @@ class OBSService:
         # Fit-to-screen delayed timer
         self._fit_timer: Optional[threading.Timer] = None
         self._fit_to_screen_grace_deadline = 0.0
+
+        # Capture-source lifecycle: once a stable winner (game or window) is
+        # determined we back off the probe interval.
+        self._capture_source_settled = False
 
         # Tick scheduling & guards
         self.tick_intervals = OBSTickIntervals()
@@ -910,34 +927,84 @@ class OBSService:
                 for item in items:
                     item["sceneItemEnabled"] = bool(enabled)
 
-        # Ensure game capture is enabled before probing
-        if preferred_game_item and not bool(preferred_game_item.get("sceneItemEnabled", True)):
-            set_enabled_if_needed([preferred_game_item], True)
+        # If game_capture was already removed from this scene, skip probing it.
+        with self._state_lock:
+            already_removed = scene_name in self.state.game_capture_removed_scenes
 
+        if already_removed:
+            preferred_game_item = None
+            game_items = []
+
+        # --- Probe game_capture (WITHOUT re-enabling it first) ---
+        # OBS can screenshot a source by name even if it's disabled in a scene,
+        # so we avoid toggling it on, which would flash a black frame on top of
+        # window_capture.
         if preferred_game_item and self._probe_source_has_output(preferred_game_item.get("sourceName")):
+            # Game capture works — reset failure counter, settle on it.
+            with self._state_lock:
+                self.state.game_capture_fail_count.pop(scene_name, None)
+                self.state.current_source_name = preferred_game_item.get("sourceName")
             set_enabled_if_needed(game_items, True)
             set_enabled_if_needed(window_items, False)
-            with self._state_lock:
-                self.state.current_source_name = preferred_game_item.get("sourceName")
+            self._capture_source_settled = True
             return True
 
-        if preferred_window_item and self._probe_source_has_output(preferred_window_item.get("sourceName")):
+        # Game capture probe failed (or there is no game_capture source).
+        if preferred_game_item:
+            with self._state_lock:
+                fail_count = self.state.game_capture_fail_count.get(scene_name, 0) + 1
+                self.state.game_capture_fail_count[scene_name] = fail_count
+
+            # Immediately disable game_capture so it doesn't render black on
+            # top of window_capture.
             set_enabled_if_needed(game_items, False)
+
+            if fail_count >= GAME_CAPTURE_REMOVAL_THRESHOLD:
+                self._remove_game_capture_from_scene(scene_name, game_items)
+
+        # --- Probe window_capture ---
+        if preferred_window_item and self._probe_source_has_output(preferred_window_item.get("sourceName")):
             set_enabled_if_needed(window_items, True)
             with self._state_lock:
                 self.state.current_source_name = preferred_window_item.get("sourceName")
+            self._capture_source_settled = True
             return True
 
-        # Neither has output — enable both so OBS can pick up output when available
-        if game_items and window_items:
-            set_enabled_if_needed(game_items, True)
-            set_enabled_if_needed(window_items, True)
-        elif game_items:
-            set_enabled_if_needed(game_items, True)
-        elif window_items:
-            set_enabled_if_needed(window_items, True)
-
+        # Neither source has output.  Enable window_capture (universal
+        # fallback) so OBS can pick it up when available.  game_capture stays
+        # disabled because enabling it would mask window_capture.
+        set_enabled_if_needed(window_items, True)
         return False
+
+    def _remove_game_capture_from_scene(self, scene_name: str, game_items: List[dict]):
+        """Remove game_capture item(s) from an OBS scene after persistent failure."""
+        for item in game_items:
+            item_id = item.get("sceneItemId")
+            if item_id is None:
+                continue
+            try:
+
+                def _do_remove(client):
+                    client.remove_scene_item(scene_name, item_id)
+
+                self.connection_pool.call(_do_remove, retries=OBS_DEFAULT_RETRY_COUNT)
+                logger.info(
+                    f"Removed game_capture source '{item.get('sourceName')}' from "
+                    f"scene '{scene_name}' after {GAME_CAPTURE_REMOVAL_THRESHOLD} "
+                    f"consecutive probe failures."
+                )
+            except Exception as e:
+                logger.debug(f"Failed to remove game_capture from scene: {e}")
+
+        with self._state_lock:
+            self.state.game_capture_removed_scenes.add(scene_name)
+            self.state.game_capture_fail_count.pop(scene_name, None)
+            # Update cached scene items to reflect the removal.
+            cached = self.state.scene_items_by_scene.get(scene_name, [])
+            removed_ids = {item.get("sceneItemId") for item in game_items}
+            self.state.scene_items_by_scene[scene_name] = [
+                si for si in cached if si.get("sceneItemId") not in removed_ids
+            ]
 
     # -- fit-to-screen -------------------------------------------------------
 
@@ -1061,7 +1128,9 @@ class OBSService:
             capture_source_switch=resolve(
                 overrides.capture_source_switch,
                 "capture_source_switch",
-                tick_intervals.capture_source_switch_seconds,
+                tick_intervals.capture_source_switch_stable_seconds
+                if self._capture_source_settled
+                else tick_intervals.capture_source_switch_seconds,
             ),
             output_probe=resolve(
                 overrides.output_probe,
@@ -1131,6 +1200,8 @@ class OBSService:
                     self.state.current_scene = current_scene
                     self.state.current_source_name = None
                 gsm_state.current_game = current_scene
+                # New scene — reset the settled flag so we probe quickly again.
+                self._capture_source_settled = False
             self._notify_scene_observed(current_scene)
             self._tick_last_run_by_operation["refresh_current_scene"] = now
 

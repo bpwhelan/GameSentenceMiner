@@ -937,6 +937,7 @@ class ConfigWindow(QWidget):
                     ocr_area_config_include_secondary_areas=self.ocr_area_config_include_secondary_areas_check.isChecked(),
                     ocr_area_config_use_exclusion_zones=self.ocr_area_config_use_exclusion_zones_check.isChecked(),
                     use_ocr_result_v2=self.use_ocr_result_check.isChecked(),
+                    check_previous_lines_for_recycled_indicator=self.check_previous_lines_for_recycled_indicator_check.isChecked(),
                     ocr_full_screen_instead_of_obs=bool(
                         getattr(self, "ocr_full_screen_instead_of_obs_checkbox", None)
                         and self.ocr_full_screen_instead_of_obs_checkbox.isChecked()
@@ -1421,6 +1422,7 @@ class ConfigWindow(QWidget):
         self.ocr_area_config_include_secondary_areas_check = QCheckBox()
         self.ocr_area_config_use_exclusion_zones_check = QCheckBox()
         self.use_ocr_result_check = QCheckBox()
+        self.check_previous_lines_for_recycled_indicator_check = QCheckBox()
         self.pause_text_intake_hotkey_edit = QKeySequenceEdit()
         self.relay_outputs_when_text_intake_paused_check = QCheckBox()
 
@@ -2889,6 +2891,9 @@ class ConfigWindow(QWidget):
             bool(getattr(s.overlay, "ocr_area_config_use_exclusion_zones", True))
         )
         self.use_ocr_result_check.setChecked(s.overlay.use_ocr_result_v2)
+        self.check_previous_lines_for_recycled_indicator_check.setChecked(
+            bool(getattr(s.overlay, "check_previous_lines_for_recycled_indicator", True))
+        )
         self.pause_text_intake_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.pause_text_intake or ""))
         self.relay_outputs_when_text_intake_paused_check.setChecked(
             bool(getattr(s.hotkeys, "relay_outputs_when_text_intake_paused", True))

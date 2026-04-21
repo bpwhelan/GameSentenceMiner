@@ -482,7 +482,11 @@
                 }
                 const ready = gsmStatus.ready;
                 const status = gsmStatus.status;
-                const websockets_connected = gsmStatus.websockets_connected;
+                const websocketMap =
+                    Array.isArray(gsmStatus.websockets_connected)
+                        ? Object.fromEntries(gsmStatus.websockets_connected.map(ws => [ws, ws]))
+                        : (gsmStatus.websockets_connected ?? {});
+                const websockets_connected = Object.keys(websocketMap);
                 const obs_connected = gsmStatus.obs_connected;
                 const anki_connected = gsmStatus.anki_connected;
                 const last_line_received = gsmStatus.last_line_received;
@@ -536,18 +540,21 @@
                 // Update WebSocket status buttons
                 websockets_connected.forEach(ws => {
                     if (!ws_showing[ws]) {
+                        const displayName = websocketMap[ws] || ws;
                         const wsButton = document.createElement('button');
                         wsButton.className = 'status-button card'; // Add card class for styling
                         wsButton.id = `ws-${ws.replace(/[^a-zA-Z0-9]/g, '-')}`; // Create a valid ID
-                        wsButton.innerHTML = `<span class="icon">🔗</span> <span>${ws}</span> <span></span>`; // Use link icon for WebSocket
+                        wsButton.innerHTML = `<span class="icon">🔗</span> <span>${displayName}</span> <span></span>`; // Use link icon for WebSocket
                         websocketContainer.appendChild(wsButton);
                         ws_showing[ws] = wsButton;
                     }
                     const currentWsButton = ws_showing[ws];
+                    const displayName = websocketMap[ws] || ws;
                     currentWsButton.classList.toggle('green', true); // WebSockets listed are always connected
                     currentWsButton.classList.toggle('red', false);
+                    currentWsButton.querySelector('span:nth-child(2)').textContent = displayName;
                     currentWsButton.querySelector('span:last-child').textContent = 'Connected';
-                    currentWsButton.setAttribute('title', `${ws} is connected.`);
+                    currentWsButton.setAttribute('title', `${displayName} is connected.`);
                 });
 
                 // Remove buttons for disconnected WebSockets

@@ -14,6 +14,7 @@ import { registerVNIPC } from '../ui/vn.js';
 import { exportLogsArchive } from './log_export.js';
 import { BASE_DIR } from '../util.js';
 import { isAllowedDocsUrl } from '../../shared/docs.js';
+import type { InstallSessionSnapshot } from '../../shared/install_session.js';
 
 interface MainIPCDependencies {
     getMainWindow: () => BrowserWindow | null;
@@ -21,6 +22,8 @@ interface MainIPCDependencies {
     getUpdateStatus: () => Promise<unknown>;
     checkForUpdates: () => Promise<unknown>;
     updateNow: () => Promise<unknown>;
+    getActiveInstallSession: () => InstallSessionSnapshot | null;
+    retryInstallSession: () => Promise<boolean>;
 }
 
 let ipcRegistered = false;
@@ -172,6 +175,14 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
         } catch (err: any) {
             return { success: false, error: err?.message ?? String(err) };
         }
+    });
+
+    ipcMain.handle('install-session.getActive', async () => {
+        return deps.getActiveInstallSession();
+    });
+
+    ipcMain.handle('install-session.retry', async () => {
+        return { success: await deps.retryInstallSession() };
     });
 
     ipcMain.on('settings.iconStyleChanged', async () => {

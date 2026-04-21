@@ -383,7 +383,11 @@ def get_active_video_sources(client: obs.ReqClient):
 
     if not scene_items_response:
         return None
-    active_video_sources = [item for item in scene_items_response if item.get("inputKind") in VIDEO_SOURCE_KINDS]
+    active_video_sources = [
+        item
+        for item in scene_items_response
+        if item.get("inputKind") in VIDEO_SOURCE_KINDS and item.get("sceneItemEnabled", True)
+    ]
     if active_video_sources:
         return sort_video_sources_by_preference(
             active_video_sources,
