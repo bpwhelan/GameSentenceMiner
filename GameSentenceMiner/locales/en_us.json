@@ -731,12 +731,12 @@
           }
           ,
           "use_overlay_area_config": {
-            "label": "Use Dedicated Overlay Area:",
-            "tooltip": "Use a dedicated overlay-only area config instead of reusing the OCR area config. When enabled, this takes priority over OCR area config options."
+            "label": "Only Include Area:",
+            "tooltip": "Only use the selected overlay area instead of reusing the OCR area config. When enabled, this takes priority over OCR area config options."
           },
           "overlay_area_selector_button": {
             "label": "Set Area",
-            "tooltip": "Open the dedicated overlay area selector for the current overlay monitor."
+            "tooltip": "Open the overlay area selector for the current overlay monitor."
           },
           "use_ocr_area_config": {
             "label": "Use OCR Area Config:",
@@ -755,8 +755,12 @@
             "tooltip": "Apply exclusion zones from the OCR area config to mask parts of the overlay capture. These are the regions previously shown as orange boxes."
           },
           "use_ocr_result": {
-            "label": "Use OCR Result:",
+            "label": "Use OCR Result (Experimental):",
             "tooltip": "When enabled, the overlay uses pre-computed OCR results when available. Disable this to force a fresh overlay OCR scan."
+          },
+          "check_previous_lines_for_recycled_indicator": {
+            "label": "Check Previous Lines:",
+            "tooltip": "Compare each incoming line against previously seen lines for the current game and mark recycled lines in the overlay. Warning: this loads a normalized cache of prior lines into RAM and can substantially increase memory usage depending on how many lines you have."
           }
         },
         "experimental": {

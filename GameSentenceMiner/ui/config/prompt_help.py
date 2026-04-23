@@ -10,7 +10,10 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from .safety import safe_config_methods
 
+
+@safe_config_methods()
 class PromptHelpDialog(QDialog):
     def __init__(self, target_text_edit, parent=None):
         super().__init__(parent)

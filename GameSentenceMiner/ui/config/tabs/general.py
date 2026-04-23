@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from GameSentenceMiner.util.docs import DOCS_URLS
 from GameSentenceMiner.util.config.configuration import is_beangate
+from GameSentenceMiner.ui.config.safety import safe_config_callback
 from ..binding import ValueTransform
 from ..labels import LabelColor, build_label
 from .websocket_sources import WebsocketSourcesEditor
@@ -155,7 +156,12 @@ def build_general_tab(window: ConfigWindow, binder: BindingManager, i18n: dict) 
 
     if is_beangate:
         test_button = QPushButton(i18n.get("buttons", {}).get("run_function", "Run Function"))
-        test_button.clicked.connect(lambda: window.test_func() if window.test_func else None)
+        test_button.clicked.connect(
+            safe_config_callback(
+                lambda: window.test_func() if window.test_func else None,
+                name="general.run_test_function",
+            )
+        )
         layout.addRow(test_button)
 
     layout.addItem(QVBoxLayout().addStretch())

@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import (
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Tuple, Type
 
+from .safety import safe_config_callback, safe_config_methods
+
 Path = Tuple[str, ...]
 
 
@@ -32,7 +34,8 @@ class WidgetAdapter:
 
 
 def _connect_signal(signal, callback: Callable[[], None]) -> None:
-    signal.connect(lambda *_: callback())
+    safe_callback = safe_config_callback(callback, name="BindingManager.signal")
+    signal.connect(lambda *_: safe_callback())
 
 
 ADAPTERS: Dict[Type[QWidget], WidgetAdapter] = {
@@ -89,6 +92,7 @@ class Binding:
     transform: ValueTransform
 
 
+@safe_config_methods()
 class BindingManager:
     def __init__(self, editor):
         self._editor = editor

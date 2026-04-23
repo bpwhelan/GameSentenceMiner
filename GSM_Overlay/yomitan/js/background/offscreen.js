@@ -24,6 +24,7 @@ import {log} from '../core/log.js';
 import {sanitizeCSS} from '../core/utilities.js';
 import {arrayBufferToBase64} from '../data/array-buffer-util.js';
 import {DictionaryDatabase} from '../dictionary/dictionary-database.js';
+import {DictionaryWorker} from '../dictionary/dictionary-worker.js';
 import {WebExtension} from '../extension/web-extension.js';
 import {Translator} from '../language/translator.js';
 
@@ -55,6 +56,8 @@ export class Offscreen {
             ['clipboardSetBrowserOffscreen',   this._setClipboardBrowser.bind(this)],
             ['databasePrepareOffscreen',       this._prepareDatabaseHandler.bind(this)],
             ['getDictionaryInfoOffscreen',     this._getDictionaryInfoHandler.bind(this)],
+            ['databaseDeleteDictionaryOffscreen', this._deleteDictionaryHandler.bind(this)],
+            ['databaseImportDictionaryOffscreen', this._importDictionaryHandler.bind(this)],
             ['databasePurgeOffscreen',         this._purgeDatabaseHandler.bind(this)],
             ['databaseGetMediaOffscreen',      this._getMediaHandler.bind(this)],
             ['translatorPrepareOffscreen',     this._prepareTranslatorHandler.bind(this)],
@@ -115,6 +118,20 @@ export class Offscreen {
     /** @type {import('offscreen').ApiHandler<'getDictionaryInfoOffscreen'>} */
     async _getDictionaryInfoHandler() {
         return await this._dictionaryDatabase.getDictionaryInfo();
+    }
+
+    /** @type {import('offscreen').ApiHandler<'databaseDeleteDictionaryOffscreen'>} */
+    async _deleteDictionaryHandler({dictionaryTitle}) {
+        await new DictionaryWorker().deleteDictionary(dictionaryTitle, null);
+    }
+
+    /** @type {import('offscreen').ApiHandler<'databaseImportDictionaryOffscreen'>} */
+    async _importDictionaryHandler({archiveContent, details}) {
+        const {result, errors} = await new DictionaryWorker().importDictionary(archiveContent, details, null);
+        return {
+            result,
+            errors: errors.map((error) => ExtensionError.serialize(error)),
+        };
     }
 
     /** @type {import('offscreen').ApiHandler<'databasePurgeOffscreen'>} */

@@ -760,20 +760,26 @@ def register_database_api_routes(app):
             description: Failed to fetch games list
         """
         try:
-            game_names = GameLinesTable.get_all_games_with_lines()
             games_data = []
 
-            for game_name in game_names:
-                lines = GameLinesTable.get_all_lines_for_scene(game_name)
-                if not lines:
-                    continue
+            rows = GameLinesTable._db.fetchall(
+                f"""
+                SELECT
+                    game_name,
+                    COUNT(*) AS sentence_count,
+                    MIN(CAST(timestamp AS REAL)) AS first_timestamp,
+                    MAX(CAST(timestamp AS REAL)) AS last_timestamp,
+                    COALESCE(SUM(LENGTH(COALESCE(line_text, ''))), 0) AS total_characters
+                FROM {GameLinesTable._table}
+                WHERE game_name IS NOT NULL AND game_name != ''
+                GROUP BY game_name
+                ORDER BY total_characters DESC, game_name COLLATE NOCASE ASC
+                """
+            )
 
-                # Calculate metadata
-                sentence_count = len(lines)
-                timestamps = [float(line.timestamp) for line in lines]
-                min_date = datetime.date.fromtimestamp(min(timestamps))
-                max_date = datetime.date.fromtimestamp(max(timestamps))
-                total_chars = sum(len(line.line_text) if line.line_text else 0 for line in lines)
+            for game_name, sentence_count, first_timestamp, last_timestamp, total_chars in rows:
+                min_date = datetime.date.fromtimestamp(float(first_timestamp))
+                max_date = datetime.date.fromtimestamp(float(last_timestamp))
 
                 games_data.append(
                     {

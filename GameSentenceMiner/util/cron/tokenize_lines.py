@@ -9,6 +9,8 @@ Provides:
 
 from __future__ import annotations
 
+import queue
+import threading
 import time
 from typing import Dict
 
@@ -29,6 +31,77 @@ MAX_ADAPTIVE_BATCH_SLEEP_SECONDS = 1.0
 
 # Legacy alias kept for compatibility with older callers/tests.
 THROTTLE_SLEEP_SECONDS = MIN_ADAPTIVE_BATCH_SLEEP_SECONDS
+RealtimeTokenizationBatch = list[tuple[str, str, float | None]]
+
+
+class _RealtimeTokenizationScheduler:
+    """Serialize realtime tokenization on a dedicated daemon worker."""
+
+    def __init__(self) -> None:
+        self._queue: queue.Queue[tuple[str, tuple[str, str, float | None] | RealtimeTokenizationBatch]] = queue.Queue()
+        self._thread: threading.Thread | None = None
+        self._start_lock = threading.Lock()
+
+    def enqueue_line(self, line_id: str, line_text: str, line_timestamp: float | None = None) -> None:
+        self._ensure_started()
+        self._queue.put(("line", (line_id, line_text, line_timestamp)))
+
+    def enqueue_batch(self, lines: RealtimeTokenizationBatch) -> None:
+        if not lines:
+            return
+        self._ensure_started()
+        self._queue.put(("batch", list(lines)))
+
+    def wait_for_idle(self, timeout: float | None = 5.0) -> bool:
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while self._queue.unfinished_tasks:
+            if deadline is not None and time.monotonic() >= deadline:
+                return False
+            time.sleep(0.01)
+        return True
+
+    def _ensure_started(self) -> None:
+        with self._start_lock:
+            if self._thread and self._thread.is_alive():
+                return
+            self._thread = threading.Thread(
+                target=self._run,
+                name="gsm-tokenization",
+                daemon=True,
+            )
+            self._thread.start()
+            logger.background("Realtime tokenization worker started.")
+
+    def _run(self) -> None:
+        while True:
+            kind, payload = self._queue.get()
+            try:
+                if kind == "line":
+                    line_id, line_text, line_timestamp = payload  # type: ignore[misc]
+                    tokenize_line(line_id, line_text, line_timestamp)
+                    continue
+
+                for line_id, line_text, line_timestamp in payload:  # type: ignore[assignment]
+                    tokenize_line(line_id, line_text, line_timestamp)
+            except Exception as e:
+                logger.exception(f"Realtime tokenization worker failed: {e}")
+            finally:
+                self._queue.task_done()
+
+
+_realtime_tokenization_scheduler = _RealtimeTokenizationScheduler()
+
+
+def enqueue_realtime_tokenization(line_id: str, line_text: str, line_timestamp: float | None = None) -> None:
+    _realtime_tokenization_scheduler.enqueue_line(line_id, line_text, line_timestamp)
+
+
+def enqueue_realtime_tokenization_batch(lines: RealtimeTokenizationBatch) -> None:
+    _realtime_tokenization_scheduler.enqueue_batch(lines)
+
+
+def wait_for_realtime_tokenization_idle(timeout: float | None = 5.0) -> bool:
+    return _realtime_tokenization_scheduler.wait_for_idle(timeout)
 
 
 def _get_backfill_batch_size(low_performance_mode: bool) -> int:

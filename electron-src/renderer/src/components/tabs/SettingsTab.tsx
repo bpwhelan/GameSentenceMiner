@@ -22,6 +22,7 @@ import {
   SETTINGS_CATALOG,
   SETTINGS_LOCATION_LABELS
 } from "./settingsCatalog";
+import { SUPPORTED_LOCALES, useLocale } from "../../i18n";
 
 const DEFAULT_SETTINGS: AppSettings = {
   autoUpdateGSMApp: false,
@@ -35,7 +36,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   runWindowTransparencyToolOnStartup: false,
   runOverlayOnStartup: false,
   visibleTabs: ["launcher", "stats", "python", "console"],
-  statsEndpoint: "overview"
+  statsEndpoint: "overview",
+  locale: "en"
 };
 
 const DEFAULT_UPDATE_STATUS: UpdateStatusSnapshot = {
@@ -111,7 +113,8 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
       value.windowTransparencyTarget || DEFAULT_SETTINGS.windowTransparencyTarget,
     customPythonPackage:
       value.customPythonPackage || DEFAULT_SETTINGS.customPythonPackage,
-    statsEndpoint: value.statsEndpoint || DEFAULT_SETTINGS.statsEndpoint
+    statsEndpoint: value.statsEndpoint || DEFAULT_SETTINGS.statsEndpoint,
+    locale: value.locale || DEFAULT_SETTINGS.locale
   };
 }
 
@@ -162,6 +165,7 @@ function getDisplayLatestVersion(
 export function SettingsTab({ active }: SettingsTabProps) {
   const platform = window.gsmEnv?.platform ?? "win32";
   const isWindows = platform === "win32";
+  const [currentLocale, setCurrentLocale] = useLocale();
 
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [customPackageDraft, setCustomPackageDraft] = useState(
@@ -237,6 +241,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
         setSettings(normalized);
         setCustomPackageDraft(normalized.customPythonPackage);
         setTransparencyTargetDraft(normalized.windowTransparencyTarget);
+        setCurrentLocale(normalized.locale);
       } catch (error) {
         console.error("Failed to load settings:", error);
       } finally {
@@ -548,6 +553,25 @@ export function SettingsTab({ active }: SettingsTabProps) {
                   <option value="gsm_cursed[tray]">Cursed (Tray Icon Also)</option>
                   <option value="random">Random</option>
                   <option value="random[tray]">Random (Tray Icon Also)</option>
+                </select>
+              </div>
+
+              <div className="input-group">
+                <label htmlFor="locale-select">Language:</label>
+                <select
+                  id="locale-select"
+                  value={currentLocale}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setCurrentLocale(next);
+                    patchSettings({ locale: next });
+                  }}
+                >
+                  {SUPPORTED_LOCALES.map((loc) => (
+                    <option key={loc.code} value={loc.code}>
+                      {loc.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 

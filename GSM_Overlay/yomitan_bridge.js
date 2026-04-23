@@ -14,7 +14,7 @@
   function clampTimeout(value) {
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return DEFAULT_TIMEOUT_MS;
-    return Math.max(150, Math.min(20000, Math.floor(numeric)));
+    return Math.max(150, Math.min(120000, Math.floor(numeric)));
   }
 
   class YomitanOverlayBridge {
@@ -82,6 +82,10 @@
 
     async closePopups(options = {}) {
       return await this.invoke('closePopups', {}, options);
+    }
+
+    async ensureGsmCharacterDictionary(input = {}, options = {}) {
+      return await this.invoke('ensureGsmCharacterDictionary', input || {}, options);
     }
 
     _onMessage(event) {

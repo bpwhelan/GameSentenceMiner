@@ -19,9 +19,7 @@ import re
 import tempfile
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from GameSentenceMiner.mecab.basic_types import (
     MecabParsedToken,
@@ -138,7 +136,7 @@ def _insert_line(line_id: str, text: str, timestamp: float | None = None):
     line.add()
     # Reset tokenized to 0
     gsm_db.execute(
-        f"UPDATE game_lines SET tokenized = 0 WHERE id = ?",
+        "UPDATE game_lines SET tokenized = 0 WHERE id = ?",
         (line_id,),
         commit=True,
     )
@@ -555,7 +553,7 @@ class TestRunTokenizeBackfill:
     def test_skips_already_tokenized(self, monkeypatch):
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
-        mock = _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_mecab(monkeypatch, {text: tokens})
 
         monkeypatch.setattr(
             "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
@@ -710,25 +708,67 @@ class TestRealtimeTokenizationPath:
         sleep_mock = MagicMock()
         monkeypatch.setattr("GameSentenceMiner.util.cron.tokenize_lines.time.sleep", sleep_mock)
 
-        tokenize_mock = MagicMock(return_value=True)
-        monkeypatch.setattr("GameSentenceMiner.util.cron.tokenize_lines.tokenize_line", tokenize_mock)
+        enqueue_mock = MagicMock()
         monkeypatch.setattr(
-            "GameSentenceMiner.util.gsm_utils.run_new_thread",
-            lambda worker: worker(),
+            "GameSentenceMiner.util.cron.tokenize_lines.enqueue_realtime_tokenization",
+            enqueue_mock,
         )
 
+        line_time = datetime.now()
         line = GameLine(
             id="rt_1",
             text="テスト",
-            time=datetime.now(),
+            time=line_time,
             prev=None,
             next=None,
             scene="TestGame",
         )
 
         GameLinesTable.add_line(line)
-        tokenize_mock.assert_called_once()
+        enqueue_mock.assert_called_once_with("rt_1", "テスト", line_time.timestamp())
         sleep_mock.assert_not_called()
+
+    def test_add_lines_enqueues_background_batch_tokenization(self, monkeypatch):
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.database.db._is_tokenization_enabled",
+            lambda: True,
+        )
+
+        enqueue_batch_mock = MagicMock()
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenize_lines.enqueue_realtime_tokenization_batch",
+            enqueue_batch_mock,
+        )
+
+        first_time = datetime.now()
+        second_time = datetime.now()
+        lines = [
+            GameLine(
+                id="rt_batch_1",
+                text="犬",
+                time=first_time,
+                prev=None,
+                next=None,
+                scene="TestGame",
+            ),
+            GameLine(
+                id="rt_batch_2",
+                text="猫",
+                time=second_time,
+                prev=None,
+                next=None,
+                scene="TestGame",
+            ),
+        ]
+
+        GameLinesTable.add_lines(lines)
+
+        enqueue_batch_mock.assert_called_once_with(
+            [
+                ("rt_batch_1", "犬", first_time.timestamp()),
+                ("rt_batch_2", "猫", second_time.timestamp()),
+            ]
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1081,7 +1121,7 @@ class TestGameLinesTokenizedMethods:
         gsm_db.execute("UPDATE game_lines SET tokenized = 1 WHERE id = ?", ("ut_1",), commit=True)
 
         untokenized = GameLinesTable.get_untokenized_lines()
-        ids = [l.id for l in untokenized]
+        ids = [line.id for line in untokenized]
         assert "ut_1" not in ids
         assert "ut_2" in ids
         assert "ut_3" in ids

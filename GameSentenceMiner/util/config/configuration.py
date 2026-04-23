@@ -731,6 +731,7 @@ class Anki:
     autoplay_audio: bool = False
     replay_audio_on_tts_generation: bool = True
     tag_unvoiced_cards: bool = False
+    remove_overlay_tag: bool = False
 
     def __post_init__(self):
         if self.custom_tags is None:
@@ -1275,15 +1276,12 @@ class Overlay:
     ocr_area_config_include_secondary_areas: bool = True
     ocr_area_config_use_exclusion_zones: bool = True
     use_ocr_result_v2: bool = False
+    check_previous_lines_for_recycled_indicator: bool = False
     ocr_full_screen_instead_of_obs: bool = False
 
     def __post_init__(self):
         if self.monitor_to_capture == -1:
             self.monitor_to_capture = 0  # Default to the first monitor if not set
-
-        # Keep the legacy field for config compatibility, but always use the
-        # current OCR-result overlay behavior.
-        self.use_ocr_result_v2 = False
 
         try:
             import mss as mss
@@ -2318,7 +2316,7 @@ class GsmStatus:
     ready: bool = False
     status: bool = "Initializing"
     cards_created: int = 0
-    websockets_connected: List[str] = field(default_factory=list)
+    websockets_connected: Dict[str, str] = field(default_factory=dict)
     obs_connected: bool = False
     anki_connected: bool = False
     last_line_received: str = None

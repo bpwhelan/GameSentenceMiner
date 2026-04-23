@@ -24,6 +24,7 @@ import {
 import { devFaultInjector } from './dev_fault_injection.js';
 import Logger from 'electron-log';
 import { shouldAutoRebuildManagedPythonEnv } from './managed_python_repair.js';
+import { installSessionManager } from './install_session_state.js';
 
 type EnsureAndRunFn = (pythonPath: string) => Promise<void>;
 type CloseAllFn = () => Promise<void>;
@@ -76,6 +77,31 @@ function emitUpdateProgress(current: number, total: number, label: string): void
     const safeCurrent = Math.max(0, Math.min(current, safeTotal));
     const text = label.trim();
     console.log(`UpdateProgress: ${safeCurrent}/${safeTotal} ${text}`);
+}
+
+function updateInstallStage(
+    stageId: 'prepare' | 'uv' | 'python' | 'venv' | 'verify_runtime' | 'lock_sync' | 'gsm_package' | 'backend_boot' | 'obs' | 'ffmpeg' | 'oneocr' | 'finalize',
+    status: 'pending' | 'running' | 'completed' | 'skipped' | 'failed',
+    progressKind: 'bytes' | 'estimated' | 'indeterminate',
+    progress: number | null,
+    message: string,
+    error?: string | null
+): void {
+    installSessionManager.updateStage({
+        stageId,
+        status,
+        progressKind,
+        progress,
+        message,
+        error: error ?? null,
+    });
+}
+
+function startBackendUpdateSession(retryHandler: () => Promise<void>): void {
+    installSessionManager.ensureSession('backend_update', retryHandler);
+    updateInstallStage('prepare', 'completed', 'estimated', 1, 'Backend update session prepared.');
+    updateInstallStage('python', 'skipped', 'indeterminate', 1, 'Managed Python runtime already installed.');
+    updateInstallStage('venv', 'skipped', 'indeterminate', 1, 'Virtual environment already exists.');
 }
 
 function getPreReleasePackageSpecifier(branch: string): string {
@@ -287,6 +313,9 @@ export class UpdateManager {
         preReleaseBranch: string | null = null,
         autoRepairAttemptsRemaining: number = 1
     ): Promise<void> {
+        startBackendUpdateSession(async () => {
+            await this.updateGSMInternal(shouldRestart, force, preReleaseBranch, 1);
+        });
         this.isUpdating = true;
         this.lastBackendUpdateSucceeded = false;
         this.lastBackendUpdateError = null;
@@ -307,6 +336,8 @@ export class UpdateManager {
                 checking: false,
             };
             log.warn('Skipping Python update because pythonPath is not initialized yet.');
+            updateInstallStage('finalize', 'failed', 'estimated', null, 'Backend update failed.', this.lastBackendUpdateError);
+            installSessionManager.finishActive('failed', 'Backend update failed.', this.lastBackendUpdateError);
             this.isUpdating = false;
             return;
         }
@@ -373,13 +404,34 @@ export class UpdateManager {
 
                 if (updateAvailable || force) {
                     emitUpdateProgress(2, totalSteps, 'Stopping running backend processes');
+                    updateInstallStage(
+                        'verify_runtime',
+                        'running',
+                        'estimated',
+                        0.1,
+                        'Stopping running backend processes before updating...'
+                    );
                     devFaultInjector.maybeFail('update.close_running_processes');
                     await this.deps.closeAllPythonProcesses();
                     await new Promise((resolve) => setTimeout(resolve, 3000));
 
                     emitUpdateProgress(3, totalSteps, 'Ensuring uv runtime tooling');
                     devFaultInjector.maybeFail('update.ensure_uv');
+                    updateInstallStage(
+                        'verify_runtime',
+                        'running',
+                        'estimated',
+                        0.35,
+                        'Ensuring uv runtime tooling...'
+                    );
                     await checkAndInstallUV(pythonPath);
+                    updateInstallStage(
+                        'verify_runtime',
+                        'completed',
+                        'estimated',
+                        1,
+                        'uv runtime tooling is ready.'
+                    );
 
                     // Determine what package specifier to install.
                     let packageSpecifier: string;
@@ -402,18 +454,106 @@ export class UpdateManager {
                     try {
                         emitUpdateProgress(4, totalSteps, 'Syncing dependencies from lockfile');
                         devFaultInjector.maybeFail('update.sync_lockfile');
-                        await syncLockedEnvironment(pythonPath, selectedExtras, false);
+                        updateInstallStage(
+                            'lock_sync',
+                            'running',
+                            'estimated',
+                            0.15,
+                            'Syncing dependencies from the lockfile...'
+                        );
+                        await syncLockedEnvironment(pythonPath, selectedExtras, false, (event) => {
+                            updateInstallStage(
+                                'lock_sync',
+                                'running',
+                                'estimated',
+                                event.progress,
+                                event.message
+                            );
+                        });
+                        updateInstallStage(
+                            'lock_sync',
+                            'completed',
+                            'estimated',
+                            1,
+                            'Dependencies synced from the lockfile.'
+                        );
                         devFaultInjector.maybeFail('update.install_package');
-                        await installPackageNoDeps(pythonPath, packageSpecifier, true);
+                        updateInstallStage(
+                            'gsm_package',
+                            'running',
+                            'estimated',
+                            0.15,
+                            `Installing ${packageSpecifier}...`
+                        );
+                        await installPackageNoDeps(pythonPath, packageSpecifier, true, (event) => {
+                            updateInstallStage(
+                                'gsm_package',
+                                'running',
+                                'estimated',
+                                event.progress,
+                                event.message
+                            );
+                        });
+                        updateInstallStage(
+                            'gsm_package',
+                            'completed',
+                            'estimated',
+                            1,
+                            'Backend package updated.'
+                        );
                     } catch (err) {
                         log.error('Sync failed, cleaning uv cache and retrying once.', err);
                         emitUpdateProgress(4, totalSteps, 'Retrying sync after cache clean');
                         devFaultInjector.maybeFail('update.retry.clean_uv_cache');
+                        updateInstallStage(
+                            'lock_sync',
+                            'running',
+                            'estimated',
+                            0.25,
+                            'Retrying dependency sync after cleaning the uv cache...'
+                        );
                         await cleanUvCache(pythonPath);
                         devFaultInjector.maybeFail('update.retry.sync_lockfile');
-                        await syncLockedEnvironment(pythonPath, selectedExtras, false);
+                        await syncLockedEnvironment(pythonPath, selectedExtras, false, (event) => {
+                            updateInstallStage(
+                                'lock_sync',
+                                'running',
+                                'estimated',
+                                event.progress,
+                                event.message
+                            );
+                        });
+                        updateInstallStage(
+                            'lock_sync',
+                            'completed',
+                            'estimated',
+                            1,
+                            'Dependencies synced from the lockfile.'
+                        );
                         devFaultInjector.maybeFail('update.retry.install_package');
-                        await installPackageNoDeps(pythonPath, packageSpecifier, true);
+                        updateInstallStage(
+                            'gsm_package',
+                            'running',
+                            'estimated',
+                            0.2,
+                            `Installing ${packageSpecifier} after retry...`
+                        );
+                        await installPackageNoDeps(pythonPath, packageSpecifier, true, (event) => {
+                            updateInstallStage(
+                                'gsm_package',
+                                'running',
+                                'estimated',
+                                event.progress,
+                                event.message
+                            );
+                        });
+                        updateInstallStage(
+                            'gsm_package',
+                            'completed',
+                            'estimated',
+                            1,
+                            'Backend package updated.'
+                        );
                     }
 
                     const updatedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
@@ -443,6 +583,13 @@ export class UpdateManager {
                     if (shouldRestart) {
                         emitUpdateProgress(6, totalSteps, 'Restarting backend process');
                         devFaultInjector.maybeFail('update.restart_backend');
+                        updateInstallStage(
+                            'backend_boot',
+                            'running',
+                            'estimated',
+                            0.15,
+                            'Restarting the GSM backend process...'
+                        );
                         void this.deps
                             .ensureAndRunGSM(pythonPath)
                             .then(() => {
@@ -458,6 +605,12 @@ export class UpdateManager {
                         log.info('GSM backend restart initiated after update.');
                         emitUpdateProgress(7, totalSteps, 'Update complete');
                     } else {
+                        updateInstallStage('backend_boot', 'skipped', 'indeterminate', 1, 'Backend restart was not requested.');
+                        updateInstallStage('obs', 'skipped', 'indeterminate', 1, 'OBS dependency checks were skipped.');
+                        updateInstallStage('ffmpeg', 'skipped', 'indeterminate', 1, 'FFmpeg dependency checks were skipped.');
+                        updateInstallStage('oneocr', 'skipped', 'indeterminate', 1, 'OneOCR dependency checks were skipped.');
+                        updateInstallStage('finalize', 'completed', 'estimated', 1, 'Backend update complete.');
+                        installSessionManager.finishActive('completed', 'Backend update complete.');
                         emitUpdateProgress(6, totalSteps, 'Update complete');
                     }
                 } else {
@@ -472,6 +625,15 @@ export class UpdateManager {
                         source: preRelease ? 'prerelease-branch' : 'pypi',
                         branch: preRelease ? normalizedPreReleaseBranch : null,
                     };
+                    updateInstallStage('verify_runtime', 'skipped', 'indeterminate', 1, 'No backend update was required.');
+                    updateInstallStage('lock_sync', 'skipped', 'indeterminate', 1, 'Dependencies are already up to date.');
+                    updateInstallStage('gsm_package', 'skipped', 'indeterminate', 1, 'Backend package is already up to date.');
+                    updateInstallStage('backend_boot', 'skipped', 'indeterminate', 1, 'Backend restart was not required.');
+                    updateInstallStage('obs', 'skipped', 'indeterminate', 1, 'OBS dependency checks were skipped.');
+                    updateInstallStage('ffmpeg', 'skipped', 'indeterminate', 1, 'FFmpeg dependency checks were skipped.');
+                    updateInstallStage('oneocr', 'skipped', 'indeterminate', 1, 'OneOCR dependency checks were skipped.');
+                    updateInstallStage('finalize', 'completed', 'estimated', 1, 'Backend update complete.');
+                    installSessionManager.finishActive('completed', 'Backend update complete.');
                     emitUpdateProgress(1, 1, 'Python backend is already up to date');
                 }
 
@@ -512,6 +674,8 @@ export class UpdateManager {
 
             this.lastBackendUpdateSucceeded = false;
             this.lastBackendUpdateError = toErrorMessage(error);
+            updateInstallStage('finalize', 'failed', 'estimated', null, 'Backend update failed.', this.lastBackendUpdateError);
+            installSessionManager.finishActive('failed', 'Backend update failed.', this.lastBackendUpdateError);
             this.backendStatusCache = {
                 ...this.backendStatusCache,
                 checkedAt: new Date().toISOString(),

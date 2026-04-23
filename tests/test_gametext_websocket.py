@@ -78,6 +78,84 @@ def test_listen_on_websocket_keeps_non_ocr_listener_paused_when_general_websocke
     assert sleep_calls == [5]
 
 
+def test_listen_on_websocket_accepts_list_backed_status_tracking(monkeypatch):
+    stop_event = asyncio.Event()
+    attempted_urls = []
+    status = SimpleNamespace(websockets_connected=[])
+
+    class SuccessfulConnect:
+        def __init__(self, url, ping_interval=None):
+            attempted_urls.append(url)
+
+        async def __aenter__(self):
+            stop_event.set()
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def __aiter__(self):
+            async def generator():
+                if False:
+                    yield None
+
+            return generator()
+
+    monkeypatch.setattr(gametext, "get_config", lambda: _make_config(use_websocket=True))
+    monkeypatch.setattr(
+        gametext.websockets,
+        "connect",
+        lambda url, ping_interval=None: SuccessfulConnect(url, ping_interval),
+    )
+    monkeypatch.setattr(gametext, "gsm_status", status)
+    gametext.websocket_connected.clear()
+
+    asyncio.run(gametext.listen_on_websocket("localhost:6677", stop_event=stop_event))
+
+    assert attempted_urls == ["ws://localhost:6677"]
+    assert status.websockets_connected == ["ws://localhost:6677"]
+
+
+def test_listen_on_websocket_accepts_dict_backed_status_tracking(monkeypatch):
+    stop_event = asyncio.Event()
+    attempted_urls = []
+    status = SimpleNamespace(websockets_connected={})
+
+    class SuccessfulConnect:
+        def __init__(self, url, ping_interval=None):
+            attempted_urls.append(url)
+
+        async def __aenter__(self):
+            stop_event.set()
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def __aiter__(self):
+            async def generator():
+                if False:
+                    yield None
+
+            return generator()
+
+    monkeypatch.setattr(gametext, "get_config", lambda: _make_config(use_websocket=True))
+    monkeypatch.setattr(
+        gametext.websockets,
+        "connect",
+        lambda url, ping_interval=None: SuccessfulConnect(url, ping_interval),
+    )
+    monkeypatch.setattr(gametext, "gsm_status", status)
+    gametext.websocket_connected.clear()
+
+    asyncio.run(gametext.listen_on_websocket("localhost:6677", stop_event=stop_event))
+
+    assert attempted_urls == ["ws://localhost:6677"]
+    assert status.websockets_connected == {
+        "ws://localhost:6677": gametext.resolve_websocket_source_name("localhost:6677")
+    }
+
+
 def test_add_line_to_text_log_uses_display_source_name_for_logging(monkeypatch):
     logged_messages = []
 
@@ -245,3 +323,92 @@ def test_add_line_to_text_log_relays_only_to_outputs_when_text_intake_paused(mon
     assert relayed_lines[0].text == "processed:raw line"
     assert relayed_lines[0].scene == "Paused Game"
     assert relayed_lines[0].source == "secondary"
+
+
+def test_add_line_to_text_log_schedules_overlay_without_waiting_for_remaining_line_processing(monkeypatch):
+    sent_messages = []
+    ordered_steps = []
+    scheduled_calls = []
+    new_line = SimpleNamespace(id="line-1", text="Hello, World!", scene="Overlay Game")
+
+    class DummyLogger:
+        def opt(self, **_kwargs):
+            return self
+
+        def info(self, _message):
+            return None
+
+    async def fake_add_event_to_texthooker(_line):
+        ordered_steps.append("texthooker")
+        return None
+
+    async def fake_find_box_and_send_to_overlay(*_args, **_kwargs):
+        return None
+
+    def fake_run_coroutine_threadsafe(coro, loop):
+        ordered_steps.append("schedule_overlay")
+        scheduled_calls.append((coro, loop))
+        coro.close()
+        return SimpleNamespace()
+
+    monkeypatch.setattr(
+        gametext,
+        "get_config",
+        lambda: SimpleNamespace(
+            text_processing=SimpleNamespace(),
+            overlay=SimpleNamespace(check_previous_lines_for_recycled_indicator=True),
+        ),
+    )
+    monkeypatch.setattr(gametext, "apply_text_processing", lambda line, _config: line)
+    monkeypatch.setattr(gametext, "live_stats_tracker", SimpleNamespace(add_line=lambda *_args, **_kwargs: None))
+    monkeypatch.setattr(gametext, "logger", DummyLogger())
+    monkeypatch.setattr(gametext, "gsm_status", SimpleNamespace(last_line_received=""))
+    monkeypatch.setattr(gametext, "add_line", lambda *_args, **_kwargs: new_line)
+    monkeypatch.setattr(gametext, "_add_event_to_texthooker", fake_add_event_to_texthooker)
+    monkeypatch.setattr(
+        gametext,
+        "_get_overlay_websocket",
+        lambda: (
+            "overlay",
+            SimpleNamespace(
+                has_clients=lambda server_id: server_id == "overlay",
+                send_nowait=lambda server_id, payload: sent_messages.append((server_id, payload)),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        gametext,
+        "get_overlay_processor",
+        lambda: SimpleNamespace(
+            ready=True,
+            _current_sequence=0,
+            processing_loop="overlay-loop",
+            find_box_and_send_to_overlay=fake_find_box_and_send_to_overlay,
+        ),
+    )
+    monkeypatch.setattr(gametext.asyncio, "run_coroutine_threadsafe", fake_run_coroutine_threadsafe)
+    monkeypatch.setattr(
+        gametext.obs,
+        "add_longplay_srt_line",
+        lambda *_args, **_kwargs: ordered_steps.append("longplay"),
+    )
+    monkeypatch.setattr(
+        gametext.GamesTable,
+        "get_or_create_by_name",
+        lambda _name: (
+            ordered_steps.append("resolve_game"),
+            SimpleNamespace(id=1),
+        )[-1],
+    )
+    monkeypatch.setattr(
+        gametext.GameLinesTable,
+        "add_line",
+        lambda *_args, **_kwargs: ordered_steps.append("persist_line"),
+    )
+    monkeypatch.setattr(gametext.gsm_state, "text_input_paused", False, raising=False)
+
+    asyncio.run(gametext.add_line_to_text_log("Hello, World!", source="secondary"))
+
+    assert sent_messages == []
+    assert ordered_steps == ["texthooker", "schedule_overlay", "longplay", "resolve_game", "persist_line"]
+    assert scheduled_calls

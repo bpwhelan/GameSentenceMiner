@@ -20,7 +20,8 @@ function loadLegacyGamepadHandler() {
     setInterval,
     clearInterval,
     document: {
-      querySelectorAll: () => []
+      querySelectorAll: () => [],
+      querySelector: () => null
     },
     window: {},
     CustomEvent: class CustomEvent {
@@ -105,6 +106,72 @@ describe("legacy gamepad button bindings", () => {
 
     handler.buttonStates = new Map([["pad-1", { 4: true }]]);
     expect(handler.isButtonBindingHeld(comboBinding, "pad-1")).toBe(false);
+  });
+
+  it("uses normalized bindings for Yomitan entry navigation buttons saved as labels", () => {
+    const handler = Object.create(GamepadHandler.prototype) as {
+      config: {
+        activationMode: string;
+        controllerEnabled: boolean;
+        nextEntryButton: string;
+        prevEntryButton: string;
+      };
+      buttonStates: Map<string, Record<number, boolean>>;
+      buttonBindings: Record<string, any>;
+      bindingContainsButton: (binding: any, buttonIndex: number) => boolean;
+      isButtonBindingHeld: (binding: any, device: string) => boolean;
+      matchesButtonBindingDown: (binding: any, device: string, buttonIndex: number) => boolean;
+      refreshButtonBindings: () => void;
+      onButtonDown: (buttonIndex: number, device: string) => void;
+      yomitanPopupVisible: boolean;
+      isNavigationActive: () => boolean;
+      shouldProcessNavigation: () => boolean;
+      navigateYomitanNextEntry: () => void;
+      navigateYomitanPrevEntry: () => void;
+    };
+
+    handler.config = {
+      activationMode: "modifier",
+      controllerEnabled: true,
+      nextEntryButton: "RT",
+      prevEntryButton: "LT"
+    };
+    handler.buttonStates = new Map([["pad-1", { 7: true }]]);
+    handler.bindingContainsButton = GamepadHandler.prototype.bindingContainsButton;
+    handler.isButtonBindingHeld = GamepadHandler.prototype.isButtonBindingHeld;
+    handler.matchesButtonBindingDown = GamepadHandler.prototype.matchesButtonBindingDown;
+    handler.refreshButtonBindings = GamepadHandler.prototype.refreshButtonBindings;
+    handler.onButtonDown = GamepadHandler.prototype.onButtonDown;
+    handler.yomitanPopupVisible = true;
+    handler.isNavigationActive = () => false;
+    handler.shouldProcessNavigation = () => false;
+
+    const calls: string[] = [];
+    handler.navigateYomitanNextEntry = () => {
+      calls.push("next");
+    };
+    handler.navigateYomitanPrevEntry = () => {
+      calls.push("prev");
+    };
+
+    handler.refreshButtonBindings();
+
+    expect(handler.buttonBindings.nextEntryButton).toMatchObject({
+      buttons: [7],
+      disabled: false,
+      label: "RT"
+    });
+    expect(handler.buttonBindings.prevEntryButton).toMatchObject({
+      buttons: [6],
+      disabled: false,
+      label: "LT"
+    });
+
+    handler.onButtonDown(7, "pad-1");
+    handler.buttonStates = new Map([["pad-1", { 6: true }]]);
+    handler.onButtonDown(6, "pad-1");
+
+    expect(calls).toEqual(["next", "prev"]);
   });
 });
 
@@ -287,5 +354,73 @@ describe("legacy gamepad block redraw recovery", () => {
     });
 
     expect(restoredIndex).toBe(1);
+  });
+});
+
+describe("legacy gamepad popup routing", () => {
+  it("routes popup action controls only to the topmost visible popup frame", () => {
+    const hostMessages: unknown[] = [];
+    const parentMessages: unknown[] = [];
+    const hiddenChildMessages: unknown[] = [];
+    const visibleChildMessages: unknown[] = [];
+
+    legacyGamepadContext.window.postMessage = (message: unknown) => {
+      hostMessages.push(message);
+    };
+
+    const parentFrame = {
+      style: { display: "block", visibility: "visible" },
+      getClientRects: () => [1],
+      contentWindow: {
+        postMessage: (message: unknown) => {
+          parentMessages.push(message);
+        }
+      }
+    };
+    const hiddenChildFrame = {
+      style: { display: "block", visibility: "hidden" },
+      getClientRects: () => [],
+      contentWindow: {
+        postMessage: (message: unknown) => {
+          hiddenChildMessages.push(message);
+        }
+      }
+    };
+    const visibleChildFrame = {
+      style: { display: "block", visibility: "visible" },
+      getClientRects: () => [1],
+      contentWindow: {
+        postMessage: (message: unknown) => {
+          visibleChildMessages.push(message);
+        }
+      }
+    };
+
+    legacyGamepadContext.document.querySelectorAll = (selector: string) =>
+      selector === "iframe.yomitan-popup"
+        ? [parentFrame, hiddenChildFrame, visibleChildFrame]
+        : [];
+    legacyGamepadContext.document.querySelector = () => null;
+
+    const handler = Object.create(GamepadHandler.prototype) as {
+      sendYomitanControlMessage: (action: string, params?: Record<string, unknown>) => void;
+    };
+
+    handler.sendYomitanControlMessage("reset-action-selection");
+
+    expect(hostMessages).toEqual([
+      {
+        type: "gsm-yomitan-control",
+        action: "reset-action-selection"
+      }
+    ]);
+    expect(parentMessages).toEqual([]);
+    expect(hiddenChildMessages).toEqual([]);
+    expect(visibleChildMessages).toEqual([
+      {
+        type: "gsm-yomitan-control",
+        action: "reset-action-selection"
+      }
+    ]);
   });
 });

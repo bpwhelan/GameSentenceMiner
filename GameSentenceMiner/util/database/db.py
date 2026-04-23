@@ -89,18 +89,15 @@ class SQLiteDB:
             if tx_depth == 0:
                 conn.execute("BEGIN")
             self._local.tx_depth = tx_depth + 1
-
-        try:
-            yield conn
-        except Exception:
-            with self._lock:
+            try:
+                yield conn
+            except Exception:
                 tx_depth = max(getattr(self._local, "tx_depth", 1) - 1, 0)
                 self._local.tx_depth = tx_depth
                 if tx_depth == 0:
                     conn.rollback()
-            raise
-        else:
-            with self._lock:
+                raise
+            else:
                 tx_depth = max(getattr(self._local, "tx_depth", 1) - 1, 0)
                 self._local.tx_depth = tx_depth
                 if tx_depth == 0:
@@ -906,10 +903,11 @@ class GameLinesTable(SQLiteDBTable):
         # logger.info("Adding GameLine to DB: %s", new_line)
         new_line.add()
         if _is_tokenization_enabled():
-            from GameSentenceMiner.util.gsm_utils import run_new_thread
-            from GameSentenceMiner.util.cron.tokenize_lines import tokenize_line
+            from GameSentenceMiner.util.cron.tokenize_lines import (
+                enqueue_realtime_tokenization,
+            )
 
-            run_new_thread(lambda: tokenize_line(new_line.id, new_line.line_text))
+            enqueue_realtime_tokenization(new_line.id, new_line.line_text, new_line.timestamp)
         return new_line
 
     @classmethod
@@ -961,16 +959,11 @@ class GameLinesTable(SQLiteDBTable):
             commit=True,
         )
         if _is_tokenization_enabled():
-            from GameSentenceMiner.util.gsm_utils import run_new_thread
-            from GameSentenceMiner.util.cron.tokenize_lines import tokenize_line
-            from GameSentenceMiner.util.database.tokenization_tables import WordsTable
+            from GameSentenceMiner.util.cron.tokenize_lines import (
+                enqueue_realtime_tokenization_batch,
+            )
 
-            def _batch_tokenize(lines):
-                with WordsTable._db.transaction():
-                    for line in lines:
-                        tokenize_line(line.id, line.line_text, line.timestamp)
-
-            run_new_thread(lambda: _batch_tokenize(new_lines))
+            enqueue_realtime_tokenization_batch([(line.id, line.line_text, line.timestamp) for line in new_lines])
 
     @staticmethod
     def _to_sync_note_ids(value: Any) -> List[str]:
@@ -1588,13 +1581,11 @@ def _should_defer_tokenization_schema_sync() -> bool:
 
 
 # Import GamesTable, CronTable, and StatsRollupTable after gsm_db is created to avoid circular import
-from GameSentenceMiner.util.database.games_table import GamesTable
-from GameSentenceMiner.util.database.cron_table import CronTable
-from GameSentenceMiner.util.database.game_daily_rollup_table import (
-    GameDailyRollupTable,
-)
-from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable
+from GameSentenceMiner.util.database.games_table import GamesTable  # noqa: E402
+from GameSentenceMiner.util.database.cron_table import CronTable  # noqa: E402
+from GameSentenceMiner.util.database.game_daily_rollup_table import GameDailyRollupTable  # noqa: E402
+from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable  # noqa: E402
+from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable  # noqa: E402
 
 for cls in [
     AIModelsTable,

@@ -233,6 +233,30 @@ class TestRouteHandlersDelegation:
         assert resp.status_code == 200
         assert resp.get_json()["coverage_percent"] == 50.0
 
+    def test_anki_events_route_accepts_heartbeat(self, app_and_client, monkeypatch, anki_mod):
+        app, client = app_and_client
+        received_payloads = []
+        monkeypatch.setattr(
+            anki_mod,
+            "_dispatch_anki_push_event",
+            lambda payload: received_payloads.append(payload) or "heartbeat",
+        )
+
+        with app.test_request_context():
+            resp = client.post("/anki/events", json={"event": "heartbeat", "session_id": "session-1"})
+
+        assert resp.status_code == 204
+        assert received_payloads == [{"event": "heartbeat", "session_id": "session-1"}]
+
+    def test_anki_events_route_accepts_note_added(self, app_and_client, monkeypatch, anki_mod):
+        app, client = app_and_client
+        monkeypatch.setattr(anki_mod, "_dispatch_anki_push_event", lambda payload: "note_added")
+
+        with app.test_request_context():
+            resp = client.post("/anki/events", json={"event": "note_added", "note_id": 42})
+
+        assert resp.status_code == 202
+
     def test_sync_status_route_includes_auto_sync_metadata(
         self,
         app_and_client,

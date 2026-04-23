@@ -80,12 +80,13 @@ export interface AppSettings {
   runOverlayOnStartup: boolean;
   visibleTabs: ControlledTab[];
   statsEndpoint: string;
+  locale: string;
 }
 
 export interface GsmStatus {
   ready: boolean;
   status: string;
-  websockets_connected: string[];
+  websockets_connected: Record<string, string>;
   obs_connected: boolean;
   anki_connected: boolean;
   last_line_received?: string;

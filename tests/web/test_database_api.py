@@ -237,6 +237,21 @@ class TestGamesList:
         games = resp.get_json()["games"]
         assert games[0]["name"] == "Big"
 
+    def test_uses_aggregate_query_instead_of_loading_each_game_individually(self, client, monkeypatch):
+        _create_line(game_name="Game A", text="あいう", timestamp=1700000000.0)
+        _create_line(game_name="Game B", text="えおか", timestamp=1700100000.0)
+
+        def _fail_if_called(*args, **kwargs):
+            raise AssertionError("get_all_lines_for_scene should not be called by /api/games-list")
+
+        monkeypatch.setattr(GameLinesTable, "get_all_lines_for_scene", _fail_if_called)
+
+        resp = client.get("/api/games-list")
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert {game["name"] for game in data["games"]} == {"Game A", "Game B"}
+
 
 # ===================================================================
 # /api/delete-sentence-lines

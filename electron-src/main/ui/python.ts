@@ -11,9 +11,35 @@ import {
     syncLockedEnvironment,
     installPackageNoDeps,
 } from '../services/python_ops.js';
+import { installSessionManager } from '../services/install_session_state.js';
 import { getPythonExtras, setPythonExtraEnabled, setPythonExtras } from '../store.js';
 
 let consoleProcess: ChildProcess | null = null;
+
+type ManualInstallOrigin = 'repair' | 'reset_dependencies';
+
+function updateInstallStage(
+    stageId: 'prepare' | 'uv' | 'python' | 'venv' | 'verify_runtime' | 'lock_sync' | 'gsm_package' | 'backend_boot' | 'obs' | 'ffmpeg' | 'oneocr' | 'finalize',
+    status: 'pending' | 'running' | 'completed' | 'skipped' | 'failed',
+    progressKind: 'bytes' | 'estimated' | 'indeterminate',
+    progress: number | null,
+    message: string,
+    error?: string | null
+): void {
+    installSessionManager.updateStage({
+        stageId,
+        status,
+        progressKind,
+        progress,
+        message,
+        error: error ?? null,
+    });
+}
+
+function startManualInstallSession(origin: ManualInstallOrigin, retryHandler: () => Promise<void>): void {
+    installSessionManager.ensureSession(origin, retryHandler);
+    updateInstallStage('prepare', 'completed', 'estimated', 1, 'Manual dependency workflow prepared.');
+}
 
 /**
  * Reusable pip install function with console logging.
@@ -168,7 +194,7 @@ export function registerPythonIPC() {
 
     // Reset Dependencies (uv sync)
     ipcMain.handle('python.resetDependencies', async () => {
-        try {
+        const executeResetDependencies = async () => {
             const pythonPath = await getOrInstallPython();
             await closeAllPythonProcesses();
 
@@ -190,17 +216,33 @@ export function registerPythonIPC() {
                     }.`
                 );
             }
+            updateInstallStage('verify_runtime', 'running', 'estimated', 0.25, 'Ensuring uv runtime tooling...');
             await checkAndInstallUV(pythonPath);
-            await syncLockedEnvironment(pythonPath, selectedExtras, false);
+            updateInstallStage('verify_runtime', 'completed', 'estimated', 1, 'uv runtime tooling is ready.');
+            updateInstallStage('lock_sync', 'running', 'estimated', 0.1, 'Resetting Python dependencies from the lockfile...');
+            await syncLockedEnvironment(pythonPath, selectedExtras, false, (event) => {
+                updateInstallStage('lock_sync', 'running', 'estimated', event.progress, event.message);
+            });
+            updateInstallStage('lock_sync', 'completed', 'estimated', 1, 'Python dependencies reset successfully.');
             console.log('Python dependencies reset successfully.');
 
             console.log('Restarting GSM...');
             const { ensureAndRunGSM } = await import('../main.js');
-            await ensureAndRunGSM(pythonPath);
+            await ensureAndRunGSM(pythonPath, 1, { origin: 'reset_dependencies' });
+        };
 
+        try {
+            startManualInstallSession('reset_dependencies', executeResetDependencies);
+            await executeResetDependencies();
             return { success: true, message: 'Python dependencies reset successfully' };
         } catch (error: any) {
             console.error('Failed to reset dependencies:', error);
+            updateInstallStage('finalize', 'failed', 'estimated', null, 'Failed to reset Python dependencies.', error?.message || 'Unknown error');
+            installSessionManager.finishActive(
+                'failed',
+                'Failed to reset Python dependencies.',
+                error?.message || 'Unknown error'
+            );
             return {
                 success: false,
                 message: `Failed to reset dependencies: ${error?.message || 'Unknown error'}`,
@@ -210,7 +252,7 @@ export function registerPythonIPC() {
 
     // Repair GSM - Complete reinstall
     ipcMain.handle('python.repairGSM', async () => {
-        try {
+        const executeRepair = async () => {
             console.log('Starting strict GSM repair...');
 
             await closeAllPythonProcesses();
@@ -222,7 +264,9 @@ export function registerPythonIPC() {
             }
 
             const pythonPath = await getOrInstallPython();
+            updateInstallStage('verify_runtime', 'running', 'estimated', 0.25, 'Ensuring uv runtime tooling...');
             await checkAndInstallUV(pythonPath);
+            updateInstallStage('verify_runtime', 'completed', 'estimated', 1, 'uv runtime tooling is ready.');
 
             const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
                 getPythonExtras()
@@ -236,17 +280,37 @@ export function registerPythonIPC() {
                 );
             }
 
-            await syncLockedEnvironment(pythonPath, selectedExtras, false);
+            updateInstallStage('lock_sync', 'running', 'estimated', 0.1, 'Syncing dependencies from the lockfile...');
+            await syncLockedEnvironment(pythonPath, selectedExtras, false, (event) => {
+                updateInstallStage('lock_sync', 'running', 'estimated', event.progress, event.message);
+            });
+            updateInstallStage('lock_sync', 'completed', 'estimated', 1, 'Dependencies synced from the lockfile.');
             const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
             const packageSpecifier = installedVersion
                 ? `${PACKAGE_NAME}==${installedVersion}`
                 : PACKAGE_NAME;
-            await installPackageNoDeps(pythonPath, packageSpecifier, true);
+            updateInstallStage('gsm_package', 'running', 'estimated', 0.1, `Reinstalling ${packageSpecifier}...`);
+            await installPackageNoDeps(pythonPath, packageSpecifier, true, (event) => {
+                updateInstallStage('gsm_package', 'running', 'estimated', event.progress, event.message);
+            });
+            updateInstallStage('gsm_package', 'completed', 'estimated', 1, 'GSM backend package reinstalled.');
 
-            await restartGSM();
+            const { ensureAndRunGSM } = await import('../main.js');
+            await ensureAndRunGSM(pythonPath, 1, { origin: 'repair' });
+        };
+
+        try {
+            startManualInstallSession('repair', executeRepair);
+            await executeRepair();
             return { success: true, message: 'GSM repaired successfully' };
         } catch (error: any) {
             console.error('Failed to repair GSM:', error);
+            updateInstallStage('finalize', 'failed', 'estimated', null, 'Failed to repair GSM.', error?.message || 'Unknown error');
+            installSessionManager.finishActive(
+                'failed',
+                'Failed to repair GSM.',
+                error?.message || 'Unknown error'
+            );
             return {
                 success: false,
                 message: `Failed to repair GSM: ${error?.message || 'Unknown error'}`,

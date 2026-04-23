@@ -150,9 +150,9 @@ const TOOLTIPS = {
   searchScript:
     "Search all scripts under Agent Scripts Path, ranked by similarity to the scene.",
   downloadAgent:
-    "Download latest Agent from official GitHub releases. Choose install folder (default: ~/Documents/Agent).",
+    "Download latest Agent from official GitHub releases. Choose any install folder.",
   downloadTextractor:
-    "Download latest Textractor from official GitHub releases. Choose install folder (default: ~/Documents/Textractor). Sets both x64 and x86 paths.",
+    "Download latest Textractor from official GitHub releases. Choose any install folder. Sets both x64 and x86 paths.",
   downloadLuna:
     "Open the LunaTranslator official GitHub releases page.",
   ocrMode:

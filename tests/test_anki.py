@@ -113,6 +113,10 @@ def _reset_state():
     anki.first_run = True
     anki.errors_shown = 0
     anki.final_warning_shown = False
+    if hasattr(anki, "reset_anki_push_receiver_state"):
+        anki.reset_anki_push_receiver_state()
+    if hasattr(anki, "reset_anki_polling_gate_state"):
+        anki.reset_anki_polling_gate_state()
 
 
 def test_add_wildcards():
@@ -351,6 +355,118 @@ def test_check_for_new_cards_does_not_sync_cache_before_note_update_finishes(
     assert calls == [("update", {20})]
 
 
+def test_record_anki_push_heartbeat_uses_configured_freshness_window():
+    received_at = datetime(2026, 4, 22, 12, 0, 0)
+
+    anki.record_anki_push_heartbeat(
+        {
+            "event": "heartbeat",
+            "session_id": "session-1",
+            "heartbeat_interval_seconds": 15,
+            "payload_mode": "note",
+        },
+        received_at=received_at,
+    )
+
+    assert anki.is_anki_push_heartbeat_fresh(now=received_at + timedelta(seconds=44)) is True
+    assert anki.is_anki_push_heartbeat_fresh(now=received_at + timedelta(seconds=46)) is False
+
+
+def test_handle_incoming_anki_event_queues_and_deduplicates_note_added(monkeypatch):
+    processed = []
+    monkeypatch.setattr(anki, "update_new_cards", lambda note_ids: processed.append(set(note_ids)))
+
+    payload = {
+        "event": "note_added",
+        "session_id": "session-1",
+        "note_id": 42,
+        "created_at": "2026-04-22T12:00:00Z",
+    }
+
+    assert anki.handle_incoming_anki_event(payload) == "note_added"
+    assert anki.handle_incoming_anki_event(payload) == "duplicate_note_added"
+
+    assert anki._process_next_anki_push_note(timeout_seconds=0) is True
+    assert processed == [{42}]
+    assert anki.previous_note_ids == {42}
+    assert anki.first_run is False
+
+
+def test_monitor_anki_iteration_uses_push_queue_when_heartbeat_is_fresh(monkeypatch):
+    config = SimpleNamespace(anki=SimpleNamespace(enabled=True, polling_rate_v2=1000))
+    timeouts = []
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "is_anki_push_heartbeat_fresh", lambda now=None: True)
+    monkeypatch.setattr(anki, "get_anki_push_wait_timeout_seconds", lambda now=None: 60.0)
+    monkeypatch.setattr(anki, "_ensure_anki_push_baseline", lambda: True)
+    monkeypatch.setattr(
+        anki,
+        "_process_next_anki_push_note",
+        lambda timeout_seconds=0.0: timeouts.append(timeout_seconds) or False,
+    )
+    monkeypatch.setattr(
+        anki,
+        "check_for_new_cards",
+        lambda: (_ for _ in ()).throw(AssertionError("polling should be disabled while heartbeat is fresh")),
+    )
+
+    unsuccessful_count, scaled_polling_rate = anki._monitor_anki_iteration(0, 1.0)
+
+    assert timeouts == [60.0]
+    assert unsuccessful_count == 0
+    assert scaled_polling_rate == 1.0
+
+
+def test_monitor_anki_iteration_skips_polling_when_replay_buffer_inactive(monkeypatch):
+    config = SimpleNamespace(
+        anki=SimpleNamespace(enabled=True, polling_rate_v2=1000),
+        obs=SimpleNamespace(disable_recording=False),
+    )
+    sleep_calls = []
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "get_anki_push_wait_timeout_seconds", lambda now=None: 0.0)
+    monkeypatch.setattr(anki, "_process_next_anki_push_note", lambda timeout_seconds=0.0: False)
+    monkeypatch.setattr(anki, "_is_anki_polling_allowed", lambda: False)
+    monkeypatch.setattr(anki.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+    monkeypatch.setattr(
+        anki,
+        "check_for_new_cards",
+        lambda: (_ for _ in ()).throw(AssertionError("polling should stay disabled while replay buffer is inactive")),
+    )
+
+    unsuccessful_count, scaled_polling_rate = anki._monitor_anki_iteration(3, 2.0)
+
+    assert unsuccessful_count == 0
+    assert scaled_polling_rate == 1.0
+    assert sleep_calls == [1.0]
+
+
+def test_monitor_anki_iteration_seeds_polling_baseline_when_replay_buffer_activates(monkeypatch):
+    config = SimpleNamespace(
+        anki=SimpleNamespace(enabled=True, polling_rate_v2=1000),
+        obs=SimpleNamespace(disable_recording=False),
+    )
+    check_calls = []
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "get_anki_push_wait_timeout_seconds", lambda now=None: 0.0)
+    monkeypatch.setattr(anki, "_process_next_anki_push_note", lambda timeout_seconds=0.0: False)
+    monkeypatch.setattr(anki, "_is_anki_polling_allowed", lambda: True)
+    monkeypatch.setattr(anki, "get_note_ids", lambda: {10, 20, 30})
+    monkeypatch.setattr(anki.time, "sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "check_for_new_cards", lambda: check_calls.append(True) or True)
+
+    unsuccessful_count, scaled_polling_rate = anki._monitor_anki_iteration(0, 1.0)
+
+    assert unsuccessful_count == 0
+    assert scaled_polling_rate == 1.0
+    assert check_calls == []
+    assert anki.previous_note_ids == {10, 20, 30}
+    assert anki.first_run is False
+
+
 def test_check_and_update_note_triggers_cache_sync_after_updating_note(monkeypatch):
     order = []
     config = SimpleNamespace(anki=SimpleNamespace(word_field="Word"))
@@ -441,6 +557,7 @@ def _base_config():
             video_field="VideoField",
             word_field="Word",
             tag_unvoiced_cards=False,
+            remove_overlay_tag=False,
         ),
         screenshot=SimpleNamespace(
             enabled=True,
@@ -466,6 +583,66 @@ def _base_config():
         ),
         obs=SimpleNamespace(get_game_from_scene=False),
     )
+
+
+def test_update_anki_note_removes_overlay_tag_when_enabled(monkeypatch):
+    config = _base_config()
+    config.anki.remove_overlay_tag = True
+    calls = []
+    assets = SimpleNamespace(
+        audio_in_anki="voice.mp3",
+        screenshot_in_anki="",
+        prev_screenshot_in_anki="",
+        video_in_anki="",
+        animated=False,
+    )
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "invoke", lambda action, **kwargs: calls.append((action, kwargs)) or [])
+    monkeypatch.setattr(anki.notification, "open_browser_window", lambda *_args, **_kwargs: None, raising=False)
+
+    anki._update_anki_note(
+        SimpleNamespace(noteId=42),
+        {"fields": {"Sentence": "text"}},
+        ["GSM"],
+        assets,
+    )
+
+    assert calls == [
+        ("guiSelectedNotes", {}),
+        ("updateNoteFields", {"note": {"fields": {"Sentence": "text"}}}),
+        ("addTags", {"tags": "GSM", "notes": [42]}),
+        ("removeTags", {"tags": "overlay", "notes": [42]}),
+    ]
+
+
+def test_update_anki_note_does_not_remove_overlay_tag_when_disabled(monkeypatch):
+    config = _base_config()
+    calls = []
+    assets = SimpleNamespace(
+        audio_in_anki="voice.mp3",
+        screenshot_in_anki="",
+        prev_screenshot_in_anki="",
+        video_in_anki="",
+        animated=False,
+    )
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "invoke", lambda action, **kwargs: calls.append((action, kwargs)) or [])
+    monkeypatch.setattr(anki.notification, "open_browser_window", lambda *_args, **_kwargs: None, raising=False)
+
+    anki._update_anki_note(
+        SimpleNamespace(noteId=42),
+        {"fields": {"Sentence": "text"}},
+        ["GSM"],
+        assets,
+    )
+
+    assert calls == [
+        ("guiSelectedNotes", {}),
+        ("updateNoteFields", {"note": {"fields": {"Sentence": "text"}}}),
+        ("addTags", {"tags": "GSM", "notes": [42]}),
+    ]
 
 
 def _overlay_furigana_config():

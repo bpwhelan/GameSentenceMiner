@@ -653,6 +653,25 @@
       cursor: pointer;
     }
 
+    input.keyboard-binding-input[readonly] {
+      cursor: pointer;
+    }
+
+    input.keyboard-binding-input {
+      margin-top: 4px;
+      border-left: 3px solid rgba(100, 181, 246, 0.5);
+    }
+
+    input.keyboard-binding-input::placeholder {
+      font-style: italic;
+      opacity: 0.6;
+    }
+
+    input.capturing-keyboard {
+      border-color: #64b5f6 !important;
+      box-shadow: 0 0 6px rgba(100, 181, 246, 0.4) !important;
+    }
+
     .gamepad-binding-hint {
       margin: 0 0 10px 0;
       padding: 8px 10px;
@@ -835,6 +854,10 @@
         <span class="label-text">Hide Furigana on Startup (Toggle with hotkey to show)</span>
         <input type="checkbox" id="hideFuriganaOnStartup" />
       </label>
+      <label class="sub-option">
+        <span class="label-text">Hide Furigana After (seconds, 0 = disabled)</span>
+        <input type="number" id="hideFuriganaAfterSeconds" value="0" min="0" max="60" step="1" />
+      </label>
     </div>
 
     <div class="setting-group" data-tab="furigana">
@@ -901,6 +924,16 @@
           <option value="yomitan-api">Yomitan API (Setup Required)</option>
           <option value="jiten-api">JitenAPI</option>
           <option value="jpdb-api">JPDB API</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">
+          Local Fallback Provider
+          <div class="hotkey-info">If the selected backend fails, retry with this local provider.</div>
+        </span>
+        <select id="furiganaLocalTokenizerFallbackBackend">
+          <option value="mecab">MeCab</option>
+          <option value="sudachi">Sudachi</option>
         </select>
       </label>
       <label id="furiganaSudachiDictionaryLabel" data-tokenizer-setting="sudachi">
@@ -1186,12 +1219,16 @@
       <div class="gamepad-binding-hint">
         Click a controller binding field, press one or more controller buttons, then release to save. Analog stick movement is ignored. Press Backspace/Delete to disable a binding, or Esc to cancel capture.
       </div>
+      <div class="gamepad-binding-hint">
+        Click a keyboard binding field, then press a key (with optional modifiers) to save. The key is captured from the Input Server so it works when the game is focused.
+      </div>
       <label>
         <span class="label-text">
           Modifier Button
           <div class="hotkey-info">Hold this button while using DPAD to navigate (modifier mode only)</div>
         </span>
         <input type="text" id="gamepadModifierButton" class="gamepad-binding-input" value="LB" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardModifierKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
@@ -1199,6 +1236,7 @@
           <div class="hotkey-info">Press to enter/exit navigation mode (toggle mode only)</div>
         </span>
         <input type="text" id="gamepadToggleButton" class="gamepad-binding-input" value="Back" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardToggleKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
@@ -1206,6 +1244,7 @@
           <div class="hotkey-info">Press to confirm selection (optional - auto-confirm is enabled)</div>
         </span>
         <input type="text" id="gamepadConfirmButton" class="gamepad-binding-input" value="A" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardConfirmKey" class="keyboard-binding-input" value="Enter" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
@@ -1213,6 +1252,7 @@
           <div class="hotkey-info">Press to cancel/exit navigation mode</div>
         </span>
         <input type="text" id="gamepadCancelButton" class="gamepad-binding-input" value="B" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardCancelKey" class="keyboard-binding-input" value="Escape" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
@@ -1220,6 +1260,7 @@
           <div class="hotkey-info">Send Enter to the current GSM target window</div>
         </span>
         <input type="text" id="gamepadForwardEnterButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardForwardEnterKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
@@ -1227,6 +1268,7 @@
           <div class="hotkey-info">Trigger the same scan as GSM's Manual Overlay Scan hotkey</div>
         </span>
         <input type="text" id="gamepadManualOverlayScanButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardManualOverlayScanKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
@@ -1234,6 +1276,7 @@
           <div class="hotkey-info">While the Yomitan popup is open, move to the next entry in the list</div>
         </span>
         <input type="text" id="gamepadNextEntryButton" class="gamepad-binding-input" value="RT" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardNextEntryKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
@@ -1241,6 +1284,50 @@
           <div class="hotkey-info">While the Yomitan popup is open, move to the previous entry in the list</div>
         </span>
         <input type="text" id="gamepadPrevEntryButton" class="gamepad-binding-input" value="LT" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardPrevEntryKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Token Mode Toggle
+          <div class="hotkey-info">Press to switch between character and token navigation</div>
+        </span>
+        <input type="text" id="keyboardTokenModeToggleKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Mine Button
+          <div class="hotkey-info">Press to mine the current Yomitan entry</div>
+        </span>
+        <input type="text" id="keyboardMineButton" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Keyboard Navigation</h5>
+      <label>
+        <span class="label-text">
+          Navigate Up
+          <div class="hotkey-info">Key to move to the previous text block</div>
+        </span>
+        <input type="text" id="keyboardNavigateUp" class="keyboard-binding-input" value="↑" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Navigate Down
+          <div class="hotkey-info">Key to move to the next text block</div>
+        </span>
+        <input type="text" id="keyboardNavigateDown" class="keyboard-binding-input" value="↓" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Navigate Left
+          <div class="hotkey-info">Key to move cursor left</div>
+        </span>
+        <input type="text" id="keyboardNavigateLeft" class="keyboard-binding-input" value="←" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Navigate Right
+          <div class="hotkey-info">Key to move cursor right</div>
+        </span>
+        <input type="text" id="keyboardNavigateRight" class="keyboard-binding-input" value="→" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
@@ -1308,6 +1395,13 @@
           <div class="hotkey-info">Automatically trigger Yomitan lookup when moving cursor via gamepad</div>
         </span>
         <input type="checkbox" id="gamepadAutoConfirmSelection" checked />
+      </label>
+      <label>
+        <span class="label-text">
+          Focus Overlay On Entry
+          <div class="hotkey-info">Bring the overlay window to the foreground when gamepad navigation starts</div>
+        </span>
+        <input type="checkbox" id="gamepadFocusOverlayOnEntry" checked />
       </label>
       <label>
         <span class="label-text">
@@ -1526,6 +1620,23 @@
       gamepadPrevEntryButton: { settingKey: "gamepadPrevEntryButton", label: "Previous Yomitan Entry Button", fallbackValue: 6 },
     };
 
+    const KEYBOARD_BINDING_INPUT_CONFIG = {
+      keyboardModifierKey: { settingKey: "keyboardModifierKey", label: "Keyboard Modifier Key", fallbackValue: null },
+      keyboardToggleKey: { settingKey: "keyboardToggleKey", label: "Keyboard Toggle Key", fallbackValue: null },
+      keyboardConfirmKey: { settingKey: "keyboardConfirmKey", label: "Keyboard Confirm Key", fallbackValue: "Enter" },
+      keyboardCancelKey: { settingKey: "keyboardCancelKey", label: "Keyboard Cancel Key", fallbackValue: "Escape" },
+      keyboardForwardEnterKey: { settingKey: "keyboardForwardEnterKey", label: "Keyboard Forward Enter Key", fallbackValue: null },
+      keyboardManualOverlayScanKey: { settingKey: "keyboardManualOverlayScanKey", label: "Keyboard Manual Overlay Scan Key", fallbackValue: null },
+      keyboardTokenModeToggleKey: { settingKey: "keyboardTokenModeToggleKey", label: "Keyboard Token Toggle Key", fallbackValue: null },
+      keyboardNextEntryKey: { settingKey: "keyboardNextEntryKey", label: "Keyboard Next Entry Key", fallbackValue: null },
+      keyboardPrevEntryKey: { settingKey: "keyboardPrevEntryKey", label: "Keyboard Prev Entry Key", fallbackValue: null },
+      keyboardNavigateUp: { settingKey: "keyboardNavigateUp", label: "Keyboard Navigate Up", fallbackValue: "ArrowUp" },
+      keyboardNavigateDown: { settingKey: "keyboardNavigateDown", label: "Keyboard Navigate Down", fallbackValue: "ArrowDown" },
+      keyboardNavigateLeft: { settingKey: "keyboardNavigateLeft", label: "Keyboard Navigate Left", fallbackValue: "ArrowLeft" },
+      keyboardNavigateRight: { settingKey: "keyboardNavigateRight", label: "Keyboard Navigate Right", fallbackValue: "ArrowRight" },
+      keyboardMineButton: { settingKey: "keyboardMineButton", label: "Keyboard Mine Button", fallbackValue: null },
+    };
+
     function updateSettingsTabVisibility(tabName) {
       const nextTab = tabName || "general";
       activeSettingsTab = nextTab;
@@ -1695,6 +1806,7 @@
     const VALID_MANUAL_MODE_TYPES = new Set(["hold", "toggle"]);
     const VALID_GAMEPAD_ACTIVATION_MODES = new Set(["modifier", "toggle"]);
     const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
+    const VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS = new Set(["mecab", "sudachi"]);
     const VALID_SUDACHI_DICTIONARIES = new Set(["small", "core", "full"]);
     let overlaySettingDefaults = {};
     const settingBindingMap = new Map();
@@ -1738,6 +1850,11 @@
     function normalizeSudachiDictionaryValue(value) {
       const normalized = String(value || "").trim().toLowerCase();
       return VALID_SUDACHI_DICTIONARIES.has(normalized) ? normalized : "core";
+    }
+
+    function normalizeLocalTokenizerFallbackBackendValue(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      return VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS.has(normalized) ? normalized : "mecab";
     }
 
     function normalizeYomitanApiUrlValue(value) {
@@ -2044,6 +2161,7 @@
         "gamepadPrevEntryButton",
         "gamepadTokenMode",
         "gamepadAutoConfirmSelection",
+        "gamepadFocusOverlayOnEntry",
         "gamepadRepeatDelay",
         "gamepadRepeatRate",
         "gamepadServerPort",
@@ -2216,6 +2334,13 @@
       }),
       createCheckboxBinding("showFurigana", "#showFurigana"),
       createCheckboxBinding("hideFuriganaOnStartup", "#hideFuriganaOnStartup"),
+      createNumberBinding("hideFuriganaAfterSeconds", "#hideFuriganaAfterSeconds", {
+        fallback: 0,
+        min: 0,
+        max: 60,
+        integer: true,
+        getDefault: () => 0,
+      }),
       createNumberBinding("furiganaScale", "#furiganaScale", {
         fallback: 0.55,
         min: 0.2,
@@ -2280,10 +2405,29 @@
       createGamepadBindingSetting("gamepadManualOverlayScanButton"),
       createGamepadBindingSetting("gamepadNextEntryButton"),
       createGamepadBindingSetting("gamepadPrevEntryButton"),
+      createKeyboardBindingSetting("keyboardModifierKey"),
+      createKeyboardBindingSetting("keyboardToggleKey"),
+      createKeyboardBindingSetting("keyboardConfirmKey"),
+      createKeyboardBindingSetting("keyboardCancelKey"),
+      createKeyboardBindingSetting("keyboardForwardEnterKey"),
+      createKeyboardBindingSetting("keyboardManualOverlayScanKey"),
+      createKeyboardBindingSetting("keyboardTokenModeToggleKey"),
+      createKeyboardBindingSetting("keyboardNextEntryKey"),
+      createKeyboardBindingSetting("keyboardPrevEntryKey"),
+      createKeyboardBindingSetting("keyboardNavigateUp"),
+      createKeyboardBindingSetting("keyboardNavigateDown"),
+      createKeyboardBindingSetting("keyboardNavigateLeft"),
+      createKeyboardBindingSetting("keyboardNavigateRight"),
+      createKeyboardBindingSetting("keyboardMineButton"),
       createCheckboxBinding("gamepadTokenMode", "#gamepadTokenMode"),
+      createCheckboxBinding("gamepadFocusOverlayOnEntry", "#gamepadFocusOverlayOnEntry"),
       createSelectBinding("gamepadTokenizerBackend", ["#gamepadTokenizerBackend", "#furiganaTokenizerBackend"], {
         normalize: normalizeTokenizerBackendValue,
         afterApply: () => updateTokenizerBackendFieldState(),
+      }),
+      createSelectBinding("gamepadLocalTokenizerFallbackBackend", "#furiganaLocalTokenizerFallbackBackend", {
+        normalize: normalizeLocalTokenizerFallbackBackendValue,
+        getDefault: () => "mecab",
       }),
       createSelectBinding("gamepadSudachiDictionary", ["#gamepadSudachiDictionary", "#furiganaSudachiDictionary"], {
         normalize: normalizeSudachiDictionaryValue,
@@ -2364,6 +2508,11 @@
 
       if (binding.kind === "gamepad-binding") {
         initializeGamepadBindingInput(control.id);
+        return;
+      }
+
+      if (binding.kind === "keyboard-binding") {
+        initializeKeyboardBindingInput(control.id);
         return;
       }
 
@@ -2727,6 +2876,271 @@
       }
     }
 
+    // ==================== Keyboard Binding Capture ====================
+
+    const KEYBOARD_MODIFIER_KEY_IDS = new Set([
+      "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight",
+      "AltLeft", "AltRight", "MetaLeft", "MetaRight",
+    ]);
+
+    const KEYBOARD_KEY_DISPLAY_LABELS = {
+      ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→",
+      Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]",
+      Backslash: "\\", Semicolon: ";", Quote: "'", Comma: ",",
+      Period: ".", Slash: "/", Backquote: "`",
+    };
+
+    function getKeyboardKeyDisplayLabel(keyId) {
+      if (!keyId) return "";
+      const letterMatch = keyId.match(/^Key([A-Z])$/);
+      if (letterMatch) return letterMatch[1];
+      const digitMatch = keyId.match(/^Digit(\d)$/);
+      if (digitMatch) return digitMatch[1];
+      if (KEYBOARD_KEY_DISPLAY_LABELS[keyId]) return KEYBOARD_KEY_DISPLAY_LABELS[keyId];
+      return keyId;
+    }
+
+    function formatKeyboardBindingLabel(key, modifiers) {
+      const parts = [];
+      if (modifiers && modifiers.ctrl) parts.push("Ctrl");
+      if (modifiers && modifiers.alt) parts.push("Alt");
+      if (modifiers && modifiers.shift) parts.push("Shift");
+      if (modifiers && modifiers.meta) parts.push("Meta");
+      if (key && !KEYBOARD_MODIFIER_KEY_IDS.has(key)) {
+        parts.push(getKeyboardKeyDisplayLabel(key));
+      }
+      return parts.length > 0 ? parts.join("+") : "Disabled";
+    }
+
+    function formatKeyboardBindingSettingValue(key, modifiers) {
+      // The setting value is stored as a string like "Ctrl+ArrowUp" or just "Enter"
+      const parts = [];
+      if (modifiers && modifiers.ctrl) parts.push("Ctrl");
+      if (modifiers && modifiers.alt) parts.push("Alt");
+      if (modifiers && modifiers.shift) parts.push("Shift");
+      if (modifiers && modifiers.meta) parts.push("Meta");
+      if (key && !KEYBOARD_MODIFIER_KEY_IDS.has(key)) {
+        parts.push(key);
+      }
+      return parts.length > 0 ? parts.join("+") : "Disabled";
+    }
+
+    function formatKeyboardBindingDisplayValue(settingValue, fallbackValue) {
+      if (!settingValue || /^(disabled|none|off)$/i.test(String(settingValue).trim())) {
+        if (fallbackValue !== null && fallbackValue !== undefined) {
+          return formatKeyboardBindingDisplayFromSettingValue(fallbackValue);
+        }
+        return "Disabled";
+      }
+      return formatKeyboardBindingDisplayFromSettingValue(settingValue);
+    }
+
+    function formatKeyboardBindingDisplayFromSettingValue(value) {
+      if (!value || /^(disabled|none|off)$/i.test(String(value).trim())) return "Disabled";
+      const tokens = String(value).split("+").map((t) => t.trim());
+      const parts = [];
+      for (const token of tokens) {
+        const lower = token.toLowerCase();
+        if (lower === "ctrl" || lower === "control") { parts.push("Ctrl"); continue; }
+        if (lower === "alt") { parts.push("Alt"); continue; }
+        if (lower === "shift") { parts.push("Shift"); continue; }
+        if (lower === "meta" || lower === "cmd" || lower === "win") { parts.push("Meta"); continue; }
+        parts.push(getKeyboardKeyDisplayLabel(token));
+      }
+      return parts.length > 0 ? parts.join("+") : "Disabled";
+    }
+
+    let activeKeyboardBindingCapture = null;
+
+    function setKeyboardBindingInputValue(inputId, value) {
+      const input = document.getElementById(inputId);
+      const config = KEYBOARD_BINDING_INPUT_CONFIG[inputId];
+      if (!input || !config) return;
+      input.value = formatKeyboardBindingDisplayValue(value, config.fallbackValue);
+    }
+
+    function initializeKeyboardBindingInput(inputId) {
+      const input = document.getElementById(inputId);
+      const config = KEYBOARD_BINDING_INPUT_CONFIG[inputId];
+      if (!input || !config) return;
+
+      input.readOnly = true;
+
+      input.addEventListener("focus", () => {
+        if (input.disabled) return;
+        startKeyboardBindingCapture(inputId);
+      });
+
+      input.addEventListener("blur", () => {
+        if (activeKeyboardBindingCapture && activeKeyboardBindingCapture.inputId === inputId) {
+          stopKeyboardBindingCapture({ restorePrevious: true });
+        }
+      });
+
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Tab") return;
+        event.preventDefault();
+        event.stopPropagation();
+        // We DON'T capture browser keyboard events — we wait for server events instead.
+        // But we handle Escape, Backspace, Delete for UX.
+        if (event.key === "Escape") {
+          stopKeyboardBindingCapture({ restorePrevious: true });
+          input.blur();
+          return;
+        }
+        if (event.key === "Backspace" || event.key === "Delete") {
+          clearKeyboardBindingInput(inputId);
+          input.blur();
+        }
+      });
+    }
+
+    function startKeyboardBindingCapture(inputId) {
+      if (activeKeyboardBindingCapture) {
+        stopKeyboardBindingCapture({ restorePrevious: true });
+      }
+
+      const input = document.getElementById(inputId);
+      const config = KEYBOARD_BINDING_INPUT_CONFIG[inputId];
+      if (!input || !config) return;
+
+      const previousValue = input.value;
+      input.value = "Press a key...";
+      input.classList.add("capturing-keyboard");
+      setOverlayGamepadBindingCaptureSuppression(true);
+
+      activeKeyboardBindingCapture = {
+        inputId,
+        input,
+        config,
+        previousValue,
+        capturedKey: null,
+        capturedModifiers: null,
+        handlerFn: null,
+      };
+
+      // Listen for keyboard events from the input server WebSocket
+      const handler = (event) => {
+        const { key, pressed, modifiers } = event.detail;
+        if (!activeKeyboardBindingCapture || activeKeyboardBindingCapture.inputId !== inputId) return;
+        if (!pressed) {
+          // Key released — if we captured something, commit it
+          if (activeKeyboardBindingCapture.capturedKey !== null || activeKeyboardBindingCapture.capturedModifiers !== null) {
+            commitKeyboardBindingCapture();
+          }
+          return;
+        }
+
+        // Track the captured key+modifiers
+        const isModifier = KEYBOARD_MODIFIER_KEY_IDS.has(key);
+        if (isModifier) {
+          // Just update modifiers display
+          activeKeyboardBindingCapture.capturedModifiers = { ...modifiers };
+          activeKeyboardBindingCapture.capturedKey = null;
+          input.value = formatKeyboardBindingLabel(null, modifiers);
+        } else {
+          activeKeyboardBindingCapture.capturedKey = key;
+          activeKeyboardBindingCapture.capturedModifiers = { ...modifiers };
+          input.value = formatKeyboardBindingLabel(key, modifiers);
+          // Non-modifier key pressed — commit immediately
+          commitKeyboardBindingCapture();
+        }
+      };
+
+      activeKeyboardBindingCapture.handlerFn = handler;
+      window.addEventListener("gsm-keyboard-event", handler);
+    }
+
+    function commitKeyboardBindingCapture() {
+      const capture = activeKeyboardBindingCapture;
+      if (!capture) return;
+
+      const settingValue = formatKeyboardBindingSettingValue(capture.capturedKey, capture.capturedModifiers);
+      const displayLabel = formatKeyboardBindingLabel(capture.capturedKey, capture.capturedModifiers);
+
+      stopKeyboardBindingCapture({
+        nextValue: displayLabel,
+        shouldSave: true,
+        saveValue: settingValue,
+        logLine: `Saved ${capture.config.label}: ${displayLabel}`,
+        blurInput: true,
+      });
+    }
+
+    function clearKeyboardBindingInput(inputId) {
+      const input = document.getElementById(inputId);
+      const config = KEYBOARD_BINDING_INPUT_CONFIG[inputId];
+      if (!input || !config) return;
+
+      if (activeKeyboardBindingCapture && activeKeyboardBindingCapture.inputId === inputId) {
+        stopKeyboardBindingCapture({ restorePrevious: false });
+      }
+
+      input.classList.remove("capturing-keyboard");
+      input.value = "Disabled";
+      void commitSettingValue(config.settingKey, "Disabled", input);
+      addGamepadInputConsoleLine(`Cleared ${config.label}`);
+    }
+
+    function stopKeyboardBindingCapture(options = {}) {
+      const {
+        restorePrevious = false,
+        nextValue = null,
+        shouldSave = false,
+        saveValue = null,
+        logLine = "",
+        blurInput = false,
+      } = options;
+
+      const capture = activeKeyboardBindingCapture;
+      if (!capture) return;
+
+      activeKeyboardBindingCapture = null;
+
+      if (capture.handlerFn) {
+        window.removeEventListener("gsm-keyboard-event", capture.handlerFn);
+      }
+
+      capture.input.classList.remove("capturing-keyboard");
+      setOverlayGamepadBindingCaptureSuppression(false);
+
+      if (nextValue !== null) {
+        capture.input.value = nextValue;
+      } else if (restorePrevious) {
+        capture.input.value = capture.previousValue;
+      }
+
+      if (shouldSave && saveValue !== null) {
+        void commitSettingValue(capture.config.settingKey, saveValue, capture.input);
+      } else if (shouldSave && nextValue !== null) {
+        void commitSettingValue(capture.config.settingKey, nextValue, capture.input);
+      }
+
+      if (logLine) {
+        addGamepadInputConsoleLine(logLine);
+      }
+
+      if (blurInput && typeof capture.input.blur === "function" && document.activeElement === capture.input) {
+        capture.input.blur();
+      }
+    }
+
+    function createKeyboardBindingSetting(inputId) {
+      const config = KEYBOARD_BINDING_INPUT_CONFIG[inputId];
+      return {
+        key: config.settingKey,
+        selectors: [`#${inputId}`],
+        kind: "keyboard-binding",
+        read: (control) => control.value,
+        write: (control, value) => {
+          setKeyboardBindingInputValue(control.id, value);
+        },
+        equals: (left, right) => (
+          formatKeyboardBindingDisplayValue(left, config.fallbackValue) === formatKeyboardBindingDisplayValue(right, config.fallbackValue)
+        ),
+      };
+    }
+
     // Capture keyboard event and convert to accelerator format
     function captureKeyboardEvent(event) {
       const modifiers = [];
@@ -2884,6 +3298,7 @@
         gamepadEnabled: userSettings.gamepadEnabled !== false,
         gamepadTokenMode: userSettings.gamepadTokenMode !== false,
         gamepadAutoConfirmSelection: userSettings.gamepadAutoConfirmSelection !== false,
+        gamepadFocusOverlayOnEntry: userSettings.gamepadFocusOverlayOnEntry !== false,
         gamepadControllerEnabled: userSettings.gamepadControllerEnabled !== false,
         gamepadKeyboardEnabled: userSettings.gamepadKeyboardEnabled !== false,
       };
@@ -3551,6 +3966,16 @@
           case "gamepad_state":
             if (deviceName) serverReportedGamepads.add(deviceName);
             updateGamepadStatus();
+            break;
+          case "keyboard_event":
+            // Forward server keyboard events for keyboard binding capture
+            window.dispatchEvent(new CustomEvent("gsm-keyboard-event", {
+              detail: {
+                key: data.key,
+                pressed: data.pressed,
+                modifiers: data.modifiers || {},
+              }
+            }));
             break;
           default:
             break;
