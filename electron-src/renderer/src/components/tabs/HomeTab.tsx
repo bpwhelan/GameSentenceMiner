@@ -442,14 +442,16 @@ export function HomeTab({ active }: HomeTabProps) {
                   >
                     Remove
                   </button>
-                  {/* TODO: Switch profile per-scene */}
+                  {/* 
+                  // TODO: Switch profile per-scene
                   <button type="button" className="home-text-btn" disabled>
                     Switch Profile
                   </button>
-                  {/* TODO: Open OBS preview for current capture */}
+                  // TODO: Open OBS preview for current capture
                   <button type="button" className="home-text-btn" disabled>
                     Preview
                   </button>
+                   */}
                 </div>
               </div>
             </div>

@@ -222,14 +222,6 @@ function normalizeInstallDestinationPath(tool: DownloadableTool, selectedDirecto
     return path.join(selectedDirectory, expectedFolderName);
 }
 
-function getDefaultDocumentsInstallDirectory(tool: DownloadableTool): string {
-    const documentsDirectory = app.getPath('documents');
-    if (tool === 'agent') {
-        return path.join(documentsDirectory, 'Agent');
-    }
-    return path.join(documentsDirectory, 'Textractor');
-}
-
 function inferTextractorBaseDirectory(executablePath: string): string {
     const trimmedPath = executablePath.trim();
     if (!trimmedPath) {
@@ -245,39 +237,6 @@ function inferTextractorBaseDirectory(executablePath: string): string {
     }
 
     return executableDirectory;
-}
-
-function getPreferredInstallDirectory(tool: DownloadableTool): string {
-    if (tool === 'agent') {
-        const configuredAgentPath = getAgentPath().trim();
-        if (configuredAgentPath) {
-            return path.dirname(configuredAgentPath);
-        }
-
-        const configuredScriptsPath = getAgentScriptsPath().trim();
-        if (configuredScriptsPath) {
-            const scriptsDirectoryName = path.basename(configuredScriptsPath).toLowerCase();
-            const dataDirectoryName = path.basename(path.dirname(configuredScriptsPath)).toLowerCase();
-            if (scriptsDirectoryName === 'scripts' && dataDirectoryName === 'data') {
-                return path.dirname(path.dirname(configuredScriptsPath));
-            }
-            return path.dirname(configuredScriptsPath);
-        }
-    }
-
-    if (tool === 'textractor') {
-        const configuredTextractor64 = getTextractorPath64().trim();
-        if (configuredTextractor64) {
-            return inferTextractorBaseDirectory(configuredTextractor64);
-        }
-
-        const configuredTextractor32 = getTextractorPath32().trim();
-        if (configuredTextractor32) {
-            return inferTextractorBaseDirectory(configuredTextractor32);
-        }
-    }
-
-    return getDefaultDocumentsInstallDirectory(tool);
 }
 
 async function fetchLatestGitHubRelease(owner: string, repo: string): Promise<GitHubReleaseResponse> {
@@ -1422,9 +1381,7 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
             progress: null,
         });
 
-        const preferredInstallDirectory = getPreferredInstallDirectory(tool);
-        const pickerDefaultDirectory = path.dirname(preferredInstallDirectory) || preferredInstallDirectory;
-        const selectedDirectory = await selectDirectoryPath(pickerDefaultDirectory);
+        const selectedDirectory = await selectDirectoryPath();
         if (!selectedDirectory) {
             return { status: 'canceled', message: 'No directory selected.' };
         }

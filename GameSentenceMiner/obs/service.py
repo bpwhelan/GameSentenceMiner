@@ -231,8 +231,10 @@ class OBSConnectionPool:
 # ---------------------------------------------------------------------------
 # Minimal state dataclass
 # ---------------------------------------------------------------------------
-# After this many consecutive game_capture probe failures the source is
-# removed from the OBS scene entirely so it can never block window_capture.
+# After this many consecutive qualified game_capture probe failures the
+# source is removed from the OBS scene entirely so it can never block
+# window_capture. A failure only qualifies when the scene target is known to
+# be running and game_capture still produces no output.
 GAME_CAPTURE_REMOVAL_THRESHOLD = 5
 
 
@@ -249,7 +251,7 @@ class OBSState:
     record_active: Optional[bool] = None
     current_source_name: Optional[str] = None
 
-    # Tracks consecutive game_capture probe failures per scene.
+    # Tracks consecutive qualified game_capture probe failures per scene.
     # Once the count reaches GAME_CAPTURE_REMOVAL_THRESHOLD the source is
     # removed from the OBS scene so window_capture is the sole video source.
     game_capture_fail_count: Dict[str, int] = field(default_factory=dict)
@@ -874,6 +876,35 @@ class OBSService:
             pass
         return None
 
+    def _get_source_target_running_state(self, source_name: Optional[str]) -> Optional[bool]:
+        if not source_name:
+            return None
+
+        settings = self._get_input_settings_for_source(source_name)
+        if not settings:
+            return None
+
+        for key in ("window", "capture_window"):
+            target = settings.get(key)
+            if target:
+                return _window_target_exists(target)
+
+        return None
+
+    def _get_scene_target_running_state(self, scene_items: List[dict]) -> Optional[bool]:
+        seen_source_names = set()
+        for item in scene_items:
+            source_name = item.get("sourceName")
+            if not source_name or source_name in seen_source_names:
+                continue
+            seen_source_names.add(source_name)
+
+            target_running = self._get_source_target_running_state(source_name)
+            if target_running is not None:
+                return target_running
+
+        return None
+
     def _probe_source_has_output(self, source_name: Optional[str]) -> bool:
         if not source_name:
             return False
@@ -935,6 +966,12 @@ class OBSService:
             preferred_game_item = None
             game_items = []
 
+        scene_target_running = None
+        if preferred_game_item:
+            scene_target_running = self._get_scene_target_running_state(
+                [item for item in (preferred_game_item, preferred_window_item) if item] + scene_items
+            )
+
         # --- Probe game_capture (WITHOUT re-enabling it first) ---
         # OBS can screenshot a source by name even if it's disabled in a scene,
         # so we avoid toggling it on, which would flash a black frame on top of
@@ -949,21 +986,22 @@ class OBSService:
             self._capture_source_settled = True
             return True
 
-        # Game capture probe failed (or there is no game_capture source).
+        qualified_game_failure = False
+        fail_count = 0
         if preferred_game_item:
+            qualified_game_failure = scene_target_running is True
             with self._state_lock:
-                fail_count = self.state.game_capture_fail_count.get(scene_name, 0) + 1
-                self.state.game_capture_fail_count[scene_name] = fail_count
-
-            # Immediately disable game_capture so it doesn't render black on
-            # top of window_capture.
-            set_enabled_if_needed(game_items, False)
-
-            if fail_count >= GAME_CAPTURE_REMOVAL_THRESHOLD:
-                self._remove_game_capture_from_scene(scene_name, game_items)
+                if qualified_game_failure:
+                    fail_count = self.state.game_capture_fail_count.get(scene_name, 0) + 1
+                    self.state.game_capture_fail_count[scene_name] = fail_count
+                else:
+                    self.state.game_capture_fail_count.pop(scene_name, None)
 
         # --- Probe window_capture ---
         if preferred_window_item and self._probe_source_has_output(preferred_window_item.get("sourceName")):
+            set_enabled_if_needed(game_items, False)
+            if qualified_game_failure and fail_count >= GAME_CAPTURE_REMOVAL_THRESHOLD:
+                self._remove_game_capture_from_scene(scene_name, game_items)
             set_enabled_if_needed(window_items, True)
             with self._state_lock:
                 self.state.current_source_name = preferred_window_item.get("sourceName")
@@ -971,8 +1009,13 @@ class OBSService:
             return True
 
         # Neither source has output.  Enable window_capture (universal
-        # fallback) so OBS can pick it up when available.  game_capture stays
-        # disabled because enabling it would mask window_capture.
+        # fallback) so OBS can pick it up when available.  Leave game_capture
+        # alone unless the target is known to be running and game_capture has
+        # therefore failed in a meaningful way.
+        if qualified_game_failure:
+            set_enabled_if_needed(game_items, False)
+            if fail_count >= GAME_CAPTURE_REMOVAL_THRESHOLD:
+                self._remove_game_capture_from_scene(scene_name, game_items)
         set_enabled_if_needed(window_items, True)
         return False
 

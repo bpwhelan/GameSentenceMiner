@@ -1300,6 +1300,8 @@ class GamepadHandler {
       forwardEnterButton: normalizeGamepadBindingValue(this.config.forwardEnterButton, -1),
       manualOverlayScanButton: normalizeGamepadBindingValue(this.config.manualOverlayScanButton, -1),
       tokenModeToggleButton: normalizeGamepadBindingValue(this.config.tokenModeToggleButton, 3),
+      nextEntryButton: normalizeGamepadBindingValue(this.config.nextEntryButton, 7),
+      prevEntryButton: normalizeGamepadBindingValue(this.config.prevEntryButton, 6),
     };
   }
 
@@ -2702,6 +2704,8 @@ class GamepadHandler {
     const confirmBinding = this.buttonBindings.confirmButton;
     const cancelBinding = this.buttonBindings.cancelButton;
     const tokenModeToggleBinding = this.buttonBindings.tokenModeToggleButton;
+    const nextEntryBinding = this.buttonBindings.nextEntryButton;
+    const prevEntryBinding = this.buttonBindings.prevEntryButton;
 
     // Toggle activation is only valid in toggle mode.
     if (this.config.activationMode === 'toggle' && this.matchesButtonBindingDown(toggleBinding, device, buttonIndex)) {
@@ -2723,11 +2727,11 @@ class GamepadHandler {
     
     // Handle Yomitan entry navigation (popup must be visible)
     if (this.yomitanPopupVisible) {
-      if (this.config.nextEntryButton >= 0 && buttonIndex === this.config.nextEntryButton) {
+      if (this.matchesButtonBindingDown(nextEntryBinding, device, buttonIndex)) {
         this.navigateYomitanNextEntry();
         return;
       }
-      if (this.config.prevEntryButton >= 0 && buttonIndex === this.config.prevEntryButton) {
+      if (this.matchesButtonBindingDown(prevEntryBinding, device, buttonIndex)) {
         this.navigateYomitanPrevEntry();
         return;
       }
@@ -5992,6 +5996,8 @@ class GamepadHandler {
       safeConfig.forwardEnterButton = this.describeButtonBinding(this.buttonBindings.forwardEnterButton);
       safeConfig.manualOverlayScanButton = this.describeButtonBinding(this.buttonBindings.manualOverlayScanButton);
       safeConfig.tokenModeToggleButton = this.describeButtonBinding(this.buttonBindings.tokenModeToggleButton);
+      safeConfig.nextEntryButton = this.describeButtonBinding(this.buttonBindings.nextEntryButton);
+      safeConfig.prevEntryButton = this.describeButtonBinding(this.buttonBindings.prevEntryButton);
     }
     if (safeConfig.jitenApiKey) {
       safeConfig.jitenApiKey = '***';

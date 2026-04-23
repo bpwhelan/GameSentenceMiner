@@ -107,6 +107,72 @@ describe("legacy gamepad button bindings", () => {
     handler.buttonStates = new Map([["pad-1", { 4: true }]]);
     expect(handler.isButtonBindingHeld(comboBinding, "pad-1")).toBe(false);
   });
+
+  it("uses normalized bindings for Yomitan entry navigation buttons saved as labels", () => {
+    const handler = Object.create(GamepadHandler.prototype) as {
+      config: {
+        activationMode: string;
+        controllerEnabled: boolean;
+        nextEntryButton: string;
+        prevEntryButton: string;
+      };
+      buttonStates: Map<string, Record<number, boolean>>;
+      buttonBindings: Record<string, any>;
+      bindingContainsButton: (binding: any, buttonIndex: number) => boolean;
+      isButtonBindingHeld: (binding: any, device: string) => boolean;
+      matchesButtonBindingDown: (binding: any, device: string, buttonIndex: number) => boolean;
+      refreshButtonBindings: () => void;
+      onButtonDown: (buttonIndex: number, device: string) => void;
+      yomitanPopupVisible: boolean;
+      isNavigationActive: () => boolean;
+      shouldProcessNavigation: () => boolean;
+      navigateYomitanNextEntry: () => void;
+      navigateYomitanPrevEntry: () => void;
+    };
+
+    handler.config = {
+      activationMode: "modifier",
+      controllerEnabled: true,
+      nextEntryButton: "RT",
+      prevEntryButton: "LT"
+    };
+    handler.buttonStates = new Map([["pad-1", { 7: true }]]);
+    handler.bindingContainsButton = GamepadHandler.prototype.bindingContainsButton;
+    handler.isButtonBindingHeld = GamepadHandler.prototype.isButtonBindingHeld;
+    handler.matchesButtonBindingDown = GamepadHandler.prototype.matchesButtonBindingDown;
+    handler.refreshButtonBindings = GamepadHandler.prototype.refreshButtonBindings;
+    handler.onButtonDown = GamepadHandler.prototype.onButtonDown;
+    handler.yomitanPopupVisible = true;
+    handler.isNavigationActive = () => false;
+    handler.shouldProcessNavigation = () => false;
+
+    const calls: string[] = [];
+    handler.navigateYomitanNextEntry = () => {
+      calls.push("next");
+    };
+    handler.navigateYomitanPrevEntry = () => {
+      calls.push("prev");
+    };
+
+    handler.refreshButtonBindings();
+
+    expect(handler.buttonBindings.nextEntryButton).toMatchObject({
+      buttons: [7],
+      disabled: false,
+      label: "RT"
+    });
+    expect(handler.buttonBindings.prevEntryButton).toMatchObject({
+      buttons: [6],
+      disabled: false,
+      label: "LT"
+    });
+
+    handler.onButtonDown(7, "pad-1");
+    handler.buttonStates = new Map([["pad-1", { 6: true }]]);
+    handler.onButtonDown(6, "pad-1");
+
+    expect(calls).toEqual(["next", "prev"]);
+  });
 });
 
 describe("legacy gamepad start block selection", () => {

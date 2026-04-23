@@ -181,14 +181,14 @@ export const store = new Store<StoreConfig>({
             ocrEnabled: false,
         },
         yuzu: {
-            emuPath: "C:\\Emulation\\Emulators\\yuzu-windows-msvc\\yuzu.exe",
-            romsPath: `C:\\Emulation\\Yuzu\\Games`,
+            emuPath: "",
+            romsPath: ``,
             launchGameOnStart: "",
             lastGameLaunched: "",
             games: []
         },
-        agentScriptsPath: `E:\\Japanese Stuff\\agent-v0.1.4-win32-x64\\data\\scripts`,
-        textractorPath: `E:\\Japanese Stuff\\Textractor\\Textractor.exe`,
+        agentScriptsPath: ``,
+        textractorPath: ``,
         textractorPath64: "",
         textractorPath32: "",
         lunaTranslatorPath: "",

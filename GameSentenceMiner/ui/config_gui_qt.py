@@ -773,6 +773,7 @@ class ConfigWindow(QWidget):
                     parent_tag=self.parent_tag_edit.text(),
                     autoplay_audio=self.anki_confirmation_autoplay_audio_check.isChecked(),
                     tag_unvoiced_cards=self.tag_unvoiced_cards_check.isChecked(),
+                    remove_overlay_tag=self.remove_overlay_tag_check.isChecked(),
                     confirmation_always_on_top=self.anki_confirmation_always_on_top_check.isChecked(),
                     confirmation_focus_on_show=self.anki_confirmation_focus_on_show_check.isChecked(),
                     replay_audio_on_tts_generation=self.anki_confirmation_replay_audio_on_tts_generation_check.isChecked(),
@@ -1259,6 +1260,7 @@ class ConfigWindow(QWidget):
         self.add_game_tag_check = QCheckBox()
         self.parent_tag_edit = QLineEdit()
         self.tag_unvoiced_cards_check = QCheckBox()
+        self.remove_overlay_tag_check = QCheckBox()
 
         # Features
         self.full_auto_check = QCheckBox()  # Note: This setting seems unused in the original save logic.
@@ -2703,6 +2705,7 @@ class ConfigWindow(QWidget):
         self.add_game_tag_check.setChecked(s.anki.add_game_tag)
         self._set_text_value(self.parent_tag_edit, s.anki.parent_tag)
         self.tag_unvoiced_cards_check.setChecked(s.anki.tag_unvoiced_cards)
+        self.remove_overlay_tag_check.setChecked(s.anki.remove_overlay_tag)
 
         # Features
         self.full_auto_check.setChecked(s.features.full_auto)

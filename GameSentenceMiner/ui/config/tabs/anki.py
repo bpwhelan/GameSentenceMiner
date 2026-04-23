@@ -363,6 +363,15 @@ def build_anki_tags_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "anki", "tag_unvoiced_cards"),
         window.tag_unvoiced_cards_check,
     )
+    tags_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "anki",
+            "remove_overlay_tag",
+            "Automatically remove the literal 'overlay' tag from updated Anki cards.",
+        ),
+        window.remove_overlay_tag_check,
+    )
     tags_group.setLayout(tags_layout)
     layout.addRow(tags_group)
     return widget

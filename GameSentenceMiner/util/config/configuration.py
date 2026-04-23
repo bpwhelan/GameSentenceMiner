@@ -730,6 +730,7 @@ class Anki:
     autoplay_audio: bool = False
     replay_audio_on_tts_generation: bool = True
     tag_unvoiced_cards: bool = False
+    remove_overlay_tag: bool = False
 
     def __post_init__(self):
         if self.custom_tags is None:

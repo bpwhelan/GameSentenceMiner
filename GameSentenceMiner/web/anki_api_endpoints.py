@@ -58,6 +58,12 @@ _ANKI_STATS_SECTION_DEFAULTS: dict[str, object] = {
 }
 
 
+def _dispatch_anki_push_event(payload: dict) -> str:
+    from GameSentenceMiner import anki as anki_module
+
+    return anki_module.handle_incoming_anki_event(payload)
+
+
 def _parse_note_fields(fields_json) -> dict:
     """Parse cached note fields once per cache refresh."""
     if isinstance(fields_json, dict):
@@ -986,6 +992,25 @@ def _fetch_anki_reading_impact(
 
 def register_anki_api_endpoints(app):
     """Register all Anki API endpoints with the Flask app."""
+
+    @app.route("/api/anki/events", methods=["POST"])
+    @app.route("/anki/events", methods=["POST"])
+    def api_anki_events():
+        """Receive heartbeat and note-added events from the Anki push addon."""
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "Expected a JSON object payload."}), 400
+
+        try:
+            result = _dispatch_anki_push_event(payload)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+        if result == "heartbeat":
+            return "", 204
+        if result == "duplicate_note_added":
+            return "", 200
+        return "", 202
 
     @app.route("/api/anki_earliest_date")
     def api_anki_earliest_date():
