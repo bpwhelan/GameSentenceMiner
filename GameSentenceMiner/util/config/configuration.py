@@ -37,6 +37,7 @@ AI_OPENAI = "OpenAI"
 AI_OLLAMA = "Ollama"
 AI_LM_STUDIO = "LM Studio"
 AI_GSM_CLOUD = "GSM Cloud"
+AI_DEEPL = "DeepL"
 
 GSM_CLOUD_DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
 GSM_CLOUD_PREVIEW_ENV = "GSM_CLOUD_PREVIEW"
@@ -1101,6 +1102,8 @@ class Ai:
     enabled: bool = False  # DEPRECATED, use is_configured() instead
     add_to_anki: bool = False
     anki_field: str = ""
+    deepl_api_key: str = ""
+    deepl_target_lang: str = "EN"
     provider: str = AI_GEMINI
     gemini_model: str = "gemma-3-27b-it"
     gemini_backup_model: str = ""
@@ -1144,6 +1147,7 @@ class Ai:
             "groq": AI_GROQ,
             "openai": AI_OPENAI,
             "ollama": AI_OLLAMA,
+            "deepl": AI_DEEPL,
             "lm_studio": AI_LM_STUDIO,
             "lm studio": AI_LM_STUDIO,
             "gsm_cloud": AI_GSM_CLOUD,
@@ -1171,6 +1175,8 @@ class Ai:
             self.ollama_backup_model = ""
         if self.lm_studio_backup_model == OFF:
             self.lm_studio_backup_model = ""
+        if self.deepl_api_key == OFF:
+            self.deepl_api_key = ""
 
         if self.enabled:
             self.add_to_anki = True
@@ -1228,6 +1234,8 @@ class Ai:
         if self.provider == AI_LM_STUDIO and self.lm_studio_model and self.lm_studio_url:
             return True
         if self.provider == AI_GSM_CLOUD and self.gsm_cloud_access_token and self.get_gsm_cloud_primary_model():
+            return True
+        if self.provider == AI_DEEPL and self.deepl_api_key:
             return True
         return False
 

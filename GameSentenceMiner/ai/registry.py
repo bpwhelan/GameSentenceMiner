@@ -6,15 +6,18 @@ from typing import Dict, Optional
 from urllib.parse import urlparse
 
 from GameSentenceMiner.ai.providers.base import ProviderClient
+
 from GameSentenceMiner.util.config.configuration import (
     AI_GEMINI,
     AI_GROQ,
     AI_GSM_CLOUD,
     AI_LM_STUDIO,
     AI_OLLAMA,
+    AI_DEEPL,
     AI_OPENAI,
     Ai,
 )
+
 
 
 @dataclass(frozen=True)
@@ -140,6 +143,25 @@ class ProviderRegistry:
                     api_key=config.lm_studio_api_key,
                     logger=self.logger,
                 )
+            return self._clients[key]
+    
+        if config.provider == AI_DEEPL:
+            from GameSentenceMiner.ai.providers.deepl_client import DeepLClient
+
+            key = self._build_key(
+                config.provider,
+                "deepl",
+                None,
+                config.deepl_api_key,
+            )
+
+            if key not in self._clients:
+                self._clients[key] = DeepLClient(
+                    api_key=config.deepl_api_key,
+                    logger=self.logger,
+                    target_lang=config.deepl_target_lang,  # ← Pass from config
+                )
+
             return self._clients[key]
 
         raise ValueError(f"Unsupported AI provider: {config.provider}")

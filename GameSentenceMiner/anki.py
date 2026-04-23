@@ -27,6 +27,7 @@ from GameSentenceMiner.util.config.configuration import (
     anki_results,
     gsm_status,
     gsm_state,
+    AI_DEEPL
 )
 from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.gsm_utils import (
@@ -462,16 +463,67 @@ def _resolve_sentence_for_translation(note: Dict, last_note: "AnkiCard") -> str:
         return last_note.get_field(config.anki.sentence_field)
     return ""
 
-
 def prefetch_ai_translation(sentence_to_translate: str, game_line: "GameLine") -> str:
     if not sentence_to_translate:
         return ""
+
     try:
+        config = get_config()
+        provider = config.ai.provider
+
+        # 1. If DeepL is used, DO NOT call LLM pipeline
+        # DeepL handling (minimal, non-invasive)
+
+        if provider == AI_DEEPL:
+            logger.error("[PREFETCH] Using DeepL path")
+
+            if game_line.translation:
+                logger.error("[PREFETCH] Cache hit, returning existing translation")
+                return game_line.translation
+
+            logger.error(f"[PREFETCH] Calling DeepL for: {sentence_to_translate[:50]}")
+
+            from GameSentenceMiner.ai.providers.deepl_client import DeepLClient
+            from GameSentenceMiner.ai.contracts import AIRequest
+
+            client = DeepLClient(
+                api_key=config.ai.deepl_api_key,
+                logger=logger,
+                target_lang=config.ai.deepl_target_lang
+            )
+
+            response = client.generate(
+                AIRequest(
+                    provider=AI_DEEPL,
+                    model="deepl",
+                    prompt=sentence_to_translate,
+                    temperature=0.0,
+                    top_p=1.0,
+                    max_tokens=0,
+                    game_title="",
+                    request_kind="deepl_translation",
+                    metadata=None,
+                )
+            )
+
+            logger.error(f"[PREFETCH] DeepL returned: {response.text}")
+
+            game_line.translation = response.text
+            return response.text
+ 
+        # LLM path (UNCHANGED)
         translation = (
-            _get_ai_prompt_result()(get_all_lines(), sentence_to_translate, game_line, get_current_game()) or ""
+            _get_ai_prompt_result()(
+                get_all_lines(),
+                sentence_to_translate,
+                game_line,
+                get_current_game()
+            ) or ""
         )
+
         logger.info(f"AI prompt Result: {translation}")
         return translation
+    
     except Exception as e:
         logger.exception(f"Failed to prefetch AI translation: {e}")
         return ""

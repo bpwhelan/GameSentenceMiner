@@ -687,6 +687,14 @@
           "custom_prompt": {
             "label": "Custom Prompt:",
             "tooltip": "Custom prompt for AI processing."
+          },
+          "deepl_api_key": {
+            "label": "DeepL API Key:",
+            "tooltip": "Your DeepL API key. Get one from https://www.deepl.com/pro-api"
+          },
+          "deepl_target_lang": {
+            "label": "Target Language:",
+            "tooltip": "DeepL target language code (e.g., EN-US, JA, ZH, ES, FR, DE, IT, NL, PL, PT-PT, RU, KO)"
           }
         },
         "overlay": {

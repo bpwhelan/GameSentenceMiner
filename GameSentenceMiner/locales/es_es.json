@@ -679,6 +679,14 @@
           "custom_texthooker_prompt": {
             "label": "Prompt Personalizado de Texthooker:",
             "tooltip": "Prompt personalizado para procesamiento de texthooker con IA."
+          },
+          "deepl_api_key": {
+            "label": "Clave API de DeepL:",
+            "tooltip": "Tu clave API de DeepL. Obtén una en https://www.deepl.com/pro-api"
+          },
+          "deepl_target_lang": {
+            "label": "Idioma de destino:",
+            "tooltip": "Código de idioma de destino de DeepL (ej. EN-US, JA, ZH, ES, FR, DE, IT, NL, PL, PT-PT, RU, KO)"
           }
         },
         "overlay": {
