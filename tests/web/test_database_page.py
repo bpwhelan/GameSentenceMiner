@@ -89,6 +89,21 @@ def test_tools_page_renders_exstatic_import_card(client):
     assert '<script src="/static/js/database-exstatic-import.js"></script>' in html
 
 
+def test_tools_page_renders_stats_export_card(client):
+    response = client.get("/tools")
+
+    assert response.status_code == 200
+
+    html = response.get_data(as_text=True)
+    assert "Export Stats" in html
+    assert 'id="statsExportFormat"' in html
+    assert 'id="statsExportScope"' in html
+    assert 'value="since_last_export"' in html
+    assert 'id="startStatsExportBtn"' in html
+    assert 'id="statsExportProgress"' in html
+    assert 'id="statsExportStatus"' in html
+
+
 def test_tools_page_renders_deduplication_filter_controls(client):
     response = client.get("/tools")
 

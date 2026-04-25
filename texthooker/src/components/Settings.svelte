@@ -695,7 +695,7 @@
 </script>
 
 <svelte:head>
-	<title>{$windowTitle$ || 'Texthooker UI'}</title>
+	<title>{$windowTitle$ || 'GSM TextFeed'}</title>
 </svelte:head>
 
 {#if $settingsOpen$}

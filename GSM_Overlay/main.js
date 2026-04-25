@@ -641,6 +641,8 @@ let currentMagpieState = createMagpieState(null);
 let translationRequested = false; // Track if translation has been requested for current text
 let yomitanRecoveryVersion = 0; // Cancels stale async recovery attempts when popup state flips quickly
 let lastFocusRestoreRequestAt = 0;
+let lastOverlayTopmostReassertAt = 0;
+let pendingOverlayTopmostReassertTimer = null;
 let lastYomitanEventAt = 0;
 let yomitanForegroundActive = false;
 let trackedGameWindowState = "unknown";
@@ -694,6 +696,8 @@ const manualHotkeyController = createManualHotkeyController({
 });
 
 const FOCUS_RESTORE_THROTTLE_MS = 150;
+const OVERLAY_TOPMOST_REASSERT_THROTTLE_MS = 1500;
+const OVERLAY_MAGPIE_TEXT_REASSERT_THROTTLE_MS = 2500;
 const YOMITAN_STATE_STALE_TIMEOUT_MS = 12000;
 const FIND_IN_PAGE_COMMAND_CHANNEL = 'gsm-find-in-page:command';
 const FIND_IN_PAGE_RESULT_CHANNEL = 'gsm-find-in-page:result';
@@ -1756,31 +1760,106 @@ function showInactiveAndRestoreFocus(options = {}) {
   }
 }
 
-function reassertOverlayTopmostWithoutFocus(source = "overlay-reassert") {
+function releaseOverlayFocusAfterTopmostRecovery(delayMs = 120) {
+  setTimeout(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (!mainWindow.isFocused()) return;
+    blurAndRestoreFocus();
+  }, delayMs);
+}
+
+function reassertOverlayTopmostWithoutFocus(source = "overlay-reassert", options = {}) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   ensureMainWindowIsOnConnectedDisplay(source);
+  const forceShow = !!options.forceShow;
+  const restoreMinimized = options.restoreMinimized !== false;
+  const refreshWorkspace = !!options.refreshWorkspace;
+  const moveToTop = !!options.moveToTop;
+  let wasMinimized = false;
+
   if (mainWindow.isMinimized()) {
+    if (!restoreMinimized) {
+      return false;
+    }
     mainWindow.restore();
+    wasMinimized = true;
   }
-  if (typeof mainWindow.showInactive === "function") {
-    mainWindow.showInactive();
-  } else {
-    mainWindow.show();
+
+  if (forceShow || wasMinimized || !mainWindow.isVisible()) {
+    if (typeof mainWindow.showInactive === "function") {
+      mainWindow.showInactive();
+    } else {
+      mainWindow.show();
+    }
   }
+
   mainWindow.setAlwaysOnTop(true, "screen-saver");
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  if (typeof mainWindow.moveTop === "function") {
+  if (refreshWorkspace) {
+    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
+  if (moveToTop && typeof mainWindow.moveTop === "function") {
     try {
       mainWindow.moveTop();
     } catch (e) {
       // Ignore - moveTop may not be available on all Electron/platform combos.
     }
   }
+  return true;
+}
+
+function requestOverlayTopmostReassert(source = "overlay-reassert", options = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+
+  const force = !!options.force;
+  const throttleMs = Number.isFinite(options.throttleMs) && options.throttleMs >= 0
+    ? options.throttleMs
+    : OVERLAY_TOPMOST_REASSERT_THROTTLE_MS;
+  const canRun = () => (
+    typeof options.shouldRun !== "function" || options.shouldRun()
+  );
+
+  const runReassert = () => {
+    if (!canRun()) {
+      return false;
+    }
+    lastOverlayTopmostReassertAt = Date.now();
+    const didReassert = reassertOverlayTopmostWithoutFocus(source, options);
+    if (didReassert && options.releaseFocusAfter) {
+      releaseOverlayFocusAfterTopmostRecovery(options.releaseFocusAfterDelayMs);
+    }
+    return didReassert;
+  };
+
+  const now = Date.now();
+  const elapsedMs = now - lastOverlayTopmostReassertAt;
+  if (force || elapsedMs >= throttleMs) {
+    if (pendingOverlayTopmostReassertTimer) {
+      clearTimeout(pendingOverlayTopmostReassertTimer);
+      pendingOverlayTopmostReassertTimer = null;
+    }
+    return runReassert();
+  }
+
+  if (options.scheduleTrailing === false || pendingOverlayTopmostReassertTimer) {
+    return false;
+  }
+
+  const delayMs = Math.max(50, throttleMs - elapsedMs);
+  pendingOverlayTopmostReassertTimer = setTimeout(() => {
+    pendingOverlayTopmostReassertTimer = null;
+    runReassert();
+  }, delayMs);
+
+  return false;
 }
 
 function aggressivelyShowOverlayAndReturnFocus() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  reassertOverlayTopmostWithoutFocus("aggressivelyShowOverlayAndReturnFocus");
+  reassertOverlayTopmostWithoutFocus("aggressivelyShowOverlayAndReturnFocus", {
+    forceShow: true,
+    moveToTop: true,
+    refreshWorkspace: true,
+  });
   mainWindow.focus();
 }
 
@@ -1933,7 +2012,7 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown", optio
 
 function scheduleYomitanCloseRecovery() {
   const version = ++yomitanRecoveryVersion;
-  const recoveryDelays = [60, 180];
+  const recoveryDelays = [120];
 
   for (const delay of recoveryDelays) {
     setTimeout(() => {
@@ -1943,7 +2022,12 @@ function scheduleYomitanCloseRecovery() {
       if (isWindows() || isMac()) {
         mainWindow.setIgnoreMouseEvents(true, { forward: true });
       }
-      reassertOverlayTopmostWithoutFocus("yomitan-close-recovery");
+      requestOverlayTopmostReassert("yomitan-close-recovery", {
+        force: true,
+        moveToTop: true,
+        refreshWorkspace: true,
+        releaseFocusAfter: true,
+      });
     }, delay);
   }
 }
@@ -2553,7 +2637,12 @@ function restoreAutomaticOverlayPassThrough(reason = "auto-reset") {
   }
 
   if (currentMagpieState.active) {
-    reassertOverlayTopmostWithoutFocus(`auto-pass-through:${reason}`);
+    requestOverlayTopmostReassert(`auto-pass-through:${reason}`, {
+      force: true,
+      moveToTop: true,
+      refreshWorkspace: true,
+      releaseFocusAfter: true,
+    });
   } else {
     mainWindow.show();
   }
@@ -3686,6 +3775,10 @@ app.whenReady().then(async () => {
       clearTimeout(pendingDisplaySyncTimer);
       pendingDisplaySyncTimer = null;
     }
+    if (pendingOverlayTopmostReassertTimer) {
+      clearTimeout(pendingOverlayTopmostReassertTimer);
+      pendingOverlayTopmostReassertTimer = null;
+    }
   });
 
   let display = getCurrentOverlayMonitor({ logFallback: true });
@@ -4048,16 +4141,30 @@ app.whenReady().then(async () => {
         console.log("[WindowState] Active - Game has focus");
         // Game window is active/focused - show overlay normally
         if (mainWindow.isMinimized()) {
-          mainWindow.restore();
-          blurAndRestoreFocus();
+          requestOverlayTopmostReassert("window-state-active-minimized", {
+            force: true,
+            forceShow: true,
+            moveToTop: true,
+            refreshWorkspace: true,
+            releaseFocusAfter: true,
+          });
           afkHidden = false;
         } else if (!mainWindow.isVisible()) {
           // Window was hidden (e.g., by obscured state) - restore it
-          mainWindow.show();
-          blurAndRestoreFocus();
-          mainWindow.setAlwaysOnTop(true, 'screen-saver');
+          requestOverlayTopmostReassert("window-state-active-hidden", {
+            force: true,
+            forceShow: true,
+            moveToTop: true,
+            refreshWorkspace: true,
+            releaseFocusAfter: true,
+          });
         } else if (currentMagpieState.active) {
-          reassertOverlayTopmostWithoutFocus("window-state-active-magpie");
+          requestOverlayTopmostReassert("window-state-active-magpie", {
+            force: true,
+            moveToTop: true,
+            refreshWorkspace: true,
+            releaseFocusAfter: true,
+          });
         }
         break;
 
@@ -4491,18 +4598,30 @@ app.whenReady().then(async () => {
 
     // If window is minimized, restore it
     if (mainWindow.isMinimized() && !isManualMode()) {
-      reassertOverlayTopmostWithoutFocus("text-received-minimized");
+      requestOverlayTopmostReassert("text-received-minimized", {
+        force: true,
+        forceShow: true,
+        moveToTop: true,
+        refreshWorkspace: true,
+        releaseFocusAfter: true,
+      });
     }
 
-    // When Magpie is active, ensure overlay stays on top (Magpie can steal z-order)
+    // Magpie can steal z-order, but forcing Electron's topmost/show calls on
+    // every line causes visible flicker. Coalesce routine line updates and keep
+    // stronger recovery for state changes, minimized windows, and Yomitan close.
     if (currentMagpieState.active && !isManualMode()) {
-      reassertOverlayTopmostWithoutFocus("text-received-magpie");
-
-      setTimeout(() => {
-        if (!mainWindow || mainWindow.isDestroyed()) return;
-        if (!mainWindow.isFocused()) return;
-        blurAndRestoreFocus();
-      }, 120);
+      requestOverlayTopmostReassert("text-received-magpie", {
+        throttleMs: OVERLAY_MAGPIE_TEXT_REASSERT_THROTTLE_MS,
+        moveToTop: true,
+        releaseFocusAfter: true,
+        shouldRun: () => (
+          currentMagpieState.active &&
+          !isManualMode() &&
+          !isTexthookerMode &&
+          isTrackedGameWindowVisibleForManualHotkey()
+        ),
+      });
     }
   });
 

@@ -14,6 +14,7 @@ def register_routes() -> None:
         register_jiten_database_api_routes,
     )
     from GameSentenceMiner.web.stats_api import register_stats_api_routes
+    from GameSentenceMiner.web.stats_export_api import register_stats_export_api_routes
     from GameSentenceMiner.web.third_party_stats_api import (
         register_third_party_stats_routes,
     )
@@ -25,6 +26,7 @@ def register_routes() -> None:
     register_database_api_routes(app)
     register_jiten_database_api_routes(app)
     register_stats_api_routes(app)
+    register_stats_export_api_routes(app)
     register_goals_api_routes(app)
     register_goals_projection_api_routes(app)
     register_import_api_routes(app)

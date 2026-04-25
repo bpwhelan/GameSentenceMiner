@@ -15,7 +15,7 @@ class DeepLClient:
         self.url = "https://api-free.deepl.com/v2/translate"
 
     def generate(self, request: AIRequest) -> AIResponse:
-        self.logger.error("[DEEPL CLIENT] generate() CALLED")
+        self.logger.debug("[DEEPL CLIENT] generate() CALLED")
         start_time = time.time()
 
         try:
@@ -67,8 +67,8 @@ class DeepLClient:
             )
 
             if response.status_code != 200:
-                self.logger.error(f"Response status code: {response.status_code}")
-                self.logger.error(f"Response body: {response.text}")
+                self.logger.debug(f"Response status code: {response.status_code}")
+                self.logger.debug(f"Response body: {response.text}")
                 
             response.raise_for_status()
             data = response.json()

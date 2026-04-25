@@ -1,14 +1,16 @@
 import { createContext, createElement, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import en from "./en.json";
-import uk from "./uk.json";
+import ja from "./ja.json";
+import ukr from "./ukr.json";
 
 type TranslationMap = typeof en;
 
-const locales: Record<string, TranslationMap> = { en, uk };
+const locales: Record<string, TranslationMap> = { en, ja, ukr };
 
 export const SUPPORTED_LOCALES: Array<{ code: string; label: string }> = [
   { code: "en", label: "English" },
-  { code: "uk", label: "Українська" },
+  { code: "ja", label: "日本語" },
+  { code: "ukr", label: "Українська" },
 ];
 
 /**

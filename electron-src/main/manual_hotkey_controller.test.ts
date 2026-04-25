@@ -3,13 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const require = createRequire(import.meta.url);
 const {
-  MANUAL_HOTKEY_BACKEND_ELECTRON,
-  MANUAL_HOTKEY_BACKEND_INPUT_SERVER,
   MANUAL_HOTKEY_MODE_HOLD,
   MANUAL_HOTKEY_MODE_TOGGLE,
   createManualHotkeyController,
   isManualHotkeyBlockedByGameWindowState,
-  resolveManualHotkeyBackend,
 } = require('../../GSM_Overlay/manual_hotkey_controller.js');
 
 type Snapshot = {
@@ -66,15 +63,15 @@ describe('manual_hotkey_controller', () => {
     const harness = createHarness();
     harness.setMode(MANUAL_HOTKEY_MODE_TOGGLE);
 
-    harness.controller.handlePress('input_server');
-    harness.controller.handleRelease('input_server');
+    harness.controller.handlePress('test');
+    harness.controller.handleRelease('test');
 
     expect(harness.getLastEvent().reason).toBe('toggle-on');
     expect(harness.controller.getSnapshot().toggleLatched).toBe(true);
     expect(harness.controller.getSnapshot().isActive).toBe(true);
 
-    harness.controller.handlePress('input_server');
-    harness.controller.handleRelease('input_server');
+    harness.controller.handlePress('test');
+    harness.controller.handleRelease('test');
 
     expect(harness.getLastEvent().reason).toBe('toggle-off');
     expect(harness.controller.getSnapshot().toggleLatched).toBe(false);
@@ -84,13 +81,13 @@ describe('manual_hotkey_controller', () => {
   it('hold mode shows on press and hides on release', () => {
     const harness = createHarness();
 
-    harness.controller.handlePress('input_server');
+    harness.controller.handlePress('test');
 
     expect(harness.getLastEvent().reason).toBe('hold-activated');
     expect(harness.controller.getSnapshot().holdActive).toBe(true);
     expect(harness.controller.getSnapshot().isActive).toBe(true);
 
-    harness.controller.handleRelease('input_server');
+    harness.controller.handleRelease('test');
 
     expect(harness.getLastEvent().reason).toBe('hold-released');
     expect(harness.controller.getSnapshot().holdActive).toBe(false);
@@ -129,11 +126,6 @@ describe('manual_hotkey_controller', () => {
     expect(harness.getLastEvent().reason).toBe('toggle-off');
     expect(harness.controller.getSnapshot().toggleLatched).toBe(false);
     expect(harness.events.filter((event) => event.reason.startsWith('toggle-'))).toHaveLength(2);
-  });
-
-  it('resolves modifier-only bindings to input server and normal hotkeys to electron', () => {
-    expect(resolveManualHotkeyBackend('Shift')).toBe(MANUAL_HOTKEY_BACKEND_INPUT_SERVER);
-    expect(resolveManualHotkeyBackend('Shift+Space')).toBe(MANUAL_HOTKEY_BACKEND_ELECTRON);
   });
 
   it('only blocks manual activation for explicitly hidden game states', () => {

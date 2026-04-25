@@ -3104,6 +3104,17 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
+    document.querySelectorAll('[data-action="closeModal"]').forEach(btn => {
+        const modalId = btn.getAttribute('data-modal');
+        if (!modalId) {
+            return;
+        }
+
+        btn.addEventListener('click', function() {
+            closeModal(modalId);
+        });
+    });
+
     // Game completion button handler
     const gameCompletionBtn = document.getElementById('gameCompletionBtn');
     if (gameCompletionBtn) {

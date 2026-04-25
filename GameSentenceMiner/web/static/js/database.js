@@ -16,6 +16,9 @@ class DatabaseManager {
     constructor() {
         this.selectedGames = new Set();
         this.mergeTargetGame = null; // Track the first game selected for merge operations
+        this.statsExportFormats = [];
+        this.statsExportPollTimer = null;
+        this.activeStatsExportJobId = null;
         this.initializePage();
     }
     
@@ -27,6 +30,8 @@ class DatabaseManager {
         this.attachEventHandlers();
         this.initializeYomitanGameCount();
         this.initializeYomitanSpoilerLevel();
+        this.initializeStatsExportDateDefaults();
+        await this.loadStatsExportFormats();
         
         // Then load async data (dashboard stats)
         await this.loadDashboardStats();
@@ -162,6 +167,399 @@ class DatabaseManager {
         if (typeof initializeDatabasePopups === 'function') {
             initializeDatabasePopups();
         }
+
+        const statsExportScope = document.getElementById('statsExportScope');
+        if (statsExportScope) {
+            statsExportScope.addEventListener('change', () => this.updateStatsExportScopeVisibility());
+        }
+
+        const statsExportFormat = document.getElementById('statsExportFormat');
+        if (statsExportFormat) {
+            statsExportFormat.addEventListener('change', () => this.updateStatsExportFormatDescription());
+        }
+
+        const statsExportBtn = document.getElementById('startStatsExportBtn');
+        if (statsExportBtn) {
+            statsExportBtn.addEventListener('click', () => this.startStatsExport());
+        }
+    }
+
+    initializeStatsExportDateDefaults() {
+        const today = new Date().toISOString().split('T')[0];
+        const startDateInput = document.getElementById('statsExportStartDate');
+        const endDateInput = document.getElementById('statsExportEndDate');
+
+        if (startDateInput && !startDateInput.value) {
+            startDateInput.value = today;
+        }
+        if (endDateInput && !endDateInput.value) {
+            endDateInput.value = today;
+        }
+
+        this.updateStatsExportScopeVisibility();
+    }
+
+    async loadStatsExportFormats() {
+        const formatSelect = document.getElementById('statsExportFormat');
+        const startButton = document.getElementById('startStatsExportBtn');
+        if (!formatSelect || !startButton) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/stats-export/formats');
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to load export formats');
+            }
+
+            this.statsExportFormats = Array.isArray(data.formats) ? data.formats : [];
+            formatSelect.innerHTML = '';
+
+            if (this.statsExportFormats.length === 0) {
+                formatSelect.innerHTML = '<option value="">No export formats available</option>';
+                startButton.disabled = true;
+                return;
+            }
+
+            this.statsExportFormats.forEach((format, index) => {
+                const option = document.createElement('option');
+                option.value = format.id;
+                option.textContent = format.label;
+                if (index === 0) {
+                    option.selected = true;
+                }
+                formatSelect.appendChild(option);
+            });
+
+            startButton.disabled = false;
+            this.updateStatsExportFormatDescription();
+        } catch (error) {
+            console.error('Error loading stats export formats:', error);
+            formatSelect.innerHTML = '<option value="">Failed to load formats</option>';
+            startButton.disabled = true;
+            this.setStatsExportStatus('error', 'Failed to load export formats. Refresh the page and try again.');
+        }
+    }
+
+    updateStatsExportScopeVisibility() {
+        const scopeSelect = document.getElementById('statsExportScope');
+        const customRangeContainer = document.getElementById('statsExportCustomRange');
+        if (!scopeSelect || !customRangeContainer) {
+            return;
+        }
+
+        customRangeContainer.style.display = !scopeSelect.disabled && scopeSelect.value === 'custom' ? 'flex' : 'none';
+    }
+
+    updateStatsExportFormatDescription() {
+        const formatSelect = document.getElementById('statsExportFormat');
+        const descriptionElement = document.getElementById('statsExportFormatDescription');
+        if (!formatSelect || !descriptionElement) {
+            return;
+        }
+
+        const selectedFormat = this.statsExportFormats.find(format => format.id === formatSelect.value);
+        if (selectedFormat && selectedFormat.description) {
+            descriptionElement.textContent = selectedFormat.description;
+            descriptionElement.style.display = 'block';
+        } else {
+            descriptionElement.style.display = 'none';
+            descriptionElement.textContent = '';
+        }
+
+        this.updateStatsExportOptionVisibility(selectedFormat);
+    }
+
+    updateStatsExportOptionVisibility(selectedFormat = null) {
+        const activeFormat = selectedFormat || this.statsExportFormats.find(format => format.id === document.getElementById('statsExportFormat')?.value);
+        const scopeSelect = document.getElementById('statsExportScope');
+        const startDateInput = document.getElementById('statsExportStartDate');
+        const endDateInput = document.getElementById('statsExportEndDate');
+        const includeExternalRow = document.getElementById('statsExportIncludeExternalRow');
+        const includeExternalCheckbox = document.getElementById('statsExportIncludeExternal');
+        const supportsDateRange = activeFormat ? activeFormat.supports_date_range !== false : true;
+        const supportsExternalStats = activeFormat ? activeFormat.supports_external_stats !== false : true;
+
+        if (scopeSelect) {
+            scopeSelect.disabled = !supportsDateRange;
+            if (!supportsDateRange) {
+                scopeSelect.value = 'all_time';
+            }
+        }
+        if (startDateInput) {
+            startDateInput.disabled = !supportsDateRange;
+        }
+        if (endDateInput) {
+            endDateInput.disabled = !supportsDateRange;
+        }
+
+        if (includeExternalRow) {
+            includeExternalRow.style.display = supportsExternalStats ? 'flex' : 'none';
+        }
+        if (includeExternalCheckbox) {
+            includeExternalCheckbox.disabled = !supportsExternalStats;
+            if (!supportsExternalStats) {
+                includeExternalCheckbox.checked = false;
+            }
+        }
+
+        this.updateStatsExportScopeVisibility();
+    }
+
+    setStatsExportRunningState(isRunning) {
+        const startButton = document.getElementById('startStatsExportBtn');
+        const formatSelect = document.getElementById('statsExportFormat');
+        const scopeSelect = document.getElementById('statsExportScope');
+        const startDateInput = document.getElementById('statsExportStartDate');
+        const endDateInput = document.getElementById('statsExportEndDate');
+        const includeExternalCheckbox = document.getElementById('statsExportIncludeExternal');
+
+        if (startButton) {
+            startButton.disabled = isRunning || this.statsExportFormats.length === 0;
+            startButton.textContent = isRunning ? 'Exporting...' : 'Start Export';
+        }
+        if (formatSelect) formatSelect.disabled = isRunning;
+        if (scopeSelect) scopeSelect.disabled = isRunning;
+        if (startDateInput) startDateInput.disabled = isRunning;
+        if (endDateInput) endDateInput.disabled = isRunning;
+        if (includeExternalCheckbox) includeExternalCheckbox.disabled = isRunning;
+
+        if (!isRunning) {
+            this.updateStatsExportOptionVisibility();
+        }
+    }
+
+    setStatsExportProgress(progress, message) {
+        const progressContainer = document.getElementById('statsExportProgress');
+        const progressBar = document.getElementById('statsExportProgressBar');
+        const progressText = document.getElementById('statsExportProgressText');
+
+        if (!progressContainer || !progressBar || !progressText) {
+            return;
+        }
+
+        progressContainer.style.display = 'block';
+        progressBar.style.width = `${Math.max(0, Math.min(100, progress))}%`;
+        progressText.textContent = `${Math.max(0, Math.min(100, progress))}%`;
+
+        if (message) {
+            this.setStatsExportStatus('info', message);
+        }
+    }
+
+    setStatsExportStatus(type, message) {
+        const statusElement = document.getElementById('statsExportStatus');
+        if (!statusElement) {
+            return;
+        }
+
+        if (!message) {
+            statusElement.style.display = 'none';
+            statusElement.textContent = '';
+            statusElement.style.background = '';
+            statusElement.style.color = '';
+            statusElement.style.borderLeft = '';
+            return;
+        }
+
+        const palette = {
+            info: {
+                background: 'var(--bg-tertiary)',
+                color: 'var(--text-primary)',
+                border: '4px solid var(--primary-color)'
+            },
+            success: {
+                background: 'rgba(34, 197, 94, 0.12)',
+                color: 'var(--success-color)',
+                border: '4px solid var(--success-color)'
+            },
+            error: {
+                background: 'rgba(239, 68, 68, 0.12)',
+                color: 'var(--danger-color)',
+                border: '4px solid var(--danger-color)'
+            }
+        };
+
+        const selectedPalette = palette[type] || palette.info;
+        statusElement.style.display = 'block';
+        statusElement.textContent = message;
+        statusElement.style.background = selectedPalette.background;
+        statusElement.style.color = selectedPalette.color;
+        statusElement.style.borderLeft = selectedPalette.border;
+    }
+
+    clearStatsExportPollTimer() {
+        if (this.statsExportPollTimer) {
+            clearTimeout(this.statsExportPollTimer);
+            this.statsExportPollTimer = null;
+        }
+    }
+
+    async startStatsExport() {
+        const formatSelect = document.getElementById('statsExportFormat');
+        const scopeSelect = document.getElementById('statsExportScope');
+        const startDateInput = document.getElementById('statsExportStartDate');
+        const endDateInput = document.getElementById('statsExportEndDate');
+        const includeExternalCheckbox = document.getElementById('statsExportIncludeExternal');
+
+        if (!formatSelect || !scopeSelect) {
+            return;
+        }
+
+        const selectedFormat = this.statsExportFormats.find(format => format.id === formatSelect.value);
+        const supportsDateRange = selectedFormat ? selectedFormat.supports_date_range !== false : true;
+        const supportsExternalStats = selectedFormat ? selectedFormat.supports_external_stats !== false : true;
+        const payload = {
+            format: formatSelect.value,
+            scope: supportsDateRange ? scopeSelect.value : 'all_time',
+            include_external_stats: supportsExternalStats && includeExternalCheckbox ? includeExternalCheckbox.checked : false
+        };
+
+        if (!payload.format) {
+            showDatabaseErrorPopup('Select an export format first.');
+            return;
+        }
+
+        if (payload.scope === 'custom') {
+            payload.start_date = startDateInput ? startDateInput.value : '';
+            payload.end_date = endDateInput ? endDateInput.value : '';
+
+            if (!payload.start_date || !payload.end_date) {
+                showDatabaseErrorPopup('Choose both a start date and end date for a custom export.');
+                return;
+            }
+        }
+
+        this.clearStatsExportPollTimer();
+        this.activeStatsExportJobId = null;
+        this.setStatsExportRunningState(true);
+        this.setStatsExportProgress(0, 'Queuing export job...');
+
+        try {
+            const response = await fetch('/api/stats-export/jobs', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to start export');
+            }
+
+            this.activeStatsExportJobId = data.job_id;
+            await this.handleStatsExportStatus(data);
+        } catch (error) {
+            console.error('Error starting stats export:', error);
+            this.setStatsExportRunningState(false);
+            this.setStatsExportStatus('error', error.message || 'Failed to start export.');
+            showDatabaseErrorPopup(error.message || 'Failed to start export.');
+        }
+    }
+
+    async pollStatsExportStatus(jobId) {
+        this.clearStatsExportPollTimer();
+
+        this.statsExportPollTimer = setTimeout(async () => {
+            try {
+                const response = await fetch(`/api/stats-export/jobs/${encodeURIComponent(jobId)}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to fetch export status');
+                }
+
+                await this.handleStatsExportStatus(data);
+            } catch (error) {
+                console.error('Error polling stats export status:', error);
+                this.setStatsExportRunningState(false);
+                this.setStatsExportStatus('error', error.message || 'Failed to fetch export progress.');
+            }
+        }, 1000);
+    }
+
+    async handleStatsExportStatus(data) {
+        const progress = Number.isFinite(data.progress) ? data.progress : 0;
+        const message = data.error || data.message || 'Export in progress...';
+        this.setStatsExportProgress(progress, message);
+
+        if (data.status === 'queued' || data.status === 'running') {
+            this.setStatsExportRunningState(true);
+            if (data.job_id) {
+                await this.pollStatsExportStatus(data.job_id);
+            }
+            return;
+        }
+
+        this.clearStatsExportPollTimer();
+        this.setStatsExportRunningState(false);
+
+        if (data.status === 'completed' && data.download_url) {
+            const completionMessage = data.message || 'Export complete.';
+            this.setStatsExportStatus(
+                'success',
+                data.row_count
+                    ? `${completionMessage} Downloading ${data.row_count.toLocaleString()} rows...`
+                    : `${completionMessage} Downloading file...`
+            );
+
+            try {
+                await this.downloadStatsExportFile(data.download_url, data.filename);
+                showDatabaseSuccessPopup('Stats export downloaded successfully.');
+            } catch (error) {
+                console.error('Error downloading stats export:', error);
+                this.setStatsExportStatus('error', error.message || 'Export finished, but the download failed.');
+                showDatabaseErrorPopup(error.message || 'Export finished, but the download failed.');
+            }
+            return;
+        }
+
+        const errorMessage = data.error || 'Stats export failed.';
+        this.setStatsExportStatus('error', errorMessage);
+        showDatabaseErrorPopup(errorMessage);
+    }
+
+    extractFilenameFromDisposition(contentDisposition, fallbackName) {
+        if (!contentDisposition) {
+            return fallbackName || 'gsm_stats_export.csv';
+        }
+
+        const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match && utf8Match[1]) {
+            return decodeURIComponent(utf8Match[1]);
+        }
+
+        const plainMatch = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+        if (plainMatch && plainMatch[1]) {
+            return plainMatch[1];
+        }
+
+        return fallbackName || 'gsm_stats_export.csv';
+    }
+
+    async downloadStatsExportFile(downloadUrl, fallbackFilename) {
+        const response = await fetch(downloadUrl);
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || 'Failed to download export file.');
+        }
+
+        const blob = await response.blob();
+        const contentDisposition = response.headers.get('Content-Disposition');
+        const filename = this.extractFilenameFromDisposition(contentDisposition, fallbackFilename);
+        const url = window.URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.style.display = 'none';
+        anchor.href = url;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(anchor);
     }
     
     /**

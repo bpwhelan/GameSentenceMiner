@@ -8,6 +8,7 @@ import { InstallSessionModal } from "./components/InstallSessionModal";
 import type { ControlledTab } from "./types/models";
 import { OCRTab } from "./components/tabs/OCRTab";
 import { HomeTab } from "./components/tabs/HomeTab";
+import { useTranslation } from "./i18n";
 import type { InstallSessionSnapshot } from "../../shared/install_session";
 
 type TabId =
@@ -19,14 +20,14 @@ type TabId =
   | "python"
   | "console";
 
-const TABS: Array<{ id: TabId; label: string }> = [
-  { id: "obs", label: "Home" },
-  { id: "ocr", label: "OCR" },
-  { id: "stats", label: "Stats" },
-  { id: "launcher", label: "Game Settings" },
-  { id: "settings", label: "Settings" },
-  { id: "python", label: "Python" },
-  { id: "console", label: "Logs" }
+const TABS: Array<{ id: TabId; labelKey: string }> = [
+  { id: "obs", labelKey: "app.tabs.home" },
+  { id: "ocr", labelKey: "app.tabs.ocr" },
+  { id: "stats", labelKey: "app.tabs.stats" },
+  { id: "launcher", labelKey: "app.tabs.gameSettings" },
+  { id: "settings", labelKey: "app.tabs.settings" },
+  { id: "python", labelKey: "app.tabs.python" },
+  { id: "console", labelKey: "app.tabs.logs" }
 ];
 
 const TAB_IDS = new Set<TabId>(TABS.map((tab) => tab.id));
@@ -80,8 +81,9 @@ function LegacyFrame({
 
 function StatsPanel({ active }: { active: boolean }) {
   const [iframeSrc, setIframeSrc] = useState<string | null>(null);
+  const t = useTranslation();
   const [loadingMessage, setLoadingMessage] = useState(
-    "Waiting for GSM stats to load..."
+    "app.stats.loading"
   );
   const [isLoading, setIsLoading] = useState(true);
   const loadingRef = useRef(false);
@@ -129,7 +131,7 @@ function StatsPanel({ active }: { active: boolean }) {
         return;
       }
 
-      setLoadingMessage("Waiting for GSM stats to load...");
+      setLoadingMessage("app.stats.loading");
       setIsLoading(true);
 
       const ready = await waitForStatsEndpoint(statsUrl);
@@ -181,7 +183,7 @@ function StatsPanel({ active }: { active: boolean }) {
         {isLoading ? (
           <div className="stats-loading">
             <div className="spinner" />
-            <div>{loadingMessage}</div>
+            <div>{t(loadingMessage)}</div>
           </div>
         ) : null}
         {iframeSrc ? (
@@ -208,6 +210,7 @@ function ConsolePanel({
   active: boolean;
   onRequestConsole: () => void;
 }) {
+  const t = useTranslation();
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const termInstanceRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -556,23 +559,23 @@ function ConsolePanel({
         <button
           className="console-action-button"
           onClick={() => void openLogsFolder()}
-          title="Open logs folder"
+          title={t("app.console.openLogsFolderTooltip")}
         >
-          Open Logs Folder
+          {t("app.console.openLogsFolder")}
         </button>
         <button
           className="console-action-button"
           onClick={() => void exportLogs()}
-          title="Export logs to a zip archive"
+          title={t("app.console.exportLogsTooltip")}
         >
-          Export Logs
+          {t("app.console.exportLogs")}
         </button>
         <button
           className={`console-mode-toggle ${consoleMode}`}
           onClick={toggleConsoleMode}
-          title={consoleMode === 'simple' ? 'Switch to Advanced logs (shows basic + background logs)' : 'Switch to Simple logs (hides background logs)'}
+          title={consoleMode === 'simple' ? t('app.console.modeSimpleTooltip') : t('app.console.modeAdvancedTooltip')}
         >
-          {consoleMode === 'simple' ? 'Mode: Simple' : 'Mode: Advanced'}
+          {consoleMode === 'simple' ? t('app.console.modeSimple') : t('app.console.modeAdvanced')}
         </button>
       </div>
       <div className="console-container" ref={terminalRef} />
@@ -581,6 +584,7 @@ function ConsolePanel({
 }
 
 function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
+  const t = useTranslation();
   const [pythonInfo, setPythonInfo] = useState({
     pythonVersion: "Loading...",
     pythonPath: "Loading...",
@@ -646,7 +650,7 @@ function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
           title: options.title,
           message: options.message,
           detail: options.detail,
-          buttons: ["Cancel", options.confirmLabel],
+          buttons: [t("app.python.cancel"), options.confirmLabel],
           defaultId: 0,
           cancelId: 0
         }
@@ -658,19 +662,18 @@ function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
 
   const runCudaInstall = useCallback(async () => {
     const confirmed = await confirmAction({
-      title: "Install CUDA GPU Support",
-      message: "Install CUDA GPU Support?",
-      detail:
-        "This installs onnxruntime-gpu for faster processing.\n\n- Requires additional storage\n- May not be compatible with all systems\n- Install at your own risk",
-      confirmLabel: "Install"
+      title: t("app.python.cuda.installTitle"),
+      message: t("app.python.cuda.installMessage"),
+      detail: t("app.python.cuda.installDetail"),
+      confirmLabel: t("app.python.cuda.installConfirm")
     });
 
     if (!confirmed) {
-      showStatus("CUDA installation cancelled.");
+      showStatus(t("app.python.cuda.installCancelled"));
       return;
     }
 
-    showStatus("Installing CUDA GPU support...");
+    showStatus(t("app.python.cuda.installing"));
     onRequestConsole();
 
     const result = await window.ipcRenderer.invoke<{ success: boolean; message: string }>(
@@ -681,19 +684,18 @@ function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
 
   const runCudaUninstall = useCallback(async () => {
     const confirmed = await confirmAction({
-      title: "Uninstall CUDA GPU Support",
-      message: "Uninstall CUDA GPU Support?",
-      detail:
-        "This uninstalls onnxruntime-gpu and can fix GPU-related issues.",
-      confirmLabel: "Uninstall"
+      title: t("app.python.cuda.uninstallTitle"),
+      message: t("app.python.cuda.uninstallMessage"),
+      detail: t("app.python.cuda.uninstallDetail"),
+      confirmLabel: t("app.python.cuda.uninstallConfirm")
     });
 
     if (!confirmed) {
-      showStatus("CUDA uninstallation cancelled.");
+      showStatus(t("app.python.cuda.uninstallCancelled"));
       return;
     }
 
-    showStatus("Uninstalling CUDA GPU support...");
+    showStatus(t("app.python.cuda.uninstalling"));
     onRequestConsole();
 
     const result = await window.ipcRenderer.invoke<{ success: boolean; message: string }>(
@@ -704,19 +706,18 @@ function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
 
   const runResetDependencies = useCallback(async () => {
     const confirmed = await confirmAction({
-      title: "Reset Python Dependencies",
-      message: "Reset Python Dependencies?",
-      detail:
-        'This runs "uv sync" and restores dependency versions from the lockfile.',
-      confirmLabel: "Reset"
+      title: t("app.python.management.resetTitle"),
+      message: t("app.python.management.resetMessage"),
+      detail: t("app.python.management.resetDetail"),
+      confirmLabel: t("app.python.management.resetConfirm")
     });
 
     if (!confirmed) {
-      showStatus("Dependency reset cancelled.");
+      showStatus(t("app.python.management.resetCancelled"));
       return;
     }
 
-    showStatus("Resetting Python dependencies...");
+    showStatus(t("app.python.management.resetting"));
     onRequestConsole();
 
     const result = await window.ipcRenderer.invoke<{ success: boolean; message: string }>(
@@ -727,11 +728,11 @@ function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
 
   const installCustomPackage = useCallback(async () => {
     if (!customPackage.trim()) {
-      showStatus("Please enter a package name.", "error");
+      showStatus(t("app.python.customPackage.enterName"), "error");
       return;
     }
 
-    showStatus(`Installing package: ${customPackage}...`);
+    showStatus(t("app.python.customPackage.installing", { package: customPackage }));
     onRequestConsole();
 
     const result = await window.ipcRenderer.invoke<{ success: boolean; message: string }>(
@@ -754,15 +755,15 @@ function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
       <div className="python-grid">
         <div className="card">
           <button className="card-header" onClick={() => toggleCard("cuda")}>
-            CUDA Installation
+            {t("app.python.cuda.title")}
           </button>
           {expandedCards.cuda ? (
             <div className="card-body">
               <button className="danger" onClick={() => void runCudaInstall()}>
-                Install CUDA GPU Support
+                {t("app.python.cuda.install")}
               </button>
               <button className="danger" onClick={() => void runCudaUninstall()}>
-                Uninstall CUDA Support
+                {t("app.python.cuda.uninstall")}
               </button>
             </div>
           ) : null}
@@ -770,12 +771,12 @@ function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
 
         <div className="card">
           <button className="card-header" onClick={() => toggleCard("gsm")}>
-            GSM Management
+            {t("app.python.management.title")}
           </button>
           {expandedCards.gsm ? (
             <div className="card-body">
               <button className="secondary" onClick={() => void runResetDependencies()}>
-                Reset Python Dependencies
+                {t("app.python.management.resetDeps")}
               </button>
             </div>
           ) : null}
@@ -783,15 +784,15 @@ function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
 
         <div className="card">
           <button className="card-header" onClick={() => toggleCard("custom")}>
-            Custom Package Installation
+            {t("app.python.customPackage.title")}
           </button>
           {expandedCards.custom ? (
             <div className="card-body">
-              <label htmlFor="custom-package-input">Package Name</label>
+              <label htmlFor="custom-package-input">{t("app.python.customPackage.label")}</label>
               <input
                 id="custom-package-input"
                 type="text"
-                placeholder="numpy, requests, etc."
+                placeholder={t("app.python.customPackage.placeholder")}
                 value={customPackage}
                 onChange={(event) => setCustomPackage(event.target.value)}
                 onKeyDown={(event) => {
@@ -801,7 +802,7 @@ function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
                 }}
               />
               <button className="danger" onClick={() => void installCustomPackage()}>
-                Install Package
+                {t("app.python.customPackage.installBtn")}
               </button>
             </div>
           ) : null}
@@ -809,15 +810,15 @@ function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
 
         <div className="card">
           <button className="card-header" onClick={() => toggleCard("info")}>
-            Python Environment Info
+            {t("app.python.envInfo.title")}
           </button>
           {expandedCards.info ? (
             <div className="card-body">
-              <p>Python Version: {pythonInfo.pythonVersion}</p>
-              <p>Python Path: {pythonInfo.pythonPath}</p>
-              <p>Pip Version: {pythonInfo.pipVersion}</p>
+              <p>{t("app.python.envInfo.version", { version: pythonInfo.pythonVersion })}</p>
+              <p>{t("app.python.envInfo.path", { path: pythonInfo.pythonPath })}</p>
+              <p>{t("app.python.envInfo.pipVersion", { version: pythonInfo.pipVersion })}</p>
               <button className="secondary" onClick={() => void loadPythonInfo()}>
-                Refresh Info
+                {t("app.python.envInfo.refresh")}
               </button>
             </div>
           ) : null}
@@ -834,6 +835,7 @@ function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
 }
 
 export default function App() {
+  const t = useTranslation();
   const [activeTab, setActiveTab] = useState<TabId>("obs");
   const [showWizard, setShowWizard] = useState(false);
   const [wizardChecked, setWizardChecked] = useState(false);
@@ -1055,15 +1057,15 @@ export default function App() {
               className={`tab-button ${activeTab === tab.id ? "active" : ""}`}
               onClick={() => selectTab(tab.id)}
             >
-              {tab.label}
+              {t(tab.labelKey)}
             </button>
           ))}
         </div>
         <div className="header-links">
           <button
             className="icon-link"
-            title="GitHub"
-            aria-label="GitHub"
+            title={t("app.header.github")}
+            aria-label={t("app.header.github")}
             onClick={() =>
               void window.ipcRenderer.invoke(
                 "open-external",
@@ -1077,8 +1079,8 @@ export default function App() {
           </button>
           <button
             className="icon-link"
-            title="Discord"
-            aria-label="Discord"
+            title={t("app.header.discord")}
+            aria-label={t("app.header.discord")}
             onClick={() =>
               void window.ipcRenderer.invoke(
                 "open-external",

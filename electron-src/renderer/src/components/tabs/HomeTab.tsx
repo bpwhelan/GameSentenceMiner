@@ -158,6 +158,7 @@ export function HomeTab({ active }: HomeTabProps) {
   /* ---- Status ---------------------------------------------------- */
   const [status, setStatus] = useState<GsmStatus | null>(null);
   const [statusError, setStatusError] = useState(false);
+  const [overlayRunning, setOverlayRunning] = useState(false);
 
   useEffect(() => {
     if (!active) return;
@@ -170,6 +171,10 @@ export function HomeTab({ active }: HomeTabProps) {
       } catch {
         if (!cancelled) { setStatus(null); setStatusError(true); }
       }
+      try {
+        const o = await invokeIpc<{ isRunning: boolean }>("getOverlayStatus");
+        if (!cancelled) setOverlayRunning(Boolean(o?.isRunning));
+      } catch { /* swallow */ }
     };
 
     void poll();
@@ -317,6 +322,7 @@ export function HomeTab({ active }: HomeTabProps) {
   const openGSMSettings = useCallback(() => void invokeIpc("settings.openGSMSettings"), []);
   const openTexthooker = useCallback(() => void invokeIpc("openTexthooker"), []);
   const runOverlay = useCallback(() => void invokeIpc("runOverlay"), []);
+  const openOverlaySettings = useCallback(() => void invokeIpc("settings.openOverlaySettings"), []);
   const openOBS = useCallback(() => void invokeIpc("openOBS"), []);
   const openExternal = useCallback((url: string) => void invokeIpc("open-external-link", url), []);
 
@@ -432,7 +438,7 @@ export function HomeTab({ active }: HomeTabProps) {
                     disabled={isHelperScene}
                     onClick={() => { if (selectedScene) setRenameTarget(selectedScene); }}
                   >
-                    Rename
+                    {t("home.obs.rename")}
                   </button>
                   <button
                     type="button"
@@ -440,16 +446,16 @@ export function HomeTab({ active }: HomeTabProps) {
                     disabled={isHelperScene}
                     onClick={() => void handleRemoveScene()}
                   >
-                    Remove
+                    {t("home.obs.remove")}
                   </button>
                   {/* 
                   // TODO: Switch profile per-scene
                   <button type="button" className="home-text-btn" disabled>
-                    Switch Profile
+                    {t("home.obs.switchProfile")}
                   </button>
                   // TODO: Open OBS preview for current capture
                   <button type="button" className="home-text-btn" disabled>
-                    Preview
+                    {t("home.obs.preview")}
                   </button>
                    */}
                 </div>
@@ -493,7 +499,7 @@ export function HomeTab({ active }: HomeTabProps) {
                       <optgroup label={t("home.obs.sectionWindows")}>
                         {windowTargets.map((w) => (
                           <option key={w.value} value={w.value}>
-                            {w.targetKind === "capture_card" ? `Capture Card: ${w.title}` : w.title}
+                            {w.targetKind === "capture_card" ? t("home.obs.captureCardPrefix", { title: w.title }) : w.title}
                           </option>
                         ))}
                       </optgroup>
@@ -502,7 +508,7 @@ export function HomeTab({ active }: HomeTabProps) {
                       <optgroup label={t("home.obs.sectionCaptureCards")}>
                         {captureCardTargets.map((w) => (
                           <option key={w.value} value={w.value}>
-                            Capture Card: {w.title}
+                            {t("home.obs.captureCardPrefix", { title: w.title })}
                           </option>
                         ))}
                       </optgroup>
@@ -600,15 +606,17 @@ export function HomeTab({ active }: HomeTabProps) {
               <button
                 type="button"
                 className="home-quick-btn"
-                onClick={runOverlay}
+                onClick={overlayRunning ? openOverlaySettings : runOverlay}
                 title={
-                  !isWindows
+                  overlayRunning
+                    ? t("home.actions.overlaySettingsTooltip")
+                    : !isWindows
                     ? `${t("home.actions.overlayTooltip")}\n${t("home.actions.overlayPlatformWarning")}`
                     : t("home.actions.overlayTooltip")
                 }
               >
-                {t("home.actions.overlay")}
-                {!isWindows && <span className="home-quick-btn__badge">⚠</span>}
+                {overlayRunning ? t("home.actions.overlaySettings") : t("home.actions.overlay")}
+                {!overlayRunning && !isWindows && <span className="home-quick-btn__badge">⚠</span>}
               </button>
               <button
                 type="button"

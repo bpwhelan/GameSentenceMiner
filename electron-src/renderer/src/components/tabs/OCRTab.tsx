@@ -4,6 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { DOCS_URLS } from "../../../../shared/docs";
 import { invokeIpc, onIpc, platformFromEnv, sendIpc } from "../../lib/ipc";
 import type { ObsScene } from "../../types/models";
+import { useTranslation } from "../../i18n";
 
 type OcrPlatform = "win32" | "darwin" | "linux" | string;
 type ProcessPriority =
@@ -896,6 +897,7 @@ function titleProps(text: string) {
 }
 
 export function OCRTab({ active }: OcrTabProps) {
+  const t = useTranslation();
   const platform = platformFromEnv();
   const [config, setConfig] = useState<OcrUiConfig>(() =>
     normalizeOcrConfig(null, platform)
@@ -965,21 +967,21 @@ export function OCRTab({ active }: OcrTabProps) {
 
   const footerStatusLabel = runningState.isRunning
     ? paused
-      ? "Paused"
-      : "Running"
+      ? t("ocr.footer.paused")
+      : t("ocr.footer.running")
     : hasConfiguredAreas
-      ? "Ready"
-      : "Needs Areas";
+      ? t("ocr.footer.ready")
+      : t("ocr.footer.needsAreas");
 
   const footerSummary = runningState.isRunning
     ? runtimeMessage
     : hasConfiguredAreas
-      ? `${selectedScene?.name ?? "Current scene"} has ${configuredAreaCount} OCR ${
-          configuredAreaCount === 1 ? "area" : "areas"
-        }.`
-      : `No OCR areas saved for ${selectedScene?.name ?? "the selected scene"}.`;
+      ? (configuredAreaCount === 1
+          ? t("ocr.sceneAndAreas.areaCount", { count: String(configuredAreaCount) })
+          : t("ocr.sceneAndAreas.areaCountPlural", { count: String(configuredAreaCount) }))
+      : t("ocr.footer.noAreasForScene", { scene: selectedScene?.name ?? t("ocr.footer.noSceneSelected") });
 
-  const sceneSummary = selectedScene?.name ?? "No scene selected";
+  const sceneSummary = selectedScene?.name ?? t("ocr.footer.noSceneSelected");
   const scanSummary = config.advancedMode
     ? `${effectiveScanRate.toFixed(1)}s`
     : basicSpeedLabel(config.basicScanRate);
@@ -1364,7 +1366,7 @@ export function OCRTab({ active }: OcrTabProps) {
       }
 
       if (trimmedLine.includes("COMMAND_FINISHED")) {
-        setNotice({ type: "success", message: "OCR area selection finished." });
+        setNotice({ type: "success", message: t("ocr.runtime.areaSelectionFinished") });
         return;
       }
 
@@ -1523,7 +1525,7 @@ export function OCRTab({ active }: OcrTabProps) {
         }, 500);
       } catch (error) {
         console.error("Failed to switch OCR scene:", error);
-        setNotice({ type: "error", message: "Failed to switch scene." });
+        setNotice({ type: "error", message: t("ocr.runtime.failedSwitchScene") });
       }
     },
     [refreshActiveSceneInfo]
@@ -1550,14 +1552,14 @@ export function OCRTab({ active }: OcrTabProps) {
         "ocr.import-ocr-config"
       );
       if (result.success) {
-        setNotice({ type: "success", message: "OCR area config imported." });
+        setNotice({ type: "success", message: t("ocr.notices.areaConfigImported") });
         await refreshActiveSceneInfo();
       } else {
         setNotice({ type: "error", message: result.message });
       }
     } catch (error) {
       console.error("Failed to import OCR config:", error);
-      setNotice({ type: "error", message: "Import failed." });
+      setNotice({ type: "error", message: t("ocr.notices.importFailed") });
     }
   }, [refreshActiveSceneInfo]);
 
@@ -1568,11 +1570,11 @@ export function OCRTab({ active }: OcrTabProps) {
       );
       setNotice({
         type: result.success ? "success" : "error",
-        message: result.success ? "OCR area config copied to clipboard." : result.message
+        message: result.success ? t("ocr.notices.areaConfigExported") : result.message
       });
     } catch (error) {
       console.error("Failed to export OCR config:", error);
-      setNotice({ type: "error", message: "Export failed." });
+      setNotice({ type: "error", message: t("ocr.notices.exportFailed") });
     }
   }, []);
 
@@ -1651,17 +1653,19 @@ export function OCRTab({ active }: OcrTabProps) {
             {/* Scene & Areas */}
             <section className="card legacy-card ocr-card">
               <div className="ocr-card-header-row">
-                <h2>Scene &amp; Areas</h2>
+                <h2>{t("ocr.sceneAndAreas.title")}</h2>
                 <span
                   className={`ocr-area-badge ${hasConfiguredAreas ? "ocr-area-badge--ok" : "ocr-area-badge--empty"}`}
                 >
-                  {configuredAreaCount} {configuredAreaCount === 1 ? "area" : "areas"}
+                  {configuredAreaCount === 1
+                    ? t("ocr.sceneAndAreas.areaCount", { count: String(configuredAreaCount) })
+                    : t("ocr.sceneAndAreas.areaCountPlural", { count: String(configuredAreaCount) })}
                 </span>
               </div>
               <div className="form-group ocr-form-group">
                 <div className="input-group ocr-scene-row">
                   <Tip text={OCR_TOOLTIPS.scene}>
-                    <label htmlFor="ocr-scene-select">Scene:</label>
+                    <label htmlFor="ocr-scene-select">{t("ocr.sceneAndAreas.sceneLabel")}</label>
                   </Tip>
                   <select
                     id="ocr-scene-select"
@@ -1672,9 +1676,9 @@ export function OCRTab({ active }: OcrTabProps) {
                     }}
                   >
                     {loadingScenes ? (
-                      <option value="">Loading...</option>
+                      <option value="">{t("ocr.sceneAndAreas.loading")}</option>
                     ) : scenes.length === 0 ? (
-                      <option value="">No scenes found</option>
+                      <option value="">{t("ocr.sceneAndAreas.noScenes")}</option>
                     ) : (
                       scenes.map((scene) => (
                         <option key={scene.id} value={scene.id}>
@@ -1690,7 +1694,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       onClick={() => {
                         void refreshScenesAndConfig();
                       }}
-                      aria-label="Reload scenes"
+                      aria-label={t("ocr.sceneAndAreas.reloadScenes")}
                     >
                       ↻
                     </button>
@@ -1702,14 +1706,14 @@ export function OCRTab({ active }: OcrTabProps) {
                     {...titleProps(OCR_TOOLTIPS.selectAreas)}
                     onClick={runScreenSelector}
                   >
-                    Select OCR Areas
+                    {t("ocr.sceneAndAreas.selectAreas")}
                   </button>
                   <Tip text={OCR_TOOLTIPS.importAreas} align="center">
                     <button
                       type="button"
                       className="secondary ocr-icon-btn"
                       onClick={() => void importAreaConfig()}
-                      aria-label="Import areas"
+                      aria-label={t("ocr.sceneAndAreas.importAreas")}
                     >
                       📋
                     </button>
@@ -1719,7 +1723,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       type="button"
                       className="secondary ocr-icon-btn"
                       onClick={() => void exportAreaConfig()}
-                      aria-label="Export areas"
+                      aria-label={t("ocr.sceneAndAreas.exportAreas")}
                     >
                       📤
                     </button>
@@ -1729,7 +1733,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       type="button"
                       className="secondary ocr-icon-btn"
                       onClick={() => void openOcrDocs()}
-                      aria-label="OCR Guide"
+                      aria-label={t("ocr.sceneAndAreas.ocrGuide")}
                     >
                       📖
                     </button>
@@ -1741,13 +1745,13 @@ export function OCRTab({ active }: OcrTabProps) {
             {/* OCR Settings */}
             <section className="card legacy-card ocr-card ocr-card--grow">
               <div className="ocr-card-header-row">
-                <h2>OCR Settings</h2>
+                <h2>{t("ocr.settings.title")}</h2>
                 <label
                   className="ocr-inline-toggle"
                   htmlFor="ocr-advanced-toggle"
                   {...titleProps(OCR_TOOLTIPS.advancedMode)}
                 >
-                  <span>Advanced</span>
+                  <span>{t("ocr.settings.advanced")}</span>
                   <input
                     id="ocr-advanced-toggle"
                     type="checkbox"
@@ -1769,7 +1773,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       htmlFor="ocr-advanced-scan-rate"
                       {...titleProps(OCR_TOOLTIPS.advancedScanRate)}
                     >
-                      Scan Rate (s):
+                      {t("ocr.settings.scanRate")}
                     </label>
                     <input
                       id="ocr-advanced-scan-rate"
@@ -1792,7 +1796,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       htmlFor="ocr-basic-speed"
                       {...titleProps(OCR_TOOLTIPS.basicScanRate)}
                     >
-                      Text Speed:
+                      {t("ocr.settings.textSpeed")}
                     </label>
                     <select
                       id="ocr-basic-speed"
@@ -1815,7 +1819,7 @@ export function OCRTab({ active }: OcrTabProps) {
 
                 <div className="input-group">
                   <label htmlFor="ocr-language" {...titleProps(OCR_TOOLTIPS.language)}>
-                    Language:
+                    {t("ocr.settings.language")}
                   </label>
                   <select
                     id="ocr-language"
@@ -1841,7 +1845,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       htmlFor="ocr-base-scale"
                       {...titleProps(OCR_TOOLTIPS.baseScale)}
                     >
-                      Scan Image Quality
+                      {t("ocr.settings.scanImageQuality")}
                     </label>
                     <span>{Math.round(config.baseScale * 100)}%</span>
                   </div>
@@ -1867,7 +1871,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       htmlFor="ocr-furigana-filter"
                       {...titleProps(OCR_TOOLTIPS.furiganaFilter)}
                     >
-                      Furigana Filter
+                      {t("ocr.settings.furiganaFilter")}
                     </label>
                     <span>{config.furiganaFilterSensitivity}</span>
                   </div>
@@ -1900,14 +1904,14 @@ export function OCRTab({ active }: OcrTabProps) {
                         }));
                       }}
                     >
-                      Preview
+                      {t("ocr.settings.preview")}
                     </button>
                   </div>
                 </div>
 
                 <div className="ocr-linebreak-row">
                   <Tip text={OCR_TOOLTIPS.sendToClipboard}>
-                    <span className="ocr-linebreak-label">Copy to Clipboard:</span>
+                    <span className="ocr-linebreak-label">{t("ocr.settings.copyToClipboard")}</span>
                   </Tip>
                   <label className="checkbox-item" htmlFor="send-to-clipboard-auto">
                     <input
@@ -1925,7 +1929,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       className="ocr-lb-auto"
                       {...titleProps(OCR_TOOLTIPS.sendToClipboardAuto)}
                     >
-                      Auto
+                      {t("ocr.settings.auto")}
                     </span>
                   </label>
                   <label className="checkbox-item" htmlFor="send-to-clipboard-menu">
@@ -1944,7 +1948,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       className="ocr-lb-menu"
                       {...titleProps(OCR_TOOLTIPS.sendToClipboardMenu)}
                     >
-                      Menu
+                      {t("ocr.settings.menu")}
                     </span>
                   </label>
                   <label
@@ -1966,14 +1970,14 @@ export function OCRTab({ active }: OcrTabProps) {
                       className="ocr-lb-area"
                       {...titleProps(OCR_TOOLTIPS.sendToClipboardAreaSelect)}
                     >
-                      Area Select
+                      {t("ocr.settings.areaSelect")}
                     </span>
                   </label>
                 </div>
 
                 <div className="ocr-linebreak-row">
                   <Tip text={OCR_TOOLTIPS.keepNewline}>
-                    <span className="ocr-linebreak-label">Line Breaks:</span>
+                    <span className="ocr-linebreak-label">{t("ocr.settings.lineBreaks")}</span>
                   </Tip>
                   <label className="checkbox-item" htmlFor="keep-newline-auto">
                     <input
@@ -1987,7 +1991,7 @@ export function OCRTab({ active }: OcrTabProps) {
                         }));
                       }}
                     />
-                    <span className="ocr-lb-auto" {...titleProps(OCR_TOOLTIPS.keepNewlineAuto)}>Auto</span>
+                    <span className="ocr-lb-auto" {...titleProps(OCR_TOOLTIPS.keepNewlineAuto)}>{t("ocr.settings.auto")}</span>
                   </label>
                   <label className="checkbox-item" htmlFor="keep-newline-menu">
                     <input
@@ -2001,7 +2005,7 @@ export function OCRTab({ active }: OcrTabProps) {
                         }));
                       }}
                     />
-                    <span className="ocr-lb-menu" {...titleProps(OCR_TOOLTIPS.keepNewlineMenu)}>Menu</span>
+                    <span className="ocr-lb-menu" {...titleProps(OCR_TOOLTIPS.keepNewlineMenu)}>{t("ocr.settings.menu")}</span>
                   </label>
                   <label className="checkbox-item" htmlFor="keep-newline-area-select">
                     <input
@@ -2016,7 +2020,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       }}
                     />
                     <span className="ocr-lb-area" {...titleProps(OCR_TOOLTIPS.keepNewlineAreaSelect)}>
-                      Area Select
+                      {t("ocr.settings.areaSelect")}
                     </span>
                   </label>
                 </div>
@@ -2027,10 +2031,10 @@ export function OCRTab({ active }: OcrTabProps) {
                 <>
                   <div className="ocr-pipeline-section">
                     <h3 className="ocr-pipeline-heading" {...titleProps(OCR_TOOLTIPS.advancedRecognition)}>
-                      Recognition Pipeline
+                      {t("ocr.pipeline.title")}
                     </h3>
                     <div className="ocr-pipeline-summary">
-                      <strong>{config.twoPassOCR ? "Two-pass flow:" : "Single-pass flow:"}</strong>
+                      <strong>{config.twoPassOCR ? t("ocr.pipeline.twoPassFlow") : t("ocr.pipeline.singlePassFlow")}</strong>
                       <span>{pipelineSummary}</span>
                     </div>
                     <div className="ocr-pipeline-grid">
@@ -2040,7 +2044,7 @@ export function OCRTab({ active }: OcrTabProps) {
                             htmlFor="ocr-stability-engine"
                             {...titleProps(OCR_TOOLTIPS.stabilityOcr)}
                           >
-                            Stability OCR:
+                            {t("ocr.pipeline.stabilityOcr")}
                           </label>
                           <select
                             id="ocr-stability-engine"
@@ -2063,7 +2067,7 @@ export function OCRTab({ active }: OcrTabProps) {
 
                       <div className="input-group ocr-pipeline-control">
                         <label htmlFor="ocr-main-engine" {...titleProps(OCR_TOOLTIPS.mainOcr)}>
-                          Main OCR:
+                          {t("ocr.pipeline.mainOcr")}
                         </label>
                         <select
                           id="ocr-main-engine"
@@ -2085,7 +2089,7 @@ export function OCRTab({ active }: OcrTabProps) {
 
                       <div className="input-group ocr-pipeline-control ocr-pipeline-control--toggle">
                         <label htmlFor="ocr-two-pass" {...titleProps(OCR_TOOLTIPS.twoPassOCR)}>
-                          Two-pass OCR:
+                          {t("ocr.pipeline.twoPassOcr")}
                         </label>
                         <input
                           id="ocr-two-pass"
@@ -2106,7 +2110,7 @@ export function OCRTab({ active }: OcrTabProps) {
                             htmlFor="ocr-optimize-second-scan"
                             {...titleProps(OCR_TOOLTIPS.optimizeSecondScan)}
                           >
-                            Optimize Second Scan:
+                            {t("ocr.pipeline.optimizeSecondScan")}
                           </label>
                           <input
                             id="ocr-optimize-second-scan"
@@ -2127,7 +2131,7 @@ export function OCRTab({ active }: OcrTabProps) {
                           htmlFor="ocr-clipboard-screenshots"
                           {...titleProps(OCR_TOOLTIPS.ocrScreenshots)}
                         >
-                          OCR Clipboard Images:
+                          {t("ocr.pipeline.ocrClipboardImages")}
                         </label>
                         <input
                           id="ocr-clipboard-screenshots"
@@ -2146,7 +2150,7 @@ export function OCRTab({ active }: OcrTabProps) {
 
                   <details className="ocr-details-card">
                     <summary {...titleProps(OCR_TOOLTIPS.comparison)}>
-                      Text Comparison Tuning
+                      {t("ocr.comparison.title")}
                     </summary>
                     <div className="ocr-comparison-primary-grid ocr-details-body">
                       {COMPARISON_LAYOUT.primary.map((field) => (
@@ -2179,7 +2183,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     </div>
 
                     <details className="ocr-details-card ocr-details-card--nested">
-                      <summary>Expert Heuristics</summary>
+                      <summary>{t("ocr.comparison.expertTitle")}</summary>
                       <div className="ocr-comparison-expert-grid ocr-details-body">
                         <div className="ocr-comparison-column">
                           {COMPARISON_LAYOUT.expertLeft.map((field) => (
@@ -2252,11 +2256,11 @@ export function OCRTab({ active }: OcrTabProps) {
           <div className="ocr-col ocr-col--monitor">
             {/* Hotkeys */}
             <section className="card legacy-card ocr-card">
-              <h2>Hotkeys</h2>
+              <h2>{t("ocr.hotkeys.title")}</h2>
               <div className="form-group ocr-form-group ocr-hotkey-grid">
                 <div className="input-group">
                   <label htmlFor="manual-hotkey" {...titleProps(OCR_TOOLTIPS.manualHotkey)}>
-                    Manual / Menu:
+                    {t("ocr.hotkeys.manualMenu")}
                   </label>
                   <input
                     id="manual-hotkey"
@@ -2275,7 +2279,7 @@ export function OCRTab({ active }: OcrTabProps) {
 
                 <div className="input-group">
                   <label htmlFor="area-hotkey" {...titleProps(OCR_TOOLTIPS.areaSelectHotkey)}>
-                    Area Select:
+                    {t("ocr.hotkeys.areaSelect")}
                   </label>
                   <input
                     id="area-hotkey"
@@ -2297,7 +2301,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     htmlFor="whole-window-hotkey"
                     {...titleProps(OCR_TOOLTIPS.wholeWindowHotkey)}
                   >
-                    Whole Window:
+                    {t("ocr.hotkeys.wholeWindow")}
                   </label>
                   <input
                     id="whole-window-hotkey"
@@ -2316,7 +2320,7 @@ export function OCRTab({ active }: OcrTabProps) {
 
                 <div className="input-group">
                   <label htmlFor="pause-hotkey" {...titleProps(OCR_TOOLTIPS.pauseHotkey)}>
-                    Pause:
+                    {t("ocr.hotkeys.pause")}
                   </label>
                   <input
                     id="pause-hotkey"
@@ -2338,10 +2342,10 @@ export function OCRTab({ active }: OcrTabProps) {
             {/* Console - always visible */}
             <section className="card legacy-card ocr-card ocr-card--console">
               <div className="ocr-card-header-row">
-                <h2>Console</h2>
+                <h2>{t("ocr.console.title")}</h2>
                 <div className="ocr-console-actions">
                   <span className={`ocr-console-status ocr-console-status--${runningState.isRunning ? (paused ? "paused" : "active") : "idle"}`}>
-                    {runningState.isRunning ? (paused ? "Paused" : "Active") : "Idle"}
+                    {runningState.isRunning ? (paused ? t("ocr.console.paused") : t("ocr.console.active")) : t("ocr.console.idle")}
                   </span>
                   <button
                     type="button"
@@ -2349,7 +2353,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     {...titleProps(OCR_TOOLTIPS.clearConsole)}
                     onClick={clearTerminal}
                   >
-                    Clear
+                    {t("ocr.console.clear")}
                   </button>
                 </div>
               </div>
@@ -2358,14 +2362,14 @@ export function OCRTab({ active }: OcrTabProps) {
 
             {/* Extra & Debug - collapsible */}
             <details className="card legacy-card ocr-card ocr-details-card ocr-details-card--debug">
-              <summary>Extra &amp; Debug Tools</summary>
+              <summary>{t("ocr.debug.title")}</summary>
               <div className="form-group ocr-form-group ocr-details-body">
                 <div className="input-group">
                   <label
                     htmlFor="ignore-ocr-run-1"
                     {...titleProps(OCR_TOOLTIPS.ignoreRun1Logs)}
                   >
-                    Ignore "OCR Run 1" Logs:
+                    {t("ocr.debug.ignoreRun1Logs")}
                   </label>
                   <input
                     id="ignore-ocr-run-1"
@@ -2385,7 +2389,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     htmlFor="process-priority"
                     {...titleProps(OCR_TOOLTIPS.processPriority)}
                   >
-                    Process Priority:
+                    {t("ocr.debug.processPriority")}
                   </label>
                   <select
                     id="process-priority"
@@ -2410,7 +2414,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     htmlFor="default-furigana-sensitivity"
                     {...titleProps(OCR_TOOLTIPS.defaultSceneFurigana)}
                   >
-                    Default Furigana Sensitivity:
+                    {t("ocr.debug.defaultFuriganaSensitivity")}
                   </label>
                   <input
                     id="default-furigana-sensitivity"
@@ -2436,7 +2440,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     htmlFor="obs-preprocess"
                     {...titleProps(OCR_TOOLTIPS.obsCapturePreprocess)}
                   >
-                    OBS Capture Preprocess:
+                    {t("ocr.debug.obsCapturePreprocess")}
                   </label>
                   <select
                     id="obs-preprocess"
@@ -2458,7 +2462,7 @@ export function OCRTab({ active }: OcrTabProps) {
 
                 <div className="input-group wrap">
                   <label htmlFor="dep-install" {...titleProps(OCR_TOOLTIPS.installDependency)}>
-                    Install Dependency:
+                    {t("ocr.debug.installDependency")}
                   </label>
                   <select
                     id="dep-install"
@@ -2476,7 +2480,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     className="secondary"
                     onClick={installSelectedDependency}
                   >
-                    Install
+                    {t("ocr.debug.installBtn")}
                   </button>
                 </div>
 
@@ -2485,7 +2489,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     htmlFor="dep-remove"
                     {...titleProps(OCR_TOOLTIPS.uninstallDependency)}
                   >
-                    Remove Dependency:
+                    {t("ocr.debug.removeDependency")}
                   </label>
                   <select
                     id="dep-remove"
@@ -2503,7 +2507,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     className="danger"
                     onClick={uninstallSelectedDependency}
                   >
-                    Uninstall
+                    {t("ocr.debug.uninstallBtn")}
                   </button>
                 </div>
 
@@ -2514,7 +2518,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     {...titleProps(OCR_TOOLTIPS.replacements)}
                     onClick={openOcrReplacementsPage}
                   >
-                    OCR Error Fixes
+                    {t("ocr.debug.ocrErrorFixes")}
                   </button>
                   <button
                     type="button"
@@ -2522,7 +2526,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     {...titleProps(OCR_TOOLTIPS.openConfigFile)}
                     onClick={() => void invokeIpc("ocr.open-config-json")}
                   >
-                    Config File
+                    {t("ocr.debug.configFile")}
                   </button>
                   <button
                     type="button"
@@ -2530,7 +2534,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     {...titleProps(OCR_TOOLTIPS.openConfigFolder)}
                     onClick={() => void invokeIpc("ocr.open-config-folder")}
                   >
-                    Config Folder
+                    {t("ocr.debug.configFolder")}
                   </button>
                   <button
                     type="button"
@@ -2538,7 +2542,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     {...titleProps(OCR_TOOLTIPS.openGlobalConfig)}
                     onClick={() => void invokeIpc("ocr.open-global-owocr-config")}
                   >
-                    Global Config
+                    {t("ocr.debug.globalConfig")}
                   </button>
                   <button
                     type="button"
@@ -2546,7 +2550,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     {...titleProps(OCR_TOOLTIPS.openTempFolder)}
                     onClick={() => void invokeIpc("ocr.open-temp-folder")}
                   >
-                    Temp Folder
+                    {t("ocr.debug.tempFolder")}
                   </button>
                 </div>
               </div>
@@ -2561,7 +2565,7 @@ export function OCRTab({ active }: OcrTabProps) {
               {footerStatusLabel}
             </span>
             <div className="ocr-sticky-footer-copy">
-              <strong>{runningState.isRunning ? runtimeEngine || "OCR Runtime" : sceneSummary}</strong>
+              <strong>{runningState.isRunning ? runtimeEngine || t("ocr.footer.ocrRuntime") : sceneSummary}</strong>
               <p className="muted">{footerSummary}</p>
             </div>
           </div>
@@ -2574,7 +2578,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   title={OCR_TOOLTIPS.stop}
                   onClick={() => void stopOcr()}
                 >
-                  Stop OCR
+                  {t("ocr.footer.stopOcr")}
                 </button>
                 <button
                   type="button"
@@ -2582,7 +2586,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   title={paused ? OCR_TOOLTIPS.resume : OCR_TOOLTIPS.pause}
                   onClick={togglePause}
                 >
-                  {paused ? "Resume OCR" : "Pause OCR"}
+                  {paused ? t("ocr.footer.resumeOcr") : t("ocr.footer.pauseOcr")}
                 </button>
               </>
             ) : (
@@ -2593,11 +2597,11 @@ export function OCRTab({ active }: OcrTabProps) {
                   title={
                     hasConfiguredAreas
                       ? OCR_TOOLTIPS.startAuto
-                      : "Draw OCR areas for this scene before starting auto OCR."
+                      : t("ocr.footer.needAreasFirst", { mode: "auto" })
                   }
                   onClick={() => void startOcr(false)}
                 >
-                  Start Auto OCR
+                  {t("ocr.footer.startAutoOcr")}
                 </button>
                 <button
                   type="button"
@@ -2606,11 +2610,11 @@ export function OCRTab({ active }: OcrTabProps) {
                   title={
                     hasConfiguredAreas
                       ? OCR_TOOLTIPS.startManual
-                      : "Draw OCR areas for this scene before starting manual OCR."
+                      : t("ocr.footer.needAreasFirst", { mode: "manual" })
                   }
                   onClick={() => void startOcr(true)}
                 >
-                  Start Manual OCR
+                  {t("ocr.footer.startManualOcr")}
                 </button>
               </>
             )}

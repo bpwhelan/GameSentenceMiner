@@ -231,6 +231,69 @@
             </div>
         </div>
 
+        <div class="management-card stats-export">
+            <div class="card-header">
+                <div class="card-icon">&#128190;</div>
+                <h2 class="card-title">Export Stats</h2>
+            </div>
+            <p class="card-description">
+                Export your GSM reading activity to other apps. Exports run in the background so large CSV builds stay responsive and show progress.
+            </p>
+
+            <div class="form-group" style="margin: 15px 0;">
+                <label class="form-label" for="statsExportFormat">Export format</label>
+                <select id="statsExportFormat" class="form-input" style="margin-top: 5px;">
+                    <option value="">Loading formats...</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="margin: 15px 0;">
+                <label class="form-label" for="statsExportScope">Date range</label>
+                <select id="statsExportScope" class="form-input" style="margin-top: 5px;">
+                    <option value="all_time" selected>All time</option>
+                    <option value="since_last_export">Since last export</option>
+                    <option value="last_30_days">Last 30 days</option>
+                    <option value="custom">Custom range</option>
+                </select>
+            </div>
+
+            <div id="statsExportCustomRange" style="display: none; gap: 10px; margin: 15px 0;">
+                <div class="form-group" style="flex: 1; margin: 0;">
+                    <label class="form-label" for="statsExportStartDate">Start date</label>
+                    <input type="date" id="statsExportStartDate" class="form-input" style="margin-top: 5px;">
+                </div>
+                <div class="form-group" style="flex: 1; margin: 0;">
+                    <label class="form-label" for="statsExportEndDate">End date</label>
+                    <input type="date" id="statsExportEndDate" class="form-input" style="margin-top: 5px;">
+                </div>
+            </div>
+
+            <label id="statsExportIncludeExternalRow" style="display: flex; align-items: center; gap: 8px; margin: 15px 0; color: var(--text-secondary);">
+                <input type="checkbox" id="statsExportIncludeExternal" checked>
+                Include external stats entries (Mokuro, manual, etc.)
+            </label>
+
+            <div id="statsExportFormatDescription" style="display: none; color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;"></div>
+
+            <div id="statsExportProgress" style="display: none; margin: 15px 0;">
+                <div style="background: var(--bg-tertiary); border-radius: 5px; overflow: hidden; height: 20px; position: relative;">
+                    <div id="statsExportProgressBar"
+                        style="background: var(--primary-color); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                    <span id="statsExportProgressText"
+                        style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 12px; color: var(--text-primary);">0%</span>
+                </div>
+            </div>
+
+            <div id="statsExportStatus"
+                style="display: none; padding: 10px; border-radius: 5px; font-size: 14px; margin-bottom: 15px;"></div>
+
+            <div class="card-actions">
+                <button class="action-btn primary" id="startStatsExportBtn" disabled>
+                    Start Export
+                </button>
+            </div>
+        </div>
+
     </div>
 
     {% include 'components/settings-modal.html' %}

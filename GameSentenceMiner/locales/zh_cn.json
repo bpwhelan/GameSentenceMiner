@@ -73,7 +73,7 @@
           },
           "websocket_uri": {
             "label": "输入 WebSocket URI:",
-            "tooltip": "输入源的 WebSocket URI（Agent、Textractor、LunaTranslator 等）。允许使用逗号分隔多个源。请勿包含 GSM 的输出端口（texthooker、OCR 覆盖层）。"
+            "tooltip": "输入源的 WebSocket URI（Agent、Textractor、LunaTranslator 等）。允许使用逗号分隔多个源。请勿包含 GSM 的输出端口（文本评送、OCR 覆盖层）。"
           },
           "texthook_regex": {
             "label": "TextHook 替换 Regex:",
@@ -84,12 +84,12 @@
             "tooltip": "脚本启动时是否打开配置窗口。"
           },
           "open_texthooker_on_startup": {
-            "label": "启动时打开 GSM Texthooker:",
-            "tooltip": "脚本启动时是否打开 Texthooker 页面。"
+            "label": "启动时打开 GSM 文本评送:",
+            "tooltip": "脚本启动时是否打开文本评送页面。"
           },
           "texthooker_port": {
-            "label": "GSM Texthooker 端口:",
-            "tooltip": "Texthooker 运行的端口。如果您不清楚，请勿更改。"
+            "label": "GSM 文本评送端口:",
+            "tooltip": "文本评送运行的端口。如果您不清楚，请勿更改。"
           },
           "current_version": {
             "label": "当前版本:",
@@ -476,8 +476,8 @@
             "tooltip": "临时暂停或恢复 GSM 的剪贴板/WebSocket 文本输入。暂停时，GSM 会跳过自身的统计/历史记录以及 Overlay 触发。留空即可禁用此热键；默认不分配热键。"
           },
           "relay_outputs_when_paused": {
-            "checkbox": "暂停时仍转发到 texthooker/输出客户端",
-            "tooltip": "启用后，暂停期间的文本在完成文本处理后仍会转发到 texthooker 页面和输出 websocket 客户端，但 GSM 仍会跳过自身的统计/历史记录以及 Overlay 触发。关闭后会完全丢弃传入文本。"
+            "checkbox": "暂停时仍转发到文本评送/输出客户端",
+            "tooltip": "启用后，暂停期间的文本在完成文本处理后仍会转发到文本评送页面和输出 websocket 客户端，但 GSM 仍会跳过自身的统计/历史记录以及 Overlay 触发。关闭后会完全丢弃传入文本。"
           }
         },
         "obs": {
@@ -578,8 +578,8 @@
             "tooltip": "OCR WebSocket 通信的端口。GSM 也将在此端口上侦听。"
           },
           "texthooker_comm_port": {
-            "label": "Texthooker 通信 WebSocket 端口:",
-            "tooltip": "GSM Texthooker WebSocket 通信的端口。"
+            "label": "文本评送通信 WebSocket 端口:",
+            "tooltip": "GSM 文本评送 WebSocket 通信的端口。"
           },
           "plaintext_export_port": {
             "label": "纯文本/JL Websocket 导出端口:",
