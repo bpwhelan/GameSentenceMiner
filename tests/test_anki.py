@@ -296,7 +296,7 @@ def test_apply_confirmation_dialog_state_refreshes_note_fields_and_audio_context
     monkeypatch.setattr(
         anki,
         "get_initial_card_info",
-        lambda last_note, selected_lines, game_line: (
+        lambda last_note, selected_lines, game_line, **_kwargs: (
             {
                 "fields": {
                     "Sentence": "combined sentence",
@@ -746,6 +746,166 @@ def test_get_initial_card_info_keeps_br_and_bold_in_furigana(monkeypatch):
 
     assert note["fields"]["Sentence"] == sentence_in_anki
     assert note["fields"]["SentenceFurigana"] == "V: hello?<br>M: <b>A[a]B C[c]D E[e]</b>FG"
+
+
+def test_get_initial_card_info_can_defer_furigana_until_confirmation(monkeypatch):
+    cfg = _overlay_furigana_config()
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
+    monkeypatch.setattr(
+        anki.mecab,
+        "reading",
+        lambda _text: (_ for _ in ()).throw(AssertionError("furigana should be deferred")),
+        raising=False,
+    )
+
+    class FakeCard:
+        noteId = 1
+        tags = []
+        fields = {"Sentence": SimpleNamespace(value="お前が<b>感傷的</b>になった")}
+
+        def get_field(self, field):
+            return self.fields.get(field, SimpleNamespace(value="")).value
+
+    note, _ = anki.get_initial_card_info(
+        FakeCard(),
+        selected_lines=[],
+        game_line=SimpleNamespace(
+            text="お前が感傷的になった",
+            source="overlay",
+            prev=None,
+        ),
+        generate_furigana=False,
+    )
+
+    assert note["fields"]["Sentence"] == "お前が<b>感傷的</b>になった"
+    assert "SentenceFurigana" not in note["fields"]
+
+
+def test_apply_confirmed_sentence_fields_regenerates_furigana_from_edited_sentence(monkeypatch):
+    cfg = _overlay_furigana_config()
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+
+    reading_calls = []
+
+    def fake_reading(text):
+        reading_calls.append(text)
+        return "編集後[へんしゅうご]の文[ぶん]"
+
+    monkeypatch.setattr(anki.mecab, "reading", fake_reading, raising=False)
+
+    note = {
+        "fields": {
+            "Sentence": "編集前の文",
+            "SentenceFurigana": "編集前[へんしゅうまえ]の文[ぶん]",
+        }
+    }
+    last_note = SimpleNamespace(get_field=lambda _field: "")
+
+    wrote_sentence = anki._apply_confirmed_sentence_fields(
+        note,
+        last_note,
+        "編集後の文",
+    )
+
+    assert wrote_sentence is True
+    assert note["fields"]["Sentence"] == "編集後の文"
+    assert note["fields"]["SentenceFurigana"] == "編集後[へんしゅうご]の文[ぶん]"
+    assert reading_calls == ["編集後の文"]
+
+
+def test_get_initial_card_info_uses_confirmed_sentence_and_reapplies_current_card_html(
+    monkeypatch,
+):
+    cfg = _overlay_furigana_config()
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
+    monkeypatch.setattr(
+        anki.mecab,
+        "reading",
+        lambda _text: "私[わたし]は生涯[しょうがい]を祈[いの]り続[つづ]ける",
+        raising=False,
+    )
+
+    class FakeCard:
+        noteId = 1
+        tags = []
+        fields = {
+            "Sentence": SimpleNamespace(value="私は生涯を<b>祈り</b>続ける"),
+        }
+
+        def get_field(self, field):
+            return self.fields.get(field, SimpleNamespace(value="")).value
+
+    note, _ = anki.get_initial_card_info(
+        FakeCard(),
+        selected_lines=[],
+        game_line=SimpleNamespace(
+            text="私は祈り続ける",
+            source="overlay",
+            prev=None,
+        ),
+        sentence_override="私は<b>生涯</b>を祈り続ける",
+    )
+
+    assert note["fields"]["Sentence"] == "私は生涯を<b>祈り</b>続ける"
+    assert note["fields"]["SentenceFurigana"] == "私[わたし]は生涯[しょうがい]を<b>祈[いの]り</b>続[つづ]ける"
+
+
+def test_update_card_from_same_sentence_reuses_confirmed_sentence_with_current_card_html(
+    monkeypatch,
+):
+    cfg = _overlay_furigana_config()
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
+    monkeypatch.setattr(anki, "_wait_for_reuse_result", lambda *_args, **_kwargs: (True, 0.0))
+    monkeypatch.setattr(
+        anki.mecab,
+        "reading",
+        lambda _text: "私[わたし]は生涯[しょうがい]を祈[いの]り続[つづ]ける",
+        raising=False,
+    )
+
+    captured = {}
+    monkeypatch.setattr(
+        anki,
+        "update_anki_card",
+        lambda last_card, **kwargs: captured.update(last_card=last_card, **kwargs) or True,
+    )
+
+    class FakeCard:
+        noteId = 2
+        tags = []
+        fields = {
+            "Sentence": SimpleNamespace(value="私は生涯を<b>祈り</b>続ける"),
+            "Word": SimpleNamespace(value="祈り"),
+        }
+
+        def get_field(self, field):
+            return self.fields.get(field, SimpleNamespace(value="")).value
+
+    anki.anki_results["line-1"] = anki.AnkiUpdateResult(
+        success=True,
+        audio_in_anki="audio.opus",
+        sentence_in_anki="私は生涯を祈り続ける",
+        word="生涯",
+    )
+
+    game_line = SimpleNamespace(
+        id="line-1",
+        text="私は祈り続ける",
+        source="overlay",
+        prev=None,
+    )
+
+    anki.update_card_from_same_sentence(FakeCard(), lines=[], game_line=game_line, reuse_result_id="line-1")
+
+    assert captured["note"]["fields"]["Sentence"] == "私は生涯を<b>祈り</b>続ける"
+    assert (
+        captured["note"]["fields"]["SentenceFurigana"] == "私[わたし]は生涯[しょうがい]を<b>祈[いの]り</b>続[つづ]ける"
+    )
+    assert captured["use_existing_files"] is True
+    assert captured["reuse_result_id"] == "line-1"
 
 
 def test_get_initial_card_info_uses_combined_selected_lines_when_sentence_overwrite_disabled(

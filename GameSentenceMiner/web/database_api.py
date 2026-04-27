@@ -1,6 +1,7 @@
 import datetime
 import os
 import re
+import regex
 import sqlite3
 from collections import defaultdict
 from flask import request, jsonify
@@ -1089,6 +1090,8 @@ def register_database_api_routes(app):
                   type: boolean
                 regex_out_repetitions:
                   type: boolean
+                extra_punctuation_regex:
+                  type: string
           500:
             description: Failed to get settings
         """
@@ -1107,6 +1110,7 @@ def register_database_api_routes(app):
                     "cards_mined_daily_target": getattr(config, "cards_mined_daily_target", 10),
                     "regex_out_punctuation": config.regex_out_punctuation,
                     "regex_out_repetitions": config.regex_out_repetitions,
+                    "extra_punctuation_regex": getattr(config, "extra_punctuation_regex", ""),
                     "easy_days_monday": getattr(config, "easy_days_settings", {}).get("monday", 100),
                     "easy_days_tuesday": getattr(config, "easy_days_settings", {}).get("tuesday", 100),
                     "easy_days_wednesday": getattr(config, "easy_days_settings", {}).get("wednesday", 100),
@@ -1171,6 +1175,8 @@ def register_database_api_routes(app):
                   type: boolean
                 regex_out_repetitions:
                   type: boolean
+                extra_punctuation_regex:
+                  type: string
         responses:
           200:
             description: Settings saved successfully
@@ -1196,6 +1202,7 @@ def register_database_api_routes(app):
             cards_mined_daily_target = data.get("cards_mined_daily_target")
             regex_out_punctuation = data.get("regex_out_punctuation")
             regex_out_repetitions = data.get("regex_out_repetitions")
+            extra_punctuation_regex = data.get("extra_punctuation_regex")
 
             # Easy days settings
             easy_days_monday = data.get("easy_days_monday")
@@ -1305,6 +1312,19 @@ def register_database_api_routes(app):
                     return jsonify({"error": "regex_out_repetitions must be a boolean value"}), 400
                 settings_to_update["regex_out_repetitions"] = regex_out_repetitions
 
+            if extra_punctuation_regex is not None:
+                if not isinstance(extra_punctuation_regex, str):
+                    return jsonify({"error": "extra_punctuation_regex must be a string value"}), 400
+                extra_punctuation_regex = extra_punctuation_regex.strip()
+                if len(extra_punctuation_regex) > 500:
+                    return jsonify({"error": "extra_punctuation_regex must be 500 characters or fewer"}), 400
+                if extra_punctuation_regex:
+                    try:
+                        regex.compile(extra_punctuation_regex)
+                    except regex.error:
+                        return jsonify({"error": "extra_punctuation_regex must be a valid regex"}), 400
+                settings_to_update["extra_punctuation_regex"] = extra_punctuation_regex
+
             # Validate and process easy days settings
             easy_days_settings = {}
             if easy_days_monday is not None:
@@ -1398,6 +1418,8 @@ def register_database_api_routes(app):
                 config.regex_out_punctuation = settings_to_update["regex_out_punctuation"]
             if "regex_out_repetitions" in settings_to_update:
                 config.regex_out_repetitions = settings_to_update["regex_out_repetitions"]
+            if "extra_punctuation_regex" in settings_to_update:
+                config.extra_punctuation_regex = settings_to_update["extra_punctuation_regex"]
 
             # Save easy days settings if provided
             if easy_days_settings:

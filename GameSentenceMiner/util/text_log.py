@@ -186,8 +186,21 @@ def is_line_recycled(line_text: str) -> bool:
 
 # Do not use partial_ratio here, ever
 def lines_match(texthooker_sentence, anki_sentence, similarity_threshold=80) -> bool:
-    texthooker_sentence = normalize_text_for_comparison(texthooker_sentence)
-    anki_sentence = normalize_text_for_comparison(anki_sentence)
+    raw_texthooker_sentence = "" if texthooker_sentence is None else str(texthooker_sentence)
+    raw_anki_sentence = "" if anki_sentence is None else str(anki_sentence)
+    texthooker_sentence = normalize_text_for_comparison(raw_texthooker_sentence)
+    anki_sentence = normalize_text_for_comparison(raw_anki_sentence)
+    if not texthooker_sentence or not anki_sentence:
+        compact_texthooker_sentence = "".join(
+            character for character in raw_texthooker_sentence if not character.isspace()
+        )
+        compact_anki_sentence = "".join(character for character in raw_anki_sentence if not character.isspace())
+        return bool(
+            compact_texthooker_sentence
+            and compact_anki_sentence
+            and compact_texthooker_sentence == compact_anki_sentence
+        )
+
     similarity = rapidfuzz.fuzz.ratio(texthooker_sentence, anki_sentence)
     # logger.debug(f"Comparing sentences: '{texthooker_sentence}' and '{anki_sentence}' - Similarity: {similarity}")
     # if texthooker_sentence in anki_sentence:

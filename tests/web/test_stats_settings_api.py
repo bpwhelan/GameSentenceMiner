@@ -38,6 +38,7 @@ def _stats_config(**overrides):
         "cards_mined_daily_target": 10,
         "regex_out_punctuation": False,
         "regex_out_repetitions": True,
+        "extra_punctuation_regex": "",
         "easy_days_settings": {
             "monday": 100,
             "tuesday": 100,
@@ -64,6 +65,19 @@ def test_get_settings_omits_afk_timer(client, monkeypatch):
     data = response.get_json()
     assert "afk_timer_seconds" not in data
     assert data["session_gap_seconds"] == 1800
+
+
+def test_get_settings_includes_extra_punctuation_regex(client, monkeypatch):
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.database_api.get_stats_config",
+        lambda: _stats_config(extra_punctuation_regex=r"\.?【.*?】"),
+    )
+
+    response = client.get("/api/settings")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["extra_punctuation_regex"] == r"\.?【.*?】"
 
 
 def test_post_settings_rejects_legacy_afk_timer_only(client, monkeypatch):
@@ -103,3 +117,41 @@ def test_post_settings_updates_session_gap_without_afk_timer(client, monkeypatch
     assert data["session_gap_seconds"] == 1800
     assert config.session_gap_seconds == 1800
     assert saved == [config]
+
+
+def test_post_settings_updates_extra_punctuation_regex(client, monkeypatch):
+    config = _stats_config()
+    saved = []
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.database_api.get_stats_config",
+        lambda: config,
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.database_api.save_stats_config",
+        lambda updated: saved.append(updated),
+    )
+
+    response = client.post("/api/settings", json={"extra_punctuation_regex": r"\.?【.*?】"})
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["extra_punctuation_regex"] == r"\.?【.*?】"
+    assert config.extra_punctuation_regex == r"\.?【.*?】"
+    assert saved == [config]
+
+
+def test_post_settings_rejects_invalid_extra_punctuation_regex(client, monkeypatch):
+    config = _stats_config()
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.database_api.get_stats_config",
+        lambda: config,
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.database_api.save_stats_config",
+        lambda _config: None,
+    )
+
+    response = client.post("/api/settings", json={"extra_punctuation_regex": "["})
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "extra_punctuation_regex must be a valid regex"

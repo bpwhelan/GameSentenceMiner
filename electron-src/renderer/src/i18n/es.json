@@ -1,0 +1,713 @@
+{
+  "home": {
+    "status": {
+      "title": "Estado",
+      "gsm": "GSM",
+      "clipboard": "Portapapeles",
+      "obs": "OBS",
+      "anki": "Anki",
+      "connected": "Conectado",
+      "disconnected": "Desconectado",
+      "enabled": "Activado",
+      "disabled": "Desactivado",
+      "disabledWebSocket": "Desactivado (WebSocket)",
+      "running": "En ejecución",
+      "notRunning": "No ejecutándose",
+      "installing": "Instalando…",
+      "error": "Error",
+      "processing": "Procesando: {words}",
+      "lastLine": "Última línea: {time}",
+      "lastLineNotReceived": "Aún no recibida",
+      "tooltipGsm": "Estado: {status}\nWebSockets: {websockets}\nOBS: {obs}\nAnki: {anki}\nÚltima línea recibida: {lastLine}",
+      "tooltipGsmStopped": "GSM está detenido.",
+      "tooltipClipboardEnabled": "La monitorización del portapapeles está activada.",
+      "tooltipClipboardDisabledWs": "La monitorización del portapapeles está desactivada porque se está recibiendo texto por WebSocket.",
+      "tooltipClipboardDisabled": "La monitorización del portapapeles está desactivada.",
+      "tooltipObs": "Clic para abrir OBS",
+      "tooltipObsConnected": "OBS está conectado. Clic para abrir.",
+      "tooltipObsDisconnected": "OBS está desconectado. Clic para abrir.",
+      "tooltipAnkiConnected": "Anki está conectado.",
+      "tooltipAnkiDisconnected": "Anki está desconectado.",
+      "tooltipWsConnected": "{name} está conectado.",
+      "timeSeconds": "hace {n} segundos",
+      "timeMinutes": "hace {n} minutos",
+      "timeHours": "hace {n} horas",
+      "timeDays": "hace {n} días"
+    },
+    "obs": {
+      "title": "Captura OBS",
+      "required": "Requerido",
+      "gameLabel": "Juego:",
+      "refreshScenes": "Actualizar juegos",
+      "renameScene": "Renombrar captura de juego",
+      "removeGame": "Eliminar juego",
+      "rename": "Renombrar",
+      "remove": "Eliminar",
+      "switchProfile": "Cambiar perfil",
+      "preview": "Vista previa",
+      "captureCardPrefix": "Capturadora: {title}",
+      "setupNewScene": "Configurar nueva captura de juego:",
+      "refreshWindows": "Actualizar ventanas",
+      "selectWindow": "Seleccionar ventana",
+      "setupCapture": "Configurar captura",
+      "setupCaptureTooltip": "Configurar captura añade captura de ventana/juego para ventanas, o dispositivo de captura de vídeo para capturadoras y cámaras.\nGSM prefiere la captura de juego cuando funciona, y las capturas de tarjeta de captura usan dispositivo de captura de vídeo.\nEn Linux/Steam Deck, actualmente usa captura de ventana XComposite.\nLas capturas de tarjeta de captura se crean sin cambio automático por título de ventana.",
+      "overrideSceneName": "Nombre de captura de juego personalizado (opcional):",
+      "captureCardToggle": "Buscar capturadoras/cámaras:",
+      "captureCardTooltip": "Cuando está activado, busca capturadoras y cámaras conectadas además de ventanas de aplicación.",
+      "loading": "Cargando...",
+      "noCaptureTargets": "No se encontraron objetivos de captura",
+      "sectionWindows": "Ventanas / Juegos",
+      "sectionCaptureCards": "Capturadoras / Cámaras",
+      "notSupportedOS": "Necesitas configurar la captura de juego en OBS en este SO.",
+      "notSupportedTooltip": "No soportado en este SO"
+    },
+    "rename": {
+      "title": "Renombrar captura de juego",
+      "description": "Solo se cambiará el nombre de la captura de juego. Las fuentes permanecerán igual.",
+      "cancel": "Cancelar",
+      "confirm": "Renombrar"
+    },
+    "actions": {
+      "title": "Acciones rápidas",
+      "gsmSettings": "Ajustes de GSM",
+      "gsmSettingsTooltip": "Abrir panel de configuración de GSM",
+      "texthooker": "Abrir fuente de texto",
+      "texthookerTooltip": "Abrir la fuente de texto para captura de texto del juego",
+      "overlay": "Ejecutar superposición",
+      "overlayTooltip": "Iniciar la superposición Yomitan para búsquedas en el juego",
+      "overlaySettings": "Ajustes de superposición",
+      "overlaySettingsTooltip": "Abrir panel de ajustes de superposición",
+      "overlayPlatformWarning": "El soporte de superposición en esta plataforma es experimental.",
+      "overlayWiki": "Guía de configuración de superposición"
+    },
+    "support": {
+      "text": "Apoyar GSM",
+      "githubSponsors": "GitHub Sponsors",
+      "kofi": "Ko-fi"
+    }
+  },
+  "app": {
+    "tabs": {
+      "home": "Inicio",
+      "ocr": "OCR",
+      "stats": "Estadísticas",
+      "gameSettings": "Ajustes del juego",
+      "settings": "Ajustes",
+      "python": "Python",
+      "logs": "Registros"
+    },
+    "header": {
+      "github": "GitHub",
+      "discord": "Discord"
+    },
+    "stats": {
+      "loading": "Esperando a que se carguen las estadísticas de GSM..."
+    },
+    "console": {
+      "openLogsFolder": "Abrir carpeta de registros",
+      "openLogsFolderTooltip": "Abrir carpeta de registros",
+      "exportLogs": "Exportar registros",
+      "exportLogsTooltip": "Exportar registros a un archivo zip",
+      "modeSimple": "Modo: Simple",
+      "modeAdvanced": "Modo: Avanzado",
+      "modeSimpleTooltip": "Cambiar a registros avanzados (muestra básicos + en segundo plano)",
+      "modeAdvancedTooltip": "Cambiar a registros simples (oculta registros en segundo plano)"
+    },
+    "python": {
+      "cancel": "Cancelar",
+      "cuda": {
+        "title": "Instalación de CUDA",
+        "install": "Instalar soporte GPU CUDA",
+        "uninstall": "Desinstalar soporte CUDA",
+        "installTitle": "Instalar soporte GPU CUDA",
+        "installMessage": "¿Instalar soporte GPU CUDA?",
+        "installDetail": "Esto instala onnxruntime-gpu para un procesamiento más rápido.\n\n- Requiere almacenamiento adicional\n- Puede no ser compatible con todos los sistemas\n- Instalar bajo tu responsabilidad",
+        "installConfirm": "Instalar",
+        "installCancelled": "Instalación de CUDA cancelada.",
+        "installing": "Instalando soporte GPU CUDA...",
+        "uninstallTitle": "Desinstalar soporte GPU CUDA",
+        "uninstallMessage": "¿Desinstalar soporte GPU CUDA?",
+        "uninstallDetail": "Esto desinstala onnxruntime-gpu y puede solucionar problemas relacionados con la GPU.",
+        "uninstallConfirm": "Desinstalar",
+        "uninstallCancelled": "Desinstalación de CUDA cancelada.",
+        "uninstalling": "Desinstalando soporte GPU CUDA..."
+      },
+      "management": {
+        "title": "Gestión de GSM",
+        "resetDeps": "Restablecer dependencias de Python",
+        "resetTitle": "Restablecer dependencias de Python",
+        "resetMessage": "¿Restablecer dependencias de Python?",
+        "resetDetail": "Esto ejecuta \"uv sync\" y restaura las versiones de dependencias desde el archivo de bloqueo.",
+        "resetConfirm": "Restablecer",
+        "resetCancelled": "Restablecimiento de dependencias cancelado.",
+        "resetting": "Restableciendo dependencias de Python..."
+      },
+      "customPackage": {
+        "title": "Instalación de paquete personalizado",
+        "label": "Nombre del paquete",
+        "placeholder": "numpy, requests, etc.",
+        "installBtn": "Instalar paquete",
+        "enterName": "Por favor, introduce el nombre del paquete.",
+        "installing": "Instalando paquete: {package}..."
+      },
+      "envInfo": {
+        "title": "Información del entorno Python",
+        "version": "Versión de Python: {version}",
+        "path": "Ruta de Python: {path}",
+        "pipVersion": "Versión de Pip: {version}",
+        "unknown": "Desconocido",
+        "error": "Error al cargar",
+        "loading": "Cargando...",
+        "refresh": "Actualizar información"
+      }
+    }
+  },
+  "wizard": {
+    "skip": "Omitir configuración",
+    "back": "← Atrás",
+    "next": "Siguiente →",
+    "getStarted": "Comenzar →",
+    "welcome": {
+      "title": "¡Bienvenido a GameSentenceMiner! 🎮",
+      "description": "GSM te ayuda a crear automáticamente tarjetas de Anki a partir de los juegos que juegas. Captura texto, audio y capturas de pantalla para crear tarjetas de alta calidad para el aprendizaje de idiomas.",
+      "whatYouNeed": "Lo que necesitarás:",
+      "ankiLabel": "Anki",
+      "ankiWith": "con el",
+      "ankiConnect": "AnkiConnect",
+      "ankiAddonRunning": "complemento instalado y en ejecución",
+      "textSourceLabel": "Una fuente de texto",
+      "textSourceDesc": "— Agent, Textractor u OCR integrado",
+      "obsLabel": "OBS Studio",
+      "obsDesc": "(opcional) — para grabación de audio/vídeo",
+      "hint": "Este asistente te guiará por lo básico. Siempre puedes cambiar los ajustes más tarde."
+    },
+    "textSources": {
+      "title": "Fuentes de entrada de texto 📝",
+      "description": "GSM necesita una forma de leer texto de tu juego. Estas son las opciones más comunes:",
+      "agentTitle": "🔌 Agent (Recomendado)",
+      "agentDesc": "Funciona con la mayoría de novelas visuales. Se conecta automáticamente por WebSocket en el puerto 9001.",
+      "agentLink": "Obtener Agent →",
+      "ocrTitle": "👁️ OCR integrado",
+      "ocrDesc": "Usa OCR de pantalla para juegos donde el enganche de texto no funciona. Configúralo en la pestaña OCR después de la configuración.",
+      "clipboardTitle": "📋 Portapapeles",
+      "clipboardDesc": "Si tu fuente de texto copia al portapapeles, GSM puede leer de ahí automáticamente.",
+      "hint": "Las fuentes WebSocket (Agent, Textractor, LunaTranslator) se pueden gestionar en Ajustes → General."
+    },
+    "connectivity": {
+      "title": "Verificación de conectividad 🔗",
+      "description": "Verifiquemos que tus herramientas externas son accesibles:",
+      "ankiLabel": "Anki (AnkiConnect)",
+      "checking": "Verificando conexión...",
+      "ankiConnected": "¡Conectado! AnkiConnect está en ejecución.",
+      "ankiFailedPre": "No accesible. Asegúrate de que Anki esté abierto con el",
+      "ankiConnectAddon": "complemento AnkiConnect",
+      "ankiFailedPost": "instalado.",
+      "obsLabel": "OBS Studio (WebSocket)",
+      "obsConnected": "¡Conectado! El servidor WebSocket de OBS está en ejecución.",
+      "obsFailed": "No accesible. OBS es opcional — puedes configurarlo más tarde en Ajustes.",
+      "hint": "Puedes continuar aunque las conexiones fallen — configúralas más tarde en Ajustes."
+    },
+    "finish": {
+      "title": "¡Todo listo! 🎉",
+      "description": "GSM está listo. Aquí tienes algunos consejos para empezar:",
+      "tipHome": "Abre la pestaña <strong>Inicio</strong> para ver el flujo de texto del juego actual",
+      "tipGameSettings": "Usa <strong>Ajustes del juego</strong> para configurar perfiles por juego",
+      "tipSettings": "Revisa la pestaña <strong>Ajustes</strong> para configuración de Anki, audio y atajos",
+      "tipConsole": "La pestaña <strong>Consola</strong> muestra lo que GSM está haciendo en segundo plano",
+      "guidePre": "Para guías detalladas y resolución de problemas, visita el",
+      "guideWikiLink": "Wiki de GSM",
+      "guideOr": "o únete a la",
+      "guideDiscordLink": "comunidad de Discord"
+    }
+  },
+  "install": {
+    "title": "Instalando GSM",
+    "preparing": "Preparando configuración...",
+    "steps": "{completed}/{total} pasos",
+    "stages": {
+      "pythonSetup": "Configuración de Python",
+      "gsmBackend": "Backend de GSM",
+      "obs": "OBS",
+      "ffmpeg": "FFmpeg",
+      "oneocr": "OneOCR",
+      "finalize": "Finalizar"
+    },
+    "status": {
+      "done": "Hecho",
+      "completed": "Completado.",
+      "skipped": "Omitido",
+      "skippedDetail": "Omitido.",
+      "failed": "Fallido",
+      "failedDetail": "Fallido.",
+      "downloading": "Descargando",
+      "working": "Trabajando",
+      "workingDetail": "Trabajando...",
+      "pending": "Pendiente",
+      "waiting": "Esperando..."
+    },
+    "estimatedProgress": "Progreso estimado — la instalación sigue activa.",
+    "logs": "Registros",
+    "waitingForLogs": "Esperando registros...",
+    "emptyLog": "(vacío)",
+    "retry": "Reintentar",
+    "openLogs": "Abrir registros",
+    "quit": "Salir"
+  },
+  "settings": {
+    "hub": {
+      "findSetting": "Buscar ajuste",
+      "findDescription": "Busca lo que quieres cambiar y GSM abrirá la pantalla de ajustes correcta.",
+      "openGSMSettings": "Abrir ajustes principales de GSM",
+      "openOverlaySettings": "Abrir ajustes de superposición",
+      "searchLabel": "Buscar ajuste:",
+      "searchPlaceholder": "Prueba: campos anki, contraseña OBS, área OCR, atajo furigana, JPDB",
+      "searchHint": "Prueba palabras comunes, nombres de funciones, atajos, puertos, nombres de campos o herramientas.",
+      "resultCount": "{count} resultado",
+      "resultCountPlural": "{count} resultados",
+      "noResults": "No se encontraron ajustes coincidentes. Prueba palabras más amplias como anki, atajo, superposición, OBS o audio.",
+      "overlayNotAvailable": "No se pudieron abrir automáticamente los ajustes de superposición. Primero inicia/conecta la superposición, o usa su icono en la bandeja."
+    },
+    "desktop": {
+      "title": "Ajustes de la aplicación de escritorio",
+      "iconStyle": "Estilo de icono:",
+      "iconDefault": "Predeterminado",
+      "iconAnimeGirl": "Chica anime",
+      "iconJacked": "Musculoso",
+      "iconCursed": "Maldito",
+      "iconAnimeGirlTray": "Chica anime (icono de bandeja también)",
+      "iconJackedTray": "Musculoso (icono de bandeja también)",
+      "iconCursedTray": "Maldito (icono de bandeja también)",
+      "iconRandom": "Aleatorio",
+      "iconRandomTray": "Aleatorio (icono de bandeja también)",
+      "language": "Idioma de visualización (IA):",
+      "startMinimized": "Iniciar consola minimizada:",
+      "showYuzuLauncher": "Mostrar lanzador Yuzu:",
+      "runTransparencyOnStartup": "Ejecutar herramienta de transparencia al inicio:",
+      "runOverlayOnStartup": "Ejecutar superposición al inicio:"
+    },
+    "visibility": {
+      "title": "Ajustes de visibilidad",
+      "visibleTabs": "Pestañas visibles:",
+      "tabGameSettings": "Ajustes del juego",
+      "tabStats": "Estadísticas",
+      "tabPython": "Python",
+      "tabConsole": "Consola",
+      "statsTarget": "Objetivo de estadísticas:"
+    },
+    "transparency": {
+      "title": "Herramienta de transparencia (Obsoleta)",
+      "toolHotkey": "Atajo de herramienta:",
+      "windowTarget": "Ventana objetivo:",
+      "windowTargetPlaceholder": "Dejar vacío para usar la ventana enfocada",
+      "runTool": "Ejecutar herramienta de transparencia de ventana"
+    },
+    "updates": {
+      "title": "Actualizaciones",
+      "autoUpdate": "Actualización automática:",
+      "betaUpdates": "Actualizaciones beta:",
+      "betaTooltip": "Recibir actualizaciones beta de la rama develop. Solo se ofrecerán versiones más nuevas.",
+      "description": "Comprueba tanto el paquete del backend como la aplicación de escritorio desde aquí.",
+      "backend": "Backend de GameSentenceMiner",
+      "electronApp": "Aplicación Electron",
+      "current": "Actual: {version}",
+      "latest": "Última: {version}",
+      "channel": "Canal: {channel}",
+      "upToDate": "Actualizado",
+      "manualBranch": "Seguimiento manual de rama",
+      "lastChecked": "Última comprobación: {time}",
+      "checkForUpdates": "Buscar actualizaciones",
+      "checking": "Comprobando...",
+      "updateNow": "Actualizar ahora",
+      "updating": "Actualizando...",
+      "unknown": "Desconocido"
+    },
+    "catalog": {
+      "alreadyOnScreen": "Ya en esta pantalla",
+      "openGSMSettings": "Abrir ajustes principales de GSM",
+      "openOverlaySettings": "Abrir ajustes de superposición",
+      "locationElectron": "Esta pantalla",
+      "locationPython": "Ajustes principales de GSM",
+      "locationOverlay": "Ajustes de superposición",
+      "desktopAppearance": {
+        "label": "Apariencia y arranque de la app",
+        "description": "Cambiar aspectos visuales, iconos de bandeja y comportamiento de arranque."
+      },
+      "desktopTabs": {
+        "label": "Pestañas de escritorio y estadísticas",
+        "description": "Mostrar u ocultar pestañas y elegir la página de estadísticas predeterminada."
+      },
+      "desktopUpdates": {
+        "label": "Actualizaciones y versiones beta",
+        "description": "Controlar comprobaciones de actualizaciones y si se ofrecen versiones beta.",
+        "notes": "Algunos cambios de actualización se aplican en el próximo inicio."
+      },
+      "keySettings": {
+        "label": "Ajustes clave",
+        "description": "Configuración principal, puertos de conexión y los ajustes más importantes del primer uso.",
+        "notes": "Guardado por perfil de GSM."
+      },
+      "general": {
+        "label": "General",
+        "description": "Comportamiento general, carpetas, estado de Discord y ajustes de limpieza de texto.",
+        "notes": "Guardado por perfil de GSM."
+      },
+      "anki": {
+        "label": "Anki",
+        "description": "Mazos, campos, comportamiento de confirmación y etiquetas de tarjetas Anki.",
+        "notes": "Guardado por perfil de GSM."
+      },
+      "screenshot": {
+        "label": "Captura de pantalla",
+        "description": "Ajustar tamaño, formato, temporización y opciones de captura animada.",
+        "notes": "Guardado por perfil de GSM."
+      },
+      "audio": {
+        "label": "Audio",
+        "description": "Clips de audio, recorte, exportación, detección de voz y ajustes del modelo de voz.",
+        "notes": "Guardado por perfil de GSM."
+      },
+      "obs": {
+        "label": "OBS",
+        "description": "Capturas de juego OBS, grabación y comportamiento de captura relacionado.",
+        "notes": "Guardado por perfil de GSM."
+      },
+      "ai": {
+        "label": "IA y traducción",
+        "description": "Proveedores de IA, prompts, ajustes de traducción y GSM Cloud.",
+        "notes": "Guardado por perfil de GSM."
+      },
+      "overlayOcr": {
+        "label": "OCR de superposición",
+        "description": "Elegir monitor, área OCR y comportamiento de captura de superposición del backend.",
+        "notes": "Guardado por perfil de GSM."
+      },
+      "advanced": {
+        "label": "Avanzado",
+        "description": "Redes avanzadas, rutas del reproductor, puertos y pausa experimental de procesos.",
+        "notes": "La mayoría de usuarios no necesitará esto frecuentemente."
+      },
+      "profiles": {
+        "label": "Perfiles",
+        "description": "Crear, copiar, eliminar y cambiar entre perfiles de GSM.",
+        "notes": "Los perfiles guardan diferentes configuraciones para diferentes juegos."
+      },
+      "overlayDisplay": {
+        "label": "Pantalla de superposición y atajos",
+        "description": "Visibilidad de superposición, furigana, indicadores, desplazamientos y atajos.",
+        "notes": "Guardado en la propia ventana de superposición."
+      },
+      "overlayTranslation": {
+        "label": "Traducción de superposición y herramientas de lectura",
+        "description": "Solicitudes de traducción, herramientas de lectura, Yomitan y opciones de fuente de texto.",
+        "notes": "Guardado en la propia ventana de superposición."
+      },
+      "overlayGamepad": {
+        "label": "Navegación con mando de superposición",
+        "description": "Navegación con mando, backends de tokenizador, alternancia de teclado y prueba de entrada.",
+        "notes": "Guardado en la propia ventana de superposición."
+      }
+    }
+  },
+  "launcher": {
+    "title": "Ajustes del juego",
+    "docsButton": "Documentación del lanzador automático",
+    "docsButtonTooltip": "Abrir documentación del lanzador automático",
+    "infoLabel": "Resumen de ajustes del juego",
+    "overviewTooltip": "Configura rutas compartidas de herramientas de enganche de texto y automatización por juego. Elige un modo de enganche de texto (Ninguno/Agent/Textractor/Luna) y un modo OCR (Ninguno/Auto/Manual) para cada juego.",
+    "shared": {
+      "title": "Ajustes de herramientas compartidas",
+      "collapse": "Colapsar ajustes de herramientas compartidas.",
+      "expand": "Expandir ajustes de herramientas compartidas.",
+      "agentPath": "Ruta de Agent:",
+      "agentScriptsPath": "Ruta de scripts de Agent:",
+      "textractor64": "Ruta de Textractor 64-bit:",
+      "textractor32": "Ruta de Textractor 32-bit:",
+      "lunaPath": "Ruta de LunaTranslator:",
+      "browse": "Examinar",
+      "download": "Descargar",
+      "downloading": "Descargando...",
+      "downloadingPercent": "Descargando {percent}%",
+      "launchAgentMinimized": "Iniciar Agent minimizado:",
+      "disclaimer": "Las descargas provienen de las versiones oficiales de GitHub. Por favor, revisa la licencia y los términos de cada proyecto antes de usarlos."
+    },
+    "scene": {
+      "title": "Automatización de juego",
+      "activeScene": "Juego OBS activo:",
+      "notSelected": "No seleccionada",
+      "configureScene": "Configurar juego:",
+      "noScenesFound": "No se encontraron juegos",
+      "refresh": "Actualizar",
+      "textHookLauncher": "Lanzador de enganche de texto:",
+      "modeNone": "Ninguno",
+      "modeAgent": "Agent",
+      "modeTextractor": "Textractor",
+      "modeLuna": "LunaTranslator",
+      "launchDelay": "Retardo de lanzamiento (segundos):",
+      "agentScript": "Script de Agent:",
+      "search": "Buscar",
+      "searchHint": "La búsqueda lista todos los scripts y clasifica las coincidencias probables arriba.",
+      "ocrMode": "Modo OCR:",
+      "ocrNone": "Ninguno",
+      "ocrAuto": "OCR automático",
+      "ocrManual": "OCR manual",
+      "launchOverlay": "Lanzar superposición con el juego:",
+      "noSceneHint": "Selecciona o cambia a un juego OBS para configurar la automatización."
+    },
+    "scriptPicker": {
+      "title": "Buscar script de Agent ({filtered}/{total})",
+      "close": "Cerrar",
+      "closeTooltip": "Cerrar diálogo de selección de script.",
+      "searchPlaceholder": "Buscar scripts por nombre o ruta...",
+      "noResults": "Ningún script coincide con tu búsqueda.",
+      "explicitId": "ID explícito",
+      "titleId": "ID de título",
+      "nameMatch": "Coincidencia de nombre",
+      "fuzzyMatch": "Coincidencia aproximada",
+      "possibleMatch": "Posible coincidencia",
+      "matchPercent": "{percent}% de coincidencia"
+    },
+    "status": {
+      "openedReleases": "Página de versiones de {label} abierta.",
+      "failedOpenReleases": "No se pudo abrir la página de versiones.",
+      "failedOpenDocs": "No se pudo abrir la documentación.",
+      "savedShared": "Ajustes compartidos del juego guardados.",
+      "updatedPath": "Ajuste de ruta compartida actualizado.",
+      "savedScene": "Automatización guardada para el juego: {scene}",
+      "updatedScript": "Script de Agent actualizado para el juego: {scene}",
+      "failedListScripts": "No se pudieron listar los scripts para el juego: {scene}",
+      "noScriptsFound": "No se encontraron scripts para el juego: {scene}",
+      "selectedScript": "Script de Agent seleccionado para el juego: {scene}",
+      "downloadPreparing": "Descargando e instalando {tool}...",
+      "downloadInstalled": "{tool}{version} instalado.{message}",
+      "downloadNotFound": "No se encontró una descarga de {tool} coincidente en la última versión.",
+      "downloadCanceled": "Descarga cancelada para {tool}.",
+      "downloadFailed": "No se pudo instalar {tool}."
+    },
+    "tooltips": {
+      "sharedToolSettings": "Rutas compartidas usadas por los ajustes del juego en todos los juegos de este perfil.",
+      "sceneAutomation": "Comportamiento de inicio específico del juego. Cada juego puede usar diferentes ajustes de enganche de texto y OCR.",
+      "agentPath": "Ruta al ejecutable de Agent cuando el lanzador de enganche de texto está configurado como Agent.",
+      "agentScriptsPath": "Carpeta que contiene archivos de script de Agent (.js). Se usa para autodetección y valores predeterminados de exploración.",
+      "textractor64": "Ruta al ejecutable de Textractor 64-bit. Se usa cuando el lanzador de juego está configurado como Textractor.",
+      "textractor32": "Ruta al ejecutable de Textractor 32-bit. Se usa para objetivos de juegos de 32 bits.",
+      "lunaPath": "Ruta al ejecutable de LunaTranslator. Se usa cuando el lanzador de juego está configurado como LunaTranslator.",
+      "launchAgentMinimized": "Iniciar Agent minimizado/oculto en Windows.",
+      "activeScene": "Juego OBS actualmente activo. Los cambios de configuración se aplican al valor de juego configurado seleccionado.",
+      "configureScene": "Elige qué juego OBS estás editando en esta pestaña.",
+      "refreshScenes": "Actualizar lista de juegos OBS desde la conexión OBS actual.",
+      "textHookMode": "Selecciona un modo de lanzador de enganche de texto para este juego.",
+      "textHookNone": "No lanzar automáticamente una herramienta de enganche de texto para este juego.",
+      "textHookAgent": "Lanzar Agent para este juego y usar el script de Agent configurado.",
+      "textHookTextractor": "Lanzar automáticamente Textractor cuando este juego se active.",
+      "textHookLuna": "Lanzar automáticamente LunaTranslator cuando este juego se active.",
+      "launchDelay": "Retardo antes de iniciar el lanzador de enganche de texto seleccionado para este juego.",
+      "agentScript": "Ruta del script de Agent para este juego. Puedes establecerla manualmente, examinar o buscar.",
+      "launchOverlay": "Iniciar la superposición GSM mientras la sesión de este juego esté activa, y cerrar la superposición auto-lanzada cuando el juego/sesión termine.",
+      "browseScript": "Abrir selector de archivos y elegir un script de Agent para este juego.",
+      "searchScript": "Buscar todos los scripts en la ruta de scripts de Agent, clasificados por similitud con el juego.",
+      "downloadAgent": "Descargar el último Agent desde las versiones oficiales de GitHub. Elige cualquier carpeta de instalación.",
+      "downloadTextractor": "Descargar el último Textractor desde las versiones oficiales de GitHub. Elige cualquier carpeta de instalación. Establece rutas x64 y x86.",
+      "downloadLuna": "Abrir la página oficial de versiones de LunaTranslator en GitHub.",
+      "ocrMode": "Selecciona un modo OCR para este juego.",
+      "ocrNone": "No iniciar OCR para este juego.",
+      "ocrAuto": "Iniciar OCR automático continuo cuando este juego esté activo.",
+      "ocrManual": "Iniciar entorno OCR manual para este juego. La captura OCR permanece manual mediante controles/atajos.",
+      "status": "Último estado de guardado/detección de las acciones de ajustes del juego.",
+      "candidatePicker": "Elegir el candidato de script de Agent que mejor coincida para este juego.",
+      "noScene": "No hay un perfil de juego cargado. Selecciona un juego primero."
+    }
+  },
+  "ocr": {
+    "sceneAndAreas": {
+      "title": "Juego y áreas",
+      "areaCount": "{count} área",
+      "areaCountPlural": "{count} áreas",
+      "sceneLabel": "Juego:",
+      "loading": "Cargando...",
+      "noScenes": "No se encontraron juegos",
+      "reloadScenes": "Recargar juegos",
+      "selectAreas": "Seleccionar áreas OCR",
+      "importAreas": "Importar áreas",
+      "exportAreas": "Exportar áreas",
+      "ocrGuide": "Guía OCR"
+    },
+    "settings": {
+      "title": "Ajustes OCR",
+      "advanced": "Avanzado",
+      "scanRate": "Frecuencia de escaneo (s):",
+      "textSpeed": "Velocidad de texto:",
+      "language": "Idioma:",
+      "scanImageQuality": "Calidad de imagen de escaneo",
+      "furiganaFilter": "Filtro de furigana",
+      "preview": "Vista previa",
+      "copyToClipboard": "Copiar al portapapeles:",
+      "lineBreaks": "Saltos de línea:",
+      "auto": "Auto",
+      "menu": "Menú",
+      "areaSelect": "Seleccionar área"
+    },
+    "pipeline": {
+      "title": "Pipeline de reconocimiento",
+      "twoPassFlow": "Flujo de dos pasadas:",
+      "singlePassFlow": "Flujo de una pasada:",
+      "stabilityOcr": "OCR de estabilidad:",
+      "mainOcr": "OCR principal:",
+      "twoPassOcr": "OCR de dos pasadas:",
+      "optimizeSecondScan": "Optimizar segundo escaneo:",
+      "ocrClipboardImages": "OCR de imágenes del portapapeles:"
+    },
+    "comparison": {
+      "title": "Ajuste de comparación de texto",
+      "expertTitle": "Heurísticas avanzadas",
+      "duplicateThreshold": { "label": "Umbral de coincidencia de duplicados (%)", "title": "Valores más altos son más estrictos. Aumenta este valor si líneas diferentes se tratan como duplicados." },
+      "changeThreshold": { "label": "Umbral de cambio de texto (%)", "title": "Valores más bajos activan OCR2 antes con cambios parciales. Valores más altos esperan cambios más claros." },
+      "evolvingPrefix": { "label": "Coincidencia de prefijo evolutivo (%)", "title": "Se usa al comprobar si una línea corta parece el comienzo de una línea más larga." },
+      "truncationFallbackMin": { "label": "Umbral mínimo de respaldo de truncamiento (%)", "title": "Umbral de comparación mínimo requerido antes de permitir la coincidencia de truncamiento de prefijo o sufijo." },
+      "truncationStrictMin": { "label": "Umbral estricto de truncamiento (%)", "title": "Por encima de este umbral, GSM también requiere una similitud base más fuerte antes de tratar un truncamiento como el mismo texto." },
+      "truncationMargin": { "label": "Margen base de truncamiento", "title": "Cuánto puede estar por debajo del umbral de comparación la similitud base antes de que se rechace el respaldo de truncamiento." },
+      "truncationMinLength": { "label": "Longitud mínima de truncamiento (caracteres)", "title": "Longitud mínima de cadena normalizada permitida para coincidencia de truncamiento." },
+      "truncationMinRatio": { "label": "Ratio mínimo de longitud de truncamiento (%)", "title": "Cuánto de la línea más larga debe cubrir la línea más corta antes de considerar la coincidencia de truncamiento." },
+      "subsetChunkMinLength": { "label": "Longitud mínima de fragmento de subconjunto (caracteres)", "title": "Los fragmentos OCR entrantes más cortos que esto omiten el respaldo de cobertura de fragmentos a menos que sean coincidencias exactas." },
+      "shortChunkLimit": { "label": "Límite de fragmento corto (caracteres)", "title": "Los fragmentos de esta longitud o menos usan el mínimo de bloque de coincidencia más pequeño." },
+      "shortChunkMinSize": { "label": "Tamaño mínimo de coincidencia de fragmento corto", "title": "Tamaño mínimo de coincidencia contigua contado para fragmentos cortos." },
+      "defaultMinSize": { "label": "Tamaño mínimo de coincidencia predeterminado", "title": "Tamaño mínimo de coincidencia contigua contado para fragmentos más largos." },
+      "coverageFloor": { "label": "Piso de cobertura de subconjunto (%)", "title": "Requisito de cobertura de fragmentos más bajo permitido para respaldo de deduplicación." },
+      "coverageCeiling": { "label": "Techo de cobertura de subconjunto (%)", "title": "Requisito de cobertura de fragmentos más alto permitido para respaldo de deduplicación." },
+      "coverageOffset": { "label": "Desplazamiento del umbral de cobertura", "title": "Desplazamiento aplicado antes de convertir el umbral de comparación actual en un requisito de cobertura." },
+      "longestBlockMin": { "label": "Mínimo de bloque más largo (caracteres)", "title": "Tamaño mínimo de bloque contiguo requerido en modo de cobertura de subconjunto." },
+      "longestBlockDivisor": { "label": "Divisor de bloque más largo", "title": "Valores más grandes reducen la longitud de bloque contiguo requerida para fragmentos más largos." }
+    },
+    "hotkeys": {
+      "title": "Atajos de teclado",
+      "manualMenu": "Manual / Menú:",
+      "areaSelect": "Seleccionar área:",
+      "wholeWindow": "Ventana completa:",
+      "pause": "Pausa:"
+    },
+    "console": {
+      "title": "Consola",
+      "active": "Activo",
+      "idle": "Inactivo",
+      "paused": "Pausado",
+      "clear": "Limpiar"
+    },
+    "debug": {
+      "title": "Herramientas extra y depuración",
+      "ignoreRun1Logs": "Ignorar registros de \"OCR Ejecución 1\":",
+      "processPriority": "Prioridad del proceso:",
+      "defaultFuriganaSensitivity": "Sensibilidad de furigana predeterminada:",
+      "obsCapturePreprocess": "Preprocesamiento de captura OBS:",
+      "installDependency": "Instalar dependencia:",
+      "installBtn": "Instalar",
+      "removeDependency": "Eliminar dependencia:",
+      "uninstallBtn": "Desinstalar",
+      "ocrErrorFixes": "Correcciones de errores OCR",
+      "configFile": "Archivo de configuración",
+      "configFolder": "Carpeta de configuración",
+      "globalConfig": "Configuración global",
+      "tempFolder": "Carpeta temporal"
+    },
+    "footer": {
+      "running": "En ejecución",
+      "paused": "Pausado",
+      "ready": "Listo",
+      "needsAreas": "Necesita áreas",
+      "ocrRuntime": "Entorno OCR",
+      "noSceneSelected": "Ningún juego seleccionado",
+      "sceneHasAreas": "{scene} tiene {count} {areaWord} OCR.",
+      "noAreasForScene": "No hay áreas OCR guardadas para {scene}.",
+      "stopOcr": "Detener OCR",
+      "resumeOcr": "Reanudar OCR",
+      "pauseOcr": "Pausar OCR",
+      "startAutoOcr": "Iniciar OCR automático",
+      "startManualOcr": "Iniciar OCR manual",
+      "needAreasFirst": "Dibuja áreas OCR para este juego antes de iniciar OCR {mode}."
+    },
+    "runtime": {
+      "idle": "Inactivo",
+      "startingAuto": "Iniciando OCR automático...",
+      "startingManual": "Iniciando OCR manual...",
+      "runningManual": "OCR manual en ejecución",
+      "runningManualWith": "OCR manual en ejecución con {engine}",
+      "runningAutoWith": "OCR automático en ejecución con {engine} a {rate}s",
+      "runningAutoAt": "OCR automático en ejecución a {rate}s",
+      "scanningWith": "Escaneando con {engine} en {speed}s",
+      "scanning": "Escaneando con {engine}",
+      "sleeping": "En reposo: imagen vacía o sin cambios",
+      "areaSelectionFinished": "Selección de área OCR completada.",
+      "failedSwitchScene": "No se pudo cambiar el juego.",
+      "configReloaded": "Configuración recargada",
+      "forceStableEnabled": "Modo estable forzado activado",
+      "forceStableDisabled": "Modo estable forzado desactivado"
+    },
+    "engines": {
+      "glens": "Google Lens",
+      "bing": "Bing",
+      "oneocr": "OneOCR",
+      "screenai": "ScreenAI OCR",
+      "meikiocr": "Meiki OCR",
+      "gemini": "Gemini",
+      "gvision": "Google Vision",
+      "azure": "Azure Análisis de Imagen",
+      "ocrspace": "OCRSpace",
+      "local_llm_ocr": "LLM OCR local",
+      "alivetext": "Apple Live Text",
+      "mlkitocr": "MLKit OCR",
+      "meiki_text_detector": "Meiki Detector de Texto"
+    },
+    "languages": {
+      "ja": "Japonés",
+      "zh": "Chino",
+      "ko": "Coreano",
+      "en": "Inglés (escritura latina)",
+      "es": "Español",
+      "fr": "Francés",
+      "de": "Alemán",
+      "ru": "Ruso",
+      "ar": "Árabe",
+      "hi": "Hindi"
+    },
+    "scanRates": {
+      "instant": "Instantáneo",
+      "normal": "Normal",
+      "slow": "Lento",
+      "verySlow": "Muy lento"
+    },
+    "priorities": {
+      "low": "Bajo",
+      "below_normal": "Inferior a normal",
+      "normal": "Normal",
+      "above_normal": "Superior a normal",
+      "high": "Alto"
+    },
+    "preprocess": {
+      "none": "Desactivado",
+      "grayscale": "Escala de grises",
+      "grayscale_unsharp": "Escala de grises + Autocontraste + Enfoque"
+    },
+    "dependencies": {
+      "install": {
+        "fasterPng": "PNG más rápido (Recomendado en Windows 11)",
+        "googleVision": "Google Vision",
+        "azure": "Azure",
+        "ocrspace": "OCRSpace"
+      },
+      "remove": {
+        "owocr": "OWOCR Base",
+        "protobuf": "Google Lens",
+        "oneocr": "OneOCR",
+        "fasterPng": "PNG más rápido",
+        "transformers": "Filtrado preciso",
+        "googleVision": "Google Vision",
+        "azure": "Azure",
+        "ocrspace": "OCRSpace"
+      }
+    },
+    "notices": {
+      "areaConfigImported": "Configuración de área OCR importada.",
+      "importFailed": "Importación fallida.",
+      "areaConfigExported": "Configuración de área OCR copiada al portapapeles.",
+      "exportFailed": "Exportación fallida."
+    }
+  }
+}

@@ -10,6 +10,9 @@ All translatable strings live in JSON files under `electron-src/renderer/src/i18
 | `en` | English  | `en.json` |
 | `ja` | 日本語   | `ja.json` |
 | `ukr` | Українська | `ukr.json` |
+| `zh` | 中文     | `zh.json` |
+| `ko` | 한국어   | `ko.json` |
+| `es` | Español  | `es.json` |
 
 English is the **fallback locale** — if a key is missing in another locale, the English value is shown.
 

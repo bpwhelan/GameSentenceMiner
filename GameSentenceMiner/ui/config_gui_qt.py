@@ -2863,7 +2863,7 @@ class ConfigWindow(QWidget):
         self.lm_studio_backup_model_combo.setCurrentText(s.ai.lm_studio_backup_model or OFF)
         self._set_text_value(self.lm_studio_api_key_edit, s.ai.lm_studio_api_key)
 
-        self._set_text_value(self.deepl_api_key_edit, s.ai.deepl_api_key)  
+        self._set_text_value(self.deepl_api_key_edit, s.ai.deepl_api_key)
         self._set_text_value(self.deepl_target_lang_edit, s.ai.deepl_target_lang)
 
         self.ai_anki_field_edit.setCurrentText(s.ai.anki_field)
@@ -3210,7 +3210,7 @@ class ConfigWindow(QWidget):
         self.gsm_cloud_settings_group.setVisible(provider == AI_GSM_CLOUD)
         self.ollama_settings_group.setVisible(provider == AI_OLLAMA)
         self.lm_studio_settings_group.setVisible(provider == AI_LM_STUDIO)
-        self.deepl_settings_group.setVisible(provider == AI_DEEPL) 
+        self.deepl_settings_group.setVisible(provider == AI_DEEPL)
 
     def _create_browse_widget(self, line_edit, mode):
         """Helper to create a LineEdit with a Browse button."""

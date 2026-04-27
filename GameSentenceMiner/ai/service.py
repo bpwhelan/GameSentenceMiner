@@ -47,7 +47,7 @@ def _is_local_url(url: str) -> bool:
 
 
 def _requires_internet(config: Ai) -> bool:
-    if config.provider in {AI_GEMINI, AI_GROQ, AI_GSM_CLOUD,  AI_DEEPL}:
+    if config.provider in {AI_GEMINI, AI_GROQ, AI_GSM_CLOUD, AI_DEEPL}:
         return True
     if config.provider == AI_OPENAI:
         return not _is_local_url(config.open_ai_url)
@@ -121,7 +121,7 @@ class AIService:
             return config.ollama_backup_model
         if config.provider == AI_LM_STUDIO:
             return config.lm_studio_backup_model
-        if config.provider == AI_DEEPL:  #(DeepL doesn't have backup models)
+        if config.provider == AI_DEEPL:  # (DeepL doesn't have backup models)
             return ""
         return ""
 

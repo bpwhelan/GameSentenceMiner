@@ -1,0 +1,713 @@
+{
+  "home": {
+    "status": {
+      "title": "状态",
+      "gsm": "GSM",
+      "clipboard": "剪贴板",
+      "obs": "OBS",
+      "anki": "Anki",
+      "connected": "已连接",
+      "disconnected": "已断开",
+      "enabled": "已启用",
+      "disabled": "已禁用",
+      "disabledWebSocket": "已禁用（WebSocket）",
+      "running": "运行中",
+      "notRunning": "未运行",
+      "installing": "安装中…",
+      "error": "错误",
+      "processing": "处理中：{words}",
+      "lastLine": "最后一行：{time}",
+      "lastLineNotReceived": "尚未接收",
+      "tooltipGsm": "状态：{status}\nWebSocket：{websockets}\nOBS：{obs}\nAnki：{anki}\n最后接收行：{lastLine}",
+      "tooltipGsmStopped": "GSM 已停止。",
+      "tooltipClipboardEnabled": "剪贴板监控已启用。",
+      "tooltipClipboardDisabledWs": "剪贴板监控已禁用，因为正在通过 WebSocket 接收文本。",
+      "tooltipClipboardDisabled": "剪贴板监控已禁用。",
+      "tooltipObs": "点击打开 OBS",
+      "tooltipObsConnected": "OBS 已连接。点击打开。",
+      "tooltipObsDisconnected": "OBS 已断开。点击打开。",
+      "tooltipAnkiConnected": "Anki 已连接。",
+      "tooltipAnkiDisconnected": "Anki 已断开。",
+      "tooltipWsConnected": "{name} 已连接。",
+      "timeSeconds": "{n} 秒前",
+      "timeMinutes": "{n} 分钟前",
+      "timeHours": "{n} 小时前",
+      "timeDays": "{n} 天前"
+    },
+    "obs": {
+      "title": "OBS 捕获",
+      "required": "必需",
+      "gameLabel": "游戏：",
+      "refreshScenes": "刷新游戏",
+      "renameScene": "重命名游戏捕获",
+      "removeGame": "移除游戏",
+      "rename": "重命名",
+      "remove": "移除",
+      "switchProfile": "切换配置",
+      "preview": "预览",
+      "captureCardPrefix": "采集卡：{title}",
+      "setupNewScene": "设置新游戏捕获：",
+      "refreshWindows": "刷新窗口",
+      "selectWindow": "选择窗口",
+      "setupCapture": "设置捕获",
+      "setupCaptureTooltip": "设置捕获会为窗口添加窗口/游戏捕获，或为采集卡和摄像头添加视频捕获设备。\nGSM 优先使用游戏捕获，采集卡游戏捕获使用视频捕获设备。\n在 Linux/Steam Deck 上，设置捕获当前使用 XComposite 窗口捕获。\n采集卡游戏捕获创建时不会自动切换窗口标题。",
+      "overrideSceneName": "覆盖游戏捕获名称（可选）：",
+      "captureCardToggle": "检查采集卡/摄像头：",
+      "captureCardTooltip": "启用后，除应用窗口外还会探测已连接的采集卡和摄像头。",
+      "loading": "加载中...",
+      "noCaptureTargets": "未找到捕获目标",
+      "sectionWindows": "窗口 / 游戏",
+      "sectionCaptureCards": "采集卡 / 摄像头",
+      "notSupportedOS": "需要在此操作系统的 OBS 中设置游戏捕获。",
+      "notSupportedTooltip": "此操作系统不支持"
+    },
+    "rename": {
+      "title": "重命名游戏捕获",
+      "description": "仅更改游戏捕获名称。源将保持不变。",
+      "cancel": "取消",
+      "confirm": "重命名"
+    },
+    "actions": {
+      "title": "快捷操作",
+      "gsmSettings": "GSM 设置",
+      "gsmSettingsTooltip": "打开 GSM 配置面板",
+      "texthooker": "打开文本源",
+      "texthookerTooltip": "打开用于捕获游戏文本的文本源",
+      "overlay": "运行覆盖层",
+      "overlayTooltip": "启动 Yomitan 覆盖层进行游戏内查词",
+      "overlaySettings": "覆盖层设置",
+      "overlaySettingsTooltip": "打开覆盖层设置面板",
+      "overlayPlatformWarning": "此平台上的覆盖层支持为实验性功能。",
+      "overlayWiki": "覆盖层设置指南"
+    },
+    "support": {
+      "text": "支持 GSM",
+      "githubSponsors": "GitHub Sponsors",
+      "kofi": "Ko-fi"
+    }
+  },
+  "app": {
+    "tabs": {
+      "home": "主页",
+      "ocr": "OCR",
+      "stats": "统计",
+      "gameSettings": "游戏设置",
+      "settings": "设置",
+      "python": "Python",
+      "logs": "日志"
+    },
+    "header": {
+      "github": "GitHub",
+      "discord": "Discord"
+    },
+    "stats": {
+      "loading": "等待 GSM 统计数据加载..."
+    },
+    "console": {
+      "openLogsFolder": "打开日志文件夹",
+      "openLogsFolderTooltip": "打开日志文件夹",
+      "exportLogs": "导出日志",
+      "exportLogsTooltip": "将日志导出为 zip 压缩包",
+      "modeSimple": "模式：简单",
+      "modeAdvanced": "模式：高级",
+      "modeSimpleTooltip": "切换到高级日志（显示基本和后台日志）",
+      "modeAdvancedTooltip": "切换到简单日志（隐藏后台日志）"
+    },
+    "python": {
+      "cancel": "取消",
+      "cuda": {
+        "title": "CUDA 安装",
+        "install": "安装 CUDA GPU 支持",
+        "uninstall": "卸载 CUDA 支持",
+        "installTitle": "安装 CUDA GPU 支持",
+        "installMessage": "安装 CUDA GPU 支持？",
+        "installDetail": "这将安装 onnxruntime-gpu 以加快处理速度。\n\n- 需要额外存储空间\n- 可能不兼容所有系统\n- 安装风险自负",
+        "installConfirm": "安装",
+        "installCancelled": "CUDA 安装已取消。",
+        "installing": "正在安装 CUDA GPU 支持...",
+        "uninstallTitle": "卸载 CUDA GPU 支持",
+        "uninstallMessage": "卸载 CUDA GPU 支持？",
+        "uninstallDetail": "这将卸载 onnxruntime-gpu，可修复 GPU 相关问题。",
+        "uninstallConfirm": "卸载",
+        "uninstallCancelled": "CUDA 卸载已取消。",
+        "uninstalling": "正在卸载 CUDA GPU 支持..."
+      },
+      "management": {
+        "title": "GSM 管理",
+        "resetDeps": "重置 Python 依赖",
+        "resetTitle": "重置 Python 依赖",
+        "resetMessage": "重置 Python 依赖？",
+        "resetDetail": "这将运行 \"uv sync\" 并从锁文件恢复依赖版本。",
+        "resetConfirm": "重置",
+        "resetCancelled": "依赖重置已取消。",
+        "resetting": "正在重置 Python 依赖..."
+      },
+      "customPackage": {
+        "title": "自定义包安装",
+        "label": "包名称",
+        "placeholder": "numpy、requests 等",
+        "installBtn": "安装包",
+        "enterName": "请输入包名称。",
+        "installing": "正在安装包：{package}..."
+      },
+      "envInfo": {
+        "title": "Python 环境信息",
+        "version": "Python 版本：{version}",
+        "path": "Python 路径：{path}",
+        "pipVersion": "Pip 版本：{version}",
+        "unknown": "未知",
+        "error": "加载错误",
+        "loading": "加载中...",
+        "refresh": "刷新信息"
+      }
+    }
+  },
+  "wizard": {
+    "skip": "跳过设置",
+    "back": "← 返回",
+    "next": "下一步 →",
+    "getStarted": "开始使用 →",
+    "welcome": {
+      "title": "欢迎使用 GameSentenceMiner！🎮",
+      "description": "GSM 帮助你自动从游戏中创建 Anki 闪卡。它会捕获文本、音频和截图，为语言学习制作高质量卡片。",
+      "whatYouNeed": "你需要准备：",
+      "ankiLabel": "Anki",
+      "ankiWith": "以及",
+      "ankiConnect": "AnkiConnect",
+      "ankiAddonRunning": "插件已安装并运行",
+      "textSourceLabel": "文本来源",
+      "textSourceDesc": "— Agent、Textractor 或内置 OCR",
+      "obsLabel": "OBS Studio",
+      "obsDesc": "（可选）— 用于录音/录像",
+      "hint": "此向导将引导你完成基本设置。你随时可以更改设置。"
+    },
+    "textSources": {
+      "title": "文本输入来源 📝",
+      "description": "GSM 需要一种方式来读取游戏中的文本。以下是最常见的选项：",
+      "agentTitle": "🔌 Agent（推荐）",
+      "agentDesc": "适用于大多数视觉小说。通过 9001 端口的 WebSocket 自动连接。",
+      "agentLink": "获取 Agent →",
+      "ocrTitle": "👁️ 内置 OCR",
+      "ocrDesc": "在文本钩子不起作用的游戏中使用屏幕 OCR。设置后在 OCR 标签页中配置。",
+      "clipboardTitle": "📋 剪贴板",
+      "clipboardDesc": "如果你的文本来源复制到剪贴板，GSM 可以自动读取。",
+      "hint": "WebSocket 来源（Agent、Textractor、LunaTranslator）可在设置 → 通用中管理。"
+    },
+    "connectivity": {
+      "title": "连接检查 🔗",
+      "description": "让我们验证外部工具是否可访问：",
+      "ankiLabel": "Anki（AnkiConnect）",
+      "checking": "正在检查连接...",
+      "ankiConnected": "已连接！AnkiConnect 正在运行。",
+      "ankiFailedPre": "无法访问。请确保 Anki 已打开并安装了",
+      "ankiConnectAddon": "AnkiConnect 插件",
+      "ankiFailedPost": "。",
+      "obsLabel": "OBS Studio（WebSocket）",
+      "obsConnected": "已连接！OBS WebSocket 服务器正在运行。",
+      "obsFailed": "无法访问。OBS 是可选的 — 你可以稍后在设置中配置。",
+      "hint": "即使连接失败也可以继续 — 稍后在设置中配置。"
+    },
+    "finish": {
+      "title": "准备就绪！🎉",
+      "description": "GSM 已准备好。以下是一些入门提示：",
+      "tipHome": "打开<strong>主页</strong>标签查看当前游戏文本流",
+      "tipGameSettings": "使用<strong>游戏设置</strong>配置每个游戏的配置文件",
+      "tipSettings": "查看<strong>设置</strong>标签以配置 Anki、音频和热键",
+      "tipConsole": "<strong>控制台</strong>标签显示 GSM 的后台运行情况",
+      "guidePre": "如需详细指南和故障排除，请访问",
+      "guideWikiLink": "GSM Wiki",
+      "guideOr": "或加入",
+      "guideDiscordLink": "Discord 社区"
+    }
+  },
+  "install": {
+    "title": "正在安装 GSM",
+    "preparing": "正在准备设置...",
+    "steps": "{completed}/{total} 步骤",
+    "stages": {
+      "pythonSetup": "Python 设置",
+      "gsmBackend": "GSM 后端",
+      "obs": "OBS",
+      "ffmpeg": "FFmpeg",
+      "oneocr": "OneOCR",
+      "finalize": "完成"
+    },
+    "status": {
+      "done": "完成",
+      "completed": "已完成。",
+      "skipped": "已跳过",
+      "skippedDetail": "已跳过。",
+      "failed": "失败",
+      "failedDetail": "失败。",
+      "downloading": "下载中",
+      "working": "处理中",
+      "workingDetail": "处理中...",
+      "pending": "待处理",
+      "waiting": "等待中..."
+    },
+    "estimatedProgress": "预估进度 — 安装仍在进行中。",
+    "logs": "日志",
+    "waitingForLogs": "等待日志...",
+    "emptyLog": "（空）",
+    "retry": "重试",
+    "openLogs": "打开日志",
+    "quit": "退出"
+  },
+  "settings": {
+    "hub": {
+      "findSetting": "查找设置",
+      "findDescription": "搜索你想更改的内容，GSM 将打开正确的设置页面。",
+      "openGSMSettings": "打开 GSM 主设置",
+      "openOverlaySettings": "打开覆盖层设置",
+      "searchLabel": "查找设置：",
+      "searchPlaceholder": "尝试：anki 字段、OBS 密码、OCR 区域、假名热键、JPDB",
+      "searchHint": "尝试常用词、功能名称、热键、端口、字段名或工具名。",
+      "resultCount": "{count} 个结果",
+      "resultCountPlural": "{count} 个结果",
+      "noResults": "未找到匹配的设置。尝试更广泛的词汇，如 anki、热键、覆盖层、OBS 或音频。",
+      "overlayNotAvailable": "无法自动打开覆盖层设置。请先启动/连接覆盖层，或使用其托盘图标。"
+    },
+    "desktop": {
+      "title": "桌面应用设置",
+      "iconStyle": "图标样式：",
+      "iconDefault": "默认",
+      "iconAnimeGirl": "动漫女孩",
+      "iconJacked": "肌肉",
+      "iconCursed": "诡异",
+      "iconAnimeGirlTray": "动漫女孩（含托盘图标）",
+      "iconJackedTray": "肌肉（含托盘图标）",
+      "iconCursedTray": "诡异（含托盘图标）",
+      "iconRandom": "随机",
+      "iconRandomTray": "随机（含托盘图标）",
+      "language": "显示语言（AI）：",
+      "startMinimized": "启动时最小化控制台：",
+      "showYuzuLauncher": "显示 Yuzu 启动器：",
+      "runTransparencyOnStartup": "启动时运行窗口透明工具：",
+      "runOverlayOnStartup": "启动时运行覆盖层："
+    },
+    "visibility": {
+      "title": "可见性设置",
+      "visibleTabs": "可见标签页：",
+      "tabGameSettings": "游戏设置",
+      "tabStats": "统计",
+      "tabPython": "Python",
+      "tabConsole": "控制台",
+      "statsTarget": "统计目标："
+    },
+    "transparency": {
+      "title": "透明工具（已弃用）",
+      "toolHotkey": "工具热键：",
+      "windowTarget": "窗口目标：",
+      "windowTargetPlaceholder": "留空以定位当前聚焦窗口",
+      "runTool": "运行窗口透明工具"
+    },
+    "updates": {
+      "title": "更新",
+      "autoUpdate": "自动更新：",
+      "betaUpdates": "测试版更新：",
+      "betaTooltip": "接收来自 develop 分支的测试版更新。仅提供较新版本。",
+      "description": "从此处检查后端包和桌面应用的更新。",
+      "backend": "GameSentenceMiner 后端",
+      "electronApp": "Electron 应用",
+      "current": "当前：{version}",
+      "latest": "最新：{version}",
+      "channel": "渠道：{channel}",
+      "upToDate": "已是最新",
+      "manualBranch": "手动分支跟踪",
+      "lastChecked": "上次检查：{time}",
+      "checkForUpdates": "检查更新",
+      "checking": "检查中...",
+      "updateNow": "立即更新",
+      "updating": "更新中...",
+      "unknown": "未知"
+    },
+    "catalog": {
+      "alreadyOnScreen": "已在此页面",
+      "openGSMSettings": "打开 GSM 主设置",
+      "openOverlaySettings": "打开覆盖层设置",
+      "locationElectron": "此页面",
+      "locationPython": "GSM 主设置",
+      "locationOverlay": "覆盖层设置",
+      "desktopAppearance": {
+        "label": "桌面应用外观和启动",
+        "description": "更改桌面应用视觉效果、托盘图标和启动行为。"
+      },
+      "desktopTabs": {
+        "label": "桌面标签页和统计",
+        "description": "显示或隐藏桌面标签页并选择默认统计页面。"
+      },
+      "desktopUpdates": {
+        "label": "更新和测试版",
+        "description": "控制更新检查以及是否提供测试版构建。",
+        "notes": "部分更新更改将在下次启动时生效。"
+      },
+      "keySettings": {
+        "label": "关键设置",
+        "description": "主要设置、连接端口和最重要的首次运行设置。",
+        "notes": "按 GSM 配置文件保存。"
+      },
+      "general": {
+        "label": "通用",
+        "description": "通用行为、文件夹、Discord 状态和文本清理设置。",
+        "notes": "按 GSM 配置文件保存。"
+      },
+      "anki": {
+        "label": "Anki",
+        "description": "牌组、字段、确认弹窗行为和 Anki 卡片标签。",
+        "notes": "按 GSM 配置文件保存。"
+      },
+      "screenshot": {
+        "label": "截图",
+        "description": "调整截图大小、格式、时机和动画捕获选项。",
+        "notes": "按 GSM 配置文件保存。"
+      },
+      "audio": {
+        "label": "音频",
+        "description": "音频片段、裁剪、导出、语音检测和语音模型设置。",
+        "notes": "按 GSM 配置文件保存。"
+      },
+      "obs": {
+        "label": "OBS",
+        "description": "OBS 游戏捕获、录制和相关捕获行为。",
+        "notes": "按 GSM 配置文件保存。"
+      },
+      "ai": {
+        "label": "AI 和翻译",
+        "description": "AI 提供商、提示词、翻译设置和 GSM Cloud。",
+        "notes": "按 GSM 配置文件保存。"
+      },
+      "overlayOcr": {
+        "label": "覆盖层 OCR",
+        "description": "选择显示器、OCR 区域和后端覆盖层捕获行为。",
+        "notes": "按 GSM 配置文件保存。"
+      },
+      "advanced": {
+        "label": "高级",
+        "description": "高级网络、播放器路径、端口和实验性进程暂停。",
+        "notes": "大多数用户不经常需要此设置。"
+      },
+      "profiles": {
+        "label": "配置文件",
+        "description": "创建、复制、删除和切换 GSM 配置文件。",
+        "notes": "配置文件为不同游戏保存不同的设置。"
+      },
+      "overlayDisplay": {
+        "label": "覆盖层显示和热键",
+        "description": "覆盖层可见性、假名显示、指示器、偏移和热键。",
+        "notes": "保存在覆盖层窗口中。"
+      },
+      "overlayTranslation": {
+        "label": "覆盖层翻译和阅读工具",
+        "description": "翻译请求、阅读工具、Yomitan 和文本源选项。",
+        "notes": "保存在覆盖层窗口中。"
+      },
+      "overlayGamepad": {
+        "label": "覆盖层手柄导航",
+        "description": "手柄导航、分词器后端、键盘切换和输入测试。",
+        "notes": "保存在覆盖层窗口中。"
+      }
+    }
+  },
+  "launcher": {
+    "title": "游戏设置",
+    "docsButton": "自动启动器文档",
+    "docsButtonTooltip": "打开自动启动器文档",
+    "infoLabel": "游戏设置概览",
+    "overviewTooltip": "配置共享的文本钉子工具路径和每游戏自动化。为每个游戏选择一种文本钉子模式（无/Agent/Textractor/Luna）和一种 OCR 模式（无/自动/手动）。",
+    "shared": {
+      "title": "共享工具设置",
+      "collapse": "折叠共享工具设置。",
+      "expand": "展开共享工具设置。",
+      "agentPath": "Agent 路径：",
+      "agentScriptsPath": "Agent 脚本路径：",
+      "textractor64": "Textractor 64 位路径：",
+      "textractor32": "Textractor 32 位路径：",
+      "lunaPath": "LunaTranslator 路径：",
+      "browse": "浏览",
+      "download": "下载",
+      "downloading": "下载中...",
+      "downloadingPercent": "下载中 {percent}%",
+      "launchAgentMinimized": "最小化启动 Agent：",
+      "disclaimer": "下载来自官方上游 GitHub 发布。请在使用前查看各项目的许可证和条款。"
+    },
+    "scene": {
+      "title": "游戏自动化",
+      "activeScene": "当前 OBS 游戏：",
+      "notSelected": "未选择",
+      "configureScene": "配置游戏：",
+      "noScenesFound": "未找到游戏",
+      "refresh": "刷新",
+      "textHookLauncher": "文本钩子启动器：",
+      "modeNone": "无",
+      "modeAgent": "Agent",
+      "modeTextractor": "Textractor",
+      "modeLuna": "LunaTranslator",
+      "launchDelay": "工具启动延迟（秒）：",
+      "agentScript": "Agent 脚本：",
+      "search": "搜索",
+      "searchHint": "搜索列出所有脚本并将可能的匹配排在前面。",
+      "ocrMode": "OCR 模式：",
+      "ocrNone": "无",
+      "ocrAuto": "自动 OCR",
+      "ocrManual": "手动 OCR",
+      "launchOverlay": "随游戏启动覆盖层：",
+      "noSceneHint": "选择或切换到 OBS 游戏以配置自动化。"
+    },
+    "scriptPicker": {
+      "title": "搜索 Agent 脚本（{filtered}/{total}）",
+      "close": "关闭",
+      "closeTooltip": "关闭脚本选择对话框。",
+      "searchPlaceholder": "按名称或路径搜索脚本...",
+      "noResults": "没有匹配的脚本。",
+      "explicitId": "显式 ID",
+      "titleId": "标题 ID",
+      "nameMatch": "名称匹配",
+      "fuzzyMatch": "模糊匹配",
+      "possibleMatch": "可能匹配",
+      "matchPercent": "{percent}% 匹配"
+    },
+    "status": {
+      "openedReleases": "已打开 {label} 发布页面。",
+      "failedOpenReleases": "无法打开发布页面。",
+      "failedOpenDocs": "无法打开文档。",
+      "savedShared": "已保存共享游戏设置。",
+      "updatedPath": "已更新共享路径设置。",
+      "savedScene": "已保存游戏自动化：{scene}",
+      "updatedScript": "已更新游戏的 Agent 脚本：{scene}",
+      "failedListScripts": "无法列出游戏的脚本：{scene}",
+      "noScriptsFound": "未找到游戏的脚本：{scene}",
+      "selectedScript": "已选择游戏的 Agent 脚本：{scene}",
+      "downloadPreparing": "正在下载并安装 {tool}...",
+      "downloadInstalled": "已安装 {tool}{version}。{message}",
+      "downloadNotFound": "在最新发布中未找到匹配的 {tool} 下载。",
+      "downloadCanceled": "{tool} 下载已取消。",
+      "downloadFailed": "安装 {tool} 失败。"
+    },
+    "tooltips": {
+      "sharedToolSettings": "此配置文件中所有游戏使用的共享路径。",
+      "sceneAutomation": "游戏特定的启动行为。每个游戏可以使用不同的文本钉子和 OCR 设置。",
+      "agentPath": "文本钩子启动器设为 Agent 时使用的 Agent 可执行文件路径。",
+      "agentScriptsPath": "包含 Agent 脚本文件（.js）的文件夹。用于自动检测和浏览默认值。",
+      "textractor64": "64 位 Textractor 可执行文件路径。游戏启动器设为 Textractor 时使用。",
+      "textractor32": "32 位 Textractor 可执行文件路径。用于 32 位游戏目标。",
+      "lunaPath": "LunaTranslator 可执行文件路径。游戏启动器设为 LunaTranslator 时使用。",
+      "launchAgentMinimized": "在 Windows 上以最小化/隐藏方式启动 Agent。",
+      "activeScene": "当前活动的 OBS 游戏。配置更改应用于所选的配置游戏値。",
+      "configureScene": "选择要在此标签页中编辑的 OBS 游戏。",
+      "refreshScenes": "从当前 OBS 连接刷新 OBS 游戏列表。",
+      "textHookMode": "为此游戏选择一种文本钉子启动器模式。",
+      "textHookNone": "不为此游戏自动启动文本钉子工具。",
+      "textHookAgent": "为此游戏启动 Agent 并使用配置的 Agent 脚本。",
+      "textHookTextractor": "当此游戏激活时自动启动 Textractor。",
+      "textHookLuna": "当此游戏激活时自动启动 LunaTranslator。",
+      "launchDelay": "为此游戏启动所选文本钉子启动器之前的延迟。",
+      "agentScript": "此游戏的 Agent 脚本路径。可以手动设置、浏览或搜索。",
+      "launchOverlay": "在此游戏的会话活动时启动 GSM 覆盖层，游戏/会话结束时关闭自动启动的覆盖层。",
+      "browseScript": "打开文件选择器并为此游戏选择 Agent 脚本。",
+      "searchScript": "搜索 Agent 脚本路径下的所有脚本，按与游戏的相似度排序。",
+      "downloadAgent": "从官方 GitHub 发布下载最新 Agent。选择任意安装文件夹。",
+      "downloadTextractor": "从官方 GitHub 发布下载最新 Textractor。选择任意安装文件夹。同时设置 x64 和 x86 路径。",
+      "downloadLuna": "打开 LunaTranslator 官方 GitHub 发布页面。",
+      "ocrMode": "为此游戏选择一种 OCR 模式。",
+      "ocrNone": "不为此游戏启动 OCR。",
+      "ocrAuto": "当此游戏活动时启动持续自动 OCR。",
+      "ocrManual": "为此游戏启动手动 OCR 运行时。OCR 捕获通过控件/快捷键手动操作。",
+      "status": "游戏设置操作的最新保存/检测状态。",
+      "candidatePicker": "为此游戏选择最佳匹配的 Agent 脚本候选。",
+      "noScene": "未加载游戏配置。请先选择一个游戏。"
+    }
+  },
+  "ocr": {
+    "sceneAndAreas": {
+      "title": "游戏和区域",
+      "areaCount": "{count} 个区域",
+      "areaCountPlural": "{count} 个区域",
+      "sceneLabel": "游戏：",
+      "loading": "加载中...",
+      "noScenes": "未找到游戏",
+      "reloadScenes": "重新加载游戏",
+      "selectAreas": "选择 OCR 区域",
+      "importAreas": "导入区域",
+      "exportAreas": "导出区域",
+      "ocrGuide": "OCR 指南"
+    },
+    "settings": {
+      "title": "OCR 设置",
+      "advanced": "高级",
+      "scanRate": "扫描频率（秒）：",
+      "textSpeed": "文本速度：",
+      "language": "语言：",
+      "scanImageQuality": "扫描图像质量",
+      "furiganaFilter": "假名过滤",
+      "preview": "预览",
+      "copyToClipboard": "复制到剪贴板：",
+      "lineBreaks": "换行：",
+      "auto": "自动",
+      "menu": "菜单",
+      "areaSelect": "区域选择"
+    },
+    "pipeline": {
+      "title": "识别管线",
+      "twoPassFlow": "两遍流程：",
+      "singlePassFlow": "单遍流程：",
+      "stabilityOcr": "稳定性 OCR：",
+      "mainOcr": "主 OCR：",
+      "twoPassOcr": "两遍 OCR：",
+      "optimizeSecondScan": "优化第二次扫描：",
+      "ocrClipboardImages": "OCR 剪贴板图片："
+    },
+    "comparison": {
+      "title": "文本比较调优",
+      "expertTitle": "专家启发式",
+      "duplicateThreshold": { "label": "重复匹配阈值（%）", "title": "值越高越严格。如果不同的行被当作重复处理，请提高此值。" },
+      "changeThreshold": { "label": "文本变化阈值（%）", "title": "较低的值会在部分变化时更早触发 OCR2。较高的值会等待更明显的变化。" },
+      "evolvingPrefix": { "label": "递进前缀匹配（%）", "title": "用于检查短行是否看起来像长行的开头。" },
+      "truncationFallbackMin": { "label": "截断回退最小阈值（%）", "title": "允许前缀或后缀截断匹配之前所需的最小比较阈值。" },
+      "truncationStrictMin": { "label": "截断严格阈值（%）", "title": "超过此阈值时，GSM 还要求更强的基本相似度才能将截断视为相同文本。" },
+      "truncationMargin": { "label": "截断基础余量", "title": "在截断回退被拒绝之前，基本相似度可以低于比较阈值多少。" },
+      "truncationMinLength": { "label": "截断最小长度（字符）", "title": "允许截断匹配的最短归一化字符串长度。" },
+      "truncationMinRatio": { "label": "截断最小长度比（%）", "title": "在考虑截断匹配之前，较短行必须覆盖较长行的比例。" },
+      "subsetChunkMinLength": { "label": "子集块最小长度（字符）", "title": "短于此的传入 OCR 块会跳过块覆盖回退，除非是精确匹配。" },
+      "shortChunkLimit": { "label": "短块限制（字符）", "title": "等于或低于此长度的块使用较小的匹配块最小值。" },
+      "shortChunkMinSize": { "label": "短块匹配最小值", "title": "短块计入的最小连续匹配大小。" },
+      "defaultMinSize": { "label": "默认匹配最小值", "title": "较长块计入的最小连续匹配大小。" },
+      "coverageFloor": { "label": "子集覆盖下限（%）", "title": "去重回退允许的最低块覆盖要求。" },
+      "coverageCeiling": { "label": "子集覆盖上限（%）", "title": "去重回退允许的最高块覆盖要求。" },
+      "coverageOffset": { "label": "覆盖阈值偏移", "title": "将当前比较阈值转换为覆盖要求之前应用的偏移量。" },
+      "longestBlockMin": { "label": "最长块最小值（字符）", "title": "子集覆盖模式中所需的最小连续块大小。" },
+      "longestBlockDivisor": { "label": "最长块除数", "title": "较大的值会减少较长块所需的连续块长度。" }
+    },
+    "hotkeys": {
+      "title": "热键",
+      "manualMenu": "手动 / 菜单：",
+      "areaSelect": "区域选择：",
+      "wholeWindow": "整个窗口：",
+      "pause": "暂停："
+    },
+    "console": {
+      "title": "控制台",
+      "active": "活动",
+      "idle": "空闲",
+      "paused": "已暂停",
+      "clear": "清除"
+    },
+    "debug": {
+      "title": "附加和调试工具",
+      "ignoreRun1Logs": "忽略 \"OCR 运行 1\" 日志：",
+      "processPriority": "进程优先级：",
+      "defaultFuriganaSensitivity": "默认假名灵敏度：",
+      "obsCapturePreprocess": "OBS 捕获预处理：",
+      "installDependency": "安装依赖：",
+      "installBtn": "安装",
+      "removeDependency": "移除依赖：",
+      "uninstallBtn": "卸载",
+      "ocrErrorFixes": "OCR 错误修复",
+      "configFile": "配置文件",
+      "configFolder": "配置文件夹",
+      "globalConfig": "全局配置",
+      "tempFolder": "临时文件夹"
+    },
+    "footer": {
+      "running": "运行中",
+      "paused": "已暂停",
+      "ready": "就绪",
+      "needsAreas": "需要区域",
+      "ocrRuntime": "OCR 运行时",
+      "noSceneSelected": "未选择游戏",
+      "sceneHasAreas": "{scene} 有 {count} 个 OCR {areaWord}。",
+      "noAreasForScene": "{scene} 没有保存的 OCR 区域。",
+      "stopOcr": "停止 OCR",
+      "resumeOcr": "恢复 OCR",
+      "pauseOcr": "暂停 OCR",
+      "startAutoOcr": "启动自动 OCR",
+      "startManualOcr": "启动手动 OCR",
+      "needAreasFirst": "在启动 {mode} OCR 之前，请先为此游戏绘制 OCR 区域。"
+    },
+    "runtime": {
+      "idle": "空闲",
+      "startingAuto": "正在启动自动 OCR...",
+      "startingManual": "正在启动手动 OCR...",
+      "runningManual": "手动 OCR 运行中",
+      "runningManualWith": "使用 {engine} 运行手动 OCR",
+      "runningAutoWith": "使用 {engine} 以 {rate} 秒运行自动 OCR",
+      "runningAutoAt": "以 {rate} 秒运行自动 OCR",
+      "scanningWith": "使用 {engine} 在 {speed} 秒内扫描",
+      "scanning": "使用 {engine} 扫描",
+      "sleeping": "休眠：图像为空或未变化",
+      "areaSelectionFinished": "OCR 区域选择完成。",
+      "failedSwitchScene": "切换游戏失败。",
+      "configReloaded": "配置已重新加载",
+      "forceStableEnabled": "强制稳定模式已启用",
+      "forceStableDisabled": "强制稳定模式已禁用"
+    },
+    "engines": {
+      "glens": "Google Lens",
+      "bing": "Bing",
+      "oneocr": "OneOCR",
+      "screenai": "ScreenAI OCR",
+      "meikiocr": "Meiki OCR",
+      "gemini": "Gemini",
+      "gvision": "Google Vision",
+      "azure": "Azure 图像分析",
+      "ocrspace": "OCRSpace",
+      "local_llm_ocr": "本地 LLM OCR",
+      "alivetext": "Apple Live Text",
+      "mlkitocr": "MLKit OCR",
+      "meiki_text_detector": "Meiki 文本检测器"
+    },
+    "languages": {
+      "ja": "日语",
+      "zh": "中文",
+      "ko": "韩语",
+      "en": "英语（拉丁文字）",
+      "es": "西班牙语",
+      "fr": "法语",
+      "de": "德语",
+      "ru": "俄语",
+      "ar": "阿拉伯语",
+      "hi": "印地语"
+    },
+    "scanRates": {
+      "instant": "即时",
+      "normal": "正常",
+      "slow": "慢",
+      "verySlow": "非常慢"
+    },
+    "priorities": {
+      "low": "低",
+      "below_normal": "低于正常",
+      "normal": "正常",
+      "above_normal": "高于正常",
+      "high": "高"
+    },
+    "preprocess": {
+      "none": "关闭",
+      "grayscale": "灰度",
+      "grayscale_unsharp": "灰度 + 自动对比度 + 锐化"
+    },
+    "dependencies": {
+      "install": {
+        "fasterPng": "更快的 PNG（推荐在 Windows 11 上使用）",
+        "googleVision": "Google Vision",
+        "azure": "Azure",
+        "ocrspace": "OCRSpace"
+      },
+      "remove": {
+        "owocr": "OWOCR 基础",
+        "protobuf": "Google Lens",
+        "oneocr": "OneOCR",
+        "fasterPng": "更快的 PNG",
+        "transformers": "精确过滤",
+        "googleVision": "Google Vision",
+        "azure": "Azure",
+        "ocrspace": "OCRSpace"
+      }
+    },
+    "notices": {
+      "areaConfigImported": "OCR 区域配置已导入。",
+      "importFailed": "导入失败。",
+      "areaConfigExported": "OCR 区域配置已复制到剪贴板。",
+      "exportFailed": "导出失败。"
+    }
+  }
+}

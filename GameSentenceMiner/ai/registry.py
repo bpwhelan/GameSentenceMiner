@@ -19,7 +19,6 @@ from GameSentenceMiner.util.config.configuration import (
 )
 
 
-
 @dataclass(frozen=True)
 class ProviderKey:
     provider: str
@@ -144,7 +143,7 @@ class ProviderRegistry:
                     logger=self.logger,
                 )
             return self._clients[key]
-    
+
         if config.provider == AI_DEEPL:
             from GameSentenceMiner.ai.providers.deepl_client import DeepLClient
 

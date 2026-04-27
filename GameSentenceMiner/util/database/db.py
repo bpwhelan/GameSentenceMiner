@@ -10,6 +10,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime
 from datetime import timedelta
+from functools import lru_cache
 from sys import platform
 from typing import Any, Dict, List, Optional, Tuple, Union, Type, TypeVar
 
@@ -23,7 +24,37 @@ from GameSentenceMiner.util.config.configuration import (
 from GameSentenceMiner.util.text_log import GameLine
 
 # Matches any Unicode punctuation (\p{P}), symbol (\p{S}), or separator (\p{Z}); \p{Z} includes whitespace/separator chars
-punctuation_regex = regex.compile(r"[\p{P}\p{S}\p{Z}]")
+PUNCTUATION_REGEX_PATTERN = r"[\p{P}\p{S}\p{Z}]"
+punctuation_regex = regex.compile(PUNCTUATION_REGEX_PATTERN)
+
+
+@lru_cache(maxsize=64)
+def get_punctuation_regex(extra_punctuation_regex: str = ""):
+    extra_punctuation_regex = (extra_punctuation_regex or "").strip()
+    if not extra_punctuation_regex:
+        return punctuation_regex
+
+    try:
+        return regex.compile(f"(?:{extra_punctuation_regex})|{PUNCTUATION_REGEX_PATTERN}")
+    except regex.error as e:
+        logger.warning(
+            f"Invalid extra punctuation regex '{extra_punctuation_regex}', using default punctuation regex: {e}"
+        )
+        return punctuation_regex
+
+
+def clean_text_for_stats(
+    text: Any,
+    regex_out_repetitions: bool = False,
+    extra_punctuation_regex: str = "",
+) -> str:
+    if text is None:
+        return ""
+
+    cleaned = get_punctuation_regex(extra_punctuation_regex).sub("", str(text)).strip()
+    if regex_out_repetitions:
+        cleaned = repeating_chars_regex.sub(r"\1\1\1", cleaned)
+    return cleaned
 
 
 def _is_tokenization_enabled() -> bool:
@@ -283,8 +314,11 @@ class SQLiteDBTable:
         try:
             clean_column_set = set(clean_columns) if clean_columns else set()
             regex_out_repetitions = False
+            extra_punctuation_regex = ""
             if clean_column_set:
-                regex_out_repetitions = get_stats_config().regex_out_repetitions
+                stats_config = get_stats_config()
+                regex_out_repetitions = getattr(stats_config, "regex_out_repetitions", False)
+                extra_punctuation_regex = getattr(stats_config, "extra_punctuation_regex", "")
 
             for actual_pos, field, field_type, is_pk in cls.get_row_field_mapping():
                 if actual_pos >= len(row):
@@ -293,10 +327,11 @@ class SQLiteDBTable:
                 row_value = row[actual_pos]
 
                 if field in clean_column_set and isinstance(row_value, str):
-                    # if get_stats_config().regex_out_punctuation:
-                    row_value = punctuation_regex.sub("", row_value).strip()
-                    if regex_out_repetitions:
-                        row_value = repeating_chars_regex.sub(r"\1\1\1", row_value)
+                    row_value = clean_text_for_stats(
+                        row_value,
+                        regex_out_repetitions=regex_out_repetitions,
+                        extra_punctuation_regex=extra_punctuation_regex,
+                    )
 
                 cls._set_field_value(
                     obj,
