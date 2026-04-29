@@ -117,17 +117,6 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.use_ocr_result_check,
     )
-    main_layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n,
-            "overlay",
-            "check_previous_lines_for_recycled_indicator",
-            color=LabelColor.ADVANCED,
-            bold=True,
-        ),
-        window.check_previous_lines_for_recycled_indicator_check,
-    )
-
     ocr_area_subset_widgets = [
         window.ocr_area_config_include_primary_areas_check,
         window.ocr_area_config_include_secondary_areas_check,

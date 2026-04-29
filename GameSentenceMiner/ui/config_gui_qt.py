@@ -941,7 +941,9 @@ class ConfigWindow(QWidget):
                     ocr_area_config_include_secondary_areas=self.ocr_area_config_include_secondary_areas_check.isChecked(),
                     ocr_area_config_use_exclusion_zones=self.ocr_area_config_use_exclusion_zones_check.isChecked(),
                     use_ocr_result_v2=self.use_ocr_result_check.isChecked(),
-                    check_previous_lines_for_recycled_indicator=self.check_previous_lines_for_recycled_indicator_check.isChecked(),
+                    check_previous_lines_for_recycled_indicator=bool(
+                        getattr(self.settings.overlay, "check_previous_lines_for_recycled_indicator", False)
+                    ),
                     ocr_full_screen_instead_of_obs=bool(
                         getattr(self, "ocr_full_screen_instead_of_obs_checkbox", None)
                         and self.ocr_full_screen_instead_of_obs_checkbox.isChecked()

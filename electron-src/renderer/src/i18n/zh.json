@@ -35,7 +35,7 @@
       "timeDays": "{n} 天前"
     },
     "obs": {
-      "title": "OBS 捕获",
+      "title": "当前游戏捕获",
       "required": "必需",
       "gameLabel": "游戏：",
       "refreshScenes": "刷新游戏",
@@ -67,8 +67,16 @@
       "cancel": "取消",
       "confirm": "重命名"
     },
+    "overlay": {
+      "title": "覆盖层",
+      "statusRunning": "运行中",
+      "statusStopped": "未运行",
+      "guide": "设置指南",
+      "runOnStartup": "启动时运行",
+      "runOnStartupTooltip": "GSM 启动时自动启动 GSM 覆盖层。"
+    },
     "actions": {
-      "title": "快捷操作",
+      "title": "实用工具",
       "gsmSettings": "GSM 设置",
       "gsmSettingsTooltip": "打开 GSM 配置面板",
       "texthooker": "打开文本源",

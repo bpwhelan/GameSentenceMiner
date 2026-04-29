@@ -35,7 +35,7 @@
       "timeDays": "hace {n} días"
     },
     "obs": {
-      "title": "Captura OBS",
+      "title": "Captura de juego activa",
       "required": "Requerido",
       "gameLabel": "Juego:",
       "refreshScenes": "Actualizar juegos",
@@ -67,8 +67,16 @@
       "cancel": "Cancelar",
       "confirm": "Renombrar"
     },
+    "overlay": {
+      "title": "Superposición",
+      "statusRunning": "En ejecución",
+      "statusStopped": "No ejecutándose",
+      "guide": "Guía de configuración",
+      "runOnStartup": "Ejecutar al inicio",
+      "runOnStartupTooltip": "Iniciar la superposición de GSM automáticamente cuando se inicia GSM."
+    },
     "actions": {
-      "title": "Acciones rápidas",
+      "title": "Utilidades",
       "gsmSettings": "Ajustes de GSM",
       "gsmSettingsTooltip": "Abrir panel de configuración de GSM",
       "texthooker": "Abrir fuente de texto",

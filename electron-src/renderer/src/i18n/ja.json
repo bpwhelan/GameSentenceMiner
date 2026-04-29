@@ -35,7 +35,7 @@
       "timeDays": "{n} 日前"
     },
     "obs": {
-      "title": "OBSキャプチャ",
+      "title": "アクティブなゲームキャプチャ",
       "required": "必須",
       "gameLabel": "ゲーム:",
       "refreshScenes": "ゲームを更新",
@@ -67,8 +67,16 @@
       "cancel": "キャンセル",
       "confirm": "名前変更"
     },
+    "overlay": {
+      "title": "オーバーレイ",
+      "statusRunning": "実行中",
+      "statusStopped": "停止中",
+      "guide": "設定ガイド",
+      "runOnStartup": "起動時に実行",
+      "runOnStartupTooltip": "GSM起動時にGSMオーバーレイを自動的に起動します。"
+    },
     "actions": {
-      "title": "クイックアクション",
+      "title": "ユーティリティ",
       "gsmSettings": "GSM設定",
       "gsmSettingsTooltip": "GSM設定パネルを開く",
       "texthooker": "テキストフィードを開く",

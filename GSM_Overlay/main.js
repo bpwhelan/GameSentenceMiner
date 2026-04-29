@@ -139,6 +139,38 @@ function getEnforcedOverlayTransportUrls(gsmSettings = getGSMSettings()) {
   };
 }
 
+function getGSMRecycledIndicatorSetting(gsmSettings = getGSMSettings()) {
+  const profileSettings = getCurrentGSMProfileSettings(gsmSettings);
+  const overlaySettings = profileSettings && typeof profileSettings.overlay === "object"
+    ? profileSettings.overlay
+    : {};
+  if (Object.prototype.hasOwnProperty.call(overlaySettings, "check_previous_lines_for_recycled_indicator")) {
+    return overlaySettings.check_previous_lines_for_recycled_indicator === true;
+  }
+  return DEFAULT_USER_SETTINGS.showRecycledIndicator === true;
+}
+
+function syncGsmOwnedOverlaySettingsFromGSM(reason = "unknown") {
+  const updates = {};
+  const showRecycledIndicator = getGSMRecycledIndicatorSetting();
+  if (userSettings.showRecycledIndicator !== showRecycledIndicator) {
+    userSettings.showRecycledIndicator = showRecycledIndicator;
+    updates.showRecycledIndicator = showRecycledIndicator;
+  }
+
+  if (Object.keys(updates).length > 0) {
+    console.log(`[GSMSettings] Synced GSM-owned overlay settings (${reason})`, updates);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("settings-updated", updates);
+    }
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.webContents.send("settings-updated", updates);
+    }
+  }
+
+  return Object.keys(updates).length > 0;
+}
+
 let manualHotkeyPressed = false;
 let manualModeToggleState = false;
 let lastManualActivity = Date.now();
@@ -2155,6 +2187,10 @@ if (hasPersistedOverlaySettings) {
       shouldPersistOverlaySettings = true;
     }
 
+    if (Object.prototype.hasOwnProperty.call(oldUserSettings, "showRecycledIndicator")) {
+      shouldPersistOverlaySettings = true;
+    }
+
     if (isWindows()) {
       userSettings.offsetX = 0;
       userSettings.offsetY = 0;
@@ -2173,7 +2209,15 @@ const texthookerUrlNormalized = enforceTexthookerUrl(userSettings);
 const furiganaSettingsNormalized = normalizeFuriganaSettings(userSettings);
 const gamepadTokenizerSettingsNormalized = normalizeGamepadTokenizerSettings(userSettings);
 const hotkeyConflictResolvedOnLoad = ensureManualAndTexthookerHotkeysDistinct("settings-load");
-if (websocketEndpointsNormalized || texthookerUrlNormalized || furiganaSettingsNormalized || gamepadTokenizerSettingsNormalized || hotkeyConflictResolvedOnLoad) {
+const gsmOwnedSettingsNormalized = syncGsmOwnedOverlaySettingsFromGSM("settings-load");
+if (
+  websocketEndpointsNormalized ||
+  texthookerUrlNormalized ||
+  furiganaSettingsNormalized ||
+  gamepadTokenizerSettingsNormalized ||
+  hotkeyConflictResolvedOnLoad ||
+  gsmOwnedSettingsNormalized
+) {
   shouldPersistOverlaySettings = true;
 }
 if (hasPersistedOverlaySettings && shouldPersistOverlaySettings) {
@@ -2663,7 +2707,9 @@ function saveSettings() {
       console.log("New Settings:", userSettings);
     }
 
-    fs.writeFileSync(settingsPath, JSON.stringify(userSettings, null, 2), "utf-8");
+    const persistedUserSettings = { ...userSettings };
+    delete persistedUserSettings.showRecycledIndicator;
+    fs.writeFileSync(settingsPath, JSON.stringify(persistedUserSettings, null, 2), "utf-8");
   } catch (e) {
     console.error(`[Settings] Failed to save settings to ${settingsPath}:`, e);
   }
@@ -3152,6 +3198,7 @@ function resetActivityTimer() {
 
 function openSettings() {
   refreshOverlayTransportSettingsFromGSM("openSettings");
+  syncGsmOwnedOverlaySettingsFromGSM("openSettings");
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("force-visible", true);
   }
@@ -4437,7 +4484,9 @@ app.whenReady().then(async () => {
       updateTrayMenu();
       return;
     }
-    if (key === "gamepadTokenizerBackend") {
+    if (key === "showRecycledIndicator") {
+      value = value === true;
+    } else if (key === "gamepadTokenizerBackend") {
       value = normalizeGamepadTokenizerBackend(value);
     } else if (key === "gamepadLocalTokenizerFallbackBackend") {
       value = normalizeLocalTokenizerFallbackBackend(value);
@@ -4618,6 +4667,15 @@ app.whenReady().then(async () => {
         break;
       case "showFurigana":
         syncGamepadServerState("setting-changed:showFurigana");
+        break;
+      case "showRecycledIndicator":
+        if (backend) {
+          backend.send({
+            type: "set-gsm-overlay-config",
+            key: "check_previous_lines_for_recycled_indicator",
+            value,
+          });
+        }
         break;
       case "gamepadKeyboardEnabled":
       case "gamepadKeyboardHotkey":

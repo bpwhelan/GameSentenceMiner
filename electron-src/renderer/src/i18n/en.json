@@ -35,7 +35,7 @@
       "timeDays": "{n} days ago"
     },
     "obs": {
-      "title": "OBS Capture",
+      "title": "Active Game Capture",
       "required": "Required",
       "gameLabel": "Game:",
       "refreshScenes": "Refresh games",
@@ -67,8 +67,16 @@
       "cancel": "Cancel",
       "confirm": "Rename"
     },
+    "overlay": {
+      "title": "Overlay",
+      "statusRunning": "Running",
+      "statusStopped": "Not running",
+      "guide": "Setup Guide",
+      "runOnStartup": "Run on startup",
+      "runOnStartupTooltip": "Start the GSM overlay automatically when GSM starts."
+    },
     "actions": {
-      "title": "Quick Actions",
+      "title": "Utilities",
       "gsmSettings": "GSM Settings",
       "gsmSettingsTooltip": "Open GSM configuration panel",
       "texthooker": "Open Text Feed",

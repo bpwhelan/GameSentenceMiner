@@ -35,7 +35,7 @@
       "timeDays": "{n}일 전"
     },
     "obs": {
-      "title": "OBS 캡처",
+      "title": "활성 게임 캡처",
       "required": "필수",
       "gameLabel": "게임:",
       "refreshScenes": "게임 새로고침",
@@ -67,8 +67,16 @@
       "cancel": "취소",
       "confirm": "이름 변경"
     },
+    "overlay": {
+      "title": "오버레이",
+      "statusRunning": "실행 중",
+      "statusStopped": "실행 안 됨",
+      "guide": "설정 가이드",
+      "runOnStartup": "시작 시 실행",
+      "runOnStartupTooltip": "GSM 시작 시 GSM 오버레이를 자동으로 실행합니다."
+    },
     "actions": {
-      "title": "빠른 작업",
+      "title": "유틸리티",
       "gsmSettings": "GSM 설정",
       "gsmSettingsTooltip": "GSM 설정 패널 열기",
       "texthooker": "텍스트 피드 열기",

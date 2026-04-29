@@ -1033,10 +1033,12 @@ export function OCRTab({ active }: OcrTabProps) {
       fontFamily: '"Noto Sans Mono", "IPA Gothic", "Courier New", monospace',
       fontSize: 13,
       cursorBlink: false,
+      cursorInactiveStyle: "none",
       theme: {
         foreground: "#eeeeee",
         background: "#11151c",
-        cursor: "#cff5db"
+        cursor: "transparent",
+        cursorAccent: "transparent"
       }
     });
     const fitAddon = new FitAddon();
@@ -2256,7 +2258,9 @@ export function OCRTab({ active }: OcrTabProps) {
           <div className="ocr-col ocr-col--monitor">
             {/* Hotkeys */}
             <section className="card legacy-card ocr-card">
-              <h2>{t("ocr.hotkeys.title")}</h2>
+              <div className="ocr-card-header-row">
+                <h2>{t("ocr.hotkeys.title")}</h2>
+              </div>
               <div className="form-group ocr-form-group ocr-hotkey-grid">
                 <div className="input-group">
                   <label htmlFor="manual-hotkey" {...titleProps(OCR_TOOLTIPS.manualHotkey)}>
@@ -2278,7 +2282,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 </div>
 
                 <div className="input-group">
-                  <label htmlFor="area-hotkey" {...titleProps(OCR_TOOLTIPS.areaSelectHotkey)}>
+                  <label htmlFor="area-hotkey">
                     {t("ocr.hotkeys.areaSelect")}
                   </label>
                   <input

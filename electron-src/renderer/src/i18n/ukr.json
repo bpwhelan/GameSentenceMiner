@@ -35,7 +35,7 @@
       "timeDays": "{n} днів тому"
     },
     "obs": {
-      "title": "Захоплення OBS",
+      "title": "Активне захоплення гри",
       "required": "Обов'язково",
       "gameLabel": "Гра:",
       "refreshScenes": "Оновити ігри",
@@ -67,8 +67,16 @@
       "cancel": "Скасувати",
       "confirm": "Перейменувати"
     },
+    "overlay": {
+      "title": "Оверлей",
+      "statusRunning": "Працює",
+      "statusStopped": "Не працює",
+      "guide": "Посібник з налаштування",
+      "runOnStartup": "Запускати при старті",
+      "runOnStartupTooltip": "Автоматично запускати оверлей GSM під час запуску GSM."
+    },
     "actions": {
-      "title": "Швидкі дії",
+      "title": "Утиліти",
       "gsmSettings": "Налаштування GSM",
       "gsmSettingsTooltip": "Відкрити панель налаштувань GSM",
       "texthooker": "Відкрити Text Feed",
