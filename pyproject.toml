@@ -23,6 +23,7 @@ classifiers = [
 ]
 dependencies = [
   "requests~=2.32.5",
+  "chardet>=3.0.2,<6",
   "watchdog~=6.0.0",
   "soundfile~=0.13.1",
   "toml~=0.10.2",

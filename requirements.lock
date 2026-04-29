@@ -35,8 +35,6 @@ brotlicffi==1.2.0.0 ; platform_python_implementation == 'PyPy'
     # via
     #   flask-compress
     #   py7zr
-cachetools==6.2.2
-    # via google-auth
 certifi==2025.11.12
     # via
     #   curl-cffi
@@ -46,9 +44,12 @@ certifi==2025.11.12
 cffi==2.0.0
     # via
     #   brotlicffi
+    #   cryptography
     #   curl-cffi
     #   sounddevice
     #   soundfile
+chardet==5.2.0
+    # via gamesentenceminer (pyproject.toml)
 charset-normalizer==3.4.4
     # via requests
 click==8.3.1
@@ -64,6 +65,8 @@ coloredlogs==15.0.1
     # via onnxruntime
 contourpy==1.3.3
     # via matplotlib
+cryptography==47.0.0
+    # via google-auth
 ctranslate2==4.6.2
     # via faster-whisper
 curl-cffi==0.13.0
@@ -82,6 +85,7 @@ desktop-notifier==6.2.0
     # via gamesentenceminer (pyproject.toml)
 distro==1.9.0
     # via
+    #   google-genai
     #   groq
     #   openai
 evdev==1.9.2 ; sys_platform == 'win32' and 'linux' in sys_platform
@@ -115,9 +119,9 @@ fsspec==2025.12.0
     # via
     #   huggingface-hub
     #   torch
-google-auth==2.43.0
+google-auth==2.49.2
     # via google-genai
-google-genai==1.46.0
+google-genai==1.70.0
     # via gamesentenceminer (pyproject.toml)
 groq==0.33.0
     # via gamesentenceminer (pyproject.toml)
@@ -151,8 +155,6 @@ imageio==2.37.2
     # via scikit-image
 inflate64==1.0.4
     # via py7zr
-inputs==0.5 ; sys_platform == 'win32'
-    # via gamesentenceminer (pyproject.toml)
 itsdangerous==2.2.0
     # via flask
 jaconv==0.4.1
@@ -190,7 +192,7 @@ marshmallow==3.26.1
     # via dataclasses-json
 matplotlib==3.10.7
     # via gamesentenceminer (pyproject.toml)
-meikiocr==0.1.4
+meikiocr==0.3.4
     # via gamesentenceminer (pyproject.toml)
 mistune==3.1.4
     # via flasgger
@@ -328,9 +330,7 @@ psutil==7.1.3
 py7zr==1.0.0
     # via gamesentenceminer (pyproject.toml)
 pyasn1==0.6.1
-    # via
-    #   pyasn1-modules
-    #   rsa
+    # via pyasn1-modules
 pyasn1-modules==0.4.2
     # via google-auth
 pybcj==1.0.7
@@ -1045,8 +1045,6 @@ pyparsing==3.2.5
     # via matplotlib
 pyperclipfix==1.9.4
     # via gamesentenceminer (pyproject.toml)
-pypiwin32==223 ; sys_platform == 'win32'
-    # via win10toast
 pyppmd==1.2.0
     # via py7zr
 pypresence @ https://github.com/qwertyquerty/pypresence/archive/168c0fc3c00d8b974017cfcd18a4e801b6b78dae.zip
@@ -1076,9 +1074,7 @@ python-xlib==0.33 ; sys_platform == 'linux' or (sys_platform == 'win32' and 'lin
 pytz==2025.2
     # via datetime
 pywin32==311 ; sys_platform == 'win32'
-    # via
-    #   gamesentenceminer (pyproject.toml)
-    #   pypiwin32
+    # via gamesentenceminer (pyproject.toml)
 pyyaml==6.0.3
     # via
     #   ctranslate2
@@ -1099,14 +1095,13 @@ regex==2025.10.23
 requests==2.32.5
     # via
     #   gamesentenceminer (pyproject.toml)
+    #   google-auth
     #   google-genai
     #   tiktoken
 rpds-py==0.30.0
     # via
     #   jsonschema
     #   referencing
-rsa==4.9.1
-    # via google-auth
 rubicon-objc==0.5.3 ; sys_platform == 'darwin'
     # via desktop-notifier
 scikit-image==0.25.2
@@ -1118,7 +1113,6 @@ setuptools==80.9.0
     #   ctranslate2
     #   torch
     #   triton
-    #   win10toast
 shellingham==1.5.4
     # via huggingface-hub
 silero-vad==6.2.0
@@ -1132,6 +1126,7 @@ six==1.17.0
     #   python-xlib
 sniffio==1.3.1
     # via
+    #   google-genai
     #   groq
     #   openai
 sounddevice==0.5.3
@@ -1219,8 +1214,6 @@ websockets==15.0.1
     #   google-genai
 werkzeug==3.1.4
     # via flask
-win10toast==0.9 ; sys_platform == 'win32'
-    # via gamesentenceminer (pyproject.toml)
 win32-setctime==1.2.0 ; sys_platform == 'win32'
     # via loguru
 winrt-runtime==3.2.1 ; sys_platform == 'win32'
