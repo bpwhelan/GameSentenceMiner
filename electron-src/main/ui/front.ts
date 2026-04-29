@@ -108,6 +108,10 @@ export function registerFrontPageIPC() {
     ipcMain.handle('runOverlay', async () => {
         await runOverlay();
     });
+
+    ipcMain.handle('getOverlayStatus', () => {
+        return getOverlayRuntimeState();
+    });
 }
 
 export async function runOverlay() {

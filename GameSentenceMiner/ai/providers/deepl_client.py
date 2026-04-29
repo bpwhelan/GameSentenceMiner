@@ -15,15 +15,15 @@ class DeepLClient:
         self.url = "https://api-free.deepl.com/v2/translate"
 
     def generate(self, request: AIRequest) -> AIResponse:
-        self.logger.error("[DEEPL CLIENT] generate() CALLED")
+        self.logger.debug("[DEEPL CLIENT] generate() CALLED")
         start_time = time.time()
 
         try:
             # Extract Japanese text from the prompt (your existing extraction logic)
             import re
-            
+
             full_prompt = request.prompt.strip()
-            
+
             # DO NOT do regex extraction for DeepL
             text_to_send = full_prompt
 
@@ -31,8 +31,8 @@ class DeepLClient:
             text_to_send = text_to_send.strip().strip('"').strip("'")
 
             if not text_to_send:
-                 raise AIError("Empty input to DeepL", transient=False)
-                
+                raise AIError("Empty input to DeepL", transient=False)
+
             deepl_lang_map = {
                 "en": "EN",
                 "ja": "JA",
@@ -47,15 +47,15 @@ class DeepLClient:
                 "ru": "RU",
                 "ko": "KO",
             }
-            
+
             target = deepl_lang_map.get(self.target_lang.lower(), self.target_lang)
-            
+
             # NEW: Use header authentication instead of form data
             headers = {
                 "Authorization": f"DeepL-Auth-Key {self.api_key.strip()}",
-                "Content-Type": "application/x-www-form-urlencoded"
+                "Content-Type": "application/x-www-form-urlencoded",
             }
-            
+
             response = requests.post(
                 self.url,
                 headers=headers,  # ← Move API key to header
@@ -67,9 +67,9 @@ class DeepLClient:
             )
 
             if response.status_code != 200:
-                self.logger.error(f"Response status code: {response.status_code}")
-                self.logger.error(f"Response body: {response.text}")
-                
+                self.logger.debug(f"Response status code: {response.status_code}")
+                self.logger.debug(f"Response body: {response.text}")
+
             response.raise_for_status()
             data = response.json()
             translated = data["translations"][0]["text"]

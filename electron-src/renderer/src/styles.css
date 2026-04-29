@@ -1,5 +1,43 @@
 :root {
   color-scheme: dark;
+
+  /* ---- Redesign 2026 design tokens ----
+     Used by the Home and OCR tab refresh. Scoped overrides live near the
+     bottom of this file. Avoid changing legacy rules above. */
+  --gsm-surface-0: #161618;
+  --gsm-surface-1: #1d1d20;
+  --gsm-surface-2: #25252a;
+  --gsm-surface-3: #2c2c32;
+  --gsm-surface-hover: #34343b;
+
+  --gsm-border-subtle: #2c2c33;
+  --gsm-border-default: #393942;
+  --gsm-border-strong: #4a4a55;
+
+  --gsm-text-primary: #ececef;
+  --gsm-text-secondary: #b4b4bd;
+  --gsm-text-muted: #7e7e88;
+  --gsm-text-faint: #5c5c66;
+
+  --gsm-accent: #7aa2ff;
+  --gsm-accent-strong: #98b8ff;
+  --gsm-accent-soft: rgba(122, 162, 255, 0.13);
+  --gsm-accent-border: rgba(122, 162, 255, 0.36);
+
+  --gsm-success: #6cc28b;
+  --gsm-success-soft: rgba(108, 194, 139, 0.14);
+  --gsm-warning: #e3b765;
+  --gsm-warning-soft: rgba(227, 183, 101, 0.14);
+  --gsm-danger: #e07a7a;
+  --gsm-danger-soft: rgba(224, 122, 122, 0.14);
+
+  --gsm-radius-sm: 6px;
+  --gsm-radius-md: 10px;
+  --gsm-radius-lg: 14px;
+  --gsm-radius-pill: 999px;
+
+  --gsm-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --gsm-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.32);
 }
 
 * {
@@ -277,7 +315,7 @@ body {
 
 .modern-tab button:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
-  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn),
+  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill),
 .python-panel button:not(.card-header) {
   border: 1px solid #5f88cc;
   border-radius: 999px;
@@ -294,7 +332,7 @@ body {
 
 .modern-tab button:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
-  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn):hover:not(
+  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):hover:not(
     :disabled
   ),
 .python-panel button:not(.card-header):hover:not(:disabled) {
@@ -304,7 +342,7 @@ body {
 
 .modern-tab button.secondary:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
-  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn),
+  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill),
 .python-panel button.secondary:not(.card-header),
 button.secondary {
   background: #334055;
@@ -314,7 +352,7 @@ button.secondary {
 
 .modern-tab button.secondary:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
-  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn):hover:not(
+  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):hover:not(
     :disabled
   ),
 .python-panel button.secondary:not(.card-header):hover:not(:disabled),
@@ -1850,6 +1888,7 @@ button[data-tip]::after,
   font-weight: 400;
   line-height: 1.6;
   white-space: pre-line;
+  overflow-wrap: anywhere;
   text-align: left;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   pointer-events: none;
@@ -1880,6 +1919,16 @@ button[data-tip]:hover::after,
   transform: translateX(-50%);
   min-width: min(300px, calc(100vw - 32px));
   max-width: min(460px, calc(100vw - 32px));
+}
+
+.ocr-col--monitor label[data-tip]::after,
+.ocr-col--monitor summary[data-tip]::after,
+.ocr-col--monitor h3[data-tip]::after,
+.ocr-col--monitor span[data-tip]::after,
+.ocr-col--monitor button[data-tip]::after,
+.ocr-col--monitor .ocr-tip-wrap[data-tip]::after {
+  left: auto;
+  right: 0;
 }
 
 /* --- Line break color coding --- */
@@ -2866,4 +2915,1559 @@ button[data-tip]:hover::after,
 .home-support__link:hover {
   border-color: #4a4a4a;
   color: #bbb;
+}
+
+/* ================================================================== */
+/*  ===== Redesign 2026 — HomeTab + OCRTab visual refresh ==========  */
+/*  Scoped to .home-tab and .ocr-workspace. Overrides legacy rules    */
+/*  above. No gradients, single accent, calmer surfaces.              */
+/* ================================================================== */
+
+/* ---- Body / scrollbar polish ---- */
+body {
+  background: var(--gsm-surface-0);
+  color: var(--gsm-text-primary);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(180, 180, 200, 0.18);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(180, 180, 200, 0.32);
+  background-clip: padding-box;
+}
+
+* {
+  scrollbar-color: rgba(180, 180, 200, 0.22) transparent;
+}
+
+/* ===========================================================
+   HomeTab
+   =========================================================== */
+
+.modern-tab.home-tab {
+  padding: 16px 24px 18px;
+  background: var(--gsm-surface-0);
+}
+
+.home-tab .home-layout {
+  max-width: 980px;
+  gap: 12px;
+}
+
+/* Cards inside HomeTab — flatter, calmer */
+.home-tab .card {
+  background: var(--gsm-surface-1);
+  border: 1px solid var(--gsm-border-subtle);
+  border-radius: var(--gsm-radius-lg);
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.home-tab .card-header {
+  background: transparent;
+  color: var(--gsm-text-primary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 12px 18px 4px;
+  border-bottom: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-tab .card-body {
+  padding: 10px 18px 14px;
+  gap: 10px;
+}
+
+/* Subtle card-header badge (e.g. "Required") */
+.home-tab .home-obs-card__badge {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: var(--gsm-radius-pill);
+  background: var(--gsm-accent-soft);
+  color: var(--gsm-accent-strong);
+  border: 1px solid var(--gsm-accent-border);
+}
+
+/* ---- Form rows ---- */
+.home-tab .home-row {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+}
+
+.home-tab .home-row__label {
+  text-align: left;
+  min-width: 0;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--gsm-text-muted);
+  letter-spacing: 0.01em;
+}
+
+.home-tab .home-row__controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.home-tab .home-select,
+.home-tab .home-input {
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--gsm-radius-sm);
+  border: 1px solid var(--gsm-border-default);
+  background: var(--gsm-surface-2);
+  color: var(--gsm-text-primary);
+  font-size: 0.86rem;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.home-tab .home-select {
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237e7e88'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.home-tab .home-select:hover,
+.home-tab .home-input:hover {
+  border-color: var(--gsm-border-strong);
+}
+
+.home-tab .home-select:focus,
+.home-tab .home-input:focus {
+  border-color: var(--gsm-accent);
+  box-shadow: 0 0 0 3px var(--gsm-accent-soft);
+}
+
+/* Checkbox styling */
+.home-tab input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--gsm-accent);
+}
+
+/* ---- Icon buttons (refresh, help) ---- */
+.home-tab .home-icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--gsm-radius-sm);
+  border: 1px solid var(--gsm-border-default);
+  background: var(--gsm-surface-2);
+  color: var(--gsm-text-secondary);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.home-tab .home-icon-btn:hover:not(:disabled) {
+  background: var(--gsm-surface-hover);
+  border-color: var(--gsm-accent-border);
+  color: var(--gsm-accent-strong);
+}
+
+.home-tab .home-icon-btn:disabled {
+  opacity: 0.4;
+}
+
+/* ---- Text buttons (rename, remove inline) ---- */
+.home-tab .home-text-btn {
+  font-size: 0.8rem;
+  color: var(--gsm-accent);
+  font-weight: 500;
+  padding: 4px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+
+.home-tab .home-text-btn:hover:not(:disabled) {
+  color: var(--gsm-accent-strong);
+  text-decoration: underline;
+}
+
+.home-tab .home-text-btn:disabled {
+  color: var(--gsm-text-faint);
+  cursor: not-allowed;
+}
+
+.home-tab .home-text-btn--danger {
+  color: var(--gsm-danger);
+}
+
+.home-tab .home-text-btn--danger:hover:not(:disabled) {
+  color: #f08e8e;
+}
+
+.home-tab .home-capture-actions {
+  gap: 18px;
+}
+
+/* ---- Primary action buttons (e.g. "Set up capture") ---- */
+.home-tab .card-body button[type="button"]:not(.home-icon-btn):not(.home-text-btn):not(.home-quick-btn):not(.home-status-pill) {
+  height: 32px;
+  padding: 0 16px;
+  border-radius: var(--gsm-radius-sm);
+  border: 1px solid var(--gsm-accent-border);
+  background: var(--gsm-accent-soft);
+  color: var(--gsm-accent-strong);
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.home-tab .card-body button[type="button"]:not(.home-icon-btn):not(.home-text-btn):not(.home-quick-btn):not(.home-status-pill):hover:not(:disabled) {
+  background: rgba(122, 162, 255, 0.22);
+  border-color: var(--gsm-accent);
+  color: #ffffff;
+}
+
+.home-tab .card-body button[type="button"]:not(.home-icon-btn):not(.home-text-btn):not(.home-quick-btn):not(.home-status-pill):disabled {
+  background: var(--gsm-surface-2);
+  border-color: var(--gsm-border-subtle);
+  color: var(--gsm-text-faint);
+  cursor: not-allowed;
+}
+
+/* ---- Overlay section ---- */
+.home-tab .home-overlay-card {
+  display: block;
+  padding: 0;
+}
+
+.home-tab .home-overlay-card .card-header {
+  justify-content: space-between;
+  padding: 10px 18px 4px;
+}
+
+.home-tab .home-overlay-card .card-body {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 18px 12px;
+}
+
+.home-tab .home-overlay-card__controls {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-tab .home-overlay-card__status {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--gsm-radius-pill);
+  border: 1px solid var(--gsm-border-default);
+  background: var(--gsm-surface-2);
+  color: var(--gsm-text-secondary);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.home-tab .home-overlay-card__status--running {
+  border-color: rgba(108, 194, 139, 0.3);
+  background: var(--gsm-success-soft);
+  color: var(--gsm-success);
+}
+
+.home-tab .home-overlay-card__status--stopped {
+  color: var(--gsm-text-muted);
+}
+
+.home-tab .home-overlay-card__warning {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border: 1px solid rgba(227, 183, 101, 0.3);
+  border-radius: var(--gsm-radius-pill);
+  background: var(--gsm-warning-soft);
+  color: var(--gsm-warning);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.home-tab .home-overlay-card__actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 6px;
+}
+
+.home-tab .home-overlay-primary-btn {
+  min-width: 132px;
+}
+
+.home-tab .home-overlay-guide-btn {
+  white-space: nowrap;
+}
+
+.home-tab .home-overlay-card__startup {
+  color: var(--gsm-text-secondary);
+  white-space: nowrap;
+}
+
+/* ---- Quick Actions section ---- */
+.home-tab .home-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--gsm-radius-lg);
+  border: 1px solid var(--gsm-border-subtle);
+  background: var(--gsm-surface-1);
+}
+
+.home-tab .home-quick-actions__title {
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gsm-text-faint);
+  font-weight: 700;
+  margin-right: 6px;
+}
+
+.home-tab .home-quick-actions__row {
+  gap: 8px;
+}
+
+.home-tab .home-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--gsm-border-default);
+  border-radius: var(--gsm-radius-sm);
+  background: var(--gsm-surface-2);
+  color: var(--gsm-text-primary);
+  font-size: 0.83rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.home-tab .home-quick-btn:hover {
+  background: var(--gsm-surface-hover);
+  border-color: var(--gsm-accent-border);
+  color: var(--gsm-accent-strong);
+}
+
+.home-tab .home-quick-btn__badge {
+  color: var(--gsm-warning);
+  font-size: 0.78rem;
+}
+
+/* ---- Status grid ---- */
+.home-tab .home-status-card .card-body {
+  padding: 10px 16px 14px;
+}
+
+.home-tab .home-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 6px;
+}
+
+.home-tab .home-status-pill {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--gsm-border-subtle);
+  border-radius: var(--gsm-radius-md);
+  background: var(--gsm-surface-2);
+  color: var(--gsm-text-primary);
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: default;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.home-tab .home-status-pill--clickable {
+  cursor: pointer;
+}
+
+.home-tab .home-status-pill--clickable:hover {
+  background: var(--gsm-surface-hover);
+  border-color: var(--gsm-border-strong);
+}
+
+.home-tab .home-status-pill__icon {
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--gsm-text-secondary);
+  text-align: center;
+}
+
+.home-tab .home-status-pill__label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--gsm-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-tab .home-status-pill__text {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--gsm-text-muted);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  grid-column: 2 / 3;
+  grid-row: 2;
+  margin-top: -2px;
+}
+
+.home-tab .home-status-pill__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gsm-text-faint);
+  box-shadow: none;
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+
+.home-tab .home-status-pill--ok {
+  border-color: rgba(108, 194, 139, 0.22);
+}
+
+.home-tab .home-status-pill--ok .home-status-pill__dot {
+  background: var(--gsm-success);
+  box-shadow: 0 0 8px rgba(108, 194, 139, 0.5);
+}
+
+.home-tab .home-status-pill--bad {
+  border-color: rgba(224, 122, 122, 0.22);
+}
+
+.home-tab .home-status-pill--bad .home-status-pill__dot {
+  background: var(--gsm-danger);
+  box-shadow: 0 0 8px rgba(224, 122, 122, 0.5);
+}
+
+.home-tab .home-status-pill--neutral .home-status-pill__dot {
+  background: var(--gsm-text-muted);
+}
+
+/* ---- Modal ---- */
+.home-tab .home-modal,
+.home-modal {
+  background: var(--gsm-surface-1);
+  border: 1px solid var(--gsm-border-default);
+  border-radius: var(--gsm-radius-lg);
+  box-shadow: var(--gsm-shadow-md);
+  padding: 22px 26px 20px;
+}
+
+.home-tab .home-modal h3 {
+  color: var(--gsm-text-primary);
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.home-tab .home-modal__desc {
+  color: var(--gsm-text-muted);
+}
+
+/* ---- Support footer ---- */
+.home-tab .home-support {
+  padding-top: 10px;
+  border-top: 1px solid var(--gsm-border-subtle);
+  margin-top: 0;
+  color: var(--gsm-text-muted);
+}
+
+.home-tab .home-support__heart {
+  color: var(--gsm-danger);
+  opacity: 0.7;
+}
+
+.home-tab .home-support__text {
+  color: var(--gsm-text-muted);
+  font-size: 0.82rem;
+}
+
+.home-tab .home-support__link {
+  color: var(--gsm-text-secondary);
+  border: 1px solid var(--gsm-border-subtle);
+  background: var(--gsm-surface-2);
+  font-size: 0.78rem;
+  padding: 4px 12px;
+}
+
+.home-tab .home-support__link:hover {
+  color: var(--gsm-accent-strong);
+  border-color: var(--gsm-accent-border);
+  background: var(--gsm-accent-soft);
+}
+
+@media (max-width: 720px) {
+  .home-tab .home-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .home-tab .home-row__label {
+    text-align: left;
+  }
+  .home-tab .home-overlay-card .card-body {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .home-tab .home-overlay-card__actions,
+  .home-tab .home-overlay-card__controls {
+    justify-content: flex-start;
+  }
+}
+
+/* ===========================================================
+   OCRTab
+   =========================================================== */
+
+.modern-tab.ocr-workspace {
+  padding: 18px 22px 22px;
+  background: var(--gsm-surface-0);
+}
+
+.ocr-workspace .ocr-dashboard {
+  gap: 16px;
+}
+
+.ocr-workspace .ocr-col {
+  gap: 14px;
+}
+
+/* Outer cards */
+.ocr-workspace .card.ocr-card {
+  background: var(--gsm-surface-1);
+  border: 1px solid var(--gsm-border-subtle);
+  border-radius: var(--gsm-radius-lg);
+  padding: 16px 18px;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.ocr-workspace .ocr-card h2 {
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--gsm-text-primary);
+}
+
+.ocr-workspace .ocr-card h3 {
+  font-size: 0.84rem;
+  color: var(--gsm-text-secondary);
+  font-weight: 600;
+}
+
+.ocr-workspace .ocr-card-header-row {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--gsm-border-subtle);
+}
+
+/* Inputs / selects */
+.ocr-workspace input[type="text"],
+.ocr-workspace input[type="number"],
+.ocr-workspace select {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: var(--gsm-radius-sm);
+  border: 1px solid var(--gsm-border-default);
+  background: var(--gsm-surface-2);
+  color: var(--gsm-text-primary);
+  font-size: 0.86rem;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.ocr-workspace select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237e7e88'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.ocr-workspace input[type="text"]:hover,
+.ocr-workspace input[type="number"]:hover,
+.ocr-workspace select:hover {
+  border-color: var(--gsm-border-strong);
+}
+
+.ocr-workspace input[type="text"]:focus,
+.ocr-workspace input[type="number"]:focus,
+.ocr-workspace select:focus {
+  outline: none;
+  border-color: var(--gsm-accent);
+  box-shadow: 0 0 0 3px var(--gsm-accent-soft);
+}
+
+.ocr-workspace .ocr-card input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--gsm-accent);
+}
+
+.ocr-workspace .ocr-card input[type='range'] {
+  accent-color: var(--gsm-accent);
+}
+
+/* Form group spacing */
+.ocr-workspace .ocr-form-group {
+  gap: 12px;
+}
+
+.ocr-workspace .input-group label {
+  font-size: 0.82rem;
+  color: var(--gsm-text-secondary);
+  font-weight: 500;
+}
+
+/* Inline toggle pill (Advanced) */
+.ocr-workspace .ocr-inline-toggle {
+  border: 1px solid var(--gsm-border-default);
+  background: var(--gsm-surface-2);
+  color: var(--gsm-text-primary);
+  border-radius: var(--gsm-radius-pill);
+  padding: 5px 12px;
+  font-size: 0.78rem;
+}
+
+/* Area badge */
+.ocr-workspace .ocr-area-badge {
+  border: 1px solid var(--gsm-border-default);
+  background: var(--gsm-surface-2);
+  color: var(--gsm-text-secondary);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  padding: 2px 10px;
+  border-radius: var(--gsm-radius-pill);
+}
+
+.ocr-workspace .ocr-area-badge--ok {
+  border-color: rgba(108, 194, 139, 0.32);
+  color: var(--gsm-success);
+  background: var(--gsm-success-soft);
+}
+
+.ocr-workspace .ocr-area-badge--empty {
+  border-color: rgba(227, 183, 101, 0.32);
+  color: var(--gsm-warning);
+  background: var(--gsm-warning-soft);
+}
+
+/* Slider field — flatter, no inset border noise */
+.ocr-workspace .ocr-slider-field {
+  border: none;
+  background: transparent;
+  padding: 0;
+  gap: 8px;
+}
+
+.ocr-workspace .ocr-slider-header {
+  font-size: 0.82rem;
+  color: var(--gsm-text-secondary);
+  font-weight: 500;
+}
+
+.ocr-workspace .ocr-slider-header span {
+  color: var(--gsm-accent-strong);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Linebreak / clipboard rows */
+.ocr-workspace .ocr-linebreak-row {
+  border: 1px solid var(--gsm-border-subtle);
+  background: var(--gsm-surface-2);
+  border-radius: var(--gsm-radius-md);
+  padding: 10px 14px;
+  gap: 8px 16px;
+}
+
+.ocr-workspace .ocr-linebreak-label {
+  color: var(--gsm-text-secondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+/* Pipeline section */
+.ocr-workspace .ocr-pipeline-section {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--gsm-border-subtle);
+  background: var(--gsm-surface-2);
+  border-radius: var(--gsm-radius-md);
+}
+
+.ocr-workspace .ocr-pipeline-heading {
+  color: var(--gsm-text-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.ocr-workspace .ocr-pipeline-summary {
+  background: var(--gsm-surface-1);
+  border: 1px solid var(--gsm-border-subtle);
+  border-radius: var(--gsm-radius-sm);
+  padding: 10px 14px;
+  color: var(--gsm-text-secondary);
+}
+
+.ocr-workspace .ocr-pipeline-summary strong {
+  color: var(--gsm-accent-strong);
+}
+
+.ocr-workspace .ocr-pipeline-control {
+  background: var(--gsm-surface-1);
+  border: 1px solid var(--gsm-border-subtle);
+  border-radius: var(--gsm-radius-sm);
+  padding: 10px 12px;
+}
+
+/* Comparison details */
+.ocr-workspace .ocr-details-card {
+  background: var(--gsm-surface-2);
+  border: 1px solid var(--gsm-border-subtle);
+  border-radius: var(--gsm-radius-md);
+  padding: 12px 16px;
+  margin-top: 14px;
+}
+
+.ocr-workspace .ocr-details-card--nested {
+  background: var(--gsm-surface-1);
+}
+
+.ocr-workspace .ocr-details-card summary {
+  color: var(--gsm-text-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.ocr-workspace .ocr-details-card summary::before {
+  content: "▸";
+  display: inline-block;
+  font-size: 0.7rem;
+  color: var(--gsm-text-muted);
+  transition: transform 150ms ease;
+}
+
+.ocr-workspace .ocr-details-card[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.ocr-workspace .ocr-details-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.ocr-workspace .ocr-comparison-field label {
+  font-size: 0.78rem;
+  color: var(--gsm-text-muted);
+  font-weight: 500;
+}
+
+/* Hotkey grid */
+.ocr-workspace .ocr-hotkey-grid .input-group {
+  background: var(--gsm-surface-2);
+  border: 1px solid var(--gsm-border-subtle);
+  border-radius: var(--gsm-radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.ocr-workspace .ocr-hotkey-grid .input-group label {
+  flex: 0 0 auto;
+  min-width: 96px;
+  text-align: right;
+}
+
+.ocr-workspace .ocr-hotkey-grid input[type='text'] {
+  background: var(--gsm-surface-1);
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 0.84rem;
+  color: var(--gsm-accent-strong);
+  text-align: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Console */
+.ocr-workspace .ocr-console-status {
+  border: 1px solid var(--gsm-border-default);
+  background: var(--gsm-surface-2);
+  color: var(--gsm-text-secondary);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+
+.ocr-workspace .ocr-console-status--active {
+  border-color: rgba(108, 194, 139, 0.36);
+  background: var(--gsm-success-soft);
+  color: var(--gsm-success);
+}
+
+.ocr-workspace .ocr-console-status--paused {
+  border-color: rgba(227, 183, 101, 0.36);
+  background: var(--gsm-warning-soft);
+  color: var(--gsm-warning);
+}
+
+.ocr-workspace .ocr-terminal-surface {
+  border: 1px solid var(--gsm-border-subtle);
+  background: var(--gsm-surface-0);
+  border-radius: var(--gsm-radius-md);
+}
+
+/* Icon buttons */
+.ocr-workspace .ocr-icon-btn {
+  min-width: 34px;
+  min-height: 34px;
+  border-radius: var(--gsm-radius-sm) !important;
+  background: var(--gsm-surface-2) !important;
+  border: 1px solid var(--gsm-border-default) !important;
+  color: var(--gsm-text-secondary) !important;
+  font-size: 1rem;
+}
+
+.ocr-workspace .ocr-icon-btn:hover:not(:disabled) {
+  background: var(--gsm-surface-hover) !important;
+  border-color: var(--gsm-accent-border) !important;
+  color: var(--gsm-accent-strong) !important;
+}
+
+/* Buttons inside OCR cards — keep accent style consistent (override pill) */
+.ocr-workspace .ocr-card button:not(.ocr-icon-btn):not(.danger):not(.secondary) {
+  border-radius: var(--gsm-radius-sm) !important;
+  padding: 8px 14px !important;
+  background: var(--gsm-accent-soft) !important;
+  border: 1px solid var(--gsm-accent-border) !important;
+  color: var(--gsm-accent-strong) !important;
+  font-weight: 600 !important;
+  font-size: 0.84rem !important;
+}
+
+.ocr-workspace .ocr-card button:not(.ocr-icon-btn):not(.danger):not(.secondary):hover:not(:disabled) {
+  background: rgba(122, 162, 255, 0.22) !important;
+  border-color: var(--gsm-accent) !important;
+  color: #ffffff !important;
+}
+
+.ocr-workspace .ocr-card button.secondary {
+  border-radius: var(--gsm-radius-sm) !important;
+  padding: 8px 14px !important;
+  background: var(--gsm-surface-2) !important;
+  border: 1px solid var(--gsm-border-default) !important;
+  color: var(--gsm-text-primary) !important;
+  font-weight: 500 !important;
+  font-size: 0.84rem !important;
+}
+
+.ocr-workspace .ocr-card button.secondary:hover:not(:disabled) {
+  background: var(--gsm-surface-hover) !important;
+  border-color: var(--gsm-border-strong) !important;
+  color: var(--gsm-accent-strong) !important;
+}
+
+.ocr-workspace .ocr-card button.danger {
+  border-radius: var(--gsm-radius-sm) !important;
+  padding: 8px 14px !important;
+  background: var(--gsm-danger-soft) !important;
+  border: 1px solid rgba(224, 122, 122, 0.36) !important;
+  color: var(--gsm-danger) !important;
+  font-weight: 600 !important;
+  font-size: 0.84rem !important;
+}
+
+.ocr-workspace .ocr-card button.danger:hover:not(:disabled) {
+  background: rgba(224, 122, 122, 0.22) !important;
+  border-color: var(--gsm-danger) !important;
+  color: #fff !important;
+}
+
+/* Sticky footer — refresh */
+.ocr-workspace .ocr-sticky-footer {
+  margin-top: 16px;
+  padding: 12px 18px;
+  border-radius: var(--gsm-radius-lg);
+  border: 1px solid var(--gsm-border-default);
+  background: var(--gsm-surface-1);
+  box-shadow: var(--gsm-shadow-md);
+}
+
+.ocr-workspace .ocr-sticky-footer--running {
+  border-color: rgba(108, 194, 139, 0.36);
+}
+
+.ocr-workspace .ocr-sticky-footer--paused {
+  border-color: rgba(227, 183, 101, 0.36);
+}
+
+.ocr-workspace .ocr-sticky-footer--ready {
+  border-color: var(--gsm-accent-border);
+}
+
+.ocr-workspace .ocr-sticky-footer--warning {
+  border-color: rgba(224, 122, 122, 0.36);
+}
+
+.ocr-workspace .ocr-runtime-badge {
+  border-radius: var(--gsm-radius-pill);
+  padding: 4px 10px;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid var(--gsm-border-default);
+  background: var(--gsm-surface-2);
+  color: var(--gsm-text-secondary);
+}
+
+.ocr-workspace .ocr-runtime-badge--running {
+  border-color: rgba(108, 194, 139, 0.36);
+  background: var(--gsm-success-soft);
+  color: var(--gsm-success);
+}
+
+.ocr-workspace .ocr-runtime-badge--paused {
+  border-color: rgba(227, 183, 101, 0.36);
+  background: var(--gsm-warning-soft);
+  color: var(--gsm-warning);
+}
+
+.ocr-workspace .ocr-runtime-badge--ready {
+  border-color: var(--gsm-accent-border);
+  background: var(--gsm-accent-soft);
+  color: var(--gsm-accent-strong);
+}
+
+.ocr-workspace .ocr-runtime-badge--warning {
+  border-color: rgba(224, 122, 122, 0.36);
+  background: var(--gsm-danger-soft);
+  color: var(--gsm-danger);
+}
+
+.ocr-workspace .ocr-sticky-footer-copy strong {
+  color: var(--gsm-text-primary);
+  font-size: 0.9rem;
+}
+
+.ocr-workspace .ocr-sticky-footer-copy p {
+  color: var(--gsm-text-muted);
+  font-size: 0.8rem;
+}
+
+.ocr-workspace .ocr-sticky-footer-actions button {
+  padding: 8px 16px !important;
+  border-radius: var(--gsm-radius-sm) !important;
+  font-size: 0.86rem !important;
+  font-weight: 600 !important;
+}
+
+/* Tooltip refresh */
+label[data-tip]::after,
+summary[data-tip]::after,
+h3[data-tip]::after,
+span[data-tip]::after,
+button[data-tip]::after,
+.ocr-tip-wrap[data-tip]::after {
+  background: var(--gsm-surface-0);
+  border: 1px solid var(--gsm-border-default);
+  color: var(--gsm-text-primary);
+  border-radius: var(--gsm-radius-md);
+  box-shadow: var(--gsm-shadow-md);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+/* Toast refresh */
+.ocr-workspace .ocr-toast {
+  border-radius: var(--gsm-radius-md);
+  background: var(--gsm-surface-1);
+  border: 1px solid var(--gsm-border-default);
+  color: var(--gsm-text-primary);
+  box-shadow: var(--gsm-shadow-md);
+}
+
+.ocr-workspace .ocr-toast--success {
+  border-color: rgba(108, 194, 139, 0.4);
+  color: var(--gsm-success);
+}
+
+.ocr-workspace .ocr-toast--error {
+  border-color: rgba(224, 122, 122, 0.4);
+  color: var(--gsm-danger);
+}
+
+.ocr-workspace .ocr-toast--info {
+  border-color: var(--gsm-accent-border);
+  color: var(--gsm-accent-strong);
+}
+
+/* ================================================================== */
+/*  Redesign 2026 — Issue fixes                                       */
+/* ================================================================== */
+
+/* Capture-card style toggle row: keep text and checkbox together in the control column */
+.home-tab .home-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  cursor: pointer;
+  color: var(--gsm-text-primary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.home-tab .home-toggle input[type="checkbox"] {
+  flex: 0 0 auto;
+}
+
+/* Console card: clip terminal so it can't overflow the card */
+.ocr-workspace .ocr-card--console {
+  min-height: 320px;
+  overflow: hidden;
+}
+
+/* Terminal surface: constrain to card, never grow past it */
+.ocr-workspace .ocr-terminal-surface {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+/* Home tab: rename / remove inline buttons should look like real chips */
+.home-tab .home-text-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--gsm-radius-sm);
+  border: 1px solid var(--gsm-border-default);
+  background: var(--gsm-surface-2);
+  color: var(--gsm-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  text-decoration: none;
+}
+
+.home-tab .home-text-btn:hover:not(:disabled) {
+  background: var(--gsm-surface-hover);
+  border-color: var(--gsm-border-strong);
+  color: var(--gsm-accent-strong);
+  text-decoration: none;
+}
+
+.home-tab .home-text-btn:disabled {
+  background: var(--gsm-surface-2);
+  border-color: var(--gsm-border-subtle);
+  color: var(--gsm-text-faint);
+  cursor: not-allowed;
+}
+
+.home-tab .home-text-btn--danger {
+  color: var(--gsm-danger);
+  border-color: rgba(224, 122, 122, 0.28);
+  background: rgba(224, 122, 122, 0.06);
+}
+
+.home-tab .home-text-btn--danger:hover:not(:disabled) {
+  background: var(--gsm-danger-soft);
+  border-color: rgba(224, 122, 122, 0.5);
+  color: #f08e8e;
+}
+
+.home-tab .home-text-btn--danger:disabled {
+  color: var(--gsm-text-faint);
+  background: var(--gsm-surface-2);
+  border-color: var(--gsm-border-subtle);
+}
+
+/* ================================================================== */
+/*  Redesign 2026 — App-wide visual re-skin                           */
+/*                                                                    */
+/*  IMPORTANT: This section ONLY overrides colors / borders /         */
+/*  backgrounds. It MUST NOT change layout (display, flex-direction,  */
+/*  grid, padding that would shift rows, width, etc) for legacy       */
+/*  classes (.card, .card-body, .input-group, .form-group, .card-     */
+/*  header, .checkbox-item, etc). Layout for the legacy Settings,     */
+/*  Launcher, and Python tabs stays as defined earlier in this file.  */
+/* ================================================================== */
+
+/* ---- Header / tab bar (purely visual) ---- */
+.tab-bar {
+  background: var(--gsm-surface-1);
+  border-bottom: 1px solid var(--gsm-border-subtle);
+  padding: 8px 14px;
+}
+
+.tab-buttons {
+  gap: 2px;
+}
+
+.tab-button {
+  background: transparent;
+  color: var(--gsm-text-muted);
+  border: none;
+  border-radius: var(--gsm-radius-sm);
+  padding: 7px 14px;
+  font-size: 0.86rem;
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.tab-button:hover {
+  background: var(--gsm-surface-2);
+  color: var(--gsm-text-primary);
+}
+
+.tab-button.active {
+  background: transparent;
+  color: var(--gsm-accent-strong);
+}
+
+.tab-button.active::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -9px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--gsm-accent);
+}
+
+.icon-link svg {
+  fill: var(--gsm-text-muted);
+}
+
+.icon-link:hover svg {
+  fill: var(--gsm-accent-strong);
+}
+
+/* ---- Modern tab + python panel surface (background only) ---- */
+.modern-tab,
+.python-panel {
+  background: var(--gsm-surface-0);
+}
+
+.legacy-frame,
+.stats-panel {
+  background: var(--gsm-surface-0);
+}
+
+.stats-loading {
+  background: var(--gsm-surface-0);
+  color: var(--gsm-text-secondary);
+}
+
+.spinner {
+  border-color: var(--gsm-border-default);
+  border-top-color: var(--gsm-accent);
+}
+
+/* ---- Generic cards (visual only, no layout changes) ---- */
+.modern-tab .card,
+.python-panel .card {
+  background: var(--gsm-surface-1);
+  border-color: var(--gsm-border-subtle);
+  border-radius: var(--gsm-radius-md);
+}
+
+.modern-tab .card-header,
+.python-panel .card-header {
+  background: transparent;
+  color: var(--gsm-text-primary);
+  border-bottom-color: var(--gsm-border-subtle);
+}
+
+/* Inputs inside the legacy card-body (visual only — preserve width:100%) */
+.modern-tab .card-body input[type="text"],
+.modern-tab .card-body input[type="number"],
+.python-panel .card-body input[type="text"] {
+  background: var(--gsm-surface-2);
+  border-color: var(--gsm-border-default);
+  color: var(--gsm-text-primary);
+  border-radius: var(--gsm-radius-sm);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.modern-tab .card-body input[type="text"]:focus,
+.modern-tab .card-body input[type="number"]:focus,
+.python-panel .card-body input[type="text"]:focus {
+  border-color: var(--gsm-accent);
+  box-shadow: 0 0 0 3px var(--gsm-accent-soft);
+  outline: none;
+}
+
+/* Inputs / selects inside .input-group rows (visual only — keep flex layout) */
+.modern-tab .input-group select,
+.modern-tab .input-group input[type="text"],
+.modern-tab .input-group input[type="number"],
+.modern-tab .input-group input[type="search"],
+.modern-tab .input-group input[type="url"] {
+  background: var(--gsm-surface-2);
+  border-color: var(--gsm-border-default);
+  color: var(--gsm-text-primary);
+  border-radius: var(--gsm-radius-sm);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.modern-tab .input-group select:focus,
+.modern-tab .input-group input[type="text"]:focus,
+.modern-tab .input-group input[type="number"]:focus,
+.modern-tab .input-group input[type="search"]:focus,
+.modern-tab .input-group input[type="url"]:focus {
+  outline: none;
+  border-color: var(--gsm-accent);
+  box-shadow: 0 0 0 3px var(--gsm-accent-soft);
+}
+
+.modern-tab .input-group label {
+  color: var(--gsm-text-secondary);
+}
+
+.modern-tab input[type="checkbox"] {
+  accent-color: var(--gsm-accent);
+}
+
+/* ---- Re-skin the existing global pill button (colors only) ----
+   The selector chain mirrors the legacy rule above so we win on
+   specificity without changing layout (padding/border-radius stay). */
+.modern-tab button:not(.launcher-docs-button):not(.launcher-info-icon):not(
+    .launcher-card-toggle
+  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):not(.tab-button):not(.icon-link):not(.ocr-icon-btn),
+.python-panel button:not(.card-header) {
+  background: var(--gsm-accent-soft);
+  border-color: var(--gsm-accent-border);
+  color: var(--gsm-accent-strong);
+}
+
+.modern-tab button:not(.launcher-docs-button):not(.launcher-info-icon):not(
+    .launcher-card-toggle
+  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):not(.tab-button):not(.icon-link):not(.ocr-icon-btn):hover:not(:disabled),
+.python-panel button:not(.card-header):hover:not(:disabled) {
+  background: rgba(122, 162, 255, 0.22);
+  border-color: var(--gsm-accent);
+  color: #ffffff;
+}
+
+.modern-tab button.secondary:not(.launcher-docs-button):not(.launcher-info-icon):not(
+    .launcher-card-toggle
+  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill),
+button.secondary {
+  background: var(--gsm-surface-2);
+  border-color: var(--gsm-border-default);
+  color: var(--gsm-text-primary);
+}
+
+.modern-tab button.secondary:not(.launcher-docs-button):not(.launcher-info-icon):not(
+    .launcher-card-toggle
+  ):not(.launcher-script-option):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):hover:not(:disabled),
+button.secondary:hover:not(:disabled) {
+  background: var(--gsm-surface-hover);
+  border-color: var(--gsm-border-strong);
+  color: var(--gsm-accent-strong);
+}
+
+.modern-tab button.danger:not(.launcher-info-icon):not(.launcher-card-toggle):not(
+    .launcher-script-option
+  ):not(.status-button):not(.card-header),
+.python-panel button.danger:not(.card-header),
+button.danger {
+  background: var(--gsm-danger-soft);
+  border-color: rgba(224, 122, 122, 0.36);
+  color: var(--gsm-danger);
+}
+
+.modern-tab button.danger:not(.launcher-info-icon):not(.launcher-card-toggle):not(
+    .launcher-script-option
+  ):not(.status-button):not(.card-header):hover:not(:disabled),
+.python-panel button.danger:not(.card-header):hover:not(:disabled),
+button.danger:hover:not(:disabled) {
+  background: rgba(224, 122, 122, 0.22);
+  border-color: var(--gsm-danger);
+  color: #fff;
+}
+
+/* Muted text helper */
+.modern-tab .muted,
+.python-panel .muted {
+  color: var(--gsm-text-muted);
+}
+
+/* ---- Status cards / status-button (visual only) ---- */
+.status-card {
+  background: var(--gsm-surface-1);
+  border-color: var(--gsm-border-subtle);
+  border-radius: var(--gsm-radius-md);
+}
+
+.status-card.success {
+  border-color: rgba(108, 194, 139, 0.4);
+}
+
+.status-card.error {
+  border-color: rgba(224, 122, 122, 0.4);
+}
+
+.status-button {
+  background: var(--gsm-surface-2);
+  border-color: var(--gsm-border-subtle);
+  color: var(--gsm-text-primary);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.status-button:hover {
+  border-color: var(--gsm-border-strong);
+  background: var(--gsm-surface-hover);
+}
+
+.status-button.green {
+  background: var(--gsm-success-soft);
+  border-color: rgba(108, 194, 139, 0.36);
+  color: var(--gsm-success);
+}
+
+.status-button.red {
+  background: var(--gsm-danger-soft);
+  border-color: rgba(224, 122, 122, 0.36);
+  color: var(--gsm-danger);
+}
+
+.status-button.neutral {
+  background: var(--gsm-accent-soft);
+  border-color: var(--gsm-accent-border);
+  color: var(--gsm-accent-strong);
+}
+
+/* ---- Settings tab (visual only) ---- */
+.modern-tab .settings-multi-select {
+  background: var(--gsm-surface-2);
+  border-color: var(--gsm-border-default);
+  color: var(--gsm-text-primary);
+  border-radius: var(--gsm-radius-sm);
+}
+
+.modern-tab .settings-multi-select option:checked {
+  background: var(--gsm-accent-soft);
+  color: var(--gsm-accent-strong);
+}
+
+.modern-tab .settings-owner-summary,
+.modern-tab .settings-directory-item {
+  background: var(--gsm-surface-2);
+  border-color: var(--gsm-border-subtle);
+  border-radius: var(--gsm-radius-md);
+}
+
+.modern-tab .settings-owner-pill {
+  background: var(--gsm-accent-soft);
+  color: var(--gsm-accent-strong);
+  border: 1px solid var(--gsm-accent-border);
+}
+
+.modern-tab .settings-directory-note {
+  color: var(--gsm-text-muted);
+}
+
+/* ---- Game Settings (Launcher) tab (visual only) ---- */
+.modern-tab .launcher-card-toggle {
+  background: var(--gsm-surface-2);
+  border: 1px solid var(--gsm-border-default);
+  color: var(--gsm-text-secondary);
+  border-radius: var(--gsm-radius-sm);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.modern-tab .launcher-card-toggle:hover {
+  background: var(--gsm-surface-hover);
+  border-color: var(--gsm-border-strong);
+  color: var(--gsm-accent-strong);
+}
+
+.modern-tab .launcher-mode-item {
+  background: var(--gsm-surface-2);
+  border-color: var(--gsm-border-subtle);
+  color: var(--gsm-text-primary);
+  border-radius: var(--gsm-radius-sm);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.modern-tab .launcher-mode-item:hover {
+  border-color: var(--gsm-border-strong);
+  background: var(--gsm-surface-hover);
+}
+
+.modern-tab .launcher-mode-item:has(input[type="radio"]:checked),
+.modern-tab .launcher-mode-item:has(input[type="checkbox"]:checked) {
+  border-color: var(--gsm-accent);
+  background: var(--gsm-accent-soft);
+  color: var(--gsm-accent-strong);
+}
+
+.modern-tab .launcher-script-option {
+  background: var(--gsm-surface-2);
+  border-color: var(--gsm-border-subtle);
+  color: var(--gsm-text-primary);
+  border-radius: var(--gsm-radius-md);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.modern-tab .launcher-script-option:hover {
+  border-color: var(--gsm-accent);
+  background: var(--gsm-surface-hover);
+}
+
+.modern-tab .launcher-script-option-meta,
+.modern-tab .launcher-script-option-path {
+  color: var(--gsm-text-muted);
+}
+
+.modern-tab .launcher-config-modal {
+  background: var(--gsm-surface-1);
+  border: 1px solid var(--gsm-border-default);
+  border-radius: var(--gsm-radius-md);
+  box-shadow: var(--gsm-shadow-md);
+}
+
+.modern-tab .launcher-config-modal-header {
+  background: var(--gsm-surface-2);
+  border-bottom: 1px solid var(--gsm-border-subtle);
+}
+
+.modern-tab .launcher-script-search-input {
+  background: var(--gsm-surface-2);
+  border: 1px solid var(--gsm-border-default);
+  color: var(--gsm-text-primary);
+  border-radius: var(--gsm-radius-sm);
+}
+
+.modern-tab .launcher-script-search-input:focus {
+  outline: none;
+  border-color: var(--gsm-accent);
+  box-shadow: 0 0 0 3px var(--gsm-accent-soft);
+}
+
+.modern-tab .launcher-header-option {
+  color: var(--gsm-warning);
+}
+
+.modern-tab .launcher-info-icon {
+  color: var(--gsm-text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.modern-tab .launcher-info-icon:hover {
+  color: var(--gsm-accent-strong);
+}
+
+.modern-tab .launcher-docs-button {
+  background: var(--gsm-surface-2);
+  border: 1px solid var(--gsm-border-default);
+  color: var(--gsm-text-secondary);
+  border-radius: var(--gsm-radius-sm);
+}
+
+.modern-tab .launcher-docs-button:hover {
+  background: var(--gsm-surface-hover);
+  border-color: var(--gsm-border-strong);
+  color: var(--gsm-accent-strong);
+}
+
+.modern-tab .launcher-download-status {
+  border-left-color: var(--gsm-accent);
+  background: var(--gsm-accent-soft);
+  border-radius: var(--gsm-radius-sm);
+}
+
+/* ---- Python tab (collapsible card-headers — visual only) ---- */
+.python-panel .card .card-header {
+  cursor: pointer;
+  background: transparent;
+  color: var(--gsm-text-primary);
+  border-bottom-color: var(--gsm-border-subtle);
+  transition: background 120ms ease;
+}
+
+.python-panel .card .card-header:hover {
+  background: var(--gsm-surface-2);
+}
+
+.python-panel .card-body label {
+  color: var(--gsm-text-secondary);
+}
+
+/* ---- Console (logs) tab (visual only) ---- */
+.console-header {
+  background: var(--gsm-surface-1);
+  border-bottom-color: var(--gsm-border-subtle);
+}
+
+.console-action-button,
+.console-mode-toggle {
+  background: var(--gsm-surface-2);
+  border-color: var(--gsm-border-default);
+  color: var(--gsm-text-secondary);
+  border-radius: var(--gsm-radius-sm);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.console-action-button:hover,
+.console-mode-toggle:hover {
+  background: var(--gsm-surface-hover);
+  border-color: var(--gsm-border-strong);
+  color: var(--gsm-accent-strong);
+}
+
+.console-mode-toggle.advanced {
+  border-color: rgba(108, 194, 139, 0.4);
+  color: var(--gsm-success);
+}
+
+/* ---- Misc visual helpers ---- */
+.checkbox-item {
+  color: var(--gsm-text-primary);
 }

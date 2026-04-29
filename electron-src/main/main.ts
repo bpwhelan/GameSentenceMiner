@@ -1581,7 +1581,7 @@ function buildTrayMenuTemplate(): Electron.MenuItemConstructorOptions[] {
             },
         },
         {
-            label: 'Open Texthooker',
+            label: 'Open Text Feed',
             click: () => {
                 sendTrayCommand('open texthooker', (manager) => manager.sendOpenTexthooker());
             },

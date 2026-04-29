@@ -161,6 +161,17 @@ background: rgba(202, 12, 12, 0.692);
     transition: opacity 0.3s ease;
   }
 
+  body.manual-interaction-suppressed .text-box,
+  body.manual-interaction-suppressed .big-interactive-area,
+  body.manual-interaction-suppressed .text-block-container {
+    pointer-events: none !important;
+    user-select: none !important;
+  }
+
+  body.manual-interaction-suppressed .text-box {
+    cursor: default;
+  }
+
   #resize-handle {
     opacity: 0;
     position: absolute;
@@ -767,6 +778,47 @@ background: rgba(202, 12, 12, 0.692);
     }
   }
 
+  function normalizeManualModeInactiveBehavior(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION
+      ? MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION
+      : MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY;
+  }
+
+  function shouldHideOverlayWhenManualInactive() {
+    return manualModeInactiveBehavior !== MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION;
+  }
+
+  function isManualInteractionSuppressed() {
+    return manualMode && !manualHotkeyPressed;
+  }
+
+  function setManualInteractionSuppressed(isSuppressed) {
+    document.body.classList.toggle('manual-interaction-suppressed', !!isSuppressed);
+  }
+
+  function applyManualInactivePresentation(reason = 'manual-inactive') {
+    const isSuppressed = isManualInteractionSuppressed();
+    setManualInteractionSuppressed(isSuppressed);
+
+    if (!isSuppressed) {
+      return;
+    }
+
+    if (shouldHideOverlayWhenManualInactive()) {
+      if (!pinned) {
+        document.body.classList.remove('force-visible');
+      }
+      hideTextBoxes();
+      restoreOverlayPassThrough(reason);
+      return;
+    }
+
+    document.body.classList.add('force-visible');
+    showTextBoxes();
+    restoreOverlayPassThrough(reason);
+  }
+
   /**
    * Maps a monitor-relative percentage coordinate from source-window space
    * to Magpie-destination (scaled) space.  Returns the input unchanged when
@@ -1077,10 +1129,7 @@ background: rgba(202, 12, 12, 0.692);
       
       if (hideOnYomitanClose) {
         hideOnYomitanClose = false;
-        if (!pinned) {
-          document.body.classList.remove('force-visible');
-        }
-        hideTextBoxes();
+        applyManualInactivePresentation('yomitan-stale-reset');
       }
     }
   }, 5000); // Check every 5 seconds
@@ -1151,10 +1200,7 @@ background: rgba(202, 12, 12, 0.692);
       
       if (hideOnYomitanClose) {
         hideOnYomitanClose = false;
-        if (!pinned) {
-          document.body.classList.remove('force-visible');
-        }
-        hideTextBoxes();
+        applyManualInactivePresentation('yomitan-popup-hidden');
       }
     }
   });
@@ -1290,6 +1336,9 @@ background: rgba(202, 12, 12, 0.692);
   let unHoverTimer = null;
   let manualMode = false;
   let manualModeType = "hold";
+  const MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY = "hide-overlay";
+  const MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION = "disable-interaction";
+  let manualModeInactiveBehavior = MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY;
   let showHotkey = "Shift + Space";
   let manualHotkeyPressed = false;
   let showTextIndicators = true;
@@ -1455,7 +1504,10 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function shouldShowFuriganaLayer() {
-    return showFurigana && furiganaVisible && !furiganaAutoHidden && !(manualMode && !manualHotkeyPressed);
+    return showFurigana &&
+      furiganaVisible &&
+      !furiganaAutoHidden &&
+      !(manualMode && !manualHotkeyPressed && shouldHideOverlayWhenManualInactive());
   }
 
   function updateFuriganaVisibilityState() {
@@ -2069,7 +2121,7 @@ background: rgba(202, 12, 12, 0.692);
           showReadyIndicator();
         }
         if (manualMode && !manualHotkeyPressed) {
-          hideTextBoxes();
+          applyManualInactivePresentation('text-received-manual-inactive');
         }
 
         ipcRenderer.send("text-received", data);
@@ -2509,6 +2561,10 @@ background: rgba(202, 12, 12, 0.692);
 
     interactiveElements.forEach((element) => {
       element.addEventListener('mouseenter', (event) => {
+        if (isManualInteractionSuppressed()) {
+          restoreOverlayPassThrough('manual-interaction-suppressed-mouseenter');
+          return;
+        }
         isMouseOverInteractiveElement = true;
         ipcRenderer.send('set-ignore-mouse-events', false);
       });
@@ -2523,6 +2579,10 @@ background: rgba(202, 12, 12, 0.692);
     halfInteractiveElements.forEach((element) => {
       if (!element.classList.contains("interactive")) {
         element.addEventListener('mouseenter', () => {
+          if (isManualInteractionSuppressed()) {
+            restoreOverlayPassThrough('manual-interaction-suppressed-half-enter');
+            return;
+          }
           isMouseOverInteractiveElement = true;
           ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
         });
@@ -2531,6 +2591,12 @@ background: rgba(202, 12, 12, 0.692);
 
     bigInteractiveAreas.forEach((area) => {
       area.addEventListener('click', (event) => {
+        if (isManualInteractionSuppressed()) {
+          event.preventDefault();
+          event.stopPropagation();
+          restoreOverlayPassThrough('manual-interaction-suppressed-click');
+          return;
+        }
         // If not a textbox, hide the big interactive area for three seconds.
         if (!event.target.classList.contains('text-box')) {
           ipcRenderer.send('hide');
@@ -2643,6 +2709,11 @@ background: rgba(202, 12, 12, 0.692);
     const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');
     const isActionPanel = false; // target.id === 'action-panel' || target.closest('#action-panel');
     const isActionTrigger = false; // target.id === 'action-panel-trigger' || target.closest('#action-panel-trigger');
+
+    if (isManualInteractionSuppressed() && !isYomitanPopup) {
+      restoreOverlayPassThrough('manual-interaction-suppressed-document-click');
+      return;
+    }
     
     if (!isYomitanPopup && !isActionPanel && !isActionTrigger) {
       // Set ignore mode immediately so subsequent mouse events pass through
@@ -2661,6 +2732,11 @@ background: rgba(202, 12, 12, 0.692);
     // const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');
     const isActionPanel = false; // target.id === 'action-panel' || target.closest('#action-panel');
     const isActionTrigger = false; // target.id === 'action-panel-trigger' || target.closest('#action-panel-trigger');
+
+    if (isManualInteractionSuppressed() && !isYomitanPopup) {
+      restoreOverlayPassThrough('manual-interaction-suppressed-document-mousedown');
+      return;
+    }
     
     // If clicking on non-interactive area, ensure ignore mode is active
     if (!isYomitanPopup && !isActionPanel && !isActionTrigger) {
@@ -2675,6 +2751,7 @@ background: rgba(202, 12, 12, 0.692);
     hideOnStartup = newsettings.hideOnStartup;
     manualMode = newsettings.manualMode;
     manualModeType = String(newsettings.manualModeType || "hold").trim().toLowerCase() === "toggle" ? "toggle" : "hold";
+    manualModeInactiveBehavior = normalizeManualModeInactiveBehavior(newsettings.manualModeInactiveBehavior);
     showHotkey = newsettings.showHotkey;
     pinned = newsettings.pinned;
     if (Object.prototype.hasOwnProperty.call(newsettings, "showTextIndicators")) {
@@ -2804,6 +2881,7 @@ background: rgba(202, 12, 12, 0.692);
       mainBox.style.display = "";
     }
     updateImmediateRecycledIndicator();
+    applyManualInactivePresentation('settings-load');
 
     if (magpieController) {
       magpieController.syncCompatibility('settings-load');
@@ -2868,6 +2946,10 @@ background: rgba(202, 12, 12, 0.692);
           break;
         case "manualModeType":
           manualModeType = String(value || "hold").trim().toLowerCase() === "toggle" ? "toggle" : "hold";
+          break;
+        case "manualModeInactiveBehavior":
+          manualModeInactiveBehavior = normalizeManualModeInactiveBehavior(value);
+          applyManualInactivePresentation('manual-mode-inactive-behavior-updated');
           break;
         case "showHotkey":
           showHotkey = value;
@@ -2972,12 +3054,10 @@ background: rgba(202, 12, 12, 0.692);
     hideOnYomitanClose = false;
 
     if (manualMode) {
-      if (!pinned) {
-        document.body.classList.remove('force-visible');
-      }
-      hideTextBoxes();
+      applyManualInactivePresentation('manual-mode-enabled');
       restoreOverlayPassThrough('manual-mode-enabled');
     } else {
+      setManualInteractionSuppressed(false);
       document.body.classList.add('force-visible');
       showTextBoxes();
       restoreOverlayPassThrough('manual-mode-disabled');
@@ -2993,6 +3073,7 @@ background: rgba(202, 12, 12, 0.692);
       document.getElementById("btn-pin").style.color = "#ddd2d2a3";
       document.body.classList.remove("force-visible");
     }
+    applyManualInactivePresentation('pinned-updated');
   }
 
   function updateTextBackground(newValue) {
@@ -3046,23 +3127,23 @@ background: rgba(202, 12, 12, 0.692);
     manualHotkeyPressed = isActive;
     if (manualHotkeyPressed) {
       manualModeActivatedOnce = true;
+      setManualInteractionSuppressed(false);
       document.body.classList.add('force-visible');
       showTextBoxes();
       ipcRenderer.send('set-ignore-mouse-events', false);
     } else {
       const finishManualHotkeyRelease = () => {
-        if (!pinned) {
-          document.body.classList.remove('force-visible');
-        }
-        hideTextBoxes();
-        restoreOverlayPassThrough('manual-hotkey-release');
+        applyManualInactivePresentation('manual-hotkey-release');
       };
 
       if (yomitanShowing) {
         if (manualModeType === "hold") {
           hideOnYomitanClose = true;
-          if (!pinned) {
+          setManualInteractionSuppressed(true);
+          if (shouldHideOverlayWhenManualInactive() && !pinned) {
             document.body.classList.remove('force-visible');
+          } else {
+            document.body.classList.add('force-visible');
           }
           return;
         }

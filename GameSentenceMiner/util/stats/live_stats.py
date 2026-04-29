@@ -1,5 +1,5 @@
 from GameSentenceMiner.util.config.configuration import get_stats_config
-from GameSentenceMiner.util.database.db import punctuation_regex, repeating_chars_regex
+from GameSentenceMiner.util.database.db import clean_text_for_stats
 from GameSentenceMiner.util.stats.stats_util import (
     MAX_SEC_PER_CHAR,
     FLOOR_SECONDS,
@@ -54,9 +54,12 @@ class LiveSessionTracker:
         self.last_line_text = line_text
         self.last_line_time = timestamp
 
-        line_text = punctuation_regex.sub("", line_text).strip()
-        if get_stats_config().regex_out_repetitions:
-            line_text = repeating_chars_regex.sub(r"\1\1\1", line_text)
+        stats_config = get_stats_config()
+        line_text = clean_text_for_stats(
+            line_text,
+            regex_out_repetitions=getattr(stats_config, "regex_out_repetitions", False),
+            extra_punctuation_regex=getattr(stats_config, "extra_punctuation_regex", ""),
+        )
 
         self.total_characters += len(line_text) if line_text else 0
 

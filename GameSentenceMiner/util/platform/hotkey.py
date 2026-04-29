@@ -1,5 +1,6 @@
 import importlib.util
 import platform
+import re
 import threading
 import time
 
@@ -80,7 +81,7 @@ class HotkeyManager:
                 try:
                     if keyboard:
                         keyboard.remove_hotkey(hk)
-                except ValueError:
+                except (KeyError, ValueError):
                     pass
             self._registered_hotkeys.clear()
 
@@ -162,6 +163,17 @@ class HotkeyManager:
                 if self._should_use_single_key_listener(hotkey_str):
                     hook = keyboard.on_press_key(hotkey_str, lambda _: debounced_wrapper())
                     self._registered_key_hooks.append(hook)
+                elif self._should_use_press_state_listeners(hotkey_str):
+                    for key_name in self._iter_press_state_listener_keys(hotkey_str):
+                        hook = keyboard.on_press_key(
+                            key_name,
+                            lambda _, keyboard_module=keyboard, hotkey=hotkey_str: self._trigger_if_pressed(
+                                keyboard_module,
+                                hotkey,
+                                debounced_wrapper,
+                            ),
+                        )
+                        self._registered_key_hooks.append(hook)
                 else:
                     hook = keyboard.add_hotkey(hotkey_str, debounced_wrapper)
                     self._registered_hotkeys.append(hook)
@@ -199,13 +211,19 @@ class HotkeyManager:
         normalized = str(hotkey_str).strip()
         if not normalized:
             return ""
-        return normalized.replace(" ", "")
+        return re.sub(r"\s*\+\s*", "+", normalized)
 
-    def _should_use_single_key_listener(self, hotkey_str):
-        parts = [part for part in hotkey_str.split("+") if part]
-        if len(parts) != 1:
-            return False
-        return parts[0].lower() not in {
+    def _split_single_step_hotkey(self, hotkey_str):
+        if "," in hotkey_str:
+            return []
+
+        parts = [part.strip() for part in hotkey_str.split("+")]
+        if not parts or any(not part for part in parts):
+            return []
+        return parts
+
+    def _is_modifier_key(self, key_name):
+        return key_name.lower() in {
             "alt",
             "altgr",
             "cmd",
@@ -227,6 +245,34 @@ class HotkeyManager:
             "win",
             "windows",
         }
+
+    def _should_use_single_key_listener(self, hotkey_str):
+        parts = self._split_single_step_hotkey(hotkey_str)
+        if len(parts) != 1:
+            return False
+        return not self._is_modifier_key(parts[0])
+
+    def _should_use_press_state_listeners(self, hotkey_str):
+        parts = self._split_single_step_hotkey(hotkey_str)
+        if len(parts) <= 1:
+            return False
+        return any(not self._is_modifier_key(part) for part in parts)
+
+    def _iter_press_state_listener_keys(self, hotkey_str):
+        seen = set()
+        for part in self._split_single_step_hotkey(hotkey_str):
+            normalized = part.lower()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            yield part
+
+    def _trigger_if_pressed(self, keyboard_module, hotkey_str, callback):
+        try:
+            if keyboard_module.is_pressed(hotkey_str):
+                callback()
+        except ValueError as e:
+            logger.error(f"Failed to evaluate Windows hotkey '{hotkey_str}': {e}")
 
     def _translate_to_pynput(self, hotkey_str):
         parts = hotkey_str.lower().split("+")

@@ -70,6 +70,12 @@ describe("HomeTab", () => {
       if (channel === "get_gsm_status") {
         return okStatus;
       }
+      if (channel === "settings.getSettings") {
+        return { runOverlayOnStartup: false };
+      }
+      if (channel === "settings.saveSettings") {
+        return { success: true, settings: { runOverlayOnStartup: true } };
+      }
       if (channel === "obs.getScenes") {
         return [];
       }
@@ -152,5 +158,74 @@ describe("HomeTab", () => {
     const overrideInputAfterRefresh = container.querySelector("#home-scene-name-override");
     expect(overrideInputAfterRefresh).toBeInstanceOf(HTMLInputElement);
     expect((overrideInputAfterRefresh as HTMLInputElement).value).toBe("My Custom Scene");
+  });
+
+  it("renders overlay as a dedicated card between setup capture and utilities", async () => {
+    await act(async () => {
+      root.render(<HomeTab active />);
+      await flushAsyncWork();
+    });
+
+    const setupCard = container.querySelector(".home-setup-card");
+    const overlayCard = container.querySelector(".home-overlay-card");
+    const utilities = container.querySelector(".home-quick-actions");
+    const statusCard = container.querySelector(".home-status-card");
+
+    expect(setupCard).not.toBeNull();
+    expect(overlayCard).not.toBeNull();
+    expect(utilities).not.toBeNull();
+    expect(statusCard).not.toBeNull();
+
+    expect(
+      setupCard?.compareDocumentPosition(overlayCard as Element) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      overlayCard?.compareDocumentPosition(utilities as Element) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      utilities?.compareDocumentPosition(statusCard as Element) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    expect(overlayCard?.textContent).toContain("Overlay");
+    expect(overlayCard?.textContent).toContain("Run Overlay");
+    expect(overlayCard?.textContent).toContain("Run on startup");
+    expect(utilities?.textContent).toContain("Utilities");
+    expect(utilities?.textContent).not.toContain("Run Overlay");
+
+    const guideButton = container.querySelector(".home-overlay-guide-btn");
+    expect(guideButton).toBeInstanceOf(HTMLButtonElement);
+
+    await act(async () => {
+      (guideButton as HTMLButtonElement).click();
+      await flushAsyncWork();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "open-external-link",
+      "https://docs.gamesentenceminer.com/docs/features/overlay",
+    );
+  });
+
+  it("persists the overlay startup toggle from the overlay card", async () => {
+    await act(async () => {
+      root.render(<HomeTab active />);
+      await flushAsyncWork();
+    });
+
+    const startupToggle = container.querySelector("#home-overlay-startup-toggle");
+    expect(startupToggle).toBeInstanceOf(HTMLInputElement);
+
+    await act(async () => {
+      (startupToggle as HTMLInputElement).click();
+      await flushAsyncWork();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "settings.saveSettings",
+      { runOverlayOnStartup: true },
+    );
   });
 });

@@ -1020,6 +1020,16 @@
           <option value="toggle">Toggle (press once to show, press again to hide)</option>
         </select>
       </label>
+      <label>
+        <span class="label-text">
+          Inactive Behavior
+          <div class="hotkey-info">Choose what happens before the manual hotkey activates text interaction</div>
+        </span>
+        <select id="manualModeInactiveBehavior">
+          <option value="hide-overlay">Hide overlay until hotkey</option>
+          <option value="disable-interaction">Keep overlay visible, disable interaction</option>
+        </select>
+      </label>
       <div class="hotkey-info">Standard hotkeys use Electron when possible. Modifier-only hotkeys like Shift use the input server.</div>
       <div id="manualHotkeyBackendStatus" class="hotkey-info">Backend: Electron</div>
       <div id="manual-hotkey-platform-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;"></div>
@@ -1804,6 +1814,7 @@
     });
     const VALID_PLATFORM_OVERRIDE_VALUES = new Set(["win32", "linux", "darwin"]);
     const VALID_MANUAL_MODE_TYPES = new Set(["hold", "toggle"]);
+    const VALID_MANUAL_MODE_INACTIVE_BEHAVIORS = new Set(["hide-overlay", "disable-interaction"]);
     const VALID_GAMEPAD_ACTIVATION_MODES = new Set(["modifier", "toggle"]);
     const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
     const VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS = new Set(["mecab", "sudachi"]);
@@ -1873,6 +1884,11 @@
     function normalizeManualModeTypeValue(value) {
       const normalized = String(value || "").trim().toLowerCase();
       return VALID_MANUAL_MODE_TYPES.has(normalized) ? normalized : "hold";
+    }
+
+    function normalizeManualModeInactiveBehaviorValue(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      return VALID_MANUAL_MODE_INACTIVE_BEHAVIORS.has(normalized) ? normalized : "hide-overlay";
     }
 
     function normalizeGamepadActivationModeValue(value) {
@@ -2374,6 +2390,9 @@
       createSelectBinding("manualModeType", "#manualModeType", {
         normalize: normalizeManualModeTypeValue,
         afterApply: () => syncManualHotkeyStatusUi(),
+      }),
+      createSelectBinding("manualModeInactiveBehavior", "#manualModeInactiveBehavior", {
+        normalize: normalizeManualModeInactiveBehaviorValue,
       }),
       createCheckboxBinding("manualModeRescanOnShow", "#manualModeRescanOnShow"),
       createHotkeyBinding("showHotkey", "#showHotkey", {
@@ -3294,6 +3313,7 @@
           ? userSettings.fadeTextIndicators === true
           : (userSettings.showTextBackground === true),
         showRecycledIndicator: userSettings.showRecycledIndicator !== false,
+        manualModeInactiveBehavior: normalizeManualModeInactiveBehaviorValue(userSettings.manualModeInactiveBehavior),
         enableJitenReader: userSettings.enableJitenReader !== false,
         gamepadEnabled: userSettings.gamepadEnabled !== false,
         gamepadTokenMode: userSettings.gamepadTokenMode !== false,

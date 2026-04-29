@@ -234,6 +234,7 @@ class ReplayAudioExtractor:
                 context.last_note,
                 context.selected_lines,
                 game_line=context.mined_line,
+                generate_furigana=not get_config().anki.show_update_confirmation_dialog_v2,
             )
             context.tango = context.last_note.get_field(get_config().anki.word_field) if context.last_note else ""
             context.word_being_processed = context.tango

@@ -228,6 +228,7 @@ function syncStatsConfigFromSettings(settings) {
         games_target_date: 'gamesTargetDate',
         regex_out_punctuation: 'regexOutPunctuation',
         regex_out_repetitions: 'regexOutRepetitions',
+        extra_punctuation_regex: 'extraPunctuationRegex',
     };
 
     Object.entries(keyMap).forEach(([serverKey, clientKey]) => {
@@ -264,6 +265,7 @@ class SettingsManager {
         this.gamesTargetDateInput = document.getElementById('gamesTargetDate');
         this.regexOutPunctuationInput = document.getElementById('regex_out_punctuation');
         this.regexOutRepetitionsInput = document.getElementById('regex_out_repetitions');
+        this.extraPunctuationRegexInput = document.getElementById('extra_punctuation_regex');
     }
     
     attachEventListeners() {
@@ -306,6 +308,7 @@ class SettingsManager {
             this.gamesTargetDateInput,
             this.regexOutPunctuationInput,
             this.regexOutRepetitionsInput,
+            this.extraPunctuationRegexInput,
         ]
             .filter(Boolean)
             .forEach(input => {
@@ -382,6 +385,9 @@ class SettingsManager {
         }
         if (this.regexOutRepetitionsInput) {
             this.regexOutRepetitionsInput.checked = settings.regex_out_repetitions;
+        }
+        if (this.extraPunctuationRegexInput) {
+            this.extraPunctuationRegexInput.value = settings.extra_punctuation_regex || '';
         }
     }
     
@@ -465,6 +471,10 @@ class SettingsManager {
             
             if (this.regexOutRepetitionsInput) {
                 settings.regex_out_repetitions = this.regexOutRepetitionsInput.checked;
+            }
+
+            if (this.extraPunctuationRegexInput) {
+                settings.extra_punctuation_regex = this.extraPunctuationRegexInput.value.trim();
             }
             
             // Show loading state

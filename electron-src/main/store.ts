@@ -158,7 +158,7 @@ interface StoreConfig {
     runManualOCROnStartup: boolean;
     visibleTabs: string[]; // Array of visible tab IDs
     statsEndpoint: string; // Stats tab endpoint
-    locale: string; // UI language code (e.g. "en", "uk")
+    locale: string; // UI language code (e.g. "en", "ukr")
     pythonPath: string;
     electronAppVersion: string;
     VN: VNConfig;

@@ -1267,7 +1267,7 @@ def reset_buttons():
 
 
 def open_texthooker():
-    webbrowser.open(f"http://localhost:{_get_single_port()}/texthooker")
+    webbrowser.open(f"http://localhost:{_get_single_port()}")
 
 
 class _LegacyMovedPageHandler(BaseHTTPRequestHandler):

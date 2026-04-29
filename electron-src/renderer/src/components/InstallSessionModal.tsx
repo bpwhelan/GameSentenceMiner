@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "../i18n";
 
 import type {
   InstallProgressKind,
@@ -29,37 +30,37 @@ interface DisplayStage {
 
 const DISPLAY_STAGE_GROUPS: Array<{
   id: DisplayStageId;
-  label: string;
+  labelKey: string;
   stageIds: InstallStageState["id"][];
 }> = [
   {
     id: "python_setup",
-    label: "Python setup",
+    labelKey: "install.stages.pythonSetup",
     stageIds: ["prepare", "uv", "python", "venv", "verify_runtime"]
   },
   {
     id: "gsm_backend",
-    label: "GSM backend",
+    labelKey: "install.stages.gsmBackend",
     stageIds: ["lock_sync", "gsm_package", "backend_boot"]
   },
   {
     id: "obs",
-    label: "OBS",
+    labelKey: "install.stages.obs",
     stageIds: ["obs"]
   },
   {
     id: "ffmpeg",
-    label: "FFmpeg",
+    labelKey: "install.stages.ffmpeg",
     stageIds: ["ffmpeg"]
   },
   {
     id: "oneocr",
-    label: "OneOCR",
+    labelKey: "install.stages.oneocr",
     stageIds: ["oneocr"]
   },
   {
     id: "finalize",
-    label: "Finalize",
+    labelKey: "install.stages.finalize",
     stageIds: ["finalize"]
   }
 ];
@@ -92,23 +93,24 @@ function formatDuration(startedAt: number, finishedAt: number | null): string {
 
 function getStageMeta(
   stage: Pick<InstallStageState, "status" | "progressKind" | "message" | "error">
-): { label: string; detail: string } {
+): { labelKey: string; detail: string; detailKey?: string } {
   if (stage.status === "completed") {
-    return { label: "Done", detail: stage.message || "Completed." };
+    return { labelKey: "install.status.done", detail: stage.message || "", detailKey: stage.message ? undefined : "install.status.completed" };
   }
   if (stage.status === "skipped") {
-    return { label: "Skipped", detail: stage.message || "Skipped." };
+    return { labelKey: "install.status.skipped", detail: stage.message || "", detailKey: stage.message ? undefined : "install.status.skippedDetail" };
   }
   if (stage.status === "failed") {
-    return { label: "Failed", detail: stage.error || stage.message || "Failed." };
+    return { labelKey: "install.status.failed", detail: stage.error || stage.message || "", detailKey: (stage.error || stage.message) ? undefined : "install.status.failedDetail" };
   }
   if (stage.status === "running") {
     return {
-      label: stage.progressKind === "bytes" ? "Downloading" : "Working",
-      detail: stage.message || "Working..."
+      labelKey: stage.progressKind === "bytes" ? "install.status.downloading" : "install.status.working",
+      detail: stage.message || "",
+      detailKey: stage.message ? undefined : "install.status.workingDetail"
     };
   }
-  return { label: "Pending", detail: stage.message || "Waiting..." };
+  return { labelKey: "install.status.pending", detail: stage.message || "", detailKey: stage.message ? undefined : "install.status.waiting" };
 }
 
 function getStageRatio(stage: InstallStageState): number {
@@ -200,6 +202,7 @@ export function InstallSessionModal({
   onOpenLogs: () => void;
   onQuit: () => void;
 }) {
+  const t = useTranslation();
   const logListRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
   const [logsExpanded, setLogsExpanded] = useState(false);
@@ -209,7 +212,7 @@ export function InstallSessionModal({
       const stages = group.stageIds
         .map((id) => snapshot.stages.find((s) => s.id === id))
         .filter((s): s is InstallStageState => Boolean(s));
-      return buildDisplayStage(group.id, group.label, stages);
+      return buildDisplayStage(group.id, group.labelKey, stages);
     });
   }, [snapshot.stages]);
 
@@ -259,14 +262,14 @@ export function InstallSessionModal({
         {/* Header */}
         <div className="install-session-header">
           <div className="install-session-title-block">
-            <h2>Installing GSM</h2>
-            <p>{snapshot.currentMessage || "Preparing setup..."}</p>
+            <h2>{t("install.title")}</h2>
+            <p>{snapshot.currentMessage || t("install.preparing")}</p>
           </div>
           <div className="install-session-timing">
             <span>{formatPercent(snapshot.overallProgress)}</span>
             <span>{formatDuration(snapshot.startedAt, snapshot.finishedAt)}</span>
             <span>
-              {completedCount}/{displayStages.length} steps
+              {t("install.steps", { completed: String(completedCount), total: String(displayStages.length) })}
             </span>
           </div>
         </div>
@@ -297,7 +300,7 @@ export function InstallSessionModal({
               <div className="install-session-current-copy">
                 <div className="install-session-current-title-row">
                   <div className="install-session-current-title">
-                    {currentStage?.label || "Preparing..."}
+                    {currentStage ? t(currentStage.label) : t("install.preparing")}
                   </div>
                   {currentStage?.status === "running" ? <ActivityDots /> : null}
                 </div>
@@ -336,7 +339,7 @@ export function InstallSessionModal({
             {currentStage?.progressKind === "estimated" &&
             currentStage.status === "running" ? (
               <div className="install-session-current-hint">
-                Estimated progress — install is still active.
+                {t("install.estimatedProgress")}
               </div>
             ) : null}
           </div>
@@ -353,13 +356,13 @@ export function InstallSessionModal({
                   className={`install-session-stage install-session-stage-${stage.status}`}
                 >
                   <div className="install-session-stage-heading">
-                    <span>{stage.label}</span>
+                    <span>{t(stage.label)}</span>
                     <span className="install-session-stage-status">
-                      {meta.label}
+                      {t(meta.labelKey)}
                       {stage.status === "running" ? <ActivityDots /> : null}
                     </span>
                   </div>
-                  <div className="install-session-stage-detail">{meta.detail}</div>
+                  <div className="install-session-stage-detail">{meta.detail || t(meta.detailKey ?? "")}</div>
                   {showBar ? (
                     <div
                       className={`install-session-stage-progress ${
@@ -394,7 +397,7 @@ export function InstallSessionModal({
               onClick={() => setLogsExpanded((v) => !v)}
               aria-expanded={logsExpanded}
             >
-              <span>Logs</span>
+              <span>{t("install.logs")}</span>
               <span className="install-session-logs-header-meta">
                 <span>{snapshot.logs.length}</span>
                 <span
@@ -418,11 +421,11 @@ export function InstallSessionModal({
                 }}
               >
                 {snapshot.logs.length === 0 ? (
-                  <div className="install-session-log-entry">Waiting for logs...</div>
+                  <div className="install-session-log-entry">{t("install.waitingForLogs")}</div>
                 ) : (
                   snapshot.logs.map((entry) => (
                     <div key={entry.id} className="install-session-log-entry">
-                      {entry.message.trim() || "(empty)"}
+                      {entry.message.trim() || t("install.emptyLog")}
                     </div>
                   ))
                 )}
@@ -435,13 +438,13 @@ export function InstallSessionModal({
         {snapshot.status === "failed" ? (
           <div className="install-session-footer">
             <button className="install-btn-retry" onClick={onRetry}>
-              Retry
+              {t("install.retry")}
             </button>
             <button className="install-btn-logs" onClick={onOpenLogs}>
-              Open Logs
+              {t("install.openLogs")}
             </button>
             <button className="install-btn-quit" onClick={onQuit}>
-              Quit
+              {t("install.quit")}
             </button>
           </div>
         ) : null}

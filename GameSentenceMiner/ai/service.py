@@ -47,7 +47,7 @@ def _is_local_url(url: str) -> bool:
 
 
 def _requires_internet(config: Ai) -> bool:
-    if config.provider in {AI_GEMINI, AI_GROQ, AI_GSM_CLOUD,  AI_DEEPL}:
+    if config.provider in {AI_GEMINI, AI_GROQ, AI_GSM_CLOUD, AI_DEEPL}:
         return True
     if config.provider == AI_OPENAI:
         return not _is_local_url(config.open_ai_url)
@@ -121,7 +121,7 @@ class AIService:
             return config.ollama_backup_model
         if config.provider == AI_LM_STUDIO:
             return config.lm_studio_backup_model
-        if config.provider == AI_DEEPL:  #(DeepL doesn't have backup models)
+        if config.provider == AI_DEEPL:  # (DeepL doesn't have backup models)
             return ""
         return ""
 
@@ -230,7 +230,7 @@ class AIService:
         if self.config_snapshot.ai.provider == AI_DEEPL:
             # DeepL should only receive the raw sentence
             prompt_to_send = sentence
-            self.logger.error(f"SENTENCE SENT TO DEEPL: {sentence}")
+            self.logger.debug(f"SENTENCE SENT TO DEEPL: {sentence}")
         else:
             prompt_to_send = full_prompt
 
@@ -238,15 +238,16 @@ class AIService:
         try:
             response = self._execute_request(request)
 
-            self.logger.error(f"=== TRANSLATION DEBUG ===")
-            self.logger.error(f"Original sentence: {sentence}")
-            self.logger.error(f"Translation returned: {response.text}")
+            self.logger.debug(f"=== TRANSLATION DEBUG ===")
+            self.logger.debug(f"Original sentence: {sentence}")
+            self.logger.debug(f"Translation returned: {response.text}")
 
             # ADD THIS BLOCK so that prefetch_ai_translation() in anki.py can work
             try:
                 if current_line is not None:
                     current_line.translation = response.text
             except Exception:
+                self.logger.debug(f"Failed to set translation on current_line: {current_line}")
                 pass
 
             return response.text

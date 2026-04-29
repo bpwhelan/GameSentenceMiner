@@ -445,7 +445,7 @@ class GSMTray(threading.Thread):
     def _build_menu(self):
         menu_items = [
             MenuItem("Open Settings", self._app.open_settings, default=True),
-            MenuItem("Open Texthooker", self._app.open_texthooker),
+            MenuItem("Open Text Feed", self._app.open_texthooker),
             Menu.SEPARATOR,
             MenuItem("Switch Profile", self._build_profile_menu()),
         ]

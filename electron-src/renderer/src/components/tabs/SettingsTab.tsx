@@ -19,10 +19,41 @@ import type { SettingsCatalogAction } from "../../types/settings";
 import {
   filterSettingsCatalogEntries,
   performSettingsCatalogAction,
-  SETTINGS_CATALOG,
-  SETTINGS_LOCATION_LABELS
+  SETTINGS_CATALOG
 } from "./settingsCatalog";
-import { SUPPORTED_LOCALES, useLocale } from "../../i18n";
+import { SUPPORTED_LOCALES, useLocale, useTranslation } from "../../i18n";
+import type { SettingsCatalogOwner } from "../../types/settings";
+
+const CATALOG_I18N_KEYS: Record<string, string> = {
+  "desktop-appearance-startup": "desktopAppearance",
+  "desktop-tabs-and-stats": "desktopTabs",
+  "desktop-updates": "desktopUpdates",
+  "gsm-key-settings": "keySettings",
+  "gsm-general": "general",
+  "gsm-anki": "anki",
+  "gsm-screenshot": "screenshot",
+  "gsm-audio": "audio",
+  "gsm-obs": "obs",
+  "gsm-ai": "ai",
+  "gsm-overlay": "overlayOcr",
+  "gsm-advanced-network": "advanced",
+  "gsm-profiles": "profiles",
+  "overlay-display-hotkeys": "overlayDisplay",
+  "overlay-translation-reader": "overlayTranslation",
+  "overlay-gamepad": "overlayGamepad"
+};
+
+const ACTION_I18N_KEYS: Record<string, string> = {
+  "current-tab": "settings.catalog.alreadyOnScreen",
+  "open-gsm-settings": "settings.catalog.openGSMSettings",
+  "open-overlay-settings": "settings.catalog.openOverlaySettings"
+};
+
+const LOCATION_I18N_KEYS: Record<SettingsCatalogOwner, string> = {
+  electron: "settings.catalog.locationElectron",
+  python: "settings.catalog.locationPython",
+  overlay: "settings.catalog.locationOverlay"
+};
 
 const DEFAULT_SETTINGS: AppSettings = {
   autoUpdateGSMApp: false,
@@ -63,11 +94,11 @@ const DEFAULT_UPDATE_STATUS: UpdateStatusSnapshot = {
   anyUpdateInProgress: false
 };
 
-const VISIBLE_TAB_OPTIONS: Array<{ id: ControlledTab; label: string }> = [
-  { id: "launcher", label: "Game Settings" },
-  { id: "stats", label: "Stats" },
-  { id: "python", label: "Python" },
-  { id: "console", label: "Console" }
+const VISIBLE_TAB_OPTIONS: Array<{ id: ControlledTab; labelKey: string }> = [
+  { id: "launcher", labelKey: "settings.visibility.tabGameSettings" },
+  { id: "stats", labelKey: "settings.visibility.tabStats" },
+  { id: "python", labelKey: "settings.visibility.tabPython" },
+  { id: "console", labelKey: "settings.visibility.tabConsole" }
 ];
 
 const STATS_ENDPOINT_OPTIONS = [
@@ -163,6 +194,7 @@ function getDisplayLatestVersion(
 }
 
 export function SettingsTab({ active }: SettingsTabProps) {
+  const t = useTranslation();
   const platform = window.gsmEnv?.platform ?? "win32";
   const isWindows = platform === "win32";
   const [currentLocale, setCurrentLocale] = useLocale();
@@ -296,7 +328,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
 
       if (action.type === "open-overlay-settings" && maybeResult?.success === false) {
         setHubMessage(
-          "Overlay settings could not be opened automatically. Start/connect the overlay first, or use its tray icon."
+          t("settings.hub.overlayNotAvailable")
         );
         return;
       }
@@ -407,10 +439,9 @@ export function SettingsTab({ active }: SettingsTabProps) {
         <section className="card legacy-card settings-hub-card">
           <div className="settings-hub-header">
             <div>
-              <h2>Find a Setting</h2>
+              <h2>{t("settings.hub.findSetting")}</h2>
               <p className="muted settings-hub-copy">
-                Search for what you want to change and GSM will open the right
-                settings screen for you.
+                {t("settings.hub.findDescription")}
               </p>
             </div>
             <div className="settings-hub-shortcuts">
@@ -420,7 +451,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
                   void openGsmSettings();
                 }}
               >
-                Open Main GSM Settings
+                {t("settings.hub.openGSMSettings")}
               </button>
               <button
                 type="button"
@@ -428,29 +459,28 @@ export function SettingsTab({ active }: SettingsTabProps) {
                 onClick={() => {
                   void handleCatalogAction({
                     type: "open-overlay-settings",
-                    label: "Open Overlay Settings"
+                    label: t("settings.hub.openOverlaySettings")
                   });
                 }}
               >
-                Open Overlay Settings
+                {t("settings.hub.openOverlaySettings")}
               </button>
             </div>
           </div>
 
           <div className="input-group settings-hub-search">
-            <label htmlFor="settings-hub-search">Find Setting:</label>
+            <label htmlFor="settings-hub-search">{t("settings.hub.searchLabel")}</label>
             <input
               id="settings-hub-search"
               type="text"
-              placeholder="Try: anki fields, OBS password, OCR area, furigana hotkey, JPDB"
+              placeholder={t("settings.hub.searchPlaceholder")}
               value={settingsSearchQuery}
               onChange={(event) => setSettingsSearchQuery(event.target.value)}
             />
           </div>
 
           <p className="muted settings-hub-count">
-            Try everyday words, feature names, hotkeys, ports, field names, or tool
-            names.
+            {t("settings.hub.searchHint")}
           </p>
 
           {hubMessage ? <p className="update-error-text">{hubMessage}</p> : null}
@@ -465,7 +495,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
                   void handleCatalogAction(entry.openAction);
                 }}
               >
-                {entry.label}
+                {t(`settings.catalog.${CATALOG_I18N_KEYS[entry.id]}.label`)}
               </button>
             ))}
           </div>
@@ -474,17 +504,12 @@ export function SettingsTab({ active }: SettingsTabProps) {
             <div className="settings-hub-results">
               <div className="settings-hub-results-header">
                 <strong>
-                  {totalCatalogMatches} result{totalCatalogMatches === 1 ? "" : "s"}
+                  {totalCatalogMatches === 1 ? t("settings.hub.resultCount", { count: String(totalCatalogMatches) }) : t("settings.hub.resultCountPlural", { count: String(totalCatalogMatches) })}
                 </strong>
               </div>
               {totalCatalogMatches === 0 ? (
                 <p className="muted settings-hub-empty">
-                  No matching settings found. Try broader words like{" "}
-                  <span className="mono-text">anki</span>,{" "}
-                  <span className="mono-text">hotkey</span>,{" "}
-                  <span className="mono-text">overlay</span>,{" "}
-                  <span className="mono-text">OBS</span>, or{" "}
-                  <span className="mono-text">audio</span>.
+                  {t("settings.hub.noResults")}
                 </p>
               ) : (
                 <div className="settings-directory-list settings-directory-list--compact">
@@ -492,18 +517,18 @@ export function SettingsTab({ active }: SettingsTabProps) {
                     <div key={entry.id} className="settings-directory-item">
                       <div className="settings-directory-copy">
                         <div className="settings-directory-title-row">
-                          <strong>{entry.label}</strong>
+                          <strong>{t(`settings.catalog.${CATALOG_I18N_KEYS[entry.id]}.label`)}</strong>
                           <span
                             className={`settings-owner-pill settings-owner-pill--${entry.owner}`}
                           >
-                            {SETTINGS_LOCATION_LABELS[entry.owner]}
+                            {t(LOCATION_I18N_KEYS[entry.owner])}
                           </span>
                         </div>
                         <p className="muted settings-directory-description">
-                          {entry.shortDescription}
+                          {t(`settings.catalog.${CATALOG_I18N_KEYS[entry.id]}.description`)}
                         </p>
                         {entry.notes ? (
-                          <p className="settings-directory-note">{entry.notes}</p>
+                          <p className="settings-directory-note">{t(`settings.catalog.${CATALOG_I18N_KEYS[entry.id]}.notes`)}</p>
                         ) : null}
                       </div>
                       <button
@@ -516,7 +541,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
                           void handleCatalogAction(entry.openAction);
                         }}
                       >
-                        {entry.openAction.label}
+                        {t(ACTION_I18N_KEYS[entry.openAction.type])}
                       </button>
                     </div>
                   ))}
@@ -528,10 +553,10 @@ export function SettingsTab({ active }: SettingsTabProps) {
 
         <div className="legacy-grid settings-grid">
           <section className="card legacy-card">
-            <h2>Desktop App Settings</h2>
+            <h2>{t("settings.desktop.title")}</h2>
             <div className="form-group">
               <div className="input-group">
-                <label htmlFor="icon-style">Icon Style:</label>
+                <label htmlFor="icon-style">{t("settings.desktop.iconStyle")}</label>
                 <select
                   id="icon-style"
                   value={settings.iconStyle}
@@ -544,20 +569,20 @@ export function SettingsTab({ active }: SettingsTabProps) {
                     )
                   }
                 >
-                  <option value="gsm">Default</option>
-                  <option value="gsm_cute">Anime Girl</option>
-                  <option value="gsm_jacked">Jacked</option>
-                  <option value="gsm_cursed">Cursed</option>
-                  <option value="gsm_cute[tray]">Anime Girl (Tray Icon Also)</option>
-                  <option value="gsm_jacked[tray]">Jacked (Tray Icon Also)</option>
-                  <option value="gsm_cursed[tray]">Cursed (Tray Icon Also)</option>
-                  <option value="random">Random</option>
-                  <option value="random[tray]">Random (Tray Icon Also)</option>
+                  <option value="gsm">{t("settings.desktop.iconDefault")}</option>
+                  <option value="gsm_cute">{t("settings.desktop.iconAnimeGirl")}</option>
+                  <option value="gsm_jacked">{t("settings.desktop.iconJacked")}</option>
+                  <option value="gsm_cursed">{t("settings.desktop.iconCursed")}</option>
+                  <option value="gsm_cute[tray]">{t("settings.desktop.iconAnimeGirlTray")}</option>
+                  <option value="gsm_jacked[tray]">{t("settings.desktop.iconJackedTray")}</option>
+                  <option value="gsm_cursed[tray]">{t("settings.desktop.iconCursedTray")}</option>
+                  <option value="random">{t("settings.desktop.iconRandom")}</option>
+                  <option value="random[tray]">{t("settings.desktop.iconRandomTray")}</option>
                 </select>
               </div>
 
               <div className="input-group">
-                <label htmlFor="locale-select">Language:</label>
+                <label htmlFor="locale-select">{t("settings.desktop.language")}</label>
                 <select
                   id="locale-select"
                   value={currentLocale}
@@ -576,7 +601,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
               </div>
 
               <div className="input-group">
-                <label htmlFor="start-console-minimized">Start Console Minimized:</label>
+                <label htmlFor="start-console-minimized">{t("settings.desktop.startMinimized")}</label>
                 <input
                   id="start-console-minimized"
                   type="checkbox"
@@ -588,7 +613,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
               </div>
 
               <div className="input-group">
-                <label htmlFor="show-yuzu-tab">Show Yuzu Launcher:</label>
+                <label htmlFor="show-yuzu-tab">{t("settings.desktop.showYuzuLauncher")}</label>
                 <input
                   id="show-yuzu-tab"
                   type="checkbox"
@@ -602,7 +627,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
               {isWindows ? (
                 <div className="input-group">
                   <label htmlFor="run-transparency-startup">
-                    Run Window Transparency Tool on Startup:
+                    {t("settings.desktop.runTransparencyOnStartup")}
                   </label>
                   <input
                     id="run-transparency-startup"
@@ -619,7 +644,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
 
               {isWindows ? (
                 <div className="input-group">
-                  <label htmlFor="run-overlay-startup">Run Overlay on Startup:</label>
+                  <label htmlFor="run-overlay-startup">{t("settings.desktop.runOverlayOnStartup")}</label>
                   <input
                     id="run-overlay-startup"
                     type="checkbox"
@@ -634,10 +659,10 @@ export function SettingsTab({ active }: SettingsTabProps) {
           </section>
 
           <section className="card legacy-card">
-            <h2>Visibility Settings</h2>
+            <h2>{t("settings.visibility.title")}</h2>
             <div className="form-group">
               <div className="input-group settings-multi-select-group">
-                <label htmlFor="visible-tabs-selector">Visible Tabs:</label>
+                <label htmlFor="visible-tabs-selector">{t("settings.visibility.visibleTabs")}</label>
                 <select
                   id="visible-tabs-selector"
                   className="settings-multi-select"
@@ -664,7 +689,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
                 >
                   {VISIBLE_TAB_OPTIONS.map((tab) => (
                     <option key={tab.id} value={tab.id}>
-                      {tab.label}
+                      {t(tab.labelKey)}
                     </option>
                   ))}
                 </select>
@@ -673,7 +698,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
 
             <div className="form-group">
               <div className="input-group">
-                <label htmlFor="stats-target">Stats Target:</label>
+                <label htmlFor="stats-target">{t("settings.visibility.statsTarget")}</label>
                 <select
                   id="stats-target"
                   value={settings.statsEndpoint}
@@ -693,10 +718,10 @@ export function SettingsTab({ active }: SettingsTabProps) {
 
           {isWindows ? (
             <section className="card legacy-card">
-              <h2>Transparency Tool (Deprecated)</h2>
+              <h2>{t("settings.transparency.title")}</h2>
               <div className="form-group">
                 <div className="input-group">
-                  <label htmlFor="window-transparency-hotkey">Tool Hotkey:</label>
+                  <label htmlFor="window-transparency-hotkey">{t("settings.transparency.toolHotkey")}</label>
                   <input
                     id="window-transparency-hotkey"
                     type="text"
@@ -707,11 +732,11 @@ export function SettingsTab({ active }: SettingsTabProps) {
                 </div>
 
                 <div className="input-group">
-                  <label htmlFor="window-transparency-target">Window Target:</label>
+                  <label htmlFor="window-transparency-target">{t("settings.transparency.windowTarget")}</label>
                   <input
                     id="window-transparency-target"
                     type="text"
-                    placeholder="Leave empty to target focused window"
+                    placeholder={t("settings.transparency.windowTargetPlaceholder")}
                     value={transparencyTargetDraft}
                     onChange={(event) =>
                       setTransparencyTargetDraft(event.target.value)
@@ -731,7 +756,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
                       void runWindowTransparencyTool();
                     }}
                   >
-                    Run Window Transparency Tool
+                    {t("settings.transparency.runTool")}
                   </button>
                 </div>
               </div>
@@ -739,10 +764,10 @@ export function SettingsTab({ active }: SettingsTabProps) {
           ) : null}
 
           <section className="card legacy-card">
-            <h2>Updates</h2>
+            <h2>{t("settings.updates.title")}</h2>
             <div className="form-group">
               <div className="input-group">
-                <label htmlFor="auto-update-gsm">Auto Update:</label>
+                <label htmlFor="auto-update-gsm">{t("settings.updates.autoUpdate")}</label>
                 <input
                   id="auto-update-gsm"
                   type="checkbox"
@@ -754,8 +779,8 @@ export function SettingsTab({ active }: SettingsTabProps) {
               </div>
 
               <div className="input-group">
-                <label htmlFor="pull-pre-releases" title="Receive beta updates from the develop branch. Only newer versions will be offered.">
-                  Beta Updates:
+                <label htmlFor="pull-pre-releases" title={t("settings.updates.betaTooltip")}>
+                  {t("settings.updates.betaUpdates")}
                 </label>
                 <input
                   id="pull-pre-releases"
@@ -770,23 +795,23 @@ export function SettingsTab({ active }: SettingsTabProps) {
 
             <div className="settings-update-panel">
               <p className="muted">
-                Check both the backend package and the desktop app from here.
+                {t("settings.updates.description")}
               </p>
 
               <div className="update-version-list">
                 <div className="update-version-row">
                   <div>
-                    <strong>GameSentenceMiner Backend</strong>
+                    <strong>{t("settings.updates.backend")}</strong>
                     <div className="update-version-meta">
-                      Current: {getDisplayCurrentVersion(updateStatus.backend)}
+                      {t("settings.updates.current", { version: getDisplayCurrentVersion(updateStatus.backend) })}
                     </div>
                     {updateStatus.backend.source === "prerelease-branch" ? (
                       <div className="update-version-meta">
-                        Channel: {getDisplayLatestVersion("backend", updateStatus.backend)}
+                        {t("settings.updates.channel", { channel: getDisplayLatestVersion("backend", updateStatus.backend) })}
                       </div>
                     ) : (
                       <div className="update-version-meta">
-                        Latest: {getDisplayLatestVersion("backend", updateStatus.backend)}
+                        {t("settings.updates.latest", { version: getDisplayLatestVersion("backend", updateStatus.backend) })}
                       </div>
                     )}
                   </div>
@@ -805,8 +830,8 @@ export function SettingsTab({ active }: SettingsTabProps) {
                     ) : (
                       <span className="update-version-stable">
                         {updateStatus.backend.source === "prerelease-branch"
-                          ? "Manual branch tracking"
-                          : "Up to date"}
+                          ? t("settings.updates.manualBranch")
+                          : t("settings.updates.upToDate")}
                       </span>
                     )}
                   </div>
@@ -814,12 +839,12 @@ export function SettingsTab({ active }: SettingsTabProps) {
 
                 <div className="update-version-row">
                   <div>
-                    <strong>Electron App</strong>
+                    <strong>{t("settings.updates.electronApp")}</strong>
                     <div className="update-version-meta">
-                      Current: {getDisplayCurrentVersion(updateStatus.app)}
+                      {t("settings.updates.current", { version: getDisplayCurrentVersion(updateStatus.app) })}
                     </div>
                     <div className="update-version-meta">
-                      Latest: {getDisplayLatestVersion("app", updateStatus.app)}
+                      {t("settings.updates.latest", { version: getDisplayLatestVersion("app", updateStatus.app) })}
                     </div>
                   </div>
                   <div className="update-version-state">
@@ -835,14 +860,14 @@ export function SettingsTab({ active }: SettingsTabProps) {
                         </span>
                       </div>
                     ) : (
-                      <span className="update-version-stable">Up to date</span>
+                      <span className="update-version-stable">{t("settings.updates.upToDate")}</span>
                     )}
                   </div>
                 </div>
               </div>
 
               {displayCheckedAt ? (
-                <p className="update-version-meta">Last checked: {displayCheckedAt}</p>
+                <p className="update-version-meta">{t("settings.updates.lastChecked", { time: displayCheckedAt ?? "" })}</p>
               ) : null}
 
               {combinedUpdateError ? (
@@ -858,7 +883,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
                   }}
                   disabled={updateBusy}
                 >
-                  {isCheckingUpdates ? "Checking..." : "Check for Updates"}
+                  {isCheckingUpdates ? t("settings.updates.checking") : t("settings.updates.checkForUpdates")}
                 </button>
                 <button
                   type="button"
@@ -873,8 +898,8 @@ export function SettingsTab({ active }: SettingsTabProps) {
                   disabled={!hasPendingUpdates || updateBusy}
                 >
                   {isApplyingUpdates || updateStatus.anyUpdateInProgress
-                    ? "Updating..."
-                    : "Update Now"}
+                    ? t("settings.updates.updating")
+                    : t("settings.updates.updateNow")}
                 </button>
               </div>
             </div>

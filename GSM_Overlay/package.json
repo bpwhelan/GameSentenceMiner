@@ -25,7 +25,7 @@
     "@electron/fuses": "^1.8.0",
     "concurrently": "^9.2.1",
     "cross-env": "^10.0.0",
-    "electron": "^37.2.1",
+    "electron": "^41.3.0",
     "nodemon": "^3.1.10",
     "vite": "^7.1.5",
     "wait-on": "^8.0.5"

@@ -58,6 +58,12 @@ const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
 const OVERLAY_WS_COMMAND_OPEN_SETTINGS = "open-overlay-settings";
 const DEFAULT_MANUAL_HOTKEY = "Shift + Space";
 const DEFAULT_TEXTHOOKER_HOTKEY = "Alt+Shift+W";
+const MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY = "hide-overlay";
+const MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION = "disable-interaction";
+const VALID_MANUAL_MODE_INACTIVE_BEHAVIORS = new Set([
+  MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY,
+  MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION,
+]);
 const GSM_APPDATA = process.env.APPDATA
   ? path.join(process.env.APPDATA, "GameSentenceMiner") // Windows
   : path.join(os.homedir(), '.config', "GameSentenceMiner"); // macOS/Linux
@@ -133,6 +139,38 @@ function getEnforcedOverlayTransportUrls(gsmSettings = getGSMSettings()) {
   };
 }
 
+function getGSMRecycledIndicatorSetting(gsmSettings = getGSMSettings()) {
+  const profileSettings = getCurrentGSMProfileSettings(gsmSettings);
+  const overlaySettings = profileSettings && typeof profileSettings.overlay === "object"
+    ? profileSettings.overlay
+    : {};
+  if (Object.prototype.hasOwnProperty.call(overlaySettings, "check_previous_lines_for_recycled_indicator")) {
+    return overlaySettings.check_previous_lines_for_recycled_indicator === true;
+  }
+  return DEFAULT_USER_SETTINGS.showRecycledIndicator === true;
+}
+
+function syncGsmOwnedOverlaySettingsFromGSM(reason = "unknown") {
+  const updates = {};
+  const showRecycledIndicator = getGSMRecycledIndicatorSetting();
+  if (userSettings.showRecycledIndicator !== showRecycledIndicator) {
+    userSettings.showRecycledIndicator = showRecycledIndicator;
+    updates.showRecycledIndicator = showRecycledIndicator;
+  }
+
+  if (Object.keys(updates).length > 0) {
+    console.log(`[GSMSettings] Synced GSM-owned overlay settings (${reason})`, updates);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("settings-updated", updates);
+    }
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.webContents.send("settings-updated", updates);
+    }
+  }
+
+  return Object.keys(updates).length > 0;
+}
+
 let manualHotkeyPressed = false;
 let manualModeToggleState = false;
 let lastManualActivity = Date.now();
@@ -149,6 +187,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "focusOverlayOnYomitanLookup": false,
   "manualMode": false,
   "manualModeType": "hold",
+  "manualModeInactiveBehavior": MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY,
   "manualModeRescanOnShow": false,
   "showHotkey": DEFAULT_MANUAL_HOTKEY,
   "toggleFuriganaHotkey": "Alt+F",
@@ -295,6 +334,13 @@ function normalizeHotkeyForComparison(value) {
 
 function normalizeManualModeType(value) {
   return normalizeManualHotkeyMode(value);
+}
+
+function normalizeManualModeInactiveBehavior(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return VALID_MANUAL_MODE_INACTIVE_BEHAVIORS.has(normalized)
+    ? normalized
+    : MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY;
 }
 
 function normalizeTrackedGameWindowState(value) {
@@ -641,6 +687,8 @@ let currentMagpieState = createMagpieState(null);
 let translationRequested = false; // Track if translation has been requested for current text
 let yomitanRecoveryVersion = 0; // Cancels stale async recovery attempts when popup state flips quickly
 let lastFocusRestoreRequestAt = 0;
+let lastOverlayTopmostReassertAt = 0;
+let pendingOverlayTopmostReassertTimer = null;
 let lastYomitanEventAt = 0;
 let yomitanForegroundActive = false;
 let trackedGameWindowState = "unknown";
@@ -694,6 +742,8 @@ const manualHotkeyController = createManualHotkeyController({
 });
 
 const FOCUS_RESTORE_THROTTLE_MS = 150;
+const OVERLAY_TOPMOST_REASSERT_THROTTLE_MS = 1500;
+const OVERLAY_MAGPIE_TEXT_REASSERT_THROTTLE_MS = 2500;
 const YOMITAN_STATE_STALE_TIMEOUT_MS = 12000;
 const FIND_IN_PAGE_COMMAND_CHANNEL = 'gsm-find-in-page:command';
 const FIND_IN_PAGE_RESULT_CHANNEL = 'gsm-find-in-page:result';
@@ -1705,6 +1755,23 @@ function isManualMode() {
   return userSettings.manualMode;
 }
 
+function shouldKeepOverlayVisibleWhenManualInactive() {
+  return isManualMode() &&
+    !isLinux() &&
+    normalizeManualModeInactiveBehavior(userSettings.manualModeInactiveBehavior) ===
+      MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION;
+}
+
+function shouldHideOverlayWindowForManualInactive() {
+  return isManualMode() &&
+    !manualHotkeyPressed &&
+    !manualModeToggleState &&
+    !gamepadNavigationActive &&
+    !resizeMode &&
+    !yomitanShown &&
+    !shouldKeepOverlayVisibleWhenManualInactive();
+}
+
 function isYomitanStateLikelyStale() {
   if (!yomitanShown) {
     return false;
@@ -1756,31 +1823,117 @@ function showInactiveAndRestoreFocus(options = {}) {
   }
 }
 
-function reassertOverlayTopmostWithoutFocus(source = "overlay-reassert") {
+function releaseOverlayFocusAfterTopmostRecovery(delayMs = 120) {
+  setTimeout(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (!mainWindow.isFocused()) return;
+    blurAndRestoreFocus();
+  }, delayMs);
+}
+
+function reassertOverlayTopmostWithoutFocus(source = "overlay-reassert", options = {}) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   ensureMainWindowIsOnConnectedDisplay(source);
+  const forceShow = !!options.forceShow;
+  const restoreMinimized = options.restoreMinimized !== false;
+  const refreshWorkspace = !!options.refreshWorkspace;
+  const moveToTop = !!options.moveToTop;
+  let wasMinimized = false;
+
   if (mainWindow.isMinimized()) {
+    if (!restoreMinimized) {
+      return false;
+    }
     mainWindow.restore();
+    wasMinimized = true;
   }
-  if (typeof mainWindow.showInactive === "function") {
-    mainWindow.showInactive();
-  } else {
-    mainWindow.show();
+
+  if (forceShow || wasMinimized || !mainWindow.isVisible()) {
+    if (typeof mainWindow.showInactive === "function") {
+      mainWindow.showInactive();
+    } else {
+      mainWindow.show();
+    }
   }
+
   mainWindow.setAlwaysOnTop(true, "screen-saver");
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  if (typeof mainWindow.moveTop === "function") {
+  if (refreshWorkspace) {
+    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
+  if (moveToTop && typeof mainWindow.moveTop === "function") {
     try {
       mainWindow.moveTop();
     } catch (e) {
       // Ignore - moveTop may not be available on all Electron/platform combos.
     }
   }
+  return true;
+}
+
+function requestOverlayTopmostReassert(source = "overlay-reassert", options = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+
+  const force = !!options.force;
+  const throttleMs = Number.isFinite(options.throttleMs) && options.throttleMs >= 0
+    ? options.throttleMs
+    : OVERLAY_TOPMOST_REASSERT_THROTTLE_MS;
+  const canRun = () => (
+    typeof options.shouldRun !== "function" || options.shouldRun()
+  );
+
+  const runReassert = () => {
+    if (!canRun()) {
+      return false;
+    }
+    lastOverlayTopmostReassertAt = Date.now();
+    const didReassert = reassertOverlayTopmostWithoutFocus(source, options);
+    if (didReassert && options.releaseFocusAfter) {
+      releaseOverlayFocusAfterTopmostRecovery(options.releaseFocusAfterDelayMs);
+    }
+    return didReassert;
+  };
+
+  const now = Date.now();
+  const elapsedMs = now - lastOverlayTopmostReassertAt;
+  if (force || elapsedMs >= throttleMs) {
+    if (pendingOverlayTopmostReassertTimer) {
+      clearTimeout(pendingOverlayTopmostReassertTimer);
+      pendingOverlayTopmostReassertTimer = null;
+    }
+    return runReassert();
+  }
+
+  if (options.scheduleTrailing === false || pendingOverlayTopmostReassertTimer) {
+    return false;
+  }
+
+  const delayMs = Math.max(50, throttleMs - elapsedMs);
+  pendingOverlayTopmostReassertTimer = setTimeout(() => {
+    pendingOverlayTopmostReassertTimer = null;
+    runReassert();
+  }, delayMs);
+
+  return false;
+}
+
+function showOverlayWithoutFocusForManualVisibleMode(source = "manual-visible-show") {
+  return requestOverlayTopmostReassert(source, {
+    force: true,
+    forceShow: true,
+    moveToTop: true,
+    refreshWorkspace: true,
+    releaseFocusAfter: true,
+    releaseFocusAfterDelayMs: 40,
+  });
 }
 
 function aggressivelyShowOverlayAndReturnFocus() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  reassertOverlayTopmostWithoutFocus("aggressivelyShowOverlayAndReturnFocus");
+  reassertOverlayTopmostWithoutFocus("aggressivelyShowOverlayAndReturnFocus", {
+    forceShow: true,
+    moveToTop: true,
+    refreshWorkspace: true,
+  });
   mainWindow.focus();
 }
 
@@ -1828,10 +1981,17 @@ function restoreOverlayAfterYomitanLookup() {
     mainWindow.setIgnoreMouseEvents(true, { forward: true });
   }
 
+  if (shouldHideOverlayWindowForManualInactive()) {
+    hideAndRestoreFocus();
+    return;
+  }
+
   if (!isWindows() && !isMac()) {
     hideAndRestoreFocus();
     return;
   }
+
+  requestYomitanOverlayTopmostReassert("yomitan-lookup-restore");
 
   if (mainWindow.isFocused() || wasForegroundedForYomitan) {
     blurAndRestoreFocus();
@@ -1897,6 +2057,8 @@ function requestGamepadNavigationToggleFromMain(source = "unknown") {
 function setGamepadNavigationModeActive(active, triggerSource = "unknown", options = {}) {
   const nextActive = !!active;
   const shouldFocusOverlay = options && options.focusOverlay === true;
+  const keepGamepadActivationFocusNeutral =
+    nextActive && isManualMode() && shouldKeepOverlayVisibleWhenManualInactive();
   gamepadNavigationActive = nextActive;
 
   if (nextActive) {
@@ -1905,7 +2067,7 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown", optio
     } else {
       requestOverlayPauseForSource(OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
     }
-    if (shouldFocusOverlay) {
+    if (shouldFocusOverlay && !keepGamepadActivationFocusNeutral) {
       aggressivelyFocusOverlayForGamepadNavigation();
     }
     return;
@@ -1933,7 +2095,7 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown", optio
 
 function scheduleYomitanCloseRecovery() {
   const version = ++yomitanRecoveryVersion;
-  const recoveryDelays = [60, 180];
+  const recoveryDelays = [120];
 
   for (const delay of recoveryDelays) {
     setTimeout(() => {
@@ -1943,9 +2105,37 @@ function scheduleYomitanCloseRecovery() {
       if (isWindows() || isMac()) {
         mainWindow.setIgnoreMouseEvents(true, { forward: true });
       }
-      reassertOverlayTopmostWithoutFocus("yomitan-close-recovery");
+      requestOverlayTopmostReassert("yomitan-close-recovery", {
+        force: true,
+        moveToTop: true,
+        refreshWorkspace: true,
+        releaseFocusAfter: true,
+      });
     }, delay);
   }
+}
+
+function shouldReassertOverlayAroundYomitan() {
+  return (
+    currentMagpieState.active ||
+    shouldKeepOverlayVisibleWhenManualInactive() ||
+    manualHotkeyPressed ||
+    manualModeToggleState ||
+    gamepadNavigationActive
+  );
+}
+
+function requestYomitanOverlayTopmostReassert(source) {
+  if (!shouldReassertOverlayAroundYomitan()) {
+    return false;
+  }
+
+  return requestOverlayTopmostReassert(source, {
+    force: true,
+    moveToTop: true,
+    refreshWorkspace: true,
+    releaseFocusAfter: true,
+  });
 }
 
 const hasPersistedOverlaySettings = fs.existsSync(settingsPath);
@@ -1958,6 +2148,12 @@ if (hasPersistedOverlaySettings) {
     const normalizedManualModeType = normalizeManualModeType(userSettings.manualModeType);
     if (userSettings.manualModeType !== normalizedManualModeType) {
       userSettings.manualModeType = normalizedManualModeType;
+      shouldPersistOverlaySettings = true;
+    }
+
+    const normalizedManualModeInactiveBehavior = normalizeManualModeInactiveBehavior(userSettings.manualModeInactiveBehavior);
+    if (userSettings.manualModeInactiveBehavior !== normalizedManualModeInactiveBehavior) {
+      userSettings.manualModeInactiveBehavior = normalizedManualModeInactiveBehavior;
       shouldPersistOverlaySettings = true;
     }
 
@@ -1991,6 +2187,10 @@ if (hasPersistedOverlaySettings) {
       shouldPersistOverlaySettings = true;
     }
 
+    if (Object.prototype.hasOwnProperty.call(oldUserSettings, "showRecycledIndicator")) {
+      shouldPersistOverlaySettings = true;
+    }
+
     if (isWindows()) {
       userSettings.offsetX = 0;
       userSettings.offsetY = 0;
@@ -2009,7 +2209,15 @@ const texthookerUrlNormalized = enforceTexthookerUrl(userSettings);
 const furiganaSettingsNormalized = normalizeFuriganaSettings(userSettings);
 const gamepadTokenizerSettingsNormalized = normalizeGamepadTokenizerSettings(userSettings);
 const hotkeyConflictResolvedOnLoad = ensureManualAndTexthookerHotkeysDistinct("settings-load");
-if (websocketEndpointsNormalized || texthookerUrlNormalized || furiganaSettingsNormalized || gamepadTokenizerSettingsNormalized || hotkeyConflictResolvedOnLoad) {
+const gsmOwnedSettingsNormalized = syncGsmOwnedOverlaySettingsFromGSM("settings-load");
+if (
+  websocketEndpointsNormalized ||
+  texthookerUrlNormalized ||
+  furiganaSettingsNormalized ||
+  gamepadTokenizerSettingsNormalized ||
+  hotkeyConflictResolvedOnLoad ||
+  gsmOwnedSettingsNormalized
+) {
   shouldPersistOverlaySettings = true;
 }
 if (hasPersistedOverlaySettings && shouldPersistOverlaySettings) {
@@ -2017,6 +2225,7 @@ if (hasPersistedOverlaySettings && shouldPersistOverlaySettings) {
 }
 
 userSettings.manualModeType = normalizeManualModeType(userSettings.manualModeType);
+userSettings.manualModeInactiveBehavior = normalizeManualModeInactiveBehavior(userSettings.manualModeInactiveBehavior);
 
 function getGSMOverlaySettings() {
   let gsmSettings = getGSMSettings();
@@ -2395,11 +2604,18 @@ function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
 
   console.log(`[OverlayActivation] Attempting SHOW (${triggerSource})... Current State: ${isOverlayVisible ? "Visible" : "Hidden"}`);
   ensureMainWindowIsOnConnectedDisplay(`manual-show:${triggerSource}`);
+  const keepManualActivationFocusNeutral =
+    shouldKeepOverlayVisibleWhenManualInactive() &&
+    (pauseSource === OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY ||
+      pauseSource === OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
 
   // Always register the pause source even if already visible.
   requestOverlayPauseForSource(pauseSource);
 
   if (isOverlayVisible) {
+    if (keepManualActivationFocusNeutral) {
+      showOverlayWithoutFocusForManualVisibleMode(`manual-show-already-visible:${triggerSource}`);
+    }
     console.log("[OverlayActivation] Blocked: Overlay is already visible.");
     return false;
   }
@@ -2411,6 +2627,11 @@ function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
     mainWindow.setIgnoreMouseEvents(false, { forward: true });
   } else {
     mainWindow.show();
+  }
+
+  if (keepManualActivationFocusNeutral) {
+    showOverlayWithoutFocusForManualVisibleMode(`manual-show:${triggerSource}`);
+    return true;
   }
 
   // Mirror manual-mode behavior: bring overlay forward when manual flow is active.
@@ -2446,7 +2667,11 @@ function hideOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
     if (!isLinux()) {
       mainWindow.setIgnoreMouseEvents(true, { forward: true });
     }
-    hideAndRestoreFocus();
+    if (shouldKeepOverlayVisibleWhenManualInactive()) {
+      showOverlayWithoutFocusForManualVisibleMode("manual-inactive-visible");
+    } else {
+      hideAndRestoreFocus();
+    }
   } else {
     console.log(
       `[OverlayActivation] Skipping Focus Restore. ` +
@@ -2482,7 +2707,9 @@ function saveSettings() {
       console.log("New Settings:", userSettings);
     }
 
-    fs.writeFileSync(settingsPath, JSON.stringify(userSettings, null, 2), "utf-8");
+    const persistedUserSettings = { ...userSettings };
+    delete persistedUserSettings.showRecycledIndicator;
+    fs.writeFileSync(settingsPath, JSON.stringify(persistedUserSettings, null, 2), "utf-8");
   } catch (e) {
     console.error(`[Settings] Failed to save settings to ${settingsPath}:`, e);
   }
@@ -2552,14 +2779,25 @@ function restoreAutomaticOverlayPassThrough(reason = "auto-reset") {
     return;
   }
 
-  if (currentMagpieState.active) {
-    reassertOverlayTopmostWithoutFocus(`auto-pass-through:${reason}`);
+  if (shouldKeepOverlayVisibleWhenManualInactive()) {
+    showOverlayWithoutFocusForManualVisibleMode(`auto-pass-through:${reason}`);
+  } else if (currentMagpieState.active) {
+    requestOverlayTopmostReassert(`auto-pass-through:${reason}`, {
+      force: true,
+      moveToTop: true,
+      refreshWorkspace: true,
+      releaseFocusAfter: true,
+    });
   } else {
     mainWindow.show();
   }
 
   if (!isLinux()) {
     mainWindow.setIgnoreMouseEvents(true, { forward: true });
+  }
+
+  if (shouldHideOverlayWindowForManualInactive()) {
+    hideAndRestoreFocus();
   }
 }
 
@@ -2813,7 +3051,11 @@ function registerTexthookerHotkey(oldHotkey) {
       // Go back to whatever mode it was in before
       if (isManualMode()) {
         if (isOverlayVisible) {
-          mainWindow.show();
+          if (shouldKeepOverlayVisibleWhenManualInactive()) {
+            showOverlayWithoutFocusForManualVisibleMode("texthooker-manual-active-visible");
+          } else {
+            mainWindow.show();
+          }
           if (!isLinux()) {
             mainWindow.setIgnoreMouseEvents(false, { forward: true });
           }
@@ -2823,8 +3065,13 @@ function registerTexthookerHotkey(oldHotkey) {
             if (!isLinux()) {
               mainWindow.setIgnoreMouseEvents(true, { forward: true });
             }
-            console.log("[TexthookerMode] ACTION: calling hideAndRestoreFocus()");
-            hideAndRestoreFocus();
+            if (shouldKeepOverlayVisibleWhenManualInactive()) {
+              console.log("[TexthookerMode] ACTION: keeping manual overlay visible but non-interactive");
+              showOverlayWithoutFocusForManualVisibleMode("texthooker-manual-inactive-visible");
+            } else {
+              console.log("[TexthookerMode] ACTION: calling hideAndRestoreFocus()");
+              hideAndRestoreFocus();
+            }
           }
         }
       } else {
@@ -2951,6 +3198,7 @@ function resetActivityTimer() {
 
 function openSettings() {
   refreshOverlayTransportSettingsFromGSM("openSettings");
+  syncGsmOwnedOverlaySettingsFromGSM("openSettings");
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("force-visible", true);
   }
@@ -3686,6 +3934,10 @@ app.whenReady().then(async () => {
       clearTimeout(pendingDisplaySyncTimer);
       pendingDisplaySyncTimer = null;
     }
+    if (pendingOverlayTopmostReassertTimer) {
+      clearTimeout(pendingOverlayTopmostReassertTimer);
+      pendingOverlayTopmostReassertTimer = null;
+    }
   });
 
   let display = getCurrentOverlayMonitor({ logFallback: true });
@@ -3816,6 +4068,22 @@ app.whenReady().then(async () => {
       yomitanRecoveryVersion += 1;
     }
 
+    if (
+      !ignore &&
+      isManualMode() &&
+      !manualHotkeyPressed &&
+      !manualModeToggleState &&
+      !gamepadNavigationActive &&
+      !resizeMode &&
+      !yomitanShown
+    ) {
+      console.log("[ManualMode] Ignoring renderer request to enable overlay mouse interaction while manual mode is inactive.");
+      if (isWindows() || isMac()) {
+        mainWindow.setIgnoreMouseEvents(true, { forward: true });
+      }
+      return;
+    }
+
     if (!resizeMode && (!yomitanShown || (forceMagpieRelease && ignore))) {
       // if ignore is false a button or element on the Overlay was clicked and we do not want to click-through
       if (!isWindows() && !isMac()) {
@@ -3840,7 +4108,11 @@ app.whenReady().then(async () => {
   ipcMain.on("show", (event, state) => {
     ensureMainWindowIsOnConnectedDisplay("ipc-show");
     syncOverlayWindowsToCurrentMonitor("ipc-show");
-    mainWindow.show();
+    if (shouldKeepOverlayVisibleWhenManualInactive() && !manualHotkeyPressed && !manualModeToggleState) {
+      showOverlayWithoutFocusForManualVisibleMode("ipc-show-manual-inactive-visible");
+    } else {
+      mainWindow.show();
+    }
     mainWindow.setAlwaysOnTop(true, 'screen-saver');
     mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   });
@@ -3866,6 +4138,7 @@ app.whenReady().then(async () => {
         if (isWindows() || isMac()) {
           mainWindow.setIgnoreMouseEvents(false, { forward: true });
         }
+        requestYomitanOverlayTopmostReassert("yomitan-open");
       }
     } else {
       if (yomitanForegroundActive || userSettings.focusOverlayOnYomitanLookup) {
@@ -3876,6 +4149,7 @@ app.whenReady().then(async () => {
       // Preserve pre-regression manual behavior: closing Yomitan should not change
       // overlay visibility/focus state while manual hold/toggle is active.
       if (manualHotkeyPressed || manualModeToggleState) {
+        requestYomitanOverlayTopmostReassert("yomitan-close-manual-active");
         return;
       }
 
@@ -3885,6 +4159,7 @@ app.whenReady().then(async () => {
 
       // Keep existing gamepad-close behavior unchanged.
       if (gamepadNavigationActive) {
+        requestYomitanOverlayTopmostReassert("yomitan-close-gamepad-active");
         return;
       }
 
@@ -3896,7 +4171,7 @@ app.whenReady().then(async () => {
         blurAndRestoreFocus();
       }
       // Magpie can race z-order after popup close; reassert top layer without extra focus handoff.
-      if (currentMagpieState.active) {
+      if (requestYomitanOverlayTopmostReassert("yomitan-close")) {
         scheduleYomitanCloseRecovery();
       }
     }
@@ -4042,22 +4317,56 @@ app.whenReady().then(async () => {
     switch (normalizedWindowState) {
       case "active":
         if (isManualMode()) {
+          if (
+            shouldKeepOverlayVisibleWhenManualInactive() &&
+            !manualHotkeyPressed &&
+            !manualModeToggleState &&
+            !gamepadNavigationActive
+          ) {
+            ensureMainWindowIsOnConnectedDisplay("window-state-active-manual-visible");
+            if (!isLinux()) {
+              mainWindow.setIgnoreMouseEvents(true, { forward: true });
+            }
+            if (!mainWindow.isVisible() || currentMagpieState.active) {
+              requestOverlayTopmostReassert("window-state-active-manual-visible", {
+                force: true,
+                forceShow: true,
+                moveToTop: currentMagpieState.active,
+                refreshWorkspace: true,
+                releaseFocusAfter: true,
+              });
+            }
+          }
           return; // Do nothing in manual mode
         }
         ensureMainWindowIsOnConnectedDisplay("window-state-active");
         console.log("[WindowState] Active - Game has focus");
         // Game window is active/focused - show overlay normally
         if (mainWindow.isMinimized()) {
-          mainWindow.restore();
-          blurAndRestoreFocus();
+          requestOverlayTopmostReassert("window-state-active-minimized", {
+            force: true,
+            forceShow: true,
+            moveToTop: true,
+            refreshWorkspace: true,
+            releaseFocusAfter: true,
+          });
           afkHidden = false;
         } else if (!mainWindow.isVisible()) {
           // Window was hidden (e.g., by obscured state) - restore it
-          mainWindow.show();
-          blurAndRestoreFocus();
-          mainWindow.setAlwaysOnTop(true, 'screen-saver');
+          requestOverlayTopmostReassert("window-state-active-hidden", {
+            force: true,
+            forceShow: true,
+            moveToTop: true,
+            refreshWorkspace: true,
+            releaseFocusAfter: true,
+          });
         } else if (currentMagpieState.active) {
-          reassertOverlayTopmostWithoutFocus("window-state-active-magpie");
+          requestOverlayTopmostReassert("window-state-active-magpie", {
+            force: true,
+            moveToTop: true,
+            refreshWorkspace: true,
+            releaseFocusAfter: true,
+          });
         }
         break;
 
@@ -4175,7 +4484,9 @@ app.whenReady().then(async () => {
       updateTrayMenu();
       return;
     }
-    if (key === "gamepadTokenizerBackend") {
+    if (key === "showRecycledIndicator") {
+      value = value === true;
+    } else if (key === "gamepadTokenizerBackend") {
       value = normalizeGamepadTokenizerBackend(value);
     } else if (key === "gamepadLocalTokenizerFallbackBackend") {
       value = normalizeLocalTokenizerFallbackBackend(value);
@@ -4205,6 +4516,8 @@ app.whenReady().then(async () => {
       value = normalizeFuriganaOutlineWidth(value);
     } else if (key === "manualModeType") {
       value = normalizeManualModeType(value);
+    } else if (key === "manualModeInactiveBehavior") {
+      value = normalizeManualModeInactiveBehavior(value);
     }
     const oldValue = userSettings[key];
     userSettings[key] = value;
@@ -4231,6 +4544,11 @@ app.whenReady().then(async () => {
         requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
         restoreAutomaticOverlayPassThrough("setting-changed:manualModeType");
         registerManualShowHotkey();
+        break;
+      case "manualModeInactiveBehavior":
+        clearManualActivationState("setting-changed:manualModeInactiveBehavior");
+        requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+        restoreAutomaticOverlayPassThrough("setting-changed:manualModeInactiveBehavior");
         break;
       case "focusOverlayOnYomitanLookup":
         if (value && yomitanShown) {
@@ -4349,6 +4667,15 @@ app.whenReady().then(async () => {
         break;
       case "showFurigana":
         syncGamepadServerState("setting-changed:showFurigana");
+        break;
+      case "showRecycledIndicator":
+        if (backend) {
+          backend.send({
+            type: "set-gsm-overlay-config",
+            key: "check_previous_lines_for_recycled_indicator",
+            value,
+          });
+        }
         break;
       case "gamepadKeyboardEnabled":
       case "gamepadKeyboardHotkey":
@@ -4491,18 +4818,30 @@ app.whenReady().then(async () => {
 
     // If window is minimized, restore it
     if (mainWindow.isMinimized() && !isManualMode()) {
-      reassertOverlayTopmostWithoutFocus("text-received-minimized");
+      requestOverlayTopmostReassert("text-received-minimized", {
+        force: true,
+        forceShow: true,
+        moveToTop: true,
+        refreshWorkspace: true,
+        releaseFocusAfter: true,
+      });
     }
 
-    // When Magpie is active, ensure overlay stays on top (Magpie can steal z-order)
+    // Magpie can steal z-order, but forcing Electron's topmost/show calls on
+    // every line causes visible flicker. Coalesce routine line updates and keep
+    // stronger recovery for state changes, minimized windows, and Yomitan close.
     if (currentMagpieState.active && !isManualMode()) {
-      reassertOverlayTopmostWithoutFocus("text-received-magpie");
-
-      setTimeout(() => {
-        if (!mainWindow || mainWindow.isDestroyed()) return;
-        if (!mainWindow.isFocused()) return;
-        blurAndRestoreFocus();
-      }, 120);
+      requestOverlayTopmostReassert("text-received-magpie", {
+        throttleMs: OVERLAY_MAGPIE_TEXT_REASSERT_THROTTLE_MS,
+        moveToTop: true,
+        releaseFocusAfter: true,
+        shouldRun: () => (
+          currentMagpieState.active &&
+          !isManualMode() &&
+          !isTexthookerMode &&
+          isTrackedGameWindowVisibleForManualHotkey()
+        ),
+      });
     }
   });
 

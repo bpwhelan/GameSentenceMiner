@@ -25,8 +25,8 @@ const HELPER_SCENE_NAMES = new Set([
 const STATUS_POLL_MS = 1000;
 const SCENE_POLL_MS = 3000;
 
-const OVERLAY_WIKI_URL =
-  "https://github.com/bpwhelan/GameSentenceMiner/wiki/Overlay-%E2%80%90-Overview";
+const OVERLAY_DOCS_URL =
+  "https://docs.gamesentenceminer.com/docs/features/overlay";
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -144,7 +144,7 @@ function RenameModal({ scene, onClose, onConfirm }: RenameModalProps) {
           </button>
         </div>
       </div>
-    </div>
+      </div>
   );
 }
 
@@ -158,6 +158,8 @@ export function HomeTab({ active }: HomeTabProps) {
   /* ---- Status ---------------------------------------------------- */
   const [status, setStatus] = useState<GsmStatus | null>(null);
   const [statusError, setStatusError] = useState(false);
+  const [overlayRunning, setOverlayRunning] = useState(false);
+  const [runOverlayOnStartup, setRunOverlayOnStartup] = useState(false);
 
   useEffect(() => {
     if (!active) return;
@@ -170,11 +172,34 @@ export function HomeTab({ active }: HomeTabProps) {
       } catch {
         if (!cancelled) { setStatus(null); setStatusError(true); }
       }
+      try {
+        const o = await invokeIpc<{ isRunning: boolean }>("getOverlayStatus");
+        if (!cancelled) setOverlayRunning(Boolean(o?.isRunning));
+      } catch { /* swallow */ }
     };
 
     void poll();
     const id = setInterval(() => void poll(), STATUS_POLL_MS);
     return () => { cancelled = true; clearInterval(id); };
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+
+    void invokeIpc<{ runOverlayOnStartup?: boolean }>("settings.getSettings")
+      .then((settings) => {
+        if (!cancelled) {
+          setRunOverlayOnStartup(settings?.runOverlayOnStartup === true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRunOverlayOnStartup(false);
+        }
+      });
+
+    return () => { cancelled = true; };
   }, [active]);
 
   /* ---- Scenes ---------------------------------------------------- */
@@ -317,8 +342,22 @@ export function HomeTab({ active }: HomeTabProps) {
   const openGSMSettings = useCallback(() => void invokeIpc("settings.openGSMSettings"), []);
   const openTexthooker = useCallback(() => void invokeIpc("openTexthooker"), []);
   const runOverlay = useCallback(() => void invokeIpc("runOverlay"), []);
+  const openOverlaySettings = useCallback(() => void invokeIpc("settings.openOverlaySettings"), []);
   const openOBS = useCallback(() => void invokeIpc("openOBS"), []);
   const openExternal = useCallback((url: string) => void invokeIpc("open-external-link", url), []);
+  const handleRunOverlayOnStartupChange = useCallback(async (enabled: boolean) => {
+    setRunOverlayOnStartup(enabled);
+    try {
+      const result = await invokeIpc<{
+        settings?: { runOverlayOnStartup?: boolean };
+      }>("settings.saveSettings", { runOverlayOnStartup: enabled });
+      if (typeof result?.settings?.runOverlayOnStartup === "boolean") {
+        setRunOverlayOnStartup(result.settings.runOverlayOnStartup);
+      }
+    } catch {
+      setRunOverlayOnStartup(!enabled);
+    }
+  }, []);
 
   /* ---- Derived status values ------------------------------------- */
   const gsmReady = status?.ready ?? false;
@@ -432,7 +471,7 @@ export function HomeTab({ active }: HomeTabProps) {
                     disabled={isHelperScene}
                     onClick={() => { if (selectedScene) setRenameTarget(selectedScene); }}
                   >
-                    Rename
+                    {t("home.obs.rename")}
                   </button>
                   <button
                     type="button"
@@ -440,16 +479,16 @@ export function HomeTab({ active }: HomeTabProps) {
                     disabled={isHelperScene}
                     onClick={() => void handleRemoveScene()}
                   >
-                    Remove
+                    {t("home.obs.remove")}
                   </button>
                   {/* 
                   // TODO: Switch profile per-scene
                   <button type="button" className="home-text-btn" disabled>
-                    Switch Profile
+                    {t("home.obs.switchProfile")}
                   </button>
                   // TODO: Open OBS preview for current capture
                   <button type="button" className="home-text-btn" disabled>
-                    Preview
+                    {t("home.obs.preview")}
                   </button>
                    */}
                 </div>
@@ -493,7 +532,7 @@ export function HomeTab({ active }: HomeTabProps) {
                       <optgroup label={t("home.obs.sectionWindows")}>
                         {windowTargets.map((w) => (
                           <option key={w.value} value={w.value}>
-                            {w.targetKind === "capture_card" ? `Capture Card: ${w.title}` : w.title}
+                            {w.targetKind === "capture_card" ? t("home.obs.captureCardPrefix", { title: w.title }) : w.title}
                           </option>
                         ))}
                       </optgroup>
@@ -502,7 +541,7 @@ export function HomeTab({ active }: HomeTabProps) {
                       <optgroup label={t("home.obs.sectionCaptureCards")}>
                         {captureCardTargets.map((w) => (
                           <option key={w.value} value={w.value}>
-                            Capture Card: {w.title}
+                            {t("home.obs.captureCardPrefix", { title: w.title })}
                           </option>
                         ))}
                       </optgroup>
@@ -540,23 +579,23 @@ export function HomeTab({ active }: HomeTabProps) {
               </div>}
 
               {/* Capture card toggle */}
-              <div className="home-row">
-                <label
-                  className="home-row__label"
-                  htmlFor="home-capture-card-toggle"
-                  title={t("home.obs.captureCardTooltip")}
-                >
-                  {t("home.obs.captureCardToggle")}
-                </label>
+              <div className="home-row home-row--toggle">
+                <span className="home-row__label" aria-hidden="true" />
                 <div className="home-row__controls">
-                  <input
-                    id="home-capture-card-toggle"
-                    type="checkbox"
-                    disabled={!canEnumerateWindows}
-                    checked={captureCardEnabled}
-                    onChange={(e) => void handleCaptureCardToggle(e.target.checked)}
+                  <label
+                    className="home-toggle"
+                    htmlFor="home-capture-card-toggle"
                     title={t("home.obs.captureCardTooltip")}
-                  />
+                  >
+                    <input
+                      id="home-capture-card-toggle"
+                      type="checkbox"
+                      disabled={!canEnumerateWindows}
+                      checked={captureCardEnabled}
+                      onChange={(e) => void handleCaptureCardToggle(e.target.checked)}
+                    />
+                    <span>{t("home.obs.captureCardToggle")}</span>
+                  </label>
                 </div>
               </div>
 
@@ -577,7 +616,69 @@ export function HomeTab({ active }: HomeTabProps) {
             </div>
           </section>
 
-          {/* ===== QUICK ACTIONS ===== */}
+          {/* ===== OVERLAY ===== */}
+          <section className="card home-overlay-card">
+            <div className="card-header">
+              {t("home.overlay.title")}
+              <span
+                className={`home-overlay-card__status ${
+                  overlayRunning
+                    ? "home-overlay-card__status--running"
+                    : "home-overlay-card__status--stopped"
+                }`}
+              >
+                {overlayRunning
+                  ? t("home.overlay.statusRunning")
+                  : t("home.overlay.statusStopped")}
+              </span>
+            </div>
+            <div className="card-body">
+              <div className="home-overlay-card__controls">
+                <div className="home-overlay-card__actions">
+                  <button
+                    type="button"
+                    className="home-overlay-primary-btn"
+                    onClick={overlayRunning ? openOverlaySettings : runOverlay}
+                    title={
+                      overlayRunning
+                        ? t("home.actions.overlaySettingsTooltip")
+                        : t("home.actions.overlayTooltip")
+                    }
+                  >
+                    {overlayRunning ? t("home.actions.overlaySettings") : t("home.actions.overlay")}
+                  </button>
+                  <button
+                    type="button"
+                    className="home-quick-btn home-overlay-guide-btn"
+                    onClick={() => openExternal(OVERLAY_DOCS_URL)}
+                    title={t("home.actions.overlayWiki")}
+                  >
+                    {t("home.overlay.guide")}
+                  </button>
+                </div>
+                <label
+                  className="home-toggle home-overlay-card__startup"
+                  htmlFor="home-overlay-startup-toggle"
+                  title={t("home.overlay.runOnStartupTooltip")}
+                >
+                  <input
+                    id="home-overlay-startup-toggle"
+                    type="checkbox"
+                    checked={runOverlayOnStartup}
+                    onChange={(e) => void handleRunOverlayOnStartupChange(e.target.checked)}
+                  />
+                  <span>{t("home.overlay.runOnStartup")}</span>
+                </label>
+              </div>
+              {!isWindows && (
+                <span className="home-overlay-card__warning">
+                  {t("home.actions.overlayPlatformWarning")}
+                </span>
+              )}
+            </div>
+          </section>
+
+          {/* ===== UTILITIES ===== */}
           <section className="home-quick-actions">
             <span className="home-quick-actions__title">{t("home.actions.title")}</span>
             <div className="home-quick-actions__row">
@@ -596,28 +697,6 @@ export function HomeTab({ active }: HomeTabProps) {
                 title={t("home.actions.texthookerTooltip")}
               >
                 {t("home.actions.texthooker")}
-              </button>
-              <button
-                type="button"
-                className="home-quick-btn"
-                onClick={runOverlay}
-                title={
-                  !isWindows
-                    ? `${t("home.actions.overlayTooltip")}\n${t("home.actions.overlayPlatformWarning")}`
-                    : t("home.actions.overlayTooltip")
-                }
-              >
-                {t("home.actions.overlay")}
-                {!isWindows && <span className="home-quick-btn__badge">⚠</span>}
-              </button>
-              <button
-                type="button"
-                className="home-icon-btn"
-                onClick={() => openExternal(OVERLAY_WIKI_URL)}
-                title={t("home.actions.overlayWiki")}
-                aria-label={t("home.actions.overlayWiki")}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
               </button>
             </div>
           </section>

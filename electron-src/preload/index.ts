@@ -13,6 +13,7 @@ const invokeExactChannels = new Set<string>([
   "open-external-link",
   "openTexthooker",
   "runOverlay",
+  "getOverlayStatus",
   "run-furigana-window",
   "get_gsm_status",
   "ocr-replacements.load",

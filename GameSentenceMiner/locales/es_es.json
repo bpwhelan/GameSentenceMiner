@@ -73,7 +73,7 @@
           },
           "websocket_uri": {
             "label": "URI de WebSocket de Entrada:",
-            "tooltip": "URIs de WebSocket para fuentes de ENTRADA (Agent, Textractor, LunaTranslator, etc.). Permite valores separados por comas para múltiples fuentes. NO incluya los puertos de salida de GSM (texthooker, superposición OCR)."
+            "tooltip": "URIs de WebSocket para fuentes de ENTRADA (Agent, Textractor, LunaTranslator, etc.). Permite valores separados por comas para múltiples fuentes. NO incluya los puertos de salida de GSM (Text Feed, superposición OCR)."
           },
           "texthook_regex": {
             "label": "Regex de Reemplazo de TextHook:",
@@ -84,12 +84,12 @@
             "tooltip": "Si abrir la configuración cuando el script inicia."
           },
           "open_texthooker_on_startup": {
-            "label": "Abrir GSM Texthooker al Iniciar:",
+            "label": "Abrir GSM Text Feed al Iniciar:",
             "tooltip": "Si abrir la página de Texthooking cuando el script inicia."
           },
           "texthooker_port": {
-            "label": "Puerto de GSM Texthooker:",
-            "tooltip": "Puerto para que el Texthooker se ejecute. Solo cambie si sabe lo que está haciendo."
+            "label": "Puerto de GSM Text Feed:",
+            "tooltip": "Puerto para que el Text Feed se ejecute. Solo cambie si sabe lo que está haciendo."
           },
           "current_version": {
             "label": "Versión Actual:",
@@ -240,7 +240,7 @@
           },
           "tags_to_check": {
             "label": "Etiquetas en las que trabajar:",
-            "tooltip": "Etiquetas Separadas por Comas, el script solo hará 1 clic en tarjetas con estas etiquetas (Se recomienda dejar vacío, o usar Perfil de Yomitan para agregar etiqueta personalizada desde la página de texthooker)"
+            "tooltip": "Etiquetas Separadas por Comas, el script solo hará 1 clic en tarjetas con estas etiquetas (Se recomienda dejar vacío, o usar Perfil de Yomitan para agregar etiqueta personalizada desde la página de Text Feed)"
           },
           "add_game_tag": {
             "label": "Agregar Juego como Etiqueta:",
@@ -484,8 +484,8 @@
             "tooltip": "Pausa o reanuda temporalmente la entrada de texto por portapapeles y websocket de GSM. Mientras esté en pausa, GSM omite su propio registro de estadísticas/historial y no activa el overlay. Déjalo vacío para desactivar este atajo; no tiene atajo predeterminado."
           },
           "relay_outputs_when_paused": {
-            "checkbox": "Reenviar a texthooker/clientes de salida durante la pausa",
-            "tooltip": "Si está activado, el texto pausado aún se envía a la página texthooker y a los clientes websocket de salida después del procesamiento de texto, pero GSM sigue omitiendo sus propias estadísticas/historial y el overlay. Desactívalo para un no-op completo que descarte todo el texto entrante."
+            "checkbox": "Reenviar a Text Feed/clientes de salida durante la pausa",
+            "tooltip": "Si está activado, el texto pausado aún se envía a la página Text Feed y a los clientes websocket de salida después del procesamiento de texto, pero GSM sigue omitiendo sus propias estadísticas/historial y el overlay. Desáctivalo para un no-op completo que descarte todo el texto entrante."
           }
         },
         "obs": {
@@ -586,8 +586,8 @@
             "tooltip": "Puerto para comunicación WebSocket de OCR. GSM también escuchará en este puerto"
           },
           "texthooker_comm_port": {
-            "label": "Puerto WebSocket de Comunicación de Texthooker:",
-            "tooltip": "Puerto para comunicación WebSocket de GSM Texthooker."
+            "label": "Puerto WebSocket de Comunicación de Text Feed:",
+            "tooltip": "Puerto para comunicación WebSocket de GSM Text Feed."
           },
           "plaintext_export_port": {
             "label": "Puerto de Exportación WebSocket de Texto Plano/JL:",
@@ -677,8 +677,8 @@
             "tooltip": "Prompt personalizado para procesamiento de IA."
           },
           "custom_texthooker_prompt": {
-            "label": "Prompt Personalizado de Texthooker:",
-            "tooltip": "Prompt personalizado para procesamiento de texthooker con IA."
+            "label": "Prompt Personalizado de Text Feed:",
+            "tooltip": "Prompt personalizado para procesamiento de Text Feed con IA."
           },
           "deepl_api_key": {
             "label": "Clave API de DeepL:",

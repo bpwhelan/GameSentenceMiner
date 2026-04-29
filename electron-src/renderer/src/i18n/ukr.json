@@ -1,0 +1,721 @@
+{
+  "home": {
+    "status": {
+      "title": "Статус",
+      "gsm": "GSM",
+      "clipboard": "Буфер обміну",
+      "obs": "OBS",
+      "anki": "Anki",
+      "connected": "Підключено",
+      "disconnected": "Відключено",
+      "enabled": "Увімкнено",
+      "disabled": "Вимкнено",
+      "disabledWebSocket": "Вимкнено (WebSocket)",
+      "running": "Працює",
+      "notRunning": "Не працює",
+      "installing": "Встановлення…",
+      "error": "Помилка",
+      "processing": "Обробка: {words}",
+      "lastLine": "Останній рядок: {time}",
+      "lastLineNotReceived": "Ще не отримано",
+      "tooltipGsm": "Статус: {status}\nWebSockets: {websockets}\nOBS: {obs}\nAnki: {anki}\nОстанній рядок: {lastLine}",
+      "tooltipGsmStopped": "GSM зупинено.",
+      "tooltipClipboardEnabled": "Моніторинг буфера обміну увімкнено.",
+      "tooltipClipboardDisabledWs": "Моніторинг буфера обміну вимкнено, оскільки текст надходить через WebSocket.",
+      "tooltipClipboardDisabled": "Моніторинг буфера обміну вимкнено.",
+      "tooltipObs": "Натисніть, щоб відкрити OBS",
+      "tooltipObsConnected": "OBS підключено. Натисніть, щоб відкрити.",
+      "tooltipObsDisconnected": "OBS відключено. Натисніть, щоб відкрити.",
+      "tooltipAnkiConnected": "Anki підключено.",
+      "tooltipAnkiDisconnected": "Anki відключено.",
+      "tooltipWsConnected": "{name} підключено.",
+      "timeSeconds": "{n} секунд тому",
+      "timeMinutes": "{n} хвилин тому",
+      "timeHours": "{n} годин тому",
+      "timeDays": "{n} днів тому"
+    },
+    "obs": {
+      "title": "Активне захоплення гри",
+      "required": "Обов'язково",
+      "gameLabel": "Гра:",
+      "refreshScenes": "Оновити ігри",
+      "renameScene": "Перейменувати захоплення гри",
+      "removeGame": "Видалити гру",
+      "rename": "Перейменувати",
+      "remove": "Видалити",
+      "switchProfile": "Змінити профіль",
+      "preview": "Попередній перегляд",
+      "captureCardPrefix": "Карта захоплення: {title}",
+      "setupNewScene": "Налаштувати нове захоплення гри:",
+      "refreshWindows": "Оновити вікна",
+      "selectWindow": "Виберіть вікно",
+      "setupCapture": "Налаштувати захоплення",
+      "setupCaptureTooltip": "Налаштування захоплення додає Window/Game Capture для вікон або Video Capture Device для карт захоплення та камер.\nGSM надає перевагу Game Capture, коли це працює, а захоплення карти захоплення використовують Video Capture Device.\nНа Linux/Steam Deck наразі використовується XComposite Window Capture.\nЗахоплення карти захоплення створюються без автоматичного перемикання за назвою вікна.",
+      "overrideSceneName": "Замінити назву захоплення гри (необов'язково):",
+      "captureCardToggle": "Перевірити карти захоплення/камери:",
+      "captureCardTooltip": "Коли увімкнено, шукає підключені карти захоплення та камери на додаток до вікон програм.",
+      "loading": "Завантаження...",
+      "noCaptureTargets": "Цілей захоплення не знайдено",
+      "sectionWindows": "Вікна / Ігри",
+      "sectionCaptureCards": "Карти захоплення / Камери",
+      "notSupportedOS": "Потрібно налаштувати захоплення гри в OBS на цій ОС.",
+      "notSupportedTooltip": "Не підтримується на цій ОС"
+    },
+    "rename": {
+      "title": "Перейменувати захоплення гри",
+      "description": "Зміниться лише назва захоплення гри. Джерела залишаються без змін.",
+      "cancel": "Скасувати",
+      "confirm": "Перейменувати"
+    },
+    "overlay": {
+      "title": "Оверлей",
+      "statusRunning": "Працює",
+      "statusStopped": "Не працює",
+      "guide": "Посібник з налаштування",
+      "runOnStartup": "Запускати при старті",
+      "runOnStartupTooltip": "Автоматично запускати оверлей GSM під час запуску GSM."
+    },
+    "actions": {
+      "title": "Утиліти",
+      "gsmSettings": "Налаштування GSM",
+      "gsmSettingsTooltip": "Відкрити панель налаштувань GSM",
+      "texthooker": "Відкрити Text Feed",
+      "texthookerTooltip": "Відкрити Text Feed для захоплення тексту з гри",
+      "overlay": "Запустити оверлей",
+      "overlayTooltip": "Запустити оверлей Yomitan для пошуку в грі",
+      "overlaySettings": "Налаштування оверлею",
+      "overlaySettingsTooltip": "Відкрити панель налаштувань оверлею",
+      "overlayPlatformWarning": "Підтримка оверлею на цій платформі є експериментальною.",
+      "overlayWiki": "Посібник з налаштування оверлею"
+    },
+    "support": {
+      "text": "Підтримати GSM",
+      "githubSponsors": "GitHub Sponsors",
+      "kofi": "Ko-fi"
+    }
+  },
+  "app": {
+    "tabs": {
+      "home": "Головна",
+      "ocr": "OCR",
+      "stats": "Статистика",
+      "gameSettings": "Налаштування гри",
+      "settings": "Налаштування",
+      "python": "Python",
+      "logs": "Журнали"
+    },
+    "header": {
+      "github": "GitHub",
+      "discord": "Discord"
+    },
+    "stats": {
+      "loading": "Очікування завантаження статистики GSM..."
+    },
+    "console": {
+      "openLogsFolder": "Відкрити папку журналів",
+      "openLogsFolderTooltip": "Відкрити папку журналів",
+      "exportLogs": "Експортувати журнали",
+      "exportLogsTooltip": "Експортувати журнали в zip-архів",
+      "modeSimple": "Режим: Простий",
+      "modeAdvanced": "Режим: Розширений",
+      "modeSimpleTooltip": "Перемкнути на розширений режим (показує основні + фонові журнали)",
+      "modeAdvancedTooltip": "Перемкнути на простий режим (приховує фонові журнали)"
+    },
+    "python": {
+      "cancel": "Скасувати",
+      "cuda": {
+        "title": "Встановлення CUDA",
+        "install": "Встановити підтримку CUDA GPU",
+        "uninstall": "Видалити підтримку CUDA",
+        "installTitle": "Встановити підтримку CUDA GPU",
+        "installMessage": "Встановити підтримку CUDA GPU?",
+        "installDetail": "Встановлює onnxruntime-gpu для швидшої обробки.\n\n- Потребує додаткового місця\n- Може бути несумісним з деякими системами\n- Встановлюйте на власний ризик",
+        "installConfirm": "Встановити",
+        "installCancelled": "Встановлення CUDA скасовано.",
+        "installing": "Встановлення підтримки CUDA GPU...",
+        "uninstallTitle": "Видалити підтримку CUDA GPU",
+        "uninstallMessage": "Видалити підтримку CUDA GPU?",
+        "uninstallDetail": "Видаляє onnxruntime-gpu і може виправити проблеми з GPU.",
+        "uninstallConfirm": "Видалити",
+        "uninstallCancelled": "Видалення CUDA скасовано.",
+        "uninstalling": "Видалення підтримки CUDA GPU..."
+      },
+      "management": {
+        "title": "Керування GSM",
+        "resetDeps": "Скинути залежності Python",
+        "resetTitle": "Скинути залежності Python",
+        "resetMessage": "Скинути залежності Python?",
+        "resetDetail": "Запускає \"uv sync\" та відновлює версії залежностей з файлу блокування.",
+        "resetConfirm": "Скинути",
+        "resetCancelled": "Скидання залежностей скасовано.",
+        "resetting": "Скидання залежностей Python..."
+      },
+      "customPackage": {
+        "title": "Встановлення користувацького пакета",
+        "label": "Назва пакета",
+        "placeholder": "numpy, requests тощо.",
+        "installBtn": "Встановити пакет",
+        "enterName": "Будь ласка, введіть назву пакета.",
+        "installing": "Встановлення пакета: {package}..."
+      },
+      "envInfo": {
+        "title": "Інформація про середовище Python",
+        "version": "Версія Python: {version}",
+        "path": "Шлях Python: {path}",
+        "pipVersion": "Версія Pip: {version}",
+        "unknown": "Невідомо",
+        "error": "Помилка завантаження",
+        "loading": "Завантаження...",
+        "refresh": "Оновити інформацію"
+      }
+    }
+  },
+  "wizard": {
+    "skip": "Пропустити налаштування",
+    "back": "← Назад",
+    "next": "Далі →",
+    "getStarted": "Почати →",
+    "welcome": {
+      "title": "Ласкаво просимо до GameSentenceMiner! 🎮",
+      "description": "GSM допомагає автоматично створювати картки Anki з ігор, у які ви граєте. Він захоплює текст, аудіо та скріншоти для створення якісних карток для вивчення мови.",
+      "whatYouNeed": "Що вам знадобиться:",
+      "ankiLabel": "Anki",
+      "ankiWith": "з",
+      "ankiConnect": "AnkiConnect",
+      "ankiAddonRunning": "додатком встановленим та запущеним",
+      "textSourceLabel": "Джерело тексту",
+      "textSourceDesc": "— Agent, Textractor або вбудований OCR",
+      "obsLabel": "OBS Studio",
+      "obsDesc": "(необов'язково) — для запису аудіо/відео",
+      "hint": "Цей майстер проведе вас через основи. Ви завжди можете змінити налаштування пізніше."
+    },
+    "textSources": {
+      "title": "Джерела тексту 📝",
+      "description": "GSM потребує спосіб читати текст з вашої гри. Ось найпоширеніші варіанти:",
+      "agentTitle": "🔌 Agent (Рекомендовано)",
+      "agentDesc": "Працює з більшістю візуальних новел. Підключається автоматично через websocket на порту 9001.",
+      "agentLink": "Отримати Agent →",
+      "ocrTitle": "👁️ Вбудований OCR",
+      "ocrDesc": "Використовуйте екранний OCR для ігор, де перехоплення тексту не працює. Налаштуйте на вкладці OCR після налаштування.",
+      "clipboardTitle": "📋 Буфер обміну",
+      "clipboardDesc": "Якщо ваше джерело тексту копіює в буфер обміну, GSM може читати звідти автоматично.",
+      "hint": "Джерела websocket (Agent, Textractor, LunaTranslator) можна налаштувати в Налаштуваннях → Загальні."
+    },
+    "connectivity": {
+      "title": "Перевірка з'єднання 🔗",
+      "description": "Перевіримо доступність ваших зовнішніх інструментів:",
+      "ankiLabel": "Anki (AnkiConnect)",
+      "checking": "Перевірка з'єднання...",
+      "ankiConnected": "Підключено! AnkiConnect працює.",
+      "ankiFailedPre": "Недоступно. Переконайтеся, що Anki відкрито з",
+      "ankiConnectAddon": "додатком AnkiConnect",
+      "ankiFailedPost": "встановленим.",
+      "obsLabel": "OBS Studio (WebSocket)",
+      "obsConnected": "Підключено! WebSocket сервер OBS працює.",
+      "obsFailed": "Недоступно. OBS необов'язковий — ви можете налаштувати його пізніше в Налаштуваннях.",
+      "hint": "Ви можете продовжити навіть якщо з'єднання не вдалося — налаштуйте їх пізніше в Налаштуваннях."
+    },
+    "finish": {
+      "title": "Все готово! 🎉",
+      "description": "GSM готовий до роботи. Ось кілька порад для початку:",
+      "tipHome": "Відкрийте вкладку <strong>Головна</strong>, щоб побачити поточний потік тексту гри",
+      "tipGameSettings": "Використовуйте <strong>Налаштування гри</strong>, щоб налаштувати профілі для кожної гри",
+      "tipSettings": "Перевірте вкладку <strong>Налаштування</strong> для конфігурації Anki, аудіо та гарячих клавіш",
+      "tipConsole": "Вкладка <strong>Журнали</strong> показує, що GSM робить за лаштунками",
+      "guidePre": "Для детальних посібників та вирішення проблем відвідайте",
+      "guideWikiLink": "Wiki GSM",
+      "guideOr": "або приєднайтесь до",
+      "guideDiscordLink": "спільноти Discord"
+    }
+  },
+  "install": {
+    "title": "Встановлення GSM",
+    "preparing": "Підготовка до налаштування...",
+    "steps": "{completed}/{total} кроків",
+    "stages": {
+      "pythonSetup": "Налаштування Python",
+      "gsmBackend": "Бекенд GSM",
+      "obs": "OBS",
+      "ffmpeg": "FFmpeg",
+      "oneocr": "OneOCR",
+      "finalize": "Завершення"
+    },
+    "status": {
+      "done": "Готово",
+      "completed": "Завершено.",
+      "skipped": "Пропущено",
+      "skippedDetail": "Пропущено.",
+      "failed": "Помилка",
+      "failedDetail": "Помилка.",
+      "downloading": "Завантаження",
+      "working": "Виконується",
+      "workingDetail": "Виконується...",
+      "pending": "Очікує",
+      "waiting": "Очікування..."
+    },
+    "estimatedProgress": "Приблизний прогрес — встановлення ще активне.",
+    "logs": "Журнали",
+    "waitingForLogs": "Очікування журналів...",
+    "emptyLog": "(порожньо)",
+    "retry": "Повторити",
+    "openLogs": "Відкрити журнали",
+    "quit": "Вийти"
+  },
+  "settings": {
+    "hub": {
+      "findSetting": "Знайти налаштування",
+      "findDescription": "Шукайте те, що хочете змінити, і GSM відкриє потрібний екран налаштувань.",
+      "openGSMSettings": "Відкрити головні налаштування GSM",
+      "openOverlaySettings": "Відкрити налаштування оверлею",
+      "searchLabel": "Знайти налаштування:",
+      "searchPlaceholder": "Спробуйте: поля anki, пароль OBS, область OCR, гаряча клавіша furigana, JPDB",
+      "searchHint": "Спробуйте повсякденні слова, назви функцій, гарячі клавіші, порти, назви полів або інструментів.",
+      "resultCount": "{count} результат",
+      "resultCountPlural": "{count} результатів",
+      "noResults": "Відповідних налаштувань не знайдено. Спробуйте ширші слова: anki, гарячі клавіші, оверлей, OBS або аудіо.",
+      "overlayNotAvailable": "Налаштування оверлею не вдалося відкрити автоматично. Спочатку запустіть/підключіть оверлей або використовуйте його іконку в треї."
+    },
+    "desktop": {
+      "title": "Налаштування десктопного додатку",
+      "iconStyle": "Стиль іконки:",
+      "iconDefault": "Стандартний",
+      "iconAnimeGirl": "Аніме дівчина",
+      "iconJacked": "Накачаний",
+      "iconCursed": "Проклятий",
+      "iconAnimeGirlTray": "Аніме дівчина (також іконка в треї)",
+      "iconJackedTray": "Накачаний (також іконка в треї)",
+      "iconCursedTray": "Проклятий (також іконка в треї)",
+      "iconRandom": "Випадковий",
+      "iconRandomTray": "Випадковий (також іконка в треї)",
+      "language": "Мова:",
+      "startMinimized": "Запускати консоль згорнутою:",
+      "showYuzuLauncher": "Показувати Yuzu Launcher:",
+      "runTransparencyOnStartup": "Запускати інструмент прозорості вікон при старті:",
+      "runOverlayOnStartup": "Запускати оверлей при старті:"
+    },
+    "visibility": {
+      "title": "Налаштування видимості",
+      "visibleTabs": "Видимі вкладки:",
+      "tabGameSettings": "Налаштування гри",
+      "tabStats": "Статистика",
+      "tabPython": "Python",
+      "tabConsole": "Консоль",
+      "statsTarget": "Ціль статистики:"
+    },
+    "transparency": {
+      "title": "Інструмент прозорості (Застарілий)",
+      "toolHotkey": "Гаряча клавіша інструменту:",
+      "windowTarget": "Цільове вікно:",
+      "windowTargetPlaceholder": "Залиште порожнім для вибору активного вікна",
+      "runTool": "Запустити інструмент прозорості вікон"
+    },
+    "updates": {
+      "title": "Оновлення",
+      "autoUpdate": "Автооновлення:",
+      "betaUpdates": "Бета-оновлення:",
+      "betaTooltip": "Отримувати бета-оновлення з гілки develop. Пропонуватимуться лише новіші версії.",
+      "description": "Перевірте пакет бекенду та десктопний додаток звідси.",
+      "backend": "Бекенд GameSentenceMiner",
+      "electronApp": "Додаток Electron",
+      "current": "Поточна: {version}",
+      "latest": "Остання: {version}",
+      "channel": "Канал: {channel}",
+      "upToDate": "Актуальна версія",
+      "manualBranch": "Ручне відстеження гілки",
+      "lastChecked": "Остання перевірка: {time}",
+      "checkForUpdates": "Перевірити оновлення",
+      "checking": "Перевірка...",
+      "updateNow": "Оновити зараз",
+      "updating": "Оновлення...",
+      "unknown": "Невідомо"
+    },
+    "catalog": {
+      "alreadyOnScreen": "Вже на цьому екрані",
+      "openGSMSettings": "Відкрити головні налаштування GSM",
+      "openOverlaySettings": "Відкрити налаштування оверлею",
+      "locationElectron": "Цей екран",
+      "locationPython": "Головні налаштування GSM",
+      "locationOverlay": "Налаштування оверлею",
+      "desktopAppearance": {
+        "label": "Зовнішній вигляд та запуск десктопного додатку",
+        "description": "Змінити візуальні ефекти, іконки трею та поведінку при запуску."
+      },
+      "desktopTabs": {
+        "label": "Вкладки та статистика",
+        "description": "Показати або сховати вкладки та вибрати сторінку статистики за замовчуванням."
+      },
+      "desktopUpdates": {
+        "label": "Оновлення та бета-релізи",
+        "description": "Керування перевіркою оновлень та пропозицією бета-збірок.",
+        "notes": "Деякі зміни оновлень набудуть чинності після наступного запуску."
+      },
+      "keySettings": {
+        "label": "Ключові налаштування",
+        "description": "Основне налаштування, порти підключення та найважливіші налаштування першого запуску.",
+        "notes": "Зберігається в профілі GSM."
+      },
+      "general": {
+        "label": "Загальні",
+        "description": "Загальна поведінка, папки, статус Discord та налаштування очищення тексту.",
+        "notes": "Зберігається в профілі GSM."
+      },
+      "anki": {
+        "label": "Anki",
+        "description": "Колоди, поля, поведінка спливаючого вікна підтвердження та теги для карток Anki.",
+        "notes": "Зберігається в профілі GSM."
+      },
+      "screenshot": {
+        "label": "Скріншот",
+        "description": "Налаштування розміру, формату, часу та анімованого захоплення скріншотів.",
+        "notes": "Зберігається в профілі GSM."
+      },
+      "audio": {
+        "label": "Аудіо",
+        "description": "Аудіокліпи, обрізка, експорт, виявлення голосу та налаштування моделі мовлення.",
+        "notes": "Зберігається в профілі GSM."
+      },
+      "obs": {
+        "label": "OBS",
+        "description": "Захоплення ігор OBS, запис та пов'язана поведінка захоплення.",
+        "notes": "Зберігається в профілі GSM."
+      },
+      "ai": {
+        "label": "ШІ та переклад",
+        "description": "Провайдери ШІ, промпти, налаштування перекладу та GSM Cloud.",
+        "notes": "Зберігається в профілі GSM."
+      },
+      "overlayOcr": {
+        "label": "OCR оверлею",
+        "description": "Вибір монітора, області OCR та поведінки захоплення бекенд-оверлею.",
+        "notes": "Зберігається в профілі GSM."
+      },
+      "advanced": {
+        "label": "Розширені",
+        "description": "Розширена мережа, шляхи плеєра, порти та експериментальне призупинення процесів.",
+        "notes": "Більшості користувачів це не знадобиться часто."
+      },
+      "profiles": {
+        "label": "Профілі",
+        "description": "Створення, копіювання, видалення та перемикання між профілями GSM.",
+        "notes": "Профілі зберігають різні налаштування для різних ігор."
+      },
+      "overlayDisplay": {
+        "label": "Відображення та гарячі клавіші оверлею",
+        "description": "Видимість оверлею, відображення фуриґани, індикатори, зміщення та гарячі клавіші.",
+        "notes": "Зберігається у вікні оверлею."
+      },
+      "overlayTranslation": {
+        "label": "Переклад та інструменти читання оверлею",
+        "description": "Запити перекладу, інструменти читання, Yomitan та параметри Text Feed.",
+        "notes": "Зберігається у вікні оверлею."
+      },
+      "overlayGamepad": {
+        "label": "Навігація геймпадом в оверлеї",
+        "description": "Навігація контролером, бекенди токенізатора, перемикання клавіатури та тестування вводу.",
+        "notes": "Зберігається у вікні оверлею."
+      }
+    }
+  },
+  "launcher": {
+    "title": "Налаштування гри",
+    "docsButton": "Документація автозапуску",
+    "docsButtonTooltip": "Відкрити документацію автозапуску",
+    "infoLabel": "Огляд налаштувань гри",
+    "overviewTooltip": "Налаштуйте спільні шляхи text hook та автоматизацію для кожної гри. Виберіть один режим text hook (Немає/Agent/Textractor/Luna) та один режим OCR (Немає/Авто/Ручний) для кожної гри.",
+    "shared": {
+      "title": "Спільні налаштування інструментів",
+      "collapse": "Згорнути спільні налаштування інструментів.",
+      "expand": "Розгорнути спільні налаштування інструментів.",
+      "agentPath": "Шлях до Agent:",
+      "agentScriptsPath": "Шлях до скриптів Agent:",
+      "textractor64": "Шлях до Textractor 64-біт:",
+      "textractor32": "Шлях до Textractor 32-біт:",
+      "lunaPath": "Шлях до LunaTranslator:",
+      "browse": "Огляд",
+      "download": "Завантажити",
+      "downloading": "Завантаження...",
+      "downloadingPercent": "Завантаження {percent}%",
+      "launchAgentMinimized": "Запускати Agent згорнутим:",
+      "disclaimer": "Завантаження здійснюються з офіційних релізів GitHub. Будь ласка, ознайомтесь з ліцензією та умовами кожного проєкту перед використанням."
+    },
+    "scene": {
+      "title": "Автоматизація ігор",
+      "activeScene": "Активна гра OBS:",
+      "notSelected": "Не вибрано",
+      "configureScene": "Налаштувати гру:",
+      "noScenesFound": "Ігор не знайдено",
+      "refresh": "Оновити",
+      "textHookLauncher": "Запуск Text Hook:",
+      "modeNone": "Немає",
+      "modeAgent": "Agent",
+      "modeTextractor": "Textractor",
+      "modeLuna": "LunaTranslator",
+      "launchDelay": "Затримка запуску інструменту (секунди):",
+      "agentScript": "Скрипт Agent:",
+      "search": "Пошук",
+      "searchHint": "Пошук показує всі скрипти та ранжує ймовірні збіги вгорі.",
+      "ocrMode": "Режим OCR:",
+      "ocrNone": "Немає",
+      "ocrAuto": "Авто OCR",
+      "ocrManual": "Ручний OCR",
+      "launchOverlay": "Запускати оверлей з грою:",
+      "noSceneHint": "Виберіть або перемкніться на гру OBS, щоб налаштувати автоматизацію."
+    },
+    "scriptPicker": {
+      "title": "Пошук скрипту Agent ({filtered}/{total})",
+      "close": "Закрити",
+      "closeTooltip": "Закрити діалог вибору скрипту.",
+      "searchPlaceholder": "Шукати скрипти за назвою або шляхом...",
+      "noResults": "Жоден скрипт не відповідає вашому запиту.",
+      "explicitId": "Явний ID",
+      "titleId": "ID заголовка",
+      "nameMatch": "Збіг за назвою",
+      "fuzzyMatch": "Нечіткий збіг",
+      "possibleMatch": "Можливий збіг",
+      "matchPercent": "{percent}% збіг"
+    },
+    "status": {
+      "openedReleases": "Відкрито сторінку релізів {label}.",
+      "failedOpenReleases": "Не вдалося відкрити сторінку релізів.",
+      "failedOpenDocs": "Не вдалося відкрити документацію.",
+      "savedShared": "Збережено спільні налаштування гри.",
+      "updatedPath": "Оновлено спільне налаштування шляху.",
+      "savedScene": "Збережено автоматизацію для гри: {scene}",
+      "updatedScript": "Оновлено скрипт agent для гри: {scene}",
+      "failedListScripts": "Не вдалося отримати список скриптів для гри: {scene}",
+      "noScriptsFound": "Скриптів не знайдено для гри: {scene}",
+      "selectedScript": "Вибрано скрипт agent для гри: {scene}",
+      "downloadPreparing": "Завантаження та встановлення {tool}...",
+      "downloadInstalled": "Встановлено {tool}{version}.{message}",
+      "downloadNotFound": "Відповідне завантаження {tool} не знайдено в останньому релізі.",
+      "downloadCanceled": "Завантаження скасовано для {tool}.",
+      "downloadFailed": "Не вдалося встановити {tool}."
+    },
+    "tooltips": {
+      "sharedToolSettings": "Спільні шляхи, що використовуються налаштуваннями гри для всіх ігор у цьому профілі.",
+      "sceneAutomation": "Поведінка запуску для конкретної гри. Кожна гра може використовувати різні налаштування text hook та OCR.",
+      "agentPath": "Шлях до виконуваного файлу Agent, що використовується, коли запуск Text Hook встановлено на Agent.",
+      "agentScriptsPath": "Папка зі скриптами Agent (.js). Використовується для автовиявлення та огляду за замовчуванням.",
+      "textractor64": "Шлях до 64-бітного виконуваного файлу Textractor. Використовується, коли запуск гри встановлено на Textractor.",
+      "textractor32": "Шлях до 32-бітного виконуваного файлу Textractor. Використовується для 32-бітних ігор, коли доступний.",
+      "lunaPath": "Шлях до виконуваного файлу LunaTranslator. Використовується, коли запуск гри встановлено на LunaTranslator.",
+      "launchAgentMinimized": "Запускати Agent згорнутим/прихованим на Windows.",
+      "activeScene": "Поточна активна гра OBS. Зміни конфігурації застосовуються до вибраного значення Налаштувати гру.",
+      "configureScene": "Виберіть, яку гру OBS ви редагуєте на цій вкладці.",
+      "refreshScenes": "Оновити список ігор OBS з поточного підключення OBS.",
+      "textHookMode": "Виберіть один режим запуску text hook для цієї гри.",
+      "textHookNone": "Не запускати автоматично інструмент text hook для цієї гри.",
+      "textHookAgent": "Запустити Agent для цієї гри та використовувати налаштований скрипт Agent.",
+      "textHookTextractor": "Автоматично запускати Textractor, коли ця гра стає активною.",
+      "textHookLuna": "Автоматично запускати LunaTranslator, коли ця гра стає активною.",
+      "launchDelay": "Затримка перед запуском вибраного інструменту text hook для цієї гри.",
+      "agentScript": "Шлях до скрипту Agent для цієї гри. Можна встановити вручну, оглянути або знайти.",
+      "launchOverlay": "Запускати оверлей GSM під час активної сесії цієї гри та закривати автоматично запущений оверлей після завершення гри/сесії.",
+      "browseScript": "Відкрити вибір файлу та обрати скрипт Agent для цієї гри.",
+      "searchScript": "Шукати всі скрипти в папці скриптів Agent, ранжовані за схожістю з грою.",
+      "downloadAgent": "Завантажити останній Agent з офіційних релізів GitHub. Виберіть будь-яку папку для встановлення.",
+      "downloadTextractor": "Завантажити останній Textractor з офіційних релізів GitHub. Виберіть будь-яку папку для встановлення. Встановлює шляхи x64 та x86.",
+      "downloadLuna": "Відкрити офіційну сторінку релізів LunaTranslator на GitHub.",
+      "ocrMode": "Виберіть один режим OCR для цієї гри.",
+      "ocrNone": "Не запускати OCR для цієї гри.",
+      "ocrAuto": "Запустити безперервний авто OCR, коли ця гра активна.",
+      "ocrManual": "Запустити ручний OCR для цієї гри. Захоплення OCR залишається ручним через елементи керування/гарячі клавіші.",
+      "status": "Останній статус збереження/виявлення з дій налаштувань гри.",
+      "candidatePicker": "Виберіть найкращий відповідний кандидат скрипту Agent для цієї гри.",
+      "noScene": "Профіль гри не завантажено. Спочатку виберіть гру."
+    }
+  },
+  "ocr": {
+    "sceneAndAreas": {
+      "title": "Гра та області",
+      "areaCount": "{count} область",
+      "areaCountPlural": "{count} областей",
+      "sceneLabel": "Гра:",
+      "loading": "Завантаження...",
+      "noScenes": "Ігор не знайдено",
+      "reloadScenes": "Перезавантажити ігри",
+      "selectAreas": "Вибрати області OCR",
+      "importAreas": "Імпортувати області",
+      "exportAreas": "Експортувати області",
+      "ocrGuide": "Посібник OCR"
+    },
+    "settings": {
+      "title": "Налаштування OCR",
+      "advanced": "Розширені",
+      "scanRate": "Частота сканування (с):",
+      "textSpeed": "Швидкість тексту:",
+      "language": "Мова:",
+      "scanImageQuality": "Якість зображення сканування",
+      "furiganaFilter": "Фільтр фуриґани",
+      "preview": "Попередній перегляд",
+      "copyToClipboard": "Копіювати в буфер обміну:",
+      "lineBreaks": "Переноси рядків:",
+      "auto": "Авто",
+      "menu": "Меню",
+      "areaSelect": "Вибір області"
+    },
+    "pipeline": {
+      "title": "Конвеєр розпізнавання",
+      "twoPassFlow": "Двопрохідний потік:",
+      "singlePassFlow": "Однопрохідний потік:",
+      "stabilityOcr": "OCR стабільності:",
+      "mainOcr": "Основний OCR:",
+      "twoPassOcr": "Двопрохідний OCR:",
+      "optimizeSecondScan": "Оптимізувати друге сканування:",
+      "ocrClipboardImages": "OCR зображень буфера обміну:"
+    },
+    "comparison": {
+      "title": "Налаштування порівняння тексту",
+      "expertTitle": "Експертні евристики",
+      "duplicateThreshold": { "label": "Поріг збігу дублікатів (%)", "title": "Вищі значення суворіші. Підвищте, якщо різні рядки вважаються дублікатами." },
+      "changeThreshold": { "label": "Поріг зміни тексту (%)", "title": "Нижчі значення запускають OCR2 раніше при часткових змінах. Вищі значення чекають на чіткіші зміни." },
+      "evolvingPrefix": { "label": "Збіг еволюційного префікса (%)", "title": "Використовується при перевірці, чи короткий рядок виглядає як початок довшого рядка." },
+      "truncationFallbackMin": { "label": "Мін. поріг резервного усічення (%)", "title": "Мінімальний поріг порівняння, необхідний перед дозволом збігу усічення префікса або суфікса." },
+      "truncationStrictMin": { "label": "Суворий поріг усічення (%)", "title": "Вище цього порогу GSM також вимагає сильнішої базової подібності перед тим, як вважати усічення тим самим текстом." },
+      "truncationMargin": { "label": "Базовий запас усічення", "title": "Наскільки нижче порогу порівняння може бути базова подібність перед тим, як резервне усічення буде відхилено." },
+      "truncationMinLength": { "label": "Мін. довжина усічення (символів)", "title": "Найкоротша нормалізована довжина рядка, дозволена для збігу усічення." },
+      "truncationMinRatio": { "label": "Мін. співвідношення довжини усічення (%)", "title": "Яку частину довшого рядка має покривати коротший рядок перед розглядом збігу усічення." },
+      "subsetChunkMinLength": { "label": "Мін. довжина підмножини фрагмента (символів)", "title": "Вхідні фрагменти OCR, коротші за це значення, пропускають резервне покриття фрагментів, якщо вони не є точними збігами." },
+      "shortChunkLimit": { "label": "Ліміт короткого фрагмента (символів)", "title": "Фрагменти цієї довжини або менше використовують менший мінімум блоку збігу." },
+      "shortChunkMinSize": { "label": "Мін. розмір збігу короткого фрагмента", "title": "Мінімальний безперервний розмір збігу для коротких фрагментів." },
+      "defaultMinSize": { "label": "Стандартний мін. розмір збігу", "title": "Мінімальний безперервний розмір збігу для довших фрагментів." },
+      "coverageFloor": { "label": "Мін. покриття підмножини (%)", "title": "Найнижча допустима вимога покриття фрагментів для резервної дедуплікації." },
+      "coverageCeiling": { "label": "Макс. покриття підмножини (%)", "title": "Найвища допустима вимога покриття фрагментів для резервної дедуплікації." },
+      "coverageOffset": { "label": "Зміщення порогу покриття", "title": "Зміщення, що застосовується перед перетворенням поточного порогу порівняння у вимогу покриття." },
+      "longestBlockMin": { "label": "Мінімум найдовшого блоку (символів)", "title": "Мінімальний безперервний розмір блоку, необхідний у режимі покриття підмножини." },
+      "longestBlockDivisor": { "label": "Дільник найдовшого блоку", "title": "Більші значення зменшують необхідну безперервну довжину блоку для довших фрагментів." }
+    },
+    "hotkeys": {
+      "title": "Гарячі клавіші",
+      "manualMenu": "Ручний / Меню:",
+      "areaSelect": "Вибір області:",
+      "wholeWindow": "Все вікно:",
+      "pause": "Пауза:"
+    },
+    "console": {
+      "title": "Консоль",
+      "active": "Активний",
+      "idle": "Очікування",
+      "paused": "Призупинено",
+      "clear": "Очистити"
+    },
+    "debug": {
+      "title": "Додаткові та інструменти налагодження",
+      "ignoreRun1Logs": "Ігнорувати журнали \"OCR Run 1\":",
+      "processPriority": "Пріоритет процесу:",
+      "defaultFuriganaSensitivity": "Стандартна чутливість фуриґани:",
+      "obsCapturePreprocess": "Попередня обробка захоплення OBS:",
+      "installDependency": "Встановити залежність:",
+      "installBtn": "Встановити",
+      "removeDependency": "Видалити залежність:",
+      "uninstallBtn": "Видалити",
+      "ocrErrorFixes": "Виправлення помилок OCR",
+      "configFile": "Файл конфігурації",
+      "configFolder": "Папка конфігурації",
+      "globalConfig": "Глобальна конфігурація",
+      "tempFolder": "Тимчасова папка"
+    },
+    "footer": {
+      "running": "Працює",
+      "paused": "Призупинено",
+      "ready": "Готово",
+      "needsAreas": "Потрібні області",
+      "ocrRuntime": "Середовище OCR",
+      "noSceneSelected": "Гру не вибрано",
+      "sceneHasAreas": "{scene} має {count} OCR {areaWord}.",
+      "noAreasForScene": "Немає збережених областей OCR для {scene}.",
+      "stopOcr": "Зупинити OCR",
+      "resumeOcr": "Відновити OCR",
+      "pauseOcr": "Призупинити OCR",
+      "startAutoOcr": "Запустити авто OCR",
+      "startManualOcr": "Запустити ручний OCR",
+      "needAreasFirst": "Намалюйте області OCR для цієї гри перед запуском {mode} OCR."
+    },
+    "runtime": {
+      "idle": "Очікування",
+      "startingAuto": "Запуск авто OCR...",
+      "startingManual": "Запуск ручного OCR...",
+      "runningManual": "Ручний OCR працює",
+      "runningManualWith": "Ручний OCR працює з {engine}",
+      "runningAutoWith": "Авто OCR працює з {engine} кожні {rate}с",
+      "runningAutoAt": "Авто OCR працює кожні {rate}с",
+      "scanningWith": "Сканування з {engine} за {speed}с",
+      "scanning": "Сканування з {engine}",
+      "sleeping": "Сон: зображення порожнє або без змін",
+      "areaSelectionFinished": "Вибір області OCR завершено.",
+      "failedSwitchScene": "Не вдалося перемкнути гру.",
+      "configReloaded": "Конфігурацію перезавантажено",
+      "forceStableEnabled": "Примусовий стабільний режим увімкнено",
+      "forceStableDisabled": "Примусовий стабільний режим вимкнено"
+    },
+    "engines": {
+      "glens": "Google Lens",
+      "bing": "Bing",
+      "oneocr": "OneOCR",
+      "screenai": "ScreenAI OCR",
+      "meikiocr": "Meiki OCR",
+      "gemini": "Gemini",
+      "gvision": "Google Vision",
+      "azure": "Azure Image Analysis",
+      "ocrspace": "OCRSpace",
+      "local_llm_ocr": "Local LLM OCR",
+      "alivetext": "Apple Live Text",
+      "mlkitocr": "MLKit OCR",
+      "meiki_text_detector": "Meiki Text Detector"
+    },
+    "languages": {
+      "ja": "Японська",
+      "zh": "Китайська",
+      "ko": "Корейська",
+      "en": "Англійська (Латиниця)",
+      "es": "Іспанська",
+      "fr": "Французька",
+      "de": "Німецька",
+      "ru": "Російська",
+      "ar": "Арабська",
+      "hi": "Гінді"
+    },
+    "scanRates": {
+      "instant": "Миттєво",
+      "normal": "Нормально",
+      "slow": "Повільно",
+      "verySlow": "Дуже повільно"
+    },
+    "priorities": {
+      "low": "Низький",
+      "below_normal": "Нижче нормального",
+      "normal": "Нормальний",
+      "above_normal": "Вище нормального",
+      "high": "Високий"
+    },
+    "preprocess": {
+      "none": "Вимк.",
+      "grayscale": "Відтінки сірого",
+      "grayscale_unsharp": "Відтінки сірого + автоконтраст + нерізка маска"
+    },
+    "dependencies": {
+      "install": {
+        "fasterPng": "Швидший PNG (рекомендовано для Windows 11)",
+        "googleVision": "Google Vision",
+        "azure": "Azure",
+        "ocrspace": "OCRSpace"
+      },
+      "remove": {
+        "owocr": "OWOCR Base",
+        "protobuf": "Google Lens",
+        "oneocr": "OneOCR",
+        "fasterPng": "Швидший PNG",
+        "transformers": "Точна фільтрація",
+        "googleVision": "Google Vision",
+        "azure": "Azure",
+        "ocrspace": "OCRSpace"
+      }
+    },
+    "notices": {
+      "areaConfigImported": "Конфігурацію областей OCR імпортовано.",
+      "importFailed": "Помилка імпорту.",
+      "areaConfigExported": "Конфігурацію областей OCR скопійовано в буфер обміну.",
+      "exportFailed": "Помилка експорту."
+    }
+  }
+}
