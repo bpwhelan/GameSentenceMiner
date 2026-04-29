@@ -144,7 +144,7 @@ function RenameModal({ scene, onClose, onConfirm }: RenameModalProps) {
           </button>
         </div>
       </div>
-    </div>
+      </div>
   );
 }
 
