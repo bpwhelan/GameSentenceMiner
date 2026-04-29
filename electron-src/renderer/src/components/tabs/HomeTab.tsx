@@ -1,656 +1,784 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { invokeIpc } from "../../lib/ipc";
-import type {
-  GsmStatus,
-  ObsCaptureMode,
-  ObsScene,
-  ObsSetupTargetKind,
-  ObsWindow
-} from "../../types/models";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { invokeIpc, onIpc } from "../../lib/ipc";
+import { useTranslation } from "../../i18n";
+import type { GsmStatus, ObsScene, ObsWindow } from "../../types/models";
 
-const HELPER_SCENE_NAMES = new Set([
-  "GSM HELPER",
-  "GSM HELPER - DONT TOUCH",
-  "GSM Helper",
-  "GSM Helper - DONT TOUCH"
-]);
-
-function toObsScenes(value: unknown): ObsScene[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") {
-        return null;
-      }
-      const scene = entry as Partial<ObsScene>;
-      if (typeof scene.id !== "string" || typeof scene.name !== "string") {
-        return null;
-      }
-      return { id: scene.id, name: scene.name };
-    })
-    .filter((scene): scene is ObsScene => scene !== null);
-}
-
-function toObsWindows(value: unknown): ObsWindow[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") {
-        return null;
-      }
-      const windowEntry = entry as Partial<ObsWindow>;
-      if (typeof windowEntry.value !== "string") {
-        return null;
-      }
-      const captureValues =
-        windowEntry.captureValues &&
-        typeof windowEntry.captureValues === "object"
-          ? (Object.fromEntries(
-              Object.entries(windowEntry.captureValues).filter(
-                ([captureMode, captureValue]) =>
-                  (captureMode === "window_capture" ||
-                    captureMode === "game_capture") &&
-                  typeof captureValue === "string"
-              )
-            ) as Partial<Record<ObsCaptureMode, string>>)
-          : undefined;
-
-      const legacyCaptureMode =
-        typeof windowEntry.captureMode === "string" &&
-        (windowEntry.captureMode === "window_capture" ||
-          windowEntry.captureMode === "game_capture")
-          ? windowEntry.captureMode
-          : undefined;
-      const targetKind: ObsSetupTargetKind =
-        windowEntry.targetKind === "capture_card" ? "capture_card" : "window";
-
-      return {
-        title:
-          typeof windowEntry.title === "string"
-            ? windowEntry.title
-            : windowEntry.value,
-        value: windowEntry.value,
-        targetKind,
-        captureValues:
-          targetKind === "window"
-            ? captureValues ??
-              (legacyCaptureMode
-                ? {
-                    [legacyCaptureMode]: windowEntry.value
-                  }
-                : undefined)
-            : undefined,
-        captureMode: legacyCaptureMode,
-        videoDeviceId:
-          typeof windowEntry.videoDeviceId === "string"
-            ? windowEntry.videoDeviceId
-            : undefined,
-        audioDeviceId:
-          typeof windowEntry.audioDeviceId === "string"
-            ? windowEntry.audioDeviceId
-            : undefined,
-        wasapiInputDeviceId:
-          typeof windowEntry.wasapiInputDeviceId === "string"
-            ? windowEntry.wasapiInputDeviceId
-            : undefined
-      };
-    })
-    .filter((windowEntry): windowEntry is ObsWindow => windowEntry !== null);
-}
-
-function getSetupTargetLabel(windowEntry: ObsWindow): string {
-  return windowEntry.targetKind === "capture_card"
-    ? `Capture Card: ${windowEntry.title}`
-    : windowEntry.title;
-}
-
-function getRelativeTime(lastLineReceived?: string): string {
-  if (!lastLineReceived) {
-    return "Not received yet";
-  }
-
-  const elapsedSeconds = Math.floor(
-    (Date.now() - new Date(lastLineReceived).getTime()) / 1000
-  );
-
-  if (!Number.isFinite(elapsedSeconds) || elapsedSeconds < 0) {
-    return "Not received yet";
-  }
-  if (elapsedSeconds < 60) {
-    return `${elapsedSeconds} seconds ago`;
-  }
-  if (elapsedSeconds < 3600) {
-    return `${Math.floor(elapsedSeconds / 60)} minutes ago`;
-  }
-  if (elapsedSeconds < 86400) {
-    return `${Math.floor(elapsedSeconds / 3600)} hours ago`;
-  }
-  return `${Math.floor(elapsedSeconds / 86400)} days ago`;
-}
-
-function toWordsProcessingLabel(value: string | string[] | undefined): string {
-  if (Array.isArray(value)) {
-    return value.join(", ");
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  return "";
-}
+/* ------------------------------------------------------------------ */
+/*  Props                                                              */
+/* ------------------------------------------------------------------ */
 
 interface HomeTabProps {
   active: boolean;
 }
 
-export function HomeTab({ active }: HomeTabProps) {
-  const platform = window.gsmEnv?.platform ?? "win32";
-  const isWindows = platform === "win32";
+/* ------------------------------------------------------------------ */
+/*  Constants                                                          */
+/* ------------------------------------------------------------------ */
 
-  const [scenes, setScenes] = useState<ObsScene[]>([]);
-  const [selectedSceneId, setSelectedSceneId] = useState("");
-  const [windows, setWindows] = useState<ObsWindow[]>([]);
-  const [selectedWindowValue, setSelectedWindowValue] = useState("");
-  const [setupSceneName, setSetupSceneName] = useState("");
-  const [captureCardEnabled, setCaptureCardEnabled] = useState(false);
-  const [loadingScenes, setLoadingScenes] = useState(true);
-  const [loadingWindows, setLoadingWindows] = useState(isWindows);
+const HELPER_SCENE_NAMES = new Set([
+  "GSM HELPER",
+  "GSM HELPER - DONT TOUCH",
+  "GSM Helper",
+  "GSM Helper - DONT TOUCH",
+]);
 
-  const [gsmStatus, setGsmStatus] = useState<GsmStatus | null>(null);
-  const [statusError, setStatusError] = useState(false);
+const STATUS_POLL_MS = 1000;
+const SCENE_POLL_MS = 3000;
 
-  const selectedScene = useMemo(
-    () => scenes.find((scene) => scene.id === selectedSceneId),
-    [scenes, selectedSceneId]
+const OVERLAY_DOCS_URL =
+  "https://docs.gamesentenceminer.com/docs/features/overlay";
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+const platform = (window.gsmEnv?.platform ?? "win32") as string;
+const isWindows = platform === "win32";
+const isLinux = platform === "linux";
+const canEnumerateWindows = isWindows || isLinux;
+
+function relativeTime(
+  isoString: string | undefined | null,
+  t: ReturnType<typeof useTranslation>,
+): string {
+  if (!isoString) return t("home.status.lastLineNotReceived");
+  const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000);
+  if (Number.isNaN(diff)) return t("home.status.lastLineNotReceived");
+  if (diff < 60) return t("home.status.timeSeconds", { n: diff });
+  if (diff < 3600) return t("home.status.timeMinutes", { n: Math.floor(diff / 60) });
+  if (diff < 86400) return t("home.status.timeHours", { n: Math.floor(diff / 3600) });
+  return t("home.status.timeDays", { n: Math.floor(diff / 86400) });
+}
+
+/* ------------------------------------------------------------------ */
+/*  Status Bar                                                         */
+/* ------------------------------------------------------------------ */
+
+interface StatusPillProps {
+  icon: string;
+  label: string;
+  text: string;
+  variant: "ok" | "bad" | "neutral";
+  tooltip?: string;
+  onClick?: () => void;
+  clickable?: boolean;
+}
+
+function StatusPill({ icon, label, text, variant, tooltip, onClick, clickable }: StatusPillProps) {
+  return (
+    <button
+      className={`home-status-pill home-status-pill--${variant}${clickable ? " home-status-pill--clickable" : ""}`}
+      title={tooltip}
+      onClick={onClick}
+      type="button"
+      tabIndex={clickable ? 0 : -1}
+    >
+      <span className="home-status-pill__icon">{icon}</span>
+      <span className="home-status-pill__label">{label}</span>
+      <span className="home-status-pill__dot" />
+      <span className="home-status-pill__text">{text}</span>
+    </button>
   );
-  const removeSceneDisabled =
-    !selectedScene || HELPER_SCENE_NAMES.has(selectedScene.name);
+}
 
-  const selectedWindow = useMemo(
-    () => windows.find((windowEntry) => windowEntry.value === selectedWindowValue),
-    [windows, selectedWindowValue]
-  );
+/* ------------------------------------------------------------------ */
+/*  Rename Modal                                                       */
+/* ------------------------------------------------------------------ */
 
-  const refreshWindows = useCallback(async (quick = false) => {
-    if (!isWindows) {
-      setWindows([]);
-      setSelectedWindowValue("");
-      setLoadingWindows(false);
-      return;
-    }
+interface RenameModalProps {
+  scene: ObsScene | null;
+  onClose: () => void;
+  onConfirm: (newName: string) => void;
+}
 
-    if (!quick) setLoadingWindows(true);
-    const previousSelection = selectedWindowValue;
-
-    try {
-      const response = await invokeIpc<unknown>("obs.getWindows", { quick });
-      const nextWindows = toObsWindows(response);
-      setWindows(nextWindows);
-
-      const resolvedSelection =
-        (previousSelection &&
-          nextWindows.some((windowEntry) => windowEntry.value === previousSelection) &&
-          previousSelection) ||
-        nextWindows[0]?.value ||
-        "";
-
-      setSelectedWindowValue(resolvedSelection);
-      const selectedEntry = nextWindows.find(
-        (windowEntry) => windowEntry.value === resolvedSelection
-      );
-      setSetupSceneName((currentValue) => {
-        if (resolvedSelection !== previousSelection || !currentValue.trim()) {
-          return selectedEntry?.title ?? "";
-        }
-        return currentValue;
-      });
-    } catch (error) {
-      console.error("Failed to load OBS windows:", error);
-      setWindows([]);
-      setSelectedWindowValue("");
-      setSetupSceneName("");
-    } finally {
-      setLoadingWindows(false);
-    }
-  }, [isWindows, selectedWindowValue]);
-
-  const refreshScenesAndWindows = useCallback(async (quick = false) => {
-    if (!quick) setLoadingScenes(true);
-    const previousSceneSelection = selectedSceneId;
-
-    try {
-      const response = await invokeIpc<unknown>("obs.getScenes");
-      const nextScenes = toObsScenes(response);
-
-      let nextSelectedSceneId =
-        previousSceneSelection &&
-        nextScenes.some((scene) => scene.id === previousSceneSelection)
-          ? previousSceneSelection
-          : nextScenes[0]?.id || "";
-
-      try {
-        const activeScene = await invokeIpc<ObsScene | null>("obs.getActiveScene");
-        if (
-          activeScene &&
-          typeof activeScene.id === "string" &&
-          nextScenes.some((scene) => scene.id === activeScene.id)
-        ) {
-          nextSelectedSceneId = activeScene.id;
-        }
-      } catch (activeSceneError) {
-        console.warn("Failed to fetch active OBS scene:", activeSceneError);
-      }
-
-      setScenes(nextScenes);
-      setSelectedSceneId(nextSelectedSceneId);
-    } catch (error) {
-      console.error("Failed to load OBS scenes:", error);
-      setScenes([]);
-      setSelectedSceneId("");
-    } finally {
-      setLoadingScenes(false);
-    }
-
-    await refreshWindows(quick);
-  }, [refreshWindows, selectedSceneId]);
-
-  const pollGsmStatus = useCallback(async () => {
-    try {
-      const response = await invokeIpc<GsmStatus | null>("get_gsm_status");
-      setGsmStatus(response);
-      setStatusError(false);
-    } catch (error) {
-      console.error("Error fetching GSM status:", error);
-      setStatusError(true);
-    }
-  }, []);
+function RenameModal({ scene, onClose, onConfirm }: RenameModalProps) {
+  const t = useTranslation();
+  const [name, setName] = useState(scene?.name ?? "");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!active) {
-      return;
+    setName(scene?.name ?? "");
+    setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 0);
+  }, [scene]);
+
+  if (!scene) return null;
+
+  const submit = () => {
+    const trimmed = name.trim();
+    if (trimmed && trimmed !== scene.name) {
+      onConfirm(trimmed);
+    } else {
+      onClose();
     }
-    void invokeIpc<boolean>("obs.getCaptureCardProbeEnabled").then((enabled) => {
-      setCaptureCardEnabled(Boolean(enabled));
-    }).catch((error) => {
-      console.error("Failed to fetch capture-card probe state:", error);
-      setCaptureCardEnabled(false);
-    });
+  };
+
+  return (
+    <div
+      className="home-modal-backdrop"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="home-modal" role="dialog" aria-modal="true">
+        <h3>{t("home.rename.title")}</h3>
+        <p className="home-modal__desc">{t("home.rename.description")}</p>
+        <input
+          ref={inputRef}
+          className="home-input"
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); submit(); }
+            if (e.key === "Escape") { e.preventDefault(); onClose(); }
+          }}
+          autoComplete="off"
+        />
+        <div className="home-modal__actions">
+          <button type="button" className="secondary" onClick={onClose}>
+            {t("home.rename.cancel")}
+          </button>
+          <button type="button" onClick={submit}>
+            {t("home.rename.confirm")}
+          </button>
+        </div>
+      </div>
+      </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main HomeTab                                                       */
+/* ------------------------------------------------------------------ */
+
+export function HomeTab({ active }: HomeTabProps) {
+  const t = useTranslation();
+
+  /* ---- Status ---------------------------------------------------- */
+  const [status, setStatus] = useState<GsmStatus | null>(null);
+  const [statusError, setStatusError] = useState(false);
+  const [overlayRunning, setOverlayRunning] = useState(false);
+  const [runOverlayOnStartup, setRunOverlayOnStartup] = useState(false);
+
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const s = await invokeIpc<GsmStatus | null>("get_gsm_status");
+        if (!cancelled) { setStatus(s); setStatusError(false); }
+      } catch {
+        if (!cancelled) { setStatus(null); setStatusError(true); }
+      }
+      try {
+        const o = await invokeIpc<{ isRunning: boolean }>("getOverlayStatus");
+        if (!cancelled) setOverlayRunning(Boolean(o?.isRunning));
+      } catch { /* swallow */ }
+    };
+
+    void poll();
+    const id = setInterval(() => void poll(), STATUS_POLL_MS);
+    return () => { cancelled = true; clearInterval(id); };
   }, [active]);
 
   useEffect(() => {
-    if (!active) {
-      return;
-    }
-    void refreshScenesAndWindows(true);
-    // Fast poll: only window/game captures (no capture card enumeration)
-    const timer = setInterval(() => {
-      void refreshScenesAndWindows(true);
-    }, 3000);
-    return () => clearInterval(timer);
-  }, [active, refreshScenesAndWindows]);
+    if (!active) return;
+    let cancelled = false;
 
-  useEffect(() => {
-    if (!active) {
-      return;
-    }
-    void pollGsmStatus();
-    const timer = setInterval(() => {
-      void pollGsmStatus();
-    }, 200);
-    return () => clearInterval(timer);
-  }, [active, pollGsmStatus]);
+    void invokeIpc<{ runOverlayOnStartup?: boolean }>("settings.getSettings")
+      .then((settings) => {
+        if (!cancelled) {
+          setRunOverlayOnStartup(settings?.runOverlayOnStartup === true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRunOverlayOnStartup(false);
+        }
+      });
 
-  const openObs = async () => {
-    await invokeIpc("openOBS");
-  };
+    return () => { cancelled = true; };
+  }, [active]);
 
-  const openGsmSettings = async () => {
-    await invokeIpc("settings.openGSMSettings");
-  };
+  /* ---- Scenes ---------------------------------------------------- */
+  const [scenes, setScenes] = useState<ObsScene[]>([]);
+  const [selectedSceneId, setSelectedSceneId] = useState<string>("");
+  const [renameTarget, setRenameTarget] = useState<ObsScene | null>(null);
+  const [captureCardEverShown, setCaptureCardEverShown] = useState(false);
 
-  const runOverlay = async () => {
-    await invokeIpc("runOverlay");
-  };
+  /* ---- Windows --------------------------------------------------- */
+  const [windows, setWindows] = useState<ObsWindow[]>([]);
+  const [selectedWindowValue, setSelectedWindowValue] = useState<string>("");
+  const [overrideSceneName, setOverrideSceneName] = useState("");
+  const [captureCardEnabled, setCaptureCardEnabled] = useState(false);
 
-  const switchScene = async (sceneId: string) => {
-    setSelectedSceneId(sceneId);
-    await invokeIpc("obs.switchScene.id", sceneId);
-  };
+  /* ---- Loaders --------------------------------------------------- */
+  const [scenesLoading, setScenesLoading] = useState(true);
+  const [windowsLoading, setWindowsLoading] = useState(true);
 
-  const removeScene = async () => {
-    if (!selectedSceneId) {
-      return;
-    }
-    await invokeIpc("obs.removeScene", selectedSceneId);
-    await refreshScenesAndWindows();
-  };
-
-  const createScene = async () => {
-    if (!selectedWindow) {
-      return;
-    }
-
-    const payload = {
-      title: selectedWindow.title,
-      value: selectedWindow.value,
-      sceneName: setupSceneName.trim() || selectedWindow.title,
-      targetKind: selectedWindow.targetKind ?? "window",
-      captureValues: selectedWindow.captureValues ?? {},
-      videoDeviceId: selectedWindow.videoDeviceId,
-      audioDeviceId: selectedWindow.audioDeviceId,
-      wasapiInputDeviceId: selectedWindow.wasapiInputDeviceId
-    };
-
-    await invokeIpc("obs.createScene", payload);
-    await refreshScenesAndWindows();
-  };
-
-  const toggleCaptureCard = async (enabled: boolean) => {
-    setCaptureCardEnabled(enabled);
+  const loadScenes = useCallback(async () => {
+    setScenesLoading(true);
     try {
-      const nextEnabled = await invokeIpc<boolean>(
-        "obs.setCaptureCardProbeEnabled",
-        enabled
-      );
-      setCaptureCardEnabled(Boolean(nextEnabled));
-      await refreshWindows(false);
-    } catch (error) {
-      console.error("Failed to toggle capture-card probing:", error);
-      setCaptureCardEnabled((current) => !current);
-    }
-  };
+      const obsScenes = await invokeIpc<ObsScene[]>("obs.getScenes");
+      setScenes(obsScenes ?? []);
+      const activeScene = await invokeIpc<ObsScene | null>("obs.getActiveScene");
+      if (activeScene) setSelectedSceneId(activeScene.id);
+    } catch { /* swallow */ }
+    setScenesLoading(false);
+  }, []);
 
-  const openExternalLink = async (url: string) => {
-    await invokeIpc("open-external-link", url);
-  };
+  const loadWindows = useCallback(async (quick = false) => {
+    if (!canEnumerateWindows) return;
+    setWindowsLoading(true);
+    try {
+      const res = await invokeIpc<ObsWindow[]>("obs.getWindows", { quick });
+      setWindows(res ?? []);
+      if (res?.length) {
+        setSelectedWindowValue((prev) => {
+          const stillThere = res.some((w) => w.value === prev);
+          return stillThere ? prev : "";
+        });
+      }
+    } catch { /* swallow */ }
+    setWindowsLoading(false);
+  }, []);
 
-  const ready = Boolean(gsmStatus?.ready);
-  const websockets = gsmStatus?.websockets_connected ?? [];
-  const anyWebsocketsConnected = websockets.length > 0;
-  const clipboardEnabled = Boolean(gsmStatus?.clipboard_enabled);
-  const obsConnected = Boolean(gsmStatus?.obs_connected);
-  const ankiConnected = Boolean(gsmStatus?.anki_connected);
-  const wordsBeingProcessed = toWordsProcessingLabel(
-    gsmStatus?.words_being_processed
+  const refreshAll = useCallback(
+    async (quick = false) => {
+      await loadScenes();
+      await loadWindows(quick);
+    },
+    [loadScenes, loadWindows],
   );
 
-  const gsmStatusLabel = statusError
-    ? "Error"
-    : !gsmStatus
-      ? "Installing/Initializing"
-      : wordsBeingProcessed
-        ? `Processing: ${wordsBeingProcessed}`
-        : ready
-          ? gsmStatus.status
-          : "GSM is not running";
+  const handleWindowSelectionChange = useCallback((value: string) => {
+    setSelectedWindowValue(value);
+    const win = windows.find((candidate) => candidate.value === value);
+    setOverrideSceneName(win?.title ?? "");
+  }, [windows]);
 
-  const clipboardStatusLabel = anyWebsocketsConnected
-    ? clipboardEnabled
-      ? "Enabled"
-      : "Disabled (Using WebSocket)"
-    : clipboardEnabled
-      ? "Enabled"
-      : "Disabled";
+  // Initial fetch + polling
+  useEffect(() => {
+    if (!active) return;
+    void refreshAll(true);
+    const id = setInterval(() => void refreshAll(true), SCENE_POLL_MS);
+    return () => clearInterval(id);
+  }, [active, refreshAll]);
 
+  // Capture card probe state
+  useEffect(() => {
+    if (!active) return;
+    invokeIpc<boolean>("obs.getCaptureCardProbeEnabled")
+      .then((v) => setCaptureCardEnabled(Boolean(v)))
+      .catch(() => setCaptureCardEnabled(false));
+  }, [active]);
+
+  // Clear stale override state if the selection disappears during a refresh.
+  useEffect(() => {
+    if (!selectedWindowValue) {
+      setOverrideSceneName("");
+    }
+  }, [selectedWindowValue]);
+
+  /* ---- Scene actions --------------------------------------------- */
+  const selectedScene = scenes.find((s) => s.id === selectedSceneId) ?? null;
+  const isHelperScene = selectedScene ? HELPER_SCENE_NAMES.has(selectedScene.name) : true;
+  const hasUserScenes = scenes.some((s) => !HELPER_SCENE_NAMES.has(s.name));
+  if (hasUserScenes && !captureCardEverShown) setCaptureCardEverShown(true);
+
+  const handleSceneChange = useCallback((id: string) => {
+    setSelectedSceneId(id);
+    if (id) void invokeIpc("obs.switchScene.id", id);
+  }, []);
+
+  const handleRemoveScene = useCallback(async () => {
+    if (!selectedSceneId) return;
+    await invokeIpc("obs.removeScene", selectedSceneId);
+    await refreshAll();
+  }, [selectedSceneId, refreshAll]);
+
+  const handleRenameConfirm = useCallback(
+    async (newName: string) => {
+      if (!renameTarget) return;
+      await invokeIpc("obs.renameScene", {
+        sceneUuid: renameTarget.id,
+        newSceneName: newName,
+      });
+      setRenameTarget(null);
+      await refreshAll();
+    },
+    [renameTarget, refreshAll],
+  );
+
+  const handleCreateScene = useCallback(() => {
+    const win = windows.find((w) => w.value === selectedWindowValue);
+    if (!win) return;
+    const payload = {
+      title: win.title,
+      value: win.value,
+      sceneName: overrideSceneName.trim() || win.title,
+      targetKind: win.targetKind ?? "window",
+      captureValues: win.captureValues ?? {},
+      videoDeviceId: win.videoDeviceId,
+      audioDeviceId: win.audioDeviceId,
+      wasapiInputDeviceId: win.wasapiInputDeviceId,
+    };
+    void invokeIpc("obs.createScene", payload);
+  }, [windows, selectedWindowValue, overrideSceneName]);
+
+  const handleCaptureCardToggle = useCallback(async (enabled: boolean) => {
+    try {
+      const result = await invokeIpc<boolean>("obs.setCaptureCardProbeEnabled", enabled);
+      setCaptureCardEnabled(Boolean(result));
+      await loadWindows();
+    } catch {
+      setCaptureCardEnabled(!enabled);
+    }
+  }, [loadWindows]);
+
+  /* ---- Actions --------------------------------------------------- */
+  const openGSMSettings = useCallback(() => void invokeIpc("settings.openGSMSettings"), []);
+  const openTexthooker = useCallback(() => void invokeIpc("openTexthooker"), []);
+  const runOverlay = useCallback(() => void invokeIpc("runOverlay"), []);
+  const openOverlaySettings = useCallback(() => void invokeIpc("settings.openOverlaySettings"), []);
+  const openOBS = useCallback(() => void invokeIpc("openOBS"), []);
+  const openExternal = useCallback((url: string) => void invokeIpc("open-external-link", url), []);
+  const handleRunOverlayOnStartupChange = useCallback(async (enabled: boolean) => {
+    setRunOverlayOnStartup(enabled);
+    try {
+      const result = await invokeIpc<{
+        settings?: { runOverlayOnStartup?: boolean };
+      }>("settings.saveSettings", { runOverlayOnStartup: enabled });
+      if (typeof result?.settings?.runOverlayOnStartup === "boolean") {
+        setRunOverlayOnStartup(result.settings.runOverlayOnStartup);
+      }
+    } catch {
+      setRunOverlayOnStartup(!enabled);
+    }
+  }, []);
+
+  /* ---- Derived status values ------------------------------------- */
+  const gsmReady = status?.ready ?? false;
+  const obsOk = status?.obs_connected ?? false;
+  const ankiOk = status?.anki_connected ?? false;
+  const clipEnabled = status?.clipboard_enabled ?? false;
+  const wsConnected = status?.websockets_connected ?? {};
+  const wsEntries = Object.entries(wsConnected);
+  const anyWs = wsEntries.length > 0;
+
+  const wordsProcessing = Array.isArray(status?.words_being_processed)
+    ? status.words_being_processed
+    : status?.words_being_processed
+      ? [status.words_being_processed]
+      : [];
+
+  let gsmText: string;
+  if (statusError || status === null) {
+    gsmText = status === null && !statusError
+      ? t("home.status.installing")
+      : t("home.status.error");
+  } else if (wordsProcessing.length > 0) {
+    gsmText = t("home.status.processing", { words: wordsProcessing.join(", ") });
+  } else {
+    gsmText = gsmReady ? (status.status || t("home.status.running")) : t("home.status.notRunning");
+  }
+
+  const gsmVariant: StatusPillProps["variant"] =
+    statusError ? "bad" : gsmReady ? "ok" : "neutral";
+
+  const lastLineStr = relativeTime(status?.last_line_received, t);
+
+  const gsmTooltip = gsmReady
+    ? t("home.status.tooltipGsm", {
+        status: status?.status ?? "",
+        websockets: wsEntries.length ? wsEntries.map(([, n]) => n).join(", ") : "None",
+        obs: obsOk ? t("home.status.connected") : t("home.status.disconnected"),
+        anki: ankiOk ? t("home.status.connected") : t("home.status.disconnected"),
+        lastLine: lastLineStr,
+      })
+    : t("home.status.tooltipGsmStopped");
+
+  let clipText: string;
+  let clipTooltip: string;
+  if (clipEnabled) {
+    clipText = t("home.status.enabled");
+    clipTooltip = t("home.status.tooltipClipboardEnabled");
+  } else if (anyWs) {
+    clipText = t("home.status.disabledWebSocket");
+    clipTooltip = t("home.status.tooltipClipboardDisabledWs");
+  } else {
+    clipText = t("home.status.disabled");
+    clipTooltip = t("home.status.tooltipClipboardDisabled");
+  }
+
+  /* ---- Window groupings ------------------------------------------ */
+  const windowTargets = windows.filter((w) => w.targetKind !== "capture_card");
+  const captureCardTargets = windows.filter((w) => w.targetKind === "capture_card");
+
+  /* ---- Render ---------------------------------------------------- */
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
-      <div className="modern-tab">
-        <div className="legacy-grid home-layout">
-          <section className="card legacy-card">
-            <h2>OBS Capture (Required)</h2>
-            <div className="form-group">
-              <div className="home-control-row home-scene-row">
-                <label htmlFor="obs-scene-select">Game:</label>
-                <select
-                  id="obs-scene-select"
-                  value={selectedSceneId}
-                  onChange={(event) => {
-                    void switchScene(event.target.value);
-                  }}
-                >
-                  {loadingScenes ? (
-                    <option value="">Loading...</option>
-                  ) : (
-                    scenes.map((scene) => (
-                      <option key={scene.id} value={scene.id}>
-                        {scene.name}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => {
-                    void refreshScenesAndWindows();
-                  }}
-                >
-                  Refresh
-                </button>
-                <button
-                  type="button"
-                  className="danger"
-                  disabled={removeSceneDisabled}
-                  onClick={() => {
-                    void removeScene();
-                  }}
-                >
-                  Remove Game
-                </button>
+      <div className="modern-tab home-tab">
+        <div className="home-layout">
+
+          {/* ===== ACTIVE CAPTURE ===== */}
+          {captureCardEverShown && <section className="card home-obs-card home-capture-card">
+            <div className="card-header">
+              {t("home.obs.title")}
+              <span className="home-obs-card__badge">{t("home.obs.required")}</span>
+            </div>
+            <div className="card-body">
+              {/* Scene selector */}
+              <div className="home-row">
+                <label className="home-row__label" htmlFor="home-scene-select">
+                  {t("home.obs.gameLabel")}
+                </label>
+                <div className="home-row__controls">
+                  <select
+                    id="home-scene-select"
+                    className="home-select"
+                    value={selectedSceneId}
+                    onChange={(e) => handleSceneChange(e.target.value)}
+                  >
+                    {scenesLoading && scenes.length === 0 && (
+                      <option>{t("home.obs.loading")}</option>
+                    )}
+                    {scenes.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="home-icon-btn"
+                    onClick={() => void refreshAll()}
+                    title={t("home.obs.refreshScenes")}
+                    aria-label={t("home.obs.refreshScenes")}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+                  </button>
+                </div>
               </div>
 
-              <div className="home-control-row home-window-row">
-                <label htmlFor="obs-window-select">Setup New Scene:</label>
-                <select
-                  id="obs-window-select"
-                  value={selectedWindowValue}
-                  disabled={!isWindows}
-                  onChange={(event) => {
-                    const nextValue = event.target.value;
-                    setSelectedWindowValue(nextValue);
-                    const nextSelectedWindow = windows.find(
-                      (windowEntry) => windowEntry.value === nextValue
-                    );
-                    setSetupSceneName(nextSelectedWindow?.title ?? "");
-                  }}
-                >
-                  {!isWindows ? (
-                    <option value="">Need to set scenes in OBS on this OS.</option>
-                  ) : loadingWindows ? (
-                    <option value="">Loading...</option>
-                  ) : (
-                    windows.map((windowEntry) => (
-                      <option key={windowEntry.value} value={windowEntry.value}>
-                        {getSetupTargetLabel(windowEntry)}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={!isWindows}
-                  onClick={() => {
-                    void refreshWindows();
-                  }}
-                >
-                  Refresh
-                </button>
-                <button
-                  type="button"
-                  disabled={!isWindows || !selectedWindow}
-                  onClick={() => {
-                    void createScene();
-                  }}
-                >
-                  Setup Capture
-                </button>
+              {/* Scene actions */}
+              <div className="home-row">
+                <span className="home-row__label">{/* spacer */}</span>
+                <div className="home-row__controls home-capture-actions">
+                  <button
+                    type="button"
+                    className="home-text-btn"
+                    disabled={isHelperScene}
+                    onClick={() => { if (selectedScene) setRenameTarget(selectedScene); }}
+                  >
+                    {t("home.obs.rename")}
+                  </button>
+                  <button
+                    type="button"
+                    className="home-text-btn home-text-btn--danger"
+                    disabled={isHelperScene}
+                    onClick={() => void handleRemoveScene()}
+                  >
+                    {t("home.obs.remove")}
+                  </button>
+                  {/* 
+                  // TODO: Switch profile per-scene
+                  <button type="button" className="home-text-btn" disabled>
+                    {t("home.obs.switchProfile")}
+                  </button>
+                  // TODO: Open OBS preview for current capture
+                  <button type="button" className="home-text-btn" disabled>
+                    {t("home.obs.preview")}
+                  </button>
+                   */}
+                </div>
+              </div>
+            </div>
+          </section>}
+
+          {/* ===== NEW CAPTURE SETUP ===== */}
+          <section className="card home-setup-card">
+            <div className="card-header">
+              {t("home.obs.setupNewScene")}
+            </div>
+            <div className="card-body">
+              {/* Window selector */}
+              <div className="home-row">
+                <label className="home-row__label" htmlFor="home-window-select">
+                  {t("home.obs.sectionWindows")}
+                </label>
+                <div className="home-row__controls">
+                  <select
+                    id="home-window-select"
+                    className="home-select"
+                    value={selectedWindowValue}
+                    disabled={!canEnumerateWindows}
+                    title={!canEnumerateWindows ? t("home.obs.notSupportedTooltip") : undefined}
+                    onChange={(e) => handleWindowSelectionChange(e.target.value)}
+                  >
+                    {!canEnumerateWindows && (
+                      <option>{t("home.obs.notSupportedOS")}</option>
+                    )}
+                    {canEnumerateWindows && windows.length > 0 && (
+                      <option value="" disabled>{t("home.obs.selectWindow")}</option>
+                    )}
+                    {windowsLoading && windows.length === 0 && canEnumerateWindows && (
+                      <option>{t("home.obs.loading")}</option>
+                    )}
+                    {windows.length === 0 && !windowsLoading && canEnumerateWindows && (
+                      <option value="">{t("home.obs.noCaptureTargets")}</option>
+                    )}
+                    {windowTargets.length > 0 && (
+                      <optgroup label={t("home.obs.sectionWindows")}>
+                        {windowTargets.map((w) => (
+                          <option key={w.value} value={w.value}>
+                            {w.targetKind === "capture_card" ? t("home.obs.captureCardPrefix", { title: w.title }) : w.title}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {captureCardTargets.length > 0 && (
+                      <optgroup label={t("home.obs.sectionCaptureCards")}>
+                        {captureCardTargets.map((w) => (
+                          <option key={w.value} value={w.value}>
+                            {t("home.obs.captureCardPrefix", { title: w.title })}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                  <button
+                    type="button"
+                    className="home-icon-btn"
+                    disabled={!canEnumerateWindows}
+                    onClick={() => void loadWindows()}
+                    title={t("home.obs.refreshWindows")}
+                    aria-label={t("home.obs.refreshWindows")}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+                  </button>
+                </div>
               </div>
 
-              <div className="home-control-row home-window-row">
-                <label htmlFor="obs-capture-card-toggle">Capture Card:</label>
-                <input
-                  id="obs-capture-card-toggle"
-                  type="checkbox"
-                  checked={captureCardEnabled}
-                  disabled={!isWindows}
-                  onChange={(event) => {
-                    void toggleCaptureCard(event.target.checked);
-                  }}
-                />
+              {/* Override scene name — only shown once a window is selected */}
+              {selectedWindowValue && <div className="home-row">
+                <label className="home-row__label" htmlFor="home-scene-name-override">
+                  {t("home.obs.overrideSceneName")}
+                </label>
+                <div className="home-row__controls">
+                  <input
+                    id="home-scene-name-override"
+                    className="home-input"
+                    type="text"
+                    disabled={!canEnumerateWindows}
+                    value={overrideSceneName}
+                    onChange={(e) => setOverrideSceneName(e.target.value)}
+                    autoComplete="off"
+                  />
+                </div>
+              </div>}
+
+              {/* Capture card toggle */}
+              <div className="home-row home-row--toggle">
+                <span className="home-row__label" aria-hidden="true" />
+                <div className="home-row__controls">
+                  <label
+                    className="home-toggle"
+                    htmlFor="home-capture-card-toggle"
+                    title={t("home.obs.captureCardTooltip")}
+                  >
+                    <input
+                      id="home-capture-card-toggle"
+                      type="checkbox"
+                      disabled={!canEnumerateWindows}
+                      checked={captureCardEnabled}
+                      onChange={(e) => void handleCaptureCardToggle(e.target.checked)}
+                    />
+                    <span>{t("home.obs.captureCardToggle")}</span>
+                  </label>
+                </div>
               </div>
 
-              <div className="home-control-row home-window-row">
-                <label htmlFor="obs-setup-scene-name">Scene Name:</label>
-                <input
-                  id="obs-setup-scene-name"
-                  type="text"
-                  value={setupSceneName}
-                  disabled={!isWindows || !selectedWindow}
-                  onChange={(event) => {
-                    setSetupSceneName(event.target.value);
-                  }}
-                  placeholder="Enter the OBS scene name"
-                />
+              {/* Create button */}
+              <div className="home-row">
+                <span className="home-row__label">{/* spacer */}</span>
+                <div className="home-row__controls">
+                  <button
+                    type="button"
+                    disabled={!canEnumerateWindows || windows.length === 0}
+                    onClick={handleCreateScene}
+                    title={t("home.obs.setupCaptureTooltip")}
+                  >
+                    {t("home.obs.setupCapture")}
+                  </button>
+                </div>
               </div>
             </div>
           </section>
 
-          <section className="card legacy-card">
-            <h2>Quick Actions</h2>
-            <div className="form-group">
-              <div className="home-actions-row">
-                <button type="button" onClick={() => void openGsmSettings()}>
-                  Open GSM Settings
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void runOverlay();
-                  }}
+          {/* ===== OVERLAY ===== */}
+          <section className="card home-overlay-card">
+            <div className="card-header">
+              {t("home.overlay.title")}
+              <span
+                className={`home-overlay-card__status ${
+                  overlayRunning
+                    ? "home-overlay-card__status--running"
+                    : "home-overlay-card__status--stopped"
+                }`}
+              >
+                {overlayRunning
+                  ? t("home.overlay.statusRunning")
+                  : t("home.overlay.statusStopped")}
+              </span>
+            </div>
+            <div className="card-body">
+              <div className="home-overlay-card__controls">
+                <div className="home-overlay-card__actions">
+                  <button
+                    type="button"
+                    className="home-overlay-primary-btn"
+                    onClick={overlayRunning ? openOverlaySettings : runOverlay}
+                    title={
+                      overlayRunning
+                        ? t("home.actions.overlaySettingsTooltip")
+                        : t("home.actions.overlayTooltip")
+                    }
+                  >
+                    {overlayRunning ? t("home.actions.overlaySettings") : t("home.actions.overlay")}
+                  </button>
+                  <button
+                    type="button"
+                    className="home-quick-btn home-overlay-guide-btn"
+                    onClick={() => openExternal(OVERLAY_DOCS_URL)}
+                    title={t("home.actions.overlayWiki")}
+                  >
+                    {t("home.overlay.guide")}
+                  </button>
+                </div>
+                <label
+                  className="home-toggle home-overlay-card__startup"
+                  htmlFor="home-overlay-startup-toggle"
+                  title={t("home.overlay.runOnStartupTooltip")}
                 >
-                  Run Overlay
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() =>
-                    void openExternalLink(
-                      "https://github.com/bpwhelan/GameSentenceMiner/wiki/Overlay-%E2%80%90-Overview"
-                    )
-                  }
-                >
-                  Overlay Wiki
-                </button>
+                  <input
+                    id="home-overlay-startup-toggle"
+                    type="checkbox"
+                    checked={runOverlayOnStartup}
+                    onChange={(e) => void handleRunOverlayOnStartupChange(e.target.checked)}
+                  />
+                  <span>{t("home.overlay.runOnStartup")}</span>
+                </label>
               </div>
+              {!isWindows && (
+                <span className="home-overlay-card__warning">
+                  {t("home.actions.overlayPlatformWarning")}
+                </span>
+              )}
             </div>
           </section>
 
-          <section className="card legacy-card">
-            <h2>Status</h2>
-            <div className="status-grid home-status-grid">
+          {/* ===== UTILITIES ===== */}
+          <section className="home-quick-actions">
+            <span className="home-quick-actions__title">{t("home.actions.title")}</span>
+            <div className="home-quick-actions__row">
               <button
                 type="button"
-                className={`status-button ${
-                  ready ? "green" : statusError ? "red" : "red"
-                }`}
-                title={
-                  ready && gsmStatus
-                    ? `Status: ${gsmStatus.status}\nWebSockets: ${websockets.join(
-                        ", "
-                      ) || "None"}\nOBS: ${obsConnected ? "Started" : "Stopped"}\nAnki: ${
-                        ankiConnected ? "Connected" : "Disconnected"
-                      }\nLast Line Received: ${getRelativeTime(
-                        gsmStatus.last_line_received
-                      )}`
-                    : "GSM is stopped."
-                }
+                className="home-quick-btn"
+                onClick={openGSMSettings}
+                title={t("home.actions.gsmSettingsTooltip")}
               >
-                <span>GSM</span>
-                <span>{gsmStatusLabel}</span>
+                {t("home.actions.gsmSettings")}
               </button>
-
               <button
                 type="button"
-                className={`status-button ${
-                  clipboardEnabled ? "green" : "neutral"
-                }`}
-                title={
-                  clipboardEnabled
-                    ? "Clipboard monitoring is enabled."
-                    : anyWebsocketsConnected
-                      ? "Clipboard monitoring is disabled because text is being received via WebSocket."
-                      : "Clipboard monitoring is disabled."
-                }
+                className="home-quick-btn"
+                onClick={openTexthooker}
+                title={t("home.actions.texthookerTooltip")}
               >
-                <span>Clipboard</span>
-                <span>{clipboardStatusLabel}</span>
+                {t("home.actions.texthooker")}
               </button>
+            </div>
+          </section>
 
-              {websockets.map((websocketName) => (
-                <button
-                  key={websocketName}
-                  type="button"
-                  className="status-button green"
-                  title={`${websocketName} is connected.`}
-                >
-                  <span>{websocketName}</span>
-                  <span>Connected</span>
-                </button>
+          {/* ===== STATUS ===== */}
+          <section className="card home-status-card">
+            <div className="card-header">{t("home.status.title")}</div>
+            <div className="card-body home-status-grid">
+              {/* Fixed core statuses */}
+              <StatusPill
+                icon="⛏"
+                label={t("home.status.gsm")}
+                text={gsmText}
+                variant={gsmVariant}
+                tooltip={gsmTooltip}
+              />
+              <StatusPill
+                icon="📹"
+                label={t("home.status.obs")}
+                text={obsOk ? t("home.status.connected") : t("home.status.disconnected")}
+                variant={obsOk ? "ok" : "bad"}
+                tooltip={obsOk ? t("home.status.tooltipObsConnected") : t("home.status.tooltipObsDisconnected")}
+                onClick={openOBS}
+                clickable
+              />
+              <StatusPill
+                icon="📘"
+                label={t("home.status.anki")}
+                text={ankiOk ? t("home.status.connected") : t("home.status.disconnected")}
+                variant={ankiOk ? "ok" : "bad"}
+                tooltip={ankiOk ? t("home.status.tooltipAnkiConnected") : t("home.status.tooltipAnkiDisconnected")}
+              />
+              <StatusPill
+                icon="📋"
+                label={t("home.status.clipboard")}
+                text={clipText}
+                variant={clipEnabled ? "ok" : "neutral"}
+                tooltip={clipTooltip}
+              />
+              {/* Dynamic input sources */}
+              {wsEntries.map(([url, name]) => (
+                <StatusPill
+                  key={url}
+                  icon="🔗"
+                  label={name}
+                  text={t("home.status.connected")}
+                  variant="ok"
+                  tooltip={t("home.status.tooltipWsConnected", { name })}
+                />
               ))}
-
-              <button
-                type="button"
-                className={`status-button ${obsConnected ? "green" : "red"}`}
-                title={obsConnected ? "OBS is connected." : "OBS is disconnected."}
-                onClick={() => {
-                  void openObs();
-                }}
-              >
-                <span>OBS</span>
-                <span>{obsConnected ? "Connected" : "Disconnected"}</span>
-              </button>
-
-              <button
-                type="button"
-                className={`status-button ${ankiConnected ? "green" : "red"}`}
-                title={ankiConnected ? "Anki is connected." : "Anki is disconnected."}
-              >
-                <span>Anki</span>
-                <span>{ankiConnected ? "Connected" : "Disconnected"}</span>
-              </button>
             </div>
           </section>
 
-          <section className="card legacy-card">
-            <h2>Support GSM Development</h2>
-            <p className="muted">
-              GSM will always be free. If GSM helps your workflow, consider supporting
-              continued development.
-            </p>
-            <div className="link-row">
-              <button
-                type="button"
-                className="secondary"
-                onClick={() =>
-                  void openExternalLink("https://github.com/sponsors/bpwhelan")
-                }
-              >
-                GitHub Sponsors
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => void openExternalLink("https://ko-fi.com/beangate")}
-              >
-                Ko-fi
-              </button>
-            </div>
-          </section>
+          {/* ===== SUPPORT FOOTER ===== */}
+          <footer className="home-support">
+            <span className="home-support__heart">♥</span>
+            <span className="home-support__text">{t("home.support.text")}</span>
+            <a
+              href="#"
+              className="home-support__link"
+              onClick={(e) => { e.preventDefault(); openExternal("https://github.com/sponsors/bpwhelan"); }}
+            >
+              {t("home.support.githubSponsors")}
+            </a>
+            <a
+              href="#"
+              className="home-support__link"
+              onClick={(e) => { e.preventDefault(); openExternal("https://ko-fi.com/beangate"); }}
+            >
+              {t("home.support.kofi")}
+            </a>
+          </footer>
         </div>
+
+        {/* Rename modal */}
+        {renameTarget && (
+          <RenameModal
+            scene={renameTarget}
+            onClose={() => setRenameTarget(null)}
+            onConfirm={(name) => void handleRenameConfirm(name)}
+          />
+        )}
       </div>
     </div>
   );

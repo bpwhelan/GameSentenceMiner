@@ -70,7 +70,9 @@ try:
     from GameSentenceMiner.util.communication.electron_ipc import (
         FunctionName,
         announce_connected,
+        get_install_session_id,
         register_command_handler,
+        send_install_progress,
         send_message,
         start_ipc_listener_in_thread,
     )
@@ -101,7 +103,12 @@ try:
         write_obs_configs,
     )
     from GameSentenceMiner.util.platform.hotkey import hotkey_manager
-    from GameSentenceMiner.util.text_log import TextSource, game_log, get_all_lines
+    from GameSentenceMiner.util.text_log import (
+        TextSource,
+        game_log,
+        get_all_lines,
+        normalize_text_for_comparison,
+    )
 
     try:
         from pystray import Icon, Menu, MenuItem
@@ -130,8 +137,39 @@ _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 _instance_lock_handle = None
 
 
+def _is_overlay_previous_line_check_enabled() -> bool:
+    try:
+        return bool(getattr(get_config().overlay, "check_previous_lines_for_recycled_indicator", True))
+    except Exception:
+        return True
+
+
 def _is_running_under_electron() -> bool:
     return os.getenv("GSM_ELECTRON", "").strip().lower() in _TRUTHY_ENV_VALUES
+
+
+def _emit_install_stage(
+    stage_id: str,
+    status: str,
+    progress_kind: str = "indeterminate",
+    progress: Optional[float] = None,
+    message: str = "",
+    error: Optional[str] = None,
+) -> None:
+    if not _is_running_under_electron():
+        return
+    try:
+        send_install_progress(
+            stage_id=stage_id,
+            status=status,
+            progress_kind=progress_kind,
+            progress=progress,
+            message=message,
+            error=error,
+            session_id=get_install_session_id(),
+        )
+    except Exception:
+        pass
 
 
 def _acquire_single_instance_lock() -> bool:
@@ -407,7 +445,7 @@ class GSMTray(threading.Thread):
     def _build_menu(self):
         menu_items = [
             MenuItem("Open Settings", self._app.open_settings, default=True),
-            MenuItem("Open Texthooker", self._app.open_texthooker),
+            MenuItem("Open Text Feed", self._app.open_texthooker),
             Menu.SEPARATOR,
             MenuItem("Switch Profile", self._build_profile_menu()),
         ]
@@ -759,6 +797,13 @@ class GSMApplication:
         else:
             logger.debug("Config changed, but watch path unchanged - no restart needed")
 
+        if _is_overlay_previous_line_check_enabled():
+            if not game_log.previous_lines:
+                self.get_previous_lines_for_game()
+        elif game_log.previous_lines:
+            game_log.previous_lines = set()
+            logger.info("Cleared previous line recycle cache because overlay previous-line checking is disabled.")
+
     def initialize(self, reloading: bool = False) -> None:
         import GameSentenceMiner.web as web  # Register API routes after core modules load.
 
@@ -767,15 +812,106 @@ class GSMApplication:
         if not reloading:
             get_temporary_directory(delete=True)
             if is_windows():
-                download_obs_if_needed()
+                _emit_install_stage(
+                    "obs",
+                    "running",
+                    "indeterminate",
+                    0.05,
+                    "Checking OBS runtime files...",
+                )
+                obs_result = download_obs_if_needed(stage_id="obs")
                 write_obs_configs(obs.get_base_obs_dir())
+                if obs_result == "skipped":
+                    _emit_install_stage(
+                        "obs",
+                        "skipped",
+                        "indeterminate",
+                        1,
+                        "OBS runtime already installed.",
+                    )
+                else:
+                    _emit_install_stage(
+                        "obs",
+                        "completed",
+                        "estimated",
+                        1,
+                        "OBS runtime is ready.",
+                    )
             if get_config().obs.open_obs:
                 self._launch_obs_early()
             if is_windows():
-                download_ffmpeg_if_needed()
-                download_oneocr_dlls_if_needed()
+                _emit_install_stage(
+                    "ffmpeg",
+                    "running",
+                    "indeterminate",
+                    0.05,
+                    "Checking FFmpeg runtime files...",
+                )
+                ffmpeg_result = download_ffmpeg_if_needed(stage_id="ffmpeg")
+                if ffmpeg_result == "skipped":
+                    _emit_install_stage(
+                        "ffmpeg",
+                        "skipped",
+                        "indeterminate",
+                        1,
+                        "FFmpeg runtime already installed.",
+                    )
+                else:
+                    _emit_install_stage(
+                        "ffmpeg",
+                        "completed",
+                        "estimated",
+                        1,
+                        "FFmpeg runtime is ready.",
+                    )
+                _emit_install_stage(
+                    "oneocr",
+                    "running",
+                    "indeterminate",
+                    0.05,
+                    "Checking OneOCR runtime files...",
+                )
+                oneocr_result = download_oneocr_dlls_if_needed(stage_id="oneocr")
+                if oneocr_result == "skipped":
+                    _emit_install_stage(
+                        "oneocr",
+                        "skipped",
+                        "indeterminate",
+                        1,
+                        "OneOCR runtime already installed.",
+                    )
+                else:
+                    _emit_install_stage(
+                        "oneocr",
+                        "completed",
+                        "estimated",
+                        1,
+                        "OneOCR runtime is ready.",
+                    )
                 if shutil.which("ffmpeg") is None:
                     os.environ["PATH"] += os.pathsep + os.path.dirname(get_ffmpeg_path())
+            else:
+                _emit_install_stage(
+                    "obs",
+                    "skipped",
+                    "indeterminate",
+                    1,
+                    "OBS dependency bootstrap is only managed automatically on Windows.",
+                )
+                _emit_install_stage(
+                    "ffmpeg",
+                    "skipped",
+                    "indeterminate",
+                    1,
+                    "FFmpeg bootstrap is handled separately on this platform.",
+                )
+                _emit_install_stage(
+                    "oneocr",
+                    "skipped",
+                    "indeterminate",
+                    1,
+                    "OneOCR bootstrap is only available on Windows.",
+                )
             if is_mac():
                 if shutil.which("ffmpeg") is None:
                     os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin"
@@ -807,6 +943,13 @@ class GSMApplication:
             _set_audio_callback(self._replay_extractor.get_audio)
 
         self.initial_checks()
+        _emit_install_stage(
+            "finalize",
+            "running",
+            "estimated",
+            0.5,
+            "Finalizing backend startup...",
+        )
         start_ipc_listener_in_thread()
         register_command_handler(self.handle_ipc_command)
         announce_connected()
@@ -883,20 +1026,92 @@ class GSMApplication:
             logger.background(f"Error handling IPC command: {e}")
 
     def get_previous_lines_for_game(self) -> None:
+        if not _is_overlay_previous_line_check_enabled():
+            if game_log.previous_lines:
+                game_log.previous_lines = set()
+                logger.info("Cleared previous line recycle cache because overlay previous-line checking is disabled.")
+            return
+
         previous_lines = set()
         try:
             all_lines = db.GameLinesTable.get_all_lines_for_scene(obs.get_current_scene())
             for line in all_lines:
-                previous_lines.add(line.line_text)
+                normalized_line = normalize_text_for_comparison(getattr(line, "line_text", ""))
+                if normalized_line:
+                    previous_lines.add(normalized_line)
             game_log.previous_lines = previous_lines
             logger.info(f"Loaded {len(previous_lines)} previous lines for game '{obs.get_current_game()}'")
         except Exception as e:
             logger.debug(f"Error getting previous lines for game: {e}")
 
-    async def register_scene_switcher_callback(self) -> None:
-        def scene_switcher_callback(scene):
+    @staticmethod
+    def _get_matching_profiles_for_scene(scene: str) -> list[str]:
+        normalized_scene = str(scene or "").strip()
+        if not normalized_scene:
+            return []
+
+        matching_profiles = []
+        for name, config in get_master_config().configs.items():
+            configured_scenes = {
+                str(configured_scene or "").strip() for configured_scene in getattr(config, "scenes", [])
+            }
+            configured_scenes.discard("")
+            if normalized_scene in configured_scenes:
+                matching_profiles.append(str(name).strip())
+        return matching_profiles
+
+    def _resolve_profile_for_scene(self, scene: str, *, interactive: bool) -> str | None:
+        matching_profiles = self._get_matching_profiles_for_scene(scene)
+        current_profile = get_master_config().current_profile
+
+        if len(matching_profiles) > 1:
+            if current_profile in matching_profiles:
+                return current_profile
+            if not interactive:
+                logger.info(f"Skipping ambiguous profile switch for scene '{scene}': {matching_profiles}")
+                return None
+
             from GameSentenceMiner.ui.qt_main import launch_scene_selection
 
+            return launch_scene_selection(matching_profiles) or None
+
+        if matching_profiles:
+            return matching_profiles[0]
+        if get_master_config().switch_to_default_if_not_found:
+            return configuration.DEFAULT_CONFIG
+        return None
+
+    def _sync_profile_for_scene(
+        self, scene: str, *, interactive: bool, refresh_previous_lines_on_switch: bool = True
+    ) -> str | None:
+        switch_to = self._resolve_profile_for_scene(scene, interactive=interactive)
+        if not switch_to or switch_to == get_master_config().current_profile:
+            return switch_to
+
+        logger.info(f"Switching to profile: {switch_to}")
+        get_master_config().current_profile = switch_to
+        switch_profile_and_save(switch_to)
+        if refresh_previous_lines_on_switch:
+            self.get_previous_lines_for_game()
+        if self.state.settings_window:
+            self.state.settings_window.reload_settings()
+        return switch_to
+
+    def _check_profile_for_scene_tick(self, scene: str) -> None:
+        self._sync_profile_for_scene(scene, interactive=False)
+
+    def _register_scene_observed_profile_check(self) -> None:
+        service = getattr(obs, "obs_service", None)
+        if not service:
+            return
+
+        service.on_scene_observed(self._check_profile_for_scene_tick)
+        current_scene = getattr(getattr(service, "state", None), "current_scene", "")
+        if current_scene:
+            self._check_profile_for_scene_tick(current_scene)
+
+    async def register_scene_switcher_callback(self) -> None:
+        def scene_switcher_callback(scene):
             logger.info(f"Scene changed to: {scene}")
             try:
                 from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
@@ -911,29 +1126,8 @@ class GSMApplication:
             except Exception as exc:
                 logger.debug(f"Failed to queue Sudachi user dictionary export from scene callback for '{scene}': {exc}")
             gsm_state.current_game = obs.get_current_game()
-            matching_configs = [
-                name.strip() for name, config in get_master_config().configs.items() if scene.strip() in config.scenes
-            ]
-            switch_to = None
             self.get_previous_lines_for_game()
-
-            if len(matching_configs) > 1:
-                selected_scene = launch_scene_selection(matching_configs)
-                if selected_scene:
-                    switch_to = selected_scene
-                else:
-                    return
-            elif matching_configs:
-                switch_to = matching_configs[0]
-            elif get_master_config().switch_to_default_if_not_found:
-                switch_to = configuration.DEFAULT_CONFIG
-
-            if switch_to and switch_to != get_master_config().current_profile:
-                logger.info(f"Switching to profile: {switch_to}")
-                get_master_config().current_profile = switch_to
-                switch_profile_and_save(switch_to)
-                if self.state.settings_window:
-                    self.state.settings_window.reload_settings()
+            self._sync_profile_for_scene(scene, interactive=True, refresh_previous_lines_on_switch=False)
 
         await obs.register_scene_change_callback(scene_switcher_callback)
 
@@ -941,6 +1135,9 @@ class GSMApplication:
         logger.background("Post-Initialization started.")
 
         if gsm_status.obs_connected:
+            await self.register_scene_switcher_callback()
+            self._register_scene_observed_profile_check()
+            self.get_previous_lines_for_game()
             await check_obs_folder_is_correct()
             self.on_config_changed()
         elif not get_config().obs.open_obs:
@@ -985,6 +1182,8 @@ class GSMApplication:
             return
 
         await self.register_scene_switcher_callback()
+        self._register_scene_observed_profile_check()
+        self.get_previous_lines_for_game()
         await check_obs_folder_is_correct()
         self.on_config_changed()
 
@@ -1090,6 +1289,13 @@ class GSMApplication:
         elif Icon and _is_running_under_electron():
             logger.info("Skipping pystray tray icon because GSM is running under Electron.")
 
+        _emit_install_stage(
+            "finalize",
+            "completed",
+            "estimated",
+            1,
+            "Backend startup complete.",
+        )
         send_message(FunctionName.INITIALIZED.value, {"status": "ready"})
         self._start_thread(self._announce_startup_ready, "startup-ready-announcer")
         _get_qt_main_module().start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)

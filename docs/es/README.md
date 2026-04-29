@@ -104,7 +104,7 @@ Para guías de preparación completas y detalles de configuración, visita la [W
 
 Este proyecto incluye versiones modificadas de las siguientes librerías, me canse del infierno que son los submodulos, asi que los he incluido de manera directa para manejarlos más fácilmente, todos los créditos a los autores originales:
 
-*   **Texthooker UI**
+*   **TextFeed Page**
     - GSM: https://github.com/bpwhelan/GameSentenceMiner/tree/main/texthooker
     - Original: [Renji-XD/texthooker-ui](https://github.com/Renji-XD/texthooker-ui)  
 

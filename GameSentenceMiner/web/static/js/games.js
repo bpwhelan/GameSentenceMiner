@@ -230,25 +230,9 @@
      * Open deduplication modal pre-filled for a specific game.
      */
     function openDeduplicationForGame(game) {
-        openModal('deduplicationModal');
-        // Load games into the select, then pre-select this game
-        loadGamesForDeduplication().then(function () {
-            const sel = document.getElementById('gameSelection');
-            if (sel) {
-                // Deselect all, then select matching game by name
-                Array.from(sel.options).forEach(function (opt) {
-                    opt.selected = (opt.value === getSceneName(game));
-                });
-            }
+        openDeduplicationModal({
+            selectedGames: [getSceneName(game)],
         });
-        // Reset modal state
-        document.getElementById('timeWindow').value = '5';
-        document.getElementById('ignoreTimeWindow').checked = false;
-        document.getElementById('deduplicationStats').style.display = 'none';
-        document.getElementById('removeDuplicatesBtn').disabled = true;
-        document.getElementById('deduplicationError').style.display = 'none';
-        document.getElementById('deduplicationSuccess').style.display = 'none';
-        toggleTimeWindowVisibility();
     }
 
     // ── Grid rendering ─────────────────────────────────────────────────

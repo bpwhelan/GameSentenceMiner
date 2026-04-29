@@ -73,7 +73,7 @@
           },
           "websocket_uri": {
             "label": "Input Websocket URI(s):",
-            "tooltip": "WebSocket URIs for INPUT sources (Agent, Textractor, LunaTranslator, etc.). Allows comma-separated values for multiple sources. Do NOT include GSM's output ports (texthooker, OCR overlay)."
+            "tooltip": "WebSocket URIs for INPUT sources (Agent, Textractor, LunaTranslator, etc.). Allows comma-separated values for multiple sources. Do NOT include GSM's output ports (Text Feed, OCR overlay)."
           },
           "texthook_regex": {
             "label": "TextHook Replacement Regex:",
@@ -84,11 +84,11 @@
             "tooltip": "Whether to open config when the script starts."
           },
           "open_texthooker_on_startup": {
-            "label": "Open GSM Texthooker on Startup:",
-            "tooltip": "Whether to open Texthooking page when the script starts."
+            "label": "Open GSM Text Feed on Startup:",
+            "tooltip": "Whether to open Text Feed page when the script starts."
           },
           "texthooker_port": {
-            "label": "Legacy Texthooker Port:",
+            "label": "Legacy Text Feed Port:",
             "tooltip": "Legacy compatibility port that serves a redirect page to the main GSM port. Set this to 55000 if you need temporary access to old localhost:55000 browser storage."
           },
           "single_port": {
@@ -248,7 +248,7 @@
           },
           "tags_to_check": {
             "label": "Tags to work on:",
-            "tooltip": "Comma-separated Tags, script will only do 1-click on cards with these tags (Recommend keep empty, or use Yomitan Profile to add custom tag from texthooker page)"
+            "tooltip": "Comma-separated Tags, script will only do 1-click on cards with these tags (Recommend keep empty, or use Yomitan Profile to add custom tag from Text Feed page)"
           },
           "add_game_tag": {
             "label": "Add Game as Tag:",
@@ -484,8 +484,8 @@
             "tooltip": "Temporarily pause or resume GSM's clipboard and websocket text intake. While paused, GSM skips its own stats/history logging and overlay triggers. Leave blank to disable this shortcut; no default hotkey is assigned."
           },
           "relay_outputs_when_paused": {
-            "checkbox": "Relay to texthooker/output clients while paused",
-            "tooltip": "When enabled, paused text is still forwarded to the texthooker page and output websocket clients after text processing, but GSM still skips its own stats/history logging and overlay triggers. Disable this for a full no-op that drops incoming text entirely."
+            "checkbox": "Relay to Text Feed/output clients while paused",
+            "tooltip": "When enabled, paused text is still forwarded to the Text Feed page and output websocket clients after text processing, but GSM still skips its own stats/history logging and overlay triggers. Disable this for a full no-op that drops incoming text entirely."
           }
         },
         "obs": {
@@ -590,8 +590,8 @@
             "tooltip": "Port for OCR WebSocket communication. GSM will also listen on this port"
           },
           "texthooker_comm_port": {
-            "label": "Texthooker Communication WebSocket Port:",
-            "tooltip": "Port for GSM Texthooker WebSocket communication. "
+            "label": "Text Feed Communication WebSocket Port:",
+            "tooltip": "Port for GSM Text Feed WebSocket communication. "
           },
           "plaintext_export_port": {
             "label": "Plaintext/JL Websocket Export Port:",
@@ -687,6 +687,14 @@
           "custom_prompt": {
             "label": "Custom Prompt:",
             "tooltip": "Custom prompt for AI processing."
+          },
+          "deepl_api_key": {
+            "label": "DeepL API Key:",
+            "tooltip": "Your DeepL API key. Get one from https://www.deepl.com/pro-api"
+          },
+          "deepl_target_lang": {
+            "label": "Target Language:",
+            "tooltip": "DeepL target language code (e.g., EN-US, JA, ZH, ES, FR, DE, IT, NL, PL, PT-PT, RU, KO)"
           }
         },
         "overlay": {
@@ -723,12 +731,12 @@
           }
           ,
           "use_overlay_area_config": {
-            "label": "Use Dedicated Overlay Area:",
-            "tooltip": "Use a dedicated overlay-only area config instead of reusing the OCR area config. When enabled, this takes priority over OCR area config options."
+            "label": "Only Include Area:",
+            "tooltip": "Only use the selected overlay area instead of reusing the OCR area config. When enabled, this takes priority over OCR area config options."
           },
           "overlay_area_selector_button": {
             "label": "Set Area",
-            "tooltip": "Open the dedicated overlay area selector for the current overlay monitor."
+            "tooltip": "Open the overlay area selector for the current overlay monitor."
           },
           "use_ocr_area_config": {
             "label": "Use OCR Area Config:",
@@ -747,8 +755,12 @@
             "tooltip": "Apply exclusion zones from the OCR area config to mask parts of the overlay capture. These are the regions previously shown as orange boxes."
           },
           "use_ocr_result": {
-            "label": "Use OCR Result:",
+            "label": "Use OCR Result (Experimental):",
             "tooltip": "When enabled, the overlay uses pre-computed OCR results when available. Disable this to force a fresh overlay OCR scan."
+          },
+          "check_previous_lines_for_recycled_indicator": {
+            "label": "Check Previous Lines:",
+            "tooltip": "Compare each incoming line against previously seen lines for the current game and mark recycled lines in the overlay. Warning: this loads a normalized cache of prior lines into RAM and can substantially increase memory usage depending on how many lines you have."
           }
         },
         "experimental": {
@@ -768,8 +780,8 @@
             "tooltip": "When enabled, overlay manual hotkey requests pause on enter and resume on exit."
           },
           "overlay_texthooker_hotkey_requests_pause": {
-            "label": "Overlay Texthooker Hotkey Requests Pause:",
-            "tooltip": "When enabled, overlay texthooker hotkey requests pause on enter and resume on exit."
+            "label": "Overlay Text Feed Hotkey Requests Pause:",
+            "tooltip": "When enabled, overlay Text Feed hotkey requests pause on enter and resume on exit."
           },
           "overlay_gamepad_navigation_requests_pause": {
             "label": "Overlay Gamepad Navigation Requests Pause:",

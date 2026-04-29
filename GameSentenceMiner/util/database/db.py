@@ -10,6 +10,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime
 from datetime import timedelta
+from functools import lru_cache
 from sys import platform
 from typing import Any, Dict, List, Optional, Tuple, Union, Type, TypeVar
 
@@ -23,7 +24,37 @@ from GameSentenceMiner.util.config.configuration import (
 from GameSentenceMiner.util.text_log import GameLine
 
 # Matches any Unicode punctuation (\p{P}), symbol (\p{S}), or separator (\p{Z}); \p{Z} includes whitespace/separator chars
-punctuation_regex = regex.compile(r"[\p{P}\p{S}\p{Z}]")
+PUNCTUATION_REGEX_PATTERN = r"[\p{P}\p{S}\p{Z}]"
+punctuation_regex = regex.compile(PUNCTUATION_REGEX_PATTERN)
+
+
+@lru_cache(maxsize=64)
+def get_punctuation_regex(extra_punctuation_regex: str = ""):
+    extra_punctuation_regex = (extra_punctuation_regex or "").strip()
+    if not extra_punctuation_regex:
+        return punctuation_regex
+
+    try:
+        return regex.compile(f"(?:{extra_punctuation_regex})|{PUNCTUATION_REGEX_PATTERN}")
+    except regex.error as e:
+        logger.warning(
+            f"Invalid extra punctuation regex '{extra_punctuation_regex}', using default punctuation regex: {e}"
+        )
+        return punctuation_regex
+
+
+def clean_text_for_stats(
+    text: Any,
+    regex_out_repetitions: bool = False,
+    extra_punctuation_regex: str = "",
+) -> str:
+    if text is None:
+        return ""
+
+    cleaned = get_punctuation_regex(extra_punctuation_regex).sub("", str(text)).strip()
+    if regex_out_repetitions:
+        cleaned = repeating_chars_regex.sub(r"\1\1\1", cleaned)
+    return cleaned
 
 
 def _is_tokenization_enabled() -> bool:
@@ -89,18 +120,15 @@ class SQLiteDB:
             if tx_depth == 0:
                 conn.execute("BEGIN")
             self._local.tx_depth = tx_depth + 1
-
-        try:
-            yield conn
-        except Exception:
-            with self._lock:
+            try:
+                yield conn
+            except Exception:
                 tx_depth = max(getattr(self._local, "tx_depth", 1) - 1, 0)
                 self._local.tx_depth = tx_depth
                 if tx_depth == 0:
                     conn.rollback()
-            raise
-        else:
-            with self._lock:
+                raise
+            else:
                 tx_depth = max(getattr(self._local, "tx_depth", 1) - 1, 0)
                 self._local.tx_depth = tx_depth
                 if tx_depth == 0:
@@ -286,8 +314,11 @@ class SQLiteDBTable:
         try:
             clean_column_set = set(clean_columns) if clean_columns else set()
             regex_out_repetitions = False
+            extra_punctuation_regex = ""
             if clean_column_set:
-                regex_out_repetitions = get_stats_config().regex_out_repetitions
+                stats_config = get_stats_config()
+                regex_out_repetitions = getattr(stats_config, "regex_out_repetitions", False)
+                extra_punctuation_regex = getattr(stats_config, "extra_punctuation_regex", "")
 
             for actual_pos, field, field_type, is_pk in cls.get_row_field_mapping():
                 if actual_pos >= len(row):
@@ -296,10 +327,11 @@ class SQLiteDBTable:
                 row_value = row[actual_pos]
 
                 if field in clean_column_set and isinstance(row_value, str):
-                    # if get_stats_config().regex_out_punctuation:
-                    row_value = punctuation_regex.sub("", row_value).strip()
-                    if regex_out_repetitions:
-                        row_value = repeating_chars_regex.sub(r"\1\1\1", row_value)
+                    row_value = clean_text_for_stats(
+                        row_value,
+                        regex_out_repetitions=regex_out_repetitions,
+                        extra_punctuation_regex=extra_punctuation_regex,
+                    )
 
                 cls._set_field_value(
                     obj,
@@ -906,10 +938,11 @@ class GameLinesTable(SQLiteDBTable):
         # logger.info("Adding GameLine to DB: %s", new_line)
         new_line.add()
         if _is_tokenization_enabled():
-            from GameSentenceMiner.util.gsm_utils import run_new_thread
-            from GameSentenceMiner.util.cron.tokenize_lines import tokenize_line
+            from GameSentenceMiner.util.cron.tokenize_lines import (
+                enqueue_realtime_tokenization,
+            )
 
-            run_new_thread(lambda: tokenize_line(new_line.id, new_line.line_text))
+            enqueue_realtime_tokenization(new_line.id, new_line.line_text, new_line.timestamp)
         return new_line
 
     @classmethod
@@ -961,16 +994,11 @@ class GameLinesTable(SQLiteDBTable):
             commit=True,
         )
         if _is_tokenization_enabled():
-            from GameSentenceMiner.util.gsm_utils import run_new_thread
-            from GameSentenceMiner.util.cron.tokenize_lines import tokenize_line
-            from GameSentenceMiner.util.database.tokenization_tables import WordsTable
+            from GameSentenceMiner.util.cron.tokenize_lines import (
+                enqueue_realtime_tokenization_batch,
+            )
 
-            def _batch_tokenize(lines):
-                with WordsTable._db.transaction():
-                    for line in lines:
-                        tokenize_line(line.id, line.line_text, line.timestamp)
-
-            run_new_thread(lambda: _batch_tokenize(new_lines))
+            enqueue_realtime_tokenization_batch([(line.id, line.line_text, line.timestamp) for line in new_lines])
 
     @staticmethod
     def _to_sync_note_ids(value: Any) -> List[str]:
@@ -1588,13 +1616,11 @@ def _should_defer_tokenization_schema_sync() -> bool:
 
 
 # Import GamesTable, CronTable, and StatsRollupTable after gsm_db is created to avoid circular import
-from GameSentenceMiner.util.database.games_table import GamesTable
-from GameSentenceMiner.util.database.cron_table import CronTable
-from GameSentenceMiner.util.database.game_daily_rollup_table import (
-    GameDailyRollupTable,
-)
-from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
-from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable
+from GameSentenceMiner.util.database.games_table import GamesTable  # noqa: E402
+from GameSentenceMiner.util.database.cron_table import CronTable  # noqa: E402
+from GameSentenceMiner.util.database.game_daily_rollup_table import GameDailyRollupTable  # noqa: E402
+from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable  # noqa: E402
+from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable  # noqa: E402
 
 for cls in [
     AIModelsTable,

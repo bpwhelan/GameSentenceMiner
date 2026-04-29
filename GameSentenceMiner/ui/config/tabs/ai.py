@@ -161,6 +161,29 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     window.gsm_cloud_settings_group.setLayout(gsm_cloud_layout)
     layout.addRow(window.gsm_cloud_settings_group)
 
+    window.deepl_settings_group.setTitle("DeepL Settings")
+    window.deepl_settings_group.setStyleSheet(window._get_group_box_style())
+    deepl_layout = QFormLayout()
+
+    deepl_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "deepl_api_key"),
+        window.deepl_api_key_edit,
+    )
+    window.deepl_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+
+    deepl_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "ai",
+            "deepl_target_lang",
+            "Target language code (e.g., EN-US, JA, ZH, ES, FR, DE, IT, NL, PL, PT-PT, RU, KO)",
+        ),
+        window.deepl_target_lang_edit,
+    )
+
+    window.deepl_settings_group.setLayout(deepl_layout)
+    layout.addRow(window.deepl_settings_group)
+
     window.ollama_settings_group.setTitle("Ollama Settings")
     window.ollama_settings_group.setStyleSheet(window._get_group_box_style())
     ollama_layout = QFormLayout()

@@ -2148,10 +2148,28 @@ class AppleLiveText:
             self._kCFRunLoopDefaultMode = deps["kCFRunLoopDefaultMode"]
             self._CFRunLoopStop = deps["CFRunLoopStop"]
             self._CFRunLoopGetCurrent = deps["CFRunLoopGetCurrent"]
+
+            try:
+                self._objc.loadBundle(
+                    "VisionKitCore", globals(), bundle_path="/System/Library/PrivateFrameworks/VisionKitCore.framework"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to load VisionKitCore framework for Apple Live Text: {e}")
+
             app_info = deps["NSBundle"].mainBundle().infoDictionary()
-            app_info["LSBackgroundOnly"] = "1"
+            if app_info is not None:
+                try:
+                    app_info["LSBackgroundOnly"] = "1"
+                except Exception:
+                    pass
+
             self.VKCImageAnalyzer = self._objc.lookUpClass("VKCImageAnalyzer")
             self.VKCImageAnalyzerRequest = self._objc.lookUpClass("VKCImageAnalyzerRequest")
+
+            if self.VKCImageAnalyzer is None or self.VKCImageAnalyzerRequest is None:
+                logger.warning("Apple Live Text API (VKCImageAnalyzer) is not available on this macOS version.")
+                return
+
             self._objc.registerMetaDataForSelector(
                 b"VKCImageAnalyzer",
                 b"processRequest:progressHandler:completionHandler:",
@@ -2190,15 +2208,22 @@ class AppleLiveText:
 
         self.result = None
 
-        with self._objc.autorelease_pool():
-            analyzer = self.VKCImageAnalyzer.alloc().init()
-            req = self.VKCImageAnalyzerRequest.alloc().initWithImage_requestType_(
-                self._preprocess(img), 1
-            )  # VKAnalysisTypeText
-            req.setLocales_(self.language)
-            analyzer.processRequest_progressHandler_completionHandler_(req, lambda progress: None, self._process)
+        try:
+            with self._objc.autorelease_pool():
+                self.current_run_loop = self._CFRunLoopGetCurrent()
+                analyzer = self.VKCImageAnalyzer.alloc().init()
+                req = self.VKCImageAnalyzerRequest.alloc().initWithImage_requestType_(
+                    self._preprocess(img), 1
+                )  # VKAnalysisTypeText
+                req.setLocales_(self.language)
+                analyzer.processRequest_progressHandler_completionHandler_(req, lambda progress: None, self._process)
 
-            self._CFRunLoopRunInMode(self._kCFRunLoopDefaultMode, 10.0, False)
+                self._CFRunLoopRunInMode(self._kCFRunLoopDefaultMode, 10.0, False)
+        except Exception as e:
+            logger.error(f"Apple Live Text engine encountered an error during analysis: {e}")
+            if is_path:
+                img.close()
+            return (False, f"Apple Live Text error: {e}")
 
         if self.result == None:
             return (False, "Unknown error!")
@@ -2254,7 +2279,10 @@ class AppleLiveText:
             paragraphs = []
 
         self.result = paragraphs
-        self._CFRunLoopStop(self._CFRunLoopGetCurrent())
+        if hasattr(self, "current_run_loop") and self.current_run_loop:
+            self._CFRunLoopStop(self.current_run_loop)
+        else:
+            self._CFRunLoopStop(self._CFRunLoopGetCurrent())
 
     def _preprocess(self, img):
         image_bytes = pil_image_to_bytes(img, "tiff")

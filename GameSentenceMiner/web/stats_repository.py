@@ -8,8 +8,7 @@ from typing import Any, Dict, Iterable, List, Tuple
 from GameSentenceMiner.util.config.configuration import get_stats_config
 from GameSentenceMiner.util.database.db import (
     GameLinesTable,
-    punctuation_regex,
-    repeating_chars_regex,
+    clean_text_for_stats,
 )
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
@@ -56,6 +55,7 @@ class StatsLineRecord:
 def _clean_line_text_for_stats(
     raw_line_text: Any,
     regex_out_repetitions: bool,
+    extra_punctuation_regex: str,
 ) -> str:
     if raw_line_text is None:
         return ""
@@ -63,20 +63,25 @@ def _clean_line_text_for_stats(
     if isinstance(raw_line_text, str):
         if not raw_line_text:
             return ""
-        return _clean_line_text_cached(raw_line_text, regex_out_repetitions)
+        return _clean_line_text_cached(raw_line_text, regex_out_repetitions, extra_punctuation_regex)
 
     normalized_text = str(raw_line_text)
     if not normalized_text:
         return ""
-    return _clean_line_text_cached(normalized_text, regex_out_repetitions)
+    return _clean_line_text_cached(normalized_text, regex_out_repetitions, extra_punctuation_regex)
 
 
 @lru_cache(maxsize=200000)
-def _clean_line_text_cached(raw_line_text: str, regex_out_repetitions: bool) -> str:
-    cleaned = punctuation_regex.sub("", raw_line_text).strip()
-    if regex_out_repetitions:
-        cleaned = repeating_chars_regex.sub(r"\1\1\1", cleaned)
-    return cleaned
+def _clean_line_text_cached(
+    raw_line_text: str,
+    regex_out_repetitions: bool,
+    extra_punctuation_regex: str,
+) -> str:
+    return clean_text_for_stats(
+        raw_line_text,
+        regex_out_repetitions=regex_out_repetitions,
+        extra_punctuation_regex=extra_punctuation_regex,
+    )
 
 
 def _parse_note_ids_for_stats(raw_note_ids: Any) -> Any:
@@ -116,7 +121,9 @@ def query_stats_lines(
     include_media_fields: bool = True,
     parse_note_ids: bool = True,
 ) -> list[StatsLineRecord]:
-    regex_out_repetitions = get_stats_config().regex_out_repetitions
+    stats_config = get_stats_config()
+    regex_out_repetitions = getattr(stats_config, "regex_out_repetitions", False)
+    extra_punctuation_regex = getattr(stats_config, "extra_punctuation_regex", "")
     if include_media_fields and parse_note_ids:
         rows = GameLinesTable._db.fetchall(
             f"""
@@ -133,7 +140,7 @@ def query_stats_lines(
             StatsLineRecord(
                 line_id=str(row[0] or ""),
                 game_name=str(row[1] or ""),
-                line_text=_clean_line_text_for_stats(row[2], regex_out_repetitions),
+                line_text=_clean_line_text_for_stats(row[2], regex_out_repetitions, extra_punctuation_regex),
                 screenshot_in_anki=str(row[3] or ""),
                 audio_in_anki=str(row[4] or ""),
                 translation=str(row[5] or ""),
@@ -160,7 +167,7 @@ def query_stats_lines(
             StatsLineRecord(
                 line_id=str(row[0] or ""),
                 game_name=str(row[1] or ""),
-                line_text=_clean_line_text_for_stats(row[2], regex_out_repetitions),
+                line_text=_clean_line_text_for_stats(row[2], regex_out_repetitions, extra_punctuation_regex),
                 screenshot_in_anki=str(row[3] or ""),
                 audio_in_anki=str(row[4] or ""),
                 translation=str(row[5] or ""),
@@ -186,7 +193,7 @@ def query_stats_lines(
             StatsLineRecord(
                 line_id=str(row[0] or ""),
                 game_name=str(row[1] or ""),
-                line_text=_clean_line_text_for_stats(row[2], regex_out_repetitions),
+                line_text=_clean_line_text_for_stats(row[2], regex_out_repetitions, extra_punctuation_regex),
                 timestamp=float(row[3]) if row[3] is not None else 0.0,
                 game_id=str(row[4] or ""),
                 note_ids=_parse_note_ids_for_stats(row[5]),
@@ -208,7 +215,7 @@ def query_stats_lines(
         StatsLineRecord(
             line_id=str(row[0] or ""),
             game_name=str(row[1] or ""),
-            line_text=_clean_line_text_for_stats(row[2], regex_out_repetitions),
+            line_text=_clean_line_text_for_stats(row[2], regex_out_repetitions, extra_punctuation_regex),
             timestamp=float(row[3]) if row[3] is not None else 0.0,
             game_id=str(row[4] or ""),
             note_ids=[],

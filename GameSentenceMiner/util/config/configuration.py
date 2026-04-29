@@ -37,6 +37,7 @@ AI_OPENAI = "OpenAI"
 AI_OLLAMA = "Ollama"
 AI_LM_STUDIO = "LM Studio"
 AI_GSM_CLOUD = "GSM Cloud"
+AI_DEEPL = "DeepL"
 
 GSM_CLOUD_DEFAULT_MODEL = "gpt-4.1-nano-2025-04-14"
 GSM_CLOUD_PREVIEW_ENV = "GSM_CLOUD_PREVIEW"
@@ -730,6 +731,7 @@ class Anki:
     autoplay_audio: bool = False
     replay_audio_on_tts_generation: bool = True
     tag_unvoiced_cards: bool = False
+    remove_overlay_tag: bool = False
 
     def __post_init__(self):
         if self.custom_tags is None:
@@ -1100,6 +1102,8 @@ class Ai:
     enabled: bool = False  # DEPRECATED, use is_configured() instead
     add_to_anki: bool = False
     anki_field: str = ""
+    deepl_api_key: str = ""
+    deepl_target_lang: str = "EN"
     provider: str = AI_GEMINI
     gemini_model: str = "gemma-3-27b-it"
     gemini_backup_model: str = ""
@@ -1143,6 +1147,7 @@ class Ai:
             "groq": AI_GROQ,
             "openai": AI_OPENAI,
             "ollama": AI_OLLAMA,
+            "deepl": AI_DEEPL,
             "lm_studio": AI_LM_STUDIO,
             "lm studio": AI_LM_STUDIO,
             "gsm_cloud": AI_GSM_CLOUD,
@@ -1170,6 +1175,8 @@ class Ai:
             self.ollama_backup_model = ""
         if self.lm_studio_backup_model == OFF:
             self.lm_studio_backup_model = ""
+        if self.deepl_api_key == OFF:
+            self.deepl_api_key = ""
 
         if self.enabled:
             self.add_to_anki = True
@@ -1228,6 +1235,8 @@ class Ai:
             return True
         if self.provider == AI_GSM_CLOUD and self.gsm_cloud_access_token and self.get_gsm_cloud_primary_model():
             return True
+        if self.provider == AI_DEEPL and self.deepl_api_key:
+            return True
         return False
 
     def get_gsm_cloud_primary_model(self) -> str:
@@ -1267,15 +1276,12 @@ class Overlay:
     ocr_area_config_include_secondary_areas: bool = True
     ocr_area_config_use_exclusion_zones: bool = True
     use_ocr_result_v2: bool = False
+    check_previous_lines_for_recycled_indicator: bool = False
     ocr_full_screen_instead_of_obs: bool = False
 
     def __post_init__(self):
         if self.monitor_to_capture == -1:
             self.monitor_to_capture = 0  # Default to the first monitor if not set
-
-        # Keep the legacy field for config compatibility, but always use the
-        # current OCR-result overlay behavior.
-        self.use_ocr_result_v2 = False
 
         try:
             import mss as mss
@@ -1435,6 +1441,7 @@ class StatsConfig:
     cards_mined_daily_target: int = 10  # Daily target for cards mined (default: 10 cards per day)
     regex_out_punctuation: bool = True
     regex_out_repetitions: bool = False
+    extra_punctuation_regex: str = ""
     easy_days_settings: Dict[str, int] = field(
         default_factory=lambda: {
             "monday": 100,
@@ -2310,7 +2317,7 @@ class GsmStatus:
     ready: bool = False
     status: bool = "Initializing"
     cards_created: int = 0
-    websockets_connected: List[str] = field(default_factory=list)
+    websockets_connected: Dict[str, str] = field(default_factory=dict)
     obs_connected: bool = False
     anki_connected: bool = False
     last_line_received: str = None

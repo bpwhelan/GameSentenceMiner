@@ -2350,6 +2350,17 @@ document.addEventListener('DOMContentLoaded', function () {
         openModal('deleteGameModal');
     }
 
+    function openDeduplicationForCurrentGame() {
+        const sceneName = getCurrentManagedGameSceneName();
+        if (!sceneName) {
+            return;
+        }
+
+        openDeduplicationModal({
+            selectedGames: [sceneName],
+        });
+    }
+
     async function repullCurrentManagedGameMetadata() {
         const gameId = getCurrentManagedGameId();
         if (!gameId || !_currentManagedGameData) {
@@ -2895,6 +2906,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     case 'markComplete':
                         markCurrentManagedGameComplete();
                         break;
+                    case 'deduplicateGame':
+                        openDeduplicationForCurrentGame();
+                        break;
                     case 'mergeGames':
                         openMergeModal();
                         break;
@@ -2926,6 +2940,10 @@ document.addEventListener('DOMContentLoaded', function () {
             };
             reader.readAsDataURL(file);
         });
+    }
+
+    if (typeof initializeTextManagement === 'function') {
+        initializeTextManagement();
     }
 
     const saveGameEditsBtn = document.getElementById('saveGameEditsBtn');
@@ -3083,6 +3101,17 @@ document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('[data-action="closeDeleteModal"]').forEach(btn => {
         btn.addEventListener('click', function() {
             closeModal('deleteGameModal');
+        });
+    });
+
+    document.querySelectorAll('[data-action="closeModal"]').forEach(btn => {
+        const modalId = btn.getAttribute('data-modal');
+        if (!modalId) {
+            return;
+        }
+
+        btn.addEventListener('click', function() {
+            closeModal(modalId);
         });
     });
 

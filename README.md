@@ -102,7 +102,7 @@ For full setup guides and configuration details, check the [Wiki](https://docs.g
 
 This project includes modified versions of the following libraries, I got tired of submodule hell so I've included them directly here for easier management all credits go to the original authors:
 
-*   **Texthooker UI**
+*   **TextFeed Page**
     - GSM: https://github.com/bpwhelan/GameSentenceMiner/tree/main/texthooker
     - Original: [Renji-XD/texthooker-ui](https://github.com/Renji-XD/texthooker-ui)  
 

@@ -19,6 +19,7 @@ from GameSentenceMiner.util.config.configuration import (
     AI_LM_STUDIO,
     AI_OLLAMA,
     AI_OPENAI,
+    AI_DEEPL,
     Ai,
     General,
 )
@@ -46,7 +47,7 @@ def _is_local_url(url: str) -> bool:
 
 
 def _requires_internet(config: Ai) -> bool:
-    if config.provider in {AI_GEMINI, AI_GROQ, AI_GSM_CLOUD}:
+    if config.provider in {AI_GEMINI, AI_GROQ, AI_GSM_CLOUD, AI_DEEPL}:
         return True
     if config.provider == AI_OPENAI:
         return not _is_local_url(config.open_ai_url)
@@ -104,6 +105,8 @@ class AIService:
             return config.ollama_model
         if config.provider == AI_LM_STUDIO:
             return config.lm_studio_model
+        if config.provider == AI_DEEPL:  # ← ADD THIS
+            return "deepl"
         return ""
 
     @staticmethod
@@ -118,6 +121,8 @@ class AIService:
             return config.ollama_backup_model
         if config.provider == AI_LM_STUDIO:
             return config.lm_studio_backup_model
+        if config.provider == AI_DEEPL:  # (DeepL doesn't have backup models)
+            return ""
         return ""
 
     def _ensure_connectivity(self) -> bool:
@@ -215,10 +220,38 @@ class AIService:
             character_context=character_context,
         )
 
-        request = self._make_request(full_prompt, request_kind=prompt_kind)
+        self.logger.debug(f"DeepL Prompt being sent: {full_prompt[:500]}")
+
+        # NOTE:
+        # DeepL is now primarily handled directly in prefetch_ai_translation() (anki.py)
+        # to avoid going through the LLM prompt pipeline.
+        # This branch is kept for compatibility with other flows (e.g. manual translate).
+
+        if self.config_snapshot.ai.provider == AI_DEEPL:
+            # DeepL should only receive the raw sentence
+            prompt_to_send = sentence
+            self.logger.debug(f"SENTENCE SENT TO DEEPL: {sentence}")
+        else:
+            prompt_to_send = full_prompt
+
+        request = self._make_request(prompt_to_send, request_kind=prompt_kind)
         try:
             response = self._execute_request(request)
+
+            self.logger.debug(f"=== TRANSLATION DEBUG ===")
+            self.logger.debug(f"Original sentence: {sentence}")
+            self.logger.debug(f"Translation returned: {response.text}")
+
+            # ADD THIS BLOCK so that prefetch_ai_translation() in anki.py can work
+            try:
+                if current_line is not None:
+                    current_line.translation = response.text
+            except Exception:
+                self.logger.debug(f"Failed to set translation on current_line: {current_line}")
+                pass
+
             return response.text
+
         except AIError as e:
             self.logger.error(f"AI processing failed: {e}")
             return f"Processing failed: {e}"

@@ -52,6 +52,7 @@ from GameSentenceMiner.ui.config.editor import ConfigEditor
 from GameSentenceMiner.ui.config.i18n import load_localization
 from GameSentenceMiner.ui.config.labels import LabelColor, build_label
 from GameSentenceMiner.ui.config.prompt_help import PromptHelpDialog
+from GameSentenceMiner.ui.config.safety import safe_config_callback, safe_config_methods
 from GameSentenceMiner.ui.config.services.ai_models import (
     AIModelFetcher,
     RECOMMENDED_GEMINI_MODELS,
@@ -124,6 +125,7 @@ from GameSentenceMiner.util.config.configuration import (
     AI_OLLAMA,
     AI_LM_STUDIO,
     AI_GSM_CLOUD,
+    AI_DEEPL,
     GSM_CLOUD_DEFAULT_MODEL,
     is_gsm_cloud_preview_enabled,
     save_full_config,
@@ -168,6 +170,7 @@ class HorizontalTextTabBar(QTabBar):
             painter.drawControl(QStyle.ControlElement.CE_TabBarTabLabel, option)
 
 
+@safe_config_methods()
 class ConfigWindow(QWidget):
     # Signals for thread-safe operations
     _show_window_signal = pyqtSignal(str, str)
@@ -673,8 +676,8 @@ class ConfigWindow(QWidget):
             # except ValueError:
             #     local_scans = 1
 
-            # Get selected scenes from profile OBS scene list
-            selected_scenes = [item.text() for item in self.obs_scene_list.selectedItems()]
+            # Keep the saved scene mapping authoritative so OBS refreshes cannot wipe it.
+            selected_scenes = self._get_profile_scene_selection()
 
             # Collect data from UI widgets to build a new config object
             # Sync websocket sources from the editors before building config
@@ -771,6 +774,7 @@ class ConfigWindow(QWidget):
                     parent_tag=self.parent_tag_edit.text(),
                     autoplay_audio=self.anki_confirmation_autoplay_audio_check.isChecked(),
                     tag_unvoiced_cards=self.tag_unvoiced_cards_check.isChecked(),
+                    remove_overlay_tag=self.remove_overlay_tag_check.isChecked(),
                     confirmation_always_on_top=self.anki_confirmation_always_on_top_check.isChecked(),
                     confirmation_focus_on_show=self.anki_confirmation_focus_on_show_check.isChecked(),
                     replay_audio_on_tts_generation=self.anki_confirmation_replay_audio_on_tts_generation_check.isChecked(),
@@ -908,6 +912,8 @@ class ConfigWindow(QWidget):
                         else self.lm_studio_backup_model_combo.currentText()
                     ),
                     lm_studio_api_key=self.lm_studio_api_key_edit.text(),
+                    deepl_api_key=self.deepl_api_key_edit.text(),  # ← Add this
+                    deepl_target_lang=self.deepl_target_lang_edit.text(),  # ← Add this
                     use_canned_translation_prompt=self.use_canned_translation_prompt_check.isChecked(),
                     use_canned_context_prompt=self.use_canned_context_prompt_check.isChecked(),
                     custom_prompt=self.custom_prompt_textedit.toPlainText(),
@@ -935,6 +941,9 @@ class ConfigWindow(QWidget):
                     ocr_area_config_include_secondary_areas=self.ocr_area_config_include_secondary_areas_check.isChecked(),
                     ocr_area_config_use_exclusion_zones=self.ocr_area_config_use_exclusion_zones_check.isChecked(),
                     use_ocr_result_v2=self.use_ocr_result_check.isChecked(),
+                    check_previous_lines_for_recycled_indicator=bool(
+                        getattr(self.settings.overlay, "check_previous_lines_for_recycled_indicator", False)
+                    ),
                     ocr_full_screen_instead_of_obs=bool(
                         getattr(self, "ocr_full_screen_instead_of_obs_checkbox", None)
                         and self.ocr_full_screen_instead_of_obs_checkbox.isChecked()
@@ -1084,6 +1093,33 @@ class ConfigWindow(QWidget):
         is_default = new_profile_name == DEFAULT_CONFIG
         self.delete_profile_button.setHidden(is_default)
 
+    @staticmethod
+    def _normalize_scene_selection(scene_names):
+        normalized = []
+        seen = set()
+        for scene_name in scene_names or []:
+            text = str(scene_name or "").strip()
+            if not text or text in seen:
+                continue
+            normalized.append(text)
+            seen.add(text)
+        return normalized
+
+    def _get_profile_scene_selection(self):
+        normalized = self._normalize_scene_selection(getattr(self.settings, "scenes", []))
+        if normalized != getattr(self.settings, "scenes", []):
+            self.settings.scenes = list(normalized)
+        return list(normalized)
+
+    @staticmethod
+    def _populate_scene_list_widget(list_widget, scene_names, selected_scene_names):
+        selected_scene_names = set(selected_scene_names or [])
+        list_widget.clear()
+        list_widget.addItems(scene_names)
+        for i in range(list_widget.count()):
+            item = list_widget.item(i)
+            item.setSelected(item.text() in selected_scene_names)
+
     def _on_locale_changed(self):
         if self.locale_combo.currentText() == self.master_config.get_locale().name:
             return
@@ -1107,7 +1143,7 @@ class ConfigWindow(QWidget):
 
     def _on_obs_scene_selection_changed(self):
         selected_items = self.obs_scene_list.selectedItems()
-        self.settings.scenes = [item.text() for item in selected_items]
+        self.settings.scenes = self._normalize_scene_selection(item.text() for item in selected_items)
         self.request_auto_save()
 
     def _on_single_port_editing_finished(self):
@@ -1229,6 +1265,7 @@ class ConfigWindow(QWidget):
         self.add_game_tag_check = QCheckBox()
         self.parent_tag_edit = QLineEdit()
         self.tag_unvoiced_cards_check = QCheckBox()
+        self.remove_overlay_tag_check = QCheckBox()
 
         # Features
         self.full_auto_check = QCheckBox()  # Note: This setting seems unused in the original save logic.
@@ -1277,6 +1314,7 @@ class ConfigWindow(QWidget):
         self.gsm_cloud_settings_group = QGroupBox()
         self.ollama_settings_group = QGroupBox()
         self.lm_studio_settings_group = QGroupBox()
+        self.deepl_settings_group = QGroupBox()
 
         # Audio
         self.audio_enabled_check = QCheckBox()
@@ -1351,6 +1389,10 @@ class ConfigWindow(QWidget):
         self.lm_studio_model_combo = QComboBox()
         self.lm_studio_backup_model_combo = QComboBox()
         self.lm_studio_api_key_edit = QLineEdit()
+        self.deepl_api_key_edit = QLineEdit()  # ← Add this
+        self.deepl_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.deepl_target_lang_edit = QLineEdit()  # ← Add this
+        self.deepl_target_lang_edit.setPlaceholderText("EN-US, JA, ZH, ES, FR, DE, IT, NL, PL, PT-PT, RU, KO")
         self.ai_anki_field_edit = self._create_anki_field_combo()
         self.ai_dialogue_context_length_edit = QLineEdit()
         self.ai_temperature_edit = QLineEdit()
@@ -1392,6 +1434,7 @@ class ConfigWindow(QWidget):
         self.ocr_area_config_include_secondary_areas_check = QCheckBox()
         self.ocr_area_config_use_exclusion_zones_check = QCheckBox()
         self.use_ocr_result_check = QCheckBox()
+        self.check_previous_lines_for_recycled_indicator_check = QCheckBox()
         self.pause_text_intake_hotkey_edit = QKeySequenceEdit()
         self.relay_outputs_when_text_intake_paused_check = QCheckBox()
 
@@ -1693,7 +1736,7 @@ class ConfigWindow(QWidget):
             self.gsm_cloud_model_list.blockSignals(False)
 
     def _get_available_ai_providers(self) -> list[str]:
-        providers = [AI_GEMINI, AI_GROQ, AI_OPENAI, AI_OLLAMA, AI_LM_STUDIO]
+        providers = [AI_GEMINI, AI_GROQ, AI_OPENAI, AI_OLLAMA, AI_LM_STUDIO, AI_DEEPL]
         if self._is_gsm_cloud_ai_preview_enabled() and self._is_gsm_cloud_authenticated():
             providers.append(AI_GSM_CLOUD)
         return providers
@@ -2191,19 +2234,31 @@ class ConfigWindow(QWidget):
         self.ffmpeg_audio_preset_combo.currentTextChanged.connect(self._on_ffmpeg_preset_changed)
         self.single_port_edit.editingFinished.connect(self._on_single_port_editing_finished)
         self.anki_note_type_combo.currentIndexChanged.connect(
-            lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText())
+            safe_config_callback(
+                lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText()),
+                name="ConfigWindow.anki_note_type_current_changed",
+            )
         )
         if self.anki_note_type_combo.lineEdit():
             self.anki_note_type_combo.lineEdit().editingFinished.connect(
-                lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText())
+                safe_config_callback(
+                    lambda: self._on_anki_note_type_changed(self.anki_note_type_combo.currentText()),
+                    name="ConfigWindow.anki_note_type_editing_finished",
+                )
             )
         if hasattr(self, "req_note_type_combo"):
             self.req_note_type_combo.currentIndexChanged.connect(
-                lambda: self._on_anki_note_type_changed(self.req_note_type_combo.currentText())
+                safe_config_callback(
+                    lambda: self._on_anki_note_type_changed(self.req_note_type_combo.currentText()),
+                    name="ConfigWindow.required_note_type_current_changed",
+                )
             )
             if self.req_note_type_combo.lineEdit():
                 self.req_note_type_combo.lineEdit().editingFinished.connect(
-                    lambda: self._on_anki_note_type_changed(self.req_note_type_combo.currentText())
+                    safe_config_callback(
+                        lambda: self._on_anki_note_type_changed(self.req_note_type_combo.currentText()),
+                        name="ConfigWindow.required_note_type_editing_finished",
+                    )
                 )
         if hasattr(self, "anki_fields_refresh_button"):
             self.anki_fields_refresh_button.clicked.connect(self._on_anki_fields_refresh_clicked)
@@ -2660,6 +2715,7 @@ class ConfigWindow(QWidget):
         self.add_game_tag_check.setChecked(s.anki.add_game_tag)
         self._set_text_value(self.parent_tag_edit, s.anki.parent_tag)
         self.tag_unvoiced_cards_check.setChecked(s.anki.tag_unvoiced_cards)
+        self.remove_overlay_tag_check.setChecked(s.anki.remove_overlay_tag)
 
         # Features
         self.full_auto_check.setChecked(s.features.full_auto)
@@ -2808,6 +2864,10 @@ class ConfigWindow(QWidget):
         self.lm_studio_model_combo.setCurrentText(s.ai.lm_studio_model)
         self.lm_studio_backup_model_combo.setCurrentText(s.ai.lm_studio_backup_model or OFF)
         self._set_text_value(self.lm_studio_api_key_edit, s.ai.lm_studio_api_key)
+
+        self._set_text_value(self.deepl_api_key_edit, s.ai.deepl_api_key)
+        self._set_text_value(self.deepl_target_lang_edit, s.ai.deepl_target_lang)
+
         self.ai_anki_field_edit.setCurrentText(s.ai.anki_field)
         self.ai_dialogue_context_length_edit.setText(str(s.ai.dialogue_context_length))
         self.ai_temperature_edit.setText(str(s.ai.temperature))
@@ -2848,6 +2908,9 @@ class ConfigWindow(QWidget):
             bool(getattr(s.overlay, "ocr_area_config_use_exclusion_zones", True))
         )
         self.use_ocr_result_check.setChecked(s.overlay.use_ocr_result_v2)
+        self.check_previous_lines_for_recycled_indicator_check.setChecked(
+            bool(getattr(s.overlay, "check_previous_lines_for_recycled_indicator", True))
+        )
         self.pause_text_intake_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.pause_text_intake or ""))
         self.relay_outputs_when_text_intake_paused_check.setChecked(
             bool(getattr(s.hotkeys, "relay_outputs_when_text_intake_paused", True))
@@ -3026,7 +3089,12 @@ class ConfigWindow(QWidget):
                 }
                 """
             )
-            button.clicked.connect(lambda _checked=False, target=url: self._open_documentation_link(target))
+            button.clicked.connect(
+                safe_config_callback(
+                    lambda _checked=False, target=url: self._open_documentation_link(target),
+                    name="ConfigWindow.open_documentation_link",
+                )
+            )
             layout.addWidget(button)
 
         layout.addStretch()
@@ -3144,6 +3212,7 @@ class ConfigWindow(QWidget):
         self.gsm_cloud_settings_group.setVisible(provider == AI_GSM_CLOUD)
         self.ollama_settings_group.setVisible(provider == AI_OLLAMA)
         self.lm_studio_settings_group.setVisible(provider == AI_LM_STUDIO)
+        self.deepl_settings_group.setVisible(provider == AI_DEEPL)
 
     def _create_browse_widget(self, line_edit, mode):
         """Helper to create a LineEdit with a Browse button."""
@@ -3157,7 +3226,12 @@ class ConfigWindow(QWidget):
 
     def _create_browse_button(self, line_edit, mode):
         button = QPushButton(self.i18n.get("buttons", {}).get("browse", "Browse"))
-        button.clicked.connect(lambda: self._browse_for_path(line_edit, mode))
+        button.clicked.connect(
+            safe_config_callback(
+                lambda: self._browse_for_path(line_edit, mode),
+                name="ConfigWindow.browse_for_path",
+            )
+        )
         return button
 
     def _browse_for_path(self, line_edit, mode):
@@ -3189,7 +3263,12 @@ class ConfigWindow(QWidget):
         # Create the reset button
         button = QPushButton(i18n.get("text", "Reset to Default"))
         button.setToolTip(i18n.get("tooltip", "Reset current tab to default."))
-        button.clicked.connect(lambda: self._reset_to_default(category, recreate_func))
+        button.clicked.connect(
+            safe_config_callback(
+                lambda: self._reset_to_default(category, recreate_func),
+                name="ConfigWindow.reset_to_default",
+            )
+        )
         button.setMaximumWidth(200)
 
         # Center the button
@@ -3305,48 +3384,33 @@ class ConfigWindow(QWidget):
             self.delete_profile_button.setHidden(True)
 
     def refresh_obs_scenes(self, force_reload=False):
-        # Save current selections before clearing
-        current_profile_scenes = [item.text() for item in self.obs_scene_list.selectedItems()]
-        current_discord_scenes = [item.text() for item in self.discord_blacklisted_scenes_list.selectedItems()]
-
-        # Use current UI selection if available (and not forcing reload), otherwise use saved config
-        if force_reload:
-            profile_scenes_to_select = self.settings.scenes
-            discord_scenes_to_select = self.master_config.discord.blacklisted_scenes
-        else:
-            profile_scenes_to_select = current_profile_scenes if current_profile_scenes else self.settings.scenes
-            discord_scenes_to_select = (
-                current_discord_scenes if current_discord_scenes else self.master_config.discord.blacklisted_scenes
-            )
-
-        previous_suspend = self._autosave_suspended
-        self._autosave_suspended = True
-        self.obs_scene_list.clear()
-        self.discord_blacklisted_scenes_list.clear()
         try:
             scenes = obs.get_obs_scenes()
             if not scenes:
                 logger.debug("OBS scenes not available yet; skipping refresh.")
                 return
-            scene_names = [scene["sceneName"] for scene in scenes]
+            scene_names = self._normalize_scene_selection(
+                scene.get("sceneName") for scene in scenes if isinstance(scene, dict)
+            )
+            profile_scenes_to_select = self._get_profile_scene_selection()
+            discord_scenes_to_select = self._normalize_scene_selection(
+                getattr(self.master_config.discord, "blacklisted_scenes", [])
+            )
 
-            # Update profile OBS scene list
-            self.obs_scene_list.addItems(scene_names)
-            for i in range(self.obs_scene_list.count()):
-                item = self.obs_scene_list.item(i)
-                if item.text() in profile_scenes_to_select:
-                    item.setSelected(True)
-
-            # Update Discord blacklisted scenes list
-            self.discord_blacklisted_scenes_list.addItems(scene_names)
-            for i in range(self.discord_blacklisted_scenes_list.count()):
-                item = self.discord_blacklisted_scenes_list.item(i)
-                if item.text() in discord_scenes_to_select:
-                    item.setSelected(True)
+            previous_suspend = self._autosave_suspended
+            self._autosave_suspended = True
+            try:
+                with QSignalBlocker(self.obs_scene_list), QSignalBlocker(self.discord_blacklisted_scenes_list):
+                    self._populate_scene_list_widget(self.obs_scene_list, scene_names, profile_scenes_to_select)
+                    self._populate_scene_list_widget(
+                        self.discord_blacklisted_scenes_list,
+                        scene_names,
+                        discord_scenes_to_select,
+                    )
+            finally:
+                self._autosave_suspended = previous_suspend
         except Exception as e:
             logger.error(f"Failed to refresh OBS scenes: {e}")
-        finally:
-            self._autosave_suspended = previous_suspend
 
     # --- Other UI Loaders ---
     def _load_ffmpeg_presets(self):
@@ -3644,7 +3708,10 @@ class ConfigWindow(QWidget):
             # Refresh all providers
             self.model_thread = threading.Thread(target=self.model_fetcher.fetch, daemon=True)
             self.model_fetcher.models_fetched.connect(
-                lambda g, q, o, local_models: self._update_ai_model_combos(g, q, o, local_models, True)
+                safe_config_callback(
+                    lambda g, q, o, local_models: self._update_ai_model_combos(g, q, o, local_models, True),
+                    name="ConfigWindow.update_ai_model_combos_preserve_selection",
+                )
             )
             self.model_thread.start()
 

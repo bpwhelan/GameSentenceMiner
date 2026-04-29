@@ -1,0 +1,721 @@
+{
+  "home": {
+    "status": {
+      "title": "Status",
+      "gsm": "GSM",
+      "clipboard": "Clipboard",
+      "obs": "OBS",
+      "anki": "Anki",
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "disabledWebSocket": "Disabled (WebSocket)",
+      "running": "Running",
+      "notRunning": "Not Running",
+      "installing": "Installing…",
+      "error": "Error",
+      "processing": "Processing: {words}",
+      "lastLine": "Last line: {time}",
+      "lastLineNotReceived": "Not received yet",
+      "tooltipGsm": "Status: {status}\nWebSockets: {websockets}\nOBS: {obs}\nAnki: {anki}\nLast Line Received: {lastLine}",
+      "tooltipGsmStopped": "GSM is stopped.",
+      "tooltipClipboardEnabled": "Clipboard monitoring is enabled.",
+      "tooltipClipboardDisabledWs": "Clipboard monitoring is disabled because text is being received via WebSocket.",
+      "tooltipClipboardDisabled": "Clipboard monitoring is disabled.",
+      "tooltipObs": "Click to open OBS",
+      "tooltipObsConnected": "OBS is connected. Click to open.",
+      "tooltipObsDisconnected": "OBS is disconnected. Click to open.",
+      "tooltipAnkiConnected": "Anki is connected.",
+      "tooltipAnkiDisconnected": "Anki is disconnected.",
+      "tooltipWsConnected": "{name} is connected.",
+      "timeSeconds": "{n} seconds ago",
+      "timeMinutes": "{n} minutes ago",
+      "timeHours": "{n} hours ago",
+      "timeDays": "{n} days ago"
+    },
+    "obs": {
+      "title": "Active Game Capture",
+      "required": "Required",
+      "gameLabel": "Game:",
+      "refreshScenes": "Refresh games",
+      "renameScene": "Rename Game Capture",
+      "removeGame": "Remove Game",
+      "rename": "Rename",
+      "remove": "Remove",
+      "switchProfile": "Switch Profile",
+      "preview": "Preview",
+      "captureCardPrefix": "Capture Card: {title}",
+      "setupNewScene": "Setup New Game Capture:",
+      "refreshWindows": "Refresh windows",
+      "selectWindow": "Select Window",
+      "setupCapture": "Setup Capture",
+      "setupCaptureTooltip": "Setup Capture adds Window/Game Capture for windows, or Video Capture Device for capture cards and cameras.\nGSM prefers Game Capture when it works, and capture-card game captures use Video Capture Device.\nOn Linux/Steam Deck, Setup Capture currently uses XComposite Window Capture.\nCapture-card game captures are created without automatic window-title switching.",
+      "overrideSceneName": "Override Game Capture Name (Optional):",
+      "captureCardToggle": "Check for Capture Cards/Cameras:",
+      "captureCardTooltip": "When enabled, probes for connected capture cards and cameras in addition to application windows.",
+      "loading": "Loading...",
+      "noCaptureTargets": "No capture targets found",
+      "sectionWindows": "Windows / Games",
+      "sectionCaptureCards": "Capture Cards / Cameras",
+      "notSupportedOS": "Need to set up game capture in OBS on this OS.",
+      "notSupportedTooltip": "Not supported on this OS"
+    },
+    "rename": {
+      "title": "Rename Game Capture",
+      "description": "Only the game capture name will change. Sources will stay as they are.",
+      "cancel": "Cancel",
+      "confirm": "Rename"
+    },
+    "overlay": {
+      "title": "Overlay",
+      "statusRunning": "Running",
+      "statusStopped": "Not running",
+      "guide": "Setup Guide",
+      "runOnStartup": "Run on startup",
+      "runOnStartupTooltip": "Start the GSM overlay automatically when GSM starts."
+    },
+    "actions": {
+      "title": "Utilities",
+      "gsmSettings": "GSM Settings",
+      "gsmSettingsTooltip": "Open GSM configuration panel",
+      "texthooker": "Open Text Feed",
+      "texthookerTooltip": "Open the Text Feed for game text capture",
+      "overlay": "Run Overlay",
+      "overlayTooltip": "Launch the Yomitan overlay for in-game lookups",
+      "overlaySettings": "Overlay Settings",
+      "overlaySettingsTooltip": "Open the overlay settings panel",
+      "overlayPlatformWarning": "Overlay support on this platform is experimental.",
+      "overlayWiki": "Overlay setup guide"
+    },
+    "support": {
+      "text": "Support GSM",
+      "githubSponsors": "GitHub Sponsors",
+      "kofi": "Ko-fi"
+    }
+  },
+  "app": {
+    "tabs": {
+      "home": "Home",
+      "ocr": "OCR",
+      "stats": "Stats",
+      "gameSettings": "Game Settings",
+      "settings": "Settings",
+      "python": "Python",
+      "logs": "Logs"
+    },
+    "header": {
+      "github": "GitHub",
+      "discord": "Discord"
+    },
+    "stats": {
+      "loading": "Waiting for GSM stats to load..."
+    },
+    "console": {
+      "openLogsFolder": "Open Logs Folder",
+      "openLogsFolderTooltip": "Open logs folder",
+      "exportLogs": "Export Logs",
+      "exportLogsTooltip": "Export logs to a zip archive",
+      "modeSimple": "Mode: Simple",
+      "modeAdvanced": "Mode: Advanced",
+      "modeSimpleTooltip": "Switch to Advanced logs (shows basic + background logs)",
+      "modeAdvancedTooltip": "Switch to Simple logs (hides background logs)"
+    },
+    "python": {
+      "cancel": "Cancel",
+      "cuda": {
+        "title": "CUDA Installation",
+        "install": "Install CUDA GPU Support",
+        "uninstall": "Uninstall CUDA Support",
+        "installTitle": "Install CUDA GPU Support",
+        "installMessage": "Install CUDA GPU Support?",
+        "installDetail": "This installs onnxruntime-gpu for faster processing.\n\n- Requires additional storage\n- May not be compatible with all systems\n- Install at your own risk",
+        "installConfirm": "Install",
+        "installCancelled": "CUDA installation cancelled.",
+        "installing": "Installing CUDA GPU support...",
+        "uninstallTitle": "Uninstall CUDA GPU Support",
+        "uninstallMessage": "Uninstall CUDA GPU Support?",
+        "uninstallDetail": "This uninstalls onnxruntime-gpu and can fix GPU-related issues.",
+        "uninstallConfirm": "Uninstall",
+        "uninstallCancelled": "CUDA uninstallation cancelled.",
+        "uninstalling": "Uninstalling CUDA GPU support..."
+      },
+      "management": {
+        "title": "GSM Management",
+        "resetDeps": "Reset Python Dependencies",
+        "resetTitle": "Reset Python Dependencies",
+        "resetMessage": "Reset Python Dependencies?",
+        "resetDetail": "This runs \"uv sync\" and restores dependency versions from the lockfile.",
+        "resetConfirm": "Reset",
+        "resetCancelled": "Dependency reset cancelled.",
+        "resetting": "Resetting Python dependencies..."
+      },
+      "customPackage": {
+        "title": "Custom Package Installation",
+        "label": "Package Name",
+        "placeholder": "numpy, requests, etc.",
+        "installBtn": "Install Package",
+        "enterName": "Please enter a package name.",
+        "installing": "Installing package: {package}..."
+      },
+      "envInfo": {
+        "title": "Python Environment Info",
+        "version": "Python Version: {version}",
+        "path": "Python Path: {path}",
+        "pipVersion": "Pip Version: {version}",
+        "unknown": "Unknown",
+        "error": "Error loading",
+        "loading": "Loading...",
+        "refresh": "Refresh Info"
+      }
+    }
+  },
+  "wizard": {
+    "skip": "Skip Setup",
+    "back": "← Back",
+    "next": "Next →",
+    "getStarted": "Get Started →",
+    "welcome": {
+      "title": "Welcome to GameSentenceMiner! 🎮",
+      "description": "GSM helps you automatically create Anki flashcards from games you play. It captures text, audio, and screenshots to build high-quality cards for Language learning.",
+      "whatYouNeed": "What you'll need:",
+      "ankiLabel": "Anki",
+      "ankiWith": "with the",
+      "ankiConnect": "AnkiConnect",
+      "ankiAddonRunning": "add-on installed and running",
+      "textSourceLabel": "A text source",
+      "textSourceDesc": "— Agent, Textractor, or built-in OCR",
+      "obsLabel": "OBS Studio",
+      "obsDesc": "(optional) — for audio/video recording",
+      "hint": "This wizard will walk you through the basics. You can always change settings later."
+    },
+    "textSources": {
+      "title": "Text Input Sources 📝",
+      "description": "GSM needs a way to read text from your game. Here are the most common options:",
+      "agentTitle": "🔌 Agent (Recommended)",
+      "agentDesc": "Works with most Visual Novels. Connects automatically via websocket on port 9001.",
+      "agentLink": "Get Agent →",
+      "ocrTitle": "👁️ Built-in OCR",
+      "ocrDesc": "Use screen OCR for games where text hooking doesn't work. Configure in the OCR tab after setup.",
+      "clipboardTitle": "📋 Clipboard",
+      "clipboardDesc": "If your text source copies to clipboard, GSM can read from there automatically.",
+      "hint": "Websocket sources (Agent, Textractor, LunaTranslator) can be managed in Settings → General."
+    },
+    "connectivity": {
+      "title": "Connectivity Check 🔗",
+      "description": "Let's verify your external tools are reachable:",
+      "ankiLabel": "Anki (AnkiConnect)",
+      "checking": "Checking connection...",
+      "ankiConnected": "Connected! AnkiConnect is running.",
+      "ankiFailedPre": "Not reachable. Make sure Anki is open with the",
+      "ankiConnectAddon": "AnkiConnect add-on",
+      "ankiFailedPost": "installed.",
+      "obsLabel": "OBS Studio (WebSocket)",
+      "obsConnected": "Connected! OBS WebSocket server is running.",
+      "obsFailed": "Not reachable. OBS is optional — you can set it up later in Settings.",
+      "hint": "You can continue even if connections fail — configure them later in Settings."
+    },
+    "finish": {
+      "title": "You're All Set! 🎉",
+      "description": "GSM is ready to go. Here are some tips to get started:",
+      "tipHome": "Open the <strong>Home</strong> tab to see the current game text stream",
+      "tipGameSettings": "Use <strong>Game Settings</strong> to configure per-game profiles",
+      "tipSettings": "Check the <strong>Settings</strong> tab for Anki, audio, and hotkey configuration",
+      "tipConsole": "The <strong>Console</strong> tab shows what GSM is doing behind the scenes",
+      "guidePre": "For detailed guides and troubleshooting, visit the",
+      "guideWikiLink": "GSM Wiki",
+      "guideOr": "or join the",
+      "guideDiscordLink": "Discord community"
+    }
+  },
+  "install": {
+    "title": "Installing GSM",
+    "preparing": "Preparing setup...",
+    "steps": "{completed}/{total} steps",
+    "stages": {
+      "pythonSetup": "Python setup",
+      "gsmBackend": "GSM backend",
+      "obs": "OBS",
+      "ffmpeg": "FFmpeg",
+      "oneocr": "OneOCR",
+      "finalize": "Finalize"
+    },
+    "status": {
+      "done": "Done",
+      "completed": "Completed.",
+      "skipped": "Skipped",
+      "skippedDetail": "Skipped.",
+      "failed": "Failed",
+      "failedDetail": "Failed.",
+      "downloading": "Downloading",
+      "working": "Working",
+      "workingDetail": "Working...",
+      "pending": "Pending",
+      "waiting": "Waiting..."
+    },
+    "estimatedProgress": "Estimated progress — install is still active.",
+    "logs": "Logs",
+    "waitingForLogs": "Waiting for logs...",
+    "emptyLog": "(empty)",
+    "retry": "Retry",
+    "openLogs": "Open Logs",
+    "quit": "Quit"
+  },
+  "settings": {
+    "hub": {
+      "findSetting": "Find a Setting",
+      "findDescription": "Search for what you want to change and GSM will open the right settings screen for you.",
+      "openGSMSettings": "Open Main GSM Settings",
+      "openOverlaySettings": "Open Overlay Settings",
+      "searchLabel": "Find Setting:",
+      "searchPlaceholder": "Try: anki fields, OBS password, OCR area, furigana hotkey, JPDB",
+      "searchHint": "Try everyday words, feature names, hotkeys, ports, field names, or tool names.",
+      "resultCount": "{count} result",
+      "resultCountPlural": "{count} results",
+      "noResults": "No matching settings found. Try broader words like anki, hotkey, overlay, OBS, or audio.",
+      "overlayNotAvailable": "Overlay settings could not be opened automatically. Start/connect the overlay first, or use its tray icon."
+    },
+    "desktop": {
+      "title": "Desktop App Settings",
+      "iconStyle": "Icon Style:",
+      "iconDefault": "Default",
+      "iconAnimeGirl": "Anime Girl",
+      "iconJacked": "Jacked",
+      "iconCursed": "Cursed",
+      "iconAnimeGirlTray": "Anime Girl (Tray Icon Also)",
+      "iconJackedTray": "Jacked (Tray Icon Also)",
+      "iconCursedTray": "Cursed (Tray Icon Also)",
+      "iconRandom": "Random",
+      "iconRandomTray": "Random (Tray Icon Also)",
+      "language": "Display Language (AI):",
+      "startMinimized": "Start Console Minimized:",
+      "showYuzuLauncher": "Show Yuzu Launcher:",
+      "runTransparencyOnStartup": "Run Window Transparency Tool on Startup:",
+      "runOverlayOnStartup": "Run Overlay on Startup:"
+    },
+    "visibility": {
+      "title": "Visibility Settings",
+      "visibleTabs": "Visible Tabs:",
+      "tabGameSettings": "Game Settings",
+      "tabStats": "Stats",
+      "tabPython": "Python",
+      "tabConsole": "Console",
+      "statsTarget": "Stats Target:"
+    },
+    "transparency": {
+      "title": "Transparency Tool (Deprecated)",
+      "toolHotkey": "Tool Hotkey:",
+      "windowTarget": "Window Target:",
+      "windowTargetPlaceholder": "Leave empty to target focused window",
+      "runTool": "Run Window Transparency Tool"
+    },
+    "updates": {
+      "title": "Updates",
+      "autoUpdate": "Auto Update:",
+      "betaUpdates": "Beta Updates:",
+      "betaTooltip": "Receive beta updates from the develop branch. Only newer versions will be offered.",
+      "description": "Check both the backend package and the desktop app from here.",
+      "backend": "GameSentenceMiner Backend",
+      "electronApp": "Electron App",
+      "current": "Current: {version}",
+      "latest": "Latest: {version}",
+      "channel": "Channel: {channel}",
+      "upToDate": "Up to date",
+      "manualBranch": "Manual branch tracking",
+      "lastChecked": "Last checked: {time}",
+      "checkForUpdates": "Check for Updates",
+      "checking": "Checking...",
+      "updateNow": "Update Now",
+      "updating": "Updating...",
+      "unknown": "Unknown"
+    },
+    "catalog": {
+      "alreadyOnScreen": "Already on this screen",
+      "openGSMSettings": "Open Main GSM Settings",
+      "openOverlaySettings": "Open Overlay Settings",
+      "locationElectron": "This screen",
+      "locationPython": "Main GSM settings",
+      "locationOverlay": "Overlay settings",
+      "desktopAppearance": {
+        "label": "Desktop app appearance and startup",
+        "description": "Change desktop app visuals, tray icons, and startup behavior."
+      },
+      "desktopTabs": {
+        "label": "Desktop tabs and stats",
+        "description": "Show or hide desktop tabs and choose the default stats page."
+      },
+      "desktopUpdates": {
+        "label": "Updates and beta releases",
+        "description": "Control update checks and whether beta builds are offered.",
+        "notes": "Some update changes take effect next launch."
+      },
+      "keySettings": {
+        "label": "Key Settings",
+        "description": "Main setup, connection ports, and the most important first-run settings.",
+        "notes": "Saved per GSM profile."
+      },
+      "general": {
+        "label": "General",
+        "description": "General behavior, folders, Discord status, and text cleanup settings.",
+        "notes": "Saved per GSM profile."
+      },
+      "anki": {
+        "label": "Anki",
+        "description": "Decks, fields, confirmation pop-up behavior, and tags for Anki cards.",
+        "notes": "Saved per GSM profile."
+      },
+      "screenshot": {
+        "label": "Screenshot",
+        "description": "Adjust screenshot size, format, timing, and animated capture options.",
+        "notes": "Saved per GSM profile."
+      },
+      "audio": {
+        "label": "Audio",
+        "description": "Audio clips, trimming, export, voice detection, and speech model settings.",
+        "notes": "Saved per GSM profile."
+      },
+      "obs": {
+        "label": "OBS",
+        "description": "OBS game captures, recording, and related capture behavior.",
+        "notes": "Saved per GSM profile."
+      },
+      "ai": {
+        "label": "AI and Translation",
+        "description": "AI providers, prompts, translation settings, and GSM Cloud.",
+        "notes": "Saved per GSM profile."
+      },
+      "overlayOcr": {
+        "label": "Overlay OCR",
+        "description": "Choose monitor, OCR area, and backend overlay capture behavior.",
+        "notes": "Saved per GSM profile."
+      },
+      "advanced": {
+        "label": "Advanced",
+        "description": "Advanced networking, player paths, ports, and experimental process pausing.",
+        "notes": "Most users will not need this often."
+      },
+      "profiles": {
+        "label": "Profiles",
+        "description": "Create, copy, delete, and switch between GSM profiles.",
+        "notes": "Profiles save different setups for different games."
+      },
+      "overlayDisplay": {
+        "label": "Overlay display and hotkeys",
+        "description": "Overlay visibility, furigana display, indicators, offsets, and hotkeys.",
+        "notes": "Saved in the overlay window itself."
+      },
+      "overlayTranslation": {
+        "label": "Overlay translation and reader tools",
+        "description": "Translation requests, reader tools, Yomitan, and Text Feed options.",
+        "notes": "Saved in the overlay window itself."
+      },
+      "overlayGamepad": {
+        "label": "Overlay gamepad navigation",
+        "description": "Controller navigation, tokenizer backends, keyboard toggle, and input testing.",
+        "notes": "Saved in the overlay window itself."
+      }
+    }
+  },
+  "launcher": {
+    "title": "Game Settings",
+    "docsButton": "Auto Launcher Docs",
+    "docsButtonTooltip": "Open Auto Launcher documentation",
+    "infoLabel": "Game Settings Overview",
+    "overviewTooltip": "Configure shared text-hook tool paths and per-game automation. Pick one text hook mode (None/Agent/Textractor/Luna) and one OCR mode (None/Auto/Manual) for each game.",
+    "shared": {
+      "title": "Shared Tool Settings",
+      "collapse": "Collapse shared tool settings.",
+      "expand": "Expand shared tool settings.",
+      "agentPath": "Agent Path:",
+      "agentScriptsPath": "Agent Scripts Path:",
+      "textractor64": "Textractor 64-bit Path:",
+      "textractor32": "Textractor 32-bit Path:",
+      "lunaPath": "LunaTranslator Path:",
+      "browse": "Browse",
+      "download": "Download",
+      "downloading": "Downloading...",
+      "downloadingPercent": "Downloading {percent}%",
+      "launchAgentMinimized": "Launch Agent Minimized:",
+      "disclaimer": "Downloads come from official upstream GitHub releases. Please review each project's license and terms before use."
+    },
+    "scene": {
+      "title": "Game Automation",
+      "activeScene": "Active OBS Game:",
+      "notSelected": "Not Selected",
+      "configureScene": "Configure Game:",
+      "noScenesFound": "No games found",
+      "refresh": "Refresh",
+      "textHookLauncher": "Text Hook Launcher:",
+      "modeNone": "None",
+      "modeAgent": "Agent",
+      "modeTextractor": "Textractor",
+      "modeLuna": "LunaTranslator",
+      "launchDelay": "Tool Launch Delay (seconds):",
+      "agentScript": "Agent Script:",
+      "search": "Search",
+      "searchHint": "Search lists all scripts and ranks likely matches at the top.",
+      "ocrMode": "OCR Mode:",
+      "ocrNone": "None",
+      "ocrAuto": "Auto OCR",
+      "ocrManual": "Manual OCR",
+      "launchOverlay": "Launch Overlay With Game:",
+      "noSceneHint": "Select or switch to an OBS game to configure automation."
+    },
+    "scriptPicker": {
+      "title": "Search Agent Script ({filtered}/{total})",
+      "close": "Close",
+      "closeTooltip": "Close script selection dialog.",
+      "searchPlaceholder": "Search scripts by name or path...",
+      "noResults": "No scripts match your search.",
+      "explicitId": "Explicit ID",
+      "titleId": "Title ID",
+      "nameMatch": "Name Match",
+      "fuzzyMatch": "Fuzzy Match",
+      "possibleMatch": "Possible Match",
+      "matchPercent": "{percent}% match"
+    },
+    "status": {
+      "openedReleases": "Opened {label} releases page.",
+      "failedOpenReleases": "Failed to open releases page.",
+      "failedOpenDocs": "Failed to open documentation.",
+      "savedShared": "Saved shared game settings.",
+      "updatedPath": "Updated shared path setting.",
+      "savedScene": "Saved automation for game: {scene}",
+      "updatedScript": "Updated agent script for game: {scene}",
+      "failedListScripts": "Failed to list scripts for game: {scene}",
+      "noScriptsFound": "No scripts found for game: {scene}",
+      "selectedScript": "Selected agent script for game: {scene}",
+      "downloadPreparing": "Downloading and installing {tool}...",
+      "downloadInstalled": "Installed {tool}{version}.{message}",
+      "downloadNotFound": "No matching {tool} download was found in the latest release.",
+      "downloadCanceled": "Download canceled for {tool}.",
+      "downloadFailed": "Failed to install {tool}."
+    },
+    "tooltips": {
+      "sharedToolSettings": "Shared paths used by Game Settings across all games in this profile.",
+      "sceneAutomation": "Game-specific startup behavior. Each game can use different text hook and OCR settings.",
+      "agentPath": "Path to Agent executable used when Text Hook Launcher is set to Agent.",
+      "agentScriptsPath": "Folder containing Agent script files (.js). Used for Auto Detect and Browse defaults.",
+      "textractor64": "Path to 64-bit Textractor executable. Used when game launcher is set to Textractor.",
+      "textractor32": "Path to 32-bit Textractor executable. Used for 32-bit game targets when available.",
+      "lunaPath": "Path to LunaTranslator executable. Used when game launcher is set to LunaTranslator.",
+      "launchAgentMinimized": "Launch Agent minimized/hidden on Windows.",
+      "activeScene": "Currently active OBS game. Configuration changes apply to the selected Configure Game value.",
+      "configureScene": "Choose which OBS game you are editing in this tab.",
+      "refreshScenes": "Refresh OBS game list from current OBS connection.",
+      "textHookMode": "Select one text hook launcher mode for this game.",
+      "textHookNone": "Do not auto-launch a text hook tool for this game.",
+      "textHookAgent": "Launch Agent for this game and use the configured Agent Script.",
+      "textHookTextractor": "Auto-launch Textractor when this game becomes active.",
+      "textHookLuna": "Auto-launch LunaTranslator when this game becomes active.",
+      "launchDelay": "Delay before starting the selected text hook launcher for this game.",
+      "agentScript": "Agent script path for this game. You can set manually, browse, or search.",
+      "launchOverlay": "Start the GSM overlay while this game's session is active, and close the auto-launched overlay when the game/session ends.",
+      "browseScript": "Open file picker and choose an Agent script for this game.",
+      "searchScript": "Search all scripts under Agent Scripts Path, ranked by similarity to the game.",
+      "downloadAgent": "Download latest Agent from official GitHub releases. Choose any install folder.",
+      "downloadTextractor": "Download latest Textractor from official GitHub releases. Choose any install folder. Sets both x64 and x86 paths.",
+      "downloadLuna": "Open the LunaTranslator official GitHub releases page.",
+      "ocrMode": "Select one OCR mode for this game.",
+      "ocrNone": "Do not start OCR for this game.",
+      "ocrAuto": "Start continuous Auto OCR when this game is active.",
+      "ocrManual": "Start manual OCR runtime for this game. OCR capture remains manual via controls/hotkeys.",
+      "status": "Latest save/detect status from Game Settings actions.",
+      "candidatePicker": "Choose the best matching Agent script candidate for this game.",
+      "noScene": "No game profile is loaded. Select a game first."
+    }
+  },
+  "ocr": {
+    "sceneAndAreas": {
+      "title": "Game & Areas",
+      "areaCount": "{count} area",
+      "areaCountPlural": "{count} areas",
+      "sceneLabel": "Game:",
+      "loading": "Loading...",
+      "noScenes": "No games found",
+      "reloadScenes": "Reload games",
+      "selectAreas": "Select OCR Areas",
+      "importAreas": "Import areas",
+      "exportAreas": "Export areas",
+      "ocrGuide": "OCR Guide"
+    },
+    "settings": {
+      "title": "OCR Settings",
+      "advanced": "Advanced",
+      "scanRate": "Scan Rate (s):",
+      "textSpeed": "Text Speed:",
+      "language": "Language:",
+      "scanImageQuality": "Scan Image Quality",
+      "furiganaFilter": "Furigana Filter",
+      "preview": "Preview",
+      "copyToClipboard": "Copy to Clipboard:",
+      "lineBreaks": "Line Breaks:",
+      "auto": "Auto",
+      "menu": "Menu",
+      "areaSelect": "Area Select"
+    },
+    "pipeline": {
+      "title": "Recognition Pipeline",
+      "twoPassFlow": "Two-pass flow:",
+      "singlePassFlow": "Single-pass flow:",
+      "stabilityOcr": "Stability OCR:",
+      "mainOcr": "Main OCR:",
+      "twoPassOcr": "Two-pass OCR:",
+      "optimizeSecondScan": "Optimize Second Scan:",
+      "ocrClipboardImages": "OCR Clipboard Images:"
+    },
+    "comparison": {
+      "title": "Text Comparison Tuning",
+      "expertTitle": "Expert Heuristics",
+      "duplicateThreshold": { "label": "Duplicate Match Threshold (%)", "title": "Higher values are stricter. Raise this if different lines are being treated as duplicates." },
+      "changeThreshold": { "label": "Text Change Threshold (%)", "title": "Lower values trigger OCR2 sooner on partial changes. Higher values wait for clearer changes." },
+      "evolvingPrefix": { "label": "Evolving Prefix Match (%)", "title": "Used when checking whether a short line looks like the beginning of a longer line." },
+      "truncationFallbackMin": { "label": "Truncation Fallback Min Threshold (%)", "title": "Minimum compare threshold required before prefix or suffix truncation matching is allowed." },
+      "truncationStrictMin": { "label": "Truncation Strict Threshold (%)", "title": "Above this threshold, GSM also requires a stronger base similarity before treating a truncation as the same text." },
+      "truncationMargin": { "label": "Truncation Base Margin", "title": "How far below the compare threshold the base similarity may be before truncation fallback is rejected." },
+      "truncationMinLength": { "label": "Truncation Min Length (chars)", "title": "Shortest normalized string length allowed for truncation matching." },
+      "truncationMinRatio": { "label": "Truncation Min Length Ratio (%)", "title": "How much of the longer line the shorter line must cover before truncation matching is considered." },
+      "subsetChunkMinLength": { "label": "Subset Chunk Min Length (chars)", "title": "Incoming OCR chunks shorter than this skip the chunk-coverage fallback unless they are exact matches." },
+      "shortChunkLimit": { "label": "Short Chunk Limit (chars)", "title": "Chunks at or below this length use the smaller matching-block minimum." },
+      "shortChunkMinSize": { "label": "Short Chunk Match Min Size", "title": "Minimum contiguous match size counted for short chunks." },
+      "defaultMinSize": { "label": "Default Match Min Size", "title": "Minimum contiguous match size counted for longer chunks." },
+      "coverageFloor": { "label": "Subset Coverage Floor (%)", "title": "Lowest allowed chunk-coverage requirement for dedupe fallback." },
+      "coverageCeiling": { "label": "Subset Coverage Ceiling (%)", "title": "Highest allowed chunk-coverage requirement for dedupe fallback." },
+      "coverageOffset": { "label": "Coverage Threshold Offset", "title": "Offset applied before converting the current compare threshold into a coverage requirement." },
+      "longestBlockMin": { "label": "Longest Block Minimum (chars)", "title": "Minimum contiguous block size required in subset coverage mode." },
+      "longestBlockDivisor": { "label": "Longest Block Divisor", "title": "Larger values reduce the required contiguous block length for longer chunks." }
+    },
+    "hotkeys": {
+      "title": "Hotkeys",
+      "manualMenu": "Manual / Menu:",
+      "areaSelect": "Area Select:",
+      "wholeWindow": "Whole Window:",
+      "pause": "Pause:"
+    },
+    "console": {
+      "title": "Console",
+      "active": "Active",
+      "idle": "Idle",
+      "paused": "Paused",
+      "clear": "Clear"
+    },
+    "debug": {
+      "title": "Extra & Debug Tools",
+      "ignoreRun1Logs": "Ignore \"OCR Run 1\" Logs:",
+      "processPriority": "Process Priority:",
+      "defaultFuriganaSensitivity": "Default Furigana Sensitivity:",
+      "obsCapturePreprocess": "OBS Capture Preprocess:",
+      "installDependency": "Install Dependency:",
+      "installBtn": "Install",
+      "removeDependency": "Remove Dependency:",
+      "uninstallBtn": "Uninstall",
+      "ocrErrorFixes": "OCR Error Fixes",
+      "configFile": "Config File",
+      "configFolder": "Config Folder",
+      "globalConfig": "Global Config",
+      "tempFolder": "Temp Folder"
+    },
+    "footer": {
+      "running": "Running",
+      "paused": "Paused",
+      "ready": "Ready",
+      "needsAreas": "Needs Areas",
+      "ocrRuntime": "OCR Runtime",
+      "noSceneSelected": "No game selected",
+      "sceneHasAreas": "{scene} has {count} OCR {areaWord}.",
+      "noAreasForScene": "No OCR areas saved for {scene}.",
+      "stopOcr": "Stop OCR",
+      "resumeOcr": "Resume OCR",
+      "pauseOcr": "Pause OCR",
+      "startAutoOcr": "Start Auto OCR",
+      "startManualOcr": "Start Manual OCR",
+      "needAreasFirst": "Draw OCR areas for this game before starting {mode} OCR."
+    },
+    "runtime": {
+      "idle": "Idle",
+      "startingAuto": "Starting auto OCR...",
+      "startingManual": "Starting manual OCR...",
+      "runningManual": "Running manual OCR",
+      "runningManualWith": "Running manual OCR with {engine}",
+      "runningAutoWith": "Running auto OCR with {engine} at {rate}s",
+      "runningAutoAt": "Running auto OCR at {rate}s",
+      "scanningWith": "Scanning with {engine} in {speed}s",
+      "scanning": "Scanning with {engine}",
+      "sleeping": "Sleeping: image empty or unchanged",
+      "areaSelectionFinished": "OCR area selection finished.",
+      "failedSwitchScene": "Failed to switch game.",
+      "configReloaded": "Configuration reloaded",
+      "forceStableEnabled": "Force stable mode enabled",
+      "forceStableDisabled": "Force stable mode disabled"
+    },
+    "engines": {
+      "glens": "Google Lens",
+      "bing": "Bing",
+      "oneocr": "OneOCR",
+      "screenai": "ScreenAI OCR",
+      "meikiocr": "Meiki OCR",
+      "gemini": "Gemini",
+      "gvision": "Google Vision",
+      "azure": "Azure Image Analysis",
+      "ocrspace": "OCRSpace",
+      "local_llm_ocr": "Local LLM OCR",
+      "alivetext": "Apple Live Text",
+      "mlkitocr": "MLKit OCR",
+      "meiki_text_detector": "Meiki Text Detector"
+    },
+    "languages": {
+      "ja": "Japanese",
+      "zh": "Chinese",
+      "ko": "Korean",
+      "en": "English (Latin script)",
+      "es": "Spanish",
+      "fr": "French",
+      "de": "German",
+      "ru": "Russian",
+      "ar": "Arabic",
+      "hi": "Hindi"
+    },
+    "scanRates": {
+      "instant": "Instant",
+      "normal": "Normal",
+      "slow": "Slow",
+      "verySlow": "Very Slow"
+    },
+    "priorities": {
+      "low": "Low",
+      "below_normal": "Below Normal",
+      "normal": "Normal",
+      "above_normal": "Above Normal",
+      "high": "High"
+    },
+    "preprocess": {
+      "none": "Off",
+      "grayscale": "Grayscale",
+      "grayscale_unsharp": "Grayscale + Autocontrast + Unsharp"
+    },
+    "dependencies": {
+      "install": {
+        "fasterPng": "Faster PNG (Recommended on Windows 11)",
+        "googleVision": "Google Vision",
+        "azure": "Azure",
+        "ocrspace": "OCRSpace"
+      },
+      "remove": {
+        "owocr": "OWOCR Base",
+        "protobuf": "Google Lens",
+        "oneocr": "OneOCR",
+        "fasterPng": "Faster PNG",
+        "transformers": "Accurate Filtering",
+        "googleVision": "Google Vision",
+        "azure": "Azure",
+        "ocrspace": "OCRSpace"
+      }
+    },
+    "notices": {
+      "areaConfigImported": "OCR area config imported.",
+      "importFailed": "Import failed.",
+      "areaConfigExported": "OCR area config copied to clipboard.",
+      "exportFailed": "Export failed."
+    }
+  }
+}

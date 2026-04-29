@@ -63,6 +63,9 @@
                                 <button class="dropdown-item" data-action="markComplete">
                                     &#9989; Mark as Completed
                                 </button>
+                                <button class="dropdown-item" data-action="deduplicateGame">
+                                    &#128260; Deduplicate Lines
+                                </button>
                                 <button class="dropdown-item" data-action="mergeGames">
                                     &#128256; Merge Games Into This
                                 </button>
@@ -87,7 +90,7 @@
 
             <!-- No Game Data Message -->
             <div class="no-game-data-message" id="noGameDataMessage" style="display: none; text-align: center; padding: 20px; color: var(--text-secondary);">
-                <p><strong id="noGameDataTitle"></strong> not found. Please link this to Jiten or create it manually in <a href="/tools" class="no-game-data-link">Tools</a></p>
+                <p><strong id="noGameDataTitle"></strong> not found. <a href="#" class="no-game-data-link" onclick="document.querySelector('#currentSessionSettingsCogDropdown [data-action=\'linkExternal\']')?.click(); return false;">Link?</a></p>
             </div>
 
             <!-- Game Content Grid: Photo + Info -->
@@ -521,6 +524,7 @@
             </div>
         </div>
 
+        {% include 'components/deduplication-modal.html' %}
         {% include 'components/game-import-modals.html' %}
 
         <!-- Include shared settings modal -->
@@ -550,7 +554,7 @@
     {% set config_object_name = 'statsConfig' %}
     {% set include_heatmap_js = true %}
     {% set page_specific_js = 'overview.js' %}
-    {% set additional_js = ['unified-search.js', 'game-import-widget.js'] %}
+    {% set additional_js = ['database-helpers.js', 'database-game-data.js', 'database-text-management.js', 'unified-search.js', 'game-import-widget.js'] %}
     {% include 'components/js-config.html' %}
 
 </body>

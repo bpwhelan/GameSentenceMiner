@@ -15,11 +15,14 @@ class _FakeDB:
         return self._rows
 
 
-def _patch_stats_config(monkeypatch, regex_out_repetitions: bool = False):
+def _patch_stats_config(monkeypatch, regex_out_repetitions: bool = False, extra_punctuation_regex: str = ""):
     monkeypatch.setattr(
         stats_repository,
         "get_stats_config",
-        lambda: SimpleNamespace(regex_out_repetitions=regex_out_repetitions),
+        lambda: SimpleNamespace(
+            regex_out_repetitions=regex_out_repetitions,
+            extra_punctuation_regex=extra_punctuation_regex,
+        ),
     )
 
 
@@ -76,3 +79,22 @@ def test_query_stats_lines_parse_note_ids_fast_path(monkeypatch):
     assert [list(record.note_ids) for record in records] == [[], ["42", "43"]]
     assert "note_ids" in fake_db.last_query
     assert "screenshot_in_anki" not in fake_db.last_query
+
+
+def test_query_stats_lines_applies_extra_punctuation_regex(monkeypatch):
+    _patch_stats_config(monkeypatch, extra_punctuation_regex=r"\.?【.*?】")
+    fake_db = _FakeDB(
+        rows=[
+            ("line-1", "My Game", "本文。【speaker】続き", 1700000000.0, "game-1"),
+        ]
+    )
+    monkeypatch.setattr(stats_repository.GameLinesTable, "_db", fake_db)
+
+    records = stats_repository.query_stats_lines(
+        where_clause="game_id=?",
+        params=("game-1",),
+        include_media_fields=False,
+        parse_note_ids=False,
+    )
+
+    assert records[0].line_text == "本文続き"

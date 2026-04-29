@@ -64,6 +64,7 @@ import { runOverlay, runOverlayWithSource } from './ui/front.js';
 import { execFile } from 'node:child_process';
 import { autoLauncher } from './auto_launcher.js';
 import { registerMainIPC } from './services/main_ipc.js';
+import { installSessionManager } from './services/install_session_state.js';
 import { UpdateManager } from './services/update_manager.js';
 import type { UpdateStatusSnapshot } from './services/update_manager.js';
 import { devFaultInjector } from './services/dev_fault_injection.js';
@@ -85,6 +86,12 @@ import {
     resolveRequestedExtras,
     syncLockedEnvironment,
 } from './services/python_ops.js';
+import type {
+    InstallProgressKind,
+    InstallSessionOrigin,
+    InstallStageId,
+} from '../shared/install_session.js';
+import { INSTALL_STAGE_IDS } from '../shared/install_session.js';
 
 export class FeatureFlags {
     /**
@@ -262,6 +269,133 @@ const BACKEND_STATUS_POLL_MS = 2_000;
 const BACKEND_STATUS_URL = 'http://localhost:7275/get_status';
 const SIMULATED_STARTUP_FAILURE_MESSAGE = 'Simulated failure before starting GSM';
 let simulatedStartupFailureTriggered = false;
+let terminalLogSendDepth = 0;
+
+function canSendToMainWindow(): boolean {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        return false;
+    }
+    const contents = mainWindow.webContents;
+    if (!contents || contents.isDestroyed()) {
+        return false;
+    }
+    if (typeof contents.isCrashed === 'function' && contents.isCrashed()) {
+        return false;
+    }
+    return true;
+}
+
+function safeSendToMainWindow(channel: string, payload: unknown): boolean {
+    if (!canSendToMainWindow()) {
+        return false;
+    }
+    try {
+        mainWindow!.webContents.send(channel, payload);
+        return true;
+    } catch (error) {
+        log.warn(`Failed to send "${channel}" to renderer: ${formatConsoleArg(error)}`);
+        return false;
+    }
+}
+
+installSessionManager.setSnapshotListener((channel, snapshot) => {
+    safeSendToMainWindow(channel, snapshot);
+});
+
+function ensureInstallSession(
+    origin: InstallSessionOrigin,
+    retryHandler?: () => Promise<void>
+): string {
+    return installSessionManager.ensureSession(origin, retryHandler).id;
+}
+
+function updateInstallStage(
+    stageId: InstallStageId,
+    status?: 'pending' | 'running' | 'completed' | 'skipped' | 'failed',
+    progressKind?: InstallProgressKind,
+    progress?: number | null,
+    message?: string,
+    extras?: {
+        downloadedBytes?: number | null;
+        totalBytes?: number | null;
+        error?: string | null;
+    }
+): void {
+    installSessionManager.updateStage({
+        stageId,
+        status,
+        progressKind,
+        progress,
+        message,
+        downloadedBytes: extras?.downloadedBytes,
+        totalBytes: extras?.totalBytes,
+        error: extras?.error,
+    });
+}
+
+function finishInstallSession(
+    status: 'completed' | 'failed',
+    message?: string,
+    error?: string | null
+): void {
+    installSessionManager.finishActive(status, message, error);
+}
+
+function isInstallStageId(value: unknown): value is InstallStageId {
+    return typeof value === 'string' && INSTALL_STAGE_IDS.includes(value as InstallStageId);
+}
+
+function isInstallProgressKind(value: unknown): value is InstallProgressKind {
+    return value === 'bytes' || value === 'estimated' || value === 'indeterminate';
+}
+
+function handleBackendInstallProgressMessage(data: Record<string, unknown> | undefined): void {
+    if (!data) {
+        return;
+    }
+    const activeSession = installSessionManager.getActiveSnapshot();
+    if (!activeSession) {
+        return;
+    }
+    const sessionId = typeof data.session_id === 'string' ? data.session_id : '';
+    if (sessionId && sessionId !== activeSession.id) {
+        return;
+    }
+    const stageId = data.stage_id;
+    if (!isInstallStageId(stageId)) {
+        return;
+    }
+    const status =
+        data.status === 'pending' ||
+        data.status === 'running' ||
+        data.status === 'completed' ||
+        data.status === 'skipped' ||
+        data.status === 'failed'
+            ? data.status
+            : undefined;
+    const progressKind = isInstallProgressKind(data.progress_kind)
+        ? data.progress_kind
+        : undefined;
+    const progress =
+        typeof data.progress === 'number' && Number.isFinite(data.progress)
+            ? data.progress
+            : null;
+    const message = typeof data.message === 'string' ? data.message : undefined;
+    const downloadedBytes =
+        typeof data.downloaded_bytes === 'number' && Number.isFinite(data.downloaded_bytes)
+            ? data.downloaded_bytes
+            : null;
+    const totalBytes =
+        typeof data.total_bytes === 'number' && Number.isFinite(data.total_bytes)
+            ? data.total_bytes
+            : null;
+    const error = typeof data.error === 'string' ? data.error : null;
+    updateInstallStage(stageId, status, progressKind, progress, message, {
+        downloadedBytes,
+        totalBytes,
+        error,
+    });
+}
 
 function formatBackendExitCode(code: number | null): string {
     if (code === null || code === undefined) {
@@ -329,10 +463,11 @@ function formatConsoleArg(arg: unknown): string {
     if (arg instanceof Error) {
         const maybeCode = (arg as Error & { code?: unknown }).code;
         const codeSuffix = maybeCode !== undefined ? ` code=${String(maybeCode)}` : '';
-        return `${arg.name}: ${arg.message}${codeSuffix}\n${arg.stack ?? ''}`.trim();
+        const formatted = `${arg.name}: ${arg.message}${codeSuffix}\n${arg.stack ?? ''}`.trim();
+        return formatted.length > 6000 ? `${formatted.slice(0, 6000)}… [truncated]` : formatted;
     }
     if (typeof arg === 'string') {
-        return arg;
+        return arg.length > 6000 ? `${arg.slice(0, 6000)}… [truncated]` : arg;
     }
     if (arg === undefined) {
         return 'undefined';
@@ -342,7 +477,7 @@ function formatConsoleArg(arg: unknown): string {
     }
     if (typeof arg === 'object') {
         try {
-            return JSON.stringify(arg, (_key, value) => {
+            const serialized = JSON.stringify(arg, (_key, value) => {
                 if (value instanceof Error) {
                     const maybeErrCode = (value as Error & { code?: unknown }).code;
                     return {
@@ -354,6 +489,12 @@ function formatConsoleArg(arg: unknown): string {
                 }
                 return value;
             });
+            if (!serialized) {
+                return String(arg);
+            }
+            return serialized.length > 6000
+                ? `${serialized.slice(0, 6000)}… [truncated]`
+                : serialized;
         } catch {
             return String(arg);
         }
@@ -429,6 +570,10 @@ function inferTerminalChannel(
 }
 
 function sendTerminalLog(payload: TerminalLogPayload): void {
+    if (terminalLogSendDepth > 0) {
+        return;
+    }
+
     const stream = payload.stream ?? 'stdout';
     const message = payload.message ?? '';
     if (shouldSuppressTerminalLog(message)) {
@@ -444,10 +589,24 @@ function sendTerminalLog(payload: TerminalLogPayload): void {
         source: payload.source ?? 'system',
     };
 
-    if (stream === 'stderr') {
-        mainWindow?.webContents.send('terminal-error', normalized);
-    } else {
-        mainWindow?.webContents.send('terminal-output', normalized);
+    if (normalized.channel !== 'background' || normalized.level === 'ERROR' || normalized.level === 'WARNING') {
+        installSessionManager.appendLog({
+            message,
+            level,
+            stream,
+            source: normalized.source,
+        });
+    }
+
+    if (!canSendToMainWindow()) {
+        return;
+    }
+
+    terminalLogSendDepth += 1;
+    try {
+        safeSendToMainWindow(stream === 'stderr' ? 'terminal-error' : 'terminal-output', normalized);
+    } finally {
+        terminalLogSendDepth -= 1;
     }
 }
 
@@ -458,7 +617,7 @@ const updateManager = new UpdateManager({
     getPythonPath: () => pythonPath,
     closeAllPythonProcesses: async () => closeAllPythonProcesses(),
     ensureAndRunGSM: async (pyPath: string) =>
-        ensureAndRunGSM(pyPath, 1, { allowDuringUpdate: true }),
+        ensureAndRunGSM(pyPath, 1, { allowDuringUpdate: true, origin: 'backend_update' }),
     reinstallPython: async () => reinstallPython(),
 });
 
@@ -914,9 +1073,14 @@ async function cleanupStaleManagedGSMProcess(): Promise<void> {
  */
 function runGSM(command: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
+        const activeInstallSessionId = installSessionManager.getActiveSnapshot()?.id ?? '';
         const taskManagerCommand = getWindowsNamedPythonExecutable(command, APP_NAME);
         const proc = spawn(taskManagerCommand, args, {
-            env: { ...getSanitizedPythonEnv(), GSM_ELECTRON: '1' }
+            env: {
+                ...getSanitizedPythonEnv(),
+                GSM_ELECTRON: '1',
+                GSM_INSTALL_SESSION_ID: activeInstallSessionId,
+            }
         });
 
         pyProc = proc;
@@ -943,9 +1107,35 @@ function runGSM(command: string, args: string[]): Promise<void> {
             if (msg.function === 'on_connect') {
                 markPythonIPCConnected();
             }
+            if (msg.function === 'install_progress') {
+                handleBackendInstallProgressMessage(msg.data);
+            }
             if (msg.function === 'initialized') {
                 markPythonIPCConnected();
-                mainWindow?.webContents.send('gsm-initialized', msg.data ?? {});
+                updateInstallStage(
+                    'backend_boot',
+                    'completed',
+                    'estimated',
+                    1,
+                    'GSM backend is running.'
+                );
+                const activeInstallSession = installSessionManager.getActiveSnapshot();
+                if (activeInstallSession) {
+                    const finalizeStage = activeInstallSession.stages.find(
+                        (stage) => stage.id === 'finalize'
+                    );
+                    if (finalizeStage && finalizeStage.status === 'pending') {
+                        updateInstallStage(
+                            'finalize',
+                            'completed',
+                            'estimated',
+                            1,
+                            'Setup complete.'
+                        );
+                    }
+                    finishInstallSession('completed', 'Setup complete.');
+                }
+                safeSendToMainWindow('gsm-initialized', msg.data ?? {});
                 updateTrayMenu();
                 refreshTrayPresentation();
                 if (reopenSettingsAfterBackendRestart) {
@@ -1080,6 +1270,8 @@ async function createWindow() {
         getUpdateStatus: async () => await getUpdateStatus(),
         checkForUpdates: async () => await checkForAvailableUpdates(),
         updateNow: async () => await updateAvailableTargets(),
+        getActiveInstallSession: () => installSessionManager.getActiveSnapshot(),
+        retryInstallSession: async () => await installSessionManager.retryLastFailedSession(),
     });
 
     // Reveal window only after renderer signals it's ready
@@ -1389,7 +1581,7 @@ function buildTrayMenuTemplate(): Electron.MenuItemConstructorOptions[] {
             },
         },
         {
-            label: 'Open Texthooker',
+            label: 'Open Text Feed',
             click: () => {
                 sendTrayCommand('open texthooker', (manager) => manager.sendOpenTexthooker());
             },
@@ -1465,6 +1657,7 @@ function updateTrayMenu(): void {
  */
 interface EnsureAndRunOptions {
     allowDuringUpdate?: boolean;
+    origin?: InstallSessionOrigin;
 }
 
 async function ensureAndRunGSM(
@@ -1472,12 +1665,23 @@ async function ensureAndRunGSM(
     retry = 1,
     options?: EnsureAndRunOptions
 ): Promise<void> {
+    const origin = options?.origin ?? 'startup';
+    ensureInstallSession(origin, async () => {
+        await ensureAndRunGSM(pythonPath, 1, {
+            ...options,
+            allowDuringUpdate: true,
+            origin,
+        });
+    });
+    updateInstallStage('prepare', 'running', 'estimated', 0.2, 'Preparing install session...');
+
     if (!options?.allowDuringUpdate) {
         await waitForPythonLaunchReadiness('GSM backend startup');
     }
 
     // Best-effort cleanup for a stale backend process previously spawned by GSM.
     await cleanupStaleManagedGSMProcess();
+    updateInstallStage('prepare', 'completed', 'estimated', 1, 'Install session prepared.');
     devFaultInjector.maybeFail('startup.ensure_and_run_enter');
 
     let runtimePythonPath = pythonPath;
@@ -1486,14 +1690,35 @@ async function ensureAndRunGSM(
     let isInstalled = await isPackageInstalled(runtimePythonPath, APP_NAME);
 
     try {
+        updateInstallStage(
+            'verify_runtime',
+            'running',
+            'estimated',
+            0.2,
+            'Verifying Python runtime and pip tooling...'
+        );
         devFaultInjector.maybeFail('startup.check_and_ensure_pip');
         await checkAndEnsurePip(runtimePythonPath);
         devFaultInjector.maybeFail('startup.check_and_install_uv');
         await checkAndInstallUV(runtimePythonPath);
+        updateInstallStage(
+            'verify_runtime',
+            'completed',
+            'estimated',
+            1,
+            'Python runtime tooling verified.'
+        );
     } catch (error) {
         console.warn(
             'Python runtime bootstrap failed (pip/uv). Reinitializing python_venv from scratch...',
             error
+        );
+        updateInstallStage(
+            'verify_runtime',
+            'running',
+            'estimated',
+            0.45,
+            'Python runtime verification failed. Rebuilding managed Python environment...'
         );
         await closeAllPythonProcesses();
         await reinstallPython();
@@ -1503,6 +1728,13 @@ async function ensureAndRunGSM(
         await checkAndEnsurePip(runtimePythonPath);
         await checkAndInstallUV(runtimePythonPath);
         isInstalled = await isPackageInstalled(runtimePythonPath, APP_NAME);
+        updateInstallStage(
+            'verify_runtime',
+            'completed',
+            'estimated',
+            1,
+            'Python runtime tooling rebuilt and verified.'
+        );
     }
 
     // Resolve extras and persist any pruned options.
@@ -1521,16 +1753,60 @@ async function ensureAndRunGSM(
     if (!preReleaseEnabled) {
         try {
             devFaultInjector.maybeFail('startup.sync_lock_check');
+            updateInstallStage(
+                'lock_sync',
+                'running',
+                'estimated',
+                0.1,
+                'Checking whether the Python environment matches the lockfile...'
+            );
             await syncLockedEnvironment(runtimePythonPath, selectedExtras, true);
             console.log('Python environment already matches lockfile.');
+            updateInstallStage(
+                'lock_sync',
+                'skipped',
+                'estimated',
+                1,
+                'Python environment already matches the lockfile.'
+            );
         } catch {
             console.log(
                 `Syncing Python environment with lockfile, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
                 }`
             );
             devFaultInjector.maybeFail('startup.sync_lock_apply');
-            await syncLockedEnvironment(runtimePythonPath, selectedExtras, false);
+            updateInstallStage(
+                'lock_sync',
+                'running',
+                'estimated',
+                0.15,
+                'Syncing Python environment with the bundled lockfile...'
+            );
+            await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
+                updateInstallStage(
+                    'lock_sync',
+                    'running',
+                    'estimated',
+                    event.progress,
+                    event.message
+                );
+            });
+            updateInstallStage(
+                'lock_sync',
+                'completed',
+                'estimated',
+                1,
+                'Python environment synced to the lockfile.'
+            );
         }
+    } else {
+        updateInstallStage(
+            'lock_sync',
+            'skipped',
+            'estimated',
+            1,
+            'Skipped lockfile sync because pre-release backend mode is enabled.'
+        );
     }
 
     // Install the package itself if not present.
@@ -1539,9 +1815,39 @@ async function ensureAndRunGSM(
             ? '.'
             : (preReleasePackageSpecifier ?? PACKAGE_NAME);
         console.log(`${APP_NAME} is not installed. Installing ${packageSpecifier}...`);
+        updateInstallStage(
+            'gsm_package',
+            'running',
+            'estimated',
+            0.1,
+            `Installing ${APP_NAME} backend package...`
+        );
         devFaultInjector.maybeFail('startup.install_package');
-        await installPackageNoDeps(runtimePythonPath, packageSpecifier, true);
+        await installPackageNoDeps(runtimePythonPath, packageSpecifier, true, (event) => {
+            updateInstallStage(
+                'gsm_package',
+                'running',
+                'estimated',
+                event.progress,
+                event.message
+            );
+        });
         console.log('Installation complete.');
+        updateInstallStage(
+            'gsm_package',
+            'completed',
+            'estimated',
+            1,
+            `${APP_NAME} backend package installed.`
+        );
+    } else {
+        updateInstallStage(
+            'gsm_package',
+            'skipped',
+            'estimated',
+            1,
+            `${APP_NAME} backend package is already installed.`
+        );
     }
 
     console.log('Starting GameSentenceMiner...');
@@ -1552,6 +1858,13 @@ async function ensureAndRunGSM(
             args.push('--dev');
         }
         devFaultInjector.maybeFail('startup.run_gsm');
+        updateInstallStage(
+            'backend_boot',
+            'running',
+            'estimated',
+            0.15,
+            'Starting the GSM backend process...'
+        );
         if (shouldSimulateStartupFailureOnce() && !simulatedStartupFailureTriggered) {
             simulatedStartupFailureTriggered = true;
             throw new Error(SIMULATED_STARTUP_FAILURE_MESSAGE);
@@ -1579,20 +1892,71 @@ async function ensureAndRunGSM(
                 await closeAllPythonProcesses();
 
                 console.log('[Startup Repair] Step 2/4: Cleaning uv cache.');
+                updateInstallStage(
+                    'backend_boot',
+                    'running',
+                    'estimated',
+                    0.25,
+                    'Backend launch failed. Cleaning uv cache before retry...'
+                );
                 devFaultInjector.maybeFail('startup.repair.clean_uv_cache');
                 await cleanUvCache(runtimePythonPath);
 
                 if (!preReleaseEnabled) {
                     console.log('[Startup Repair] Step 3/4: Re-syncing lockfile dependencies.');
                     devFaultInjector.maybeFail('startup.repair.sync_lock');
-                    await syncLockedEnvironment(runtimePythonPath, selectedExtras, false);
+                    updateInstallStage(
+                        'lock_sync',
+                        'running',
+                        'estimated',
+                        0.2,
+                        'Re-syncing the lockfile after launch failure...'
+                    );
+                    await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
+                        updateInstallStage(
+                            'lock_sync',
+                            'running',
+                            'estimated',
+                            event.progress,
+                            event.message
+                        );
+                    });
+                    updateInstallStage(
+                        'lock_sync',
+                        'completed',
+                        'estimated',
+                        1,
+                        'Lockfile dependencies refreshed after launch failure.'
+                    );
                 } else {
                     console.log('[Startup Repair] Step 3/4: Skipped lockfile sync (pre-release mode).');
                 }
 
                 console.log('[Startup Repair] Step 4/4: Reinstalling GSM backend package.');
                 devFaultInjector.maybeFail('startup.repair.install_package');
-                await installPackageNoDeps(runtimePythonPath, repairSpecifier, true);
+                updateInstallStage(
+                    'gsm_package',
+                    'running',
+                    'estimated',
+                    0.2,
+                    'Reinstalling the GSM backend package after launch failure...'
+                );
+                await installPackageNoDeps(runtimePythonPath, repairSpecifier, true, (event) => {
+                    updateInstallStage(
+                        'gsm_package',
+                        'running',
+                        'estimated',
+                        event.progress,
+                        event.message
+                    );
+                });
+                updateInstallStage(
+                    'gsm_package',
+                    'completed',
+                    'estimated',
+                    1,
+                    'GSM backend package reinstalled after launch failure.'
+                );
             } catch (repairError) {
                 const repairDurationMs = Date.now() - repairStartedAt;
                 console.error(
@@ -1603,6 +1967,16 @@ async function ensureAndRunGSM(
                     `[Startup Repair] Repair flow failed after ${repairDurationMs}ms; error=${formatConsoleArg(
                         repairError
                     )}`
+                );
+                updateInstallStage(
+                    'backend_boot',
+                    'failed',
+                    'estimated',
+                    null,
+                    'Backend repair failed.',
+                    {
+                        error: repairError instanceof Error ? repairError.message : String(repairError),
+                    }
                 );
                 throw repairError;
             }
@@ -1620,6 +1994,21 @@ async function ensureAndRunGSM(
             );
         }
         await new Promise((resolve) => setTimeout(resolve, 2000));
+        updateInstallStage(
+            'backend_boot',
+            'failed',
+            'estimated',
+            null,
+            'Failed to start the GSM backend process.',
+            {
+                error: err instanceof Error ? err.message : String(err),
+            }
+        );
+        finishInstallSession(
+            'failed',
+            'Failed to start the GSM backend process.',
+            err instanceof Error ? err.message : String(err)
+        );
         throw err instanceof Error ? err : new Error(String(err));
     } finally {
         restartingGSM = false;
@@ -1690,6 +2079,18 @@ if (!app.requestSingleInstanceLock()) {
     app.whenReady().then(async () => {
         try {
             bootstrapPreReleaseSettingsFromMetadata();
+            ensureInstallSession('startup', async () => {
+                if (pythonPath) {
+                    await ensureAndRunGSM(pythonPath, 1, { origin: 'startup' });
+                }
+            });
+            updateInstallStage(
+                'prepare',
+                'running',
+                'estimated',
+                0.05,
+                'Preparing first-run startup workflow...'
+            );
             createWindow().then(async () => {
                 createTray();
                 autoLauncher.startPolling();
@@ -1838,12 +2239,17 @@ if (!app.requestSingleInstanceLock()) {
             }
 
             // Launch backend before UI/module initialization, then continue startup.
-            void ensureAndRunGSM(pythonPath).catch(async (err) => {
+            void ensureAndRunGSM(pythonPath, 1, { origin: 'startup' }).catch(async (err) => {
                 console.log('Failed to run GSM, attempting repair of python package...', err);
                 await updateGSM(true, true);
             });
         } catch (error) {
             console.error('Failed to initialize Python runtime on startup:', error);
+            finishInstallSession(
+                'failed',
+                'Failed to initialize the managed Python runtime.',
+                error instanceof Error ? error.message : String(error)
+            );
         }
 
         processArgsAndStartSettings()

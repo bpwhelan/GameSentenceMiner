@@ -16,12 +16,14 @@ from PyQt6.QtWidgets import (
 )
 from typing import List
 
+from GameSentenceMiner.ui.config.safety import safe_config_callback, safe_config_methods
 from GameSentenceMiner.util.config.configuration import (
     DEFAULT_WEBSOCKET_SOURCES,
     WebsocketInputSource,
 )
 
 
+@safe_config_methods()
 class WebsocketSourcesEditor(QWidget):
     """A compact table editor for named websocket input sources."""
 
@@ -136,7 +138,9 @@ class WebsocketSourcesEditor(QWidget):
         # Column 0: enabled checkbox
         cb = QCheckBox()
         cb.setChecked(source.enabled)
-        cb.stateChanged.connect(lambda _: self._emit_changed())
+        cb.stateChanged.connect(
+            safe_config_callback(lambda _: self._emit_changed(), name="WebsocketSourcesEditor._emit_changed")
+        )
         self.table.setCellWidget(row, 0, cb)
 
         # Column 1: name

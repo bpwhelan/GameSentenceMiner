@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+from queue import Empty, Queue
 from types import SimpleNamespace
 from typing import Dict, Any, List, Tuple, Optional
 
@@ -26,6 +27,7 @@ from GameSentenceMiner.util.config.configuration import (
     anki_results,
     gsm_status,
     gsm_state,
+    AI_DEEPL,
 )
 from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.gsm_utils import (
@@ -69,6 +71,9 @@ previous_note_ids = set()
 first_run = True
 card_queue = []
 sentence_audio_cache = {}
+anki_push_note_queue: "Queue[Dict[str, Any]]" = Queue()
+anki_push_state_lock = threading.Lock()
+processed_push_note_keys = set()
 
 
 @dataclass
@@ -76,6 +81,28 @@ class SentenceAudioCacheEntry:
     line_id: str
     word: str
     created_at: datetime
+
+
+@dataclass
+class AnkiPushState:
+    last_heartbeat_at: Optional[datetime] = None
+    session_id: str = ""
+    heartbeat_interval_seconds: float = 0.0
+    payload_mode: str = ""
+    capabilities: Any = field(default_factory=list)
+    baseline_seeded: bool = False
+    push_mode_active: bool = False
+
+
+anki_push_state = AnkiPushState()
+
+
+@dataclass
+class AnkiPollingGateState:
+    replay_buffer_polling_active: bool = False
+
+
+anki_polling_gate_state = AnkiPollingGateState()
 
 
 def _notify_anki_enhancement_failure(reason: str) -> None:
@@ -440,12 +467,57 @@ def _resolve_sentence_for_translation(note: Dict, last_note: "AnkiCard") -> str:
 def prefetch_ai_translation(sentence_to_translate: str, game_line: "GameLine") -> str:
     if not sentence_to_translate:
         return ""
+
     try:
+        config = get_config()
+        provider = config.ai.provider
+
+        # 1. If DeepL is used, DO NOT call LLM pipeline
+        # DeepL handling (minimal, non-invasive)
+
+        if provider == AI_DEEPL:
+            logger.error("[PREFETCH] Using DeepL path")
+
+            if game_line.translation:
+                logger.error("[PREFETCH] Cache hit, returning existing translation")
+                return game_line.translation
+
+            logger.error(f"[PREFETCH] Calling DeepL for: {sentence_to_translate[:50]}")
+
+            from GameSentenceMiner.ai.providers.deepl_client import DeepLClient
+            from GameSentenceMiner.ai.contracts import AIRequest
+
+            client = DeepLClient(
+                api_key=config.ai.deepl_api_key, logger=logger, target_lang=config.ai.deepl_target_lang
+            )
+
+            response = client.generate(
+                AIRequest(
+                    provider=AI_DEEPL,
+                    model="deepl",
+                    prompt=sentence_to_translate,
+                    temperature=0.0,
+                    top_p=1.0,
+                    max_tokens=0,
+                    game_title="",
+                    request_kind="deepl_translation",
+                    metadata=None,
+                )
+            )
+
+            logger.error(f"[PREFETCH] DeepL returned: {response.text}")
+
+            game_line.translation = response.text
+            return response.text
+
+        # LLM path (UNCHANGED)
         translation = (
             _get_ai_prompt_result()(get_all_lines(), sentence_to_translate, game_line, get_current_game()) or ""
         )
+
         logger.info(f"AI prompt Result: {translation}")
         return translation
+
     except Exception as e:
         logger.exception(f"Failed to prefetch AI translation: {e}")
         return ""
@@ -512,7 +584,7 @@ def _apply_confirmation_dialog_state(
     selected_lines = dialog_state.get("selected_lines", selected_lines) or []
 
     if dialog_state.get("line_selection_changed"):
-        refreshed_note, _ = get_initial_card_info(last_note, selected_lines, game_line)
+        refreshed_note, _ = get_initial_card_info(last_note, selected_lines, game_line, generate_furigana=False)
         note["fields"].update(refreshed_note.get("fields", {}))
 
     audio_result = dialog_state.get("audio_result")
@@ -816,7 +888,7 @@ def update_anki_card(
             vad_result,
             dialog_state,
         )
-        _apply_field_policy(note, last_note, "sentence_field", sentence)
+        _apply_confirmed_sentence_fields(note, last_note, sentence)
         if config.ai.add_to_anki and config.ai.anki_field:
             note["fields"][config.ai.anki_field] = translation
         if game_line is not None:
@@ -863,6 +935,9 @@ def update_anki_card(
             reuse_result_id if use_existing_files and reuse_result_id else (game_line.id if game_line else None)
         )
         _set_sentence_audio_cache_entry(reuse_key, cache_line_id, tango)
+        sentence_in_anki = _strip_sentence_formatting_for_reuse(
+            _field_value_in_note_or_anki(note, last_note, config.anki.sentence_field)
+        )
 
         # 7. Handle post-creation file management (copying to output folder)
         try:
@@ -908,7 +983,7 @@ def update_anki_card(
                 audio_in_anki=assets.audio_in_anki,
                 screenshot_in_anki=assets.screenshot_in_anki,
                 prev_screenshot_in_anki=assets.prev_screenshot_in_anki,
-                sentence_in_anki=game_line.text if game_line else "",
+                sentence_in_anki=sentence_in_anki,
                 multi_line=bool(selected_lines and len(selected_lines) > 1),
                 video_in_anki=assets.video_in_anki or "",
                 word_path=word_path,
@@ -1257,6 +1332,8 @@ def _update_anki_note(last_note: AnkiCard, note: dict, tags: list, assets: Media
 
     if tags:
         invoke("addTags", tags=" ".join(tags), notes=[last_note.noteId])
+    if config.anki.remove_overlay_tag:
+        invoke("removeTags", tags="overlay", notes=[last_note.noteId])
 
     # Build detailed success log
     media_info = []
@@ -1564,7 +1641,96 @@ def _force_set_field_value(note: Dict, field_key: str, value: str, anki_cfg=None
     return True
 
 
-def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLine):
+_HTML_LINE_BREAK_RE = re.compile(r"<\s*br\s*/?\s*>", re.IGNORECASE)
+_HTML_LINE_BREAK_PLACEHOLDER = "\u0000GSM_BR\u0000"
+
+
+def _strip_sentence_formatting_for_reuse(sentence: str) -> str:
+    """Remove card-specific markup while preserving configured HTML line breaks."""
+    if not sentence:
+        return ""
+
+    protected = _HTML_LINE_BREAK_RE.sub(_HTML_LINE_BREAK_PLACEHOLDER, str(sentence))
+    stripped = remove_html_and_cloze_tags(protected)
+    return stripped.replace(_HTML_LINE_BREAK_PLACEHOLDER, "<br>").strip()
+
+
+def _get_sentence_field_value(last_note: Optional["AnkiCard"]) -> str:
+    if not last_note:
+        return ""
+    try:
+        return last_note.get_field(get_config().anki.sentence_field)
+    except Exception:
+        return ""
+
+
+def _sentence_for_current_card_html(last_note: Optional["AnkiCard"], sentence: str) -> str:
+    reusable_sentence = _strip_sentence_formatting_for_reuse(sentence)
+    if not reusable_sentence:
+        return ""
+
+    sentence_in_anki = _get_sentence_field_value(last_note).replace("\n", "").replace("\r", "").strip()
+    if not sentence_in_anki:
+        return reusable_sentence
+
+    logger.info("Preserving current card sentence HTML on confirmed sentence.")
+    return preserve_html_tags(sentence_in_anki, reusable_sentence)
+
+
+def _should_generate_sentence_furigana() -> bool:
+    return (
+        _field_is_active("sentence_furigana_field")
+        and get_config().general.target_language == CommonLanguages.JAPANESE.value
+    )
+
+
+def _apply_sentence_furigana_field(
+    note: Dict,
+    last_note: Optional["AnkiCard"],
+    sentence: str,
+    *,
+    force: bool = False,
+) -> bool:
+    if not sentence or not _should_generate_sentence_furigana():
+        return False
+
+    try:
+        furigana = mecab.reading(sentence)
+        furigana_html = _preserve_html_tags_for_furigana(sentence, furigana)
+        if force:
+            wrote = _force_set_field_value(note, "sentence_furigana_field", furigana_html)
+        else:
+            wrote = _apply_field_policy(
+                note,
+                last_note,
+                "sentence_furigana_field",
+                furigana_html,
+                append_separator=get_config().advanced.multi_line_line_break,
+            )
+        if wrote:
+            logger.info(f"Added furigana to {get_config().anki.sentence_furigana_field}: {furigana_html}")
+        return wrote
+    except Exception as e:
+        logger.warning(f"Failed to generate furigana: {e}")
+        return False
+
+
+def _apply_confirmed_sentence_fields(note: Dict, last_note: Optional["AnkiCard"], sentence: str) -> bool:
+    wrote_sentence = _force_set_field_value(note, "sentence_field", sentence)
+    if wrote_sentence:
+        logger.info(f"Prepared confirmed sentence field update: {get_config().anki.sentence_field}")
+        _apply_sentence_furigana_field(note, last_note, sentence, force=True)
+    return wrote_sentence
+
+
+def get_initial_card_info(
+    last_note: AnkiCard,
+    selected_lines,
+    game_line: GameLine,
+    *,
+    sentence_override: Optional[str] = None,
+    generate_furigana: bool = True,
+):
     note = {"id": last_note.noteId, "fields": {}}
     if not last_note:
         return note, last_note
@@ -1572,16 +1738,21 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
     if not game_line:
         game_line = get_text_event(last_note)
     multi_line_sentence = _build_selected_lines_sentence(last_note, selected_lines) if selected_lines else ""
+    has_sentence_override = bool(sentence_override)
 
     should_force_selected_line_sentence = bool(selected_lines and game_line.source != TextSource.HOTKEY)
 
-    if should_force_selected_line_sentence or _field_should_write(last_note, "sentence_field", note):
-        sentence_in_anki = (
-            last_note.get_field(get_config().anki.sentence_field).replace("\n", "").replace("\r", "").strip()
-        )
+    if (
+        has_sentence_override
+        or should_force_selected_line_sentence
+        or _field_should_write(last_note, "sentence_field", note)
+    ):
+        sentence_in_anki = _get_sentence_field_value(last_note).replace("\n", "").replace("\r", "").strip()
         sentence_cfg = _get_anki_field_config("sentence_field")
 
-        if sentence_cfg.append:
+        if has_sentence_override:
+            updated_sentence = _sentence_for_current_card_html(last_note, sentence_override)
+        elif sentence_cfg.append:
             updated_sentence = multi_line_sentence or game_line.text
         elif multi_line_sentence:
             updated_sentence = multi_line_sentence
@@ -1591,7 +1762,7 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
         else:
             updated_sentence = game_line.text
 
-        if should_force_selected_line_sentence:
+        if has_sentence_override or should_force_selected_line_sentence:
             wrote_sentence = _force_set_field_value(note, "sentence_field", updated_sentence)
         else:
             wrote_sentence = _apply_field_policy(
@@ -1604,27 +1775,13 @@ def get_initial_card_info(last_note: AnkiCard, selected_lines, game_line: GameLi
         if wrote_sentence:
             logger.info(f"Prepared sentence field update: {get_config().anki.sentence_field}")
 
-        if (
-            wrote_sentence
-            and _field_is_active("sentence_furigana_field")
-            and get_config().general.target_language == CommonLanguages.JAPANESE.value
-        ):
-            try:
-                furigana = mecab.reading(updated_sentence)
-                furigana_html = _preserve_html_tags_for_furigana(updated_sentence, furigana)
-                if should_force_selected_line_sentence:
-                    _force_set_field_value(note, "sentence_furigana_field", furigana_html)
-                else:
-                    _apply_field_policy(
-                        note,
-                        last_note,
-                        "sentence_furigana_field",
-                        furigana_html,
-                        append_separator=get_config().advanced.multi_line_line_break,
-                    )
-                logger.info(f"Added furigana to {get_config().anki.sentence_furigana_field}: {furigana_html}")
-            except Exception as e:
-                logger.warning(f"Failed to generate furigana: {e}")
+        if wrote_sentence and generate_furigana:
+            _apply_sentence_furigana_field(
+                note,
+                last_note,
+                updated_sentence,
+                force=has_sentence_override or should_force_selected_line_sentence,
+            )
 
     if _field_is_active("previous_sentence_field") and game_line.prev:
         previous_sentence_text = (
@@ -1797,6 +1954,173 @@ errors_shown = 0
 final_warning_shown = False
 
 
+def reset_anki_push_receiver_state():
+    global anki_push_state
+
+    while True:
+        try:
+            anki_push_note_queue.get_nowait()
+        except Empty:
+            break
+
+    with anki_push_state_lock:
+        processed_push_note_keys.clear()
+        anki_push_state = AnkiPushState(baseline_seeded=not first_run)
+
+
+def reset_anki_polling_gate_state():
+    global anki_polling_gate_state
+    anki_polling_gate_state = AnkiPollingGateState()
+
+
+def _coerce_note_id(note_id: Any) -> Optional[int]:
+    try:
+        value = int(note_id)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _get_anki_push_note_key(session_id: str, note_id: int) -> Tuple[str, int]:
+    return (session_id or "", int(note_id))
+
+
+def _get_anki_push_expiry_seconds(heartbeat_interval_seconds: float) -> float:
+    return max(30.0, 3.0 * max(0.0, float(heartbeat_interval_seconds or 0.0)))
+
+
+def record_anki_push_heartbeat(payload: Dict[str, Any], received_at: Optional[datetime] = None) -> None:
+    received_at = received_at or datetime.now()
+    session_id = str(payload.get("session_id") or "")
+    payload_mode = str(payload.get("payload_mode") or "")
+    capabilities = payload.get("capabilities") or []
+
+    try:
+        heartbeat_interval_seconds = max(0.0, float(payload.get("heartbeat_interval_seconds") or 0.0))
+    except (TypeError, ValueError):
+        heartbeat_interval_seconds = 0.0
+
+    with anki_push_state_lock:
+        if session_id and session_id != anki_push_state.session_id:
+            processed_push_note_keys.clear()
+            anki_push_state.baseline_seeded = not first_run
+
+        anki_push_state.last_heartbeat_at = received_at
+        anki_push_state.session_id = session_id
+        anki_push_state.heartbeat_interval_seconds = heartbeat_interval_seconds
+        anki_push_state.payload_mode = payload_mode
+        anki_push_state.capabilities = capabilities
+        if not first_run:
+            anki_push_state.baseline_seeded = True
+
+
+def get_anki_push_wait_timeout_seconds(now: Optional[datetime] = None) -> float:
+    now = now or datetime.now()
+    with anki_push_state_lock:
+        last_heartbeat_at = anki_push_state.last_heartbeat_at
+        heartbeat_interval_seconds = anki_push_state.heartbeat_interval_seconds
+
+    if not last_heartbeat_at:
+        return 0.0
+
+    age_seconds = max(0.0, (now - last_heartbeat_at).total_seconds())
+    expiry_seconds = _get_anki_push_expiry_seconds(heartbeat_interval_seconds)
+    return max(0.0, expiry_seconds - age_seconds)
+
+
+def is_anki_push_heartbeat_fresh(now: Optional[datetime] = None) -> bool:
+    return get_anki_push_wait_timeout_seconds(now=now) > 0.0
+
+
+def handle_incoming_anki_event(payload: Dict[str, Any], received_at: Optional[datetime] = None) -> str:
+    if not isinstance(payload, dict):
+        raise ValueError("Anki event payload must be a JSON object.")
+
+    event = str(payload.get("event") or "").strip().lower()
+    if event == "heartbeat":
+        record_anki_push_heartbeat(payload, received_at=received_at)
+        return "heartbeat"
+
+    if event != "note_added":
+        raise ValueError(f"Unsupported Anki event: {event or 'missing event'}")
+
+    note_id = _coerce_note_id(payload.get("note_id"))
+    if note_id is None:
+        raise ValueError("note_added payload must include a valid note_id.")
+
+    session_id = str(payload.get("session_id") or "")
+    note_key = _get_anki_push_note_key(session_id, note_id)
+
+    with anki_push_state_lock:
+        if note_key in processed_push_note_keys:
+            return "duplicate_note_added"
+        processed_push_note_keys.add(note_key)
+
+    anki_push_note_queue.put(
+        {
+            "session_id": session_id,
+            "note_id": note_id,
+            "payload": dict(payload),
+        }
+    )
+    return "note_added"
+
+
+def _ensure_anki_push_baseline() -> bool:
+    global previous_note_ids, first_run
+
+    with anki_push_state_lock:
+        if anki_push_state.baseline_seeded:
+            return True
+
+    if not first_run:
+        with anki_push_state_lock:
+            anki_push_state.baseline_seeded = True
+        return True
+
+    try:
+        previous_note_ids.update(get_note_ids())
+        first_run = False
+        gsm_status.anki_connected = True
+        with anki_push_state_lock:
+            anki_push_state.baseline_seeded = True
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to seed Anki push baseline from AnkiConnect: {e}")
+        return False
+
+
+def _process_next_anki_push_note(timeout_seconds: float = 0.0) -> bool:
+    global previous_note_ids, first_run
+
+    try:
+        if timeout_seconds and timeout_seconds > 0:
+            push_event = anki_push_note_queue.get(timeout=timeout_seconds)
+        else:
+            push_event = anki_push_note_queue.get_nowait()
+    except Empty:
+        return False
+
+    note_id = _coerce_note_id(push_event.get("note_id"))
+    session_id = str(push_event.get("session_id") or "")
+    first_run = False
+
+    if note_id is None:
+        return False
+
+    note_key = _get_anki_push_note_key(session_id, note_id)
+    try:
+        update_new_cards({note_id})
+        previous_note_ids.add(note_id)
+        gsm_status.anki_connected = True
+        return True
+    except Exception:
+        logger.exception(f"Error processing pushed Anki note {note_id}")
+        with anki_push_state_lock:
+            processed_push_note_keys.discard(note_key)
+        return False
+
+
 def _trigger_incremental_anki_cache_sync(note_ids: List[int]) -> None:
     """Queue a background cache sync for the given Anki note IDs."""
     unique_note_ids = [int(note_id) for note_id in dict.fromkeys(note_ids) if note_id]
@@ -1961,7 +2285,12 @@ def update_card_from_same_sentence(last_card, lines, game_line, reuse_result_id:
         return
 
     if anki_result.success:
-        note, last_card = get_initial_card_info(last_card, lines, game_line)
+        note, last_card = get_initial_card_info(
+            last_card,
+            lines,
+            game_line,
+            sentence_override=anki_result.sentence_in_anki,
+        )
         tango = last_card.get_field(get_config().anki.word_field)
         update_anki_card(
             last_card,
@@ -2092,25 +2421,107 @@ def check_tags_for_should_update(last_card):
         return True
 
 
+def _get_anki_base_polling_rate_seconds() -> float:
+    try:
+        polling_rate_ms = float(get_config().anki.polling_rate_v2 or 0)
+    except Exception:
+        polling_rate_ms = 0.0
+    return max(0.1, polling_rate_ms / 1000.0)
+
+
+def _is_anki_polling_allowed() -> bool:
+    config = get_config()
+    if bool(getattr(config.obs, "disable_recording", False)):
+        return False
+
+    obs_service = getattr(obs, "obs_service", None)
+    if not obs_service:
+        return False
+
+    obs_state = getattr(obs_service, "state", None)
+    return bool(getattr(obs_state, "replay_buffer_active", False))
+
+
+def _seed_anki_polling_baseline() -> bool:
+    global previous_note_ids, first_run, errors_shown, final_warning_shown
+
+    try:
+        previous_note_ids = set(get_note_ids())
+        first_run = False
+        gsm_status.anki_connected = True
+        errors_shown = 0
+        final_warning_shown = False
+        return True
+    except Exception as e:
+        gsm_status.anki_connected = False
+        logger.warning(f"Failed to seed Anki polling baseline after replay buffer activation: {e}")
+        return False
+
+
+def _monitor_anki_iteration(unsuccessful_count: int, scaled_polling_rate: float) -> Tuple[int, float]:
+    config = get_config()
+    base_polling_rate = _get_anki_base_polling_rate_seconds()
+
+    if not config.anki.enabled:
+        time.sleep(5)
+        return unsuccessful_count, base_polling_rate
+
+    push_wait_timeout = get_anki_push_wait_timeout_seconds()
+    if push_wait_timeout > 0:
+        with anki_push_state_lock:
+            if not anki_push_state.push_mode_active:
+                logger.info("Anki push heartbeat detected; disabling polling and switching to push event mode.")
+                anki_push_state.push_mode_active = True
+        _ensure_anki_push_baseline()
+        if _process_next_anki_push_note(timeout_seconds=push_wait_timeout):
+            return 0, base_polling_rate
+        return unsuccessful_count, scaled_polling_rate
+
+    with anki_push_state_lock:
+        if anki_push_state.push_mode_active:
+            logger.info("Anki push heartbeat expired; re-enabling polling fallback.")
+            anki_push_state.push_mode_active = False
+
+    if _process_next_anki_push_note(timeout_seconds=0.0):
+        return 0, base_polling_rate
+
+    if not _is_anki_polling_allowed():
+        if anki_polling_gate_state.replay_buffer_polling_active:
+            logger.info("OBS replay buffer inactive; disabling Anki polling.")
+            anki_polling_gate_state.replay_buffer_polling_active = False
+        time.sleep(base_polling_rate)
+        return 0, base_polling_rate
+
+    if not anki_polling_gate_state.replay_buffer_polling_active:
+        logger.info("OBS replay buffer active; enabling Anki polling and seeding the current Anki baseline.")
+        if _seed_anki_polling_baseline():
+            anki_polling_gate_state.replay_buffer_polling_active = True
+        time.sleep(base_polling_rate)
+        return 0, base_polling_rate
+
+    successful = check_for_new_cards()
+    if successful:
+        unsuccessful_count = 0
+        scaled_polling_rate = base_polling_rate
+    else:
+        unsuccessful_count += 1
+        if unsuccessful_count >= 5:
+            scaled_polling_rate = min(max(scaled_polling_rate, base_polling_rate) * 2, 5.0)
+
+    time.sleep(scaled_polling_rate)
+    return unsuccessful_count, scaled_polling_rate
+
+
 # Main function to handle the script lifecycle
 def monitor_anki():
     try:
-        # Continuously check for new cards
         unsuccessful_count = 0
-        scaled_polling_rate = get_config().anki.polling_rate_v2 / 1000.0
+        scaled_polling_rate = _get_anki_base_polling_rate_seconds()
         while True:
-            if not get_config().anki.enabled:
-                time.sleep(5)
-                continue
-            successful = check_for_new_cards()
-
-            if successful:
-                unsuccessful_count = 0
-            else:
-                unsuccessful_count += 1
-                if unsuccessful_count >= 5:
-                    scaled_polling_rate = min(scaled_polling_rate * 2, 5)  # Cap at 5 seconds
-            time.sleep(scaled_polling_rate)  # Check every 200ms
+            unsuccessful_count, scaled_polling_rate = _monitor_anki_iteration(
+                unsuccessful_count,
+                scaled_polling_rate,
+            )
     except KeyboardInterrupt:
         print("Stopped Checking For Anki Cards...")
 

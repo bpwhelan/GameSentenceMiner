@@ -313,6 +313,7 @@ let obsConfig: ObsConfig = (pythonConfig?.get('configs.Default.obs') as ObsConfi
 
 const OBS_CONFIG_PATH = path.join(BASE_DIR, 'obs-studio');
 const SCENE_CONFIG_PATH = path.join(OBS_CONFIG_PATH, 'config', 'obs-studio', 'basic', 'scenes');
+const AUTO_SCENE_SWITCHER_MODULE_NAME = 'auto-scene-switcher';
 let obs = new OBSWebSocket();
 let obsConnected = false;
 const OLD_HELPER_SCENE = "GSM Helper";
@@ -350,6 +351,8 @@ const OBS_HEARTBEAT_INTERVAL_MS = 30000;
 const OBS_CALL_TIMEOUT_MS = 7000;
 const OBS_CONNECT_TIMEOUT_MS = 10000;
 const OBS_DISCONNECT_TIMEOUT_MS = 3000;
+const OBS_SCENE_SWITCHER_PRE_QUIT_DELAY_MS = 250;
+const OBS_SCENE_SWITCHER_SHUTDOWN_DELAY_MS = 1000;
 const VIDEO_CAPTURE_INPUT_KINDS = new Set([
     'window_capture',
     'game_capture',
@@ -529,7 +532,73 @@ function generateFallbackWindowName(): string {
 }
 
 function getObsDialogParent(): BrowserWindow | undefined {
-    return obsWindow ?? BrowserWindow.getFocusedWindow() ?? undefined;
+    if (obsWindow) {
+        return obsWindow;
+    }
+
+    const maybeGetFocusedWindow = (BrowserWindow as typeof BrowserWindow & {
+        getFocusedWindow?: () => BrowserWindow | null;
+    }).getFocusedWindow;
+
+    return typeof maybeGetFocusedWindow === 'function'
+        ? maybeGetFocusedWindow() ?? undefined
+        : undefined;
+}
+
+function getSceneCollectionPath(sceneCollectionName: string): string {
+    return path.join(SCENE_CONFIG_PATH, `${sceneCollectionName}.json`.replace(/ /g, '_'));
+}
+
+function getOrCreateAutoSceneSwitcherModule(
+    sceneCollection: Record<string, any>
+): Record<string, any> {
+    if (!sceneCollection.modules || typeof sceneCollection.modules !== 'object') {
+        sceneCollection.modules = {};
+    }
+
+    if (
+        !sceneCollection.modules[AUTO_SCENE_SWITCHER_MODULE_NAME] ||
+        typeof sceneCollection.modules[AUTO_SCENE_SWITCHER_MODULE_NAME] !== 'object'
+    ) {
+        sceneCollection.modules[AUTO_SCENE_SWITCHER_MODULE_NAME] = {
+            interval: 300,
+            non_matching_scene: '',
+            switch_if_not_matching: false,
+            active: true,
+            switches: [],
+        };
+    }
+
+    const autoSceneSwitcher = sceneCollection.modules[
+        AUTO_SCENE_SWITCHER_MODULE_NAME
+    ] as Record<string, any>;
+
+    if (!Array.isArray(autoSceneSwitcher.switches)) {
+        autoSceneSwitcher.switches = [];
+    }
+
+    return autoSceneSwitcher;
+}
+
+function upsertAutoSceneSwitcherRule(
+    autoSceneSwitcher: Record<string, any>,
+    sceneName: string,
+    windowTitleRegex: string
+): void {
+    const switchEntry = {
+        scene: sceneName,
+        window_title: windowTitleRegex,
+    };
+    const existingSwitchIndex = autoSceneSwitcher.switches.findIndex(
+        (candidate: any) => candidate?.scene === sceneName
+    );
+
+    if (existingSwitchIndex >= 0) {
+        autoSceneSwitcher.switches[existingSwitchIndex] = switchEntry;
+        return;
+    }
+
+    autoSceneSwitcher.switches.push(switchEntry);
 }
 
 function getObsErrorMessage(error: unknown): string {
@@ -871,7 +940,6 @@ async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): P
     }
 
     if (sceneInfo.switcherRegex) {
-        // Configure auto scene switcher with the generated REGEX pattern.
         await modifyAutoSceneSwitcherInJSON(sceneName, sceneInfo.switcherRegex);
     } else if (targetKind === 'capture_card') {
         const audioWasConfigured = captureInputs.some(
@@ -912,93 +980,61 @@ async function modifyAutoSceneSwitcherInJSON(
     sceneName: string,
     windowTitleRegex: string
 ): Promise<void> {
+    let shouldRestartOBS = false;
+
     try {
         await getOBSConnection();
-        
+
         const currentSceneCollection = await callOBS('GetSceneCollectionList');
-        const sceneCollectionName = currentSceneCollection.currentSceneCollectionName;
+        const sceneCollectionName = String(
+            currentSceneCollection.currentSceneCollectionName ?? ''
+        ).trim();
+        if (!sceneCollectionName) {
+            logObsError('Current scene collection name was empty while updating auto-scene-switcher settings.');
+            return;
+        }
 
-        const sceneCollectionPath = path.join(
-            SCENE_CONFIG_PATH,
-            `${sceneCollectionName}.json`.replace(' ', '_')
-        );
-
-        // Verify the file exists before proceeding
+        const sceneCollectionPath = getSceneCollectionPath(sceneCollectionName);
         if (!fs.existsSync(sceneCollectionPath)) {
             logObsError(`Scene collection file not found: ${sceneCollectionPath}`);
             return;
         }
 
+        await wait(OBS_SCENE_SWITCHER_PRE_QUIT_DELAY_MS);
+
         sendQuitOBS();
-        
-        // Wait a bit for OBS to close gracefully
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        shouldRestartOBS = true;
+
+        await wait(OBS_SCENE_SWITCHER_SHUTDOWN_DELAY_MS);
+        await resetOBSClient('auto-scene-switcher update restart');
 
         const fileContent = await fs.promises.readFile(sceneCollectionPath, 'utf-8');
-        const sceneCollection = JSON.parse(fileContent);
-
-        // Initialize modules object if it doesn't exist
-        if (!sceneCollection['modules']) {
-            sceneCollection['modules'] = {};
-        }
-
-        let autoSceneSwitcher = sceneCollection['modules']['auto-scene-switcher'];
-
-        if (!autoSceneSwitcher) {
-            sceneCollection['modules']['auto-scene-switcher'] = {
-                interval: 300,
-                non_matching_scene: '',
-                switch_if_not_matching: false,
-                active: true,
-                switches: [],
-            };
-            autoSceneSwitcher = sceneCollection['modules']['auto-scene-switcher'];
-        }
-
-        // Ensure switches array exists
-        if (!Array.isArray(autoSceneSwitcher.switches)) {
-            autoSceneSwitcher.switches = [];
-        }
-
-        // NOTE: We do NOT escape characters here anymore, because `windowTitleRegex`
-        // is now passed in as a complete regex string from `getGameInfoFromWindow`.
-
-        // Check if this scene already has a switch configured
-        const existingSwitchIndex = autoSceneSwitcher.switches.findIndex(
-            (s: any) => s.scene === sceneName
-        );
+        const sceneCollection = JSON.parse(fileContent) as Record<string, any>;
+        const autoSceneSwitcher = getOrCreateAutoSceneSwitcherModule(sceneCollection);
 
         if (!autoSceneSwitcher.active) {
-            const response = await dialog.showMessageBox(obsWindow!, {
-                type: 'question',
+            const dialogOptions = {
+                type: 'question' as const,
                 buttons: ['Yes', 'No'],
                 defaultId: 0,
+                cancelId: 1,
                 title: 'Enable Auto Scene Switcher',
                 message: 'Do you want to enable the auto scene switcher?',
-            });
+            };
+            const dialogParent = getObsDialogParent();
+            const response = dialogParent
+                ? await dialog.showMessageBox(dialogParent, dialogOptions)
+                : await dialog.showMessageBox(dialogOptions);
 
             if (response.response === 0) {
                 autoSceneSwitcher.active = true;
             }
         }
 
-        // Add or update the switch entry
-        const switchEntry = {
-            scene: sceneName,
-            window_title: windowTitleRegex,
-        };
-
-        if (existingSwitchIndex >= 0) {
-            autoSceneSwitcher.switches[existingSwitchIndex] = switchEntry;
-        } else {
-            autoSceneSwitcher.switches.push(switchEntry);
-        }
-
-        sceneCollection['modules']['auto-scene-switcher'] = autoSceneSwitcher;
+        upsertAutoSceneSwitcherRule(autoSceneSwitcher, sceneName, windowTitleRegex);
+        sceneCollection.modules[AUTO_SCENE_SWITCHER_MODULE_NAME] = autoSceneSwitcher;
 
         const updatedContent = JSON.stringify(sceneCollection, null, 2);
-        
-        // Write the updated content to both files
         await fs.promises.writeFile(sceneCollectionPath, updatedContent, 'utf-8');
         await fs.promises.writeFile(
             path.join(BASE_DIR, 'scene_config.json'),
@@ -1006,31 +1042,34 @@ async function modifyAutoSceneSwitcherInJSON(
             'utf-8'
         );
 
-        console.log(`Auto-scene-switcher settings updated for "${sceneName}" with pattern: ${windowTitleRegex}`);
-        
-        // Restart OBS and reconnect
-        sendStartOBS();
-        
-        // Wait for OBS to start before attempting to reconnect
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        try {
-            await connectOBSWebSocket();
-        } catch (reconnectError) {
-            logObsError('Initial reconnection failed, OBS may still be starting up:', reconnectError);
-            // Don't throw here - the getOBSConnection retry logic will handle it
-        }
+        console.log(
+            `Auto-scene-switcher settings updated for "${sceneName}" with pattern: ${windowTitleRegex}`
+        );
     } catch (error: any) {
-        logObsError(`Error modifying auto-scene-switcher settings:`, error.message);
-        
-        // Attempt to restart OBS even if there was an error
+        logObsError(
+            'Error modifying auto-scene-switcher settings:',
+            error?.message ?? error
+        );
+    } finally {
+        if (!shouldRestartOBS) {
+            return;
+        }
+
         try {
             sendStartOBS();
         } catch (startError) {
-            logObsError('Failed to restart OBS after error:', startError);
+            logObsError('Failed to restart OBS after auto-scene-switcher update:', startError);
+            return;
         }
 
-        return;
+        try {
+            await connectOBSWebSocket();
+        } catch (reconnectError) {
+            logObsError(
+                'Initial reconnection failed, OBS may still be starting up:',
+                reconnectError
+            );
+        }
     }
 }
 
@@ -2080,17 +2119,42 @@ export async function sceneHasVisibleOutput(
 
     try {
         await getOBSConnection();
-        const response = await callOBS('GetSourceScreenshot', {
-            sourceName: sceneName,
-            imageFormat: 'png',
-            imageWidth: OBS_OUTPUT_PROBE_WIDTH,
-            imageHeight: OBS_OUTPUT_PROBE_HEIGHT,
-        });
-        if (!response?.imageData) {
+
+        // Iterate individual video sources instead of screenshotting the scene
+        // composite.  A disabled-but-present game_capture can render black on
+        // top and mask a perfectly-good window_capture underneath.
+        const sceneItems = await callOBS('GetSceneItemList', { sceneName });
+        const videoItems = (sceneItems?.sceneItems ?? []).filter(isVideoCaptureSceneItem);
+
+        if (videoItems.length === 0) {
             return null;
         }
 
-        return !isScreenshotImageDataEffectivelyEmpty(response.imageData);
+        for (const item of videoItems) {
+            const sourceNameValue = item.sourceName as string | undefined;
+            if (!sourceNameValue) {
+                continue;
+            }
+
+            try {
+                const response = await callOBS('GetSourceScreenshot', {
+                    sourceName: sourceNameValue,
+                    imageFormat: 'png',
+                    imageWidth: OBS_OUTPUT_PROBE_WIDTH,
+                    imageHeight: OBS_OUTPUT_PROBE_HEIGHT,
+                });
+                if (
+                    response?.imageData &&
+                    !isScreenshotImageDataEffectivelyEmpty(response.imageData)
+                ) {
+                    return true;
+                }
+            } catch {
+                // Source failed to render — try next.
+            }
+        }
+
+        return false;
     } catch (error: any) {
         logObsError(`Error probing scene output for "${sceneName}":`, error?.message ?? error);
         return null;

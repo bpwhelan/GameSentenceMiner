@@ -1636,22 +1636,145 @@ fn configure_manual_hotkey(
     Ok(())
 }
 
+/// Map an rdev key to a stable string identifier for the JavaScript client.
+/// Returns `None` for unknown/unmappable keys so we can silently skip them.
+fn rdev_key_to_string(key: &KeyboardKey) -> Option<&'static str> {
+    Some(match key {
+        // Letters
+        KeyboardKey::KeyA => "KeyA",
+        KeyboardKey::KeyB => "KeyB",
+        KeyboardKey::KeyC => "KeyC",
+        KeyboardKey::KeyD => "KeyD",
+        KeyboardKey::KeyE => "KeyE",
+        KeyboardKey::KeyF => "KeyF",
+        KeyboardKey::KeyG => "KeyG",
+        KeyboardKey::KeyH => "KeyH",
+        KeyboardKey::KeyI => "KeyI",
+        KeyboardKey::KeyJ => "KeyJ",
+        KeyboardKey::KeyK => "KeyK",
+        KeyboardKey::KeyL => "KeyL",
+        KeyboardKey::KeyM => "KeyM",
+        KeyboardKey::KeyN => "KeyN",
+        KeyboardKey::KeyO => "KeyO",
+        KeyboardKey::KeyP => "KeyP",
+        KeyboardKey::KeyQ => "KeyQ",
+        KeyboardKey::KeyR => "KeyR",
+        KeyboardKey::KeyS => "KeyS",
+        KeyboardKey::KeyT => "KeyT",
+        KeyboardKey::KeyU => "KeyU",
+        KeyboardKey::KeyV => "KeyV",
+        KeyboardKey::KeyW => "KeyW",
+        KeyboardKey::KeyX => "KeyX",
+        KeyboardKey::KeyY => "KeyY",
+        KeyboardKey::KeyZ => "KeyZ",
+        // Digits
+        KeyboardKey::Num0 => "Digit0",
+        KeyboardKey::Num1 => "Digit1",
+        KeyboardKey::Num2 => "Digit2",
+        KeyboardKey::Num3 => "Digit3",
+        KeyboardKey::Num4 => "Digit4",
+        KeyboardKey::Num5 => "Digit5",
+        KeyboardKey::Num6 => "Digit6",
+        KeyboardKey::Num7 => "Digit7",
+        KeyboardKey::Num8 => "Digit8",
+        KeyboardKey::Num9 => "Digit9",
+        // Function keys
+        KeyboardKey::F1 => "F1",
+        KeyboardKey::F2 => "F2",
+        KeyboardKey::F3 => "F3",
+        KeyboardKey::F4 => "F4",
+        KeyboardKey::F5 => "F5",
+        KeyboardKey::F6 => "F6",
+        KeyboardKey::F7 => "F7",
+        KeyboardKey::F8 => "F8",
+        KeyboardKey::F9 => "F9",
+        KeyboardKey::F10 => "F10",
+        KeyboardKey::F11 => "F11",
+        KeyboardKey::F12 => "F12",
+        // Arrow keys
+        KeyboardKey::UpArrow => "ArrowUp",
+        KeyboardKey::DownArrow => "ArrowDown",
+        KeyboardKey::LeftArrow => "ArrowLeft",
+        KeyboardKey::RightArrow => "ArrowRight",
+        // Navigation
+        KeyboardKey::Home => "Home",
+        KeyboardKey::End => "End",
+        KeyboardKey::PageUp => "PageUp",
+        KeyboardKey::PageDown => "PageDown",
+        KeyboardKey::Insert => "Insert",
+        // Whitespace / control
+        KeyboardKey::Space => "Space",
+        KeyboardKey::Return => "Enter",
+        KeyboardKey::Escape => "Escape",
+        KeyboardKey::Backspace => "Backspace",
+        KeyboardKey::Delete => "Delete",
+        KeyboardKey::Tab => "Tab",
+        // Modifiers (reported individually so the client can track them)
+        KeyboardKey::ShiftLeft => "ShiftLeft",
+        KeyboardKey::ShiftRight => "ShiftRight",
+        KeyboardKey::ControlLeft => "ControlLeft",
+        KeyboardKey::ControlRight => "ControlRight",
+        KeyboardKey::Alt => "AltLeft",
+        KeyboardKey::AltGr => "AltRight",
+        KeyboardKey::MetaLeft => "MetaLeft",
+        KeyboardKey::MetaRight => "MetaRight",
+        // Symbols
+        KeyboardKey::Minus => "Minus",
+        KeyboardKey::Equal => "Equal",
+        KeyboardKey::LeftBracket => "BracketLeft",
+        KeyboardKey::RightBracket => "BracketRight",
+        KeyboardKey::BackSlash => "Backslash",
+        KeyboardKey::SemiColon => "Semicolon",
+        KeyboardKey::Quote => "Quote",
+        KeyboardKey::Comma => "Comma",
+        KeyboardKey::Dot => "Period",
+        KeyboardKey::Slash => "Slash",
+        KeyboardKey::BackQuote => "Backquote",
+        KeyboardKey::CapsLock => "CapsLock",
+        _ => return None,
+    })
+}
+
 fn handle_manual_keyboard_event(
     tx: &broadcast::Sender<String>,
     manual_hotkey: &SharedManualHotkey,
     pressed_keys: &mut HashSet<KeyboardKey>,
     event: KeyboardEvent,
 ) {
-    match event.event_type {
-        KeyboardEventType::KeyPress(key) => {
-            pressed_keys.insert(key);
-        }
-        KeyboardEventType::KeyRelease(key) => {
-            pressed_keys.remove(&key);
-        }
+    let (key, pressed) = match event.event_type {
+        KeyboardEventType::KeyPress(key) => (key, true),
+        KeyboardEventType::KeyRelease(key) => (key, false),
         _ => return,
+    };
+
+    // Track key state (dedup: only process transitions)
+    let is_transition = if pressed {
+        pressed_keys.insert(key)
+    } else {
+        pressed_keys.remove(&key)
+    };
+
+    // ── Broadcast raw keyboard_event for every state transition ──
+    if is_transition {
+        if let Some(key_name) = rdev_key_to_string(&key) {
+            let mods = pressed_modifiers(pressed_keys);
+            let payload = json!({
+                "type": "keyboard_event",
+                "key": key_name,
+                "pressed": pressed,
+                "modifiers": {
+                    "ctrl": mods.ctrl,
+                    "alt": mods.alt,
+                    "shift": mods.shift,
+                    "meta": mods.cmd,
+                },
+            })
+            .to_string();
+            send_broadcast(tx, payload, "keyboard_event");
+        }
     }
 
+    // ── Existing manual hotkey logic (unchanged) ──
     let maybe_payload = {
         let mut guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
         let Some(binding) = guard.binding.as_ref() else {

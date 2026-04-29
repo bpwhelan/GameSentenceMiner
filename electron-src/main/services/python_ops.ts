@@ -18,6 +18,12 @@ interface RunCommandOptions {
     env?: NodeJS.ProcessEnv;
     cwd?: string;
     suppressOutput?: boolean;
+    onProgress?: (event: UvCommandProgressEvent) => void;
+}
+
+export interface UvCommandProgressEvent {
+    progress: number | null;
+    message: string;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -46,6 +52,46 @@ function appendRecentLines(target: string[], chunk: string): void {
     }
 }
 
+function stripAnsi(value: string): string {
+    return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, '');
+}
+
+export function parseUvProgressText(
+    text: string,
+    currentProgress: number = 0
+): UvCommandProgressEvent | null {
+    const cleanedLines = stripAnsi(text)
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+
+    const latestLine = cleanedLines.slice(-1)[0];
+    if (!latestLine) {
+        return null;
+    }
+
+    if (/resolved|audited/i.test(latestLine)) {
+        return { progress: Math.max(currentProgress, 0.25), message: latestLine };
+    }
+
+    if (/download|fetch|building|compile/i.test(latestLine)) {
+        return { progress: Math.max(currentProgress, 0.45), message: latestLine };
+    }
+
+    if (/prepared|extract/i.test(latestLine)) {
+        return { progress: Math.max(currentProgress, 0.65), message: latestLine };
+    }
+
+    if (/installed|uninstalled|updated|complete/i.test(latestLine)) {
+        return { progress: Math.max(currentProgress, 0.85), message: latestLine };
+    }
+
+    return {
+        progress: Math.max(currentProgress, Math.min(currentProgress + 0.02, 0.9)),
+        message: latestLine,
+    };
+}
+
 export async function runCommand(
     command: string,
     args: string[],
@@ -59,17 +105,35 @@ export async function runCommand(
         const recentStdout: string[] = [];
         const recentStderr: string[] = [];
         let settled = false;
+        let progress = 0.08;
         const finish = (error?: Error): void => {
             if (settled) {
                 return;
             }
             settled = true;
+            if (progressTimer) {
+                clearInterval(progressTimer);
+            }
             if (error) {
                 reject(error);
             } else {
                 resolve();
             }
         };
+
+        const progressTimer = options.onProgress
+            ? setInterval(() => {
+                  progress = Math.min(progress + 0.03, 0.92);
+                  const latestMessage =
+                      recentStderr[recentStderr.length - 1] ||
+                      recentStdout[recentStdout.length - 1] ||
+                      `${prefixText.trim() || 'uv'} in progress...`;
+                  options.onProgress?.({
+                      progress,
+                      message: latestMessage,
+                  });
+              }, 800)
+            : null;
 
         const proc = spawn(command, args, {
             env: {
@@ -83,6 +147,11 @@ export async function runCommand(
             proc.stdout.on('data', (data) => {
                 const text = data.toString();
                 appendRecentLines(recentStdout, text);
+                const parsed = options.onProgress ? parseUvProgressText(text, progress) : null;
+                if (parsed) {
+                    progress = parsed.progress ?? progress;
+                    options.onProgress?.(parsed);
+                }
                 if (options.suppressOutput) {
                     return;
                 }
@@ -94,6 +163,11 @@ export async function runCommand(
             proc.stderr.on('data', (data) => {
                 const text = data.toString();
                 appendRecentLines(recentStderr, text);
+                const parsed = options.onProgress ? parseUvProgressText(text, progress) : null;
+                if (parsed) {
+                    progress = parsed.progress ?? progress;
+                    options.onProgress?.(parsed);
+                }
                 if (options.suppressOutput) {
                     return;
                 }
@@ -389,7 +463,8 @@ export function resolveRequestedExtras(
 export async function syncLockedEnvironment(
     pythonPath: string,
     extras: string[] = [],
-    checkOnly: boolean = false
+    checkOnly: boolean = false,
+    onProgress?: (event: UvCommandProgressEvent) => void
 ): Promise<void> {
     const projectPath = getProjectPath();
     const normalizedExtras = normalizeExtras(extras);
@@ -405,7 +480,6 @@ export async function syncLockedEnvironment(
         '--no-editable',
         '--no-install-project',
         '--inexact',
-        '--no-progress',
     ];
 
     if (checkOnly) {
@@ -421,6 +495,7 @@ export async function syncLockedEnvironment(
             VIRTUAL_ENV: getVenvDirFromPythonPath(pythonPath),
         },
         suppressOutput: true,
+        onProgress,
     });
 }
 
@@ -431,14 +506,16 @@ export async function syncLockedEnvironment(
 export async function installPackageNoDeps(
     pythonPath: string,
     packageSpecifier: string,
-    forceReinstall: boolean = false
+    forceReinstall: boolean = false,
+    onProgress?: (event: UvCommandProgressEvent) => void
 ): Promise<void> {
-    const args = ['-m', 'uv', 'pip', 'install', '--no-progress', '--no-deps', '--upgrade'];
+    const args = ['-m', 'uv', 'pip', 'install', '--no-deps', '--upgrade'];
     if (forceReinstall) {
         args.push('--force-reinstall');
     }
     args.push(packageSpecifier);
     await runCommand(pythonPath, args, true, true, 'Install: ', {
         suppressOutput: true,
+        onProgress,
     });
 }

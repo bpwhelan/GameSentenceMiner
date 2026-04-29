@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "../i18n";
 
 interface SetupWizardProps {
   onComplete: () => void;
@@ -14,6 +15,7 @@ interface ConnectivityStatus {
 }
 
 export function SetupWizard({ onComplete }: SetupWizardProps) {
+  const t = useTranslation();
   const [step, setStep] = useState<WizardStep>("welcome");
   const [connectivity, setConnectivity] = useState<ConnectivityStatus>({
     anki: "checking",
@@ -116,16 +118,16 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
             className="wizard-btn wizard-btn-skip"
             onClick={skipWizard}
           >
-            Skip Setup
+            {t("wizard.skip")}
           </button>
           <div className="wizard-footer-right">
             {!isFirst && (
               <button className="wizard-btn wizard-btn-back" onClick={goBack}>
-                ← Back
+                {t("wizard.back")}
               </button>
             )}
             <button className="wizard-btn wizard-btn-next" onClick={goNext}>
-              {isLast ? "Get Started →" : "Next →"}
+              {isLast ? t("wizard.getStarted") : t("wizard.next")}
             </button>
           </div>
         </div>
@@ -135,19 +137,18 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 }
 
 function WelcomeStep() {
+  const t = useTranslation();
   return (
     <>
-      <h2 className="wizard-title">Welcome to GameSentenceMiner! 🎮</h2>
+      <h2 className="wizard-title">{t("wizard.welcome.title")}</h2>
       <p className="wizard-text">
-        GSM helps you automatically create Anki flashcards from games you play.
-        It captures text, audio, and screenshots to build high-quality cards for
-        Language learning.
+        {t("wizard.welcome.description")}
       </p>
       <div className="wizard-info-box">
-        <h3>What you'll need:</h3>
+        <h3>{t("wizard.welcome.whatYouNeed")}</h3>
         <ul>
           <li>
-            <strong>Anki</strong> with the{" "}
+            <strong>{t("wizard.welcome.ankiLabel")}</strong> {t("wizard.welcome.ankiWith")}{" "}
             <a
               href="#"
               onClick={(e) => {
@@ -158,40 +159,38 @@ function WelcomeStep() {
                 );
               }}
             >
-              AnkiConnect
+              {t("wizard.welcome.ankiConnect")}
             </a>{" "}
-            add-on installed and running
+            {t("wizard.welcome.ankiAddonRunning")}
           </li>
           <li>
-            <strong>A text source</strong> — Agent, Textractor, or built-in OCR
+            <strong>{t("wizard.welcome.textSourceLabel")}</strong> {t("wizard.welcome.textSourceDesc")}
           </li>
           <li>
-            <strong>OBS Studio</strong> (optional) — for audio/video recording
+            <strong>{t("wizard.welcome.obsLabel")}</strong> {t("wizard.welcome.obsDesc")}
           </li>
         </ul>
       </div>
       <p className="wizard-text-muted">
-        This wizard will walk you through the basics. You can always change
-        settings later.
+        {t("wizard.welcome.hint")}
       </p>
     </>
   );
 }
 
 function InputSourceStep() {
+  const t = useTranslation();
   return (
     <>
-      <h2 className="wizard-title">Text Input Sources 📝</h2>
+      <h2 className="wizard-title">{t("wizard.textSources.title")}</h2>
       <p className="wizard-text">
-        GSM needs a way to read text from your game. Here are the most common
-        options:
+        {t("wizard.textSources.description")}
       </p>
       <div className="wizard-options">
         <div className="wizard-option">
-          <h3>🔌 Agent (Recommended)</h3>
+          <h3>{t("wizard.textSources.agentTitle")}</h3>
           <p>
-            Works with most Visual Novels. Connects automatically via websocket
-            on port 9001.
+            {t("wizard.textSources.agentDesc")}
           </p>
           <a
             href="#"
@@ -203,33 +202,31 @@ function InputSourceStep() {
               );
             }}
           >
-            Get Agent →
+            {t("wizard.textSources.agentLink")}
           </a>
         </div>
         <div className="wizard-option">
-          <h3>👁️ Built-in OCR</h3>
+          <h3>{t("wizard.textSources.ocrTitle")}</h3>
           <p>
-            Use screen OCR for games where text hooking doesn't work. Configure
-            in the OCR tab after setup.
+            {t("wizard.textSources.ocrDesc")}
           </p>
         </div>
         <div className="wizard-option">
-          <h3>📋 Clipboard</h3>
+          <h3>{t("wizard.textSources.clipboardTitle")}</h3>
           <p>
-            If your text source copies to clipboard, GSM can read from there
-            automatically.
+            {t("wizard.textSources.clipboardDesc")}
           </p>
         </div>
       </div>
       <p className="wizard-text-muted">
-        Websocket sources (Agent, Textractor, LunaTranslator) can be managed in
-        Settings → General.
+        {t("wizard.textSources.hint")}
       </p>
     </>
   );
 }
 
 function AnkiStep({ connectivity }: { connectivity: ConnectivityStatus }) {
+  const t = useTranslation();
   const statusIcon = (status: "checking" | "connected" | "failed") => {
     if (status === "checking") return "⏳";
     if (status === "connected") return "✅";
@@ -238,9 +235,9 @@ function AnkiStep({ connectivity }: { connectivity: ConnectivityStatus }) {
 
   return (
     <>
-      <h2 className="wizard-title">Connectivity Check 🔗</h2>
+      <h2 className="wizard-title">{t("wizard.connectivity.title")}</h2>
       <p className="wizard-text">
-        Let's verify your external tools are reachable:
+        {t("wizard.connectivity.description")}
       </p>
       <div className="wizard-connectivity">
         <div
@@ -250,14 +247,14 @@ function AnkiStep({ connectivity }: { connectivity: ConnectivityStatus }) {
             {statusIcon(connectivity.anki)}
           </span>
           <div>
-            <strong>Anki (AnkiConnect)</strong>
+            <strong>{t("wizard.connectivity.ankiLabel")}</strong>
             <p>
-              {connectivity.anki === "checking" && "Checking connection..."}
+              {connectivity.anki === "checking" && t("wizard.connectivity.checking")}
               {connectivity.anki === "connected" &&
-                "Connected! AnkiConnect is running."}
+                t("wizard.connectivity.ankiConnected")}
               {connectivity.anki === "failed" && (
                 <>
-                  Not reachable. Make sure Anki is open with the{" "}
+                  {t("wizard.connectivity.ankiFailedPre")}{" "}
                   <a
                     href="#"
                     onClick={(e) => {
@@ -268,9 +265,9 @@ function AnkiStep({ connectivity }: { connectivity: ConnectivityStatus }) {
                       );
                     }}
                   >
-                    AnkiConnect add-on
+                    {t("wizard.connectivity.ankiConnectAddon")}
                   </a>{" "}
-                  installed.
+                  {t("wizard.connectivity.ankiFailedPost")}
                 </>
               )}
             </p>
@@ -283,52 +280,42 @@ function AnkiStep({ connectivity }: { connectivity: ConnectivityStatus }) {
             {statusIcon(connectivity.obs)}
           </span>
           <div>
-            <strong>OBS Studio (WebSocket)</strong>
+            <strong>{t("wizard.connectivity.obsLabel")}</strong>
             <p>
-              {connectivity.obs === "checking" && "Checking connection..."}
+              {connectivity.obs === "checking" && t("wizard.connectivity.checking")}
               {connectivity.obs === "connected" &&
-                "Connected! OBS WebSocket server is running."}
+                t("wizard.connectivity.obsConnected")}
               {connectivity.obs === "failed" &&
-                "Not reachable. OBS is optional — you can set it up later in Settings."}
+                t("wizard.connectivity.obsFailed")}
             </p>
           </div>
         </div>
       </div>
       <p className="wizard-text-muted">
-        You can continue even if connections fail — configure them later in
-        Settings.
+        {t("wizard.connectivity.hint")}
       </p>
     </>
   );
 }
 
 function FinishStep() {
+  const t = useTranslation();
   return (
     <>
-      <h2 className="wizard-title">You're All Set! 🎉</h2>
+      <h2 className="wizard-title">{t("wizard.finish.title")}</h2>
       <p className="wizard-text">
-        GSM is ready to go. Here are some tips to get started:
+        {t("wizard.finish.description")}
       </p>
       <div className="wizard-info-box">
         <ul>
-          <li>
-            Open the <strong>Home</strong> tab to see the current game text stream
-          </li>
-          <li>
-            Use <strong>Game Settings</strong> to configure per-game profiles
-          </li>
-          <li>
-            Check the <strong>Settings</strong> tab for Anki, audio, and hotkey
-            configuration
-          </li>
-          <li>
-            The <strong>Console</strong> tab shows what GSM is doing behind the
-            scenes
-          </li>
+          <li dangerouslySetInnerHTML={{ __html: t("wizard.finish.tipHome") }} />
+          <li dangerouslySetInnerHTML={{ __html: t("wizard.finish.tipGameSettings") }} />
+          <li dangerouslySetInnerHTML={{ __html: t("wizard.finish.tipSettings") }} />
+          <li dangerouslySetInnerHTML={{ __html: t("wizard.finish.tipConsole") }} />
         </ul>
       </div>
       <p className="wizard-text">
-        For detailed guides and troubleshooting, visit the{" "}
+        {t("wizard.finish.guidePre")}{" "}
         <a
           href="#"
           onClick={(e) => {
@@ -339,9 +326,9 @@ function FinishStep() {
             );
           }}
         >
-          GSM Wiki
+          {t("wizard.finish.guideWikiLink")}
         </a>
-        {" "}or join the{" "}
+        {" "}{t("wizard.finish.guideOr")}{" "}
         <a
           href="#"
           onClick={(e) => {
@@ -352,7 +339,7 @@ function FinishStep() {
             );
           }}
         >
-          Discord community
+          {t("wizard.finish.guideDiscordLink")}
         </a>
         .
       </p>

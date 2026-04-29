@@ -3,11 +3,19 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as tar from 'tar';
 import extract from 'extract-zip';
-import { execFile, spawn } from 'child_process';
-import { promisify } from 'util';
-import { BASE_DIR, execFileAsync, getPlatform, isWindows, isMacOS } from '../util.js';
+import { spawn } from 'child_process';
+import {
+    BASE_DIR,
+    execFileAsync,
+    getPlatform,
+    getSanitizedPythonEnv,
+    isWindows,
+    isMacOS,
+} from '../util.js';
+import { installSessionManager } from '../services/install_session_state.js';
 import { mainWindow } from '../main.js';
-import { dialog, shell } from 'electron';
+import { dialog } from 'electron';
+import type { InstallProgressKind, InstallStageId } from '../../shared/install_session.js';
 
 // --- Constants ---
 
@@ -21,6 +29,187 @@ const RETRYABLE_VENV_CREATION_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'ETXT
 
 let pythonOperationQueue: Promise<void> = Promise.resolve();
 let activePythonOperationPromise: Promise<string> | null = null;
+
+interface DownloadProgressPayload {
+    downloadedBytes: number;
+    totalBytes?: number;
+}
+
+interface TrackedCommandOptions {
+    stageId: InstallStageId;
+    command: string;
+    args: string[];
+    startMessage: string;
+    successMessage: string;
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+    markFailureOnError?: boolean;
+}
+
+function shouldEmitDownloadProgress(
+    downloadedBytes: number,
+    totalBytes: number | undefined,
+    lastReport: { bytes: number; timeMs: number }
+): boolean {
+    const now = Date.now();
+    if (downloadedBytes <= 0) {
+        return false;
+    }
+    if (totalBytes !== undefined && downloadedBytes >= totalBytes) {
+        lastReport.bytes = downloadedBytes;
+        lastReport.timeMs = now;
+        return true;
+    }
+
+    const bytesDelta = downloadedBytes - lastReport.bytes;
+    const timeDelta = now - lastReport.timeMs;
+    const progressDelta =
+        typeof totalBytes === 'number' && totalBytes > 0
+            ? (downloadedBytes - lastReport.bytes) / totalBytes
+            : 0;
+
+    if (bytesDelta >= 512 * 1024 || progressDelta >= 0.01 || timeDelta >= 250) {
+        lastReport.bytes = downloadedBytes;
+        lastReport.timeMs = now;
+        return true;
+    }
+
+    return false;
+}
+
+function hasActiveInstallSession(): boolean {
+    return installSessionManager.getActiveSnapshot() !== null;
+}
+
+function reportStageProgress(
+    stageId: InstallStageId,
+    status: 'pending' | 'running' | 'completed' | 'skipped' | 'failed',
+    progressKind: InstallProgressKind,
+    progress: number | null,
+    message: string,
+    extras?: {
+        downloadedBytes?: number | null;
+        totalBytes?: number | null;
+        error?: string | null;
+    }
+): void {
+    if (!hasActiveInstallSession()) {
+        return;
+    }
+    installSessionManager.updateStage({
+        stageId,
+        status,
+        progressKind,
+        progress,
+        message,
+        downloadedBytes: extras?.downloadedBytes,
+        totalBytes: extras?.totalBytes,
+        error: extras?.error,
+    });
+}
+
+function markBootstrapStagesSkipped(message: string): void {
+    reportStageProgress('uv', 'skipped', 'indeterminate', 1, message);
+    reportStageProgress('python', 'skipped', 'indeterminate', 1, 'Managed Python already installed.');
+    reportStageProgress('venv', 'skipped', 'indeterminate', 1, 'Virtual environment already present.');
+}
+
+function estimateCommandProgressFromText(text: string, fallback: number): number {
+    const normalized = text.trim();
+    if (!normalized) {
+        return fallback;
+    }
+    if (/resolved|audited/i.test(normalized)) {
+        return Math.max(fallback, 0.25);
+    }
+    if (/prepared|extract/i.test(normalized)) {
+        return Math.max(fallback, 0.6);
+    }
+    if (/installed|success|complete|created/i.test(normalized)) {
+        return Math.max(fallback, 0.85);
+    }
+    return Math.max(fallback, 0.12);
+}
+
+async function runTrackedCommand({
+    stageId,
+    command,
+    args,
+    startMessage,
+    successMessage,
+    cwd,
+    env,
+    markFailureOnError = true,
+}: TrackedCommandOptions): Promise<void> {
+    reportStageProgress(stageId, 'running', 'estimated', 0.05, startMessage);
+
+    await new Promise<void>((resolve, reject) => {
+        let progress = 0.08;
+        let latestMessage = startMessage;
+        let settled = false;
+
+        const finish = (error?: Error) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            clearInterval(progressTimer);
+            if (error) {
+                if (markFailureOnError) {
+                    reportStageProgress(stageId, 'failed', 'estimated', progress, latestMessage, {
+                        error: error.message,
+                    });
+                }
+                reject(error);
+                return;
+            }
+            reportStageProgress(stageId, 'completed', 'estimated', 1, successMessage);
+            resolve();
+        };
+
+        const progressTimer = setInterval(() => {
+            progress = Math.min(progress + 0.03, 0.92);
+            reportStageProgress(stageId, 'running', 'estimated', progress, latestMessage);
+        }, 800);
+
+        const proc = spawn(command, args, {
+            cwd,
+            env: {
+                ...getSanitizedPythonEnv(),
+                ...(env ?? {}),
+            },
+            windowsHide: true,
+        });
+
+        const handleOutput = (chunk: Buffer, stream: 'stdout' | 'stderr') => {
+            const text = chunk.toString().trim();
+            if (!text) {
+                return;
+            }
+            latestMessage = text.split(/\r?\n/).slice(-1)[0] || latestMessage;
+            progress = estimateCommandProgressFromText(latestMessage, progress);
+            reportStageProgress(stageId, 'running', 'estimated', progress, latestMessage);
+            if (stream === 'stderr') {
+                console.error(text);
+            } else {
+                console.log(text);
+            }
+        };
+
+        proc.stdout.on('data', (chunk) => handleOutput(chunk, 'stdout'));
+        proc.stderr.on('data', (chunk) => handleOutput(chunk, 'stderr'));
+        proc.on('close', (code) => {
+            if (code === 0) {
+                finish();
+                return;
+            }
+            finish(new Error(`Command "${command} ${args.join(' ')}" exited with code ${code}`));
+        });
+        proc.on('error', (error) => {
+            finish(new Error(`Failed to start command "${command} ${args.join(' ')}": ${toErrorMessage(error)}`));
+        });
+    });
+}
 
 // --- Path Helpers ---
 
@@ -193,7 +382,12 @@ async function clearUvInstallation(): Promise<void> {
  * @param fileName The name to save the file as.
  * @returns The full path to the downloaded file.
  */
-async function downloadFile(url: string, directory: string, fileName: string): Promise<string> {
+async function downloadFile(
+    url: string,
+    directory: string,
+    fileName: string,
+    onProgress?: (payload: DownloadProgressPayload) => void
+): Promise<string> {
     console.log(`Downloading from ${url}...`);
 
     fs.mkdirSync(directory, { recursive: true });
@@ -206,8 +400,38 @@ async function downloadFile(url: string, directory: string, fileName: string): P
         if (!response.ok) {
             throw new Error(`HTTP ${response.status} ${response.statusText}`);
         }
+        const totalBytesHeader = response.headers.get('content-length');
+        const totalBytes = totalBytesHeader ? Number.parseInt(totalBytesHeader, 10) : undefined;
+        let buffer: Buffer;
+        const lastReport = { bytes: 0, timeMs: 0 };
 
-        const buffer = Buffer.from(await response.arrayBuffer());
+        if (response.body && typeof response.body.getReader === 'function') {
+            const reader = response.body.getReader();
+            const chunks: Buffer[] = [];
+            let downloadedBytes = 0;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    break;
+                }
+                const chunk = Buffer.from(value);
+                chunks.push(chunk);
+                downloadedBytes += chunk.length;
+                if (onProgress && shouldEmitDownloadProgress(downloadedBytes, totalBytes, lastReport)) {
+                    onProgress({ downloadedBytes, totalBytes });
+                }
+            }
+
+            if (onProgress && downloadedBytes > 0 && lastReport.bytes !== downloadedBytes) {
+                onProgress({ downloadedBytes, totalBytes });
+            }
+
+            buffer = Buffer.concat(chunks);
+        } else {
+            buffer = Buffer.from(await response.arrayBuffer());
+            onProgress?.({ downloadedBytes: buffer.length, totalBytes });
+        }
 
         if (fs.existsSync(tempFilePath)) {
             fs.unlinkSync(tempFilePath);
@@ -270,15 +494,18 @@ async function extractArchive(archivePath: string, extractPath: string): Promise
 async function ensureUvInstalled(): Promise<void> {
     if (await isUvExecutableUsable()) {
         console.log(`uv is already installed at: ${getUvExecutablePath()}`);
+        reportStageProgress('uv', 'skipped', 'indeterminate', 1, 'Managed uv runtime already installed.');
         return;
     }
 
     if (isUvInstalled() || fs.existsSync(UV_DIR)) {
         console.warn('Cached uv installation is missing or invalid. Reinstalling.');
+        reportStageProgress('uv', 'running', 'indeterminate', 0.05, 'Cleaning up broken uv installation...');
         await clearUvInstallation();
     }
 
     console.log('Downloading uv...');
+    reportStageProgress('uv', 'running', 'bytes', 0, 'Downloading uv runtime...');
     
     const platform = getPlatform();
     const arch = os.arch();
@@ -322,7 +549,17 @@ async function ensureUvInstalled(): Promise<void> {
     let archivePath: string | undefined;
 
     try {
-        archivePath = await downloadFile(uvUrl, downloadsDir, fileName);
+        archivePath = await downloadFile(uvUrl, downloadsDir, fileName, ({ downloadedBytes, totalBytes }) => {
+            const ratio =
+                typeof totalBytes === 'number' && totalBytes > 0
+                    ? downloadedBytes / totalBytes
+                    : null;
+            reportStageProgress('uv', 'running', 'bytes', ratio, 'Downloading uv runtime...', {
+                downloadedBytes,
+                totalBytes: totalBytes ?? null,
+            });
+        });
+        reportStageProgress('uv', 'running', 'estimated', 0.92, 'Extracting uv runtime...');
         await extractArchive(archivePath, UV_DIR);
         
         // The extracted archive contains a directory with uv binary, need to move it up
@@ -348,8 +585,12 @@ async function ensureUvInstalled(): Promise<void> {
         }
         
         console.log(`uv installed successfully at: ${getUvExecutablePath()}`);
+        reportStageProgress('uv', 'completed', 'estimated', 1, 'Managed uv runtime installed.');
     } catch (error: any) {
         console.error(`Failed to install uv: ${error.message || error}`);
+        reportStageProgress('uv', 'failed', 'estimated', 0.95, 'Failed to install managed uv runtime.', {
+            error: error.message || String(error),
+        });
         throw error;
     } finally {
         if (archivePath && fs.existsSync(archivePath)) {
@@ -560,7 +801,14 @@ async function createManagedVenvWithRetry(uvPath: string): Promise<void> {
 
         try {
             fs.mkdirSync(path.dirname(VENV_DIR), { recursive: true });
-            await execFileAsync(uvPath, ['venv', '--python', PYTHON_VERSION, '--seed', VENV_DIR]);
+            await runTrackedCommand({
+                stageId: 'venv',
+                command: uvPath,
+                args: ['venv', '--python', PYTHON_VERSION, '--seed', VENV_DIR],
+                startMessage: `Creating virtual environment (attempt ${attempt}/${VENV_CREATION_ATTEMPTS})...`,
+                successMessage: 'Virtual environment created successfully.',
+                markFailureOnError: false,
+            });
 
             const venvWorks = await verifyVenvPython();
             if (!venvWorks) {
@@ -581,11 +829,21 @@ async function createManagedVenvWithRetry(uvPath: string): Promise<void> {
             );
 
             if (!retryable || attempt === VENV_CREATION_ATTEMPTS) {
+                reportStageProgress('venv', 'failed', 'estimated', null, 'Failed to create virtual environment.', {
+                    error: toErrorMessage(error),
+                });
                 throw error;
             }
 
             console.warn(
                 `Virtual environment creation hit a transient file lock. Retrying in ${VENV_CREATION_RETRY_DELAY_MS}ms...`
+            );
+            reportStageProgress(
+                'venv',
+                'running',
+                'estimated',
+                0.35,
+                `Virtual environment creation hit a transient file lock. Retrying (${attempt}/${VENV_CREATION_ATTEMPTS})...`
             );
             await sleep(VENV_CREATION_RETRY_DELAY_MS);
             await resetManagedVenv('Cleaning up after failed virtual environment creation attempt.');
@@ -662,31 +920,11 @@ async function performManagedPythonInstall(): Promise<string> {
     if (isPythonInstalled()) {
         const pythonPath = getPythonExecutablePath();
         console.log(`Python is already installed at: ${pythonPath}`);
+        markBootstrapStagesSkipped('Managed uv runtime already available.');
         return pythonPath;
     }
 
-    // Show notification about installation starting
-    dialog.showMessageBox(mainWindow!, {
-        type: 'info',
-        title: 'First Time Setup',
-        message: 'GSM Running First Time Setup. There are a lot of moving parts, so it may take a few minutes. Please be patient!',
-        detail: 'Click "Learn More" to open the Getting Started guide.',
-        buttons: ['OK', 'Learn More'],
-        defaultId: 0,
-        cancelId: 0,
-    }).then(result => ({ response: result.response })).then(({ response }) => {
-        if (response === 1) {
-            shell.openExternal('https://docs.gamesentenceminer.com/docs/getting-started/');
-        }
-    });
-
     console.log('Python not found. Starting installation process...');
-    mainWindow?.webContents.send('notification', {
-        title: 'Python Setup',
-        message: isMacOS()
-            ? 'Installing Python using Homebrew. This may take a few minutes...'
-            : 'Installing Python using uv. This may take a moment...',
-    });
 
     if (isMacOS()) {
         await _performHomebrewInstallation();
@@ -698,9 +936,8 @@ async function performManagedPythonInstall(): Promise<string> {
     if (!fs.existsSync(pythonExecutablePath)) {
         const errorMessage = 'Python installation failed: executable not found after setup.';
         console.error(errorMessage);
-        mainWindow?.webContents.send('notification', {
-            title: 'Installation Failed',
-            message: errorMessage,
+        reportStageProgress('python', 'failed', 'estimated', null, 'Managed Python installation failed.', {
+            error: errorMessage,
         });
         throw new Error(errorMessage);
     }
@@ -721,10 +958,19 @@ async function _performInstallation(): Promise<void> {
     // Install pinned Python using uv
     console.log(`Installing Python ${PYTHON_VERSION} using uv...`);
     try {
-        await execFileAsync(uvPath, ['python', 'install', PYTHON_VERSION]);
+        await runTrackedCommand({
+            stageId: 'python',
+            command: uvPath,
+            args: ['python', 'install', PYTHON_VERSION],
+            startMessage: `Installing Python ${PYTHON_VERSION} using uv...`,
+            successMessage: `Python ${PYTHON_VERSION} installed successfully.`,
+        });
         console.log(`Python ${PYTHON_VERSION} installed successfully.`);
     } catch (error: any) {
         console.error(`Failed to install Python using uv: ${error.message || error}`);
+        reportStageProgress('python', 'failed', 'estimated', null, `Failed to install Python ${PYTHON_VERSION}.`, {
+            error: error.message || String(error),
+        });
         throw error;
     }
 
@@ -741,10 +987,19 @@ async function _performInstallation(): Promise<void> {
     console.log('Ensuring pip is installed in the virtual environment...');
     try {
         const venvPython = getPythonExecutablePath();
-        await execFileAsync(venvPython, ['-m', 'ensurepip', '--upgrade']);
+        await runTrackedCommand({
+            stageId: 'verify_runtime',
+            command: venvPython,
+            args: ['-m', 'ensurepip', '--upgrade'],
+            startMessage: 'Ensuring pip is installed in the virtual environment...',
+            successMessage: 'Managed Python runtime verified.',
+        });
         console.log('pip ensured successfully');
     } catch (error: any) {
         console.error(`Failed to ensure pip: ${error.message || error}`);
+        reportStageProgress('verify_runtime', 'failed', 'estimated', null, 'Failed to verify managed Python runtime.', {
+            error: error.message || String(error),
+        });
         throw error;
     }
 }
@@ -764,6 +1019,7 @@ export async function getOrInstallPython(): Promise<string> {
     if (isPythonInstalled()) {
         const pythonPath = getPythonExecutablePath();
         console.log(`Python is already installed at: ${pythonPath}`);
+        markBootstrapStagesSkipped('Managed uv runtime already available.');
         return pythonPath;
     }
 

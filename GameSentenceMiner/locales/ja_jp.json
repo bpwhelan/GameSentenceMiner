@@ -72,7 +72,7 @@
           },
           "websocket_uri": {
             "label": "入力WebSocket URI:",
-            "tooltip": "入力ソース用のWebSocket URI（Agent、Textractor、LunaTranslatorなど）。複数のソースにはカンマ区切りを使用。GSMの出力ポート（texthooker、OCRオーバーレイ）は含めないでください。"
+            "tooltip": "入力ソース用のWebSocket URI（Agent、Textractor、LunaTranslatorなど）。複数のソースにはカンマ区切りを使用。GSMの出力ポート（テキストフィード、OCRオーバーレイ）は含めないでください。"
           },
           "texthook_regex": {
             "label": "TextHook置換Regex:",
@@ -83,12 +83,12 @@
             "tooltip": "起動時にこの設定画面を開くかどうか。"
           },
           "open_texthooker_on_startup": {
-            "label": "起動時にGSM Texthookerを開く:",
-            "tooltip": "起動時にTexthookerページを開くかどうか。"
+            "label": "起動時のGSMテキストフィードを開く:",
+            "tooltip": "起動時にテキストフィードページを開くかどうか。"
           },
           "texthooker_port": {
-            "label": "GSM Texthookerポート:",
-            "tooltip": "Texthookerが使用するポート番号。"
+            "label": "GSMテキストフィードポート:",
+            "tooltip": "テキストフィードが使用するポート番号。"
           },
           "current_version": {
             "label": "現在のバージョン:",
@@ -475,8 +475,8 @@
             "tooltip": "GSM のクリップボード/WebSocket テキスト入力を一時停止または再開します。停止中は、GSM 自身の統計/履歴記録とオーバーレイトリガーをスキップします。空欄にすると無効になります。デフォルトのホットキーはありません。"
           },
           "relay_outputs_when_paused": {
-            "checkbox": "停止中も texthooker/出力クライアントへ転送する",
-            "tooltip": "有効にすると、一時停止中でもテキスト処理後の行を texthooker ページと出力 websocket クライアントへ転送しますが、GSM 自身の統計/履歴記録とオーバーレイトリガーは引き続きスキップされます。無効にすると、受信テキストを完全に破棄します。"
+            "checkbox": "停止中もテキストフィード/出力クライアントへ転送する",
+            "tooltip": "有効にすると、一時停止中でもテキスト処理後の行をテキストフィードページと出力 websocket クライアントへ転送しますが、GSM 自身の統計/履歴記録とオーバーレイトリガーは引き続きスキップされます。無効にすると、受信テキストを完全に破棄します。"
           }
         },
         "obs": {
@@ -577,8 +577,8 @@
             "tooltip": "OCR WebSocket通信用のポート。GSMもこのポートで待機します。"
           },
           "texthooker_comm_port": {
-            "label": "Texthooker通信WebSocketポート:",
-            "tooltip": "GSM Texthooker WebSocket通信用のポート。"
+            "label": "テキストフィード通信WebSocketポート:",
+            "tooltip": "GSMテキストフィード WebSocket通信用のポート。"
           },
           "plaintext_export_port": {
             "label": "平文/JL Websocketエクスポートポート:",
@@ -654,6 +654,14 @@
           "custom_prompt": {
             "label": "カスタムプロンプト:",
             "tooltip": "AI処理用のカスタムプロンプト。"
+          },
+          "deepl_api_key": {
+            "label": "DeepL APIキー:",
+            "tooltip": "DeepL APIキー。https://www.deepl.com/pro-api から取得してください"
+          },
+          "deepl_target_lang": {
+            "label": "ターゲット言語:",
+            "tooltip": "DeepLのターゲット言語コード(例:EN-US、JA、ZH、ES、FR、DE、IT、NL、PL、PT-PT、RU、KO)"
           }
         },
         "overlay": {

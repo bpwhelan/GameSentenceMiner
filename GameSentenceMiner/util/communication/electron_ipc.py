@@ -13,6 +13,7 @@ This module replaces previous WebSocket-based communication.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 from enum import Enum
@@ -67,6 +68,39 @@ def send_message(function: str, data: Optional[Dict[str, Any]] = None, id: Optio
     line = "GSMMSG:" + json.dumps(payload, ensure_ascii=False)
     print(line, flush=True)
     logger.debug(f"IPC Sent: {line}")
+
+
+def get_install_session_id() -> str:
+    return str(os.environ.get("GSM_INSTALL_SESSION_ID", "") or "").strip()
+
+
+def send_install_progress(
+    stage_id: str,
+    status: str,
+    progress_kind: str = "indeterminate",
+    progress: Optional[float] = None,
+    message: str = "",
+    downloaded_bytes: Optional[int] = None,
+    total_bytes: Optional[int] = None,
+    error: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> None:
+    payload: Dict[str, Any] = {
+        "session_id": session_id if session_id is not None else get_install_session_id(),
+        "stage_id": stage_id,
+        "status": status,
+        "progress_kind": progress_kind,
+        "message": message,
+    }
+    if progress is not None:
+        payload["progress"] = max(0.0, min(1.0, float(progress)))
+    if downloaded_bytes is not None:
+        payload["downloaded_bytes"] = int(downloaded_bytes)
+    if total_bytes is not None:
+        payload["total_bytes"] = int(total_bytes)
+    if error:
+        payload["error"] = str(error)
+    send_message("install_progress", payload)
 
 
 def _stdin_loop() -> None:

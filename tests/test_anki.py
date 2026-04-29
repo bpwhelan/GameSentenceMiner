@@ -113,6 +113,10 @@ def _reset_state():
     anki.first_run = True
     anki.errors_shown = 0
     anki.final_warning_shown = False
+    if hasattr(anki, "reset_anki_push_receiver_state"):
+        anki.reset_anki_push_receiver_state()
+    if hasattr(anki, "reset_anki_polling_gate_state"):
+        anki.reset_anki_polling_gate_state()
 
 
 def test_add_wildcards():
@@ -292,7 +296,7 @@ def test_apply_confirmation_dialog_state_refreshes_note_fields_and_audio_context
     monkeypatch.setattr(
         anki,
         "get_initial_card_info",
-        lambda last_note, selected_lines, game_line: (
+        lambda last_note, selected_lines, game_line, **_kwargs: (
             {
                 "fields": {
                     "Sentence": "combined sentence",
@@ -349,6 +353,118 @@ def test_check_for_new_cards_does_not_sync_cache_before_note_update_finishes(
 
     assert anki.check_for_new_cards() is True
     assert calls == [("update", {20})]
+
+
+def test_record_anki_push_heartbeat_uses_configured_freshness_window():
+    received_at = datetime(2026, 4, 22, 12, 0, 0)
+
+    anki.record_anki_push_heartbeat(
+        {
+            "event": "heartbeat",
+            "session_id": "session-1",
+            "heartbeat_interval_seconds": 15,
+            "payload_mode": "note",
+        },
+        received_at=received_at,
+    )
+
+    assert anki.is_anki_push_heartbeat_fresh(now=received_at + timedelta(seconds=44)) is True
+    assert anki.is_anki_push_heartbeat_fresh(now=received_at + timedelta(seconds=46)) is False
+
+
+def test_handle_incoming_anki_event_queues_and_deduplicates_note_added(monkeypatch):
+    processed = []
+    monkeypatch.setattr(anki, "update_new_cards", lambda note_ids: processed.append(set(note_ids)))
+
+    payload = {
+        "event": "note_added",
+        "session_id": "session-1",
+        "note_id": 42,
+        "created_at": "2026-04-22T12:00:00Z",
+    }
+
+    assert anki.handle_incoming_anki_event(payload) == "note_added"
+    assert anki.handle_incoming_anki_event(payload) == "duplicate_note_added"
+
+    assert anki._process_next_anki_push_note(timeout_seconds=0) is True
+    assert processed == [{42}]
+    assert anki.previous_note_ids == {42}
+    assert anki.first_run is False
+
+
+def test_monitor_anki_iteration_uses_push_queue_when_heartbeat_is_fresh(monkeypatch):
+    config = SimpleNamespace(anki=SimpleNamespace(enabled=True, polling_rate_v2=1000))
+    timeouts = []
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "is_anki_push_heartbeat_fresh", lambda now=None: True)
+    monkeypatch.setattr(anki, "get_anki_push_wait_timeout_seconds", lambda now=None: 60.0)
+    monkeypatch.setattr(anki, "_ensure_anki_push_baseline", lambda: True)
+    monkeypatch.setattr(
+        anki,
+        "_process_next_anki_push_note",
+        lambda timeout_seconds=0.0: timeouts.append(timeout_seconds) or False,
+    )
+    monkeypatch.setattr(
+        anki,
+        "check_for_new_cards",
+        lambda: (_ for _ in ()).throw(AssertionError("polling should be disabled while heartbeat is fresh")),
+    )
+
+    unsuccessful_count, scaled_polling_rate = anki._monitor_anki_iteration(0, 1.0)
+
+    assert timeouts == [60.0]
+    assert unsuccessful_count == 0
+    assert scaled_polling_rate == 1.0
+
+
+def test_monitor_anki_iteration_skips_polling_when_replay_buffer_inactive(monkeypatch):
+    config = SimpleNamespace(
+        anki=SimpleNamespace(enabled=True, polling_rate_v2=1000),
+        obs=SimpleNamespace(disable_recording=False),
+    )
+    sleep_calls = []
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "get_anki_push_wait_timeout_seconds", lambda now=None: 0.0)
+    monkeypatch.setattr(anki, "_process_next_anki_push_note", lambda timeout_seconds=0.0: False)
+    monkeypatch.setattr(anki, "_is_anki_polling_allowed", lambda: False)
+    monkeypatch.setattr(anki.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+    monkeypatch.setattr(
+        anki,
+        "check_for_new_cards",
+        lambda: (_ for _ in ()).throw(AssertionError("polling should stay disabled while replay buffer is inactive")),
+    )
+
+    unsuccessful_count, scaled_polling_rate = anki._monitor_anki_iteration(3, 2.0)
+
+    assert unsuccessful_count == 0
+    assert scaled_polling_rate == 1.0
+    assert sleep_calls == [1.0]
+
+
+def test_monitor_anki_iteration_seeds_polling_baseline_when_replay_buffer_activates(monkeypatch):
+    config = SimpleNamespace(
+        anki=SimpleNamespace(enabled=True, polling_rate_v2=1000),
+        obs=SimpleNamespace(disable_recording=False),
+    )
+    check_calls = []
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "get_anki_push_wait_timeout_seconds", lambda now=None: 0.0)
+    monkeypatch.setattr(anki, "_process_next_anki_push_note", lambda timeout_seconds=0.0: False)
+    monkeypatch.setattr(anki, "_is_anki_polling_allowed", lambda: True)
+    monkeypatch.setattr(anki, "get_note_ids", lambda: {10, 20, 30})
+    monkeypatch.setattr(anki.time, "sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "check_for_new_cards", lambda: check_calls.append(True) or True)
+
+    unsuccessful_count, scaled_polling_rate = anki._monitor_anki_iteration(0, 1.0)
+
+    assert unsuccessful_count == 0
+    assert scaled_polling_rate == 1.0
+    assert check_calls == []
+    assert anki.previous_note_ids == {10, 20, 30}
+    assert anki.first_run is False
 
 
 def test_check_and_update_note_triggers_cache_sync_after_updating_note(monkeypatch):
@@ -441,6 +557,7 @@ def _base_config():
             video_field="VideoField",
             word_field="Word",
             tag_unvoiced_cards=False,
+            remove_overlay_tag=False,
         ),
         screenshot=SimpleNamespace(
             enabled=True,
@@ -466,6 +583,66 @@ def _base_config():
         ),
         obs=SimpleNamespace(get_game_from_scene=False),
     )
+
+
+def test_update_anki_note_removes_overlay_tag_when_enabled(monkeypatch):
+    config = _base_config()
+    config.anki.remove_overlay_tag = True
+    calls = []
+    assets = SimpleNamespace(
+        audio_in_anki="voice.mp3",
+        screenshot_in_anki="",
+        prev_screenshot_in_anki="",
+        video_in_anki="",
+        animated=False,
+    )
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "invoke", lambda action, **kwargs: calls.append((action, kwargs)) or [])
+    monkeypatch.setattr(anki.notification, "open_browser_window", lambda *_args, **_kwargs: None, raising=False)
+
+    anki._update_anki_note(
+        SimpleNamespace(noteId=42),
+        {"fields": {"Sentence": "text"}},
+        ["GSM"],
+        assets,
+    )
+
+    assert calls == [
+        ("guiSelectedNotes", {}),
+        ("updateNoteFields", {"note": {"fields": {"Sentence": "text"}}}),
+        ("addTags", {"tags": "GSM", "notes": [42]}),
+        ("removeTags", {"tags": "overlay", "notes": [42]}),
+    ]
+
+
+def test_update_anki_note_does_not_remove_overlay_tag_when_disabled(monkeypatch):
+    config = _base_config()
+    calls = []
+    assets = SimpleNamespace(
+        audio_in_anki="voice.mp3",
+        screenshot_in_anki="",
+        prev_screenshot_in_anki="",
+        video_in_anki="",
+        animated=False,
+    )
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "invoke", lambda action, **kwargs: calls.append((action, kwargs)) or [])
+    monkeypatch.setattr(anki.notification, "open_browser_window", lambda *_args, **_kwargs: None, raising=False)
+
+    anki._update_anki_note(
+        SimpleNamespace(noteId=42),
+        {"fields": {"Sentence": "text"}},
+        ["GSM"],
+        assets,
+    )
+
+    assert calls == [
+        ("guiSelectedNotes", {}),
+        ("updateNoteFields", {"note": {"fields": {"Sentence": "text"}}}),
+        ("addTags", {"tags": "GSM", "notes": [42]}),
+    ]
 
 
 def _overlay_furigana_config():
@@ -569,6 +746,166 @@ def test_get_initial_card_info_keeps_br_and_bold_in_furigana(monkeypatch):
 
     assert note["fields"]["Sentence"] == sentence_in_anki
     assert note["fields"]["SentenceFurigana"] == "V: hello?<br>M: <b>A[a]B C[c]D E[e]</b>FG"
+
+
+def test_get_initial_card_info_can_defer_furigana_until_confirmation(monkeypatch):
+    cfg = _overlay_furigana_config()
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
+    monkeypatch.setattr(
+        anki.mecab,
+        "reading",
+        lambda _text: (_ for _ in ()).throw(AssertionError("furigana should be deferred")),
+        raising=False,
+    )
+
+    class FakeCard:
+        noteId = 1
+        tags = []
+        fields = {"Sentence": SimpleNamespace(value="お前が<b>感傷的</b>になった")}
+
+        def get_field(self, field):
+            return self.fields.get(field, SimpleNamespace(value="")).value
+
+    note, _ = anki.get_initial_card_info(
+        FakeCard(),
+        selected_lines=[],
+        game_line=SimpleNamespace(
+            text="お前が感傷的になった",
+            source="overlay",
+            prev=None,
+        ),
+        generate_furigana=False,
+    )
+
+    assert note["fields"]["Sentence"] == "お前が<b>感傷的</b>になった"
+    assert "SentenceFurigana" not in note["fields"]
+
+
+def test_apply_confirmed_sentence_fields_regenerates_furigana_from_edited_sentence(monkeypatch):
+    cfg = _overlay_furigana_config()
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+
+    reading_calls = []
+
+    def fake_reading(text):
+        reading_calls.append(text)
+        return "編集後[へんしゅうご]の文[ぶん]"
+
+    monkeypatch.setattr(anki.mecab, "reading", fake_reading, raising=False)
+
+    note = {
+        "fields": {
+            "Sentence": "編集前の文",
+            "SentenceFurigana": "編集前[へんしゅうまえ]の文[ぶん]",
+        }
+    }
+    last_note = SimpleNamespace(get_field=lambda _field: "")
+
+    wrote_sentence = anki._apply_confirmed_sentence_fields(
+        note,
+        last_note,
+        "編集後の文",
+    )
+
+    assert wrote_sentence is True
+    assert note["fields"]["Sentence"] == "編集後の文"
+    assert note["fields"]["SentenceFurigana"] == "編集後[へんしゅうご]の文[ぶん]"
+    assert reading_calls == ["編集後の文"]
+
+
+def test_get_initial_card_info_uses_confirmed_sentence_and_reapplies_current_card_html(
+    monkeypatch,
+):
+    cfg = _overlay_furigana_config()
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
+    monkeypatch.setattr(
+        anki.mecab,
+        "reading",
+        lambda _text: "私[わたし]は生涯[しょうがい]を祈[いの]り続[つづ]ける",
+        raising=False,
+    )
+
+    class FakeCard:
+        noteId = 1
+        tags = []
+        fields = {
+            "Sentence": SimpleNamespace(value="私は生涯を<b>祈り</b>続ける"),
+        }
+
+        def get_field(self, field):
+            return self.fields.get(field, SimpleNamespace(value="")).value
+
+    note, _ = anki.get_initial_card_info(
+        FakeCard(),
+        selected_lines=[],
+        game_line=SimpleNamespace(
+            text="私は祈り続ける",
+            source="overlay",
+            prev=None,
+        ),
+        sentence_override="私は<b>生涯</b>を祈り続ける",
+    )
+
+    assert note["fields"]["Sentence"] == "私は生涯を<b>祈り</b>続ける"
+    assert note["fields"]["SentenceFurigana"] == "私[わたし]は生涯[しょうがい]を<b>祈[いの]り</b>続[つづ]ける"
+
+
+def test_update_card_from_same_sentence_reuses_confirmed_sentence_with_current_card_html(
+    monkeypatch,
+):
+    cfg = _overlay_furigana_config()
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
+    monkeypatch.setattr(anki, "_wait_for_reuse_result", lambda *_args, **_kwargs: (True, 0.0))
+    monkeypatch.setattr(
+        anki.mecab,
+        "reading",
+        lambda _text: "私[わたし]は生涯[しょうがい]を祈[いの]り続[つづ]ける",
+        raising=False,
+    )
+
+    captured = {}
+    monkeypatch.setattr(
+        anki,
+        "update_anki_card",
+        lambda last_card, **kwargs: captured.update(last_card=last_card, **kwargs) or True,
+    )
+
+    class FakeCard:
+        noteId = 2
+        tags = []
+        fields = {
+            "Sentence": SimpleNamespace(value="私は生涯を<b>祈り</b>続ける"),
+            "Word": SimpleNamespace(value="祈り"),
+        }
+
+        def get_field(self, field):
+            return self.fields.get(field, SimpleNamespace(value="")).value
+
+    anki.anki_results["line-1"] = anki.AnkiUpdateResult(
+        success=True,
+        audio_in_anki="audio.opus",
+        sentence_in_anki="私は生涯を祈り続ける",
+        word="生涯",
+    )
+
+    game_line = SimpleNamespace(
+        id="line-1",
+        text="私は祈り続ける",
+        source="overlay",
+        prev=None,
+    )
+
+    anki.update_card_from_same_sentence(FakeCard(), lines=[], game_line=game_line, reuse_result_id="line-1")
+
+    assert captured["note"]["fields"]["Sentence"] == "私は生涯を<b>祈り</b>続ける"
+    assert (
+        captured["note"]["fields"]["SentenceFurigana"] == "私[わたし]は生涯[しょうがい]を<b>祈[いの]り</b>続[つづ]ける"
+    )
+    assert captured["use_existing_files"] is True
+    assert captured["reuse_result_id"] == "line-1"
 
 
 def test_get_initial_card_info_uses_combined_selected_lines_when_sentence_overwrite_disabled(

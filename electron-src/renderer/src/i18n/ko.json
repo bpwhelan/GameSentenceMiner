@@ -1,0 +1,721 @@
+{
+  "home": {
+    "status": {
+      "title": "상태",
+      "gsm": "GSM",
+      "clipboard": "클립보드",
+      "obs": "OBS",
+      "anki": "Anki",
+      "connected": "연결됨",
+      "disconnected": "연결 끊김",
+      "enabled": "활성화",
+      "disabled": "비활성화",
+      "disabledWebSocket": "비활성화 (WebSocket)",
+      "running": "실행 중",
+      "notRunning": "실행 안 됨",
+      "installing": "설치 중…",
+      "error": "오류",
+      "processing": "처리 중: {words}",
+      "lastLine": "마지막 줄: {time}",
+      "lastLineNotReceived": "아직 수신되지 않음",
+      "tooltipGsm": "상태: {status}\nWebSocket: {websockets}\nOBS: {obs}\nAnki: {anki}\n마지막 수신 줄: {lastLine}",
+      "tooltipGsmStopped": "GSM이 중지되었습니다.",
+      "tooltipClipboardEnabled": "클립보드 모니터링이 활성화되었습니다.",
+      "tooltipClipboardDisabledWs": "WebSocket을 통해 텍스트를 수신하고 있어 클립보드 모니터링이 비활성화되었습니다.",
+      "tooltipClipboardDisabled": "클립보드 모니터링이 비활성화되었습니다.",
+      "tooltipObs": "OBS 열기",
+      "tooltipObsConnected": "OBS가 연결되었습니다. 클릭하여 열기.",
+      "tooltipObsDisconnected": "OBS 연결이 끊겼습니다. 클릭하여 열기.",
+      "tooltipAnkiConnected": "Anki가 연결되었습니다.",
+      "tooltipAnkiDisconnected": "Anki 연결이 끊겼습니다.",
+      "tooltipWsConnected": "{name}이(가) 연결되었습니다.",
+      "timeSeconds": "{n}초 전",
+      "timeMinutes": "{n}분 전",
+      "timeHours": "{n}시간 전",
+      "timeDays": "{n}일 전"
+    },
+    "obs": {
+      "title": "활성 게임 캡처",
+      "required": "필수",
+      "gameLabel": "게임:",
+      "refreshScenes": "게임 새로고침",
+      "renameScene": "게임 캡처 이름 변경",
+      "removeGame": "게임 제거",
+      "rename": "이름 변경",
+      "remove": "제거",
+      "switchProfile": "프로필 전환",
+      "preview": "미리보기",
+      "captureCardPrefix": "캡처 카드: {title}",
+      "setupNewScene": "새 게임 캡처 설정:",
+      "refreshWindows": "창 새로고침",
+      "selectWindow": "창 선택",
+      "setupCapture": "캡처 설정",
+      "setupCaptureTooltip": "캡처 설정은 창에 대해 창/게임 캡처를, 캡처 카드와 카메라에 대해 비디오 캡처 장치를 추가합니다.\nGSM은 게임 캡처가 작동할 때 이를 우선하며, 캡처 카드 게임 캡처는 비디오 캡처 장치를 사용합니다.\nLinux/Steam Deck에서는 현재 XComposite 창 캡처를 사용합니다.\n캡처 카드 게임 캡처는 자동 창 제목 전환 없이 생성됩니다.",
+      "overrideSceneName": "게임 캡처 이름 덮어쓰기 (선택 사항):",
+      "captureCardToggle": "캡처 카드/카메라 확인:",
+      "captureCardTooltip": "활성화하면 응용 프로그램 창 외에 연결된 캡처 카드와 카메라도 탐색합니다.",
+      "loading": "로딩 중...",
+      "noCaptureTargets": "캡처 대상을 찾을 수 없음",
+      "sectionWindows": "창 / 게임",
+      "sectionCaptureCards": "캡처 카드 / 카메라",
+      "notSupportedOS": "이 OS에서는 OBS에서 게임 캡처를 설정해야 합니다.",
+      "notSupportedTooltip": "이 OS에서는 지원되지 않음"
+    },
+    "rename": {
+      "title": "게임 캡처 이름 변경",
+      "description": "게임 캡처 이름만 변경됩니다. 소스는 그대로 유지됩니다.",
+      "cancel": "취소",
+      "confirm": "이름 변경"
+    },
+    "overlay": {
+      "title": "오버레이",
+      "statusRunning": "실행 중",
+      "statusStopped": "실행 안 됨",
+      "guide": "설정 가이드",
+      "runOnStartup": "시작 시 실행",
+      "runOnStartupTooltip": "GSM 시작 시 GSM 오버레이를 자동으로 실행합니다."
+    },
+    "actions": {
+      "title": "유틸리티",
+      "gsmSettings": "GSM 설정",
+      "gsmSettingsTooltip": "GSM 설정 패널 열기",
+      "texthooker": "텍스트 피드 열기",
+      "texthookerTooltip": "게임 텍스트 캡처용 텍스트 피드 열기",
+      "overlay": "오버레이 실행",
+      "overlayTooltip": "게임 내 검색을 위한 Yomitan 오버레이 실행",
+      "overlaySettings": "오버레이 설정",
+      "overlaySettingsTooltip": "오버레이 설정 패널 열기",
+      "overlayPlatformWarning": "이 플랫폼에서의 오버레이 지원은 실험적입니다.",
+      "overlayWiki": "오버레이 설정 가이드"
+    },
+    "support": {
+      "text": "GSM 후원",
+      "githubSponsors": "GitHub Sponsors",
+      "kofi": "Ko-fi"
+    }
+  },
+  "app": {
+    "tabs": {
+      "home": "홈",
+      "ocr": "OCR",
+      "stats": "통계",
+      "gameSettings": "게임 설정",
+      "settings": "설정",
+      "python": "Python",
+      "logs": "로그"
+    },
+    "header": {
+      "github": "GitHub",
+      "discord": "Discord"
+    },
+    "stats": {
+      "loading": "GSM 통계 로딩 대기 중..."
+    },
+    "console": {
+      "openLogsFolder": "로그 폴더 열기",
+      "openLogsFolderTooltip": "로그 폴더 열기",
+      "exportLogs": "로그 내보내기",
+      "exportLogsTooltip": "로그를 zip 아카이브로 내보내기",
+      "modeSimple": "모드: 간단",
+      "modeAdvanced": "모드: 고급",
+      "modeSimpleTooltip": "고급 로그로 전환 (기본 + 백그라운드 로그 표시)",
+      "modeAdvancedTooltip": "간단 로그로 전환 (백그라운드 로그 숨김)"
+    },
+    "python": {
+      "cancel": "취소",
+      "cuda": {
+        "title": "CUDA 설치",
+        "install": "CUDA GPU 지원 설치",
+        "uninstall": "CUDA 지원 제거",
+        "installTitle": "CUDA GPU 지원 설치",
+        "installMessage": "CUDA GPU 지원을 설치하시겠습니까?",
+        "installDetail": "더 빠른 처리를 위해 onnxruntime-gpu를 설치합니다.\n\n- 추가 저장 공간 필요\n- 모든 시스템과 호환되지 않을 수 있음\n- 자기 책임하에 설치",
+        "installConfirm": "설치",
+        "installCancelled": "CUDA 설치가 취소되었습니다.",
+        "installing": "CUDA GPU 지원 설치 중...",
+        "uninstallTitle": "CUDA GPU 지원 제거",
+        "uninstallMessage": "CUDA GPU 지원을 제거하시겠습니까?",
+        "uninstallDetail": "onnxruntime-gpu를 제거하여 GPU 관련 문제를 해결할 수 있습니다.",
+        "uninstallConfirm": "제거",
+        "uninstallCancelled": "CUDA 제거가 취소되었습니다.",
+        "uninstalling": "CUDA GPU 지원 제거 중..."
+      },
+      "management": {
+        "title": "GSM 관리",
+        "resetDeps": "Python 의존성 초기화",
+        "resetTitle": "Python 의존성 초기화",
+        "resetMessage": "Python 의존성을 초기화하시겠습니까?",
+        "resetDetail": "\"uv sync\"를 실행하여 잠금 파일에서 의존성 버전을 복원합니다.",
+        "resetConfirm": "초기화",
+        "resetCancelled": "의존성 초기화가 취소되었습니다.",
+        "resetting": "Python 의존성 초기화 중..."
+      },
+      "customPackage": {
+        "title": "사용자 지정 패키지 설치",
+        "label": "패키지 이름",
+        "placeholder": "numpy, requests 등",
+        "installBtn": "패키지 설치",
+        "enterName": "패키지 이름을 입력해 주세요.",
+        "installing": "패키지 설치 중: {package}..."
+      },
+      "envInfo": {
+        "title": "Python 환경 정보",
+        "version": "Python 버전: {version}",
+        "path": "Python 경로: {path}",
+        "pipVersion": "Pip 버전: {version}",
+        "unknown": "알 수 없음",
+        "error": "로딩 오류",
+        "loading": "로딩 중...",
+        "refresh": "정보 새로고침"
+      }
+    }
+  },
+  "wizard": {
+    "skip": "설정 건너뛰기",
+    "back": "← 뒤로",
+    "next": "다음 →",
+    "getStarted": "시작하기 →",
+    "welcome": {
+      "title": "GameSentenceMiner에 오신 것을 환영합니다! 🎮",
+      "description": "GSM은 플레이하는 게임에서 자동으로 Anki 플래시카드를 만들어줍니다. 텍스트, 오디오, 스크린샷을 캡처하여 언어 학습을 위한 고품질 카드를 제작합니다.",
+      "whatYouNeed": "필요한 것:",
+      "ankiLabel": "Anki",
+      "ankiWith": "그리고",
+      "ankiConnect": "AnkiConnect",
+      "ankiAddonRunning": "애드온 설치 및 실행",
+      "textSourceLabel": "텍스트 소스",
+      "textSourceDesc": "— Agent, Textractor 또는 내장 OCR",
+      "obsLabel": "OBS Studio",
+      "obsDesc": "(선택 사항) — 오디오/비디오 녹화용",
+      "hint": "이 마법사가 기본 설정을 안내합니다. 나중에 언제든지 설정을 변경할 수 있습니다."
+    },
+    "textSources": {
+      "title": "텍스트 입력 소스 📝",
+      "description": "GSM은 게임에서 텍스트를 읽는 방법이 필요합니다. 가장 일반적인 옵션은 다음과 같습니다:",
+      "agentTitle": "🔌 Agent (권장)",
+      "agentDesc": "대부분의 비주얼 노벨에서 작동합니다. 포트 9001의 WebSocket을 통해 자동 연결됩니다.",
+      "agentLink": "Agent 다운로드 →",
+      "ocrTitle": "👁️ 내장 OCR",
+      "ocrDesc": "텍스트 후킹이 작동하지 않는 게임에서 화면 OCR을 사용합니다. 설정 후 OCR 탭에서 구성하세요.",
+      "clipboardTitle": "📋 클립보드",
+      "clipboardDesc": "텍스트 소스가 클립보드에 복사하면 GSM이 자동으로 읽을 수 있습니다.",
+      "hint": "WebSocket 소스(Agent, Textractor, LunaTranslator)는 설정 → 일반에서 관리할 수 있습니다."
+    },
+    "connectivity": {
+      "title": "연결 확인 🔗",
+      "description": "외부 도구에 접근 가능한지 확인합니다:",
+      "ankiLabel": "Anki (AnkiConnect)",
+      "checking": "연결 확인 중...",
+      "ankiConnected": "연결됨! AnkiConnect가 실행 중입니다.",
+      "ankiFailedPre": "접근할 수 없습니다. Anki가 열려 있고",
+      "ankiConnectAddon": "AnkiConnect 애드온",
+      "ankiFailedPost": "이 설치되어 있는지 확인하세요.",
+      "obsLabel": "OBS Studio (WebSocket)",
+      "obsConnected": "연결됨! OBS WebSocket 서버가 실행 중입니다.",
+      "obsFailed": "접근할 수 없습니다. OBS는 선택 사항입니다 — 나중에 설정에서 구성할 수 있습니다.",
+      "hint": "연결에 실패해도 계속할 수 있습니다 — 나중에 설정에서 구성하세요."
+    },
+    "finish": {
+      "title": "모든 준비가 완료되었습니다! 🎉",
+      "description": "GSM을 사용할 준비가 되었습니다. 시작하기 위한 팁입니다:",
+      "tipHome": "<strong>홈</strong> 탭을 열어 현재 게임 텍스트 스트림을 확인하세요",
+      "tipGameSettings": "<strong>게임 설정</strong>을 사용하여 게임별 프로필을 구성하세요",
+      "tipSettings": "<strong>설정</strong> 탭에서 Anki, 오디오, 단축키 설정을 확인하세요",
+      "tipConsole": "<strong>콘솔</strong> 탭에서 GSM의 백그라운드 작업을 확인하세요",
+      "guidePre": "자세한 가이드와 문제 해결은",
+      "guideWikiLink": "GSM Wiki",
+      "guideOr": "또는",
+      "guideDiscordLink": "Discord 커뮤니티"
+    }
+  },
+  "install": {
+    "title": "GSM 설치 중",
+    "preparing": "설정 준비 중...",
+    "steps": "{completed}/{total} 단계",
+    "stages": {
+      "pythonSetup": "Python 설정",
+      "gsmBackend": "GSM 백엔드",
+      "obs": "OBS",
+      "ffmpeg": "FFmpeg",
+      "oneocr": "OneOCR",
+      "finalize": "마무리"
+    },
+    "status": {
+      "done": "완료",
+      "completed": "완료됨.",
+      "skipped": "건너뜀",
+      "skippedDetail": "건너뜀.",
+      "failed": "실패",
+      "failedDetail": "실패.",
+      "downloading": "다운로드 중",
+      "working": "작업 중",
+      "workingDetail": "작업 중...",
+      "pending": "대기 중",
+      "waiting": "대기 중..."
+    },
+    "estimatedProgress": "예상 진행률 — 설치가 아직 진행 중입니다.",
+    "logs": "로그",
+    "waitingForLogs": "로그 대기 중...",
+    "emptyLog": "(비어 있음)",
+    "retry": "재시도",
+    "openLogs": "로그 열기",
+    "quit": "종료"
+  },
+  "settings": {
+    "hub": {
+      "findSetting": "설정 찾기",
+      "findDescription": "변경하려는 항목을 검색하면 GSM이 올바른 설정 화면을 엽니다.",
+      "openGSMSettings": "GSM 기본 설정 열기",
+      "openOverlaySettings": "오버레이 설정 열기",
+      "searchLabel": "설정 찾기:",
+      "searchPlaceholder": "시도: anki 필드, OBS 비밀번호, OCR 영역, 후리가나 단축키, JPDB",
+      "searchHint": "일상적인 단어, 기능 이름, 단축키, 포트, 필드 이름 또는 도구 이름을 시도하세요.",
+      "resultCount": "{count}개 결과",
+      "resultCountPlural": "{count}개 결과",
+      "noResults": "일치하는 설정을 찾을 수 없습니다. anki, 단축키, 오버레이, OBS, 오디오 같은 넓은 단어를 시도하세요.",
+      "overlayNotAvailable": "오버레이 설정을 자동으로 열 수 없습니다. 먼저 오버레이를 시작/연결하거나 트레이 아이콘을 사용하세요."
+    },
+    "desktop": {
+      "title": "데스크톱 앱 설정",
+      "iconStyle": "아이콘 스타일:",
+      "iconDefault": "기본",
+      "iconAnimeGirl": "애니메이션 소녀",
+      "iconJacked": "근육질",
+      "iconCursed": "저주",
+      "iconAnimeGirlTray": "애니메이션 소녀 (트레이 아이콘 포함)",
+      "iconJackedTray": "근육질 (트레이 아이콘 포함)",
+      "iconCursedTray": "저주 (트레이 아이콘 포함)",
+      "iconRandom": "랜덤",
+      "iconRandomTray": "랜덤 (트레이 아이콘 포함)",
+      "language": "표시 언어 (AI):",
+      "startMinimized": "콘솔 최소화 시작:",
+      "showYuzuLauncher": "Yuzu 런처 표시:",
+      "runTransparencyOnStartup": "시작 시 창 투명도 도구 실행:",
+      "runOverlayOnStartup": "시작 시 오버레이 실행:"
+    },
+    "visibility": {
+      "title": "표시 설정",
+      "visibleTabs": "표시 탭:",
+      "tabGameSettings": "게임 설정",
+      "tabStats": "통계",
+      "tabPython": "Python",
+      "tabConsole": "콘솔",
+      "statsTarget": "통계 대상:"
+    },
+    "transparency": {
+      "title": "투명도 도구 (지원 중단)",
+      "toolHotkey": "도구 단축키:",
+      "windowTarget": "창 대상:",
+      "windowTargetPlaceholder": "포커스된 창을 대상으로 하려면 비워두세요",
+      "runTool": "창 투명도 도구 실행"
+    },
+    "updates": {
+      "title": "업데이트",
+      "autoUpdate": "자동 업데이트:",
+      "betaUpdates": "베타 업데이트:",
+      "betaTooltip": "develop 브랜치에서 베타 업데이트를 받습니다. 더 새로운 버전만 제공됩니다.",
+      "description": "여기에서 백엔드 패키지와 데스크톱 앱을 모두 확인합니다.",
+      "backend": "GameSentenceMiner 백엔드",
+      "electronApp": "Electron 앱",
+      "current": "현재: {version}",
+      "latest": "최신: {version}",
+      "channel": "채널: {channel}",
+      "upToDate": "최신 상태",
+      "manualBranch": "수동 브랜치 추적",
+      "lastChecked": "마지막 확인: {time}",
+      "checkForUpdates": "업데이트 확인",
+      "checking": "확인 중...",
+      "updateNow": "지금 업데이트",
+      "updating": "업데이트 중...",
+      "unknown": "알 수 없음"
+    },
+    "catalog": {
+      "alreadyOnScreen": "이미 이 화면에 있음",
+      "openGSMSettings": "GSM 기본 설정 열기",
+      "openOverlaySettings": "오버레이 설정 열기",
+      "locationElectron": "이 화면",
+      "locationPython": "GSM 기본 설정",
+      "locationOverlay": "오버레이 설정",
+      "desktopAppearance": {
+        "label": "데스크톱 앱 외관 및 시작",
+        "description": "데스크톱 앱 비주얼, 트레이 아이콘, 시작 동작을 변경합니다."
+      },
+      "desktopTabs": {
+        "label": "데스크톱 탭 및 통계",
+        "description": "데스크톱 탭을 표시하거나 숨기고 기본 통계 페이지를 선택합니다."
+      },
+      "desktopUpdates": {
+        "label": "업데이트 및 베타 릴리스",
+        "description": "업데이트 확인 및 베타 빌드 제공 여부를 제어합니다.",
+        "notes": "일부 업데이트 변경사항은 다음 실행 시 적용됩니다."
+      },
+      "keySettings": {
+        "label": "주요 설정",
+        "description": "기본 설정, 연결 포트 및 가장 중요한 초기 실행 설정.",
+        "notes": "GSM 프로필별로 저장됩니다."
+      },
+      "general": {
+        "label": "일반",
+        "description": "일반 동작, 폴더, Discord 상태 및 텍스트 정리 설정.",
+        "notes": "GSM 프로필별로 저장됩니다."
+      },
+      "anki": {
+        "label": "Anki",
+        "description": "덱, 필드, 확인 팝업 동작 및 Anki 카드 태그.",
+        "notes": "GSM 프로필별로 저장됩니다."
+      },
+      "screenshot": {
+        "label": "스크린샷",
+        "description": "스크린샷 크기, 형식, 타이밍 및 애니메이션 캡처 옵션을 조정합니다.",
+        "notes": "GSM 프로필별로 저장됩니다."
+      },
+      "audio": {
+        "label": "오디오",
+        "description": "오디오 클립, 트리밍, 내보내기, 음성 감지 및 음성 모델 설정.",
+        "notes": "GSM 프로필별로 저장됩니다."
+      },
+      "obs": {
+        "label": "OBS",
+        "description": "OBS 게임 콘텐츠, 녹화 및 관련 캡처 동작.",
+        "notes": "GSM 프로필별로 저장됩니다."
+      },
+      "ai": {
+        "label": "AI 및 번역",
+        "description": "AI 제공자, 프롬프트, 번역 설정 및 GSM Cloud.",
+        "notes": "GSM 프로필별로 저장됩니다."
+      },
+      "overlayOcr": {
+        "label": "오버레이 OCR",
+        "description": "모니터, OCR 영역 및 백엔드 오버레이 캡처 동작을 선택합니다.",
+        "notes": "GSM 프로필별로 저장됩니다."
+      },
+      "advanced": {
+        "label": "고급",
+        "description": "고급 네트워킹, 플레이어 경로, 포트 및 실험적 프로세스 일시 중지.",
+        "notes": "대부분의 사용자는 자주 필요하지 않습니다."
+      },
+      "profiles": {
+        "label": "프로필",
+        "description": "GSM 프로필을 생성, 복사, 삭제 및 전환합니다.",
+        "notes": "프로필은 다른 게임에 대한 다른 설정을 저장합니다."
+      },
+      "overlayDisplay": {
+        "label": "오버레이 표시 및 단축키",
+        "description": "오버레이 표시, 후리가나 표시, 인디케이터, 오프셋 및 단축키.",
+        "notes": "오버레이 창 자체에 저장됩니다."
+      },
+      "overlayTranslation": {
+        "label": "오버레이 번역 및 리더 도구",
+        "description": "번역 요청, 리더 도구, Yomitan 및 텍스트 피드 옵션.",
+        "notes": "오버레이 창 자체에 저장됩니다."
+      },
+      "overlayGamepad": {
+        "label": "오버레이 게임패드 내비게이션",
+        "description": "컨트롤러 내비게이션, 토크나이저 백엔드, 키보드 전환 및 입력 테스트.",
+        "notes": "오버레이 창 자체에 저장됩니다."
+      }
+    }
+  },
+  "launcher": {
+    "title": "게임 설정",
+    "docsButton": "자동 런처 문서",
+    "docsButtonTooltip": "자동 런처 문서 열기",
+    "infoLabel": "게임 설정 개요",
+    "overviewTooltip": "공유 텍스트 후킹 도구 경로와 게임별 자동화를 구성합니다. 각 게임에 대해 텍스트 후킹 모드(없음/Agent/Textractor/Luna)와 OCR 모드(없음/자동/수동)를 하나씩 선택하세요.",
+    "shared": {
+      "title": "공유 도구 설정",
+      "collapse": "공유 도구 설정 접기.",
+      "expand": "공유 도구 설정 펼치기.",
+      "agentPath": "Agent 경로:",
+      "agentScriptsPath": "Agent 스크립트 경로:",
+      "textractor64": "Textractor 64비트 경로:",
+      "textractor32": "Textractor 32비트 경로:",
+      "lunaPath": "LunaTranslator 경로:",
+      "browse": "찾아보기",
+      "download": "다운로드",
+      "downloading": "다운로드 중...",
+      "downloadingPercent": "다운로드 중 {percent}%",
+      "launchAgentMinimized": "Agent 최소화 실행:",
+      "disclaimer": "다운로드는 공식 업스트림 GitHub 릴리스에서 제공됩니다. 사용 전에 각 프로젝트의 라이선스와 약관을 검토하세요."
+    },
+    "scene": {
+      "title": "게임 자동화",
+      "activeScene": "현재 OBS 게임:",
+      "notSelected": "선택 안 됨",
+      "configureScene": "게임 구성:",
+      "noScenesFound": "게임을 찾을 수 없음",
+      "refresh": "새로고침",
+      "textHookLauncher": "텍스트 후킹 런처:",
+      "modeNone": "없음",
+      "modeAgent": "Agent",
+      "modeTextractor": "Textractor",
+      "modeLuna": "LunaTranslator",
+      "launchDelay": "도구 실행 지연 (초):",
+      "agentScript": "Agent 스크립트:",
+      "search": "검색",
+      "searchHint": "검색은 모든 스크립트를 나열하고 일치 가능성이 높은 것을 상단에 표시합니다.",
+      "ocrMode": "OCR 모드:",
+      "ocrNone": "없음",
+      "ocrAuto": "자동 OCR",
+      "ocrManual": "수동 OCR",
+      "launchOverlay": "게임과 함께 오버레이 실행:",
+      "noSceneHint": "자동화를 구성하려면 OBS 게임을 선택하거나 전환하세요."
+    },
+    "scriptPicker": {
+      "title": "Agent 스크립트 검색 ({filtered}/{total})",
+      "close": "닫기",
+      "closeTooltip": "스크립트 선택 대화상자 닫기.",
+      "searchPlaceholder": "이름 또는 경로로 스크립트 검색...",
+      "noResults": "검색과 일치하는 스크립트가 없습니다.",
+      "explicitId": "명시적 ID",
+      "titleId": "제목 ID",
+      "nameMatch": "이름 일치",
+      "fuzzyMatch": "퍼지 일치",
+      "possibleMatch": "가능한 일치",
+      "matchPercent": "{percent}% 일치"
+    },
+    "status": {
+      "openedReleases": "{label} 릴리스 페이지를 열었습니다.",
+      "failedOpenReleases": "릴리스 페이지를 열지 못했습니다.",
+      "failedOpenDocs": "문서를 열지 못했습니다.",
+      "savedShared": "공유 게임 설정을 저장했습니다.",
+      "updatedPath": "공유 경로 설정을 업데이트했습니다.",
+      "savedScene": "게임 자동화 저장됨: {scene}",
+      "updatedScript": "게임의 Agent 스크립트 업데이트됨: {scene}",
+      "failedListScripts": "게임의 스크립트 목록을 가져오지 못함: {scene}",
+      "noScriptsFound": "게임의 스크립트를 찾을 수 없음: {scene}",
+      "selectedScript": "게임의 Agent 스크립트 선택됨: {scene}",
+      "downloadPreparing": "{tool} 다운로드 및 설치 중...",
+      "downloadInstalled": "{tool}{version} 설치됨.{message}",
+      "downloadNotFound": "최신 릴리스에서 일치하는 {tool} 다운로드를 찾을 수 없습니다.",
+      "downloadCanceled": "{tool} 다운로드가 취소되었습니다.",
+      "downloadFailed": "{tool} 설치에 실패했습니다."
+    },
+    "tooltips": {
+      "sharedToolSettings": "이 프로필의 모든 게임에서 사용하는 공유 경로.",
+      "sceneAutomation": "게임별 시작 동작. 각 게임은 다른 텍스트 후킹 및 OCR 설정을 사용할 수 있습니다.",
+      "agentPath": "텍스트 후킹 런처가 Agent로 설정된 경우 사용하는 Agent 실행 파일 경로.",
+      "agentScriptsPath": "Agent 스크립트 파일(.js)이 포함된 폴더. 자동 감지 및 찾아보기 기본값에 사용됩니다.",
+      "textractor64": "64비트 Textractor 실행 파일 경로. 게임 런처가 Textractor로 설정된 경우 사용됩니다.",
+      "textractor32": "32비트 Textractor 실행 파일 경로. 32비트 게임 대상에 사용됩니다.",
+      "lunaPath": "LunaTranslator 실행 파일 경로. 게임 런처가 LunaTranslator로 설정된 경우 사용됩니다.",
+      "launchAgentMinimized": "Windows에서 Agent를 최소화/숨김 상태로 실행합니다.",
+      "activeScene": "현재 활성화된 OBS 게임. 구성 변경은 선택한 구성 게임 값에 적용됩니다.",
+      "configureScene": "이 탭에서 편집할 OBS 게임을 선택합니다.",
+      "refreshScenes": "현재 OBS 연결에서 OBS 게임 목록을 새로고침합니다.",
+      "textHookMode": "이 게임의 텍스트 후킹 런처 모드를 선택합니다.",
+      "textHookNone": "이 게임에서 텍스트 후킹 도구를 자동 실행하지 않습니다.",
+      "textHookAgent": "이 게임에서 Agent를 실행하고 구성된 Agent 스크립트를 사용합니다.",
+      "textHookTextractor": "이 게임이 활성화되면 Textractor를 자동 실행합니다.",
+      "textHookLuna": "이 게임이 활성화되면 LunaTranslator를 자동 실행합니다.",
+      "launchDelay": "이 게임에서 선택한 텍스트 후킹 런처를 시작하기 전 지연.",
+      "agentScript": "이 게임의 Agent 스크립트 경로. 수동 설정, 찾아보기 또는 검색할 수 있습니다.",
+      "launchOverlay": "이 게임의 세션이 활성화된 동안 GSM 오버레이를 시작하고, 게임/세션이 종료되면 자동 실행된 오버레이를 닫습니다.",
+      "browseScript": "파일 선택기를 열고 이 게임의 Agent 스크립트를 선택합니다.",
+      "searchScript": "Agent 스크립트 경로 아래의 모든 스크립트를 게임과의 유사도순으로 검색합니다.",
+      "downloadAgent": "공식 GitHub 릴리스에서 최신 Agent를 다운로드합니다. 설치 폴더를 선택하세요.",
+      "downloadTextractor": "공식 GitHub 릴리스에서 최신 Textractor를 다운로드합니다. 설치 폴더를 선택하세요. x64 및 x86 경로가 모두 설정됩니다.",
+      "downloadLuna": "LunaTranslator 공식 GitHub 릴리스 페이지를 엽니다.",
+      "ocrMode": "이 게임의 OCR 모드를 선택합니다.",
+      "ocrNone": "이 게임에서 OCR을 시작하지 않습니다.",
+      "ocrAuto": "이 게임이 활성화되면 지속적인 자동 OCR을 시작합니다.",
+      "ocrManual": "이 게임에서 수동 OCR 런타임을 시작합니다. OCR 캡처는 컨트롤/단축키를 통해 수동으로 수행됩니다.",
+      "status": "게임 설정 작업의 최신 저장/감지 상태.",
+      "candidatePicker": "이 게임에 가장 적합한 Agent 스크립트 후보를 선택합니다.",
+      "noScene": "게임 프로필이 로드되지 않았습니다. 먼저 게임을 선택하세요."
+    }
+  },
+  "ocr": {
+    "sceneAndAreas": {
+      "title": "게임 및 영역",
+      "areaCount": "{count}개 영역",
+      "areaCountPlural": "{count}개 영역",
+      "sceneLabel": "게임:",
+      "loading": "로딩 중...",
+      "noScenes": "게임을 찾을 수 없음",
+      "reloadScenes": "게임 다시 로드",
+      "selectAreas": "OCR 영역 선택",
+      "importAreas": "영역 가져오기",
+      "exportAreas": "영역 내보내기",
+      "ocrGuide": "OCR 가이드"
+    },
+    "settings": {
+      "title": "OCR 설정",
+      "advanced": "고급",
+      "scanRate": "스캔 속도 (초):",
+      "textSpeed": "텍스트 속도:",
+      "language": "언어:",
+      "scanImageQuality": "스캔 이미지 품질",
+      "furiganaFilter": "후리가나 필터",
+      "preview": "미리보기",
+      "copyToClipboard": "클립보드에 복사:",
+      "lineBreaks": "줄 바꿈:",
+      "auto": "자동",
+      "menu": "메뉴",
+      "areaSelect": "영역 선택"
+    },
+    "pipeline": {
+      "title": "인식 파이프라인",
+      "twoPassFlow": "2패스 흐름:",
+      "singlePassFlow": "1패스 흐름:",
+      "stabilityOcr": "안정성 OCR:",
+      "mainOcr": "메인 OCR:",
+      "twoPassOcr": "2패스 OCR:",
+      "optimizeSecondScan": "두 번째 스캔 최적화:",
+      "ocrClipboardImages": "클립보드 이미지 OCR:"
+    },
+    "comparison": {
+      "title": "텍스트 비교 튜닝",
+      "expertTitle": "전문가 휴리스틱",
+      "duplicateThreshold": { "label": "중복 일치 임계값 (%)", "title": "값이 높을수록 엄격합니다. 다른 줄이 중복으로 처리되는 경우 이 값을 높이세요." },
+      "changeThreshold": { "label": "텍스트 변경 임계값 (%)", "title": "낮은 값은 부분 변경 시 OCR2를 더 빨리 트리거합니다. 높은 값은 더 명확한 변경을 기다립니다." },
+      "evolvingPrefix": { "label": "진화하는 접두사 일치 (%)", "title": "짧은 줄이 긴 줄의 시작처럼 보이는지 확인할 때 사용됩니다." },
+      "truncationFallbackMin": { "label": "절단 폴백 최소 임계값 (%)", "title": "접두사 또는 접미사 절단 일치가 허용되기 전에 필요한 최소 비교 임계값." },
+      "truncationStrictMin": { "label": "절단 엄격 임계값 (%)", "title": "이 임계값 이상에서 GSM은 절단을 같은 텍스트로 처리하기 전에 더 강한 기본 유사도도 요구합니다." },
+      "truncationMargin": { "label": "절단 기본 여유", "title": "절단 폴백이 거부되기 전에 기본 유사도가 비교 임계값보다 얼마나 낮을 수 있는지." },
+      "truncationMinLength": { "label": "절단 최소 길이 (문자)", "title": "절단 일치에 허용되는 가장 짧은 정규화된 문자열 길이." },
+      "truncationMinRatio": { "label": "절단 최소 길이 비율 (%)", "title": "절단 일치가 고려되기 전에 짧은 줄이 긴 줄의 얼마를 차지해야 하는지." },
+      "subsetChunkMinLength": { "label": "하위 집합 청크 최소 길이 (문자)", "title": "이보다 짧은 수신 OCR 청크는 정확히 일치하지 않는 한 청크 커버리지 폴백을 건너뜁니다." },
+      "shortChunkLimit": { "label": "짧은 청크 제한 (문자)", "title": "이 길이 이하의 청크는 더 작은 일치 블록 최솟값을 사용합니다." },
+      "shortChunkMinSize": { "label": "짧은 청크 일치 최솟값", "title": "짧은 청크에 대해 계산되는 최소 연속 일치 크기." },
+      "defaultMinSize": { "label": "기본 일치 최솟값", "title": "긴 청크에 대해 계산되는 최소 연속 일치 크기." },
+      "coverageFloor": { "label": "하위 집합 커버리지 하한 (%)", "title": "중복 제거 폴백에 허용되는 가장 낮은 청크 커버리지 요구사항." },
+      "coverageCeiling": { "label": "하위 집합 커버리지 상한 (%)", "title": "중복 제거 폴백에 허용되는 가장 높은 청크 커버리지 요구사항." },
+      "coverageOffset": { "label": "커버리지 임계값 오프셋", "title": "현재 비교 임계값을 커버리지 요구사항으로 변환하기 전에 적용되는 오프셋." },
+      "longestBlockMin": { "label": "최장 블록 최솟값 (문자)", "title": "하위 집합 커버리지 모드에서 필요한 최소 연속 블록 크기." },
+      "longestBlockDivisor": { "label": "최장 블록 제수", "title": "값이 클수록 긴 청크에 필요한 연속 블록 길이가 줄어듭니다." }
+    },
+    "hotkeys": {
+      "title": "단축키",
+      "manualMenu": "수동 / 메뉴:",
+      "areaSelect": "영역 선택:",
+      "wholeWindow": "전체 창:",
+      "pause": "일시 중지:"
+    },
+    "console": {
+      "title": "콘솔",
+      "active": "활성",
+      "idle": "대기",
+      "paused": "일시 중지됨",
+      "clear": "지우기"
+    },
+    "debug": {
+      "title": "추가 및 디버그 도구",
+      "ignoreRun1Logs": "\"OCR 실행 1\" 로그 무시:",
+      "processPriority": "프로세스 우선순위:",
+      "defaultFuriganaSensitivity": "기본 후리가나 감도:",
+      "obsCapturePreprocess": "OBS 캡처 전처리:",
+      "installDependency": "의존성 설치:",
+      "installBtn": "설치",
+      "removeDependency": "의존성 제거:",
+      "uninstallBtn": "제거",
+      "ocrErrorFixes": "OCR 오류 수정",
+      "configFile": "설정 파일",
+      "configFolder": "설정 폴더",
+      "globalConfig": "전역 설정",
+      "tempFolder": "임시 폴더"
+    },
+    "footer": {
+      "running": "실행 중",
+      "paused": "일시 중지됨",
+      "ready": "준비됨",
+      "needsAreas": "영역 필요",
+      "ocrRuntime": "OCR 런타임",
+      "noSceneSelected": "게임이 선택되지 않음",
+      "sceneHasAreas": "{scene}에 {count}개의 OCR {areaWord}이(가) 있습니다.",
+      "noAreasForScene": "{scene}에 저장된 OCR 영역이 없습니다.",
+      "stopOcr": "OCR 중지",
+      "resumeOcr": "OCR 재개",
+      "pauseOcr": "OCR 일시 중지",
+      "startAutoOcr": "자동 OCR 시작",
+      "startManualOcr": "수동 OCR 시작",
+      "needAreasFirst": "{mode} OCR을 시작하기 전에 이 게임의 OCR 영역을 그리세요."
+    },
+    "runtime": {
+      "idle": "대기",
+      "startingAuto": "자동 OCR 시작 중...",
+      "startingManual": "수동 OCR 시작 중...",
+      "runningManual": "수동 OCR 실행 중",
+      "runningManualWith": "{engine}으로 수동 OCR 실행 중",
+      "runningAutoWith": "{engine}으로 {rate}초 간격 자동 OCR 실행 중",
+      "runningAutoAt": "{rate}초 간격으로 자동 OCR 실행 중",
+      "scanningWith": "{engine}으로 {speed}초에 스캔 중",
+      "scanning": "{engine}으로 스캔 중",
+      "sleeping": "대기 중: 이미지가 비어있거나 변경되지 않음",
+      "areaSelectionFinished": "OCR 영역 선택 완료.",
+      "failedSwitchScene": "게임 전환 실패.",
+      "configReloaded": "설정이 다시 로드됨",
+      "forceStableEnabled": "강제 안정 모드 활성화됨",
+      "forceStableDisabled": "강제 안정 모드 비활성화됨"
+    },
+    "engines": {
+      "glens": "Google Lens",
+      "bing": "Bing",
+      "oneocr": "OneOCR",
+      "screenai": "ScreenAI OCR",
+      "meikiocr": "Meiki OCR",
+      "gemini": "Gemini",
+      "gvision": "Google Vision",
+      "azure": "Azure 이미지 분석",
+      "ocrspace": "OCRSpace",
+      "local_llm_ocr": "로컬 LLM OCR",
+      "alivetext": "Apple Live Text",
+      "mlkitocr": "MLKit OCR",
+      "meiki_text_detector": "Meiki 텍스트 감지기"
+    },
+    "languages": {
+      "ja": "일본어",
+      "zh": "중국어",
+      "ko": "한국어",
+      "en": "영어 (라틴 문자)",
+      "es": "스페인어",
+      "fr": "프랑스어",
+      "de": "독일어",
+      "ru": "러시아어",
+      "ar": "아랍어",
+      "hi": "힌디어"
+    },
+    "scanRates": {
+      "instant": "즉시",
+      "normal": "보통",
+      "slow": "느림",
+      "verySlow": "매우 느림"
+    },
+    "priorities": {
+      "low": "낮음",
+      "below_normal": "보통 이하",
+      "normal": "보통",
+      "above_normal": "보통 이상",
+      "high": "높음"
+    },
+    "preprocess": {
+      "none": "끄기",
+      "grayscale": "회색조",
+      "grayscale_unsharp": "회색조 + 자동 대비 + 선명화"
+    },
+    "dependencies": {
+      "install": {
+        "fasterPng": "더 빠른 PNG (Windows 11 권장)",
+        "googleVision": "Google Vision",
+        "azure": "Azure",
+        "ocrspace": "OCRSpace"
+      },
+      "remove": {
+        "owocr": "OWOCR 기본",
+        "protobuf": "Google Lens",
+        "oneocr": "OneOCR",
+        "fasterPng": "더 빠른 PNG",
+        "transformers": "정밀 필터링",
+        "googleVision": "Google Vision",
+        "azure": "Azure",
+        "ocrspace": "OCRSpace"
+      }
+    },
+    "notices": {
+      "areaConfigImported": "OCR 영역 설정이 가져와졌습니다.",
+      "importFailed": "가져오기 실패.",
+      "areaConfigExported": "OCR 영역 설정이 클립보드에 복사되었습니다.",
+      "exportFailed": "내보내기 실패."
+    }
+  }
+}

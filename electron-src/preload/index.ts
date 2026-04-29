@@ -7,10 +7,13 @@ const invokeExactChannels = new Set<string>([
   "show-message-box",
   "open-external",
   "get-platform",
+  "install-session.getActive",
+  "install-session.retry",
   "openOBS",
   "open-external-link",
   "openTexthooker",
   "runOverlay",
+  "getOverlayStatus",
   "run-furigana-window",
   "get_gsm_status",
   "ocr-replacements.load",
@@ -33,6 +36,8 @@ const sendExactChannels = new Set<string>([
 
 const onExactChannels = new Set<string>([
   "installing",
+  "install-session.snapshot",
+  "install-session.finished",
   "app.navigateToTab",
   "steamGamesUpdated",
   "state-cleared",

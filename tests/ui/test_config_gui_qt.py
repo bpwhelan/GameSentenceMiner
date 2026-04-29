@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
+
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
 
@@ -159,3 +162,86 @@ def test_get_auto_accept_timer_value_uses_default_when_enabled_without_value() -
     )
 
     assert ConfigWindow._get_auto_accept_timer_value(window) == 10
+
+
+def test_reset_to_default_handles_numeric_screenshot_defaults(monkeypatch) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.ui.config_gui_qt.get_latest_version",
+        lambda: "test-version",
+    )
+    monkeypatch.setattr(ConfigWindow, "_refresh_anki_model_list", lambda self, preserve_selection=True: None)
+    monkeypatch.setattr(ConfigWindow, "_load_monitors", lambda self, preferred_index=None: None)
+    monkeypatch.setattr(ConfigWindow, "get_online_models", lambda self: None)
+    monkeypatch.setattr(
+        ConfigWindow,
+        "save_settings",
+        lambda self, **kwargs: True,
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+
+    window = ConfigWindow()
+    try:
+        window._reset_to_default("screenshot", window._create_screenshot_tab)
+
+        assert window.screenshot_width_edit.text() == "0"
+        assert window.screenshot_height_edit.text() == "0"
+        assert window.screenshot_quality_edit.text() == "85"
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_refresh_obs_scenes_keeps_saved_profile_scenes_when_obs_temporarily_returns_nothing(monkeypatch) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.ui.config_gui_qt.get_latest_version",
+        lambda: "test-version",
+    )
+    monkeypatch.setattr(ConfigWindow, "_refresh_anki_model_list", lambda self, preserve_selection=True: None)
+    monkeypatch.setattr(ConfigWindow, "_load_monitors", lambda self, preferred_index=None: None)
+    monkeypatch.setattr(ConfigWindow, "get_online_models", lambda self: None)
+
+    scene_responses = iter(
+        [
+            [{"sceneName": "Scene A"}, {"sceneName": "Scene B"}],
+            None,
+        ]
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.ui.config_gui_qt.obs.get_obs_scenes",
+        lambda: next(scene_responses),
+    )
+
+    window = ConfigWindow()
+    try:
+        window.obs_error_timer.stop()
+        window.obs_scene_refresh_timer.stop()
+        window.settings.scenes = ["Scene A", "Missing Scene"]
+
+        window.refresh_obs_scenes(force_reload=True)
+
+        assert [window.obs_scene_list.item(i).text() for i in range(window.obs_scene_list.count())] == [
+            "Scene A",
+            "Scene B",
+        ]
+        assert [item.text() for item in window.obs_scene_list.selectedItems()] == ["Scene A"]
+
+        window.refresh_obs_scenes()
+
+        assert [window.obs_scene_list.item(i).text() for i in range(window.obs_scene_list.count())] == [
+            "Scene A",
+            "Scene B",
+        ]
+        assert window.settings.scenes == ["Scene A", "Missing Scene"]
+    finally:
+        window.close()
+        app.processEvents()

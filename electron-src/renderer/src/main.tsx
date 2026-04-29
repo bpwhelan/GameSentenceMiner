@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { I18nProvider } from "./i18n";
 import "./styles.css";
 import "@xterm/xterm/css/xterm.css";
 
@@ -22,4 +23,8 @@ const suppressReactDevtoolsBanner = (original: (...args: unknown[]) => void) => 
 console.info = suppressReactDevtoolsBanner(originalConsoleInfo);
 console.log = suppressReactDevtoolsBanner(originalConsoleLog);
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <I18nProvider>
+    <App />
+  </I18nProvider>
+);

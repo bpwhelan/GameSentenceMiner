@@ -1,5 +1,5 @@
 import rapidfuzz
-import re
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -50,6 +50,7 @@ class GameLine:
     mined_time: datetime = datetime.min
     source: str = None
     source_padding: float = 0.0
+    translation: str = ""
 
     def get_previous_time(self):
         if self.prev:
@@ -122,8 +123,10 @@ class GameText:
         if self.values:
             self.values[-1].next = new_line
         self.values.append(new_line)
-        if new_line.prev:
-            self.previous_lines.add(new_line.prev.text)
+        if new_line.prev and is_recycled_line_detection_enabled():
+            normalized_previous_line = normalize_text_for_comparison(new_line.prev.text)
+            if normalized_previous_line:
+                self.previous_lines.add(normalized_previous_line)
         return new_line
         # self.remove_old_events(datetime.now() - timedelta(minutes=10))
 
@@ -144,18 +147,60 @@ game_log = GameText()
 
 def strip_whitespace_and_punctuation(text: str) -> str:
     """
-    Strips whitespace and punctuation from the given text.
+    Backwards-compatible alias for comparison normalization.
     """
-    # Remove all whitespace and specified punctuation using regex
-    # Includes Japanese and common punctuation
-    return re.sub(r"[\s　、。「」【】《》., ]", "", text).strip()
+    return normalize_text_for_comparison(text)
+
+
+def normalize_text_for_comparison(text: str) -> str:
+    """
+    Remove all Unicode punctuation and whitespace characters from text.
+    """
+    if text is None:
+        return ""
+
+    normalized_characters = []
+    for character in str(text):
+        if character.isspace():
+            continue
+        if unicodedata.category(character).startswith("P"):
+            continue
+        normalized_characters.append(character)
+
+    return "".join(normalized_characters)
+
+
+def is_recycled_line_detection_enabled() -> bool:
+    try:
+        return bool(getattr(get_config().overlay, "check_previous_lines_for_recycled_indicator", True))
+    except Exception:
+        return True
+
+
+def is_line_recycled(line_text: str) -> bool:
+    normalized_line = normalize_text_for_comparison(line_text)
+    if not normalized_line:
+        return False
+    return normalized_line in game_log.previous_lines
 
 
 # Do not use partial_ratio here, ever
 def lines_match(texthooker_sentence, anki_sentence, similarity_threshold=80) -> bool:
-    # Replace newlines, spaces, other whitespace characters, AND japanese punctuation
-    texthooker_sentence = strip_whitespace_and_punctuation(texthooker_sentence)
-    anki_sentence = strip_whitespace_and_punctuation(anki_sentence)
+    raw_texthooker_sentence = "" if texthooker_sentence is None else str(texthooker_sentence)
+    raw_anki_sentence = "" if anki_sentence is None else str(anki_sentence)
+    texthooker_sentence = normalize_text_for_comparison(raw_texthooker_sentence)
+    anki_sentence = normalize_text_for_comparison(raw_anki_sentence)
+    if not texthooker_sentence or not anki_sentence:
+        compact_texthooker_sentence = "".join(
+            character for character in raw_texthooker_sentence if not character.isspace()
+        )
+        compact_anki_sentence = "".join(character for character in raw_anki_sentence if not character.isspace())
+        return bool(
+            compact_texthooker_sentence
+            and compact_anki_sentence
+            and compact_texthooker_sentence == compact_anki_sentence
+        )
+
     similarity = rapidfuzz.fuzz.ratio(texthooker_sentence, anki_sentence)
     # logger.debug(f"Comparing sentences: '{texthooker_sentence}' and '{anki_sentence}' - Similarity: {similarity}")
     # if texthooker_sentence in anki_sentence:
