@@ -18,7 +18,7 @@
     "test:ts": "vitest run --config vitest.config.ts",
     "test:ts:watch": "vitest --config vitest.config.ts",
     "app:dir": "electron-builder --dir",
-    "app:dist": "npm run build && electron-builder",
+    "app:dist": "npm run build && electron-builder --publish=never",
     "app:deploy": "electron-builder --publish=always"
   },
   "type": "module",
@@ -61,7 +61,6 @@
     "win": {
       "target": "nsis",
       "icon": "assets/gsm.ico",
-      "sign": false,
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "nsis": {
