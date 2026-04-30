@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from GameSentenceMiner.util.config.configuration import Overlay
+from GameSentenceMiner.util.config import configuration
+from GameSentenceMiner.util.config.configuration import Config, Overlay, ProfileConfig
 
 
 def test_overlay_use_ocr_result_defaults_to_true():
@@ -70,6 +71,34 @@ def test_overlay_use_overlay_area_config_round_trip_and_backward_compatibility()
     data_without_field = dict(data)
     data_without_field.pop("use_overlay_area_config", None)
     assert Overlay.from_dict(data_without_field).use_overlay_area_config is False
+
+
+def test_global_overlay_config_is_authoritative(monkeypatch):
+    config = Config(
+        configs={
+            "Default": ProfileConfig(overlay=Overlay(periodic=False)),
+        },
+        current_profile="Default",
+        overlay=Overlay(periodic=True),
+    )
+
+    monkeypatch.setattr(configuration, "config_instance", config)
+
+    assert configuration.get_overlay_config().periodic is True
+    assert config.get_config().overlay is config.overlay
+
+
+def test_legacy_profile_overlay_migrates_when_global_overlay_missing():
+    raw_config = {
+        "configs": {
+            "Default": ProfileConfig(overlay=Overlay(periodic=True)).to_dict(),
+        },
+        "current_profile": "Default",
+    }
+
+    migrated = Config._migrate_raw_data(raw_config)
+
+    assert migrated["overlay"]["periodic"] is True
 
 
 def test_overlay_locales_include_use_ocr_result_strings():

@@ -1621,6 +1621,18 @@ class Config:
         configs = data.get("configs")
         if not isinstance(configs, dict):
             return data
+
+        if not isinstance(data.get("overlay"), dict):
+            current_profile = data.get("current_profile") or DEFAULT_CONFIG
+            profile_data = configs.get(current_profile)
+            if not isinstance(profile_data, dict):
+                profile_data = configs.get(DEFAULT_CONFIG)
+            if not isinstance(profile_data, dict):
+                profile_data = next((value for value in configs.values() if isinstance(value, dict)), None)
+            legacy_overlay = profile_data.get("overlay") if isinstance(profile_data, dict) else None
+            if isinstance(legacy_overlay, dict):
+                data["overlay"] = dict(legacy_overlay)
+
         for profile_data in configs.values():
             cls._migrate_anki_profile_data(profile_data)
             cls._migrate_single_port_fields(profile_data)
@@ -1729,7 +1741,8 @@ class Config:
             return cls.new()
 
     def __post_init__(self):
-        self.overlay = self.get_config().overlay
+        if self.current_profile in self.configs:
+            self.configs[self.current_profile].overlay = self.overlay
 
         # Add a way to migrate certain things based on version if needed, also help with better defaults
         if self.version:
@@ -1759,6 +1772,8 @@ class Config:
                 logger.info(f"Config name '{name}' updated to match its key in the configs dictionary.")
 
     def save(self):
+        if self.current_profile in self.configs:
+            self.configs[self.current_profile].overlay = self.overlay
         with open(get_config_path(), "w") as file:
             json.dump(self.to_dict(), file, indent=4)
         return self
@@ -1767,7 +1782,9 @@ class Config:
         if self.current_profile not in self.configs:
             logger.warning(f"Profile '{self.current_profile}' not found. Switching to default profile.")
             self.current_profile = DEFAULT_CONFIG
-        return self.configs[self.current_profile]
+        config = self.configs[self.current_profile]
+        config.overlay = self.overlay
+        return config
 
     def set_config_for_profile(self, profile: str, config: ProfileConfig):
         config.name = profile
@@ -2121,6 +2138,7 @@ def load_config():
                 config_file = json.load(file)
                 config_file = _remove_legacy_hotkeys(config_file)
                 config_file = _remove_deprecated_config_settings(config_file)
+                config_file = Config._migrate_raw_data(config_file)
                 if "current_profile" in config_file:
                     return Config.from_dict(config_file)
                 else:
@@ -2163,7 +2181,10 @@ def get_config():
 
 
 def get_overlay_config():
-    return get_config().overlay
+    global config_instance
+    if config_instance is None:
+        config_instance = load_config()
+    return config_instance.overlay
     # global config_instance
     # if config_instance is None:
     #     config_instance = load_config()
@@ -2187,6 +2208,8 @@ def get_master_config():
 
 
 def save_full_config(config):
+    if hasattr(config, "get_config") and getattr(config, "current_profile", None) in getattr(config, "configs", {}):
+        config.configs[config.current_profile].overlay = config.overlay
     with open(get_config_path(), "w") as file:
         json.dump(config.to_dict(), file, indent=4)
 
