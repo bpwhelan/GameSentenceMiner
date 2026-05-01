@@ -3022,6 +3022,14 @@ body {
   min-width: 0;
 }
 
+.home-tab .home-row--scene-name-override {
+  grid-template-columns: minmax(230px, max-content) minmax(0, 1fr);
+}
+
+.home-tab .home-row--scene-name-override .home-row__label {
+  white-space: normal;
+}
+
 .home-tab .home-select,
 .home-tab .home-input {
   height: 32px;
@@ -3431,6 +3439,9 @@ body {
   .home-tab .home-row {
     grid-template-columns: 1fr;
     gap: 6px;
+  }
+  .home-tab .home-row--scene-name-override {
+    grid-template-columns: 1fr;
   }
   .home-tab .home-row__label {
     text-align: left;

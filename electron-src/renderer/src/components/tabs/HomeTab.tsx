@@ -561,7 +561,7 @@ export function HomeTab({ active }: HomeTabProps) {
               </div>
 
               {/* Override scene name — only shown once a window is selected */}
-              {selectedWindowValue && <div className="home-row">
+              {selectedWindowValue && <div className="home-row home-row--scene-name-override">
                 <label className="home-row__label" htmlFor="home-scene-name-override">
                   {t("home.obs.overrideSceneName")}
                 </label>

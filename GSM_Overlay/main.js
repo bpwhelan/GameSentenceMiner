@@ -2125,6 +2125,10 @@ function shouldReassertOverlayAroundYomitan() {
   );
 }
 
+function shouldPreserveOverlayFocusForYomitan() {
+  return !!(manualHotkeyPressed || manualModeToggleState);
+}
+
 function requestYomitanOverlayTopmostReassert(source) {
   if (!shouldReassertOverlayAroundYomitan()) {
     return false;
@@ -2134,7 +2138,7 @@ function requestYomitanOverlayTopmostReassert(source) {
     force: true,
     moveToTop: true,
     refreshWorkspace: true,
-    releaseFocusAfter: true,
+    releaseFocusAfter: !shouldPreserveOverlayFocusForYomitan(),
   });
 }
 
