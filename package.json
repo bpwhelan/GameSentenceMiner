@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "2026.4.9",
+  "version": "2026.5.1",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {

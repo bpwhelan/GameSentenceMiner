@@ -2126,7 +2126,7 @@ function shouldReassertOverlayAroundYomitan() {
 }
 
 function shouldPreserveOverlayFocusForYomitan() {
-  return !!(manualHotkeyPressed || manualModeToggleState);
+  return !!(manualHotkeyPressed || manualModeToggleState || gamepadNavigationActive);
 }
 
 function requestYomitanOverlayTopmostReassert(source) {
@@ -4194,8 +4194,8 @@ app.whenReady().then(async () => {
         return;
       }
 
-      // Preserve pre-regression manual behavior: closing Yomitan should not change
-      // overlay visibility/focus state while manual hold/toggle is active.
+      // Closing Yomitan should not change overlay visibility/focus state while
+      // manual hold/toggle is active.
       if (manualHotkeyPressed || manualModeToggleState) {
         requestYomitanOverlayTopmostReassert("yomitan-close-manual-active");
         return;
@@ -4205,7 +4205,8 @@ app.whenReady().then(async () => {
         mainWindow.setIgnoreMouseEvents(true, { forward: true });
       }
 
-      // Keep existing gamepad-close behavior unchanged.
+      // Controller navigation also owns overlay focus while active, so don't
+      // hand focus back to the game just because a lookup closed.
       if (gamepadNavigationActive) {
         requestYomitanOverlayTopmostReassert("yomitan-close-gamepad-active");
         return;
