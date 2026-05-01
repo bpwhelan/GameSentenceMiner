@@ -29,10 +29,10 @@ importers:
         version: 1.15.8
       autoprefixer:
         specifier: ^10.4.13
-        version: 10.4.13(postcss@8.4.20)
+        version: 10.4.13(postcss@8.5.10)
       daisyui:
         specifier: ^2.45.0
-        version: 2.45.0(autoprefixer@10.4.13(postcss@8.4.20))(postcss@8.4.20)
+        version: 2.45.0(autoprefixer@10.4.13(postcss@8.5.10))(postcss@8.5.10)
       eslint:
         specifier: ^8.30.0
         version: 8.30.0
@@ -43,11 +43,11 @@ importers:
         specifier: ^4.0.0
         version: 4.0.0(eslint@8.30.0)(svelte@3.55.0)
       postcss:
-        specifier: ^8.4.20
-        version: 8.4.20
+        specifier: ^8.5.10
+        version: 8.5.10
       postcss-load-config:
         specifier: ^4.0.1
-        version: 4.0.1(postcss@8.4.20)
+        version: 4.0.1(postcss@8.5.10)
       prettier:
         specifier: ^2.8.1
         version: 2.8.1
@@ -62,13 +62,13 @@ importers:
         version: 3.55.0
       svelte-check:
         specifier: ^2.10.2
-        version: 2.10.2(postcss-load-config@4.0.1(postcss@8.4.20))(postcss@8.4.20)(svelte@3.55.0)
+        version: 2.10.2(postcss-load-config@4.0.1(postcss@8.5.10))(postcss@8.5.10)(svelte@3.55.0)
       svelte-preprocess:
         specifier: ^5.0.0
-        version: 5.0.0(postcss-load-config@4.0.1(postcss@8.4.20))(postcss@8.4.20)(svelte@3.55.0)(typescript@4.9.4)
+        version: 5.0.0(postcss-load-config@4.0.1(postcss@8.5.10))(postcss@8.5.10)(svelte@3.55.0)(typescript@4.9.4)
       tailwindcss:
         specifier: ^3.2.4
-        version: 3.2.4(postcss@8.4.20)
+        version: 3.2.4(postcss@8.5.10)
       tslib:
         specifier: ^2.4.1
         version: 2.4.1
@@ -223,6 +223,7 @@ packages:
   '@humanwhocodes/config-array@0.11.8':
     resolution: {integrity: sha512-UybHIJzJnR5Qc/MsD9Kr+RpO2h+/P1GhOwdiLPXK5TWk5sgTdu88bTD9UP+CKbPPh5Rni1u0GjAdYQLemG8g+g==}
     engines: {node: '>=10.10.0'}
+    deprecated: Use @eslint/config-array instead
 
   '@humanwhocodes/module-importer@1.0.1':
     resolution: {integrity: sha512-bxveV4V8v5Yb4ncFTT3rPSgZBOpCkjfK0y4oVVVJwIuDVBRMDXrPyXRL988i5ap9m9bnyEEjWfm5WkBmtffLfA==}
@@ -230,6 +231,7 @@ packages:
 
   '@humanwhocodes/object-schema@1.2.1':
     resolution: {integrity: sha512-ZnQMnLV4e7hDlUvw8H+U8ASL02SS2Gn6+9Ac3wGGLIe7+je2AeAOxPY+izIPJDfFDb7eDjev0Us8MO1iFRN8hA==}
+    deprecated: Use @eslint/object-schema instead
 
   '@jridgewell/resolve-uri@3.1.0':
     resolution: {integrity: sha512-F2msla3tad+Mfht5cJq7LSXcdudKTWCVYUgw6pLFOOHSTtZlj6SWNYAp+AhuqLmWdBO2X5hPrLcu8cVP8fy28w==}
@@ -387,7 +389,7 @@ packages:
     engines: {node: '>=12.5.0'}
 
   concat-map@0.0.1:
-    resolution: {integrity: sha1-2Klr13/Wjfd5OnMDajug1UBdR3s=}
+    resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
 
   cross-spawn@7.0.3:
     resolution: {integrity: sha512-iRDPJKUPVEND7dHPO8rkbOnPpyDygcDFtWjpeWNCgy8WP2rXcxXL8TskReQl6OrB2G7+UJrags1q15Fudc7G6w==}
@@ -497,6 +499,7 @@ packages:
   eslint@8.30.0:
     resolution: {integrity: sha512-MGADB39QqYuzEGov+F/qb18r4i7DohCDOfatHaxI2iGlPuC65bwG2gxgO+7DkyL38dRFaRH7RaRAgU6JKL9rMQ==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
 
   espree@9.4.1:
@@ -581,6 +584,7 @@ packages:
 
   glob@7.2.3:
     resolution: {integrity: sha512-nFR0zLpU2YCaRxwoCJvL6UvCH2JFyFVIvwTLsIf21AuHlMskA1hhTdk+LlYJtOlYt9v6dvszD2BGRqBL+iQK9Q==}
+    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
 
   globals@13.19.0:
     resolution: {integrity: sha512-dkQ957uSRWHw7CFXLUtUHQI3g3aWApYhfNR2O6jn/907riyTYKVBmxYVROkBcY614FSSeSJh7Xm7SrUWCxvJMQ==}
@@ -614,6 +618,7 @@ packages:
 
   inflight@1.0.6:
     resolution: {integrity: sha512-k92I/b08q4wvFscXCLvqfsHCrjrF7yiXsQuIVvVE7N82W3+aqpzuUdBbfhWcy/FZR3/4IgflMgKLOsvPDrGCJA==}
+    deprecated: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
 
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
@@ -715,8 +720,8 @@ packages:
   ms@2.1.2:
     resolution: {integrity: sha512-sGkPx+VjMtmA6MX27oA4FBFELFCZZ4S4XqeGOXCv68tT+jb3vk/RyaKWP0PTKyWtmLSM0b+adUTEvbs1PEaH2w==}
 
-  nanoid@3.3.4:
-    resolution: {integrity: sha512-MqBkQh/OHTS2egovRtLk45wEyNXwF+cokD+1YPf9u5VfJiRdAiRwB2froX5Co9Rh20xs4siNPm8naNotSD6RBw==}
+  nanoid@3.3.12:
+    resolution: {integrity: sha512-ZB9RH/39qpq5Vu6Y+NmUaFhQR6pp+M2Xt76XBnEwDaGcVAqhlvxrl3B2bKS5D3NH3QR76v3aSrKaF/Kiy7lEtQ==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
@@ -775,6 +780,9 @@ packages:
   picocolors@1.0.0:
     resolution: {integrity: sha512-1fygroTLlHu66zi26VoTDv8yRgm0Fccecssto+MhsZ0D/DGW2sm8E8AjW7NU5VVTRt5GxbeZ5qBuJr+HyLYkjQ==}
 
+  picocolors@1.1.1:
+    resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
+
   picomatch@2.3.1:
     resolution: {integrity: sha512-JU3teHTNjmE2VCGFzuY8EXzCDVwEqB2a8fsIvwaStHhAWJEeVd1o1QD80CU6+ZdEXXSLbSsuLwJjkCBWqRQUVA==}
     engines: {node: '>=8.6'}
@@ -832,8 +840,8 @@ packages:
   postcss-value-parser@4.2.0:
     resolution: {integrity: sha512-1NNCs6uurfkVbeXG4S8JFT9t19m45ICnif8zWLd5oPSZ50QnwMfK+H3jv408d4jw/7Bttv5axS5IiHoLaVNHeQ==}
 
-  postcss@8.4.20:
-    resolution: {integrity: sha512-6Q04AXR1212bXr5fh03u8aAwbLxAQNGQ/Q1LNa0VfOI06ZAlhPHtQvE4OIdpj4kLThXilalPnmDSOD65DcHt+g==}
+  postcss@8.5.10:
+    resolution: {integrity: sha512-pMMHxBOZKFU6HgAZ4eyGnwXF/EvPGGqUr0MnZ5+99485wwW41kW91A4LOGxSHhgugZmSChL5AlElNdwlNgcnLQ==}
     engines: {node: ^10 || ^12 || >=14}
 
   prelude-ls@1.2.1:
@@ -881,10 +889,12 @@ packages:
 
   rimraf@2.7.1:
     resolution: {integrity: sha512-uWjbaKIK3T1OSVptzX7Nl6PvQ3qAGtKEtVRjRuazjfL3Bx5eI409VZSqgND+4UNnmzLVdPj9FqFJNPqBZFve4w==}
+    deprecated: Rimraf versions prior to v4 are no longer supported
     hasBin: true
 
   rimraf@3.0.2:
     resolution: {integrity: sha512-JZkJMZkAGFFPP2YqXZXPbMlMBgsxzE8ILs4lMIX/2o0L9UBw9O/Y3o6wFw/i9YLapcUJWwqbi3kdxIPdC62TIA==}
+    deprecated: Rimraf versions prior to v4 are no longer supported
     hasBin: true
 
   rollup@3.14.0:
@@ -923,8 +933,8 @@ packages:
   sortablejs@1.15.2:
     resolution: {integrity: sha512-FJF5jgdfvoKn1MAKSdGs33bIqLi3LmsgVTliuX6iITj834F+JRQZN90Z93yql8h0K2t0RwDPBmxwlbZfDcxNZA==}
 
-  source-map-js@1.0.2:
-    resolution: {integrity: sha512-R0XvVJ9WusLiqTCEiGCmICCMplcCkIwwR11mOSD9CR5u+IXYdiseeEuXCVAjS54zqwkLcPNnmU4OeJ6tUrWhDw==}
+  source-map-js@1.2.1:
+    resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
 
   sourcemap-codec@1.4.8:
@@ -1336,14 +1346,14 @@ snapshots:
 
   argparse@2.0.1: {}
 
-  autoprefixer@10.4.13(postcss@8.4.20):
+  autoprefixer@10.4.13(postcss@8.5.10):
     dependencies:
       browserslist: 4.21.4
       caniuse-lite: 1.0.30001434
       fraction.js: 4.2.0
       normalize-range: 0.1.2
       picocolors: 1.0.0
-      postcss: 8.4.20
+      postcss: 8.5.10
       postcss-value-parser: 4.2.0
 
   balanced-match@1.0.2: {}
@@ -1422,14 +1432,14 @@ snapshots:
 
   cssesc@3.0.0: {}
 
-  daisyui@2.45.0(autoprefixer@10.4.13(postcss@8.4.20))(postcss@8.4.20):
+  daisyui@2.45.0(autoprefixer@10.4.13(postcss@8.5.10))(postcss@8.5.10):
     dependencies:
-      autoprefixer: 10.4.13(postcss@8.4.20)
+      autoprefixer: 10.4.13(postcss@8.5.10)
       color: 4.2.3
       css-selector-tokenizer: 0.8.0
-      postcss: 8.4.20
-      postcss-js: 4.0.0(postcss@8.4.20)
-      tailwindcss: 3.2.4(postcss@8.4.20)
+      postcss: 8.5.10
+      postcss-js: 4.0.0(postcss@8.5.10)
+      tailwindcss: 3.2.4(postcss@8.5.10)
     transitivePeerDependencies:
       - ts-node
 
@@ -1751,7 +1761,7 @@ snapshots:
 
   ms@2.1.2: {}
 
-  nanoid@3.3.4: {}
+  nanoid@3.3.12: {}
 
   natural-compare@1.4.0: {}
 
@@ -1798,39 +1808,41 @@ snapshots:
 
   picocolors@1.0.0: {}
 
+  picocolors@1.1.1: {}
+
   picomatch@2.3.1: {}
 
   pify@2.3.0: {}
 
-  postcss-import@14.1.0(postcss@8.4.20):
+  postcss-import@14.1.0(postcss@8.5.10):
     dependencies:
-      postcss: 8.4.20
+      postcss: 8.5.10
       postcss-value-parser: 4.2.0
       read-cache: 1.0.0
       resolve: 1.22.1
 
-  postcss-js@4.0.0(postcss@8.4.20):
+  postcss-js@4.0.0(postcss@8.5.10):
     dependencies:
       camelcase-css: 2.0.1
-      postcss: 8.4.20
+      postcss: 8.5.10
 
-  postcss-load-config@3.1.4(postcss@8.4.20):
+  postcss-load-config@3.1.4(postcss@8.5.10):
     dependencies:
       lilconfig: 2.0.6
       yaml: 1.10.2
     optionalDependencies:
-      postcss: 8.4.20
+      postcss: 8.5.10
 
-  postcss-load-config@4.0.1(postcss@8.4.20):
+  postcss-load-config@4.0.1(postcss@8.5.10):
     dependencies:
       lilconfig: 2.0.6
       yaml: 2.1.3
     optionalDependencies:
-      postcss: 8.4.20
+      postcss: 8.5.10
 
-  postcss-nested@6.0.0(postcss@8.4.20):
+  postcss-nested@6.0.0(postcss@8.5.10):
     dependencies:
-      postcss: 8.4.20
+      postcss: 8.5.10
       postcss-selector-parser: 6.0.11
 
   postcss-selector-parser@6.0.11:
@@ -1840,11 +1852,11 @@ snapshots:
 
   postcss-value-parser@4.2.0: {}
 
-  postcss@8.4.20:
+  postcss@8.5.10:
     dependencies:
-      nanoid: 3.3.4
-      picocolors: 1.0.0
-      source-map-js: 1.0.2
+      nanoid: 3.3.12
+      picocolors: 1.1.1
+      source-map-js: 1.2.1
 
   prelude-ls@1.2.1: {}
 
@@ -1926,7 +1938,7 @@ snapshots:
 
   sortablejs@1.15.2: {}
 
-  source-map-js@1.0.2: {}
+  source-map-js@1.2.1: {}
 
   sourcemap-codec@1.4.8: {}
 
@@ -1946,7 +1958,7 @@ snapshots:
 
   supports-preserve-symlinks-flag@1.0.0: {}
 
-  svelte-check@2.10.2(postcss-load-config@4.0.1(postcss@8.4.20))(postcss@8.4.20)(svelte@3.55.0):
+  svelte-check@2.10.2(postcss-load-config@4.0.1(postcss@8.5.10))(postcss@8.5.10)(svelte@3.55.0):
     dependencies:
       '@jridgewell/trace-mapping': 0.3.17
       chokidar: 3.5.3
@@ -1955,7 +1967,7 @@ snapshots:
       picocolors: 1.0.0
       sade: 1.8.1
       svelte: 3.55.0
-      svelte-preprocess: 4.10.7(postcss-load-config@4.0.1(postcss@8.4.20))(postcss@8.4.20)(svelte@3.55.0)(typescript@4.9.4)
+      svelte-preprocess: 4.10.7(postcss-load-config@4.0.1(postcss@8.5.10))(postcss@8.5.10)(svelte@3.55.0)(typescript@4.9.4)
       typescript: 4.9.4
     transitivePeerDependencies:
       - '@babel/core'
@@ -1973,7 +1985,7 @@ snapshots:
     dependencies:
       svelte: 3.55.0
 
-  svelte-preprocess@4.10.7(postcss-load-config@4.0.1(postcss@8.4.20))(postcss@8.4.20)(svelte@3.55.0)(typescript@4.9.4):
+  svelte-preprocess@4.10.7(postcss-load-config@4.0.1(postcss@8.5.10))(postcss@8.5.10)(svelte@3.55.0)(typescript@4.9.4):
     dependencies:
       '@types/pug': 2.0.6
       '@types/sass': 1.43.1
@@ -1983,11 +1995,11 @@ snapshots:
       strip-indent: 3.0.0
       svelte: 3.55.0
     optionalDependencies:
-      postcss: 8.4.20
-      postcss-load-config: 4.0.1(postcss@8.4.20)
+      postcss: 8.5.10
+      postcss-load-config: 4.0.1(postcss@8.5.10)
       typescript: 4.9.4
 
-  svelte-preprocess@5.0.0(postcss-load-config@4.0.1(postcss@8.4.20))(postcss@8.4.20)(svelte@3.55.0)(typescript@4.9.4):
+  svelte-preprocess@5.0.0(postcss-load-config@4.0.1(postcss@8.5.10))(postcss@8.5.10)(svelte@3.55.0)(typescript@4.9.4):
     dependencies:
       '@types/pug': 2.0.6
       '@types/sass': 1.43.1
@@ -1997,13 +2009,13 @@ snapshots:
       strip-indent: 3.0.0
       svelte: 3.55.0
     optionalDependencies:
-      postcss: 8.4.20
-      postcss-load-config: 4.0.1(postcss@8.4.20)
+      postcss: 8.5.10
+      postcss-load-config: 4.0.1(postcss@8.5.10)
       typescript: 4.9.4
 
   svelte@3.55.0: {}
 
-  tailwindcss@3.2.4(postcss@8.4.20):
+  tailwindcss@3.2.4(postcss@8.5.10):
     dependencies:
       arg: 5.0.2
       chokidar: 3.5.3
@@ -2019,11 +2031,11 @@ snapshots:
       normalize-path: 3.0.0
       object-hash: 3.0.0
       picocolors: 1.0.0
-      postcss: 8.4.20
-      postcss-import: 14.1.0(postcss@8.4.20)
-      postcss-js: 4.0.0(postcss@8.4.20)
-      postcss-load-config: 3.1.4(postcss@8.4.20)
-      postcss-nested: 6.0.0(postcss@8.4.20)
+      postcss: 8.5.10
+      postcss-import: 14.1.0(postcss@8.5.10)
+      postcss-js: 4.0.0(postcss@8.5.10)
+      postcss-load-config: 3.1.4(postcss@8.5.10)
+      postcss-nested: 6.0.0(postcss@8.5.10)
       postcss-selector-parser: 6.0.11
       postcss-value-parser: 4.2.0
       quick-lru: 5.1.1
@@ -2051,7 +2063,7 @@ snapshots:
     dependencies:
       browserslist: 4.21.4
       escalade: 3.1.1
-      picocolors: 1.0.0
+      picocolors: 1.1.1
 
   uri-js@4.4.1:
     dependencies:
@@ -2068,7 +2080,7 @@ snapshots:
   vite@4.0.1(@types/node@18.11.9):
     dependencies:
       esbuild: 0.16.8
-      postcss: 8.4.20
+      postcss: 8.5.10
       resolve: 1.22.1
       rollup: 3.14.0
     optionalDependencies:
