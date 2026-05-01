@@ -54,13 +54,14 @@ export interface ObsSceneCaptureWindowSelection {
     value?: string;
     sceneName?: string;
     targetKind?: ObsSetupTargetKind;
+    captureMode?: ObsCaptureMode | null;
     captureValues?: ObsWindowCaptureValues | null;
     videoDeviceId?: string | null;
     audioDeviceId?: string | null;
     wasapiInputDeviceId?: string | null;
 }
 
-interface WindowsCapturePlanOptions {
+export interface WindowsCapturePlanOptions {
     isWindows: boolean;
     isWindows10OrHigher: boolean;
 }
@@ -319,6 +320,34 @@ function buildWindowsApplicationAudioCaptureInput(
     };
 }
 
+export function buildWindowsVideoCaptureInput(
+    sceneName: string,
+    captureMode: ObsCaptureMode,
+    windowValue: string,
+    options: WindowsCapturePlanOptions
+): ObsSceneCaptureInput {
+    if (captureMode === 'window_capture') {
+        const variant = WINDOW_CAPTURE_VARIANTS[0];
+        return {
+            inputName: `${sceneName} - ${variant.inputNameSuffix}`,
+            inputKind: 'window_capture',
+            inputSettings: variant.buildSettings(windowValue, options),
+            sceneItemEnabled: true,
+        };
+    }
+
+    return {
+        inputName: `${sceneName} - Game Capture`,
+        inputKind: 'game_capture',
+        inputSettings: {
+            window: windowValue,
+            capture_mode: 'window',
+            capture_cursor: false,
+        },
+        sceneItemEnabled: true,
+    };
+}
+
 export function buildWindowsSceneCaptureInputs(
     sceneName: string,
     selectedWindow: ObsSceneCaptureWindowSelection,
@@ -373,46 +402,39 @@ export function buildWindowsSceneCaptureInputs(
 
     const captureValues = normalizeCaptureValues(selectedWindow);
     const captureInputs: ObsSceneCaptureInput[] = [];
+    const selectedCaptureMode =
+        selectedWindow.captureMode === 'window_capture' ||
+        selectedWindow.captureMode === 'game_capture'
+            ? selectedWindow.captureMode
+            : captureValues.game_capture
+              ? 'game_capture'
+              : 'window_capture';
+    const selectedWindowValue = captureValues[selectedCaptureMode];
 
-    for (const variant of WINDOW_CAPTURE_VARIANTS) {
-        const windowValue = captureValues.window_capture;
-        if (!windowValue) {
-            continue;
-        }
-
-        captureInputs.push({
-            inputName: `${sceneName} - ${variant.inputNameSuffix}`,
-            inputKind: 'window_capture',
-            inputSettings: variant.buildSettings(windowValue, options),
-            sceneItemEnabled: true,
-        });
-    }
-
-    if (captureValues.window_capture) {
-        captureInputs.push(
-            buildWindowsApplicationAudioCaptureInput(
-                sceneName,
-                captureValues.window_capture
-            )
+    if (!selectedWindowValue) {
+        const windowLabel = selectedWindow.title || sceneName;
+        throw new Error(
+            `No OBS ${selectedCaptureMode} source was available for "${windowLabel}".`
         );
     }
 
-    if (captureValues.game_capture) {
-        captureInputs.push({
-            inputName: `${sceneName} - Game Capture`,
-            inputKind: 'game_capture',
-            inputSettings: {
-                window: captureValues.game_capture,
-                capture_mode: 'window',
-                capture_cursor: false,
-            },
-            sceneItemEnabled: true,
-        });
-    }
+    captureInputs.push(
+        buildWindowsVideoCaptureInput(
+            sceneName,
+            selectedCaptureMode,
+            selectedWindowValue,
+            options
+        )
+    );
 
-    if (!captureInputs.length) {
-        const windowLabel = selectedWindow.title || sceneName;
-        throw new Error(`No OBS capture sources were available for "${windowLabel}".`);
+    const audioWindowValue = captureValues.window_capture ?? captureValues.game_capture;
+    if (audioWindowValue) {
+        captureInputs.push(
+            buildWindowsApplicationAudioCaptureInput(
+                sceneName,
+                audioWindowValue
+            )
+        );
     }
 
     return captureInputs;

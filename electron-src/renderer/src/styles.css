@@ -2702,6 +2702,38 @@ button[data-tip]:hover::after,
   gap: 10px;
 }
 
+.home-capture-mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.home-capture-mode__option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid #3a3a3a;
+  border-radius: 5px;
+  background: #242424;
+  color: #c9d1dd;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.home-capture-mode__option:has(input:checked) {
+  border-color: #5f88cc;
+  background: #263449;
+  color: #e5f0ff;
+}
+
+.home-capture-mode__option:has(input:disabled) {
+  opacity: 0.45;
+  cursor: default;
+}
+
 /* ---- Setup Card -------------------------------------------------- */
 
 .home-setup-card .card-header {

@@ -136,8 +136,8 @@ interface Option {
 
 interface ComparisonFieldDefinition {
   key: ComparisonFieldKey;
-  label: string;
-  title: string;
+  labelKey: string;
+  titleKey: string;
   min: number;
   max: number;
   step: number;
@@ -233,146 +233,136 @@ const DEPENDENCY_REMOVE_OPTIONS: Option[] = [
 const COMPARISON_FIELDS: ComparisonFieldDefinition[] = [
   {
     key: "duplicate_similarity_threshold",
-    label: "Duplicate Match Threshold (%)",
-    title:
-      "Higher values are stricter. Raise this if different lines are being treated as duplicates.",
+    labelKey: "ocr.comparison.duplicateThreshold.label",
+    titleKey: "ocr.comparison.duplicateThreshold.title",
     min: 0,
     max: 100,
     step: 1
   },
   {
     key: "change_detection_threshold",
-    label: "Text Change Threshold (%)",
-    title:
-      "Lower values trigger OCR2 sooner on partial changes. Higher values wait for clearer changes.",
+    labelKey: "ocr.comparison.changeThreshold.label",
+    titleKey: "ocr.comparison.changeThreshold.title",
     min: 0,
     max: 100,
     step: 1
   },
   {
     key: "evolving_prefix_similarity_threshold",
-    label: "Evolving Prefix Match (%)",
-    title:
-      "Used when checking whether a short line looks like the beginning of a longer line.",
+    labelKey: "ocr.comparison.evolvingPrefix.label",
+    titleKey: "ocr.comparison.evolvingPrefix.title",
     min: 0,
     max: 100,
     step: 1
   },
   {
     key: "truncation_compare_threshold_min",
-    label: "Truncation Fallback Min Threshold (%)",
-    title:
-      "Minimum compare threshold required before prefix or suffix truncation matching is allowed.",
+    labelKey: "ocr.comparison.truncationFallbackMin.label",
+    titleKey: "ocr.comparison.truncationFallbackMin.title",
     min: 0,
     max: 100,
     step: 1
   },
   {
     key: "truncation_strict_threshold_min",
-    label: "Truncation Strict Threshold (%)",
-    title:
-      "Above this threshold, GSM also requires a stronger base similarity before treating a truncation as the same text.",
+    labelKey: "ocr.comparison.truncationStrictMin.label",
+    titleKey: "ocr.comparison.truncationStrictMin.title",
     min: 0,
     max: 100,
     step: 1
   },
   {
     key: "truncation_similarity_margin",
-    label: "Truncation Base Margin",
-    title:
-      "How far below the compare threshold the base similarity may be before truncation fallback is rejected.",
+    labelKey: "ocr.comparison.truncationMargin.label",
+    titleKey: "ocr.comparison.truncationMargin.title",
     min: 0,
     max: 100,
     step: 1
   },
   {
     key: "truncation_min_length",
-    label: "Truncation Min Length (chars)",
-    title: "Shortest normalized string length allowed for truncation matching.",
+    labelKey: "ocr.comparison.truncationMinLength.label",
+    titleKey: "ocr.comparison.truncationMinLength.title",
     min: 1,
     max: 1000,
     step: 1
   },
   {
     key: "truncation_min_ratio_percent",
-    label: "Truncation Min Length Ratio (%)",
-    title:
-      "How much of the longer line the shorter line must cover before truncation matching is considered.",
+    labelKey: "ocr.comparison.truncationMinRatio.label",
+    titleKey: "ocr.comparison.truncationMinRatio.title",
     min: 0,
     max: 100,
     step: 1
   },
   {
     key: "subset_chunk_min_length",
-    label: "Subset Chunk Min Length (chars)",
-    title:
-      "Incoming OCR chunks shorter than this skip the chunk-coverage fallback unless they are exact matches.",
+    labelKey: "ocr.comparison.subsetChunkMinLength.label",
+    titleKey: "ocr.comparison.subsetChunkMinLength.title",
     min: 1,
     max: 1000,
     step: 1
   },
   {
     key: "matching_block_short_chunk_char_limit",
-    label: "Short Chunk Limit (chars)",
-    title: "Chunks at or below this length use the smaller matching-block minimum.",
+    labelKey: "ocr.comparison.shortChunkLimit.label",
+    titleKey: "ocr.comparison.shortChunkLimit.title",
     min: 1,
     max: 1000,
     step: 1
   },
   {
     key: "matching_block_small_chunk_min_size",
-    label: "Short Chunk Match Min Size",
-    title: "Minimum contiguous match size counted for short chunks.",
+    labelKey: "ocr.comparison.shortChunkMinSize.label",
+    titleKey: "ocr.comparison.shortChunkMinSize.title",
     min: 1,
     max: 1000,
     step: 1
   },
   {
     key: "matching_block_default_min_size",
-    label: "Default Match Min Size",
-    title: "Minimum contiguous match size counted for longer chunks.",
+    labelKey: "ocr.comparison.defaultMinSize.label",
+    titleKey: "ocr.comparison.defaultMinSize.title",
     min: 1,
     max: 1000,
     step: 1
   },
   {
     key: "subset_coverage_floor_percent",
-    label: "Subset Coverage Floor (%)",
-    title: "Lowest allowed chunk-coverage requirement for dedupe fallback.",
+    labelKey: "ocr.comparison.coverageFloor.label",
+    titleKey: "ocr.comparison.coverageFloor.title",
     min: 0,
     max: 100,
     step: 1
   },
   {
     key: "subset_coverage_ceiling_percent",
-    label: "Subset Coverage Ceiling (%)",
-    title: "Highest allowed chunk-coverage requirement for dedupe fallback.",
+    labelKey: "ocr.comparison.coverageCeiling.label",
+    titleKey: "ocr.comparison.coverageCeiling.title",
     min: 0,
     max: 100,
     step: 1
   },
   {
     key: "subset_coverage_threshold_offset",
-    label: "Coverage Threshold Offset",
-    title:
-      "Offset applied before converting the current compare threshold into a coverage requirement.",
+    labelKey: "ocr.comparison.coverageOffset.label",
+    titleKey: "ocr.comparison.coverageOffset.title",
     min: 0,
     max: 100,
     step: 1
   },
   {
     key: "subset_longest_block_min_chars",
-    label: "Longest Block Minimum (chars)",
-    title: "Minimum contiguous block size required in subset coverage mode.",
+    labelKey: "ocr.comparison.longestBlockMin.label",
+    titleKey: "ocr.comparison.longestBlockMin.title",
     min: 1,
     max: 1000,
     step: 1
   },
   {
     key: "subset_longest_block_divisor",
-    label: "Longest Block Divisor",
-    title:
-      "Larger values reduce the required contiguous block length for longer chunks.",
+    labelKey: "ocr.comparison.longestBlockDivisor.label",
+    titleKey: "ocr.comparison.longestBlockDivisor.title",
     min: 1,
     max: 1000,
     step: 1
@@ -772,105 +762,56 @@ function splitComparisonFields() {
 
 const COMPARISON_LAYOUT = splitComparisonFields();
 
-const OCR_TOOLTIPS = {
-  scene:
-    "Select the OBS Scene to capture for OCR. You can make a new Scene in the Home tab. Each scene can have its own OCR rectangles and furigana sensitivity.",
-  refreshScenes:
-    "Reload the OBS scene list and re-read the active scene's OCR area file.",
-  selectAreas:
-    "Open the OCR area selector for the current scene. Draw the rectangles GSM should scan.",
-  importAreas:
-    "Import OCR area config from your clipboard (JSON). Only the rectangle layout is imported.",
-  exportAreas:
-    "Copy the current scene's OCR rectangles to your clipboard as JSON.",
-  docs:
-    "Open the OCR guide documentation for setup help, engine notes, and workflows.",
-  advancedMode:
-    "Show engine selection and comparison tuning. Basic mode keeps common settings visible and hides the expert knobs.",
-  basicScanRate:
-    "How quickly the text appears in your game.\n• Instant: best for immediate text, highest CPU usage\n• Normal: balanced for most dialogue\n• Slow: better for gradually revealed text",
-  advancedScanRate:
-    "OCR polling interval in seconds. Lower values scan more often and react faster, but use more resources. Higher values scan less often and may feel calmer on slower text.",
-  language:
-    "Select the language for OCR processing. This ensures only blocks with the correct characters are captured. All Latin-script languages (English, Spanish, French, German, etc.) are supported under English.",
-  baseScale:
-    "Controls how much the screenshot is scaled before scanning.\n• Lower = faster scans, less CPU, but may miss small text\n• Higher = more accurate on small fonts, but uses more CPU\n\n50% → Fast ⚡⚡⚡ | 75% → Balanced ✓ | 100% → Slowest ⚡\n\nTip: If OCR misses small kanji or skips characters, try increasing this value.",
-  furiganaFilter:
-    "Filters characters smaller than the selected text size. If you notice real dialogue disappearing, either lower this or set it to 0.\n\nTip: Click Preview to open a window that helps you select the best sensitivity for your current game.",
-  furiganaPreview:
-    "Open a preview window to tune furigana sensitivity against a sample character from your current game.",
-  sendToClipboard:
-    "OCR sends text to the websocket by default. Choose which OCR modes should also copy the final text to the clipboard.",
-  sendToClipboardAuto:
-    "Copy normal automatic OCR results to the clipboard.",
-  sendToClipboardMenu:
-    "Copy menu OCR results to the clipboard.",
-  sendToClipboardAreaSelect:
-    "Copy manual area-select OCR captures to the clipboard.",
-  keepNewline:
-    "If enabled, OCR will attempt to keep line breaks in the output text for better readability. Not guaranteed.",
-  keepNewlineAuto:
-    "Keep line breaks for normal automatic OCR results.",
-  keepNewlineMenu:
-    "Keep line breaks for menu OCR results.",
-  keepNewlineAreaSelect:
-    "Keep line breaks for manual area-select OCR captures.",
-  twoPassOCR:
-    "OCR Option 1 runs at the set scan rate. If two pass is enabled and the text does not change by the next scan, it will then do the second scan with the main OCR engine.",
-  stabilityOcr:
-    "This runs first to watch for text changes and stability. Fast engines work best here. On Windows, OneOCR is recommended.",
-  mainOcr:
-    "This engine sends the final OCR result to the websocket or clipboard. Pick the most accurate option that works well for your game.",
-  optimizeSecondScan:
-    "Trim the image for the second scan to improve performance (OneOCR 1st only). If your game's text is unusual and some text doesn't get captured, try turning this off.",
-  ocrScreenshots:
-    "If enabled, OCR will also process screenshots taken from the clipboard.",
-  manualHotkey:
-    "Hotkey to manually OCR the selected area. Uses the Main OCR engine, and is also used for menu OCR (Ctrl+Click in Area Selector). Press Escape to clear.",
-  areaSelectHotkey:
-    "On press, lets you select a temporary area to OCR one time. Useful for menus. Press Escape to clear.",
-  wholeWindowHotkey:
-    "Runs a one-time OCR scan on the full active OCR source (typically your OBS game source), bypassing area rectangles. Press Escape to clear.",
-  pauseHotkey:
-    "Pauses or resumes OCR scanning everywhere. Useful during cutscenes or when you want OCR temporarily out of the way. Press Escape to clear.",
-  processPriority:
-    "Sets the process priority for the OCR Python process on Windows. Higher values may improve OCR responsiveness but can reduce system responsiveness.",
-  defaultSceneFurigana:
-    "Used when a scene does not yet have a saved config file. Existing scenes keep their own saved value.",
-  obsCapturePreprocess:
-    "Applies preprocessing to OBS screenshots before OCR cropping. Grayscale + Autocontrast + Unsharp can improve subtitle OCR in noisy scenes.",
-  ignoreRun1Logs:
-    'Hides OCR terminal lines containing "OCR Run 1: Text recognized…" to reduce duplicate output noise when two-pass OCR is enabled. Run 2 lines stay highlighted in green.',
-  installDependency:
-    "Install optional OCR dependencies into the GSM Python environment. If unsure, choose a recommended option.",
-  uninstallDependency:
-    "Remove optional OCR dependencies from the GSM Python environment.",
-  replacements:
-    "Open the OCR replacement rules page for fixing recurring OCR mistakes after recognition.",
-  openConfigFile:
-    "Open the active Electron OCR config JSON file.",
-  openConfigFolder:
-    "Open the OCR config folder that stores per-scene area files.",
-  openGlobalConfig:
-    "Open the global OWOCR config used by the OCR engines.",
-  openTempFolder:
-    "Open GSM's temp folder to see OCR'd image samples and helper files.",
-  clearConsole:
-    "Clear the OCR console output shown in this tab.",
-  startAuto:
-    "Start continuous OCR scanning for the selected scene's rectangles. GSM will keep polling and send lines automatically.",
-  startManual:
-    "Start manual OCR mode. GSM waits for your manual capture hotkeys instead of scanning continuously.",
-  stop:
-    "Stop the active OCR process completely.",
-  pause:
-    "Pause automatic OCR scanning without closing the OCR process.",
-  resume:
-    "Resume OCR scanning after it has been paused.",
-  advancedRecognition:
-    "Engine, scan, and capture settings that control how OCR runs.",
-  comparison:
-    "Dedupe and change-detection thresholds that decide when text is new, stable, or a subset of a previous line."
+const OCR_TOOLTIP_KEYS = {
+  scene: "ocr.tooltips.scene",
+  refreshScenes: "ocr.tooltips.refreshScenes",
+  selectAreas: "ocr.tooltips.selectAreas",
+  importAreas: "ocr.tooltips.importAreas",
+  exportAreas: "ocr.tooltips.exportAreas",
+  docs: "ocr.tooltips.docs",
+  advancedMode: "ocr.tooltips.advancedMode",
+  basicScanRate: "ocr.tooltips.basicScanRate",
+  advancedScanRate: "ocr.tooltips.advancedScanRate",
+  language: "ocr.tooltips.language",
+  baseScale: "ocr.tooltips.baseScale",
+  furiganaFilter: "ocr.tooltips.furiganaFilter",
+  furiganaPreview: "ocr.tooltips.furiganaPreview",
+  sendToClipboard: "ocr.tooltips.sendToClipboard",
+  sendToClipboardAuto: "ocr.tooltips.sendToClipboardAuto",
+  sendToClipboardMenu: "ocr.tooltips.sendToClipboardMenu",
+  sendToClipboardAreaSelect: "ocr.tooltips.sendToClipboardAreaSelect",
+  keepNewline: "ocr.tooltips.keepNewline",
+  keepNewlineAuto: "ocr.tooltips.keepNewlineAuto",
+  keepNewlineMenu: "ocr.tooltips.keepNewlineMenu",
+  keepNewlineAreaSelect: "ocr.tooltips.keepNewlineAreaSelect",
+  twoPassOCR: "ocr.tooltips.twoPassOCR",
+  stabilityOcr: "ocr.tooltips.stabilityOcr",
+  mainOcr: "ocr.tooltips.mainOcr",
+  optimizeSecondScan: "ocr.tooltips.optimizeSecondScan",
+  ocrScreenshots: "ocr.tooltips.ocrScreenshots",
+  manualHotkey: "ocr.tooltips.manualHotkey",
+  areaSelectHotkey: "ocr.tooltips.areaSelectHotkey",
+  wholeWindowHotkey: "ocr.tooltips.wholeWindowHotkey",
+  pauseHotkey: "ocr.tooltips.pauseHotkey",
+  processPriority: "ocr.tooltips.processPriority",
+  defaultSceneFurigana: "ocr.tooltips.defaultSceneFurigana",
+  obsCapturePreprocess: "ocr.tooltips.obsCapturePreprocess",
+  ignoreRun1Logs: "ocr.tooltips.ignoreRun1Logs",
+  installDependency: "ocr.tooltips.installDependency",
+  uninstallDependency: "ocr.tooltips.uninstallDependency",
+  replacements: "ocr.tooltips.replacements",
+  openConfigFile: "ocr.tooltips.openConfigFile",
+  openConfigFolder: "ocr.tooltips.openConfigFolder",
+  openGlobalConfig: "ocr.tooltips.openGlobalConfig",
+  openTempFolder: "ocr.tooltips.openTempFolder",
+  clearConsole: "ocr.tooltips.clearConsole",
+  startAuto: "ocr.tooltips.startAuto",
+  startManual: "ocr.tooltips.startManual",
+  stop: "ocr.tooltips.stop",
+  pause: "ocr.tooltips.pause",
+  resume: "ocr.tooltips.resume",
+  advancedRecognition: "ocr.tooltips.advancedRecognition",
+  comparison: "ocr.tooltips.comparison"
 } as const;
 
 type TipAlignment = "start" | "center";
@@ -898,6 +839,15 @@ function titleProps(text: string) {
 
 export function OCRTab({ active }: OcrTabProps) {
   const t = useTranslation();
+  const ocrTooltips = useMemo(() => {
+    const localized = {} as Record<keyof typeof OCR_TOOLTIP_KEYS, string>;
+    for (const key of Object.keys(OCR_TOOLTIP_KEYS) as Array<
+      keyof typeof OCR_TOOLTIP_KEYS
+    >) {
+      localized[key] = t(OCR_TOOLTIP_KEYS[key]);
+    }
+    return localized;
+  }, [t]);
   const platform = platformFromEnv();
   const [config, setConfig] = useState<OcrUiConfig>(() =>
     normalizeOcrConfig(null, platform)
@@ -1666,7 +1616,7 @@ export function OCRTab({ active }: OcrTabProps) {
               </div>
               <div className="form-group ocr-form-group">
                 <div className="input-group ocr-scene-row">
-                  <Tip text={OCR_TOOLTIPS.scene}>
+                  <Tip text={ocrTooltips.scene}>
                     <label htmlFor="ocr-scene-select">{t("ocr.sceneAndAreas.sceneLabel")}</label>
                   </Tip>
                   <select
@@ -1689,7 +1639,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       ))
                     )}
                   </select>
-                  <Tip text={OCR_TOOLTIPS.refreshScenes} align="center">
+                  <Tip text={ocrTooltips.refreshScenes} align="center">
                     <button
                       type="button"
                       className="secondary ocr-icon-btn"
@@ -1705,12 +1655,12 @@ export function OCRTab({ active }: OcrTabProps) {
                 <div className="link-row">
                   <button
                     type="button"
-                    {...titleProps(OCR_TOOLTIPS.selectAreas)}
+                    {...titleProps(ocrTooltips.selectAreas)}
                     onClick={runScreenSelector}
                   >
                     {t("ocr.sceneAndAreas.selectAreas")}
                   </button>
-                  <Tip text={OCR_TOOLTIPS.importAreas} align="center">
+                  <Tip text={ocrTooltips.importAreas} align="center">
                     <button
                       type="button"
                       className="secondary ocr-icon-btn"
@@ -1720,7 +1670,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       📋
                     </button>
                   </Tip>
-                  <Tip text={OCR_TOOLTIPS.exportAreas} align="center">
+                  <Tip text={ocrTooltips.exportAreas} align="center">
                     <button
                       type="button"
                       className="secondary ocr-icon-btn"
@@ -1730,7 +1680,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       📤
                     </button>
                   </Tip>
-                  <Tip text={OCR_TOOLTIPS.docs} align="center">
+                  <Tip text={ocrTooltips.docs} align="center">
                     <button
                       type="button"
                       className="secondary ocr-icon-btn"
@@ -1751,7 +1701,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 <label
                   className="ocr-inline-toggle"
                   htmlFor="ocr-advanced-toggle"
-                  {...titleProps(OCR_TOOLTIPS.advancedMode)}
+                  {...titleProps(ocrTooltips.advancedMode)}
                 >
                   <span>{t("ocr.settings.advanced")}</span>
                   <input
@@ -1773,7 +1723,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   <div className="input-group">
                     <label
                       htmlFor="ocr-advanced-scan-rate"
-                      {...titleProps(OCR_TOOLTIPS.advancedScanRate)}
+                      {...titleProps(ocrTooltips.advancedScanRate)}
                     >
                       {t("ocr.settings.scanRate")}
                     </label>
@@ -1796,7 +1746,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   <div className="input-group">
                     <label
                       htmlFor="ocr-basic-speed"
-                      {...titleProps(OCR_TOOLTIPS.basicScanRate)}
+                      {...titleProps(ocrTooltips.basicScanRate)}
                     >
                       {t("ocr.settings.textSpeed")}
                     </label>
@@ -1820,7 +1770,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 )}
 
                 <div className="input-group">
-                  <label htmlFor="ocr-language" {...titleProps(OCR_TOOLTIPS.language)}>
+                  <label htmlFor="ocr-language" {...titleProps(ocrTooltips.language)}>
                     {t("ocr.settings.language")}
                   </label>
                   <select
@@ -1845,7 +1795,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   <div className="ocr-slider-header">
                     <label
                       htmlFor="ocr-base-scale"
-                      {...titleProps(OCR_TOOLTIPS.baseScale)}
+                      {...titleProps(ocrTooltips.baseScale)}
                     >
                       {t("ocr.settings.scanImageQuality")}
                     </label>
@@ -1871,7 +1821,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   <div className="ocr-slider-header">
                     <label
                       htmlFor="ocr-furigana-filter"
-                      {...titleProps(OCR_TOOLTIPS.furiganaFilter)}
+                      {...titleProps(ocrTooltips.furiganaFilter)}
                     >
                       {t("ocr.settings.furiganaFilter")}
                     </label>
@@ -1897,7 +1847,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary"
-                      {...titleProps(OCR_TOOLTIPS.furiganaPreview)}
+                      {...titleProps(ocrTooltips.furiganaPreview)}
                       onClick={async () => {
                         const next = await invokeIpc<number>("run-furigana-window");
                         setConfig((current) => ({
@@ -1912,7 +1862,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 </div>
 
                 <div className="ocr-linebreak-row">
-                  <Tip text={OCR_TOOLTIPS.sendToClipboard}>
+                  <Tip text={ocrTooltips.sendToClipboard}>
                     <span className="ocr-linebreak-label">{t("ocr.settings.copyToClipboard")}</span>
                   </Tip>
                   <label className="checkbox-item" htmlFor="send-to-clipboard-auto">
@@ -1929,7 +1879,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     />
                     <span
                       className="ocr-lb-auto"
-                      {...titleProps(OCR_TOOLTIPS.sendToClipboardAuto)}
+                      {...titleProps(ocrTooltips.sendToClipboardAuto)}
                     >
                       {t("ocr.settings.auto")}
                     </span>
@@ -1948,7 +1898,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     />
                     <span
                       className="ocr-lb-menu"
-                      {...titleProps(OCR_TOOLTIPS.sendToClipboardMenu)}
+                      {...titleProps(ocrTooltips.sendToClipboardMenu)}
                     >
                       {t("ocr.settings.menu")}
                     </span>
@@ -1970,7 +1920,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     />
                     <span
                       className="ocr-lb-area"
-                      {...titleProps(OCR_TOOLTIPS.sendToClipboardAreaSelect)}
+                      {...titleProps(ocrTooltips.sendToClipboardAreaSelect)}
                     >
                       {t("ocr.settings.areaSelect")}
                     </span>
@@ -1978,7 +1928,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 </div>
 
                 <div className="ocr-linebreak-row">
-                  <Tip text={OCR_TOOLTIPS.keepNewline}>
+                  <Tip text={ocrTooltips.keepNewline}>
                     <span className="ocr-linebreak-label">{t("ocr.settings.lineBreaks")}</span>
                   </Tip>
                   <label className="checkbox-item" htmlFor="keep-newline-auto">
@@ -1993,7 +1943,7 @@ export function OCRTab({ active }: OcrTabProps) {
                         }));
                       }}
                     />
-                    <span className="ocr-lb-auto" {...titleProps(OCR_TOOLTIPS.keepNewlineAuto)}>{t("ocr.settings.auto")}</span>
+                    <span className="ocr-lb-auto" {...titleProps(ocrTooltips.keepNewlineAuto)}>{t("ocr.settings.auto")}</span>
                   </label>
                   <label className="checkbox-item" htmlFor="keep-newline-menu">
                     <input
@@ -2007,7 +1957,7 @@ export function OCRTab({ active }: OcrTabProps) {
                         }));
                       }}
                     />
-                    <span className="ocr-lb-menu" {...titleProps(OCR_TOOLTIPS.keepNewlineMenu)}>{t("ocr.settings.menu")}</span>
+                    <span className="ocr-lb-menu" {...titleProps(ocrTooltips.keepNewlineMenu)}>{t("ocr.settings.menu")}</span>
                   </label>
                   <label className="checkbox-item" htmlFor="keep-newline-area-select">
                     <input
@@ -2021,7 +1971,7 @@ export function OCRTab({ active }: OcrTabProps) {
                         }));
                       }}
                     />
-                    <span className="ocr-lb-area" {...titleProps(OCR_TOOLTIPS.keepNewlineAreaSelect)}>
+                    <span className="ocr-lb-area" {...titleProps(ocrTooltips.keepNewlineAreaSelect)}>
                       {t("ocr.settings.areaSelect")}
                     </span>
                   </label>
@@ -2032,7 +1982,7 @@ export function OCRTab({ active }: OcrTabProps) {
               {config.advancedMode ? (
                 <>
                   <div className="ocr-pipeline-section">
-                    <h3 className="ocr-pipeline-heading" {...titleProps(OCR_TOOLTIPS.advancedRecognition)}>
+                    <h3 className="ocr-pipeline-heading" {...titleProps(ocrTooltips.advancedRecognition)}>
                       {t("ocr.pipeline.title")}
                     </h3>
                     <div className="ocr-pipeline-summary">
@@ -2044,7 +1994,7 @@ export function OCRTab({ active }: OcrTabProps) {
                         <div className="input-group ocr-pipeline-control">
                           <label
                             htmlFor="ocr-stability-engine"
-                            {...titleProps(OCR_TOOLTIPS.stabilityOcr)}
+                            {...titleProps(ocrTooltips.stabilityOcr)}
                           >
                             {t("ocr.pipeline.stabilityOcr")}
                           </label>
@@ -2068,7 +2018,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       ) : null}
 
                       <div className="input-group ocr-pipeline-control">
-                        <label htmlFor="ocr-main-engine" {...titleProps(OCR_TOOLTIPS.mainOcr)}>
+                        <label htmlFor="ocr-main-engine" {...titleProps(ocrTooltips.mainOcr)}>
                           {t("ocr.pipeline.mainOcr")}
                         </label>
                         <select
@@ -2090,7 +2040,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       </div>
 
                       <div className="input-group ocr-pipeline-control ocr-pipeline-control--toggle">
-                        <label htmlFor="ocr-two-pass" {...titleProps(OCR_TOOLTIPS.twoPassOCR)}>
+                        <label htmlFor="ocr-two-pass" {...titleProps(ocrTooltips.twoPassOCR)}>
                           {t("ocr.pipeline.twoPassOcr")}
                         </label>
                         <input
@@ -2110,7 +2060,7 @@ export function OCRTab({ active }: OcrTabProps) {
                         <div className="input-group ocr-pipeline-control ocr-pipeline-control--toggle">
                           <label
                             htmlFor="ocr-optimize-second-scan"
-                            {...titleProps(OCR_TOOLTIPS.optimizeSecondScan)}
+                            {...titleProps(ocrTooltips.optimizeSecondScan)}
                           >
                             {t("ocr.pipeline.optimizeSecondScan")}
                           </label>
@@ -2131,7 +2081,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       <div className="input-group ocr-pipeline-control ocr-pipeline-control--toggle">
                         <label
                           htmlFor="ocr-clipboard-screenshots"
-                          {...titleProps(OCR_TOOLTIPS.ocrScreenshots)}
+                          {...titleProps(ocrTooltips.ocrScreenshots)}
                         >
                           {t("ocr.pipeline.ocrClipboardImages")}
                         </label>
@@ -2151,7 +2101,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   </div>
 
                   <details className="ocr-details-card">
-                    <summary {...titleProps(OCR_TOOLTIPS.comparison)}>
+                    <summary {...titleProps(ocrTooltips.comparison)}>
                       {t("ocr.comparison.title")}
                     </summary>
                     <div className="ocr-comparison-primary-grid ocr-details-body">
@@ -2159,9 +2109,9 @@ export function OCRTab({ active }: OcrTabProps) {
                         <div key={field.key} className="ocr-comparison-field">
                           <label
                             htmlFor={`comparison-${field.key}`}
-                            {...titleProps(field.title)}
+                            {...titleProps(t(field.titleKey))}
                           >
-                            {field.label}
+                            {t(field.labelKey)}
                           </label>
                           <input
                             id={`comparison-${field.key}`}
@@ -2192,9 +2142,9 @@ export function OCRTab({ active }: OcrTabProps) {
                             <div key={field.key} className="ocr-comparison-field">
                               <label
                                 htmlFor={`comparison-${field.key}`}
-                                {...titleProps(field.title)}
+                                {...titleProps(t(field.titleKey))}
                               >
-                                {field.label}
+                                {t(field.labelKey)}
                               </label>
                               <input
                                 id={`comparison-${field.key}`}
@@ -2222,9 +2172,9 @@ export function OCRTab({ active }: OcrTabProps) {
                             <div key={field.key} className="ocr-comparison-field">
                               <label
                                 htmlFor={`comparison-${field.key}`}
-                                {...titleProps(field.title)}
+                                {...titleProps(t(field.titleKey))}
                               >
-                                {field.label}
+                                {t(field.labelKey)}
                               </label>
                               <input
                                 id={`comparison-${field.key}`}
@@ -2263,7 +2213,7 @@ export function OCRTab({ active }: OcrTabProps) {
               </div>
               <div className="form-group ocr-form-group ocr-hotkey-grid">
                 <div className="input-group">
-                  <label htmlFor="manual-hotkey" {...titleProps(OCR_TOOLTIPS.manualHotkey)}>
+                  <label htmlFor="manual-hotkey" {...titleProps(ocrTooltips.manualHotkey)}>
                     {t("ocr.hotkeys.manualMenu")}
                   </label>
                   <input
@@ -2282,7 +2232,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 </div>
 
                 <div className="input-group">
-                  <label htmlFor="area-hotkey">
+                  <label htmlFor="area-hotkey" {...titleProps(ocrTooltips.areaSelectHotkey)}>
                     {t("ocr.hotkeys.areaSelect")}
                   </label>
                   <input
@@ -2303,7 +2253,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 <div className="input-group">
                   <label
                     htmlFor="whole-window-hotkey"
-                    {...titleProps(OCR_TOOLTIPS.wholeWindowHotkey)}
+                    {...titleProps(ocrTooltips.wholeWindowHotkey)}
                   >
                     {t("ocr.hotkeys.wholeWindow")}
                   </label>
@@ -2323,7 +2273,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 </div>
 
                 <div className="input-group">
-                  <label htmlFor="pause-hotkey" {...titleProps(OCR_TOOLTIPS.pauseHotkey)}>
+                  <label htmlFor="pause-hotkey" {...titleProps(ocrTooltips.pauseHotkey)}>
                     {t("ocr.hotkeys.pause")}
                   </label>
                   <input
@@ -2354,7 +2304,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   <button
                     type="button"
                     className="secondary"
-                    {...titleProps(OCR_TOOLTIPS.clearConsole)}
+                    {...titleProps(ocrTooltips.clearConsole)}
                     onClick={clearTerminal}
                   >
                     {t("ocr.console.clear")}
@@ -2371,7 +2321,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 <div className="input-group">
                   <label
                     htmlFor="ignore-ocr-run-1"
-                    {...titleProps(OCR_TOOLTIPS.ignoreRun1Logs)}
+                    {...titleProps(ocrTooltips.ignoreRun1Logs)}
                   >
                     {t("ocr.debug.ignoreRun1Logs")}
                   </label>
@@ -2391,7 +2341,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 <div className="input-group">
                   <label
                     htmlFor="process-priority"
-                    {...titleProps(OCR_TOOLTIPS.processPriority)}
+                    {...titleProps(ocrTooltips.processPriority)}
                   >
                     {t("ocr.debug.processPriority")}
                   </label>
@@ -2416,7 +2366,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 <div className="input-group">
                   <label
                     htmlFor="default-furigana-sensitivity"
-                    {...titleProps(OCR_TOOLTIPS.defaultSceneFurigana)}
+                    {...titleProps(ocrTooltips.defaultSceneFurigana)}
                   >
                     {t("ocr.debug.defaultFuriganaSensitivity")}
                   </label>
@@ -2442,7 +2392,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 <div className="input-group">
                   <label
                     htmlFor="obs-preprocess"
-                    {...titleProps(OCR_TOOLTIPS.obsCapturePreprocess)}
+                    {...titleProps(ocrTooltips.obsCapturePreprocess)}
                   >
                     {t("ocr.debug.obsCapturePreprocess")}
                   </label>
@@ -2465,7 +2415,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 </div>
 
                 <div className="input-group wrap">
-                  <label htmlFor="dep-install" {...titleProps(OCR_TOOLTIPS.installDependency)}>
+                  <label htmlFor="dep-install" {...titleProps(ocrTooltips.installDependency)}>
                     {t("ocr.debug.installDependency")}
                   </label>
                   <select
@@ -2491,7 +2441,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 <div className="input-group wrap">
                   <label
                     htmlFor="dep-remove"
-                    {...titleProps(OCR_TOOLTIPS.uninstallDependency)}
+                    {...titleProps(ocrTooltips.uninstallDependency)}
                   >
                     {t("ocr.debug.removeDependency")}
                   </label>
@@ -2519,7 +2469,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   <button
                     type="button"
                     className="secondary"
-                    {...titleProps(OCR_TOOLTIPS.replacements)}
+                    {...titleProps(ocrTooltips.replacements)}
                     onClick={openOcrReplacementsPage}
                   >
                     {t("ocr.debug.ocrErrorFixes")}
@@ -2527,7 +2477,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   <button
                     type="button"
                     className="secondary"
-                    {...titleProps(OCR_TOOLTIPS.openConfigFile)}
+                    {...titleProps(ocrTooltips.openConfigFile)}
                     onClick={() => void invokeIpc("ocr.open-config-json")}
                   >
                     {t("ocr.debug.configFile")}
@@ -2535,7 +2485,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   <button
                     type="button"
                     className="secondary"
-                    {...titleProps(OCR_TOOLTIPS.openConfigFolder)}
+                    {...titleProps(ocrTooltips.openConfigFolder)}
                     onClick={() => void invokeIpc("ocr.open-config-folder")}
                   >
                     {t("ocr.debug.configFolder")}
@@ -2543,7 +2493,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   <button
                     type="button"
                     className="secondary"
-                    {...titleProps(OCR_TOOLTIPS.openGlobalConfig)}
+                    {...titleProps(ocrTooltips.openGlobalConfig)}
                     onClick={() => void invokeIpc("ocr.open-global-owocr-config")}
                   >
                     {t("ocr.debug.globalConfig")}
@@ -2551,7 +2501,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   <button
                     type="button"
                     className="secondary"
-                    {...titleProps(OCR_TOOLTIPS.openTempFolder)}
+                    {...titleProps(ocrTooltips.openTempFolder)}
                     onClick={() => void invokeIpc("ocr.open-temp-folder")}
                   >
                     {t("ocr.debug.tempFolder")}
@@ -2579,7 +2529,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 <button
                   type="button"
                   className="danger"
-                  title={OCR_TOOLTIPS.stop}
+                  title={ocrTooltips.stop}
                   onClick={() => void stopOcr()}
                 >
                   {t("ocr.footer.stopOcr")}
@@ -2587,7 +2537,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 <button
                   type="button"
                   className="secondary"
-                  title={paused ? OCR_TOOLTIPS.resume : OCR_TOOLTIPS.pause}
+                  title={paused ? ocrTooltips.resume : ocrTooltips.pause}
                   onClick={togglePause}
                 >
                   {paused ? t("ocr.footer.resumeOcr") : t("ocr.footer.pauseOcr")}
@@ -2600,8 +2550,10 @@ export function OCRTab({ active }: OcrTabProps) {
                   disabled={!hasConfiguredAreas}
                   title={
                     hasConfiguredAreas
-                      ? OCR_TOOLTIPS.startAuto
-                      : t("ocr.footer.needAreasFirst", { mode: "auto" })
+                      ? ocrTooltips.startAuto
+                      : t("ocr.footer.needAreasFirst", {
+                          mode: t("ocr.footer.modeAuto")
+                        })
                   }
                   onClick={() => void startOcr(false)}
                 >
@@ -2613,8 +2565,10 @@ export function OCRTab({ active }: OcrTabProps) {
                   disabled={!hasConfiguredAreas}
                   title={
                     hasConfiguredAreas
-                      ? OCR_TOOLTIPS.startManual
-                      : t("ocr.footer.needAreasFirst", { mode: "manual" })
+                      ? ocrTooltips.startManual
+                      : t("ocr.footer.needAreasFirst", {
+                          mode: t("ocr.footer.modeManual")
+                        })
                   }
                   onClick={() => void startOcr(true)}
                 >

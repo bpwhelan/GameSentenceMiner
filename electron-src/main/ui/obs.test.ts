@@ -14,6 +14,7 @@ const showMessageBoxMock = vi.fn();
 const mergeObsWindowItemsMock = vi.fn(() => []);
 const buildCaptureCardOptionsMock = vi.fn(() => []);
 const buildWindowsSceneCaptureInputsMock = vi.fn();
+const buildWindowsVideoCaptureInputMock = vi.fn();
 const existsSyncMock = vi.fn();
 const readFileMock = vi.fn();
 const writeFileMock = vi.fn();
@@ -83,6 +84,7 @@ vi.mock('./obs-capture.js', () => ({
     buildCaptureCardOptions: buildCaptureCardOptionsMock,
     buildLinuxSceneCaptureInputs: vi.fn(),
     buildWindowsSceneCaptureInputs: buildWindowsSceneCaptureInputsMock,
+    buildWindowsVideoCaptureInput: buildWindowsVideoCaptureInputMock,
     getObsWindowTitle: vi.fn((title: string) => title),
     mergeObsWindowItems: mergeObsWindowItemsMock,
 }));
@@ -132,6 +134,7 @@ describe('renameOBSScene', () => {
         mergeObsWindowItemsMock.mockReset();
         buildCaptureCardOptionsMock.mockReset();
         buildWindowsSceneCaptureInputsMock.mockReset();
+        buildWindowsVideoCaptureInputMock.mockReset();
         existsSyncMock.mockReset();
         readFileMock.mockReset();
         writeFileMock.mockReset();
@@ -143,6 +146,29 @@ describe('renameOBSScene', () => {
         mergeObsWindowItemsMock.mockReturnValue([]);
         buildCaptureCardOptionsMock.mockReturnValue([]);
         buildWindowsSceneCaptureInputsMock.mockReturnValue([]);
+        buildWindowsVideoCaptureInputMock.mockImplementation(
+            (sceneName: string, captureMode: string, windowValue: string) => ({
+                inputName:
+                    captureMode === 'game_capture'
+                        ? `${sceneName} - Game Capture`
+                        : `${sceneName} - Window Capture`,
+                inputKind: captureMode,
+                inputSettings:
+                    captureMode === 'game_capture'
+                        ? {
+                              window: windowValue,
+                              capture_mode: 'window',
+                              capture_cursor: false,
+                          }
+                        : {
+                              window: windowValue,
+                              mode: 'window',
+                              cursor: false,
+                              method: 2,
+                          },
+                sceneItemEnabled: true,
+            })
+        );
         existsSyncMock.mockImplementation((targetPath: string) => {
             if (targetPath === SCENE_COLLECTION_PATH) {
                 return true;
@@ -260,6 +286,109 @@ describe('renameOBSScene', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('detects the enabled capture mode for a mixed scene', async () => {
+        const { getSceneCaptureMode } = await loadObsModule();
+
+        obsCallMock.mockImplementation(async (requestType: string) => {
+            if (requestType === 'GetVersion') {
+                return {};
+            }
+            if (requestType === 'GetSceneItemList') {
+                return {
+                    sceneItems: [
+                        {
+                            sourceName: 'My Scene - Game Capture',
+                            inputKind: 'game_capture',
+                            sceneItemEnabled: false,
+                            sceneItemId: 10,
+                        },
+                        {
+                            sourceName: 'My Scene - Window Capture',
+                            inputKind: 'window_capture',
+                            sceneItemEnabled: true,
+                            sceneItemId: 11,
+                        },
+                    ],
+                };
+            }
+            return {};
+        });
+
+        await expect(getSceneCaptureMode('scene-123')).resolves.toBe(
+            'window_capture'
+        );
+    });
+
+    it('switches a scene from window capture to game capture', async () => {
+        const { switchOBSSceneCaptureMode } = await loadObsModule();
+
+        obsCallMock.mockImplementation(async (requestType: string, requestData?: any) => {
+            if (requestType === 'GetVersion') {
+                return {};
+            }
+            if (requestType === 'GetSceneList') {
+                return {
+                    scenes: [
+                        {
+                            sceneName: 'My Scene',
+                            sceneUuid: 'scene-123',
+                        },
+                    ],
+                };
+            }
+            if (requestType === 'GetSceneItemList') {
+                return {
+                    sceneItems: [
+                        {
+                            sourceUuid: 'window-source',
+                            sourceName: 'My Scene - Window Capture',
+                            inputKind: 'window_capture',
+                            sceneItemEnabled: true,
+                            sceneItemId: 11,
+                        },
+                    ],
+                };
+            }
+            if (
+                requestType === 'GetInputSettings' &&
+                requestData?.inputUuid === 'window-source'
+            ) {
+                return {
+                    inputSettings: {
+                        window: 'Game Window:GameClass:game.exe',
+                    },
+                };
+            }
+            if (
+                requestType === 'GetInputSettings' &&
+                requestData?.inputName === 'My Scene - Game Capture'
+            ) {
+                throw new Error('No source was found');
+            }
+            return {};
+        });
+
+        await expect(
+            switchOBSSceneCaptureMode('scene-123', 'game_capture')
+        ).resolves.toBe('game_capture');
+
+        expect(obsCallMock).toHaveBeenCalledWith('CreateInput', {
+            sceneName: 'My Scene',
+            inputName: 'My Scene - Game Capture',
+            inputKind: 'game_capture',
+            inputSettings: {
+                window: 'Game Window:GameClass:game.exe',
+                capture_mode: 'window',
+                capture_cursor: false,
+            },
+            sceneItemEnabled: true,
+        });
+        expect(obsCallMock).toHaveBeenCalledWith('RemoveSceneItem', {
+            sceneName: 'My Scene',
+            sceneItemId: 11,
+        });
     });
 
     it('forces helper sources to stay disabled when enumerating OBS windows', async () => {

@@ -228,4 +228,105 @@ describe("HomeTab", () => {
       { runOverlayOnStartup: true },
     );
   });
+
+  it("sends the selected capture mode when creating a scene", async () => {
+    invokeMock.mockImplementation(async (channel: string, payload?: unknown) => {
+      if (channel === "get_gsm_status") return okStatus;
+      if (channel === "settings.getSettings") return { runOverlayOnStartup: false };
+      if (channel === "obs.getScenes") return [];
+      if (channel === "obs.getActiveScene") return null;
+      if (channel === "obs.getCaptureCardProbeEnabled") return false;
+      if (channel === "obs.getWindows") {
+        return [
+          {
+            title: "Example Game",
+            value: "example-window",
+            targetKind: "window",
+            captureValues: {
+              window_capture: "Example Game:GameWindowClass:ExampleGame.exe",
+              game_capture: "Example Game:GameWindowClass:ExampleGame.exe",
+            },
+          },
+        ];
+      }
+      if (channel === "obs.createScene") return { ok: true, payload };
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<HomeTab active />);
+      await flushAsyncWork();
+    });
+
+    const windowSelect = container.querySelector("#home-window-select");
+    expect(windowSelect).toBeInstanceOf(HTMLSelectElement);
+
+    await act(async () => {
+      setElementValue(windowSelect as HTMLSelectElement, "example-window", "change");
+      await flushAsyncWork();
+    });
+
+    const windowCaptureRadio = container.querySelector(
+      'input[name="home-capture-mode"][value="window_capture"]',
+    );
+    expect(windowCaptureRadio).toBeInstanceOf(HTMLInputElement);
+
+    await act(async () => {
+      (windowCaptureRadio as HTMLInputElement).click();
+      await flushAsyncWork();
+    });
+
+    const setupButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Setup Capture",
+    );
+    expect(setupButton).toBeInstanceOf(HTMLButtonElement);
+
+    await act(async () => {
+      (setupButton as HTMLButtonElement).click();
+      await flushAsyncWork();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "obs.createScene",
+      expect.objectContaining({
+        title: "Example Game",
+        captureMode: "window_capture",
+      }),
+    );
+  });
+
+  it("shows and invokes the scene capture switch action", async () => {
+    const scene = { id: "scene-1", name: "Example Game" };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "get_gsm_status") return okStatus;
+      if (channel === "settings.getSettings") return { runOverlayOnStartup: false };
+      if (channel === "obs.getScenes") return [scene];
+      if (channel === "obs.getActiveScene") return scene;
+      if (channel === "obs.getSceneCaptureMode") return "window_capture";
+      if (channel === "obs.switchSceneCaptureMode") return "game_capture";
+      if (channel === "obs.getCaptureCardProbeEnabled") return false;
+      if (channel === "obs.getWindows") return [];
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<HomeTab active />);
+      await flushAsyncWork();
+    });
+
+    const switchButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Switch to Game Capture",
+    );
+    expect(switchButton).toBeInstanceOf(HTMLButtonElement);
+
+    await act(async () => {
+      (switchButton as HTMLButtonElement).click();
+      await flushAsyncWork();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("obs.switchSceneCaptureMode", {
+      sceneUuid: "scene-1",
+      targetMode: "game_capture",
+    });
+  });
 });

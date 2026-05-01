@@ -24,9 +24,11 @@ import {
     buildLinuxSceneCaptureInputs,
     getObsWindowTitle,
     buildWindowsSceneCaptureInputs,
+    buildWindowsVideoCaptureInput,
     mergeObsWindowItems,
     type ObsCaptureMode,
     type ObsDevicePropertyItem,
+    type ObsSceneCaptureInput,
     type ObsSceneCaptureWindowSelection,
     type ObsWindowOption,
     type ObsWindowPropertyItem,
@@ -669,6 +671,114 @@ function isVideoCaptureSceneItem(item: { inputKind?: unknown }): boolean {
     return VIDEO_CAPTURE_INPUT_KINDS.has(String(item.inputKind ?? ''));
 }
 
+function isSwitchableCaptureMode(value: unknown): value is ObsCaptureMode {
+    return value === 'window_capture' || value === 'game_capture';
+}
+
+function chooseSwitchableCaptureItem(sceneItems: any[]): any | null {
+    const captureItems = sceneItems.filter((item) =>
+        isSwitchableCaptureMode(item.inputKind)
+    );
+
+    if (captureItems.length === 0) {
+        return null;
+    }
+
+    const enabledItems = captureItems.filter(
+        (item) => item.sceneItemEnabled !== false
+    );
+    const candidates = enabledItems.length > 0 ? enabledItems : captureItems;
+
+    return (
+        candidates.find((item) => item.inputKind === 'game_capture') ??
+        candidates[0] ??
+        null
+    );
+}
+
+async function findSceneByUuid(sceneUuid: string): Promise<ObsScene | null> {
+    const trimmedSceneUuid = sceneUuid.trim();
+    if (!trimmedSceneUuid) {
+        return null;
+    }
+
+    const { scenes } = await callOBS('GetSceneList');
+    const scene = (scenes ?? []).find(
+        (candidate: any) => candidate.sceneUuid === trimmedSceneUuid
+    );
+    if (!scene) {
+        return null;
+    }
+
+    return { name: scene.sceneName, id: scene.sceneUuid };
+}
+
+async function getInputSettingsForSceneItem(
+    sceneItem: any
+): Promise<Record<string, unknown>> {
+    const requestData =
+        typeof sceneItem.sourceUuid === 'string' && sceneItem.sourceUuid.trim()
+            ? { inputUuid: sceneItem.sourceUuid as string }
+            : { inputName: String(sceneItem.sourceName ?? '') };
+
+    const response = await callOBS('GetInputSettings', requestData);
+    return response?.inputSettings ?? {};
+}
+
+async function upsertSceneInput(
+    sceneName: string,
+    captureInput: ObsSceneCaptureInput
+): Promise<void> {
+    let inputExists = false;
+    try {
+        await callOBS('GetInputSettings', { inputName: captureInput.inputName });
+        inputExists = true;
+    } catch {
+        inputExists = false;
+    }
+
+    if (!inputExists) {
+        await callOBS('CreateInput', {
+            sceneName,
+            ...captureInput,
+        });
+        return;
+    }
+
+    await callOBS('SetInputSettings', {
+        inputName: captureInput.inputName,
+        inputSettings: captureInput.inputSettings,
+        overlay: false,
+    });
+
+    let existingSceneItemId: number | null = null;
+    try {
+        const sceneItem = await callOBS('GetSceneItemId', {
+            sceneName,
+            sourceName: captureInput.inputName,
+        });
+        if (typeof sceneItem.sceneItemId === 'number') {
+            existingSceneItemId = sceneItem.sceneItemId;
+        }
+    } catch {
+        existingSceneItemId = null;
+    }
+
+    if (existingSceneItemId === null) {
+        await callOBS('CreateSceneItem', {
+            sceneName,
+            sourceName: captureInput.inputName,
+            sceneItemEnabled: captureInput.sceneItemEnabled,
+        });
+    } else {
+        await callOBS('SetSceneItemEnabled', {
+            sceneName,
+            sceneItemId: existingSceneItemId,
+            sceneItemEnabled: captureInput.sceneItemEnabled,
+        });
+    }
+}
+
 async function resetOBSClient(reason: string): Promise<void> {
     if (resetPromise) {
         return resetPromise;
@@ -895,48 +1005,8 @@ async function createSceneWithCapture(window: ObsSceneCaptureWindowSelection): P
               isLinux: isLinux(),
           });
 
-    // Create the fallback source first so the preferred game capture lands on top.
     for (const captureInput of captureInputs) {
-        try {
-            await callOBS('GetInputSettings', { inputName: captureInput.inputName });
-            await callOBS('SetInputSettings', {
-                inputName: captureInput.inputName,
-                inputSettings: captureInput.inputSettings,
-                overlay: false,
-            });
-
-            let existingSceneItemId: number | null = null;
-            try {
-                const sceneItem = await callOBS('GetSceneItemId', {
-                    sceneName,
-                    sourceName: captureInput.inputName,
-                });
-                if (typeof sceneItem.sceneItemId === 'number') {
-                    existingSceneItemId = sceneItem.sceneItemId;
-                }
-            } catch {
-                existingSceneItemId = null;
-            }
-
-            if (existingSceneItemId === null) {
-                await callOBS('CreateSceneItem', {
-                    sceneName,
-                    sourceName: captureInput.inputName,
-                    sceneItemEnabled: captureInput.sceneItemEnabled,
-                });
-            } else {
-                await callOBS('SetSceneItemEnabled', {
-                    sceneName,
-                    sceneItemId: existingSceneItemId,
-                    sceneItemEnabled: captureInput.sceneItemEnabled,
-                });
-            }
-        } catch {
-            await callOBS('CreateInput', {
-                sceneName,
-                ...captureInput,
-            });
-        }
+        await upsertSceneInput(sceneName, captureInput);
     }
 
     if (sceneInfo.switcherRegex) {
@@ -1341,6 +1411,44 @@ export async function registerOBSIPC() {
             return null;
         }
     });
+
+    ipcMain.handle('obs.getSceneCaptureMode', async (_, sceneUuid: string) => {
+        try {
+            return await getSceneCaptureMode(String(sceneUuid ?? ''));
+        } catch (error) {
+            if (!isOBSInitializingError(error)) {
+                logObsError('Error getting scene capture mode:', error);
+            }
+            return null;
+        }
+    });
+
+    ipcMain.handle(
+        'obs.switchSceneCaptureMode',
+        async (
+            _,
+            payload:
+                | { sceneUuid?: string; targetMode?: ObsCaptureMode }
+                | null
+                | undefined
+        ) => {
+            try {
+                const targetMode = payload?.targetMode;
+                if (!isSwitchableCaptureMode(targetMode)) {
+                    return null;
+                }
+                return await switchOBSSceneCaptureMode(
+                    payload?.sceneUuid ?? '',
+                    targetMode
+                );
+            } catch (error) {
+                if (!isOBSInitializingError(error)) {
+                    logObsError('Error switching scene capture mode:', error);
+                }
+                return null;
+            }
+        }
+    );
 
     ipcMain.handle('obs.getSceneActiveWindow', async () => {
         const currentScene = await getCurrentScene();
@@ -2157,6 +2265,105 @@ export async function sceneHasVisibleOutput(
         return false;
     } catch (error: any) {
         logObsError(`Error probing scene output for "${sceneName}":`, error?.message ?? error);
+        return null;
+    }
+}
+
+export async function getSceneCaptureMode(
+    sceneUuid: string
+): Promise<ObsCaptureMode | null> {
+    const trimmedSceneUuid = sceneUuid.trim();
+    if (!trimmedSceneUuid) {
+        return null;
+    }
+
+    try {
+        await getOBSConnection();
+        const sceneItems = await callOBS('GetSceneItemList', {
+            sceneUuid: trimmedSceneUuid,
+        });
+        const captureItem = chooseSwitchableCaptureItem(
+            sceneItems?.sceneItems ?? []
+        );
+        return isSwitchableCaptureMode(captureItem?.inputKind)
+            ? captureItem.inputKind
+            : null;
+    } catch (error: any) {
+        logObsError(
+            `Error detecting capture mode for scene "${trimmedSceneUuid}":`,
+            error?.message ?? error
+        );
+        return null;
+    }
+}
+
+export async function switchOBSSceneCaptureMode(
+    sceneUuid: string,
+    targetMode: ObsCaptureMode
+): Promise<ObsCaptureMode | null> {
+    const trimmedSceneUuid = sceneUuid.trim();
+    if (!trimmedSceneUuid || !isSwitchableCaptureMode(targetMode) || !isWindows()) {
+        return null;
+    }
+
+    try {
+        await getOBSConnection();
+        const scene = await findSceneByUuid(trimmedSceneUuid);
+        if (!scene) {
+            return null;
+        }
+
+        const sceneItemsResponse = await callOBS('GetSceneItemList', {
+            sceneUuid: trimmedSceneUuid,
+        });
+        const sceneItems = sceneItemsResponse?.sceneItems ?? [];
+        const switchableItems = sceneItems.filter((item: any) =>
+            isSwitchableCaptureMode(item.inputKind)
+        );
+        const currentItem = chooseSwitchableCaptureItem(sceneItems);
+
+        if (!currentItem) {
+            return null;
+        }
+
+        const sourceSettings = await getInputSettingsForSceneItem(currentItem);
+        const windowValue = sourceSettings.window;
+        if (typeof windowValue !== 'string' || !windowValue.trim()) {
+            return null;
+        }
+
+        const targetInput = buildWindowsVideoCaptureInput(
+            scene.name,
+            targetMode,
+            windowValue,
+            {
+                isWindows: isWindows(),
+                isWindows10OrHigher: isWindows10OrHigher(),
+            }
+        );
+
+        await upsertSceneInput(scene.name, targetInput);
+
+        for (const item of switchableItems) {
+            if (item.inputKind === targetMode || typeof item.sceneItemId !== 'number') {
+                continue;
+            }
+            try {
+                await callOBS('RemoveSceneItem', {
+                    sceneName: scene.name,
+                    sceneItemId: item.sceneItemId,
+                });
+            } catch {
+                // Ignore item removal failures and report the requested mode.
+            }
+        }
+
+        return targetMode;
+    } catch (error: any) {
+        logObsError(
+            `Error switching capture mode for scene "${trimmedSceneUuid}":`,
+            error?.message ?? error
+        );
         return null;
     }
 }

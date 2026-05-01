@@ -120,7 +120,7 @@ describe('buildCaptureCardOptions', () => {
 });
 
 describe('buildWindowsSceneCaptureInputs', () => {
-    it('creates a multi-source capture plan with separate application audio', () => {
+    it('defaults to a game-capture video source with separate application audio', () => {
         const plan = buildWindowsSceneCaptureInputs(
             'Example Game',
             {
@@ -138,7 +138,49 @@ describe('buildWindowsSceneCaptureInputs', () => {
             }
         );
 
-        expect(plan).toHaveLength(3);
+        expect(plan).toHaveLength(2);
+        expect(plan[0]).toMatchObject({
+            inputName: 'Example Game - Game Capture',
+            inputKind: 'game_capture',
+            sceneItemEnabled: true,
+            inputSettings: {
+                window: 'Example Game:GameWindowClass:ExampleGame.exe',
+                capture_mode: 'window',
+                capture_cursor: false,
+            },
+        });
+        expect(plan[1]).toMatchObject({
+            inputName: 'Example Game - Audio Capture',
+            inputKind: 'wasapi_process_output_capture',
+            sceneItemEnabled: true,
+            inputSettings: {
+                window: 'Example Game:GameWindowClass:ExampleGame.exe',
+            },
+        });
+        expect(plan.map((item) => item.inputKind)).not.toContain('window_capture');
+        expect(plan[0].inputSettings).not.toHaveProperty('capture_audio');
+    });
+
+    it('creates a selected window-capture video source without game capture', () => {
+        const plan = buildWindowsSceneCaptureInputs(
+            'Example Game',
+            {
+                title: 'Example Game',
+                value: '["example game","gamewindowclass","examplegame.exe"]',
+                targetKind: 'window',
+                captureMode: 'window_capture',
+                captureValues: {
+                    window_capture: 'Example Game:GameWindowClass:ExampleGame.exe',
+                    game_capture: 'Example Game:GameWindowClass:ExampleGame.exe',
+                },
+            },
+            {
+                isWindows: true,
+                isWindows10OrHigher: true,
+            }
+        );
+
+        expect(plan).toHaveLength(2);
         expect(plan[0]).toMatchObject({
             inputName: 'Example Game - Window Capture',
             inputKind: 'window_capture',
@@ -153,23 +195,8 @@ describe('buildWindowsSceneCaptureInputs', () => {
         expect(plan[1]).toMatchObject({
             inputName: 'Example Game - Audio Capture',
             inputKind: 'wasapi_process_output_capture',
-            sceneItemEnabled: true,
-            inputSettings: {
-                window: 'Example Game:GameWindowClass:ExampleGame.exe',
-            },
         });
-        expect(plan[2]).toMatchObject({
-            inputName: 'Example Game - Game Capture',
-            inputKind: 'game_capture',
-            sceneItemEnabled: true,
-            inputSettings: {
-                window: 'Example Game:GameWindowClass:ExampleGame.exe',
-                capture_mode: 'window',
-                capture_cursor: false,
-            },
-        });
-        expect(plan[0].inputSettings).not.toHaveProperty('capture_audio');
-        expect(plan[2].inputSettings).not.toHaveProperty('capture_audio');
+        expect(plan.map((item) => item.inputKind)).not.toContain('game_capture');
     });
 
     it('creates a capture-card scene with a paired audio input when a wasapi device matches', () => {

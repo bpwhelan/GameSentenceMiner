@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invokeIpc, onIpc } from "../../lib/ipc";
+import { invokeIpc } from "../../lib/ipc";
 import { useTranslation } from "../../i18n";
-import type { GsmStatus, ObsScene, ObsWindow } from "../../types/models";
+import type { GsmStatus, ObsCaptureMode, ObsScene, ObsWindow } from "../../types/models";
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -36,6 +36,19 @@ const platform = (window.gsmEnv?.platform ?? "win32") as string;
 const isWindows = platform === "win32";
 const isLinux = platform === "linux";
 const canEnumerateWindows = isWindows || isLinux;
+
+function getDefaultCaptureMode(windowOption: ObsWindow | undefined | null): ObsCaptureMode {
+  if (windowOption?.captureValues?.window_capture) return "window_capture";
+  return "game_capture";
+}
+
+function isCaptureModeAvailable(
+  windowOption: ObsWindow | undefined | null,
+  mode: ObsCaptureMode,
+): boolean {
+  if (!windowOption || windowOption.targetKind === "capture_card") return false;
+  return typeof windowOption.captureValues?.[mode] === "string";
+}
 
 function relativeTime(
   isoString: string | undefined | null,
@@ -206,11 +219,14 @@ export function HomeTab({ active }: HomeTabProps) {
   const [scenes, setScenes] = useState<ObsScene[]>([]);
   const [selectedSceneId, setSelectedSceneId] = useState<string>("");
   const [renameTarget, setRenameTarget] = useState<ObsScene | null>(null);
+  const [selectedSceneCaptureMode, setSelectedSceneCaptureMode] = useState<ObsCaptureMode | null>(null);
+  const [sceneCaptureModeLoading, setSceneCaptureModeLoading] = useState(false);
   const [captureCardEverShown, setCaptureCardEverShown] = useState(false);
 
   /* ---- Windows --------------------------------------------------- */
   const [windows, setWindows] = useState<ObsWindow[]>([]);
   const [selectedWindowValue, setSelectedWindowValue] = useState<string>("");
+  const [selectedCaptureMode, setSelectedCaptureMode] = useState<ObsCaptureMode>("window_capture");
   const [overrideSceneName, setOverrideSceneName] = useState("");
   const [captureCardEnabled, setCaptureCardEnabled] = useState(false);
 
@@ -237,8 +253,17 @@ export function HomeTab({ active }: HomeTabProps) {
       setWindows(res ?? []);
       if (res?.length) {
         setSelectedWindowValue((prev) => {
-          const stillThere = res.some((w) => w.value === prev);
-          return stillThere ? prev : "";
+          const currentWindow = res.find((w) => w.value === prev);
+          if (currentWindow) {
+            setSelectedCaptureMode((prevMode) =>
+              isCaptureModeAvailable(currentWindow, prevMode)
+                ? prevMode
+                : getDefaultCaptureMode(currentWindow),
+            );
+            return prev;
+          }
+          setSelectedCaptureMode("window_capture");
+          return "";
         });
       }
     } catch { /* swallow */ }
@@ -256,6 +281,7 @@ export function HomeTab({ active }: HomeTabProps) {
   const handleWindowSelectionChange = useCallback((value: string) => {
     setSelectedWindowValue(value);
     const win = windows.find((candidate) => candidate.value === value);
+    setSelectedCaptureMode(getDefaultCaptureMode(win));
     setOverrideSceneName(win?.title ?? "");
   }, [windows]);
 
@@ -288,6 +314,42 @@ export function HomeTab({ active }: HomeTabProps) {
   const hasUserScenes = scenes.some((s) => !HELPER_SCENE_NAMES.has(s.name));
   if (hasUserScenes && !captureCardEverShown) setCaptureCardEverShown(true);
 
+  const selectedWindow = windows.find((w) => w.value === selectedWindowValue) ?? null;
+  const isCaptureCardSelection = selectedWindow?.targetKind === "capture_card";
+  const canUseWindowCapture = isCaptureModeAvailable(selectedWindow, "window_capture");
+  const canUseGameCapture = isCaptureModeAvailable(selectedWindow, "game_capture");
+  const canSelectCaptureMode = Boolean(selectedWindow && isWindows && !isCaptureCardSelection);
+  const canCreateScene = Boolean(
+    canEnumerateWindows &&
+      selectedWindow &&
+      (isCaptureCardSelection || isLinux || isCaptureModeAvailable(selectedWindow, selectedCaptureMode)),
+  );
+
+  useEffect(() => {
+    if (!active || !selectedSceneId) {
+      setSelectedSceneCaptureMode(null);
+      setSceneCaptureModeLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSceneCaptureModeLoading(true);
+    invokeIpc<ObsCaptureMode | null>("obs.getSceneCaptureMode", selectedSceneId)
+      .then((mode) => {
+        if (!cancelled) {
+          setSelectedSceneCaptureMode(mode === "window_capture" || mode === "game_capture" ? mode : null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedSceneCaptureMode(null);
+      })
+      .finally(() => {
+        if (!cancelled) setSceneCaptureModeLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [active, selectedSceneId]);
+
   const handleSceneChange = useCallback((id: string) => {
     setSelectedSceneId(id);
     if (id) void invokeIpc("obs.switchScene.id", id);
@@ -312,21 +374,41 @@ export function HomeTab({ active }: HomeTabProps) {
     [renameTarget, refreshAll],
   );
 
+  const handleSwitchCaptureMode = useCallback(async () => {
+    if (!selectedSceneId || !selectedSceneCaptureMode) return;
+    const targetMode: ObsCaptureMode =
+      selectedSceneCaptureMode === "window_capture" ? "game_capture" : "window_capture";
+    setSceneCaptureModeLoading(true);
+    try {
+      const result = await invokeIpc<ObsCaptureMode | null>("obs.switchSceneCaptureMode", {
+        sceneUuid: selectedSceneId,
+        targetMode,
+      });
+      setSelectedSceneCaptureMode(result === "window_capture" || result === "game_capture" ? result : null);
+      await refreshAll();
+    } catch {
+      setSelectedSceneCaptureMode(null);
+    } finally {
+      setSceneCaptureModeLoading(false);
+    }
+  }, [selectedSceneId, selectedSceneCaptureMode, refreshAll]);
+
   const handleCreateScene = useCallback(() => {
-    const win = windows.find((w) => w.value === selectedWindowValue);
+    const win = selectedWindow;
     if (!win) return;
     const payload = {
       title: win.title,
       value: win.value,
       sceneName: overrideSceneName.trim() || win.title,
       targetKind: win.targetKind ?? "window",
+      captureMode: selectedCaptureMode,
       captureValues: win.captureValues ?? {},
       videoDeviceId: win.videoDeviceId,
       audioDeviceId: win.audioDeviceId,
       wasapiInputDeviceId: win.wasapiInputDeviceId,
     };
     void invokeIpc("obs.createScene", payload);
-  }, [windows, selectedWindowValue, overrideSceneName]);
+  }, [selectedWindow, overrideSceneName, selectedCaptureMode]);
 
   const handleCaptureCardToggle = useCallback(async (enabled: boolean) => {
     try {
@@ -473,6 +555,18 @@ export function HomeTab({ active }: HomeTabProps) {
                   >
                     {t("home.obs.rename")}
                   </button>
+                  {selectedSceneCaptureMode && (
+                    <button
+                      type="button"
+                      className="home-text-btn"
+                      disabled={isHelperScene || sceneCaptureModeLoading}
+                      onClick={() => void handleSwitchCaptureMode()}
+                    >
+                      {selectedSceneCaptureMode === "window_capture"
+                        ? t("home.obs.switchToGameCapture")
+                        : t("home.obs.switchToWindowCapture")}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="home-text-btn home-text-btn--danger"
@@ -560,6 +654,38 @@ export function HomeTab({ active }: HomeTabProps) {
                 </div>
               </div>
 
+              {/* Capture mode selector */}
+              {canSelectCaptureMode && <div className="home-row home-row--capture-mode">
+                <label className="home-row__label" htmlFor="home-capture-mode-window">
+                  {t("home.obs.captureModeLabel")}
+                </label>
+                <div className="home-row__controls home-capture-mode">
+                  <label className="home-capture-mode__option">
+                    <input
+                      id="home-capture-mode-window"
+                      type="radio"
+                      name="home-capture-mode"
+                      value="window_capture"
+                      checked={selectedCaptureMode === "window_capture"}
+                      disabled={!canUseWindowCapture}
+                      onChange={() => setSelectedCaptureMode("window_capture")}
+                    />
+                    <span>{t("home.obs.captureModeWindow")}</span>
+                  </label>
+                  <label className="home-capture-mode__option">
+                    <input
+                      type="radio"
+                      name="home-capture-mode"
+                      value="game_capture"
+                      checked={selectedCaptureMode === "game_capture"}
+                      disabled={!canUseGameCapture}
+                      onChange={() => setSelectedCaptureMode("game_capture")}
+                    />
+                    <span>{t("home.obs.captureModeGame")}</span>
+                  </label>
+                </div>
+              </div>}
+
               {/* Override scene name — only shown once a window is selected */}
               {selectedWindowValue && <div className="home-row home-row--scene-name-override">
                 <label className="home-row__label" htmlFor="home-scene-name-override">
@@ -605,7 +731,7 @@ export function HomeTab({ active }: HomeTabProps) {
                 <div className="home-row__controls">
                   <button
                     type="button"
-                    disabled={!canEnumerateWindows || windows.length === 0}
+                    disabled={!canCreateScene}
                     onClick={handleCreateScene}
                     title={t("home.obs.setupCaptureTooltip")}
                   >

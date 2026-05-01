@@ -90,203 +90,6 @@ def test_get_video_scene_items_filters_out_application_audio_sources():
     ]
 
 
-def test_reconcile_capture_source_visibility_prefers_game_capture(monkeypatch):
-    service = obs.OBSService.__new__(obs.OBSService)
-    service._state_lock = threading.Lock()
-    service._capture_source_settled = False
-    service.state = obs.OBSState(
-        current_scene="Test Scene",
-        scene_items_by_scene={
-            "Test Scene": [
-                {
-                    "sourceName": "Game Source",
-                    "inputKind": "game_capture",
-                    "sceneItemEnabled": False,
-                    "sceneItemId": 1,
-                },
-                {
-                    "sourceName": "Window Source",
-                    "inputKind": "window_capture",
-                    "sceneItemEnabled": True,
-                    "sceneItemId": 2,
-                },
-            ]
-        },
-    )
-
-    monkeypatch.setattr(
-        service,
-        "_probe_source_has_output",
-        lambda source_name: source_name == "Game Source",
-    )
-
-    updates = []
-    monkeypatch.setattr(
-        service,
-        "_set_scene_items_enabled",
-        lambda scene_name, items, enabled: updates.append(
-            (scene_name, tuple(item["sourceName"] for item in items), enabled)
-        ),
-    )
-
-    result = service._reconcile_capture_source_visibility("Test Scene")
-
-    assert result is True
-    assert updates == [
-        ("Test Scene", ("Game Source",), True),
-        ("Test Scene", ("Window Source",), False),
-    ]
-
-
-def test_reconcile_capture_source_visibility_falls_back_to_window_capture(monkeypatch):
-    service = obs.OBSService.__new__(obs.OBSService)
-    service._state_lock = threading.Lock()
-    service._capture_source_settled = False
-    service.state = obs.OBSState(
-        current_scene="Test Scene",
-        scene_items_by_scene={
-            "Test Scene": [
-                {
-                    "sourceName": "Game Source",
-                    "inputKind": "game_capture",
-                    "sceneItemEnabled": True,
-                    "sceneItemId": 1,
-                },
-                {
-                    "sourceName": "Window Source",
-                    "inputKind": "window_capture",
-                    "sceneItemEnabled": False,
-                    "sceneItemId": 2,
-                },
-            ]
-        },
-    )
-
-    monkeypatch.setattr(
-        service,
-        "_probe_source_has_output",
-        lambda source_name: source_name == "Window Source",
-    )
-
-    updates = []
-    monkeypatch.setattr(
-        service,
-        "_set_scene_items_enabled",
-        lambda scene_name, items, enabled: updates.append(
-            (scene_name, tuple(item["sourceName"] for item in items), enabled)
-        ),
-    )
-
-    result = service._reconcile_capture_source_visibility("Test Scene")
-
-    assert result is True
-    assert updates == [
-        ("Test Scene", ("Game Source",), False),
-        ("Test Scene", ("Window Source",), True),
-    ]
-
-
-def test_reconcile_capture_source_visibility_disables_window_same_tick_when_game_recovers(
-    monkeypatch,
-):
-    """When game_capture starts disabled but the probe succeeds (OBS can
-    screenshot disabled sources), the reconciler should enable game_capture
-    and disable window_capture in the same tick."""
-    service = obs.OBSService.__new__(obs.OBSService)
-    service._state_lock = threading.Lock()
-    service._capture_source_settled = False
-    service.state = obs.OBSState(
-        current_scene="Test Scene",
-        scene_items_by_scene={
-            "Test Scene": [
-                {
-                    "sourceName": "Game Source",
-                    "inputKind": "game_capture",
-                    "sceneItemEnabled": False,
-                    "sceneItemId": 1,
-                },
-                {
-                    "sourceName": "Window Source",
-                    "inputKind": "window_capture",
-                    "sceneItemEnabled": True,
-                    "sceneItemId": 2,
-                },
-            ]
-        },
-    )
-
-    updates = []
-
-    def fake_set_scene_items_enabled(scene_name, items, enabled):
-        updates.append((scene_name, tuple(item["sourceName"] for item in items), enabled))
-        for item in items:
-            item["sceneItemEnabled"] = enabled
-
-    # OBS can screenshot disabled sources, so probe always returns True here.
-    monkeypatch.setattr(
-        service,
-        "_probe_source_has_output",
-        lambda source_name: source_name == "Game Source",
-    )
-    monkeypatch.setattr(service, "_set_scene_items_enabled", fake_set_scene_items_enabled)
-
-    result = service._reconcile_capture_source_visibility("Test Scene")
-
-    assert result is True
-    assert updates == [
-        ("Test Scene", ("Game Source",), True),
-        ("Test Scene", ("Window Source",), False),
-    ]
-
-
-def test_probe_source_has_output_skips_screenshot_when_target_window_is_missing(monkeypatch):
-    service = obs.OBSService.__new__(obs.OBSService)
-    service._state_lock = threading.Lock()
-    service.state = obs.OBSState()
-    service._get_input_settings_for_source = lambda source_name: {"window": "Game Window:UnrealWindow:game.exe"}
-
-    monkeypatch.setattr(obs_service_module, "_window_target_exists", lambda target: False)
-    monkeypatch.setattr(
-        obs_service_module,
-        "get_screenshot_PIL_from_source",
-        lambda *args, **kwargs: pytest.fail(
-            "Screenshot probe should be skipped when the OBS target window is missing."
-        ),
-        raising=False,
-    )
-
-    assert service._probe_source_has_output("Window Source") is False
-
-
-def test_get_scene_target_running_state_falls_back_to_window_capture_target(monkeypatch):
-    service = obs.OBSService.__new__(obs.OBSService)
-    service._state_lock = threading.Lock()
-    service.state = obs.OBSState()
-
-    settings_by_source = {
-        "Game Source": {},
-        "Window Source": {"window": "Nioh 1.24.08:NIOH:nioh.exe"},
-    }
-    service._get_input_settings_for_source = lambda source_name: settings_by_source.get(source_name)
-
-    window_targets = []
-    monkeypatch.setattr(
-        obs_service_module,
-        "_window_target_exists",
-        lambda target: window_targets.append(target) or False,
-    )
-
-    result = service._get_scene_target_running_state(
-        [
-            {"sourceName": "Game Source"},
-            {"sourceName": "Window Source"},
-        ]
-    )
-
-    assert result is False
-    assert window_targets == ["Nioh 1.24.08:NIOH:nioh.exe"]
-
-
 def test_parse_obs_window_target_preserves_colons_in_title():
     parsed = obs.parse_obs_window_target("Game: Chapter 1:UnrealWindow:game.exe")
 
@@ -299,12 +102,10 @@ def test_parse_obs_window_target_preserves_colons_in_title():
 
 def test_build_scheduled_tick_options_respects_intervals():
     service = obs.OBSService.__new__(obs.OBSService)
-    service._capture_source_settled = False
     service.tick_intervals = obs.OBSTickIntervals(
         refresh_current_scene_seconds=1.0,
         refresh_scene_items_seconds=2.0,
         fit_to_screen_seconds=30.0,
-        capture_source_switch_seconds=5.0,
         output_probe_seconds=5.0,
         replay_buffer_seconds=1.0,
         full_state_refresh_seconds=60.0,
@@ -313,7 +114,6 @@ def test_build_scheduled_tick_options_respects_intervals():
         "refresh_current_scene": 100.0,
         "refresh_scene_items": 199.0,
         "fit_to_screen": 190.0,
-        "capture_source_switch": 194.0,
         "output_probe": 198.0,
         "manage_replay_buffer": 198.5,
         "full_state_refresh": 150.0,
@@ -325,7 +125,6 @@ def test_build_scheduled_tick_options_respects_intervals():
     assert options.refresh_current_scene is True
     assert options.refresh_scene_items is False
     assert options.fit_to_screen is False
-    assert options.capture_source_switch is True
     assert options.output_probe is False
     assert options.manage_replay_buffer is True
     assert options.refresh_full_state is False
@@ -333,7 +132,6 @@ def test_build_scheduled_tick_options_respects_intervals():
 
 def test_build_scheduled_tick_options_skips_fit_to_screen_outside_grace_window():
     service = obs.OBSService.__new__(obs.OBSService)
-    service._capture_source_settled = False
     service.tick_intervals = obs.OBSTickIntervals(fit_to_screen_seconds=20.0)
     service._tick_last_run_by_operation = {"fit_to_screen": 100.0}
     service._fit_to_screen_grace_deadline = 150.0
@@ -633,7 +431,6 @@ def test_obs_service_tick_applies_fit_before_screenshot_probe(monkeypatch):
     service.initialized = True
     service.check_output = True
     service._tick_running = False
-    service._capture_source_settled = False
     service._state_lock = threading.Lock()
     service.state = obs.OBSState(current_scene="Test Scene")
     service._initialize_state = lambda: None
@@ -656,7 +453,6 @@ def test_obs_service_tick_applies_fit_before_screenshot_probe(monkeypatch):
             refresh_current_scene=False,
             refresh_scene_items=False,
             fit_to_screen=True,
-            capture_source_switch=False,
             output_probe=True,
             manage_replay_buffer=False,
             refresh_full_state=False,
@@ -672,7 +468,6 @@ def test_obs_service_tick_notifies_scene_observers_when_scene_is_unchanged(monke
     service.initialized = True
     service.check_output = False
     service._tick_running = False
-    service._capture_source_settled = False
     service._state_lock = threading.Lock()
     service.state = obs.OBSState(current_scene="Boot Scene")
     service._initialize_state = lambda: None
@@ -690,7 +485,6 @@ def test_obs_service_tick_notifies_scene_observers_when_scene_is_unchanged(monke
             refresh_current_scene=True,
             refresh_scene_items=False,
             fit_to_screen=False,
-            capture_source_switch=False,
             output_probe=False,
             manage_replay_buffer=False,
             refresh_full_state=False,
@@ -1320,223 +1114,6 @@ def test_get_screenshot_pil_keeps_validation_for_regular_sources(monkeypatch):
     result = obs_module.get_screenshot_PIL()
 
     assert result is valid_image
-
-
-# ---------------------------------------------------------------------------
-# Game-capture failure counting & graduated response
-# ---------------------------------------------------------------------------
-
-
-def _make_reconcile_service(monkeypatch, scene_items, probe_results, scene_target_running_state=True):
-    """Build a minimal OBSService for reconciliation tests.
-
-    *probe_results* maps source name → bool (whether probe returns output).
-    """
-    service = obs.OBSService.__new__(obs.OBSService)
-    service._state_lock = threading.Lock()
-    service.state = obs.OBSState(
-        current_scene="Test Scene",
-        scene_items_by_scene={"Test Scene": scene_items},
-    )
-    service._capture_source_settled = False
-
-    monkeypatch.setattr(
-        service,
-        "_probe_source_has_output",
-        lambda source_name: probe_results.get(source_name, False),
-    )
-    monkeypatch.setattr(
-        service,
-        "_get_scene_target_running_state",
-        lambda _scene_items: scene_target_running_state,
-        raising=False,
-    )
-
-    updates = []
-
-    def fake_set_enabled(scene_name, items, enabled):
-        updates.append((scene_name, tuple(item["sourceName"] for item in items), enabled))
-        for item in items:
-            item["sceneItemEnabled"] = enabled
-
-    monkeypatch.setattr(service, "_set_scene_items_enabled", fake_set_enabled)
-
-    removals = []
-
-    class _FakePool:
-        def call(self, fn, retries=0):
-            removals.append(fn)
-
-    service.connection_pool = _FakePool()
-
-    return service, updates, removals
-
-
-def _default_scene_items():
-    return [
-        {
-            "sourceName": "Game Source",
-            "inputKind": "game_capture",
-            "sceneItemEnabled": True,
-            "sceneItemId": 1,
-        },
-        {
-            "sourceName": "Window Source",
-            "inputKind": "window_capture",
-            "sceneItemEnabled": True,
-            "sceneItemId": 2,
-        },
-    ]
-
-
-def test_reconcile_disables_game_capture_on_first_failure(monkeypatch):
-    items = _default_scene_items()
-    items[1]["sceneItemEnabled"] = False  # window_capture starts disabled
-    service, updates, _ = _make_reconcile_service(
-        monkeypatch,
-        items,
-        {"Game Source": False, "Window Source": True},
-    )
-
-    result = service._reconcile_capture_source_visibility("Test Scene")
-
-    assert result is True
-    # game_capture should be disabled, window_capture enabled
-    assert ("Test Scene", ("Game Source",), False) in updates
-    assert ("Test Scene", ("Window Source",), True) in updates
-    assert service.state.game_capture_fail_count.get("Test Scene") == 1
-
-
-def test_reconcile_resets_fail_count_when_game_capture_works(monkeypatch):
-    items = _default_scene_items()
-    service, updates, _ = _make_reconcile_service(
-        monkeypatch,
-        items,
-        {"Game Source": True, "Window Source": True},
-    )
-    # Simulate prior failures
-    service.state.game_capture_fail_count["Test Scene"] = 3
-
-    result = service._reconcile_capture_source_visibility("Test Scene")
-
-    assert result is True
-    assert service.state.game_capture_fail_count.get("Test Scene", 0) == 0
-    assert service._capture_source_settled is True
-
-
-def test_reconcile_removes_game_capture_after_threshold(monkeypatch):
-    items = _default_scene_items()
-    service, updates, removals = _make_reconcile_service(
-        monkeypatch,
-        items,
-        {"Game Source": False, "Window Source": True},
-    )
-    # Set fail count just below threshold
-    service.state.game_capture_fail_count["Test Scene"] = obs.GAME_CAPTURE_REMOVAL_THRESHOLD - 1
-
-    result = service._reconcile_capture_source_visibility("Test Scene")
-
-    assert result is True
-    # game_capture should have been removed
-    assert "Test Scene" in service.state.game_capture_removed_scenes
-    assert len(removals) == 1  # one removal call
-    # Cached scene items should no longer include game_capture
-    cached = service.state.scene_items_by_scene["Test Scene"]
-    assert all(item.get("inputKind") != "game_capture" for item in cached)
-
-
-def test_reconcile_skips_probe_for_already_removed_scenes(monkeypatch):
-    items = _default_scene_items()
-    probe_calls = []
-
-    service, updates, _ = _make_reconcile_service(
-        monkeypatch,
-        items,
-        {"Game Source": True, "Window Source": True},
-    )
-    original_probe = service._probe_source_has_output
-    monkeypatch.setattr(
-        service,
-        "_probe_source_has_output",
-        lambda name: (probe_calls.append(name), original_probe(name))[1],
-    )
-    service.state.game_capture_removed_scenes.add("Test Scene")
-
-    result = service._reconcile_capture_source_visibility("Test Scene")
-
-    # game_capture should never be probed
-    assert "Game Source" not in probe_calls
-    assert result is True
-
-
-def test_reconcile_does_not_enable_game_capture_before_probing(monkeypatch):
-    """Regression: the old code re-enabled game_capture before probing, causing
-    a black flash.  The new code must NOT enable it."""
-    items = _default_scene_items()
-    items[0]["sceneItemEnabled"] = False  # game_capture starts disabled
-
-    enable_calls = []
-
-    service, updates, _ = _make_reconcile_service(
-        monkeypatch,
-        items,
-        {"Game Source": False, "Window Source": True},
-    )
-    # Track all enable calls
-    orig = service._set_scene_items_enabled
-
-    def track_enable(scene_name, scene_items, enabled):
-        for si in scene_items:
-            enable_calls.append((si["sourceName"], enabled))
-        # Don't actually call through — just track
-        for si in scene_items:
-            si["sceneItemEnabled"] = enabled
-
-    monkeypatch.setattr(service, "_set_scene_items_enabled", track_enable)
-
-    service._reconcile_capture_source_visibility("Test Scene")
-
-    # game_capture should never be enabled (only disabled or left alone)
-    assert ("Game Source", True) not in enable_calls
-
-
-def test_reconcile_neither_output_keeps_window_enabled_game_disabled(monkeypatch):
-    items = _default_scene_items()
-    items[1]["sceneItemEnabled"] = False  # window_capture starts disabled
-    service, updates, _ = _make_reconcile_service(
-        monkeypatch,
-        items,
-        {"Game Source": False, "Window Source": False},
-    )
-
-    result = service._reconcile_capture_source_visibility("Test Scene")
-
-    assert result is False
-    # game_capture must be disabled, window_capture must be enabled
-    assert ("Test Scene", ("Game Source",), False) in updates
-    assert ("Test Scene", ("Window Source",), True) in updates
-
-
-def test_reconcile_neither_output_keeps_game_capture_enabled_when_target_not_running(monkeypatch):
-    items = _default_scene_items()
-    items[1]["sceneItemEnabled"] = False  # window_capture starts disabled
-    service, updates, removals = _make_reconcile_service(
-        monkeypatch,
-        items,
-        {"Game Source": False, "Window Source": False},
-        scene_target_running_state=False,
-    )
-    service.state.game_capture_fail_count["Test Scene"] = obs.GAME_CAPTURE_REMOVAL_THRESHOLD - 1
-
-    result = service._reconcile_capture_source_visibility("Test Scene")
-
-    assert result is False
-    assert ("Test Scene", ("Game Source",), False) not in updates
-    assert ("Test Scene", ("Window Source",), True) in updates
-    assert items[0]["sceneItemEnabled"] is True
-    assert service.state.game_capture_fail_count.get("Test Scene", 0) == 0
-    assert removals == []
-    assert "Test Scene" not in service.state.game_capture_removed_scenes
 
 
 # ---------------------------------------------------------------------------
