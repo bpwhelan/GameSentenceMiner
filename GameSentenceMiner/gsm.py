@@ -450,6 +450,19 @@ class GSMTray(threading.Thread):
             MenuItem("Switch Profile", self._build_profile_menu()),
         ]
 
+        try:
+            from GameSentenceMiner.util import pending_reviews
+
+            if pending_reviews.feature_enabled():
+                count = pending_reviews.count_pending()
+                label = f"Pending Reviews ({count})" if count else "Pending Reviews"
+                menu_items.insert(
+                    2,
+                    MenuItem(label, self._app.open_pending_reviews),
+                )
+        except Exception:
+            logger.exception("Failed to build Pending Reviews tray entry")
+
         if is_dev:
             test_menu = Menu(
                 MenuItem("Anki Confirmation Dialog", self._app.test_anki_confirmation),
@@ -593,6 +606,14 @@ class GSMApplication:
     def open_texthooker(self, *args) -> None:
         _get_texthooking_page_module().open_texthooker()
 
+    def open_pending_reviews(self, *args) -> None:
+        try:
+            from GameSentenceMiner.ui.qt_main import launch_pending_reviews_window
+
+            launch_pending_reviews_window()
+        except Exception:
+            logger.exception("Failed to open Pending Reviews window")
+
     def switch_profile(self, profile_name: str) -> None:
         logger.info(f"Switching to profile: {profile_name}")
         get_master_config().current_profile = profile_name
@@ -693,6 +714,20 @@ class GSMApplication:
             logger.info("Performing cleanup...")
             gsm_state.keep_running = False
             gsm_status.clear_words_being_processed()
+
+            try:
+                from GameSentenceMiner.util import pending_reviews
+
+                if pending_reviews.feature_enabled():
+                    pending_count = pending_reviews.count_pending()
+                    if pending_count:
+                        logger.warning(
+                            "GSM is shutting down with {} card(s) still in the Pending Reviews queue. "
+                            "They will reappear when GSM next starts (replay videos are preserved).",
+                            pending_count,
+                        )
+            except Exception:
+                logger.exception("Failed to check Pending Reviews queue at shutdown")
 
             if obs.obs_connection_manager and obs.obs_connection_manager.is_alive():
                 obs.obs_connection_manager.stop()
@@ -960,10 +995,39 @@ class GSMApplication:
         if get_config().paths.output_folder:
             self._start_thread(anki.migrate_old_word_folders, "anki-migrate-old-folders")
 
+        try:
+            from GameSentenceMiner.util import pending_reviews
+
+            summary = pending_reviews.revalidate_on_startup()
+            if summary["loaded"]:
+                logger.info(
+                    "Pending Reviews: {} active row(s) restored ({} marked failed due to missing files)",
+                    summary["loaded"],
+                    summary["missing"],
+                )
+            self._start_thread(self._pending_reviews_sweeper_loop, "pending-reviews-sweeper")
+        except Exception:
+            logger.exception("Failed to initialize Pending Reviews subsystem")
+
         if is_gsm_cloud_preview_enabled():
             gsm_cloud_auth_cache_service.start_background_loop()
             cloud_sync_service.start_background_loop()
         self._start_thread(_get_run_text_hooker_page(), "texthooker-page")
+
+    def _pending_reviews_sweeper_loop(self) -> None:
+        from GameSentenceMiner.util import pending_reviews
+
+        # Sweep finalized rows every 5 minutes; cheap query, runs forever
+        # while the app is alive.
+        while gsm_state.keep_running:
+            try:
+                pending_reviews.sweep_finalized()
+            except Exception:
+                logger.exception("Pending Reviews sweeper failed")
+            for _ in range(300):
+                if not gsm_state.keep_running:
+                    return
+                time.sleep(1)
 
     def handle_ipc_command(self, cmd: dict) -> None:
         logger.background(f"IPC Command Received: {cmd}")

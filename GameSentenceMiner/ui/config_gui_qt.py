@@ -703,6 +703,7 @@ class ConfigWindow(QWidget):
                     enabled=self.anki_enabled_check.isChecked(),
                     update_anki=self.update_anki_check.isChecked(),
                     show_update_confirmation_dialog_v2=self.show_update_confirmation_dialog_check.isChecked(),
+                    batch_review_queue_enabled=self.batch_review_queue_enabled_check.isChecked(),
                     auto_accept_timer=self._get_auto_accept_timer_value(),
                     url=self.anki_url_edit.text(),
                     note_type=self.anki_note_type_combo.currentText(),
@@ -1218,6 +1219,7 @@ class ConfigWindow(QWidget):
         self.anki_enabled_check = QCheckBox()
         self.update_anki_check = QCheckBox()
         self.show_update_confirmation_dialog_check = QCheckBox()
+        self.batch_review_queue_enabled_check = QCheckBox()
         self.auto_accept_timer_enabled_check = QCheckBox()
         self.auto_accept_timer_edit = QLineEdit()
         self.auto_accept_timer_edit.setValidator(QTGui.QIntValidator())
@@ -2655,6 +2657,7 @@ class ConfigWindow(QWidget):
         self.anki_enabled_check.setChecked(s.anki.enabled)
         self.update_anki_check.setChecked(s.anki.update_anki)
         self.show_update_confirmation_dialog_check.setChecked(s.anki.show_update_confirmation_dialog_v2)
+        self.batch_review_queue_enabled_check.setChecked(bool(getattr(s.anki, "batch_review_queue_enabled", False)))
         auto_accept_timer_enabled = s.anki.auto_accept_timer > 0
         self.auto_accept_timer_enabled_check.setChecked(auto_accept_timer_enabled)
         self.auto_accept_timer_edit.setText(

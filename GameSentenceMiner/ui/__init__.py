@@ -16,6 +16,7 @@ class WindowId(Enum):
     CONFIG_GUI = "config_gui"
     SCREENSHOT_SELECTOR = "screenshot_selector"
     SCREEN_CROPPER = "screen_cropper"
+    PENDING_REVIEWS = "pending_reviews"
 
 
 class WindowStateManager:

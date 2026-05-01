@@ -467,6 +467,41 @@ def test_monitor_anki_iteration_seeds_polling_baseline_when_replay_buffer_activa
     assert anki.first_run is False
 
 
+def test_monitor_anki_iteration_limits_failed_polling_baseline_seed_warnings(monkeypatch):
+    config = SimpleNamespace(
+        anki=SimpleNamespace(enabled=True, polling_rate_v2=1000),
+        obs=SimpleNamespace(disable_recording=False),
+    )
+    warning_messages = []
+    info_messages = []
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "get_anki_push_wait_timeout_seconds", lambda now=None: 0.0)
+    monkeypatch.setattr(anki, "_process_next_anki_push_note", lambda timeout_seconds=0.0: False)
+    monkeypatch.setattr(anki, "_is_anki_polling_allowed", lambda: True)
+    monkeypatch.setattr(anki, "get_note_ids", lambda: (_ for _ in ()).throw(RuntimeError("refused")))
+    monkeypatch.setattr(anki.time, "sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki.logger, "warning", lambda message: warning_messages.append(message))
+    monkeypatch.setattr(anki.logger, "info", lambda message: info_messages.append(message))
+    monkeypatch.setattr(
+        anki,
+        "check_for_new_cards",
+        lambda: (_ for _ in ()).throw(AssertionError("polling should wait for a seeded baseline")),
+    )
+
+    for _ in range(7):
+        unsuccessful_count, scaled_polling_rate = anki._monitor_anki_iteration(0, 1.0)
+
+    assert unsuccessful_count == 0
+    assert scaled_polling_rate == 1.0
+    assert len(warning_messages) == 5
+    assert all(
+        message.startswith("Failed to seed Anki polling baseline after replay buffer activation")
+        for message in warning_messages
+    )
+    assert len(info_messages) == 1
+
+
 def test_check_and_update_note_triggers_cache_sync_after_updating_note(monkeypatch):
     order = []
     config = SimpleNamespace(anki=SimpleNamespace(word_field="Word"))

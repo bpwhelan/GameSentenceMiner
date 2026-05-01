@@ -198,6 +198,10 @@
             "label": "Mostrar Diálogo de Confirmación de Actualización:",
             "tooltip": "Mostrar un diálogo de confirmación antes de actualizar tarjetas de Anki."
           },
+          "batch_review_queue_enabled": {
+            "label": "Encolar tarjetas para revisión por lotes:",
+            "tooltip": "Cuando el diálogo de confirmación está activado, omitir el modal y encolar las tarjetas en la ventana 'Revisiones Pendientes' para revisarlas más tarde. Las tarjetas se suben a Anki inmediatamente usando la decisión automática basada en VAD."
+          },
           "url": {
             "label": "URL de Anki:",
             "tooltip": "La URL para conectarse a su instancia de Anki."

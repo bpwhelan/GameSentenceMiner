@@ -689,6 +689,7 @@ class Anki:
     update_anki: bool = True
     show_update_confirmation_dialog_v2: bool = True
     auto_accept_timer: int = 10
+    batch_review_queue_enabled: bool = False
     confirmation_always_on_top: bool = True
     confirmation_focus_on_show: bool = True
     url: str = "http://127.0.0.1:8765"
@@ -1871,6 +1872,7 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "autoplay_audio")
             self.sync_shared_field(config.anki, profile.anki, "show_update_confirmation_dialog_v2")
             self.sync_shared_field(config.anki, profile.anki, "auto_accept_timer")
+            self.sync_shared_field(config.anki, profile.anki, "batch_review_queue_enabled")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_always_on_top")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_focus_on_show")
             self.sync_shared_field(config.anki, profile.anki, "replay_audio_on_tts_generation")
@@ -2295,6 +2297,9 @@ class GsmAppState:
         self.texthooker_audio_line_id = None
         self.texthooker_video_trim_request = {}
         self.videos_with_pending_operations = set()  # Track videos that shouldn't be deleted yet
+        # Track videos still referenced by un-reviewed batch-review entries.
+        # Maps source video path -> set of pending_review entry_ids.
+        self.videos_pinned_for_review: dict = {}
         self.disable_anki_confirmation_session = False
         self.replay_buffer_stopped_timestamp = None
         self.text_input_paused = False

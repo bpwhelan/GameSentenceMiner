@@ -408,8 +408,12 @@ class ReplayAudioExtractor:
         if get_config().paths.remove_video and video_path and not context.skip_delete:
             # Don't remove video here if we have pending animated/video operations
             # The cleanup callback in anki.py will handle it after background processing
+            from GameSentenceMiner.util import pending_reviews
+
             if video_path in gsm_state.videos_with_pending_operations:
                 logger.debug(f"Video cleanup deferred to background thread for: {video_path}")
+            elif pending_reviews.is_video_pinned_for_review(video_path):
+                logger.debug(f"Video pinned by Pending Reviews queue, not deleting: {video_path}")
             else:
                 try:
                     if os.path.exists(video_path):

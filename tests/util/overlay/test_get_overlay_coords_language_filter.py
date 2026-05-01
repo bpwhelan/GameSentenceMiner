@@ -1,4 +1,5 @@
 import regex
+from types import SimpleNamespace
 
 from GameSentenceMiner.util.overlay import get_overlay_coords
 
@@ -139,3 +140,16 @@ def test_filter_precomputed_results_by_minimum_character_size_removes_small_word
         "x4": 0.0,
         "y4": 18.0,
     }
+
+
+def test_should_use_precomputed_payload_follows_use_ocr_result_without_target_hwnd(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor()
+    processor.window_monitor = None
+
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_overlay_config",
+        lambda: SimpleNamespace(use_ocr_result_v2=True),
+    )
+
+    assert processor._should_use_precomputed_overlay_payload({"schema": "gsm_overlay_coords_v1"}) is True

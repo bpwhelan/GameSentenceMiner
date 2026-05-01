@@ -514,10 +514,7 @@ class OverlayProcessor:
     def _should_use_precomputed_overlay_payload(self, dict_from_ocr: Any) -> bool:
         if not self._is_precomputed_overlay_payload(dict_from_ocr):
             return False
-        if not self._is_use_ocr_result_enabled():
-            return False
-
-        return self.window_monitor is not None and bool(self.window_monitor.target_hwnd)
+        return self._is_use_ocr_result_enabled()
 
     def _get_overlay_minimum_character_size(self) -> int:
         try:
@@ -1320,22 +1317,32 @@ class OverlayProcessor:
         line_id: Optional[str] = None,
     ) -> bool:
         if not isinstance(dict_from_ocr, dict):
+            # logger.background(f"Overlay precomputed OCR payload rejected: expected dict, got {type(dict_from_ocr)}")
             return False
         if dict_from_ocr.get("schema") != "gsm_overlay_coords_v1":
+            logger.background(
+                f"Overlay precomputed OCR payload rejected: unsupported schema {dict_from_ocr.get('schema')!r}"
+            )
             return False
 
         source_lines = dict_from_ocr.get("lines", [])
         if not isinstance(source_lines, list) or not source_lines:
+            logger.background("Overlay precomputed OCR payload rejected: no source lines.")
             return False
 
         coord_space = dict_from_ocr.get("coordinate_space", {})
         if not isinstance(coord_space, dict):
+            logger.background("Overlay precomputed OCR payload rejected: missing coordinate_space.")
             return False
 
         try:
             source_w = max(1, int(coord_space.get("source_width", 0)))
             source_h = max(1, int(coord_space.get("source_height", 0)))
         except (TypeError, ValueError):
+            logger.background(
+                "Overlay precomputed OCR payload rejected: invalid source dimensions "
+                f"{coord_space.get('source_width')!r}x{coord_space.get('source_height')!r}."
+            )
             return False
         mode = str(coord_space.get("mode") or "source_content")
         capture_origin = (
@@ -1364,6 +1371,7 @@ class OverlayProcessor:
             minimum_character_size,
         )
         if not corrected_source_lines:
+            logger.background("Overlay precomputed OCR payload rejected: all lines filtered out.")
             return False
 
         if mode == "absolute_screen":
@@ -1389,6 +1397,7 @@ class OverlayProcessor:
                 offset_y=off_y,
             )
         if not final_data:
+            logger.background("Overlay precomputed OCR payload rejected: coordinate conversion produced no data.")
             return False
 
         self.last_raw_results = {
@@ -1405,6 +1414,7 @@ class OverlayProcessor:
         self.last_scan_window_offset = (off_x, off_y)
 
         payload = self._build_overlay_word_coordinates_payload(final_data, line_id=line_id)
+        logger.background(f"Overlay precomputed OCR output payload: {json.dumps(payload, ensure_ascii=False)}")
         await send_word_coordinates_to_overlay(payload)
         logger.info(
             "Overlay OCR bypass: used precomputed OCR coordinates ({} text boxes).",
@@ -1537,7 +1547,11 @@ class OverlayProcessor:
         normalized_sentence_to_check = normalize_text_for_comparison(line.text) if line else None
         self._log_timing(op_start, "Sentence preprocessing and recycling check")
 
-        if self._is_use_ocr_result_enabled() and dict_from_ocr:
+        use_ocr_result_enabled = self._is_use_ocr_result_enabled()
+        if use_ocr_result_enabled and dict_from_ocr:
+            # logger.background(
+            #     f"Overlay received OCR result payload: {json.dumps(dict_from_ocr, ensure_ascii=False, default=str)}"
+            # )
             op_start = time.time()
             used_precomputed = await self._try_send_precomputed_overlay_payload(
                 dict_from_ocr,
@@ -1547,6 +1561,8 @@ class OverlayProcessor:
             self._log_timing(op_start, "Use precomputed OCR metadata")
             if used_precomputed:
                 return []
+        elif use_ocr_result_enabled:
+            logger.background("Overlay use OCR result is enabled, but this text event did not include an OCR payload.")
 
         if not self.lens and not self.oneocr and not self.meikiocr and not self.screenai:
             logger.error("OCR engines are not initialized. Cannot perform OCR for Overlay.")

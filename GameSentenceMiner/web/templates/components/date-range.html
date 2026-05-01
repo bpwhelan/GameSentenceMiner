@@ -24,8 +24,11 @@
                 <option value="today">Today</option>
                 <option value="yesterday">Yesterday</option>
                 <option value="week">Current Week</option>
+                <option value="last-week">Last Week</option>
                 <option value="month">Current Month</option>
+                <option value="last-month">Last Month</option>
                 <option value="year">Current Year</option>
+                <option value="last-year">Last Year</option>
                 <option value="7days">Last 7 Days</option>
                 <option value="30days">Last 30 Days</option>
                 <option value="365days">Last 365 Days</option>
@@ -36,7 +39,7 @@
 
 <script>
     /* Date presets script: calculates ranges and fills the 'from' and 'to' inputs.
-       Assumptions: week starts on Monday. If different behaviour is desired, adjust getWeekStart.
+       Assumptions: week starts on Sunday. If different behaviour is desired, adjust getWeekStart.
        Uses IDs from template defaults; if you provide `from_id`/`to_id` in the template context
        these will be targeted.
     */
@@ -51,11 +54,10 @@
         if (!fromInput || !toInput) return;
 
         function getWeekStart(date) {
-            // ISO week: Monday = 1. Compute Monday of current week.
+            // Sunday-based week: Sunday = 0. Compute Sunday of current week.
             var d = new Date(date);
             var day = d.getDay(); // 0 (Sun) .. 6 (Sat)
-            var diff = (day === 0 ? -6 : 1 - day); // move to Monday
-            d.setDate(d.getDate() + diff);
+            d.setDate(d.getDate() - day);
             d.setHours(0, 0, 0, 0);
             return d;
         }
@@ -86,6 +88,18 @@
                 fromInput.dispatchEvent(new Event('change'));
                 toInput.dispatchEvent(new Event('change'));
             },
+            'last-week': function () {
+                var currentWeekStart = getWeekStart(new Date());
+                var start = new Date(currentWeekStart);
+                start.setDate(currentWeekStart.getDate() - 7);
+                var end = new Date(currentWeekStart);
+                end.setDate(currentWeekStart.getDate() - 1);
+                end.setHours(23, 59, 59, 999);
+                fromInput.value = toISODate(start);
+                toInput.value = toISODate(end);
+                fromInput.dispatchEvent(new Event('change'));
+                toInput.dispatchEvent(new Event('change'));
+            },
             month: function () {
                 var now = new Date();
                 var start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -95,10 +109,28 @@
                 fromInput.dispatchEvent(new Event('change'));
                 toInput.dispatchEvent(new Event('change'));
             },
+            'last-month': function () {
+                var now = new Date();
+                var start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                var end = new Date(now.getFullYear(), now.getMonth(), 0);
+                fromInput.value = toISODate(start);
+                toInput.value = toISODate(end);
+                fromInput.dispatchEvent(new Event('change'));
+                toInput.dispatchEvent(new Event('change'));
+            },
             year: function () {
                 var now = new Date();
                 var start = new Date(now.getFullYear(), 0, 1);
                 var end = new Date(now.getFullYear(), 11, 31);
+                fromInput.value = toISODate(start);
+                toInput.value = toISODate(end);
+                fromInput.dispatchEvent(new Event('change'));
+                toInput.dispatchEvent(new Event('change'));
+            },
+            'last-year': function () {
+                var now = new Date();
+                var start = new Date(now.getFullYear() - 1, 0, 1);
+                var end = new Date(now.getFullYear() - 1, 11, 31);
                 fromInput.value = toISODate(start);
                 toInput.value = toISODate(end);
                 fromInput.dispatchEvent(new Event('change'));

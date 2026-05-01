@@ -544,6 +544,24 @@ def launch_furigana_filter_preview(current_sensitivity):
     return get_dialog_manager().furigana_preview_sync(current_sensitivity)
 
 
+def launch_pending_reviews_window():
+    """Open the Pending Reviews window. Thread-safe, non-blocking.
+
+    Marshals window creation onto the Qt main thread.
+    """
+    manager = get_dialog_manager()
+    if manager is None:
+        logger.error("DialogManager unavailable; cannot open Pending Reviews window")
+        return
+
+    def _open():
+        from GameSentenceMiner.ui.pending_reviews_window_qt import show_pending_reviews_window
+
+        show_pending_reviews_window()
+
+    manager._execute_on_gui_thread.emit(_open)
+
+
 if __name__ == "__main__":
     import os
     from PIL import Image

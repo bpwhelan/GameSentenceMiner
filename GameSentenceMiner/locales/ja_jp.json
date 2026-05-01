@@ -197,6 +197,10 @@
             "label": "更新確認ダイアログを表示:",
             "tooltip": "Ankiカードを更新する前に確認ダイアログを表示します。"
           },
+          "batch_review_queue_enabled": {
+            "label": "カードをまとめて後で確認:",
+            "tooltip": "確認ダイアログが有効な場合に、ダイアログを表示せずに「保留中レビュー」ウィンドウへキューに入れます。カードはVADの自動判定でそのままAnkiにアップロードされます。"
+          },
           "url": {
             "label": "Anki URL:",
             "tooltip": "AnkiConnectの接続URL。"

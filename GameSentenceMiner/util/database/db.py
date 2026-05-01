@@ -1621,6 +1621,7 @@ from GameSentenceMiner.util.database.cron_table import CronTable  # noqa: E402
 from GameSentenceMiner.util.database.game_daily_rollup_table import GameDailyRollupTable  # noqa: E402
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable  # noqa: E402
 from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable  # noqa: E402
+from GameSentenceMiner.util.database.pending_reviews_table import PendingReviewsTable  # noqa: E402
 
 for cls in [
     AIModelsTable,
@@ -1631,6 +1632,7 @@ for cls in [
     GameDailyRollupTable,
     StatsRollupTable,
     ThirdPartyStatsTable,
+    PendingReviewsTable,
 ]:
     cls.set_db(gsm_db)
     # Uncomment to start fresh every time

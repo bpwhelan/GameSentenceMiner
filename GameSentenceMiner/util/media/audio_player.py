@@ -16,8 +16,11 @@ from typing import Optional, Callable
 try:
     from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
     from PyQt6.QtCore import QUrl, QBuffer, QIODevice, QByteArray, QObject, pyqtSignal
-except ImportError:
+except (ImportError, RuntimeError):
     QMediaPlayer = None
+    QAudioOutput = None
+    QObject = None
+    pyqtSignal = None
 
 from GameSentenceMiner.util.config.configuration import get_config, logger
 
@@ -183,8 +186,12 @@ class SoundDeviceAudioPlayer(AudioPlayerInterface):
         return self._audio_position / self.current_audio_samplerate
 
 
-class QtPlayerSignals(QObject):
-    finished = pyqtSignal()
+if QObject is not None:
+
+    class QtPlayerSignals(QObject):
+        finished = pyqtSignal()
+else:
+    QtPlayerSignals = None
 
 
 class QtAudioPlayer(AudioPlayerInterface):

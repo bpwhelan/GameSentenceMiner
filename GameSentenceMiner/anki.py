@@ -74,6 +74,7 @@ sentence_audio_cache = {}
 anki_push_note_queue: "Queue[Dict[str, Any]]" = Queue()
 anki_push_state_lock = threading.Lock()
 processed_push_note_keys = set()
+ANKI_POLLING_BASELINE_SEED_WARNING_LIMIT = 5
 
 
 @dataclass
@@ -100,6 +101,8 @@ anki_push_state = AnkiPushState()
 @dataclass
 class AnkiPollingGateState:
     replay_buffer_polling_active: bool = False
+    replay_buffer_activation_logged: bool = False
+    baseline_seed_warning_count: int = 0
 
 
 anki_polling_gate_state = AnkiPollingGateState()
@@ -225,6 +228,9 @@ class MediaAssets:
 
     # Cleanup callback (called after all background processing is complete)
     cleanup_callback: Any = None  # Callable to run after processing
+
+    # Pending Reviews queue linkage (set when batch_review_queue_enabled)
+    batch_review_entry_id: str = ""
 
     # Success Message Flags
     animated = False
@@ -598,6 +604,58 @@ def _apply_confirmation_dialog_state(
     return selected_lines, start_time, end_time, vad_result
 
 
+def _apply_confirmation_dialog_result(
+    result: Any,
+    note: Dict,
+    last_note: "AnkiCard",
+    assets: MediaAssets,
+    game_line: Optional["GameLine"],
+    selected_lines: Optional[List["GameLine"]],
+    start_time: float,
+    end_time: float,
+    vad_result: Any,
+) -> Tuple[bool, List["GameLine"], float, float, Any, str]:
+    """Apply a parsed Anki-confirmation dialog result to the working state.
+
+    Mutates ``note`` and ``assets`` in place; returns the new
+    ``(use_voice, selected_lines, start_time, end_time, vad_result, translation)``
+    tuple ready to feed into :func:`check_and_update_note`.
+    """
+    config = get_config()
+    (
+        use_voice,
+        sentence,
+        translation,
+        new_ss_path,
+        new_prev_ss_path,
+        add_nsfw_tag,
+        new_audio_path,
+        dialog_state,
+    ) = _parse_confirmation_dialog_result(result)
+    selected_lines, start_time, end_time, vad_result = _apply_confirmation_dialog_state(
+        note,
+        last_note,
+        game_line,
+        selected_lines,
+        start_time,
+        end_time,
+        vad_result,
+        dialog_state,
+    )
+    _apply_confirmed_sentence_fields(note, last_note, sentence)
+    if config.ai.add_to_anki and config.ai.anki_field:
+        note["fields"][config.ai.anki_field] = translation
+    if game_line is not None:
+        game_line.TL = translation
+    assets.screenshot_path = new_ss_path or assets.screenshot_path
+    assets.prev_screenshot_path = new_prev_ss_path or assets.prev_screenshot_path
+    if new_audio_path:
+        assets.audio_path = new_audio_path
+    if add_nsfw_tag and "NSFW" not in assets.extra_tags:
+        assets.extra_tags.append("NSFW")
+    return use_voice, selected_lines, start_time, end_time, vad_result, translation
+
+
 def _synchronize_deferred_media_metadata(
     assets: MediaAssets,
     video_path: str,
@@ -798,8 +856,6 @@ def update_anki_card(
     )
     _synchronize_deferred_media_metadata(assets, video_path, start_time, vad_result)
     assets.audio_path = audio_path  # Assign the passed audio path
-    if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files:
-        _start_animated_screenshot_prefetch(assets, config)
 
     # 3. Prepare the basic structure of the Anki note and its tags
     note = note or {"id": last_note.noteId, "fields": {}}
@@ -822,12 +878,71 @@ def update_anki_card(
 
     tags = _prepare_anki_tags()
 
-    # 4. (Optional) Show confirmation dialog to the user, which may alter media
+    # 4. (Optional) Show confirmation dialog to the user, which may alter media.
+    #    When batch review queue mode is enabled we skip the modal dialog and
+    #    snapshot the inputs so the user can revisit the card later via the
+    #    Pending Reviews window. The card still gets uploaded to Anki below
+    #    using the auto-accept (VAD-based) decision so Anki stays in sync.
     use_voice = update_audio_flag or assets.audio_in_anki
+    queue_for_batch_review = (
+        getattr(config.anki, "batch_review_queue_enabled", False)
+        and config.anki.show_update_confirmation_dialog_v2
+        and not use_existing_files
+    )
+    sentence_for_snapshot = ""
+    previous_ss_time_for_snapshot = 0.0
     if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files:
+        # Animated screenshot prefetch only makes sense when we're going to show
+        # the dialog right now. In queue mode we defer generation until the user
+        # actually opens the entry from the Pending Reviews window.
+        if not queue_for_batch_review:
+            _start_animated_screenshot_prefetch(assets, config)
+        sentence_for_snapshot = note["fields"].get(
+            config.anki.sentence_field,
+            last_note.get_field(config.anki.sentence_field) if last_note else "",
+        )
+        previous_ss_time_for_snapshot = (
+            ffmpeg.get_screenshot_time(video_path, game_line.prev if game_line else None)
+            if _field_is_active("previous_image_field")
+            else 0
+        )
+
+    if queue_for_batch_review:
+        # Auto-accept media using the VAD outcome — same logic the dialog uses
+        # when its auto-accept timer fires.
+        vad_ran = vad_result is not None and hasattr(vad_result, "success")
+        vad_detected_voice = vad_ran and bool(vad_result.success)
+        use_voice = bool(vad_detected_voice and (update_audio_flag or assets.audio_path or assets.audio_in_anki))
+
+        if not use_voice:
+            assets.audio_path = ""
+
+        try:
+            from GameSentenceMiner.util import pending_reviews
+
+            entry = pending_reviews.enqueue(
+                last_note=last_note,
+                game_line=game_line,
+                selected_lines=selected_lines,
+                assets=assets,
+                audio_path=assets.audio_path,
+                video_path=video_path,
+                screenshot_timestamp=ss_time,
+                prev_screenshot_timestamp=previous_ss_time_for_snapshot,
+                vad_result=vad_result,
+                audio_edit_context=getattr(gsm_state, "audio_edit_context", None),
+                translation=translation,
+                sentence=sentence_for_snapshot,
+                expression=tango,
+                anki_card_creation_time=getattr(game_line, "mined_time", None),
+            )
+            assets.batch_review_entry_id = entry.entry_id
+        except Exception as e:
+            logger.exception(f"Failed to enqueue card for batch review, falling back to direct upload: {e}")
+    elif config.anki.show_update_confirmation_dialog_v2 and not use_existing_files:
         from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
 
-        sentence = note["fields"].get(config.anki.sentence_field, last_note.get_field(config.anki.sentence_field))
+        sentence = sentence_for_snapshot
 
         # Determine which audio path to pass to the dialog
         # If VAD failed but we have trimmed audio, pass that so user can choose to keep it
@@ -846,11 +961,7 @@ def update_anki_card(
                 logger.info(f"VAD did not find voice, but offering trimmed audio to user: {dialog_audio_path}")
 
         gsm_state.vad_result = vad_result  # Pass VAD result to dialog if needed
-        previous_ss_time = (
-            ffmpeg.get_screenshot_time(video_path, game_line.prev if game_line else None)
-            if _field_is_active("previous_image_field")
-            else 0
-        )
+        previous_ss_time = previous_ss_time_for_snapshot
         result = launch_anki_confirmation(
             tango,
             sentence,
@@ -868,40 +979,17 @@ def update_anki_card(
             logger.info("Anki confirmation dialog was cancelled")
             return False
 
-        (
-            use_voice,
-            sentence,
-            translation,
-            new_ss_path,
-            new_prev_ss_path,
-            add_nsfw_tag,
-            new_audio_path,
-            dialog_state,
-        ) = _parse_confirmation_dialog_result(result)
-        selected_lines, start_time, end_time, vad_result = _apply_confirmation_dialog_state(
+        use_voice, selected_lines, start_time, end_time, vad_result, translation = _apply_confirmation_dialog_result(
+            result,
             note,
             last_note,
+            assets,
             game_line,
             selected_lines,
             start_time,
             end_time,
             vad_result,
-            dialog_state,
         )
-        _apply_confirmed_sentence_fields(note, last_note, sentence)
-        if config.ai.add_to_anki and config.ai.anki_field:
-            note["fields"][config.ai.anki_field] = translation
-        if game_line is not None:
-            game_line.TL = translation
-        assets.screenshot_path = new_ss_path or assets.screenshot_path
-        assets.prev_screenshot_path = new_prev_ss_path or assets.prev_screenshot_path
-        # Update audio path if TTS was generated in the dialog
-        if new_audio_path:
-            assets.audio_path = new_audio_path
-
-        # Add NSFW tag if checkbox was selected
-        if add_nsfw_tag:
-            assets.extra_tags.append("NSFW")
 
     # 5. Prepare tags
     for extra_tag in assets.extra_tags:
@@ -918,7 +1006,16 @@ def update_anki_card(
         gsm_state.videos_with_pending_operations.add(video_path)
 
         def cleanup_video():
-            if get_config().paths.remove_video and os.path.exists(video_path):
+            try:
+                from GameSentenceMiner.util import pending_reviews
+
+                pinned = pending_reviews.is_video_pinned_for_review(video_path)
+            except Exception:
+                pinned = False
+
+            if pinned:
+                logger.debug(f"Skipping source video deletion — pinned for batch review: {video_path}")
+            elif get_config().paths.remove_video and os.path.exists(video_path):
                 try:
                     logger.debug(f"Removing source video after background processing: {video_path}")
                     os.remove(video_path)
@@ -1973,6 +2070,12 @@ def reset_anki_polling_gate_state():
     anki_polling_gate_state = AnkiPollingGateState()
 
 
+def _reset_anki_polling_activation_state() -> None:
+    anki_polling_gate_state.replay_buffer_polling_active = False
+    anki_polling_gate_state.replay_buffer_activation_logged = False
+    anki_polling_gate_state.baseline_seed_warning_count = 0
+
+
 def _coerce_note_id(note_id: Any) -> Optional[int]:
     try:
         value = int(note_id)
@@ -2451,10 +2554,20 @@ def _seed_anki_polling_baseline() -> bool:
         gsm_status.anki_connected = True
         errors_shown = 0
         final_warning_shown = False
+        anki_polling_gate_state.baseline_seed_warning_count = 0
+        anki_polling_gate_state.replay_buffer_activation_logged = False
         return True
     except Exception as e:
         gsm_status.anki_connected = False
-        logger.warning(f"Failed to seed Anki polling baseline after replay buffer activation: {e}")
+        if anki_polling_gate_state.baseline_seed_warning_count < ANKI_POLLING_BASELINE_SEED_WARNING_LIMIT:
+            anki_polling_gate_state.baseline_seed_warning_count += 1
+            remaining_warnings = (
+                ANKI_POLLING_BASELINE_SEED_WARNING_LIMIT - anki_polling_gate_state.baseline_seed_warning_count
+            )
+            logger.warning(
+                f"Failed to seed Anki polling baseline after replay buffer activation: {e}. "
+                f"This warning will be shown {remaining_warnings} more times."
+            )
         return False
 
 
@@ -2488,12 +2601,14 @@ def _monitor_anki_iteration(unsuccessful_count: int, scaled_polling_rate: float)
     if not _is_anki_polling_allowed():
         if anki_polling_gate_state.replay_buffer_polling_active:
             logger.info("OBS replay buffer inactive; disabling Anki polling.")
-            anki_polling_gate_state.replay_buffer_polling_active = False
+        _reset_anki_polling_activation_state()
         time.sleep(base_polling_rate)
         return 0, base_polling_rate
 
     if not anki_polling_gate_state.replay_buffer_polling_active:
-        logger.info("OBS replay buffer active; enabling Anki polling and seeding the current Anki baseline.")
+        if not anki_polling_gate_state.replay_buffer_activation_logged:
+            logger.info("OBS replay buffer active; enabling Anki polling and seeding the current Anki baseline.")
+            anki_polling_gate_state.replay_buffer_activation_logged = True
         if _seed_anki_polling_baseline():
             anki_polling_gate_state.replay_buffer_polling_active = True
         time.sleep(base_polling_rate)

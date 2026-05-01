@@ -202,6 +202,10 @@
             "label": "Show Update Confirmation Dialog:",
             "tooltip": "Show a confirmation dialog before updating Anki cards."
           },
+          "batch_review_queue_enabled": {
+            "label": "Queue cards for batch review:",
+            "tooltip": "When the confirmation dialog is enabled, skip the modal popup and queue mined cards in the Pending Reviews window for later review. Cards still upload to Anki immediately using the VAD-based auto-accept choice."
+          },
           "url": {
             "label": "Anki URL:",
             "tooltip": "The URL to connect to your Anki instance."

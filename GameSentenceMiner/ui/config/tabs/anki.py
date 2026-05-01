@@ -271,6 +271,16 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(
             tabs_i18n,
             "anki",
+            "batch_review_queue_enabled",
+            "Skip the modal confirmation dialog while mining; queue cards for batch review later. "
+            "Cards are still uploaded to Anki immediately using the VAD-based auto-accept choice.",
+        ),
+        window.batch_review_queue_enabled_check,
+    )
+    layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "anki",
             "confirmation_always_on_top",
             "Keep the Anki confirmation dialog above other windows while open.",
         ),

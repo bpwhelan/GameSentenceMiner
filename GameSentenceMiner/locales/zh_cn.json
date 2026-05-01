@@ -198,6 +198,10 @@
             "label": "显示更新确认对话框:",
             "tooltip": "在更新 Anki 卡片之前显示确认对话框。"
           },
+          "batch_review_queue_enabled": {
+            "label": "将卡片加入批量审阅队列:",
+            "tooltip": "启用确认对话框时,跳过模态弹窗,将挖掘的卡片加入“待审阅”窗口以便稍后批量复核。卡片仍会立即按 VAD 自动接受的结果上传到 Anki。"
+          },
           "url": {
             "label": "Anki URL:",
             "tooltip": "连接到您的 Anki 实例的 URL。"
