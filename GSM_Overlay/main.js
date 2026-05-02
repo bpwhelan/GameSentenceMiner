@@ -2277,52 +2277,9 @@ function getEmergencyFallbackDisplay() {
   };
 }
 
-function getDisplaySortKey(display) {
-  const bounds = display && display.bounds ? display.bounds : {};
-  const label = String((display && display.label) || "");
-  return [
-    Number(bounds.y) || 0,
-    Number(bounds.x) || 0,
-    Number(bounds.width) || 0,
-    Number(bounds.height) || 0,
-    label,
-    Number(display && display.id) || 0,
-  ];
-}
-
-function compareDisplaySortKeys(a, b) {
-  const aKey = getDisplaySortKey(a);
-  const bKey = getDisplaySortKey(b);
-  for (let i = 0; i < aKey.length; i += 1) {
-    if (aKey[i] < bKey[i]) return -1;
-    if (aKey[i] > bKey[i]) return 1;
-  }
-  return 0;
-}
-
-function getDisplaysInMonitorIndexOrder() {
-  const displays = screen.getAllDisplays();
-  if (!Array.isArray(displays) || displays.length <= 1) {
-    return displays;
-  }
-
-  const primary = screen.getPrimaryDisplay();
-  const primaryId = primary && primary.id;
-  const primaryDisplay = displays.find((display) => display.id === primaryId) || displays[0];
-  const remainingDisplays = displays
-    .filter((display) => display.id !== primaryDisplay.id)
-    .sort(compareDisplaySortKeys);
-
-  // Python/config monitor indices are based on mss/Win32 monitor ordering.
-  // Electron's getAllDisplays() can return the same monitors in a different
-  // order, so keep the primary display first and sort the rest by geometry
-  // before applying monitor_to_capture.
-  return [primaryDisplay, ...remainingDisplays];
-}
-
 function resolveOverlayMonitorSelection(options = {}) {
   const logFallback = !!options.logFallback;
-  const displays = getDisplaysInMonitorIndexOrder();
+  const displays = screen.getAllDisplays();
   const fallbackDisplay = getEmergencyFallbackDisplay();
 
   if (!Array.isArray(displays) || displays.length === 0) {

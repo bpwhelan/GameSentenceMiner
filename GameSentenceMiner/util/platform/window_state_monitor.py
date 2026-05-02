@@ -657,6 +657,12 @@ def _build_exe_name_set(entries: List[str]) -> Set[str]:
     return exe_names
 
 
+def _exe_names_match(left: str, right: str) -> bool:
+    if not left or not right:
+        return False
+    return bool(_normalize_exe_entry(left) & _normalize_exe_entry(right))
+
+
 def _get_process_exe_name(pid: int) -> str:
     path = _get_process_exe_path(pid)
     return os.path.basename(path) if path else ""
@@ -1212,6 +1218,22 @@ class WindowStateMonitor:
         user32.GetWindowTextW(hwnd, buff, length + 1)
         return buff.value
 
+    def _hwnd_matches_target_exe(self, hwnd: int, target_exe: Optional[str]) -> bool:
+        """
+        Validate a class/title candidate against OBS' target executable.
+
+        Class names are cheap and useful as a first pass, but engines commonly
+        reuse them across unrelated games. Only pay the process lookup for
+        candidates that already passed a cheaper filter.
+        """
+        if not target_exe:
+            return True
+
+        window_exe = self._get_window_exe_name(hwnd)
+        if not window_exe:
+            return False
+        return _exe_names_match(window_exe, target_exe)
+
     def _is_overlay_window(self, hwnd) -> bool:
         """Check if a window is a transparent overlay (GSM, Magpie, OBS preview, etc).
 
@@ -1465,7 +1487,9 @@ class WindowStateMonitor:
             if tgt_class:
                 window_class = self._get_window_class(hwnd)
                 if window_class and window_class.lower() == tgt_class.lower():
-                    self.found_hwnds.append(hwnd)
+                    tgt_exe = self.last_target_info.get("exe")
+                    if self._hwnd_matches_target_exe(hwnd, tgt_exe):
+                        self.found_hwnds.append(hwnd)
                     return True
 
         # Fallback 1: match on exe name
@@ -1473,10 +1497,12 @@ class WindowStateMonitor:
             tgt_exe = self.last_target_info.get("exe")
             if tgt_exe:
                 window_exe = self._get_window_exe_name(hwnd)
-                if window_exe in self.EXCLUDED_EXES:
+                if _exe_name_matches_set(window_exe, self.EXCLUDED_EXES):
                     return True
-                if window_exe and window_exe.lower() == tgt_exe.lower():
+                if _exe_names_match(window_exe, tgt_exe):
                     self.found_hwnds.append(hwnd)
+                    return True
+                if window_exe:
                     return True
 
         # Fallback 2: match on game name in title
