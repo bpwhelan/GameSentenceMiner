@@ -9,6 +9,7 @@ import { registerOCRUtilsIPC } from '../ui/ocr.js';
 import { registerSettingsIPC } from '../ui/settings.js';
 import { registerSteamIPC } from '../ui/steam.js';
 import { registerOBSIPC } from '../ui/obs.js';
+import { registerAnkiBeaconIPC } from '../ui/anki_beacon.js';
 import { registerYuzuIPC } from '../ui/yuzu.js';
 import { registerVNIPC } from '../ui/vn.js';
 import { exportLogsArchive } from './log_export.js';
@@ -91,6 +92,7 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
     registerFrontPageIPC();
     registerPythonIPC();
     registerStateIPC();
+    registerAnkiBeaconIPC();
 
     ipcMain.handle('show-error-box', async (_event, { title, message, detail }) => {
         const mainWindow = deps.getMainWindow();

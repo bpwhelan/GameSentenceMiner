@@ -97,6 +97,27 @@
       "text": "Підтримати GSM",
       "githubSponsors": "GitHub Sponsors",
       "kofi": "Ko-fi"
+    },
+    "ankiBeacon": {
+      "statusMissing": "AnkiBeacon ⚠️",
+      "tooltipConnected": "AnkiBeacon працює. GSM слухатиме нові картки замість фонового опитування.",
+      "tooltipMissing": "Anki підключено. Натисніть, щоб встановити AnkiBeacon для легшого виявлення нових карток.",
+      "title": "Встановити AnkiBeacon",
+      "description": "AnkiBeacon — це невеликий необов'язковий додаток Anki, який повідомляє GSM, коли створено нову картку.",
+      "benefit": "Після встановлення GSM зможе напряму отримувати нові картки з Anki, виконуючи до 98% менше фонових перевірок під час гри.",
+      "ankiWebPage": "Сторінка додатка AnkiWeb",
+      "githubPage": "Репозиторій GitHub",
+      "installNow": "Встановити зараз",
+      "installing": "Встановлення...",
+      "later": "Пізніше",
+      "close": "Закрити",
+      "installStarted": "AnkiBeacon відкрито. Підтвердьте встановлення додатка в Anki, а потім перезапустіть Anki, якщо буде запит.",
+      "waitingSignal": "Очікування сигналу AnkiBeacon...",
+      "signalDetected": "Сигнал AnkiBeacon отримано. Закриття...",
+      "installFailed": "Автоматичне встановлення не відкрилося в Anki.",
+      "manualInstall": "Скопіюйте код AnkiWeb і вставте його в Anki → Інструменти → Додатки → Отримати додатки.",
+      "copyCode": "Копіювати код {code}",
+      "codeCopied": "Скопійовано код {code}"
     }
   },
   "app": {

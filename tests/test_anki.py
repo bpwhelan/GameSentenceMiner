@@ -113,8 +113,8 @@ def _reset_state():
     anki.first_run = True
     anki.errors_shown = 0
     anki.final_warning_shown = False
-    if hasattr(anki, "reset_anki_push_receiver_state"):
-        anki.reset_anki_push_receiver_state()
+    if hasattr(anki, "reset_anki_beacon_receiver_state"):
+        anki.reset_anki_beacon_receiver_state()
     if hasattr(anki, "reset_anki_polling_gate_state"):
         anki.reset_anki_polling_gate_state()
 
@@ -355,10 +355,12 @@ def test_check_for_new_cards_does_not_sync_cache_before_note_update_finishes(
     assert calls == [("update", {20})]
 
 
-def test_record_anki_push_heartbeat_uses_configured_freshness_window():
+def test_record_anki_beacon_heartbeat_uses_configured_freshness_window():
     received_at = datetime(2026, 4, 22, 12, 0, 0)
+    anki.gsm_status.anki_connected = False
+    anki.gsm_status.anki_beacon_connected = False
 
-    anki.record_anki_push_heartbeat(
+    anki.record_anki_beacon_heartbeat(
         {
             "event": "heartbeat",
             "session_id": "session-1",
@@ -368,8 +370,12 @@ def test_record_anki_push_heartbeat_uses_configured_freshness_window():
         received_at=received_at,
     )
 
-    assert anki.is_anki_push_heartbeat_fresh(now=received_at + timedelta(seconds=44)) is True
-    assert anki.is_anki_push_heartbeat_fresh(now=received_at + timedelta(seconds=46)) is False
+    assert anki.is_anki_beacon_heartbeat_fresh(now=received_at + timedelta(seconds=44)) is True
+    assert anki.is_anki_beacon_heartbeat_fresh(now=received_at + timedelta(seconds=46)) is False
+    assert anki.gsm_status.anki_connected is True
+    assert anki.gsm_status.anki_beacon_connected is True
+    assert anki.refresh_anki_beacon_connection_status(now=received_at + timedelta(seconds=46)) is False
+    assert anki.gsm_status.anki_beacon_connected is False
 
 
 def test_handle_incoming_anki_event_queues_and_deduplicates_note_added(monkeypatch):
@@ -386,7 +392,7 @@ def test_handle_incoming_anki_event_queues_and_deduplicates_note_added(monkeypat
     assert anki.handle_incoming_anki_event(payload) == "note_added"
     assert anki.handle_incoming_anki_event(payload) == "duplicate_note_added"
 
-    assert anki._process_next_anki_push_note(timeout_seconds=0) is True
+    assert anki._process_next_anki_beacon_note(timeout_seconds=0) is True
     assert processed == [{42}]
     assert anki.previous_note_ids == {42}
     assert anki.first_run is False
@@ -397,12 +403,12 @@ def test_monitor_anki_iteration_uses_push_queue_when_heartbeat_is_fresh(monkeypa
     timeouts = []
 
     monkeypatch.setattr(anki, "get_config", lambda: config)
-    monkeypatch.setattr(anki, "is_anki_push_heartbeat_fresh", lambda now=None: True)
-    monkeypatch.setattr(anki, "get_anki_push_wait_timeout_seconds", lambda now=None: 60.0)
-    monkeypatch.setattr(anki, "_ensure_anki_push_baseline", lambda: True)
+    monkeypatch.setattr(anki, "is_anki_beacon_heartbeat_fresh", lambda now=None: True)
+    monkeypatch.setattr(anki, "get_anki_beacon_wait_timeout_seconds", lambda now=None: 60.0)
+    monkeypatch.setattr(anki, "_ensure_anki_beacon_baseline", lambda: True)
     monkeypatch.setattr(
         anki,
-        "_process_next_anki_push_note",
+        "_process_next_anki_beacon_note",
         lambda timeout_seconds=0.0: timeouts.append(timeout_seconds) or False,
     )
     monkeypatch.setattr(
@@ -426,8 +432,8 @@ def test_monitor_anki_iteration_skips_polling_when_replay_buffer_inactive(monkey
     sleep_calls = []
 
     monkeypatch.setattr(anki, "get_config", lambda: config)
-    monkeypatch.setattr(anki, "get_anki_push_wait_timeout_seconds", lambda now=None: 0.0)
-    monkeypatch.setattr(anki, "_process_next_anki_push_note", lambda timeout_seconds=0.0: False)
+    monkeypatch.setattr(anki, "get_anki_beacon_wait_timeout_seconds", lambda now=None: 0.0)
+    monkeypatch.setattr(anki, "_process_next_anki_beacon_note", lambda timeout_seconds=0.0: False)
     monkeypatch.setattr(anki, "_is_anki_polling_allowed", lambda: False)
     monkeypatch.setattr(anki.time, "sleep", lambda seconds: sleep_calls.append(seconds))
     monkeypatch.setattr(
@@ -451,8 +457,8 @@ def test_monitor_anki_iteration_seeds_polling_baseline_when_replay_buffer_activa
     check_calls = []
 
     monkeypatch.setattr(anki, "get_config", lambda: config)
-    monkeypatch.setattr(anki, "get_anki_push_wait_timeout_seconds", lambda now=None: 0.0)
-    monkeypatch.setattr(anki, "_process_next_anki_push_note", lambda timeout_seconds=0.0: False)
+    monkeypatch.setattr(anki, "get_anki_beacon_wait_timeout_seconds", lambda now=None: 0.0)
+    monkeypatch.setattr(anki, "_process_next_anki_beacon_note", lambda timeout_seconds=0.0: False)
     monkeypatch.setattr(anki, "_is_anki_polling_allowed", lambda: True)
     monkeypatch.setattr(anki, "get_note_ids", lambda: {10, 20, 30})
     monkeypatch.setattr(anki.time, "sleep", lambda *_args, **_kwargs: None)

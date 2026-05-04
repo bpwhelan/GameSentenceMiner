@@ -71,8 +71,8 @@ previous_note_ids = set()
 first_run = True
 card_queue = []
 sentence_audio_cache = {}
-anki_push_note_queue: "Queue[Dict[str, Any]]" = Queue()
-anki_push_state_lock = threading.Lock()
+anki_beacon_note_queue: "Queue[Dict[str, Any]]" = Queue()
+anki_beacon_state_lock = threading.Lock()
 processed_push_note_keys = set()
 
 
@@ -84,7 +84,7 @@ class SentenceAudioCacheEntry:
 
 
 @dataclass
-class AnkiPushState:
+class AnkiBeaconState:
     last_heartbeat_at: Optional[datetime] = None
     session_id: str = ""
     heartbeat_interval_seconds: float = 0.0
@@ -94,7 +94,7 @@ class AnkiPushState:
     push_mode_active: bool = False
 
 
-anki_push_state = AnkiPushState()
+anki_beacon_state = AnkiBeaconState()
 
 
 @dataclass
@@ -1954,18 +1954,19 @@ errors_shown = 0
 final_warning_shown = False
 
 
-def reset_anki_push_receiver_state():
-    global anki_push_state
+def reset_anki_beacon_receiver_state():
+    global anki_beacon_state
 
     while True:
         try:
-            anki_push_note_queue.get_nowait()
+            anki_beacon_note_queue.get_nowait()
         except Empty:
             break
 
-    with anki_push_state_lock:
+    with anki_beacon_state_lock:
         processed_push_note_keys.clear()
-        anki_push_state = AnkiPushState(baseline_seeded=not first_run)
+        anki_beacon_state = AnkiBeaconState(baseline_seeded=not first_run)
+    gsm_status.anki_beacon_connected = False
 
 
 def reset_anki_polling_gate_state():
@@ -1981,15 +1982,15 @@ def _coerce_note_id(note_id: Any) -> Optional[int]:
     return value if value > 0 else None
 
 
-def _get_anki_push_note_key(session_id: str, note_id: int) -> Tuple[str, int]:
+def _get_anki_beacon_note_key(session_id: str, note_id: int) -> Tuple[str, int]:
     return (session_id or "", int(note_id))
 
 
-def _get_anki_push_expiry_seconds(heartbeat_interval_seconds: float) -> float:
+def _get_anki_beacon_expiry_seconds(heartbeat_interval_seconds: float) -> float:
     return max(30.0, 3.0 * max(0.0, float(heartbeat_interval_seconds or 0.0)))
 
 
-def record_anki_push_heartbeat(payload: Dict[str, Any], received_at: Optional[datetime] = None) -> None:
+def record_anki_beacon_heartbeat(payload: Dict[str, Any], received_at: Optional[datetime] = None) -> None:
     received_at = received_at or datetime.now()
     session_id = str(payload.get("session_id") or "")
     payload_mode = str(payload.get("payload_mode") or "")
@@ -2000,36 +2001,46 @@ def record_anki_push_heartbeat(payload: Dict[str, Any], received_at: Optional[da
     except (TypeError, ValueError):
         heartbeat_interval_seconds = 0.0
 
-    with anki_push_state_lock:
-        if session_id and session_id != anki_push_state.session_id:
+    with anki_beacon_state_lock:
+        if session_id and session_id != anki_beacon_state.session_id:
             processed_push_note_keys.clear()
-            anki_push_state.baseline_seeded = not first_run
+            anki_beacon_state.baseline_seeded = not first_run
 
-        anki_push_state.last_heartbeat_at = received_at
-        anki_push_state.session_id = session_id
-        anki_push_state.heartbeat_interval_seconds = heartbeat_interval_seconds
-        anki_push_state.payload_mode = payload_mode
-        anki_push_state.capabilities = capabilities
+        anki_beacon_state.last_heartbeat_at = received_at
+        anki_beacon_state.session_id = session_id
+        anki_beacon_state.heartbeat_interval_seconds = heartbeat_interval_seconds
+        anki_beacon_state.payload_mode = payload_mode
+        anki_beacon_state.capabilities = capabilities
         if not first_run:
-            anki_push_state.baseline_seeded = True
+            anki_beacon_state.baseline_seeded = True
+    gsm_status.anki_connected = True
+    gsm_status.anki_beacon_connected = True
 
 
-def get_anki_push_wait_timeout_seconds(now: Optional[datetime] = None) -> float:
+def get_anki_beacon_wait_timeout_seconds(now: Optional[datetime] = None) -> float:
     now = now or datetime.now()
-    with anki_push_state_lock:
-        last_heartbeat_at = anki_push_state.last_heartbeat_at
-        heartbeat_interval_seconds = anki_push_state.heartbeat_interval_seconds
+    with anki_beacon_state_lock:
+        last_heartbeat_at = anki_beacon_state.last_heartbeat_at
+        heartbeat_interval_seconds = anki_beacon_state.heartbeat_interval_seconds
 
     if not last_heartbeat_at:
         return 0.0
 
     age_seconds = max(0.0, (now - last_heartbeat_at).total_seconds())
-    expiry_seconds = _get_anki_push_expiry_seconds(heartbeat_interval_seconds)
+    expiry_seconds = _get_anki_beacon_expiry_seconds(heartbeat_interval_seconds)
     return max(0.0, expiry_seconds - age_seconds)
 
 
-def is_anki_push_heartbeat_fresh(now: Optional[datetime] = None) -> bool:
-    return get_anki_push_wait_timeout_seconds(now=now) > 0.0
+def is_anki_beacon_heartbeat_fresh(now: Optional[datetime] = None) -> bool:
+    return get_anki_beacon_wait_timeout_seconds(now=now) > 0.0
+
+
+def refresh_anki_beacon_connection_status(now: Optional[datetime] = None) -> bool:
+    fresh = is_anki_beacon_heartbeat_fresh(now=now)
+    gsm_status.anki_beacon_connected = fresh
+    if fresh:
+        gsm_status.anki_connected = True
+    return fresh
 
 
 def handle_incoming_anki_event(payload: Dict[str, Any], received_at: Optional[datetime] = None) -> str:
@@ -2038,7 +2049,7 @@ def handle_incoming_anki_event(payload: Dict[str, Any], received_at: Optional[da
 
     event = str(payload.get("event") or "").strip().lower()
     if event == "heartbeat":
-        record_anki_push_heartbeat(payload, received_at=received_at)
+        record_anki_beacon_heartbeat(payload, received_at=received_at)
         return "heartbeat"
 
     if event != "note_added":
@@ -2049,14 +2060,14 @@ def handle_incoming_anki_event(payload: Dict[str, Any], received_at: Optional[da
         raise ValueError("note_added payload must include a valid note_id.")
 
     session_id = str(payload.get("session_id") or "")
-    note_key = _get_anki_push_note_key(session_id, note_id)
+    note_key = _get_anki_beacon_note_key(session_id, note_id)
 
-    with anki_push_state_lock:
+    with anki_beacon_state_lock:
         if note_key in processed_push_note_keys:
             return "duplicate_note_added"
         processed_push_note_keys.add(note_key)
 
-    anki_push_note_queue.put(
+    anki_beacon_note_queue.put(
         {
             "session_id": session_id,
             "note_id": note_id,
@@ -2066,38 +2077,38 @@ def handle_incoming_anki_event(payload: Dict[str, Any], received_at: Optional[da
     return "note_added"
 
 
-def _ensure_anki_push_baseline() -> bool:
+def _ensure_anki_beacon_baseline() -> bool:
     global previous_note_ids, first_run
 
-    with anki_push_state_lock:
-        if anki_push_state.baseline_seeded:
+    with anki_beacon_state_lock:
+        if anki_beacon_state.baseline_seeded:
             return True
 
     if not first_run:
-        with anki_push_state_lock:
-            anki_push_state.baseline_seeded = True
+        with anki_beacon_state_lock:
+            anki_beacon_state.baseline_seeded = True
         return True
 
     try:
         previous_note_ids.update(get_note_ids())
         first_run = False
         gsm_status.anki_connected = True
-        with anki_push_state_lock:
-            anki_push_state.baseline_seeded = True
+        with anki_beacon_state_lock:
+            anki_beacon_state.baseline_seeded = True
         return True
     except Exception as e:
-        logger.warning(f"Failed to seed Anki push baseline from AnkiConnect: {e}")
+        logger.warning(f"Failed to seed Anki Beacon baseline from AnkiConnect: {e}")
         return False
 
 
-def _process_next_anki_push_note(timeout_seconds: float = 0.0) -> bool:
+def _process_next_anki_beacon_note(timeout_seconds: float = 0.0) -> bool:
     global previous_note_ids, first_run
 
     try:
         if timeout_seconds and timeout_seconds > 0:
-            push_event = anki_push_note_queue.get(timeout=timeout_seconds)
+            push_event = anki_beacon_note_queue.get(timeout=timeout_seconds)
         else:
-            push_event = anki_push_note_queue.get_nowait()
+            push_event = anki_beacon_note_queue.get_nowait()
     except Empty:
         return False
 
@@ -2108,7 +2119,7 @@ def _process_next_anki_push_note(timeout_seconds: float = 0.0) -> bool:
     if note_id is None:
         return False
 
-    note_key = _get_anki_push_note_key(session_id, note_id)
+    note_key = _get_anki_beacon_note_key(session_id, note_id)
     try:
         update_new_cards({note_id})
         previous_note_ids.add(note_id)
@@ -2116,7 +2127,7 @@ def _process_next_anki_push_note(timeout_seconds: float = 0.0) -> bool:
         return True
     except Exception:
         logger.exception(f"Error processing pushed Anki note {note_id}")
-        with anki_push_state_lock:
+        with anki_beacon_state_lock:
             processed_push_note_keys.discard(note_key)
         return False
 
@@ -2463,26 +2474,29 @@ def _monitor_anki_iteration(unsuccessful_count: int, scaled_polling_rate: float)
     base_polling_rate = _get_anki_base_polling_rate_seconds()
 
     if not config.anki.enabled:
+        refresh_anki_beacon_connection_status()
         time.sleep(5)
         return unsuccessful_count, base_polling_rate
 
-    push_wait_timeout = get_anki_push_wait_timeout_seconds()
+    push_wait_timeout = get_anki_beacon_wait_timeout_seconds()
+    gsm_status.anki_beacon_connected = push_wait_timeout > 0
     if push_wait_timeout > 0:
-        with anki_push_state_lock:
-            if not anki_push_state.push_mode_active:
-                logger.info("Anki push heartbeat detected; disabling polling and switching to push event mode.")
-                anki_push_state.push_mode_active = True
-        _ensure_anki_push_baseline()
-        if _process_next_anki_push_note(timeout_seconds=push_wait_timeout):
+        gsm_status.anki_connected = True
+        with anki_beacon_state_lock:
+            if not anki_beacon_state.push_mode_active:
+                logger.info("Anki Beacon heartbeat detected; disabling polling and switching to push event mode.")
+                anki_beacon_state.push_mode_active = True
+        _ensure_anki_beacon_baseline()
+        if _process_next_anki_beacon_note(timeout_seconds=push_wait_timeout):
             return 0, base_polling_rate
         return unsuccessful_count, scaled_polling_rate
 
-    with anki_push_state_lock:
-        if anki_push_state.push_mode_active:
-            logger.info("Anki push heartbeat expired; re-enabling polling fallback.")
-            anki_push_state.push_mode_active = False
+    with anki_beacon_state_lock:
+        if anki_beacon_state.push_mode_active:
+            logger.info("Anki Beacon heartbeat expired; re-enabling polling fallback.")
+            anki_beacon_state.push_mode_active = False
 
-    if _process_next_anki_push_note(timeout_seconds=0.0):
+    if _process_next_anki_beacon_note(timeout_seconds=0.0):
         return 0, base_polling_rate
 
     if not _is_anki_polling_allowed():

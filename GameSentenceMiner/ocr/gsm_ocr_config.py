@@ -47,6 +47,7 @@ class Rectangle:
     coordinates: List[Union[float, int]]
     is_excluded: bool
     is_secondary: bool = False
+    is_exclusive: bool = False
 
 
 @dataclass_json

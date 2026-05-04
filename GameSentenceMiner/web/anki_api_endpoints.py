@@ -58,7 +58,7 @@ _ANKI_STATS_SECTION_DEFAULTS: dict[str, object] = {
 }
 
 
-def _dispatch_anki_push_event(payload: dict) -> str:
+def _dispatch_anki_beacon_event(payload: dict) -> str:
     from GameSentenceMiner import anki as anki_module
 
     return anki_module.handle_incoming_anki_event(payload)
@@ -996,13 +996,13 @@ def register_anki_api_endpoints(app):
     @app.route("/api/anki/events", methods=["POST"])
     @app.route("/anki/events", methods=["POST"])
     def api_anki_events():
-        """Receive heartbeat and note-added events from the Anki push addon."""
+        """Receive heartbeat and note-added events from the Anki Beacon addon."""
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify({"error": "Expected a JSON object payload."}), 400
 
         try:
-            result = _dispatch_anki_push_event(payload)
+            result = _dispatch_anki_beacon_event(payload)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 

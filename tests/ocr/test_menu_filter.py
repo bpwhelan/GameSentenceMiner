@@ -63,6 +63,87 @@ def test_check_text_is_all_menu_accepts_four_value_crop_coords(monkeypatch):
     )
 
 
+def test_exclusive_ocr_area_filter_keeps_only_lines_inside_exclusive_rectangles(monkeypatch):
+    rectangles = [
+        SimpleNamespace(is_secondary=False, is_excluded=False, is_exclusive=False, coordinates=(0, 0, 100, 100)),
+        SimpleNamespace(is_secondary=False, is_excluded=False, is_exclusive=True, coordinates=(200, 0, 100, 100)),
+    ]
+    fake_config = SimpleNamespace(rectangles=rectangles)
+
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_config)
+
+    coords = [
+        {
+            "text": "outside",
+            "bounding_rect": {"x1": 10, "y1": 10, "x2": 90, "y2": 10, "x3": 90, "y3": 90, "x4": 10, "y4": 90},
+        },
+        {
+            "text": "inside",
+            "bounding_rect": {"x1": 210, "y1": 10, "x2": 290, "y2": 10, "x3": 290, "y3": 90, "x4": 210, "y4": 90},
+        },
+    ]
+    crop_coords_list = [(5, 5, 95, 95, "outside"), (205, 5, 295, 95, "inside")]
+
+    text, filtered_coords, filtered_crop_coords_list, crop_coords, raw_response_dict, applied = (
+        run_module.apply_exclusive_ocr_area_filter(
+            "outside\ninside",
+            coords,
+            crop_coords_list,
+            (5, 5, 295, 95),
+            {"lines": coords},
+            crop_offset=(0, 0),
+        )
+    )
+
+    assert applied is True
+    assert text == "inside"
+    assert filtered_coords == [coords[1]]
+    assert filtered_crop_coords_list == [crop_coords_list[1]]
+    assert crop_coords == (205, 5, 295, 95)
+    assert raw_response_dict is None
+
+
+def test_exclusive_ocr_area_filter_leaves_text_when_no_exclusive_text_found(monkeypatch):
+    rectangles = [
+        SimpleNamespace(is_secondary=False, is_excluded=False, is_exclusive=True, coordinates=(200, 0, 100, 100)),
+    ]
+    fake_config = SimpleNamespace(rectangles=rectangles)
+
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_config)
+
+    crop_coords_list = [(5, 5, 95, 95, "outside")]
+
+    text, coords, filtered_crop_coords_list, crop_coords, raw_response_dict, applied = (
+        run_module.apply_exclusive_ocr_area_filter(
+            "outside",
+            [],
+            crop_coords_list,
+            (5, 5, 95, 95),
+            {"lines": []},
+            crop_offset=(0, 0),
+        )
+    )
+
+    assert applied is False
+    assert text == "outside"
+    assert coords == []
+    assert filtered_crop_coords_list == crop_coords_list
+    assert crop_coords == (5, 5, 95, 95)
+    assert raw_response_dict == {"lines": []}
+
+
 def test_build_text_detection_result_includes_per_box_crop_coords():
     success, text, coords, crop_coords_list, crop_coords, response_dict = ocr_module._build_text_detection_result(
         "meiki_text_detector",

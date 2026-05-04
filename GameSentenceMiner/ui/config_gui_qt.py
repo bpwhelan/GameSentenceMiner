@@ -687,6 +687,12 @@ class ConfigWindow(QWidget):
             if sources_editor:
                 self.editor.profile.general.websocket_sources = sources_editor.get_sources()
                 self.editor.profile.general.sync_sources_to_csv()
+            selected_monitor_index = int(self.overlay_monitor_combo.currentIndex() or 0)
+            selected_monitor_descriptor = {}
+            overlay_monitor_descriptors = getattr(self, "overlay_monitor_descriptors", [])
+            if 0 <= selected_monitor_index < len(overlay_monitor_descriptors):
+                selected_monitor_descriptor = overlay_monitor_descriptors[selected_monitor_index]
+
             config = ProfileConfig(
                 scenes=selected_scenes,
                 general=copy.deepcopy(self.editor.profile.general),
@@ -926,7 +932,9 @@ class ConfigWindow(QWidget):
                 ),
                 overlay=Overlay(
                     websocket_port=self.settings.overlay.websocket_port,
-                    monitor_to_capture=self.overlay_monitor_combo.currentIndex(),
+                    monitor_to_capture=selected_monitor_index,
+                    monitor_to_capture_id=str(selected_monitor_descriptor.get("id", "")),
+                    monitor_to_capture_bounds=dict(selected_monitor_descriptor.get("bounds", {})),
                     engine=OverlayEngine(
                         self.overlay_engine_combo.currentText()
                     ).value,  # Keep for backwards compatibility
@@ -3456,11 +3464,29 @@ class ConfigWindow(QWidget):
 
         self.overlay_monitor_combo.blockSignals(True)
         try:
-            import mss
+            from GameSentenceMiner.util.platform.monitor_selection import (
+                get_mss_monitor_descriptors,
+                resolve_monitor_descriptor,
+            )
 
             self.overlay_monitor_combo.clear()
-            with mss.mss() as sct:
-                monitors = [f"Monitor {i}" for i, _ in enumerate(sct.monitors[1:], start=1)]
+            self.overlay_monitor_descriptors = get_mss_monitor_descriptors()
+            monitors = [
+                (
+                    f"Monitor {descriptor['index'] + 1} "
+                    f"({descriptor['bounds']['left']}, {descriptor['bounds']['top']} - "
+                    f"{descriptor['bounds']['width']}x{descriptor['bounds']['height']})"
+                )
+                for descriptor in self.overlay_monitor_descriptors
+            ]
+            if self.overlay_monitor_descriptors:
+                selection = resolve_monitor_descriptor(
+                    [descriptor["bounds"] for descriptor in self.overlay_monitor_descriptors],
+                    preferred_index,
+                    getattr(self.settings.overlay, "monitor_to_capture_id", ""),
+                    getattr(self.settings.overlay, "monitor_to_capture_bounds", {}),
+                )
+                preferred_index = int(selection.get("selected_index", preferred_index))
             self.overlay_monitor_combo.addItems(monitors if monitors else ["Monitor 1"])
             if 0 <= preferred_index < self.overlay_monitor_combo.count():
                 self.overlay_monitor_combo.setCurrentIndex(preferred_index)
@@ -3468,6 +3494,7 @@ class ConfigWindow(QWidget):
                 self.overlay_monitor_combo.setCurrentIndex(0)
         except (ImportError, Exception) as e:
             logger.warning(f"Could not list monitors: {e}")
+            self.overlay_monitor_descriptors = []
             self.overlay_monitor_combo.clear()
             self.overlay_monitor_combo.addItem("Monitor 1")
             self.overlay_monitor_combo.setCurrentIndex(0)

@@ -2240,6 +2240,8 @@ function getGSMOverlaySettings() {
     websocket_port: 7276,
     engine: "lens",
     monitor_to_capture: 0,
+    monitor_to_capture_id: "",
+    monitor_to_capture_bounds: {},
     periodic: false,
     periodic_interval: 3.0,
     scan_delay: 0.25
@@ -2277,6 +2279,135 @@ function getEmergencyFallbackDisplay() {
   };
 }
 
+function normalizeMonitorSelectionBounds(bounds) {
+  if (!bounds || typeof bounds !== "object") {
+    return null;
+  }
+
+  const left = Math.round(Number(bounds.left ?? bounds.x ?? 0));
+  const top = Math.round(Number(bounds.top ?? bounds.y ?? 0));
+  const width = Math.round(Number(bounds.width ?? 0));
+  const height = Math.round(Number(bounds.height ?? 0));
+  if (!Number.isFinite(left) || !Number.isFinite(top) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return { left, top, width, height };
+}
+
+function monitorIdentityFromBounds(bounds) {
+  const normalized = normalizeMonitorSelectionBounds(bounds);
+  if (!normalized) {
+    return "";
+  }
+  return `bounds:${normalized.left}:${normalized.top}:${normalized.width}:${normalized.height}`;
+}
+
+function monitorBoundsFromIdentity(identity) {
+  const parts = String(identity || "").split(":");
+  if (parts.length !== 5 || parts[0] !== "bounds") {
+    return null;
+  }
+  return normalizeMonitorSelectionBounds({
+    left: parts[1],
+    top: parts[2],
+    width: parts[3],
+    height: parts[4],
+  });
+}
+
+function getDisplayPhysicalBounds(display) {
+  const dipBounds = normalizeDisplayRect(display && display.bounds);
+  const physicalBounds = toPhysicalDisplayRect(dipBounds);
+  return normalizeMonitorSelectionBounds(physicalBounds);
+}
+
+function buildDisplaySelectionDescriptor(display, index) {
+  const bounds = getDisplayPhysicalBounds(display);
+  return {
+    display,
+    index,
+    bounds,
+    id: monitorIdentityFromBounds(bounds),
+  };
+}
+
+function monitorBoundsMatch(a, b, tolerance = 2) {
+  if (!a || !b) {
+    return false;
+  }
+  return (
+    Math.abs(a.left - b.left) <= tolerance &&
+    Math.abs(a.top - b.top) <= tolerance &&
+    Math.abs(a.width - b.width) <= tolerance &&
+    Math.abs(a.height - b.height) <= tolerance
+  );
+}
+
+function monitorBoundsOverlapArea(a, b) {
+  if (!a || !b) {
+    return 0;
+  }
+  const aRight = a.left + a.width;
+  const aBottom = a.top + a.height;
+  const bRight = b.left + b.width;
+  const bBottom = b.top + b.height;
+  const overlapWidth = Math.max(0, Math.min(aRight, bRight) - Math.max(a.left, b.left));
+  const overlapHeight = Math.max(0, Math.min(aBottom, bBottom) - Math.max(a.top, b.top));
+  return overlapWidth * overlapHeight;
+}
+
+function findDisplayDescriptorByBounds(descriptors, requestedBounds) {
+  if (!requestedBounds) {
+    return null;
+  }
+
+  const exactMatch = descriptors.find((descriptor) => monitorBoundsMatch(descriptor.bounds, requestedBounds));
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const targetArea = Math.max(1, requestedBounds.width * requestedBounds.height);
+  let bestDescriptor = null;
+  let bestOverlapRatio = 0;
+  for (const descriptor of descriptors) {
+    const overlapRatio = monitorBoundsOverlapArea(descriptor.bounds, requestedBounds) / targetArea;
+    if (overlapRatio > bestOverlapRatio) {
+      bestOverlapRatio = overlapRatio;
+      bestDescriptor = descriptor;
+    }
+  }
+
+  return bestOverlapRatio >= 0.95 ? bestDescriptor : null;
+}
+
+function resolveDisplayByMonitorIdentity(displays, overlaySettings) {
+  const descriptors = displays
+    .map((display, index) => buildDisplaySelectionDescriptor(display, index))
+    .filter((descriptor) => descriptor.id);
+  if (descriptors.length === 0) {
+    return null;
+  }
+
+  const requestedId = String((overlaySettings && overlaySettings.monitor_to_capture_id) || "").trim();
+  if (requestedId) {
+    const idMatch = descriptors.find((descriptor) => descriptor.id === requestedId);
+    if (idMatch) {
+      return { ...idMatch, method: "id" };
+    }
+  }
+
+  const requestedBounds = (
+    normalizeMonitorSelectionBounds(overlaySettings && overlaySettings.monitor_to_capture_bounds) ||
+    monitorBoundsFromIdentity(requestedId)
+  );
+  const boundsMatch = findDisplayDescriptorByBounds(descriptors, requestedBounds);
+  if (boundsMatch) {
+    return { ...boundsMatch, method: "bounds" };
+  }
+
+  return null;
+}
+
 function resolveOverlayMonitorSelection(options = {}) {
   const logFallback = !!options.logFallback;
   const displays = screen.getAllDisplays();
@@ -2294,16 +2425,30 @@ function resolveOverlayMonitorSelection(options = {}) {
 
   const overlaySettings = getGSMOverlaySettings();
   const requestedIndex = coerceMonitorIndex(overlaySettings.monitor_to_capture);
-  const selectedIndex = Math.min(Math.max(requestedIndex, 0), displays.length - 1);
-  const usedFallback = selectedIndex !== requestedIndex;
-  const selectedDisplay = displays[selectedIndex] || fallbackDisplay;
+  const identitySelection = resolveDisplayByMonitorIdentity(displays, overlaySettings);
+  const selectedIndex = identitySelection
+    ? identitySelection.index
+    : Math.min(Math.max(requestedIndex, 0), displays.length - 1);
+  const selectedDisplay = (identitySelection && identitySelection.display) || displays[selectedIndex] || fallbackDisplay;
+  const requestedIdentity = String(overlaySettings.monitor_to_capture_id || "").trim();
+  const requestedBounds = normalizeMonitorSelectionBounds(overlaySettings.monitor_to_capture_bounds);
+  const usedFallback = (
+    !identitySelection &&
+    (selectedIndex !== requestedIndex || !!requestedIdentity || !!requestedBounds)
+  );
 
   if (usedFallback && logFallback) {
-    const warningKey = `${requestedIndex}->${selectedIndex}|${displays.length}`;
+    const warningKey = `${requestedIndex}->${selectedIndex}|${displays.length}|${requestedIdentity}`;
     if (warningKey !== lastDisplayFallbackWarningKey) {
-      console.warn(
-        `[DisplaySync] monitor_to_capture=${requestedIndex} is invalid for ${displays.length} display(s). Using index ${selectedIndex}.`
-      );
+      if (requestedIdentity || requestedBounds) {
+        console.warn(
+          `[DisplaySync] Configured monitor identity is unavailable. Using monitor_to_capture index ${selectedIndex}.`
+        );
+      } else {
+        console.warn(
+          `[DisplaySync] monitor_to_capture=${requestedIndex} is invalid for ${displays.length} display(s). Using index ${selectedIndex}.`
+        );
+      }
       lastDisplayFallbackWarningKey = warningKey;
     }
   } else if (!usedFallback) {
@@ -2315,6 +2460,7 @@ function resolveOverlayMonitorSelection(options = {}) {
     displays,
     requestedIndex,
     selectedIndex,
+    selectionMethod: identitySelection ? identitySelection.method : "index",
     usedFallback,
   };
 }

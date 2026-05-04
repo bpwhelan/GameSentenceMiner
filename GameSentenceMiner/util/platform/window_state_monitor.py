@@ -25,6 +25,10 @@ from GameSentenceMiner.util.config.feature_flags import (
     experimental_feature,
     process_pausing_feature,
 )
+from GameSentenceMiner.util.platform.monitor_selection import (
+    get_mss_monitor_descriptors,
+    set_overlay_monitor_identity_from_index,
+)
 from GameSentenceMiner.util.platform.windows_dpi import per_monitor_v2_dpi_context
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 
@@ -1676,14 +1680,22 @@ class WindowStateMonitor:
             configured_index = 0
 
         clamped_index = min(max(configured_index, 0), len(monitor_signature) - 1)
-        if clamped_index == configured_index:
+        missing_monitor_identity = not getattr(overlay_cfg, "monitor_to_capture_id", "") or not getattr(
+            overlay_cfg, "monitor_to_capture_bounds", {}
+        )
+        if clamped_index == configured_index and not missing_monitor_identity:
             return False
 
-        logger.warning(
-            f"Configured capture monitor index {configured_index} is unavailable. "
-            f"Falling back to monitor {clamped_index + 1} of {len(monitor_signature)}."
-        )
-        overlay_cfg.monitor_to_capture = clamped_index
+        monitor_bounds = [
+            {"left": left, "top": top, "width": width, "height": height}
+            for left, top, width, height in monitor_signature
+        ]
+        set_overlay_monitor_identity_from_index(overlay_cfg, monitor_bounds, clamped_index)
+        if clamped_index != configured_index:
+            logger.warning(
+                f"Configured capture monitor index {configured_index} is unavailable. "
+                f"Falling back to monitor {clamped_index + 1} of {len(monitor_signature)}."
+            )
         try:
             get_master_config().save()
         except Exception as e:
@@ -1834,9 +1846,16 @@ class WindowStateMonitor:
             if current_rect and is_windows() and self.window_stable_count == 2:
                 best_monitor = self._detect_current_monitor(current_rect)
                 overlay_cfg = get_overlay_config()
-                if best_monitor != -1 and overlay_cfg.monitor_to_capture != best_monitor:
-                    logger.info(f"Window moved to Monitor {best_monitor + 1}. Updating config.")
-                    overlay_cfg.monitor_to_capture = best_monitor
+                missing_monitor_identity = not getattr(overlay_cfg, "monitor_to_capture_id", "") or not getattr(
+                    overlay_cfg, "monitor_to_capture_bounds", {}
+                )
+                if best_monitor != -1 and (overlay_cfg.monitor_to_capture != best_monitor or missing_monitor_identity):
+                    if overlay_cfg.monitor_to_capture != best_monitor:
+                        logger.info(f"Window moved to Monitor {best_monitor + 1}. Updating config.")
+                    descriptors = get_mss_monitor_descriptors()
+                    monitor_bounds = [descriptor["bounds"] for descriptor in descriptors]
+                    if not set_overlay_monitor_identity_from_index(overlay_cfg, monitor_bounds, best_monitor):
+                        overlay_cfg.monitor_to_capture = best_monitor
                     get_master_config().save()
                     asyncio.create_task(self.overlay_processor.reprocess_and_send_last_results())
 

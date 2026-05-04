@@ -89,6 +89,7 @@ export interface GsmStatus {
   websockets_connected: Record<string, string>;
   obs_connected: boolean;
   anki_connected: boolean;
+  anki_beacon_connected?: boolean;
   last_line_received?: string;
   words_being_processed?: string | string[];
   clipboard_enabled: boolean;

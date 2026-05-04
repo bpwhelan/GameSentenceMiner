@@ -97,6 +97,27 @@
       "text": "支持 GSM",
       "githubSponsors": "GitHub Sponsors",
       "kofi": "Ko-fi"
+    },
+    "ankiBeacon": {
+      "statusMissing": "AnkiBeacon ⚠️",
+      "tooltipConnected": "AnkiBeacon 正在运行。GSM 会监听新卡片，而不是在后台轮询。",
+      "tooltipMissing": "Anki 已连接。点击安装 AnkiBeacon，让新卡片检测更轻量。",
+      "title": "安装 AnkiBeacon",
+      "description": "AnkiBeacon 是一个可选的小型 Anki 插件，会在创建新卡片时通知 GSM。",
+      "benefit": "安装后，GSM 可以直接从 Anki 获取新卡片，让你游玩时的后台检查最多减少 98%。",
+      "ankiWebPage": "AnkiWeb 插件页面",
+      "githubPage": "GitHub 仓库",
+      "installNow": "立即安装",
+      "installing": "安装中...",
+      "later": "稍后",
+      "close": "关闭",
+      "installStarted": "AnkiBeacon 已打开。请在 Anki 中确认安装插件，如果提示则重启 Anki。",
+      "waitingSignal": "正在等待 AnkiBeacon 信号...",
+      "signalDetected": "已收到 AnkiBeacon 信号。正在关闭...",
+      "installFailed": "自动安装没有在 Anki 中打开。",
+      "manualInstall": "复制 AnkiWeb 代码，并粘贴到 Anki → 工具 → 插件 → 获取插件。",
+      "copyCode": "复制代码 {code}",
+      "codeCopied": "已复制代码 {code}"
     }
   },
   "app": {

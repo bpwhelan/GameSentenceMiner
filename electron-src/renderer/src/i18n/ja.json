@@ -97,6 +97,27 @@
       "text": "GSMを支援する",
       "githubSponsors": "GitHub Sponsors",
       "kofi": "Ko-fi"
+    },
+    "ankiBeacon": {
+      "statusMissing": "AnkiBeacon ⚠️",
+      "tooltipConnected": "AnkiBeaconが実行中です。GSMはバックグラウンドでポーリングせず、新しいカード通知を受け取ります。",
+      "tooltipMissing": "Ankiは接続済みです。クリックしてAnkiBeaconをインストールすると、新しいカード検出が軽くなります。",
+      "title": "AnkiBeaconをインストール",
+      "description": "AnkiBeaconは、新しいカードが作成されたことをGSMへ知らせる小さな任意のAnkiアドオンです。",
+      "benefit": "インストールすると、GSMはAnkiから新しいカードを直接取得でき、プレイ中のバックグラウンド確認を最大98%削減できます。",
+      "ankiWebPage": "AnkiWebアドオンページ",
+      "githubPage": "GitHubリポジトリ",
+      "installNow": "今すぐインストール",
+      "installing": "インストール中...",
+      "later": "後で",
+      "close": "閉じる",
+      "installStarted": "AnkiBeaconを開きました。Ankiでアドオンのインストールを確認し、求められたらAnkiを再起動してください。",
+      "waitingSignal": "AnkiBeaconの信号を待っています...",
+      "signalDetected": "AnkiBeaconの信号を受信しました。閉じています...",
+      "installFailed": "自動インストールをAnkiで開けませんでした。",
+      "manualInstall": "AnkiWebコードをコピーし、Anki → ツール → アドオン → アドオンを取得 に貼り付けてください。",
+      "copyCode": "コード {code} をコピー",
+      "codeCopied": "コード {code} をコピーしました"
     }
   },
   "app": {

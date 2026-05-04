@@ -238,7 +238,7 @@ class TestRouteHandlersDelegation:
         received_payloads = []
         monkeypatch.setattr(
             anki_mod,
-            "_dispatch_anki_push_event",
+            "_dispatch_anki_beacon_event",
             lambda payload: received_payloads.append(payload) or "heartbeat",
         )
 
@@ -250,7 +250,7 @@ class TestRouteHandlersDelegation:
 
     def test_anki_events_route_accepts_note_added(self, app_and_client, monkeypatch, anki_mod):
         app, client = app_and_client
-        monkeypatch.setattr(anki_mod, "_dispatch_anki_push_event", lambda payload: "note_added")
+        monkeypatch.setattr(anki_mod, "_dispatch_anki_beacon_event", lambda payload: "note_added")
 
         with app.test_request_context():
             resp = client.post("/anki/events", json={"event": "note_added", "note_id": 42})

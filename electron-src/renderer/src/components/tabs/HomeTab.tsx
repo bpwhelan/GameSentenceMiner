@@ -24,9 +24,13 @@ const HELPER_SCENE_NAMES = new Set([
 
 const STATUS_POLL_MS = 1000;
 const SCENE_POLL_MS = 3000;
+const ANKI_BEACON_NUDGE_DELAY_MS = 15_000;
 
 const OVERLAY_DOCS_URL =
   "https://docs.gamesentenceminer.com/docs/features/overlay";
+const ANKI_BEACON_ANKIWEB_CODE = "1577021707";
+const ANKI_BEACON_ANKIWEB_URL = `https://ankiweb.net/shared/info/${ANKI_BEACON_ANKIWEB_CODE}`;
+const ANKI_BEACON_GITHUB_URL = "https://github.com/bpwhelan/AnkiBeacon";
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -71,7 +75,7 @@ interface StatusPillProps {
   icon: string;
   label: string;
   text: string;
-  variant: "ok" | "bad" | "neutral";
+  variant: "ok" | "bad" | "neutral" | "warning";
   tooltip?: string;
   onClick?: () => void;
   clickable?: boolean;
@@ -89,8 +93,137 @@ function StatusPill({ icon, label, text, variant, tooltip, onClick, clickable }:
       <span className="home-status-pill__icon">{icon}</span>
       <span className="home-status-pill__label">{label}</span>
       <span className="home-status-pill__dot" />
+      {clickable && <span className="home-status-pill__action" aria-hidden="true">›</span>}
       <span className="home-status-pill__text">{text}</span>
     </button>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  AnkiBeacon Modal                                                   */
+/* ------------------------------------------------------------------ */
+
+interface AnkiBeaconInstallResult {
+  success: boolean;
+  filePath?: string;
+  error?: string;
+}
+
+interface AnkiBeaconModalProps {
+  onClose: () => void;
+  beaconConnected: boolean;
+}
+
+function AnkiBeaconModal({ onClose, beaconConnected }: AnkiBeaconModalProps) {
+  const t = useTranslation();
+  const [installState, setInstallState] = useState<"idle" | "installing" | "success" | "detected" | "error">("idle");
+  const [copied, setCopied] = useState(false);
+  const installHasStarted = installState !== "idle";
+  const showInstallButton = installState !== "success" && installState !== "detected";
+
+  useEffect(() => {
+    if (!beaconConnected) return undefined;
+    setInstallState("detected");
+    const id = window.setTimeout(onClose, 900);
+    return () => window.clearTimeout(id);
+  }, [beaconConnected, onClose]);
+
+  const installNow = async () => {
+    setInstallState("installing");
+    setCopied(false);
+    try {
+      const result = await invokeIpc<AnkiBeaconInstallResult>("ankiBeacon.install");
+      setInstallState(result?.success ? "success" : "error");
+    } catch {
+      setInstallState("error");
+    }
+  };
+
+  const copyAnkiWebCode = () => {
+    window.clipboard.writeText(ANKI_BEACON_ANKIWEB_CODE);
+    setCopied(true);
+  };
+
+  const openExternalLink = (url: string) => {
+    void invokeIpc("open-external-link", url);
+  };
+
+  return (
+    <div
+      className="home-modal-backdrop"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="home-modal home-anki-beacon-modal" role="dialog" aria-modal="true">
+        <h3>{t("home.ankiBeacon.title")}</h3>
+        <p className="home-modal__desc">{t("home.ankiBeacon.description")}</p>
+        <p className="home-modal__desc">{t("home.ankiBeacon.benefit")}</p>
+        <div className="home-anki-beacon-links">
+          <a
+            href={ANKI_BEACON_ANKIWEB_URL}
+            onClick={(e) => {
+              e.preventDefault();
+              openExternalLink(ANKI_BEACON_ANKIWEB_URL);
+            }}
+          >
+            {t("home.ankiBeacon.ankiWebPage")}
+          </a>
+          <a
+            href={ANKI_BEACON_GITHUB_URL}
+            onClick={(e) => {
+              e.preventDefault();
+              openExternalLink(ANKI_BEACON_GITHUB_URL);
+            }}
+          >
+            {t("home.ankiBeacon.githubPage")}
+          </a>
+        </div>
+
+        {installState === "success" && (
+          <div className="home-modal__notice home-modal__notice--success">
+            <p>{t("home.ankiBeacon.installStarted")}</p>
+            <div className="home-anki-beacon-waiting">
+              <span className="home-anki-beacon-waiting__dot" aria-hidden="true" />
+              <span>{t("home.ankiBeacon.waitingSignal")}</span>
+            </div>
+          </div>
+        )}
+
+        {installState === "detected" && (
+          <div className="home-modal__notice home-modal__notice--success">
+            {t("home.ankiBeacon.signalDetected")}
+          </div>
+        )}
+
+        {installState === "error" && (
+          <div className="home-modal__notice home-modal__notice--warning">
+            <p>{t("home.ankiBeacon.installFailed")}</p>
+            <p>{t("home.ankiBeacon.manualInstall")}</p>
+            <button type="button" className="home-copy-code-btn" onClick={copyAnkiWebCode}>
+              {copied
+                ? t("home.ankiBeacon.codeCopied", { code: ANKI_BEACON_ANKIWEB_CODE })
+                : t("home.ankiBeacon.copyCode", { code: ANKI_BEACON_ANKIWEB_CODE })}
+            </button>
+          </div>
+        )}
+
+        <div className="home-modal__actions">
+          <button type="button" className="secondary" onClick={onClose}>
+            {t(installHasStarted ? "home.ankiBeacon.close" : "home.ankiBeacon.later")}
+          </button>
+          {showInstallButton && (
+            <button
+              type="button"
+              onClick={() => void installNow()}
+              disabled={installState === "installing"}
+            >
+              {installState === "installing"
+                ? t("home.ankiBeacon.installing")
+                : t("home.ankiBeacon.installNow")}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -173,6 +306,9 @@ export function HomeTab({ active }: HomeTabProps) {
   const [statusError, setStatusError] = useState(false);
   const [overlayRunning, setOverlayRunning] = useState(false);
   const [runOverlayOnStartup, setRunOverlayOnStartup] = useState(false);
+  const [ankiBeaconModalOpen, setAnkiBeaconModalOpen] = useState(false);
+  const [ankiBeaconNudgeReady, setAnkiBeaconNudgeReady] = useState(false);
+  const ankiApiConnected = status?.anki_connected === true;
 
   useEffect(() => {
     if (!active) return;
@@ -195,6 +331,13 @@ export function HomeTab({ active }: HomeTabProps) {
     const id = setInterval(() => void poll(), STATUS_POLL_MS);
     return () => { cancelled = true; clearInterval(id); };
   }, [active]);
+
+  useEffect(() => {
+    setAnkiBeaconNudgeReady(false);
+    if (!active || !ankiApiConnected) return undefined;
+    const id = window.setTimeout(() => setAnkiBeaconNudgeReady(true), ANKI_BEACON_NUDGE_DELAY_MS);
+    return () => window.clearTimeout(id);
+  }, [active, ankiApiConnected]);
 
   useEffect(() => {
     if (!active) return;
@@ -426,6 +569,8 @@ export function HomeTab({ active }: HomeTabProps) {
   const runOverlay = useCallback(() => void invokeIpc("runOverlay"), []);
   const openOverlaySettings = useCallback(() => void invokeIpc("settings.openOverlaySettings"), []);
   const openOBS = useCallback(() => void invokeIpc("openOBS"), []);
+  const openAnkiBeaconModal = useCallback(() => setAnkiBeaconModalOpen(true), []);
+  const closeAnkiBeaconModal = useCallback(() => setAnkiBeaconModalOpen(false), []);
   const openExternal = useCallback((url: string) => void invokeIpc("open-external-link", url), []);
   const handleRunOverlayOnStartupChange = useCallback(async (enabled: boolean) => {
     setRunOverlayOnStartup(enabled);
@@ -444,7 +589,9 @@ export function HomeTab({ active }: HomeTabProps) {
   /* ---- Derived status values ------------------------------------- */
   const gsmReady = status?.ready ?? false;
   const obsOk = status?.obs_connected ?? false;
-  const ankiOk = status?.anki_connected ?? false;
+  const ankiApiOk = ankiApiConnected;
+  const ankiBeaconOk = status?.anki_beacon_connected ?? false;
+  const ankiOk = ankiApiOk || ankiBeaconOk;
   const clipEnabled = status?.clipboard_enabled ?? false;
   const wsConnected = status?.websockets_connected ?? {};
   const wsEntries = Object.entries(wsConnected);
@@ -466,6 +613,25 @@ export function HomeTab({ active }: HomeTabProps) {
   } else {
     gsmText = gsmReady ? (status.status || t("home.status.running")) : t("home.status.notRunning");
   }
+
+  const showAnkiBeaconNudge = ankiBeaconNudgeReady && ankiOk && !ankiBeaconOk;
+  const ankiText = ankiOk
+    ? showAnkiBeaconNudge
+      ? t("home.ankiBeacon.statusMissing")
+      : t("home.status.connected")
+    : t("home.status.disconnected");
+  const ankiVariant: StatusPillProps["variant"] = ankiOk
+    ? showAnkiBeaconNudge
+      ? "warning"
+      : "ok"
+    : "bad";
+  const ankiTooltip = ankiBeaconOk
+    ? t("home.ankiBeacon.tooltipConnected")
+    : showAnkiBeaconNudge
+      ? t("home.ankiBeacon.tooltipMissing")
+      : ankiOk
+        ? t("home.status.tooltipAnkiConnected")
+        : t("home.status.tooltipAnkiDisconnected");
 
   const gsmVariant: StatusPillProps["variant"] =
     statusError ? "bad" : gsmReady ? "ok" : "neutral";
@@ -851,9 +1017,11 @@ export function HomeTab({ active }: HomeTabProps) {
               <StatusPill
                 icon="📘"
                 label={t("home.status.anki")}
-                text={ankiOk ? t("home.status.connected") : t("home.status.disconnected")}
-                variant={ankiOk ? "ok" : "bad"}
-                tooltip={ankiOk ? t("home.status.tooltipAnkiConnected") : t("home.status.tooltipAnkiDisconnected")}
+                text={ankiText}
+                variant={ankiVariant}
+                tooltip={ankiTooltip}
+                onClick={showAnkiBeaconNudge ? openAnkiBeaconModal : undefined}
+                clickable={showAnkiBeaconNudge}
               />
               <StatusPill
                 icon="📋"
@@ -903,6 +1071,12 @@ export function HomeTab({ active }: HomeTabProps) {
             scene={renameTarget}
             onClose={() => setRenameTarget(null)}
             onConfirm={(name) => void handleRenameConfirm(name)}
+          />
+        )}
+        {ankiBeaconModalOpen && (
+          <AnkiBeaconModal
+            beaconConnected={ankiBeaconOk}
+            onClose={closeAnkiBeaconModal}
           />
         )}
       </div>

@@ -51,6 +51,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from loguru import logger
 
 from .ocr import *  # noqa: F403
+from .ocr import build_spatial_text, line_dict_to_spatial_entry
 from .config import Config
 from GameSentenceMiner.util.config.configuration import get_config
 
@@ -552,6 +553,7 @@ def _build_scaled_ocr_cache_key(ocr_config, width, height):
                     tuple(getattr(rect, "coordinates", []) or []),
                     bool(getattr(rect, "is_excluded", False)),
                     bool(getattr(rect, "is_secondary", False)),
+                    bool(getattr(rect, "is_exclusive", False)),
                     monitor_signature,
                 )
             )
@@ -3184,6 +3186,224 @@ def do_configured_ocr_replacements(text: str) -> str:
     return do_text_replacements(text, OCR_REPLACEMENTS_FILE)
 
 
+def _get_ocr_config_dimensions(original_width=None, original_height=None):
+    width = _safe_int(original_width)
+    height = _safe_int(original_height)
+    if width > 0 and height > 0:
+        return width, height
+
+    if "obs_screenshot_thread" not in globals() or not obs_screenshot_thread:
+        return 0, 0
+
+    width = _safe_int(getattr(obs_screenshot_thread, "width", 0))
+    height = _safe_int(getattr(obs_screenshot_thread, "height", 0))
+    return width, height
+
+
+def _get_exclusive_ocr_rectangles(original_width=None, original_height=None):
+    width, height = _get_ocr_config_dimensions(original_width, original_height)
+    if width <= 0 or height <= 0:
+        return []
+
+    ocr_config = get_scaled_scene_ocr_config(width, height)
+    if not ocr_config:
+        return []
+
+    return [
+        rect
+        for rect in getattr(ocr_config, "rectangles", []) or []
+        if (
+            getattr(rect, "is_exclusive", False)
+            and not getattr(rect, "is_excluded", False)
+            and not getattr(rect, "is_secondary", False)
+        )
+    ]
+
+
+def _coord_entry_to_original_box(coord_entry, crop_offset=(0, 0), crop_padding=5):
+    if not isinstance(coord_entry, (list, tuple)) or len(coord_entry) < 4:
+        return None
+
+    try:
+        crop_x, crop_y, crop_x2, crop_y2 = [int(round(float(coord_entry[i]))) for i in range(4)]
+    except (TypeError, ValueError):
+        return None
+
+    crop_padding = max(0, _safe_int(crop_padding, 5))
+    offset_x, offset_y = crop_offset or (0, 0)
+
+    crop_x += crop_padding + _safe_int(offset_x)
+    crop_y += crop_padding + _safe_int(offset_y)
+    crop_x2 -= crop_padding
+    crop_y2 -= crop_padding
+    crop_x2 += _safe_int(offset_x)
+    crop_y2 += _safe_int(offset_y)
+
+    if crop_x2 < crop_x:
+        crop_x, crop_x2 = crop_x2, crop_x
+    if crop_y2 < crop_y:
+        crop_y, crop_y2 = crop_y2, crop_y
+    return crop_x, crop_y, crop_x2, crop_y2
+
+
+def _box_is_inside_any_rectangle(box, rectangles):
+    if not box:
+        return False
+
+    box_left, box_top, box_right, box_bottom = box
+    for rect in rectangles:
+        rect_left, rect_top, rect_width, rect_height = getattr(rect, "coordinates", (0, 0, 0, 0))
+        rect_right = rect_left + rect_width
+        rect_bottom = rect_top + rect_height
+        if box_left >= rect_left and box_top >= rect_top and box_right <= rect_right and box_bottom <= rect_bottom:
+            return True
+    return False
+
+
+def _get_exclusive_coord_indexes(
+    crop_coords_list,
+    *,
+    crop_offset=(0, 0),
+    crop_padding=5,
+    original_width=None,
+    original_height=None,
+):
+    exclusive_rectangles = _get_exclusive_ocr_rectangles(original_width, original_height)
+    if not exclusive_rectangles or not crop_coords_list:
+        return []
+
+    selected_indexes = []
+    for index, coord_entry in enumerate(crop_coords_list):
+        original_box = _coord_entry_to_original_box(coord_entry, crop_offset, crop_padding)
+        if _box_is_inside_any_rectangle(original_box, exclusive_rectangles):
+            selected_indexes.append(index)
+    return selected_indexes
+
+
+def _recalculate_crop_coords(crop_coords_list):
+    valid_coords = []
+    for coord_entry in crop_coords_list or []:
+        if not isinstance(coord_entry, (list, tuple)) or len(coord_entry) < 4:
+            continue
+        try:
+            valid_coords.append(tuple(int(round(float(coord_entry[i]))) for i in range(4)))
+        except (TypeError, ValueError):
+            continue
+
+    if not valid_coords:
+        return None
+
+    return (
+        min(coord[0] for coord in valid_coords),
+        min(coord[1] for coord in valid_coords),
+        max(coord[2] for coord in valid_coords),
+        max(coord[3] for coord in valid_coords),
+    )
+
+
+def _build_text_from_selected_ocr_lines(source_text, coords, crop_coords_list, selected_indexes):
+    if isinstance(coords, list) and coords:
+        selected_coords = [coords[index] for index in selected_indexes if 0 <= index < len(coords)]
+        if selected_coords and all(isinstance(line, dict) for line in selected_coords):
+            try:
+                return build_spatial_text(
+                    [line_dict_to_spatial_entry(line) for line in selected_coords],
+                    blank_line_token="BLANK_LINE",
+                )
+            except Exception as e:
+                logger.warning(f"Error rebuilding exclusive OCR text from geometry: {e}")
+
+    selected_text_blocks = []
+    for index in selected_indexes:
+        if not 0 <= index < len(crop_coords_list or []):
+            continue
+        coord_entry = crop_coords_list[index]
+        if isinstance(coord_entry, (list, tuple)) and len(coord_entry) >= 5:
+            selected_text_blocks.append(_normalize_segment_source_text(coord_entry[4]).strip())
+
+    if selected_text_blocks:
+        return _join_selected_blocks_with_source_separators(
+            source_text,
+            selected_text_blocks,
+            range(len(selected_text_blocks)),
+        ).strip()
+
+    return str(source_text or "").strip()
+
+
+def apply_exclusive_ocr_area_filter(
+    text,
+    coords,
+    crop_coords_list,
+    crop_coords,
+    raw_response_dict,
+    *,
+    crop_offset=None,
+    crop_padding=5,
+    original_width=None,
+    original_height=None,
+):
+    selected_indexes = _get_exclusive_coord_indexes(
+        crop_coords_list,
+        crop_offset=crop_offset,
+        crop_padding=crop_padding,
+        original_width=original_width,
+        original_height=original_height,
+    )
+    if not selected_indexes:
+        return text, coords, crop_coords_list, crop_coords, raw_response_dict, False
+
+    filtered_crop_coords_list = [
+        crop_coords_list[index] for index in selected_indexes if 0 <= index < len(crop_coords_list or [])
+    ]
+
+    filtered_coords = coords
+    if isinstance(coords, list) and coords:
+        filtered_coords = [coords[index] for index in selected_indexes if 0 <= index < len(coords)]
+
+    filtered_text = _build_text_from_selected_ocr_lines(text, coords, crop_coords_list, selected_indexes)
+    filtered_crop_coords = _recalculate_crop_coords(filtered_crop_coords_list)
+
+    # Structured raw responses often contain all original lines and would rebuild
+    # dropped text later. Keep the filtered line geometry and discard the raw dict.
+    return filtered_text, filtered_coords, filtered_crop_coords_list, filtered_crop_coords, None, True
+
+
+def apply_exclusive_text_detection_filter(
+    detection_payload,
+    *,
+    crop_offset=None,
+    original_width=None,
+    original_height=None,
+):
+    if not isinstance(detection_payload, dict):
+        return detection_payload, False
+
+    crop_padding = max(0, _safe_int(detection_payload.get("crop_padding"), 5))
+    crop_coords_list = detection_payload.get("crop_coords_list") or []
+    selected_indexes = _get_exclusive_coord_indexes(
+        crop_coords_list,
+        crop_offset=crop_offset,
+        crop_padding=crop_padding,
+        original_width=original_width,
+        original_height=original_height,
+    )
+    if not selected_indexes:
+        return detection_payload, False
+
+    filtered_payload = dict(detection_payload)
+    filtered_payload["crop_coords_list"] = [
+        list(crop_coords_list[index]) for index in selected_indexes if 0 <= index < len(crop_coords_list)
+    ]
+    filtered_payload["crop_coords"] = list(_recalculate_crop_coords(filtered_payload["crop_coords_list"]) or [])
+
+    boxes = detection_payload.get("boxes")
+    if isinstance(boxes, list):
+        filtered_payload["boxes"] = [boxes[index] for index in selected_indexes if 0 <= index < len(boxes)]
+
+    return filtered_payload, True
+
+
 def dict_to_ocr_result(data):
     if not data:
         return None
@@ -3312,6 +3532,14 @@ def process_and_write_results(
                 _safe_int(pipeline_metadata["processing"]["crop_offset"].get("x")),
                 _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
             )
+            if not is_second_ocr:
+                original_size = pipeline_metadata["capture"]["scaled_size"]
+                detection_payload, _exclusive_applied = apply_exclusive_text_detection_filter(
+                    detection_payload,
+                    crop_offset=current_crop_offset,
+                    original_width=original_size.get("width"),
+                    original_height=original_size.get("height"),
+                )
             if write_to is not None and check_text_is_all_menu(
                 detection_payload.get("crop_coords", None),
                 detection_payload.get("crop_coords_list", []),
@@ -3359,6 +3587,31 @@ def process_and_write_results(
         if rebuilt_text is not None:
             text = rebuilt_text
 
+        pipeline_metadata = _build_pipeline_metadata(
+            image_metadata,
+            img_or_path,
+            engine_instance.name,
+            is_second_ocr,
+        )
+        current_crop_offset = (
+            _safe_int(pipeline_metadata["processing"]["crop_offset"].get("x")),
+            _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
+        )
+        if not is_second_ocr:
+            original_size = pipeline_metadata["capture"]["scaled_size"]
+            text, coords, crop_coords_list, crop_coords, raw_response_dict, _exclusive_applied = (
+                apply_exclusive_ocr_area_filter(
+                    text,
+                    coords,
+                    crop_coords_list,
+                    crop_coords,
+                    raw_response_dict,
+                    crop_offset=current_crop_offset,
+                    original_width=original_size.get("width"),
+                    original_height=original_size.get("height"),
+                )
+            )
+
         if isinstance(text, list):
             for i, line in enumerate(text):
                 text[i] = do_configured_ocr_replacements(line)
@@ -3374,21 +3627,11 @@ def process_and_write_results(
         if notify and config.get_general("notifications"):
             notifier.send(title="owocr", message="Text recognized: " + text)
 
-        pipeline_metadata = _build_pipeline_metadata(
-            image_metadata,
-            img_or_path,
-            engine_instance.name,
-            is_second_ocr,
-        )
         pipeline_metadata["ocr"] = {
             "crop_coords": list(crop_coords) if crop_coords else None,
             "crop_coords_list": [list(c[:5]) for c in (crop_coords_list or [])],
             "line_count": len(coords) if isinstance(coords, list) else 0,
         }
-        current_crop_offset = (
-            _safe_int(pipeline_metadata["processing"]["crop_offset"].get("x")),
-            _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
-        )
 
         if write_to is not None:
             if check_text_is_all_menu(crop_coords, crop_coords_list, crop_offset=current_crop_offset):

@@ -102,6 +102,7 @@ class ControlPanelWidget(QWidget):
                 "• Left Click + Drag: Create a capture area (green).\n"
                 "• Shift + Left Click + Drag: Create an exclusion area (orange).\n"
                 "• Ctrl + Left Click + Drag: Create a secondary (menu) area (purple).\n"
+                "• Alt + Left Click + Drag: Create an exclusive auto OCR area (cyan).\n"
                 "• Ctrl + A: Select entire screen (green).\n"
                 "• Right-Click on a box: Delete it."
             )
@@ -211,6 +212,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.is_drawing = False
         self.drawing_excluded = False
         self.drawing_secondary = False
+        self.drawing_exclusive = False
         self.menu_drawing_mode = False
 
         self.undo_stack = []
@@ -664,6 +666,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                             "monitor_index": monitor_index,
                             "is_excluded": rect_data["is_excluded"],
                             "is_secondary": rect_data.get("is_secondary", False),
+                            "is_exclusive": rect_data.get("is_exclusive", False),
                         }
                     )
                     # Add to undo stack so previously saved boxes can be undone
@@ -755,6 +758,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                                     "monitor_index": monitor_index,
                                     "is_excluded": False,
                                     "is_secondary": False,
+                                    "is_exclusive": False,
                                 }
                             )
                             self.undo_stack.append(("add", len(self.rectangles) - 1))
@@ -775,6 +779,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                                 "monitor_index": self.target_monitor_index,
                                 "is_excluded": False,
                                 "is_secondary": False,
+                                "is_exclusive": False,
                             }
                         )
                         self.undo_stack.append(("add", len(self.rectangles) - 1))
@@ -842,6 +847,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                                 "monitor_index": monitor_index,
                                 "is_excluded": False,
                                 "is_secondary": False,
+                                "is_exclusive": False,
                             }
                         )
                         self.undo_stack.append(("add", len(self.rectangles) - 1))
@@ -949,6 +955,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                 "h": h,
                 "is_excluded": self.drawing_excluded,
                 "is_secondary": self.drawing_secondary,
+                "is_exclusive": self.drawing_exclusive,
             }
             self._draw_rectangle(painter, temp_rect)
 
@@ -965,6 +972,8 @@ class OWOCRAreaSelectorWidget(QWidget):
             color = QColor(255, 165, 0)  # Orange for excluded
         elif rect.get("is_secondary", False):
             color = QColor(128, 0, 128)  # Purple for secondary
+        elif rect.get("is_exclusive", False):
+            color = QColor(0, 220, 255)  # Cyan for exclusive auto OCR
         else:
             color = QColor(0, 255, 0)  # Green for normal
 
@@ -1030,6 +1039,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                 "• Left Click + Drag: Create capture area (green)",
                 "• Shift + Left Click + Drag: Exclusion area (orange)",
                 "• Ctrl + Left Click + Drag: Secondary area (purple)",
+                "• Alt + Left Click + Drag: Exclusive auto OCR area (cyan)",
                 "• Ctrl + A: Select entire screen (green)",
                 "• Right-Click on box: Delete it",
                 "• Right-Click empty space: Menu",
@@ -1060,12 +1070,18 @@ class OWOCRAreaSelectorWidget(QWidget):
                 # In monitor selection mode, strictly prevent specialized rectangles
                 self.drawing_excluded = False
                 self.drawing_secondary = False
+                self.drawing_exclusive = False
                 self.menu_drawing_mode = False
             else:
                 # Menu-selected mode should persist; otherwise use current modifiers for this drag.
                 if not self.menu_drawing_mode:
-                    self.drawing_excluded = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-                    self.drawing_secondary = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+                    self.drawing_exclusive = bool(event.modifiers() & Qt.KeyboardModifier.AltModifier)
+                    self.drawing_excluded = (
+                        bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier) and not self.drawing_exclusive
+                    )
+                    self.drawing_secondary = (
+                        bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier) and not self.drawing_exclusive
+                    )
                     self.menu_drawing_mode = False
 
             # Start long-press timer (1 second)
@@ -1154,6 +1170,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                     "monitor_index": monitor_index,
                     "is_excluded": self.drawing_excluded,
                     "is_secondary": self.drawing_secondary,
+                    "is_exclusive": self.drawing_exclusive,
                 }
 
                 self.undo_stack.append(("add", len(self.rectangles)))
@@ -1169,6 +1186,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             if not self.menu_drawing_mode:
                 self.drawing_excluded = False
                 self.drawing_secondary = False
+                self.drawing_exclusive = False
             self.update()
 
     def _delete_rectangle_at(self, pos):
@@ -1196,22 +1214,30 @@ class OWOCRAreaSelectorWidget(QWidget):
 
         # Draw options (at top level)
         draw_normal_action = QAction("🟢 Draw Normal Capture Area(s)", self)
-        draw_normal_action.triggered.connect(lambda: self._start_box_drawing(pos, excluded=False, secondary=False))
+        draw_normal_action.triggered.connect(
+            lambda: self._start_box_drawing(pos, excluded=False, secondary=False, exclusive=False)
+        )
         menu.addAction(draw_normal_action)
 
         # Only show specific drawing options if NOT in monitor selection mode
         if not self._primary_only_mode():
             draw_exclusion_action = QAction("🟠 Draw Exclusion Area(s)", self)
             draw_exclusion_action.triggered.connect(
-                lambda: self._start_box_drawing(pos, excluded=True, secondary=False)
+                lambda: self._start_box_drawing(pos, excluded=True, secondary=False, exclusive=False)
             )
             menu.addAction(draw_exclusion_action)
 
             draw_secondary_action = QAction("🟣 Draw Secondary (Menu) Area(s)", self)
             draw_secondary_action.triggered.connect(
-                lambda: self._start_box_drawing(pos, excluded=False, secondary=True)
+                lambda: self._start_box_drawing(pos, excluded=False, secondary=True, exclusive=False)
             )
             menu.addAction(draw_secondary_action)
+
+            draw_exclusive_action = QAction("🔷 Draw Exclusive Auto OCR Area(s)", self)
+            draw_exclusive_action.triggered.connect(
+                lambda: self._start_box_drawing(pos, excluded=False, secondary=False, exclusive=True)
+            )
+            menu.addAction(draw_exclusive_action)
 
         menu.addSeparator()
 
@@ -1248,7 +1274,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         # Show menu at cursor position
         menu.exec(self.mapToGlobal(pos))
 
-    def _start_box_drawing(self, pos, excluded=False, secondary=False):
+    def _start_box_drawing(self, pos, excluded=False, secondary=False, exclusive=False):
         """Start drawing a box from the context menu position."""
         # Reset any previous drawing state first
         self.is_drawing = False
@@ -1260,10 +1286,12 @@ class OWOCRAreaSelectorWidget(QWidget):
         if self._primary_only_mode():
             self.drawing_excluded = False
             self.drawing_secondary = False
+            self.drawing_exclusive = False
             self.menu_drawing_mode = False
         else:
-            self.drawing_excluded = excluded
-            self.drawing_secondary = secondary
+            self.drawing_exclusive = exclusive
+            self.drawing_excluded = excluded and not exclusive
+            self.drawing_secondary = secondary and not exclusive
             self.menu_drawing_mode = True
 
         # Set cursor to indicate drawing mode
@@ -1271,6 +1299,8 @@ class OWOCRAreaSelectorWidget(QWidget):
             logger.info("Drawing mode set to exclusion area - click and drag to draw")
         elif secondary:
             logger.info("Drawing mode set to secondary area - click and drag to draw")
+        elif exclusive:
+            logger.info("Drawing mode set to exclusive auto OCR area - click and drag to draw")
         else:
             logger.info("Drawing mode set to normal capture area - click and drag to draw")
 
@@ -1363,8 +1393,8 @@ class OWOCRAreaSelectorWidget(QWidget):
         removed_indices = []
 
         for i, rect in enumerate(self.rectangles):
-            if rect["is_excluded"] or rect.get("is_secondary", False):
-                # Keep excluded and secondary rectangles
+            if rect["is_excluded"] or rect.get("is_secondary", False) or rect.get("is_exclusive", False):
+                # Keep specialized rectangles
                 remaining_rects.append(rect)
             else:
                 # Track removed green rectangles for undo
@@ -1395,6 +1425,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             "monitor_index": monitor_index,
             "is_excluded": False,
             "is_secondary": False,
+            "is_exclusive": False,
         }
 
         self.undo_stack.append(("add", len(self.rectangles)))
@@ -1553,6 +1584,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                     "coordinates": [x_pct, y_pct, w_pct, h_pct],
                     "is_excluded": rect["is_excluded"],
                     "is_secondary": rect.get("is_secondary", False),
+                    "is_exclusive": rect.get("is_exclusive", False),
                 }
             )
 
@@ -1601,6 +1633,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                             "height": int(rect["h"] * self.scale_factor_h),
                             "is_excluded": False,
                             "is_secondary": False,
+                            "is_exclusive": False,
                         }
                     )
             else:
@@ -1633,6 +1666,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                             "height": h_pct,
                             "is_excluded": rect["is_excluded"],
                             "is_secondary": rect.get("is_secondary", False),
+                            "is_exclusive": rect.get("is_exclusive", False),
                         }
                     )
 

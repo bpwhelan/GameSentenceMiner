@@ -97,6 +97,27 @@
       "text": "Apoyar GSM",
       "githubSponsors": "GitHub Sponsors",
       "kofi": "Ko-fi"
+    },
+    "ankiBeacon": {
+      "statusMissing": "AnkiBeacon ⚠️",
+      "tooltipConnected": "AnkiBeacon está en ejecución. GSM escuchará nuevas tarjetas en vez de sondear en segundo plano.",
+      "tooltipMissing": "Anki está conectado. Haz clic para instalar AnkiBeacon y aligerar la detección de nuevas tarjetas.",
+      "title": "Instalar AnkiBeacon",
+      "description": "AnkiBeacon es un pequeño complemento opcional de Anki que avisa a GSM cuando se crea una nueva tarjeta.",
+      "benefit": "Con él instalado, GSM puede obtener nuevas tarjetas directamente desde Anki, usando hasta un 98% menos de comprobaciones en segundo plano mientras juegas.",
+      "ankiWebPage": "Página del complemento en AnkiWeb",
+      "githubPage": "Repositorio de GitHub",
+      "installNow": "Instalar ahora",
+      "installing": "Instalando...",
+      "later": "Más tarde",
+      "close": "Cerrar",
+      "installStarted": "AnkiBeacon se abrió. Confirma la instalación del complemento en Anki y reinicia Anki si te lo pide.",
+      "waitingSignal": "Esperando la señal de AnkiBeacon...",
+      "signalDetected": "Se recibió la señal de AnkiBeacon. Cerrando...",
+      "installFailed": "La instalación automática no se abrió en Anki.",
+      "manualInstall": "Copia el código de AnkiWeb y pégalo en Anki → Herramientas → Complementos → Obtener complementos.",
+      "copyCode": "Copiar código {code}",
+      "codeCopied": "Código {code} copiado"
     }
   },
   "app": {

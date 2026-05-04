@@ -2854,6 +2854,13 @@ button[data-tip]:hover::after,
   background: #444;
 }
 
+.home-status-pill__action {
+  flex-shrink: 0;
+  color: #a88a43;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
 .home-status-pill--ok .home-status-pill__dot {
   background: #4db870;
   box-shadow: 0 0 5px rgba(77, 184, 112, 0.5);
@@ -2862,6 +2869,11 @@ button[data-tip]:hover::after,
 .home-status-pill--bad .home-status-pill__dot {
   background: #d05555;
   box-shadow: 0 0 5px rgba(208, 85, 85, 0.5);
+}
+
+.home-status-pill--warning .home-status-pill__dot {
+  background: #d4a844;
+  box-shadow: 0 0 5px rgba(212, 168, 68, 0.5);
 }
 
 .home-status-pill--neutral .home-status-pill__dot {
@@ -2910,6 +2922,65 @@ button[data-tip]:hover::after,
   justify-content: flex-end;
   gap: 8px;
   margin-top: 14px;
+}
+
+.home-modal__notice {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.home-modal__notice p {
+  margin: 0 0 8px;
+}
+
+.home-modal__notice p:last-child {
+  margin-bottom: 0;
+}
+
+.home-modal__notice--success {
+  border: 1px solid rgba(77, 184, 112, 0.35);
+  background: rgba(77, 184, 112, 0.12);
+  color: #a8ddb9;
+}
+
+.home-modal__notice--warning {
+  border: 1px solid rgba(212, 168, 68, 0.35);
+  background: rgba(212, 168, 68, 0.12);
+  color: #dec37a;
+}
+
+.home-copy-code-btn {
+  margin-top: 2px;
+}
+
+.home-anki-beacon-waiting {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.home-anki-beacon-waiting__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4db870;
+  box-shadow: 0 0 0 rgba(77, 184, 112, 0.6);
+  animation: home-anki-beacon-pulse 1.3s ease-out infinite;
+}
+
+@keyframes home-anki-beacon-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(77, 184, 112, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(77, 184, 112, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(77, 184, 112, 0);
+  }
 }
 
 /* ---- Support Footer ---------------------------------------------- */
@@ -3330,7 +3401,7 @@ body {
 
 .home-tab .home-status-pill {
   display: grid;
-  grid-template-columns: 22px 1fr auto;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
@@ -3393,6 +3464,15 @@ body {
   align-self: center;
 }
 
+.home-tab .home-status-pill__action {
+  grid-column: 4;
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: var(--gsm-warning);
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
 .home-tab .home-status-pill--ok {
   border-color: rgba(108, 194, 139, 0.22);
 }
@@ -3409,6 +3489,25 @@ body {
 .home-tab .home-status-pill--bad .home-status-pill__dot {
   background: var(--gsm-danger);
   box-shadow: 0 0 8px rgba(224, 122, 122, 0.5);
+}
+
+.home-tab .home-status-pill--warning {
+  border-color: rgba(227, 183, 101, 0.34);
+  background: var(--gsm-warning-soft);
+}
+
+.home-tab .home-status-pill--warning .home-status-pill__text {
+  color: var(--gsm-warning);
+}
+
+.home-tab .home-status-pill--warning .home-status-pill__dot {
+  background: var(--gsm-warning);
+  box-shadow: 0 0 8px rgba(227, 183, 101, 0.55);
+}
+
+.home-tab .home-status-pill--warning.home-status-pill--clickable:hover {
+  border-color: rgba(227, 183, 101, 0.65);
+  background: rgba(227, 183, 101, 0.18);
 }
 
 .home-tab .home-status-pill--neutral .home-status-pill__dot {
@@ -3433,6 +3532,73 @@ body {
 
 .home-tab .home-modal__desc {
   color: var(--gsm-text-muted);
+}
+
+.home-tab .home-anki-beacon-modal {
+  max-width: 520px;
+}
+
+.home-tab .home-anki-beacon-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 0.84rem;
+}
+
+.home-tab .home-anki-beacon-links a {
+  color: var(--gsm-accent-strong);
+  text-decoration: none;
+}
+
+.home-tab .home-anki-beacon-links a:hover {
+  text-decoration: underline;
+}
+
+.home-tab .home-modal__notice {
+  background: var(--gsm-surface-2);
+  border: 1px solid var(--gsm-border-default);
+  border-radius: var(--gsm-radius-md);
+  color: var(--gsm-text-secondary);
+}
+
+.home-tab .home-modal__notice--success {
+  border-color: rgba(108, 194, 139, 0.35);
+  background: var(--gsm-success-soft);
+  color: var(--gsm-success);
+}
+
+.home-tab .home-modal__notice--warning {
+  border-color: rgba(227, 183, 101, 0.38);
+  background: var(--gsm-warning-soft);
+  color: var(--gsm-warning);
+}
+
+.home-tab .home-copy-code-btn {
+  height: 30px;
+  margin-top: 2px;
+  padding: 0 12px;
+  border: 1px solid rgba(227, 183, 101, 0.45);
+  border-radius: var(--gsm-radius-sm);
+  background: rgba(227, 183, 101, 0.14);
+  color: var(--gsm-warning);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.home-tab .home-copy-code-btn:hover {
+  border-color: rgba(227, 183, 101, 0.7);
+  color: var(--gsm-text-primary);
+}
+
+.home-tab .home-anki-beacon-waiting {
+  color: var(--gsm-success);
+  font-weight: 600;
+}
+
+.home-tab .home-anki-beacon-waiting__dot {
+  background: var(--gsm-success);
 }
 
 /* ---- Support footer ---- */

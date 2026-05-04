@@ -97,6 +97,27 @@
       "text": "GSM 후원",
       "githubSponsors": "GitHub Sponsors",
       "kofi": "Ko-fi"
+    },
+    "ankiBeacon": {
+      "statusMissing": "AnkiBeacon ⚠️",
+      "tooltipConnected": "AnkiBeacon이 실행 중입니다. GSM은 백그라운드 폴링 대신 새 카드를 직접 수신합니다.",
+      "tooltipMissing": "Anki가 연결되어 있습니다. AnkiBeacon을 설치하면 새 카드 감지가 더 가벼워집니다.",
+      "title": "AnkiBeacon 설치",
+      "description": "AnkiBeacon은 새 카드가 만들어졌을 때 GSM에 알려 주는 작은 선택 사항 Anki 애드온입니다.",
+      "benefit": "설치하면 GSM이 Anki에서 새 카드를 직접 가져와 플레이 중 백그라운드 확인 작업을 최대 98% 줄일 수 있습니다.",
+      "ankiWebPage": "AnkiWeb 애드온 페이지",
+      "githubPage": "GitHub 저장소",
+      "installNow": "지금 설치",
+      "installing": "설치 중...",
+      "later": "나중에",
+      "close": "닫기",
+      "installStarted": "AnkiBeacon을 열었습니다. Anki에서 애드온 설치를 확인하고, 요청되면 Anki를 다시 시작하세요.",
+      "waitingSignal": "AnkiBeacon 신호를 기다리는 중...",
+      "signalDetected": "AnkiBeacon 신호를 받았습니다. 닫는 중...",
+      "installFailed": "자동 설치가 Anki에서 열리지 않았습니다.",
+      "manualInstall": "AnkiWeb 코드를 복사해 Anki → 도구 → 추가 기능 → 추가 기능 가져오기에 붙여넣으세요.",
+      "copyCode": "코드 {code} 복사",
+      "codeCopied": "코드 {code} 복사됨"
     }
   },
   "app": {

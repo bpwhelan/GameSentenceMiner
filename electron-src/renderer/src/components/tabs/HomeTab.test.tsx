@@ -10,6 +10,9 @@ import type { GsmStatus, ObsWindow } from "../../types/models";
 
 const invokeMock = vi.fn();
 const sendMock = vi.fn();
+const STATUS_POLL_MS = 1000;
+const ANKI_BEACON_NUDGE_DELAY_MS = 15_000;
+const ANKI_BEACON_WARNING_TEXT = "AnkiBeacon ⚠️";
 
 const okStatus: GsmStatus = {
   ready: true,
@@ -17,6 +20,7 @@ const okStatus: GsmStatus = {
   websockets_connected: {},
   obs_connected: true,
   anki_connected: true,
+  anki_beacon_connected: true,
   clipboard_enabled: true,
 };
 
@@ -37,6 +41,13 @@ async function flushAsyncWork() {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
+}
+
+async function advanceTimers(ms: number) {
+  await act(async () => {
+    vi.advanceTimersByTime(ms);
+    await flushAsyncWork();
+  });
 }
 
 describe("HomeTab", () => {
@@ -108,6 +119,14 @@ describe("HomeTab", () => {
       configurable: true,
       value: {
         platform: "win32",
+      },
+    });
+
+    Object.defineProperty(window, "clipboard", {
+      configurable: true,
+      value: {
+        readText: vi.fn(() => ""),
+        writeText: vi.fn(),
       },
     });
 
@@ -227,6 +246,226 @@ describe("HomeTab", () => {
       "settings.saveSettings",
       { runOverlayOnStartup: true },
     );
+  });
+
+  it("starts the AnkiBeacon nudge delay only after Anki connects", async () => {
+    let ankiConnected = false;
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "get_gsm_status") {
+        return {
+          ...okStatus,
+          anki_connected: ankiConnected,
+          anki_beacon_connected: false,
+        };
+      }
+      if (channel === "settings.getSettings") return { runOverlayOnStartup: false };
+      if (channel === "obs.getScenes") return [];
+      if (channel === "obs.getActiveScene") return null;
+      if (channel === "obs.getCaptureCardProbeEnabled") return false;
+      if (channel === "obs.getWindows") return [];
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<HomeTab active />);
+      await flushAsyncWork();
+    });
+
+    await advanceTimers(ANKI_BEACON_NUDGE_DELAY_MS);
+    expect(container.textContent).not.toContain(ANKI_BEACON_WARNING_TEXT);
+
+    ankiConnected = true;
+    await advanceTimers(STATUS_POLL_MS);
+    expect(container.textContent).not.toContain(ANKI_BEACON_WARNING_TEXT);
+
+    await advanceTimers(ANKI_BEACON_NUDGE_DELAY_MS - 1);
+    expect(container.textContent).not.toContain(ANKI_BEACON_WARNING_TEXT);
+
+    await advanceTimers(1);
+    expect(container.textContent).toContain(ANKI_BEACON_WARNING_TEXT);
+  });
+
+  it("opens AnkiBeacon install guidance from the yellow Anki status pill", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "get_gsm_status") {
+        return {
+          ...okStatus,
+          anki_connected: true,
+          anki_beacon_connected: false,
+        };
+      }
+      if (channel === "settings.getSettings") return { runOverlayOnStartup: false };
+      if (channel === "obs.getScenes") return [];
+      if (channel === "obs.getActiveScene") return null;
+      if (channel === "obs.getCaptureCardProbeEnabled") return false;
+      if (channel === "obs.getWindows") return [];
+      if (channel === "ankiBeacon.install") {
+        return { success: false, error: "No application is associated with the file." };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<HomeTab active />);
+      await flushAsyncWork();
+    });
+
+    expect(container.textContent).not.toContain(ANKI_BEACON_WARNING_TEXT);
+
+    await advanceTimers(ANKI_BEACON_NUDGE_DELAY_MS - 1);
+    expect(container.textContent).not.toContain(ANKI_BEACON_WARNING_TEXT);
+
+    await advanceTimers(1);
+
+    const ankiStatusButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes(ANKI_BEACON_WARNING_TEXT),
+    );
+    expect(ankiStatusButton).toBeInstanceOf(HTMLButtonElement);
+    expect(ankiStatusButton?.className).toContain("home-status-pill--warning");
+
+    await act(async () => {
+      (ankiStatusButton as HTMLButtonElement).click();
+      await flushAsyncWork();
+    });
+
+    expect(container.textContent).toContain("Install AnkiBeacon");
+
+    const ankiWebLink = Array.from(container.querySelectorAll("a")).find(
+      (link) => link.textContent === "AnkiWeb",
+    );
+    const githubLink = Array.from(container.querySelectorAll("a")).find(
+      (link) => link.textContent === "GitHub",
+    );
+    expect(ankiWebLink).toBeInstanceOf(HTMLAnchorElement);
+    expect(githubLink).toBeInstanceOf(HTMLAnchorElement);
+
+    await act(async () => {
+      (ankiWebLink as HTMLAnchorElement).click();
+      (githubLink as HTMLAnchorElement).click();
+      await flushAsyncWork();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "open-external-link",
+      "https://ankiweb.net/shared/info/1577021707",
+    );
+    expect(invokeMock).toHaveBeenCalledWith(
+      "open-external-link",
+      "https://github.com/bpwhelan/AnkiBeacon",
+    );
+
+    const installButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Install Now",
+    );
+    expect(installButton).toBeInstanceOf(HTMLButtonElement);
+
+    await act(async () => {
+      (installButton as HTMLButtonElement).click();
+      await flushAsyncWork();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("ankiBeacon.install");
+    expect(container.textContent).toContain("AnkiWeb code");
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) => button.textContent === "Close"),
+    ).toBe(true);
+
+    const copyCodeButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("1577021707"),
+    );
+    expect(copyCodeButton).toBeInstanceOf(HTMLButtonElement);
+
+    await act(async () => {
+      (copyCodeButton as HTMLButtonElement).click();
+      await flushAsyncWork();
+    });
+
+    expect(window.clipboard.writeText).toHaveBeenCalledWith("1577021707");
+
+    const closeButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Close",
+    );
+    expect(closeButton).toBeInstanceOf(HTMLButtonElement);
+
+    await act(async () => {
+      (closeButton as HTMLButtonElement).click();
+      await flushAsyncWork();
+    });
+
+    expect(container.textContent).not.toContain("Install AnkiBeacon");
+  });
+
+  it("shows AnkiBeacon waiting state and closes the dialog when a heartbeat arrives", async () => {
+    let ankiBeaconConnected = false;
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "get_gsm_status") {
+        return {
+          ...okStatus,
+          anki_connected: true,
+          anki_beacon_connected: ankiBeaconConnected,
+        };
+      }
+      if (channel === "settings.getSettings") return { runOverlayOnStartup: false };
+      if (channel === "obs.getScenes") return [];
+      if (channel === "obs.getActiveScene") return null;
+      if (channel === "obs.getCaptureCardProbeEnabled") return false;
+      if (channel === "obs.getWindows") return [];
+      if (channel === "ankiBeacon.install") return { success: true, filePath: "Anki.Beacon.ankiaddon" };
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<HomeTab active />);
+      await flushAsyncWork();
+    });
+
+    await advanceTimers(ANKI_BEACON_NUDGE_DELAY_MS);
+
+    const ankiStatusButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes(ANKI_BEACON_WARNING_TEXT),
+    );
+    expect(ankiStatusButton).toBeInstanceOf(HTMLButtonElement);
+
+    await act(async () => {
+      (ankiStatusButton as HTMLButtonElement).click();
+      await flushAsyncWork();
+    });
+
+    const installButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Install Now",
+    );
+    expect(installButton).toBeInstanceOf(HTMLButtonElement);
+
+    await act(async () => {
+      (installButton as HTMLButtonElement).click();
+      await flushAsyncWork();
+    });
+
+    expect(container.textContent).toContain("Waiting for AnkiBeacon signal");
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) => button.textContent === "Close"),
+    ).toBe(true);
+    expect(
+      Array.from(container.querySelectorAll("button")).some((button) => button.textContent === "Install Now"),
+    ).toBe(false);
+
+    ankiBeaconConnected = true;
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+      await flushAsyncWork();
+    });
+
+    expect(container.textContent).toContain("AnkiBeacon signal received");
+
+    for (let i = 0; i < 3; i += 1) {
+      await act(async () => {
+        root.render(<HomeTab active />);
+        vi.advanceTimersByTime(300);
+        await flushAsyncWork();
+      });
+    }
+
+    expect(container.textContent).not.toContain("Install AnkiBeacon");
   });
 
   it("sends the selected capture mode when creating a scene", async () => {

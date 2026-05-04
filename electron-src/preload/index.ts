@@ -59,6 +59,7 @@ const invokePrefixes = [
   "docs.",
   "state.",
   "settings.",
+  "ankiBeacon.",
   "python.",
   "logs.",
   "ocr.",

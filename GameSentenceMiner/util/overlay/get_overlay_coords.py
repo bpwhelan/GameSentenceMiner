@@ -39,6 +39,7 @@ from GameSentenceMiner.util.config.configuration import (
     logger,
 )
 from GameSentenceMiner.util.config.electron_config import get_ocr_language
+from GameSentenceMiner.util.platform.monitor_selection import resolve_monitor_descriptor
 from GameSentenceMiner.util.platform.window_state_monitor import (
     WindowStateMonitor,
     get_window_client_physical_geometry,
@@ -323,7 +324,7 @@ class OverlayProcessor:
             and coordinate_system == "percentage"
             and not self._last_overlay_capture_used_window_handle
         ):
-            monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)
+            monitor = self.get_configured_monitor_workarea()
             for rectangle in getattr(scaled_config, "rectangles", []):
                 rectangle.coordinates = [0, 0, 0, 0]
 
@@ -336,7 +337,7 @@ class OverlayProcessor:
                     int(h_pct * window_geometry.height),
                 ]
         elif coordinate_space == "monitor" and self._last_overlay_capture_used_window_handle:
-            monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)
+            monitor = self.get_configured_monitor_workarea()
             for rectangle in getattr(scaled_config, "rectangles", []):
                 rectangle.coordinates = [0, 0, 0, 0]
 
@@ -851,7 +852,7 @@ class OverlayProcessor:
 
         return nearest_idx
 
-    def get_monitor_workarea(self, monitor_index=0):
+    def get_monitor_workarea(self, monitor_index=0, monitor_id="", monitor_bounds=None):
         requested_index = 0
         try:
             requested_index = int(monitor_index)
@@ -863,16 +864,25 @@ class OverlayProcessor:
                 with mss.mss() as sct:
                     monitors = sct.monitors[1:]
                     if monitors:
+                        selection = resolve_monitor_descriptor(monitors, requested_index, monitor_id, monitor_bounds)
+                        resolved_index = int(selection.get("selected_index", 0))
+                        selection_method = selection.get("method")
                         safe_index = min(max(requested_index, 0), len(monitors) - 1)
-                        if safe_index != requested_index:
+                        if selection_method in {"id", "bounds"}:
+                            self._last_monitor_workarea_warning = None
+                        elif safe_index != requested_index:
                             self._warn_monitor_workarea_once(
                                 f"Overlay monitor index {requested_index} is out of range for "
                                 f"{len(monitors)} monitor(s). Using monitor index {safe_index}."
                             )
+                        elif selection.get("used_fallback") and (monitor_id or monitor_bounds):
+                            self._warn_monitor_workarea_once(
+                                "Configured overlay monitor identity was unavailable. "
+                                f"Using monitor index {safe_index}."
+                            )
                         else:
                             self._last_monitor_workarea_warning = None
 
-                        resolved_index = safe_index
                         if is_windows() and self.window_monitor:
                             magpie_info = self.window_monitor.magpie_info or {}
                             magpie_left = magpie_info.get("magpieWindowLeftEdgePosition")
@@ -963,6 +973,15 @@ class OverlayProcessor:
             "height": max(1, fallback_height - 1),
         }
 
+    def get_configured_monitor_workarea(self):
+        overlay_config = get_overlay_config()
+        monitor_index = getattr(overlay_config, "monitor_to_capture", 0)
+        monitor_id = getattr(overlay_config, "monitor_to_capture_id", "")
+        monitor_bounds = getattr(overlay_config, "monitor_to_capture_bounds", {})
+        if monitor_id or monitor_bounds:
+            return self.get_monitor_workarea(monitor_index, monitor_id, monitor_bounds)
+        return self.get_monitor_workarea(monitor_index)
+
     def _get_screenshot_and_offset(
         self,
     ) -> Tuple[Image.Image | None, int, int, int, int]:
@@ -972,7 +991,7 @@ class OverlayProcessor:
         Returns:
             (image, offset_x, offset_y, monitor_width, monitor_height)
         """
-        monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)
+        monitor = self.get_configured_monitor_workarea()
         monitor_w, monitor_h = monitor["width"], monitor["height"]
 
         # If configured to use full-screen MSS instead of OBS, prefer that method.
@@ -1157,7 +1176,7 @@ class OverlayProcessor:
             (off_x, off_y, content_w, content_h, monitor_w, monitor_h)
             Offsets are monitor-relative (screen-absolute minus monitor origin).
         """
-        monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)
+        monitor = self.get_configured_monitor_workarea()
         monitor_w, monitor_h = monitor["width"], monitor["height"]
 
         off_x, off_y = 0, 0
@@ -1343,7 +1362,7 @@ class OverlayProcessor:
         )
         capture_origin_x = int(capture_origin.get("x", 0))
         capture_origin_y = int(capture_origin.get("y", 0))
-        monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)
+        monitor = self.get_configured_monitor_workarea()
         monitor_w, monitor_h = monitor["width"], monitor["height"]
 
         if mode == "absolute_screen":
@@ -1898,7 +1917,7 @@ class OverlayProcessor:
             logger.debug("No previous OCR results to reprocess.")
             return
 
-        monitor = self.get_monitor_workarea(get_overlay_config().monitor_to_capture)
+        monitor = self.get_configured_monitor_workarea()
         monitor_w, monitor_h = monitor["width"], monitor["height"]
 
         off_x, off_y = 0, 0

@@ -1266,6 +1266,8 @@ class Overlay:
     engine: str = OverlayEngine.LENS.value
     engine_v2: str = OverlayEngine.ONEOCR.value  # New v2 config - defaults everyone to ONEOCR
     monitor_to_capture: int = 0
+    monitor_to_capture_id: str = ""
+    monitor_to_capture_bounds: Dict[str, int] = field(default_factory=dict)
     periodic: bool = False
     periodic_interval: float = 1.0
     periodic_ratio: float = 0.9
@@ -1284,16 +1286,30 @@ class Overlay:
             self.monitor_to_capture = 0  # Default to the first monitor if not set
 
         try:
-            import mss as mss
+            from GameSentenceMiner.util.platform.monitor_selection import (
+                apply_monitor_selection_to_overlay,
+                get_mss_monitor_descriptors,
+            )
 
-            monitors = [
-                f"Monitor {i}: width: {monitor['width']}, height: {monitor['height']}"
-                for i, monitor in enumerate(mss.mss().monitors[1:], start=1)
+            descriptors = get_mss_monitor_descriptors()
+            self.monitors = [
+                (
+                    f"Monitor {descriptor['index'] + 1}: "
+                    f"left: {descriptor['bounds']['left']}, "
+                    f"top: {descriptor['bounds']['top']}, "
+                    f"width: {descriptor['bounds']['width']}, "
+                    f"height: {descriptor['bounds']['height']}"
+                )
+                for descriptor in descriptors
             ]
-            if len(monitors) == 0:
-                monitors = [1]
-            self.monitors = monitors
-        except ImportError:
+            if descriptors:
+                apply_monitor_selection_to_overlay(
+                    self,
+                    [descriptor["bounds"] for descriptor in descriptors],
+                )
+            else:
+                self.monitors = [1]
+        except Exception:
             self.monitors = []
         if self.monitor_to_capture >= len(self.monitors):
             self.monitor_to_capture = 0  # Reset to first monitor if out of range
@@ -2343,6 +2359,7 @@ class GsmStatus:
     websockets_connected: Dict[str, str] = field(default_factory=dict)
     obs_connected: bool = False
     anki_connected: bool = False
+    anki_beacon_connected: bool = False
     last_line_received: str = None
     words_being_processed: List[str] = field(default_factory=list)
     clipboard_enabled: bool = True

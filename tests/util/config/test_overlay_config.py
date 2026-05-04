@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from GameSentenceMiner.util.config import configuration
+from GameSentenceMiner.util.platform import monitor_selection
 from GameSentenceMiner.util.config.configuration import Config, Overlay, ProfileConfig
 
 
@@ -71,6 +72,43 @@ def test_overlay_use_overlay_area_config_round_trip_and_backward_compatibility()
     data_without_field = dict(data)
     data_without_field.pop("use_overlay_area_config", None)
     assert Overlay.from_dict(data_without_field).use_overlay_area_config is False
+
+
+def test_overlay_monitor_identity_round_trip_and_backward_compatibility(monkeypatch):
+    monkeypatch.setattr(
+        monitor_selection,
+        "get_mss_monitor_descriptors",
+        lambda: [
+            {
+                "index": 0,
+                "id": "bounds:0:0:1920:1080",
+                "bounds": {"left": 0, "top": 0, "width": 1920, "height": 1080},
+            },
+            {
+                "index": 1,
+                "id": "bounds:1920:0:1920:1080",
+                "bounds": {"left": 1920, "top": 0, "width": 1920, "height": 1080},
+            },
+        ],
+    )
+    overlay = Overlay(
+        monitor_to_capture=1,
+        monitor_to_capture_id="bounds:1920:0:1920:1080",
+        monitor_to_capture_bounds={"left": 1920, "top": 0, "width": 1920, "height": 1080},
+    )
+    data = overlay.to_dict()
+
+    restored = Overlay.from_dict(data)
+    assert restored.monitor_to_capture == 1
+    assert restored.monitor_to_capture_id == "bounds:1920:0:1920:1080"
+    assert restored.monitor_to_capture_bounds == {"left": 1920, "top": 0, "width": 1920, "height": 1080}
+
+    data_without_fields = dict(data)
+    data_without_fields.pop("monitor_to_capture_id", None)
+    data_without_fields.pop("monitor_to_capture_bounds", None)
+    restored_without_fields = Overlay.from_dict(data_without_fields)
+    assert isinstance(restored_without_fields.monitor_to_capture_id, str)
+    assert isinstance(restored_without_fields.monitor_to_capture_bounds, dict)
 
 
 def test_global_overlay_config_is_authoritative(monkeypatch):
