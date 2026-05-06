@@ -76,7 +76,7 @@ dependencies = [
   "flasgger~=0.9.7",
   "pynput~=1.8.1 ; sys_platform == 'win32'",
   "uv~=0.9.22",
-  "pip~=25.3",
+  "pip>=25.3,<27.0",
   "ollama~=0.6.1",
   "aiohttp~=3.13.3",
   "fpng~=0.1.0",
