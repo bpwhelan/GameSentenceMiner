@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import sys
 import types
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import flask
 import pytest
@@ -312,11 +312,53 @@ class TestRouteHandlersDelegation:
         assert resp.status_code == 200
         payload = resp.get_json()
         assert payload["cache_populated"] is True
+        assert payload["anki_connect_available"] is False
         assert payload["note_count"] == 12
         assert payload["card_count"] == 34
         assert payload["auto_sync_enabled"] is True
         assert payload["auto_sync_schedule"] == "daily"
         assert payload["next_auto_sync"] is not None
+
+    def test_sync_status_reports_live_ankiconnect_when_cache_empty(
+        self,
+        app_and_client,
+        monkeypatch,
+        anki_mod,
+    ):
+        app, client = app_and_client
+
+        class _FakeDb:
+            def __init__(self, row):
+                self._row = row
+
+            def fetchone(self, _query):
+                return self._row
+
+        fake_anki_tables = types.ModuleType("GameSentenceMiner.util.database.anki_tables")
+        fake_anki_tables.AnkiNotesTable = types.SimpleNamespace(
+            _db=_FakeDb((0, None)),
+            _table="anki_notes",
+        )
+        fake_anki_tables.AnkiCardsTable = types.SimpleNamespace(
+            _db=_FakeDb((0,)),
+            _table="anki_cards",
+        )
+        monkeypatch.setitem(
+            sys.modules,
+            "GameSentenceMiner.util.database.anki_tables",
+            fake_anki_tables,
+        )
+        monkeypatch.setattr(anki_mod, "_is_ankiconnect_available", lambda: True)
+
+        with app.test_request_context():
+            resp = client.get("/api/anki_sync_status")
+
+        assert resp.status_code == 200
+        payload = resp.get_json()
+        assert payload["cache_populated"] is False
+        assert payload["anki_connect_available"] is True
+        assert payload["note_count"] == 0
+        assert payload["card_count"] == 0
 
     def test_sync_now_route_queues_anki_card_sync(self, app_and_client, monkeypatch):
         app, client = app_and_client

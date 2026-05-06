@@ -44,6 +44,7 @@ _CACHE_EMPTY_RESPONSE = {
 # the entire notes, cards, and reviews tables.  This cache loads them once and
 # reuses the result for up to _ANKI_DATA_TTL seconds.
 _ANKI_DATA_TTL = 60.0  # seconds
+_ANKICONNECT_NOTES_BATCH_SIZE = 500
 _anki_data_lock = Lock()
 _anki_data_cache: dict | None = None
 _anki_data_ts: float = 0.0
@@ -176,6 +177,17 @@ def _is_cache_empty() -> bool:
         return True
 
 
+def _is_ankiconnect_available() -> bool:
+    """Return whether AnkiConnect can answer a lightweight request."""
+    try:
+        from GameSentenceMiner import anki as anki_module
+
+        return anki_module.invoke("version", timeout=2, raise_on_error=False) is not None
+    except Exception as e:
+        logger.debug(f"AnkiConnect availability probe failed: {e}")
+        return False
+
+
 def _get_note_fields(note, cached_fields_by_id: dict[int, dict] | None = None) -> dict:
     """Safely extract the fields dict from a cached note.
 
@@ -234,6 +246,113 @@ def _default_anki_stats_start_date(today: datetime.date) -> datetime.date:
 # called directly — e.g. from the combined endpoint — without issuing HTTP
 # requests back to ourselves.
 # ---------------------------------------------------------------------------
+
+
+def _build_ankiconnect_kanji_query() -> str | None:
+    """Build the live AnkiConnect query used for kanji fallback reads."""
+    anki_config = get_config().anki
+    word_field = (getattr(anki_config, "word_field", "") or "").strip()
+    if not word_field:
+        logger.warning("Anki word_field is not configured; live kanji fallback is unavailable.")
+        return None
+
+    query = f"{word_field}:_*"
+    note_type = (getattr(anki_config, "note_type", "") or "").strip()
+    if note_type:
+        escaped_note_type = note_type.replace('"', '\\"')
+        query += f' note:"{escaped_note_type}"'
+
+    return query
+
+
+def _extract_kanji_from_ankiconnect_note(note_data: dict, parent_tag_prefix: str, word_field: str) -> set[str]:
+    """Extract kanji from a single AnkiConnect notesInfo payload."""
+    tags = note_data.get("tags", [])
+    if not isinstance(tags, list):
+        tags = []
+    if not any(isinstance(tag, str) and tag.startswith(parent_tag_prefix) for tag in tags):
+        return set()
+
+    fields = note_data.get("fields", {})
+    if not isinstance(fields, dict):
+        return set()
+
+    value = None
+    if word_field:
+        configured_field = fields.get(word_field, {})
+        if isinstance(configured_field, dict):
+            configured_value = configured_field.get("value")
+            if isinstance(configured_value, str):
+                value = configured_value
+
+    if value is None:
+        first_field = next(iter(fields.values()), None)
+        if isinstance(first_field, dict):
+            first_value = first_field.get("value")
+            if isinstance(first_value, str):
+                value = first_value
+
+    if not isinstance(value, str):
+        return set()
+
+    return {char for char in value if is_kanji(char)}
+
+
+def _get_anki_kanji_from_ankiconnect(
+    start_timestamp: int | None = None,
+    end_timestamp: int | None = None,
+) -> set[str]:
+    """Extract Anki kanji live via AnkiConnect when the local cache is empty."""
+    query = _build_ankiconnect_kanji_query()
+    if query is None:
+        return set()
+
+    try:
+        from GameSentenceMiner import anki as anki_module
+
+        note_ids = anki_module.invoke("findNotes", timeout=5, raise_on_error=False, query=query)
+        if note_ids is None:
+            return set()
+
+        filtered_note_ids: list[int] = []
+        for note_id in note_ids:
+            try:
+                note_id_int = int(note_id)
+            except (TypeError, ValueError):
+                continue
+            if _matches_optional_timestamp_range(note_id_int, start_timestamp, end_timestamp):
+                filtered_note_ids.append(note_id_int)
+
+        if not filtered_note_ids:
+            return set()
+
+        parent_tag = get_config().anki.parent_tag.strip() or "Game"
+        parent_tag_prefix = f"{parent_tag}::"
+        word_field = (getattr(get_config().anki, "word_field", "") or "").strip()
+        anki_kanji_set: set[str] = set()
+
+        for i in range(0, len(filtered_note_ids), _ANKICONNECT_NOTES_BATCH_SIZE):
+            batch = filtered_note_ids[i : i + _ANKICONNECT_NOTES_BATCH_SIZE]
+            notes_info = anki_module.invoke("notesInfo", timeout=10, raise_on_error=False, notes=batch)
+            if notes_info is None:
+                logger.warning(
+                    "Skipping AnkiConnect notesInfo batch "
+                    f"{i // _ANKICONNECT_NOTES_BATCH_SIZE + 1} during live kanji fallback"
+                )
+                continue
+            if not isinstance(notes_info, list):
+                continue
+
+            for note_data in notes_info:
+                if isinstance(note_data, dict):
+                    anki_kanji_set.update(
+                        _extract_kanji_from_ankiconnect_note(note_data, parent_tag_prefix, word_field)
+                    )
+
+        return anki_kanji_set
+    except Exception as e:
+        logger.warning(f"Live AnkiConnect kanji fallback failed: {e}")
+        return set()
 
 
 def _fetch_earliest_date(
@@ -376,7 +495,12 @@ def _fetch_kanji_stats(
 
         # Fetch Anki kanji from the cached notes using the same parent-tag and
         # optional creation-time filters as the rest of the Anki stats views.
+        anki_cache_empty = _is_cache_empty()
         anki_kanji_set = _get_anki_kanji_from_cache(start_timestamp, end_timestamp)
+        if anki_cache_empty:
+            live_anki_kanji_set = _get_anki_kanji_from_ankiconnect(start_timestamp, end_timestamp)
+            if live_anki_kanji_set:
+                anki_kanji_set = live_anki_kanji_set
 
         gsm_kanji_list = gsm_kanji_stats.get("kanji_data", [])
         gsm_kanji_set = set([k["kanji"] for k in gsm_kanji_list])
@@ -1151,6 +1275,9 @@ def register_anki_api_endpoints(app):
             note_count = note_row[0] if note_row else 0
             card_count = card_row[0] if card_row else 0
             cache_populated = note_count > 0
+            anki_connect_available = False
+            if not cache_populated:
+                anki_connect_available = _is_ankiconnect_available()
 
             last_synced = None
             if note_row and note_row[1] is not None:
@@ -1182,6 +1309,7 @@ def register_anki_api_endpoints(app):
                 {
                     "last_synced": last_synced,
                     "cache_populated": cache_populated,
+                    "anki_connect_available": anki_connect_available,
                     "note_count": note_count,
                     "card_count": card_count,
                     "auto_sync_enabled": auto_sync_enabled,
@@ -1195,6 +1323,7 @@ def register_anki_api_endpoints(app):
                 {
                     "last_synced": None,
                     "cache_populated": False,
+                    "anki_connect_available": False,
                     "note_count": 0,
                     "card_count": 0,
                     "auto_sync_enabled": False,
