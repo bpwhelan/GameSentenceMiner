@@ -111,6 +111,7 @@ def _stub_config(monkeypatch, anki_mod, parent_tag="Game", word_field="Word"):
     cfg.anki.word_field = word_field
     cfg.anki.note_type = ""
     monkeypatch.setattr(anki_mod, "get_config", lambda: cfg)
+    return cfg
 
 
 # ===================================================================
@@ -629,7 +630,7 @@ class TestGetAnkiKanjiFromCache:
         monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: True)
         assert anki_mod._get_anki_kanji_from_cache() == set()
 
-    def test_extracts_kanji_from_first_field(self, anki_mod, monkeypatch):
+    def test_extracts_kanji_from_configured_word_field(self, anki_mod, monkeypatch):
         monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: False)
         _stub_config(monkeypatch, anki_mod, "Game")
 
@@ -649,6 +650,23 @@ class TestGetAnkiKanjiFromCache:
         assert "字" in result
         # Non-kanji characters should not be included
         assert "テ" not in result
+
+    def test_missing_configured_word_field_does_not_fallback_to_first_field(self, anki_mod, monkeypatch):
+        monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: False)
+        _stub_config(monkeypatch, anki_mod, "Game", "ConfiguredWord")
+
+        notes = [
+            FakeNote(
+                note_id=1,
+                tags=["Game::FF7"],
+                mod=1700000000,
+                fields_json={"OtherField": {"value": "漢字"}},
+            ),
+        ]
+        data = _make_anki_data(notes, [], [])
+        monkeypatch.setattr(anki_mod, "_get_anki_data", lambda: data)
+
+        assert anki_mod._get_anki_kanji_from_cache() == set()
 
     def test_notes_without_parent_tag_excluded(self, anki_mod, monkeypatch):
         monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: False)
@@ -759,7 +777,7 @@ class TestGetAnkiKanjiFromAnkiConnect:
     """Tests for live AnkiConnect kanji fallback extraction."""
 
     def test_extracts_filtered_notes_from_ankiconnect(self, anki_mod, monkeypatch):
-        _stub_config(monkeypatch, anki_mod, "Game", "Word")
+        cfg = _stub_config(monkeypatch, anki_mod, "Game", "Word")
 
         calls = []
 
@@ -789,6 +807,9 @@ class TestGetAnkiKanjiFromAnkiConnect:
         import GameSentenceMiner
 
         monkeypatch.setattr(GameSentenceMiner, "anki", fake_anki, raising=False)
+        from GameSentenceMiner.util.cron import anki_card_sync
+
+        monkeypatch.setattr(anki_card_sync, "get_config", lambda: cfg)
 
         result = anki_mod._get_anki_kanji_from_ankiconnect(
             start_timestamp=1600000,

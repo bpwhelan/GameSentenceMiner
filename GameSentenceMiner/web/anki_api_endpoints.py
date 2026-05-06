@@ -177,17 +177,6 @@ def _is_cache_empty() -> bool:
         return True
 
 
-def _is_ankiconnect_available() -> bool:
-    """Return whether AnkiConnect can answer a lightweight request."""
-    try:
-        from GameSentenceMiner import anki as anki_module
-
-        return anki_module.invoke("version", timeout=2, raise_on_error=False) is not None
-    except Exception as e:
-        logger.debug(f"AnkiConnect availability probe failed: {e}")
-        return False
-
-
 def _get_note_fields(note, cached_fields_by_id: dict[int, dict] | None = None) -> dict:
     """Safely extract the fields dict from a cached note.
 
@@ -227,28 +216,21 @@ def _matches_optional_timestamp_range(value: int, start_timestamp: int | None, e
 
 
 def _extract_configured_field_value(fields: dict, word_field: str) -> str | None:
-    """Return the configured Anki word-field value, falling back to the first field."""
-    if not isinstance(fields, dict):
+    """Return the configured Anki word-field value from an Anki fields payload."""
+    if not isinstance(fields, dict) or not word_field:
         return None
 
-    if word_field:
-        configured_field = fields.get(word_field, {})
-        if isinstance(configured_field, dict):
-            configured_value = configured_field.get("value")
-            if isinstance(configured_value, str):
-                return configured_value
-
-    first_field = next(iter(fields.values()), None)
-    if isinstance(first_field, dict):
-        first_value = first_field.get("value")
-        if isinstance(first_value, str):
-            return first_value
+    configured_field = fields.get(word_field)
+    if isinstance(configured_field, dict):
+        configured_value = configured_field.get("value")
+        if isinstance(configured_value, str):
+            return configured_value.strip()
 
     return None
 
 
 def _extract_kanji_from_fields(fields: dict, word_field: str) -> set[str]:
-    """Extract kanji from the configured Anki word field or first available field."""
+    """Extract kanji from the configured Anki word field."""
     value = _extract_configured_field_value(fields, word_field)
     if value is None:
         return set()
@@ -311,23 +293,6 @@ def _default_anki_stats_start_date(today: datetime.date) -> datetime.date:
 # ---------------------------------------------------------------------------
 
 
-def _build_ankiconnect_kanji_query() -> str | None:
-    """Build the live AnkiConnect query used for kanji fallback reads."""
-    anki_config = get_config().anki
-    word_field = (getattr(anki_config, "word_field", "") or "").strip()
-    if not word_field:
-        logger.warning("Anki word_field is not configured; live kanji fallback is unavailable.")
-        return None
-
-    query = f"{word_field}:_*"
-    note_type = (getattr(anki_config, "note_type", "") or "").strip()
-    if note_type:
-        escaped_note_type = note_type.replace('"', '\\"')
-        query += f' note:"{escaped_note_type}"'
-
-    return query
-
-
 def _extract_kanji_from_ankiconnect_note(note_data: dict, parent_tag_prefix: str, word_field: str) -> set[str]:
     """Extract kanji from a single AnkiConnect notesInfo payload."""
     tags = note_data.get("tags", [])
@@ -348,7 +313,9 @@ def _get_anki_kanji_from_ankiconnect(
     end_timestamp: int | None = None,
 ) -> set[str]:
     """Extract Anki kanji live via AnkiConnect when the local cache is empty."""
-    query = _build_ankiconnect_kanji_query()
+    from GameSentenceMiner.util.cron.anki_card_sync import _build_sync_query
+
+    query = _build_sync_query()
     if query is None:
         return set()
 
@@ -1279,7 +1246,16 @@ def register_anki_api_endpoints(app):
             cache_populated = note_count > 0
             anki_connect_available = False
             if not cache_populated:
-                anki_connect_available = _is_ankiconnect_available()
+                from GameSentenceMiner import anki as anki_module
+
+                try:
+                    anki_connect_available = anki_module.invoke(
+                        "version",
+                        timeout=2,
+                        raise_on_error=False,
+                    ) is not None
+                except Exception as probe_error:
+                    logger.debug(f"AnkiConnect availability probe failed: {probe_error}")
 
             last_synced = None
             if note_row and note_row[1] is not None:
@@ -1421,9 +1397,8 @@ def _get_anki_kanji_from_cache(
     """Extract unique kanji characters from cached Anki notes.
 
     Notes must match the configured parent tag and, when provided, the optional
-    creation-time bounds. The configured word field is preferred, but we fall
-    back to the first available field for backward compatibility with older
-    configs and tests.
+    creation-time bounds. Kanji are extracted from the user's configured Anki
+    word field.
     """
     if _is_cache_empty():
         return set()

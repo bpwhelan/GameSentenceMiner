@@ -348,7 +348,17 @@ class TestRouteHandlersDelegation:
             "GameSentenceMiner.util.database.anki_tables",
             fake_anki_tables,
         )
-        monkeypatch.setattr(anki_mod, "_is_ankiconnect_available", lambda: True)
+        def fake_invoke(action, **params):
+            assert action == "version"
+            assert params["timeout"] == 2
+            assert params["raise_on_error"] is False
+            return 6
+
+        fake_anki = types.SimpleNamespace(invoke=fake_invoke)
+        monkeypatch.setitem(sys.modules, "GameSentenceMiner.anki", fake_anki)
+        import GameSentenceMiner
+
+        monkeypatch.setattr(GameSentenceMiner, "anki", fake_anki, raising=False)
 
         with app.test_request_context():
             resp = client.get("/api/anki_sync_status")
