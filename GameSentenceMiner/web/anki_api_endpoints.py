@@ -279,6 +279,8 @@ def register_anki_api_endpoints(app):
             anki_kanji_set = get_anki_kanji()
 
             gsm_kanji_list = gsm_kanji_stats.get("kanji_data", [])
+            if not gsm_kanji_list:
+                gsm_kanji_list = [{"kanji": k, "frequency": 1} for k in anki_kanji_set]
             gsm_kanji_set = set([k["kanji"] for k in gsm_kanji_list])
 
             # Find missing kanji
