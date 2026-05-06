@@ -226,6 +226,69 @@ def _matches_optional_timestamp_range(value: int, start_timestamp: int | None, e
     return True
 
 
+def _extract_configured_field_value(fields: dict, word_field: str) -> str | None:
+    """Return the configured Anki word-field value, falling back to the first field."""
+    if not isinstance(fields, dict):
+        return None
+
+    if word_field:
+        configured_field = fields.get(word_field, {})
+        if isinstance(configured_field, dict):
+            configured_value = configured_field.get("value")
+            if isinstance(configured_value, str):
+                return configured_value
+
+    first_field = next(iter(fields.values()), None)
+    if isinstance(first_field, dict):
+        first_value = first_field.get("value")
+        if isinstance(first_value, str):
+            return first_value
+
+    return None
+
+
+def _extract_kanji_from_fields(fields: dict, word_field: str) -> set[str]:
+    """Extract kanji from the configured Anki word field or first available field."""
+    value = _extract_configured_field_value(fields, word_field)
+    if value is None:
+        return set()
+    return {char for char in value if is_kanji(char)}
+
+
+def _collect_note_review_stats(
+    cards,
+    reviews_by_card: dict[int, list],
+    start_timestamp: int | None,
+    end_timestamp: int | None,
+) -> dict[int, dict]:
+    """Aggregate pass/fail counts and review time by note for a card collection."""
+    note_stats: dict[int, dict] = {}
+
+    for card in cards:
+        card_reviews = reviews_by_card.get(card.card_id, [])
+        note_id = card.note_id
+
+        for review in card_reviews:
+            if not _matches_optional_timestamp_range(review.review_time, start_timestamp, end_timestamp):
+                continue
+
+            if note_id not in note_stats:
+                note_stats[note_id] = {
+                    "passed": 0,
+                    "failed": 0,
+                    "total_time": 0,
+                }
+
+            note_stats[note_id]["total_time"] += review.time_taken
+
+            if review.ease == 1:
+                note_stats[note_id]["failed"] += 1
+            else:
+                note_stats[note_id]["passed"] += 1
+
+    return note_stats
+
+
 def _default_anki_stats_start_date(today: datetime.date) -> datetime.date:
     """Return the default lower bound for Anki stats ranges."""
     first_rollup_date = StatsRollupTable.get_first_date()
@@ -277,25 +340,7 @@ def _extract_kanji_from_ankiconnect_note(note_data: dict, parent_tag_prefix: str
     if not isinstance(fields, dict):
         return set()
 
-    value = None
-    if word_field:
-        configured_field = fields.get(word_field, {})
-        if isinstance(configured_field, dict):
-            configured_value = configured_field.get("value")
-            if isinstance(configured_value, str):
-                value = configured_value
-
-    if value is None:
-        first_field = next(iter(fields.values()), None)
-        if isinstance(first_field, dict):
-            first_value = first_field.get("value")
-            if isinstance(first_value, str):
-                value = first_value
-
-    if not isinstance(value, str):
-        return set()
-
-    return {char for char in value if is_kanji(char)}
+    return _extract_kanji_from_fields(fields, word_field)
 
 
 def _get_anki_kanji_from_ankiconnect(
@@ -587,29 +632,7 @@ def _fetch_game_stats(
         # Process each game
         game_stats = []
         for game_name, cards in game_cards.items():
-            note_stats: dict[int, dict] = {}
-
-            for card in cards:
-                card_reviews = reviews_by_card.get(card.card_id, [])
-                note_id = card.note_id
-
-                for review in card_reviews:
-                    if not _matches_optional_timestamp_range(review.review_time, start_timestamp, end_timestamp):
-                        continue
-
-                    if note_id not in note_stats:
-                        note_stats[note_id] = {
-                            "passed": 0,
-                            "failed": 0,
-                            "total_time": 0,
-                        }
-
-                    note_stats[note_id]["total_time"] += review.time_taken
-
-                    if review.ease == 1:
-                        note_stats[note_id]["failed"] += 1
-                    else:
-                        note_stats[note_id]["passed"] += 1
+            note_stats = _collect_note_review_stats(cards, reviews_by_card, start_timestamp, end_timestamp)
 
             if note_stats:
                 retention_sum = 0
@@ -717,28 +740,7 @@ def _fetch_nsfw_sfw_retention(
             if not cards:
                 return 0.0, 0, 0.0
 
-            note_stats: dict[int, dict] = {}
-            for card in cards:
-                card_reviews = reviews_by_card.get(card.card_id, [])
-                note_id = card.note_id
-
-                for review in card_reviews:
-                    if not _matches_optional_timestamp_range(review.review_time, start_timestamp, end_timestamp):
-                        continue
-
-                    if note_id not in note_stats:
-                        note_stats[note_id] = {
-                            "passed": 0,
-                            "failed": 0,
-                            "total_time": 0,
-                        }
-
-                    note_stats[note_id]["total_time"] += review.time_taken
-                    if review.ease == 1:
-                        note_stats[note_id]["failed"] += 1
-                    else:
-                        note_stats[note_id]["passed"] += 1
-
+            note_stats = _collect_note_review_stats(cards, reviews_by_card, start_timestamp, end_timestamp)
             if not note_stats:
                 return 0.0, 0, 0.0
 
@@ -1447,28 +1449,7 @@ def _get_anki_kanji_from_cache(
                 continue
 
             fields = _get_note_fields(note, note_fields_by_id)
-            value = None
-
-            if word_field:
-                configured_field = fields.get(word_field, {})
-                if isinstance(configured_field, dict):
-                    configured_value = configured_field.get("value")
-                    if isinstance(configured_value, str):
-                        value = configured_value
-
-            if value is None:
-                first_field = next(iter(fields.values()), None)
-                if isinstance(first_field, dict):
-                    first_value = first_field.get("value")
-                    if isinstance(first_value, str):
-                        value = first_value
-
-            if not isinstance(value, str):
-                continue
-
-            for char in value:
-                if is_kanji(char):
-                    anki_kanji_set.add(char)
+            anki_kanji_set.update(_extract_kanji_from_fields(fields, word_field))
 
         return anki_kanji_set
     except Exception as e:
