@@ -1,0 +1,37 @@
+version: 2
+
+updates:
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/GSM_Overlay"
+      - "/texthooker"
+    schedule:
+      interval: "monthly"
+      time: "07:00"
+      timezone: "Europe/London"
+    cooldown:
+      default-days: 30
+      include:
+        - "*"
+    groups:
+      npm-batch:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
+
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      time: "07:00"
+      timezone: "Europe/London"
+    cooldown:
+      default-days: 30
+      include:
+        - "*"
+    groups:
+      uv-batch:
+        applies-to: "version-updates"
+        patterns:
+          - "*"
