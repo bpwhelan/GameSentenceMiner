@@ -3,7 +3,7 @@
   "productName": "GameSentenceMiner",
   "version": "2026.5.4",
   "description": "GameSentenceMiner",
-  "main": "dist/main/main.js",
+  "main": "dist/main/bootstrap.js",
   "scripts": {
     "start": "npm run build && electron .",
     "build": "npm run sync:legacy && npm run build:main && npm run build:renderer",
@@ -53,7 +53,7 @@
         "from": "GSM_Overlay/out",
         "to": "resources/GSM_Overlay",
         "filter": [
-          "**/*",
+          "**/resources/**",
           "!make",
           "!make/**/*"
         ]

@@ -69,6 +69,7 @@ const GSM_APPDATA = process.env.APPDATA
   ? path.join(process.env.APPDATA, "GameSentenceMiner") // Windows
   : path.join(os.homedir(), '.config', "GameSentenceMiner"); // macOS/Linux
 const gsmSettingsPath = path.join(GSM_APPDATA, 'config.json');
+const sharedRuntimeResourcesPath = process.env.GSM_OVERLAY_RESOURCES_PATH || "";
 const FIND_IN_PAGE_PRELOAD_PATH = path.join(__dirname, 'find-in-page-preload.js');
 const TEXTHOOKER_HOTKEY_FALLBACKS = [
   DEFAULT_TEXTHOOKER_HOTKEY,
@@ -97,6 +98,33 @@ const OVERLAY_NON_PROFILE_SETTING_KEYS = new Set([
   "gamepadJpdbApiKey",
   "gamepadYomitanApiUrl",
 ]);
+
+function getPackagedResourcesPath() {
+  return sharedRuntimeResourcesPath || process.resourcesPath;
+}
+
+function relaunchOverlayApp() {
+  const relaunchArgs = process.argv.slice(1);
+  if (relaunchArgs.length > 0) {
+    app.relaunch({ args: relaunchArgs });
+  } else {
+    app.relaunch();
+  }
+}
+
+function traceSharedRuntimeOverlay(message) {
+  const tracePath = process.env.GSM_OVERLAY_BOOTSTRAP_TRACE;
+  if (!tracePath) {
+    return;
+  }
+  try {
+    fs.appendFileSync(tracePath, `${new Date().toISOString()} overlay: ${message}\n`, "utf8");
+  } catch {
+    // Tracing is best-effort only.
+  }
+}
+
+traceSharedRuntimeOverlay("main.js loaded");
 
 function getGSMSettings() {
   let gsmSettings = {};
@@ -1373,10 +1401,11 @@ function getGamepadServerExecutableName() {
 
 function getPackagedGamepadServerCandidates() {
   const executableName = getGamepadServerExecutableName();
+  const resourcesPath = getPackagedResourcesPath();
   return [
-    path.join(process.resourcesPath, 'bin', process.platform, executableName),
-    path.join(process.resourcesPath, 'bin', executableName),
-    path.join(process.resourcesPath, executableName),
+    path.join(resourcesPath, 'bin', process.platform, executableName),
+    path.join(resourcesPath, 'bin', executableName),
+    path.join(resourcesPath, executableName),
   ];
 }
 
@@ -1849,7 +1878,8 @@ function loadOverlayPage(win, relativePath) {
   if (pageUrl) {
     return win.loadURL(pageUrl);
   }
-  return win.loadFile(relativePath);
+  const filePath = path.isAbsolute(relativePath) ? relativePath : path.join(__dirname, relativePath);
+  return win.loadFile(filePath);
 }
 
 const EXTENSION_READY_TIMEOUT_MS = 15000;
@@ -1872,7 +1902,7 @@ function getExtensionSessionApi() {
 }
 
 async function loadExtension(name) {
-  const extDir = isDev ? path.join(__dirname, name) : path.join(process.resourcesPath, name);
+  const extDir = isDev ? path.join(__dirname, name) : path.join(getPackagedResourcesPath(), name);
   const extTargetDir = ensureExtensionCopy(name, extDir);
   const extensionApi = getExtensionSessionApi();
   const observedReadyIds = new Set();
@@ -4099,7 +4129,7 @@ app.whenReady().then(async () => {
   app.once("before-quit", () => {
     fs.unwatchFile(gsmSettingsPath);
   });
-  const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(process.resourcesPath, "yomitan");
+  const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), "yomitan");
 
   // 1. Define Paths
   // 'manifest.json' is what Electron reads.
@@ -4194,7 +4224,7 @@ app.whenReady().then(async () => {
                 fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
 
                 // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
-                app.relaunch();
+                relaunchOverlayApp();
                 app.exit(0);
                 return; // Halt execution
               }
@@ -4208,7 +4238,7 @@ app.whenReady().then(async () => {
               fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
 
               // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
-              app.relaunch();
+              relaunchOverlayApp();
               app.exit(0);
               return; // Halt execution
             }
@@ -4240,7 +4270,7 @@ app.whenReady().then(async () => {
   // Detect if yomitan extension files changed since last overlay launch (e.g. GSM app update).
   // If so, clear Chromium's cached service workers to prevent stale compiled background scripts.
   {
-    const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(process.resourcesPath, 'yomitan');
+    const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
     const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
     const yomitanMtimePath = path.join(app.getPath('userData'), 'yomitan_last_mtime.json');
     let currentMtime = 0;
@@ -4284,7 +4314,7 @@ app.whenReady().then(async () => {
 
   // Watch yomitan extension directory for rebuilds and hot-reload on change (dev workflow)
   {
-    const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(process.resourcesPath, 'yomitan');
+    const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
     const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
     const yomitanMtimePath = path.join(app.getPath('userData'), 'yomitan_last_mtime.json');
     let yomitanReloadDebounce = null;

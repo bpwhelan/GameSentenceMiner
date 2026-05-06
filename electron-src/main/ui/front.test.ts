@@ -20,9 +20,12 @@ vi.mock('child_process', () => ({
 
 vi.mock('../util.js', () => ({
     BASE_DIR: 'C:\\test-gsm',
+    getOverlayAppAsarPath: () => 'C:\\overlay-out\\resources\\app.asar',
     getOverlayExecName: () => 'gsm_overlay.exe',
     getOverlayPath: () => 'C:\\overlay-out',
+    getOverlayResourcesPath: () => 'C:\\overlay-out\\resources',
     getResourcesDir: () => 'C:\\repo',
+    OVERLAY_RESOURCES_ENV: 'GSM_OVERLAY_RESOURCES_PATH',
     get isDev() {
         return isDevValue;
     },
@@ -107,7 +110,7 @@ describe('runOverlayWithSource', () => {
         });
     });
 
-    it('runs the packaged overlay executable outside source mode', async () => {
+    it('runs the packaged overlay app through the shared Electron runtime outside source mode', async () => {
         existsSyncMock.mockReturnValue(true);
         const processHandle = createProcessHandle();
         spawnMock.mockReturnValue(processHandle);
@@ -116,6 +119,33 @@ describe('runOverlayWithSource', () => {
 
         await expect(runOverlayWithSource('manual')).resolves.toBe(true);
 
+        expect(existsSyncMock).toHaveBeenCalledWith('C:\\overlay-out\\resources\\app.asar');
+        expect(spawnMock).toHaveBeenCalledWith(process.execPath, [], {
+            detached: false,
+            stdio: 'ignore',
+            env: expect.objectContaining({
+                GSM_OVERLAY_CHILD: '1',
+                GSM_OVERLAY_SHARED_RUNTIME: '1',
+                GSM_OVERLAY_RESOURCES_PATH: 'C:\\overlay-out\\resources',
+            }),
+        });
+        expect(spawnMock.mock.calls[0][2].env.ELECTRON_RUN_AS_NODE).toBeUndefined();
+        expect(getOverlayRuntimeState()).toEqual({
+            isRunning: true,
+            source: 'manual',
+        });
+    });
+
+    it('falls back to the standalone overlay executable when only the legacy package exists', async () => {
+        existsSyncMock.mockImplementation((candidate: string) => candidate === 'C:\\overlay-out\\gsm_overlay.exe');
+        const processHandle = createProcessHandle();
+        spawnMock.mockReturnValue(processHandle);
+
+        const { runOverlayWithSource, getOverlayRuntimeState } = await loadFrontModule();
+
+        await expect(runOverlayWithSource('manual')).resolves.toBe(true);
+
+        expect(existsSyncMock).toHaveBeenCalledWith('C:\\overlay-out\\resources\\app.asar');
         expect(existsSyncMock).toHaveBeenCalledWith('C:\\overlay-out\\gsm_overlay.exe');
         expect(spawnMock).toHaveBeenCalledWith('C:\\overlay-out\\gsm_overlay.exe', [], {
             detached: false,
