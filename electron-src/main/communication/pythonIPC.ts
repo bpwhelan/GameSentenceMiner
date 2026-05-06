@@ -59,8 +59,11 @@ export class GSMStdoutManager extends EventEmitter {
     sendQuitMessage() {
         this.sendCommand({ function: 'quit' });
     }
-    sendOpenSettings() {
-        this.sendCommand({ function: 'open_settings' });
+    sendOpenSettings(data?: Record<string, unknown>) {
+        this.sendCommand({ function: 'open_settings', data });
+    }
+    sendOpenOverlaySettings() {
+        this.sendCommand({ function: 'open_overlay_settings' });
     }
     sendStartOBS() {
         this.sendCommand({ function: 'start_obs' });
@@ -68,5 +71,28 @@ export class GSMStdoutManager extends EventEmitter {
     sendQuitOBS() {
         this.sendCommand({ function: 'quit_obs' });
     }
-    // ...add more as needed
+    sendOpenTexthooker() {
+        this.sendCommand({ function: 'open_texthooker' });
+    }
+    sendSwitchProfile(profileName: string) {
+        this.sendCommand({ function: 'switch_profile', data: { profile_name: profileName } });
+    }
+    sendTestAnkiConfirmation() {
+        this.sendCommand({ function: 'test_anki_confirmation' });
+    }
+    sendTestScreenshotSelector() {
+        this.sendCommand({ function: 'test_screenshot_selector' });
+    }
+    sendTestFuriganaFilter() {
+        this.sendCommand({ function: 'test_furigana_filter' });
+    }
+    sendTestAreaSelector() {
+        this.sendCommand({ function: 'test_area_selector' });
+    }
+    sendTestScreenCropper() {
+        this.sendCommand({ function: 'test_screen_cropper' });
+    }
+    sendExit() {
+        this.sendCommand({ function: 'exit' });
+    }
 }

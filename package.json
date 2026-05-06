@@ -1,15 +1,24 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "1.16.5",
+  "version": "2026.5.4",
   "description": "GameSentenceMiner",
   "main": "dist/main/main.js",
   "scripts": {
     "start": "npm run build && electron .",
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "npm run sync:legacy && npm run build:main && npm run build:renderer",
+    "build:main": "tsc -p tsconfig.electron.json",
+    "build:renderer": "vite build --config electron-src/renderer/vite.config.ts",
+    "dev": "npm run sync:legacy && concurrently -k \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
+    "dev:chaos-update": "npm run build:main && node scripts/run-update-chaos.cjs",
+    "dev:main": "tsc -p tsconfig.electron.json --watch --preserveWatchOutput",
+    "dev:renderer": "vite --config electron-src/renderer/vite.config.ts",
+    "dev:electron": "wait-on tcp:5173 dist/main/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 nodemon --exitcrash --watch dist/main --watch dist/preload --ext js,mjs,cjs --exec \"node scripts/electron-dev-once.cjs\"",
+    "sync:legacy": "node electron-src/renderer/scripts/sync-legacy-assets.mjs",
+    "test:ts": "vitest run --config vitest.config.ts",
+    "test:ts:watch": "vitest --config vitest.config.ts",
     "app:dir": "electron-builder --dir",
-    "app:dist": "tsc && electron-builder",
+    "app:dist": "npm run build && electron-builder --publish=never",
     "app:deploy": "electron-builder --publish=always"
   },
   "type": "module",
@@ -18,11 +27,13 @@
   },
   "tsc": {},
   "build": {
-    "asar": false,
+    "asar": true,
     "appId": "com.bpwhelan.gsm",
     "files": [
       "dist/main/**/*",
-      "electron-src/main/index.html",
+      "dist/preload/**/*",
+      "dist/shared/**/*",
+      "dist/renderer/**/*",
       "assets/*"
     ],
     "extraFiles": [
@@ -43,15 +54,18 @@
         "to": "resources/GSM_Overlay"
       },
       {
-        "from": "requirements.lock",
-        "to": "resources/requirements.lock"
+        "from": "uv.lock",
+        "to": "resources/uv.lock"
       }
     ],
     "win": {
       "target": "nsis",
       "icon": "assets/gsm.ico",
-      "sign": false,
       "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "menuCategory": "GameSentenceMiner",
+      "include": "build/installer.nsh"
     },
     "mac": {
       "target": "dmg",
@@ -76,30 +90,46 @@
   "author": "Beangate",
   "license": "LGPL-3.0-only",
   "devDependencies": {
-    "@types/archiver": "^6.0.3",
+    "@types/archiver": "^7.0.0",
     "@types/extract-zip": "^2.0.1",
-    "@types/tmp": "^0.2.6",
-    "@types/ws": "^8.18.0",
-    "electron": "^35.0.1",
-    "electron-builder": "^25.1.8",
-    "typescript": "^5.8.2"
+    "@types/node": "^24.12.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/semver": "^7.7.1",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^5.2.0",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.0.0",
+    "electron": "^41.3.0",
+    "electron-builder": "^26.8.1",
+    "jsdom": "^26.1.0",
+    "nodemon": "^3.1.14",
+    "png-to-ico": "^3.0.1",
+    "sharp": "^0.34.5",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.2",
+    "vitest": "^3.2.4",
+    "wait-on": "^8.0.5"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "archiver": "^7.0.1",
     "archiver-utils": "^5.0.2",
-    "axios": "^1.8.1",
+    "axios": "^1.15.2",
     "detect-port": "^2.1.0",
-    "electron-log": "^5.3.2",
+    "electron-log": "^5.4.3",
     "electron-store": "^10.0.1",
-    "electron-updater": "^6.3.9",
+    "electron-updater": "^6.8.3",
     "extract-zip": "^2.0.1",
-    "fuse.js": "^7.1.0",
+    "fuse.js": "^7.3.0",
     "node-window-manager": "^2.2.4",
     "nodejs-file-downloader": "^4.13.0",
-    "obs-websocket-js": "^5.0.6",
-    "tar": "^7.4.3",
-    "ws": "^8.18.1"
+    "obs-websocket-js": "^5.0.8",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "semver": "^7.7.4",
+    "tar": "^7.5.13",
+    "ws": "^8.20.0"
   }
 }

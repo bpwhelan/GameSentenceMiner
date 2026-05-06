@@ -64,7 +64,7 @@
             "tooltip": "Habilitar o deshabilitar el monitoreo del portapapeles."
           },
           "allow_both_simultaneously": {
-            "label": "Permitir Ambos Simultáneamente:",
+            "label": "Allow Both Websocket and Clipboard Simultaneously:",
             "tooltip": "Habilitar para permitir que GSM acepte entrada tanto del portapapeles como de websocket al mismo tiempo."
           },
           "merge_sequential_text": {
@@ -72,8 +72,8 @@
             "tooltip": "Habilitar para fusionar texto secuencial coincidente en una sola entrada. Diseñado para la función de Reconocimiento de Voz de Luna. Muy específico."
           },
           "websocket_uri": {
-            "label": "URI de WebSocket:",
-            "tooltip": "URI de WebSocket para conectar. Permite Valores Separados por Comas para Conectar Múltiples."
+            "label": "URI de WebSocket de Entrada:",
+            "tooltip": "URIs de WebSocket para fuentes de ENTRADA (Agent, Textractor, LunaTranslator, etc.). Permite valores separados por comas para múltiples fuentes. NO incluya los puertos de salida de GSM (Text Feed, superposición OCR)."
           },
           "texthook_regex": {
             "label": "Regex de Reemplazo de TextHook:",
@@ -84,12 +84,12 @@
             "tooltip": "Si abrir la configuración cuando el script inicia."
           },
           "open_texthooker_on_startup": {
-            "label": "Abrir GSM Texthooker al Iniciar:",
+            "label": "Abrir GSM Text Feed al Iniciar:",
             "tooltip": "Si abrir la página de Texthooking cuando el script inicia."
           },
           "texthooker_port": {
-            "label": "Puerto de GSM Texthooker:",
-            "tooltip": "Puerto para que el Texthooker se ejecute. Solo cambie si sabe lo que está haciendo."
+            "label": "Puerto de GSM Text Feed:",
+            "tooltip": "Puerto para que el Text Feed se ejecute. Solo cambie si sabe lo que está haciendo."
           },
           "current_version": {
             "label": "Versión Actual:",
@@ -112,6 +112,41 @@
           "locale": {
             "label": "Idioma de Visualización:",
             "tooltip": "Seleccione el idioma de la aplicación. Esto cambiará el idioma de la interfaz."
+          }
+        },
+        "text_processing": {
+          "title": "Procesamiento de Texto",
+          "string_replacement": {
+            "group_title": "Reemplazo de Cadenas",
+            "group_tooltip": "Aplica reglas de reemplazo en orden a todo el texto entrante.",
+            "enabled": {
+              "label": "Habilitar Reemplazo de Cadenas:",
+              "tooltip": "Aplica reglas antes de registrar o mostrar en el overlay."
+            },
+            "rules": {
+              "label": "Reglas:",
+              "tooltip": "Editar la lista de reglas de reemplazo."
+            },
+            "edit_rules": {
+              "label": "Editar Reglas",
+              "tooltip": "Abrir el editor de reglas de reemplazo."
+            },
+            "rules_count": "{count} reglas",
+            "dialog": {
+              "title": "Reglas de Reemplazo",
+              "add": "Agregar Regla",
+              "remove": "Eliminar Regla",
+              "move_up": "Subir",
+              "move_down": "Bajar",
+              "enabled": "Habilitado",
+              "mode": "Modo",
+              "find": "Buscar",
+              "replace": "Reemplazar",
+              "case_sensitive": "Distinguir mayúsculas",
+              "whole_word": "Palabra completa",
+              "mode_plain": "Texto plano",
+              "mode_regex": "Regex"
+            }
           }
         },
         "paths": {
@@ -151,6 +186,10 @@
         },
         "anki": {
           "title": "Anki",
+          "enabled": {
+            "label": "Habilitado:",
+            "tooltip": "Habilitar o deshabilitar la integración con Anki."
+          },
           "update_anki": {
             "label": "Actualizar Anki:",
             "tooltip": "Actualizar automáticamente Anki con nuevos datos."
@@ -201,7 +240,7 @@
           },
           "tags_to_check": {
             "label": "Etiquetas en las que trabajar:",
-            "tooltip": "Etiquetas Separadas por Comas, el script solo hará 1 clic en tarjetas con estas etiquetas (Se recomienda dejar vacío, o usar Perfil de Yomitan para agregar etiqueta personalizada desde la página de texthooker)"
+            "tooltip": "Etiquetas Separadas por Comas, el script solo hará 1 clic en tarjetas con estas etiquetas (Se recomienda dejar vacío, o usar Perfil de Yomitan para agregar etiqueta personalizada desde la página de Text Feed)"
           },
           "add_game_tag": {
             "label": "Agregar Juego como Etiqueta:",
@@ -219,6 +258,10 @@
             "label": "Sobrescribir Imagen:",
             "tooltip": "Sobrescribir imágenes existentes en tarjetas de Anki."
           },
+          "overwrite_sentence": {
+            "label": "Sobrescribir Oración:",
+            "tooltip": "Sobrescribir el campo de oración en Anki, preservando las etiquetas HTML existentes (como Furigana)."
+          },
           "tag_unvoiced_cards": {
             "label": "Etiquetar Tarjetas sin Audio:",
             "tooltip": "Agregar automáticamente la etiqueta 'unvoiced' a las tarjetas que no tienen audio."
@@ -229,7 +272,7 @@
           }
         },
         "vad": {
-          "title": "VAD",
+          "title": "Detección de Voz",
           "do_postprocessing": {
             "label": "Post-procesamiento de Detección de Voz:",
             "tooltip": "Habilitar el post-procesamiento de audio para recortar solo la línea de voz."
@@ -267,7 +310,7 @@
             "tooltip": "Desplazamiento de inicio después del recorte VAD, Solo activo si \"Recortar Inicio\" está ACTIVADO. Valores negativos = más tiempo al inicio"
           },
           "cut_and_splice": {
-            "label": "Cortar y Empalmar Segmentos de Voz:",
+            "label": "Condensar Audio:",
             "tooltip": "Cortar Segmentos de Voz Detectados y Pegarlos de nuevo juntos. Más Relleno = Más Espacio entre líneas de voz."
           },
           "splice_padding": {
@@ -427,6 +470,24 @@
           "install_ocenaudio_button": "Instalar Ocenaudio",
           "get_anki_media_button": "Obtener Colección de Medios de Anki"
         },
+        "hotkeys": {
+          "title": "Atajos",
+          "description": "Atajos centralizados para GSM. Deja un atajo vacío para desactivarlo.",
+          "groups": {
+            "input": "Entrada",
+            "overlay": "Overlay",
+            "audio": "Audio",
+            "experimental": "Experimental"
+          },
+          "pause_text_intake": {
+            "label": "Atajo para Pausar la Entrada de Texto de GSM:",
+            "tooltip": "Pausa o reanuda temporalmente la entrada de texto por portapapeles y websocket de GSM. Mientras esté en pausa, GSM omite su propio registro de estadísticas/historial y no activa el overlay. Déjalo vacío para desactivar este atajo; no tiene atajo predeterminado."
+          },
+          "relay_outputs_when_paused": {
+            "checkbox": "Reenviar a Text Feed/clientes de salida durante la pausa",
+            "tooltip": "Si está activado, el texto pausado aún se envía a la página Text Feed y a los clientes websocket de salida después del procesamiento de texto, pero GSM sigue omitiendo sus propias estadísticas/historial y el overlay. Desáctivalo para un no-op completo que descarte todo el texto entrante."
+          }
+        },
         "obs": {
           "title": "OBS",
           "enabled": {
@@ -441,9 +502,17 @@
             "label": "Cerrar OBS:",
             "tooltip": "Cerrar OBS cuando GSM se cierra."
           },
+          "allow_automatic_updates": {
+            "label": "Permitir que OBS se actualice solo (Avanzado):",
+            "tooltip": "Déjelo desactivado para iniciar OBS con las actualizaciones deshabilitadas. Actívelo solo si desea que OBS administre sus propias actualizaciones fuera de GSM."
+          },
           "obs_path": {
             "label": "Ruta de OBS:",
             "tooltip": "Ruta al ejecutable de OBS. Dejar en blanco para usar la ruta predeterminada."
+          },
+          "disable_recording": {
+            "label": "Desactivar Grabación/Búfer de Repetición (Rompe Medios de Anki):",
+            "tooltip": "Desactiva por completo el búfer de repetición y la grabación de OBS en GSM. ADVERTENCIA: las funciones de medios relacionadas con Anki (grabación de audio, capturas de pantalla y clips de repetición/video) NO funcionarán mientras esto esté habilitado. También hará que Beangate se ponga muy triste."
           },
           "host": {
             "label": "Host:",
@@ -517,8 +586,8 @@
             "tooltip": "Puerto para comunicación WebSocket de OCR. GSM también escuchará en este puerto"
           },
           "texthooker_comm_port": {
-            "label": "Puerto WebSocket de Comunicación de Texthooker:",
-            "tooltip": "Puerto para comunicación WebSocket de GSM Texthooker."
+            "label": "Puerto WebSocket de Comunicación de Text Feed:",
+            "tooltip": "Puerto para comunicación WebSocket de GSM Text Feed."
           },
           "plaintext_export_port": {
             "label": "Puerto de Exportación WebSocket de Texto Plano/JL:",
@@ -546,7 +615,7 @@
           }
         },
         "ai": {
-          "title": "IA",
+          "title": "AI / Translation",
           "enabled": {
             "label": "Agregar a Anki:",
             "tooltip": "Habilitar o deshabilitar Agregar Resultado de IA a Anki."
@@ -608,8 +677,16 @@
             "tooltip": "Prompt personalizado para procesamiento de IA."
           },
           "custom_texthooker_prompt": {
-            "label": "Prompt Personalizado de Texthooker:",
-            "tooltip": "Prompt personalizado para procesamiento de texthooker con IA."
+            "label": "Prompt Personalizado de Text Feed:",
+            "tooltip": "Prompt personalizado para procesamiento de Text Feed con IA."
+          },
+          "deepl_api_key": {
+            "label": "Clave API de DeepL:",
+            "tooltip": "Tu clave API de DeepL. Obtén una en https://www.deepl.com/pro-api"
+          },
+          "deepl_target_lang": {
+            "label": "Idioma de destino:",
+            "tooltip": "Código de idioma de destino de DeepL (ej. EN-US, JA, ZH, ES, FR, DE, IT, NL, PL, PT-PT, RU, KO)"
           }
         },
         "overlay": {
@@ -650,6 +727,64 @@
           "minimum_character_size": {
             "label": "Tamaño Mínimo de Carácter:",
             "tooltip": "Tamaño mínimo de carácter para detección OCR."
+          }
+          ,
+          "use_overlay_area_config": {
+            "label": "Usar área dedicada para la superposición (Recomendado):",
+            "tooltip": "Usa una configuración de área exclusiva para la superposición en lugar de reutilizar la configuración de área OCR. Si está activado, tiene prioridad sobre las opciones del área OCR."
+          },
+          "overlay_area_selector_button": {
+            "label": "Definir área",
+            "tooltip": "Abre el selector de área dedicado de la superposición para el monitor configurado."
+          },
+          "use_ocr_area_config": {
+            "label": "Usar configuración de área OCR:",
+            "tooltip": "Al activar, usa la configuración de área OCR predefinida para las exploraciones de la superposición en lugar de intentar detectar la región automáticamente. Útil para escanear solo una región específica (por ejemplo, el área de subtítulos); ahorra procesamiento y reduce falsos positivos."
+          },
+          "ocr_area_config_include_primary_areas": {
+            "label": "Incluir áreas de texto principales:",
+            "tooltip": "Usa las áreas principales de captura OCR de la configuración de áreas. Son las regiones que antes aparecían como cuadros verdes."
+          },
+          "ocr_area_config_include_secondary_areas": {
+            "label": "Incluir áreas de texto secundarias / de menú:",
+            "tooltip": "Usa las áreas secundarias de captura OCR de la configuración de áreas. Son las regiones que antes aparecían como cuadros morados."
+          },
+          "ocr_area_config_use_exclusion_zones": {
+            "label": "Usar zonas de exclusión:",
+            "tooltip": "Aplica las zonas de exclusión de la configuración de áreas para enmascarar partes de la captura de la superposición. Son las regiones que antes aparecían como cuadros naranjas."
+          },
+          "use_ocr_result": {
+            "label": "Usar resultado OCR:",
+            "tooltip": "Al activar, la superposición usa resultados OCR precomputados cuando estén disponibles. Desactívalo para forzar un nuevo escaneo OCR en la superposición."
+          }
+        },
+        "experimental": {
+          "title": "Experimental"
+        },
+        "game_pausing": {
+          "enabled": {
+            "label": "Habilitar Pausa de Juego:",
+            "tooltip": "Habilitar funciones experimentales de pausa de juego."
+          },
+          "hotkey": {
+            "label": "Tecla Rápida de Pausa de Juego:",
+            "tooltip": "Tecla rápida para pausar/reanudar el proceso de juego activo."
+          },
+          "auto_resume_seconds": {
+            "label": "Reanudar Automáticamente (Segundos):",
+            "tooltip": "Reanudar automáticamente procesos suspendidos después de estos segundos."
+          },
+          "require_game_exe_match": {
+            "label": "Requerir Coincidencia de EXE de Juego:",
+            "tooltip": "Solo permitir pausa cuando el exe objetivo coincide con el exe de juego detectado."
+          },
+          "allowlist": {
+            "label": "Lista de Permitidos (Nombres EXE):",
+            "tooltip": "Nombres exe separados por comas que siempre están permitidos."
+          },
+          "denylist": {
+            "label": "Lista de Denegados (Nombres EXE):",
+            "tooltip": "Nombres exe separados por comas que siempre están bloqueados."
           }
         },
         "wip": {

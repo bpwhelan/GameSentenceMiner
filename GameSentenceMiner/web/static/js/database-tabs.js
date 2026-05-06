@@ -6,14 +6,16 @@
  * @param {string} tabName - Name of the tab to switch to
  */
 function switchTab(tabName) {
-    // Hide all tab contents
-    document.querySelectorAll('.tab-content').forEach(tab => {
+    // Hide all tab contents within the game data modal only
+    const modal = document.getElementById('gameDataModal');
+    if (!modal) return;
+    modal.querySelectorAll('.tab-content').forEach(tab => {
         tab.classList.remove('active');
         tab.style.display = 'none';
     });
     
-    // Remove active class from all tab buttons
-    document.querySelectorAll('.tab-btn').forEach(btn => {
+    // Remove active class from tab buttons within the game data modal only
+    modal.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.remove('active');
     });
     
@@ -50,11 +52,13 @@ async function openGameDataModal() {
  * Initialize tab navigation event handlers
  */
 function initializeTabHandlers() {
-    // Tab navigation handlers
-    const tabButtons = document.querySelectorAll('.tab-btn');
-    tabButtons.forEach(btn => {
-        btn.addEventListener('click', (e) => switchTab(e.target.dataset.tab));
-    });
+    // Tab navigation handlers — only for the game data modal's [data-tab] buttons
+    const gameDataModal = document.getElementById('gameDataModal');
+    if (gameDataModal) {
+        gameDataModal.querySelectorAll('.tab-btn[data-tab]').forEach(btn => {
+            btn.addEventListener('click', (e) => switchTab(e.target.dataset.tab));
+        });
+    }
 
     // Game data management handlers
     const openGameDataBtn = document.querySelector('[data-action="openGameDataModal"]');

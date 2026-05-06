@@ -116,6 +116,7 @@ export class Application extends EventDispatcher {
             ['applicationOptionsUpdated',  this._onMessageOptionsUpdated.bind(this)],
             ['applicationDatabaseUpdated', this._onMessageDatabaseUpdated.bind(this)],
             ['applicationZoomChanged',     this._onMessageZoomChanged.bind(this)],
+            ['applicationClosePopups',     this._onMessageClosePopups.bind(this)],
         ]);
         /* eslint-enable @stylistic/no-multi-spaces */
     }
@@ -278,6 +279,12 @@ export class Application extends EventDispatcher {
     /** @type {import('application').ApiHandler<'applicationZoomChanged'>} */
     _onMessageZoomChanged({oldZoomFactor, newZoomFactor}) {
         this.trigger('zoomChanged', {oldZoomFactor, newZoomFactor});
+    }
+
+    /** @type {import('application').ApiHandler<'applicationClosePopups'>} */
+    _onMessageClosePopups() {
+        this.triggerClosePopups();
+        return true;
     }
 
     /**

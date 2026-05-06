@@ -18,7 +18,7 @@
 [![Discord](https://img.shields.io/discord/1286409772383342664?color=%237785cc)](https://discord.gg/yP8Qse6bb8)
 [![GitHub License](https://img.shields.io/github/license/bpwhelan/GameSentenceMiner)](https://github.com/bpwhelan/GameSentenceMiner?tab=GPL-3.0-1-ov-file)
 
-English | [日本語](docs/ja/README.md) | [简体中文](docs/zh/README.md)
+English | [日本語](docs/ja/README.md) | [简体中文](docs/zh/README.md) | [Español](docs/es/README.md)
 
 </div>
 
@@ -62,7 +62,6 @@ https://github.com/user-attachments/assets/07240472-831a-40e6-be22-c64b880b0d66
 ### 🖥️ Overlay
 GSM includes a transparent overlay for instant dictionary lookups.
 
-Currently Windows only, Linux and Mac support are WIP.
 *   Hover over characters in-game to see definitions via Yomitan.
 *   Create cards without ever leaving the game window.
 *   Automatically Generated Furigana Display In Game.
@@ -73,7 +72,7 @@ Currently Windows only, Linux and Mac support are WIP.
 Track your immersion habits with the stats dashboard.
 *   **Kanji Grid:** View every Kanji you've encountered and click them to see their source sentences.
 *   **Goals:** Set daily reading targets.
-*   **Database Management:** Clean up and organize your mining history.
+*   **Tools:** Clean up and organize your mining history.
 
 ![stats](docs/images/overview2.png)
 
@@ -81,7 +80,7 @@ Track your immersion habits with the stats dashboard.
 
 ## 🚀 Getting Started
 
-1.  **Download:** Get the [latest release](https://github.com/bpwhelan/GameSentenceMiner/releases).
+1.  **Download:** Get the [latest release](https://github.com/bpwhelan/GameSentenceMiner/releases/latest).
 2.  **Install:** Watch the [Installation Guide](https://www.youtube.com/watch?v=sVL9omRbGc4).
 3.  **Requirements:**
     *   An Anki tool (Yomitan, JL, etc.)
@@ -103,7 +102,7 @@ For full setup guides and configuration details, check the [Wiki](https://docs.g
 
 This project includes modified versions of the following libraries, I got tired of submodule hell so I've included them directly here for easier management all credits go to the original authors:
 
-*   **Texthooker UI**
+*   **TextFeed Page**
     - GSM: https://github.com/bpwhelan/GameSentenceMiner/tree/main/texthooker
     - Original: [Renji-XD/texthooker-ui](https://github.com/Renji-XD/texthooker-ui)  
 
@@ -124,3 +123,8 @@ This project includes modified versions of the following libraries, I got tired 
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=bpwhelan/GameSentenceMiner&type=date&legend=top-left" />
  </picture>
 </a>
+
+<!-- ## Sponsors
+
+| <img src="https://signpath.org/assets/favicon.png" width="25" height="25" align="center"> | Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). |
+| :--- | :--- | -->

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { mdiTrophy, mdiClockOutline, mdiCheck } from '@mdi/js';
+	import { mdiTrophy, mdiClockOutline, mdiHistory, mdiPlay, mdiStop } from '@mdi/js';
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import {
@@ -8,7 +8,6 @@
 		preserveWhitespace$,
 		reverseLineOrder$,
 		lineIDs$,
-		newLine$,
 		lineData$,
 		autoTranslateLines$,
 		blurAutoTranslatedLines$,
@@ -18,7 +17,9 @@
 		showGSMCheckboxes$,
 		showScreenshotButton$,
 		showAudioButton$,
+		showTrimVideoButton$,
 		showTranslateButton$,
+		settingsOpen$,
 	} from '../stores/stores';
 	import type { LineItem, LineItemEditEvent } from '../types';
 	import { dummyFn, newLineCharacter, updateScroll } from '../util';
@@ -29,6 +30,9 @@
 	export let index: number;
 	export let isLast: boolean;
 	export let pipWindow: Window = undefined;
+	export let audioLineId = '';
+	export let audioIsPlaying = false;
+	export let audioPendingLineId = '';
 
 	export function deselect() {
 		isSelected = false;
@@ -38,12 +42,21 @@
 		return isSelected || range.intersectsNode(paragraph) ? line.id : undefined;
 	}
 
-	const dispatch = createEventDispatcher<{ deselected: string; selected: string; edit: LineItemEditEvent }>();
+	const dispatch = createEventDispatcher<{
+		deselected: string;
+		selected: string;
+		edit: LineItemEditEvent;
+		audioToggle: { lineId: string; text: string };
+		videoTrim: { lineId: string; text: string };
+	}>();
 
 	let paragraph: HTMLElement;
 	let originalText = '';
 	let isSelected = false;
 	let isEditable = false;
+	$: isAudioLine = audioLineId === line.id;
+	$: isAudioPending = audioPendingLineId === line.id;
+	$: audioButtonTitle = isAudioPending ? 'Preparing audio...' : isAudioLine && audioIsPlaying ? 'Stop audio' : 'Play audio';
 
 	$: isVerticalDisplay = !pipWindow && $displayVertical$;
 
@@ -57,7 +70,7 @@
 				$enableLineAnimation$ ? 'smooth' : 'auto',
 			);
 			if ($lineIDs$ && $lineIDs$.includes(line.id) && $autoTranslateLines$) {
-				buttonClick(line.id, 'TL', $blurAutoTranslatedLines$, isLast);
+				handleAction(line.id, 'TL', $blurAutoTranslatedLines$);
 			}
 		}
 	});
@@ -125,14 +138,23 @@
 		}
 	}
 
-	function buttonClick(id: string, action: string, blurTranslate: boolean = false, isLast: boolean = false) {
-		// const endpoint = action === 'Screenshot' ? '/get-screenshot' : '/play-audio';
+	function handleAudioToggle() {
+		dispatch('audioToggle', { lineId: line.id, text: line.text });
+	}
+
+	function handleVideoTrim() {
+		dispatch('videoTrim', { lineId: line.id, text: line.text });
+	}
+
+	function handleAction(id: string, action: string, blurTranslate: boolean = false) {
 		const endpoints: Record<string, string> = {
 			TL: '/translate-line',
 			Screenshot: '/get-screenshot',
-			Audio: '/play-audio',
 		};
-		let endpoint = endpoints[action] ?? '';
+		const endpoint = endpoints[action];
+		if (!endpoint) {
+			return;
+		}
 		fetch(getGSMEndpoint(endpoint), {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -162,15 +184,16 @@
 						line.text += '\n';
 					}
 					$lineData$[line.index] = line;
-					if (isLast) {
-						updateScroll(
-							pipWindow || window,
-							paragraph.parentElement.parentElement,
-							$reverseLineOrder$,
-							isVerticalDisplay,
-							$enableLineAnimation$ ? 'smooth' : 'auto',
-						);
-					}
+					tick().then(() => {
+						const behavior = $enableLineAnimation$ ? 'smooth' : 'auto';
+						paragraph?.scrollIntoView({
+							behavior,
+							block: $reverseLineOrder$ ? 'start' : 'end',
+							inline: isVerticalDisplay ? 'end' : 'nearest',
+						});
+						// Scroll a bit more down
+						(pipWindow || window).scrollBy(0, 50);
+					});
 				}
 			})
 			.catch((error) => {
@@ -231,36 +254,50 @@
 				</p>
 			{/if}
 		</p>
-		<div class="line-actions-container">
+		<div class="line-actions-container" class:hidden={$settingsOpen$}>
+			{#if line.excludedFromStats}
+				<div
+					class="line-badge unselectable"
+					title="This line was relayed while GSM text intake was paused, so GSM did not count it toward stats or trigger overlay processing."
+					tabindex="-1"
+				>
+					Not in GSM stats
+				</div>
+			{/if}
 			{#if $lineIDs$ && $lineIDs$.includes(line.id)}
 				<div class="textline-buttons unselectable">
 					{#if $showScreenshotButton$}
 						<button
-							class="hide-on-mobile"
-							on:click={() => buttonClick(line.id, 'Screenshot')}
+							class="hide-on-mobile action-button"
+							on:click={() => handleAction(line.id, 'Screenshot')}
 							title="Screenshot"
-							style="background-color: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; font-size: 10px; border-radius: 4px; cursor: pointer; transition: background-color 0.3s;"
 							tabindex="-1"
 						>
 							&#x1F4F7;
 						</button>
 					{/if}
+					{#if $showTrimVideoButton$}
+						<button class="hide-on-mobile action-button" on:click={handleVideoTrim} title="Trim replay video" tabindex="-1">
+							🎬
+						</button>
+					{/if}
 					{#if $showAudioButton$}
 						<button
-							class="hide-on-mobile"
-							on:click={() => buttonClick(line.id, 'Audio')}
-							title="Audio"
-							style="background-color: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; font-size: 10px; border-radius: 4px; cursor: pointer; transition: background-color 0.3s;"
+							class="hide-on-mobile action-button"
+							class:audio-active={isAudioLine && audioIsPlaying}
+							on:click={handleAudioToggle}
+							title={audioButtonTitle}
 							tabindex="-1"
+							disabled={isAudioPending}
 						>
-							&#x1F50A;
+							<Icon path={isAudioLine && audioIsPlaying ? mdiStop : mdiPlay} width="16px" height="16px" />
 						</button>
 					{/if}
 					{#if $showTranslateButton$}
 						<button
-							on:click={() => buttonClick(line.id, 'TL')}
+							class="action-button"
+							on:click={() => handleAction(line.id, 'TL')}
 							title="Translate"
-							style="background-color: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; font-size: 10px; border-radius: 4px; cursor: pointer; transition: background-color 0.3s;"
 							tabindex="-1"
 						>
 							🌐
@@ -278,17 +315,25 @@
 				</div>
 				{#if $showTranslateButton$}
 					<button
-						on:click={() => buttonClick(line.id, 'TL')}
+						class="action-button"
+						on:click={() => handleAction(line.id, 'TL')}
 						title="Translate"
-						style="background-color: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; font-size: 10px; border-radius: 4px; cursor: pointer; transition: background-color 0.3s; margin-left: 5px;"
+						style="margin-left: 5px;"
 						tabindex="-1"
 					>
 						🌐
 					</button>
 				{/if}
 			{:else}
-				<!-- Empty div to maintain consistent spacing -->
-				<div class="line-indicator-placeholder"></div>
+				<!-- Show different icon for lines that are from before GSM was started. -->
+				<div
+					class="line-indicator unselectable"
+					title="Line is from before GSM was started"
+					tabindex="-1"
+					style="color: #666;"
+				>
+					<Icon path={mdiHistory} width="32px" height="32px" />
+				</div>
 			{/if}
 		</div>
 	</div>
@@ -327,21 +372,36 @@
 		visibility: hidden;
 	}
 
-	.textline-buttons > button {
-		background-color: #1a73e8;
-		color: #ffffff;
-		border: none;
-		padding: 8px 15px;
-		font-size: 14px;
+	.action-button {
+		background-color: #333;
+		color: #fff;
+		border: 1px solid #555;
+		padding: 6px 10px;
+		font-size: 10px;
+		border-radius: 4px;
 		cursor: pointer;
-		transition: background-color 0.3s;
-		border-radius: 5px;
-		user-select: none; /* Make text unselectable */
+		transition: background-color 0.2s ease;
+		user-select: none;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 28px;
+		min-width: 28px;
 	}
 
-	.textline-buttons > button:hover {
-		background-color: #1669c1;
+	.action-button:hover {
+		background-color: #444;
 		cursor: pointer;
+	}
+
+	.action-button.audio-active {
+		background-color: #1f5f4f;
+		border-color: #2f8a73;
+	}
+
+	.action-button:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	.textline-buttons {
@@ -395,10 +455,21 @@
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
+		gap: 10px;
 	}
 
-	.line-indicator-placeholder {
-		width: 32px;
-		height: 32px;
+	.line-badge {
+		background: rgba(255, 193, 7, 0.15);
+		border: 1px solid rgba(255, 193, 7, 0.45);
+		color: #f5d76e;
+		border-radius: 999px;
+		padding: 4px 10px;
+		font-size: 11px;
+		line-height: 1.2;
+		white-space: nowrap;
+	}
+
+	.hidden {
+		visibility: hidden;
 	}
 </style>

@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import axios from "axios";
 import log from "electron-log";
 import {getPythonPath} from "./store.js";
@@ -8,9 +8,15 @@ const PACKAGE_NAME = "GameSentenceMiner";
 // Get current installed version using `pip show`
 function getCurrentVersion(): string | null {
     try {
-        const output = execSync(`${getPythonPath()} -m pip show ${PACKAGE_NAME}`, { encoding: "utf-8" });
-        const versionMatch = output.match(/Version: ([\d.]+)/);
-        return versionMatch ? versionMatch[1] : null;
+        const pythonPath = getPythonPath();
+        if (!pythonPath) {
+            return null;
+        }
+        const output = execFileSync(pythonPath, ['-m', 'pip', 'show', PACKAGE_NAME], {
+            encoding: 'utf-8',
+        });
+        const versionMatch = output.match(/^Version:\s*(.+)$/im);
+        return versionMatch ? versionMatch[1].trim() : null;
     } catch (error) {
         log.error(`Error getting current version: ${error}`);
         return null;
@@ -37,9 +43,14 @@ async function checkForUpdates(force: boolean = false): Promise<{ updateAvailabl
         console.log(`Installed version: ${installedVersion}`);
         console.log(`Latest version: ${latestVersion}`);
 
-        if (!installedVersion || !latestVersion) {
-            log.error("Could not determine versions.");
+        if (!latestVersion) {
+            log.error("Could not determine latest version.");
             return { updateAvailable: false, latestVersion: null };
+        }
+
+        if (!installedVersion) {
+            log.info(`No installed ${PACKAGE_NAME} version found. Treating ${latestVersion} as update target.`);
+            return { updateAvailable: true, latestVersion };
         }
 
         if (installedVersion !== latestVersion || force) {

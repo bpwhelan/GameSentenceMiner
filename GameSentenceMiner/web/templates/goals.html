@@ -110,6 +110,42 @@
             </div>
         </div>
 
+        <!-- Trophy Cabinet Card -->
+        <div class="dashboard-card trophy-cabinet" id="trophyCabinetCard" style="margin-bottom: 30px;">
+            <div class="dashboard-card-header">
+                <h3 class="dashboard-card-title">
+                    <span class="dashboard-card-icon">🏆</span>
+                    Trophy Cabinet
+                </h3>
+                <p class="dashboard-card-subtitle" id="trophyCabinetSubtitle">Your achieved goals</p>
+            </div>
+
+            <!-- Loading state -->
+            <div class="trophy-cabinet-loading" id="trophyCabinetLoading" style="display: none;">
+                <div class="spinner"></div>
+                <span>Loading achievements...</span>
+            </div>
+
+            <!-- Empty state -->
+            <div class="trophy-cabinet-empty" id="trophyCabinetEmpty" style="display: none;">
+                <div class="trophy-empty-icon">🎯</div>
+                <p class="trophy-empty-text">No achievements yet. Keep working toward your goals!</p>
+                <p class="trophy-empty-subtext">Goals will appear here once you meet or exceed their targets.</p>
+            </div>
+
+            <!-- Error state -->
+            <div class="trophy-cabinet-error" id="trophyCabinetError" style="display: none;">
+                <div class="goal-progress-error-icon">⚠️</div>
+                <div class="goal-progress-error-message">Failed to load achievements</div>
+                <button class="retry-btn" onclick="loadTrophyCabinet()">Retry</button>
+            </div>
+
+            <!-- Trophy grid -->
+            <div class="trophy-grid" id="trophyGrid">
+                <!-- Trophy items will be dynamically inserted here -->
+            </div>
+        </div>
+
         <!-- Custom Goal Modal -->
         <div id="customGoalModal" class="modal">
             <div class="modal-content">
@@ -403,26 +439,6 @@
                         </div>
                         -->
                         
-                        <!-- Display Settings Section -->
-                        <div style="margin-bottom: 30px;">
-                            <h4 style="color: var(--text-primary); margin-bottom: 15px; font-size: 16px; font-weight: 600;">
-                                🎨 Display Settings
-                            </h4>
-                            
-                            <div style="margin-bottom: 15px;">
-                                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                                    <input type="checkbox" id="useRawHours" name="useRawHours"
-                                        style="width: 18px; height: 18px; cursor: pointer;">
-                                    <span style="color: var(--text-primary); font-weight: 500;">
-                                        Use raw hours instead of human-readable times
-                                    </span>
-                                </label>
-                                <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block; margin-left: 28px;">
-                                    Show "73 hours" instead of "3 days 1 hour"
-                                </small>
-                            </div>
-                        </div>
-                        
                         <!-- Easy Days Section -->
                         <div style="margin-bottom: 30px;">
                             <h4 style="color: var(--text-primary); margin-bottom: 15px; font-size: 16px; font-weight: 600;">
@@ -511,6 +527,9 @@
     {% set config_vars = {} %}
     {% set config_object_name = 'statsConfig' %}
     {% set page_specific_js = 'goals.js' %}
+    <script>
+        window.skipInitialTimeDisplayRefresh = true;
+    </script>
     {% include 'components/js-config.html' %}
 
 </body>

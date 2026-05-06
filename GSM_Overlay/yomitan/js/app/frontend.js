@@ -27,6 +27,12 @@ import {TextSourceElement} from '../dom/text-source-element.js';
 import {TextSourceGenerator} from '../dom/text-source-generator.js';
 import {TextSourceRange} from '../dom/text-source-range.js';
 import {TextScanner} from '../language/text-scanner.js';
+import {GsmYomitanApiBridge} from './gsm-yomitan-api-bridge.js';
+
+const GSM_GAMEPAD_NAVIGATION_EVENT_TYPE = 'gsm-gamepad-navigation-active';
+const GSM_YOMITAN_CONTROL_EVENT_TYPE = 'gsm-yomitan-control';
+const GSM_YOMITAN_CONTROL_ACTION_HIDE_POPUP = 'hide-popup';
+const GSM_YOMITAN_CONTROL_ACTION_LOOKUP_POINT = 'lookup-point';
 
 /**
  * This is the main class responsible for scanning and handling webpage content.
@@ -110,6 +116,12 @@ export class Frontend {
         this._isPointerOverPopup = false;
         /** @type {?import('settings').OptionsContext} */
         this._optionsContextOverride = null;
+        /** @type {(event: MessageEvent) => void} */
+        this._onGsmPostMessageBind = this._onGsmPostMessage.bind(this);
+        /** @type {(event: Event) => void} */
+        this._onGsmGamepadNavigationEventBind = this._onGsmGamepadNavigationEvent.bind(this);
+        /** @type {GsmYomitanApiBridge} */
+        this._gsmYomitanApiBridge = new GsmYomitanApiBridge(this._application.api);
 
         /* eslint-disable @stylistic/no-multi-spaces */
         /** @type {import('application').ApiMap} */
@@ -181,6 +193,9 @@ export class Frontend {
         this._application.on('zoomChanged', this._onZoomChanged.bind(this));
         this._application.on('closePopups', this._onClosePopups.bind(this));
         chrome.runtime.onMessage.addListener(this._onRuntimeMessage.bind(this));
+        this._gsmYomitanApiBridge.prepare();
+        window.addEventListener('message', this._onGsmPostMessageBind, false);
+        window.addEventListener(GSM_GAMEPAD_NAVIGATION_EVENT_TYPE, this._onGsmGamepadNavigationEventBind, false);
 
         this._textScanner.on('clear', this._onTextScannerClear.bind(this));
         this._textScanner.on('searchSuccess', this._onSearchSuccess.bind(this));
@@ -254,6 +269,52 @@ export class Frontend {
     /** @type {import('application').ApiHandler<'frontendRequestReadyBroadcast'>} */
     _onMessageRequestFrontendReadyBroadcast({frameId}) {
         this._signalFrontendReady(frameId);
+    }
+
+    /**
+     * @param {MessageEvent} event
+     */
+    _onGsmPostMessage(event) {
+        const data = event?.data;
+        if (typeof data !== 'object' || data === null) { return; }
+
+        if (data.type === GSM_GAMEPAD_NAVIGATION_EVENT_TYPE) {
+            if (data.active === false) {
+                this._clearSelection(false);
+            }
+            return;
+        }
+
+        if (data.type !== GSM_YOMITAN_CONTROL_EVENT_TYPE) { return; }
+        if (data.action === GSM_YOMITAN_CONTROL_ACTION_HIDE_POPUP) {
+            this._clearSelection(false);
+            return;
+        }
+        if (data.action === GSM_YOMITAN_CONTROL_ACTION_LOOKUP_POINT) {
+            void this._triggerGsmLookupAtPoint(data.x, data.y);
+        }
+    }
+
+    /**
+     * @param {Event} event
+     */
+    _onGsmGamepadNavigationEvent(event) {
+        const detail = /** @type {{active?: boolean}|undefined} */ (event instanceof CustomEvent ? event.detail : void 0);
+        if (detail?.active === false) {
+            this._clearSelection(false);
+        }
+    }
+
+    /**
+     * @param {unknown} x
+     * @param {unknown} y
+     * @returns {Promise<void>}
+     */
+    async _triggerGsmLookupAtPoint(x, y) {
+        if (typeof x !== 'number' || !Number.isFinite(x) || typeof y !== 'number' || !Number.isFinite(y)) {
+            return;
+        }
+        await this._textScanner.searchAtPoint(x, y);
     }
 
     // Action handlers

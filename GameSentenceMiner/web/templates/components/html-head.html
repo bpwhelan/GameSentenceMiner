@@ -32,6 +32,9 @@
     {% if include_kanji_grid_css | default(false) %}
     <link rel="preload" href="/static/css/kanji-grid.css" as="style">
     {% endif %}
+    {% if include_heatmap_css | default(false) %}
+    <link rel="preload" href="/static/css/heatmap.css" as="style">
+    {% endif %}
     
     {% if include_chartjs | default(false) %}
     <!-- Include Chart.js from a CDN - deferred to not block rendering -->
@@ -68,6 +71,11 @@
     {% if include_kanji_grid_css | default(false) %}
     <!-- Include shared kanji grid CSS -->
     <link rel="stylesheet" href="/static/css/kanji-grid.css">
+    {% endif %}
+
+    {% if include_heatmap_css | default(false) %}
+    <!-- Include shared heatmap CSS -->
+    <link rel="stylesheet" href="/static/css/heatmap.css">
     {% endif %}
 
     {% if additional_css %}

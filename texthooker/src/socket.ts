@@ -7,6 +7,7 @@ import {
 	secondarySocketState$,
 	secondaryWebsocketUrl$,
 	socketState$,
+	texthookerAudioEvents$,
 	websocketUrl$,
 } from './stores/stores';
 
@@ -100,20 +101,34 @@ export class SocketConnection {
 
 	private handleMessage(event: MessageEvent) {
 		let line = event.data;
-
-
+		let payload: Record<string, any> | undefined;
 
 		try {
-			if (JSON.parse(event.data)?.event === LineType.RESETCHECKBOXES) {
+			payload = JSON.parse(event.data);
+		} catch (_) {
+			payload = undefined;
+		}
+
+		if (payload?.event) {
+			if (payload.event === LineType.RESETCHECKBOXES) {
 				newLine$.next(['', LineType.RESETCHECKBOXES, '']);
 				return;
 			}
-			line = JSON.parse(event.data)?.sentence || event.data;
-		} catch (_) {
-			// no-op
+			if (payload.event === 'reset_buttons' || String(payload.event).startsWith('audio_')) {
+				texthookerAudioEvents$.next(payload);
+				return;
+			}
 		}
-		const id = JSON.parse(event.data)?.data?.id || '';
 
-		newLine$.next([line, LineType.SOCKET, id]);
+		line = payload?.sentence || event.data;
+		const id = payload?.data?.id || '';
+		const lineMeta =
+			payload?.data && typeof payload.data === 'object'
+				? {
+						excludedFromStats: Boolean(payload.data.excluded_from_stats),
+				  }
+				: undefined;
+
+		newLine$.next([line, LineType.SOCKET, id, lineMeta]);
 	}
 }

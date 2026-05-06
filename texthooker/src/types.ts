@@ -91,6 +91,10 @@ export interface Settings {
 	showScreenshotButton$: boolean;
 	showTranslateButton$: boolean;
 	showAudioButton$: boolean;
+	trimAudioWithVAD$: boolean;
+	showTrimVideoButton$: boolean;
+	trimVideoWithVAD$: boolean;
+	showTrimmedVideoInExplorer$: boolean;
 	showGSMCheckboxes$: boolean;
 }
 
@@ -140,6 +144,7 @@ export interface LineItem {
 	index?: number;
 	translation?: string;
 	blurTranslation?: boolean;
+	excludedFromStats?: boolean;
 }
 
 export interface LineItemEditEvent {

@@ -133,7 +133,9 @@
                 if (this.value) {
                     // Import and use the pattern
                     import('/static/js/regex-patterns.js').then(module => {
-                        const pattern = module.getPattern(this.value);
+                        const pattern = typeof module.getPattern === 'function'
+                            ? module.getPattern(this.value)
+                            : null;
                         if (pattern && customInput) {
                             customInput.value = pattern;
                             customInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -142,6 +144,8 @@
                                 regexCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
                             }
                         }
+                    }).catch(error => {
+                        console.error('Failed to load regex preset patterns:', error);
                     });
                 } else {
                     if (customInput) {

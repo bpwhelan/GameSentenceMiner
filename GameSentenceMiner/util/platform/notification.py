@@ -1,0 +1,233 @@
+import os
+import requests
+from plyer import notification as plyer_notification
+
+from GameSentenceMiner.util.config.configuration import logger
+
+# Attempt to import IPC messaging (available when running under Electron)
+try:
+    from GameSentenceMiner.util.communication.electron_ipc import send_message
+
+    _IPC_AVAILABLE = True
+except Exception:
+    _IPC_AVAILABLE = False
+
+_ELECTRON_MODE = _IPC_AVAILABLE and os.environ.get("GSM_ELECTRON") == "1"
+
+
+def open_browser_window(note_id, query=None):
+    url = "http://localhost:8765"
+    headers = {"Content-Type": "application/json"}
+
+    data = {
+        "action": "guiBrowse",
+        "version": 6,
+        "params": {
+            "query": f"nid:{note_id}" if not query else query,
+        },
+    }
+
+    try:
+        if query:
+            blank_req_data = {
+                "action": "guiBrowse",
+                "version": 6,
+                "params": {
+                    "query": "nid:1",
+                },
+            }
+            requests.post(url, json=blank_req_data, headers=headers)
+        response = requests.post(url, json=data, headers=headers)
+        if response.status_code == 200:
+            if query:
+                logger.info(f"Opened Anki browser with query: {query}")
+            else:
+                logger.info(f"Opened Anki note in browser with ID {note_id}")
+        else:
+            logger.error(f"Failed to open Anki note with ID {note_id}")
+    except Exception as e:
+        logger.info(f"Error connecting to AnkiConnect: {e}")
+
+
+def open_anki_card(note_id):
+    url = "http://localhost:8765"
+    headers = {"Content-Type": "application/json"}
+
+    data = {"action": "guiEditNote", "version": 6, "params": {"note": note_id}}
+
+    try:
+        response = requests.post(url, json=data, headers=headers)
+        if response.status_code == 200:
+            logger.info(f"Opened Anki note with ID {note_id}")
+        else:
+            logger.error(f"Failed to open Anki note with ID {note_id}")
+    except Exception as e:
+        logger.info(f"Error connecting to AnkiConnect: {e}")
+
+
+def _send_ipc_notification(type_key: str, message: str = "", extra: dict = None):
+    """Try to send notification via Electron IPC; return True on success.
+
+    `extra` will be merged into the payload so callers can include structured fields
+    like `noteId` when available.
+    """
+    if _ELECTRON_MODE:
+        try:
+            payload = {"type": type_key, "message": message}
+            if extra:
+                payload.update(extra)
+            send_message("notification", payload)
+            return True
+        except Exception as e:
+            logger.debug(f"IPC notification failed, falling back: {e}")
+    return False
+
+
+def send_notification(title, message, timeout):
+    # Map title values to NotificationType enum keys expected by Electron
+    title_to_key = {
+        "Anki Card Updated": "AnkiCardUpdated",
+        "Anki Enhancement Failed": "AnkiEnhancementFailed",
+        "Screenshot Saved": "ScreenshotSaved",
+        "Audio Trimmed": "AudioGenerated",  # Python title wording differs; map to AudioGenerated
+        "OBS Replay Invalid": "CheckOBS",
+        "Error": "Error",
+        "GSM Ready": "GSMReady",
+        "GSM Text Intake Paused": "GSMTextIntakePaused",
+        "GSM Text Intake Resumed": "GSMTextIntakeResumed",
+    }
+    type_key = title_to_key.get(title)
+    if type_key and _send_ipc_notification(type_key, message):
+        return
+    try:
+        plyer_notification.notify(title=title, message=message, app_name="GameSentenceMiner", timeout=timeout)
+    except Exception as e:
+        logger.error(f"Failed to send notification: {e}")
+
+
+def send_note_updated(tango):
+    # Try to send structured IPC with `noteId` first so Electron can wire click actions.
+    try:
+        note_id = int(tango)
+    except Exception:
+        note_id = None
+
+    if note_id is not None and _send_ipc_notification(
+        "AnkiCardUpdated",
+        f"Audio and/or Screenshot added to note: {note_id}",
+        extra={"noteId": note_id},
+    ):
+        return
+
+    send_notification(
+        title="Anki Card Updated",
+        message=f"Audio and/or Screenshot added to note: {tango}",
+        timeout=5,  # Notification disappears after 5 seconds
+    )
+
+
+def send_screenshot_updated(tango):
+    try:
+        note_id = int(tango)
+    except Exception:
+        note_id = None
+
+    if note_id is not None and _send_ipc_notification(
+        "AnkiCardUpdated",
+        f"Screenshot updated on note: {note_id}",
+        extra={"noteId": note_id},
+    ):
+        return
+
+    send_notification(
+        title="Anki Card Updated",
+        message=f"Screenshot updated on note: {tango}",
+        timeout=5,  # Notification disappears after 5 seconds
+    )
+
+
+def send_screenshot_saved(path):
+    send_notification(
+        title="Screenshot Saved",
+        message=f"Screenshot saved to : {path}",
+        timeout=5,  # Notification disappears after 5 seconds
+    )
+
+
+def send_audio_generated_notification(audio_path):
+    send_notification(
+        title="Audio Trimmed",
+        message=f"Audio Trimmed and placed at {audio_path}",
+        timeout=5,  # Notification disappears after 5 seconds
+    )
+
+
+def send_check_obs_notification(reason):
+    send_notification(
+        title="OBS Replay Invalid",
+        message=f"Check OBS Settings! Reason: {reason}",
+        timeout=5,  # Notification disappears after 5 seconds
+    )
+
+
+def send_error_no_anki_update():
+    send_anki_enhancement_failed("Anki Card not updated, Check Console for Reason!")
+
+
+def send_error_notification(message):
+    send_notification(
+        title="Error",
+        message=message,
+        timeout=5,  # Notification disappears after 5 seconds
+    )
+
+
+def send_anki_enhancement_failed(message):
+    send_notification(
+        title="Anki Enhancement Failed",
+        message=message,
+        timeout=5,
+    )
+
+
+def announce_text_intake_state(paused: bool):
+    if not _ELECTRON_MODE:
+        return
+    try:
+        send_message("text_intake_state", {"paused": bool(paused)})
+    except Exception as e:
+        logger.debug(f"Failed to announce text intake state over IPC: {e}")
+
+
+def send_text_intake_paused_notification(relay_outputs_enabled: bool = True):
+    if relay_outputs_enabled:
+        message = (
+            "Clipboard and websocket text intake is paused. GSM will skip stats and overlay processing, "
+            "but texthooker and output websocket relays stay active."
+        )
+    else:
+        message = "Clipboard and websocket text intake is paused. Incoming text will be fully ignored until resumed."
+    send_notification(
+        title="GSM Text Intake Paused",
+        message=message,
+        timeout=5,
+    )
+
+
+def send_text_intake_resumed_notification():
+    send_notification(
+        title="GSM Text Intake Resumed",
+        message="Clipboard and websocket text intake resumed.",
+        timeout=5,
+    )
+
+
+if __name__ == "__main__":
+    send_note_updated("TestTango")
+    send_screenshot_updated("TestTango")
+    send_screenshot_saved("C:/Screenshots/test.png")
+    send_audio_generated_notification("C:/Audio/test.mp3")
+    send_check_obs_notification("Replay buffer not active")
+    send_error_no_anki_update()
+    send_error_notification("Custom error message for testing")
+    send_anki_enhancement_failed("Audio upload failed.")

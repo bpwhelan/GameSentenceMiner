@@ -56,11 +56,11 @@
         "general": {
           "title": "General",
           "websocket_enabled": {
-            "label": "Websocket Enabled:",
+            "label": "Websocket:",
             "tooltip": "Enable or disable WebSocket communication. Enabling this will disable the clipboard monitor."
           },
           "clipboard_enabled": {
-            "label": "Clipboard Enabled:",
+            "label": "Clipboard:",
             "tooltip": "Enable or disable Clipboard monitoring."
           },
           "allow_both_simultaneously": {
@@ -72,8 +72,8 @@
             "tooltip": "Enable to merge matching sequential text into a single entry. Designed for Luna's Speech Recognition feature. Very niche."
           },
           "websocket_uri": {
-            "label": "Websocket URI(s):",
-            "tooltip": "WebSocket URI for connecting. Allows Comma Separated Values for Connecting Multiple."
+            "label": "Input Websocket URI(s):",
+            "tooltip": "WebSocket URIs for INPUT sources (Agent, Textractor, LunaTranslator, etc.). Allows comma-separated values for multiple sources. Do NOT include GSM's output ports (Text Feed, OCR overlay)."
           },
           "texthook_regex": {
             "label": "TextHook Replacement Regex:",
@@ -84,12 +84,16 @@
             "tooltip": "Whether to open config when the script starts."
           },
           "open_texthooker_on_startup": {
-            "label": "Open GSM Texthooker on Startup:",
-            "tooltip": "Whether to open Texthooking page when the script starts."
+            "label": "Open GSM Text Feed on Startup:",
+            "tooltip": "Whether to open Text Feed page when the script starts."
           },
           "texthooker_port": {
-            "label": "GSM Texthooker Port:",
-            "tooltip": "Port for the Texthooker to run on. Only change if you know what you are doing."
+            "label": "Legacy Text Feed Port:",
+            "tooltip": "Legacy compatibility port that serves a redirect page to the main GSM port. Set this to 55000 if you need temporary access to old localhost:55000 browser storage."
+          },
+          "single_port": {
+            "label": "GSM Unified Port:",
+            "tooltip": "Primary port used for both GSM web pages and websocket endpoints. Changing this requires an app restart."
           },
           "current_version": {
             "label": "Current Version:",
@@ -112,6 +116,41 @@
           "locale": {
             "label": "Display Language:",
             "tooltip": "Select the application's language. This will change the interface language."
+          }
+        },
+        "text_processing": {
+          "title": "Text Processing",
+          "string_replacement": {
+            "group_title": "String Replacement",
+            "group_tooltip": "Apply ordered replacement rules to all incoming text.",
+            "enabled": {
+              "label": "Enable String Replacement:",
+              "tooltip": "Apply string replacement rules to all incoming text before logging or overlay."
+            },
+            "rules": {
+              "label": "Rules:",
+              "tooltip": "Edit the list of replacement rules."
+            },
+            "edit_rules": {
+              "label": "Edit Rules",
+              "tooltip": "Open the string replacement rule editor."
+            },
+            "rules_count": "{count} rules",
+            "dialog": {
+              "title": "String Replacement Rules",
+              "add": "Add Rule",
+              "remove": "Remove Rule",
+              "move_up": "Move Up",
+              "move_down": "Move Down",
+              "enabled": "Enabled",
+              "mode": "Mode",
+              "find": "Find",
+              "replace": "Replace",
+              "case_sensitive": "Case Sensitive",
+              "whole_word": "Whole Word",
+              "mode_plain": "Plain Text",
+              "mode_regex": "Regex"
+            }
           }
         },
         "paths": {
@@ -151,6 +190,10 @@
         },
         "anki": {
           "title": "Anki",
+          "enabled": {
+            "label": "Enabled:",
+            "tooltip": "Enable or disable Anki integration."
+          },
           "update_anki": {
             "label": "Update Anki:",
             "tooltip": "Automatically update Anki with new data."
@@ -164,44 +207,48 @@
             "tooltip": "The URL to connect to your Anki instance."
           },
           "sentence_field": {
-            "label": "Sentence Field:",
+            "label": "Sentence:",
             "tooltip": "Field in Anki for the main sentence."
           },
           "sentence_audio_field": {
-            "label": "Sentence Audio Field:",
+            "label": "Sentence Audio:",
             "tooltip": "Field in Anki for audio associated with the sentence. Leave Blank to Disable Audio Processing."
           },
           "picture_field": {
-            "label": "Picture Field:",
+            "label": "Picture:",
             "tooltip": "Field in Anki for associated pictures."
           },
           "word_field": {
-            "label": "Word Field:",
+            "label": "Word:",
             "tooltip": "Field in Anki for individual words."
           },
           "previous_sentence_field": {
-            "label": "Previous Sentence Field:",
+            "label": "Previous Sentence:",
             "tooltip": "Field in Anki for the previous line of dialogue. If Empty, will not populate"
           },
           "previous_image_field": {
-            "label": "Previous VoiceLine SS Field:",
+            "label": "Previous VoiceLine SS:",
             "tooltip": "Field in Anki for the screenshot of previous line. If Empty, will not populate"
           },
           "video_field": {
-            "label": "Video Field:",
+            "label": "Video:",
             "tooltip": "Field in Anki for associated videos. This will be AV1 encoded video of the VAD Trimmed Voiceline, if no Voice found, this will be empty. (OPTIONAL)"
+          },
+          "sentence_furigana_field": {
+            "label": "Sentence Furigana:",
+            "tooltip": "Field in Anki for furigana corresponding to the sentence."
           },
           "custom_tags": {
             "label": "Add Tags:",
             "tooltip": "Comma-separated custom tags for the Anki cards."
           },
           "game_name_field": {
-            "label": "Game Name Field:",
+            "label": "Game Name:",
             "tooltip": "Field in Anki for the game name. If empty, game name will not be added as a field. (OPTIONAL)"
           },
           "tags_to_check": {
             "label": "Tags to work on:",
-            "tooltip": "Comma-separated Tags, script will only do 1-click on cards with these tags (Recommend keep empty, or use Yomitan Profile to add custom tag from texthooker page)"
+            "tooltip": "Comma-separated Tags, script will only do 1-click on cards with these tags (Recommend keep empty, or use Yomitan Profile to add custom tag from Text Feed page)"
           },
           "add_game_tag": {
             "label": "Add Game as Tag:",
@@ -219,6 +266,10 @@
             "label": "Overwrite Picture:",
             "tooltip": "Overwrite existing pictures in Anki cards."
           },
+          "overwrite_sentence": {
+            "label": "Overwrite Sentence:",
+            "tooltip": "Overwrite the sentence field in Anki, preserving existing HTML tags (like Furigana)."
+          },
           "tag_unvoiced_cards": {
             "label": "Tag Unvoiced Cards:",
             "tooltip": "Automatically add 'unvoiced' tag to cards that have no audio."
@@ -229,7 +280,7 @@
           }
         },
         "vad": {
-          "title": "VAD",
+          "title": "Voice Detection",
           "do_postprocessing": {
             "label": "Voice Detection Postprocessing:",
             "tooltip": "Enable post-processing of audio to trim just the voiceline."
@@ -267,7 +318,7 @@
             "tooltip": "Beginning offset after VAD Trim, Only active if \"Trim Beginning\" is ON. Negative values = more time at the beginning"
           },
           "cut_and_splice": {
-            "label": "Cut and Splice Voice Segments:",
+            "label": "Condense Audio:",
             "tooltip": "Cut Detected Voice Segments and Paste them back together. More Padding = More Space between voicelines."
           },
           "splice_padding": {
@@ -380,7 +431,7 @@
             "tooltip": "File extension for audio files."
           },
           "beginning_offset": {
-            "label": "Audio Extraction Beginning Offset:",
+            "label": "Audio Beginning Offset:",
             "tooltip": "Offset in seconds from beginning of the video to extract (Should Usually be negative or 0). If you find that the beginning of your audio is cut off, try decreasing this value."
           },
           "find_offset_button": "Find Offset (WIP)",
@@ -419,6 +470,24 @@
           "install_ocenaudio_button": "Install Ocenaudio",
           "get_anki_media_button": "Get Anki Media Collection"
         },
+        "hotkeys": {
+          "title": "Hotkeys",
+          "description": "Centralized hotkeys for GSM. Leave a shortcut blank to disable it.",
+          "groups": {
+            "input": "Input",
+            "overlay": "Overlay",
+            "audio": "Audio",
+            "experimental": "Experimental"
+          },
+          "pause_text_intake": {
+            "label": "Pause GSM Text Intake Hotkey:",
+            "tooltip": "Temporarily pause or resume GSM's clipboard and websocket text intake. While paused, GSM skips its own stats/history logging and overlay triggers. Leave blank to disable this shortcut; no default hotkey is assigned."
+          },
+          "relay_outputs_when_paused": {
+            "checkbox": "Relay to Text Feed/output clients while paused",
+            "tooltip": "When enabled, paused text is still forwarded to the Text Feed page and output websocket clients after text processing, but GSM still skips its own stats/history logging and overlay triggers. Disable this for a full no-op that drops incoming text entirely."
+          }
+        },
         "obs": {
           "title": "OBS",
           "enabled": {
@@ -433,9 +502,17 @@
             "label": "Close OBS:",
             "tooltip": "Close OBS when the GSM closes."
           },
+          "allow_automatic_updates": {
+            "label": "Allow OBS to Update Itself (Advanced):",
+            "tooltip": "Leave this off to start OBS with updates disabled. Turn it on only if you want OBS to manage its own updates outside GSM."
+          },
           "obs_path": {
             "label": "OBS Path:",
             "tooltip": "Path to the OBS executable. Leave blank to use the default path."
+          },
+          "disable_recording": {
+            "label": "Disable Recording/Replay Buffer (BREAKS Anki Media):",
+            "tooltip": "Completely disable OBS replay buffer and recording in GSM. WARNING: Anki-related media features (audio recording, screenshots, replay/video clips) will NOT work while this is enabled. It will also make Beangate very sad."
           },
           "host": {
             "label": "Host:",
@@ -460,6 +537,10 @@
           "turn_off_replay_buffer_management": {
             "label": "Turn off Replay Buffer Management:",
             "tooltip": "Disable OBS Replay Buffer Management. This is useful if you want to manually manage the replay buffer in OBS."
+          },
+          "auto_manage_replay_buffer": {
+            "label": "Auto-Manage Replay Buffer:",
+            "tooltip": "Automatically start/stop OBS replay buffer management."
           }
         },
         "profiles": {
@@ -509,8 +590,8 @@
             "tooltip": "Port for OCR WebSocket communication. GSM will also listen on this port"
           },
           "texthooker_comm_port": {
-            "label": "Texthooker Communication WebSocket Port:",
-            "tooltip": "Port for GSM Texthooker WebSocket communication. "
+            "label": "Text Feed Communication WebSocket Port:",
+            "tooltip": "Port for GSM Text Feed WebSocket communication. "
           },
           "plaintext_export_port": {
             "label": "Plaintext/JL Websocket Export Port:",
@@ -526,7 +607,7 @@
           }
         },
         "ai": {
-          "title": "AI",
+          "title": "AI / Translation",
           "enabled": {
             "label": "Add To Anki:",
             "tooltip": "Enable or disable Adding AI Result to Anki."
@@ -539,6 +620,10 @@
             "label": "Gemini AI Model:",
             "tooltip": "Select the AI model to use."
           },
+          "gemini_backup_model": {
+            "label": "Gemini Backup Model:",
+            "tooltip": "Optional Gemini model to retry with when the primary model is rate-limited or fails."
+          },
           "gemini_api_key": {
             "label": "Gemini API Key:",
             "tooltip": "API key for the selected AI provider (Gemini only currently)."
@@ -546,6 +631,10 @@
           "groq_model": {
             "label": "Groq AI Model:",
             "tooltip": "Select the Groq AI model to use."
+          },
+          "groq_backup_model": {
+            "label": "Groq Backup Model:",
+            "tooltip": "Optional Groq model to retry with when the primary model is rate-limited or fails."
           },
           "groq_api_key": {
             "label": "Groq API Key:",
@@ -559,6 +648,10 @@
             "label": "OpenAI Model:",
             "tooltip": "Select the OpenAI model to use."
           },
+          "openai_backup_model": {
+            "label": "OpenAI Backup Model:",
+            "tooltip": "Optional OpenAI model to retry with when the primary model fails."
+          },
           "openai_apikey": {
             "label": "OpenAI API Key:",
             "tooltip": "API key for OpenAI provider."
@@ -566,6 +659,14 @@
           "openai_url": {
             "label": "OpenAI API URL:",
             "tooltip": "Custom URL for OpenAI API. Leave blank to use the default."
+          },
+          "ollama_backup_model": {
+            "label": "Ollama Backup Model:",
+            "tooltip": "Optional Ollama model to retry with when the primary model fails."
+          },
+          "lm_studio_backup_model": {
+            "label": "LM Studio Backup Model:",
+            "tooltip": "Optional LM Studio model to retry with when the primary model fails."
           },
           "anki_field": {
             "label": "Anki Field:",
@@ -586,6 +687,14 @@
           "custom_prompt": {
             "label": "Custom Prompt:",
             "tooltip": "Custom prompt for AI processing."
+          },
+          "deepl_api_key": {
+            "label": "DeepL API Key:",
+            "tooltip": "Your DeepL API key. Get one from https://www.deepl.com/pro-api"
+          },
+          "deepl_target_lang": {
+            "label": "Target Language:",
+            "tooltip": "DeepL target language code (e.g., EN-US, JA, ZH, ES, FR, DE, IT, NL, PL, PT-PT, RU, KO)"
           }
         },
         "overlay": {
@@ -619,6 +728,80 @@
           "number_of_local_scans_per_event": {
             "label": "Local Scans Per Text Event:",
             "tooltip": "How many local scans to perform per text event (agent, textractor, etc.) before stopping or sending results to the OCR engine. .1s delay between scans for now."
+          }
+          ,
+          "use_overlay_area_config": {
+            "label": "Only Include Area:",
+            "tooltip": "Only use the selected overlay area instead of reusing the OCR area config. When enabled, this takes priority over OCR area config options."
+          },
+          "overlay_area_selector_button": {
+            "label": "Set Area",
+            "tooltip": "Open the overlay area selector for the current overlay monitor."
+          },
+          "use_ocr_area_config": {
+            "label": "Use OCR Area Config:",
+            "tooltip": "When enabled, uses the predefined OCR area configuration for overlay scans instead of attempting automatic region detection. Useful when the overlay should scan only a specific region (e.g., subtitle area); reduces processing and false positives."
+          },
+          "ocr_area_config_include_primary_areas": {
+            "label": "Include Primary Text Areas:",
+            "tooltip": "Use the primary OCR capture areas from the OCR area config. These are the main text regions that were previously shown as green boxes."
+          },
+          "ocr_area_config_include_secondary_areas": {
+            "label": "Include Secondary/Menu Text Areas:",
+            "tooltip": "Use the secondary OCR capture areas from the OCR area config. These are the alternate or menu regions that were previously shown as purple boxes."
+          },
+          "ocr_area_config_use_exclusion_zones": {
+            "label": "Use Exclusion Zones:",
+            "tooltip": "Apply exclusion zones from the OCR area config to mask parts of the overlay capture. These are the regions previously shown as orange boxes."
+          },
+          "use_ocr_result": {
+            "label": "Use OCR Result (Experimental):",
+            "tooltip": "When enabled, the overlay uses pre-computed OCR results when available. Disable this to force a fresh overlay OCR scan."
+          },
+          "check_previous_lines_for_recycled_indicator": {
+            "label": "Check Previous Lines:",
+            "tooltip": "Compare each incoming line against previously seen lines for the current game and mark recycled lines in the overlay. Warning: this loads a normalized cache of prior lines into RAM and can substantially increase memory usage depending on how many lines you have."
+          }
+        },
+        "experimental": {
+          "title": "Experimental"
+        },
+        "game_pausing": {
+          "enabled": {
+            "label": "Enable Game Pausing:",
+            "tooltip": "Enable experimental game pausing features."
+          },
+          "hotkey": {
+            "label": "Game Pause Hotkey:",
+            "tooltip": "Hotkey to pause/resume the active game process."
+          },
+          "overlay_manual_hotkey_requests_pause": {
+            "label": "Overlay Manual Hotkey Requests Pause:",
+            "tooltip": "When enabled, overlay manual hotkey requests pause on enter and resume on exit."
+          },
+          "overlay_texthooker_hotkey_requests_pause": {
+            "label": "Overlay Text Feed Hotkey Requests Pause:",
+            "tooltip": "When enabled, overlay Text Feed hotkey requests pause on enter and resume on exit."
+          },
+          "overlay_gamepad_navigation_requests_pause": {
+            "label": "Overlay Gamepad Navigation Requests Pause:",
+            "tooltip": "When enabled, overlay gamepad navigation requests pause on enter and resume on exit."
+          },
+          "auto_resume_seconds": {
+            "label": "Auto Resume (Seconds):",
+            "tooltip": "Auto-resume suspended processes after this many seconds."
+          },
+          "require_game_exe_match": {
+            "label": "Require Game EXE Match:",
+            "tooltip": "Only allow pausing when the target exe matches the detected game exe."
+          },
+          "allowlist": {
+            "label": "Allowlist (EXE Names):",
+            "tooltip": "Comma-separated exe names that are always allowed."
+          },
+          "denylist": {
+            "label": "Denylist (EXE Names):",
+            "tooltip": "Comma-separated exe names that are always blocked."
           }
         },
         "wip": {

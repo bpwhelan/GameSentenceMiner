@@ -22,7 +22,7 @@ export const defaultSettings: Settings = {
 	theme$: Theme.BUSINESS,
 	replacements$: [],
 	windowTitle$: '',
-	websocketUrl$: 'ws://localhost:55001',
+	websocketUrl$: 'ws://localhost:7275',
 	secondaryWebsocketUrl$: '',
 	fontSize$: 32,
 	characterMilestone$: 0,
@@ -70,6 +70,10 @@ export const defaultSettings: Settings = {
 	showScreenshotButton$: false,
 	showTranslateButton$: true,
 	showAudioButton$: true,
+	trimAudioWithVAD$: false,
+	showTrimVideoButton$: false,
+	trimVideoWithVAD$: false,
+	showTrimmedVideoInExplorer$: false,
 	showGSMCheckboxes$: true,
 };
 
@@ -254,6 +258,8 @@ export const showConnectionErrors$ = writableBooleanSubject()(
 
 export const customCSS$ = writableStringSubject()('bannou-texthooker-customCSS', defaultSettings.customCSS$);
 
+export const settingsOpen$ = writable(false);
+
 export const timeValue$ = writableNumberSubject()('bannou-texthooker-timeValue', 0, persistStats$);
 
 export const notesOpen$ = writableSubject<boolean>(false);
@@ -288,7 +294,8 @@ export const flashOnPauseTimeout$ = writable<number>(undefined);
 
 export const isPaused$ = writableSubject<boolean>(true);
 
-export const newLine$ = new Subject<[string, LineType, string]>();
+export const newLine$ = new Subject<[string, LineType, string, Partial<LineItem>?]>();
+export const texthookerAudioEvents$ = new Subject<Record<string, any>>();
 
 export const reconnectSocket$ = new Subject<void>();
 
@@ -309,6 +316,14 @@ export const showScreenshotButton$ = writableBooleanSubject()('bannou-texthooker
 export const showTranslateButton$ = writableBooleanSubject()('bannou-texthooker-showTranslateButton', true);
 
 export const showAudioButton$ = writableBooleanSubject()('bannou-texthooker-showAudioButton', true);
+
+export const trimAudioWithVAD$ = writableBooleanSubject()('bannou-texthooker-trimAudioWithVAD', false);
+
+export const showTrimVideoButton$ = writableBooleanSubject()('bannou-texthooker-showTrimVideoButton', false);
+
+export const trimVideoWithVAD$ = writableBooleanSubject()('bannou-texthooker-trimVideoWithVAD', false);
+
+export const showTrimmedVideoInExplorer$ = writableBooleanSubject()('bannou-texthooker-showTrimmedVideoInExplorer', false);
 
 export const showGSMCheckboxes$ = writableBooleanSubject()('bannou-texthooker-showGSMCheckboxes', true);
 
@@ -395,5 +410,9 @@ export async function resetAllData() {
 	showScreenshotButton$.next(defaultSettings.showScreenshotButton$);
 	showTranslateButton$.next(defaultSettings.showTranslateButton$);
 	showAudioButton$.next(defaultSettings.showAudioButton$);
+	trimAudioWithVAD$.next(defaultSettings.trimAudioWithVAD$);
+	showTrimVideoButton$.next(defaultSettings.showTrimVideoButton$);
+	trimVideoWithVAD$.next(defaultSettings.trimVideoWithVAD$);
+	showTrimmedVideoInExplorer$.next(defaultSettings.showTrimmedVideoInExplorer$);
 	showGSMCheckboxes$.next(defaultSettings.showGSMCheckboxes$);
 }

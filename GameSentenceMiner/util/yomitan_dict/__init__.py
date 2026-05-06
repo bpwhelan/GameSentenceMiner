@@ -11,14 +11,18 @@ Components:
 - ContentBuilder: Builds Yomitan structured content for character cards
 """
 
-from .dict_builder import YomitanDictBuilder
-from .name_parser import NameParser
-from .image_handler import ImageHandler
 from .content_builder import ContentBuilder
+from .dict_builder import YomitanDictBuilder
+from .freq_dict_builder import FrequencyDictBuilder
+from .image_handler import ImageHandler
+from .name_parser import NameParser
+from . import sudachi_user_dict
 
 __all__ = [
-    'YomitanDictBuilder',
-    'NameParser',
-    'ImageHandler',
-    'ContentBuilder',
+    "YomitanDictBuilder",
+    "FrequencyDictBuilder",
+    "NameParser",
+    "ImageHandler",
+    "ContentBuilder",
+    "sudachi_user_dict",
 ]

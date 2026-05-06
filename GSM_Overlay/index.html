@@ -1,6 +1,28 @@
 <!DOCTYPE html>
+<html>
+
+<head>
 <style>
+  /* Hidden character for Yomitan popup hiding */
+  #yomitan-hide-char {
+    position: absolute;
+    left: -9999px;
+    top: -9999px;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+    user-select: none;
+  }
+  
   html {
+    --gsm-furigana-scale: 0.55;
+    --gsm-furigana-offset-y: -2px;
+    --gsm-furigana-color: #ffffff;
+    --gsm-furigana-font-family: "Yu Gothic UI", "Hiragino Sans", sans-serif;
+    --gsm-furigana-font-weight: 600;
+    --gsm-furigana-outline-color: #222222;
+    --gsm-furigana-outline-width: 1.5px;
     height: 100%;
     margin: 0;
     padding: 0;
@@ -58,26 +80,56 @@ background: rgba(202, 12, 12, 0.692);
     overflow: visible;
   }
 
+  .nav-char-box {
+    position: absolute;
+    white-space: pre;
+    background: rgba(15, 15, 15, 0);
+    color: rgba(255, 255, 255, 0);
+    pointer-events: none;
+    user-select: none;
+    z-index: 998;
+    line-height: 1;
+    display: block;
+    overflow: hidden;
+    opacity: 0;
+  }
+
   .furigana-box {
     position: absolute;
-    text-align: center;
-    color: white;
-    /* background: rgba(15, 15, 15, 0.856);*/
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    overflow: visible;
     z-index: 1000;
-    /* Make sure it's on top */
     pointer-events: none;
-    /* Prevent interaction */
     user-select: none;
-    /* Prevent text selection */
-    text-shadow:
-      -2px -2px 0 #222,
-      2px -2px 0 #222,
-      -2px 2px 0 #222,
-      2px 2px 0 #222,
-      -2px 0 0 #222,
-      2px 0 0 #222,
-      0 -2px 0 #222,
-      0 2px 0 #222;
+    white-space: nowrap;
+    line-height: 1;
+    transform: translateY(calc(-100% + var(--gsm-furigana-offset-y)));
+    transform-origin: center bottom;
+  }
+
+  .furigana-reading {
+    display: block;
+    width: 100%;
+    text-align: center;
+    color: var(--gsm-furigana-color);
+    font-size: calc(var(--gsm-furigana-base-font-size, 16px) * var(--gsm-furigana-scale));
+    font-family: var(--gsm-furigana-font-family);
+    font-weight: var(--gsm-furigana-font-weight);
+    line-height: 1;
+    -webkit-text-stroke: var(--gsm-furigana-outline-width) var(--gsm-furigana-outline-color);
+    paint-order: stroke fill;
+    text-shadow: 0 0 1px var(--gsm-furigana-outline-color);
+  }
+
+  #furigana-layer {
+    position: fixed;
+    inset: 0;
+    overflow: visible;
+    pointer-events: none;
+    user-select: none;
+    z-index: 1002;
   }
 
   .text-box-container {
@@ -107,6 +159,17 @@ background: rgba(202, 12, 12, 0.692);
     background: rgba(15, 15, 15, 0.856);
     color: white;
     transition: opacity 0.3s ease;
+  }
+
+  body.manual-interaction-suppressed .text-box,
+  body.manual-interaction-suppressed .big-interactive-area,
+  body.manual-interaction-suppressed .text-block-container {
+    pointer-events: none !important;
+    user-select: none !important;
+  }
+
+  body.manual-interaction-suppressed .text-box {
+    cursor: default;
   }
 
   #resize-handle {
@@ -141,6 +204,23 @@ background: rgba(202, 12, 12, 0.692);
     left: 50%;
     top: 70%;
 
+  }
+
+  #main-recycled-indicator {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translate(calc(-100% - 10px), -50%);
+    pointer-events: none;
+    z-index: 1001;
+    color: #FFA500;
+    font-size: 32px;
+    font-weight: bold;
+    line-height: 1;
+    text-shadow: 0 0 4px rgba(0, 0, 0, 0.8), 0 0 8px rgba(255, 165, 0, 0.6);
+    opacity: 0.85;
+    user-select: none;
+    display: none;
   }
 
   .faded {
@@ -298,6 +378,72 @@ background: rgba(202, 12, 12, 0.692);
   .recommendation-icon {
     font-size: 24px;
     flex-shrink: 0;
+  }
+
+  /* Gamepad Navigation Styles */
+  #gamepad-block-highlight {
+    animation: gamepad-pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes gamepad-pulse {
+    0%, 100% {
+      opacity: 0.8;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  #gamepad-cursor-highlight {
+    animation: cursor-blink 0.8s ease-in-out infinite;
+  }
+
+  @keyframes cursor-blink {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.6;
+    }
+  }
+
+  #gamepad-mode-indicator {
+    animation: indicator-glow 2s ease-in-out infinite;
+  }
+
+  @keyframes indicator-glow {
+    0%, 100% {
+      box-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+    }
+    50% {
+      box-shadow: 0 0 20px rgba(0, 255, 136, 0.6);
+    }
+  }
+
+  /* Gamepad connection status indicator */
+  #gamepad-status {
+    position: fixed;
+    bottom: 15px;
+    left: 15px;
+    padding: 6px 12px;
+    background: rgba(0, 0, 0, 0.8);
+    color: #888;
+    border-radius: 6px;
+    font-size: 12px;
+    z-index: 10000;
+    display: none;
+    pointer-events: none;
+    transition: all 0.3s ease;
+  }
+
+  #gamepad-status.connected {
+    color: #00ff88;
+    display: block;
+  }
+
+  #gamepad-status.active {
+    color: #ffcc00;
+    border: 1px solid #ffcc00;
   }
 
   .recommendation-text {
@@ -492,17 +638,15 @@ background: rgba(202, 12, 12, 0.692);
   }
 </style>
 
-<html>
-
-<head>
+<style src="shared.css"></style>
   <meta charset="UTF-8">
-  <style>
-
-  </style>
 </head>
 
 
 <body style="margin:0px;">
+  <!-- Gamepad Status Indicator -->
+  <div id="gamepad-status">🎮 No controller</div>
+
   <!-- Manual Mode Recommendation Banner -->
   <div id="manual-mode-recommendation">
     <span class="recommendation-icon">💡</span>
@@ -529,6 +673,8 @@ background: rgba(202, 12, 12, 0.692);
     <div class="loading-spinner"></div>
   </div>
 
+  <div id="furigana-layer"></div>
+
   <!-- Action Panel Trigger Area -->
   <!--
   <div id="action-panel-trigger" class="interactive">
@@ -553,7 +699,7 @@ background: rgba(202, 12, 12, 0.692);
   </div>
   -->
 
-  <div id="main-box">
+  <div id="main-box" style="display: none;">
     <div draggable="false" id="draggable" class="interactive">
       <button class="control-btn" id="btn-pin">⬤</button>
       <button class="control-btn" id="btn-translate-toolbar">🌐</button>
@@ -563,6 +709,7 @@ background: rgba(202, 12, 12, 0.692);
       <button class="control-btn" id="btn-close">✖</button>
     </div>
     <div id="text" class="interactive">Hide this box with Alt+Shift+H</div>
+    <div id="main-recycled-indicator" aria-hidden="true">&#x21BB;</div>
     <div draggable="false" id="resize-handle" class="interactive half-interactive"></div>
   </div>
   <!-- <div id="text-box-container" class="text-box-container interactive"></div> -->
@@ -577,13 +724,160 @@ background: rgba(202, 12, 12, 0.692);
   // let currentX = 0;
   // let currentY = 0;
   let magpieReleaseInterval = null;
+  let magpieController = null;
   let manualModeActivatedOnce = false;
   let shouldShowReadyIndicator = true;
-  let currentMagpieInfo = null; // Store magpie info from websocket
-  let isMagpieActive = false; // Track if magpie scaling is active
-  
-  // let actionPanelStartupHintShown = false; // Track if startup hint was shown
-  // let actionPanelShowing = false; // Track if action panel is currently showing
+
+  // ── Magpie coordinate architecture ──────────────────────────────────
+  // Magpie is an external window upscaler.  When active, the game's
+  // source window occupies a small region while Magpie renders scaled
+  // output across the full screen.
+  //
+  // The Python backend always sends coordinates as source-window-relative
+  // monitor percentages (no Magpie mapping).  This frontend handles two
+  // coordinate spaces:
+  //
+  //   • Text rendering  → mapPercentToMagpie() maps source % to Magpie
+  //                        destination %, so characters appear on the
+  //                        upscaled image.
+  //   • Interactive area → stays at the original source-window position
+  //                        (with padding) so mouse events forward to the
+  //                        game correctly.
+  //
+  // updateMagpieCompatibility() manages a periodic mouse-release timer
+  // that ensures click-through keeps working when Magpie intercepts
+  // mouse events.
+  // ────────────────────────────────────────────────────────────────────
+  let currentMagpieInfo = null;
+  let isMagpieActive = false;
+  const CJK_LEXICAL_REGEX = /[\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Han}\p{Script_Extensions=Hangul}]/u;
+  const LATIN_NUMERIC_REGEX = /[A-Za-z0-9]/;
+
+  function requestMagpieMouseRelease(reason = 'magpie-compat') {
+    ipcRenderer.send('set-ignore-mouse-events', true, {
+      forward: true,
+      forceMagpieRelease: true,
+      reason,
+    });
+  }
+
+  function restoreOverlayPassThrough(reason = 'overlay-pass-through') {
+    if (yomitanShowing) {
+      return;
+    }
+
+    if (magpieController) {
+      magpieController.restorePassThrough(reason);
+      return;
+    }
+
+    if (isMagpieActive) {
+      requestMagpieMouseRelease(reason);
+    } else {
+      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true, reason });
+    }
+  }
+
+  function normalizeManualModeInactiveBehavior(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION
+      ? MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION
+      : MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY;
+  }
+
+  function shouldHideOverlayWhenManualInactive() {
+    return manualModeInactiveBehavior !== MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION;
+  }
+
+  function isManualInteractionSuppressed() {
+    return manualMode && !manualHotkeyPressed;
+  }
+
+  function setManualInteractionSuppressed(isSuppressed) {
+    document.body.classList.toggle('manual-interaction-suppressed', !!isSuppressed);
+  }
+
+  function applyManualInactivePresentation(reason = 'manual-inactive') {
+    const isSuppressed = isManualInteractionSuppressed();
+    setManualInteractionSuppressed(isSuppressed);
+
+    if (!isSuppressed) {
+      return;
+    }
+
+    if (shouldHideOverlayWhenManualInactive()) {
+      if (!pinned) {
+        document.body.classList.remove('force-visible');
+      }
+      hideTextBoxes();
+      restoreOverlayPassThrough(reason);
+      return;
+    }
+
+    document.body.classList.add('force-visible');
+    showTextBoxes();
+    restoreOverlayPassThrough(reason);
+  }
+
+  /**
+   * Maps a monitor-relative percentage coordinate from source-window space
+   * to Magpie-destination (scaled) space.  Returns the input unchanged when
+   * Magpie is not active.
+   *
+   * Magpie properties (from Win32 GetPropA) are in physical pixels. The
+   * main process now sends explicit physical monitor dimensions so this
+   * mapping stays in the same coordinate space as both Magpie and the
+   * Windows backend, independent of Chromium DPI behavior.
+   *
+   * @param {number} pX  X position (0-100 %)
+   * @param {number} pY  Y position (0-100 %)
+   * @returns {{x: number, y: number}}
+   */
+  function mapPercentToMagpie(pX, pY) {
+    if (magpieController) {
+      return magpieController.mapPercent(pX, pY, display);
+    }
+
+    if (!isMagpieActive || !currentMagpieInfo) {
+      return { x: pX, y: pY };
+    }
+    const srcL = currentMagpieInfo.sourceWindowLeftEdgePosition;
+    const srcT = currentMagpieInfo.sourceWindowTopEdgePosition;
+    const srcR = currentMagpieInfo.sourceWindowRightEdgePosition;
+    const srcB = currentMagpieInfo.sourceWindowBottomEdgePosition;
+    const dstL = currentMagpieInfo.magpieWindowLeftEdgePosition;
+    const dstT = currentMagpieInfo.magpieWindowTopEdgePosition;
+    const dstR = currentMagpieInfo.magpieWindowRightEdgePosition;
+    const dstB = currentMagpieInfo.magpieWindowBottomEdgePosition;
+    const srcW = srcR - srcL;
+    const srcH = srcB - srcT;
+    const dstW = dstR - dstL;
+    const dstH = dstB - dstT;
+    if (srcW <= 0 || srcH <= 0 || dstW <= 0 || dstH <= 0) {
+      return { x: pX, y: pY };
+    }
+    const physicalDisplaySize = (
+      display &&
+      display.physicalSize &&
+      Number(display.physicalSize.width) > 0 &&
+      Number(display.physicalSize.height) > 0
+    )
+      ? display.physicalSize
+      : {
+          width: (window.screen.width || window.innerWidth) * (window.devicePixelRatio || 1),
+          height: (window.screen.height || window.innerHeight) * (window.devicePixelRatio || 1),
+        };
+    const monW = physicalDisplaySize.width;
+    const monH = physicalDisplaySize.height;
+    const absX = (pX / 100) * monW;
+    const absY = (pY / 100) * monH;
+    const mappedX = dstL + ((absX - srcL) / srcW) * dstW;
+    const mappedY = dstT + ((absY - srcT) / srcH) * dstH;
+    return {
+      x: (mappedX / monW) * 100,
+      y: (mappedY / monH) * 100,
+    };
+  }
   
   // Track multiple Yomitan popups for nested lookups
   let yomitanPopupCount = 0;
@@ -605,6 +899,11 @@ background: rgba(202, 12, 12, 0.692);
           startupMessage.remove();
         }, 3000);
       }, 100);
+    }
+
+    const ajbParseButton = document.getElementById("ajb-parse-button");
+    if (ajbParseButton) {
+      ajbParseButton.style.display = "none";
     }
 
     // Show action panel on startup as a hint
@@ -686,73 +985,6 @@ background: rgba(202, 12, 12, 0.692);
   });
   */
 
-  // Create big interactive area for action panel trigger when magpie is active
-  // let actionPanelBigArea = null;
-
-  /*
-  function updateActionPanelMagpieArea() {
-    // Remove existing big area if it exists
-    if (actionPanelBigArea && actionPanelBigArea.parentNode) {
-      actionPanelBigArea.remove();
-    }
-
-    if (isMagpieActive && currentMagpieInfo) {
-      // Create a big interactive area around the action panel trigger
-      actionPanelBigArea = document.createElement('div');
-      actionPanelBigArea.className = 'interactive half-interactive action-panel-big-area';
-      actionPanelBigArea.id = 'action-panel-big-area';
-      actionPanelBigArea.style.position = 'absolute';
-      actionPanelBigArea.style.pointerEvents = 'auto';
-      actionPanelBigArea.style.zIndex = '9997'; // Below trigger but above other content
-      
-      // Get the trigger's bounds in percentage (same as text boxes)
-      // Trigger is at 0,0 with 80x80px size, which is approximately 0-3.125% x and 0-5.56% y on 2560x1440
-      const triggerWidthPercent = (80 / window.innerWidth) * 100;
-      const triggerHeightPercent = (80 / window.innerHeight) * 100;
-      
-      // Transform coordinates using the same method as text boxes
-      const topLeft = transformCoordinates(0, 0);
-      const bottomRight = transformCoordinates(triggerWidthPercent, triggerHeightPercent);
-      
-      // Add padding around the trigger (same 25px as text boxes)
-      const minx = topLeft.x - 25;
-      const miny = topLeft.y - 25;
-      const maxx = bottomRight.x + 25;
-      const maxy = bottomRight.y + 25;
-      
-      actionPanelBigArea.style.left = `${minx}px`;
-      actionPanelBigArea.style.top = `${miny}px`;
-      actionPanelBigArea.style.width = `${maxx - minx}px`;
-      actionPanelBigArea.style.height = `${maxy - miny}px`;
-      
-      document.body.appendChild(actionPanelBigArea);
-
-      // Set up event handlers for the big area
-      actionPanelBigArea.addEventListener('mouseenter', () => {
-        console.log('Mouse entered action panel big area');
-        ipcRenderer.send('set-ignore-mouse-events', false);
-        showActionPanel();
-      });
-
-      actionPanelBigArea.addEventListener('mouseleave', () => {
-        console.log('Mouse left action panel big area');
-        setTimeout(() => {
-          const triggerHovered = actionPanelTrigger.matches(':hover');
-          const panelHovered = actionPanel.matches(':hover');
-          if (!triggerHovered && !panelHovered) {
-            hideActionPanel();
-            ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
-          }
-        }, 100);
-      });
-
-      console.log('Created big interactive area for action panel (magpie mode):', { minx, miny, maxx, maxy });
-    } else {
-      actionPanelBigArea = null;
-    }
-  }
-  */
-
   // Action button handlers
   /*
   document.getElementById('btn-scan').addEventListener('click', () => {
@@ -782,7 +1014,91 @@ background: rgba(202, 12, 12, 0.692);
   // Instead, we'll detect if the count seems stuck and hasn't changed in a while.
   let lastPopupChangeTime = Date.now();
   let lastPopupCount = 0;
-  const STALE_TIMEOUT = 300000; // 300 seconds, this causes issues, so make it super long, idk.
+  const STALE_TIMEOUT = 12000;
+  const GSM_CHARACTER_DICTIONARY_STARTUP_DELAY_MS = 30000;
+  let gsmCharacterDictionaryEnsureStarted = false;
+  let gsmCharacterDictionaryEnsureTimeoutId = null;
+
+  async function closeYomitanLookups(reason = 'manual-hide') {
+    if (!yomitanShowing) {
+      return false;
+    }
+
+    hideOnYomitanClose = false;
+
+    const bridge = window.gsmYomitanBridge;
+    if (!bridge || typeof bridge.closePopups !== 'function') {
+      console.warn(`[Yomitan] closePopups bridge unavailable (${reason})`);
+      return false;
+    }
+
+    try {
+      await bridge.closePopups({ timeoutMs: 1500 });
+      console.log(`[Yomitan] Requested popup close (${reason})`);
+      return true;
+    } catch (error) {
+      console.warn(`[Yomitan] Failed to close popups via bridge (${reason}):`, error);
+      return false;
+    }
+  }
+
+  function getGsmDictionaryUrls() {
+    const sourceUrl = overlaySocketUrls.ws1 || overlaySocketUrls.ws2;
+    if (!sourceUrl) {
+      return null;
+    }
+
+    try {
+      const parsed = new URL(sourceUrl);
+      const protocol = parsed.protocol === 'wss:' ? 'https:' : 'http:';
+      const port = parsed.port ? `:${parsed.port}` : '';
+      const baseUrl = `${protocol}//${parsed.hostname}${port}`;
+      return {
+        downloadUrl: `${baseUrl}/api/yomitan-dict`,
+        indexUrl: `${baseUrl}/api/yomitan-index`,
+      };
+    } catch (error) {
+      console.warn('[Yomitan] Failed to derive GSM dictionary URLs from overlay transport:', error);
+      return null;
+    }
+  }
+
+  async function ensureGsmCharacterDictionaryFresh(reason = 'startup') {
+    if (gsmCharacterDictionaryEnsureStarted) {
+      return;
+    }
+    gsmCharacterDictionaryEnsureStarted = true;
+
+    const bridge = window.gsmYomitanBridge;
+    if (!bridge || typeof bridge.ensureGsmCharacterDictionary !== 'function') {
+      console.warn(`[Yomitan] GSM dictionary bridge unavailable (${reason})`);
+      return;
+    }
+
+    const urls = getGsmDictionaryUrls();
+    if (!urls) {
+      console.warn(`[Yomitan] GSM dictionary URLs unavailable (${reason})`);
+      return;
+    }
+
+    try {
+      const result = await bridge.ensureGsmCharacterDictionary(urls, { timeoutMs: 60000 });
+      console.log(`[Yomitan] GSM character dictionary ensure result (${reason}):`, result);
+    } catch (error) {
+      console.warn(`[Yomitan] Failed to ensure GSM character dictionary (${reason}):`, error);
+    }
+  }
+
+  function scheduleGsmCharacterDictionaryEnsure(reason = 'startup') {
+    if (gsmCharacterDictionaryEnsureStarted || gsmCharacterDictionaryEnsureTimeoutId !== null) {
+      return;
+    }
+
+    gsmCharacterDictionaryEnsureTimeoutId = window.setTimeout(() => {
+      gsmCharacterDictionaryEnsureTimeoutId = null;
+      void ensureGsmCharacterDictionaryFresh(reason);
+    }, GSM_CHARACTER_DICTIONARY_STARTUP_DELAY_MS);
+  }
   
   setInterval(() => {
     // Track when count last changed
@@ -807,14 +1123,13 @@ background: rgba(202, 12, 12, 0.692);
       // Trigger cleanup
       console.log('Resetting stale Yomitan state - triggering cleanup');
       ipcRenderer.send('yomitan-event', false);
-      // ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      if (isMagpieActive && !manualHotkeyPressed) {
+        requestMagpieMouseRelease('stale-yomitan-reset');
+      }
       
       if (hideOnYomitanClose) {
         hideOnYomitanClose = false;
-        if (!pinned) {
-          document.body.classList.remove('force-visible');
-        }
-        hideTextBoxes();
+        applyManualInactivePresentation('yomitan-stale-reset');
       }
     }
   }, 5000); // Check every 5 seconds
@@ -879,14 +1194,13 @@ background: rgba(202, 12, 12, 0.692);
       yomitanPopupIds.clear(); // Clear the set to prevent memory leaks
       
       ipcRenderer.send('yomitan-event', false);
-      // ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      if (isMagpieActive && !manualHotkeyPressed) {
+        requestMagpieMouseRelease('yomitan-popup-hidden');
+      }
       
       if (hideOnYomitanClose) {
         hideOnYomitanClose = false;
-        if (!pinned) {
-          document.body.classList.remove('force-visible');
-        }
-        hideTextBoxes();
+        applyManualInactivePresentation('yomitan-popup-hidden');
       }
     }
   });
@@ -914,36 +1228,131 @@ background: rgba(202, 12, 12, 0.692);
     const newHeight = startHeight + (e.clientY - startY);
     textElement.style.width = newWidth + "px";
     textElement.style.height = newHeight + "px";
+    updateImmediateRecycledIndicator();
   }
 
   function stopResize() {
     isResizing = false;
     document.removeEventListener("mousemove", resize);
+    updateImmediateRecycledIndicator();
   }
 
 
 </script>
 
+<script src="block_detection.js"></script>
 <script>
   const { ipcRenderer } = require("electron");
+  // Try to load OverlayUtils if available (since this is an Electron renderer process)
+  let OverlayUtils;
+  let FuriganaUtils;
+  let BlockDetection = window.GSMBlockDetection;
+  try {
+    OverlayUtils = require("./overlay_utils.js");
+    window.OverlayUtils = OverlayUtils;
+  } catch (e) {
+    console.warn("Could not require overlay_utils.js:", e);
+  }
+  try {
+    FuriganaUtils = require("./furigana_utils.js");
+    window.GSMFuriganaUtils = FuriganaUtils;
+  } catch (e) {
+    console.warn("Could not require furigana_utils.js:", e);
+  }
+  if (!BlockDetection) {
+    try {
+      BlockDetection = require("./block_detection.js");
+      window.GSMBlockDetection = BlockDetection;
+    } catch (e) {
+      console.warn("Could not require block_detection.js:", e);
+    }
+  }
+  if (!BlockDetection) {
+    throw new Error("block_detection.js failed to load");
+  }
+  const {
+    detectTextBlocks,
+    getMedianValue,
+  } = BlockDetection;
+  try {
+    const MagpieUtils = require("./magpie.js");
+    window.GSMMagpie = MagpieUtils;
+    magpieController = MagpieUtils.createMagpieRendererController({
+      requestMouseRelease: requestMagpieMouseRelease,
+      restoreMouseIgnore(reason) {
+        ipcRenderer.send('set-ignore-mouse-events', true, { forward: true, reason });
+      },
+      isYomitanShowing() {
+        return yomitanShowing;
+      },
+      isManualHotkeyPressed() {
+        return manualHotkeyPressed;
+      },
+    });
+  } catch (e) {
+    console.warn("Could not require magpie.js:", e);
+  }
+
   const dragBar = document.getElementById("draggable");
   const textEl = document.getElementById("text");
   const mainBox = document.getElementById("main-box");
+  const mainRecycledIndicator = document.getElementById("main-recycled-indicator");
+  const furiganaLayer = document.getElementById("furigana-layer");
+
+  const DEFAULT_FURIGANA_STYLE = Object.freeze({
+    furiganaScale: 0.55,
+    furiganaYOffset: -2,
+    furiganaColor: '#ffffff',
+    furiganaFontFamily: '"Yu Gothic UI", "Hiragino Sans", sans-serif',
+    furiganaFontWeight: '600',
+    furiganaOutlineColor: '#222222',
+    furiganaOutlineWidth: 1.5,
+  });
+  const furiganaStyleSettings = { ...DEFAULT_FURIGANA_STYLE };
 
   let isDragging = false;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
   let offsetX = 0;
   let offsetY = 0;
-  let hideOnStartup = false;
+  let hideOnStartup = true;
+  let hideYomitanAfterMine = false;
   let usePercentage = false;
+
+  // Listen for mining success signal from Yomitan extension
+  window.addEventListener('gsm-anki-note-added', (event) => {
+    console.log('Received mining success signal');
+    if (hideYomitanAfterMine && OverlayUtils) {
+      OverlayUtils.hideYomitan();
+    }
+  });
+  // Bridge: listen for postMessage from Yomitan iframe/extension and re-dispatch as CustomEvent
+  window.addEventListener('message', (event) => {
+    if (event?.data?.type === 'gsm-anki-note-added') {
+      console.log('Received mining success via postMessage');
+      window.dispatchEvent(new CustomEvent('gsm-anki-note-added'));
+    }
+  });
   let unHoverTimer = null;
   let manualMode = false;
+  let manualModeType = "hold";
+  const MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY = "hide-overlay";
+  const MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION = "disable-interaction";
+  let manualModeInactiveBehavior = MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY;
   let showHotkey = "Shift + Space";
   let manualHotkeyPressed = false;
-  let showTextBackground = false;
+  let showTextIndicators = true;
+  let fadeTextIndicators = false;
   let showFurigana = false;
   let showRecycledIndicator = true;
+  let immediateSentenceRecycled = false;
+  let overlayRenderGeneration = 0;
+  const FURIGANA_LINE_CACHE_TTL_MS = 2500;
+  const MAX_FURIGANA_LINE_CACHE_ENTRIES = 200;
+  let lastFuriganaRenderSignature = null;
+  const furiganaLineCache = new Map();
+  const pendingSentenceRecycledStates = new Map();
+  let display = null;
   let width = 2560;
   let height = 1440;
   let workArea = { x: 0, y: 0, width: 2560, height: 1440 };
@@ -951,19 +1360,293 @@ background: rgba(202, 12, 12, 0.692);
   let workAreaHeight = 1392;
   let workAreaAdjustment = (workAreaHeight / height - 1) * -1;
 
+  function setPendingSentenceRecycledState(lineId, isSentenceRecycled) {
+    if (!lineId) {
+      return;
+    }
+
+    pendingSentenceRecycledStates.set(String(lineId), !!isSentenceRecycled);
+    while (pendingSentenceRecycledStates.size > 64) {
+      const oldestKey = pendingSentenceRecycledStates.keys().next().value;
+      if (!oldestKey) {
+        break;
+      }
+      pendingSentenceRecycledStates.delete(oldestKey);
+    }
+  }
+
+  function resolvePendingSentenceRecycledState(lineId, fallbackState) {
+    if (!lineId) {
+      return !!fallbackState;
+    }
+
+    const normalizedLineId = String(lineId);
+    if (!pendingSentenceRecycledStates.has(normalizedLineId)) {
+      return !!fallbackState;
+    }
+
+    const resolvedState = pendingSentenceRecycledStates.get(normalizedLineId);
+    pendingSentenceRecycledStates.delete(normalizedLineId);
+    return !!resolvedState;
+  }
+
+  function updateImmediateRecycledIndicator() {
+    if (!mainRecycledIndicator) {
+      return;
+    }
+
+    if (
+      !showRecycledIndicator ||
+      !immediateSentenceRecycled ||
+      !mainBox ||
+      mainBox.style.display === "none" ||
+      mainBox.style.visibility === "hidden"
+    ) {
+      mainRecycledIndicator.style.display = "none";
+      return;
+    }
+
+    const mainBoxRect = mainBox.getBoundingClientRect();
+    const textRect = textEl.getBoundingClientRect();
+    mainRecycledIndicator.style.top = `${(textRect.top - mainBoxRect.top) + (textRect.height / 2)}px`;
+    mainRecycledIndicator.style.display = "block";
+  }
+
+  function setImmediateSentenceRecycled(isSentenceRecycled) {
+    immediateSentenceRecycled = !!isSentenceRecycled;
+    updateImmediateRecycledIndicator();
+  }
+
+  window.addEventListener('resize', updateImmediateRecycledIndicator);
+
+  function applyMagpieInfo(rawInfo, reason = "magpie-update") {
+    if (magpieController) {
+      const result = magpieController.applyInfo(rawInfo, reason);
+      currentMagpieInfo = result.state.info;
+      isMagpieActive = result.state.active;
+      return result;
+    }
+
+    const oldMagpieActive = isMagpieActive;
+    currentMagpieInfo = rawInfo;
+    isMagpieActive = currentMagpieInfo !== null && currentMagpieInfo !== undefined;
+    return {
+      activeChanged: oldMagpieActive !== isMagpieActive,
+      signatureChanged: oldMagpieActive !== isMagpieActive,
+      state: {
+        active: isMagpieActive,
+        info: currentMagpieInfo,
+        signature: null,
+      },
+    };
+  }
+
+  function clampNumber(value, fallback, min, max) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return fallback;
+    }
+    return Math.min(max, Math.max(min, numeric));
+  }
+
+  function sanitizeFuriganaColor(value, fallback) {
+    const text = String(value || '').trim();
+    return text || fallback;
+  }
+
+  function sanitizeFuriganaFontFamily(value, fallback) {
+    const text = String(value || '').trim();
+    return text || fallback;
+  }
+
+  function applyFuriganaStyleSettings(newSettings = {}) {
+    furiganaStyleSettings.furiganaScale = clampNumber(
+      newSettings.furiganaScale ?? furiganaStyleSettings.furiganaScale,
+      DEFAULT_FURIGANA_STYLE.furiganaScale,
+      0.2,
+      2.5
+    );
+    furiganaStyleSettings.furiganaYOffset = clampNumber(
+      newSettings.furiganaYOffset ?? furiganaStyleSettings.furiganaYOffset,
+      DEFAULT_FURIGANA_STYLE.furiganaYOffset,
+      -48,
+      48
+    );
+    furiganaStyleSettings.furiganaOutlineWidth = clampNumber(
+      newSettings.furiganaOutlineWidth ?? furiganaStyleSettings.furiganaOutlineWidth,
+      DEFAULT_FURIGANA_STYLE.furiganaOutlineWidth,
+      0,
+      6
+    );
+    furiganaStyleSettings.furiganaColor = sanitizeFuriganaColor(
+      newSettings.furiganaColor ?? furiganaStyleSettings.furiganaColor,
+      DEFAULT_FURIGANA_STYLE.furiganaColor
+    );
+    furiganaStyleSettings.furiganaFontFamily = sanitizeFuriganaFontFamily(
+      newSettings.furiganaFontFamily ?? furiganaStyleSettings.furiganaFontFamily,
+      DEFAULT_FURIGANA_STYLE.furiganaFontFamily
+    );
+    furiganaStyleSettings.furiganaFontWeight = String(
+      newSettings.furiganaFontWeight ?? furiganaStyleSettings.furiganaFontWeight ?? DEFAULT_FURIGANA_STYLE.furiganaFontWeight
+    ).trim() || DEFAULT_FURIGANA_STYLE.furiganaFontWeight;
+    furiganaStyleSettings.furiganaOutlineColor = sanitizeFuriganaColor(
+      newSettings.furiganaOutlineColor ?? furiganaStyleSettings.furiganaOutlineColor,
+      DEFAULT_FURIGANA_STYLE.furiganaOutlineColor
+    );
+
+    document.documentElement.style.setProperty('--gsm-furigana-scale', String(furiganaStyleSettings.furiganaScale));
+    document.documentElement.style.setProperty('--gsm-furigana-offset-y', `${furiganaStyleSettings.furiganaYOffset}px`);
+    document.documentElement.style.setProperty('--gsm-furigana-color', furiganaStyleSettings.furiganaColor);
+    document.documentElement.style.setProperty('--gsm-furigana-font-family', furiganaStyleSettings.furiganaFontFamily);
+    document.documentElement.style.setProperty('--gsm-furigana-font-weight', furiganaStyleSettings.furiganaFontWeight);
+    document.documentElement.style.setProperty('--gsm-furigana-outline-color', furiganaStyleSettings.furiganaOutlineColor);
+    document.documentElement.style.setProperty('--gsm-furigana-outline-width', `${furiganaStyleSettings.furiganaOutlineWidth}px`);
+  }
+
+  function shouldShowFuriganaLayer() {
+    return showFurigana &&
+      furiganaVisible &&
+      !furiganaAutoHidden &&
+      !(manualMode && !manualHotkeyPressed && shouldHideOverlayWhenManualInactive());
+  }
+
+  function updateFuriganaVisibilityState() {
+    if (!furiganaLayer) {
+      return;
+    }
+    furiganaLayer.style.display = shouldShowFuriganaLayer() ? 'block' : 'none';
+  }
+
+  function clearFuriganaAutoHideTimer() {
+    if (furiganaAutoHideTimer !== null) {
+      clearTimeout(furiganaAutoHideTimer);
+      furiganaAutoHideTimer = null;
+    }
+  }
+
+  function scheduleFuriganaAutoHide() {
+    clearFuriganaAutoHideTimer();
+    if (!(hideFuriganaAfterSeconds > 0) || !furiganaLayer || furiganaLayer.childElementCount === 0) {
+      return;
+    }
+    furiganaAutoHideTimer = setTimeout(() => {
+      furiganaAutoHidden = true;
+      updateFuriganaVisibilityState();
+    }, hideFuriganaAfterSeconds * 1000);
+  }
+
+  function clearFuriganaLayer() {
+    if (furiganaLayer) {
+      furiganaLayer.replaceChildren();
+    }
+  }
+
+  function resetFuriganaRenderState() {
+    clearFuriganaAutoHideTimer();
+    furiganaAutoHidden = false;
+    lastFuriganaRenderSignature = null;
+    clearFuriganaLayer();
+    updateFuriganaVisibilityState();
+  }
+
+  function roundFuriganaSignatureValue(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return '0';
+    }
+    return String(Math.round(numeric * 5) / 5);
+  }
+
+  function getFuriganaBackendCacheSignature() {
+    const backend = String(gamepadSettings?.tokenizerBackend || 'mecab').toLowerCase();
+    if (backend === 'yomitan-bridge' || backend === 'yomitan-api') {
+      return `${backend}|${String(gamepadSettings?.yomitanApiUrl || '').trim()}|${Number.parseInt(gamepadSettings?.yomitanScanLength, 10) || 10}`;
+    }
+    return backend;
+  }
+
+  function getFuriganaLineCacheKey(text) {
+    return `${getFuriganaBackendCacheSignature()}|${String(text || '')}`;
+  }
+
+  function pruneFuriganaLineCache(now = Date.now()) {
+    for (const [key, entry] of furiganaLineCache.entries()) {
+      if (!entry || entry.expiresAt <= now) {
+        furiganaLineCache.delete(key);
+      }
+    }
+    while (furiganaLineCache.size > MAX_FURIGANA_LINE_CACHE_ENTRIES) {
+      const oldestKey = furiganaLineCache.keys().next().value;
+      if (oldestKey === undefined) {
+        break;
+      }
+      furiganaLineCache.delete(oldestKey);
+    }
+  }
+
+  function getCachedFuriganaLine(text) {
+    const now = Date.now();
+    pruneFuriganaLineCache(now);
+    const cacheEntry = furiganaLineCache.get(getFuriganaLineCacheKey(text));
+    if (!cacheEntry || cacheEntry.expiresAt <= now) {
+      return null;
+    }
+    return cacheEntry.value;
+  }
+
+  function setCachedFuriganaLine(text, value) {
+    const key = getFuriganaLineCacheKey(text);
+    furiganaLineCache.delete(key);
+    furiganaLineCache.set(key, {
+      expiresAt: Date.now() + FURIGANA_LINE_CACHE_TTL_MS,
+      value,
+    });
+    pruneFuriganaLineCache();
+  }
+
+  applyFuriganaStyleSettings();
+
   // Loading indicator functions
   let loadingStartTime = null;
+  let readyIndicatorFadeTimer = null;
+  let readyIndicatorResetTimer = null;
 
   function showReadyIndicator() {
     const indicator = document.getElementById('loading-indicator');
+    if (!indicator) return;
 
-    indicator.innerHTML = '<div class="checkmark">✓</div>';
-    indicator.classList.add('fade-out');
-    
-    setTimeout(() => {
+    if (readyIndicatorFadeTimer) {
+      clearTimeout(readyIndicatorFadeTimer);
+      readyIndicatorFadeTimer = null;
+    }
+    if (readyIndicatorResetTimer) {
+      clearTimeout(readyIndicatorResetTimer);
+      readyIndicatorResetTimer = null;
+    }
+
+    indicator.classList.remove('show', 'fade-out');
+    indicator.style.transition = 'none';
+    indicator.style.opacity = '1';
+    indicator.innerHTML = '';
+    const checkmark = document.createElement('div');
+    checkmark.className = 'checkmark';
+    checkmark.textContent = "\u2713";
+    indicator.appendChild(checkmark);
+    indicator.classList.add('show');
+    // Force style flush so transition starts reliably even under rapid updates.
+    void indicator.offsetHeight;
+    indicator.style.transition = 'opacity 1.1s ease-out';
+    readyIndicatorFadeTimer = setTimeout(() => {
+      indicator.style.opacity = '0';
+    }, 550);
+    readyIndicatorResetTimer = setTimeout(() => {
       indicator.classList.remove('show', 'fade-out');
+      indicator.style.transition = '';
+      indicator.style.opacity = '';
       loadingStartTime = null;
-    }, 1500);
+      readyIndicatorFadeTimer = null;
+      readyIndicatorResetTimer = null;
+    }, 1800);
   }
 
   dragBar.addEventListener("mousedown", (e) => {
@@ -989,32 +1672,45 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   let prevContainer = null;
+  const overlaySocketUrls = { ws1: null, ws2: null };
+  let overlayMessageProcessing = false;
+  const pendingOverlayMessages = [];
 
   function setupWebSocket(weburl, isPrimary) {
-    const wanakana = window.wanakana;
     try {
-      new URL(weburl);
-      let type = "ws1";
-      if (!isPrimary) {
-        type = "ws2";
+      const type = isPrimary ? "ws1" : "ws2";
+      overlaySocketUrls[type] = new URL(weburl).toString();
+    } catch (e) {
+      console.warn("Websocket setup error:", e);
+    }
+  }
+
+  async function processOverlayMessageQueue() {
+    if (overlayMessageProcessing) {
+      return;
+    }
+    overlayMessageProcessing = true;
+    try {
+      while (pendingOverlayMessages.length > 0) {
+        const rawData = pendingOverlayMessages.shift();
+        await handleOverlayWebSocketData(rawData);
       }
-      if (window[type] && window[type].readyState !== WebSocket.CLOSED) {
-        window[type].close();
+    } finally {
+      overlayMessageProcessing = false;
+      if (pendingOverlayMessages.length > 0) {
+        processOverlayMessageQueue().catch((err) => {
+          console.error("Overlay websocket queue processing failed:", err);
+        });
       }
-      const websocket = new WebSocket(weburl);
-      websocket.onclose = (event) => {
-        ipcRenderer.send(`websocket-closed`, type)
-      }
-      websocket.onopen = (event) => {
-        ipcRenderer.send(`websocket-opened`, type)
-      }
-      websocket.onmessage = async (event) => {
-        ipcRenderer.send("websocket-data", event.data);
-        let data = event.data;
+    }
+  }
+
+  async function handleOverlayWebSocketData(rawData) {
+        let data = rawData;
         try {
-          data = JSON.parse(event.data);
+          data = JSON.parse(rawData);
         } catch (_) {
-          data = event.data;
+          data = rawData;
         }
 
         if (data.config) {
@@ -1027,18 +1723,17 @@ background: rgba(202, 12, 12, 0.692);
           
           // Process magpie_info from websocket
           if (data.magpie_info !== undefined) {
-            const oldMagpieActive = isMagpieActive;
-            currentMagpieInfo = data.magpie_info;
-            isMagpieActive = currentMagpieInfo !== null && currentMagpieInfo !== undefined;
+            const result = applyMagpieInfo(data.magpie_info, "window-state");
             
             console.log("Magpie info updated from websocket:", currentMagpieInfo);
             console.log("Magpie active state:", isMagpieActive);
             
-            // If magpie state changed, update the behavior
-            if (oldMagpieActive !== isMagpieActive) {
-              console.log("Magpie state changed from", oldMagpieActive, "to", isMagpieActive);
+            if (result.activeChanged || result.signatureChanged) {
+              console.log("Magpie state changed:", result.state.signature || "inactive");
+            }
+
+            if (!magpieController && (result.activeChanged || result.signatureChanged)) {
               updateMagpieCompatibility(isMagpieActive);
-              // updateActionPanelMagpieArea();
             }
           }
           
@@ -1046,6 +1741,7 @@ background: rgba(202, 12, 12, 0.692);
             state: data.data,
             game: data.game,
             magpieActive: isMagpieActive,
+            magpieInfo: currentMagpieInfo,
             isFullscreen: data.is_fullscreen || false,
             recommendManualMode: data.recommend_manual_mode || false
           });
@@ -1058,164 +1754,64 @@ background: rgba(202, 12, 12, 0.692);
           return; // Don't process as text display
         }
 
+        if (data.type === "sentence_recycled_status") {
+          setPendingSentenceRecycledState(data.line_id, data.is_sentence_recycled);
+          if (typeof data.sentence === 'string') {
+            document.getElementById("text").textContent = data.sentence[0] == '\n' ? data.sentence.slice(1) : data.sentence;
+            ipcRenderer.send("text-received", data.sentence);
+          } else if (typeof data.sentence === 'number' || typeof data.sentence === 'boolean') {
+            document.getElementById("text").textContent = String(data.sentence);
+            ipcRenderer.send("text-received", String(data.sentence));
+          }
+          setImmediateSentenceRecycled(data.is_sentence_recycled);
+          return;
+        }
+
         // Clear existing text boxes
         const mainBoxBounds = mainBox.getBoundingClientRect();
 
         console.log(data);
 
-        const isSentenceRecycled = data.is_sentence_recycled;
+        let renderedTextPayload = false;
 
         // Check if data has words array (new word-level coordinate format)
         if (data.type == "word_coordinates" && Array.isArray(data.data) && data.data.every(item => item.text && item.bounding_rect)) {
+          renderedTextPayload = true;
+          const isSentenceRecycled = resolvePendingSentenceRecycledState(data.line_id, data.is_sentence_recycled);
+          setImmediateSentenceRecycled(isSentenceRecycled);
           // Handle array of {text, bounding_rect}
           ipcRenderer.send("text-received", data);
 
-          clearTextBoxes();
+          clearTextBoxes({ preserveFurigana: true });
+          const renderGeneration = ++overlayRenderGeneration;
           
-          // FIRST PASS: Detect blocks of text (lines with similar x1 and close y proximity)
-          const X_THRESHOLD = 2; // Lines within 2% x1 difference are considered aligned
-          const Y_THRESHOLD = 8; // Lines within 8% y distance are considered part of same block
-          const Y_SAME_LINE_THRESHOLD = 1; // Lines within 1% y distance are on the same physical line
-          const CHAR_SHIFT_THRESHOLD = 3; // Allow up to 3 characters of shift difference
+          // FIRST PASS: Detect blocks by "general area" (y-first with soft x guards)
+          const {
+            lineBlocks,
+            blockBoundaries,
+            blockCount: currentBlockId,
+          } = detectTextBlocks(data.data);
           
-          // Assign block IDs to each line
-          const lineBlocks = new Map(); // Map from line index to block ID
-          let currentBlockId = 0;
-          
-          for (let i = 0; i < data.data.length; i++) {
-            const currentLine = data.data[i];
-            const currentRect = currentLine.bounding_rect;
-            const currentX1 = currentRect.x1 * 100;
-            const currentY = (currentRect.y1 + currentRect.y3) / 2 * 100; // Use center Y
-            const currentWidth = (currentRect.x3 - currentRect.x1) * 100;
-            const currentCharWidth = currentWidth / currentLine.text.length;
-            
-            let assignedToBlock = false;
-            
-            // Check if this line belongs to an existing block
-            for (let j = 0; j < i; j++) {
-              if (!lineBlocks.has(j)) continue;
-              
-              // Get the candidate block ID
-              const candidateBlockId = lineBlocks.get(j);
-              
-              // Collect all X positions in this block to find the min/max range
-              const blockXPositions = [];
-              for (let k = 0; k < i; k++) {
-                if (lineBlocks.get(k) === candidateBlockId) {
-                  const blockLine = data.data[k];
-                  const blockRect = blockLine.bounding_rect;
-                  blockXPositions.push(blockRect.x1 * 100);
-                }
-              }
-              
-              // Find min and max X in the block
-              const minBlockX = Math.min(...blockXPositions);
-              const maxBlockX = Math.max(...blockXPositions);
-              
-              // Calculate the X range (how much shift exists in this block)
-              const blockXRange = maxBlockX - minBlockX;
-              
-              // Calculate average character width for the block
-              let totalCharWidth = 0;
-              let charCount = 0;
-              for (let k = 0; k < i; k++) {
-                if (lineBlocks.get(k) === candidateBlockId) {
-                  const blockLine = data.data[k];
-                  const blockRect = blockLine.bounding_rect;
-                  const blockWidth = (blockRect.x3 - blockRect.x1) * 100;
-                  totalCharWidth += blockWidth / blockLine.text.length;
-                  charCount++;
-                }
-              }
-              const avgBlockCharWidth = totalCharWidth / charCount;
-              
-              // Check if current line matches this block
-              let matchesBlock = false;
-              
-              for (let k = 0; k < i; k++) {
-                if (lineBlocks.get(k) !== candidateBlockId) continue;
-                
-                const blockLine = data.data[k];
-                const blockRect = blockLine.bounding_rect;
-                const blockX1 = blockRect.x1 * 100;
-                const blockY = (blockRect.y1 + blockRect.y3) / 2 * 100;
-                
-                const xDiff = Math.abs(currentX1 - blockX1);
-                const yDiff = Math.abs(currentY - blockY);
-                
-                // If on the same physical line (very close Y), group together regardless of X
-                const isSamePhysicalLine = yDiff <= Y_SAME_LINE_THRESHOLD;
-                
-                if (isSamePhysicalLine) {
-                  matchesBlock = true;
-                  break;
-                }
-                
-                // For vertical proximity checks
-                if (yDiff <= Y_THRESHOLD) {
-                  // Check if lines are x-aligned
-                  const isXAligned = xDiff <= X_THRESHOLD;
-                  
-                  if (isXAligned) {
-                    matchesBlock = true;
-                    break;
-                  }
-                  
-                  // Check if current line's X falls within the block's X range + threshold
-                  const currentXInRange = currentX1 >= (minBlockX - avgBlockCharWidth * CHAR_SHIFT_THRESHOLD) &&
-                                         currentX1 <= (maxBlockX + avgBlockCharWidth * CHAR_SHIFT_THRESHOLD);
-                  
-                  // Also check character shift from this specific line
-                  const avgCharWidth = (currentCharWidth + (blockRect.x3 - blockRect.x1) * 100 / blockLine.text.length) / 2;
-                  const charShift = xDiff / avgCharWidth;
-                  
-                  if (currentXInRange || charShift <= CHAR_SHIFT_THRESHOLD) {
-                    matchesBlock = true;
-                    break;
-                  }
-                }
-              }
-              
-              if (matchesBlock) {
-                lineBlocks.set(i, candidateBlockId);
-                assignedToBlock = true;
-                break;
-              }
-            }
-            
-            // If not assigned to any existing block, create new block
-            if (!assignedToBlock) {
-              lineBlocks.set(i, currentBlockId);
-              currentBlockId++;
-            }
-          }
-          
-          // Identify start and end of each block
-          const blockBoundaries = new Map(); // Map from block ID to {start: index, end: index}
-          for (let i = 0; i < data.data.length; i++) {
-            const blockId = lineBlocks.get(i);
-            if (!blockBoundaries.has(blockId)) {
-              blockBoundaries.set(blockId, { start: i, end: i });
-            } else {
-              blockBoundaries.get(blockId).end = i;
-            }
-          }
-          
-          console.log("Detected text blocks:", blockBoundaries);
+          console.log("Detected text blocks:", Array.from(blockBoundaries.entries()).map(([blockId, boundaries]) => ({
+            blockId,
+            start: boundaries.start,
+            end: boundaries.end,
+          })));
           
           // Log the complete text of each block
-          blockBoundaries.forEach((boundaries, blockId) => {
+          blockBoundaries.forEach((_, blockId) => {
             let blockText = '';
-            for (let i = boundaries.start; i <= boundaries.end; i++) {
-              blockText += data.data[i].text;
+            for (let i = 0; i < data.data.length; i++) {
+              if (lineBlocks.get(i) === blockId) {
+                blockText += data.data[i].text;
+              }
             }
             console.log(`Block ${blockId} text:`, blockText);
           });
           
           // SECOND PASS: Process lines with block awareness
-          let furiganaBoxes = [];
           const blockContainers = new Map(); // Map from block ID to container div
+          const blockIndicatorBounds = new Map();
           
           for (let lineIdx = 0; lineIdx < data.data.length; lineIdx++) {
             const line = data.data[lineIdx];
@@ -1223,7 +1819,7 @@ background: rgba(202, 12, 12, 0.692);
             
             // Check if this is the start or end of a block
             const blockId = lineBlocks.get(lineIdx);
-            const boundaries = blockBoundaries.get(blockId);
+            const boundaries = blockBoundaries.get(blockId) || { start: lineIdx, end: lineIdx };
             const isBlockStart = lineIdx === boundaries.start;
             const isBlockEnd = lineIdx === boundaries.end;
             
@@ -1232,6 +1828,8 @@ background: rgba(202, 12, 12, 0.692);
               const blockContainer = document.createElement('p');
               blockContainer.className = 'text-block-container';
               blockContainer.setAttribute('data-block-id', blockId);
+              blockContainer.setAttribute('data-line-start', boundaries.start);
+              blockContainer.setAttribute('data-line-end', boundaries.end);
               blockContainer.style.position = 'absolute';
               blockContainer.style.pointerEvents = 'none';
               blockContainer.style.left = '0';
@@ -1257,319 +1855,298 @@ background: rgba(202, 12, 12, 0.692);
             
             const rect = line.bounding_rect;
             let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+            // Track original (source-window) bounds separately for interactive area
+            let origMinx = Infinity, origMiny = Infinity, origMaxx = -Infinity, origMaxy = -Infinity;
             let bigInteractiveArea = document.createElement("div");
             bigInteractiveArea.className = "big-interactive-area interactive half-interactive";
-            if (!/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/.test(line.text)) {
-              // Not Japanese, Chinese, or Korean: add a spacer span after each box
-              const spacer = document.createElement('span');
-              spacer.textContent = ' ';
-              spacer.style.display = 'inline-block';
-              spacer.style.width = '0.5em';
-              spacer.className = 'spacer';
-              document.body.appendChild(spacer);
-            }
-            let furiganaProcessedIndex = 0;
-            // --- NEW: Pre-process logic ---
-            // Flatten tokens into single characters with interpolated bounding boxes
             const wordList = [];
-            
-            // Add line break at start of block
-            if (isBlockStart && blockId > 0) {
-              wordList.push({
-                text: '\n',
-                bounding_rect: {
-                  x1: line.words[0].bounding_rect.x1,
-                  y1: line.words[0].bounding_rect.y1,
-                  x3: line.words[0].bounding_rect.x1,
-                  y3: line.words[0].bounding_rect.y3
-                }
-              });
-            }
-            
-            for (const w of line.words) {
-              const len = w.text.length;
-              // If it's already 1 char, just add it
-              if (len <= 1) {
-                wordList.push(w);
-                continue;
-              }
-              // If it's a string, split it and calculate positions
-              const charWidth = (w.bounding_rect.x3 - w.bounding_rect.x1) / len;
-              for (let k = 0; k < len; k++) {
+            const useLexicalWordBoxes = shouldPreserveLexicalWordBoxes(line.text);
+
+            if (useLexicalWordBoxes) {
+              wordList.push(...buildLexicalWordRenderUnits(line.words, line.text, !isBlockEnd));
+            } else {
+              // Flatten CJK tokens into single characters so Yomitan can anchor each glyph precisely.
+              if (isBlockStart && blockId > 0 && Array.isArray(line.words) && line.words[0]?.bounding_rect) {
                 wordList.push({
-                  text: w.text[k],
+                  text: '\n',
                   bounding_rect: {
-                    x1: w.bounding_rect.x1 + (k * charWidth),
-                    y1: w.bounding_rect.y1,
-                    x3: w.bounding_rect.x1 + ((k + 1) * charWidth),
-                    y3: w.bounding_rect.y3
+                    x1: line.words[0].bounding_rect.x1,
+                    y1: line.words[0].bounding_rect.y1,
+                    x3: line.words[0].bounding_rect.x1,
+                    y3: line.words[0].bounding_rect.y3
                   }
                 });
               }
-            }
-            
-            // Add line break at end of block
-            if (isBlockEnd) {
-              const lastWord = line.words[line.words.length - 1];
-              wordList.push({
-                text: '\n',
-                bounding_rect: {
-                  x1: lastWord.bounding_rect.x3,
-                  y1: lastWord.bounding_rect.y1,
-                  x3: lastWord.bounding_rect.x3,
-                  y3: lastWord.bounding_rect.y3
+
+              for (const w of Array.isArray(line.words) ? line.words : []) {
+                if (!w || typeof w.text !== 'string' || !w.text.length || !w.bounding_rect) {
+                  continue;
                 }
-              });
+                const glyphs = Array.from(w.text);
+                const len = glyphs.length;
+                if (len <= 1) {
+                  wordList.push(w);
+                  continue;
+                }
+                const charWidth = (w.bounding_rect.x3 - w.bounding_rect.x1) / len;
+                for (let k = 0; k < len; k++) {
+                  wordList.push({
+                    text: glyphs[k],
+                    bounding_rect: {
+                      x1: w.bounding_rect.x1 + (k * charWidth),
+                      y1: w.bounding_rect.y1,
+                      x3: w.bounding_rect.x1 + ((k + 1) * charWidth),
+                      y3: w.bounding_rect.y3
+                    }
+                  });
+                }
+              }
+
+              if (isBlockEnd && Array.isArray(line.words) && line.words.length > 0) {
+                const lastWord = line.words[line.words.length - 1];
+                if (lastWord?.bounding_rect) {
+                  wordList.push({
+                    text: '\n',
+                    bounding_rect: {
+                      x1: lastWord.bounding_rect.x3,
+                      y1: lastWord.bounding_rect.y1,
+                      x3: lastWord.bounding_rect.x3,
+                      y3: lastWord.bounding_rect.y3
+                    }
+                  });
+                }
+              }
             }
-            // ------------------------------
+
+            const lineWordBoxes = [];
 
             // Iterate over 'wordList'
-            for (const [wordIdx, word] of wordList.entries()) {
+            for (let wordIndex = 0; wordIndex < wordList.length; wordIndex++) {
+              const word = wordList[wordIndex];
               const rect = word.bounding_rect;
-              let x1 = rect.x1 * 100;
-              let y1 = rect.y1 * 100;
-              let x3 = rect.x3 * 100;
-              let y3 = rect.y3 * 100;
+              // Original (source-window) coordinates in percentage
+              const origX1 = rect.x1 * 100;
+              const origY1 = rect.y1 * 100;
+              const origX3 = rect.x3 * 100;
+              const origY3 = rect.y3 * 100;
 
+              // Track original bounds for interactive area (always source position)
+              origMinx = Math.min(origMinx, origX1);
+              origMiny = Math.min(origMiny, origY1);
+              origMaxx = Math.max(origMaxx, origX3);
+              origMaxy = Math.max(origMaxy, origY3);
+
+              // Map to Magpie-scaled position for rendering (identity when Magpie inactive)
+              const tl = mapPercentToMagpie(origX1, origY1);
+              const br = mapPercentToMagpie(origX3, origY3);
+              let x1 = tl.x, y1 = tl.y, x3 = br.x, y3 = br.y;
+
+              // Track rendered (possibly scaled) bounds for line indicators
               minx = Math.min(minx, x1);
               miny = Math.min(miny, y1);
               maxx = Math.max(maxx, x3);
               maxy = Math.max(maxy, y3);
               const box = createTextBox(word.text, x1, y1, x3, y3, 0, true, true, false);
-              
-              // Append to the block container instead of body
+              box.dataset.lineIndex = lineIdx;
               const blockContainer = blockContainers.get(blockId);
               if (blockContainer) {
                 blockContainer.appendChild(box);
               } else {
                 document.body.appendChild(box);
               }
-              
+
               const boundBox = box.getBoundingClientRect();
-              if (pinned && isTextInMainBox(boundBox, mainBoxBounds)) {
+              const hiddenByMainBox = pinned && isTextInMainBox(boundBox, mainBoxBounds);
+              if (hiddenByMainBox) {
                 console.log("Text inside main box, hiding:", word.text);
                 box.style.display = 'none';
+              }
+
+              lineWordBoxes.push({
+                box,
+                text: word.text,
+                widthPercent: x3 - x1,
+                heightPercent: y3 - y1,
+                y1,
+                y3,
+                boundBox,
+                hiddenByMainBox,
+              });
+            }
+
+            for (const lineWordBox of lineWordBoxes) {
+              if (lineWordBox.hiddenByMainBox) {
                 continue;
               }
-              const fontSize = estimateFontSize(word.text, x3 - x1, y3 - y1, boundBox);
-              box.style.fontSize = `${fontSize}px`;
+              const fontSize = estimateFontSize(
+                lineWordBox.text,
+                lineWordBox.widthPercent,
+                lineWordBox.heightPercent,
+                lineWordBox.boundBox
+              );
+              lineWordBox.estimatedFontSize = fontSize;
+              lineWordBox.box.style.fontSize = `${fontSize}px`;
+            }
 
-              if (showFurigana && /[^\u0000-\u007F]+/.test(word.text) && furiganaProcessedIndex <= wordIdx) {
-                const wanakana = window.wanakana;
-                const text = await wanakana.stripOkurigana(word.text);
-                if (!text || await wanakana.isKanji(text) === false) {
-                  furiganaProcessedIndex = wordIdx + 1;
+            const surroundingBoxes = lineWordBoxes.filter((lineWordBox) => (
+              !lineWordBox.hiddenByMainBox
+              && !isContextSizedPunctuationMarker(lineWordBox.text)
+              && Number.isFinite(lineWordBox.estimatedFontSize)
+              && lineWordBox.estimatedFontSize > 0
+            ));
+            const visibleBoxes = lineWordBoxes.filter((lineWordBox) => (
+              !lineWordBox.hiddenByMainBox
+              && Number.isFinite(lineWordBox.estimatedFontSize)
+              && lineWordBox.estimatedFontSize > 0
+            ));
+            const fontReferenceBoxes = surroundingBoxes.length > 0 ? surroundingBoxes : visibleBoxes;
+            const surroundingFontSize = getMedianValue(fontReferenceBoxes.map((lineWordBox) => lineWordBox.estimatedFontSize));
+            const surroundingHeightPercent = getMedianValue(fontReferenceBoxes.map((lineWordBox) => lineWordBox.heightPercent));
+
+            if (surroundingFontSize > 0) {
+              for (const lineWordBox of lineWordBoxes) {
+                if (lineWordBox.hiddenByMainBox || !isContextSizedPunctuationMarker(lineWordBox.text)) {
                   continue;
                 }
+                lineWordBox.box.style.fontSize = `${Math.round(surroundingFontSize)}px`;
 
-                try {
-                  const kuroshiro = window.kuroshiro;
-                  if (!kuroshiro) {
-                    console.warn('Kuroshiro not initialized yet');
-                    continue;
-                  }
-                  let kanji = "";
-                  let prefixHirgana = "";
-                  let suffixHirgana = "";
-
-                  if (wordIdx - 1 >= 0) {
-                    const prevWord = wordList[wordIdx - 1];
-                    if (await wanakana.isHiragana(prevWord.text)) {
-                      prefixHirgana = prevWord.text;
-                    }
-                  }
-
-                  kanji += word.text;
-                  let currentIndex = wordIdx + 1;
-                  while (currentIndex < wordList.length && await wanakana.isKanji(wordList[currentIndex].text)) {
-                    kanji += wordList[currentIndex].text;
-                    currentIndex++;
-                  }
-                  while (currentIndex < wordList.length) {
-                    const currentWord = wordList[currentIndex];
-                    if (await wanakana.isKanji(currentWord.text)) {
-                      break;
-                    }
-                    suffixHirgana += currentWord.text;
-                    currentIndex++;
-                  }
-
-                  furiganaProcessedIndex = currentIndex;
-                  let combinedText = prefixHirgana + kanji + suffixHirgana;
-                  combinedText = combinedText.replace(/ー+/g, 'ー');
-
-                  const hiragana = await kuroshiro.convert(combinedText, { to: 'hiragana', mode: 'normal' });
-                  let reading = hiragana;
-                  if (prefixHirgana && reading.startsWith(prefixHirgana)) {
-                    reading = reading.slice(prefixHirgana.length);
-                  }
-                  if (suffixHirgana && reading.endsWith(suffixHirgana)) {
-                    reading = reading.slice(0, -suffixHirgana.length);
-                  }
-
-                  const furiganaBox = document.createElement('ruby');
-                  furiganaBox.className = 'furigana-box';
-                  
-                  // Create rt (ruby text) element for the reading
-                  const rtElement = document.createElement('rt');
-                  rtElement.textContent = reading;
-                  furiganaBox.appendChild(rtElement);
-                  
-                  // Override ruby default styling to use absolute positioning
-                  furiganaBox.style.position = 'absolute';
-                  furiganaBox.style.whiteSpace = 'nowrap';
-                  furiganaBox.style.overflowX = 'visible';
-                  furiganaBox.style.overflowY = 'hidden';
-                  furiganaBox.style.textOverflow = 'unset';
-                  furiganaBox.style.minWidth = `${x3 - x1}%`;
-                  furiganaBox.style.width = 'auto';
-                  furiganaBox.style.padding = '0';
-                  furiganaBox.style.margin = '0';
-                  furiganaBox.style.lineHeight = '1';
-                  furiganaBox.style.display = furiganaVisible ? 'block' : 'none';
-                  
-                  const furiganaFontSize = fontSize * 0.35;
-                  furiganaBox.style.fontSize = `${furiganaFontSize}px`;
-                  rtElement.style.fontSize = `${furiganaFontSize}px`;
-                  const furiganaHeight = furiganaFontSize * 1.1;
-                  const furiganaHeightPercent = (furiganaHeight / window.innerHeight) * 100;
-                  let furiganaTop = y1 - furiganaHeightPercent;
-                  
-                  furiganaBox.style.left = `${x1 + offsetX}%`;
-                  furiganaBox.style.top = `${furiganaTop + offsetY}%`;
-                  furiganaBox.style.textAlign = 'left';
-                  furiganaBoxes.push(furiganaBox);
-                } catch (error) {
-                  console.error('Error converting to furigana:', error);
+                if (surroundingHeightPercent > 0 && surroundingHeightPercent > lineWordBox.heightPercent * 1.1) {
+                  const centerY = (lineWordBox.y1 + lineWordBox.y3) / 2;
+                  const newY1 = Math.max(0, Math.min(100 - surroundingHeightPercent, centerY - (surroundingHeightPercent / 2)));
+                  lineWordBox.box.style.top = `${newY1 + offsetY}%`;
+                  lineWordBox.box.style.height = `${surroundingHeightPercent}%`;
                 }
               }
             }
 
-            let lineBox = document.createElement("div");
-            lineBox.className = "line-box";
-            lineBox.style.position = "absolute";
-            lineBox.style.pointerEvents = "none";
-            lineBox.style.zIndex = "998";
+            // Line indicator bounds use the rendered (possibly Magpie-scaled) coordinates
+            // so they visually surround the text boxes.
+            let lineMinx = minx - 0.2;
+            let lineMiny = miny - 0.2;
+            let lineMaxx = maxx + 0.2;
+            let lineMaxy = maxy + 0.2;
 
-            // Use currentMagpieInfo from websocket instead of deprecated magpieWindowInfo
-            if (currentMagpieInfo) {
-              const topLeft = transformCoordinates(minx, miny);
-              const bottomRight = transformCoordinates(maxx, maxy);
-              lineBox.style.left = `${topLeft.x - 2}px`;
-              lineBox.style.top = `${topLeft.y - 2}px`;
-              lineBox.style.width = `${bottomRight.x - topLeft.x + 4}px`;
-              lineBox.style.height = `${bottomRight.y - topLeft.y + 4}px`;
-              minx = topLeft.x - 25;
-              miny = topLeft.y - 25;
-              maxx = bottomRight.x + 25;
-              maxy = bottomRight.y + 25;
-              bigInteractiveArea.style.position = "absolute";
-              bigInteractiveArea.style.left = `${minx}px`;
-              bigInteractiveArea.style.top = `${miny}px`;
-              bigInteractiveArea.style.width = `${maxx - minx}px`;
-              bigInteractiveArea.style.height = `${maxy - miny}px`;
+            const existingBlockBounds = blockIndicatorBounds.get(blockId);
+            if (existingBlockBounds) {
+              existingBlockBounds.minx = Math.min(existingBlockBounds.minx, lineMinx);
+              existingBlockBounds.miny = Math.min(existingBlockBounds.miny, lineMiny);
+              existingBlockBounds.maxx = Math.max(existingBlockBounds.maxx, lineMaxx);
+              existingBlockBounds.maxy = Math.max(existingBlockBounds.maxy, lineMaxy);
             } else {
-              let lineMinx = minx - 0.2;
-              let lineMiny = miny - 0.2;
-              let lineMaxx = maxx + 0.2;
-              let lineMaxy = maxy + 0.2;
-              lineBox.style.left = `${lineMinx}%`;
-              lineBox.style.top = `${lineMiny}%`;
-              lineBox.style.width = `${lineMaxx - lineMinx}%`;
-              lineBox.style.height = `${lineMaxy - lineMiny}%`;
-              // Use isMagpieActive from websocket instead of magpieCompatibility setting
-              if (isMagpieActive) {
-                minx -= 5;
-                miny -= 20;
-                maxx += 5;
-                maxy += 5;
-                bigInteractiveArea.style.position = "absolute";
-                bigInteractiveArea.style.left = `${minx}%`;
-                bigInteractiveArea.style.top = `${miny}%`;
-                bigInteractiveArea.style.width = `${maxx - minx}%`;
-                bigInteractiveArea.style.height = `${maxy - miny}%`;
-              }
+              blockIndicatorBounds.set(blockId, {
+                minx: lineMinx,
+                miny: lineMiny,
+                maxx: lineMaxx,
+                maxy: lineMaxy,
+              });
             }
 
-            lineBox.style.transition = 'border-color 2s ease-out, background-color 2s ease-out';
-            if (showTextBackground) {
-              lineBox.style.border = '1px solid rgba(255, 0, 0, 0.6)';
-              setTimeout(() => {
-                lineBox.style.borderColor = 'rgba(255, 0, 0, 0)';
-              }, 100);
-            } else {
-              lineBox.style.background = 'rgba(0, 0, 0, 0)';
-              lineBox.style.border = 'none';
+            // When Magpie is active, position the interactive area at the
+            // original (source-window) location so mouse events forward to
+            // the game correctly.  Text boxes are rendered at the scaled
+            // Magpie destination and handle Yomitan interaction directly.
+            if (isMagpieActive && currentMagpieInfo) {
+              const iaPad = 2.0; // percentage points of padding each side
+              bigInteractiveArea.style.position = 'absolute';
+              bigInteractiveArea.style.left   = `${origMinx - iaPad}%`;
+              bigInteractiveArea.style.top    = `${origMiny - iaPad}%`;
+              bigInteractiveArea.style.width  = `${(origMaxx - origMinx) + iaPad * 2}%`;
+              bigInteractiveArea.style.height = `${(origMaxy - origMiny) + iaPad * 2}%`;
             }
 
-            document.body.appendChild(lineBox);
             document.body.appendChild(bigInteractiveArea);
           }
 
-          // Add recycled sentence indicator if applicable
-          if (showRecycledIndicator && isSentenceRecycled && data.data && data.data.length > 0) {
-            const firstLine = data.data[0];
-            const firstWord = firstLine.words && firstLine.words[0];
-            
-            if (firstWord && firstWord.bounding_rect) {
-              const rect = firstWord.bounding_rect;
+          blockIndicatorBounds.forEach((bounds) => {
+            const blockBox = document.createElement("div");
+            blockBox.className = "line-box";
+            blockBox.style.position = "absolute";
+            blockBox.style.pointerEvents = "none";
+            blockBox.style.zIndex = "998";
+            blockBox.style.left = `${bounds.minx}%`;
+            blockBox.style.top = `${bounds.miny}%`;
+            blockBox.style.width = `${bounds.maxx - bounds.minx}%`;
+            blockBox.style.height = `${bounds.maxy - bounds.miny}%`;
+            applyIndicatorBoxStyles(blockBox);
+            document.body.appendChild(blockBox);
+          });
+
+          // Add recycled sentence indicator if applicable. Anchor it to the
+          // final rendered block bounds so it stays beside the visible text,
+          // including when Magpie remaps coordinates.
+          if (showRecycledIndicator && isSentenceRecycled && blockIndicatorBounds.size > 0) {
+            const renderedBlockBounds = Array.from(blockIndicatorBounds.values());
+            const lastBlockBounds = renderedBlockBounds[renderedBlockBounds.length - 1];
+
+            if (lastBlockBounds) {
               const indicator = document.createElement('div');
               indicator.className = 'recycled-indicator';
-              indicator.innerHTML = '&#x21BB;'; // Unicode clockwise open circle arrow (recycling symbol)
+              indicator.innerHTML = '&#x21BB;';
               indicator.style.position = 'absolute';
               indicator.style.pointerEvents = 'none';
               indicator.style.zIndex = '999';
-              indicator.style.color = '#FFA500'; // Orange color
+              indicator.style.color = '#FFA500';
               indicator.style.fontSize = '32px';
               indicator.style.fontWeight = 'bold';
+              indicator.style.lineHeight = '1';
               indicator.style.textShadow = '0 0 4px rgba(0, 0, 0, 0.8), 0 0 8px rgba(255, 165, 0, 0.6)';
               indicator.style.opacity = '0.85';
               indicator.style.userSelect = 'none';
-              
-              // Position to the left of the first character
-              const indicatorOffsetX = -2; // Shift slightly to the left
-              const indicatorOffsetY = 1; // Align with text baseline
-              
-              indicator.style.left = `${(rect.x1 * 100) + indicatorOffsetX}%`;
-              indicator.style.top = `${(rect.y1 * 100) + indicatorOffsetY}%`;
-              
+              indicator.style.left = `${lastBlockBounds.minx}%`;
+              indicator.style.top = `${(lastBlockBounds.miny + lastBlockBounds.maxy) / 2}%`;
+              indicator.style.transform = 'translate(calc(-100% - 10px), -50%)';
+
               document.body.appendChild(indicator);
             }
           }
           
-          if (furiganaBoxes.length > 0) {
-            const fragment = document.createDocumentFragment();
-            furiganaBoxes.forEach(box => fragment.appendChild(box));
-            document.body.appendChild(fragment);
-          }
-
-          if (shouldShowReadyIndicator)
-            showReadyIndicator();
+          renderFuriganaForFrame(data.data, renderGeneration).catch((err) => {
+            console.warn('[Furigana] Async render failed:', err);
+          });
 
         } else {
-          let line = data?.sentence || data;
-          document.getElementById("text").textContent = line[0] == '\n' ? line.slice(1) : line;
+          const line = data?.sentence ?? data;
+          if (typeof line === 'string') {
+            renderedTextPayload = true;
+            document.getElementById("text").textContent = line[0] == '\n' ? line.slice(1) : line;
+            updateImmediateRecycledIndicator();
+          } else if (typeof line === 'number' || typeof line === 'boolean') {
+            renderedTextPayload = true;
+            document.getElementById("text").textContent = String(line);
+            updateImmediateRecycledIndicator();
+          }
+        }
+
+        if (renderedTextPayload && shouldShowReadyIndicator) {
+          showReadyIndicator();
         }
         if (manualMode && !manualHotkeyPressed) {
-          hideTextBoxes();
+          applyManualInactivePresentation('text-received-manual-inactive');
         }
 
         ipcRenderer.send("text-received", data);
         if (!manualModeActivatedOnce) {
           setMouseEventHandlers();
         }
-      }
-      window[type] = websocket;
-    } catch (e) {
-      console.warn("Websocket setup error:", e);
+  }
+
+  ipcRenderer.on("overlay-websocket-data", (event, payload) => {
+    if (!payload || typeof payload.data !== "string") {
       return;
     }
-  }
+    pendingOverlayMessages.push(payload.data);
+    processOverlayMessageQueue().catch((err) => {
+      console.error("Overlay websocket message handling failed:", err);
+    });
+  });
 
   function createTextBox(sentence, x1, y1, x2, y2, fontSize, noBackground = false, transparentText = false, verticalText = false) {
     const textBox = document.createElement('span');
-    textBox.className = 'text-box interactive';
-    textBox.textContent = sentence[0] == '\n' ? sentence.slice(1) : sentence;
+    textBox.className = 'text-box';
+    const text = sentence[0] == '\n' ? sentence.slice(1) : sentence;
+    textBox.textContent = text;
+    textBox.classList.add('interactive');
+    textBox.dataset.selectable = 'true';
     textBox.style.left = `${x1 + offsetX}%`;
     textBox.style.top = `${y1 + offsetY}%`;
     textBox.style.width = `${x2 - x1}%`;
@@ -1601,51 +2178,366 @@ background: rgba(202, 12, 12, 0.692);
     return textBox;
   }
 
-  function checkAndReconnectWebSockets() {
-    if (window.ws1 && window.ws1.readyState === WebSocket.CLOSED) {
-      setupWebSocket(window.ws1.url, true);
-    }
-    if (window.ws2 && window.ws2.readyState === WebSocket.CLOSED) {
-      setupWebSocket(window.ws2.url, false);
-    }
-  }
-  setInterval(checkAndReconnectWebSockets, 1000);
-
-function transformCoordinates(x, y) {
-    if (!currentMagpieInfo) {
-      return { x, y };
-    }
-
-    // Calculate dimensions of the Magpie window
-    const magpieWidth = currentMagpieInfo.magpieWindowRightEdgePosition - currentMagpieInfo.magpieWindowLeftEdgePosition;
-    const magpieHeight = currentMagpieInfo.magpieWindowBottomEdgePosition - currentMagpieInfo.magpieWindowTopEdgePosition;
-
-    // Check if Magpie window is essentially Fullscreen (within 5% of monitor size)
-    // Uses global 'width' and 'height' variables
-    const isFullscreen = (magpieWidth >= width * 0.95) && (magpieHeight >= height * 0.95);
-
-    if (isFullscreen) {
-      // --- YOUR LOGIC (For Fullscreen) ---
-      // Uses Source Window coordinates
-      const sourceWidth = currentMagpieInfo.sourceWindowRightEdgePosition - currentMagpieInfo.sourceWindowLeftEdgePosition;
-      const sourceHeight = currentMagpieInfo.sourceWindowBottomEdgePosition - currentMagpieInfo.sourceWindowTopEdgePosition;
-      
-      let transformedX = currentMagpieInfo.sourceWindowLeftEdgePosition + (x / 100 * sourceWidth);
-      let transformedY = currentMagpieInfo.sourceWindowTopEdgePosition + (y / 100 * sourceHeight);
-      
-      return { x: transformedX, y: transformedY };
-    } else {
-      // --- MY LOGIC (For Windowed) ---
-      // Uses Magpie Window coordinates to scale correctly when windowed
-      let transformedX = currentMagpieInfo.magpieWindowLeftEdgePosition + (x / 100 * magpieWidth);
-      let transformedY = currentMagpieInfo.magpieWindowTopEdgePosition + (y / 100 * magpieHeight);
-      
-      return { x: transformedX, y: transformedY };
-    }
+  function createNavigationBox(sentence, x1, y1, x2, y2) {
+    const textBox = document.createElement('span');
+    textBox.className = 'nav-char-box';
+    textBox.textContent = sentence;
+    textBox.dataset.selectable = 'true';
+    textBox.style.left = `${x1 + offsetX}%`;
+    textBox.style.top = `${y1 + offsetY}%`;
+    textBox.style.width = `${x2 - x1}%`;
+    textBox.style.height = `${y2 - y1}%`;
+    textBox.style.fontSize = '48px';
+    return textBox;
   }
 
-  function estimateFontSize(word, width, height, rect) {
-    return Math.max(8, Math.min(100, Math.round(rect.height)));
+  function shouldPreserveLexicalWordBoxes(lineText) {
+    return !CJK_LEXICAL_REGEX.test(String(lineText || ''));
+  }
+
+  function normalizeLexicalFragmentText(text) {
+    return String(text || '').replace(/\s+/g, '');
+  }
+
+  function buildLexicalWordRenderUnits(words, lineText, appendTrailingSpace = false) {
+    const normalizedWords = Array.isArray(words)
+      ? words.filter((word) => (
+          word
+          && typeof word.text === 'string'
+          && word.text.length > 0
+          && word.bounding_rect
+        ))
+      : [];
+    const multiCharWordCount = normalizedWords.filter((word) => (
+      normalizeLexicalFragmentText(word.text).length > 1
+    )).length;
+
+    // Trust OCR word segmentation when it already produced actual lexical words.
+    if (normalizedWords.length <= 1 || multiCharWordCount > 0) {
+      return finalizeLexicalWordRenderUnits(normalizedWords, appendTrailingSpace, true);
+    }
+
+    const normalizedLineText = normalizeLexicalFragmentText(lineText);
+    if (normalizedWords.length > 1 && normalizedLineText.length > 0) {
+      return finalizeLexicalWordRenderUnits([{
+        text: String(lineText || ''),
+        bounding_rect: {
+          x1: normalizedWords[0].bounding_rect.x1,
+          y1: Math.min(...normalizedWords.map((word) => word.bounding_rect.y1)),
+          x3: normalizedWords[normalizedWords.length - 1].bounding_rect.x3,
+          y3: Math.max(...normalizedWords.map((word) => word.bounding_rect.y3)),
+        }
+      }], appendTrailingSpace, false);
+    }
+
+    return finalizeLexicalWordRenderUnits(normalizedWords, appendTrailingSpace, false);
+  }
+
+  function finalizeLexicalWordRenderUnits(words, appendTrailingSpace = false, trustProvidedText = false) {
+    const units = [];
+
+    words.forEach((word, wordIndex) => {
+      const rect = word.bounding_rect;
+      const baseText = String(word.text || '');
+      const glyphs = Array.from(baseText);
+      const glyphCount = Math.max(1, glyphs.length);
+      const charWidth = Math.max(0.0001, (rect.x3 - rect.x1) / glyphCount);
+      const nextWord = words[wordIndex + 1];
+      const shouldAppendSpace = !!nextWord || appendTrailingSpace;
+      let x3 = rect.x3;
+      let text = baseText;
+
+      if (trustProvidedText && /\s$/u.test(baseText)) {
+        // OCR already included the trailing space in both text and bounds.
+      } else if (shouldAppendSpace) {
+        const rawSpaceWidth = nextWord && nextWord.bounding_rect
+          ? Math.max(0, nextWord.bounding_rect.x1 - rect.x3)
+          : charWidth * 0.45;
+        const spaceWidth = Math.max(charWidth * 0.2, rawSpaceWidth);
+        const spaceX3 = Math.min(1, rect.x3 + spaceWidth);
+        x3 = spaceX3 > rect.x3 ? spaceX3 : Math.min(1, rect.x3 + (charWidth * 0.2));
+        text += ' ';
+      }
+
+      units.push({
+        text,
+        bounding_rect: {
+          x1: rect.x1,
+          y1: rect.y1,
+          x3,
+          y3: rect.y3,
+        }
+      });
+    });
+
+    return units;
+  }
+
+  function getViewportRectFromPercentBounds(x1, y1, x3, y3) {
+    const left = ((x1 + offsetX) / 100) * window.innerWidth;
+    const top = ((y1 + offsetY) / 100) * window.innerHeight;
+    const right = ((x3 + offsetX) / 100) * window.innerWidth;
+    const bottom = ((y3 + offsetY) / 100) * window.innerHeight;
+    return {
+      left,
+      top,
+      right,
+      bottom,
+      width: right - left,
+      height: bottom - top,
+    };
+  }
+
+  function estimateFontSize(word, widthPercent, heightPercent, rect) {
+    if (rect && Number.isFinite(rect.height) && rect.height > 0) {
+      return Math.max(8, Math.min(100, Math.round(rect.height)));
+    }
+    const pixelHeight = (heightPercent / 100) * window.innerHeight;
+    return Math.max(8, Math.min(100, Math.round(pixelHeight)));
+  }
+
+  function isContextSizedPunctuationMarker(text) {
+    if (typeof text !== 'string') {
+      return false;
+    }
+    const compact = text.replace(/\s+/g, '');
+    if (!compact || compact === '\n') {
+      return false;
+    }
+    // Dash-like punctuation markers should inherit surrounding text sizing.
+    if (/^[\-‐‑‒–—―ーｰ－〜～]+$/.test(compact)) {
+      return true;
+    }
+    // Lexical characters keep OCR sizing.
+    if (LATIN_NUMERIC_REGEX.test(compact) || CJK_LEXICAL_REGEX.test(compact)) {
+      return false;
+    }
+    // Visible punctuation/symbol-like markers inherit surrounding text sizing.
+    return true;
+  }
+
+  function buildLineCharacterBoxes(line) {
+    const characters = [];
+    if (!line || !Array.isArray(line.words)) {
+      return characters;
+    }
+
+    for (const word of line.words) {
+      if (!word || typeof word.text !== 'string' || !word.bounding_rect) {
+        continue;
+      }
+
+      const text = word.text;
+      if (!text.length) {
+        continue;
+      }
+
+      const rect = word.bounding_rect;
+      const charWidth = (rect.x3 - rect.x1) / Math.max(1, text.length);
+
+      for (let i = 0; i < text.length; i++) {
+        const origX1 = (rect.x1 + (i * charWidth)) * 100;
+        const origY1 = rect.y1 * 100;
+        const origX3 = (rect.x1 + ((i + 1) * charWidth)) * 100;
+        const origY3 = rect.y3 * 100;
+        const topLeft = mapPercentToMagpie(origX1, origY1);
+        const bottomRight = mapPercentToMagpie(origX3, origY3);
+
+        characters.push({
+          text: text[i],
+          x1: topLeft.x,
+          y1: topLeft.y,
+          x3: bottomRight.x,
+          y3: bottomRight.y,
+        });
+      }
+    }
+
+    return characters;
+  }
+
+  function getFuriganaAnnotationsForLine(line, segments) {
+    const lineText = line && typeof line.text === 'string' ? line.text : '';
+    const normalizedSegments = (FuriganaUtils && typeof FuriganaUtils.normalizeBackendSegments === 'function')
+      ? FuriganaUtils.normalizeBackendSegments(lineText, segments || [], { source: 'overlay-renderer' })
+      : (Array.isArray(segments) ? segments : []);
+
+    const annotations = [];
+    const seen = new Set();
+
+    normalizedSegments.forEach((segment) => {
+      if (!segment) {
+        return;
+      }
+
+      const segmentAnnotations = Array.isArray(segment.annotations) && segment.annotations.length > 0
+        ? segment.annotations
+        : ((segment.hasReading && segment.reading)
+          ? [{
+              start: segment.start,
+              end: segment.end,
+              text: segment.text,
+              reading: segment.reading,
+            }]
+          : []);
+
+      segmentAnnotations.forEach((annotation) => {
+        if (!annotation || !annotation.reading) {
+          return;
+        }
+        const start = Number(annotation.start);
+        const end = Number(annotation.end);
+        if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+          return;
+        }
+
+        const key = `${start}:${end}:${annotation.reading}`;
+        if (seen.has(key)) {
+          return;
+        }
+        seen.add(key);
+
+        annotations.push({
+          start,
+          end,
+          text: annotation.text || lineText.slice(start, end),
+          reading: annotation.reading,
+        });
+      });
+    });
+
+    annotations.sort((a, b) => (a.start === b.start ? a.end - b.end : a.start - b.start));
+    return annotations;
+  }
+
+  function createFuriganaBoxesForLine(line, segments) {
+    const boxes = [];
+    const characters = buildLineCharacterBoxes(line);
+    if (characters.length === 0) {
+      return boxes;
+    }
+
+    const annotations = getFuriganaAnnotationsForLine(line, segments);
+    for (const annotation of annotations) {
+      const start = Number(annotation.start);
+      const end = Number(annotation.end);
+      const reading = String(annotation.reading || '').trim();
+      if (!reading) {
+        continue;
+      }
+
+      const annotationChars = characters.slice(start, end).filter(Boolean);
+      if (annotationChars.length === 0) {
+        continue;
+      }
+
+      const startChar = annotationChars[0];
+      const endChar = annotationChars[annotationChars.length - 1];
+      const minTop = Math.min(...annotationChars.map((char) => char.y1));
+      const maxHeightPercent = Math.max(...annotationChars.map((char) => Math.max(0, char.y3 - char.y1)));
+      const baseFontSize = Math.max(8, Math.min(100, Math.round((maxHeightPercent / 100) * window.innerHeight)));
+      const segmentWidth = Math.max(0.35, endChar.x3 - startChar.x1);
+
+      const left = startChar.x1 + offsetX;
+      const top = minTop + offsetY;
+      const furiganaBox = document.createElement('div');
+      furiganaBox.className = 'furigana-box';
+      furiganaBox.style.left = `${left}%`;
+      furiganaBox.style.top = `${top}%`;
+      furiganaBox.style.width = `${segmentWidth}%`;
+      furiganaBox.style.setProperty('--gsm-furigana-base-font-size', `${baseFontSize}px`);
+      furiganaBox._gsmRenderSignature = [
+        roundFuriganaSignatureValue(left),
+        roundFuriganaSignatureValue(top),
+        roundFuriganaSignatureValue(segmentWidth),
+        String(Math.round(baseFontSize)),
+        reading,
+      ].join('|');
+
+      const furiganaText = document.createElement('span');
+      furiganaText.className = 'furigana-reading';
+      furiganaText.textContent = reading;
+      furiganaBox.appendChild(furiganaText);
+
+      boxes.push(furiganaBox);
+    }
+
+    return boxes;
+  }
+
+  async function renderFuriganaForFrame(lines, renderGeneration) {
+    if (showFurigana && !gamepadHandler && typeof syncGamepadHandlerLifecycle === 'function') {
+      await syncGamepadHandlerLifecycle();
+    }
+
+    const furiganaReady = gamepadHandler && (
+      typeof gamepadHandler.canRequestFurigana === 'function'
+        ? gamepadHandler.canRequestFurigana()
+        : gamepadHandler.isServerConnected()
+    );
+    if (!showFurigana || !furiganaReady) {
+      resetFuriganaRenderState();
+      return;
+    }
+
+    const furiganaRequests = lines.map((line, lineIdx) => {
+      if (!line || !line.text || !/[^\u0000-\u007F]/.test(line.text)) {
+        return Promise.resolve(null);
+      }
+      const cachedLine = getCachedFuriganaLine(line.text);
+      if (cachedLine) {
+        return Promise.resolve({ line, lineIdx, segments: cachedLine.segments || [] });
+      }
+      return gamepadHandler.requestFurigana(line.text, lineIdx, 1200)
+        .then((result) => {
+          const normalizedResult = { segments: result.segments || [] };
+          setCachedFuriganaLine(line.text, normalizedResult);
+          return { line, lineIdx, segments: normalizedResult.segments };
+        })
+        .catch((err) => {
+          console.warn(`[Furigana] Failed to get furigana for line ${lineIdx}:`, err);
+          return null;
+        });
+    });
+
+    const resolved = await Promise.all(furiganaRequests);
+    if (renderGeneration !== overlayRenderGeneration) {
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    let renderedCount = 0;
+    const renderSignatureParts = [];
+    for (const item of resolved) {
+      if (!item || !item.segments || item.segments.length === 0) {
+        continue;
+      }
+      const boxes = createFuriganaBoxesForLine(item.line, item.segments);
+      for (const box of boxes) {
+        fragment.appendChild(box);
+        renderedCount++;
+        renderSignatureParts.push(box._gsmRenderSignature || '');
+      }
+    }
+
+    if (renderedCount === 0) {
+      resetFuriganaRenderState();
+      return;
+    }
+
+    const renderSignature = renderSignatureParts.join('||');
+    if (renderSignature === lastFuriganaRenderSignature) {
+      updateFuriganaVisibilityState();
+      return;
+    }
+
+    lastFuriganaRenderSignature = renderSignature;
+    furiganaAutoHidden = false;
+    if (furiganaLayer) {
+      furiganaLayer.replaceChildren(fragment);
+    }
+    updateFuriganaVisibilityState();
+    scheduleFuriganaAutoHide();
   }
 
   function isTextInMainBox(rect, mainBoxBounds) {
@@ -1669,6 +2561,10 @@ function transformCoordinates(x, y) {
 
     interactiveElements.forEach((element) => {
       element.addEventListener('mouseenter', (event) => {
+        if (isManualInteractionSuppressed()) {
+          restoreOverlayPassThrough('manual-interaction-suppressed-mouseenter');
+          return;
+        }
         isMouseOverInteractiveElement = true;
         ipcRenderer.send('set-ignore-mouse-events', false);
       });
@@ -1683,6 +2579,10 @@ function transformCoordinates(x, y) {
     halfInteractiveElements.forEach((element) => {
       if (!element.classList.contains("interactive")) {
         element.addEventListener('mouseenter', () => {
+          if (isManualInteractionSuppressed()) {
+            restoreOverlayPassThrough('manual-interaction-suppressed-half-enter');
+            return;
+          }
           isMouseOverInteractiveElement = true;
           ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
         });
@@ -1691,6 +2591,12 @@ function transformCoordinates(x, y) {
 
     bigInteractiveAreas.forEach((area) => {
       area.addEventListener('click', (event) => {
+        if (isManualInteractionSuppressed()) {
+          event.preventDefault();
+          event.stopPropagation();
+          restoreOverlayPassThrough('manual-interaction-suppressed-click');
+          return;
+        }
         // If not a textbox, hide the big interactive area for three seconds.
         if (!event.target.classList.contains('text-box')) {
           ipcRenderer.send('hide');
@@ -1703,30 +2609,37 @@ function transformCoordinates(x, y) {
   }
 
   // Function to clear all existing text boxes
-function clearTextBoxes() {
+  function clearTextBoxes(options = {}) {
+    const preserveFurigana = options.preserveFurigana === true;
     // Fast way to clear DOM without leaving residue
-    const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.furigana-box', '.recycled-indicator', '.text-block-container', '.block-separator'];
+    const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.recycled-indicator', '.text-block-container', '.block-separator'];
     selectors.forEach(sel => {
         const elements = document.querySelectorAll(sel);
         for (let i = 0; i < elements.length; i++) {
             elements[i].remove();
         }
     });
+    if (!preserveFurigana) {
+      resetFuriganaRenderState();
+    }
     
     // Don't remove translation-display here if you want it to persist, 
     // but DO remove it if you're getting new text.
     const trans = document.getElementById('translation-display');
     if (trans) trans.remove();
-}
+  }
 
   function hideTextBoxes() {
-    const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.furigana-box', '.recycled-indicator', '.text-block-container', '.block-separator'];
+    const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.recycled-indicator', '.text-block-container', '.block-separator'];
     selectors.forEach(sel => {
         const elements = document.querySelectorAll(sel);
         for (let i = 0; i < elements.length; i++) {
             elements[i].style.display = 'none';
         }
     });
+    if (furiganaLayer) {
+      furiganaLayer.style.display = 'none';
+    }
     
     // Don't remove translation-display here if you want it to persist, 
     // but DO remove it if you're getting new text.
@@ -1742,11 +2655,7 @@ function clearTextBoxes() {
             elements[i].style.display = 'block';
         }
     });
-
-    const furiganaBoxes = document.querySelectorAll('.furigana-box');
-    for (let i = 0; i < furiganaBoxes.length; i++) {
-      furiganaBoxes[i].style.display = furiganaVisible ? 'block' : 'none';
-    }
+    updateFuriganaVisibilityState();
     
     // Don't remove translation-display here if you want it to persist, 
     // but DO remove it if you're getting new text.
@@ -1800,6 +2709,11 @@ function clearTextBoxes() {
     const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');
     const isActionPanel = false; // target.id === 'action-panel' || target.closest('#action-panel');
     const isActionTrigger = false; // target.id === 'action-panel-trigger' || target.closest('#action-panel-trigger');
+
+    if (isManualInteractionSuppressed() && !isYomitanPopup) {
+      restoreOverlayPassThrough('manual-interaction-suppressed-document-click');
+      return;
+    }
     
     if (!isYomitanPopup && !isActionPanel && !isActionTrigger) {
       // Set ignore mode immediately so subsequent mouse events pass through
@@ -1818,6 +2732,11 @@ function clearTextBoxes() {
     // const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');
     const isActionPanel = false; // target.id === 'action-panel' || target.closest('#action-panel');
     const isActionTrigger = false; // target.id === 'action-panel-trigger' || target.closest('#action-panel-trigger');
+
+    if (isManualInteractionSuppressed() && !isYomitanPopup) {
+      restoreOverlayPassThrough('manual-interaction-suppressed-document-mousedown');
+      return;
+    }
     
     // If clicking on non-interactive area, ensure ignore mode is active
     if (!isYomitanPopup && !isActionPanel && !isActionTrigger) {
@@ -1831,22 +2750,116 @@ function clearTextBoxes() {
     setupWebSocket(newsettings.weburl2, false)
     hideOnStartup = newsettings.hideOnStartup;
     manualMode = newsettings.manualMode;
+    manualModeType = String(newsettings.manualModeType || "hold").trim().toLowerCase() === "toggle" ? "toggle" : "hold";
+    manualModeInactiveBehavior = normalizeManualModeInactiveBehavior(newsettings.manualModeInactiveBehavior);
     showHotkey = newsettings.showHotkey;
     pinned = newsettings.pinned;
-    showTextBackground = newsettings.showTextBackground || false;
-    shouldShowReadyIndicator = newsettings.showReadyIndicator;
+    if (Object.prototype.hasOwnProperty.call(newsettings, "showTextIndicators")) {
+      showTextIndicators = newsettings.showTextIndicators !== false;
+      fadeTextIndicators = newsettings.fadeTextIndicators === true;
+    } else {
+      showTextIndicators = true;
+      fadeTextIndicators = newsettings.showTextBackground === true;
+    }
+    shouldShowReadyIndicator = newsettings.showReadyIndicator !== false;
     showFurigana = newsettings.showFurigana;
     hideFuriganaOnStartup = newsettings.hideFuriganaOnStartup === true;
+    hideFuriganaAfterSeconds = clampNumber(newsettings.hideFuriganaAfterSeconds, 0, 0, 60);
+    applyFuriganaStyleSettings({
+      furiganaScale: newsettings.furiganaScale,
+      furiganaYOffset: newsettings.furiganaYOffset,
+      furiganaColor: newsettings.furiganaColor,
+      furiganaFontFamily: newsettings.furiganaFontFamily,
+      furiganaFontWeight: newsettings.furiganaFontWeight,
+      furiganaOutlineColor: newsettings.furiganaOutlineColor,
+      furiganaOutlineWidth: newsettings.furiganaOutlineWidth,
+    });
+    if (newsettings.hideYomitanAfterMine !== undefined) {
+      hideYomitanAfterMine = newsettings.hideYomitanAfterMine;
+    }
+    
+    // Load gamepad settings
+    if (newsettings.gamepadTokenMode !== undefined) {
+      gamepadSettings.tokenMode = newsettings.gamepadTokenMode;
+    }
+    if (newsettings.gamepadTokenizerBackend !== undefined) {
+      gamepadSettings.tokenizerBackend = newsettings.gamepadTokenizerBackend;
+    }
+    if (newsettings.gamepadLocalTokenizerFallbackBackend !== undefined) {
+      gamepadSettings.localTokenizerFallbackBackend = newsettings.gamepadLocalTokenizerFallbackBackend;
+    }
+    if (newsettings.gamepadYomitanApiUrl !== undefined) {
+      gamepadSettings.yomitanApiUrl = newsettings.gamepadYomitanApiUrl;
+    }
+    if (newsettings.gamepadYomitanScanLength !== undefined) {
+      gamepadSettings.yomitanScanLength = newsettings.gamepadYomitanScanLength;
+    }
+    if (newsettings.gamepadJitenApiKey !== undefined) {
+      gamepadSettings.jitenApiKey = newsettings.gamepadJitenApiKey;
+    }
+    if (newsettings.gamepadJpdbApiKey !== undefined) {
+      gamepadSettings.jpdbApiKey = newsettings.gamepadJpdbApiKey;
+    }
+    if (newsettings.gamepadServerPort !== undefined) {
+      gamepadSettings.serverUrl = `ws://localhost:${newsettings.gamepadServerPort}`;
+    }
+    if (newsettings.gamepadActivationMode !== undefined) {
+      gamepadSettings.activationMode = newsettings.gamepadActivationMode;
+    }
+    if (newsettings.gamepadModifierButton !== undefined) {
+      gamepadSettings.modifierButton = newsettings.gamepadModifierButton;
+    }
+    if (newsettings.gamepadToggleButton !== undefined) {
+      gamepadSettings.toggleButton = newsettings.gamepadToggleButton;
+    }
+    if (newsettings.gamepadConfirmButton !== undefined) {
+      gamepadSettings.confirmButton = newsettings.gamepadConfirmButton;
+    }
+    if (newsettings.gamepadCancelButton !== undefined) {
+      gamepadSettings.cancelButton = newsettings.gamepadCancelButton;
+    }
+    if (newsettings.gamepadForwardEnterButton !== undefined) {
+      gamepadSettings.forwardEnterButton = newsettings.gamepadForwardEnterButton;
+    }
+    if (newsettings.gamepadManualOverlayScanButton !== undefined) {
+      gamepadSettings.manualOverlayScanButton = newsettings.gamepadManualOverlayScanButton;
+    }
+    if (newsettings.gamepadNextEntryButton !== undefined) {
+      gamepadSettings.nextEntryButton = newsettings.gamepadNextEntryButton;
+    }
+    if (newsettings.gamepadPrevEntryButton !== undefined) {
+      gamepadSettings.prevEntryButton = newsettings.gamepadPrevEntryButton;
+    }
+    if (newsettings.gamepadRepeatDelay !== undefined) {
+      gamepadSettings.repeatDelay = newsettings.gamepadRepeatDelay;
+    }
+    if (newsettings.gamepadRepeatRate !== undefined) {
+      gamepadSettings.repeatRate = newsettings.gamepadRepeatRate;
+    }
+    if (newsettings.gamepadAutoConfirmSelection !== undefined) {
+      gamepadSettings.autoConfirmSelection = newsettings.gamepadAutoConfirmSelection;
+    }
+    if (newsettings.gamepadFocusOverlayOnEntry !== undefined) {
+      gamepadSettings.focusOverlayOnEntry = newsettings.gamepadFocusOverlayOnEntry;
+    }
+    if (newsettings.gamepadControllerEnabled !== undefined) {
+      gamepadSettings.controllerEnabled = newsettings.gamepadControllerEnabled;
+    }
+    if (newsettings.gamepadKeyboardEnabled !== undefined) {
+      gamepadSettings.keyboardEnabled = newsettings.gamepadKeyboardEnabled;
+    }
+    // Load keyboard binding settings
+    for (const key of KEYBOARD_SETTING_KEYS) {
+      if (newsettings[key] !== undefined) {
+        gamepadSettings[key] = newsettings[key];
+      }
+    }
     
     // Apply hide furigana on startup if enabled
     if (hideFuriganaOnStartup && showFurigana) {
       furiganaVisible = false;
-      // Hide any existing furigana boxes
-      const furiganaBoxes = document.querySelectorAll('.furigana-box');
-      furiganaBoxes.forEach(box => {
-        box.style.display = 'none';
-      });
     }
+    updateFuriganaVisibilityState();
     
     showRecycledIndicator = newsettings.showRecycledIndicator !== false;
     offsetX = newsettings.offsetX || 0;
@@ -1867,21 +2880,33 @@ function clearTextBoxes() {
     } else {
       mainBox.style.display = "";
     }
+    updateImmediateRecycledIndicator();
+    applyManualInactivePresentation('settings-load');
 
-    if (magpieReleaseInterval) {
-      clearInterval(magpieReleaseInterval);
-    }
+    if (magpieController) {
+      magpieController.syncCompatibility('settings-load');
+    } else {
+      if (magpieReleaseInterval) {
+        clearInterval(magpieReleaseInterval);
+      }
 
-    // Initialize magpie interval based on current websocket state (isMagpieActive)
-    // This will be updated dynamically when window_state messages arrive
-    if (isMagpieActive) {
-      magpieReleaseInterval = setInterval(() => {
-        // && !actionPanelShowing
+      // Initialize magpie interval based on current websocket state (isMagpieActive)
+      // This will be updated dynamically when window_state messages arrive
+      if (isMagpieActive) {
         if (!yomitanShowing && !manualHotkeyPressed) {
-          ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
+          requestMagpieMouseRelease('settings-load');
         }
-      }, 1000);
+        magpieReleaseInterval = setInterval(() => {
+          if (!yomitanShowing && !manualHotkeyPressed) {
+            requestMagpieMouseRelease('settings-load-interval');
+          }
+        }, 1000);
+      }
     }
+    
+    // Initialize gamepad handler now that settings are loaded
+    void initGamepad();
+    scheduleGsmCharacterDictionaryEnsure('startup');
   })
 
   ipcRenderer.on('display-info', (event, newDisplay) => {
@@ -1919,26 +2944,67 @@ function clearTextBoxes() {
         case "manualMode":
           updateManualMode(value);
           break;
+        case "manualModeType":
+          manualModeType = String(value || "hold").trim().toLowerCase() === "toggle" ? "toggle" : "hold";
+          break;
+        case "manualModeInactiveBehavior":
+          manualModeInactiveBehavior = normalizeManualModeInactiveBehavior(value);
+          applyManualInactivePresentation('manual-mode-inactive-behavior-updated');
+          break;
         case "showHotkey":
           showHotkey = value;
           break;
         case "pinned":
           updatePinnedState(value);
           break;
+        case "showTextIndicators":
+          updateTextIndicators(value, fadeTextIndicators);
+          break;
+        case "fadeTextIndicators":
+          updateTextIndicators(showTextIndicators, value);
+          break;
         case "showTextBackground":
-          updateTextBackground(value);
+          // Legacy compatibility path.
+          updateTextIndicators(value, value);
           break;
         case "showReadyIndicator":
-          showReadyIndicator = value;
+          shouldShowReadyIndicator = value !== false;
           break;
         case "showFurigana":
           showFurigana = value;
+          if (!showFurigana) {
+            clearFuriganaAutoHideTimer();
+            furiganaAutoHidden = false;
+          }
+          updateFuriganaVisibilityState();
           break;
         case "hideFuriganaOnStartup":
           hideFuriganaOnStartup = value;
           break;
+        case "hideFuriganaAfterSeconds":
+          hideFuriganaAfterSeconds = clampNumber(value, 0, 0, 60);
+          clearFuriganaAutoHideTimer();
+          furiganaAutoHidden = false;
+          updateFuriganaVisibilityState();
+          if (shouldShowFuriganaLayer()) {
+            scheduleFuriganaAutoHide();
+          }
+          break;
+        case "furiganaScale":
+        case "furiganaYOffset":
+        case "furiganaColor":
+        case "furiganaFontFamily":
+        case "furiganaFontWeight":
+        case "furiganaOutlineColor":
+        case "furiganaOutlineWidth":
+          applyFuriganaStyleSettings({ [key]: value });
+          break;
+        case "hideYomitanAfterMine":
+          hideYomitanAfterMine = value;
+          break;
         case "showRecycledIndicator":
           showRecycledIndicator = value;
+          updateImmediateRecycledIndicator();
           break;
         case "offsetX":
           offsetX = value;
@@ -1951,78 +3017,50 @@ function clearTextBoxes() {
   });
 
   function updateMagpieCompatibility(newValue) {
-    // newValue now represents whether magpie is currently active (from websocket)
-    // We use the global isMagpieActive state rather than the old magpieCompatibility setting
-    console.log("Magpie compatibility behavior update - Active:", isMagpieActive);
+    // Manages the periodic mouse-release timer when Magpie is active.
+    // Magpie intercepts mouse events, so we periodically release mouse
+    // control back to it when the user isn't interacting with Yomitan.
+    console.log("Magpie compatibility behavior update - Active:", newValue);
+
+    if (magpieController) {
+      magpieController.syncCompatibility('magpie-compatibility');
+      const state = magpieController.getState();
+      currentMagpieInfo = state.info;
+      isMagpieActive = state.active;
+      return;
+    }
 
     if (magpieReleaseInterval) {
       clearInterval(magpieReleaseInterval);
       magpieReleaseInterval = null;
     }
 
-    if (isMagpieActive) {
+    if (newValue) {
+      if (!yomitanShowing && !manualHotkeyPressed) {
+        requestMagpieMouseRelease('magpie-compat-start');
+      }
       magpieReleaseInterval = setInterval(() => {
-        // && !actionPanelShowing
         if (!yomitanShowing && !manualHotkeyPressed) {
-          ipcRenderer.send("set-ignore-mouse-events", true, { forward: true });
+          requestMagpieMouseRelease('magpie-compat-interval');
         }
       }, 1000);
     }
-
-    // Update any UI elements or settings related to magpieCompatibility
-    const bigInteractiveAreas = document.querySelectorAll('.big-interactive-area');
-    bigInteractiveAreas.forEach(area => {
-      const left = parseFloat(area.style.left) || 0;
-      const top = parseFloat(area.style.top) || 0;
-      const width = parseFloat(area.style.width) || 0;
-      const height = parseFloat(area.style.height) || 0;
-
-      if (usePercentage) {
-        if (isMagpieActive) {
-          area.style.left = (left - 5) + '%';
-          area.style.top = (top - 5) + '%';
-          area.style.width = (width + 10) + '%';
-          area.style.height = (height + 10) + '%';
-        } else {
-          area.style.left = left + '%';
-          area.style.top = top + '%';
-          area.style.width = width + '%';
-          area.style.height = height + '%';
-        }
-      }
-      else if (isMagpieActive) {
-        area.style.left = (left - 100) + 'px';
-        area.style.top = (top - 100) + 'px';
-        area.style.width = (width + 200) + 'px';
-        area.style.height = (height + 200) + 'px';
-      } else {
-        area.style.left = (left + 100 - 10) + 'px';
-        area.style.top = (top + 100 - 10) + 'px';
-        area.style.width = (width - 200 + 20) + 'px';
-        area.style.height = (height - 200 + 20) + 'px';
-      }
-    });
   }
 
   function updateManualMode(newValue) {
     manualMode = newValue;
+    manualModeActivatedOnce = false;
+    manualHotkeyPressed = false;
+    hideOnYomitanClose = false;
+
     if (manualMode) {
-      manualModeActivatedOnce = false;
-      manualHotkeyPressed = false;
-      hideOnYomitanClose = false; // Clear this flag to prevent weird state
-      if (!pinned) {
-        document.body.classList.remove('force-visible');
-      }
-      hideTextBoxes();
-      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      applyManualInactivePresentation('manual-mode-enabled');
+      restoreOverlayPassThrough('manual-mode-enabled');
     } else {
-      // Switching to non-manual mode (automatic mode)
-      // Clear any manual mode flags to prevent lockout
-      manualHotkeyPressed = false;
-      hideOnYomitanClose = false;
+      setManualInteractionSuppressed(false);
       document.body.classList.add('force-visible');
       showTextBoxes();
-      ipcRenderer.send('set-ignore-mouse-events', false);
+      restoreOverlayPassThrough('manual-mode-disabled');
     }
   }
 
@@ -2035,26 +3073,39 @@ function clearTextBoxes() {
       document.getElementById("btn-pin").style.color = "#ddd2d2a3";
       document.body.classList.remove("force-visible");
     }
+    applyManualInactivePresentation('pinned-updated');
   }
 
   function updateTextBackground(newValue) {
-    showTextBackground = newValue;
-    // Apply or remove background/border from existing line boxes
-    const lineBoxes = document.querySelectorAll('.line-box');
-    lineBoxes.forEach(lineBox => {
-      lineBox.style.transition = 'border-color 2s ease-out, background-color 2s ease-out';
-      if (showTextBackground) {
-        lineBox.style.border = '1px solid rgba(255, 0, 0, 0.6)';
+    updateTextIndicators(newValue, fadeTextIndicators);
+  }
 
-        // Fade out border after 3 seconds
+  function applyIndicatorBoxStyles(lineBox) {
+    if (showTextIndicators) {
+      lineBox.style.border = '1px solid rgba(255, 0, 0, 0.6)';
+      lineBox.style.background = 'rgba(0, 0, 0, 0)';
+      if (fadeTextIndicators) {
+        lineBox.style.transition = 'border-color 1.5s ease-out, background-color 1.5s ease-out';
         setTimeout(() => {
           lineBox.style.borderColor = 'rgba(255, 0, 0, 0)';
           lineBox.style.background = 'rgba(0, 0, 0, 0)';
         }, 1000);
       } else {
-        lineBox.style.background = 'rgba(0, 0, 0, 0)';
-        lineBox.style.border = 'none';
+        lineBox.style.transition = 'none';
       }
+    } else {
+      lineBox.style.transition = 'none';
+      lineBox.style.background = 'rgba(0, 0, 0, 0)';
+      lineBox.style.border = 'none';
+    }
+  }
+
+  function updateTextIndicators(newShowValue, newFadeValue) {
+    showTextIndicators = newShowValue !== false;
+    fadeTextIndicators = newFadeValue === true;
+    const lineBoxes = document.querySelectorAll('.line-box');
+    lineBoxes.forEach(lineBox => {
+      applyIndicatorBoxStyles(lineBox);
     });
   }
 
@@ -2076,25 +3127,32 @@ function clearTextBoxes() {
     manualHotkeyPressed = isActive;
     if (manualHotkeyPressed) {
       manualModeActivatedOnce = true;
+      setManualInteractionSuppressed(false);
       document.body.classList.add('force-visible');
       showTextBoxes();
       ipcRenderer.send('set-ignore-mouse-events', false);
     } else {
-      // Always set manualHotkeyPressed to false even if Yomitan is showing
-      // to maintain consistent state
+      const finishManualHotkeyRelease = () => {
+        applyManualInactivePresentation('manual-hotkey-release');
+      };
+
       if (yomitanShowing) {
-        hideOnYomitanClose = true;
-        // Don't return early - still need to remove force-visible if not pinned
-        if (!pinned) {
-          document.body.classList.remove('force-visible');
+        if (manualModeType === "hold") {
+          hideOnYomitanClose = true;
+          setManualInteractionSuppressed(true);
+          if (shouldHideOverlayWhenManualInactive() && !pinned) {
+            document.body.classList.remove('force-visible');
+          } else {
+            document.body.classList.add('force-visible');
+          }
+          return;
         }
+        void closeYomitanLookups('manual-hotkey-release').finally(() => {
+          finishManualHotkeyRelease();
+        });
         return;
       }
-      if (!pinned) {
-        document.body.classList.remove('force-visible');
-      }
-      hideTextBoxes();
-      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      finishManualHotkeyRelease();
     }
   });
 
@@ -2108,7 +3166,7 @@ function clearTextBoxes() {
       }
       hideTextBoxes();
       // Tell main to ignore mouse events so clicks pass through
-      ipcRenderer.send('set-ignore-mouse-events', true, { forward: true });
+      restoreOverlayPassThrough('afk-hide');
     } else {
       // show overlay again
       document.body.classList.add('force-visible');
@@ -2129,13 +3187,19 @@ function clearTextBoxes() {
   // Toggle furigana visibility on hotkey
   let furiganaVisible = true;
   let hideFuriganaOnStartup = true; // default to true
+  let hideFuriganaAfterSeconds = 0;
+  let furiganaAutoHidden = false;
+  let furiganaAutoHideTimer = null;
   
   ipcRenderer.on("toggle-furigana-visibility", () => {
     furiganaVisible = !furiganaVisible;
-    const furiganaBoxes = document.querySelectorAll('.furigana-box');
-    furiganaBoxes.forEach(box => {
-      box.style.display = furiganaVisible ? 'block' : 'none';
-    });
+    if (furiganaVisible) {
+      furiganaAutoHidden = false;
+      scheduleFuriganaAutoHide();
+    } else {
+      clearFuriganaAutoHideTimer();
+    }
+    updateFuriganaVisibilityState();
   });
 
   // Toggle translation visibility on hotkey
@@ -2149,9 +3213,20 @@ function clearTextBoxes() {
 
   ipcRenderer.on("request-current-settings", () => {
     const fontSize = parseInt(textEl.style.fontSize, 10);
-    const weburl1 = window.ws1 ? window.ws1.url : null;
-    const weburl2 = window.ws2 ? window.ws2.url : null;
-    ipcRenderer.send("reply-current-settings", { fontSize, weburl1, weburl2, hideOnStartup, showHotkey, manualMode, showTextBackground, hideFuriganaOnStartup });
+    const weburl1 = overlaySocketUrls.ws1;
+    const weburl2 = overlaySocketUrls.ws2;
+    ipcRenderer.send("reply-current-settings", {
+      fontSize,
+      weburl1,
+      weburl2,
+      hideOnStartup,
+      showHotkey,
+      manualMode,
+      showTextIndicators,
+      fadeTextIndicators,
+      hideFuriganaOnStartup,
+      hideFuriganaAfterSeconds
+    });
   })
 
   ipcRenderer.on('toggle-main-box', () => {
@@ -2161,12 +3236,7 @@ function clearTextBoxes() {
     } else {
       mainBox.style.display = 'none';
     }
-  });
-
-  ipcRenderer.on('magpie-window-info', (event, info) => {
-    // DEPRECATED: Now receiving magpie info via websocket in window_state messages
-    // Keeping this handler for backwards compatibility but not using it
-    console.log('Received Magpie window info via IPC (deprecated):', info);
+    updateImmediateRecycledIndicator();
   });
 
   ipcRenderer.on('new-manualmode', (event, newValue) => {
@@ -2343,6 +3413,582 @@ function clearTextBoxes() {
     // }, 30000);
   }
 
+</script>
+
+<script src="yomitan_bridge.js"></script>
+
+<script>
+  // ==================== Gamepad Integration ====================
+  // This provides controller support for navigating text blocks and cursor positions
+  // to enable Yomitan lookups without a mouse.
+  // 
+  // IMPORTANT: This uses a Rust Input Server to handle
+  // gamepad input at the OS level, allowing it to work even when another window
+  // (like a game) has focus. The browser Gamepad API doesn't work when unfocused.
+  
+  let gamepadHandler = null;
+  let gamepadModuleLoadPromise = null;
+  let gamepadInputSuppressed = false;
+  let gamepadStatusHideTimeout = null;
+  let wasGamepadConnected = false;
+  let gamepadSettings = {
+    enabled: true,
+    serverUrl: 'ws://localhost:7276', // Python gamepad server
+    activationMode: 'modifier', // 'modifier' or 'toggle'
+    modifierButton: 4, // LB
+    toggleButton: 8, // Back/Select
+    confirmButton: 0, // A
+    cancelButton: 1, // B
+    forwardEnterButton: -1, // Disabled
+    manualOverlayScanButton: -1, // Disabled
+    nextEntryButton: 7, // RT trigger - navigate to next Yomitan entry
+    prevEntryButton: 6, // LT trigger - navigate to previous Yomitan entry
+    repeatDelay: 400,
+    repeatRate: 150,
+    autoConfirmSelection: true,
+    focusOverlayOnEntry: true, // Focus overlay window when navigation activates
+    tokenMode: false, // Navigate by tokenizer word units instead of characters
+    tokenizerBackend: 'sudachi', // "mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api"
+    localTokenizerFallbackBackend: 'mecab', // Local retry backend when the selected tokenizer fails
+    yomitanApiUrl: 'http://127.0.0.1:19633', // Base URL for Yomitan API
+    yomitanScanLength: 10, // scanLength for Yomitan /tokenize
+    jitenApiKey: '', // X-Api-Key used for Jiten/api/reader/parse
+    jpdbApiKey: '', // Bearer token used for JPDB /api/v1/parse
+    controllerEnabled: true, // Enable controller button activation
+    keyboardEnabled: true, // Enable keyboard hotkey activation (set from settings)
+    inputSuppressed: false, // Temporarily suppress controller processing (settings input test)
+    // Keyboard bindings (parallel to gamepad button bindings)
+    keyboardModifierKey: null,
+    keyboardToggleKey: null,
+    keyboardConfirmKey: 'Enter',
+    keyboardCancelKey: 'Escape',
+    keyboardForwardEnterKey: null,
+    keyboardManualOverlayScanKey: null,
+    keyboardTokenModeToggleKey: null,
+    keyboardNextEntryKey: null,
+    keyboardPrevEntryKey: null,
+    keyboardNavigateUp: 'ArrowUp',
+    keyboardNavigateDown: 'ArrowDown',
+    keyboardNavigateLeft: 'ArrowLeft',
+    keyboardNavigateRight: 'ArrowRight',
+    keyboardMineButton: null,
+  };
+
+  // Keyboard setting keys that map directly (settingKey in settings.html -> gamepadSettings key)
+  const KEYBOARD_SETTING_KEYS = [
+    'keyboardModifierKey', 'keyboardToggleKey', 'keyboardConfirmKey', 'keyboardCancelKey',
+    'keyboardForwardEnterKey', 'keyboardManualOverlayScanKey', 'keyboardTokenModeToggleKey',
+    'keyboardNextEntryKey', 'keyboardPrevEntryKey',
+    'keyboardNavigateUp', 'keyboardNavigateDown', 'keyboardNavigateLeft', 'keyboardNavigateRight',
+    'keyboardMineButton',
+  ];
+
+  function shouldUseGamepadHandler() {
+    return gamepadSettings.enabled || showFurigana;
+  }
+
+  function usesServerBackedGamepadTokenizer(backend) {
+    const tokenizerBackend = String(backend || 'mecab').toLowerCase();
+    return tokenizerBackend === 'mecab' || tokenizerBackend === 'sudachi';
+  }
+
+  function shouldConnectGamepadServer() {
+    const navigationNeedsServer = gamepadSettings.enabled && gamepadSettings.controllerEnabled;
+    const tokenizerNeedsServer = (gamepadSettings.enabled || showFurigana) && (
+      usesServerBackedGamepadTokenizer(gamepadSettings.tokenizerBackend) ||
+      usesServerBackedGamepadTokenizer(gamepadSettings.localTokenizerFallbackBackend)
+    );
+    return navigationNeedsServer || tokenizerNeedsServer;
+  }
+
+  function getEffectiveControllerEnabled() {
+    return gamepadSettings.enabled && gamepadSettings.controllerEnabled;
+  }
+
+  function getEffectiveKeyboardEnabled() {
+    return gamepadSettings.enabled && gamepadSettings.keyboardEnabled;
+  }
+
+  function getGamepadNavigationAvailability() {
+    return {
+      controller: getEffectiveControllerEnabled(),
+      keyboard: getEffectiveKeyboardEnabled(),
+    };
+  }
+
+  function getGamepadHandlerConfig() {
+    return {
+      serverUrl: gamepadSettings.serverUrl,
+      activationMode: gamepadSettings.activationMode,
+      modifierButton: gamepadSettings.modifierButton,
+      toggleButton: gamepadSettings.toggleButton,
+      confirmButton: gamepadSettings.confirmButton,
+      cancelButton: gamepadSettings.cancelButton,
+      forwardEnterButton: gamepadSettings.forwardEnterButton,
+      manualOverlayScanButton: gamepadSettings.manualOverlayScanButton,
+      nextEntryButton: gamepadSettings.nextEntryButton,
+      prevEntryButton: gamepadSettings.prevEntryButton,
+      repeatDelay: gamepadSettings.repeatDelay,
+      repeatRate: gamepadSettings.repeatRate,
+      autoConfirmSelection: gamepadSettings.autoConfirmSelection,
+      focusOverlayOnEntry: gamepadSettings.focusOverlayOnEntry,
+      tokenMode: gamepadSettings.tokenMode,
+      tokenizerBackend: gamepadSettings.tokenizerBackend,
+      localTokenizerFallbackBackend: gamepadSettings.localTokenizerFallbackBackend,
+      yomitanApiUrl: gamepadSettings.yomitanApiUrl,
+      yomitanScanLength: gamepadSettings.yomitanScanLength,
+      jitenApiKey: gamepadSettings.jitenApiKey,
+      jpdbApiKey: gamepadSettings.jpdbApiKey,
+      controllerEnabled: getEffectiveControllerEnabled(),
+      keyboardEnabled: getEffectiveKeyboardEnabled(),
+      connectToServer: shouldConnectGamepadServer(),
+      inputSuppressed: gamepadInputSuppressed === true,
+      // Keyboard bindings
+      keyboardModifierKey: gamepadSettings.keyboardModifierKey,
+      keyboardToggleKey: gamepadSettings.keyboardToggleKey,
+      keyboardConfirmKey: gamepadSettings.keyboardConfirmKey,
+      keyboardCancelKey: gamepadSettings.keyboardCancelKey,
+      keyboardForwardEnterKey: gamepadSettings.keyboardForwardEnterKey,
+      keyboardManualOverlayScanKey: gamepadSettings.keyboardManualOverlayScanKey,
+      keyboardTokenModeToggleKey: gamepadSettings.keyboardTokenModeToggleKey,
+      keyboardNextEntryKey: gamepadSettings.keyboardNextEntryKey,
+      keyboardPrevEntryKey: gamepadSettings.keyboardPrevEntryKey,
+      keyboardNavigateUp: gamepadSettings.keyboardNavigateUp,
+      keyboardNavigateDown: gamepadSettings.keyboardNavigateDown,
+      keyboardNavigateLeft: gamepadSettings.keyboardNavigateLeft,
+      keyboardNavigateRight: gamepadSettings.keyboardNavigateRight,
+      keyboardMineButton: gamepadSettings.keyboardMineButton,
+    };
+  }
+
+  async function ensureGamepadModuleLoaded() {
+    if (typeof window.GamepadHandler === 'function') {
+      return true;
+    }
+    if (gamepadModuleLoadPromise) {
+      return gamepadModuleLoadPromise;
+    }
+
+    gamepadModuleLoadPromise = new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = 'gamepad.js';
+      script.onload = () => resolve(typeof window.GamepadHandler === 'function');
+      script.onerror = () => resolve(false);
+      document.head.appendChild(script);
+    });
+
+    return gamepadModuleLoadPromise;
+  }
+  
+  // Initialize gamepad handler
+  async function initGamepad() {
+    if (!shouldUseGamepadHandler()) {
+      if (gamepadHandler) {
+        gamepadHandler.destroy();
+        gamepadHandler = null;
+      }
+      window.gamepadHandler = null;
+      updateGamepadStatusIndicator();
+      return;
+    }
+
+    const loaded = await ensureGamepadModuleLoaded();
+    if (!loaded || typeof window.GamepadHandler !== 'function') {
+      console.error('[Gamepad] Failed to load gamepad module');
+      return;
+    }
+
+    if (gamepadHandler) {
+      gamepadHandler.destroy();
+    }
+    
+    gamepadHandler = new window.GamepadHandler({
+      ...getGamepadHandlerConfig(),
+      
+      // Callbacks
+      onBlockChange: (data) => {
+        console.log('[Gamepad] Block changed:', data.blockIndex, '/', data.totalBlocks);
+        updateGamepadStatusIndicator();
+        // Notify main process
+        ipcRenderer.send('gamepad-block-change', data.blockIndex);
+      },
+      
+      onCursorChange: (data) => {
+        console.log('[Gamepad] Cursor changed:', data.cursorIndex, '/', data.totalCharacters);
+        updateGamepadStatusIndicator();
+        if (data.character) {
+          console.log('[Gamepad] Current character:', data.character.textContent);
+        }
+      },
+      
+      onModeChange: (data) => {
+        console.log('[Gamepad] Navigation mode:', data.active ? 'ACTIVE' : 'INACTIVE');
+        updateGamepadStatusIndicator();
+        ipcRenderer.send('gamepad-navigation-state', { active: !!data.active });
+        
+        // While in controller navigation mode, disable click-through so focus/z-order is stable.
+        // Main process restores click-through on exit only when it is safe.
+        if (data.active) {
+          ipcRenderer.send('set-ignore-mouse-events', false, { forward: true });
+        } else if (!manualHotkeyPressed) {
+          restoreOverlayPassThrough('gamepad-mode-inactive');
+        }
+      },
+      
+      onButtonPress: (data) => {
+        // Forward all button presses to main process for potential custom handling
+        ipcRenderer.send('gamepad-button', data);
+      },
+      
+      onConfirm: (data) => {
+        console.log('[Gamepad] Confirmed selection:', data.character);
+        // The click event dispatched by GamepadHandler should trigger Yomitan
+      },
+      
+      onCancel: () => {
+        console.log('[Gamepad] Selection cancelled');
+      },
+      
+      onConnectionChange: (data) => {
+        console.log('[Gamepad] Server connection:', data.connected ? 'CONNECTED' : 'DISCONNECTED');
+        updateGamepadStatusIndicator();
+      },
+    });
+
+    window.gamepadHandler = gamepadHandler;
+    updateGamepadStatusIndicator();
+
+    if (shouldConnectGamepadServer()) {
+      console.log('[Gamepad] Handler initialized - connecting to tokenizer/gamepad server at', gamepadSettings.serverUrl);
+    } else {
+      console.log('[Gamepad] Handler initialized without controller server connection (furigana-only mode)');
+    }
+  }
+
+  async function syncGamepadHandlerLifecycle() {
+    if (!shouldUseGamepadHandler()) {
+      if (gamepadHandler) {
+        gamepadHandler.destroy();
+        gamepadHandler = null;
+      }
+      window.gamepadHandler = null;
+      updateGamepadStatusIndicator();
+      return;
+    }
+
+    if (!gamepadHandler) {
+      await initGamepad();
+      return;
+    }
+
+    gamepadHandler.updateConfig(getGamepadHandlerConfig());
+    if (!gamepadSettings.enabled && typeof gamepadHandler.manualDeactivate === 'function') {
+      gamepadHandler.manualDeactivate();
+    }
+    if (typeof gamepadHandler.setTokenMode === 'function') {
+      gamepadHandler.setTokenMode(gamepadSettings.tokenMode);
+    }
+    window.gamepadHandler = gamepadHandler;
+    updateGamepadStatusIndicator();
+  }
+  
+  // Update gamepad status indicator
+  function updateGamepadStatusIndicator() {
+    const statusEl = document.getElementById('gamepad-status');
+    if (!statusEl) return;
+
+    if (gamepadStatusHideTimeout) {
+      clearTimeout(gamepadStatusHideTimeout);
+      gamepadStatusHideTimeout = null;
+    }
+
+    if (!gamepadSettings.enabled || !gamepadHandler) {
+      wasGamepadConnected = false;
+      statusEl.classList.remove('connected', 'server-connected', 'active');
+      statusEl.style.display = 'none';
+      return;
+    }
+    
+    const state = gamepadHandler.getCurrentState();
+    const navigationAvailability = getGamepadNavigationAvailability();
+    const navigationAvailable = navigationAvailability.controller || navigationAvailability.keyboard;
+    const serverConnected = gamepadHandler.isServerConnected();
+    const gamepadConnected = gamepadHandler.isGamepadConnected();
+    const justConnected = !wasGamepadConnected && gamepadConnected;
+    wasGamepadConnected = gamepadConnected;
+
+    statusEl.classList.toggle('connected', serverConnected && gamepadConnected);
+    statusEl.classList.toggle('server-connected', serverConnected);
+    statusEl.classList.toggle('active', state.isActive);
+    
+    if (
+      !state.isActive &&
+      (
+        !navigationAvailable ||
+        !serverConnected ||
+        (navigationAvailability.controller && !gamepadConnected)
+      )
+    ) {
+      statusEl.style.display = 'none';
+    } else if (state.isActive) {
+      const modeLabel = state.tokenMode && state.totalTokens > 0 ? 'Token' : 'Char';
+      const totalUnits = state.tokenMode && state.totalTokens > 0 ? state.totalTokens : state.totalCharacters;
+      statusEl.textContent = `🎮 Navigation: Block ${state.currentBlockIndex + 1}/${state.totalBlocks} | ${modeLabel} ${state.currentCursorIndex + 1}/${totalUnits}`;
+      statusEl.style.display = 'block';
+      statusEl.style.color = '#00ff88';
+    } else {
+      const readyMessage = navigationAvailability.controller
+        ? '🎮 Controller ready (hold LB + D-Pad to navigate)'
+        : '🎮 Navigation ready';
+      statusEl.textContent = readyMessage;
+      statusEl.style.display = justConnected ? 'block' : 'none';
+      statusEl.style.color = '#00ff88';
+      if (justConnected) {
+        gamepadStatusHideTimeout = setTimeout(() => {
+          if (gamepadHandler && !gamepadHandler.getCurrentState().isActive) {
+            const el = document.getElementById('gamepad-status');
+            if (el && !el.classList.contains('active')) {
+              el.style.display = 'none';
+            }
+          }
+        }, 5000);
+      }
+    }
+  }
+  
+  // Listen for server connection events
+  window.addEventListener('gsm-gamepad-server-connected', () => {
+    console.log('[Gamepad] Server connected');
+    updateGamepadStatusIndicator();
+  });
+  
+  window.addEventListener('gsm-gamepad-server-disconnected', () => {
+    console.log('[Gamepad] Server disconnected');
+    updateGamepadStatusIndicator();
+  });
+  
+  // Listen for gamepad connection events
+  window.addEventListener('gsm-gamepad-connected', (e) => {
+    console.log('[Gamepad] Controller connected:', e.detail.device);
+    updateGamepadStatusIndicator();
+    ipcRenderer.send('gamepad-connected', e.detail);
+  });
+  
+  window.addEventListener('gsm-gamepad-disconnected', (e) => {
+    console.log('[Gamepad] Controller disconnected:', e.detail.device);
+    updateGamepadStatusIndicator();
+    ipcRenderer.send('gamepad-disconnected', e.detail);
+  });
+  
+  // Listen for navigation activation
+  window.addEventListener('gsm-gamepad-navigation-active', (e) => {
+    updateGamepadStatusIndicator();
+  });
+  
+  // Listen for cursor position changes (for debugging/visualization)
+  window.addEventListener('gsm-gamepad-cursor-position', (e) => {
+    // This event fires whenever the gamepad moves the cursor
+    // The GamepadHandler already handles positioning, but we can add
+    // additional logic here if needed
+  });
+  
+  // IPC: Receive gamepad settings from main process
+  ipcRenderer.on('gamepad-settings', (event, settings) => {
+    console.log('[Gamepad] Settings received:', settings);
+    gamepadSettings = { ...gamepadSettings, ...settings };
+
+    void syncGamepadHandlerLifecycle();
+  });
+  
+  // IPC: Toggle gamepad navigation mode (can be triggered by hotkey from main)
+  ipcRenderer.on('gamepad-toggle-navigation', () => {
+    if (gamepadHandler && gamepadSettings.enabled) {
+      gamepadHandler.manualToggle();
+    }
+  });
+
+  // IPC: Temporarily suppress gamepad handling while settings input test runs.
+  ipcRenderer.on('gamepad-input-test-active', (event, payload) => {
+    const active = !!(payload && payload.active);
+    gamepadInputSuppressed = active;
+    gamepadSettings.inputSuppressed = active;
+    if (gamepadHandler) {
+      if (typeof gamepadHandler.setInputSuppressed === 'function') {
+        gamepadHandler.setInputSuppressed(active);
+      } else {
+        gamepadHandler.updateConfig({ inputSuppressed: active });
+      }
+      updateGamepadStatusIndicator();
+    }
+  });
+  
+  // IPC: Manual navigation commands (can be bound to keyboard in main)
+  ipcRenderer.on('gamepad-navigate', (event, direction) => {
+    if (!gamepadHandler || !gamepadSettings.enabled) return;
+    
+    switch (direction) {
+      case 'up':
+        gamepadHandler.manualBlockUp();
+        break;
+      case 'down':
+        gamepadHandler.manualBlockDown();
+        break;
+      case 'left':
+        gamepadHandler.manualCursorLeft();
+        break;
+      case 'right':
+        gamepadHandler.manualCursorRight();
+        break;
+      case 'activate':
+        gamepadHandler.manualActivate();
+        break;
+      case 'deactivate':
+        gamepadHandler.manualDeactivate();
+        break;
+    }
+    
+    updateGamepadStatusIndicator();
+  });
+  
+  // Listen for token mode changes and save to settings
+  window.addEventListener('gsm-gamepad-token-mode-changed', (e) => {
+    console.log('[Gamepad] Token mode changed:', e.detail.tokenMode);
+    gamepadSettings.tokenMode = e.detail.tokenMode;
+    // Save to persistent settings via IPC
+    ipcRenderer.send('save-settings', { gamepadTokenMode: e.detail.tokenMode });
+    updateGamepadStatusIndicator();
+  });
+  
+  // Initialize gamepad after DOM is ready
+  // NOTE: Don't initialize immediately - wait for settings to be loaded first
+  // Settings are sent via 'load-settings' event after window is ready
+  // if (document.readyState === 'loading') {
+  //   document.addEventListener('DOMContentLoaded', initGamepad);
+  // } else {
+  //   initGamepad();
+  // }
+  
+  // Re-initialize when settings change
+  ipcRenderer.on('settings-updated', (event, updatedSettings) => {
+    let needsLifecycleSync = false;
+    
+    // Handle server URL change
+    if (updatedSettings.gamepadServerPort !== undefined) {
+      gamepadSettings.serverUrl = `ws://localhost:${updatedSettings.gamepadServerPort}`;
+      needsLifecycleSync = true;
+    }
+    
+    if (updatedSettings.gamepadEnabled !== undefined) {
+      gamepadSettings.enabled = updatedSettings.gamepadEnabled;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadActivationMode !== undefined) {
+      gamepadSettings.activationMode = updatedSettings.gamepadActivationMode;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadModifierButton !== undefined) {
+      gamepadSettings.modifierButton = updatedSettings.gamepadModifierButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadToggleButton !== undefined) {
+      gamepadSettings.toggleButton = updatedSettings.gamepadToggleButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadConfirmButton !== undefined) {
+      gamepadSettings.confirmButton = updatedSettings.gamepadConfirmButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadCancelButton !== undefined) {
+      gamepadSettings.cancelButton = updatedSettings.gamepadCancelButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadForwardEnterButton !== undefined) {
+      gamepadSettings.forwardEnterButton = updatedSettings.gamepadForwardEnterButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadManualOverlayScanButton !== undefined) {
+      gamepadSettings.manualOverlayScanButton = updatedSettings.gamepadManualOverlayScanButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadNextEntryButton !== undefined) {
+      gamepadSettings.nextEntryButton = updatedSettings.gamepadNextEntryButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadPrevEntryButton !== undefined) {
+      gamepadSettings.prevEntryButton = updatedSettings.gamepadPrevEntryButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadTokenMode !== undefined) {
+      gamepadSettings.tokenMode = updatedSettings.gamepadTokenMode;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadTokenizerBackend !== undefined) {
+      gamepadSettings.tokenizerBackend = updatedSettings.gamepadTokenizerBackend;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadLocalTokenizerFallbackBackend !== undefined) {
+      gamepadSettings.localTokenizerFallbackBackend = updatedSettings.gamepadLocalTokenizerFallbackBackend;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadYomitanApiUrl !== undefined) {
+      gamepadSettings.yomitanApiUrl = updatedSettings.gamepadYomitanApiUrl;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadYomitanScanLength !== undefined) {
+      gamepadSettings.yomitanScanLength = updatedSettings.gamepadYomitanScanLength;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadJitenApiKey !== undefined) {
+      gamepadSettings.jitenApiKey = updatedSettings.gamepadJitenApiKey;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadJpdbApiKey !== undefined) {
+      gamepadSettings.jpdbApiKey = updatedSettings.gamepadJpdbApiKey;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadControllerEnabled !== undefined) {
+      gamepadSettings.controllerEnabled = updatedSettings.gamepadControllerEnabled;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadKeyboardEnabled !== undefined) {
+      gamepadSettings.keyboardEnabled = updatedSettings.gamepadKeyboardEnabled;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadRepeatDelay !== undefined) {
+      gamepadSettings.repeatDelay = updatedSettings.gamepadRepeatDelay;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadRepeatRate !== undefined) {
+      gamepadSettings.repeatRate = updatedSettings.gamepadRepeatRate;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadAutoConfirmSelection !== undefined) {
+      gamepadSettings.autoConfirmSelection = updatedSettings.gamepadAutoConfirmSelection;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadFocusOverlayOnEntry !== undefined) {
+      gamepadSettings.focusOverlayOnEntry = updatedSettings.gamepadFocusOverlayOnEntry;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.showFurigana !== undefined) {
+      needsLifecycleSync = true;
+    }
+    // Handle keyboard binding settings
+    for (const key of KEYBOARD_SETTING_KEYS) {
+      if (updatedSettings[key] !== undefined) {
+        gamepadSettings[key] = updatedSettings[key];
+        needsLifecycleSync = true;
+      }
+    }
+    
+    if (needsLifecycleSync) {
+      void syncGamepadHandlerLifecycle();
+    }
+  });
+  
+  // Expose for debugging
+  window.getGamepadState = () => gamepadHandler ? gamepadHandler.getCurrentState() : null;
+  window.gamepadHandler = gamepadHandler;
 </script>
 
 </html>

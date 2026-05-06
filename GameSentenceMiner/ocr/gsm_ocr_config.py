@@ -1,17 +1,25 @@
+import json
 import os
+import shutil
 from copy import deepcopy
 from dataclasses import dataclass
-from math import floor, ceil
-from pathlib import Path
-import json
-import mss
-
-from GameSentenceMiner import obs
 from dataclasses_json import dataclass_json
+from datetime import datetime
+from pathlib import Path
 from typing import List, Optional, Union
 
-from GameSentenceMiner.util.configuration import logger, get_app_directory
-from GameSentenceMiner.util.electron_config import get_ocr_use_window_for_config
+from GameSentenceMiner import obs
+from GameSentenceMiner.ocr.coordinate_math import (
+    scale_percentage_rectangle_to_even_pixels,
+)
+from GameSentenceMiner.util.config.configuration import logger, get_app_directory
+from GameSentenceMiner.util.config.electron_config import (
+    get_ocr_use_window_for_config,
+    get_ocr_default_scene_furigana_filter_sensitivity,
+)
+from GameSentenceMiner.util.platform.windows_dpi import (
+    enable_per_monitor_v2_dpi_awareness,
+)
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 
@@ -24,11 +32,13 @@ class Monitor:
     width: Optional[int] = None
     height: Optional[int] = None
 
+
 # @dataclass_json
 # @dataclass
 # class Coordinates:
 #     coordinates: List[Union[float, int]]
 #     coordinate_system: str = None
+
 
 @dataclass_json
 @dataclass
@@ -37,6 +47,8 @@ class Rectangle:
     coordinates: List[Union[float, int]]
     is_excluded: bool
     is_secondary: bool = False
+    is_exclusive: bool = False
+
 
 @dataclass_json
 @dataclass
@@ -45,8 +57,8 @@ class WindowGeometry:
     top: int
     width: int
     height: int
-    
-    
+
+
 @dataclass_json
 @dataclass
 class OCRConfig:
@@ -63,7 +75,6 @@ class OCRConfig:
 
     def scale_coords(self):
         if self.coordinate_system and self.coordinate_system == "percentage" and self.window:
-            import pygetwindow as gw
             try:
                 set_dpi_awareness()
                 window = get_window(self.window)
@@ -77,26 +88,29 @@ class OCRConfig:
             except IndexError:
                 raise ValueError(f"Window with title '{self.window}' not found.")
             for rectangle in self.rectangles:
-                rectangle.coordinates = [
-                    ceil(rectangle.coordinates[0] * self.window_geometry.width),
-                    ceil(rectangle.coordinates[1] * self.window_geometry.height),
-                    ceil(rectangle.coordinates[2] * self.window_geometry.width),
-                    ceil(rectangle.coordinates[3] * self.window_geometry.height),
-                ]
+                rectangle.coordinates = scale_percentage_rectangle_to_even_pixels(
+                    rectangle.coordinates,
+                    self.window_geometry.width,
+                    self.window_geometry.height,
+                )
 
     def scale_to_custom_size(self, width, height):
         self.rectangles = deepcopy(self.pre_scale_rectangles)
         if self.coordinate_system and self.coordinate_system == "percentage":
             for rectangle in self.rectangles:
-                rectangle.coordinates = [
-                    floor(rectangle.coordinates[0] * width),
-                    floor(rectangle.coordinates[1] * height),
-                    floor(rectangle.coordinates[2] * width),
-                    floor(rectangle.coordinates[3] * height),
-                ]
-                
+                rectangle.coordinates = scale_percentage_rectangle_to_even_pixels(
+                    rectangle.coordinates,
+                    width,
+                    height,
+                )
+
+
 def has_config_changed(current_config: OCRConfig) -> bool:
-    new_config = get_scene_ocr_config(use_window_as_config=get_ocr_use_window_for_config(), window=current_config.window, refresh=True)
+    new_config = get_scene_ocr_config(
+        use_window_as_config=get_ocr_use_window_for_config(),
+        window=current_config.window,
+        refresh=True,
+    )
     if new_config.rectangles != current_config.rectangles:
         logger.info("OCR config has changed.")
         return True
@@ -105,6 +119,7 @@ def has_config_changed(current_config: OCRConfig) -> bool:
 
 def get_window(title):
     import pygetwindow as gw
+
     all_windows = gw.getWindowsWithTitle(title)
     if not all_windows:
         return None
@@ -123,7 +138,8 @@ def get_window(title):
     for window in filtered_windows:
         if len(filtered_windows) > 1:
             logger.info(
-                f"Warning: More than 1 non-cmd.exe window with title, Window Title: {window.title}, Geometry: {window.left}, {window.top}, {window.width}, {window.height}")
+                f"Warning: More than 1 non-cmd.exe window with title, Window Title: {window.title}, Geometry: {window.left}, {window.top}, {window.width}, {window.height}"
+            )
 
         if window.title.strip() == title.strip():
             if window.isMinimized or not window.visible:
@@ -132,16 +148,14 @@ def get_window(title):
             return window
     return ret
 
+
 # if windows, set dpi awareness to per-monitor v2
 def set_dpi_awareness():
-    import sys
-    if sys.platform != "win32":
-        return
-    import ctypes
-    per_monitor_awareness = 2
-    ctypes.windll.shcore.SetProcessDpiAwareness(per_monitor_awareness)
-    
+    enable_per_monitor_v2_dpi_awareness()
+
+
 scene_ocr_config = None
+
 
 def get_scene_ocr_config(use_window_as_config=False, window="", refresh=False) -> OCRConfig | None:
     global scene_ocr_config
@@ -152,27 +166,208 @@ def get_scene_ocr_config(use_window_as_config=False, window="", refresh=False) -
         return None
     with open(path, "r", encoding="utf-8") as f:
         from json import load
+
         data = load(f)
         ocr_config = OCRConfig.from_dict(data)
         scene_ocr_config = ocr_config
         return ocr_config
 
+
 def get_scene_ocr_config_path(use_window_as_config=False, window=""):
-    ocr_config_dir = get_ocr_config_path()
-    try:
-        if use_window_as_config:
-            scene = sanitize_filename(window)
-        else:
-            scene = sanitize_filename(obs.get_current_scene() or "Default")
-    except Exception as e:
-        print(f"Error getting OBS scene: {e}. Using default config name.")
-        scene = "Default"
-    return os.path.join(ocr_config_dir, f"{scene}.json")
+    scene = _resolve_scene_name(use_window_as_config, window)
+    return os.path.join(get_ocr_config_path(), f"{scene}.json")
+
+
+def get_overlay_area_config_path(use_window_as_config=False, window=""):
+    scene = _resolve_scene_name(use_window_as_config, window)
+    return os.path.join(get_ocr_config_path(), f"{scene}_overlay.json")
+
+
+def get_overlay_settings_path(use_window_as_config=False, window=""):
+    scene = _resolve_scene_name(use_window_as_config, window)
+    return os.path.join(get_ocr_config_path(), f"{scene}_overlay_settings.json")
+
+
+OVERLAY_CONFIG_RESERVED_KEYS = {
+    "scene",
+    "coordinate_system",
+    "window_geometry",
+    "rectangles",
+    "monitor_index",
+    "rects",
+}
+
 
 def get_ocr_config_path():
     ocr_config_dir = os.path.join(get_app_directory(), "ocr_config")
     os.makedirs(ocr_config_dir, exist_ok=True)
     return ocr_config_dir
+
+
+# ---------------------------------------------------------------------------
+# Per-scene settings  ({scene}_config.json)
+# Lives alongside {scene}.json but only stores lightweight settings, not areas.
+# ---------------------------------------------------------------------------
+
+
+def get_scene_settings_defaults() -> dict:
+    return {
+        "furigana_filter_sensitivity": get_ocr_default_scene_furigana_filter_sensitivity(),
+    }
+
+
+def _resolve_scene_name(use_window_as_config=False, window=""):
+    """Resolve the sanitized scene name used for config file paths."""
+    try:
+        if use_window_as_config:
+            return sanitize_filename(window)
+        return sanitize_filename(obs.get_current_scene() or "Default")
+    except Exception as e:
+        logger.debug(f"Error resolving scene name: {e}. Using 'Default'.")
+        return "Default"
+
+
+def get_scene_settings_path(use_window_as_config=False, window=""):
+    """Return the path to {scene}_config.json."""
+    scene = _resolve_scene_name(use_window_as_config, window)
+    return os.path.join(get_ocr_config_path(), f"{scene}_config.json")
+
+
+def _read_overlay_config_data(use_window_as_config=False, window="") -> dict:
+    overlay_config_path = get_overlay_area_config_path(use_window_as_config, window)
+    if not os.path.exists(overlay_config_path):
+        return {}
+    try:
+        with open(overlay_config_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        logger.warning(f"Failed to read overlay config from {overlay_config_path}: {e}")
+        return {}
+
+
+def _read_overlay_settings_data(use_window_as_config=False, window="") -> dict:
+    overlay_settings_path = get_overlay_settings_path(use_window_as_config, window)
+    if not os.path.exists(overlay_settings_path):
+        return {}
+    try:
+        with open(overlay_settings_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        logger.warning(f"Failed to read overlay settings from {overlay_settings_path}: {e}")
+        return {}
+
+
+def read_overlay_scene_settings(use_window_as_config=False, window="", defaults: Optional[dict] = None) -> dict:
+    """
+    Read lightweight per-scene overlay settings.
+
+    Preferred storage lives in {scene}_overlay_settings.json so normal settings
+    saves do not rewrite {scene}_overlay.json. Legacy settings embedded in
+    {scene}_overlay.json are still supported as a fallback.
+    """
+    result = dict(defaults or {})
+    overlay_settings = _read_overlay_settings_data(use_window_as_config, window)
+    if overlay_settings:
+        result.update(overlay_settings)
+        return result
+
+    legacy_overlay_config = _read_overlay_config_data(use_window_as_config, window)
+    for key, value in legacy_overlay_config.items():
+        if key not in OVERLAY_CONFIG_RESERVED_KEYS:
+            result[key] = value
+    return result
+
+
+def write_overlay_scene_settings(settings: dict, use_window_as_config=False, window="") -> None:
+    """
+    Merge lightweight overlay settings into {scene}_overlay_settings.json.
+    """
+    overlay_settings_path = get_overlay_settings_path(use_window_as_config, window)
+    os.makedirs(os.path.dirname(overlay_settings_path), exist_ok=True)
+    overlay_settings = _read_overlay_settings_data(use_window_as_config, window)
+    overlay_settings.update(settings)
+    try:
+        with open(overlay_settings_path, "w", encoding="utf-8") as f:
+            json.dump(overlay_settings, f, indent=2)
+        logger.debug(f"Wrote overlay scene settings to {overlay_settings_path}")
+    except Exception as e:
+        logger.warning(f"Failed to write overlay scene settings to {overlay_settings_path}: {e}")
+
+
+def get_overlay_minimum_character_size(default=0, use_window_as_config=False, window="") -> int:
+    settings = read_overlay_scene_settings(
+        use_window_as_config=use_window_as_config,
+        window=window,
+        defaults={"minimum_character_size": default},
+    )
+    try:
+        return int(settings.get("minimum_character_size", default) or 0)
+    except (TypeError, ValueError):
+        try:
+            return int(default or 0)
+        except (TypeError, ValueError):
+            return 0
+
+
+def read_scene_settings(use_window_as_config=False, window="") -> dict:
+    """Read per-scene settings. Returns defaults merged with any saved values."""
+    settings_path = get_scene_settings_path(use_window_as_config, window)
+    result = get_scene_settings_defaults()
+    if not os.path.exists(settings_path):
+        return result
+    try:
+        with open(settings_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        result.update(data)
+    except Exception as e:
+        logger.warning(f"Failed to read scene settings from {settings_path}: {e}")
+    return result
+
+
+def write_scene_settings(settings: dict, use_window_as_config=False, window="") -> None:
+    """Merge *settings* into the per-scene config and write it."""
+    current = read_scene_settings(use_window_as_config, window)
+    current.update(settings)
+    settings_path = get_scene_settings_path(use_window_as_config, window)
+    try:
+        with open(settings_path, "w", encoding="utf-8") as f:
+            json.dump(current, f, indent=2)
+        logger.debug(f"Wrote scene settings to {settings_path}")
+    except Exception as e:
+        logger.warning(f"Failed to write scene settings to {settings_path}: {e}")
+
+
+def get_scene_furigana_filter_sensitivity(use_window_as_config=False, window="") -> int:
+    """Convenience: read furigana_filter_sensitivity for the current scene."""
+    settings = read_scene_settings(use_window_as_config, window)
+    try:
+        return int(settings.get("furigana_filter_sensitivity", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def write_ocr_config(config_path, config_data: dict) -> None:
+    """
+    The single authoritative write function for OCR scene configs.
+    Creates a dated backup in ocr_config/backup/<scene>/ before overwriting.
+    """
+    config_path = Path(config_path)
+    if config_path.exists():
+        try:
+            scene_name = config_path.stem
+            backup_dir = config_path.parent / "backup" / scene_name
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            backup_path = backup_dir / f"{scene_name}_{date_str}.json"
+            shutil.copy2(config_path, backup_path)
+            logger.debug(f"Backed up OCR config to {backup_path}")
+        except Exception as e:
+            logger.warning(f"Failed to create OCR config backup: {e}")
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config_data, f, indent=2)
+    logger.info(f"Wrote OCR config to {config_path}")
 
 
 def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
@@ -186,52 +381,19 @@ def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
     config_path = Path(ocr_config_dir) / f"{scene}.json"
     if not config_path.exists():
         ocr_config = OCRConfig(scene=scene, window=window, rectangles=[], coordinate_system="percentage")
-        with open(config_path, 'w', encoding="utf-8") as f:
-            json.dump(ocr_config.to_dict(), f, indent=4)
+        write_ocr_config(config_path, ocr_config.to_dict())
         return ocr_config
     try:
-        with open(config_path, 'r', encoding="utf-8") as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             config_data = json.load(f)
-        if "rectangles" in config_data and isinstance(config_data["rectangles"], list) and all(
-                isinstance(item, list) and len(item) == 4 for item in config_data["rectangles"]):
-            # Old config format, convert to new
-            new_rectangles = []
-            with mss.mss() as sct:
-                monitors = sct.monitors
-                default_monitor = monitors[1] if len(monitors) > 1 else monitors[0]
-                for rect in config_data["rectangles"]:
-                    new_rectangles.append({
-                        "monitor": {
-                            "left": default_monitor["left"],
-                            "top": default_monitor["top"],
-                            "width": default_monitor["width"],
-                            "height": default_monitor["height"],
-                            "index": 0  # Assuming single monitor for old config
-                        },
-                        "coordinates": rect,
-                        "is_excluded": False
-                    })
-                if 'excluded_rectangles' in config_data:
-                    for rect in config_data['excluded_rectangles']:
-                        new_rectangles.append({
-                            "monitor": {
-                                "left": default_monitor["left"],
-                                "top": default_monitor["top"],
-                                "width": default_monitor["width"],
-                                "height": default_monitor["height"],
-                                "index": 0  # Assuming single monitor for old config
-                            },
-                            "coordinates": rect,
-                            "is_excluded": True
-                        })
-            new_config_data = {"scene": config_data.get("scene", scene), "window": config_data.get("window", None),
-                               "rectangles": new_rectangles, "coordinate_system": "absolute"}
-            with open(config_path, 'w', encoding="utf-8") as f:
-                json.dump(new_config_data, f, indent=4)
-            return OCRConfig.from_dict(new_config_data)
-        elif "rectangles" in config_data and isinstance(config_data["rectangles"], list) and all(
-                isinstance(item, dict) and "coordinates" in item for item in config_data["rectangles"]):
-            return OCRConfig.from_dict(config_data)
+        if (
+            "rectangles" in config_data
+            and isinstance(config_data["rectangles"], list)
+            and all(isinstance(item, dict) and "coordinates" in item for item in config_data["rectangles"])
+        ):
+            overlay_config = OCRConfig.from_dict(config_data)
+            setattr(overlay_config, "overlay_coordinate_space", "window")
+            return overlay_config
         else:
             raise Exception(f"Invalid config format in {config_path}.")
     except json.JSONDecodeError:
@@ -239,4 +401,52 @@ def get_ocr_config(window=None, use_window_for_config=False) -> OCRConfig:
         return None
     except Exception as e:
         print(f"Error loading config: {e}")
+        return None
+
+
+def get_overlay_area_config(window=None, use_window_for_config=False) -> OCRConfig | None:
+    """Loads the dedicated overlay area config from {scene}_overlay.json."""
+    obs.update_current_game()
+    config_path = Path(get_overlay_area_config_path(use_window_for_config, window))
+    if not config_path.exists():
+        return None
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config_data = json.load(f)
+
+        if (
+            "rectangles" in config_data
+            and isinstance(config_data["rectangles"], list)
+            and all(isinstance(item, dict) and "coordinates" in item for item in config_data["rectangles"])
+        ):
+            overlay_config = OCRConfig.from_dict(config_data)
+            setattr(overlay_config, "overlay_coordinate_space", "window")
+            return overlay_config
+
+        monitor_index = int(config_data.get("monitor_index", 0) or 0)
+        coordinate_system = config_data.get("coordinate_system") or "percentage"
+        rectangles = [
+            Rectangle(
+                monitor=Monitor(index=monitor_index),
+                coordinates=[rect_data["x"], rect_data["y"], rect_data["w"], rect_data["h"]],
+                is_excluded=False,
+                is_secondary=False,
+            )
+            for rect_data in config_data.get("rects", [])
+        ]
+
+        overlay_config = OCRConfig(
+            scene=config_path.stem.removesuffix("_overlay"),
+            window=window,
+            rectangles=rectangles,
+            coordinate_system=coordinate_system,
+        )
+        setattr(overlay_config, "overlay_coordinate_space", "monitor")
+        return overlay_config
+    except json.JSONDecodeError:
+        print("Error decoding JSON. Please check your overlay area config file.")
+        return None
+    except Exception as e:
+        print(f"Error loading overlay area config: {e}")
         return None

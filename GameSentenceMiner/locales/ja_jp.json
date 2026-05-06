@@ -63,7 +63,7 @@
             "tooltip": "クリップボードの監視を有効化します。"
           },
           "allow_both_simultaneously": {
-            "label": "両方を同時に許可:",
+            "label": "Allow Both Websocket and Clipboard Simultaneously:",
             "tooltip": "クリップボードとWebSocketの両方から同時に入力できるようにします。"
           },
           "merge_sequential_text": {
@@ -71,8 +71,8 @@
             "tooltip": "連続する同じテキストを一つにまとめます。特殊な用途向けです。"
           },
           "websocket_uri": {
-            "label": "WebSocket URI:",
-            "tooltip": "接続先のWebSocket URI。複数指定はカンマ区切り。"
+            "label": "入力WebSocket URI:",
+            "tooltip": "入力ソース用のWebSocket URI（Agent、Textractor、LunaTranslatorなど）。複数のソースにはカンマ区切りを使用。GSMの出力ポート（テキストフィード、OCRオーバーレイ）は含めないでください。"
           },
           "texthook_regex": {
             "label": "TextHook置換Regex:",
@@ -83,12 +83,12 @@
             "tooltip": "起動時にこの設定画面を開くかどうか。"
           },
           "open_texthooker_on_startup": {
-            "label": "起動時にGSM Texthookerを開く:",
-            "tooltip": "起動時にTexthookerページを開くかどうか。"
+            "label": "起動時のGSMテキストフィードを開く:",
+            "tooltip": "起動時にテキストフィードページを開くかどうか。"
           },
           "texthooker_port": {
-            "label": "GSM Texthookerポート:",
-            "tooltip": "Texthookerが使用するポート番号。"
+            "label": "GSMテキストフィードポート:",
+            "tooltip": "テキストフィードが使用するポート番号。"
           },
           "current_version": {
             "label": "現在のバージョン:",
@@ -111,6 +111,41 @@
           "locale": {
             "label": "表示言語:",
             "tooltip": "アプリケーションのロケールを選択します。これにより、インターフェースの言語が変更されます。"
+          }
+        },
+        "text_processing": {
+          "title": "テキスト処理",
+          "string_replacement": {
+            "group_title": "文字列置換",
+            "group_tooltip": "すべての入力テキストに置換ルールを順番に適用します。",
+            "enabled": {
+              "label": "文字列置換を有効化：",
+              "tooltip": "記録/オーバーレイ前に置換ルールを適用します。"
+            },
+            "rules": {
+              "label": "ルール：",
+              "tooltip": "置換ルールの一覧を編集します。"
+            },
+            "edit_rules": {
+              "label": "ルール編集",
+              "tooltip": "文字列置換ルールエディタを開きます。"
+            },
+            "rules_count": "{count} 件のルール",
+            "dialog": {
+              "title": "文字列置換ルール",
+              "add": "追加",
+              "remove": "削除",
+              "move_up": "上へ",
+              "move_down": "下へ",
+              "enabled": "有効",
+              "mode": "モード",
+              "find": "検索",
+              "replace": "置換",
+              "case_sensitive": "大文字小文字を区別",
+              "whole_word": "単語全体",
+              "mode_plain": "プレーン",
+              "mode_regex": "正規表現"
+            }
           }
         },
         "paths": {
@@ -150,6 +185,10 @@
         },
         "anki": {
           "title": "Anki",
+          "enabled": {
+            "label": "有効化:",
+            "tooltip": "Ankiとの連携を有効化または無効化します。"
+          },
           "update_anki": {
             "label": "Ankiを更新:",
             "tooltip": "自動的にAnkiを更新します。"
@@ -218,6 +257,10 @@
             "label": "画像を上書き:",
             "tooltip": "既存の画像を上書きします。"
           },
+          "overwrite_sentence": {
+            "label": "文章を上書き:",
+            "tooltip": "Ankiの文章フィールドを上書きします。HTMLタグ（ふりがななど）は保持されます。"
+          },
           "tag_unvoiced_cards": {
             "label": "無音カードにタグ付け:",
             "tooltip": "音声がないカードに自動的に'unvoiced'タグを追加します。"
@@ -228,7 +271,7 @@
           }
         },
         "vad": {
-          "title": "VAD",
+          "title": "音声検出",
           "do_postprocessing": {
             "label": "音声検出後処理:",
             "tooltip": "音声ファイルからセリフ部分のみを切り出す後処理を有効化します。"
@@ -266,7 +309,7 @@
             "tooltip": "VADトリム後の開始オフセット。負の値で開始が早まります。"
           },
           "cut_and_splice": {
-            "label": "セグメントをカット＆結合:",
+            "label": "音声を凝縮:",
             "tooltip": "検出された音声セグメントを切り貼りします。パディングで間隔を調整。"
           },
           "splice_padding": {
@@ -418,6 +461,24 @@
           "install_ocenaudio_button": "Ocenaudioをインストール",
           "get_anki_media_button": "Ankiメディアパス取得"
         },
+        "hotkeys": {
+          "title": "ホットキー",
+          "description": "GSM のホットキーをここにまとめています。空欄にすると無効になります。",
+          "groups": {
+            "input": "入力",
+            "overlay": "オーバーレイ",
+            "audio": "音声",
+            "experimental": "実験機能"
+          },
+          "pause_text_intake": {
+            "label": "GSM テキスト入力停止ホットキー:",
+            "tooltip": "GSM のクリップボード/WebSocket テキスト入力を一時停止または再開します。停止中は、GSM 自身の統計/履歴記録とオーバーレイトリガーをスキップします。空欄にすると無効になります。デフォルトのホットキーはありません。"
+          },
+          "relay_outputs_when_paused": {
+            "checkbox": "停止中もテキストフィード/出力クライアントへ転送する",
+            "tooltip": "有効にすると、一時停止中でもテキスト処理後の行をテキストフィードページと出力 websocket クライアントへ転送しますが、GSM 自身の統計/履歴記録とオーバーレイトリガーは引き続きスキップされます。無効にすると、受信テキストを完全に破棄します。"
+          }
+        },
         "obs": {
           "title": "OBS",
           "enabled": {
@@ -432,9 +493,17 @@
             "label": "OBSを閉じる:",
             "tooltip": "GSM終了時にOBSを閉じます。"
           },
+          "allow_automatic_updates": {
+            "label": "OBSの自動更新を許可 (上級者向け):",
+            "tooltip": "通常はオフのままにすると、OBS を更新無効で起動します。GSM の外で OBS 自身に更新を管理させたい場合のみ有効にしてください。"
+          },
           "obs_path": {
             "label": "OBSパス:",
             "tooltip": "OBS実行ファイルのパス。空欄の場合はデフォルトパスを使用します。"
+          },
+          "disable_recording": {
+            "label": "録画/リプレイバッファを無効化 (Ankiメディア不可):",
+            "tooltip": "GSM から OBS のリプレイバッファと録画を完全に無効化します。警告: 有効時は Anki 関連メディア機能（音声録音、スクリーンショット、リプレイ/動画クリップ）が動作しません。さらに Beangate がとても悲しくなります。"
           },
           "host": {
             "label": "ホスト:",
@@ -508,8 +577,8 @@
             "tooltip": "OCR WebSocket通信用のポート。GSMもこのポートで待機します。"
           },
           "texthooker_comm_port": {
-            "label": "Texthooker通信WebSocketポート:",
-            "tooltip": "GSM Texthooker WebSocket通信用のポート。"
+            "label": "テキストフィード通信WebSocketポート:",
+            "tooltip": "GSMテキストフィード WebSocket通信用のポート。"
           },
           "plaintext_export_port": {
             "label": "平文/JL Websocketエクスポートポート:",
@@ -525,7 +594,7 @@
           }
         },
         "ai": {
-          "title": "AI",
+          "title": "AI / Translation",
             "enabled": {
             "label": "Ankiに追加:",
             "tooltip": "AI結果をAnkiに追加するかどうかを有効化します。"
@@ -585,6 +654,14 @@
           "custom_prompt": {
             "label": "カスタムプロンプト:",
             "tooltip": "AI処理用のカスタムプロンプト。"
+          },
+          "deepl_api_key": {
+            "label": "DeepL APIキー:",
+            "tooltip": "DeepL APIキー。https://www.deepl.com/pro-api から取得してください"
+          },
+          "deepl_target_lang": {
+            "label": "ターゲット言語:",
+            "tooltip": "DeepLのターゲット言語コード(例:EN-US、JA、ZH、ES、FR、DE、IT、NL、PL、PT-PT、RU、KO)"
           }
         },
         "overlay": {
@@ -618,6 +695,64 @@
           "number_of_local_scans_per_event": {
             "label": "イベントごとのローカルスキャン数:",
             "tooltip": "停止するかOCRエンジンに送信する前に、イベントごとに実行するローカルスキャンの回数。"
+          }
+          ,
+          "use_overlay_area_config": {
+            "label": "専用オーバーレイ領域を使う (推奨):",
+            "tooltip": "OCR領域設定を流用せず、オーバーレイ専用の領域設定を使います。有効時はOCR領域設定より優先されます。"
+          },
+          "overlay_area_selector_button": {
+            "label": "領域を設定",
+            "tooltip": "現在のオーバーレイモニター用の専用オーバーレイ領域セレクターを開きます。"
+          },
+          "use_ocr_area_config": {
+            "label": "OCR領域設定を使用:",
+            "tooltip": "有効にすると、オーバーレイスキャンで自動領域検出の代わりに事前定義されたOCR領域設定を使用します。字幕など特定の領域のみをスキャンしたい場合に有効で、処理負荷を減らし誤検出を抑えます。"
+          },
+          "ocr_area_config_include_primary_areas": {
+            "label": "メイン文字領域を含める:",
+            "tooltip": "OCR領域設定のメインキャプチャ領域を使用します。以前は緑色のボックスで表示されていた領域です。"
+          },
+          "ocr_area_config_include_secondary_areas": {
+            "label": "補助 / メニュー文字領域を含める:",
+            "tooltip": "OCR領域設定の補助キャプチャ領域を使用します。以前は紫色のボックスで表示されていた領域です。"
+          },
+          "ocr_area_config_use_exclusion_zones": {
+            "label": "除外ゾーンを使用:",
+            "tooltip": "OCR領域設定の除外ゾーンを適用して、オーバーレイキャプチャの一部をマスクします。以前はオレンジ色のボックスで表示されていた領域です。"
+          },
+          "use_ocr_result": {
+            "label": "OCR結果を使用:",
+            "tooltip": "有効にすると、利用可能な場合は事前計算済みのOCR結果をオーバーレイで使用します。無効にすると、オーバーレイ側で毎回OCRを再実行します。"
+          }
+        },
+        "experimental": {
+          "title": "Experimental"
+        },
+        "game_pausing": {
+          "enabled": {
+            "label": "ゲーム一時停止を有効化:",
+            "tooltip": "実験的なゲーム一時停止機能を有効化します。"
+          },
+          "hotkey": {
+            "label": "ゲーム一時停止ホットキー:",
+            "tooltip": "アクティブなゲームプロセスを一時停止/再開するホットキー。"
+          },
+          "auto_resume_seconds": {
+            "label": "自動再開 (秒):",
+            "tooltip": "指定秒数後に中断されたプロセスを自動的に再開します。"
+          },
+          "require_game_exe_match": {
+            "label": "ゲームEXE一致を要求:",
+            "tooltip": "ターゲットexeが検出されたゲームexeと一致する場合のみ一時停止を許可します。"
+          },
+          "allowlist": {
+            "label": "許可リスト (EXE名):",
+            "tooltip": "常に許可されるexe名（カンマ区切り）。"
+          },
+          "denylist": {
+            "label": "拒否リスト (EXE名):",
+            "tooltip": "常にブロックされるexe名（カンマ区切り）。"
           }
         },
         "wip": {

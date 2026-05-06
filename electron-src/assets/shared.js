@@ -1,163 +1,142 @@
-/**
- * Shared Module for GSM
- * 
- * This module provides common imports and utilities for all pages/iframes.
- * Include this ONCE in each HTML file instead of requiring electron multiple times.
- * 
- * Provides:
- * - ipcRenderer: Electron IPC communication
- * - clipboard: System clipboard access
- * - sharedState: Cross-page state management
- */
+// Shared bridge for legacy HTML pages loaded inside the React shell.
+// Use `var` declarations to avoid redeclaration errors when this file
+// is included more than once in the same page context.
 
-// ============================================================================
-// Common Electron Imports - Available globally in all pages
-// ============================================================================
+var __gsmBridgeIpc =
+    window.ipcRenderer ||
+    window.parent?.ipcRenderer ||
+    window.top?.ipcRenderer;
 
-const { ipcRenderer, clipboard } = require('electron');
+var __gsmBridgeClipboard =
+    window.clipboard ||
+    window.parent?.clipboard ||
+    window.top?.clipboard;
 
-// Make them available globally
-window.ipcRenderer = ipcRenderer;
-window.clipboard = clipboard;
+var __gsmBridgeEnv =
+    window.gsmEnv ||
+    window.parent?.gsmEnv ||
+    window.top?.gsmEnv ||
+    { platform: "win32" };
 
-// ============================================================================
-// Shared State Manager
-// ============================================================================
+// Legacy globals expected by existing HTML scripts.
+var ipcRenderer = __gsmBridgeIpc;
+var clipboard = __gsmBridgeClipboard;
+var isWindows = __gsmBridgeEnv.platform === "win32";
+var isMac = __gsmBridgeEnv.platform === "darwin";
+var isLinux = __gsmBridgeEnv.platform === "linux";
 
-// Internal listener registry
-const _stateListeners = new Map();
-const isWindows = process.platform === 'win32';
-const isMac = process.platform === 'darwin';
-const isLinux = process.platform === 'linux';
-
-// const isWindows = false;
-// const isMac = true;
-// const isLinux = false;
-
-/**
- * Set a state value. Notifies all windows/iframes of the change.
- * @param {string} key - The state key
- * @param {any} value - The value to store (will be JSON serialized)
- * @returns {Promise<void>}
- */
-async function setState(key, value) {
-    await ipcRenderer.invoke('state.set', key, value);
+if (!window.__gsmSharedStateListeners) {
+    window.__gsmSharedStateListeners = new Map();
 }
 
-/**
- * Get a state value
- * @param {string} key - The state key
- * @param {any} defaultValue - Optional default value if key doesn't exist
- * @returns {Promise<any>}
- */
-async function getState(key, defaultValue = null) {
-    const value = await ipcRenderer.invoke('state.get', key);
-    return value !== undefined ? value : defaultValue;
+var __gsmStateListeners = window.__gsmSharedStateListeners;
+
+function __gsmNoopAsync() {
+    return Promise.resolve();
 }
 
-/**
- * Remove a state value
- * @param {string} key - The state key to remove
- * @returns {Promise<void>}
- */
-async function removeState(key) {
-    await ipcRenderer.invoke('state.remove', key);
+function __gsmNoopValue(defaultValue) {
+    return Promise.resolve(defaultValue === undefined ? null : defaultValue);
 }
 
-/**
- * Get all state as an object
- * @returns {Promise<Object>}
- */
-async function getAllState() {
-    return await ipcRenderer.invoke('state.getAll');
+if (!window.sharedState) {
+    window.sharedState = {
+        setState: __gsmNoopAsync,
+        getState: function (_key, defaultValue) {
+            return __gsmNoopValue(defaultValue);
+        },
+        removeState: __gsmNoopAsync,
+        getAllState: function () {
+            return Promise.resolve({});
+        },
+        clearAllState: __gsmNoopAsync,
+        onStateChanged: function () {
+            return function () {};
+        },
+        onAnyStateChanged: function () {
+            return function () {};
+        },
+    };
 }
 
-/**
- * Clear all state
- * @returns {Promise<void>}
- */
-async function clearAllState() {
-    await ipcRenderer.invoke('state.clear');
-}
+if (__gsmBridgeIpc && typeof __gsmBridgeIpc.invoke === "function") {
+    window.sharedState.setState = function (key, value) {
+        return __gsmBridgeIpc.invoke("state.set", key, value);
+    };
 
-/**
- * Listen for changes to a specific state key
- * @param {string} key - The state key to watch
- * @param {Function} callback - Called with (newValue, oldValue) when state changes
- * @returns {Function} Unsubscribe function
- */
-function onStateChanged(key, callback) {
-    if (!_stateListeners.has(key)) {
-        _stateListeners.set(key, new Set());
-    }
-    _stateListeners.get(key).add(callback);
-    
-    // Return unsubscribe function
-    return () => {
-        const listeners = _stateListeners.get(key);
-        if (listeners) {
+    window.sharedState.getState = function (key, defaultValue) {
+        return __gsmBridgeIpc.invoke("state.get", key).then(function (value) {
+            return value !== undefined ? value : (defaultValue === undefined ? null : defaultValue);
+        });
+    };
+
+    window.sharedState.removeState = function (key) {
+        return __gsmBridgeIpc.invoke("state.remove", key);
+    };
+
+    window.sharedState.getAllState = function () {
+        return __gsmBridgeIpc.invoke("state.getAll");
+    };
+
+    window.sharedState.clearAllState = function () {
+        return __gsmBridgeIpc.invoke("state.clear");
+    };
+
+    window.sharedState.onStateChanged = function (key, callback) {
+        if (!__gsmStateListeners.has(key)) {
+            __gsmStateListeners.set(key, new Set());
+        }
+        __gsmStateListeners.get(key).add(callback);
+
+        return function () {
+            var listeners = __gsmStateListeners.get(key);
+            if (!listeners) return;
             listeners.delete(callback);
             if (listeners.size === 0) {
-                _stateListeners.delete(key);
+                __gsmStateListeners.delete(key);
             }
-        }
+        };
     };
-}
 
-/**
- * Listen for any state change
- * @param {Function} callback - Called with ({ key, value, oldValue }) when any state changes
- * @returns {Function} Unsubscribe function
- */
-function onAnyStateChanged(callback) {
-    return onStateChanged('*', callback);
-}
+    window.sharedState.onAnyStateChanged = function (callback) {
+        return window.sharedState.onStateChanged("*", callback);
+    };
 
-// Set up IPC listener for state changes from main process
-ipcRenderer.on('state-changed', (event, { key, value, oldValue }) => {
-    // Notify specific key listeners
-    const keyListeners = _stateListeners.get(key);
-    if (keyListeners) {
-        keyListeners.forEach(callback => {
-            try {
-                callback(value, oldValue);
-            } catch (error) {
-                console.error(`Error in state listener for key "${key}":`, error);
+    if (!window.__gsmStateChangedListenerAttached && typeof __gsmBridgeIpc.on === "function") {
+        window.__gsmStateChangedListenerAttached = true;
+
+        __gsmBridgeIpc.on("state-changed", function (_event, payload) {
+            var key = payload?.key;
+            var value = payload?.value;
+            var oldValue = payload?.oldValue;
+
+            var keyListeners = __gsmStateListeners.get(key);
+            if (keyListeners) {
+                keyListeners.forEach(function (callback) {
+                    try {
+                        callback(value, oldValue);
+                    } catch (error) {
+                        console.error('Error in state listener for key "' + key + '":', error);
+                    }
+                });
+            }
+
+            var wildcardListeners = __gsmStateListeners.get("*");
+            if (wildcardListeners) {
+                wildcardListeners.forEach(function (callback) {
+                    try {
+                        callback({ key: key, value: value, oldValue: oldValue });
+                    } catch (error) {
+                        console.error("Error in wildcard state listener:", error);
+                    }
+                });
             }
         });
     }
-    
-    // Notify wildcard listeners
-    const wildcardListeners = _stateListeners.get('*');
-    if (wildcardListeners) {
-        wildcardListeners.forEach(callback => {
-            try {
-                callback({ key, value, oldValue });
-            } catch (error) {
-                console.error('Error in wildcard state listener:', error);
-            }
-        });
-    }
-});
-
-// Export the sharedState API globally
-window.sharedState = {
-    setState,
-    getState,
-    removeState,
-    getAllState,
-    clearAllState,
-    onStateChanged,
-    onAnyStateChanged
-};
-
-// Also export as module for those who prefer imports
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = {
-        ipcRenderer,
-        clipboard,
-        sharedState: window.sharedState
-    };
 }
 
-console.log('✅ GSM Shared Module Loaded');
+// Keep both property and identifier-style access compatible with legacy scripts.
+window.isWindows = isWindows;
+window.isMac = isMac;
+window.isLinux = isLinux;
+var sharedState = window.sharedState;

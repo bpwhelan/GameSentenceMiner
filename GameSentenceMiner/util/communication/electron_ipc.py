@@ -13,32 +13,43 @@ This module replaces previous WebSocket-based communication.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 from enum import Enum
 from typing import Callable, Optional, Dict, Any
 
-from GameSentenceMiner.util.configuration import logger
+from GameSentenceMiner.util.config.configuration import logger
 
 
 class FunctionName(Enum):
     QUIT = "quit"
     START = "start"
     STOP = "stop"
+    INITIALIZED = "initialized"
     QUIT_OBS = "quit_obs"
     START_OBS = "start_obs"
     OPEN_SETTINGS = "open_settings"
+    OPEN_OVERLAY_SETTINGS = "open_overlay_settings"
     OPEN_TEXTHOOKER = "open_texthooker"
+    SWITCH_PROFILE = "switch_profile"
     OPEN_LOG = "open_log"
     TOGGLE_REPLAY_BUFFER = "toggle_replay_buffer"
     RESTART_OBS = "restart_obs"
+    TEST_ANKI_CONFIRMATION = "test_anki_confirmation"
+    TEST_SCREENSHOT_SELECTOR = "test_screenshot_selector"
+    TEST_FURIGANA_FILTER = "test_furigana_filter"
+    TEST_AREA_SELECTOR = "test_area_selector"
+    TEST_SCREEN_CROPPER = "test_screen_cropper"
     EXIT = "exit"
     GET_STATUS = "get_status"
     CONNECT = "on_connect"
+    RESTART_PYTHON_APP = "restart_python_app"
 
 
 CommandHandler = Callable[[Dict[str, Any]], None]
 _command_handler: Optional[CommandHandler] = None
+
 
 def register_command_handler(handler: CommandHandler) -> None:
     """Register a handler invoked for each parsed GSMCMD JSON object.
@@ -59,6 +70,39 @@ def send_message(function: str, data: Optional[Dict[str, Any]] = None, id: Optio
     logger.debug(f"IPC Sent: {line}")
 
 
+def get_install_session_id() -> str:
+    return str(os.environ.get("GSM_INSTALL_SESSION_ID", "") or "").strip()
+
+
+def send_install_progress(
+    stage_id: str,
+    status: str,
+    progress_kind: str = "indeterminate",
+    progress: Optional[float] = None,
+    message: str = "",
+    downloaded_bytes: Optional[int] = None,
+    total_bytes: Optional[int] = None,
+    error: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> None:
+    payload: Dict[str, Any] = {
+        "session_id": session_id if session_id is not None else get_install_session_id(),
+        "stage_id": stage_id,
+        "status": status,
+        "progress_kind": progress_kind,
+        "message": message,
+    }
+    if progress is not None:
+        payload["progress"] = max(0.0, min(1.0, float(progress)))
+    if downloaded_bytes is not None:
+        payload["downloaded_bytes"] = int(downloaded_bytes)
+    if total_bytes is not None:
+        payload["total_bytes"] = int(total_bytes)
+    if error:
+        payload["error"] = str(error)
+    send_message("install_progress", payload)
+
+
 def _stdin_loop() -> None:
     """Blocking loop reading stdin for GSMCMD lines."""
     logger.debug("Starting stdin IPC loop (GSMCMD)...")
@@ -72,11 +116,12 @@ def _stdin_loop() -> None:
         json_part = line[7:]
         try:
             msg = json.loads(json_part)
-            logger.debug(f"IPC Received command: {msg}")
-            if _command_handler:
-                _command_handler(msg)
         except Exception as e:
             logger.warning(f"Failed to parse GSMCMD line: {line} error={e}")
+            continue
+        logger.debug(f"IPC Received command: {msg}")
+        if _command_handler:
+            _command_handler(msg)
 
 
 def start_ipc_listener_in_thread() -> threading.Thread:
@@ -90,14 +135,25 @@ def start_ipc_listener_in_thread() -> threading.Thread:
 def announce_start():
     send_message(FunctionName.START.value)
 
+
 def announce_stop():
     send_message(FunctionName.STOP.value)
+
 
 def announce_connected():
     send_message(FunctionName.CONNECT.value, {"message": "Python Connected"})
 
+
 def announce_status(status: Dict[str, Any]):
     send_message(FunctionName.GET_STATUS.value, status)
+
+
+def request_python_app_restart(reason: str = "", open_settings: bool = True):
+    payload: Dict[str, Any] = {}
+    if reason:
+        payload["reason"] = reason
+    payload["open_settings"] = bool(open_settings)
+    send_message(FunctionName.RESTART_PYTHON_APP.value, payload or None)
 
 
 if __name__ == "__main__":

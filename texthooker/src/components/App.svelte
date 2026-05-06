@@ -9,10 +9,11 @@
 		mdiNoteEdit,
 		mdiPause,
 		mdiPlay,
+		mdiVolumeHigh,
 		mdiWindowMaximize,
 		mdiWindowRestore,
 	} from '@mdi/js';
-	import { debounceTime, filter, fromEvent, map, NEVER, switchMap, tap } from 'rxjs';
+	import { debounceTime, filter, fromEvent, map, NEVER, switchMap, tap, type Subscription } from 'rxjs';
 	import { onMount, tick } from 'svelte';
 	import { quintInOut } from 'svelte/easing';
 	import { fly } from 'svelte/transition';
@@ -51,9 +52,14 @@
 		replacements$,
 		reverseLineOrder$,
 		secondaryWebsocketUrl$,
+		settingsOpen$,
 		showSpinner$,
 		theme$,
-		websocketUrl$
+		websocketUrl$,
+		trimAudioWithVAD$,
+		trimVideoWithVAD$,
+		showTrimmedVideoInExplorer$,
+		texthookerAudioEvents$,
 	} from '../stores/stores';
 	import { type LineItem, type LineItemEditEvent, LineType, OnlineFont, Theme } from '../types';
 	import {
@@ -81,7 +87,6 @@
 	let selectedLineIds: string[] = [];
 	let settingsContainer: HTMLElement;
 	let settingsElement: SVGElement;
-	let settingsOpen = false;
 	let lineContainer: HTMLElement;
 	let lineElements: Line[] = [];
 	let lineInEdit = false;
@@ -91,6 +96,17 @@
 	let pipWindow: Window | undefined;
 	let pipResizeTimeout: number;
 	let hasPipFocus = false;
+	let audioEventsSub: Subscription | undefined;
+	let audioElement: HTMLAudioElement | undefined;
+	let audioWidgetVisible = false;
+	let audioWidgetText = '';
+	let activeAudioLineId = '';
+	let pendingAudioLineId = '';
+	let browserAudioPlaying = false;
+	let audioCurrentTime = 0;
+	let audioDuration = 0;
+	let lastBrowserAudioStartAt = 0;
+	const AUDIO_PLAY_START_GUARD_MS = 350;
 
 	startIdPolling()
 
@@ -108,7 +124,7 @@
 		filter(([value, lineType, _1]) => {
 			const isResetCheckboxes = lineType === LineType.RESETCHECKBOXES;
 			const isPaste = lineType === LineType.PASTE;
-			const hasNoUserInteraction = !isPaste || (!$notesOpen$ && !$dialogOpen$ && !settingsOpen && !lineInEdit);
+			const hasNoUserInteraction = !isPaste || (!$notesOpen$ && !$dialogOpen$ && !$settingsOpen$ && !lineInEdit);
 			const skipExternalLine = blockNextExternalLine && lineType === LineType.EXTERNAL;
 
 			if (skipExternalLine) {
@@ -143,11 +159,12 @@
 
 			return false;
 		}),
-		tap((newLine: [string, LineType, string]) => {
+		tap((newLine: [string, LineType, string, Partial<LineItem>?]) => {
 			const [lineContent] = newLine;
 			const type = newLine.at(1) || LineType.SOCKET;
 			const text = transformLine(lineContent, type !== LineType.TL);
 			const id = newLine.at(2) || generateRandomUUID();
+			const lineMeta = newLine.at(3) || {};
 
 			if ($lineData$?.some(line => line.id === id)) {
 				console.warn(`Skipping new line with duplicate ID: '${id}'`);
@@ -161,7 +178,7 @@
 			if (text) {
 				$lineData$ = applyEqualLineStartMerge([
 					...applyMaxLinesAndGetRemainingLineData(1),
-					{ id: id, text },
+					{ id, text, ...lineMeta },
 				]);
 			}
 		}),
@@ -208,6 +225,7 @@
 	);
 
 	$: iconSize = isSmFactor ? '1.5rem' : '1.25rem';
+	$: audioProgressPercent = audioDuration > 0 ? Math.min(100, (audioCurrentTime / audioDuration) * 100) : 0;
 
 	$: $enabledReplacements$ = $replacements$.filter((replacment) => replacment.enabled);
 
@@ -223,6 +241,8 @@
 
 	onMount(() => {
 		mountFunction();
+		initializeAudioElement();
+		audioEventsSub = texthookerAudioEvents$.subscribe(handleAudioEvent);
 		if (wakeLockAvailable) {
 			wakeLock = navigator.wakeLock
 				.request('screen')
@@ -234,6 +254,15 @@
 					return null;
 				});
 		}
+
+		return () => {
+			audioEventsSub?.unsubscribe();
+			if (audioElement) {
+				audioElement.pause();
+				audioElement.src = '';
+				audioElement = undefined;
+			}
+		};
 	});
 
 	function mountFunction() {
@@ -242,7 +271,7 @@
 	}
 
 	function handleKeyPress(event: KeyboardEvent) {
-		if ($notesOpen$ || $dialogOpen$ || settingsOpen || lineInEdit) {
+		if ($notesOpen$ || $dialogOpen$ || $settingsOpen$ || lineInEdit) {
 			return;
 		}
 
@@ -278,6 +307,224 @@
 		}
 	}
 
+	function initializeAudioElement() {
+		audioElement = new Audio();
+		audioElement.preload = 'auto';
+		audioElement.addEventListener('play', () => {
+			lastBrowserAudioStartAt = Date.now();
+			browserAudioPlaying = true;
+		});
+		audioElement.addEventListener('pause', () => {
+			browserAudioPlaying = false;
+		});
+		audioElement.addEventListener('ended', () => {
+			browserAudioPlaying = false;
+			audioCurrentTime = 0;
+		});
+		audioElement.addEventListener('timeupdate', () => {
+			audioCurrentTime = audioElement?.currentTime || 0;
+		});
+		audioElement.addEventListener('loadedmetadata', () => {
+			audioDuration = Number.isFinite(audioElement?.duration) ? audioElement.duration : 0;
+		});
+	}
+
+	function getLineTextById(lineId: string) {
+		return $lineData$.find((line) => line.id === lineId)?.text || '';
+	}
+
+	function stopBrowserAudio(clearActiveLine = false) {
+		if (!audioElement) {
+			return;
+		}
+		audioElement.pause();
+		try {
+			audioElement.currentTime = 0;
+		} catch (_error) {
+			// no-op
+		}
+		browserAudioPlaying = false;
+		audioCurrentTime = 0;
+		if (clearActiveLine) {
+			activeAudioLineId = '';
+		}
+	}
+
+	async function playBrowserAudioGuarded() {
+		if (!audioElement) {
+			return;
+		}
+
+		const now = Date.now();
+		if (now - lastBrowserAudioStartAt < AUDIO_PLAY_START_GUARD_MS) {
+			return;
+		}
+		lastBrowserAudioStartAt = now;
+		try {
+			await audioElement.play();
+		} catch (error) {
+			// Allow immediate retry if browser rejects autoplay/start.
+			lastBrowserAudioStartAt = 0;
+			throw error;
+		}
+	}
+
+	function handleAudioEvent(payload: Record<string, any>) {
+		const eventType = payload?.event;
+		if (!eventType) {
+			return;
+		}
+		if (eventType === 'reset_buttons') {
+			pendingAudioLineId = '';
+			activeAudioLineId = '';
+			browserAudioPlaying = false;
+			if (audioElement) {
+				stopBrowserAudio(true);
+			}
+			return;
+		}
+
+		if (eventType === 'audio_ready') {
+			const lineId = payload.line_id || '';
+			const audioUrl = payload.audio_url || '';
+			if (pendingAudioLineId && lineId !== pendingAudioLineId) {
+				return;
+			}
+			if (!pendingAudioLineId && lineId !== activeAudioLineId) {
+				return;
+			}
+			pendingAudioLineId = '';
+			if (!audioUrl || !lineId) {
+				return;
+			}
+			activeAudioLineId = lineId;
+			audioWidgetText = getLineTextById(lineId);
+			audioWidgetVisible = true;
+			void playAudioUrl(getGSMEndpoint(audioUrl), lineId);
+			return;
+		}
+
+		if (eventType === 'audio_error') {
+			const lineId = payload.line_id || '';
+			if (pendingAudioLineId && lineId !== pendingAudioLineId) {
+				return;
+			}
+			pendingAudioLineId = '';
+			console.error('Audio playback failed:', payload.error || 'Unknown error');
+			return;
+		}
+
+	}
+
+	async function playAudioUrl(audioUrl: string, lineId: string) {
+		if (!audioElement) {
+			initializeAudioElement();
+		}
+		if (!audioElement) {
+			return;
+		}
+
+		const resolvedUrl = new URL(audioUrl, window.location.href).toString();
+		if (audioElement.src !== resolvedUrl) {
+			audioElement.src = resolvedUrl;
+			audioCurrentTime = 0;
+			audioDuration = 0;
+		}
+
+		activeAudioLineId = lineId;
+		try {
+			await playBrowserAudioGuarded();
+		} catch (error) {
+			console.error('Could not start browser audio playback:', error);
+		}
+	}
+
+	async function requestAudioForLine(lineId: string) {
+		pendingAudioLineId = lineId;
+		try {
+			const response = await fetch(getGSMEndpoint('/play-audio'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					id: lineId,
+					trim_with_vad: $trimAudioWithVAD$,
+					playback_mode: 'browser',
+				}),
+			});
+			if (!response.ok) {
+				throw new Error(`HTTP error: ${response.status}`);
+			}
+		} catch (error) {
+			pendingAudioLineId = '';
+			console.error('Error requesting audio playback:', error);
+		}
+	}
+
+	async function handleAudioToggle(event: CustomEvent<{ lineId: string; text: string }>) {
+		const { lineId, text } = event.detail;
+		audioWidgetText = text || '';
+		if (pendingAudioLineId === lineId) {
+			return;
+		}
+
+		if (lineId === activeAudioLineId && audioElement && audioElement.src) {
+			if (browserAudioPlaying) {
+				stopBrowserAudio();
+			} else {
+				try {
+					audioElement.currentTime = 0;
+					await playBrowserAudioGuarded();
+				} catch (error) {
+					console.error('Could not restart browser audio playback:', error);
+				}
+			}
+			return;
+		}
+
+		if (audioElement) {
+			stopBrowserAudio();
+		}
+
+		audioWidgetVisible = true;
+		await requestAudioForLine(lineId);
+	}
+
+	async function toggleAudioWidgetPlayback() {
+		if (!audioElement || !audioElement.src) {
+			return;
+		}
+		if (browserAudioPlaying) {
+			stopBrowserAudio();
+			return;
+		}
+		try {
+			audioElement.currentTime = 0;
+			await playBrowserAudioGuarded();
+		} catch (error) {
+			console.error('Could not restart audio from widget:', error);
+		}
+	}
+
+	async function handleVideoTrim(event: CustomEvent<{ lineId: string; text: string }>) {
+		const { lineId } = event.detail;
+		try {
+			const response = await fetch(getGSMEndpoint('/trim-video'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					id: lineId,
+					trim_with_vad: $trimVideoWithVAD$,
+					show_in_explorer: $showTrimmedVideoInExplorer$,
+				}),
+			});
+			if (!response.ok) {
+				throw new Error(`HTTP error: ${response.status}`);
+			}
+		} catch (error) {
+			console.error('Error requesting video trim:', error);
+		}
+	}
+
 	export function startIdPolling() {
 		setInterval(async () => {
 			try {
@@ -297,8 +544,8 @@
 	// Assuming 'lineData' is a correctly defined array for this vanilla JS example
 	function resetCheckBoxes() {
 		$lineData$.forEach((line) => {
-			const checkboxElement = document.getElementById(`multi-line-checkbox-${line.id}`);
-			if (checkboxElement && typeof checkboxElement.checked === 'boolean') { // Check if element exists and is a checkbox
+			const checkboxElement = document.getElementById(`multi-line-checkbox-${line.id}`) as HTMLInputElement | null;
+			if (checkboxElement && checkboxElement.type === 'checkbox') {
 				checkboxElement.checked = false;
 			} else {
 				console.warn(`Checkbox with ID 'multi-line-checkbox-${line.id}' not found or is not a valid checkbox element.`);
@@ -322,11 +569,11 @@
 				const { id, index } = lineToRevert;
 
 				if (index > $lineData$.length - 1) {
-					$lineData$.push({ id, text });
+					$lineData$.push({ ...lineToRevert, id, text });
 				} else if ($lineData$[index].id === id) {
-					$lineData$[index] = { id, text };
+					$lineData$[index] = { ...lineToRevert, id, text };
 				} else {
-					$lineData$.splice(index, 0, { id, text });
+					$lineData$.splice(index, 0, { ...lineToRevert, id, text });
 				}
 			}
 
@@ -771,12 +1018,11 @@
 		width={iconSize}
 		height={iconSize}
 		bind:element={settingsElement}
-		on:click={() => (settingsOpen = !settingsOpen)}
+		on:click={() => ($settingsOpen$ = !$settingsOpen$)}
 	/>
 	<Settings
 		{settingsElement}
 		{pipAvailable}
-		bind:settingsOpen
 		bind:selectedLineIds
 		bind:this={settingsComponent}
 		on:applyReplacements={() => updateLineData(!!$enabledReplacements$.length)}
@@ -802,6 +1048,9 @@
 			{line}
 			{index}
 			isLast={$lineData$.length - 1 === index}
+			audioLineId={activeAudioLineId}
+			audioIsPlaying={browserAudioPlaying}
+			audioPendingLineId={pendingAudioLineId}
 			bind:this={lineElements[index]}
 			on:selected={({ detail }) => {
 				selectedLineIds = [...selectedLineIds, detail];
@@ -810,6 +1059,8 @@
 				selectedLineIds = selectedLineIds.filter((selectedLineId) => selectedLineId !== detail);
 			}}
 			on:edit={handleLineEdit}
+			on:audioToggle={handleAudioToggle}
+			on:videoTrim={handleVideoTrim}
 		/>
 	{/each}
 	
@@ -827,6 +1078,26 @@
 		title="Press Enter to translate a number of lines"
 	/>
 </div>
+
+{#if audioWidgetVisible}
+	<div class="fixed bottom-2 left-2 z-50 min-w-[240px] max-w-[360px] rounded-md border border-base-content/20 bg-base-100/95 px-3 py-2 shadow-lg">
+		<div class="flex items-center gap-2">
+			<Icon path={mdiVolumeHigh} width="1rem" height="1rem" />
+			<div class="truncate text-xs" title={audioWidgetText || 'Audio playback'}>
+				{audioWidgetText || 'Audio playback'}
+			</div>
+			<button class="ml-auto rounded border border-base-content/20 px-2 py-1 text-xs" on:click={toggleAudioWidgetPlayback}>
+				{browserAudioPlaying ? 'Stop' : 'Replay'}
+			</button>
+		</div>
+		<div class="mt-2 h-1.5 w-full rounded bg-base-300">
+			<div
+				class="h-full rounded bg-primary transition-[width] duration-100"
+				style:width={`${audioProgressPercent}%`}
+			></div>
+		</div>
+	</div>
+{/if}
 
 {#if $notesOpen$}
 	<div
@@ -847,7 +1118,17 @@
 >
 	{#if pipWindow}
 		{#each pipLines as line, index (line.id)}
-			<Line {line} {index} {pipWindow} isLast={pipLines.length - 1 === index} />
+			<Line
+				{line}
+				{index}
+				{pipWindow}
+				isLast={pipLines.length - 1 === index}
+				audioLineId={activeAudioLineId}
+				audioIsPlaying={browserAudioPlaying}
+				audioPendingLineId={pendingAudioLineId}
+				on:audioToggle={handleAudioToggle}
+				on:videoTrim={handleVideoTrim}
+			/>
 		{/each}
 	{/if}
 </div>

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GSM Database Management</title>
+    <title>GSM Tools</title>
     
     <!-- Include html2canvas for screenshot functionality -->
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
@@ -19,7 +19,7 @@
 <body>
 
 <div class="container">
-    <h1>GSM - Database Management</h1>
+    <h1>GSM - Tools</h1>
     
     <!-- Include shared navigation -->
     {% include 'components/navigation.html' %}
@@ -148,7 +148,155 @@
                 </button>
             </div>
         </div>
+
+        <!-- Yomitan Frequency Dictionary Card -->
+        <div class="management-card yomitan-freq-dict">
+            <div class="card-header">
+                <div class="card-icon">📊</div>
+                <h2 class="card-title">Download GSM Frequency Dictionary</h2>
+            </div>
+            <p class="card-description">
+                A word frequency dictionary built from your game data. Shows how often you encounter each word.
+            </p>
+            <div id="freqDictTokenizationWarning" style="display: none; background: var(--bg-tertiary); padding: 10px; border-radius: 5px; margin: 15px 0; border-left: 4px solid var(--warning-color);">
+                <small style="color: var(--warning-color);">
+                    ⚠️ Tokenization must be enabled in Settings → Experimental to use this feature.
+                </small>
+            </div>
+            <div class="card-actions">
+                <button class="action-btn primary" id="downloadFreqDictBtn" data-action="downloadFreqDict">
+                    Download Frequency Dictionary
+                </button>
+            </div>
+        </div>
+
+        <!-- Import External Stats Card -->
+        <div class="management-card external-stats">
+            <div class="card-header">
+                <div class="card-icon">&#128202;</div>
+                <h2 class="card-title">Import External Stats</h2>
+            </div>
+            <p class="card-description">
+                Import reading stats from other apps (Mokuro, ッツ Reader, etc.) or add manual entries. These are merged into your overall statistics, heatmap, charts, and goals.
+            </p>
+            <div class="stats-row">
+                <span class="stats-label">Total Entries:</span>
+                <span class="stats-value" id="thirdPartyTotalEntries">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">Total Characters:</span>
+                <span class="stats-value" id="thirdPartyTotalChars">Loading...</span>
+            </div>
+            <div class="stats-row">
+                <span class="stats-label">Total Time:</span>
+                <span class="stats-value" id="thirdPartyTotalTime">Loading...</span>
+            </div>
+            <div id="thirdPartySources" class="tp-summary-sources"></div>
+            <div class="card-actions">
+                <button class="action-btn primary" data-action="openThirdPartyStatsModal">
+                    Manage External Stats
+                </button>
+            </div>
+        </div>
+
+        <div class="management-card exstatic-import">
+            <div class="card-header">
+                <div class="card-icon">&#128229;</div>
+                <h2 class="card-title">Import ExStatic Lines</h2>
+            </div>
+            <p class="card-description">
+                Import legacy ExStatic line CSV exports into GSM. Imported lines become normal GSM entries, so they show up in stats, search, and game tools.
+            </p>
+            <div class="form-group" style="margin: 15px 0;">
+                <label class="form-label" for="toolsExstaticFile">Select ExStatic CSV</label>
+                <input type="file" id="toolsExstaticFile" class="form-input" accept=".csv,text/csv">
+                <small style="color: var(--text-tertiary); font-size: 12px; display: block; margin-top: 4px;">
+                    Use the ExStatic lines export with columns <code>uuid</code>, <code>given_identifier</code>, <code>name</code>, <code>line</code>, and <code>time</code>.
+                </small>
+            </div>
+            <div id="toolsExstaticProgress" style="display: none; margin: 15px 0;">
+                <div style="background: var(--bg-tertiary); border-radius: 5px; overflow: hidden; height: 20px; position: relative;">
+                    <div id="toolsExstaticProgressBar"
+                        style="background: var(--primary-color); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                    <span id="toolsExstaticProgressText"
+                        style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 12px; color: var(--text-primary);">0%</span>
+                </div>
+            </div>
+            <div id="toolsExstaticStatus"
+                style="display: none; padding: 10px; border-radius: 5px; font-size: 14px; margin-bottom: 15px;"></div>
+            <div class="card-actions">
+                <button class="action-btn primary" id="toolsImportExstaticBtn" disabled>
+                    Import ExStatic Lines
+                </button>
+            </div>
+        </div>
+
+        <div class="management-card stats-export">
+            <div class="card-header">
+                <div class="card-icon">&#128190;</div>
+                <h2 class="card-title">Export Stats</h2>
+            </div>
+            <p class="card-description">
+                Export your GSM reading activity to other apps. Exports run in the background so large CSV builds stay responsive and show progress.
+            </p>
+
+            <div class="form-group" style="margin: 15px 0;">
+                <label class="form-label" for="statsExportFormat">Export format</label>
+                <select id="statsExportFormat" class="form-input" style="margin-top: 5px;">
+                    <option value="">Loading formats...</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="margin: 15px 0;">
+                <label class="form-label" for="statsExportScope">Date range</label>
+                <select id="statsExportScope" class="form-input" style="margin-top: 5px;">
+                    <option value="all_time" selected>All time</option>
+                    <option value="since_last_export">Since last export</option>
+                    <option value="last_30_days">Last 30 days</option>
+                    <option value="custom">Custom range</option>
+                </select>
+            </div>
+
+            <div id="statsExportCustomRange" style="display: none; gap: 10px; margin: 15px 0;">
+                <div class="form-group" style="flex: 1; margin: 0;">
+                    <label class="form-label" for="statsExportStartDate">Start date</label>
+                    <input type="date" id="statsExportStartDate" class="form-input" style="margin-top: 5px;">
+                </div>
+                <div class="form-group" style="flex: 1; margin: 0;">
+                    <label class="form-label" for="statsExportEndDate">End date</label>
+                    <input type="date" id="statsExportEndDate" class="form-input" style="margin-top: 5px;">
+                </div>
+            </div>
+
+            <label id="statsExportIncludeExternalRow" style="display: flex; align-items: center; gap: 8px; margin: 15px 0; color: var(--text-secondary);">
+                <input type="checkbox" id="statsExportIncludeExternal" checked>
+                Include external stats entries (Mokuro, manual, etc.)
+            </label>
+
+            <div id="statsExportFormatDescription" style="display: none; color: var(--text-secondary); font-size: 13px; margin-bottom: 15px;"></div>
+
+            <div id="statsExportProgress" style="display: none; margin: 15px 0;">
+                <div style="background: var(--bg-tertiary); border-radius: 5px; overflow: hidden; height: 20px; position: relative;">
+                    <div id="statsExportProgressBar"
+                        style="background: var(--primary-color); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                    <span id="statsExportProgressText"
+                        style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 12px; color: var(--text-primary);">0%</span>
+                </div>
+            </div>
+
+            <div id="statsExportStatus"
+                style="display: none; padding: 10px; border-radius: 5px; font-size: 14px; margin-bottom: 15px;"></div>
+
+            <div class="card-actions">
+                <button class="action-btn primary" id="startStatsExportBtn" disabled>
+                    Start Export
+                </button>
+            </div>
+        </div>
+
     </div>
+
+    {% include 'components/settings-modal.html' %}
 </div>
 
 <!-- Text Lines Deletion Modal -->
@@ -185,85 +333,7 @@
     </div>
 </div>
 
-<!-- Deduplication Modal -->
-<div id="deduplicationModal" class="modal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h3>Remove Duplicate Sentences</h3>
-            <span class="close-btn" data-action="closeModal" data-modal="deduplicationModal">&times;</span>
-        </div>
-        <div class="modal-body">
-            <p class="warning-text">Remove duplicate sentences from selected games, keeping only the first occurrence of each unique sentence within a specified time window.</p>
-            
-            <div class="form-group">
-                <label class="form-label">Select Games:</label>
-                <select id="gameSelection" class="form-input" multiple style="height: 120px;">
-                    <option value="all">All Games</option>
-                </select>
-                <small style="color: var(--text-tertiary); font-size: 12px;">
-                    Hold Ctrl/Cmd to select multiple games. Select "All Games" to process all games at once.
-                </small>
-            </div>
-            
-            <div class="form-group" id="timeWindowGroup">
-                <label class="form-label">Time Window (minutes):</label>
-                <input type="number" id="timeWindow" class="form-input" min="1" value="5" placeholder="5">
-                <small style="color: var(--text-tertiary); font-size: 12px;">
-                    Only remove duplicates that appear within this many minutes of each other (minimum 1 minute, no maximum limit).
-                </small>
-            </div>
-            
-            <div class="form-group">
-                <div class="checkbox-container">
-                    <input type="checkbox" id="ignoreTimeWindow" class="checkbox-input">
-                    <label for="ignoreTimeWindow" class="checkbox-label">Entire Game (ignore time window)</label>
-                </div>
-                <small style="color: var(--text-tertiary); font-size: 12px; margin-left: 25px; display: block;">
-                    Remove ALL duplicates within each game regardless of when they occurred.
-                </small>
-            </div>
-            
-            <div class="form-group">
-                <div class="checkbox-container">
-                    <input type="checkbox" id="caseSensitiveDedup" class="checkbox-input">
-                    <label for="caseSensitiveDedup" class="checkbox-label">Case sensitive comparison</label>
-                </div>
-            </div>
-            
-            <div class="form-group">
-                <div class="checkbox-container">
-                    <input type="checkbox" id="preserveNewest" class="checkbox-input">
-                    <label for="preserveNewest" class="checkbox-label">Keep newest occurrence instead of oldest</label>
-                </div>
-            </div>
-            
-            <div id="deduplicationStats" style="display: none; background: var(--bg-tertiary); padding: 15px; border-radius: 5px; margin: 15px 0;">
-                <h4 style="margin: 0 0 10px 0; color: var(--text-primary);">Scan Results</h4>
-                <div class="stats-row">
-                    <span class="stats-label">Duplicates Found:</span>
-                    <span class="stats-value" id="duplicatesFoundCount">0</span>
-                </div>
-                <div class="stats-row">
-                    <span class="stats-label">Games Affected:</span>
-                    <span class="stats-value" id="gamesAffectedCount">0</span>
-                </div>
-                <div class="stats-row">
-                    <span class="stats-label">Space to be Freed:</span>
-                    <span class="stats-value" id="spaceToFree">0 sentences</span>
-                </div>
-                <div id="duplicatesSampleList" style="max-height: 100px; overflow-y: auto; margin-top: 10px;"></div>
-            </div>
-            
-            <div id="deduplicationError" class="error-text" style="display: none;"></div>
-            <div id="deduplicationSuccess" class="success-text" style="display: none;"></div>
-        </div>
-        <div class="modal-footer">
-            <button class="action-btn" data-action="closeModal" data-modal="deduplicationModal">Cancel</button>
-            <button class="action-btn primary" data-action="scanForDuplicates">Scan for Duplicates</button>
-            <button class="action-btn success" id="removeDuplicatesBtn" data-action="removeDuplicates" disabled>Remove Duplicates</button>
-        </div>
-    </div>
-</div>
+{% include 'components/deduplication-modal.html' %}
 
 <!-- Unified Game Data Management Modal -->
 <div id="gameDataModal" class="modal">
@@ -376,7 +446,7 @@
                     </div>
                 </div>
             </div>
-            
+
         </div>
         
         <div class="modal-footer">
@@ -385,120 +455,7 @@
     </div>
 </div>
 
-<!-- Unified Search Modal (Search across Jiten.moe, VNDB, and AniList) -->
-<div id="jitenSearchModal" class="modal">
-    <div class="modal-content" style="max-width: 900px;">
-        <div class="modal-header">
-            <h3>🔍 Search Databases</h3>
-            <span class="close-btn" data-action="closeModal" data-modal="jitenSearchModal">&times;</span>
-        </div>
-        <div class="modal-body">
-            <div class="search-info" style="margin-bottom: 20px;">
-                <p><strong>Searching for:</strong> <span id="searchingForGame"></span></p>
-            </div>
-            
-            <!-- Source toggle checkboxes -->
-            <div class="source-toggles" id="sourceToggles">
-                <label class="source-toggle-label">
-                    <input type="checkbox" id="toggle-jiten" class="source-toggle-checkbox" checked>
-                    <span class="source-toggle-text">🟢 Jiten</span>
-                </label>
-                <label class="source-toggle-label">
-                    <input type="checkbox" id="toggle-vndb" class="source-toggle-checkbox" checked>
-                    <span class="source-toggle-text">🔵 VNDB</span>
-                </label>
-                <label class="source-toggle-label">
-                    <input type="checkbox" id="toggle-anilist" class="source-toggle-checkbox" checked>
-                    <span class="source-toggle-text">🟠 AniList</span>
-                </label>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label">Search Term:</label>
-                <div style="display: flex; gap: 10px;">
-                    <input type="text" id="jitenSearchInput" class="form-input" placeholder="Enter game title to search...">
-                    <button class="action-btn primary" id="jitenSearchBtn">Search</button>
-                </div>
-                <small style="color: var(--text-tertiary); font-size: 12px;">
-                    Search supports Japanese, romaji, and English titles across all enabled sources.
-                </small>
-            </div>
-            
-            <div id="jitenSearchResults" style="display: none;">
-                <h4>Search Results:</h4>
-                <div id="jitenResultsList" style="max-height: 500px; overflow-y: auto; margin-top: 15px;">
-                    <!-- Search results will be populated here -->
-                </div>
-            </div>
-            
-            <div id="jitenSearchError" class="error-text" style="display: none;"></div>
-            <div id="jitenSearchLoading" class="loading-indicator" style="display: none;">
-                <div class="spinner"></div>
-                <span>Searching databases...</span>
-            </div>
-            
-            <div style="margin-top: 20px; padding: 15px; background: var(--bg-tertiary); border-radius: 8px; border-left: 4px solid var(--accent-color);">
-                <p style="margin: 0; color: var(--text-secondary); font-size: 14px;">
-                    <strong>💡 Tips:</strong>
-                </p>
-                <ul style="margin: 8px 0 0 0; padding-left: 20px; color: var(--text-secondary); font-size: 13px;">
-                    <li><strong class="jiten-badge" style="font-size: 11px;">🟢 Jiten</strong> - Primary source with full stats support (difficulty, character counts)</li>
-                    <li><strong class="vndb-badge" style="font-size: 11px;">🔵 VNDB</strong> - Visual novels only, limited stats integration</li>
-                    <li><strong class="anilist-badge" style="font-size: 11px;">🟠 AniList</strong> - Anime/Manga only, limited stats integration</li>
-                </ul>
-                <p style="margin: 10px 0 0 0; color: var(--text-secondary); font-size: 13px;">
-                    <strong>Not found?</strong> Contribute to <a href="https://jiten.moe/" target="_blank" rel="noopener noreferrer" style="color: var(--accent-color);">Jiten</a> or click Edit on the game to create a manual entry.
-                </p>
-            </div>
-        </div>
-        <div class="modal-footer">
-            <button class="action-btn" data-action="closeModal" data-modal="jitenSearchModal">Cancel</button>
-        </div>
-    </div>
-</div>
-
-<!-- Game Link Confirmation Modal -->
-<div id="gameLinkConfirmModal" class="modal">
-    <div class="modal-content" style="max-width: 700px;">
-        <div class="modal-header">
-            <h3>Confirm Game Link</h3>
-            <span class="close-btn" data-action="closeModal" data-modal="gameLinkConfirmModal">&times;</span>
-        </div>
-        <div class="modal-body">
-            <div class="link-preview">
-                <div class="current-game" style="margin-bottom: 20px;">
-                    <h4>Your Game:</h4>
-                    <div id="currentGamePreview" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px;">
-                        <!-- Current game info will be populated here -->
-                    </div>
-                </div>
-                
-                <div class="jiten-game" style="margin-bottom: 20px;">
-                    <h4>jiten.moe Match:</h4>
-                    <div id="jitenGamePreview" style="background: var(--bg-tertiary); padding: 15px; border-radius: 8px;">
-                        <!-- Jiten game info will be populated here -->
-                    </div>
-                </div>
-                
-                <div class="manual-overrides-warning" id="manualOverridesWarning" style="display: none; background: var(--warning-color); color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
-                    <strong>⚠️ Manual Overrides Detected:</strong>
-                    <div id="overriddenFieldsList"></div>
-                    <small>These manually edited fields will NOT be overwritten.</small>
-                </div>
-            </div>
-            
-            <div id="linkConfirmError" class="error-text" style="display: none;"></div>
-            <div id="linkConfirmLoading" class="loading-indicator" style="display: none;">
-                <div class="spinner"></div>
-                <span>Linking game...</span>
-            </div>
-        </div>
-        <div class="modal-footer">
-            <button class="action-btn" data-action="closeModal" data-modal="gameLinkConfirmModal">Cancel</button>
-            <button class="action-btn success" id="confirmLinkBtn">Link Game</button>
-        </div>
-    </div>
-</div>
+{% include 'components/game-import-modals.html' %}
 
 <!-- Edit Game Modal -->
 <div id="editGameModal" class="modal">
@@ -547,10 +504,10 @@
                 </div>
                 
                 <div class="form-group">
-                    <label class="form-label">Difficulty (1-5)</label>
-                    <input type="number" id="editDifficulty" class="form-input" min="1" max="5">
+                    <label class="form-label">Difficulty (0-5)</label>
+                    <input type="number" id="editDifficulty" class="form-input" min="0" max="5">
                     <small style="color: var(--text-tertiary); font-size: 12px;">
-                        1 = Easiest, 5 = Hardest
+                        0 = Beginner, 5 = Insane
                     </small>
                 </div>
                 
@@ -906,6 +863,268 @@
     </div>
 </div>
 
+<!-- Third-Party Stats Modal -->
+<div id="thirdPartyStatsModal" class="modal">
+    <div class="modal-content" style="max-width: 900px; max-height: 90vh; display: flex; flex-direction: column;">
+        <div class="modal-header">
+            <h3>External Stats Management</h3>
+            <span class="close-btn" data-action="closeModal" data-modal="thirdPartyStatsModal">&times;</span>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="modal-tabs">
+            <button class="tab-btn active" data-tp-tab="manual">Manual Entry</button>
+            <button class="tab-btn" data-tp-tab="mokuro">Mokuro Import</button>
+            <button class="tab-btn" data-tp-tab="api">API</button>
+            <button class="tab-btn" data-tp-tab="entries">View Entries</button>
+        </div>
+
+        <div class="modal-body" style="flex: 1; overflow-y: auto;">
+
+            <!-- Manual Entry Tab -->
+            <div id="tpTabManual" class="tab-content active" style="padding: 20px;">
+                <p class="info-text">
+                    Add reading stats from any source (ッツ Reader, Kindle, physical books, etc.). Characters and time will be merged into your overall statistics.
+                </p>
+                <form id="manualStatsForm" onsubmit="return false;">
+                    <div class="tp-form-grid">
+                        <div class="form-group">
+                            <label class="form-label">Date *</label>
+                            <input type="date" id="tpManualDate" class="form-input" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Source</label>
+                            <input type="text" id="tpManualSource" class="form-input" placeholder="e.g. ttsu, kindle, manual" value="manual">
+                            <small style="color: var(--text-tertiary); font-size: 12px; display: block; margin-top: 4px;">
+                                Tag for grouping entries. Use consistent names like "ttsu", "kindle", etc.
+                            </small>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Label / Book Title</label>
+                            <input type="text" id="tpManualLabel" class="form-input" placeholder="e.g. Book title, manga name...">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Characters Read *</label>
+                            <input type="number" id="tpManualChars" class="form-input" min="0" value="0" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Time Read (minutes) *</label>
+                            <input type="number" id="tpManualMinutes" class="form-input" min="0" value="0" step="0.1" required>
+                        </div>
+                    </div>
+                    <div style="margin-top: 8px;">
+                        <button class="action-btn success" onclick="submitManualEntry()">Add Entry</button>
+                    </div>
+                </form>
+                <div id="manualEntryResult" class="tp-import-result" style="display: none;"></div>
+            </div>
+
+            <!-- Mokuro Import Tab -->
+            <div id="tpTabMokuro" class="tab-content" style="padding: 20px;">
+                <p class="info-text">
+                    Import reading data from Mokuro's <code>volume-data.json</code> file. Page turn timestamps are analyzed to compute per-day reading stats for each volume.
+                </p>
+
+                <div class="form-group">
+                    <label class="form-label">Select volume-data.json file:</label>
+                    <input type="file" id="mokuroFileInput" class="form-input" accept=".json">
+                </div>
+
+                <div class="form-group">
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="mokuroClearPrevious" class="checkbox-input" checked>
+                        <label for="mokuroClearPrevious" class="checkbox-label">Clear previous Mokuro data before importing</label>
+                    </div>
+                    <small style="color: var(--text-tertiary); font-size: 12px; margin-left: 25px; display: block;">
+                        Recommended to avoid duplicates when re-importing. Only removes entries with source "mokuro".
+                    </small>
+                </div>
+
+                <div style="margin-top: 15px;">
+                    <button class="action-btn primary" onclick="importMokuroData()">Import Mokuro Data</button>
+                </div>
+
+                <div id="mokuroImportResult" class="tp-import-result" style="display: none;"></div>
+            </div>
+
+            <!-- API Documentation Tab -->
+            <div id="tpTabApi" class="tab-content" style="padding: 20px;">
+                <div class="tp-api-docs">
+                    <h4>Batch Import API</h4>
+                    <p>
+                        Use this endpoint to programmatically import stats from any source.
+                        Scripts, browser extensions, or other tools can POST entries directly.
+                    </p>
+
+                    <div class="tp-api-endpoint">
+                        <span class="tp-api-method">POST</span>
+                        <span class="tp-api-path">/api/import-stats</span>
+                    </div>
+
+                    <span class="tp-code-label">Request Body (JSON)</span>
+                    <div class="tp-code-block">
+<pre>{
+  "entries": [
+    {
+      "date": "2025-03-08",
+      "characters_read": 5000,
+      "time_read_seconds": 3600,
+      "source": "ttsu",
+      "label": "My Book Title"
+    }
+  ],
+  "clear_source": "ttsu"
+}</pre>
+                    </div>
+
+                    <span class="tp-code-label">Fields</span>
+                    <table class="tp-api-field-table">
+                        <thead>
+                            <tr>
+                                <th>Field</th>
+                                <th>Type</th>
+                                <th>Required</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>entries</td>
+                                <td>array</td>
+                                <td>Yes</td>
+                                <td>Array of stat entries to import</td>
+                            </tr>
+                            <tr>
+                                <td>entries[].date</td>
+                                <td>string</td>
+                                <td>Yes</td>
+                                <td>Date in YYYY-MM-DD format</td>
+                            </tr>
+                            <tr>
+                                <td>entries[].characters_read</td>
+                                <td>int</td>
+                                <td>No</td>
+                                <td>Characters read (default: 0)</td>
+                            </tr>
+                            <tr>
+                                <td>entries[].time_read_seconds</td>
+                                <td>float</td>
+                                <td>No</td>
+                                <td>Reading time in seconds (default: 0)</td>
+                            </tr>
+                            <tr>
+                                <td>entries[].source</td>
+                                <td>string</td>
+                                <td>Yes</td>
+                                <td>Source identifier (e.g. "ttsu", "kindle")</td>
+                            </tr>
+                            <tr>
+                                <td>entries[].label</td>
+                                <td>string</td>
+                                <td>No</td>
+                                <td>Book/volume title or description</td>
+                            </tr>
+                            <tr>
+                                <td>clear_source</td>
+                                <td>string</td>
+                                <td>No</td>
+                                <td>Delete all existing entries for this source before importing (prevents duplicates)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <span class="tp-code-label">Example (curl)</span>
+                    <div class="tp-code-block">
+<pre>curl -X POST http://localhost:58000/api/import-stats \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entries": [
+      {
+        "date": "2025-03-08",
+        "characters_read": 5000,
+        "time_read_seconds": 3600,
+        "source": "ttsu",
+        "label": "Novel Title Vol.1"
+      },
+      {
+        "date": "2025-03-09",
+        "characters_read": 3200,
+        "time_read_seconds": 2400,
+        "source": "ttsu",
+        "label": "Novel Title Vol.1"
+      }
+    ],
+    "clear_source": "ttsu"
+  }'</pre>
+                    </div>
+
+                    <div class="tp-api-note">
+                        <strong>Tip:</strong> Set <code>clear_source</code> to your source name to avoid duplicates when re-importing.
+                        The API accepts up to 50,000 entries per request. Entries with both <code>characters_read</code> and <code>time_read_seconds</code> equal to 0 are silently skipped.
+                    </div>
+
+                    <span class="tp-code-label">Single Entry API</span>
+                    <div class="tp-api-endpoint">
+                        <span class="tp-api-method">POST</span>
+                        <span class="tp-api-path">/api/third-party-stats</span>
+                    </div>
+                    <div class="tp-code-block">
+<pre>{
+  "date": "2025-03-08",
+  "characters_read": 5000,
+  "time_read_seconds": 3600,
+  "source": "ttsu",
+  "label": "Book Title"
+}</pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View Entries Tab -->
+            <div id="tpTabEntries" class="tab-content" style="padding: 20px;">
+                <div class="tp-entries-header">
+                    <div class="tp-filter-group">
+                        <button class="tp-filter-btn active" data-tp-filter="all">All</button>
+                    </div>
+                    <div class="tp-clear-group" id="tpClearButtons"></div>
+                </div>
+
+                <div id="tpEntriesLoading" class="loading-indicator" style="display: none;">
+                    <div class="spinner"></div>
+                    <span>Loading entries...</span>
+                </div>
+
+                <div id="tpEntriesScroll" class="tp-entries-scroll" style="display: none;">
+                    <table class="tp-entries-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Source</th>
+                                <th>Label</th>
+                                <th class="text-right">Chars</th>
+                                <th class="text-right">Time</th>
+                                <th class="text-center">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tpEntriesBody">
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="tpEntriesEmpty" class="tp-empty-state" style="display: none;">
+                    <div class="tp-empty-state-icon">&#128202;</div>
+                    <p>No external stats entries yet.</p>
+                    <p style="margin-top: 8px; font-size: 13px;">Use the Manual Entry or Mokuro Import tabs to add data.</p>
+                </div>
+            </div>
+
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn" data-action="closeModal" data-modal="thirdPartyStatsModal">Close</button>
+        </div>
+    </div>
+</div>
+
 <!-- Include shared JavaScript first (required dependency for all database modules) -->
 <script src="/static/js/shared.js"></script>
 
@@ -917,8 +1136,11 @@
 <script src="/static/js/database-bulk-operations.js"></script>
 <script src="/static/js/database-text-management.js"></script>
 <script src="/static/js/unified-search.js"></script>
+<script src="/static/js/game-import-widget.js"></script>
 <script src="/static/js/database-jiten-integration.js"></script>
 <script src="/static/js/database-game-operations.js"></script>
+<script src="/static/js/database-third-party-stats.js"></script>
+<script src="/static/js/database-exstatic-import.js"></script>
 
 <!-- Load main database.js last (orchestrator) -->
 <script src="/static/js/database.js"></script>

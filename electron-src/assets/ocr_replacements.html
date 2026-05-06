@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<script src="shared.js"></script>
 <div class="card">
     <h1>OCR Error Fixes</h1>
 
@@ -58,62 +59,23 @@
 </div>
 
 <script>
-    // Require the file system module (available in Electron renderer process with nodeIntegration)
-    const fs = require('fs');
-    const path = require('path');
-
-    // Define the path to the JSON file
-    // This assumes the JSON file is in the same directory as the HTML file
-    const DATA_FILE = path.join(process.env.APPDATA, 'GameSentenceMiner', 'config', 'ocr_replacements.json');
     let ocrData = {}; // In-memory storage for the data
 
     // Function to load data from the JSON file
-    function loadData() {
-        if (fs.existsSync(DATA_FILE)) {
-            try {
-                const rawData = fs.readFileSync(DATA_FILE, 'utf-8');
-                const fullData = JSON.parse(rawData);
-                const fileData = fullData.args?.replacements || {};
-                ocrData = { ...fileData };
-            } catch (error) {
-                console.error("Error loading data from file:", error);
-            }
-        } else {
-            console.warn("Data file not found. Starting with initial hardcoded data.");
-            const initialDataStructure = {
-                "enabled": true,
-                "args": {
-                    "replacements": ocrData
-                }
-            };
-            try {
-                fs.writeFileSync(DATA_FILE, JSON.stringify(initialDataStructure, null, 4), 'utf-8');
-            } catch (error) {
-                console.error("Error creating data file:", error);
-            }
+    async function loadData() {
+        try {
+            const replacements = await ipcRenderer.invoke('ocr-replacements.load');
+            ocrData = { ...(replacements || {}) };
+        } catch (error) {
+            console.error("Error loading data from file:", error);
+            ocrData = {};
         }
     }
 
     // Function to save data to the JSON file
-    function saveData() {
-        let fullData = {};
-        if (fs.existsSync(DATA_FILE)) {
-            try {
-                const rawData = fs.readFileSync(DATA_FILE, 'utf-8');
-                fullData = JSON.parse(rawData);
-            } catch (error) {
-                console.error("Error reading file structure before saving:", error);
-                fullData = {};
-            }
-        }
-
-        if (!fullData.args) {
-            fullData.args = {};
-        }
-        fullData.args['replacements'] = ocrData;
-
+    async function saveData() {
         try {
-            fs.writeFileSync(DATA_FILE, JSON.stringify(fullData, null, 4), 'utf-8');
+            await ipcRenderer.invoke('ocr-replacements.save', ocrData);
         } catch (error) {
             console.error("Error saving data:", error);
         }
@@ -242,7 +204,7 @@
             ocrData = { [key]: value, ...ocrData };
         }
 
-        saveData();
+        void saveData();
         renderTable();
         modal.style.display = 'none';
     });
@@ -253,7 +215,7 @@
         if (confirm(`Are you sure you want to delete the entry with key "${keyToDelete}"?`)) {
             if (ocrData.hasOwnProperty(keyToDelete)) {
                 delete ocrData[keyToDelete];
-                saveData();
+                void saveData();
                 renderTable();
             }
         }
@@ -292,8 +254,10 @@
     });
 
     // --- Initial Load ---
-    loadData();
-    renderTable();
+    (async () => {
+        await loadData();
+        renderTable();
+    })();
 </script>
 </body>
 </html>

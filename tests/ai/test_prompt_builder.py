@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+from GameSentenceMiner.ai.prompts.builder import FullPromptRenderer
+
+
+def test_full_prompt_keeps_sentence_adjacent_to_prompt_block():
+    rendered = FullPromptRenderer.render(
+        game_title="Test Game",
+        character_context="Character A is calm.",
+        dialogue_context="Line 1\nLine 2",
+        prompt_to_use="PROMPT_TO_USE_MARKER",
+        sentence="SENTENCE_MARKER",
+    )
+
+    prompt_end = rendered.index("PROMPT_TO_USE_MARKER") + len("PROMPT_TO_USE_MARKER")
+    sentence_start = rendered.index("SENTENCE_MARKER")
+    gap = rendered[prompt_end:sentence_start]
+
+    assert "Dialogue context:" not in gap

@@ -1,14 +1,45 @@
 // python.ts
 import { ipcMain, shell, dialog } from 'electron';
 import { ChildProcess, spawn } from 'child_process';
-import * as path from 'path';
-import * as fs from 'fs';
 import { getOrInstallPython, reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall, closeAllPythonProcesses, restartGSM, checkAndInstallUV, pyProc } from '../main.js';
 import { FeatureFlags } from '../main.js';
 import { BASE_DIR, execFileAsync, PACKAGE_NAME, getSanitizedPythonEnv, getGSMBaseDir } from '../util.js';
+import {
+    getInstalledPackageVersion,
+    resolveRequestedExtras,
+    syncLockedEnvironment,
+    installPackageNoDeps,
+} from '../services/python_ops.js';
+import { installSessionManager } from '../services/install_session_state.js';
+import { getPythonExtras, setPythonExtraEnabled, setPythonExtras } from '../store.js';
 
 let consoleProcess: ChildProcess | null = null;
+
+type ManualInstallOrigin = 'repair' | 'reset_dependencies';
+
+function updateInstallStage(
+    stageId: 'prepare' | 'uv' | 'python' | 'venv' | 'verify_runtime' | 'lock_sync' | 'gsm_package' | 'backend_boot' | 'obs' | 'ffmpeg' | 'oneocr' | 'finalize',
+    status: 'pending' | 'running' | 'completed' | 'skipped' | 'failed',
+    progressKind: 'bytes' | 'estimated' | 'indeterminate',
+    progress: number | null,
+    message: string,
+    error?: string | null
+): void {
+    installSessionManager.updateStage({
+        stageId,
+        status,
+        progressKind,
+        progress,
+        message,
+        error: error ?? null,
+    });
+}
+
+function startManualInstallSession(origin: ManualInstallOrigin, retryHandler: () => Promise<void>): void {
+    installSessionManager.ensureSession(origin, retryHandler);
+    updateInstallStage('prepare', 'completed', 'estimated', 1, 'Manual dependency workflow prepared.');
+}
 
 /**
  * Reusable pip install function with console logging.
@@ -69,14 +100,26 @@ export function registerPythonIPC() {
             // Wait for processes to fully close
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
-            console.log('Installing CUDA GPU support...');
-            let pipArgs: string[] = [
-                'install',
-                '--upgrade',
-                'onnxruntime-gpu[cudnn,cuda]',
-                'numpy==2.2.6'
-            ];
-            await pipInstallWithLogging(pythonPath, pipArgs, 'CUDA GPU');
+            console.log('Enabling GPU extra and syncing lockfile...');
+            setPythonExtraEnabled('gpu', true);
+            const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
+                getPythonExtras()
+            );
+            if (ignoredExtras.length > 0) {
+                setPythonExtras(selectedExtras);
+                console.warn(
+                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
+                        allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
+                    }.`
+                );
+            }
+            if (!selectedExtras.includes('gpu')) {
+                throw new Error(
+                    'The "gpu" extra is not available in the bundled lockfile. Update the app before enabling GPU support.'
+                );
+            }
+            await checkAndInstallUV(pythonPath);
+            await syncLockedEnvironment(pythonPath, selectedExtras, false);
 
             console.log('CUDA installation complete, restarting GSM...');
             // Give a moment for file system to settle
@@ -115,31 +158,21 @@ export function registerPythonIPC() {
 
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
-            console.log('Uninstalling CUDA GPU support...');
-            
-            // Get list of installed packages to find nvidia ones
-            const listResult = await execFileAsync(pythonPath, [
-                '-m',
-                'uv',
-                'pip',
-                'list',
-                '--format=json',
-            ]);
-            
-            const installedPackages = JSON.parse(listResult.stdout);
-            const packagesToRemove = installedPackages
-                .map((p: any) => p.name)
-                .filter((name: string) => 
-                    name === 'onnxruntime-gpu' || 
-                    name.startsWith('nvidia-')
+            console.log('Disabling GPU extra and syncing lockfile...');
+            setPythonExtraEnabled('gpu', false);
+            const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
+                getPythonExtras()
+            );
+            if (ignoredExtras.length > 0) {
+                setPythonExtras(selectedExtras);
+                console.warn(
+                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
+                        allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
+                    }.`
                 );
-
-            if (packagesToRemove.length > 0) {
-                 console.log(`Removing packages: ${packagesToRemove.join(', ')}`);
-                 await pipInstallWithLogging(pythonPath, ['uninstall', ...packagesToRemove], 'CUDA Uninstall');
-            } else {
-                 console.log('No CUDA/NVIDIA packages found to remove.');
             }
+            await checkAndInstallUV(pythonPath);
+            await syncLockedEnvironment(pythonPath, selectedExtras, false);
 
             console.log('CUDA uninstallation complete, restarting GSM...');
             await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -161,7 +194,7 @@ export function registerPythonIPC() {
 
     // Reset Dependencies (uv sync)
     ipcMain.handle('python.resetDependencies', async () => {
-        try {
+        const executeResetDependencies = async () => {
             const pythonPath = await getOrInstallPython();
             await closeAllPythonProcesses();
 
@@ -171,36 +204,45 @@ export function registerPythonIPC() {
                 pyProc.kill();
             }
 
-            console.log('Resetting Python dependencies (uv sync)...');
-
-            consoleProcess = spawn(
-                pythonPath,
-                ['-m', 'uv', 'sync'],
-                {
-                    stdio: 'inherit',
-                    cwd: getGSMBaseDir(),
-                    env: getSanitizedPythonEnv()
-                }
+            console.log('Resetting Python dependencies (uv lock sync)...');
+            const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
+                getPythonExtras()
             );
-
-            await new Promise<void>((resolve, reject) => {
-                consoleProcess!.on('close', (code) => {
-                    if (code === 0) {
-                        console.log('Python dependencies reset successfully.');
-                        resolve();
-                    } else {
-                        reject(new Error(`uv sync exited with code ${code}`));
-                    }
-                });
+            if (ignoredExtras.length > 0) {
+                setPythonExtras(selectedExtras);
+                console.warn(
+                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
+                        allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
+                    }.`
+                );
+            }
+            updateInstallStage('verify_runtime', 'running', 'estimated', 0.25, 'Ensuring uv runtime tooling...');
+            await checkAndInstallUV(pythonPath);
+            updateInstallStage('verify_runtime', 'completed', 'estimated', 1, 'uv runtime tooling is ready.');
+            updateInstallStage('lock_sync', 'running', 'estimated', 0.1, 'Resetting Python dependencies from the lockfile...');
+            await syncLockedEnvironment(pythonPath, selectedExtras, false, (event) => {
+                updateInstallStage('lock_sync', 'running', 'estimated', event.progress, event.message);
             });
+            updateInstallStage('lock_sync', 'completed', 'estimated', 1, 'Python dependencies reset successfully.');
+            console.log('Python dependencies reset successfully.');
 
             console.log('Restarting GSM...');
             const { ensureAndRunGSM } = await import('../main.js');
-            await ensureAndRunGSM(pythonPath);
+            await ensureAndRunGSM(pythonPath, 1, { origin: 'reset_dependencies' });
+        };
 
+        try {
+            startManualInstallSession('reset_dependencies', executeResetDependencies);
+            await executeResetDependencies();
             return { success: true, message: 'Python dependencies reset successfully' };
         } catch (error: any) {
             console.error('Failed to reset dependencies:', error);
+            updateInstallStage('finalize', 'failed', 'estimated', null, 'Failed to reset Python dependencies.', error?.message || 'Unknown error');
+            installSessionManager.finishActive(
+                'failed',
+                'Failed to reset Python dependencies.',
+                error?.message || 'Unknown error'
+            );
             return {
                 success: false,
                 message: `Failed to reset dependencies: ${error?.message || 'Unknown error'}`,
@@ -210,8 +252,8 @@ export function registerPythonIPC() {
 
     // Repair GSM - Complete reinstall
     ipcMain.handle('python.repairGSM', async () => {
-        try {
-            console.log('Starting GSM repair - removing Python directory and reinstalling...');
+        const executeRepair = async () => {
+            console.log('Starting strict GSM repair...');
 
             await closeAllPythonProcesses();
 
@@ -221,57 +263,54 @@ export function registerPythonIPC() {
                 pyProc.kill();
             }
 
-            // Remove the entire python directory
-            const pythonDir = path.join(BASE_DIR, 'python');
-            if (fs.existsSync(pythonDir)) {
-                console.log('Removing existing Python directory...');
-                try {
-                    fs.rmSync(pythonDir, { recursive: true, force: true });
-                } catch (err) {
-                    console.warn('Initial removal failed, retrying in 2 seconds...');
-                    await new Promise((resolve) => setTimeout(resolve, 2000));
-                    fs.rmSync(pythonDir, { recursive: true, force: true });
-                }
-                // Wait a moment to ensure filesystem settles
-                await new Promise((resolve) => setTimeout(resolve, 1000));
+            const pythonPath = await getOrInstallPython();
+            updateInstallStage('verify_runtime', 'running', 'estimated', 0.25, 'Ensuring uv runtime tooling...');
+            await checkAndInstallUV(pythonPath);
+            updateInstallStage('verify_runtime', 'completed', 'estimated', 1, 'uv runtime tooling is ready.');
+
+            const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
+                getPythonExtras()
+            );
+            if (ignoredExtras.length > 0) {
+                setPythonExtras(selectedExtras);
+                console.warn(
+                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
+                        allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
+                    }.`
+                );
             }
 
-            // Reinstall Python
-            // await reinstallPython();
-
-            // Reinstall GameSentenceMiner package
-            const pythonPath = await getOrInstallPython();
-            await checkAndInstallUV(pythonPath);
-
-            console.log('Reinstalling GameSentenceMiner package...');
-
-            consoleProcess = spawn(
-                pythonPath,
-                ['-m', 'uv', '--no-progress', 'pip', 'install', '--upgrade', '--force-reinstall', '--prerelease=allow', PACKAGE_NAME],
-                {
-                    stdio: 'inherit',
-                    cwd: getGSMBaseDir(),
-                    env: getSanitizedPythonEnv()
-                }
-            );
-
-            await new Promise<void>((resolve, reject) => {
-                consoleProcess!.on('close', (code) => {
-                    if (code === 0) {
-                        console.log('GameSentenceMiner package reinstalled successfully.');
-                        resolve();
-                    } else {
-                        reject(
-                            new Error(`GameSentenceMiner installation exited with code ${code}`)
-                        );
-                    }
-                });
+            updateInstallStage('lock_sync', 'running', 'estimated', 0.1, 'Syncing dependencies from the lockfile...');
+            await syncLockedEnvironment(pythonPath, selectedExtras, false, (event) => {
+                updateInstallStage('lock_sync', 'running', 'estimated', event.progress, event.message);
             });
+            updateInstallStage('lock_sync', 'completed', 'estimated', 1, 'Dependencies synced from the lockfile.');
+            const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
+            const packageSpecifier = installedVersion
+                ? `${PACKAGE_NAME}==${installedVersion}`
+                : PACKAGE_NAME;
+            updateInstallStage('gsm_package', 'running', 'estimated', 0.1, `Reinstalling ${packageSpecifier}...`);
+            await installPackageNoDeps(pythonPath, packageSpecifier, true, (event) => {
+                updateInstallStage('gsm_package', 'running', 'estimated', event.progress, event.message);
+            });
+            updateInstallStage('gsm_package', 'completed', 'estimated', 1, 'GSM backend package reinstalled.');
 
-            await restartGSM();
+            const { ensureAndRunGSM } = await import('../main.js');
+            await ensureAndRunGSM(pythonPath, 1, { origin: 'repair' });
+        };
+
+        try {
+            startManualInstallSession('repair', executeRepair);
+            await executeRepair();
             return { success: true, message: 'GSM repaired successfully' };
         } catch (error: any) {
             console.error('Failed to repair GSM:', error);
+            updateInstallStage('finalize', 'failed', 'estimated', null, 'Failed to repair GSM.', error?.message || 'Unknown error');
+            installSessionManager.finishActive(
+                'failed',
+                'Failed to repair GSM.',
+                error?.message || 'Unknown error'
+            );
             return {
                 success: false,
                 message: `Failed to repair GSM: ${error?.message || 'Unknown error'}`,

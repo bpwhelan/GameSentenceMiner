@@ -18,10 +18,10 @@ from .routes import register_all_routes
 def register_jiten_database_api_routes(app):
     """
     Register all Jiten-related database API routes with the Flask app.
-    
+
     This function delegates to the routes package which handles all route registration
     through Flask blueprints for better code organization and maintainability.
-    
+
     Args:
         app: Flask application instance
     """

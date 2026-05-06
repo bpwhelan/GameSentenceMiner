@@ -1,40 +1,38 @@
-
 import os
 import sys
+import ctypes
+import importlib
+import platform
 
+# Suppress CUDA/PyTorch verbose output before any torch imports
+os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")  # Suppress TensorFlow logs
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")  # Suppress transformers logs
+
+from GameSentenceMiner.ocr.coordinate_math import scale_percentage_rectangle_to_even_pixels
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_scene_ocr_config
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, OCR_REPLACEMENTS_FILE
-from GameSentenceMiner.util.electron_config import get_ocr_language, get_ocr_ocr2, get_ocr_requires_open_window, \
-    has_ocr_config_changed, reload_electron_config, get_ocr_scan_rate, get_ocr_two_pass_ocr, get_ocr_keep_newline, \
-    get_ocr_ocr1, get_furigana_filter_sensitivity
-
-try:
-    import win32gui
-    import win32ui
-    import win32api
-    import win32con
-    import win32process
-    import win32clipboard
-    import pywintypes
-    import ctypes
-except ImportError:
-    pass
-
-try:
-    import objc
-    import platform
-    from AppKit import NSData, NSImage, NSBitmapImageRep, NSDeviceRGBColorSpace, NSGraphicsContext, NSZeroPoint, NSZeroRect, NSCompositingOperationCopy, NSPasteboard, NSPasteboardTypeTIFF, NSPasteboardTypeString
-    from Quartz import CGWindowListCreateImageFromArray, kCGWindowImageBoundsIgnoreFraming, CGRectMake, CGRectNull, CGMainDisplayID, CGWindowListCopyWindowInfo, \
-        CGWindowListCreateDescriptionFromArray, kCGWindowListOptionOnScreenOnly, kCGWindowListExcludeDesktopElements, kCGWindowName, kCGNullWindowID, \
-        CGImageGetWidth, CGImageGetHeight, CGDataProviderCopyData, CGImageGetDataProvider, CGImageGetBytesPerRow
-    from ScreenCaptureKit import SCContentFilter, SCScreenshotManager, SCShareableContent, SCStreamConfiguration, SCCaptureResolutionBest
-except ImportError:
-    pass
+from GameSentenceMiner.util.config.electron_config import (
+    get_ocr_ocr2,
+    get_ocr_requires_open_window,
+    has_ocr_config_changed,
+    reload_electron_config,
+    get_ocr_scan_rate,
+    get_ocr_two_pass_ocr,
+    get_ocr_keep_newline,
+    get_ocr_ocr1,
+    get_ocr_obs_capture_preprocess_mode,
+)
+from GameSentenceMiner.ocr.image_scaling import (
+    scale_dimensions_to_minimum_bounds,
+)
+from GameSentenceMiner.util.config.electron_config import get_ocr_base_scale
 
 import signal
 import threading
 from pathlib import Path
 import queue
+import copy
 import re
 import logging
 import inspect
@@ -43,39 +41,565 @@ import collections
 import socket
 import socketserver
 
-import pyperclipfix
-import mss
 import asyncio
-import websockets
-import cv2
 import numpy as np
 
 
 from collections import deque
 from datetime import datetime, timedelta
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 from loguru import logger
-from desktop_notifier import DesktopNotifierSync
-import psutil
 
 from .ocr import *  # noqa: F403
+from .ocr import build_spatial_text, line_dict_to_spatial_entry
 from .config import Config
-from .screen_coordinate_picker import get_screen_selection
-from GameSentenceMiner.util.configuration import get_config, get_temporary_directory
+from GameSentenceMiner.util.config.configuration import get_config
 
-from skimage.metrics import structural_similarity as ssim
 from typing import Union
+
+_UNINITIALIZED = object()
+
+_WIN32_CAPTURE_DEPS = _UNINITIALIZED
+_MACOS_CAPTURE_DEPS = _UNINITIALIZED
+_PYPERCLIPFIX_MODULE = _UNINITIALIZED
+_MSS_MODULE = _UNINITIALIZED
+_WEBSOCKETS_MODULE = _UNINITIALIZED
+_CV2_MODULE = _UNINITIALIZED
+_PSUTIL_MODULE = _UNINITIALIZED
+_SSIM_FUNCTION = _UNINITIALIZED
+_DESKTOP_NOTIFIER_SYNC = _UNINITIALIZED
+
+win32gui = None
+win32ui = None
+win32api = None
+win32con = None
+win32process = None
+win32clipboard = None
+pywintypes = None
+objc = None
+NSData = None
+NSImage = None
+NSBitmapImageRep = None
+NSDeviceRGBColorSpace = None
+NSGraphicsContext = None
+NSZeroPoint = None
+NSZeroRect = None
+NSCompositingOperationCopy = None
+NSPasteboard = None
+NSPasteboardTypeTIFF = None
+NSPasteboardTypeString = None
+CGWindowListCreateImageFromArray = None
+kCGWindowImageBoundsIgnoreFraming = None
+CGRectMake = None
+CGRectNull = None
+CGMainDisplayID = None
+CGWindowListCopyWindowInfo = None
+CGWindowListCreateDescriptionFromArray = None
+kCGWindowListOptionOnScreenOnly = None
+kCGWindowListExcludeDesktopElements = None
+kCGWindowName = None
+kCGNullWindowID = None
+CGImageGetWidth = None
+CGImageGetHeight = None
+CGDataProviderCopyData = None
+CGImageGetDataProvider = None
+CGImageGetBytesPerRow = None
+SCContentFilter = None
+SCScreenshotManager = None
+SCShareableContent = None
+SCStreamConfiguration = None
+SCCaptureResolutionBest = None
+
+
+class _NullNotifier:
+    def send(self, *args, **kwargs):
+        return None
+
+
+def _load_win32_capture_dependencies():
+    global _WIN32_CAPTURE_DEPS
+    if _WIN32_CAPTURE_DEPS is not _UNINITIALIZED:
+        return _WIN32_CAPTURE_DEPS
+
+    try:
+        deps = {
+            "win32gui": importlib.import_module("win32gui"),
+            "win32ui": importlib.import_module("win32ui"),
+            "win32api": importlib.import_module("win32api"),
+            "win32con": importlib.import_module("win32con"),
+            "win32process": importlib.import_module("win32process"),
+            "win32clipboard": importlib.import_module("win32clipboard"),
+            "pywintypes": importlib.import_module("pywintypes"),
+        }
+    except ImportError:
+        _WIN32_CAPTURE_DEPS = None
+        return None
+
+    globals().update(deps)
+    _WIN32_CAPTURE_DEPS = deps
+    return deps
+
+
+def _load_macos_capture_dependencies():
+    global _MACOS_CAPTURE_DEPS
+    if _MACOS_CAPTURE_DEPS is not _UNINITIALIZED:
+        return _MACOS_CAPTURE_DEPS
+
+    try:
+        objc_module = importlib.import_module("objc")
+        appkit = importlib.import_module("AppKit")
+        quartz = importlib.import_module("Quartz")
+        screen_capture_kit = importlib.import_module("ScreenCaptureKit")
+        deps = {
+            "objc": objc_module,
+            "NSData": appkit.NSData,
+            "NSImage": appkit.NSImage,
+            "NSBitmapImageRep": appkit.NSBitmapImageRep,
+            "NSDeviceRGBColorSpace": appkit.NSDeviceRGBColorSpace,
+            "NSGraphicsContext": appkit.NSGraphicsContext,
+            "NSZeroPoint": appkit.NSZeroPoint,
+            "NSZeroRect": appkit.NSZeroRect,
+            "NSCompositingOperationCopy": appkit.NSCompositingOperationCopy,
+            "NSPasteboard": appkit.NSPasteboard,
+            "NSPasteboardTypeTIFF": appkit.NSPasteboardTypeTIFF,
+            "NSPasteboardTypeString": appkit.NSPasteboardTypeString,
+            "CGWindowListCreateImageFromArray": quartz.CGWindowListCreateImageFromArray,
+            "kCGWindowImageBoundsIgnoreFraming": quartz.kCGWindowImageBoundsIgnoreFraming,
+            "CGRectMake": quartz.CGRectMake,
+            "CGRectNull": quartz.CGRectNull,
+            "CGMainDisplayID": quartz.CGMainDisplayID,
+            "CGWindowListCopyWindowInfo": quartz.CGWindowListCopyWindowInfo,
+            "CGWindowListCreateDescriptionFromArray": quartz.CGWindowListCreateDescriptionFromArray,
+            "kCGWindowListOptionOnScreenOnly": quartz.kCGWindowListOptionOnScreenOnly,
+            "kCGWindowListExcludeDesktopElements": quartz.kCGWindowListExcludeDesktopElements,
+            "kCGWindowName": quartz.kCGWindowName,
+            "kCGNullWindowID": quartz.kCGNullWindowID,
+            "CGImageGetWidth": quartz.CGImageGetWidth,
+            "CGImageGetHeight": quartz.CGImageGetHeight,
+            "CGDataProviderCopyData": quartz.CGDataProviderCopyData,
+            "CGImageGetDataProvider": quartz.CGImageGetDataProvider,
+            "CGImageGetBytesPerRow": quartz.CGImageGetBytesPerRow,
+            "SCContentFilter": screen_capture_kit.SCContentFilter,
+            "SCScreenshotManager": screen_capture_kit.SCScreenshotManager,
+            "SCShareableContent": screen_capture_kit.SCShareableContent,
+            "SCStreamConfiguration": screen_capture_kit.SCStreamConfiguration,
+            "SCCaptureResolutionBest": screen_capture_kit.SCCaptureResolutionBest,
+        }
+    except ImportError:
+        _MACOS_CAPTURE_DEPS = None
+        return None
+
+    globals().update(deps)
+    _MACOS_CAPTURE_DEPS = deps
+    return deps
+
+
+def _load_pyperclipfix_module():
+    global _PYPERCLIPFIX_MODULE
+    if _PYPERCLIPFIX_MODULE is _UNINITIALIZED:
+        try:
+            _PYPERCLIPFIX_MODULE = importlib.import_module("pyperclipfix")
+        except ImportError:
+            _PYPERCLIPFIX_MODULE = None
+    return _PYPERCLIPFIX_MODULE
+
+
+def _load_mss_module():
+    global _MSS_MODULE
+    if _MSS_MODULE is _UNINITIALIZED:
+        try:
+            _MSS_MODULE = importlib.import_module("mss")
+        except ImportError:
+            _MSS_MODULE = None
+    return _MSS_MODULE
+
+
+def _load_websockets_module():
+    global _WEBSOCKETS_MODULE
+    if _WEBSOCKETS_MODULE is _UNINITIALIZED:
+        try:
+            _WEBSOCKETS_MODULE = importlib.import_module("websockets")
+        except ImportError:
+            _WEBSOCKETS_MODULE = None
+    return _WEBSOCKETS_MODULE
+
+
+def _load_cv2_module():
+    global _CV2_MODULE
+    if _CV2_MODULE is _UNINITIALIZED:
+        try:
+            _CV2_MODULE = importlib.import_module("cv2")
+        except ImportError:
+            _CV2_MODULE = None
+    return _CV2_MODULE
+
+
+def _load_psutil_module():
+    global _PSUTIL_MODULE
+    if _PSUTIL_MODULE is _UNINITIALIZED:
+        try:
+            _PSUTIL_MODULE = importlib.import_module("psutil")
+        except ImportError:
+            _PSUTIL_MODULE = None
+    return _PSUTIL_MODULE
+
+
+def _load_ssim_function():
+    global _SSIM_FUNCTION
+    if _SSIM_FUNCTION is _UNINITIALIZED:
+        try:
+            _SSIM_FUNCTION = importlib.import_module("skimage.metrics").structural_similarity
+        except ImportError:
+            _SSIM_FUNCTION = None
+    return _SSIM_FUNCTION
+
+
+def _create_notifier():
+    global _DESKTOP_NOTIFIER_SYNC
+    if _DESKTOP_NOTIFIER_SYNC is _UNINITIALIZED:
+        try:
+            _DESKTOP_NOTIFIER_SYNC = importlib.import_module("desktop_notifier").DesktopNotifierSync
+        except ImportError:
+            _DESKTOP_NOTIFIER_SYNC = None
+
+    if _DESKTOP_NOTIFIER_SYNC is None:
+        return _NullNotifier()
+    return _DESKTOP_NOTIFIER_SYNC()
+
 
 config = None
 last_image = None
 last_image_np = None
+crop_offset = (0, 0)  # Global offset for cropped OCR images
+scaled_ocr_config_cache = {}
+scaled_ocr_config_cache_lock = threading.Lock()
+MAX_SCALED_OCR_CACHE_SIZE = 24
+TEXT_DETECTION_RESULT_SCHEMA = "gsm_text_detection_v1"
+
+
+def _safe_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _extract_dimensions(image_or_size):
+    if isinstance(image_or_size, dict):
+        return _safe_int(image_or_size.get("width")), _safe_int(image_or_size.get("height"))
+    if isinstance(image_or_size, (list, tuple)) and len(image_or_size) >= 2:
+        return _safe_int(image_or_size[0]), _safe_int(image_or_size[1])
+    if hasattr(image_or_size, "width") and hasattr(image_or_size, "height"):
+        return _safe_int(getattr(image_or_size, "width")), _safe_int(getattr(image_or_size, "height"))
+    return 0, 0
+
+
+def _size_dict(width, height):
+    return {"width": _safe_int(width), "height": _safe_int(height)}
+
+
+def _normalize_segment_source_text(text):
+    return str(text or "").replace("BLANK_LINE", "\n").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _join_selected_blocks_with_source_separators(source_text, blocks, selected_indexes, fallback_separator="\n"):
+    selected_indexes = list(selected_indexes or [])
+    if not selected_indexes:
+        return ""
+
+    normalized_source = _normalize_segment_source_text(source_text)
+    normalized_blocks = [_normalize_segment_source_text(block) for block in (blocks or [])]
+    spans = []
+    cursor = 0
+
+    for block in normalized_blocks:
+        idx = normalized_source.find(block, cursor)
+        if idx < 0:
+            return fallback_separator.join(
+                normalized_blocks[i].strip() for i in selected_indexes if 0 <= i < len(normalized_blocks)
+            )
+        spans.append((idx, idx + len(block)))
+        cursor = idx + len(block)
+
+    result_parts = []
+    previous_selected_index = None
+
+    for selected_index in selected_indexes:
+        if not (0 <= selected_index < len(normalized_blocks)):
+            continue
+
+        block_text = normalized_blocks[selected_index].strip()
+        if not block_text:
+            continue
+
+        if previous_selected_index is not None:
+            if selected_index == previous_selected_index + 1:
+                previous_end = spans[previous_selected_index][1]
+                current_start = spans[selected_index][0]
+                separator = normalized_source[previous_end:current_start]
+            else:
+                separator = fallback_separator
+            result_parts.append(separator)
+
+        result_parts.append(block_text)
+        previous_selected_index = selected_index
+
+    return "".join(result_parts)
+
+
+def _rebuild_text_from_structured_result(raw_response_dict, coords, filtering):
+    if raw_response_dict and isinstance(raw_response_dict, dict) and "paragraphs" in raw_response_dict and filtering:
+        try:
+            ocr_result = dict_to_ocr_result(raw_response_dict)
+            if ocr_result:
+                ordered_ocr_result = filtering.order_paragraphs_and_lines(ocr_result)
+                return filtering.extract_text_from_ocr_result(ordered_ocr_result)
+        except Exception as e:
+            logger.warning(f"Error applying advanced layout analysis: {e}")
+
+    if isinstance(coords, list) and coords:
+        try:
+            return build_spatial_text(
+                [line_dict_to_spatial_entry(line) for line in coords if isinstance(line, dict)],
+                blank_line_token="BLANK_LINE",
+            )
+        except Exception as e:
+            logger.warning(f"Error rebuilding text from OCR geometry: {e}")
+
+    return None
+
+
+def _normalize_queue_item(item, default_filter=False):
+    if isinstance(item, tuple):
+        if len(item) >= 3:
+            return item[0], bool(item[1]), item[2]
+        if len(item) == 2:
+            second = item[1]
+            if isinstance(second, dict) or second is None:
+                return item[0], default_filter, second
+            return item[0], bool(second), None
+        if len(item) == 1:
+            return item[0], default_filter, None
+    return item, default_filter, None
+
+
+def _build_pipeline_metadata(image_metadata, img_or_path, engine_name, is_second_ocr):
+    meta = dict(image_metadata or {})
+    processed_w, processed_h = _extract_dimensions(img_or_path)
+    capture_original_w, capture_original_h = _extract_dimensions(meta.get("capture_original_size"))
+    capture_scaled_w, capture_scaled_h = _extract_dimensions(meta.get("capture_scaled_size"))
+    if capture_scaled_w <= 0 or capture_scaled_h <= 0:
+        capture_scaled_w, capture_scaled_h = processed_w, processed_h
+    if capture_original_w <= 0 or capture_original_h <= 0:
+        capture_original_w, capture_original_h = capture_scaled_w, capture_scaled_h
+
+    crop_meta = meta.get("ocr_area_crop_offset") or {}
+    offset_x = _safe_int(crop_meta.get("x"), 0)
+    offset_y = _safe_int(crop_meta.get("y"), 0)
+    rectangles = meta.get("ocr_area_rectangles")
+    if not isinstance(rectangles, list):
+        rectangles = []
+    capture_origin = meta.get("capture_origin") if isinstance(meta.get("capture_origin"), dict) else {}
+    coordinate_mode = str(meta.get("coordinate_mode") or "source_content")
+
+    return {
+        "schema": "gsm_ocr_pipeline_v1",
+        "source": meta.get("capture_source") or "unknown",
+        "engine": str(engine_name or ""),
+        "is_second_ocr": bool(is_second_ocr),
+        "capture": {
+            "original_size": _size_dict(capture_original_w, capture_original_h),
+            "scaled_size": _size_dict(capture_scaled_w, capture_scaled_h),
+        },
+        "processing": {
+            "processed_size": _size_dict(processed_w, processed_h),
+            "crop_offset": {"x": offset_x, "y": offset_y},
+            "crop_rectangles": rectangles,
+            "capture_origin": {
+                "x": _safe_int(capture_origin.get("x"), 0),
+                "y": _safe_int(capture_origin.get("y"), 0),
+            },
+            "coordinate_mode": coordinate_mode,
+        },
+    }
+
+
+def _normalize_text_detection_payload(payload, *, fallback_crop_coords=None, fallback_detector=None):
+    if not isinstance(payload, dict):
+        return None
+
+    boxes = payload.get("boxes")
+    if not isinstance(boxes, list):
+        return None
+
+    normalized_boxes = []
+    for item in boxes:
+        if not isinstance(item, dict):
+            continue
+        box = item.get("box")
+        if not isinstance(box, (list, tuple)) or len(box) < 4:
+            continue
+        try:
+            x1, y1, x2, y2 = [float(box[i]) for i in range(4)]
+        except Exception:
+            continue
+        try:
+            score = float(item.get("score", 1.0))
+        except (TypeError, ValueError):
+            score = 1.0
+        normalized_boxes.append({"box": [x1, y1, x2, y2], "score": score})
+
+    crop_padding = max(0, _safe_int(payload.get("crop_padding"), 5))
+    crop_coords_list = payload.get("crop_coords_list")
+    normalized_crop_coords_list = []
+    if isinstance(crop_coords_list, list):
+        for item in crop_coords_list:
+            if not isinstance(item, (list, tuple)) or len(item) < 4:
+                continue
+            try:
+                normalized_crop_coords_list.append(tuple(int(item[i]) for i in range(4)))
+            except Exception:
+                continue
+    if not normalized_crop_coords_list and normalized_boxes:
+        for item in normalized_boxes:
+            box = item.get("box")
+            if not isinstance(box, (list, tuple)) or len(box) < 4:
+                continue
+            x1, y1, x2, y2 = box[:4]
+            crop_x = max(0, int(x1 - crop_padding))
+            crop_y = max(0, int(y1 - crop_padding))
+            crop_x2 = int(x2 + crop_padding)
+            crop_y2 = int(y2 + crop_padding)
+            if crop_x2 <= crop_x or crop_y2 <= crop_y:
+                continue
+            normalized_crop_coords_list.append((crop_x, crop_y, crop_x2, crop_y2))
+
+    crop_coords = payload.get("crop_coords", fallback_crop_coords)
+    if isinstance(crop_coords, (list, tuple)) and len(crop_coords) >= 4:
+        try:
+            crop_coords = tuple(int(crop_coords[i]) for i in range(4))
+        except Exception:
+            crop_coords = None
+    else:
+        crop_coords = None
+
+    if crop_coords is None and normalized_boxes:
+        x_vals = [box["box"][0] for box in normalized_boxes] + [box["box"][2] for box in normalized_boxes]
+        y_vals = [box["box"][1] for box in normalized_boxes] + [box["box"][3] for box in normalized_boxes]
+        crop_coords = (
+            int(min(x_vals)),
+            int(min(y_vals)),
+            int(max(x_vals)),
+            int(max(y_vals)),
+        )
+
+    detector_name = payload.get("detector") or payload.get("provider") or fallback_detector or "unknown_detector"
+
+    return {
+        "schema": TEXT_DETECTION_RESULT_SCHEMA,
+        "detector": str(detector_name),
+        "boxes": normalized_boxes,
+        "crop_coords_list": normalized_crop_coords_list,
+        "crop_coords": crop_coords,
+        "crop_padding": crop_padding,
+    }
+
+
+def _extract_text_detection_payload(text, raw_response_dict, crop_coords, detector_name):
+    if isinstance(raw_response_dict, dict):
+        schema = str(raw_response_dict.get("schema") or "")
+        if schema == TEXT_DETECTION_RESULT_SCHEMA:
+            normalized = _normalize_text_detection_payload(
+                raw_response_dict,
+                fallback_crop_coords=crop_coords,
+                fallback_detector=detector_name,
+            )
+            if normalized is not None:
+                return normalized
+
+    if isinstance(text, dict) and isinstance(text.get("boxes"), list):
+        # Backward compatibility for old detector output shape.
+        return _normalize_text_detection_payload(
+            text,
+            fallback_crop_coords=crop_coords,
+            fallback_detector=detector_name,
+        )
+
+    return None
+
+
+def clear_scaled_ocr_config_cache():
+    with scaled_ocr_config_cache_lock:
+        scaled_ocr_config_cache.clear()
+
+
+def _build_scaled_ocr_cache_key(ocr_config, width, height):
+    if not ocr_config:
+        return None
+    try:
+        rectangles = getattr(ocr_config, "pre_scale_rectangles", None) or getattr(ocr_config, "rectangles", [])
+        rect_signature = []
+        for rect in rectangles:
+            monitor = getattr(rect, "monitor", None)
+            monitor_signature = (
+                getattr(monitor, "index", None),
+                getattr(monitor, "left", None),
+                getattr(monitor, "top", None),
+                getattr(monitor, "width", None),
+                getattr(monitor, "height", None),
+            )
+            rect_signature.append(
+                (
+                    tuple(getattr(rect, "coordinates", []) or []),
+                    bool(getattr(rect, "is_excluded", False)),
+                    bool(getattr(rect, "is_secondary", False)),
+                    bool(getattr(rect, "is_exclusive", False)),
+                    monitor_signature,
+                )
+            )
+        return (
+            getattr(ocr_config, "scene", "") or "",
+            getattr(ocr_config, "window", "") or "",
+            getattr(ocr_config, "coordinate_system", "") or "",
+            int(width or 0),
+            int(height or 0),
+            tuple(rect_signature),
+        )
+    except Exception:
+        return None
+
+
+def get_scaled_scene_ocr_config(width, height, refresh=False):
+    ocr_config = get_scene_ocr_config(refresh=refresh)
+    if not ocr_config:
+        return None
+    if not width or not height:
+        return ocr_config
+
+    cache_key = _build_scaled_ocr_cache_key(ocr_config, width, height)
+    if cache_key:
+        with scaled_ocr_config_cache_lock:
+            cached = scaled_ocr_config_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+    scaled_config = copy.deepcopy(ocr_config)
+    scaled_config.scale_to_custom_size(width, height)
+
+    if cache_key:
+        with scaled_ocr_config_cache_lock:
+            scaled_ocr_config_cache[cache_key] = scaled_config
+            while len(scaled_ocr_config_cache) > MAX_SCALED_OCR_CACHE_SIZE:
+                scaled_ocr_config_cache.pop(next(iter(scaled_ocr_config_cache)), None)
+
+    return scaled_config
 
 
 class ClipboardThread(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
-        self.ignore_flag = config.get_general('ignore_flag')
-        self.delay_secs = config.get_general('delay_secs')
+        self.ignore_flag = config.get_general("ignore_flag")
+        self.delay_secs = config.get_general("delay_secs")
         self.last_update = time.time()
 
     def are_images_identical(self, img1, img2):
@@ -88,6 +612,8 @@ class ClipboardThread(threading.Thread):
         return (img1.shape == img2.shape) and (img1 == img2).all()
 
     def normalize_macos_clipboard(self, img):
+        if _load_macos_capture_dependencies() is None:
+            raise RuntimeError("macOS clipboard dependencies are unavailable")
         ns_data = NSData.dataWithBytes_length_(img, len(img))
         ns_image = NSImage.alloc().initWithData_(ns_data)
 
@@ -101,23 +627,19 @@ class ClipboardThread(threading.Thread):
             False,  # Is not planar
             NSDeviceRGBColorSpace,
             0,  # Automatically compute bytes per row
-            32  # Bits per pixel (8 bits per sample * 4 samples per pixel)
+            32,  # Bits per pixel (8 bits per sample * 4 samples per pixel)
         )
 
-        context = NSGraphicsContext.graphicsContextWithBitmapImageRep_(
-            new_image)
+        context = NSGraphicsContext.graphicsContextWithBitmapImageRep_(new_image)
         NSGraphicsContext.setCurrentContext_(context)
 
-        ns_image.drawAtPoint_fromRect_operation_fraction_(
-            NSZeroPoint,
-            NSZeroRect,
-            NSCompositingOperationCopy,
-            1.0
-        )
+        ns_image.drawAtPoint_fromRect_operation_fraction_(NSZeroPoint, NSZeroRect, NSCompositingOperationCopy, 1.0)
 
         return bytearray(new_image.TIFFRepresentation())
 
     def process_message(self, hwnd: int, msg: int, wparam: int, lparam: int):
+        if _load_win32_capture_dependencies() is None:
+            return 0
         WM_CLIPBOARDUPDATE = 0x031D
         timestamp = time.time()
         if msg == WM_CLIPBOARDUPDATE and timestamp - self.last_update > 1 and not paused:
@@ -134,22 +656,24 @@ class ClipboardThread(threading.Thread):
                 time.sleep(0.1)
                 wait_counter += 1
             try:
-                if win32clipboard.IsClipboardFormatAvailable(win32con.CF_BITMAP) and win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_DIB):
-                    clipboard_text = ''
+                if win32clipboard.IsClipboardFormatAvailable(
+                    win32con.CF_BITMAP
+                ) and win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_DIB):
+                    clipboard_text = ""
                     if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_UNICODETEXT):
-                        clipboard_text = win32clipboard.GetClipboardData(
-                            win32clipboard.CF_UNICODETEXT)
-                    if self.ignore_flag or clipboard_text != '*ocr_ignore*':
-                        img = win32clipboard.GetClipboardData(
-                            win32clipboard.CF_DIB)
-                        image_queue.put((img, False))
+                        clipboard_text = win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
+                    if self.ignore_flag or clipboard_text != "*ocr_ignore*":
+                        img = win32clipboard.GetClipboardData(win32clipboard.CF_DIB)
+                        image_queue.put((img, False, None))
                 win32clipboard.CloseClipboard()
             except pywintypes.error:
                 pass
         return 0
 
     def create_window(self):
-        className = 'ClipboardHook'
+        if _load_win32_capture_dependencies() is None:
+            raise RuntimeError("Windows clipboard dependencies are unavailable")
+        className = "ClipboardHook"
         wc = win32gui.WNDCLASS()
         wc.lpfnWndProc = self.process_message
         wc.lpszClassName = className
@@ -158,40 +682,44 @@ class ClipboardThread(threading.Thread):
         return win32gui.CreateWindow(class_atom, className, 0, 0, 0, 0, 0, 0, 0, wc.hInstance, None)
 
     def run(self):
-        if sys.platform == 'win32':
+        if sys.platform == "win32":
+            if _load_win32_capture_dependencies() is None:
+                logger.error("Windows clipboard dependencies are unavailable")
+                return
             hwnd = self.create_window()
             self.thread_id = win32api.GetCurrentThreadId()
             ctypes.windll.user32.AddClipboardFormatListener(hwnd)
             win32gui.PumpMessages()
         else:
-            if sys.platform == 'linux' and os.environ.get('XDG_SESSION_TYPE', '').lower() == 'wayland':
+            if sys.platform == "linux" and os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland":
                 import subprocess
-                socket_path = Path('/tmp/owocr_clipboard.sock')
+
+                socket_path = Path("/tmp/owocr_clipboard.sock")
 
                 if socket_path.exists():
                     try:
                         test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                         test_socket.connect(str(socket_path))
                         test_socket.close()
-                        logger.error('Unix domain socket is already in use')
+                        logger.error("Unix domain socket is already in use")
                         sys.exit(1)
                     except ConnectionRefusedError:
                         socket_path.unlink()
 
                 try:
                     self.wl_paste = subprocess.Popen(
-                        ['wl-paste', '-t', 'image', '-w', 'nc', '-U', socket_path],
+                        ["wl-paste", "-t", "image", "-w", "nc", "-U", socket_path],
                         stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE
+                        stderr=subprocess.PIPE,
                     )
                     time.sleep(0.5)
                 except (subprocess.CalledProcessError, FileNotFoundError):
-                    logger.error('wl-paste not found')
+                    logger.error("wl-paste not found")
                     sys.exit(1)
                 return_code = self.wl_paste.poll()
                 if return_code is not None and return_code != 0:
                     stderr_output = self.wl_paste.stderr.read()
-                    logger.error(f'wl-paste exited with return code {return_code}: {stderr_output.decode().strip()}')
+                    logger.error(f"wl-paste exited with return code {return_code}: {stderr_output.decode().strip()}")
                     sys.exit(1)
 
                 server = socketserver.UnixStreamServer(str(socket_path), UnixSocketRequestHandler)
@@ -202,12 +730,17 @@ class ClipboardThread(threading.Thread):
                 self.wl_paste.kill()
                 server.server_close()
             else:
-                is_macos = sys.platform == 'darwin'
+                is_macos = sys.platform == "darwin"
                 if is_macos:
+                    if _load_macos_capture_dependencies() is None:
+                        logger.error("macOS clipboard dependencies are unavailable")
+                        return
                     pasteboard = NSPasteboard.generalPasteboard()
                     count = pasteboard.changeCount()
                 else:
                     from PIL import ImageGrab
+
+                    pyperclipfix_module = _load_pyperclipfix_module()
                 process_clipboard = False
                 img = None
 
@@ -227,14 +760,14 @@ class ClipboardThread(threading.Thread):
                                         time.sleep(0.1)
                                         wait_counter += 1
                                     if NSPasteboardTypeTIFF in pasteboard.types():
-                                        clipboard_text = ''
+                                        clipboard_text = ""
                                         if NSPasteboardTypeString in pasteboard.types():
-                                            clipboard_text = pasteboard.stringForType_(
-                                                NSPasteboardTypeString)
-                                        if self.ignore_flag or clipboard_text != '*ocr_ignore*':
+                                            clipboard_text = pasteboard.stringForType_(NSPasteboardTypeString)
+                                        if self.ignore_flag or clipboard_text != "*ocr_ignore*":
                                             img = self.normalize_macos_clipboard(
-                                                pasteboard.dataForType_(NSPasteboardTypeTIFF))
-                                            image_queue.put((img, False))
+                                                pasteboard.dataForType_(NSPasteboardTypeTIFF)
+                                            )
+                                            image_queue.put((img, False, None))
                         else:
                             old_img = img
                             try:
@@ -242,10 +775,17 @@ class ClipboardThread(threading.Thread):
                             except Exception:
                                 pass
                             else:
-                                if (process_clipboard and isinstance(img, Image.Image) and
-                                        (self.ignore_flag or pyperclipfix.paste() != '*ocr_ignore*') and
-                                        (not self.are_images_identical(img, old_img))):
-                                    image_queue.put((img, False))
+                                if (
+                                    process_clipboard
+                                    and isinstance(img, Image.Image)
+                                    and (
+                                        self.ignore_flag
+                                        or pyperclipfix_module is None
+                                        or pyperclipfix_module.paste() != "*ocr_ignore*"
+                                    )
+                                    and (not self.are_images_identical(img, old_img))
+                                ):
+                                    image_queue.put((img, False, None))
 
                         process_clipboard = True
 
@@ -257,10 +797,9 @@ class DirectoryWatcher(threading.Thread):
     def __init__(self, path):
         super().__init__(daemon=True)
         self.path = path
-        self.delay_secs = config.get_general('delay_secs')
+        self.delay_secs = config.get_general("delay_secs")
         self.last_update = time.time()
-        self.allowed_extensions = (
-            '.png', '.jpg', '.jpeg', '.bmp', '.gif', '.webp')
+        self.allowed_extensions = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp")
 
     def get_path_key(self, path):
         return path, path.lstat().st_mtime
@@ -283,7 +822,7 @@ class DirectoryWatcher(threading.Thread):
                             old_paths.add(path_key)
 
                             if not paused:
-                                image_queue.put((path, False))
+                                image_queue.put((path, False, None))
 
             if not terminated:
                 time.sleep(sleep_time)
@@ -296,6 +835,7 @@ class WebsocketServerThread(threading.Thread):
         self.read = read
         self.clients = set()
         self._event = threading.Event()
+        self._websockets = _load_websockets_module()
 
     @property
     def loop(self):
@@ -307,21 +847,23 @@ class WebsocketServerThread(threading.Thread):
             await client.send(text)
 
     async def server_handler(self, websocket):
+        if self._websockets is None:
+            return
         self.clients.add(websocket)
         try:
             async for message in websocket:
                 if self.read and not paused:
-                    image_queue.put((message, False))
+                    image_queue.put((message, False, None))
                     try:
-                        await websocket.send('True')
-                    except websockets.exceptions.ConnectionClosedOK:
+                        await websocket.send("True")
+                    except self._websockets.exceptions.ConnectionClosedOK:
                         pass
                 else:
                     try:
-                        await websocket.send('False')
-                    except websockets.exceptions.ConnectionClosedOK:
+                        await websocket.send("False")
+                    except self._websockets.exceptions.ConnectionClosedOK:
                         pass
-        except websockets.exceptions.ConnectionClosedError:
+        except self._websockets.exceptions.ConnectionClosedError:
             pass
         finally:
             self.clients.remove(websocket)
@@ -333,14 +875,23 @@ class WebsocketServerThread(threading.Thread):
         self.loop.call_soon_threadsafe(self._stop_event.set)
 
     def run(self):
+        if self._websockets is None:
+            logger.error("websockets is not installed")
+            return
+
         async def main():
             self._loop = asyncio.get_running_loop()
             self._stop_event = stop_event = asyncio.Event()
             self._event.set()
-            self.server = start_server = websockets.serve(
-                self.server_handler, get_config().advanced.localhost_bind_address, config.get_general('websocket_port'), max_size=1000000000)
+            self.server = start_server = self._websockets.serve(
+                self.server_handler,
+                get_config().advanced.localhost_bind_address,
+                config.get_general("websocket_port"),
+                max_size=1000000000,
+            )
             async with start_server:
                 await stop_event.wait()
+
         asyncio.run(main())
 
 
@@ -361,10 +912,10 @@ class RequestHandler(socketserver.BaseRequestHandler):
             pass
 
         if not paused:
-            image_queue.put((img, False))
-            conn.sendall(b'True')
+            image_queue.put((img, False, None))
+            conn.sendall(b"True")
         else:
-            conn.sendall(b'False')
+            conn.sendall(b"False")
 
 
 class UnixSocketRequestHandler(socketserver.BaseRequestHandler):
@@ -372,7 +923,7 @@ class UnixSocketRequestHandler(socketserver.BaseRequestHandler):
         conn = self.request
         conn.settimeout(0.5)
         img = bytearray()
-        magic = b'IMG_SIZE'
+        magic = b"IMG_SIZE"
         try:
             img_size = sys.maxsize
             header = conn.recv(len(magic))
@@ -397,10 +948,10 @@ class UnixSocketRequestHandler(socketserver.BaseRequestHandler):
 
         try:
             if not paused and img:
-                image_queue.put((img, False))
-                conn.sendall(b'True')
+                image_queue.put((img, False, None))
+                conn.sendall(b"True")
             else:
-                conn.sendall(b'False')
+                conn.sendall(b"False")
         except:
             pass
 
@@ -409,109 +960,145 @@ class PassthroughSegmenter:
     def segment(self, text):
         return [text]
 
+
 class TextFiltering:
     accurate_filtering = False
 
-    def __init__(self, lang='ja'):
+    def __init__(self, lang="ja"):
         from pysbd import Segmenter, languages
+
         self.initial_lang = get_ocr_language() or lang
         if lang in languages.LANGUAGE_CODES:
             self.segmenter = Segmenter(language=lang, clean=True)
         else:
             self.segmenter = PassthroughSegmenter()
-        self.cj_regex = re.compile(r'[\u3041-\u3096\u30A1-\u30FA\u4E01-\u9FFF]')
-        self.kanji_regex = re.compile(r'[\u4E00-\u9FFF]')
-        self.kana_kanji_regex = re.compile(
-            r'[\u3041-\u3096\u30A1-\u30FA\u4E00-\u9FFF]')
-        self.chinese_common_regex = re.compile(r'[\u4E00-\u9FFF]')
-        self.korean_regex = re.compile(r'[\uAC00-\uD7AF]')
-        self.arabic_regex = re.compile(
-            r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]')
-        self.russian_regex = re.compile(
-            r'[\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F\u1C80-\u1C8F]')
-        self.greek_regex = re.compile(r'[\u0370-\u03FF\u1F00-\u1FFF]')
-        self.hebrew_regex = re.compile(r'[\u0590-\u05FF\uFB1D-\uFB4F]')
-        self.thai_regex = re.compile(r'[\u0E00-\u0E7F]')
+        self.cj_regex = re.compile(r"[\u3041-\u3096\u30A1-\u30FA\u4E01-\u9FFF]")
+        self.kanji_regex = re.compile(r"[\u4E00-\u9FFF]")
+        self.kana_kanji_regex = re.compile(r"[\u3041-\u3096\u30A1-\u30FA\u4E00-\u9FFF]")
+        self.kana_kanji_with_punct_regex = re.compile(
+            r"[\u3041-\u3096\u30A1-\u30FA\u30FC\u4E00-\u9FFF"
+            r"\u3001\u3002\u300C\u300D\u300E\u300F\u3010\u3011"
+            r"\uFF08\uFF09\u3008\u3009\u300A\u300B\u3014\u3015"
+            r"\uFF01\uFF1F\uFF0C\uFF0E\u30FB\u2026\u301C\uFF5E"
+            r"\!\?\'\"\(\)\[\]\{\}\-]"
+        )
+        self.chinese_common_regex = re.compile(r"[\u4E00-\u9FFF]")
+        self.korean_regex = re.compile(r"[\uAC00-\uD7AF]")
+        self.arabic_regex = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
+        self.russian_regex = re.compile(r"[\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F\u1C80-\u1C8F]")
+        self.greek_regex = re.compile(r"[\u0370-\u03FF\u1F00-\u1FFF]")
+        self.hebrew_regex = re.compile(r"[\u0590-\u05FF\uFB1D-\uFB4F]")
+        self.thai_regex = re.compile(r"[\u0E00-\u0E7F]")
         self.latin_extended_regex = re.compile(
-            r'[a-zA-Z\u00C0-\u00FF\u0100-\u017F\u0180-\u024F\u0250-\u02AF\u1D00-\u1D7F\u1D80-\u1DBF\u1E00-\u1EFF\u2C60-\u2C7F\uA720-\uA7FF\uAB30-\uAB6F]')
-        
+            r"[a-zA-Z\u00C0-\u00FF\u0100-\u017F\u0180-\u024F\u0250-\u02AF\u1D00-\u1D7F\u1D80-\u1DBF\u1E00-\u1EFF\u2C60-\u2C7F\uA720-\uA7FF\uAB30-\uAB6F]"
+        )
+
         # New regexes for advanced layout analysis
         self.regex = self._get_regex(lang)
-        
+
         # Furigana filter sensitivity logic from config
         self.furigana_filter = get_furigana_filter_sensitivity() > 0
         self.debug_filtering = False
 
         self.kana_variants = {
-            'ぁ': ['ぁ', 'あ'], 'あ': ['ぁ', 'あ'],
-            'ぃ': ['ぃ', 'い'], 'い': ['ぃ', 'い'],
-            'ぅ': ['ぅ', 'う'], 'う': ['ぅ', 'う'],
-            'ぇ': ['ぇ', 'え'], 'え': ['ぇ', 'え'],
-            'ぉ': ['ぉ', 'お'], 'お': ['ぉ', 'お'],
-            'ァ': ['ァ', 'ア'], 'ア': ['ァ', 'ア'],
-            'ィ': ['ィ', 'イ'], 'イ': ['ィ', 'イ'],
-            'ゥ': ['ゥ', 'ウ'], 'ウ': ['ゥ', 'ウ'],
-            'ェ': ['ェ', 'エ'], 'エ': ['ェ', 'エ'],
-            'ォ': ['ォ', 'オ'], 'オ': ['ォ', 'オ'],
-            'ゃ': ['ゃ', 'や'], 'や': ['ゃ', 'や'],
-            'ゅ': ['ゅ', 'ゆ'], 'ゆ': ['ゅ', 'ゆ'],
-            'ょ': ['ょ', 'よ'], 'よ': ['ょ', 'よ'],
-            'ャ': ['ャ', 'ヤ'], 'ヤ': ['ャ', 'ヤ'],
-            'ュ': ['ュ', 'ユ'], 'ユ': ['ュ', 'ユ'],
-            'ョ': ['ョ', 'ヨ'], 'ヨ': ['ョ', 'ヨ'],
-            'っ': ['っ', 'つ'], 'つ': ['っ', 'つ'],
-            'ッ': ['ッ', 'ツ'], 'ツ': ['ッ', 'ツ'],
-            'ゎ': ['ゎ', 'わ'], 'わ': ['ゎ', 'わ'],
-            'ヮ': ['ヮ', 'ワ'], 'ワ': ['ヮ', 'ワ']
+            "ぁ": ["ぁ", "あ"],
+            "あ": ["ぁ", "あ"],
+            "ぃ": ["ぃ", "い"],
+            "い": ["ぃ", "い"],
+            "ぅ": ["ぅ", "う"],
+            "う": ["ぅ", "う"],
+            "ぇ": ["ぇ", "え"],
+            "え": ["ぇ", "え"],
+            "ぉ": ["ぉ", "お"],
+            "お": ["ぉ", "お"],
+            "ァ": ["ァ", "ア"],
+            "ア": ["ァ", "ア"],
+            "ィ": ["ィ", "イ"],
+            "イ": ["ィ", "イ"],
+            "ゥ": ["ゥ", "ウ"],
+            "ウ": ["ゥ", "ウ"],
+            "ェ": ["ェ", "エ"],
+            "エ": ["ェ", "エ"],
+            "ォ": ["ォ", "オ"],
+            "オ": ["ォ", "オ"],
+            "ゃ": ["ゃ", "や"],
+            "や": ["ゃ", "や"],
+            "ゅ": ["ゅ", "ゆ"],
+            "ゆ": ["ゅ", "ゆ"],
+            "ょ": ["ょ", "よ"],
+            "よ": ["ょ", "よ"],
+            "ャ": ["ャ", "ヤ"],
+            "ヤ": ["ャ", "ヤ"],
+            "ュ": ["ュ", "ユ"],
+            "ユ": ["ュ", "ユ"],
+            "ョ": ["ョ", "ヨ"],
+            "ヨ": ["ョ", "ヨ"],
+            "っ": ["っ", "つ"],
+            "つ": ["っ", "つ"],
+            "ッ": ["ッ", "ツ"],
+            "ツ": ["ッ", "ツ"],
+            "ゎ": ["ゎ", "わ"],
+            "わ": ["ゎ", "わ"],
+            "ヮ": ["ヮ", "ワ"],
+            "ワ": ["ヮ", "ワ"],
         }
 
         self.last_few_results = {}
         try:
+            import warnings
+
+            warnings.filterwarnings("ignore", category=UserWarning)
+            warnings.filterwarnings("ignore", category=FutureWarning)
+
             from transformers import pipeline, AutoTokenizer
             import torch
-            logging.getLogger('transformers').setLevel(logging.ERROR)
 
-            model_ckpt = 'papluca/xlm-roberta-base-language-detection'
-            tokenizer = AutoTokenizer.from_pretrained(
-                model_ckpt,
-                use_fast=False
-            )
+            logging.getLogger("transformers").setLevel(logging.ERROR)
+            logging.getLogger("torch").setLevel(logging.ERROR)
+
+            model_ckpt = "papluca/xlm-roberta-base-language-detection"
+            tokenizer = AutoTokenizer.from_pretrained(model_ckpt, use_fast=False)
 
             if torch.cuda.is_available():
                 device = 0
             elif torch.backends.mps.is_available():
-                device = 'mps'
+                device = "mps"
             else:
                 device = -1
             self.pipe = pipeline(
-                'text-classification', model=model_ckpt, tokenizer=tokenizer, device=device)
+                "text-classification",
+                model=model_ckpt,
+                tokenizer=tokenizer,
+                device=device,
+            )
             self.accurate_filtering = True
         except:
             import langid
+
             self.classify = langid.classify
 
     def _get_regex(self, lang):
-        if lang == 'ja':
+        if lang == "ja":
             return self.cj_regex
-        elif lang == 'zh':
+        elif lang == "zh":
             return self.kanji_regex
-        elif lang == 'ko':
+        elif lang == "ko":
             return self.korean_regex
-        elif lang == 'ar':
+        elif lang == "ar":
             return self.arabic_regex
-        elif lang == 'ru':
+        elif lang == "ru":
             return self.russian_regex
-        elif lang == 'el':
+        elif lang == "el":
             return self.greek_regex
-        elif lang == 'he':
+        elif lang == "he":
             return self.hebrew_regex
-        elif lang == 'th':
+        elif lang == "th":
             return self.thai_regex
         else:
             return self.latin_extended_regex
 
     def _convert_small_kana_to_big(self, text):
-        converted_text = ''.join(self.kana_variants.get(char, [char])[-1] for char in text)
+        converted_text = "".join(self.kana_variants.get(char, [char])[-1] for char in text)
         return converted_text
 
     def get_line_text(self, line):
@@ -523,14 +1110,14 @@ class TextFiltering:
             if w.separator is not None:
                 text_parts.append(w.separator)
             else:
-                text_parts.append(' ')
-        return ''.join(text_parts).strip()
+                text_parts.append(" ")
+        return "".join(text_parts).strip()
 
     def _normalize_line_for_comparison(self, line_text):
-        if not line_text.replace('\n', ''):
-            return ''
-        filtered_text = ''.join(self.regex.findall(line_text))
-        if get_ocr_language() == 'ja':
+        if not line_text.replace("\n", ""):
+            return ""
+        filtered_text = "".join(self.regex.findall(line_text))
+        if get_ocr_language() == "ja":
             filtered_text = self._convert_small_kana_to_big(filtered_text)
         return filtered_text
 
@@ -539,7 +1126,7 @@ class TextFiltering:
     def order_paragraphs_and_lines(self, ocr_result):
         # Update sensitivity config
         self.furigana_filter = get_furigana_filter_sensitivity() > 0
-        
+
         # Extract all lines and determine their orientation
         all_lines = []
         for paragraph in ocr_result.paragraphs:
@@ -548,14 +1135,11 @@ class TextFiltering:
                     line.text = self.get_line_text(line)
 
                 if paragraph.writing_direction:
-                    is_vertical = paragraph.writing_direction == 'TOP_TO_BOTTOM'
+                    is_vertical = paragraph.writing_direction == "TOP_TO_BOTTOM"
                 else:
                     is_vertical = self._is_line_vertical(line, ocr_result.image_properties)
 
-                all_lines.append({
-                    'line_obj': line,
-                    'is_vertical': is_vertical
-                })
+                all_lines.append({"line_obj": line, "is_vertical": is_vertical})
 
         if not all_lines:
             return ocr_result
@@ -578,7 +1162,7 @@ class TextFiltering:
         return OcrResult(
             image_properties=ocr_result.image_properties,
             engine_capabilities=ocr_result.engine_capabilities,
-            paragraphs=final_paragraphs
+            paragraphs=final_paragraphs,
         )
 
     def _create_paragraphs_from_lines(self, lines):
@@ -586,23 +1170,25 @@ class TextFiltering:
         all_paragraphs = []
 
         def _group_lines(is_vertical):
-            indices = [i for i, line in enumerate(lines) if (line['is_vertical'] in (is_vertical, None)) and i not in grouped]
+            indices = [
+                i for i, line in enumerate(lines) if (line["is_vertical"] in (is_vertical, None)) and i not in grouped
+            ]
 
             if len(indices) < 2:
                 return
 
             if is_vertical:
-                get_start = lambda l: l['line_obj'].bounding_box.top
-                get_end = lambda l: l['line_obj'].bounding_box.bottom
+                get_start = lambda l: l["line_obj"].bounding_box.top
+                get_end = lambda l: l["line_obj"].bounding_box.bottom
             else:
-                get_start = lambda l: l['line_obj'].bounding_box.left
-                get_end = lambda l: l['line_obj'].bounding_box.right
+                get_start = lambda l: l["line_obj"].bounding_box.left
+                get_end = lambda l: l["line_obj"].bounding_box.right
 
             components = self._find_connected_components(
                 items=[lines[i] for i in indices],
                 should_connect=lambda l1, l2: self._should_group_in_same_paragraph(l1, l2, is_vertical),
                 get_start_coord=get_start,
-                get_end_coord=get_end
+                get_end_coord=get_end,
             )
 
             for component in components:
@@ -627,16 +1213,16 @@ class TextFiltering:
     def _create_paragraph_from_lines(self, lines, is_vertical, merging_step):
         if len(lines) > 1:
             if is_vertical:
-                lines = sorted(lines, key=lambda x: x['line_obj'].bounding_box.right, reverse=True)
+                lines = sorted(lines, key=lambda x: x["line_obj"].bounding_box.right, reverse=True)
             else:
-                lines = sorted(lines, key=lambda x: x['line_obj'].bounding_box.top)
+                lines = sorted(lines, key=lambda x: x["line_obj"].bounding_box.top)
 
             lines = self._merge_overlapping_lines(lines, is_vertical)
 
             if not merging_step and self.furigana_filter:
                 lines = self._furigana_filter(lines, is_vertical)
 
-            line_objs = [l['line_obj'] for l in lines]
+            line_objs = [l["line_obj"] for l in lines]
 
             left = min(l.bounding_box.left for l in line_objs)
             right = max(l.bounding_box.right for l in line_objs)
@@ -647,40 +1233,33 @@ class TextFiltering:
                 center_x=(left + right) / 2,
                 center_y=(top + bottom) / 2,
                 width=right - left,
-                height=bottom - top
+                height=bottom - top,
             )
 
-            writing_direction = 'TOP_TO_BOTTOM' if is_vertical else 'LEFT_TO_RIGHT'
+            writing_direction = "TOP_TO_BOTTOM" if is_vertical else "LEFT_TO_RIGHT"
         else:
-            line_objs = [lines[0]['line_obj']]
-            new_bbox = lines[0]['line_obj'].bounding_box
-            writing_direction = 'TOP_TO_BOTTOM' if lines[0]['is_vertical'] else 'LEFT_TO_RIGHT'
+            line_objs = [lines[0]["line_obj"]]
+            new_bbox = lines[0]["line_obj"].bounding_box
+            writing_direction = "TOP_TO_BOTTOM" if lines[0]["is_vertical"] else "LEFT_TO_RIGHT"
 
-        paragraph = Paragraph(
-            bounding_box=new_bbox,
-            lines=line_objs,
-            writing_direction=writing_direction
-        )
+        paragraph = Paragraph(bounding_box=new_bbox, lines=line_objs, writing_direction=writing_direction)
 
         if not merging_step:
             character_size = self._calculate_character_size(lines, is_vertical)
 
-            return {
-                'paragraph_obj': paragraph,
-                'character_size': character_size
-            }
+            return {"paragraph_obj": paragraph, "character_size": character_size}
 
         return paragraph
 
     def _calculate_character_size(self, lines, is_vertical):
         if is_vertical:
-            largest_line = max(lines, key=lambda x: x['line_obj'].bounding_box.width)
-            line_dimension = largest_line['line_obj'].bounding_box.height
+            largest_line = max(lines, key=lambda x: x["line_obj"].bounding_box.width)
+            line_dimension = largest_line["line_obj"].bounding_box.height
         else:
-            largest_line = max(lines, key=lambda x: x['line_obj'].bounding_box.height)
-            line_dimension = largest_line['line_obj'].bounding_box.width
+            largest_line = max(lines, key=lambda x: x["line_obj"].bounding_box.height)
+            line_dimension = largest_line["line_obj"].bounding_box.width
 
-        char_count = len(self.get_line_text(largest_line['line_obj']))
+        char_count = len(self.get_line_text(largest_line["line_obj"]))
 
         if char_count == 0:
             return 0.0
@@ -688,8 +1267,8 @@ class TextFiltering:
         return line_dimension / char_count
 
     def _should_group_in_same_paragraph(self, line1, line2, is_vertical):
-        bbox1 = line1['line_obj'].bounding_box
-        bbox2 = line2['line_obj'].bounding_box
+        bbox1 = line1["line_obj"].bounding_box
+        bbox2 = line2["line_obj"].bounding_box
 
         if is_vertical:
             vertical_overlap = self._check_vertical_overlap(bbox1, bbox2)
@@ -721,7 +1300,7 @@ class TextFiltering:
             last_line_in_group = current_line
 
             # Check subsequent lines in order
-            for j, candidate_line in enumerate(lines[i+1:], i+1):
+            for j, candidate_line in enumerate(lines[i + 1 :], i + 1):
                 if j in used_indices:
                     continue
 
@@ -743,23 +1322,23 @@ class TextFiltering:
     def _merge_multiple_lines(self, lines, is_vertical):
         if is_vertical:
             # Sort lines by y-coordinate (top to bottom)
-            sort_key = lambda line: line['line_obj'].bounding_box.center_y
+            sort_key = lambda line: line["line_obj"].bounding_box.center_y
         else:
             # Sort lines by x-coordinate (left to right)
-            sort_key = lambda line: line['line_obj'].bounding_box.center_x
+            sort_key = lambda line: line["line_obj"].bounding_box.center_x
 
         lines = sorted(lines, key=sort_key)
 
-        text_sorted = ''
+        text_sorted = ""
         for line in lines:
-            text_sorted += line['line_obj'].text
+            text_sorted += line["line_obj"].text
 
         words_sorted = []
         for line in lines:
-            words_sorted.extend(line['line_obj'].words)
+            words_sorted.extend(line["line_obj"].words)
 
         # Calculate new bounding box that encompasses all lines
-        bboxes = [line['line_obj'].bounding_box for line in lines]
+        bboxes = [line["line_obj"].bounding_box for line in lines]
 
         left = min(bbox.left for bbox in bboxes)
         right = max(bbox.right for bbox in bboxes)
@@ -770,24 +1349,17 @@ class TextFiltering:
             center_x=(left + right) / 2,
             center_y=(top + bottom) / 2,
             width=right - left,
-            height=bottom - top
+            height=bottom - top,
         )
 
         # Create new merged line
-        merged_line = Line(
-            bounding_box=new_bbox,
-            words=words_sorted,
-            text=text_sorted
-        )
+        merged_line = Line(bounding_box=new_bbox, words=words_sorted, text=text_sorted)
 
-        return {
-            'line_obj': merged_line,
-            'is_vertical': is_vertical
-        }
+        return {"line_obj": merged_line, "is_vertical": is_vertical}
 
     def _should_merge_lines(self, line1, line2, is_vertical):
-        bbox1 = line1['line_obj'].bounding_box
-        bbox2 = line2['line_obj'].bounding_box
+        bbox1 = line1["line_obj"].bounding_box
+        bbox2 = line2["line_obj"].bounding_box
 
         if is_vertical:
             horizontal_overlap = self._check_horizontal_overlap(bbox1, bbox2)
@@ -805,10 +1377,10 @@ class TextFiltering:
         filtered_lines = []
 
         for line in lines:
-            line_text = self.get_line_text(line['line_obj'])
-            normalized_line_text = ''.join(self.cj_regex.findall(line_text))
-            line['normalized_text'] = normalized_line_text
-        if all(not line['normalized_text'] for line in lines):
+            line_text = self.get_line_text(line["line_obj"])
+            normalized_line_text = "".join(self.cj_regex.findall(line_text))
+            line["normalized_text"] = normalized_line_text
+        if all(not line["normalized_text"] for line in lines):
             return lines
 
         for i, line in enumerate(lines):
@@ -816,20 +1388,20 @@ class TextFiltering:
                 filtered_lines.append(line)
                 continue
 
-            current_line_text = self.get_line_text(line['line_obj'])
-            current_line_bbox = line['line_obj'].bounding_box
+            current_line_text = self.get_line_text(line["line_obj"])
+            current_line_bbox = line["line_obj"].bounding_box
             next_line = lines[i + 1]
-            next_line_text = self.get_line_text(next_line['line_obj'])
-            next_line_bbox = next_line['line_obj'].bounding_box
+            next_line_text = self.get_line_text(next_line["line_obj"])
+            next_line_bbox = next_line["line_obj"].bounding_box
 
-            if not (line['normalized_text'] and next_line['normalized_text']):
+            if not (line["normalized_text"] and next_line["normalized_text"]):
                 filtered_lines.append(line)
                 continue
-            has_kanji = self.kanji_regex.search(line['normalized_text'])
+            has_kanji = self.kanji_regex.search(line["normalized_text"])
             if has_kanji:
                 filtered_lines.append(line)
                 continue
-            next_has_kanji = self.kanji_regex.search(next_line['normalized_text'])
+            next_has_kanji = self.kanji_regex.search(next_line["normalized_text"])
             if not next_has_kanji:
                 filtered_lines.append(line)
                 continue
@@ -842,7 +1414,9 @@ class TextFiltering:
                 horizontal_distance = current_line_bbox.center_x - next_line_bbox.center_x
                 vertical_overlap = self._check_vertical_overlap(current_line_bbox, next_line_bbox)
 
-                passed_position_check = min_h_distance < horizontal_distance < max_h_distance and vertical_overlap > min_v_overlap
+                passed_position_check = (
+                    min_h_distance < horizontal_distance < max_h_distance and vertical_overlap > min_v_overlap
+                )
             else:
                 min_v_distance = abs(next_line_bbox.height - current_line_bbox.height) / 2
                 max_v_distance = next_line_bbox.height + (current_line_bbox.height / 2)
@@ -851,7 +1425,9 @@ class TextFiltering:
                 vertical_distance = next_line_bbox.center_y - current_line_bbox.center_y
                 horizontal_overlap = self._check_horizontal_overlap(current_line_bbox, next_line_bbox)
 
-                passed_position_check = min_v_distance < vertical_distance < max_v_distance and horizontal_overlap > min_h_overlap
+                passed_position_check = (
+                    min_v_distance < vertical_distance < max_v_distance and horizontal_overlap > min_h_overlap
+                )
 
             if not passed_position_check:
                 filtered_lines.append(line)
@@ -871,12 +1447,12 @@ class TextFiltering:
             # Skip line (furigana detected)
 
         return filtered_lines
-    
-    def _should_merge_close_paragraphs(self, paragraph1, paragraph2, is_vertical):
-        bbox1 = paragraph1['paragraph_obj'].bounding_box
-        bbox2 = paragraph2['paragraph_obj'].bounding_box
 
-        character_size = max(paragraph1['character_size'], paragraph2['character_size'])
+    def _should_merge_close_paragraphs(self, paragraph1, paragraph2, is_vertical):
+        bbox1 = paragraph1["paragraph_obj"].bounding_box
+        bbox2 = paragraph2["paragraph_obj"].bounding_box
+
+        character_size = max(paragraph1["character_size"], paragraph2["character_size"])
 
         if is_vertical:
             vertical_distance = self._calculate_vertical_distance(bbox1, bbox2)
@@ -891,37 +1467,41 @@ class TextFiltering:
 
     def _merge_close_paragraphs(self, paragraphs):
         if len(paragraphs) < 2:
-            return [p['paragraph_obj'] for p in paragraphs]
+            return [p["paragraph_obj"] for p in paragraphs]
 
         merged_paragraphs = []
 
         def _merge_paragraphs(is_vertical):
-            indices = [i for i, paragraph in enumerate(paragraphs) if ((paragraph['paragraph_obj'].writing_direction == 'TOP_TO_BOTTOM') == is_vertical)]
+            indices = [
+                i
+                for i, paragraph in enumerate(paragraphs)
+                if ((paragraph["paragraph_obj"].writing_direction == "TOP_TO_BOTTOM") == is_vertical)
+            ]
 
             if len(indices) == 0:
                 return
             if len(indices) == 1:
-                merged_paragraphs.append(paragraphs[indices[0]]['paragraph_obj'])
+                merged_paragraphs.append(paragraphs[indices[0]]["paragraph_obj"])
                 return
 
             if is_vertical:
-                get_start = lambda p: p['paragraph_obj'].bounding_box.left
-                get_end = lambda p: p['paragraph_obj'].bounding_box.right
+                get_start = lambda p: p["paragraph_obj"].bounding_box.left
+                get_end = lambda p: p["paragraph_obj"].bounding_box.right
             else:
-                get_start = lambda p: p['paragraph_obj'].bounding_box.top
-                get_end = lambda p: p['paragraph_obj'].bounding_box.bottom
+                get_start = lambda p: p["paragraph_obj"].bounding_box.top
+                get_end = lambda p: p["paragraph_obj"].bounding_box.bottom
 
             components = self._find_connected_components(
                 items=[paragraphs[i] for i in indices],
                 should_connect=lambda p1, p2: self._should_merge_close_paragraphs(p1, p2, is_vertical),
                 get_start_coord=get_start,
-                get_end_coord=get_end
+                get_end_coord=get_end,
             )
 
             for component in components:
                 original_indices = [indices[i] for i in component]
                 if len(component) == 1:
-                    merged_paragraphs.append(paragraphs[original_indices[0]]['paragraph_obj'])
+                    merged_paragraphs.append(paragraphs[original_indices[0]]["paragraph_obj"])
                 else:
                     component_paragraphs = [paragraphs[i] for i in original_indices]
                     merged_paragraph = self._merge_multiple_paragraphs(component_paragraphs, is_vertical)
@@ -935,35 +1515,29 @@ class TextFiltering:
     def _merge_multiple_paragraphs(self, paragraphs, is_vertical):
         merged_lines = []
         for p in paragraphs:
-            for line in p['paragraph_obj'].lines:
-                merged_lines.append({
-                    'line_obj': line,
-                    'is_vertical': is_vertical
-                })
+            for line in p["paragraph_obj"].lines:
+                merged_lines.append({"line_obj": line, "is_vertical": is_vertical})
 
         return self._create_paragraph_from_lines(merged_lines, is_vertical, True)
 
     def _group_paragraphs_into_rows(self, paragraphs):
         if len(paragraphs) < 2:
-            return [{'paragraphs': paragraphs, 'is_vertical': False}]
+            return [{"paragraphs": paragraphs, "is_vertical": False}]
 
         components = self._find_connected_components(
             items=paragraphs,
             should_connect=lambda p1, p2: self._check_vertical_overlap(p1.bounding_box, p2.bounding_box) > 0.4,
             get_start_coord=lambda p: p.bounding_box.top,
-            get_end_coord=lambda p: p.bounding_box.bottom
+            get_end_coord=lambda p: p.bounding_box.bottom,
         )
 
         rows = []
         for component in components:
             row_paragraphs = [paragraphs[i] for i in component]
-            vertical_count = sum(1 for p in row_paragraphs if p.writing_direction == 'TOP_TO_BOTTOM')
+            vertical_count = sum(1 for p in row_paragraphs if p.writing_direction == "TOP_TO_BOTTOM")
             is_vertical = vertical_count * 2 >= len(row_paragraphs)
 
-            rows.append({
-                'paragraphs': row_paragraphs,
-                'is_vertical': is_vertical
-            })
+            rows.append({"paragraphs": row_paragraphs, "is_vertical": is_vertical})
 
         return rows
 
@@ -971,8 +1545,8 @@ class TextFiltering:
         reordered_rows = []
 
         for row in rows:
-            paragraphs = row['paragraphs']
-            is_vertical = row['is_vertical']
+            paragraphs = row["paragraphs"]
+            is_vertical = row["is_vertical"]
 
             if len(paragraphs) < 2:
                 reordered_rows.append(row)
@@ -988,10 +1562,7 @@ class TextFiltering:
             # Further reorder contiguous blocks with different orientation
             final_order = self._reorder_mixed_orientation_blocks(paragraphs_sorted, is_vertical)
 
-            reordered_rows.append({
-                'paragraphs': final_order,
-                'is_vertical': is_vertical
-            })
+            reordered_rows.append({"paragraphs": final_order, "is_vertical": is_vertical})
 
         return reordered_rows
 
@@ -1001,10 +1572,10 @@ class TextFiltering:
 
         result = []
         current_block = [paragraphs[0]]
-        current_orientation = paragraphs[0].writing_direction == 'TOP_TO_BOTTOM'
+        current_orientation = paragraphs[0].writing_direction == "TOP_TO_BOTTOM"
 
         for para in paragraphs[1:]:
-            para_orientation = para.writing_direction == 'TOP_TO_BOTTOM'
+            para_orientation = para.writing_direction == "TOP_TO_BOTTOM"
 
             if para_orientation == current_orientation:
                 current_block.append(para)
@@ -1027,11 +1598,11 @@ class TextFiltering:
         return result
 
     def _flatten_rows_to_paragraphs(self, rows):
-        rows_sorted = sorted(rows, key=lambda r: min(p.bounding_box.top for p in r['paragraphs']))
+        rows_sorted = sorted(rows, key=lambda r: min(p.bounding_box.top for p in r["paragraphs"]))
 
         all_paragraphs = []
         for row in rows_sorted:
-            all_paragraphs.extend(row['paragraphs'])
+            all_paragraphs.extend(row["paragraphs"])
 
         return all_paragraphs
 
@@ -1104,7 +1675,7 @@ class TextFiltering:
         # Sort items by appropriate coordinate for sweep-line
         sorted_items = sorted(
             [(i, items[i]) for i in range(len(items))],
-            key=lambda x: get_start_coord(x[1])
+            key=lambda x: get_start_coord(x[1]),
         )
 
         active_items = []  # (index, item, end_coordinate)
@@ -1150,17 +1721,36 @@ class TextFiltering:
         return connected_components
 
     def extract_text_from_ocr_result(self, result_data):
-        lines = []
-        for p in result_data.paragraphs:
-            for l in p.lines:
-                lines.append(self.get_line_text(l))
-            lines.append('\n')
-        return ''.join(lines)
+        line_entries = []
+        image_height = max(float(getattr(result_data.image_properties, "height", 0) or 0), 1.0)
+        image_width = max(float(getattr(result_data.image_properties, "width", 0) or 0), 1.0)
+
+        for paragraph in result_data.paragraphs:
+            paragraph_is_vertical = bool(getattr(paragraph, "writing_direction", None) == "TOP_TO_BOTTOM")
+            for line in paragraph.lines:
+                line_text = self.get_line_text(line)
+                if not line_text:
+                    continue
+
+                bbox = line.bounding_box
+                line_entries.append(
+                    {
+                        "text": line_text,
+                        "center_x": float(getattr(bbox, "center_x", 0.0) or 0.0) * image_width,
+                        "center_y": float(getattr(bbox, "center_y", 0.0) or 0.0) * image_height,
+                        "width": float(getattr(bbox, "width", 0.0) or 0.0) * image_width,
+                        "height": float(getattr(bbox, "height", 0.0) or 0.0) * image_height,
+                        "is_vertical": paragraph_is_vertical,
+                    }
+                )
+
+        return build_spatial_text(line_entries)
 
     def __call__(self, text, last_result, engine=None, is_second_ocr=False):
         lang = get_ocr_language()
         if self.initial_lang != lang:
             from pysbd import Segmenter, languages
+
             if lang in languages.LANGUAGE_CODES:
                 self.segmenter = Segmenter(language=lang, clean=True)
             else:
@@ -1168,46 +1758,123 @@ class TextFiltering:
             self.initial_lang = get_ocr_language()
             self.regex = self._get_regex(lang)
 
+        def _normalize_last_result_block(block_text):
+            if block_text is None:
+                return None
+            block = str(block_text)
+            if "BLANK_LINE" in block or block == "\n":
+                return "\n"
+            if lang == "ja":
+                block_compare = self.kana_kanji_regex.findall(block)
+            elif lang == "zh":
+                block_compare = self.chinese_common_regex.findall(block)
+            elif lang == "ko":
+                block_compare = self.korean_regex.findall(block)
+            elif lang == "ar":
+                block_compare = self.arabic_regex.findall(block)
+            elif lang == "ru":
+                block_compare = self.russian_regex.findall(block)
+            elif lang == "el":
+                block_compare = self.greek_regex.findall(block)
+            elif lang == "he":
+                block_compare = self.hebrew_regex.findall(block)
+            elif lang == "th":
+                block_compare = self.thai_regex.findall(block)
+            elif lang in [
+                "en",
+                "fr",
+                "de",
+                "es",
+                "it",
+                "pt",
+                "nl",
+                "sv",
+                "da",
+                "no",
+                "fi",
+            ]:
+                block_compare = self.latin_extended_regex.findall(block)
+            else:
+                block_compare = self.latin_extended_regex.findall(block)
+            return "".join(block_compare) if block_compare else None
+
+        source_text = _normalize_segment_source_text(text)
         orig_text = self.segmenter.segment(text)
         orig_text_filtered = []
+        orig_text_compare = []
         for block in orig_text:
             if "BLANK_LINE" in block:
                 block_filtered = ["\n"]
+                block_compare = ["\n"]
             elif lang == "ja":
-                block_filtered = self.kana_kanji_regex.findall(block)
+                block_filtered = self.kana_kanji_with_punct_regex.findall(block)
+                block_compare = self.kana_kanji_regex.findall(block)
             elif lang == "zh":
                 block_filtered = self.chinese_common_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "ko":
                 block_filtered = self.korean_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "ar":
                 block_filtered = self.arabic_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "ru":
                 block_filtered = self.russian_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "el":
                 block_filtered = self.greek_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "he":
                 block_filtered = self.hebrew_regex.findall(block)
+                block_compare = block_filtered
             elif lang == "th":
                 block_filtered = self.thai_regex.findall(block)
-            elif lang in ["en", "fr", "de", "es", "it", "pt", "nl", "sv", "da", "no",
-                          "fi"]:  # Many European languages use extended Latin
+                block_compare = block_filtered
+            elif lang in [
+                "en",
+                "fr",
+                "de",
+                "es",
+                "it",
+                "pt",
+                "nl",
+                "sv",
+                "da",
+                "no",
+                "fi",
+            ]:  # Many European languages use extended Latin
                 block_filtered = self.latin_extended_regex.findall(block)
+                block_compare = block_filtered
             else:
                 block_filtered = self.latin_extended_regex.findall(block)
+                block_compare = block_filtered
 
             if block_filtered:
-                orig_text_filtered.append(''.join(block_filtered))
+                orig_text_filtered.append("".join(block_filtered))
             else:
                 orig_text_filtered.append(None)
 
+            if block_compare:
+                orig_text_compare.append("".join(block_compare))
+            else:
+                orig_text_compare.append(None)
+
         try:
             if isinstance(last_result, list):
-                last_text = last_result.copy()
+                last_text = []
+                for block in last_result:
+                    normalized_block = _normalize_last_result_block(block)
+                    if normalized_block:
+                        last_text.append(normalized_block)
             elif last_result and last_result[1] == engine_index:
-                last_text = last_result[0]
+                last_text = []
+                for block in last_result[0] or []:
+                    normalized_block = _normalize_last_result_block(block)
+                    if normalized_block:
+                        last_text.append(normalized_block)
             else:
                 last_text = []
-            
+
             if engine and not is_second_ocr:
                 if self.last_few_results and self.last_few_results.get(engine):
                     for sublist in self.last_few_results.get(engine, []):
@@ -1215,41 +1882,51 @@ class TextFiltering:
                             for item in sublist:
                                 if item and item not in last_text:
                                     last_text.append(item)
-                    self.last_few_results[engine].append(orig_text_filtered)
+                    self.last_few_results[engine].append(orig_text_compare)
                 else:
                     self.last_few_results[engine] = deque(maxlen=3)
-                    self.last_few_results[engine].append(orig_text_filtered)
+                    self.last_few_results[engine].append(orig_text_compare)
 
         except Exception as e:
             logger.error(f"Error processing last_result {last_result}: {e}")
             last_text = []
 
+        all_blocks = []
         new_blocks = []
+        new_block_indexes = []
         for idx, block in enumerate(orig_text):
-            if orig_text_filtered[idx] and (orig_text_filtered[idx] not in last_text):
-                new_blocks.append(
-                    str(block).strip().replace("BLANK_LINE", "\n"))
+            if orig_text_filtered[idx]:
+                all_blocks.append(str(block).strip().replace("BLANK_LINE", "\n"))
+            if orig_text_compare[idx] and (orig_text_compare[idx] not in last_text):
+                new_blocks.append(str(block).strip().replace("BLANK_LINE", "\n"))
+                new_block_indexes.append(idx)
 
-        final_blocks = []
+        selected_block_indexes = []
         if self.accurate_filtering:
             detection_results = self.pipe(new_blocks, top_k=3, truncation=True)
             for idx, block in enumerate(new_blocks):
                 for result in detection_results[idx]:
-                    if result['label'] == lang:
-                        final_blocks.append(block)
+                    if result["label"] == lang:
+                        selected_block_indexes.append(new_block_indexes[idx])
                         break
         else:
-            for block in new_blocks:
+            for idx, block in enumerate(new_blocks):
                 # This only filters out NON JA/ZH from text when lang is JA/ZH
-                if lang not in ["ja", "zh"] or self.classify(block)[0] in ['ja', 'zh'] or block == "\n":
-                    final_blocks.append(block)
+                if lang not in ["ja", "zh"] or self.classify(block)[0] in ["ja", "zh"] or block == "\n":
+                    selected_block_indexes.append(new_block_indexes[idx])
 
-        text = '\n'.join(final_blocks)
-        return text, orig_text_filtered
+        text = _join_selected_blocks_with_source_separators(source_text, orig_text, selected_block_indexes)
+        return text, all_blocks
 
 
 class ScreenshotThread(threading.Thread):
-    def __init__(self, screen_capture_area, screen_capture_window, ocr_config, screen_capture_on_combo):
+    def __init__(
+        self,
+        screen_capture_area,
+        screen_capture_window,
+        ocr_config,
+        screen_capture_on_combo,
+    ):
         super().__init__(daemon=True)
         self.macos_window_tracker_instance = None
         self.windows_window_tracker_instance = None
@@ -1260,15 +1937,15 @@ class ScreenshotThread(threading.Thread):
         self.areas = []
         self.use_periodic_queue = not screen_capture_on_combo
         self.ocr_config = ocr_config
-        if screen_capture_area == '':
+        if screen_capture_area == "":
             self.screencapture_mode = 0
-        elif screen_capture_area.startswith('screen_'):
-            parts = screen_capture_area.split('_')
+        elif screen_capture_area.startswith("screen_"):
+            parts = screen_capture_area.split("_")
             if len(parts) != 2 or not parts[1].isdigit():
-                raise ValueError('Invalid screen_capture_area')
+                raise ValueError("Invalid screen_capture_area")
             screen_capture_monitor = int(parts[1])
             self.screencapture_mode = 1
-        elif len(screen_capture_area.split(',')) == 4:
+        elif len(screen_capture_area.split(",")) == 4:
             self.screencapture_mode = 3
         else:
             self.screencapture_mode = 2
@@ -1277,70 +1954,79 @@ class ScreenshotThread(threading.Thread):
             self.screencapture_mode = 2
 
         if self.screencapture_mode != 2:
-            sct = mss.mss()
+            mss_module = _load_mss_module()
+            if mss_module is None:
+                raise RuntimeError("mss is not installed")
+            sct = mss_module.mss()
 
             if self.screencapture_mode == 1:
                 mon = sct.monitors
                 if len(mon) <= screen_capture_monitor:
-                    raise ValueError(
-                        'Invalid monitor number in screen_capture_area')
-                coord_left = mon[screen_capture_monitor]['left']
-                coord_top = mon[screen_capture_monitor]['top']
-                coord_width = mon[screen_capture_monitor]['width']
-                coord_height = mon[screen_capture_monitor]['height']
+                    raise ValueError("Invalid monitor number in screen_capture_area")
+                coord_left = mon[screen_capture_monitor]["left"]
+                coord_top = mon[screen_capture_monitor]["top"]
+                coord_width = mon[screen_capture_monitor]["width"]
+                coord_height = mon[screen_capture_monitor]["height"]
             elif self.screencapture_mode == 3:
                 coord_left, coord_top, coord_width, coord_height = [
-                    int(c.strip()) for c in screen_capture_area.split(',')]
+                    int(c.strip()) for c in screen_capture_area.split(",")
+                ]
             else:
-                logger.opt(ansi=True).info(
-                    'Launching screen coordinate picker')
+                logger.opt(ansi=True).info("Launching screen coordinate picker")
                 screen_selection = get_screen_selection()
                 if not screen_selection:
-                    raise ValueError(
-                        'Picker window was closed or an error occurred')
-                screen_capture_monitor = screen_selection['monitor']
-                x, y, coord_width, coord_height = screen_selection['coordinates']
+                    raise ValueError("Picker window was closed or an error occurred")
+                screen_capture_monitor = screen_selection["monitor"]
+                x, y, coord_width, coord_height = screen_selection["coordinates"]
                 if coord_width > 0 and coord_height > 0:
-                    coord_top = screen_capture_monitor['top'] + y
-                    coord_left = screen_capture_monitor['left'] + x
+                    coord_top = screen_capture_monitor["top"] + y
+                    coord_left = screen_capture_monitor["left"] + x
                 else:
-                    logger.opt(ansi=True).info(
-                        'Selection is empty, selecting whole screen')
-                    coord_left = screen_capture_monitor['left']
-                    coord_top = screen_capture_monitor['top']
-                    coord_width = screen_capture_monitor['width']
-                    coord_height = screen_capture_monitor['height']
+                    logger.opt(ansi=True).info("Selection is empty, selecting whole screen")
+                    coord_left = screen_capture_monitor["left"]
+                    coord_top = screen_capture_monitor["top"]
+                    coord_width = screen_capture_monitor["width"]
+                    coord_height = screen_capture_monitor["height"]
 
-            self.sct_params = {'top': coord_top, 'left': coord_left,
-                               'width': coord_width, 'height': coord_height}
-            logger.opt(ansi=True).info(
-                f'Selected coordinates: {coord_left},{coord_top},{coord_width},{coord_height}')
+            self.sct_params = {
+                "top": coord_top,
+                "left": coord_left,
+                "width": coord_width,
+                "height": coord_height,
+            }
+            logger.opt(ansi=True).info(f"Selected coordinates: {coord_left},{coord_top},{coord_width},{coord_height}")
         else:
-            if len(screen_capture_area.split(',')) == 4:
-                self.areas.append(([int(c.strip())
-                                  for c in screen_capture_area.split(',')]))
+            if len(screen_capture_area.split(",")) == 4:
+                self.areas.append(([int(c.strip()) for c in screen_capture_area.split(",")]))
 
         self.areas.sort(key=lambda rect: (rect[1], rect[0]))
 
         if self.screencapture_mode == 2 or self.screen_capture_window:
             area_invalid_error = '"screen_capture_area" must be empty, "screen_N" where N is a screen number starting from 1, a valid set of coordinates, or a valid window name'
-            if sys.platform == 'darwin':
-                if config.get_general('screen_capture_old_macos_api') or int(platform.mac_ver()[0].split('.')[0]) < 14:
+            if sys.platform == "darwin":
+                if _load_macos_capture_dependencies() is None:
+                    raise RuntimeError("macOS capture dependencies are unavailable")
+                psutil_module = _load_psutil_module()
+                if psutil_module is None:
+                    raise RuntimeError("psutil is not installed")
+                if config.get_general("screen_capture_old_macos_api") or int(platform.mac_ver()[0].split(".")[0]) < 14:
                     self.old_macos_screenshot_api = True
                 else:
                     self.old_macos_screenshot_api = False
                     self.screencapturekit_queue = queue.Queue()
                     CGMainDisplayID()
-                window_list = CGWindowListCopyWindowInfo(
-                    kCGWindowListExcludeDesktopElements, kCGNullWindowID)
+                window_list = CGWindowListCopyWindowInfo(kCGWindowListExcludeDesktopElements, kCGNullWindowID)
                 window_titles = []
                 window_ids = []
                 window_index = None
                 for i, window in enumerate(window_list):
-                    window_title = window.get(kCGWindowName, '')
-                    if psutil.Process(window['kCGWindowOwnerPID']).name() not in ('Terminal', 'iTerm2'):
+                    window_title = window.get(kCGWindowName, "")
+                    if psutil_module.Process(window["kCGWindowOwnerPID"]).name() not in (
+                        "Terminal",
+                        "iTerm2",
+                    ):
                         window_titles.append(window_title)
-                        window_ids.append(window['kCGWindowNumber'])
+                        window_ids.append(window["kCGWindowNumber"])
 
                 if screen_capture_window in window_titles:
                     window_index = window_titles.index(screen_capture_window)
@@ -1357,28 +2043,32 @@ class ScreenshotThread(threading.Thread):
                 window_title = window_titles[window_index]
 
                 if get_ocr_requires_open_window():
-                    self.macos_window_tracker_instance = threading.Thread(
-                        target=self.macos_window_tracker)
+                    self.macos_window_tracker_instance = threading.Thread(target=self.macos_window_tracker)
                     self.macos_window_tracker_instance.start()
-                logger.opt(ansi=True).info(f'Selected window: {window_title}')
-            elif sys.platform == 'win32':
-                self.window_handle, window_title = self.get_windows_window_handle(
-                    screen_capture_window)
+                logger.opt(ansi=True).info(f"Selected window: {window_title}")
+            elif sys.platform == "win32":
+                if _load_win32_capture_dependencies() is None:
+                    raise RuntimeError("Windows capture dependencies are unavailable")
+                self.window_handle, window_title = self.get_windows_window_handle(screen_capture_window)
 
                 if not self.window_handle:
                     raise ValueError(area_invalid_error)
 
                 set_dpi_awareness()
 
-                self.windows_window_tracker_instance = threading.Thread(
-                    target=self.windows_window_tracker)
+                self.windows_window_tracker_instance = threading.Thread(target=self.windows_window_tracker)
                 self.windows_window_tracker_instance.start()
-                logger.opt(ansi=True).info(f'Selected window: {window_title}')
+                logger.opt(ansi=True).info(f"Selected window: {window_title}")
             else:
-                raise ValueError(
-                    'Window capture is only currently supported on Windows and macOS')
+                raise ValueError("Window capture is only currently supported on Windows and macOS")
 
     def get_windows_window_handle(self, window_title):
+        if _load_win32_capture_dependencies() is None:
+            return (None, None)
+        psutil_module = _load_psutil_module()
+        if psutil_module is None:
+            return (None, None)
+
         def callback(hwnd, window_title_part):
             window_title = win32gui.GetWindowText(hwnd)
             if window_title_part in window_title:
@@ -1393,12 +2083,18 @@ class ScreenshotThread(threading.Thread):
         win32gui.EnumWindows(callback, window_title)
         for handle in handles:
             _, pid = win32process.GetWindowThreadProcessId(handle[0])
-            if psutil.Process(pid).name().lower() not in ('cmd.exe', 'powershell.exe', 'windowsterminal.exe'):
+            if psutil_module.Process(pid).name().lower() not in (
+                "cmd.exe",
+                "powershell.exe",
+                "windowsterminal.exe",
+            ):
                 return handle
 
         return (None, None)
 
     def windows_window_tracker(self):
+        if _load_win32_capture_dependencies() is None:
+            return
         found = True
         while not terminated:
             found = win32gui.IsWindow(self.window_handle)
@@ -1407,13 +2103,16 @@ class ScreenshotThread(threading.Thread):
             if get_ocr_requires_open_window():
                 self.screencapture_window_active = self.window_handle == win32gui.GetForegroundWindow()
             else:
-                self.screencapture_window_visible = not win32gui.IsIconic(
-                    self.window_handle)
+                self.screencapture_window_visible = not win32gui.IsIconic(self.window_handle)
             time.sleep(0.2)
         if not found:
             on_window_closed(False)
 
     def capture_macos_window_screenshot(self, window_id):
+        if _load_macos_capture_dependencies() is None:
+            self.screencapturekit_queue.put(None)
+            return
+
         def shareable_content_completion_handler(shareable_content, error):
             if error:
                 self.screencapturekit_queue.put(None)
@@ -1430,16 +2129,14 @@ class ScreenshotThread(threading.Thread):
                 return
 
             with objc.autorelease_pool():
-                content_filter = SCContentFilter.alloc(
-                ).initWithDesktopIndependentWindow_(target_window)
+                content_filter = SCContentFilter.alloc().initWithDesktopIndependentWindow_(target_window)
 
                 frame = content_filter.contentRect()
                 scale = content_filter.pointPixelScale()
                 width = frame.size.width * scale
                 height = frame.size.height * scale
                 configuration = SCStreamConfiguration.alloc().init()
-                configuration.setSourceRect_(CGRectMake(
-                    0, 0, frame.size.width, frame.size.height))
+                configuration.setSourceRect_(CGRectMake(0, 0, frame.size.width, frame.size.height))
                 configuration.setWidth_(width)
                 configuration.setHeight_(height)
                 configuration.setShowsCursor_(False)
@@ -1457,30 +2154,31 @@ class ScreenshotThread(threading.Thread):
 
             self.screencapturekit_queue.put(image)
 
-        SCShareableContent.getShareableContentWithCompletionHandler_(
-            shareable_content_completion_handler
-        )
+        SCShareableContent.getShareableContentWithCompletionHandler_(shareable_content_completion_handler)
 
     def macos_window_tracker(self):
+        if _load_macos_capture_dependencies() is None:
+            return
         found = True
         while found and not terminated:
             found = False
             is_active = False
             with objc.autorelease_pool():
-                window_list = CGWindowListCopyWindowInfo(
-                    kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
+                window_list = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
                 for i, window in enumerate(window_list):
-                    if found and window.get(kCGWindowName, '') == 'Fullscreen Backdrop':
+                    if found and window.get(kCGWindowName, "") == "Fullscreen Backdrop":
                         is_active = True
                         break
-                    if self.window_id == window['kCGWindowNumber']:
+                    if self.window_id == window["kCGWindowNumber"]:
                         found = True
-                        if i == 0 or window_list[i-1].get(kCGWindowName, '') in ('Dock', 'Color Enforcer Window'):
+                        if i == 0 or window_list[i - 1].get(kCGWindowName, "") in (
+                            "Dock",
+                            "Color Enforcer Window",
+                        ):
                             is_active = True
                             break
                 if not found:
-                    window_list = CGWindowListCreateDescriptionFromArray(
-                        [self.window_id])
+                    window_list = CGWindowListCreateDescriptionFromArray([self.window_id])
                     if len(window_list) > 0:
                         found = True
             if found:
@@ -1489,52 +2187,62 @@ class ScreenshotThread(threading.Thread):
         if not found:
             on_window_closed(False)
 
-    def write_result(self, result):
+    def write_result(self, result, metadata=None):
         if self.use_periodic_queue:
-            periodic_screenshot_queue.put(result)
+            periodic_screenshot_queue.put((result, metadata))
         else:
-            image_queue.put((result, True))
+            image_queue.put((result, True, metadata))
 
     def run(self):
         if self.screencapture_mode != 2:
-            sct = mss.mss()
+            mss_module = _load_mss_module()
+            if mss_module is None:
+                logger.error("mss is not installed")
+                return
+            sct = mss_module.mss()
         start = time.time()
         while not terminated:
             if time.time() - start > 1:
                 start = time.time()
-                section_changed = has_ocr_config_changed()
+                section_changed_result = has_ocr_config_changed()
+                if isinstance(section_changed_result, tuple):
+                    section_changed = bool(section_changed_result[0])
+                else:
+                    section_changed = bool(section_changed_result)
                 if section_changed:
                     reload_electron_config()
 
             if not screenshot_event.wait(timeout=0.1):
                 continue
             if self.screencapture_mode == 2 or self.screen_capture_window:
-                if sys.platform == 'darwin':
+                if sys.platform == "darwin":
+                    if _load_macos_capture_dependencies() is None:
+                        return 0
                     with objc.autorelease_pool():
                         if self.old_macos_screenshot_api:
-                            cg_image = CGWindowListCreateImageFromArray(CGRectNull, [self.window_id],
-                                                                        kCGWindowImageBoundsIgnoreFraming)
+                            cg_image = CGWindowListCreateImageFromArray(
+                                CGRectNull,
+                                [self.window_id],
+                                kCGWindowImageBoundsIgnoreFraming,
+                            )
                         else:
-                            self.capture_macos_window_screenshot(
-                                self.window_id)
+                            self.capture_macos_window_screenshot(self.window_id)
                             try:
-                                cg_image = self.screencapturekit_queue.get(
-                                    timeout=0.5)
+                                cg_image = self.screencapturekit_queue.get(timeout=0.5)
                             except queue.Empty:
                                 cg_image = None
                         if not cg_image:
                             return 0
                         width = CGImageGetWidth(cg_image)
                         height = CGImageGetHeight(cg_image)
-                        raw_data = CGDataProviderCopyData(
-                            CGImageGetDataProvider(cg_image))
+                        raw_data = CGDataProviderCopyData(CGImageGetDataProvider(cg_image))
                         bpr = CGImageGetBytesPerRow(cg_image)
-                    img = Image.frombuffer(
-                        'RGBA', (width, height), raw_data, 'raw', 'BGRA', bpr, 1)
+                    img = Image.frombuffer("RGBA", (width, height), raw_data, "raw", "BGRA", bpr, 1)
                 else:
+                    if _load_win32_capture_dependencies() is None:
+                        return 0
                     try:
-                        coord_left, coord_top, right, bottom = win32gui.GetWindowRect(
-                            self.window_handle)
+                        coord_left, coord_top, right, bottom = win32gui.GetWindowRect(self.window_handle)
                         coord_width = right - coord_left
                         coord_height = bottom - coord_top
 
@@ -1543,19 +2251,24 @@ class ScreenshotThread(threading.Thread):
                         save_dc = mfc_dc.CreateCompatibleDC()
 
                         save_bitmap = win32ui.CreateBitmap()
-                        save_bitmap.CreateCompatibleBitmap(
-                            mfc_dc, coord_width, coord_height)
+                        save_bitmap.CreateCompatibleBitmap(mfc_dc, coord_width, coord_height)
                         save_dc.SelectObject(save_bitmap)
 
-                        result = ctypes.windll.user32.PrintWindow(
-                            self.window_handle, save_dc.GetSafeHdc(), 2)
+                        result = ctypes.windll.user32.PrintWindow(self.window_handle, save_dc.GetSafeHdc(), 2)
 
                         bmpinfo = save_bitmap.GetInfo()
                         bmpstr = save_bitmap.GetBitmapBits(True)
                     except pywintypes.error:
                         return 0
-                    img = Image.frombuffer('RGB', (bmpinfo['bmWidth'], bmpinfo['bmHeight']), bmpstr, 'raw', 'BGRX', 0,
-                                           1)
+                    img = Image.frombuffer(
+                        "RGB",
+                        (bmpinfo["bmWidth"], bmpinfo["bmHeight"]),
+                        bmpstr,
+                        "raw",
+                        "BGRX",
+                        0,
+                        1,
+                    )
                     try:
                         win32gui.DeleteObject(save_bitmap.GetHandle())
                     except:
@@ -1574,21 +2287,26 @@ class ScreenshotThread(threading.Thread):
                         pass
             else:
                 sct_img = sct.grab(self.sct_params)
-                img = Image.frombytes(
-                    'RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX')
+                img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
 
             if not img.getbbox():
-                logger.info(
-                    "Screen Capture Didn't get Capturing anything, sleeping.")
+                logger.info("Screen Capture Didn't get Capturing anything, sleeping.")
                 time.sleep(1)
                 continue
 
+            frame_metadata = {
+                "capture_source": "screencapture",
+                "capture_original_size": _size_dict(img.width, img.height),
+                "capture_scaled_size": _size_dict(img.width, img.height),
+                "ocr_area_crop_offset": {"x": 0, "y": 0},
+                "ocr_area_rectangles": [],
+            }
+
             if last_image and are_images_identical(img, last_image):
-                logger.debug(
-                    "Captured screenshot is identical to the last one, sleeping.")
-                time.sleep(max(.5, get_ocr_scan_rate()))
+                logger.debug("Captured screenshot is identical to the last one, sleeping.")
+                time.sleep(max(0.5, get_ocr_scan_rate()))
             else:
-                self.write_result(img)
+                self.write_result(img, metadata=frame_metadata)
                 screenshot_event.clear()
 
         if self.macos_window_tracker_instance:
@@ -1597,41 +2315,55 @@ class ScreenshotThread(threading.Thread):
             self.windows_window_tracker_instance.join()
 
 
-    
 def apply_adaptive_threshold_filter(img):
-    img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    inverted = cv2.bitwise_not(gray)
-    blur = cv2.GaussianBlur(inverted, (3, 3), 0)
-    thresh = cv2.adaptiveThreshold(
-        blur, 255, 
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-        cv2.THRESH_BINARY, 
-        11, 2
+    cv2_module = _load_cv2_module()
+    if cv2_module is None:
+        raise RuntimeError("opencv-python is not installed")
+    img = cv2_module.cvtColor(np.array(img), cv2_module.COLOR_RGB2BGR)
+    gray = cv2_module.cvtColor(img, cv2_module.COLOR_BGR2GRAY)
+    inverted = cv2_module.bitwise_not(gray)
+    blur = cv2_module.GaussianBlur(inverted, (3, 3), 0)
+    thresh = cv2_module.adaptiveThreshold(
+        blur,
+        255,
+        cv2_module.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2_module.THRESH_BINARY,
+        11,
+        2,
     )
-    result = cv2.bitwise_not(thresh)
+    result = cv2_module.bitwise_not(thresh)
 
     return Image.fromarray(result)
 
 
-def set_last_image(image):
-    global last_image, last_image_np
-    if image is None:
-        last_image = None
-        last_image_np = None
+def _close_cached_image(image):
     try:
-        if image == last_image:
-            return
-    except Exception:
-        last_image = None
-        return
-    try:
-        if last_image is not None and hasattr(last_image, "close"):
-            last_image.close()
+        if image is not None and hasattr(image, "close"):
+            image.close()
     except Exception:
         pass
-    last_image = image
-    last_image_np = np.array(last_image)
+
+
+def _update_image_comparison_cache(cached_image, image):
+    if image is None:
+        _close_cached_image(cached_image)
+        return None, None
+
+    try:
+        cached_snapshot = image.copy() if isinstance(image, Image.Image) else image
+        cached_snapshot_np = np.array(cached_snapshot)
+    except Exception:
+        logger.debug("Failed to cache image for comparison.")
+        _close_cached_image(cached_image)
+        return None, None
+
+    _close_cached_image(cached_image)
+    return cached_snapshot, cached_snapshot_np
+
+
+def set_last_image(image):
+    global last_image, last_image_np
+    last_image, last_image_np = _update_image_comparison_cache(last_image, image)
     # last_image = apply_adaptive_threshold_filter(image)
 
 
@@ -1663,14 +2395,18 @@ def are_images_identical(img1, img2, img2_np=None):
 
 ImageType = Union[np.ndarray, Image.Image]
 
+
 def _prepare_image(image: ImageType) -> np.ndarray:
     """
     Standardizes an image (PIL or NumPy) into an OpenCV-compatible NumPy array (BGR).
     """
+    cv2_module = _load_cv2_module()
+    if cv2_module is None:
+        raise RuntimeError("opencv-python is not installed")
     # If the image is a PIL Image, convert it to a NumPy array
     if isinstance(image, Image.Image):
         # Convert PIL Image (which is RGB) to a NumPy array, then convert RGB to BGR for OpenCV
-        prepared_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        prepared_image = cv2_module.cvtColor(np.array(image), cv2_module.COLOR_RGB2BGR)
     # If it's already a NumPy array, assume it's in a compatible format (like BGR)
     elif isinstance(image, np.ndarray):
         prepared_image = image
@@ -1679,7 +2415,9 @@ def _prepare_image(image: ImageType) -> np.ndarray:
 
     return prepared_image
 
+
 i = 1
+
 
 def calculate_ssim_score(imageA: ImageType, imageB: ImageType) -> float:
     global i
@@ -1693,17 +2431,17 @@ def calculate_ssim_score(imageA: ImageType, imageB: ImageType) -> float:
     Returns:
         The SSIM score between the two images (between -1 and 1).
     """
-    
+
     if isinstance(imageA, Image.Image):
         imageA = apply_adaptive_threshold_filter(imageA)
-        
+
     # Save Images to temp for debugging on a random 1/20 chance
     # if np.random.rand() < 0.05:
     # if i < 600:
     #     # Save as image_000
     #     imageA.save(os.path.join(get_temporary_directory(), f'frame_{i:03d}.png'), 'PNG')
     #     i += 1
-        # imageB.save(os.path.join(get_temporary_directory(), f'ssim_imageB_{i:03d}.png'), 'PNG')
+    # imageB.save(os.path.join(get_temporary_directory(), f'ssim_imageB_{i:03d}.png'), 'PNG')
 
     imageA = _prepare_image(imageA)
     imageB = _prepare_image(imageB)
@@ -1721,12 +2459,18 @@ def calculate_ssim_score(imageA: ImageType, imageB: ImageType) -> float:
     # The `win_size` parameter must be an odd number and less than the image dimensions.
     # We choose a value that is likely to be safe for a variety of image sizes.
     win_size = min(3, imageA.shape[0] // 2, imageA.shape[1] // 2)
-    if win_size % 2 == 0: # ensure it's odd
-        win_size -= 1 
+    if win_size % 2 == 0:  # ensure it's odd
+        win_size -= 1
 
-    score, _ = ssim(imageA, imageB, full=True, win_size=win_size)
+    ssim_func = _load_ssim_function()
+    if ssim_func is None:
+        raise RuntimeError("scikit-image is not installed")
+    score, _ = ssim_func(imageA, imageB, full=True, win_size=win_size)
 
     return score
+
+
+showed = False
 
 
 def are_images_similar(imageA: Image.Image, imageB: Image.Image, threshold: float = 0.98) -> bool:
@@ -1743,43 +2487,132 @@ def are_images_similar(imageA: Image.Image, imageB: Image.Image, threshold: floa
     Returns:
         True if the images are similar, False otherwise.
     """
+    return False
     if None in (imageA, imageB):
         logger.info("One of the images is None, cannot compare.")
         return False
     try:
+        global showed
+        if not showed:
+            imageA.show()
+            imageB.show()
+            showed = True
         score = calculate_ssim_score(imageA, imageB)
+        logger.info(f"SSIM score between images: {score}")
     except Exception as e:
         logger.info(e)
         return False
     return score > threshold
 
 
+EMPTY_SCAN_RATE_MAX = 5.0
+NO_TEXT_SCAN_RATE_MAX = 2.0
+NO_TEXT_SIMILAR_SCAN_RATE_MAX = 5.0
+NO_TEXT_SLEEP_INCREMENT = 0.005
+NO_TEXT_SIMILAR_SLEEP_INCREMENT = 0.25
+NO_TEXT_SIMILARITY_THRESHOLD = 0.98
+
+
+def _get_sleep_scan_rate_cap(base_scan_rate: float, sleep_reason: str) -> float:
+    if sleep_reason in ("empty", "no_text_similar"):
+        return EMPTY_SCAN_RATE_MAX
+    return NO_TEXT_SCAN_RATE_MAX
+
+
+def _get_adjusted_scan_rate(base_scan_rate: float, sleep_time_to_add: float, sleep_reason: str) -> float:
+    return max(
+        base_scan_rate, min(base_scan_rate + sleep_time_to_add, _get_sleep_scan_rate_cap(base_scan_rate, sleep_reason))
+    )
+
+
+def _get_sleep_add_for_target_rate(base_scan_rate: float, target_scan_rate: float) -> float:
+    return max(0.0, target_scan_rate - base_scan_rate)
+
+
+def _get_no_text_scan_rate_cap(base_scan_rate: float) -> float:
+    return max(base_scan_rate, NO_TEXT_SCAN_RATE_MAX)
+
+
+def _should_check_no_text_similarity(base_scan_rate: float, sleep_time_to_add: float, sleep_reason: str) -> bool:
+    if sleep_reason not in ("no_text", "no_text_similar"):
+        return False
+    current_scan_rate = _get_adjusted_scan_rate(base_scan_rate, sleep_time_to_add, sleep_reason)
+    return current_scan_rate >= _get_no_text_scan_rate_cap(base_scan_rate)
+
+
+def _can_check_no_text_similarity(
+    base_scan_rate: float,
+    sleep_time_to_add: float,
+    sleep_reason: str,
+    last_image,
+    last_image_np,
+) -> bool:
+    return (
+        last_image is not None
+        and last_image_np is not None
+        and _should_check_no_text_similarity(base_scan_rate, sleep_time_to_add, sleep_reason)
+    )
+
+
+def _update_no_text_similarity_sleep_state(
+    base_scan_rate: float,
+    sleep_time_to_add: float,
+    sleep_reason: str,
+    is_similar: bool,
+) -> tuple[float, str]:
+    if is_similar:
+        max_sleep_add = max(0.0, NO_TEXT_SIMILAR_SCAN_RATE_MAX - base_scan_rate)
+        min_sleep_add = _get_sleep_add_for_target_rate(base_scan_rate, _get_no_text_scan_rate_cap(base_scan_rate))
+        next_sleep_add = max(sleep_time_to_add, min_sleep_add) + NO_TEXT_SIMILAR_SLEEP_INCREMENT
+        return min(next_sleep_add, max_sleep_add), "no_text_similar"
+
+    if sleep_reason == "no_text_similar":
+        sleep_time_to_add = min(
+            sleep_time_to_add,
+            _get_sleep_add_for_target_rate(base_scan_rate, _get_no_text_scan_rate_cap(base_scan_rate)),
+        )
+        return sleep_time_to_add, "no_text"
+
+    return sleep_time_to_add, sleep_reason
+
+
 def quick_text_detection(pil_image, threshold_ratio=0.01):
     """
     Quick check if image likely contains text using edge detection.
-    
+
     Args:
         pil_image (PIL.Image): Input image
         threshold_ratio (float): Minimum ratio of edge pixels to consider text present
-    
+
     Returns:
         bool: True if text is likely present
     """
     # Convert to grayscale
-    gray = np.array(pil_image.convert('L'))
-    
+    gray = np.array(pil_image.convert("L"))
+
     # Apply Canny edge detection
-    edges = cv2.Canny(gray, 50, 150)
-    
+    cv2_module = _load_cv2_module()
+    if cv2_module is None:
+        raise RuntimeError("opencv-python is not installed")
+    edges = cv2_module.Canny(gray, 50, 150)
+
     # Calculate ratio of edge pixels
     edge_ratio = np.sum(edges > 0) / edges.size
-    
+
     return edge_ratio > threshold_ratio
 
 
 # Use OBS for Screenshot Source (i.e. Linux)
 class OBSScreenshotThread(threading.Thread):
-    def __init__(self, ocr_config, screen_capture_on_combo, width=1280, height=720, interval=1, is_manual_ocr=False):
+    def __init__(
+        self,
+        ocr_config,
+        screen_capture_on_combo,
+        width=None,
+        height=None,
+        interval=1,
+        is_manual_ocr=False,
+    ):
         super().__init__(daemon=True)
         self.ocr_config = ocr_config
         self.interval = interval
@@ -1789,58 +2622,117 @@ class OBSScreenshotThread(threading.Thread):
         self.current_scene = None
         self.width = width
         self.height = height
+        self.source_width = None
+        self.source_height = None
         self.use_periodic_queue = not screen_capture_on_combo
         self.is_manual_ocr = is_manual_ocr
+        self.source_refresh_interval = max(float(interval or 1), 0.25)
+        self.inactive_source_retry_interval = 5.0
+        self.last_source_refresh_ts = 0.0
+        self.init_retry_attempts = 3
 
-    def write_result(self, result):
+    def write_result(self, result, metadata=None):
         if self.use_periodic_queue:
-            periodic_screenshot_queue.put(result)
+            periodic_screenshot_queue.put((result, metadata))
         else:
-            image_queue.put((result, True))
+            image_queue.put((result, True, metadata))
         screenshot_event.clear()
+
+    def get_capture_original_size(self, capture_width, capture_height):
+        return _size_dict(
+            getattr(self, "source_width", None) or capture_width,
+            getattr(self, "source_height", None) or capture_height,
+        )
 
     def connect_obs(self):
         import GameSentenceMiner.obs as obs
-        obs.connect_to_obs_sync(check_output=False)
-        
+
+        obs.connect_to_obs_sync(
+            connections=2,
+            check_output=False,
+            healthcheck_enabled=False,
+            start_manager=False,
+        )
+
+    def refresh_source_name(self, force=False, suppress_errors=False):
+        import GameSentenceMiner.obs as obs
+
+        now = time.time()
+        if not force and (now - self.last_source_refresh_ts) < self.source_refresh_interval:
+            return self.current_source_name
+
+        self.last_source_refresh_ts = now
+        obs.update_current_game()
+        source = obs.get_best_source_for_screenshot(
+            log_missing_source=not suppress_errors,
+            suppress_errors=suppress_errors,
+        )
+        self.current_source = source if isinstance(source, dict) else None
+        self.current_source_name = self.current_source.get("sourceName") if self.current_source else None
+        scene_item_transform = self.current_source.get("sceneItemTransform") if self.current_source else None
+        if not isinstance(scene_item_transform, dict):
+            scene_item_transform = {}
+        self.source_width = scene_item_transform.get("sourceWidth")
+        self.source_height = scene_item_transform.get("sourceHeight")
+        return self.current_source_name
+
     def init_config(self, source=None, scene=None):
         import GameSentenceMiner.obs as obs
-        obs.update_current_game()
-        current_sources = obs.get_active_video_sources()
-        self.current_source = source if source else obs.get_best_source_for_screenshot()
+
+        current_sources = []
+        self.current_source = source if source else None
+
+        for attempt in range(self.init_retry_attempts):
+            obs.update_current_game()
+            current_sources = obs.get_active_video_sources(_suppress_obs_errors=True) or []
+            if not self.current_source:
+                self.current_source = obs.get_best_source_for_screenshot(
+                    log_missing_source=False,
+                    suppress_errors=True,
+                )
+            if self.current_source:
+                break
+            if attempt < self.init_retry_attempts - 1:
+                time.sleep(min(1.0, self.source_refresh_interval))
+
         if not self.current_source:
-            time.sleep(1)
-            self.init_config(source=source, scene=scene)
-            return
+            self.source_width = None
+            self.source_height = None
+            self.current_source_name = None
+            return False
+
         logger.debug(f"Current OBS source: {self.current_source}")
-        self.source_width = self.current_source.get(
-            "sceneItemTransform").get("sourceWidth") or self.width
-        self.source_height = self.current_source.get(
-            "sceneItemTransform").get("sourceHeight") or self.height
+        scene_item_transform = self.current_source.get("sceneItemTransform") or {}
+        self.source_width = scene_item_transform.get("sourceWidth") or self.width
+        self.source_height = scene_item_transform.get("sourceHeight") or self.height
         if self.source_width and self.source_height and not self.is_manual_ocr and get_ocr_two_pass_ocr():
-            self.width, self.height = scale_down_width_height(
-                self.source_width, self.source_height)
-            logger.info(
-                f"Using OBS source dimensions: {self.width}x{self.height}")
+            scaled_size = scale_dimensions_to_minimum_bounds(
+                self.source_width,
+                self.source_height,
+                base_scale=get_ocr_base_scale(),
+            )
+            self.width, self.height = scaled_size.as_tuple()
+            logger.info(f"Scaling Source {self.source_width}x{self.source_height} to OBS: {self.width}x{self.height}")
         else:
             self.width = self.source_width or 1280
             self.height = self.source_height or 720
-            logger.info(
-                f"Using source dimensions: {self.width}x{self.height}")
-        self.current_source_name = self.current_source.get(
-            "sourceName") or None
-        if len(current_sources) > 1:
-            logger.error(f"Multiple active video sources found in OBS. Using {self.current_source_name} for Screenshot. Please ensure only one source is active for best results.")
+            logger.info(f"Using source dimensions: {self.width}x{self.height}")
+        self.current_source_name = self.current_source.get("sourceName") or None
+        if current_sources and len(current_sources) > 1:
+            logger.error(
+                f"Multiple active video sources found in OBS. Using {self.current_source_name} for Screenshot. Please ensure only one source is active for best results."
+            )
         self.current_scene = scene if scene else obs.get_current_game()
         self.ocr_config = get_scene_ocr_config(refresh=True)
         if not self.ocr_config:
             logger.error("No OCR config found for the current scene.")
-            return
+            return False
         self.ocr_config.scale_to_custom_size(self.width, self.height)
+        self.last_source_refresh_ts = 0.0
+        return True
 
     def run(self):
-        global last_image
-        from PIL import Image
+        global last_image, crop_offset
         import GameSentenceMiner.obs as obs
 
         # Register a scene switch callback in obsws
@@ -1857,142 +2749,232 @@ class OBSScreenshotThread(threading.Thread):
                 continue
 
             if not self.ocr_config:
-                logger.info(
-                    "No OCR config found for the current scene. Waiting for scene switch.")
-                time.sleep(1)
+                logger.info("No OCR config found for the current scene. Waiting for scene switch.")
+                self.init_config()
+                self.write_result(None)
                 continue
-
-            if not self.current_source_name:
-                obs.update_current_game()
-                self.current_source = obs.get_active_source()
-                self.current_source_name = self.current_source.get(
-                    "sourceName") or None
 
             try:
                 if not self.current_source_name:
-                    logger.error(
-                        "No active source found in the current scene.")
-                    self.write_result(1)
+                    self.refresh_source_name(suppress_errors=True)
+
+                if not self.current_source_name:
+                    logger.error("No active source found in the current scene.")
+                    self.write_result(None)
+                    time.sleep(self.inactive_source_retry_interval)
                     continue
-                img = obs.get_screenshot_PIL(source_name=self.current_source_name,
-                                             width=self.width, height=self.height, img_format='jpg', compression=100)
-                
-                img = apply_ocr_config_to_image(img, self.ocr_config)
+
+                capture_preprocess_mode = get_ocr_obs_capture_preprocess_mode()
+                img = obs.get_screenshot_PIL(
+                    source_name=self.current_source_name,
+                    width=self.width,
+                    height=self.height,
+                    img_format="jpg",
+                    compression=90,
+                    grayscale=False,
+                    preprocess_mode=capture_preprocess_mode,
+                )
+
+                if img is None:
+                    logger.error("Failed to get screenshot data from OBS.")
+                    self.current_source = None
+                    self.current_source_name = None
+                    self.write_result(None)
+                    continue
+
+                capture_width, capture_height = img.size
+                img, crop_offset = apply_ocr_config_to_image(img, self.ocr_config, return_full_size=False)
+                primary_rectangles = []
+                if self.ocr_config and getattr(self.ocr_config, "rectangles", None):
+                    for rect in self.ocr_config.rectangles:
+                        if rect.is_excluded or rect.is_secondary:
+                            continue
+                        primary_rectangles.append(list(rect.coordinates))
+                frame_metadata = {
+                    "capture_source": "obs",
+                    "capture_original_size": self.get_capture_original_size(capture_width, capture_height),
+                    "capture_scaled_size": _size_dict(capture_width, capture_height),
+                    "ocr_area_crop_offset": {
+                        "x": _safe_int(crop_offset[0]),
+                        "y": _safe_int(crop_offset[1]),
+                    },
+                    "ocr_area_rectangles": primary_rectangles,
+                    "capture_preprocess_mode": capture_preprocess_mode,
+                }
 
                 if img is not None:
-                    self.write_result(img)
+                    self.write_result(img, metadata=frame_metadata)
                 else:
-                    logger.error("Failed to get screenshot data from OBS.")
+                    logger.error("Failed to apply OCR config to OBS screenshot.")
+                    self.write_result(None)
 
             except Exception as e:
-                print(e)
-                logger.info(
-                    f"An unexpected error occurred during OBS Capture : {e}", exc_info=True)
-                time.sleep(.5)
+                logger.exception(
+                    f"An unexpected error occurred during OBS Capture : {e}",
+                    exc_info=True,
+                )
+                self.current_source_name = None
+                self.write_result(None)
+                time.sleep(min(0.5, self.source_refresh_interval))
                 continue
-            
-def scale_down_width_height(width, height):
-        if width == 0 or height == 0:
-            return width, height
-        # return width, height
-        aspect_ratio = width / height
-        logger.info(
-            f"Scaling down OBS source dimensions: {width}x{height} (Aspect Ratio: {aspect_ratio})")
-        if aspect_ratio > 2.66:
-            logger.info("Using ultra-wide aspect ratio scaling (32:9).")
-            return 1920, 540
-        elif aspect_ratio > 2.33:
-            logger.info("Using ultra-wide aspect ratio scaling (21:9).")
-            return 1920, 800
-        elif aspect_ratio > 1.77:
-            logger.info("Using standard aspect ratio scaling (16:9).")
-            return 1280, 720
-        elif aspect_ratio > 1.6:
-            logger.info("Using standard aspect ratio scaling (16:10).")
-            return 1280, 800
-        elif aspect_ratio > 1.33:
-            logger.info("Using standard aspect ratio scaling (4:3).")
-            return 960, 720
-        elif aspect_ratio > 1.25:
-            logger.info("Using standard aspect ratio scaling (5:4).")
-            return 900, 720
-        elif aspect_ratio > 1.5:
-            logger.info("Using standard aspect ratio scaling (3:2).")
-            return 1080, 720
-        else:
-            logger.info(
-                "Using default aspect ratio scaling (original resolution).")
-            return width, height
 
 
-def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=None, return_full_size=True, both_types=False):
+def _apply_trim_sharpen(image, enabled=True):
+    if not enabled:
+        return image
+    try:
+        return image.filter(ImageFilter.UnsharpMask(radius=1.2, percent=150, threshold=2))
+    except Exception:
+        return image
+
+
+def _get_rectangle_mask_fill(image):
+    mode = getattr(image, "mode", "") or ""
+    if mode in ("1", "L", "I", "F", "P"):
+        return 0
+    if mode == "LA":
+        return (0, 0)
+    if mode == "RGBA":
+        return (0, 0, 0, 0)
+    if mode == "RGB":
+        return (0, 0, 0)
+
+    bands = image.getbands() if hasattr(image, "getbands") else ()
+    if len(bands) <= 1:
+        return 0
+    if len(bands) == 2:
+        return (0, 0)
+    if len(bands) == 3:
+        return (0, 0, 0)
+    return tuple(0 for _ in bands[:4])
+
+
+def apply_ocr_config_to_image(
+    img,
+    ocr_config,
+    is_secondary=False,
+    rectangles=None,
+    return_full_size=True,
+    both_types=False,
+    sharpen_after_trim=False,
+):
+    def resolve_rectangle_coordinates(rectangle):
+        raw_coordinates = list(getattr(rectangle, "coordinates", []) or [])
+        if len(raw_coordinates) < 4:
+            return None
+
+        # Some runtime paths still pass normalized OCR rectangles directly to the compositor.
+        # Resolve those against the actual captured frame size before cropping.
+        if all(isinstance(value, (int, float)) and 0.0 <= float(value) <= 1.0 for value in raw_coordinates[:4]):
+            resolved_coordinates = scale_percentage_rectangle_to_even_pixels(
+                raw_coordinates,
+                img.width,
+                img.height,
+            )
+            if hasattr(rectangle, "coordinates"):
+                rectangle.coordinates = resolved_coordinates
+            return resolved_coordinates
+
+        try:
+            resolved_coordinates = [int(round(float(value))) for value in raw_coordinates[:4]]
+        except (TypeError, ValueError):
+            return None
+
+        if hasattr(rectangle, "coordinates"):
+            rectangle.coordinates = resolved_coordinates
+        return resolved_coordinates
+
     if both_types:
         rectangles = [r for r in ocr_config.rectangles if not r.is_excluded]
-    elif not rectangles:   
+    elif not rectangles:
         rectangles = [r for r in ocr_config.rectangles if not r.is_excluded and r.is_secondary == is_secondary]
-    
+
     for rectangle in ocr_config.rectangles:
         if rectangle.is_excluded:
-            left, top, width, height = rectangle.coordinates
+            resolved_coordinates = resolve_rectangle_coordinates(rectangle)
+            if not resolved_coordinates:
+                continue
+            left, top, width, height = resolved_coordinates
             draw = ImageDraw.Draw(img)
-            draw.rectangle((left, top, left + width, top + height), fill=(0, 0, 0, 0))
+            draw.rectangle(
+                (left, top, left + width, top + height),
+                fill=_get_rectangle_mask_fill(img),
+            )
     # If no rectangles to process, return the original image
     if not rectangles:
-        return img
-    
+        if return_full_size:
+            return img, (0, 0)
+        else:
+            return img, (0, 0)
+
     # Sort top to bottom
     # rectangles.sort(key=lambda r: r.coordinates[1])
-    
 
-    
     # Optimization: if only one rectangle and not forced to return full size, just return the cropped area
     if len(rectangles) == 1 and not return_full_size:
         rectangle = rectangles[0]
-        area = rectangle.coordinates
+        area = resolve_rectangle_coordinates(rectangle)
+        if not area:
+            if return_full_size:
+                return img, (0, 0)
+            else:
+                return img, (0, 0)
         # Ensure crop coordinates are within image bounds
         left = max(0, area[0])
         top = max(0, area[1])
         right = min(img.width, area[0] + area[2])
         bottom = min(img.height, area[1] + area[3])
-        
+
         # Return original image if coordinates are invalid
         if left >= right or top >= bottom:
-            return img
-            
+            if return_full_size:
+                return img, (0, 0)
+            else:
+                return img, (0, 0)
+
         try:
-            return img.crop((left, top, right, bottom))
+            cropped_img = img.crop((left, top, right, bottom))
+            return cropped_img, (left, top)
         except ValueError:
             logger.warning("Error cropping image region, returning original")
-            return img
-    
+            if return_full_size:
+                return img, (0, 0)
+            else:
+                return img, (0, 0)
+
     # Calculate the bounding box of all rectangles
     min_left = img.width
     min_top = img.height
     max_right = 0
     max_bottom = 0
-    
+
     valid_rectangles = []
     for rectangle in rectangles:
-        area = rectangle.coordinates
+        area = resolve_rectangle_coordinates(rectangle)
+        if not area:
+            continue
         left = max(0, area[0])
         top = max(0, area[1])
         right = min(img.width, area[0] + area[2])
         bottom = min(img.height, area[1] + area[3])
-        
+
         # Skip if the coordinates result in an invalid box
         if left >= right or top >= bottom:
             continue
-        
+
         valid_rectangles.append((rectangle, left, top, right, bottom))
         min_left = min(min_left, left)
         min_top = min(min_top, top)
         max_right = max(max_right, right)
         max_bottom = max(max_bottom, bottom)
-    
+
     # If no valid rectangles, return original image
     if not valid_rectangles:
-        return img
-    
+        if return_full_size:
+            return img, (0, 0)
+        else:
+            return img, (0, 0)
+
     # Create a composite image sized to the bounding box or original image size
     if return_full_size:
         composite_width = img.width
@@ -2006,7 +2988,7 @@ def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=No
         composite_img = Image.new("RGBA", (composite_width, composite_height), (0, 0, 0, 0))
         offset_x = min_left
         offset_y = min_top
-    
+
     for rectangle, left, top, right, bottom in valid_rectangles:
         try:
             cropped_image = img.crop((left, top, right, bottom))
@@ -2017,8 +2999,10 @@ def apply_ocr_config_to_image(img, ocr_config, is_secondary=False, rectangles=No
         except ValueError:
             logger.warning("Error cropping image region, skipping rectangle")
             continue
-    
-    return composite_img
+
+    if not return_full_size:
+        composite_img = _apply_trim_sharpen(composite_img, sharpen_after_trim)
+    return composite_img, (offset_x, offset_y)
 
 
 class AutopauseTimer:
@@ -2054,55 +3038,59 @@ class AutopauseTimer:
 
 def pause_handler(is_combo=True):
     global paused
-    message = 'Unpaused!' if paused else 'Paused!'
+    message = "Unpaused!" if paused else "Paused!"
 
     if auto_pause_handler:
         auto_pause_handler.stop()
     if is_combo:
-        notifier.send(title='owocr', message=message)
+        notifier.send(title="owocr", message=message)
     logger.info(message)
     paused = not paused
 
 
-def engine_change_handler(user_input='s', is_combo=True):
+def engine_change_handler(user_input="s", is_combo=True):
     global engine_index
     old_engine_index = engine_index
 
-    if user_input.lower() == 's':
+    if user_input.lower() == "s":
         if engine_index == len(engine_keys) - 1:
             engine_index = 0
         else:
             engine_index += 1
-    elif user_input.lower() != '' and user_input.lower() in engine_keys:
+    elif user_input.lower() != "" and user_input.lower() in engine_keys:
         engine_index = engine_keys.index(user_input.lower())
     if engine_index != old_engine_index:
         new_engine_name = engine_instances[engine_index].readable_name
         if is_combo:
-            notifier.send(
-                title='owocr', message=f'Switched to {new_engine_name}')
-        engine_color = config.get_general('engine_color')
-        logger.opt(ansi=True).info(
-            f'Switched to <{engine_color}>{new_engine_name}</{engine_color}>!')
+            notifier.send(title="owocr", message=f"Switched to {new_engine_name}")
+        engine_color = config.get_general("engine_color")
+        logger.opt(ansi=True).info(f"Switched to <{engine_color}>{new_engine_name}</{engine_color}>!")
 
 
 def engine_change_handler_name(engine, switch=True):
     global engine_index
     old_engine_index = engine_index
-    
+
     if engine not in get_engine_names():
-        for _, engine_class in sorted(inspect.getmembers(sys.modules[__name__], \
-                                                     lambda x: hasattr(x, '__module__') and x.__module__ and (
-        __package__ + '.ocr' in x.__module__ or __package__ + '.secret' in x.__module__) and inspect.isclass(
-                                                         x))):
-            if not hasattr(engine_class, 'name') and not hasattr(engine_class, 'key'):
+        for _, engine_class in sorted(
+            inspect.getmembers(
+                sys.modules[__name__],
+                lambda x: (
+                    hasattr(x, "__module__")
+                    and x.__module__
+                    and (__package__ + ".ocr" in x.__module__ or __package__ + ".secret" in x.__module__)
+                    and inspect.isclass(x)
+                ),
+            )
+        ):
+            if not hasattr(engine_class, "name") and not hasattr(engine_class, "key"):
                 continue
-                
+
             if engine_class.name == engine:
                 if config.get_engine(engine_class.name) == None:
                     engine_instance = engine_class()
                 else:
-                    engine_instance = engine_class(config.get_engine(
-                        engine_class.name), lang=get_ocr_language())
+                    engine_instance = engine_class(config.get_engine(engine_class.name), lang=get_ocr_language())
 
                 if engine_instance.available:
                     engine_instances.append(engine_instance)
@@ -2116,21 +3104,22 @@ def engine_change_handler_name(engine, switch=True):
 
         if engine_index != old_engine_index:
             new_engine_name = engine_instances[engine_index].readable_name
-            notifier.send(title='owocr', message=f'Switched to {new_engine_name}')
-            engine_color = config.get_general('engine_color')
-            logger.opt(ansi=True).info(
-                f'Switched to <{engine_color}>{new_engine_name}</{engine_color}>!')
+            notifier.send(title="owocr", message=f"Switched to {new_engine_name}")
+            engine_color = config.get_general("engine_color")
+            logger.opt(ansi=True).info(f"Switched to <{engine_color}>{new_engine_name}</{engine_color}>!")
 
 
 def user_input_thread_run():
     def _terminate_handler():
         global terminated
-        logger.info('Terminated!')
+        logger.info("Terminated!")
         terminated = True
+
     import sys
 
-    if sys.platform == 'win32':
+    if sys.platform == "win32":
         import msvcrt
+
         while not terminated:
             user_input = None
             if msvcrt.kbhit():  # Check if a key is pressed
@@ -2141,26 +3130,28 @@ def user_input_thread_run():
                     pass
             if not user_input:  # If no input from msvcrt, check stdin
                 import sys
+
                 user_input = sys.stdin.read(1)
 
-                if user_input.lower() in 'tq':
+                if user_input.lower() in "tq":
                     _terminate_handler()
-                elif user_input.lower() == 'p':
+                elif user_input.lower() == "p":
                     pause_handler(False)
                 else:
                     engine_change_handler(user_input, False)
     else:
         import tty
         import termios
+
         fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)
         try:
             tty.setcbreak(sys.stdin.fileno())
             while not terminated:
                 user_input = sys.stdin.read(1)
-                if user_input.lower() in 'tq':
+                if user_input.lower() in "tq":
                     _terminate_handler()
-                elif user_input.lower() == 'p':
+                elif user_input.lower() == "p":
                     pause_handler(False)
                 else:
                     engine_change_handler(user_input, False)
@@ -2170,14 +3161,14 @@ def user_input_thread_run():
 
 def signal_handler(sig, frame):
     global terminated
-    logger.info('Terminated!')
+    logger.info("Terminated!")
     terminated = True
 
 
 def on_window_closed(alive):
     global terminated
     if not (alive or terminated):
-        logger.info('Window closed or error occurred, terminated!')
+        logger.info("Window closed or error occurred, terminated!")
         terminated = True
 
 
@@ -2189,34 +3180,279 @@ def on_screenshot_combo():
 def on_window_minimized(minimized):
     global screencapture_window_visible
     screencapture_window_visible = not minimized
-    
+
 
 def do_configured_ocr_replacements(text: str) -> str:
     return do_text_replacements(text, OCR_REPLACEMENTS_FILE)
 
-def dict_to_ocr_result(data):
-    if not data: return None
+
+def _get_ocr_config_dimensions(original_width=None, original_height=None):
+    width = _safe_int(original_width)
+    height = _safe_int(original_height)
+    if width > 0 and height > 0:
+        return width, height
+
+    if "obs_screenshot_thread" not in globals() or not obs_screenshot_thread:
+        return 0, 0
+
+    width = _safe_int(getattr(obs_screenshot_thread, "width", 0))
+    height = _safe_int(getattr(obs_screenshot_thread, "height", 0))
+    return width, height
+
+
+def _get_exclusive_ocr_rectangles(original_width=None, original_height=None):
+    width, height = _get_ocr_config_dimensions(original_width, original_height)
+    if width <= 0 or height <= 0:
+        return []
+
+    ocr_config = get_scaled_scene_ocr_config(width, height)
+    if not ocr_config:
+        return []
+
+    return [
+        rect
+        for rect in getattr(ocr_config, "rectangles", []) or []
+        if (
+            getattr(rect, "is_exclusive", False)
+            and not getattr(rect, "is_excluded", False)
+            and not getattr(rect, "is_secondary", False)
+        )
+    ]
+
+
+def _coord_entry_to_original_box(coord_entry, crop_offset=(0, 0), crop_padding=5):
+    if not isinstance(coord_entry, (list, tuple)) or len(coord_entry) < 4:
+        return None
+
     try:
-        props = ImageProperties(**data['image_properties'])
-        caps = EngineCapabilities(**data['engine_capabilities'])
+        crop_x, crop_y, crop_x2, crop_y2 = [int(round(float(coord_entry[i]))) for i in range(4)]
+    except (TypeError, ValueError):
+        return None
+
+    crop_padding = max(0, _safe_int(crop_padding, 5))
+    offset_x, offset_y = crop_offset or (0, 0)
+
+    crop_x += crop_padding + _safe_int(offset_x)
+    crop_y += crop_padding + _safe_int(offset_y)
+    crop_x2 -= crop_padding
+    crop_y2 -= crop_padding
+    crop_x2 += _safe_int(offset_x)
+    crop_y2 += _safe_int(offset_y)
+
+    if crop_x2 < crop_x:
+        crop_x, crop_x2 = crop_x2, crop_x
+    if crop_y2 < crop_y:
+        crop_y, crop_y2 = crop_y2, crop_y
+    return crop_x, crop_y, crop_x2, crop_y2
+
+
+def _box_is_inside_any_rectangle(box, rectangles):
+    if not box:
+        return False
+
+    box_left, box_top, box_right, box_bottom = box
+    for rect in rectangles:
+        rect_left, rect_top, rect_width, rect_height = getattr(rect, "coordinates", (0, 0, 0, 0))
+        rect_right = rect_left + rect_width
+        rect_bottom = rect_top + rect_height
+        if box_left >= rect_left and box_top >= rect_top and box_right <= rect_right and box_bottom <= rect_bottom:
+            return True
+    return False
+
+
+def _get_exclusive_coord_indexes(
+    crop_coords_list,
+    *,
+    crop_offset=(0, 0),
+    crop_padding=5,
+    original_width=None,
+    original_height=None,
+):
+    exclusive_rectangles = _get_exclusive_ocr_rectangles(original_width, original_height)
+    if not exclusive_rectangles or not crop_coords_list:
+        return []
+
+    selected_indexes = []
+    for index, coord_entry in enumerate(crop_coords_list):
+        original_box = _coord_entry_to_original_box(coord_entry, crop_offset, crop_padding)
+        if _box_is_inside_any_rectangle(original_box, exclusive_rectangles):
+            selected_indexes.append(index)
+    return selected_indexes
+
+
+def _recalculate_crop_coords(crop_coords_list):
+    valid_coords = []
+    for coord_entry in crop_coords_list or []:
+        if not isinstance(coord_entry, (list, tuple)) or len(coord_entry) < 4:
+            continue
+        try:
+            valid_coords.append(tuple(int(round(float(coord_entry[i]))) for i in range(4)))
+        except (TypeError, ValueError):
+            continue
+
+    if not valid_coords:
+        return None
+
+    return (
+        min(coord[0] for coord in valid_coords),
+        min(coord[1] for coord in valid_coords),
+        max(coord[2] for coord in valid_coords),
+        max(coord[3] for coord in valid_coords),
+    )
+
+
+def _build_text_from_selected_ocr_lines(source_text, coords, crop_coords_list, selected_indexes):
+    if isinstance(coords, list) and coords:
+        selected_coords = [coords[index] for index in selected_indexes if 0 <= index < len(coords)]
+        if selected_coords and all(isinstance(line, dict) for line in selected_coords):
+            try:
+                return build_spatial_text(
+                    [line_dict_to_spatial_entry(line) for line in selected_coords],
+                    blank_line_token="BLANK_LINE",
+                )
+            except Exception as e:
+                logger.warning(f"Error rebuilding exclusive OCR text from geometry: {e}")
+
+    selected_text_blocks = []
+    for index in selected_indexes:
+        if not 0 <= index < len(crop_coords_list or []):
+            continue
+        coord_entry = crop_coords_list[index]
+        if isinstance(coord_entry, (list, tuple)) and len(coord_entry) >= 5:
+            selected_text_blocks.append(_normalize_segment_source_text(coord_entry[4]).strip())
+
+    if selected_text_blocks:
+        return _join_selected_blocks_with_source_separators(
+            source_text,
+            selected_text_blocks,
+            range(len(selected_text_blocks)),
+        ).strip()
+
+    return str(source_text or "").strip()
+
+
+def apply_exclusive_ocr_area_filter(
+    text,
+    coords,
+    crop_coords_list,
+    crop_coords,
+    raw_response_dict,
+    *,
+    crop_offset=None,
+    crop_padding=5,
+    original_width=None,
+    original_height=None,
+):
+    selected_indexes = _get_exclusive_coord_indexes(
+        crop_coords_list,
+        crop_offset=crop_offset,
+        crop_padding=crop_padding,
+        original_width=original_width,
+        original_height=original_height,
+    )
+    if not selected_indexes:
+        return text, coords, crop_coords_list, crop_coords, raw_response_dict, False
+
+    filtered_crop_coords_list = [
+        crop_coords_list[index] for index in selected_indexes if 0 <= index < len(crop_coords_list or [])
+    ]
+
+    filtered_coords = coords
+    if isinstance(coords, list) and coords:
+        filtered_coords = [coords[index] for index in selected_indexes if 0 <= index < len(coords)]
+
+    filtered_text = _build_text_from_selected_ocr_lines(text, coords, crop_coords_list, selected_indexes)
+    filtered_crop_coords = _recalculate_crop_coords(filtered_crop_coords_list)
+
+    # Structured raw responses often contain all original lines and would rebuild
+    # dropped text later. Keep the filtered line geometry and discard the raw dict.
+    return filtered_text, filtered_coords, filtered_crop_coords_list, filtered_crop_coords, None, True
+
+
+def apply_exclusive_text_detection_filter(
+    detection_payload,
+    *,
+    crop_offset=None,
+    original_width=None,
+    original_height=None,
+):
+    if not isinstance(detection_payload, dict):
+        return detection_payload, False
+
+    crop_padding = max(0, _safe_int(detection_payload.get("crop_padding"), 5))
+    crop_coords_list = detection_payload.get("crop_coords_list") or []
+    selected_indexes = _get_exclusive_coord_indexes(
+        crop_coords_list,
+        crop_offset=crop_offset,
+        crop_padding=crop_padding,
+        original_width=original_width,
+        original_height=original_height,
+    )
+    if not selected_indexes:
+        return detection_payload, False
+
+    filtered_payload = dict(detection_payload)
+    filtered_payload["crop_coords_list"] = [
+        list(crop_coords_list[index]) for index in selected_indexes if 0 <= index < len(crop_coords_list)
+    ]
+    filtered_payload["crop_coords"] = list(_recalculate_crop_coords(filtered_payload["crop_coords_list"]) or [])
+
+    boxes = detection_payload.get("boxes")
+    if isinstance(boxes, list):
+        filtered_payload["boxes"] = [boxes[index] for index in selected_indexes if 0 <= index < len(boxes)]
+
+    return filtered_payload, True
+
+
+def dict_to_ocr_result(data):
+    if not data:
+        return None
+    try:
+        props = ImageProperties(**data["image_properties"])
+        caps = EngineCapabilities(**data["engine_capabilities"])
         paragraphs = []
-        for p_data in data['paragraphs']:
+        for p_data in data["paragraphs"]:
             lines = []
-            for l_data in p_data['lines']:
+            for l_data in p_data["lines"]:
                 words = []
-                for w_data in l_data['words']:
-                    bbox = BoundingBox(**w_data['bounding_box'])
-                    words.append(Word(text=w_data['text'], bounding_box=bbox, separator=w_data.get('separator')))
-                l_bbox = BoundingBox(**l_data['bounding_box'])
-                lines.append(Line(bounding_box=l_bbox, words=words, text=l_data.get('text')))
-            p_bbox = BoundingBox(**p_data['bounding_box'])
-            paragraphs.append(Paragraph(bounding_box=p_bbox, lines=lines, writing_direction=p_data.get('writing_direction')))
+                for w_data in l_data["words"]:
+                    bbox = BoundingBox(**w_data["bounding_box"])
+                    words.append(
+                        Word(
+                            text=w_data["text"],
+                            bounding_box=bbox,
+                            separator=w_data.get("separator"),
+                        )
+                    )
+                l_bbox = BoundingBox(**l_data["bounding_box"])
+                lines.append(Line(bounding_box=l_bbox, words=words, text=l_data.get("text")))
+            p_bbox = BoundingBox(**p_data["bounding_box"])
+            paragraphs.append(
+                Paragraph(
+                    bounding_box=p_bbox,
+                    lines=lines,
+                    writing_direction=p_data.get("writing_direction"),
+                )
+            )
         return OcrResult(image_properties=props, engine_capabilities=caps, paragraphs=paragraphs)
     except Exception as e:
         logger.error(f"Failed to reconstruct OcrResult: {e}")
         return None
 
-def process_and_write_results(img_or_path, write_to=None, last_result=None, filtering: TextFiltering = None, notify=None, engine=None, ocr_start_time=None, furigana_filter_sensitivity=0):
+
+def process_and_write_results(
+    img_or_path,
+    write_to=None,
+    last_result=None,
+    filtering: TextFiltering = None,
+    notify=None,
+    engine=None,
+    ocr_start_time=None,
+    furigana_filter_sensitivity=0,
+    image_metadata=None,
+    return_payload=False,
+    source="ocr",
+):
     global engine_index
     # TODO Replace this at a later date
     is_second_ocr = bool(engine)
@@ -2231,15 +3467,31 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
         engine_instance = engine_instances[engine_index]
         engine = engine_instance.name
 
-    engine_color = config.get_general('engine_color')
-    
+    engine_color = config.get_general("engine_color")
+
     start_time = time.time()
     result = engine_instance(img_or_path, furigana_filter_sensitivity)
-    res, text, coords, crop_coords_list, crop_coords, response_dict = (list(result) + [None]*6)[:6]
-    
-    if not res and ocr_2 == engine:
+    # logger.info(f"OCR Result from {engine_instance.readable_name}: {result}")
+    res, text, coords, crop_coords_list, crop_coords, raw_response_dict = (list(result) + [None] * 6)[:6]
+
+    # ScreenAI can legitimately produce no detections for a frame; treat that as empty success, not an engine failure.
+    if (
+        (not res)
+        and getattr(engine_instance, "name", "") == "screenai"
+        and isinstance(text, str)
+        and "No OCR result returned by ScreenAI" in text
+    ):
+        res = True
+        text = ""
+        coords = []
+        crop_coords_list = []
+        crop_coords = None
+        raw_response_dict = None
+
+    if not res and ocr_2 == engine and ocr_1 and ocr_1.lower() != engine.lower():
         logger.opt(ansi=True).info(
-            f"<{engine_color}>{{engine_instance.readable_name}}</{engine_color}> failed with message: {text}, trying <{engine_color}>{ocr_1}</{engine_color}>")
+            f"<{engine_color}>{engine_instance.readable_name}</{engine_color}> failed with message: {text}, trying <{engine_color}>{ocr_1}</{engine_color}>"
+        )
         for i, instance in enumerate(engine_instances):
             if instance.name.lower() in ocr_1.lower():
                 engine_instance = instance
@@ -2248,11 +3500,12 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
                 break
         start_time = time.time()
         result = engine_instance(img_or_path, furigana_filter_sensitivity)
-        res, text, coords, crop_coords_list, crop_coords, response_dict = (list(result) + [None]*6)[:6]
+        res, text, coords, crop_coords_list, crop_coords, raw_response_dict = (list(result) + [None] * 6)[:6]
 
     end_time = time.time()
 
     orig_text = []
+    raw_text_for_callback = ""
     # print(filtering)
     #
     #
@@ -2262,139 +3515,282 @@ def process_and_write_results(img_or_path, write_to=None, last_result=None, filt
     # print(engine_index)
 
     if res:
-        # Meiki Text Detection
-        if 'provider' in text:
-            if write_to == 'callback':
-                logger.opt(ansi=True).info(f"{len(text['boxes'])} text boxes recognized in {end_time - start_time:0.03f}s using Meiki:")
-                txt_callback('', '', ocr_start_time,
-                             img_or_path, is_second_ocr, filtering, text.get('crop_coords', None), meiki_boxes=text.get('boxes', []))
-                return str(text), str(text)
-        
-        # New Layout Analysis Logic
-        if response_dict and isinstance(response_dict, dict) and 'paragraphs' in response_dict:
-            try:
-                ocr_result = dict_to_ocr_result(response_dict)
-                if ocr_result and filtering:
-                    # Apply improved layout ordering and furigana filtering
-                    ordered_ocr_result = filtering.order_paragraphs_and_lines(ocr_result)
-                    
-                    # Regenerate text string from ordered result
-                    text = filtering.extract_text_from_ocr_result(ordered_ocr_result)
-            except Exception as e:
-                logger.warning(f"Error applying advanced layout analysis: {e}")
+        detection_payload = _extract_text_detection_payload(
+            text,
+            raw_response_dict,
+            crop_coords,
+            getattr(engine_instance, "name", ""),
+        )
+        if detection_payload is not None:
+            pipeline_metadata = _build_pipeline_metadata(
+                image_metadata,
+                img_or_path,
+                engine_instance.name,
+                is_second_ocr,
+            )
+            current_crop_offset = (
+                _safe_int(pipeline_metadata["processing"]["crop_offset"].get("x")),
+                _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
+            )
+            if not is_second_ocr:
+                original_size = pipeline_metadata["capture"]["scaled_size"]
+                detection_payload, _exclusive_applied = apply_exclusive_text_detection_filter(
+                    detection_payload,
+                    crop_offset=current_crop_offset,
+                    original_width=original_size.get("width"),
+                    original_height=original_size.get("height"),
+                )
+            if write_to is not None and check_text_is_all_menu(
+                detection_payload.get("crop_coords", None),
+                detection_payload.get("crop_coords_list", []),
+                crop_offset=current_crop_offset,
+                crop_padding=detection_payload.get("crop_padding", 5),
+            ):
+                logger.opt(ansi=True).info("Text is identified as all menu items, skipping further processing.")
+                if return_payload:
+                    return "", "", None
+                return "", ""
+
+            if write_to == "callback":
+                logger.opt(ansi=True).info(
+                    f"{len(detection_payload['boxes'])} text boxes recognized in {end_time - start_time:0.03f}s using "
+                    f"<{engine_color}>{engine_instance.readable_name}</{engine_color}>:"
+                )
+                callback_kwargs = {}
+                try:
+                    sig = inspect.signature(txt_callback)
+                    has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+                    if "raw_text" in sig.parameters or has_kwargs:
+                        callback_kwargs["raw_text"] = ""
+                    if "meiki_boxes" in sig.parameters or has_kwargs:
+                        callback_kwargs["meiki_boxes"] = detection_payload.get("boxes", [])
+                    if "detection_boxes" in sig.parameters or has_kwargs:
+                        callback_kwargs["detection_boxes"] = detection_payload.get("boxes", [])
+                except Exception:
+                    callback_kwargs["meiki_boxes"] = detection_payload.get("boxes", [])
+                txt_callback(
+                    "",
+                    "",
+                    ocr_start_time,
+                    img_or_path,
+                    is_second_ocr,
+                    filtering,
+                    detection_payload.get("crop_coords", None),
+                    response_dict=detection_payload,
+                    **callback_kwargs,
+                )
+            if return_payload:
+                return "", "", detection_payload
+            return str(detection_payload), str(detection_payload)
+
+        rebuilt_text = _rebuild_text_from_structured_result(raw_response_dict, coords, filtering)
+        if rebuilt_text is not None:
+            text = rebuilt_text
+
+        pipeline_metadata = _build_pipeline_metadata(
+            image_metadata,
+            img_or_path,
+            engine_instance.name,
+            is_second_ocr,
+        )
+        current_crop_offset = (
+            _safe_int(pipeline_metadata["processing"]["crop_offset"].get("x")),
+            _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
+        )
+        if not is_second_ocr:
+            original_size = pipeline_metadata["capture"]["scaled_size"]
+            text, coords, crop_coords_list, crop_coords, raw_response_dict, _exclusive_applied = (
+                apply_exclusive_ocr_area_filter(
+                    text,
+                    coords,
+                    crop_coords_list,
+                    crop_coords,
+                    raw_response_dict,
+                    crop_offset=current_crop_offset,
+                    original_width=original_size.get("width"),
+                    original_height=original_size.get("height"),
+                )
+            )
 
         if isinstance(text, list):
             for i, line in enumerate(text):
                 text[i] = do_configured_ocr_replacements(line)
         else:
             text = do_configured_ocr_replacements(text)
+
+        raw_text_for_callback = str(text) if text is not None else ""
+
         if filtering:
             text, orig_text = filtering(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
         if get_ocr_language() == "ja" or get_ocr_language() == "zh":
-            text = post_process(text, keep_blank_lines=get_ocr_keep_newline())
-        if notify and config.get_general('notifications'):
-            notifier.send(title='owocr', message='Text recognized: ' + text)
-            
-        if text and write_to is not None:
-            if check_text_is_all_menu(text, crop_coords, crop_coords_list):
-                logger.opt(ansi=True).info('Text is identified as all menu items, skipping further processing.')
-                return orig_text, ''
-            
-        logger.opt(ansi=True).info(
-    f'OCR Run {1 if not is_second_ocr else 2}: Text recognized in {end_time - start_time:0.03f}s using <{engine_color}>{engine_instance.readable_name}</{engine_color}>: {text}')
+            text = post_process(text, keep_blank_lines=get_ocr_keep_newline(source))
+        if notify and config.get_general("notifications"):
+            notifier.send(title="owocr", message="Text recognized: " + text)
 
-        if write_to == 'websocket':
+        pipeline_metadata["ocr"] = {
+            "crop_coords": list(crop_coords) if crop_coords else None,
+            "crop_coords_list": [list(c[:5]) for c in (crop_coords_list or [])],
+            "line_count": len(coords) if isinstance(coords, list) else 0,
+        }
+
+        if write_to is not None:
+            if check_text_is_all_menu(crop_coords, crop_coords_list, crop_offset=current_crop_offset):
+                logger.opt(ansi=True).info("Text is identified as all menu items, skipping further processing.")
+                return orig_text, ""
+
+        logger.opt(ansi=True).info(
+            f"OCR Run {1 if not is_second_ocr else 2}: Text recognized in {end_time - start_time:0.03f}s using <{engine_color}>{engine_instance.readable_name}</{engine_color}>: {text}"
+        )
+
+        callback_payload = {
+            "schema": "gsm_ocr_geometry_v1",
+            "line_coords": coords if isinstance(coords, list) else [],
+            "pipeline": pipeline_metadata,
+        }
+
+        if write_to == "websocket":
             websocket_server_thread.send_text(text)
-        elif write_to == 'clipboard':
-            pyperclipfix.copy(text)
+        elif write_to == "clipboard":
+            pyperclipfix_module = _load_pyperclipfix_module()
+            if pyperclipfix_module is None:
+                raise RuntimeError("pyperclipfix is not installed")
+            pyperclipfix_module.copy(text)
         elif write_to == "callback":
-            txt_callback(text, orig_text, ocr_start_time,
-                         img_or_path, is_second_ocr, filtering, crop_coords, response_dict=coords)
+            callback_kwargs = {}
+            try:
+                sig = inspect.signature(txt_callback)
+                if "raw_text" in sig.parameters or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                ):
+                    callback_kwargs["raw_text"] = raw_text_for_callback
+            except Exception:
+                pass
+            txt_callback(
+                text,
+                orig_text,
+                ocr_start_time,
+                img_or_path,
+                is_second_ocr,
+                filtering,
+                crop_coords,
+                response_dict=callback_payload,
+                **callback_kwargs,
+            )
         elif write_to:
-            with Path(write_to).open('a', encoding='utf-8') as f:
-                f.write(text + '\n')
+            with Path(write_to).open("a", encoding="utf-8") as f:
+                f.write(text + "\n")
 
         if auto_pause_handler and not paused:
             auto_pause_handler.start()
     else:
         logger.opt(ansi=True).info(
-            f'<{engine_color}>{engine_instance.readable_name}</{engine_color}> reported an error after {end_time - start_time:0.03f}s: {text}')
+            f"<{engine_color}>{engine_instance.readable_name}</{engine_color}> reported an error after {end_time - start_time:0.03f}s: {text}"
+        )
 
     # print(orig_text)
     # print(text)
 
+    if return_payload:
+        return orig_text, text, callback_payload if res else None
     return orig_text, text
 
-def check_text_is_all_menu(text: str, crop_coords: tuple, crop_coords_list: list) -> bool:
+
+def check_text_is_all_menu(
+    crop_coords: tuple,
+    crop_coords_list: list,
+    crop_offset: tuple = None,
+    crop_padding: int = 5,
+) -> bool:
     """
     Checks if the recognized text consists entirely of menu items.
     This function checks if ALL detected text areas fall entirely within secondary rectangles (menu areas).
 
-    :param text: The recognized text from OCR.
-    :param crop_coords: Tuple containing (x, y, x2, y2) of the detected text area in original image coordinates.
-    :param crop_coords_list: List of tuples, each containing (x, y, x2, y2, text) of detected text areas.
+    :param crop_coords: Tuple containing (x, y, x2, y2) of the detected text area in cropped image coordinates.
+    :param crop_coords_list: List of tuples, each containing either (x, y, x2, y2) or
+        (x, y, x2, y2, text) of detected text areas in cropped image coordinates.
+    :param crop_offset: Tuple containing (offset_x, offset_y) to convert cropped coordinates back to original image coordinates. If None, uses the global crop_offset.
     :return: True if ALL text areas are within menu rectangles, False otherwise.
     """
-    if not text:
-        return False
-    
+
+    crop_padding = max(0, _safe_int(crop_padding, 5))
+
+    # Use global crop_offset if not provided
+    if crop_offset is None:
+        crop_offset = globals()["crop_offset"]
+
     # Build the list of coordinates to check
     coords_to_check = []
     if crop_coords_list:
         coords_to_check = crop_coords_list
-    if crop_coords:
-        coords_to_check = [crop_coords + ('',)]  # Add empty text field for consistency
+    elif crop_coords:
+        coords_to_check = [crop_coords + ("",)]  # Add empty text field for consistency
     if not coords_to_check:
+        return False
+
+    if "obs_screenshot_thread" not in globals() or not obs_screenshot_thread:
         return False
 
     original_width = obs_screenshot_thread.width
     original_height = obs_screenshot_thread.height
 
-    ocr_config = get_scene_ocr_config()
-    
+    if original_width is None or original_height is None:
+        return False
+
+    ocr_config = get_scaled_scene_ocr_config(original_width, original_height)
+
     # Early exit if no secondary rectangles are defined
     if not ocr_config or not any(rect.is_secondary for rect in ocr_config.rectangles):
         return False
 
-    ocr_config.scale_to_custom_size(original_width, original_height)
-    
     menu_rectangles = [rect for rect in ocr_config.rectangles if rect.is_secondary]
-    
+
     if not menu_rectangles:
         return False
 
+    offset_x, offset_y = crop_offset
+
     # Check if ALL crop coordinates fall entirely within menu rectangles
-    for crop_x, crop_y, crop_x2, crop_y2, text in coords_to_check:
-    # remove 5 pixel padding that was added during OCR cropping
-        crop_x += 5
-        crop_y += 5
-        crop_x2 -= 5
-        crop_y2 -= 5
+    for coord_entry in coords_to_check:
+        if len(coord_entry) < 4:
+            return False
+
+        crop_x, crop_y, crop_x2, crop_y2 = coord_entry[:4]
+        # Remove OCR crop padding before checking against menu rectangles.
+        crop_x += crop_padding
+        crop_y += crop_padding
+        crop_x2 -= crop_padding
+        crop_y2 -= crop_padding
+
+        # Apply offset to convert from cropped image coordinates to original image coordinates
+        crop_x += offset_x
+        crop_y += offset_y
+        crop_x2 += offset_x
+        crop_y2 += offset_y
         # Validate that crop coordinates are within bounds
         if crop_x < 0 or crop_y < 0 or crop_x2 > original_width or crop_y2 > original_height:
             # logger.info(f"Crop coordinates ({crop_x}, {crop_y}, {crop_x2}, {crop_y2}) are out of bounds.")
             return False
-        
+
         # Check if this specific crop area falls within ANY menu rectangle
         found_in_menu = False
         for menu_rect in menu_rectangles:
             rect_left, rect_top, rect_width, rect_height = menu_rect.coordinates
             rect_right = rect_left + rect_width
             rect_bottom = rect_top + rect_height
-            
-            if (crop_x >= rect_left and crop_y >= rect_top and
-                crop_x2 <= rect_right and crop_y2 <= rect_bottom):
+
+            if crop_x >= rect_left and crop_y >= rect_top and crop_x2 <= rect_right and crop_y2 <= rect_bottom:
                 found_in_menu = True
                 # logger.info(f"Crop coordinates ({crop_x}, {crop_y}, {crop_x2}, {crop_y2}) are within menu rectangle ({rect_left}, {rect_top}, {rect_right}, {rect_bottom}).")
                 break
-        
+
         # If ANY crop coordinate is NOT in a menu rectangle, we have game text - return False
         if not found_in_menu:
             # logger.info(f"Crop coordinates ({crop_x}, {crop_y}, {crop_x2}, {crop_y2}) are NOT within any menu rectangles.")
             return False
-        
+
     # All crop coordinates are within menu rectangles
     return True
+
 
 def get_path_key(path):
     return path, path.lstat().st_mtime
@@ -2405,33 +3801,64 @@ def init_config(parse_args=True):
     config = Config(parse_args)
 
 
-def run(read_from=None,
-        read_from_secondary=None,
-        write_to=None,
-        engine=None,
-        pause_at_startup=None,
-        ignore_flag=None,
-        delete_images=None,
-        notifications=None,
-        auto_pause=0,
-        combo_pause=None,
-        combo_engine_switch=None,
-        screen_capture_area=None,
-        screen_capture_areas=None,
-        screen_capture_exclusions=None,
-        screen_capture_window=None,
-        screen_capture_delay_secs=None,
-        screen_capture_combo=None,
-        stop_running_flag=None,
-        screen_capture_event_bus=None,
-        text_callback=None,
-        monitor_index=None,
-        ocr1=None,
-        ocr2=None,
-        gsm_ocr_config=None,
-        furigana_filter_sensitivity=None,
-        config_check_thread=None
-        ):
+def _normalize_engine_name(engine_name):
+    if not isinstance(engine_name, str):
+        return ""
+    return engine_name.strip().lower()
+
+
+def _resolve_requested_engines(
+    configured_ocr1,
+    configured_ocr2,
+    *,
+    requested_engine=None,
+    requested_ocr1=None,
+    requested_ocr2=None,
+):
+    names = []
+    for value in (
+        requested_engine,
+        requested_ocr1,
+        requested_ocr2,
+        configured_ocr1,
+        configured_ocr2,
+    ):
+        normalized = _normalize_engine_name(value)
+        if normalized and normalized not in names:
+            names.append(normalized)
+    return names
+
+
+def run(
+    read_from=None,
+    read_from_secondary=None,
+    write_to=None,
+    engine=None,
+    pause_at_startup=None,
+    ignore_flag=None,
+    delete_images=None,
+    notifications=None,
+    auto_pause=0,
+    combo_pause=None,
+    combo_engine_switch=None,
+    screen_capture_area=None,
+    screen_capture_areas=None,
+    screen_capture_exclusions=None,
+    screen_capture_window=None,
+    screen_capture_delay_secs=None,
+    screen_capture_combo=None,
+    stop_running_flag=None,
+    screen_capture_event_bus=None,
+    text_callback=None,
+    monitor_index=None,
+    ocr1=None,
+    ocr2=None,
+    gsm_ocr_config=None,
+    furigana_filter_sensitivity=None,
+    config_check_thread=None,
+    disable_user_input=False,
+    logger_level="INFO",
+):
     """
     Japanese OCR client
 
@@ -2442,7 +3869,7 @@ def run(read_from=None,
     :param read_from: Specifies where to read input images from. Can be either "clipboard", "websocket", "unixsocket" (on macOS/Linux), "screencapture", or a path to a directory.
     :param write_to: Specifies where to save recognized texts to. Can be either "clipboard", "websocket", or a path to a text file.
     :param delay_secs: How often to check for new images, in seconds.
-    :param engine: OCR engine to use. Available: "mangaocr", "glens", "glensweb", "bing", "gvision", "avision", "alivetext", "azure", "winrtocr", "oneocr", "easyocr", "rapidocr", "ocrspace".
+    :param engine: OCR engine to use. Available: "mangaocr", "glens", "glensweb", "bing", "gvision", "avision", "alivetext", "azure", "winrtocr", "oneocr", "screenai", "mlkitocr", "easyocr", "rapidocr", "ocrspace".
     :param pause_at_startup: Pause at startup.
     :param ignore_flag: Process flagged clipboard images (images that are copied to the clipboard with the *ocr_ignore* string).
     :param delete_images: Delete image files after processing when reading from a directory.
@@ -2457,87 +3884,107 @@ def run(read_from=None,
     """
 
     if read_from is None:
-        read_from = config.get_general('read_from')
+        read_from = config.get_general("read_from")
 
     if read_from_secondary is None:
-        read_from_secondary = config.get_general('read_from_secondary')
+        read_from_secondary = config.get_general("read_from_secondary")
 
     if screen_capture_area is None:
-        screen_capture_area = config.get_general('screen_capture_area')
+        screen_capture_area = config.get_general("screen_capture_area")
 
     # if screen_capture_only_active_windows is None:
     #     screen_capture_only_active_windows = config.get_general('screen_capture_only_active_windows')
 
     if screen_capture_exclusions is None:
-        screen_capture_exclusions = config.get_general(
-            'screen_capture_exclusions')
+        screen_capture_exclusions = config.get_general("screen_capture_exclusions")
 
     if screen_capture_window is None:
-        screen_capture_window = config.get_general('screen_capture_window')
+        screen_capture_window = config.get_general("screen_capture_window")
 
     if screen_capture_delay_secs is None:
-        screen_capture_delay_secs = config.get_general(
-            'screen_capture_delay_secs')
+        screen_capture_delay_secs = config.get_general("screen_capture_delay_secs")
 
     if screen_capture_combo is None:
-        screen_capture_combo = config.get_general('screen_capture_combo')
+        screen_capture_combo = config.get_general("screen_capture_combo")
 
     if stop_running_flag is None:
-        stop_running_flag = config.get_general('stop_running_flag')
+        stop_running_flag = config.get_general("stop_running_flag")
 
     if screen_capture_event_bus is None:
-        screen_capture_event_bus = config.get_general(
-            'screen_capture_event_bus')
+        screen_capture_event_bus = config.get_general("screen_capture_event_bus")
 
     if text_callback is None:
-        text_callback = config.get_general('text_callback')
+        text_callback = config.get_general("text_callback")
 
     if write_to is None:
-        write_to = config.get_general('write_to')
+        write_to = config.get_general("write_to")
 
     logger.configure(
-        handlers=[{'sink': sys.stderr, 'format': config.get_general('logger_format')}])
+        handlers=[
+            {
+                "sink": sys.stderr,
+                "format": config.get_general("logger_format"),
+                "level": logger_level,
+            }
+        ]
+    )
 
     if config.has_config:
-        logger.success('Parsed config file')
+        logger.success("Parsed config file")
     else:
-        logger.warning('No config file, defaults will be used.')
+        logger.warning("No config file, defaults will be used.")
         if config.downloaded_config:
-            logger.info(
-                f'A default config file has been downloaded to {config.config_path}')
+            logger.info(f"A default config file has been downloaded to {config.config_path}")
 
     global engine_instances
     global engine_keys
     engine_instances = []
     config_engines = []
     engine_keys = []
-    default_engine = ''
+    default_engine = ""
 
-    if len(config.get_general('engines')) > 0:
-        for config_engine in config.get_general('engines').split(','):
+    if len(config.get_general("engines")) > 0:
+        for config_engine in config.get_general("engines").split(","):
             config_engines.append(config_engine.strip().lower())
 
-    for _, engine_class in sorted(inspect.getmembers(sys.modules[__name__], \
-                                                     lambda x: hasattr(x, '__module__') and x.__module__ and (
-        __package__ + '.ocr' in x.__module__ or __package__ + '.secret' in x.__module__) and inspect.isclass(
-                                                         x))):
-        if not hasattr(engine_class, 'name') and not hasattr(engine_class, 'key'):
+    configured_ocr1 = get_ocr_ocr1()
+    configured_ocr2 = get_ocr_ocr2()
+    selected_engines = _resolve_requested_engines(
+        configured_ocr1,
+        configured_ocr2,
+        requested_engine=engine,
+        requested_ocr1=ocr1,
+        requested_ocr2=ocr2,
+    )
+    preferred_default = _normalize_engine_name(engine) or _normalize_engine_name(ocr1)
+
+    for _, engine_class in sorted(
+        inspect.getmembers(
+            sys.modules[__name__],
+            lambda x: (
+                hasattr(x, "__module__")
+                and x.__module__
+                and (__package__ + ".ocr" in x.__module__ or __package__ + ".secret" in x.__module__)
+                and inspect.isclass(x)
+            ),
+        )
+    ):
+        if not hasattr(engine_class, "name") and not hasattr(engine_class, "key"):
             continue
-        if engine_class.name in [get_ocr_ocr1(), get_ocr_ocr2()]:
+        if engine_class.name in selected_engines:
             if config.get_engine(engine_class.name) == None:
                 engine_instance = engine_class()
             else:
-                engine_instance = engine_class(config.get_engine(
-                    engine_class.name), lang=get_ocr_language())
+                engine_instance = engine_class(config.get_engine(engine_class.name), lang=get_ocr_language())
 
             if engine_instance.available:
                 engine_instances.append(engine_instance)
                 engine_keys.append(engine_class.key)
-                if engine == engine_class.name:
+                if preferred_default and preferred_default == engine_class.name:
                     default_engine = engine_class.key
 
     if len(engine_keys) == 0:
-        msg = 'No engines available!'
+        msg = "No engines available!"
         raise NotImplementedError(msg)
 
     global engine_index
@@ -2561,19 +4008,17 @@ def run(read_from=None,
     just_unpaused = True
     first_pressed = None
     auto_pause_handler = None
-    engine_index = engine_keys.index(
-        default_engine) if default_engine != '' else 0
-    engine_color = config.get_general('engine_color')
+    engine_index = engine_keys.index(default_engine) if default_engine != "" else 0
+    engine_color = config.get_general("engine_color")
     prefix_to_use = ""
-    delay_secs = config.get_general('delay_secs')
+    delay_secs = config.get_general("delay_secs")
 
-    non_path_inputs = ('screencapture', 'clipboard',
-                       'websocket', 'unixsocket', 'obs')
+    non_path_inputs = ("screencapture", "clipboard", "websocket", "unixsocket", "obs")
     read_from_path = None
     read_from_readable = []
     terminated = False
-    paused = config.get_general('pause_at_startup')
-    auto_pause = config.get_general('auto_pause')
+    paused = config.get_general("pause_at_startup")
+    auto_pause = config.get_general("auto_pause")
     clipboard_thread = None
     websocket_server_thread = None
     screenshot_thread = None
@@ -2582,169 +4027,204 @@ def run(read_from=None,
     key_combo_listener = None
     filtering = None
     auto_pause_handler = None
-    engine_index = engine_keys.index(
-        default_engine) if default_engine != '' else 0
-    engine_color = config.get_general('engine_color')
-    combo_pause = config.get_general('combo_pause')
-    combo_engine_switch = config.get_general('combo_engine_switch')
+    engine_index = engine_keys.index(default_engine) if default_engine != "" else 0
+    engine_color = config.get_general("engine_color")
+    if combo_pause is None:
+        combo_pause = config.get_general("combo_pause")
+    # Convert GSM hotkey format (e.g., "ctrl+shift+p") to pynput format (e.g., "<ctrl>+<shift>+p")
+    if combo_pause and not combo_pause.startswith("<"):
+        combo_pause = combo_pause.lower().replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")
+    combo_engine_switch = config.get_general("combo_engine_switch")
     screen_capture_on_combo = False
-    notifier = DesktopNotifierSync()
+    notifier = _create_notifier()
     image_queue = queue.Queue()
     key_combos = {}
 
-    if combo_pause != '':
+    if combo_pause != "":
         key_combos[combo_pause] = pause_handler
     if combo_engine_switch:
         if combo_pause:
             key_combos[combo_engine_switch] = engine_change_handler
         else:
-            raise ValueError('combo_pause must also be specified')
+            raise ValueError("combo_pause must also be specified")
 
-    if 'websocket' in (read_from, read_from_secondary) or write_to == 'websocket':
-        websocket_server_thread = WebsocketServerThread(
-            'websocket' in (read_from, read_from_secondary))
+    if "websocket" in (read_from, read_from_secondary) or write_to == "websocket":
+        websocket_server_thread = WebsocketServerThread("websocket" in (read_from, read_from_secondary))
         websocket_server_thread.start()
 
     if write_to == "callback" and text_callback:
         global txt_callback
         txt_callback = text_callback
 
-    if any(x in ('screencapture', 'obs') for x in (read_from, read_from_secondary)):
+    if any(x in ("screencapture", "obs") for x in (read_from, read_from_secondary)):
         global screenshot_event
         global take_screenshot
-        if screen_capture_combo != '':
+        if screen_capture_combo != "":
             screen_capture_on_combo = True
             key_combos[screen_capture_combo] = on_screenshot_combo
         else:
             global periodic_screenshot_queue
             periodic_screenshot_queue = queue.Queue()
 
-    if 'screencapture' in (read_from, read_from_secondary):
+    if "screencapture" in (read_from, read_from_secondary):
         last_screenshot_time = 0
         last_result = ([], engine_index)
 
         screenshot_event = threading.Event()
-        screenshot_thread = ScreenshotThread(screen_capture_area, screen_capture_window,
-                                                gsm_ocr_config, screen_capture_on_combo)
+        screenshot_thread = ScreenshotThread(
+            screen_capture_area,
+            screen_capture_window,
+            gsm_ocr_config,
+            screen_capture_on_combo,
+        )
         screenshot_thread.start()
         filtering = TextFiltering()
-        read_from_readable.append('screen capture')
-    if 'obs' in (read_from, read_from_secondary):
+        read_from_readable.append("screen capture")
+    if "obs" in (read_from, read_from_secondary):
         last_screenshot_time = 0
         last_result = ([], engine_index)
         screenshot_event = threading.Event()
         obs_screenshot_thread = OBSScreenshotThread(
-            gsm_ocr_config, screen_capture_on_combo, interval=screen_capture_delay_secs, is_manual_ocr=bool(screen_capture_on_combo))
+            gsm_ocr_config,
+            screen_capture_on_combo,
+            interval=screen_capture_delay_secs,
+            is_manual_ocr=bool(screen_capture_on_combo),
+        )
         obs_screenshot_thread.start()
         filtering = TextFiltering()
-        read_from_readable.append('obs')
-    if 'websocket' in (read_from, read_from_secondary):
-        read_from_readable.append('websocket')
-    if 'unixsocket' in (read_from, read_from_secondary):
-        if sys.platform == 'win32':
-            raise ValueError(
-                '"unixsocket" is not currently supported on Windows')
-        socket_path = Path('/tmp/owocr.sock')
+        read_from_readable.append("obs")
+    if "websocket" in (read_from, read_from_secondary):
+        read_from_readable.append("websocket")
+    if "unixsocket" in (read_from, read_from_secondary):
+        if sys.platform == "win32":
+            raise ValueError('"unixsocket" is not currently supported on Windows')
+        socket_path = Path("/tmp/owocr.sock")
         if socket_path.exists():
             socket_path.unlink()
-        unix_socket_server = socketserver.ThreadingUnixStreamServer(
-            str(socket_path), RequestHandler)
-        unix_socket_server_thread = threading.Thread(
-            target=unix_socket_server.serve_forever, daemon=True)
+        unix_socket_server = socketserver.ThreadingUnixStreamServer(str(socket_path), RequestHandler)
+        unix_socket_server_thread = threading.Thread(target=unix_socket_server.serve_forever, daemon=True)
         unix_socket_server_thread.start()
-        read_from_readable.append('unix socket')
-    if 'clipboard' in (read_from, read_from_secondary):
+        read_from_readable.append("unix socket")
+    if "clipboard" in (read_from, read_from_secondary):
         clipboard_thread = ClipboardThread()
         clipboard_thread.start()
-        read_from_readable.append('clipboard')
+        read_from_readable.append("clipboard")
     if any(i and i not in non_path_inputs for i in (read_from, read_from_secondary)):
         if all(i and i not in non_path_inputs for i in (read_from, read_from_secondary)):
-            raise ValueError(
-                "read_from and read_from_secondary can't both be directory paths")
-        delete_images = config.get_general('delete_images')
-        read_from_path = Path(read_from) if read_from not in non_path_inputs else Path(
-            read_from_secondary)
+            raise ValueError("read_from and read_from_secondary can't both be directory paths")
+        delete_images = config.get_general("delete_images")
+        read_from_path = Path(read_from) if read_from not in non_path_inputs else Path(read_from_secondary)
         if not read_from_path.is_dir():
             raise ValueError(
-                'read_from and read_from_secondary must be either "websocket", "unixsocket", "clipboard", "screencapture", or a path to a directory')
+                'read_from and read_from_secondary must be either "websocket", "unixsocket", "clipboard", "screencapture", or a path to a directory'
+            )
         directory_watcher_thread = DirectoryWatcher(read_from_path)
         directory_watcher_thread.start()
-        read_from_readable.append(f'directory {read_from_path}')
+        read_from_readable.append(f"directory {read_from_path}")
 
     if len(key_combos) > 0:
         try:
             from pynput import keyboard
+
             key_combo_listener = keyboard.GlobalHotKeys(key_combos)
             key_combo_listener.start()
         except ImportError:
             pass
 
-    if write_to in ('clipboard', 'websocket', 'callback'):
+    if write_to in ("clipboard", "websocket", "callback"):
         write_to_readable = write_to
     else:
-        if Path(write_to).suffix.lower() != '.txt':
-            raise ValueError(
-                'write_to must be either "websocket", "clipboard" or a path to a text file')
-        write_to_readable = f'file {write_to}'
+        if Path(write_to).suffix.lower() != ".txt":
+            raise ValueError('write_to must be either "websocket", "clipboard" or a path to a text file')
+        write_to_readable = f"file {write_to}"
 
-    process_queue = (any(i in ('clipboard', 'websocket', 'unixsocket') for i in (
-        read_from, read_from_secondary)) or read_from_path or screen_capture_on_combo)
-    process_screenshots = any(x in ('screencapture', 'obs') for x in (
-        read_from, read_from_secondary)) and not screen_capture_on_combo
+    process_queue = (
+        any(i in ("clipboard", "websocket", "unixsocket") for i in (read_from, read_from_secondary))
+        or read_from_path
+        or screen_capture_on_combo
+    )
+    process_screenshots = (
+        any(x in ("screencapture", "obs") for x in (read_from, read_from_secondary)) and not screen_capture_on_combo
+    )
     if threading.current_thread() == threading.main_thread():
         signal.signal(signal.SIGINT, signal_handler)
     if (not process_screenshots) and auto_pause != 0:
         auto_pause_handler = AutopauseTimer(auto_pause)
-    user_input_thread = threading.Thread(
-        target=user_input_thread_run, daemon=True)
-    user_input_thread.start()
+
+    # Only start user input thread if not disabled (e.g., when using IPC)
+    if not disable_user_input:
+        user_input_thread = threading.Thread(target=user_input_thread_run, daemon=True)
+        user_input_thread.start()
+
     logger.opt(ansi=True).info(
-        f"Reading from {' and '.join(read_from_readable)}, writing to {write_to_readable} using <{engine_color}>{engine_instances[engine_index].readable_name}</{engine_color}>{' (paused)' if paused else ''}")
+        f"Reading from {' and '.join(read_from_readable)}, writing to {write_to_readable} using <{engine_color}>{engine_instances[engine_index].readable_name}</{engine_color}>{' (paused)' if paused else ''}"
+    )
     if screen_capture_combo:
         logger.opt(ansi=True).info(
-            f'Manual OCR Running... Press <{engine_color}>{screen_capture_combo.replace("<", "").replace(">", "")}</{engine_color}> to run OCR')
+            f"Manual OCR Running... Press <{engine_color}>{screen_capture_combo.replace('<', '').replace('>', '')}</{engine_color}> to run OCR"
+        )
 
     def handle_config_changes(changes):
         nonlocal last_result
-        if any(c in changes for c in ('ocr1', 'ocr2', 'language', 'furigana_filter_sensitivity')):
+        if any(c in changes for c in ("ocr1", "ocr2", "language", "furigana_filter_sensitivity")):
             last_result = ([], engine_index)
             engine_change_handler_name(get_ocr_ocr1(), switch=True)
             engine_change_handler_name(get_ocr_ocr2(), switch=False)
 
     def handle_area_config_changes(changes):
+        clear_scaled_ocr_config_cache()
         if screenshot_thread:
             screenshot_thread.ocr_config = get_scene_ocr_config()
         if obs_screenshot_thread:
             obs_screenshot_thread.init_config()
-                
-    config_check_thread.add_config_callback(handle_config_changes)
-    config_check_thread.add_area_callback(handle_area_config_changes)
-    previous_text = "Placeholder"
+
+    if config_check_thread:
+        config_check_thread.add_config_callback(handle_config_changes)
+        config_check_thread.add_area_callback(handle_area_config_changes)
+    no_text_streak = 0
     sleep_time_to_add = 0
     last_result_time = time.time()
+    has_seen_text_result = False
+    sleep_reason = ""
+    last_no_text_compare_image = None
+    last_no_text_compare_image_np = None
+
+    def get_adjusted_scan_rate():
+        return _get_adjusted_scan_rate(get_ocr_scan_rate(), sleep_time_to_add, sleep_reason)
+
     while not terminated:
         ocr_start_time = datetime.now()
         start_time = time.time()
         img = None
         filter_img = False
+        image_metadata = None
 
         if process_queue:
             try:
-                img, filter_img = image_queue.get(timeout=0.1)
+                item = image_queue.get(timeout=0.1)
+                img, filter_img, image_metadata = _normalize_queue_item(item)
                 notify = True
             except queue.Empty:
                 pass
-            
-        if get_ocr_scan_rate() < 1:
-            adjusted_scan_rate = min(get_ocr_scan_rate() + sleep_time_to_add, 1)
-        else:
-            adjusted_scan_rate = get_ocr_scan_rate()
-            
+
+        adjusted_scan_rate = get_adjusted_scan_rate()
+
+        # logger.info(adjusted_scan_rate)
+
         if (not img) and process_screenshots:
-            if (not paused) and (not screenshot_thread or (screenshot_thread.screencapture_window_active and screenshot_thread.screencapture_window_visible)) and (time.time() - last_screenshot_time) > adjusted_scan_rate:
+            if (
+                (not paused)
+                and (
+                    not screenshot_thread
+                    or (
+                        screenshot_thread.screencapture_window_active and screenshot_thread.screencapture_window_visible
+                    )
+                )
+                and (time.time() - last_screenshot_time) > adjusted_scan_rate
+            ):
                 screenshot_event.set()
-                img = periodic_screenshot_queue.get()
-                filter_img = True
+                periodic_item = periodic_screenshot_queue.get()
+                img, filter_img, image_metadata = _normalize_queue_item(periodic_item, default_filter=True)
                 notify = False
                 last_screenshot_time = time.time()
                 ocr_start_time = datetime.now()
@@ -2757,7 +4237,7 @@ def run(read_from=None,
             break
         elif img:
             if filter_img:
-                ocr_config = get_scene_ocr_config()
+                base_scan_rate = get_ocr_scan_rate()
                 # Check if the image is completely empty (all white or all black), this is pretty much 0 cpu usage and saves a lot of useless OCR attempts
                 try:
                     extrema = img.getextrema()
@@ -2768,11 +4248,51 @@ def run(read_from=None,
                         is_empty = extrema[0] == extrema[1]
                     if is_empty:
                         logger.background("Image is empty (all pixels same), sleeping.")
-                        sleep_time_to_add = .5
+                        max_empty_add = max(0, EMPTY_SCAN_RATE_MAX - base_scan_rate)
+                        if sleep_reason != "empty":
+                            sleep_time_to_add = 0
+                        sleep_reason = "empty"
+                        sleep_time_to_add = min(sleep_time_to_add + 0.5, max_empty_add)
                         continue
                 except Exception as e:
                     logger.info(f"Could not determine if image is empty: {e}")
-                    
+
+                if sleep_reason == "empty":
+                    sleep_time_to_add = 0
+                    sleep_reason = ""
+
+                if _can_check_no_text_similarity(
+                    base_scan_rate,
+                    sleep_time_to_add,
+                    sleep_reason,
+                    last_no_text_compare_image,
+                    last_no_text_compare_image_np,
+                ):
+                    is_similar = are_images_identical(img, last_no_text_compare_image, last_no_text_compare_image_np)
+                    if not is_similar:
+                        is_similar = are_images_similar(
+                            img,
+                            last_no_text_compare_image,
+                            threshold=NO_TEXT_SIMILARITY_THRESHOLD,
+                        )
+                    if is_similar:
+                        sleep_time_to_add, sleep_reason = _update_no_text_similarity_sleep_state(
+                            base_scan_rate,
+                            sleep_time_to_add,
+                            sleep_reason,
+                            is_similar=True,
+                        )
+                        logger.info(
+                            f"No-text frame still >= {NO_TEXT_SIMILARITY_THRESHOLD:.0%} similar to last OCR frame, extending sleep."
+                        )
+                        continue
+                    sleep_time_to_add, sleep_reason = _update_no_text_similarity_sleep_state(
+                        base_scan_rate,
+                        sleep_time_to_add,
+                        sleep_reason,
+                        is_similar=False,
+                    )
+
                 # Compare images, but only if it's one box, multiple boxes skews results way too much and produces false positives
                 # if ocr_config and len(ocr_config.rectangles) < 2:
                 #     if are_images_similar(img, last_image):
@@ -2783,28 +4303,54 @@ def run(read_from=None,
                 # else:
                 if are_images_identical(img, last_image, last_image_np):
                     logger.background("Screenshot identical to last, sleeping.")
+                    sleep_reason = "identical"
                     if time.time() - last_result_time > 10:
-                        sleep_time_to_add += .005
+                        sleep_time_to_add += 0.005
                     continue
 
-                res, text = process_and_write_results(img, write_to, last_result, filtering, notify,
-                                                   ocr_start_time=ocr_start_time, furigana_filter_sensitivity=None if get_ocr_two_pass_ocr() else get_furigana_filter_sensitivity())
-                if not text and not previous_text and time.time() - last_result_time > 10:
-                    sleep_time_to_add += .005
-                    logger.background(f"No text detected, sleeping.")
+                orig_text, text = process_and_write_results(
+                    img,
+                    write_to,
+                    last_result,
+                    filtering,
+                    notify,
+                    ocr_start_time=ocr_start_time,
+                    furigana_filter_sensitivity=None if get_ocr_two_pass_ocr() else get_furigana_filter_sensitivity(),
+                    image_metadata=image_metadata,
+                )
+                last_no_text_compare_image, last_no_text_compare_image_np = _update_image_comparison_cache(
+                    last_no_text_compare_image,
+                    img,
+                )
+                if not text:
+                    no_text_streak += 1
+                    enough_idle_time = (time.time() - last_result_time) > 10
+                    if no_text_streak > 1 and (not has_seen_text_result or enough_idle_time):
+                        sleep_time_to_add += NO_TEXT_SLEEP_INCREMENT
+                        sleep_reason = "no_text"
+                        logger.background("No text detected, sleeping.")
+                    else:
+                        sleep_time_to_add = 0
+                        sleep_reason = ""
                 else:
+                    no_text_streak = 0
                     sleep_time_to_add = 0
-                    
-                # If image was stabilized, and now there is no text, reset sleep time
-                if not previous_text and not res:
-                    sleep_time_to_add = 0
-                previous_text = text
-                if res:
-                    last_result = (res, engine_index)
                     last_result_time = time.time()
+                    sleep_reason = ""
+                    has_seen_text_result = True
+
+                if orig_text:
+                    last_result = (orig_text, engine_index)
             else:
                 process_and_write_results(
-                    img, write_to, None, notify=notify, ocr_start_time=ocr_start_time, engine=ocr2)
+                    img,
+                    write_to,
+                    None,
+                    notify=notify,
+                    ocr_start_time=ocr_start_time,
+                    engine=ocr2,
+                    image_metadata=image_metadata,
+                )
             if isinstance(img, Path):
                 if delete_images:
                     Path.unlink(img)
@@ -2817,9 +4363,9 @@ def run(read_from=None,
         websocket_server_thread.stop_server()
         websocket_server_thread.join()
     if clipboard_thread:
-        if sys.platform == 'win32':
-            win32api.PostThreadMessage(
-                clipboard_thread.thread_id, win32con.WM_QUIT, 0, 0)
+        if sys.platform == "win32":
+            if _load_win32_capture_dependencies() is not None:
+                win32api.PostThreadMessage(clipboard_thread.thread_id, win32con.WM_QUIT, 0, 0)
         clipboard_thread.join()
     if directory_watcher_thread:
         directory_watcher_thread.join()
@@ -2832,6 +4378,8 @@ def run(read_from=None,
         key_combo_listener.stop()
     if config_check_thread:
         config_check_thread.join()
+    _close_cached_image(last_no_text_compare_image)
+
 
 def get_engine_names():
     global engine_instances

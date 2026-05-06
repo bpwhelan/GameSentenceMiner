@@ -10,7 +10,7 @@ import {
     setVNs, VN
 } from "../store.js";
 import {BrowserWindow, dialog, ipcMain} from "electron";
-import {getAssetsDir} from "../util.js";
+import { getAssetsDir, getSecureWebPreferences } from "../util.js";
 import {isQuitting, mainWindow} from "../main.js";
 import {ObsScene} from "./obs.js";
 
@@ -141,11 +141,7 @@ export function openVNWindow() {
     VNWindow = new BrowserWindow({
         width: 800,
         height: 600,
-        webPreferences: {
-            nodeIntegration: true,
-            contextIsolation: false,
-            devTools: true,
-        },
+        webPreferences: getSecureWebPreferences(),
     });
 
     VNWindow.loadFile(path.join(getAssetsDir(), "VN.html"));

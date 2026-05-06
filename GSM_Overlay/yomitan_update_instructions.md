@@ -24,6 +24,92 @@ https://github.com/yomidevs/yomitan/releases/latest
     }
 ``` 
 
+## IMPORTANT: In display-anki.js, add external mining trigger hook + postMessage listener
+
+This lets external code trigger Anki note creation without keyboard simulation.
+
+**File:** `yomitan/js/display/display-anki.js`
+
+**Location:** In the `prepare()` method, add at the end after the existing event listeners:
+
+```javascript
+    prepare() {
+        this._noteContext = this._getNoteContext();
+        /* eslint-disable @stylistic/no-multi-spaces */
+        this._display.hotkeyHandler.registerActions([
+            ['addNote',     this._hotkeySaveAnkiNoteForSelectedEntry.bind(this)],
+            ['viewNotes',   this._hotkeyViewNotesForSelectedEntry.bind(this)],
+        ]);
+        /* eslint-enable @stylistic/no-multi-spaces */
+        this._display.on('optionsUpdated', this._onOptionsUpdated.bind(this));
+        this._display.on('contentClear', this._onContentClear.bind(this));
+        this._display.on('contentUpdateStart', this._onContentUpdateStart.bind(this));
+        this._display.on('contentUpdateComplete', this._onContentUpdateComplete.bind(this));
+        this._display.on('logDictionaryEntryData', this._onLogDictionaryEntryData.bind(this));
+        
+        // GSM Overlay integration - simple external trigger
+        const handleMiningTrigger = (cardFormatIndex = 0) => {
+            try {
+                this._hotkeySaveAnkiNoteForSelectedEntry(String(cardFormatIndex));
+            } catch (e) {
+                console.log('[Yomitan] gsm-trigger-anki-add handler error:', e);
+            }
+        };
+
+        // Expose a direct hook on window
+        // eslint-disable-next-line unicorn/prefer-add-event-listener
+        window.gsmTriggerAnkiAdd = (cardFormatIndex = 0) => {
+            console.log('[Yomitan] gsmTriggerAnkiAdd called', cardFormatIndex);
+            handleMiningTrigger(cardFormatIndex);
+        };
+
+        // Listen for postMessage triggers
+        window.addEventListener('message', (event) => {
+            try {
+                if (event?.data?.type === 'gsm-trigger-anki-add') {
+                    const idx = event.data.cardFormatIndex ?? 0;
+                    console.log('[Yomitan] postMessage gsm-trigger-anki-add received', idx);
+                    handleMiningTrigger(idx);
+                }
+            } catch (e) {
+                console.log('[Yomitan] postMessage handler error:', e);
+            }
+        });
+
+        console.log('[Yomitan] GSM mining trigger listeners registered (window hook + postMessage)');
+    }
+```
+
+**Usage from external code:**
+```javascript
+// Option 1: call the hook (if you can reach the Yomitan window)
+window.gsmTriggerAnkiAdd(0);
+
+// Option 2: postMessage (works cross-frame)
+window.postMessage({ type: 'gsm-trigger-anki-add', cardFormatIndex: 0 }, '*');
+```
+
+## IMPORTANT: In display-anki.js, dispatch event on successful note save
+
+**File:** `yomitan/js/display/display-anki.js`
+
+**Location:** In `_saveAnkiNote` method, in the success `else` block (after `this._hideErrorNotification(true)`).
+
+```javascript
+        if (allErrors.length > 0) {
+            this._showErrorNotification(allErrors);
+        } else {
+            this._hideErrorNotification(true);
+
+            // Signal overlay that mining occurred
+            try {
+                window.dispatchEvent(new CustomEvent('gsm-anki-note-added'));
+            } catch (e) {
+                // ignore
+            }
+        }
+```
+
 ## Unzip the contents of the zip into `GSM_Overlay/yomitan/`
 
 ## Update `GSM_Overlay/yomitan/data/schemas/options-schema.json` to disable layoutAwareScan by default, this is due to weird behavior in overlay

@@ -1,121 +1,260 @@
-    const { app } = require('electron');
-const { ipcMain } = require('electron');
-const { spawn } = require('child_process');
-const path = require('path');
-const { existsSync } = require('fs');
+const MAGPIE_SOURCE_KEYS = Object.freeze({
+  left: "sourceWindowLeftEdgePosition",
+  top: "sourceWindowTopEdgePosition",
+  right: "sourceWindowRightEdgePosition",
+  bottom: "sourceWindowBottomEdgePosition",
+});
 
-// Magpie is windows only, disable this and just export no-ops on other platforms
-if (process.platform !== 'win32') {
-    module.exports = {
-        setupMagpieIpc: () => { },
-        getNativeWindowHandleString: () => '',
-        magpieIsReallyScaling: () => Promise.resolve(false),
-        magpieGetInfo: () => Promise.resolve({}),
-        magpieMarkWindow: () => Promise.resolve(false),
-        magpieUnmarkWindow: () => Promise.resolve(false),
-        magpieRegisterScalingChangedMessage: () => Promise.resolve(-1),
+const MAGPIE_DESTINATION_KEYS = Object.freeze({
+  left: "magpieWindowLeftEdgePosition",
+  top: "magpieWindowTopEdgePosition",
+  right: "magpieWindowRightEdgePosition",
+  bottom: "magpieWindowBottomEdgePosition",
+});
+
+function toFiniteNumber(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeRect(rawInfo, keys) {
+  const left = toFiniteNumber(rawInfo[keys.left]);
+  const top = toFiniteNumber(rawInfo[keys.top]);
+  const right = toFiniteNumber(rawInfo[keys.right]);
+  const bottom = toFiniteNumber(rawInfo[keys.bottom]);
+
+  if (left === null || top === null || right === null || bottom === null) {
+    return null;
+  }
+
+  if (right <= left || bottom <= top) {
+    return null;
+  }
+
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: right - left,
+    height: bottom - top,
+  };
+}
+
+function buildMagpieSignature(sourceRect, destinationRect) {
+  return [
+    sourceRect.left,
+    sourceRect.top,
+    sourceRect.right,
+    sourceRect.bottom,
+    destinationRect.left,
+    destinationRect.top,
+    destinationRect.right,
+    destinationRect.bottom,
+  ].join(":");
+}
+
+function normalizeMagpieInfo(rawInfo) {
+  if (!rawInfo || typeof rawInfo !== "object") {
+    return null;
+  }
+
+  const sourceRect = normalizeRect(rawInfo, MAGPIE_SOURCE_KEYS);
+  const destinationRect = normalizeRect(rawInfo, MAGPIE_DESTINATION_KEYS);
+  if (!sourceRect || !destinationRect) {
+    return null;
+  }
+
+  return {
+    magpieWindowTopEdgePosition: destinationRect.top,
+    magpieWindowBottomEdgePosition: destinationRect.bottom,
+    magpieWindowLeftEdgePosition: destinationRect.left,
+    magpieWindowRightEdgePosition: destinationRect.right,
+    sourceWindowLeftEdgePosition: sourceRect.left,
+    sourceWindowTopEdgePosition: sourceRect.top,
+    sourceWindowRightEdgePosition: sourceRect.right,
+    sourceWindowBottomEdgePosition: sourceRect.bottom,
+    sourceRect,
+    destinationRect,
+    scaleX: destinationRect.width / sourceRect.width,
+    scaleY: destinationRect.height / sourceRect.height,
+    signature: buildMagpieSignature(sourceRect, destinationRect),
+  };
+}
+
+function createMagpieState(rawInfo) {
+  const info = normalizeMagpieInfo(rawInfo);
+  return {
+    active: !!info,
+    info,
+    signature: info ? info.signature : null,
+  };
+}
+
+function resolvePhysicalDisplaySize(displayInfo) {
+  const physicalSize = displayInfo && displayInfo.physicalSize ? displayInfo.physicalSize : null;
+  const width = physicalSize ? toFiniteNumber(physicalSize.width) : null;
+  const height = physicalSize ? toFiniteNumber(physicalSize.height) : null;
+  if (width && width > 0 && height && height > 0) {
+    return { width, height };
+  }
+
+  if (typeof window !== "undefined") {
+    const pixelRatio = window.devicePixelRatio || 1;
+    const windowWidth = toFiniteNumber(window.screen && window.screen.width);
+    const windowHeight = toFiniteNumber(window.screen && window.screen.height);
+    if (windowWidth && windowWidth > 0 && windowHeight && windowHeight > 0) {
+      return {
+        width: windowWidth * pixelRatio,
+        height: windowHeight * pixelRatio,
+      };
+    }
+  }
+
+  return null;
+}
+
+function mapPercentToMagpie(pX, pY, magpieState, displayInfo) {
+  const state = magpieState && typeof magpieState.active === "boolean"
+    ? magpieState
+    : createMagpieState(magpieState);
+  if (!state.active || !state.info) {
+    return { x: pX, y: pY };
+  }
+
+  const displaySize = resolvePhysicalDisplaySize(displayInfo);
+  if (!displaySize) {
+    return { x: pX, y: pY };
+  }
+
+  const { sourceRect, destinationRect } = state.info;
+  const absoluteX = (pX / 100) * displaySize.width;
+  const absoluteY = (pY / 100) * displaySize.height;
+  const mappedX = destinationRect.left + ((absoluteX - sourceRect.left) / sourceRect.width) * destinationRect.width;
+  const mappedY = destinationRect.top + ((absoluteY - sourceRect.top) / sourceRect.height) * destinationRect.height;
+
+  return {
+    x: (mappedX / displaySize.width) * 100,
+    y: (mappedY / displaySize.height) * 100,
+  };
+}
+
+function createMagpieRendererController(options = {}) {
+  const {
+    requestMouseRelease = () => {},
+    restoreMouseIgnore = () => {},
+    isYomitanShowing = () => false,
+    isManualHotkeyPressed = () => false,
+    setIntervalFn = setInterval,
+    clearIntervalFn = clearInterval,
+    compatibilityIntervalMs = 1000,
+    logger = console,
+  } = options;
+
+  let state = createMagpieState(null);
+  let releaseInterval = null;
+
+  function clearCompatibilityInterval() {
+    if (releaseInterval) {
+      clearIntervalFn(releaseInterval);
+      releaseInterval = null;
+    }
+  }
+
+  function canReleaseMouse() {
+    return state.active && !isYomitanShowing() && !isManualHotkeyPressed();
+  }
+
+  function triggerMouseRelease(reason) {
+    if (!canReleaseMouse()) {
+      return false;
+    }
+
+    requestMouseRelease(reason);
+    return true;
+  }
+
+  function syncCompatibility(reason = "magpie-sync") {
+    clearCompatibilityInterval();
+
+    if (!state.active) {
+      return;
+    }
+
+    triggerMouseRelease(reason);
+    releaseInterval = setIntervalFn(() => {
+      triggerMouseRelease(reason);
+    }, compatibilityIntervalMs);
+  }
+
+  function applyInfo(rawInfo, reason = "magpie-update") {
+    const nextState = createMagpieState(rawInfo);
+    const activeChanged = nextState.active !== state.active;
+    const signatureChanged = nextState.signature !== state.signature;
+    state = nextState;
+
+    if (activeChanged || signatureChanged) {
+      logger.log(
+        `[Magpie] Renderer state -> active=${state.active} signature=${state.signature || "inactive"} (${reason})`
+      );
+    }
+
+    syncCompatibility(reason);
+    return {
+      activeChanged,
+      signatureChanged,
+      state,
     };
-} else {
+  }
 
-    // ~/AppData/Roaming/GameSentenceMiner/python/python.exe
-    let pythonPath = path.join(process.env.APPDATA, 'GameSentenceMiner', 'python_venv', 'Scripts', 'python.exe');
-
-    let magpieScalingChangedWindowMessage = -1;
-
-    /**
-     * A helper function to run the Python interop script and get its JSON output.
-     * @param {string[]} args - Command-line arguments to pass to the script.
-     * @returns {Promise<any>} - A promise that resolves with the parsed JSON object.
-     */
-    function runPythonScript(args) {
-        // Make sure the path to your script is correct.
-        // Using path.join and __dirname makes it robust.
-        // Use the pythonPath variable defined earlier.
-        // Use app.isPackaged to determine if running from source or packaged
-        const scriptPath = path.join(app.isPackaged ? process.resourcesPath : __dirname, 'magpie_compat.py');
-
-        if (existsSync(pythonPath) === false) {
-            return Promise.reject(new Error(`Python executable not found at path: ${pythonPath}`));
-        }
-
-        // Use the pythonPath variable defined earlier.
-        const pyProcess = spawn(pythonPath, [scriptPath, ...args]);
-        return new Promise((resolve, reject) => {
-            let output = '';
-            let errorOutput = '';
-
-            pyProcess.stdout.on('data', (data) => {
-                output += data.toString();
-            });
-
-            pyProcess.stderr.on('data', (data) => {
-                errorOutput += data.toString();
-            });
-
-            pyProcess.on('close', (code) => {
-                if (code !== 0) {
-                    return reject(new Error(`Python script exited with code ${code}: ${errorOutput}`));
-                }
-                try {
-                    resolve(JSON.parse(output));
-                } catch (e) {
-                    reject(new Error(`Failed to parse JSON from Python script: ${e.message}`));
-                }
-            });
-        });
+  function restorePassThrough(reason = "overlay-pass-through") {
+    if (state.active) {
+      triggerMouseRelease(reason);
+      return;
     }
 
-    /**
-     * Sets up all IPC listeners for Magpie utilities.
-     * @param {BrowserWindow} mainWindow The main Electron window.
-     */
-    function getNativeWindowHandleString(mainWindow) {
-        const nativeHandle = mainWindow.getNativeWindowHandle();
-        return nativeHandle.readInt32LE(0).toString();
-    }
+    restoreMouseIgnore(reason);
+  }
 
-    async function magpieIsReallyScaling() {
-        const result = await runPythonScript(['is_scaling']);
-        return result.is_scaling;
-    }
+  function getState() {
+    return state;
+  }
 
-    async function magpieGetInfo() {
-        return runPythonScript(['get_info']);
-    }
+  function dispose() {
+    clearCompatibilityInterval();
+  }
 
-    async function magpieMarkWindow(handleString) {
-        const result = await runPythonScript(['mark_window', handleString]);
-        return result.success;
-    }
+  return {
+    applyInfo,
+    dispose,
+    getState,
+    isActive() {
+      return state.active;
+    },
+    getInfo() {
+      return state.info;
+    },
+    mapPercent(pX, pY, displayInfo) {
+      return mapPercentToMagpie(pX, pY, state, displayInfo);
+    },
+    restorePassThrough,
+    syncCompatibility,
+  };
+}
 
-    async function magpieUnmarkWindow(handleString) {
-        const result = await runPythonScript(['unmark_window', handleString]);
-        return result.success;
-    }
+const exported = {
+  createMagpieRendererController,
+  createMagpieState,
+  mapPercentToMagpie,
+  normalizeMagpieInfo,
+};
 
-    async function magpieRegisterScalingChangedMessage(mainWindow) {
-        if (magpieScalingChangedWindowMessage === -1) {
-            const result = await runPythonScript(['register_message']);
-            magpieScalingChangedWindowMessage = result.message_id;
-
-            if (magpieScalingChangedWindowMessage > 0) {
-                mainWindow.hookWindowMessage(magpieScalingChangedWindowMessage, () => {
-                    mainWindow.webContents.send('magpie:scaling-changed');
-                });
-            }
-        }
-        return magpieScalingChangedWindowMessage;
-    }
-
-    function setupMagpieIpc(mainWindow) {
-        const handleString = getNativeWindowHandleString(mainWindow);
-
-        ipcMain.handle('magpie:is-really-scaling', magpieIsReallyScaling);
-        ipcMain.handle('magpie:get-info', magpieGetInfo);
-        ipcMain.handle('magpie:mark-window', () => magpieMarkWindow(handleString));
-        ipcMain.handle('magpie:unmark-window', () => magpieUnmarkWindow(handleString));
-        ipcMain.handle('magpie:register-scaling-changed-message', () => magpieRegisterScalingChangedMessage(mainWindow));
-    }
-
-    module.exports = { setupMagpieIpc, getNativeWindowHandleString, magpieIsReallyScaling, magpieGetInfo, magpieMarkWindow, magpieUnmarkWindow, magpieRegisterScalingChangedMessage };
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = exported;
+} else if (typeof window !== "undefined") {
+  window.GSMMagpie = exported;
 }

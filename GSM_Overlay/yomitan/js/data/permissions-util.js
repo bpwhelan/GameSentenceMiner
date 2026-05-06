@@ -87,23 +87,33 @@ export function setPermissionsGranted(permissions, shouldHave) {
  * @returns {Promise<chrome.permissions.Permissions>}
  */
 export function getAllPermissions() {
-    // YomiNinja workaround | Applied at 1737613286523
-    return {
-        "origins": [
-            "<all_urls>",
-            "chrome://favicon/*",
-            "file:///*",
-            "http://*/*",
-            "https://*/*"
-        ],
-        "permissions": [
-            "clipboardWrite",
-            "storage",
-            "unlimitedStorage",
-            "webRequest",
-            "webRequestBlocking"
-        ]
-    };
+        // YomiNinja workaround | Applied at 1737613286523
+        return {
+            "origins": [
+                "<all_urls>",
+                "chrome://favicon/*",
+                "file:///*",
+                "http://*/*",
+                "https://*/*"
+            ],
+            "permissions": [
+                "clipboardWrite",
+                "storage",
+                "unlimitedStorage",
+                "webRequest",
+                "webRequestBlocking"
+            ]
+        };
+    return new Promise((resolve, reject) => {
+        chrome.permissions.getAll((result) => {
+            const e = chrome.runtime.lastError;
+            if (e) {
+                reject(new Error(e.message));
+            } else {
+                resolve(result);
+            }
+        });
+    });
 }
 
 /**

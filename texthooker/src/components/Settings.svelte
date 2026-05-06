@@ -76,8 +76,13 @@
 		showScreenshotButton$,
 		showTranslateButton$,
 		showAudioButton$,
+		trimAudioWithVAD$,
+		showTrimVideoButton$,
+		trimVideoWithVAD$,
+		showTrimmedVideoInExplorer$,
 		showGSMCheckboxes$,
 		unblurTLTimer$,
+		settingsOpen$,
 	} from '../stores/stores';
 	import {
 		LineType,
@@ -97,7 +102,6 @@
 	import { getGSMEndpoint } from '../gsm';
 
 	export let selectedLineIds: string[];
-	export let settingsOpen: boolean;
 	export let settingsElement: SVGElement;
 	export let pipAvailable: boolean;
 
@@ -159,8 +163,8 @@
 			return;
 		}
 		const hostname = window.location.hostname;
-			if (port && $websocketUrl$ !== `ws://${hostname}:${port}`) {
-				$websocketUrl$ = `ws://${hostname}:${port}`;
+			if (port && $websocketUrl$ !== `ws://${hostname}:${port}/ws/texthooker`) {
+				$websocketUrl$ = `ws://${hostname}:${port}/ws/texthooker`;
 			}
 		});
 
@@ -235,7 +239,7 @@
 			target !== presetFileInput &&
 			!$dialogOpen$
 		) {
-			settingsOpen = false;
+			$settingsOpen$ = false;
 		}
 	}
 
@@ -691,15 +695,15 @@
 </script>
 
 <svelte:head>
-	<title>{$windowTitle$ || 'Texthooker UI'}</title>
+	<title>{$windowTitle$ || 'GSM TextFeed'}</title>
 </svelte:head>
 
-{#if settingsOpen}
+{#if $settingsOpen$}
 	<input class="hidden" type="file" bind:this={dataFileInput} on:change={handleDataFileChange} />
 	<input class="hidden" type="file" bind:this={settingsFileInput} on:change={handleSettingsFileChange} />
 	<input class="hidden" type="file" bind:this={presetFileInput} on:change={handlePresetFileChange} />
 	<div
-		class="flex flex-col max-[800px]:w-[90vw] min-[800px]:grid grid-cols-[max-content,auto,max-content,auto] gap-3 absolute overflow-auto h-[90vh] top-11 z-10 py-4 pr-8 pl-4 border bg-base-200 overscroll-contain"
+		class="flex flex-col max-[800px]:w-[90vw] min-[800px]:grid grid-cols-[max-content,auto,max-content,auto] gap-3 absolute overflow-auto h-[90vh] top-11 z-50 py-4 pr-8 pl-4 border bg-base-200 overscroll-contain"
 		use:clickOutside={handleSettingsClick}
 	>
 		<div class="mb-2" style="grid-column: 1/5;">
@@ -1078,6 +1082,14 @@
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTranslateButton$} />
 			<span class="label-text col-span-2">Show Audio Button</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showAudioButton$} />
+			<span class="label-text col-span-2">Trim Audio With VAD</span>
+			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$trimAudioWithVAD$} />
+			<span class="label-text col-span-2">Show Trim Video Button</span>
+			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTrimVideoButton$} />
+			<span class="label-text col-span-2">Trim Video With VAD</span>
+			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$trimVideoWithVAD$} />
+			<span class="label-text col-span-2">Show Trimmed Video In File Explorer</span>
+			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTrimmedVideoInExplorer$} />
 			<span class="label-text col-span-2">Show Checkboxes</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showGSMCheckboxes$} />
 		</div>

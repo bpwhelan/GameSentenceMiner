@@ -1,38 +1,56 @@
-import enum
+import rapidfuzz
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from difflib import SequenceMatcher
 from typing import Optional
 
-import rapidfuzz
-
+from GameSentenceMiner.util.config.configuration import logger, get_config, gsm_state
 from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
-from GameSentenceMiner.util.configuration import logger, get_config, gsm_state
-from GameSentenceMiner.util.model import AnkiCard
-import re
+from GameSentenceMiner.util.models.model import AnkiCard
 
 initial_time = datetime.now()
+
 
 class TextSource:
     OCR = "ocr"
     OCR_MANUAL = "ocr_manual"
     HOOKER = "hooker"
     MANUAL = "manual"
+    SECONDARY = "secondary"
+    SCREEN_CROPPER = "screen_cropper"
     HOTKEY = "hotkey"
-    
+
+    # How much padding in seconds to add when capturing text from different sources
+    _PADDING_SECONDS = {
+        OCR: 0,
+        OCR_MANUAL: 2,
+        HOOKER: 0,
+        MANUAL: 3,
+        SECONDARY: 3,
+        SCREEN_CROPPER: 5,
+        HOTKEY: 3,
+    }
+
+    @classmethod
+    def padding_seconds(cls, source: str | None) -> float:
+        return float(cls._PADDING_SECONDS.get(source, 0))
+
+
 @dataclass
 class GameLine:
     id: str
     text: str
     time: datetime
-    prev: 'GameLine | None'
-    next: 'GameLine | None'
+    prev: "GameLine | None"
+    next: "GameLine | None"
     index: int = 0
     scene: str = ""
     TL: str = ""
     mined_time: datetime = datetime.min
     source: str = None
+    source_padding: float = 0.0
+    translation: str = ""
 
     def get_previous_time(self):
         if self.prev:
@@ -49,7 +67,7 @@ class GameLine:
 
     def __str__(self):
         return str({"text": self.text, "time": self.time})
-    
+
     def next_line(self):
         return self.next if self.next and self.next.time < self.mined_time else None
 
@@ -88,7 +106,7 @@ class GameText:
     def add_line(self, line_text, line_time=None, source: str = None):
         if not line_text:
             return
-        line_id = str(uuid.uuid1())
+        line_id = str(uuid.uuid4())
         new_line = GameLine(
             id=line_id,  # Time-based UUID as an integer
             text=line_text,
@@ -97,15 +115,18 @@ class GameText:
             next=None,
             index=self.game_line_index,
             scene=gsm_state.current_game or "",
-            source=source
+            source=source,
+            source_padding=TextSource.padding_seconds(source),
         )
         self.values_dict[line_id] = new_line
         self.game_line_index += 1
         if self.values:
             self.values[-1].next = new_line
         self.values.append(new_line)
-        if new_line.prev:
-            self.previous_lines.add(new_line.prev.text)
+        if new_line.prev and is_recycled_line_detection_enabled():
+            normalized_previous_line = normalize_text_for_comparison(new_line.prev.text)
+            if normalized_previous_line:
+                self.previous_lines.add(normalized_previous_line)
         return new_line
         # self.remove_old_events(datetime.now() - timedelta(minutes=10))
 
@@ -123,47 +144,96 @@ class GameText:
 
 game_log = GameText()
 
+
 def strip_whitespace_and_punctuation(text: str) -> str:
     """
-    Strips whitespace and punctuation from the given text.
+    Backwards-compatible alias for comparison normalization.
     """
-    # Remove all whitespace and specified punctuation using regex
-    # Includes Japanese and common punctuation
-    return re.sub(r'[\s　、。「」【】《》., ]', '', text).strip()
+    return normalize_text_for_comparison(text)
+
+
+def normalize_text_for_comparison(text: str) -> str:
+    """
+    Remove all Unicode punctuation and whitespace characters from text.
+    """
+    if text is None:
+        return ""
+
+    normalized_characters = []
+    for character in str(text):
+        if character.isspace():
+            continue
+        if unicodedata.category(character).startswith("P"):
+            continue
+        normalized_characters.append(character)
+
+    return "".join(normalized_characters)
+
+
+def is_recycled_line_detection_enabled() -> bool:
+    try:
+        return bool(getattr(get_config().overlay, "check_previous_lines_for_recycled_indicator", True))
+    except Exception:
+        return True
+
+
+def is_line_recycled(line_text: str) -> bool:
+    normalized_line = normalize_text_for_comparison(line_text)
+    if not normalized_line:
+        return False
+    return normalized_line in game_log.previous_lines
 
 
 # Do not use partial_ratio here, ever
 def lines_match(texthooker_sentence, anki_sentence, similarity_threshold=80) -> bool:
-    # Replace newlines, spaces, other whitespace characters, AND japanese punctuation
-    texthooker_sentence = strip_whitespace_and_punctuation(texthooker_sentence)
-    anki_sentence = strip_whitespace_and_punctuation(anki_sentence)
+    raw_texthooker_sentence = "" if texthooker_sentence is None else str(texthooker_sentence)
+    raw_anki_sentence = "" if anki_sentence is None else str(anki_sentence)
+    texthooker_sentence = normalize_text_for_comparison(raw_texthooker_sentence)
+    anki_sentence = normalize_text_for_comparison(raw_anki_sentence)
+    if not texthooker_sentence or not anki_sentence:
+        compact_texthooker_sentence = "".join(
+            character for character in raw_texthooker_sentence if not character.isspace()
+        )
+        compact_anki_sentence = "".join(character for character in raw_anki_sentence if not character.isspace())
+        return bool(
+            compact_texthooker_sentence
+            and compact_anki_sentence
+            and compact_texthooker_sentence == compact_anki_sentence
+        )
+
     similarity = rapidfuzz.fuzz.ratio(texthooker_sentence, anki_sentence)
     # logger.debug(f"Comparing sentences: '{texthooker_sentence}' and '{anki_sentence}' - Similarity: {similarity}")
     # if texthooker_sentence in anki_sentence:
     #     logger.debug(f"One contains the other: {texthooker_sentence} in {anki_sentence} - Similarity: {similarity}")
     # elif anki_sentence in texthooker_sentence:
     #     logger.debug(f"One contains the other: {anki_sentence} in {texthooker_sentence} - Similarity: {similarity}")
-    return (anki_sentence in texthooker_sentence) or (texthooker_sentence in anki_sentence) or (similarity >= similarity_threshold)
+    return (
+        (anki_sentence in texthooker_sentence)
+        or (texthooker_sentence in anki_sentence)
+        or (similarity >= similarity_threshold)
+    )
 
 
 def get_matching_line(last_note: AnkiCard, lines=None) -> GameLine:
     """
     Find a matching GameLine for the given AnkiCard.
-    
+
     Args:
         last_note: The AnkiCard to match against
         lines: Optional list of GameLines to search in. If None, uses all game log lines.
-    
+
     Returns:
         GameLine: The matching line or the latest line if no match found
     """
     if not lines:
         lines = get_all_lines()
-    
+
     if not lines:
-        raise Exception("No voicelines in GSM. GSM can only do work on text that has been sent to it since it started. If you are not getting any text into GSM, please check your setup/config.")
-    
-    last_line = lines[-1] # Store reference to the latest line
+        raise Exception(
+            "No voicelines in GSM. GSM can only do work on text that has been sent to it since it started. If you are not getting any text into GSM, please check your setup/config."
+        )
+
+    last_line = lines[-1]  # Store reference to the latest line
 
     if not last_note:
         return last_line
@@ -175,7 +245,9 @@ def get_matching_line(last_note: AnkiCard, lines=None) -> GameLine:
     time_window = datetime.now() - timedelta(seconds=gsm_state.replay_buffer_length) - timedelta(seconds=5)
     for line in reversed(lines):
         if line.time < time_window:
-            logger.info("Could not find matching sentence from GSM's history within the replay buffer time window. Using the latest line.")
+            logger.info(
+                "Could not find matching sentence from GSM's history within the replay buffer time window. Using the latest line."
+            )
             return last_line
         if lines_match(line.text, remove_html_and_cloze_tags(sentence)):
             return line

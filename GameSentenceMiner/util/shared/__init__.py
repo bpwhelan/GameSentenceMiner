@@ -6,14 +6,13 @@ extracted to eliminate code duplication and improve maintainability.
 """
 
 from .base_api_client import BaseApiClient
-
+from .game_update_service import GameUpdateService
 from .image_utils import (
     fetch_image_as_base64,
     download_cover_image,
     resize_image_if_needed,
     convert_image_to_rgb,
 )
-
 from .spoiler_utils import (
     SpoilerFormat,
     contains_spoiler_content,
@@ -26,18 +25,14 @@ from .spoiler_utils import (
     strip_anilist_spoiler_tags,
 )
 
-from .game_update_service import GameUpdateService
-
 __all__ = [
     # Base class
     "BaseApiClient",
-    
     # Image utilities
     "fetch_image_as_base64",
     "download_cover_image",
     "resize_image_if_needed",
     "convert_image_to_rgb",
-    
     # Spoiler utilities
     "SpoilerFormat",
     "contains_spoiler_content",
@@ -47,7 +42,6 @@ __all__ = [
     "strip_vndb_spoiler_content",
     "has_anilist_spoiler_tags",
     "strip_anilist_spoiler_tags",
-    
     # Game update service
     "GameUpdateService",
 ]

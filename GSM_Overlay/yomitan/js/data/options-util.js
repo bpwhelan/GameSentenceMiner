@@ -21,6 +21,9 @@ import {parseJson} from '../core/json.js';
 import {isObjectNotArray} from '../core/object-utilities.js';
 import {escapeRegExp} from '../core/utilities.js';
 import {TemplatePatcher} from '../templates/template-patcher.js';
+import {
+    getGsmOverlayRecommendationPackIdsSuppressedOnFreshInstall,
+} from './gsm-overlay-recommended-settings.js';
 import {JsonSchema} from './json-schema.js';
 
 // Some type safety rules are disabled for this file since it deals with upgrading an older format
@@ -115,6 +118,7 @@ export class OptionsUtil {
      */
     async load() {
         let options;
+        let hadStoredOptions = false;
         try {
             const optionsStr = await new Promise((resolve, reject) => {
                 chrome.storage.local.get(['options'], (store) => {
@@ -129,6 +133,7 @@ export class OptionsUtil {
             if (typeof optionsStr !== 'string') {
                 throw new Error('Invalid value for options');
             }
+            hadStoredOptions = true;
             options = parseJson(optionsStr);
         } catch (e) {
             // NOP
@@ -136,9 +141,11 @@ export class OptionsUtil {
 
         if (typeof options !== 'undefined') {
             options = await this.update(options);
+            this._finalizeGsmOverlayRecommendations(options, hadStoredOptions);
             await this.save(options);
         } else {
             options = this.getDefault();
+            this._finalizeGsmOverlayRecommendations(options, hadStoredOptions);
         }
 
         return options;
@@ -323,8 +330,8 @@ export class OptionsUtil {
                 showPitchAccentPositionNotation: true,
                 showPitchAccentGraph: false,
                 showIframePopupsInRootFrame: false,
-                useSecurePopupFrameUrl: true,
-                usePopupShadowDom: true,
+                useSecurePopupFrameUrl: false,
+                usePopupShadowDom: false,
             },
 
             audio: {
@@ -346,7 +353,7 @@ export class OptionsUtil {
                 length: 10,
                 modifier: 'shift',
                 deepDomScan: false,
-                popupNestingMaxDepth: 0,
+                popupNestingMaxDepth: 10,
                 enablePopupSearch: false,
                 enableOnPopupExpressions: false,
                 enableOnSearchPage: true,
@@ -483,6 +490,24 @@ export class OptionsUtil {
     }
 
     /**
+     * Fresh installs already start from the current overlay defaults, so the
+     * current promptable GSM overlay recommendation packs are suppressed only
+     * on the first run without stored Yomitan options.
+     * @param {import('settings').Options} options
+     * @param {boolean} hadStoredOptions
+     */
+    _finalizeGsmOverlayRecommendations(options, hadStoredOptions) {
+        if (hadStoredOptions) { return; }
+
+        const {gsmOverlayRecommendations} = options.global;
+        const packIds = new Set(gsmOverlayRecommendations.freshInstallSuppressedPackIds);
+        for (const id of getGsmOverlayRecommendationPackIdsSuppressedOnFreshInstall()) {
+            packIds.add(id);
+        }
+        gsmOverlayRecommendations.freshInstallSuppressedPackIds = [...packIds];
+    }
+
+    /**
      * @param {import('options-util').IntermediateOptions} options
      * @param {import('options-util').UpdateFunction[]} updates
      * @returns {Promise<import('settings').Options>}
@@ -585,6 +610,8 @@ export class OptionsUtil {
             this._updateVersion71,
             this._updateVersion72,
             this._updateVersion73,
+            this._updateVersion74,
+            this._updateVersion75,
         ];
         /* eslint-enable @typescript-eslint/unbound-method */
         if (typeof targetVersion === 'number' && targetVersion < result.length) {
@@ -1819,6 +1846,26 @@ export class OptionsUtil {
     async _updateVersion73(options) {
         for (const profile of options.profiles) {
             profile.options.anki.targetTags = [];
+        }
+    }
+
+    /**
+     *  - Fix glossary-plain and glossary-plain-no-dictionary not working when resultOutputMode (Result grouping mode) == split (No grouping)
+     *  @type {import('options-util').UpdateFunction}
+     */
+    async _updateVersion74(options) {
+        await this._applyAnkiFieldTemplatesPatch(options, '/data/templates/anki-field-templates-upgrade-v74.handlebars');
+    }
+
+    /**
+     *  - Forced security popup options to disabled for all profiles.
+     *  @type {import('options-util').UpdateFunction}
+     */
+    async _updateVersion75(options) {
+        for (const profile of options.profiles) {
+            const {general} = profile.options;
+            general.useSecurePopupFrameUrl = false;
+            general.usePopupShadowDom = false;
         }
     }
 

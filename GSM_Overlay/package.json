@@ -4,6 +4,9 @@
   "description": "On-screen overlay for GameSentenceMiner",
   "main": "main.js",
   "scripts": {
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "vite --host 127.0.0.1 --port 5174 --strictPort",
+    "dev:electron": "wait-on tcp:5174 && cross-env GSM_OVERLAY_DEV_SERVER_URL=http://127.0.0.1:5174 nodemon --exitcrash --watch main.js --watch preload.js --watch background.js --watch backend_connector.js --watch magpie.js --watch window.js --watch gamepad.js --ext js,cjs,mjs --exec \"node scripts/electron-dev-once.cjs\"",
     "start": "electron-forge start",
     "test": "echo \"Error: no test specified\" && exit 1",
     "package": "electron-forge package",
@@ -12,21 +15,28 @@
   "author": "Beangate",
   "license": "LGPL-3.0-only",
   "devDependencies": {
-    "@electron-forge/cli": "^7.8.1",
-    "@electron-forge/maker-deb": "^7.8.1",
-    "@electron-forge/maker-rpm": "^7.8.1",
-    "@electron-forge/maker-squirrel": "^7.8.1",
-    "@electron-forge/maker-zip": "^7.8.1",
-    "@electron-forge/plugin-auto-unpack-natives": "^7.8.1",
-    "@electron-forge/plugin-fuses": "^7.8.1",
+    "@electron-forge/cli": "^7.11.1",
+    "@electron-forge/maker-deb": "^7.11.1",
+    "@electron-forge/maker-rpm": "^7.11.1",
+    "@electron-forge/maker-squirrel": "^7.11.1",
+    "@electron-forge/maker-zip": "^7.11.1",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
+    "@electron-forge/plugin-fuses": "^7.11.1",
     "@electron/fuses": "^1.8.0",
-    "electron": "^37.2.1"
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.0.0",
+    "electron": "^41.3.0",
+    "nodemon": "^3.1.14",
+    "vite": "^7.3.2",
+    "wait-on": "^8.0.5"
   },
   "dependencies": {
     "electron-squirrel-startup": "1.0.1",
-    "kuroshiro": "^1.2.0",
-    "kuroshiro-analyzer-kuromoji": "^1.1.0",
-    "wanakana": "^5.3.1",
-    "ws": "^8.18.3"
+    "ws": "^8.20.0"
+  },
+  "overrides": {
+    "@electron/rebuild": "^4.0.4",
+    "tmp": "^0.2.5",
+    "@tootallnate/once": "^3.0.1"
   }
 }

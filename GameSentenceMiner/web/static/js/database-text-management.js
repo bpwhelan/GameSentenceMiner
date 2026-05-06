@@ -119,8 +119,8 @@ async function deleteTextLines() {
         errorDiv.style.display = 'block';
         return;
     }
-    
-    showDatabaseConfirmPopup('This will permanently delete the selected text lines. Continue?', async () => {
+
+    confirmTextManagementAction('This will permanently delete the selected text lines. Continue?', async () => {
         try {
             const requestData = {
                 regex_pattern: customRegex.trim() || null,
@@ -159,27 +159,177 @@ async function deleteTextLines() {
 }
 
 /**
- * Open deduplication modal
+ * Confirm a text-management action using the shared popup when available.
  */
-async function openDeduplicationModal() {
-    openModal('deduplicationModal');
-    await loadGamesForDeduplication();
-    // Reset modal state
+function confirmTextManagementAction(message, onConfirm) {
+    if (
+        typeof showDatabaseConfirmPopup === 'function' &&
+        document.getElementById('databaseConfirmPopup')
+    ) {
+        showDatabaseConfirmPopup(message, onConfirm);
+        return;
+    }
+
+    if (window.confirm(message) && typeof onConfirm === 'function') {
+        onConfirm();
+    }
+}
+
+function getDeduplicationSelectedGames() {
+    const gameSelection = document.getElementById('gameSelection');
+    if (!gameSelection) {
+        return [];
+    }
+
+    return Array.from(gameSelection.selectedOptions).map(option => option.value);
+}
+
+function updateDeduplicationSelectionSummary() {
+    const summary = document.getElementById('gameSelectionSummary');
+    if (!summary) {
+        return;
+    }
+
+    const selectedGames = getDeduplicationSelectedGames();
+    if (selectedGames.includes('all')) {
+        summary.textContent = 'All games selected';
+        return;
+    }
+
+    const selectedCount = selectedGames.length;
+    if (selectedCount === 0) {
+        summary.textContent = 'No games selected';
+        return;
+    }
+
+    summary.textContent = `${selectedCount} game${selectedCount === 1 ? '' : 's'} selected`;
+}
+
+function filterDeduplicationGames() {
+    const searchInput = document.getElementById('gameSelectionSearch');
+    const gameSelection = document.getElementById('gameSelection');
+    if (!searchInput || !gameSelection) {
+        return;
+    }
+
+    const query = searchInput.value.trim().toLowerCase();
+    Array.from(gameSelection.options).forEach(option => {
+        if (option.value === 'all') {
+            option.hidden = query.length > 0;
+            return;
+        }
+
+        option.hidden = query.length > 0 && !option.textContent.toLowerCase().includes(query);
+    });
+
+    updateDeduplicationSelectionSummary();
+}
+
+function applyDeduplicationGameSelection(selectedGames = []) {
+    const gameSelection = document.getElementById('gameSelection');
+    if (!gameSelection) {
+        return;
+    }
+
+    const normalizedSelection = new Set((selectedGames || []).filter(Boolean));
+    const selectAll = normalizedSelection.size === 0;
+
+    Array.from(gameSelection.options).forEach(option => {
+        option.selected = selectAll ? option.value === 'all' : normalizedSelection.has(option.value);
+    });
+
+    updateDeduplicationSelectionSummary();
+}
+
+function selectVisibleDeduplicationGames() {
+    const gameSelection = document.getElementById('gameSelection');
+    if (!gameSelection) {
+        return;
+    }
+
+    Array.from(gameSelection.options).forEach(option => {
+        option.selected = option.value !== 'all' && !option.hidden;
+    });
+
+    updateDeduplicationSelectionSummary();
+}
+
+function clearDeduplicationGames() {
+    const gameSelection = document.getElementById('gameSelection');
+    if (!gameSelection) {
+        return;
+    }
+
+    Array.from(gameSelection.options).forEach(option => {
+        option.selected = false;
+    });
+
+    updateDeduplicationSelectionSummary();
+}
+
+function syncDeduplicationTimeWindowVisibility() {
+    if (typeof toggleTimeWindowVisibility === 'function') {
+        toggleTimeWindowVisibility();
+        return;
+    }
+
+    const ignoreTimeWindowCheckbox = document.getElementById('ignoreTimeWindow');
+    const timeWindowGroup = document.getElementById('timeWindowGroup');
+    const timeWindowInput = document.getElementById('timeWindow');
+    if (!ignoreTimeWindowCheckbox || !timeWindowGroup || !timeWindowInput) {
+        return;
+    }
+
+    if (ignoreTimeWindowCheckbox.checked) {
+        timeWindowGroup.style.opacity = '0.5';
+        timeWindowGroup.style.pointerEvents = 'none';
+        timeWindowInput.disabled = true;
+    } else {
+        timeWindowGroup.style.opacity = '1';
+        timeWindowGroup.style.pointerEvents = 'auto';
+        timeWindowInput.disabled = false;
+    }
+}
+
+function resetDeduplicationModalState(selectedGames = []) {
+    const searchInput = document.getElementById('gameSelectionSearch');
+    if (searchInput) {
+        searchInput.value = '';
+    }
+
     document.getElementById('timeWindow').value = '5';
     document.getElementById('ignoreTimeWindow').checked = false;
     document.getElementById('deduplicationStats').style.display = 'none';
     document.getElementById('removeDuplicatesBtn').disabled = true;
     document.getElementById('deduplicationError').style.display = 'none';
     document.getElementById('deduplicationSuccess').style.display = 'none';
-    // Ensure time window is visible on modal open
-    toggleTimeWindowVisibility();
+
+    filterDeduplicationGames();
+    applyDeduplicationGameSelection(selectedGames);
+    syncDeduplicationTimeWindowVisibility();
+}
+
+/**
+ * Open deduplication modal
+ */
+async function openDeduplicationModal(options = {}) {
+    const selectedGames = Array.isArray(options.selectedGames) ? options.selectedGames : [];
+
+    openModal('deduplicationModal');
+    await loadGamesForDeduplication();
+    resetDeduplicationModalState(selectedGames);
+
+    const searchInput = document.getElementById('gameSelectionSearch');
+    if (searchInput) {
+        requestAnimationFrame(() => searchInput.focus());
+    }
 }
 
 /**
  * Scan for duplicate sentences
  */
 async function scanForDuplicates() {
-    const selectedGames = Array.from(document.getElementById('gameSelection').selectedOptions).map(option => option.value);
+    const selectedGames = getDeduplicationSelectedGames();
     const timeWindow = parseInt(document.getElementById('timeWindow').value);
     const caseSensitive = document.getElementById('caseSensitiveDedup').checked;
     const ignoreTimeWindow = document.getElementById('ignoreTimeWindow').checked;
@@ -276,14 +426,14 @@ async function scanForDuplicates() {
  * Remove duplicate sentences
  */
 async function removeDuplicates() {
-    const selectedGames = Array.from(document.getElementById('gameSelection').selectedOptions).map(option => option.value);
+    const selectedGames = getDeduplicationSelectedGames();
     const timeWindow = parseInt(document.getElementById('timeWindow').value);
     const caseSensitive = document.getElementById('caseSensitiveDedup').checked;
     const preserveNewest = document.getElementById('preserveNewest').checked;
     const ignoreTimeWindow = document.getElementById('ignoreTimeWindow').checked;
     
     const modeText = ignoreTimeWindow ? 'ALL duplicate sentences across entire games' : 'duplicate sentences within the time window';
-    showDatabaseConfirmPopup(`This will permanently remove ${modeText}. Continue?`, async () => {
+    confirmTextManagementAction(`This will permanently remove ${modeText}. Continue?`, async () => {
         try {
             const requestData = {
                 games: selectedGames,
@@ -340,7 +490,7 @@ function initializeTextManagement() {
 
     const openDeduplicationBtn = document.querySelector('[data-action="openDeduplicationModal"]');
     if (openDeduplicationBtn) {
-        openDeduplicationBtn.addEventListener('click', openDeduplicationModal);
+        openDeduplicationBtn.addEventListener('click', () => openDeduplicationModal());
     }
 
     const previewDeleteBtn = document.querySelector('[data-action="previewTextDeletion"]');
@@ -363,9 +513,30 @@ function initializeTextManagement() {
         removeDuplicatesBtn.addEventListener('click', removeDuplicates);
     }
 
+    const gameSelectionSearch = document.getElementById('gameSelectionSearch');
+    if (gameSelectionSearch) {
+        gameSelectionSearch.addEventListener('input', filterDeduplicationGames);
+    }
+
+    const gameSelection = document.getElementById('gameSelection');
+    if (gameSelection) {
+        gameSelection.addEventListener('change', updateDeduplicationSelectionSummary);
+        updateDeduplicationSelectionSummary();
+    }
+
+    const selectVisibleBtn = document.querySelector('[data-action="selectVisibleDedupGames"]');
+    if (selectVisibleBtn) {
+        selectVisibleBtn.addEventListener('click', selectVisibleDeduplicationGames);
+    }
+
+    const clearDedupBtn = document.querySelector('[data-action="clearDedupGames"]');
+    if (clearDedupBtn) {
+        clearDedupBtn.addEventListener('click', clearDeduplicationGames);
+    }
+
     // Add event listener for the ignore time window checkbox
     const ignoreTimeWindowCheckbox = document.getElementById('ignoreTimeWindow');
     if (ignoreTimeWindowCheckbox) {
-        ignoreTimeWindowCheckbox.addEventListener('change', toggleTimeWindowVisibility);
+        ignoreTimeWindowCheckbox.addEventListener('change', syncDeduplicationTimeWindowVisibility);
     }
 }

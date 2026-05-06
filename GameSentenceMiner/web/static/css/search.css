@@ -357,6 +357,11 @@
     color: white;
 }
 
+.igdb-badge {
+    background: #8b5cf6;
+    color: white;
+}
+
 .anilist-badge {
     background: #f97316;
     color: white;
@@ -427,10 +432,16 @@
 .search-result-cover {
     width: 60px;
     height: 80px;
+    min-width: 60px;
+    max-width: 60px;
+    min-height: 80px;
+    max-height: 80px;
+    display: block;
     object-fit: cover;
     border-radius: 4px;
     flex-shrink: 0;
     background: var(--bg-tertiary);
+    overflow: hidden;
 }
 
 .search-result-cover-placeholder {

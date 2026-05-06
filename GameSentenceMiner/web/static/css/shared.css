@@ -472,6 +472,10 @@ h1 {
     background: linear-gradient(90deg, #9c27b0, #ba68c8);
 }
 
+.management-card.external-stats::before {
+    background: linear-gradient(90deg, var(--info-color), #4fc3f7);
+}
+
 .card-header {
     display: flex;
     align-items: center;
@@ -1850,5 +1854,388 @@ input[type="date"].dashboard-date-input:hover {
         font-size: 13px;
         margin: 5px 2px;
         width: calc(50% - 4px);
+    }
+}
+
+/* ========================================================= */
+/* === THIRD-PARTY / EXTERNAL STATS STYLES === */
+/* ========================================================= */
+
+/* Source Badges */
+.tp-source-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: lowercase;
+    white-space: nowrap;
+}
+
+.tp-source-badge.mokuro {
+    background: linear-gradient(135deg, var(--accent-color), #64b5f6);
+    color: white;
+}
+
+.tp-source-badge.manual {
+    background: linear-gradient(135deg, var(--success-color), #81c784);
+    color: white;
+}
+
+.tp-source-badge.ttsu {
+    background: linear-gradient(135deg, #9c27b0, #ce93d8);
+    color: white;
+}
+
+.tp-source-badge.generic {
+    background: linear-gradient(135deg, var(--info-color), #4fc3f7);
+    color: white;
+}
+
+/* Fallback for unknown sources */
+.tp-source-badge:not(.mokuro):not(.manual):not(.ttsu):not(.generic) {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+}
+
+/* Entries Table */
+.tp-entries-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.tp-entries-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.tp-entries-table th {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    padding: 10px 12px;
+    text-align: left;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.tp-entries-table th.text-right {
+    text-align: right;
+}
+
+.tp-entries-table th.text-center {
+    text-align: center;
+}
+
+.tp-entries-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.tp-entries-table td.text-right {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.tp-entries-table td.text-center {
+    text-align: center;
+}
+
+.tp-entries-table td.label-cell {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary);
+}
+
+.tp-entries-table tr:last-child td {
+    border-bottom: none;
+}
+
+.tp-entries-table tr:hover {
+    background-color: var(--bg-tertiary);
+}
+
+.tp-entries-table .delete-entry-btn {
+    padding: 3px 10px;
+    font-size: 11px;
+    border-radius: 4px;
+}
+
+/* Entries Scroll Container */
+.tp-entries-scroll {
+    max-height: 420px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+/* Entries Header Bar (filter buttons + clear buttons) */
+.tp-entries-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.tp-entries-header .tp-filter-group {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.tp-entries-header .tp-clear-group {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.tp-filter-btn {
+    padding: 5px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.tp-filter-btn:hover {
+    border-color: var(--accent-color);
+    color: var(--accent-color);
+}
+
+.tp-filter-btn.active {
+    background: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+}
+
+/* Empty State */
+.tp-empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-tertiary);
+}
+
+.tp-empty-state-icon {
+    font-size: 48px;
+    margin-bottom: 12px;
+    opacity: 0.4;
+}
+
+.tp-empty-state p {
+    margin: 0;
+    font-size: 14px;
+}
+
+/* Import Result Card */
+.tp-import-result {
+    padding: 16px;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    margin-top: 15px;
+    border-left: 4px solid var(--success-color);
+}
+
+.tp-import-result.error {
+    border-left-color: var(--danger-color);
+}
+
+.tp-import-result.info {
+    border-left-color: var(--accent-color);
+}
+
+.tp-import-result-title {
+    font-weight: 600;
+    margin-bottom: 10px;
+    font-size: 15px;
+}
+
+.tp-import-result-title.success {
+    color: var(--success-color);
+}
+
+.tp-import-result-title.error {
+    color: var(--danger-color);
+}
+
+.tp-import-result-title.info {
+    color: var(--accent-color);
+}
+
+/* API Documentation Panel */
+.tp-api-docs {
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.tp-api-docs h4 {
+    color: var(--text-primary);
+    margin: 0 0 8px 0;
+    font-size: 16px;
+}
+
+.tp-api-docs p {
+    color: var(--text-secondary);
+    margin: 0 0 16px 0;
+}
+
+.tp-api-endpoint {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 8px 14px;
+    margin-bottom: 16px;
+    font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+}
+
+.tp-api-method {
+    background: var(--success-color);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.tp-api-path {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.tp-code-block {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+    overflow-x: auto;
+    font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-primary);
+}
+
+.tp-code-block pre {
+    margin: 0;
+    white-space: pre;
+}
+
+.tp-code-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-tertiary);
+    margin-bottom: 8px;
+}
+
+.tp-api-field-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-bottom: 16px;
+}
+
+.tp-api-field-table th {
+    background: var(--bg-tertiary);
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-tertiary);
+    border-bottom: 2px solid var(--border-color);
+}
+
+.tp-api-field-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-secondary);
+}
+
+.tp-api-field-table td:first-child {
+    font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+    color: var(--accent-color);
+    font-weight: 500;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.tp-api-field-table tr:last-child td {
+    border-bottom: none;
+}
+
+.tp-api-note {
+    background: var(--bg-tertiary);
+    border-left: 4px solid var(--info-color);
+    border-radius: 4px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+
+/* Form Grid for Manual Entry */
+.tp-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+@media (max-width: 600px) {
+    .tp-form-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Card stats summary with per-source breakdown */
+.tp-summary-sources {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}
+
+/* Responsive styles for third-party stats modal */
+@media (max-width: 768px) {
+    .tp-entries-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .tp-entries-header .tp-filter-group,
+    .tp-entries-header .tp-clear-group {
+        justify-content: flex-start;
+    }
+
+    .tp-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .tp-api-endpoint {
+        flex-direction: column;
+        align-items: flex-start;
     }
 }

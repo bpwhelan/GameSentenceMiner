@@ -1,0 +1,593 @@
+/* Games Grid Page Styles */
+
+/* ================================
+   Toolbar (Search + Sort)
+================================ */
+.games-toolbar {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.games-search-input {
+    flex: 1;
+    padding: 12px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 15px;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+}
+
+.games-search-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.games-search-input::placeholder {
+    color: var(--text-tertiary);
+}
+
+.games-sort-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.games-sort-label {
+    font-size: 13px;
+    color: var(--text-tertiary);
+}
+
+.games-sort-select {
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    appearance: auto;
+}
+
+.games-sort-select:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+/* ================================
+   Games Grid
+================================ */
+.games-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;
+}
+
+/* ================================
+   Game Card
+================================ */
+.game-card {
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px var(--shadow-color);
+    position: relative;
+}
+
+.game-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px var(--shadow-color);
+    border-color: var(--accent-color);
+}
+
+.game-card-image-container {
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    overflow: hidden;
+    background: var(--bg-tertiary);
+    position: relative;
+}
+
+.game-card-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s ease;
+}
+
+.game-card:hover .game-card-image {
+    transform: scale(1.05);
+}
+
+.game-card-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-tertiary);
+}
+
+.game-card-placeholder img {
+    width: 64px;
+    height: 64px;
+    opacity: 0.4;
+}
+
+/* Status badge (Completed / In Progress) */
+.game-card-status-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    z-index: 1;
+}
+
+.game-card-status-badge.completed {
+    background: var(--success-color);
+}
+
+.game-card-status-badge.in-progress {
+    background: var(--accent-color, #007bff);
+}
+
+.game-card-info {
+    padding: 12px;
+}
+
+.game-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.3;
+    margin-bottom: 4px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.game-card-subtitle {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    line-height: 1.2;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.game-card-stats {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
+}
+
+.game-card-stat {
+    font-size: 11px;
+    color: var(--text-tertiary);
+}
+
+.game-card-stat-value {
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+/* ================================
+   Loading State
+================================ */
+.games-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+    font-size: 15px;
+}
+
+.games-loading .spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid var(--border-color);
+    border-top-color: var(--accent-color);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ================================
+   Error State
+================================ */
+.games-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 60px 20px;
+    text-align: center;
+}
+
+.games-error-icon {
+    font-size: 40px;
+}
+
+.games-error-message {
+    font-size: 16px;
+    color: var(--text-secondary);
+}
+
+/* ================================
+   Empty State
+================================ */
+.games-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 60px 20px;
+    text-align: center;
+}
+
+.games-empty-icon {
+    font-size: 48px;
+    opacity: 0.6;
+}
+
+.games-empty-message {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.games-empty-hint {
+    font-size: 14px;
+    color: var(--text-tertiary);
+    margin: 0;
+}
+
+.games-empty-hint a {
+    color: var(--accent-color);
+    text-decoration: underline;
+}
+
+/* ================================
+   No Search Results State
+================================ */
+.games-no-results {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 60px 20px;
+    text-align: center;
+}
+
+.games-no-results-icon {
+    font-size: 40px;
+    opacity: 0.6;
+}
+
+.games-no-results-message {
+    font-size: 16px;
+    color: var(--text-secondary);
+}
+
+/* ================================
+   Responsive Design
+================================ */
+@media (max-width: 1024px) {
+    .games-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+    }
+}
+
+@media (max-width: 768px) {
+    .games-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+    }
+}
+
+@media (max-width: 480px) {
+    .games-toolbar {
+        flex-direction: column;
+    }
+
+    .games-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+
+    .game-card-info {
+        padding: 8px;
+    }
+
+    .game-card-title {
+        font-size: 12px;
+    }
+
+    .game-card-stats {
+        display: none;
+    }
+}
+
+
+/* ================================
+   Game Card Action Menu
+================================ */
+.game-card-menu-btn {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0, 0, 0, 0.55);
+    color: white;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    z-index: 2;
+    line-height: 1;
+}
+
+.game-card:hover .game-card-menu-btn {
+    opacity: 1;
+}
+
+.game-card-menu-btn:hover {
+    background: rgba(0, 0, 0, 0.8);
+}
+
+.game-card-menu {
+    position: absolute;
+    top: 40px;
+    left: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px var(--shadow-color);
+    z-index: 10;
+    min-width: 180px;
+    padding: 4px 0;
+    overflow: hidden;
+}
+
+.game-card-menu button {
+    display: block;
+    width: 100%;
+    padding: 8px 14px;
+    border: none;
+    background: none;
+    color: var(--text-primary);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.game-card-menu button:hover {
+    background: var(--bg-tertiary);
+}
+
+.game-card-menu button.danger-action {
+    color: var(--danger-color);
+}
+
+.game-card-menu button.danger-action:hover {
+    background: rgba(220, 53, 69, 0.1);
+}
+
+.game-card-menu hr {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: 4px 0;
+}
+
+/* ================================
+   Linked Badge
+================================ */
+.game-card-linked-badge {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.55);
+    color: white;
+    z-index: 1;
+}
+
+/* ================================
+   Bulk Mode Toggle Button
+================================ */
+.games-bulk-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.games-bulk-toggle:hover {
+    border-color: var(--text-tertiary);
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
+.games-bulk-toggle.active {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-color);
+    color: var(--accent-color);
+    font-weight: 600;
+}
+
+.games-bulk-toggle svg {
+    flex-shrink: 0;
+}
+
+/* ================================
+   Bulk Actions Bar
+================================ */
+.games-bulk-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    margin-bottom: 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    flex-wrap: wrap;
+}
+
+.games-bulk-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.games-bulk-count-badge {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    padding: 4px 10px;
+    border-radius: 12px;
+}
+
+.games-bulk-link-btn {
+    background: none;
+    border: none;
+    color: var(--accent-color);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 4px 2px;
+    transition: opacity 0.15s ease;
+}
+
+.games-bulk-link-btn:hover {
+    opacity: 0.75;
+    text-decoration: underline;
+}
+
+.games-bulk-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.games-bulk-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 7px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.games-bulk-action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.games-bulk-action-btn.merge:not(:disabled):hover {
+    border-color: var(--warning-color);
+    color: var(--warning-color);
+    background: rgba(255, 193, 7, 0.08);
+}
+
+.games-bulk-action-btn.delete:not(:disabled):hover {
+    border-color: var(--danger-color);
+    color: var(--danger-color);
+    background: rgba(220, 53, 69, 0.08);
+}
+
+/* ================================
+   Bulk Checkbox on Cards
+================================ */
+.game-card-bulk-checkbox {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 20px;
+    height: 20px;
+    z-index: 3;
+    cursor: pointer;
+    accent-color: var(--accent-color);
+}
+
+.game-card-bulk-checkbox ~ .game-card-info {
+    pointer-events: none;
+}
+
+/* ================================
+   Responsive adjustments for new elements
+================================ */
+@media (max-width: 768px) {
+    .games-bulk-bar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .games-bulk-info,
+    .games-bulk-actions {
+        justify-content: center;
+    }
+
+    .games-bulk-toggle {
+        padding: 10px 12px;
+        font-size: 12px;
+    }
+}
