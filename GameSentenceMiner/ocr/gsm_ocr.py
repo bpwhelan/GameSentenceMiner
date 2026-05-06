@@ -196,7 +196,7 @@ class _MeikiTracker:
 class TwoPassOCRController:
     """Manages the full lifecycle of the two-pass OCR pipeline."""
 
-    MEIKI_TOL: int = 5
+    MEIKI_TOL: int = 2
 
     def __init__(
         self,
@@ -2322,7 +2322,9 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
     global done
     screen_area = None
     screen_areas = [
-        ",".join(str(c) for c in rect_config.coordinates) for rect_config in rectangles if not rect_config.is_excluded
+        ",".join(str(c) for c in rect_config.coordinates)
+        for rect_config in rectangles
+        if not rect_config.is_excluded and not getattr(rect_config, "is_black_hole", False)
     ]
     exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, rectangles)))
 
@@ -2497,7 +2499,9 @@ def add_ss_hotkey():
             secondary_rectangles = [
                 list(rectangle.coordinates)
                 for rectangle in current_ocr_config.rectangles
-                if rectangle.is_secondary and not rectangle.is_excluded
+                if rectangle.is_secondary
+                and not rectangle.is_excluded
+                and not getattr(rectangle, "is_black_hole", False)
             ]
             img, crop_offset = run.apply_ocr_config_to_image(img, current_ocr_config, is_secondary=True)
             image_metadata["ocr_area_rectangles"] = secondary_rectangles

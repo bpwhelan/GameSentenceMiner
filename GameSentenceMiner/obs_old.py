@@ -1764,7 +1764,7 @@ def get_obs_websocket_config_values():
         if not os.path.isfile(config_path):
             return
 
-        with open(config_path, "r") as file:
+        with open(config_path, "r", encoding="utf-8-sig") as file:
             config = json.load(file)
 
         server_enabled = config.get("server_enabled", False)
@@ -1776,7 +1776,7 @@ def get_obs_websocket_config_values():
                 "OBS WebSocket server is not enabled. Enabling it now... Restart OBS for changes to take effect."
             )
             config["server_enabled"] = True
-            with open(config_path, "w") as file:
+            with open(config_path, "w", encoding="utf-8") as file:
                 json.dump(config, file, indent=4)
 
         if get_config().obs.password == "your_password":

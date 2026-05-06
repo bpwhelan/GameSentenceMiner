@@ -178,7 +178,8 @@ def sanitize_and_resolve_path(input_path: str) -> str:
 class Locale(Enum):
     English = "en_us"
     日本語 = "ja_jp"
-    # 한국어 = 'ko_kr'
+    한국어 = "ko_kr"
+    Українська = "ukr_ua"
     中文 = "zh_cn"
     Español = "es_es"
     # Français = 'fr_fr'
@@ -193,6 +194,19 @@ class Locale(Enum):
         Case-insensitive.
         """
         value_lower = value.lower()
+        aliases = {
+            "en": cls.English.value,
+            "ja": cls.日本語.value,
+            "ko": cls.한국어.value,
+            "kr": cls.한국어.value,
+            "uk": cls.Українська.value,
+            "ukr": cls.Українська.value,
+            "ua": cls.Українська.value,
+            "zh": cls.中文.value,
+            "cn": cls.中文.value,
+            "es": cls.Español.value,
+        }
+        value_lower = aliases.get(value_lower, value_lower)
         for locale in cls:
             if locale.name.lower() == value_lower or locale.value.lower() == value_lower:
                 return locale
@@ -1067,6 +1081,7 @@ class Advanced:
     audio_backend: str = "sounddevice"  # 'sounddevice' or 'qt6'
     slowest_polling_rate: int = 5000  # in ms
     longest_sleep_time: float = 5.0
+    mute_game_on_minimize: bool = False
     cloud_sync_enabled: bool = False
     cloud_sync_auto_sync: bool = False
     cloud_sync_api_url: str = ""
@@ -1415,7 +1430,7 @@ class ProfileConfig:
 
         self.hotkeys.process_pause = config_data["hotkeys"].get("process_pause", self.hotkeys.process_pause)
 
-        with open(get_config_path(), "w") as f:
+        with open(get_config_path(), "w", encoding="utf-8") as f:
             f.write(self.to_json(indent=4))
             logger.warning(
                 "config.json successfully generated from previous settings. config.toml will no longer be used."
@@ -1749,7 +1764,7 @@ class Config:
     def load(cls):
         config_path = get_config_path()
         if os.path.exists(config_path):
-            with open(config_path, "r") as file:
+            with open(config_path, "r", encoding="utf-8-sig") as file:
                 data = json.load(file)
                 data = cls._migrate_raw_data(data)
                 return cls.from_dict(data)
@@ -1790,7 +1805,7 @@ class Config:
     def save(self):
         if self.current_profile in self.configs:
             self.configs[self.current_profile].overlay = self.overlay
-        with open(get_config_path(), "w") as file:
+        with open(get_config_path(), "w", encoding="utf-8") as file:
             json.dump(self.to_dict(), file, indent=4)
         return self
 
@@ -1913,6 +1928,7 @@ class Config:
             self.sync_shared_field(config.advanced, profile.advanced, "plaintext_websocket_port")
             self.sync_shared_field(config.advanced, profile.advanced, "localhost_bind_address")
             self.sync_shared_field(config.advanced, profile.advanced, "longest_sleep_time")
+            self.sync_shared_field(config.advanced, profile.advanced, "mute_game_on_minimize")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_enabled")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_auto_sync")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_api_url")
@@ -2150,7 +2166,7 @@ def load_config():
 
     if os.path.exists(config_path):
         try:
-            with open(config_path, "r") as file:
+            with open(config_path, "r", encoding="utf-8-sig") as file:
                 config_file = json.load(file)
                 config_file = _remove_legacy_hotkeys(config_file)
                 config_file = _remove_deprecated_config_settings(config_file)
@@ -2159,7 +2175,7 @@ def load_config():
                     return Config.from_dict(config_file)
                 else:
                     logger.warning("Loading Profile-less Config, Converting to new Config!")
-                    with open(config_path, "r") as file:
+                    with open(config_path, "r", encoding="utf-8-sig") as file:
                         config_file = json.load(file)
                     config_file = _remove_legacy_hotkeys(config_file)
                     config_file = _remove_deprecated_config_settings(config_file)
@@ -2226,7 +2242,7 @@ def get_master_config():
 def save_full_config(config):
     if hasattr(config, "get_config") and getattr(config, "current_profile", None) in getattr(config, "configs", {}):
         config.configs[config.current_profile].overlay = config.overlay
-    with open(get_config_path(), "w") as file:
+    with open(get_config_path(), "w", encoding="utf-8") as file:
         json.dump(config.to_dict(), file, indent=4)
 
 

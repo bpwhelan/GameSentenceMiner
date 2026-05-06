@@ -46,6 +46,8 @@ class OverlayRequestHandler:
                 await self.handle_process_pause_request(message)
             elif message_type == "set-gsm-overlay-config":
                 await self.handle_gsm_overlay_config_request(message)
+            elif message_type == "open-gsm-settings":
+                self.handle_open_gsm_settings_request(message)
             else:
                 logger.warning(f"Unknown overlay message type: {message_type}")
 
@@ -290,6 +292,25 @@ class OverlayRequestHandler:
             logger.info(f"Loaded {len(previous_lines)} previous lines for game '{get_current_game()}'")
         except Exception as e:
             logger.debug(f"Error getting previous lines for game after overlay config change: {e}")
+
+    def handle_open_gsm_settings_request(self, message: dict):
+        """
+        Open the main GSM settings window from the overlay settings UI.
+        """
+        root_tab_key = str(message.get("root_tab_key") or "").strip() or "profiles"
+        subtab_key = str(message.get("subtab_key") or "").strip()
+
+        try:
+            from GameSentenceMiner.util.config.configuration import gsm_state
+
+            settings_window = getattr(gsm_state, "config_app", None)
+            if settings_window is None:
+                logger.warning("Unable to open GSM settings from overlay: settings window is not initialized.")
+                return
+
+            settings_window.show_window(root_tab_key=root_tab_key, subtab_key=subtab_key)
+        except Exception as e:
+            logger.exception(f"Failed to open GSM settings from overlay: {e}")
 
     async def send_translation(self, translation: str):
         """Send translation result back to overlay."""

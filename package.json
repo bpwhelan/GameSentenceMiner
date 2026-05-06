@@ -51,7 +51,12 @@
       },
       {
         "from": "GSM_Overlay/out",
-        "to": "resources/GSM_Overlay"
+        "to": "resources/GSM_Overlay",
+        "filter": [
+          "**/*",
+          "!make",
+          "!make/**/*"
+        ]
       },
       {
         "from": "uv.lock",
@@ -65,7 +70,8 @@
     },
     "nsis": {
       "menuCategory": "GameSentenceMiner",
-      "include": "build/installer.nsh"
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
     },
     "mac": {
       "target": "dmg",

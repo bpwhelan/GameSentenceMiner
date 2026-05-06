@@ -7,66 +7,39 @@
     root.GSMBlockDetection = api;
   }
 }(typeof window !== 'undefined' ? window : globalThis, function () {
+  // Input rects are normalized [0..1]; we work in "percent of viewport"
+  // (0..100) internally so the thresholds below read naturally.
   const BLOCK_DETECTION_TUNING = Object.freeze({
-    minDimensionPercent: 0.1,
+    // Minimum (overlap / smaller line height) for two lines to count as the
+    // same visual row.
+    sameRowOverlapRatio: 0.3,
+
+    // Horizontal gap (as a multiple of median line height) above which we
+    // start treating the gap as a candidate column boundary.
+    columnGapMedianHeightMultiplier: 1.0,
+
+    // X-overlap ratio needed for two candidate gaps in different rows to be
+    // considered "the same column boundary".
+  columnClusterOverlapRatio: 0.5,
+
+    // A column boundary only counts if at least this many distinct rows show
+    // it. This is the key rule that prevents over-segmentation: a single line
+    // broken up by a wide space stays one block.
+    minRowsForColumn: 2,
+
+    // Vertically adjacent rows merge if their gap is at most this multiple of
+    // the median line height.
+    rowGapMedianHeightMultiplier: 1.6,
+
+    // Floor / fallback for the median line height in percent units, so very
+    // small OCR boxes don't yield nonsense thresholds.
     minMedianHeightPercent: 0.8,
     fallbackMedianHeightPercent: 1.8,
-    sameRow: Object.freeze({
-      verticalOverlapRatioMin: 0.35,
-      centerYMultiplier: 1.0,
-      centerYMinPercent: 1.0,
-      centerYMaxPercent: 4.0,
-      horizontalGapWidthMultiplier: 0.5,
-      horizontalGapPaddingPercent: 3,
-      horizontalGapMinPercent: 4,
-      horizontalGapMaxPercent: 32,
-    }),
-    crossRow: Object.freeze({
-      verticalGapMinPercent: 1.2,
-      verticalGapMedianHeightMultiplier: 0.9,
-      verticalGapAvgHeightMultiplier: 0.85,
-      centerYMinPercent: 1.5,
-      centerYMedianHeightMultiplier: 1.1,
-      centerYAvgHeightMultiplier: 1.1,
-      xOverlapRatioMin: 0.28,
-      minCharWidthPercent: 0.15,
-      leftEdgeDiffMinPercent: 2,
-      leftEdgeDiffCharWidthMultiplier: 3,
-      horizontalGapMinPercent: 3.5,
-      horizontalGapCharWidthMultiplier: 4.5,
-    }),
-    crossRowRelaxed: Object.freeze({
-      verticalGapMedianHeightMultiplier: 1.7,
-      verticalGapAvgHeightMultiplier: 1.5,
-      centerYMedianHeightMultiplier: 2.4,
-      centerYAvgHeightMultiplier: 2.2,
-      xSpanCoverageRatioMin: 0.18,
-      edgeDiffMinPercent: 3,
-      edgeDiffCharWidthMultiplier: 6,
-      centerXMinPercent: 5,
-      centerXWidthMultiplier: 0.65,
-    }),
-    persistentGap: Object.freeze({
-      minGapPercent: 8,
-      gapMedianHeightMultiplier: 2,
-      rowVerticalOverlapRatioMin: 0.35,
-      rowCenterYMinPercent: 1,
-      rowCenterYMedianHeightMultiplier: 1.15,
-      intervalOverlapRatioMin: 0.55,
-      minSupportingRows: 2,
-      distinctRowMinSeparationMultiplier: 0.55,
-      minVerticalSpanMultiplier: 1.6,
-      minSeparatorWidthPercent: 5,
-    }),
   });
 
   function getAxisGap(minA, maxA, minB, maxB) {
-    if (maxA < minB) {
-      return minB - maxA;
-    }
-    if (maxB < minA) {
-      return minA - maxB;
-    }
+    if (maxA < minB) return minB - maxA;
+    if (maxB < minA) return minA - maxB;
     return 0;
   }
 
@@ -75,77 +48,32 @@
   }
 
   function getMedianValue(values) {
-    if (!Array.isArray(values) || values.length === 0) {
-      return 0;
-    }
-    const sorted = values
-      .filter((value) => Number.isFinite(value))
-      .sort((a, b) => a - b);
-    if (sorted.length === 0) {
-      return 0;
-    }
+    if (!Array.isArray(values) || values.length === 0) return 0;
+    const sorted = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+    if (sorted.length === 0) return 0;
     const mid = Math.floor(sorted.length / 2);
-    if (sorted.length % 2 === 0) {
-      return (sorted[mid - 1] + sorted[mid]) / 2;
-    }
-    return sorted[mid];
+    return sorted.length % 2 === 0
+      ? (sorted[mid - 1] + sorted[mid]) / 2
+      : sorted[mid];
   }
 
-  function orderMetricsByX(lineA, lineB) {
-    return lineA.x1 <= lineB.x1
-      ? { left: lineA, right: lineB }
-      : { left: lineB, right: lineA };
-  }
-
-  function getIntervalOverlapRatio(startA, endA, startB, endB, minDimensionPercent = 0.1) {
-    const overlap = getAxisOverlap(startA, endA, startB, endB);
-    if (overlap <= 0) {
-      return 0;
-    }
-    const minSpan = Math.max(minDimensionPercent, Math.min(endA - startA, endB - startB));
-    return overlap / minSpan;
-  }
-
-  function countDistinctBands(values, minSeparation) {
-    const sorted = values
-      .filter((value) => Number.isFinite(value))
-      .sort((a, b) => a - b);
-    if (sorted.length === 0) {
-      return 0;
-    }
-
-    let count = 1;
-    let last = sorted[0];
-    for (let i = 1; i < sorted.length; i++) {
-      if ((sorted[i] - last) >= minSeparation) {
-        count += 1;
-        last = sorted[i];
-      }
-    }
-    return count;
-  }
-
-  function buildLineMetrics(lines, tuning = BLOCK_DETECTION_TUNING) {
+  function buildLineMetrics(lines) {
     return (Array.isArray(lines) ? lines : []).map((line, index) => {
       const rect = line && line.bounding_rect ? line.bounding_rect : {};
-      const rawX1 = Number(rect.x1) * 100;
-      const rawY1 = Number(rect.y1) * 100;
-      const rawX3 = Number(rect.x3) * 100;
-      const rawY3 = Number(rect.y3) * 100;
+      const ax1 = Number(rect.x1) * 100;
+      const ay1 = Number(rect.y1) * 100;
+      const ax3 = Number(rect.x3) * 100;
+      const ay3 = Number(rect.y3) * 100;
 
-      const safeX1 = Number.isFinite(rawX1) ? rawX1 : 0;
-      const safeY1 = Number.isFinite(rawY1) ? rawY1 : 0;
-      const safeX3 = Number.isFinite(rawX3) ? rawX3 : safeX1;
-      const safeY3 = Number.isFinite(rawY3) ? rawY3 : safeY1;
+      const sx1 = Number.isFinite(ax1) ? ax1 : 0;
+      const sy1 = Number.isFinite(ay1) ? ay1 : 0;
+      const sx3 = Number.isFinite(ax3) ? ax3 : sx1;
+      const sy3 = Number.isFinite(ay3) ? ay3 : sy1;
 
-      const x1 = Math.min(safeX1, safeX3);
-      const y1 = Math.min(safeY1, safeY3);
-      const x3 = Math.max(safeX1, safeX3);
-      const y3 = Math.max(safeY1, safeY3);
-
-      const textLength = typeof line?.text === 'string' && line.text.length > 0 ? line.text.length : 1;
-      const width = Math.max(tuning.minDimensionPercent, x3 - x1);
-      const height = Math.max(tuning.minDimensionPercent, y3 - y1);
+      const x1 = Math.min(sx1, sx3);
+      const y1 = Math.min(sy1, sy3);
+      const x3 = Math.max(sx1, sx3);
+      const y3 = Math.max(sy1, sy3);
 
       return {
         index,
@@ -153,260 +81,113 @@
         y1,
         x3,
         y3,
-        width,
-        height,
-        centerY: (y1 + y3) / 2,
-        charWidth: width / textLength,
+        width: Math.max(0.1, x3 - x1),
+        height: Math.max(0.1, y3 - y1),
       };
     });
   }
 
-  function getPersistentGapRowCandidate(lineA, lineB, medianHeight, tuning = BLOCK_DETECTION_TUNING) {
-    const persistentGapCfg = tuning.persistentGap;
-    const sameRowCfg = tuning.sameRow;
-    const { left, right } = orderMetricsByX(lineA, lineB);
-    const gapWidth = getAxisGap(left.x1, left.x3, right.x1, right.x3);
-    if (gapWidth <= 0) {
-      return null;
-    }
+  // Group line metrics into rows by vertical overlap. Returns rows sorted
+  // top-to-bottom; each row's items are sorted left-to-right.
+  function groupIntoRows(metrics, tuning) {
+    const sorted = [...metrics].sort((a, b) => a.y1 - b.y1 || a.x1 - b.x1);
+    const rows = [];
 
-    const avgHeight = Math.max(tuning.minDimensionPercent, (left.height + right.height) / 2);
-    const minHeight = Math.max(tuning.minDimensionPercent, Math.min(left.height, right.height));
-    const centerYDiff = Math.abs(left.centerY - right.centerY);
-    const verticalOverlap = getAxisOverlap(left.y1, left.y3, right.y1, right.y3);
-    const verticalOverlapRatio = verticalOverlap / minHeight;
-    const rowCenterYThreshold = Math.max(
-      persistentGapCfg.rowCenterYMinPercent,
-      Math.min(sameRowCfg.centerYMaxPercent, avgHeight * sameRowCfg.centerYMultiplier),
-      medianHeight * persistentGapCfg.rowCenterYMedianHeightMultiplier
-    );
-    const gapThreshold = Math.max(
-      persistentGapCfg.minGapPercent,
-      medianHeight * persistentGapCfg.gapMedianHeightMultiplier
-    );
-
-    if (
-      gapWidth < gapThreshold ||
-      (
-        verticalOverlapRatio < persistentGapCfg.rowVerticalOverlapRatioMin &&
-        centerYDiff > rowCenterYThreshold
-      )
-    ) {
-      return null;
-    }
-
-    return {
-      leftIndex: left.index,
-      rightIndex: right.index,
-      gapStart: left.x3,
-      gapEnd: right.x1,
-      gapWidth,
-      rowTop: Math.min(left.y1, right.y1),
-      rowBottom: Math.max(left.y3, right.y3),
-      rowCenterY: (left.centerY + right.centerY) / 2,
-    };
-  }
-
-  function buildPersistentGapSeparators(metrics, medianHeight, tuning = BLOCK_DETECTION_TUNING) {
-    const persistentGapCfg = tuning.persistentGap;
-    const rowCandidates = [];
-    for (let i = 0; i < metrics.length; i++) {
-      for (let j = i + 1; j < metrics.length; j++) {
-        const candidate = getPersistentGapRowCandidate(metrics[i], metrics[j], medianHeight, tuning);
-        if (candidate) {
-          rowCandidates.push(candidate);
+    for (const m of sorted) {
+      let target = null;
+      for (const row of rows) {
+        const overlap = getAxisOverlap(row.yMin, row.yMax, m.y1, m.y3);
+        if (overlap <= 0) continue;
+        const minH = Math.min(row.yMax - row.yMin, m.height);
+        if (minH > 0 && overlap / minH >= tuning.sameRowOverlapRatio) {
+          target = row;
+          break;
         }
       }
+      if (!target) {
+        target = { yMin: m.y1, yMax: m.y3, items: [] };
+        rows.push(target);
+      }
+      target.items.push(m);
+      target.yMin = Math.min(target.yMin, m.y1);
+      target.yMax = Math.max(target.yMax, m.y3);
     }
 
-    if (rowCandidates.length === 0) {
-      return [];
-    }
+    for (const r of rows) r.items.sort((a, b) => a.x1 - b.x1);
+    rows.sort((a, b) => a.yMin - b.yMin);
+    return rows;
+  }
 
-    rowCandidates.sort((a, b) => (
-      (a.gapStart - b.gapStart) ||
-      (a.gapEnd - b.gapEnd) ||
-      (a.rowCenterY - b.rowCenterY)
-    ));
+  // Detect vertical "column separator" strips: empty x-corridors confirmed by
+  // at least `minRowsForColumn` distinct rows. This keeps single-row layouts
+  // from being split while reliably catching real multi-column layouts.
+  function findColumnSeparators(rows, medianHeight, tuning) {
+    const minGap = medianHeight * tuning.columnGapMedianHeightMultiplier;
+    const candidates = [];
+
+    rows.forEach((row, rowIdx) => {
+      for (let i = 0; i < row.items.length - 1; i++) {
+        const left = row.items[i];
+        const right = row.items[i + 1];
+        const gap = right.x1 - left.x3;
+        if (gap > minGap) {
+          candidates.push({ xStart: left.x3, xEnd: right.x1, rowIdx });
+        }
+      }
+    });
 
     const clusters = [];
-    for (const candidate of rowCandidates) {
-      let matchedCluster = null;
+    for (const cand of candidates) {
+      let matched = null;
       for (const cluster of clusters) {
-        const overlapRatio = getIntervalOverlapRatio(
-          cluster.gapStart,
-          cluster.gapEnd,
-          candidate.gapStart,
-          candidate.gapEnd,
-          tuning.minDimensionPercent
-        );
-        if (overlapRatio < persistentGapCfg.intervalOverlapRatioMin) {
-          continue;
+        const overlap = getAxisOverlap(cluster.xStart, cluster.xEnd, cand.xStart, cand.xEnd);
+        if (overlap <= 0) continue;
+        const minWidth = Math.min(cluster.xEnd - cluster.xStart, cand.xEnd - cand.xStart);
+        if (minWidth > 0 && overlap / minWidth >= tuning.columnClusterOverlapRatio) {
+          matched = cluster;
+          break;
         }
-        matchedCluster = cluster;
-        break;
       }
-
-      if (!matchedCluster) {
+      if (matched) {
+        // Intersection of the two intervals: the strictly empty corridor.
+        matched.xStart = Math.max(matched.xStart, cand.xStart);
+        matched.xEnd = Math.min(matched.xEnd, cand.xEnd);
+        matched.rows.add(cand.rowIdx);
+      } else {
         clusters.push({
-          gapStart: candidate.gapStart,
-          gapEnd: candidate.gapEnd,
-          yMin: candidate.rowTop,
-          yMax: candidate.rowBottom,
-          rowCenters: [candidate.rowCenterY],
-          pairs: [candidate],
+          xStart: cand.xStart,
+          xEnd: cand.xEnd,
+          rows: new Set([cand.rowIdx]),
         });
-        continue;
       }
-
-      matchedCluster.gapStart = Math.max(matchedCluster.gapStart, candidate.gapStart);
-      matchedCluster.gapEnd = Math.min(matchedCluster.gapEnd, candidate.gapEnd);
-      matchedCluster.yMin = Math.min(matchedCluster.yMin, candidate.rowTop);
-      matchedCluster.yMax = Math.max(matchedCluster.yMax, candidate.rowBottom);
-      matchedCluster.rowCenters.push(candidate.rowCenterY);
-      matchedCluster.pairs.push(candidate);
     }
 
-    const minDistinctRowSeparation = medianHeight * persistentGapCfg.distinctRowMinSeparationMultiplier;
     return clusters
-      .filter((cluster) => cluster.gapEnd > cluster.gapStart)
-      .map((cluster) => ({
-        xStart: cluster.gapStart,
-        xEnd: cluster.gapEnd,
-        xCenter: (cluster.gapStart + cluster.gapEnd) / 2,
-        yMin: cluster.yMin,
-        yMax: cluster.yMax,
-        rowCount: countDistinctBands(cluster.rowCenters, minDistinctRowSeparation),
-      }))
-      .filter((cluster) => (
-        cluster.rowCount >= persistentGapCfg.minSupportingRows &&
-        (cluster.yMax - cluster.yMin) >= (medianHeight * persistentGapCfg.minVerticalSpanMultiplier) &&
-        (cluster.xEnd - cluster.xStart) >= persistentGapCfg.minSeparatorWidthPercent
-      ));
+      .filter((c) => c.xEnd > c.xStart && c.rows.size >= tuning.minRowsForColumn)
+      .map((c) => ({ xStart: c.xStart, xEnd: c.xEnd }));
   }
 
-  function pairCrossesPersistentSeparator(lineA, lineB, persistentSeparators) {
-    if (!Array.isArray(persistentSeparators) || persistentSeparators.length === 0) {
-      return false;
+  function rangeCrossesSeparator(xLo, xHi, separators) {
+    if (xHi <= xLo) return false;
+    for (const sep of separators) {
+      if (getAxisOverlap(xLo, xHi, sep.xStart, sep.xEnd) > 0) return true;
     }
-
-    const { left, right } = orderMetricsByX(lineA, lineB);
-    const pairGapStart = left.x3;
-    const pairGapEnd = right.x1;
-    if (pairGapEnd <= pairGapStart) {
-      return false;
-    }
-
-    const pairYMin = Math.min(left.y1, right.y1);
-    const pairYMax = Math.max(left.y3, right.y3);
-    return persistentSeparators.some((separator) => (
-      getAxisOverlap(pairGapStart, pairGapEnd, separator.xStart, separator.xEnd) > 0 &&
-      getAxisOverlap(pairYMin, pairYMax, separator.yMin, separator.yMax) > 0
-    ));
+    return false;
   }
 
-  function shouldLinesShareBlock(lineA, lineB, medianHeight, tuning = BLOCK_DETECTION_TUNING, persistentSeparators = []) {
-    const sameRowCfg = tuning.sameRow;
-    const crossRowCfg = tuning.crossRow;
-    const crossRowRelaxedCfg = tuning.crossRowRelaxed;
-    const avgHeight = Math.max(tuning.minDimensionPercent, (lineA.height + lineB.height) / 2);
-    const minHeight = Math.max(tuning.minDimensionPercent, Math.min(lineA.height, lineB.height));
-    const centerYDiff = Math.abs(lineA.centerY - lineB.centerY);
-    const verticalOverlap = getAxisOverlap(lineA.y1, lineA.y3, lineB.y1, lineB.y3);
-    const verticalOverlapRatio = verticalOverlap / minHeight;
-    const horizontalGap = getAxisGap(lineA.x1, lineA.x3, lineB.x1, lineB.x3);
-    const xOverlap = getAxisOverlap(lineA.x1, lineA.x3, lineB.x1, lineB.x3);
-    const minWidth = Math.max(tuning.minDimensionPercent, Math.min(lineA.width, lineB.width));
-    const maxWidth = Math.max(tuning.minDimensionPercent, Math.max(lineA.width, lineB.width));
-    const xOverlapRatio = xOverlap / minWidth;
-    const xSpanCoverageRatio = xOverlap / maxWidth;
-    const leftEdgeDiff = Math.abs(lineA.x1 - lineB.x1);
-    const rightEdgeDiff = Math.abs(lineA.x3 - lineB.x3);
-    const centerXDiff = Math.abs(((lineA.x1 + lineA.x3) / 2) - ((lineB.x1 + lineB.x3) / 2));
-    const avgCharWidth = Math.max(crossRowCfg.minCharWidthPercent, (lineA.charWidth + lineB.charWidth) / 2);
-
-    if (pairCrossesPersistentSeparator(lineA, lineB, persistentSeparators)) {
-      return false;
+  // Returns true if any item in a different row (within maxRowGap vertically)
+  // has a horizontal x-overlap with `item`. Used to detect whether an item is
+  // "isolated" (only on one visual row) vs. part of a multi-row run.
+  function hasVerticalNeighbor(item, rowIndex, rows, maxRowGap) {
+    for (let ri = 0; ri < rows.length; ri++) {
+      if (ri === rowIndex) continue;
+      const row = rows[ri];
+      if (getAxisGap(item.y1, item.y3, row.yMin, row.yMax) > maxRowGap) continue;
+      for (const other of row.items) {
+        if (getAxisOverlap(item.x1, item.x3, other.x1, other.x3) > 0) return true;
+      }
     }
-
-    const sameRowYThreshold = Math.max(
-      sameRowCfg.centerYMinPercent,
-      Math.min(sameRowCfg.centerYMaxPercent, avgHeight * sameRowCfg.centerYMultiplier)
-    );
-    const sameRowGapThreshold = Math.max(
-      sameRowCfg.horizontalGapMinPercent,
-      Math.min(
-        sameRowCfg.horizontalGapMaxPercent,
-        ((lineA.width + lineB.width) * sameRowCfg.horizontalGapWidthMultiplier) + sameRowCfg.horizontalGapPaddingPercent
-      )
-    );
-    const sameRow =
-      (verticalOverlapRatio >= sameRowCfg.verticalOverlapRatioMin || centerYDiff <= sameRowYThreshold) &&
-      horizontalGap <= sameRowGapThreshold;
-
-    if (sameRow) {
-      return true;
-    }
-
-    const verticalGap = getAxisGap(lineA.y1, lineA.y3, lineB.y1, lineB.y3);
-    const verticalGapThreshold = Math.max(
-      crossRowCfg.verticalGapMinPercent,
-      medianHeight * crossRowCfg.verticalGapMedianHeightMultiplier,
-      avgHeight * crossRowCfg.verticalGapAvgHeightMultiplier
-    );
-    const centerYThreshold = Math.max(
-      crossRowCfg.centerYMinPercent,
-      medianHeight * crossRowCfg.centerYMedianHeightMultiplier,
-      avgHeight * crossRowCfg.centerYAvgHeightMultiplier
-    );
-    const strictCrossRowMatch =
-      verticalGap <= verticalGapThreshold &&
-      centerYDiff <= centerYThreshold &&
-      (
-        xOverlapRatio >= crossRowCfg.xOverlapRatioMin ||
-        leftEdgeDiff <= Math.max(crossRowCfg.leftEdgeDiffMinPercent, avgCharWidth * crossRowCfg.leftEdgeDiffCharWidthMultiplier) ||
-        horizontalGap <= Math.max(crossRowCfg.horizontalGapMinPercent, avgCharWidth * crossRowCfg.horizontalGapCharWidthMultiplier)
-      );
-    if (strictCrossRowMatch) {
-      return true;
-    }
-
-    const relaxedVerticalGapThreshold = Math.max(
-      verticalGapThreshold,
-      medianHeight * crossRowRelaxedCfg.verticalGapMedianHeightMultiplier,
-      avgHeight * crossRowRelaxedCfg.verticalGapAvgHeightMultiplier
-    );
-    if (verticalGap > relaxedVerticalGapThreshold) {
-      return false;
-    }
-
-    const relaxedCenterYThreshold = Math.max(
-      centerYThreshold,
-      medianHeight * crossRowRelaxedCfg.centerYMedianHeightMultiplier,
-      avgHeight * crossRowRelaxedCfg.centerYAvgHeightMultiplier
-    );
-    if (centerYDiff > relaxedCenterYThreshold) {
-      return false;
-    }
-
-    if (xSpanCoverageRatio < crossRowRelaxedCfg.xSpanCoverageRatioMin) {
-      return false;
-    }
-
-    const relaxedEdgeThreshold = Math.max(
-      crossRowRelaxedCfg.edgeDiffMinPercent,
-      avgCharWidth * crossRowRelaxedCfg.edgeDiffCharWidthMultiplier
-    );
-    const relaxedCenterXThreshold = Math.max(
-      crossRowRelaxedCfg.centerXMinPercent,
-      maxWidth * crossRowRelaxedCfg.centerXWidthMultiplier
-    );
-
-    return (
-      leftEdgeDiff <= relaxedEdgeThreshold ||
-      rightEdgeDiff <= relaxedEdgeThreshold ||
-      centerXDiff <= relaxedCenterXThreshold
-    );
+    return false;
   }
 
   function detectTextBlocks(lines, tuning = BLOCK_DETECTION_TUNING) {
@@ -417,64 +198,98 @@
       return { lineBlocks, blockBoundaries, blockCount: 0 };
     }
 
-    const metrics = buildLineMetrics(lines, tuning);
+    const metrics = buildLineMetrics(lines);
+    const heights = metrics.map((m) => m.height).filter((h) => h > 0);
     const medianHeight = Math.max(
       tuning.minMedianHeightPercent,
-      getMedianValue(metrics.map((metric) => metric.height).filter((height) => Number.isFinite(height) && height > 0)) || tuning.fallbackMedianHeightPercent
+      getMedianValue(heights) || tuning.fallbackMedianHeightPercent
     );
-    const persistentSeparators = buildPersistentGapSeparators(metrics, medianHeight, tuning);
 
-    const parent = metrics.map((_, idx) => idx);
-    const find = (idx) => {
-      let current = idx;
-      while (parent[current] !== current) {
-        parent[current] = parent[parent[current]];
-        current = parent[current];
+    const rows = groupIntoRows(metrics, tuning);
+    const separators = findColumnSeparators(rows, medianHeight, tuning);
+    const maxRowGap = medianHeight * tuning.rowGapMedianHeightMultiplier;
+
+    const parent = metrics.map((_, i) => i);
+    const find = (i) => {
+      while (parent[i] !== i) {
+        parent[i] = parent[parent[i]];
+        i = parent[i];
       }
-      return current;
+      return i;
     };
     const unite = (a, b) => {
-      const rootA = find(a);
-      const rootB = find(b);
-      if (rootA === rootB) {
-        return;
-      }
-      parent[rootB] = rootA;
+      const ra = find(a);
+      const rb = find(b);
+      if (ra !== rb) parent[rb] = ra;
     };
 
-    for (let i = 0; i < metrics.length; i++) {
-      for (let j = i + 1; j < metrics.length; j++) {
-        if (shouldLinesShareBlock(metrics[i], metrics[j], medianHeight, tuning, persistentSeparators)) {
-          unite(i, j);
+    // 1. Merge horizontally-adjacent lines within each row, unless:
+    //    a) their gap sits inside a confirmed column separator, or
+    //    b) they are "asymmetric": one item continues into adjacent rows
+    //       (has vertical neighbors) and the other is isolated to this row.
+    //       This catches the common "character name + dialogue" layout where
+    //       the name only appears on one row while dialogue spans several.
+    //       Two truly isolated items (neither has neighbors, e.g. a single
+    //       two-item row with no other content) still merge as one block.
+    for (let ri = 0; ri < rows.length; ri++) {
+      const row = rows[ri];
+      for (let i = 0; i < row.items.length - 1; i++) {
+        const a = row.items[i];
+        const b = row.items[i + 1];
+        if (rangeCrossesSeparator(a.x3, b.x1, separators)) continue;
+        if (b.x1 > a.x3) {
+          // There is a gap between items — check for the asymmetric pattern.
+          const aHasNeighbor = hasVerticalNeighbor(a, ri, rows, maxRowGap);
+          const bHasNeighbor = hasVerticalNeighbor(b, ri, rows, maxRowGap);
+          if (aHasNeighbor !== bHasNeighbor) continue;
+        }
+        unite(a.index, b.index);
+      }
+    }
+
+    // 2. Merge vertically-adjacent rows where lines overlap horizontally and
+    //    that overlap doesn't fall inside a column separator.
+    for (let ri = 0; ri < rows.length - 1; ri++) {
+      const upper = rows[ri];
+      const lower = rows[ri + 1];
+      const vGap = lower.yMin - upper.yMax;
+      if (vGap > maxRowGap) continue;
+
+      for (const a of upper.items) {
+        for (const b of lower.items) {
+          const xLo = Math.max(a.x1, b.x1);
+          const xHi = Math.min(a.x3, b.x3);
+          if (xHi <= xLo) continue;
+          if (rangeCrossesSeparator(xLo, xHi, separators)) continue;
+          unite(a.index, b.index);
         }
       }
     }
 
+    // Collect components and order them top-to-bottom, left-to-right.
     const components = new Map();
     for (let i = 0; i < metrics.length; i++) {
       const root = find(i);
-      if (!components.has(root)) {
-        components.set(root, []);
-      }
+      if (!components.has(root)) components.set(root, []);
       components.get(root).push(i);
     }
 
-    const orderedComponents = Array.from(components.values())
+    const ordered = Array.from(components.values())
       .map((memberIndexes) => {
         let top = Infinity;
         let left = Infinity;
         let minIndex = Infinity;
         for (const idx of memberIndexes) {
-          const metric = metrics[idx];
-          top = Math.min(top, metric.y1);
-          left = Math.min(left, metric.x1);
-          minIndex = Math.min(minIndex, metric.index);
+          const m = metrics[idx];
+          if (m.y1 < top) top = m.y1;
+          if (m.x1 < left) left = m.x1;
+          if (idx < minIndex) minIndex = idx;
         }
         return { memberIndexes, top, left, minIndex };
       })
       .sort((a, b) => (a.top - b.top) || (a.left - b.left) || (a.minIndex - b.minIndex));
 
-    orderedComponents.forEach((component, blockId) => {
+    ordered.forEach((component, blockId) => {
       for (const idx of component.memberIndexes) {
         lineBlocks.set(idx, blockId);
       }
@@ -482,35 +297,27 @@
 
     for (let i = 0; i < lines.length; i++) {
       const blockId = lineBlocks.get(i);
-      if (blockId === undefined) {
-        continue;
-      }
-      if (!blockBoundaries.has(blockId)) {
+      if (blockId === undefined) continue;
+      const existing = blockBoundaries.get(blockId);
+      if (!existing) {
         blockBoundaries.set(blockId, { start: i, end: i });
       } else {
-        const boundary = blockBoundaries.get(blockId);
-        boundary.start = Math.min(boundary.start, i);
-        boundary.end = Math.max(boundary.end, i);
+        if (i < existing.start) existing.start = i;
+        if (i > existing.end) existing.end = i;
       }
     }
 
-    return {
-      lineBlocks,
-      blockBoundaries,
-      blockCount: orderedComponents.length,
-    };
+    return { lineBlocks, blockBoundaries, blockCount: ordered.length };
   }
 
   return {
     BLOCK_DETECTION_TUNING,
     buildLineMetrics,
-    buildPersistentGapSeparators,
     detectTextBlocks,
+    findColumnSeparators,
     getAxisGap,
     getAxisOverlap,
     getMedianValue,
-    getPersistentGapRowCandidate,
-    pairCrossesPersistentSeparator,
-    shouldLinesShareBlock,
+    groupIntoRows,
   };
 }));

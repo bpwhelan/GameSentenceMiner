@@ -125,7 +125,7 @@
       "home": "Inicio",
       "ocr": "OCR",
       "stats": "Estadísticas",
-      "gameSettings": "Ajustes del juego",
+      "gameSettings": "Automatización de juegos",
       "settings": "Ajustes",
       "python": "Python",
       "logs": "Registros"
@@ -245,7 +245,7 @@
       "title": "¡Todo listo! 🎉",
       "description": "GSM está listo. Aquí tienes algunos consejos para empezar:",
       "tipHome": "Abre la pestaña <strong>Inicio</strong> para ver el flujo de texto del juego actual",
-      "tipGameSettings": "Usa <strong>Ajustes del juego</strong> para configurar perfiles por juego",
+      "tipGameSettings": "Usa <strong>Automatización de juegos</strong> para configurar la automatización por juego",
       "tipSettings": "Revisa la pestaña <strong>Ajustes</strong> para configuración de Anki, audio y atajos",
       "tipConsole": "La pestaña <strong>Consola</strong> muestra lo que GSM está haciendo en segundo plano",
       "guidePre": "Para guías detalladas y resolución de problemas, visita el",
@@ -322,7 +322,7 @@
     "visibility": {
       "title": "Ajustes de visibilidad",
       "visibleTabs": "Pestañas visibles:",
-      "tabGameSettings": "Ajustes del juego",
+      "tabGameSettings": "Automatización de juegos",
       "tabStats": "Estadísticas",
       "tabPython": "Python",
       "tabConsole": "Consola",
@@ -443,10 +443,10 @@
     }
   },
   "launcher": {
-    "title": "Ajustes del juego",
+    "title": "Automatización de juegos",
     "docsButton": "Documentación del lanzador automático",
     "docsButtonTooltip": "Abrir documentación del lanzador automático",
-    "infoLabel": "Resumen de ajustes del juego",
+    "infoLabel": "Resumen de automatización de juegos",
     "overviewTooltip": "Configura rutas compartidas de herramientas de enganche de texto y automatización por juego. Elige un modo de enganche de texto (Ninguno/Agent/Textractor/Luna) y un modo OCR (Ninguno/Auto/Manual) para cada juego.",
     "shared": {
       "title": "Ajustes de herramientas compartidas",
@@ -504,7 +504,7 @@
       "openedReleases": "Página de versiones de {label} abierta.",
       "failedOpenReleases": "No se pudo abrir la página de versiones.",
       "failedOpenDocs": "No se pudo abrir la documentación.",
-      "savedShared": "Ajustes compartidos del juego guardados.",
+      "savedShared": "Ajustes compartidos de automatización de juegos guardados.",
       "updatedPath": "Ajuste de ruta compartida actualizado.",
       "savedScene": "Automatización guardada para el juego: {scene}",
       "updatedScript": "Script de Agent actualizado para el juego: {scene}",
@@ -518,7 +518,7 @@
       "downloadFailed": "No se pudo instalar {tool}."
     },
     "tooltips": {
-      "sharedToolSettings": "Rutas compartidas usadas por los ajustes del juego en todos los juegos de este perfil.",
+      "sharedToolSettings": "Rutas compartidas usadas por la automatización de juegos en todos los juegos de este perfil.",
       "sceneAutomation": "Comportamiento de inicio específico del juego. Cada juego puede usar diferentes ajustes de enganche de texto y OCR.",
       "agentPath": "Ruta al ejecutable de Agent cuando el lanzador de enganche de texto está configurado como Agent.",
       "agentScriptsPath": "Carpeta que contiene archivos de script de Agent (.js). Se usa para autodetección y valores predeterminados de exploración.",
@@ -546,7 +546,7 @@
       "ocrNone": "No iniciar OCR para este juego.",
       "ocrAuto": "Iniciar OCR automático continuo cuando este juego esté activo.",
       "ocrManual": "Iniciar entorno OCR manual para este juego. La captura OCR permanece manual mediante controles/atajos.",
-      "status": "Último estado de guardado/detección de las acciones de ajustes del juego.",
+      "status": "Último estado de guardado/detección de las acciones de automatización de juegos.",
       "candidatePicker": "Elegir el candidato de script de Agent que mejor coincida para este juego.",
       "noScene": "No hay un perfil de juego cargado. Selecciona un juego primero."
     }

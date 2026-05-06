@@ -69,12 +69,14 @@ import {
 } from '../store.js';
 import type { SceneLaunchProfile } from '../store.js';
 import { APP_NAME, BASE_DIR, getSanitizedPythonEnv } from '../util.js';
+import { syncPythonDisplayLocale } from '../python_locale.js';
 // Replaced WebSocket usage with stdout IPC helpers
 import {
     isPythonLaunchBlockedByUpdate,
     mainWindow,
     sendOpenOverlaySettings,
     sendOpenSettings,
+    sendReloadSettings,
 } from '../main.js';
 import { reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall } from '../main.js';
@@ -933,6 +935,8 @@ interface SettingsIPCDependencies {
 }
 
 export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
+    syncPythonDisplayLocale(getLocale());
+
     ipcMain.handle('settings.getSettings', async () => {
         return getSettingsSnapshot();
     });
@@ -1058,7 +1062,12 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
             setIconStyle(payload.iconStyle || 'gsm');
         }
         if (typeof payload.locale === 'string') {
-            setLocale(payload.locale || 'en');
+            const nextLocale = payload.locale || 'en';
+            setLocale(nextLocale);
+            const didSyncPythonLocale = syncPythonDisplayLocale(nextLocale);
+            if (didSyncPythonLocale) {
+                sendReloadSettings();
+            }
         }
         if (payload.consoleMode === 'simple' || payload.consoleMode === 'advanced') {
             setConsoleMode(payload.consoleMode);

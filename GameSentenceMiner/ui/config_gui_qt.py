@@ -215,6 +215,7 @@ class ConfigWindow(QWidget):
         self._settings_tab_indices = {}
         self._settings_subtab_widgets = {}
         self._settings_subtab_indices = {}
+        self._profile_change_hooks = []
 
         # --- Load Configuration and Localization ---
         self.editor = ConfigEditor()
@@ -418,6 +419,25 @@ class ConfigWindow(QWidget):
         self._flush_pending_auto_save()
         new_config = configuration.load_config()
         current_config = new_config.get_config()
+        locale_changed = new_config.get_locale() != self.master_config.get_locale()
+
+        if locale_changed:
+            logger.info("Locale changed, reloading UI localization.")
+            self.editor.replace_master_config(new_config)
+            self.master_config = self.editor.master_config
+            self.settings = self.editor.profile
+            self.i18n = load_localization(self.master_config.get_locale())
+            self.editor.clear_listeners()
+            self.binder = BindingManager(self.editor)
+            self._register_shared_bindings()
+            self.tab_widget.clear()
+            self._create_tabs()
+            self._create_button_bar()
+            self._load_settings_to_ui_safely()
+            self._connect_signals()
+            self._update_window_title()
+            self.refresh_obs_scenes(force_reload=True)
+            return
 
         if force_refresh or current_config.name != self.settings.name or self.settings.config_changed(current_config):
             logger.info("Config changed, reloading UI.")
@@ -432,6 +452,10 @@ class ConfigWindow(QWidget):
     def add_save_hook(self, func):
         if func not in on_save:
             on_save.append(func)
+
+    def add_profile_change_hook(self, func):
+        if func not in self._profile_change_hooks:
+            self._profile_change_hooks.append(func)
 
     def set_test_func(self, func):
         self.test_func = func
@@ -871,6 +895,7 @@ class ConfigWindow(QWidget):
                     localhost_bind_address=self.localhost_bind_address_edit.text(),
                     longest_sleep_time=float(self.longest_sleep_time_edit.text() or 5.0),
                     dont_collect_stats=self.dont_collect_stats_check.isChecked(),
+                    mute_game_on_minimize=self.mute_game_on_minimize_check.isChecked(),
                 ),
                 ai=Ai(
                     add_to_anki=self.ai_enabled_check.isChecked(),
@@ -1091,6 +1116,11 @@ class ConfigWindow(QWidget):
         self._flush_pending_auto_save(target_profile_name=previous_profile_name)
         self.master_config.current_profile = new_profile_name
         self.master_config.save()
+        for func in list(self._profile_change_hooks):
+            try:
+                func(previous_profile_name, new_profile_name)
+            except Exception as e:
+                logger.debug(f"Profile change hook failed for '{previous_profile_name}' -> '{new_profile_name}': {e}")
         self.editor.replace_master_config(self.master_config)
         self.master_config = self.editor.master_config
         self.settings = self.editor.profile
@@ -1458,6 +1488,7 @@ class ConfigWindow(QWidget):
         self.localhost_bind_address_edit = QLineEdit()
         self.longest_sleep_time_edit = QLineEdit()
         self.dont_collect_stats_check = QCheckBox()
+        self.mute_game_on_minimize_check = QCheckBox()
         self.current_version_label = QLabel()
         self.latest_version_label = QLabel()
 
@@ -2967,6 +2998,7 @@ class ConfigWindow(QWidget):
         self._set_text_value(self.localhost_bind_address_edit, s.advanced.localhost_bind_address)
         self.longest_sleep_time_edit.setText(str(s.advanced.longest_sleep_time))
         self.dont_collect_stats_check.setChecked(s.advanced.dont_collect_stats)
+        self.mute_game_on_minimize_check.setChecked(bool(getattr(s.advanced, "mute_game_on_minimize", False)))
         self.current_version_label.setText(get_current_version())
         self.latest_version_label.setText(get_latest_version())
 

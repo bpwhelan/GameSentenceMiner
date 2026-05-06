@@ -1223,6 +1223,17 @@ class TestSetupTokenizationReset:
         row = gsm_db.fetchone("SELECT tokenized FROM game_lines WHERE id = ?", ("reset_3",))
         assert row[0] == 0
 
+    def test_setup_schedules_global_frequency_sync_after_schema_setup(self, monkeypatch):
+        scheduled = []
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.database.tokenization_tables.start_global_frequency_source_sync",
+            lambda scheduled_db: scheduled.append(scheduled_db),
+        )
+
+        setup_tokenization(gsm_db)
+
+        assert scheduled == [gsm_db]
+
 
 class TestTokenizationDisableAndMigration:
     def setup_method(self):

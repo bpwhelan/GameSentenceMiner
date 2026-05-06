@@ -125,7 +125,7 @@
       "home": "主页",
       "ocr": "OCR",
       "stats": "统计",
-      "gameSettings": "游戏设置",
+      "gameSettings": "游戏自动化",
       "settings": "设置",
       "python": "Python",
       "logs": "日志"
@@ -245,7 +245,7 @@
       "title": "准备就绪！🎉",
       "description": "GSM 已准备好。以下是一些入门提示：",
       "tipHome": "打开<strong>主页</strong>标签查看当前游戏文本流",
-      "tipGameSettings": "使用<strong>游戏设置</strong>配置每个游戏的配置文件",
+      "tipGameSettings": "使用<strong>游戏自动化</strong>配置每个游戏的自动化",
       "tipSettings": "查看<strong>设置</strong>标签以配置 Anki、音频和热键",
       "tipConsole": "<strong>控制台</strong>标签显示 GSM 的后台运行情况",
       "guidePre": "如需详细指南和故障排除，请访问",
@@ -322,7 +322,7 @@
     "visibility": {
       "title": "可见性设置",
       "visibleTabs": "可见标签页：",
-      "tabGameSettings": "游戏设置",
+      "tabGameSettings": "游戏自动化",
       "tabStats": "统计",
       "tabPython": "Python",
       "tabConsole": "控制台",
@@ -443,10 +443,10 @@
     }
   },
   "launcher": {
-    "title": "游戏设置",
+    "title": "游戏自动化",
     "docsButton": "自动启动器文档",
     "docsButtonTooltip": "打开自动启动器文档",
-    "infoLabel": "游戏设置概览",
+    "infoLabel": "游戏自动化概览",
     "overviewTooltip": "配置共享的文本钉子工具路径和每游戏自动化。为每个游戏选择一种文本钉子模式（无/Agent/Textractor/Luna）和一种 OCR 模式（无/自动/手动）。",
     "shared": {
       "title": "共享工具设置",
@@ -504,7 +504,7 @@
       "openedReleases": "已打开 {label} 发布页面。",
       "failedOpenReleases": "无法打开发布页面。",
       "failedOpenDocs": "无法打开文档。",
-      "savedShared": "已保存共享游戏设置。",
+      "savedShared": "已保存共享游戏自动化设置。",
       "updatedPath": "已更新共享路径设置。",
       "savedScene": "已保存游戏自动化：{scene}",
       "updatedScript": "已更新游戏的 Agent 脚本：{scene}",
@@ -546,7 +546,7 @@
       "ocrNone": "不为此游戏启动 OCR。",
       "ocrAuto": "当此游戏活动时启动持续自动 OCR。",
       "ocrManual": "为此游戏启动手动 OCR 运行时。OCR 捕获通过控件/快捷键手动操作。",
-      "status": "游戏设置操作的最新保存/检测状态。",
+      "status": "游戏自动化操作的最新保存/检测状态。",
       "candidatePicker": "为此游戏选择最佳匹配的 Agent 脚本候选。",
       "noScene": "未加载游戏配置。请先选择一个游戏。"
     }

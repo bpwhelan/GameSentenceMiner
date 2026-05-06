@@ -117,6 +117,7 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
     "runManualOCROnStartup": False,
     "visibleTabs": ["launcher", "stats", "python", "console"],
     "statsEndpoint": "overview",
+    "locale": "en",
     "hasCompletedSetup": False,
 }
 

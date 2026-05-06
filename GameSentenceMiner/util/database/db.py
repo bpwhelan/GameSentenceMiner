@@ -2106,7 +2106,7 @@ def check_and_run_migrations():
 if gsm_db.read_only:
     logger.info("Skipping database migrations in read-only mode")
 else:
-    check_and_run_migrations()
+    threading.Thread(target=check_and_run_migrations, daemon=True).start()
 
 # all_lines = GameLinesTable.all()
 

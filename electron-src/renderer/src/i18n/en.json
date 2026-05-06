@@ -125,7 +125,7 @@
       "home": "Home",
       "ocr": "OCR",
       "stats": "Stats",
-      "gameSettings": "Game Settings",
+      "gameSettings": "Game Automation",
       "settings": "Settings",
       "python": "Python",
       "logs": "Logs"
@@ -245,7 +245,7 @@
       "title": "You're All Set! 🎉",
       "description": "GSM is ready to go. Here are some tips to get started:",
       "tipHome": "Open the <strong>Home</strong> tab to see the current game text stream",
-      "tipGameSettings": "Use <strong>Game Settings</strong> to configure per-game profiles",
+      "tipGameSettings": "Use <strong>Game Automation</strong> to configure per-game automation",
       "tipSettings": "Check the <strong>Settings</strong> tab for Anki, audio, and hotkey configuration",
       "tipConsole": "The <strong>Console</strong> tab shows what GSM is doing behind the scenes",
       "guidePre": "For detailed guides and troubleshooting, visit the",
@@ -322,7 +322,7 @@
     "visibility": {
       "title": "Visibility Settings",
       "visibleTabs": "Visible Tabs:",
-      "tabGameSettings": "Game Settings",
+      "tabGameSettings": "Game Automation",
       "tabStats": "Stats",
       "tabPython": "Python",
       "tabConsole": "Console",
@@ -443,10 +443,10 @@
     }
   },
   "launcher": {
-    "title": "Game Settings",
+    "title": "Game Automation",
     "docsButton": "Auto Launcher Docs",
     "docsButtonTooltip": "Open Auto Launcher documentation",
-    "infoLabel": "Game Settings Overview",
+    "infoLabel": "Game Automation Overview",
     "overviewTooltip": "Configure shared text-hook tool paths and per-game automation. Pick one text hook mode (None/Agent/Textractor/Luna) and one OCR mode (None/Auto/Manual) for each game.",
     "shared": {
       "title": "Shared Tool Settings",
@@ -504,7 +504,7 @@
       "openedReleases": "Opened {label} releases page.",
       "failedOpenReleases": "Failed to open releases page.",
       "failedOpenDocs": "Failed to open documentation.",
-      "savedShared": "Saved shared game settings.",
+      "savedShared": "Saved shared game automation settings.",
       "updatedPath": "Updated shared path setting.",
       "savedScene": "Saved automation for game: {scene}",
       "updatedScript": "Updated agent script for game: {scene}",
@@ -518,7 +518,7 @@
       "downloadFailed": "Failed to install {tool}."
     },
     "tooltips": {
-      "sharedToolSettings": "Shared paths used by Game Settings across all games in this profile.",
+      "sharedToolSettings": "Shared paths used by Game Automation across all games in this profile.",
       "sceneAutomation": "Game-specific startup behavior. Each game can use different text hook and OCR settings.",
       "agentPath": "Path to Agent executable used when Text Hook Launcher is set to Agent.",
       "agentScriptsPath": "Folder containing Agent script files (.js). Used for Auto Detect and Browse defaults.",
@@ -546,7 +546,7 @@
       "ocrNone": "Do not start OCR for this game.",
       "ocrAuto": "Start continuous Auto OCR when this game is active.",
       "ocrManual": "Start manual OCR runtime for this game. OCR capture remains manual via controls/hotkeys.",
-      "status": "Latest save/detect status from Game Settings actions.",
+      "status": "Latest save/detect status from Game Automation actions.",
       "candidatePicker": "Choose the best matching Agent script candidate for this game.",
       "noScene": "No game profile is loaded. Select a game first."
     }

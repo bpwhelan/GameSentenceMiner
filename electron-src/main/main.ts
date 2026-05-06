@@ -2425,6 +2425,9 @@ export function sendQuitOBS() { gsmStdoutManager?.sendQuitOBS(); }
 export function sendOpenSettings(data?: Record<string, unknown>) {
     gsmStdoutManager?.sendOpenSettings(data);
 }
+export function sendReloadSettings() {
+    gsmStdoutManager?.sendReloadSettings();
+}
 export function sendOpenOverlaySettings() {
     if (!gsmStdoutManager) {
         return false;

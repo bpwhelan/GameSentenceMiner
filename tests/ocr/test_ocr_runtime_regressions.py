@@ -283,6 +283,35 @@ def test_apply_ocr_config_to_image_scales_percentage_rectangles_to_frame_size():
     assert offset == (640, 360)
 
 
+def test_apply_ocr_config_to_image_includes_black_hole_rectangles_in_primary_crop():
+    img = Image.new("L", (100, 20), color=255)
+    config = SimpleNamespace(
+        rectangles=[
+            SimpleNamespace(
+                coordinates=[0, 0, 10, 10],
+                is_excluded=False,
+                is_secondary=False,
+                is_black_hole=False,
+            ),
+            SimpleNamespace(
+                coordinates=[40, 0, 10, 10],
+                is_excluded=False,
+                is_secondary=False,
+                is_black_hole=True,
+            ),
+        ]
+    )
+
+    processed, offset = run_module.apply_ocr_config_to_image(
+        img,
+        config,
+        return_full_size=False,
+    )
+
+    assert processed.size == (50, 10)
+    assert offset == (0, 0)
+
+
 def test_ocr_processor_second_pass_suppresses_subset_chunk_duplicate(monkeypatch):
     sent = []
     saved = []

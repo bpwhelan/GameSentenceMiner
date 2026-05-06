@@ -1,13 +1,63 @@
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
+const path = require('path');
 
 const isWindows = process.platform === 'win32';
 const isMac = process.platform === 'darwin';
+
+const ignoredPackagerEntries = new Set([
+  '.github',
+  '__pycache__',
+  'bin',
+  'input_server',
+  'jiten.reader',
+  'out',
+  'scripts',
+  'yomitan',
+]);
+
+const ignoredPackagerFiles = new Set([
+  '.gitignore',
+  'Node.gitignore',
+  'README.md',
+  'overlay.xcf',
+  'package-lock.json',
+  'yomitan_update_instructions.md',
+  'yomitan_update_prompt.md',
+]);
+
+function normalizePackagerPath(filePath) {
+  if (!filePath) {
+    return '';
+  }
+
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  if (/^\/(?!\/)/.test(normalizedPath)) {
+    return normalizedPath.replace(/^\/+/, '');
+  }
+
+  if (!path.isAbsolute(filePath)) {
+    return normalizedPath.replace(/^\/+/, '');
+  }
+
+  return path.relative(__dirname, filePath).replace(/\\/g, '/');
+}
+
+function ignorePackagerFile(filePath) {
+  const relativePath = normalizePackagerPath(filePath);
+  if (!relativePath || relativePath.startsWith('..')) {
+    return false;
+  }
+
+  const topLevelEntry = relativePath.split('/')[0];
+  return ignoredPackagerEntries.has(topLevelEntry) || ignoredPackagerFiles.has(relativePath);
+}
 
 module.exports = {
   packagerConfig: {
     asar: true,
     icon: isWindows ? './overlay.ico' : (isMac ? undefined : './overlay-256.png'),
+    ignore: ignorePackagerFile,
     "extraResource": ["yomitan", "jiten.reader", "input_server/bin", "input_server/mecab_bridge.py"],
   },
   rebuildConfig: {},

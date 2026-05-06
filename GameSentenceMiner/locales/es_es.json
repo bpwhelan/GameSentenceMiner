@@ -601,6 +601,10 @@
             "label": "Tasa de Sondeo:",
             "tooltip": "Velocidad a la que Anki verificará las actualizaciones (en milisegundos)."
           },
+          "mute_game_on_minimize": {
+            "label": "Silenciar Juego al Minimizar:",
+            "tooltip": "En Windows, silencia el juego capturado solo mientras su ventana está minimizada. No se silencia al estar en segundo plano o sin foco."
+          },
           "localhost_bind_address": {
             "label": "Dirección de Enlace de Localhost:",
             "tooltip": "Dirección de enlace para el servidor local."

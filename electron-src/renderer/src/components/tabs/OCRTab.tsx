@@ -372,6 +372,10 @@ const COMPARISON_FIELDS: ComparisonFieldDefinition[] = [
 const MENU_ONLY_LOG_MESSAGE =
   "Text is identified as all menu items, skipping further processing.";
 const MENU_ONLY_CONSOLE_MESSAGE = "\x1b[33mSkipped OCR result: detected only menu text\x1b[0m";
+const BLACK_HOLE_LOG_MESSAGE =
+  "Text is inside a black hole OCR box, skipping further processing.";
+const BLACK_HOLE_CONSOLE_MESSAGE =
+  "\x1b[33mSkipped OCR result: text is inside a black hole box\x1b[0m";
 const ANSI_RESET = "\x1b[0m";
 
 function formatRepeatedTerminalLine(message: string, count: number): string {
@@ -1349,14 +1353,21 @@ export function OCRTab({ active }: OcrTabProps) {
       }
 
       const isMenuOnlyLog = lowerLine.includes(MENU_ONLY_LOG_MESSAGE.toLowerCase());
+      const isBlackHoleLog = lowerLine.includes(BLACK_HOLE_LOG_MESSAGE.toLowerCase());
       const nextTerminalLine = isMenuOnlyLog
         ? MENU_ONLY_CONSOLE_MESSAGE
+        : isBlackHoleLog
+          ? BLACK_HOLE_CONSOLE_MESSAGE
         : OCR_RUN_2_RECOGNIZED_PATTERN.test(trimmedLine)
           ? `\x1b[92m${trimmedLine}\x1b[0m`
           : replaceEngineLabelsWithAnsi(trimmedLine);
 
       appendTerminalLine(nextTerminalLine, {
-        dedupeKey: isMenuOnlyLog ? MENU_ONLY_LOG_MESSAGE : undefined
+        dedupeKey: isMenuOnlyLog
+          ? MENU_ONLY_LOG_MESSAGE
+          : isBlackHoleLog
+            ? BLACK_HOLE_LOG_MESSAGE
+            : undefined
       });
       previousLogLineRef.current = trimmedLine;
     });

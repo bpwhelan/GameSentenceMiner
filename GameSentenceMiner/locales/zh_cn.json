@@ -592,6 +592,10 @@
           "polling_rate": {
             "label": "轮询率:",
             "tooltip": "Anki 检查更新的速率（毫秒）。"
+          },
+          "mute_game_on_minimize": {
+            "label": "最小化时静音游戏:",
+            "tooltip": "在 Windows 上，仅当目标游戏窗口最小化时将其静音。后台或未聚焦时不会静音。"
           }
         },
         "ai": {

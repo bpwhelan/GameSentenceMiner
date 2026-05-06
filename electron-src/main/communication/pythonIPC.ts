@@ -62,6 +62,9 @@ export class GSMStdoutManager extends EventEmitter {
     sendOpenSettings(data?: Record<string, unknown>) {
         this.sendCommand({ function: 'open_settings', data });
     }
+    sendReloadSettings() {
+        this.sendCommand({ function: 'reload_settings' });
+    }
     sendOpenOverlaySettings() {
         this.sendCommand({ function: 'open_overlay_settings' });
     }

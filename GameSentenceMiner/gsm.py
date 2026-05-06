@@ -358,6 +358,7 @@ class AppState:
     file_watcher_observer: Optional[Observer] = None
     file_watcher_path: Optional[str] = None
     async_runner: AsyncBackgroundRunner = field(default_factory=AsyncBackgroundRunner)
+    scene_profile_switch_resume_profile: Optional[str] = None
 
 
 class GSMTray(threading.Thread):
@@ -594,6 +595,8 @@ class GSMApplication:
         _get_texthooking_page_module().open_texthooker()
 
     def switch_profile(self, profile_name: str) -> None:
+        current_profile = get_master_config().current_profile
+        self._record_manual_profile_switch(current_profile, profile_name)
         logger.info(f"Switching to profile: {profile_name}")
         get_master_config().current_profile = profile_name
         switch_profile_and_save(profile_name)
@@ -747,7 +750,9 @@ class GSMApplication:
                 except Exception as e:
                     logger.error(f"Error removing temporary video file {video}: {e}")
 
-            _get_window_state_monitor_module().cleanup_suspended_processes()
+            window_state_monitor_module = _get_window_state_monitor_module()
+            getattr(window_state_monitor_module, "cleanup_minimized_audio_mutes", lambda: None)()
+            window_state_monitor_module.cleanup_suspended_processes()
             _get_qt_main_module().shutdown_qt_app()
             self.state.async_runner.stop()
 
@@ -984,6 +989,11 @@ class GSMApplication:
                     root_tab_key=str(data.get("root_tab_key") or ""),
                     subtab_key=str(data.get("subtab_key") or ""),
                 )
+            elif function == FunctionName.RELOAD_SETTINGS.value:
+                configuration.reload_config()
+                if self.state.settings_window:
+                    self.state.settings_window.reload_settings()
+                self.on_config_changed()
             elif function == FunctionName.OPEN_OVERLAY_SETTINGS.value:
                 from GameSentenceMiner.web.gsm_websocket import (
                     request_overlay_settings_open,
@@ -1084,6 +1094,9 @@ class GSMApplication:
     def _sync_profile_for_scene(
         self, scene: str, *, interactive: bool, refresh_previous_lines_on_switch: bool = True
     ) -> str | None:
+        if self._is_scene_profile_switch_paused():
+            return None
+
         switch_to = self._resolve_profile_for_scene(scene, interactive=interactive)
         if not switch_to or switch_to == get_master_config().current_profile:
             return switch_to
@@ -1096,6 +1109,40 @@ class GSMApplication:
         if self.state.settings_window:
             self.state.settings_window.reload_settings()
         return switch_to
+
+    def _record_manual_profile_switch(self, previous_profile_name: str, new_profile_name: str) -> None:
+        previous_profile_name = str(previous_profile_name or "").strip()
+        new_profile_name = str(new_profile_name or "").strip()
+        if not new_profile_name or new_profile_name == previous_profile_name:
+            return
+
+        resume_profile = getattr(self.state, "scene_profile_switch_resume_profile", None)
+        if resume_profile:
+            if new_profile_name == resume_profile:
+                self.state.scene_profile_switch_resume_profile = None
+                logger.info(
+                    f"Resuming automatic scene profile switching after manual switch back to '{resume_profile}'."
+                )
+            return
+
+        if previous_profile_name:
+            self.state.scene_profile_switch_resume_profile = previous_profile_name
+            logger.info(
+                "Pausing automatic scene profile switching after manual switch from "
+                f"'{previous_profile_name}' to '{new_profile_name}'. Switch back to "
+                f"'{previous_profile_name}' or restart GSM to resume."
+            )
+
+    def _is_scene_profile_switch_paused(self) -> bool:
+        resume_profile = getattr(self.state, "scene_profile_switch_resume_profile", None)
+        if not resume_profile:
+            return False
+
+        logger.debug(
+            "Skipping automatic scene profile switch while manual profile override is active; "
+            f"switch back to '{resume_profile}' or restart GSM to resume."
+        )
+        return True
 
     def _check_profile_for_scene_tick(self, scene: str) -> None:
         self._sync_profile_for_scene(scene, interactive=False)
@@ -1261,6 +1308,8 @@ class GSMApplication:
         self.register_hotkeys()
         self.state.settings_window.add_save_hook(self.register_hotkeys)
         self.state.settings_window.add_save_hook(self.on_config_changed)
+        if hasattr(self.state.settings_window, "add_profile_change_hook"):
+            self.state.settings_window.add_profile_change_hook(self._record_manual_profile_switch)
 
         self.state.async_runner.start()
         post_init = self.state.async_runner.submit(self.post_init_async())

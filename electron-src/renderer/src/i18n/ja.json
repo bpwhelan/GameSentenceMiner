@@ -125,7 +125,7 @@
       "home": "ホーム",
       "ocr": "OCR",
       "stats": "統計",
-      "gameSettings": "ゲーム設定",
+      "gameSettings": "ゲーム自動化",
       "settings": "設定",
       "python": "Python",
       "logs": "ログ"
@@ -245,7 +245,7 @@
       "title": "準備完了！🎉",
       "description": "GSMの準備ができました。始めるためのヒント:",
       "tipHome": "<strong>ホーム</strong>タブを開いて現在のゲームテキストストリームを確認",
-      "tipGameSettings": "<strong>ゲーム設定</strong>でゲームごとのプロファイルを設定",
+      "tipGameSettings": "<strong>ゲーム自動化</strong>でゲームごとの自動化を設定",
       "tipSettings": "<strong>設定</strong>タブでAnki、音声、ホットキーの設定を確認",
       "tipConsole": "<strong>コンソール</strong>タブでGSMの動作を確認",
       "guidePre": "詳細なガイドとトラブルシューティングは",
@@ -322,7 +322,7 @@
     "visibility": {
       "title": "表示設定",
       "visibleTabs": "表示するタブ:",
-      "tabGameSettings": "ゲーム設定",
+      "tabGameSettings": "ゲーム自動化",
       "tabStats": "統計",
       "tabPython": "Python",
       "tabConsole": "コンソール",
@@ -443,10 +443,10 @@
     }
   },
   "launcher": {
-    "title": "ゲーム設定",
+    "title": "ゲーム自動化",
     "docsButton": "自動ランチャーのドキュメント",
     "docsButtonTooltip": "自動ランチャーのドキュメントを開く",
-    "infoLabel": "ゲーム設定の概要",
+    "infoLabel": "ゲーム自動化の概要",
     "overviewTooltip": "共有テキストフックツールパスとゲームごとの自動化を設定します。各ゲームにテキストフックモード（なし/Agent/Textractor/Luna）とOCRモード（なし/自動/手動）を1つずつ選択してください。",
     "shared": {
       "title": "共有ツール設定",
@@ -504,7 +504,7 @@
       "openedReleases": "{label}のリリースページを開きました。",
       "failedOpenReleases": "リリースページを開けませんでした。",
       "failedOpenDocs": "ドキュメントを開けませんでした。",
-      "savedShared": "共有ゲーム設定を保存しました。",
+      "savedShared": "共有ゲーム自動化設定を保存しました。",
       "updatedPath": "共有パス設定を更新しました。",
       "savedScene": "ゲームの自動化を保存しました: {scene}",
       "updatedScript": "ゲームのAgentスクリプトを更新しました: {scene}",
@@ -546,7 +546,7 @@
       "ocrNone": "このゲームではOCRを起動しません。",
       "ocrAuto": "このゲームがアクティブな間、連続自動OCRを起動します。",
       "ocrManual": "このゲームの手動OCRランタイムを起動します。OCRキャプチャはコントロール/ホットキーで手動のままです。",
-      "status": "ゲーム設定アクションからの最新の保存/検出ステータス。",
+      "status": "ゲーム自動化アクションからの最新の保存/検出ステータス。",
       "candidatePicker": "このゲームに最も一致するAgentスクリプト候補を選択します。",
       "noScene": "ゲームプロファイルが読み込まれていません。まずゲームを選択してください。"
     }

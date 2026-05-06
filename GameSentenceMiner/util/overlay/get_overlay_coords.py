@@ -260,6 +260,7 @@ class OverlayProcessor:
                         tuple(getattr(rect, "coordinates", []) or []),
                         bool(getattr(rect, "is_excluded", False)),
                         bool(getattr(rect, "is_secondary", False)),
+                        bool(getattr(rect, "is_black_hole", False)),
                         monitor_signature,
                     )
                 )
@@ -371,6 +372,8 @@ class OverlayProcessor:
         use_exclusions = bool(getattr(overlay_settings, "ocr_area_config_use_exclusion_zones", True))
 
         def _should_include_rectangle(rectangle) -> bool:
+            if getattr(rectangle, "is_black_hole", False):
+                return False
             if getattr(rectangle, "is_excluded", False):
                 return use_exclusions
             if getattr(rectangle, "is_secondary", False):

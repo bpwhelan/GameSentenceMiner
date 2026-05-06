@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023-2025  Yomitan Authors
+ * Copyright (C) 2023-2026  Yomitan Authors
  * Copyright (C) 2019-2022  Yomichan Authors
  *
  * This program is free software: you can redistribute it and/or modify
@@ -96,7 +96,7 @@ await Application.main(true, async (application) => {
     preparePromises.push(dictionaryController.prepare());
 
     const dictionaryImportController = new DictionaryImportController(settingsController, modalController, statusFooter);
-    preparePromises.push(dictionaryImportController.prepare());
+    dictionaryImportController.prepare();
 
     const simpleScanningInputController = new ScanInputsSimpleController(settingsController);
     preparePromises.push(simpleScanningInputController.prepare());

@@ -275,6 +275,7 @@ scaled_ocr_config_cache = {}
 scaled_ocr_config_cache_lock = threading.Lock()
 MAX_SCALED_OCR_CACHE_SIZE = 24
 TEXT_DETECTION_RESULT_SCHEMA = "gsm_text_detection_v1"
+BLACK_HOLE_SKIP_LOG_MESSAGE = "Text is inside a black hole OCR box, skipping further processing."
 
 
 def _safe_int(value, default=0):
@@ -554,6 +555,7 @@ def _build_scaled_ocr_cache_key(ocr_config, width, height):
                     bool(getattr(rect, "is_excluded", False)),
                     bool(getattr(rect, "is_secondary", False)),
                     bool(getattr(rect, "is_exclusive", False)),
+                    bool(getattr(rect, "is_black_hole", False)),
                     monitor_signature,
                 )
             )
@@ -2787,7 +2789,7 @@ class OBSScreenshotThread(threading.Thread):
                 primary_rectangles = []
                 if self.ocr_config and getattr(self.ocr_config, "rectangles", None):
                     for rect in self.ocr_config.rectangles:
-                        if rect.is_excluded or rect.is_secondary:
+                        if rect.is_excluded or rect.is_secondary or _is_black_hole_rectangle(rect):
                             continue
                         primary_rectangles.append(list(rect.coordinates))
                 frame_metadata = {
@@ -2849,6 +2851,16 @@ def _get_rectangle_mask_fill(image):
     return tuple(0 for _ in bands[:4])
 
 
+def _is_black_hole_rectangle(rectangle):
+    return bool(getattr(rectangle, "is_black_hole", False)) and not bool(getattr(rectangle, "is_excluded", False))
+
+
+def _is_ocr_capture_rectangle(rectangle, is_secondary=False):
+    return not bool(getattr(rectangle, "is_excluded", False)) and bool(
+        getattr(rectangle, "is_secondary", False)
+    ) == bool(is_secondary)
+
+
 def apply_ocr_config_to_image(
     img,
     ocr_config,
@@ -2887,7 +2899,7 @@ def apply_ocr_config_to_image(
     if both_types:
         rectangles = [r for r in ocr_config.rectangles if not r.is_excluded]
     elif not rectangles:
-        rectangles = [r for r in ocr_config.rectangles if not r.is_excluded and r.is_secondary == is_secondary]
+        rectangles = [r for r in ocr_config.rectangles if _is_ocr_capture_rectangle(r, is_secondary)]
 
     for rectangle in ocr_config.rectangles:
         if rectangle.is_excluded:
@@ -3216,6 +3228,7 @@ def _get_exclusive_ocr_rectangles(original_width=None, original_height=None):
             getattr(rect, "is_exclusive", False)
             and not getattr(rect, "is_excluded", False)
             and not getattr(rect, "is_secondary", False)
+            and not getattr(rect, "is_black_hole", False)
         )
     ]
 
@@ -3257,6 +3270,82 @@ def _box_is_inside_any_rectangle(box, rectangles):
         rect_bottom = rect_top + rect_height
         if box_left >= rect_left and box_top >= rect_top and box_right <= rect_right and box_bottom <= rect_bottom:
             return True
+    return False
+
+
+def check_text_is_in_black_hole(
+    crop_coords: tuple,
+    crop_coords_list: list,
+    crop_offset: tuple = None,
+    crop_padding: int = 5,
+) -> bool:
+    """
+    Checks if any recognized text is inside a black-hole OCR rectangle.
+
+    Black-hole rectangles void the whole OCR result before exclusive filtering.
+    """
+
+    crop_padding = max(0, _safe_int(crop_padding, 5))
+    if crop_offset is None:
+        crop_offset = globals()["crop_offset"]
+
+    coords_to_check = []
+    if crop_coords_list:
+        coords_to_check = crop_coords_list
+    elif crop_coords:
+        coords_to_check = [tuple(crop_coords) + ("",)]
+    if not coords_to_check:
+        return False
+
+    if "obs_screenshot_thread" not in globals() or not obs_screenshot_thread:
+        return False
+
+    original_width = obs_screenshot_thread.width
+    original_height = obs_screenshot_thread.height
+
+    if original_width is None or original_height is None:
+        return False
+
+    ocr_config = get_scaled_scene_ocr_config(original_width, original_height)
+
+    if not ocr_config or not any(_is_black_hole_rectangle(rect) for rect in ocr_config.rectangles):
+        return False
+
+    black_hole_rectangles = [rect for rect in ocr_config.rectangles if _is_black_hole_rectangle(rect)]
+
+    if not black_hole_rectangles:
+        return False
+
+    offset_x, offset_y = crop_offset
+
+    for coord_entry in coords_to_check:
+        if len(coord_entry) < 4:
+            return False
+
+        crop_x, crop_y, crop_x2, crop_y2 = coord_entry[:4]
+        # Remove OCR crop padding before checking against black-hole rectangles.
+        crop_x += crop_padding
+        crop_y += crop_padding
+        crop_x2 -= crop_padding
+        crop_y2 -= crop_padding
+
+        # Apply offset to convert from cropped image coordinates to original image coordinates
+        crop_x += offset_x
+        crop_y += offset_y
+        crop_x2 += offset_x
+        crop_y2 += offset_y
+
+        if crop_x < 0 or crop_y < 0 or crop_x2 > original_width or crop_y2 > original_height:
+            return False
+
+        for black_hole_rect in black_hole_rectangles:
+            rect_left, rect_top, rect_width, rect_height = black_hole_rect.coordinates
+            rect_right = rect_left + rect_width
+            rect_bottom = rect_top + rect_height
+
+            if crop_x >= rect_left and crop_y >= rect_top and crop_x2 <= rect_right and crop_y2 <= rect_bottom:
+                return True
+
     return False
 
 
@@ -3532,8 +3621,18 @@ def process_and_write_results(
                 _safe_int(pipeline_metadata["processing"]["crop_offset"].get("x")),
                 _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
             )
+            original_size = pipeline_metadata["capture"]["scaled_size"]
+            if write_to is not None and check_text_is_in_black_hole(
+                detection_payload.get("crop_coords", None),
+                detection_payload.get("crop_coords_list", []),
+                crop_offset=current_crop_offset,
+                crop_padding=detection_payload.get("crop_padding", 5),
+            ):
+                logger.opt(ansi=True).info(BLACK_HOLE_SKIP_LOG_MESSAGE)
+                if return_payload:
+                    return "", "", None
+                return "", ""
             if not is_second_ocr:
-                original_size = pipeline_metadata["capture"]["scaled_size"]
                 detection_payload, _exclusive_applied = apply_exclusive_text_detection_filter(
                     detection_payload,
                     crop_offset=current_crop_offset,
@@ -3597,8 +3696,17 @@ def process_and_write_results(
             _safe_int(pipeline_metadata["processing"]["crop_offset"].get("x")),
             _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
         )
+        original_size = pipeline_metadata["capture"]["scaled_size"]
+        if write_to is not None and check_text_is_in_black_hole(
+            crop_coords,
+            crop_coords_list,
+            crop_offset=current_crop_offset,
+        ):
+            logger.opt(ansi=True).info(BLACK_HOLE_SKIP_LOG_MESSAGE)
+            if return_payload:
+                return "", "", None
+            return "", ""
         if not is_second_ocr:
-            original_size = pipeline_metadata["capture"]["scaled_size"]
             text, coords, crop_coords_list, crop_coords, raw_response_dict, _exclusive_applied = (
                 apply_exclusive_ocr_area_filter(
                     text,

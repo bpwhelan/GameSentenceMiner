@@ -139,6 +139,81 @@ def test_sync_profile_for_scene_skips_ambiguous_matches_during_periodic_checks(m
     assert saved_profiles == []
 
 
+def test_manual_profile_switch_pauses_automatic_scene_profile_switching(monkeypatch):
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app.state = SimpleNamespace(settings_window=None, scene_profile_switch_resume_profile=None)
+    app.get_previous_lines_for_game = lambda: None
+
+    master_config = SimpleNamespace(
+        configs={
+            "Default": SimpleNamespace(scenes=[]),
+            "Persona 3": SimpleNamespace(scenes=["Dorm"]),
+        },
+        current_profile="Persona 3",
+        switch_to_default_if_not_found=True,
+    )
+    saved_profiles = []
+
+    monkeypatch.setattr(gsm_module, "get_master_config", lambda: master_config)
+    monkeypatch.setattr(gsm_module, "switch_profile_and_save", lambda profile_name: saved_profiles.append(profile_name))
+
+    gsm_module.GSMApplication._record_manual_profile_switch(app, "Persona 3", "Default")
+    master_config.current_profile = "Default"
+
+    result = gsm_module.GSMApplication._sync_profile_for_scene(app, "Dorm", interactive=False)
+
+    assert result is None
+    assert master_config.current_profile == "Default"
+    assert saved_profiles == []
+    assert app.state.scene_profile_switch_resume_profile == "Persona 3"
+
+
+def test_manual_switch_back_to_original_profile_resumes_scene_profile_switching(monkeypatch):
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app.state = SimpleNamespace(settings_window=None, scene_profile_switch_resume_profile="Persona 3")
+    app.get_previous_lines_for_game = lambda: None
+
+    master_config = SimpleNamespace(
+        configs={
+            "Default": SimpleNamespace(scenes=[]),
+            "Persona 3": SimpleNamespace(scenes=["Dorm"]),
+            "Persona 4": SimpleNamespace(scenes=["Classroom"]),
+        },
+        current_profile="Default",
+        switch_to_default_if_not_found=True,
+    )
+    saved_profiles = []
+
+    monkeypatch.setattr(gsm_module, "get_master_config", lambda: master_config)
+    monkeypatch.setattr(gsm_module, "switch_profile_and_save", lambda profile_name: saved_profiles.append(profile_name))
+
+    gsm_module.GSMApplication._record_manual_profile_switch(app, "Default", "Persona 3")
+    master_config.current_profile = "Persona 3"
+    result = gsm_module.GSMApplication._sync_profile_for_scene(app, "Classroom", interactive=False)
+
+    assert result == "Persona 4"
+    assert app.state.scene_profile_switch_resume_profile is None
+    assert master_config.current_profile == "Persona 4"
+    assert saved_profiles == ["Persona 4"]
+
+
+def test_switch_profile_records_manual_profile_override(monkeypatch):
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app.state = SimpleNamespace(settings_window=None, scene_profile_switch_resume_profile=None)
+
+    master_config = SimpleNamespace(current_profile="Persona 3")
+    saved_profiles = []
+
+    monkeypatch.setattr(gsm_module, "get_master_config", lambda: master_config)
+    monkeypatch.setattr(gsm_module, "switch_profile_and_save", lambda profile_name: saved_profiles.append(profile_name))
+
+    gsm_module.GSMApplication.switch_profile(app, "Default")
+
+    assert app.state.scene_profile_switch_resume_profile == "Persona 3"
+    assert master_config.current_profile == "Default"
+    assert saved_profiles == ["Default"]
+
+
 def test_register_scene_observed_profile_check_registers_handler_and_checks_current_scene(monkeypatch):
     app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
     seen_scenes = []

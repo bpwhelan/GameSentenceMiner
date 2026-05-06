@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
+from GameSentenceMiner.util.config.configuration import Locale
 
 
 class _FakeConfigWindow:
@@ -56,6 +57,22 @@ class _FakeLineEdit:
 
     def setEnabled(self, enabled: bool) -> None:
         self.enabled = enabled
+
+
+class _FakeProfileCombo:
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def currentText(self) -> str:
+        return self._text
+
+
+class _FakeDeleteButton:
+    def __init__(self) -> None:
+        self.hidden: bool | None = None
+
+    def setHidden(self, hidden: bool) -> None:
+        self.hidden = hidden
 
 
 def test_show_window_impl_restores_minimized_window(monkeypatch) -> None:
@@ -162,6 +179,125 @@ def test_get_auto_accept_timer_value_uses_default_when_enabled_without_value() -
     )
 
     assert ConfigWindow._get_auto_accept_timer_value(window) == 10
+
+
+def test_on_profile_changed_notifies_profile_change_hooks() -> None:
+    calls: list[tuple[str, str]] = []
+    saved_profiles: list[str] = []
+    reloaded = []
+
+    class _FakeMasterConfig:
+        current_profile = "Default"
+
+        def save(self) -> None:
+            saved_profiles.append(self.current_profile)
+
+    class _FakeEditor:
+        def __init__(self, master_config) -> None:
+            self.master_config = master_config
+            self.profile = SimpleNamespace(name=master_config.current_profile)
+
+        def replace_master_config(self, master_config) -> None:
+            self.master_config = master_config
+            self.profile = SimpleNamespace(name=master_config.current_profile)
+
+    master_config = _FakeMasterConfig()
+    window = SimpleNamespace(
+        _profile_change_hooks=[],
+        profile_combo=_FakeProfileCombo("Persona 3"),
+        settings=SimpleNamespace(name="Default"),
+        master_config=master_config,
+        editor=_FakeEditor(master_config),
+        delete_profile_button=_FakeDeleteButton(),
+        _flush_pending_auto_save=lambda **_kwargs: None,
+        _schedule_runtime_reload=lambda: reloaded.append(True),
+        _load_settings_to_ui_safely=lambda: None,
+        refresh_obs_scenes=lambda **_kwargs: None,
+        _update_window_title=lambda: None,
+    )
+
+    ConfigWindow.add_profile_change_hook(window, lambda previous, new: calls.append((previous, new)))
+    ConfigWindow._on_profile_changed(window)
+
+    assert calls == [("Default", "Persona 3")]
+    assert saved_profiles == ["Persona 3"]
+    assert reloaded == [True]
+    assert window.delete_profile_button.hidden is False
+
+
+def test_reload_settings_rebuilds_localized_ui_when_locale_changes(monkeypatch) -> None:
+    calls: list[object] = []
+
+    class _FakeProfile:
+        name = "Default"
+
+        def config_changed(self, _other) -> bool:
+            return False
+
+    class _FakeMasterConfig:
+        def __init__(self, locale: Locale) -> None:
+            self._locale = locale
+
+        def get_config(self) -> _FakeProfile:
+            return _FakeProfile()
+
+        def get_locale(self) -> Locale:
+            return self._locale
+
+    class _FakeEditor:
+        def __init__(self, master_config) -> None:
+            self.master_config = master_config
+            self.profile = _FakeProfile()
+
+        def replace_master_config(self, master_config) -> None:
+            calls.append("replace_master_config")
+            self.master_config = master_config
+            self.profile = _FakeProfile()
+
+        def clear_listeners(self) -> None:
+            calls.append("clear_listeners")
+
+    current_master = _FakeMasterConfig(Locale.English)
+    next_master = _FakeMasterConfig(Locale.Українська)
+    editor = _FakeEditor(current_master)
+    window = SimpleNamespace(
+        editor=editor,
+        master_config=current_master,
+        settings=_FakeProfile(),
+        i18n={},
+        binder=None,
+        tab_widget=SimpleNamespace(clear=lambda: calls.append("clear_tabs")),
+        _flush_pending_auto_save=lambda: calls.append("flush_pending_auto_save"),
+        _register_shared_bindings=lambda: calls.append("register_shared_bindings"),
+        _create_tabs=lambda: calls.append("create_tabs"),
+        _create_button_bar=lambda: calls.append("create_button_bar"),
+        _load_settings_to_ui_safely=lambda: calls.append("load_settings_to_ui"),
+        _connect_signals=lambda: calls.append("connect_signals"),
+        _update_window_title=lambda: calls.append("update_window_title"),
+        refresh_obs_scenes=lambda **_kwargs: calls.append("refresh_obs_scenes"),
+    )
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.ui.config_gui_qt.configuration",
+        SimpleNamespace(load_config=lambda: next_master),
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.ui.config_gui_qt.load_localization",
+        lambda locale: {"locale": locale.value},
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.ui.config_gui_qt.BindingManager",
+        lambda _editor: calls.append("new_binder") or object(),
+    )
+
+    ConfigWindow._reload_settings_impl(window)
+
+    assert window.master_config is next_master
+    assert window.i18n == {"locale": "ukr_ua"}
+    assert "clear_tabs" in calls
+    assert "create_tabs" in calls
+    assert "create_button_bar" in calls
+    assert "connect_signals" in calls
 
 
 def test_reset_to_default_handles_numeric_screenshot_defaults(monkeypatch) -> None:
