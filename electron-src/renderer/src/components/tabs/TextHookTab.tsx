@@ -19,6 +19,7 @@ interface RuntimeStatusRunning {
   exeName: string;
   selectedHookId: string | null;
   hookCount: number;
+  flushDelayMs?: number;
 }
 
 interface RuntimeStatusStopped {
@@ -38,6 +39,7 @@ interface SavedProfile {
   exeName: string;
   engine: TextHookEngine;
   autoHook: boolean;
+  flushDelayMs?: number;
   hookId?: string | null;
   hookFunction?: string | null;
   manualHookCode?: string | null;
@@ -63,6 +65,14 @@ interface NoticeState {
 
 const MAX_LOG_LINES = 200;
 const MAX_TEXT_LINES = 300;
+const DEFAULT_FLUSH_DELAY_MS = 100;
+const MAX_FLUSH_DELAY_MS = 5000;
+
+function normalizeFlushDelayMs(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return DEFAULT_FLUSH_DELAY_MS;
+  return Math.min(MAX_FLUSH_DELAY_MS, Math.max(0, Math.round(parsed)));
+}
 
 interface TextHookTabProps {
   active: boolean;
@@ -76,6 +86,8 @@ export function TextHookTab({ active }: TextHookTabProps) {
   const [selectedHookId, setSelectedHookId] = useState<string | null>(null);
   const [engine, setEngine] = useState<TextHookEngine>("luna");
   const [autoHook, setAutoHook] = useState(true);
+  const [flushDelayMs, setFlushDelayMs] = useState(DEFAULT_FLUSH_DELAY_MS);
+  const [flushDelayInput, setFlushDelayInput] = useState(String(DEFAULT_FLUSH_DELAY_MS));
   const [manualHookCode, setManualHookCode] = useState("");
   const [logLines, setLogLines] = useState<LogLine[]>([]);
   const [textLines, setTextLines] = useState<TextLine[]>([]);
@@ -85,6 +97,21 @@ export function TextHookTab({ active }: TextHookTabProps) {
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textScrollRef = useRef<HTMLDivElement | null>(null);
   const logScrollRef = useRef<HTMLDivElement | null>(null);
+  const statusRunningRef = useRef(false);
+  const flushDelayInputFocusedRef = useRef(false);
+
+  useEffect(() => {
+    statusRunningRef.current = status.running;
+  }, [status.running]);
+
+  const syncFlushDelayState = useCallback((value: unknown, forceInput = false) => {
+    const next = normalizeFlushDelayMs(value);
+    setFlushDelayMs(next);
+    if (forceInput || !flushDelayInputFocusedRef.current) {
+      setFlushDelayInput(String(next));
+    }
+    return next;
+  }, []);
 
   const showNotice = useCallback((message: string, type: NoticeState["type"] = "info") => {
     setNotice({ type, message });
@@ -98,8 +125,9 @@ export function TextHookTab({ active }: TextHookTabProps) {
     if (next.running) {
       setSelectedHookId(next.selectedHookId);
       setEngine(next.engine);
+      syncFlushDelayState(next.flushDelayMs);
     }
-  }, []);
+  }, [syncFlushDelayState]);
 
   const refreshHooks = useCallback(async () => {
     const data = await invokeIpc<{ hooks: HookEntry[]; selectedHookId: string | null }>(
@@ -118,17 +146,21 @@ export function TextHookTab({ active }: TextHookTabProps) {
         info.exeName
       );
       setSavedProfile(profile ?? null);
-      if (profile) {
+      if (profile && !statusRunningRef.current) {
         setEngine(profile.engine);
         setAutoHook(profile.autoHook);
+        syncFlushDelayState(profile.flushDelayMs);
         if (profile.manualHookCode) {
           setManualHookCode(profile.manualHookCode);
         }
       }
     } else {
       setSavedProfile(null);
+      if (!statusRunningRef.current) {
+        syncFlushDelayState(DEFAULT_FLUSH_DELAY_MS);
+      }
     }
-  }, []);
+  }, [syncFlushDelayState]);
 
   // Auto-scroll text and log windows when content changes.
   useEffect(() => {
@@ -222,6 +254,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
         {
           engine,
           exeName: capture?.exeName ?? undefined,
+          flushDelayMs,
         }
       );
       if (!result.success) {
@@ -241,7 +274,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
     } finally {
       setBusy(false);
     }
-  }, [capture?.exeName, engine, refreshHooks, refreshStatus, showNotice, t]);
+  }, [capture?.exeName, engine, flushDelayMs, refreshHooks, refreshStatus, showNotice, t]);
 
   const stopSession = useCallback(async () => {
     setBusy(true);
@@ -279,6 +312,29 @@ export function TextHookTab({ active }: TextHookTabProps) {
     }
   }, [manualHookCode, showNotice, t]);
 
+  const updateFlushDelay = useCallback(
+    (value: string) => {
+      setFlushDelayInput(value);
+      if (value.trim() === "") return;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return;
+      const next = normalizeFlushDelayMs(parsed);
+      setFlushDelayMs(next);
+      if (status.running) {
+        void invokeIpc("texthook.setFlushDelay", next);
+      }
+    },
+    [status.running]
+  );
+
+  const commitFlushDelayInput = useCallback(() => {
+    flushDelayInputFocusedRef.current = false;
+    const next = syncFlushDelayState(flushDelayInput, true);
+    if (status.running) {
+      void invokeIpc("texthook.setFlushDelay", next);
+    }
+  }, [flushDelayInput, status.running, syncFlushDelayState]);
+
   const saveProfile = useCallback(async () => {
     const exeName = status.running ? status.exeName : capture?.exeName;
     if (!exeName) {
@@ -292,6 +348,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
         exeName,
         engine,
         autoHook,
+        flushDelayMs,
         hookId: selectedHookId,
         hookFunction: targetHook?.function ?? null,
         manualHookCode: manualHookCode.trim() || null,
@@ -307,6 +364,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
     autoHook,
     capture?.exeName,
     engine,
+    flushDelayMs,
     hooks,
     manualHookCode,
     selectedHookId,
@@ -452,6 +510,24 @@ export function TextHookTab({ active }: TextHookTabProps) {
                     />{" "}
                     {t("texthook.profile.autoHook")}
                   </label>
+                </div>
+                <div className="input-group">
+                  <label htmlFor="texthook-flush-delay-input">
+                    {t("texthook.profile.flushDelay")}
+                  </label>
+                  <input
+                    id="texthook-flush-delay-input"
+                    type="number"
+                    min="0"
+                    max={String(MAX_FLUSH_DELAY_MS)}
+                    step="10"
+                    value={flushDelayInput}
+                    onChange={(e) => updateFlushDelay(e.target.value)}
+                    onFocus={() => {
+                      flushDelayInputFocusedRef.current = true;
+                    }}
+                    onBlur={commitFlushDelayInput}
+                  />
                 </div>
                 <div className="input-group">
                   <label htmlFor="texthook-manual-input">

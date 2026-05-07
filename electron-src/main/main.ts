@@ -65,6 +65,7 @@ import { execFile } from 'node:child_process';
 import { autoLauncher } from './auto_launcher.js';
 import { registerMainIPC } from './services/main_ipc.js';
 import { installSessionManager } from './services/install_session_state.js';
+import { recordLatestTextProcessingInput } from './services/latest_text.js';
 import { UpdateManager } from './services/update_manager.js';
 import type { UpdateStatusSnapshot } from './services/update_manager.js';
 import { devFaultInjector } from './services/dev_fault_injection.js';
@@ -1103,6 +1104,12 @@ function runGSM(command: string, args: string[]): Promise<void> {
             }
             if (msg.function === 'text_intake_state') {
                 setTextIntakePausedState(Boolean(msg.data?.paused));
+            }
+            if (msg.function === 'text_received') {
+                const latestText = recordLatestTextProcessingInput(msg.data);
+                if (latestText) {
+                    safeSendToMainWindow('textprocess-latest-text', latestText);
+                }
             }
             if (msg.function === 'on_connect') {
                 markPythonIPCConnected();

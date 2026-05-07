@@ -69,6 +69,7 @@ const invokePrefixes = [
   "yuzu.",
   "front.",
   "texthook.",
+  "textprocess.",
   "wanakana-",
   "kuroshiro-"
 ];
@@ -94,6 +95,7 @@ const onPrefixes = [
   "websocket-",
   "settings-",
   "gsm-",
+  "textprocess-",
   "texthook."
 ];
 

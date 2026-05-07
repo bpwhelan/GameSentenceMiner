@@ -124,8 +124,7 @@
     "tabs": {
       "home": "홈",
       "ocr": "OCR",
-      "textHook": "텍스트 훅",
-      "stats": "통계",
+      "textHook": "텍스트 훅",      "textProcessing": "텍스트 처리",      "stats": "통계",
       "gameSettings": "게임 자동화",
       "settings": "설정",
       "python": "Python",
@@ -818,6 +817,7 @@
       "title": "저장된 프로필",
       "saved": "저장됨",
       "autoHook": "다음 시작 시 훅 자동 연결",
+      "flushDelay": "출력 플러시 지연 (ms):",
       "manualHook": "수동 훅 코드 (H/R-code):",
       "attachManual": "수동 훅 연결",
       "save": "훅 저장",

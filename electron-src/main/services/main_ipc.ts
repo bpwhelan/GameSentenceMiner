@@ -13,6 +13,7 @@ import { registerAnkiBeaconIPC } from '../ui/anki_beacon.js';
 import { registerYuzuIPC } from '../ui/yuzu.js';
 import { registerVNIPC } from '../ui/vn.js';
 import { registerTextHookIPC } from '../ui/texthook.js';
+import { registerTextProcessIPC } from '../ui/textprocess.js';
 import { exportLogsArchive } from './log_export.js';
 import { BASE_DIR } from '../util.js';
 import { isAllowedDocsUrl } from '../../shared/docs.js';
@@ -95,6 +96,7 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
     registerStateIPC();
     registerAnkiBeaconIPC();
     registerTextHookIPC();
+    registerTextProcessIPC();
 
     ipcMain.handle('show-error-box', async (_event, { title, message, detail }) => {
         const mainWindow = deps.getMainWindow();

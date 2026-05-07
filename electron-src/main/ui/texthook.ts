@@ -39,6 +39,8 @@ export interface TextHookProfile {
     engine: TextHookEngine;
     /** Auto-attach to the saved hook the moment it appears. */
     autoHook: boolean;
+    /** Debounce window before forwarding selected hook output to GSM. */
+    flushDelayMs: number;
     /** Stored hook id from the engine output. */
     hookId?: string | null;
     /** Function/thread name shown in the hook list, used as a fallback when ids change. */
@@ -75,6 +77,10 @@ interface ActiveSession {
     lineCarry: string;
     /** Last hook line, used for multiline hook text continuations. */
     lastHookForContinuation: { id: string; function: string; ignored: boolean } | null;
+    /** Debounced selected-hook text waiting to be forwarded. */
+    outputCollector: TextHookOutputPayload[];
+    outputFlushTimer: NodeJS.Timeout | null;
+    flushDelayMs: number;
     pidWatcher?: NodeJS.Timeout;
 }
 
@@ -86,6 +92,22 @@ const LUNA_HOOK_CREATED_LINE = /^\[Hook #([0-9a-fA-F]+) created\] Handle: ([0-9a
 const CONSOLE_LINE = /^\[Console\] (.+)$/;
 
 const PROFILES_FILE = path.join(BASE_DIR, 'texthook', 'profiles.json');
+const DEFAULT_FLUSH_DELAY_MS = 100;
+const MAX_FLUSH_DELAY_MS = 5000;
+
+interface TextHookOutputPayload {
+    text: string;
+    hookId: string;
+    hookFunction: string;
+    engine: TextHookEngine;
+    exeName: string;
+}
+
+type TextHookRuntimeStatus = ReturnType<typeof getRuntimeStatus>;
+type TextHookUserActionListener = (status: TextHookRuntimeStatus) => void;
+
+let userStartListener: TextHookUserActionListener | null = null;
+let userStopListener: TextHookUserActionListener | null = null;
 
 // ---------------------------------------------------------------------------
 // Renderer messaging helpers
@@ -337,6 +359,7 @@ function normalizeProfile(value: unknown): TextHookProfile | null {
         exeName: v.exeName.trim().toLowerCase(),
         engine,
         autoHook: v.autoHook !== false,
+        flushDelayMs: normalizeFlushDelayMs(v.flushDelayMs),
         hookId: typeof v.hookId === 'string' ? v.hookId : null,
         hookFunction: typeof v.hookFunction === 'string' ? v.hookFunction : null,
         manualHookCode:
@@ -345,6 +368,14 @@ function normalizeProfile(value: unknown): TextHookProfile | null {
                 : null,
         lastUsed: typeof v.lastUsed === 'number' ? v.lastUsed : Date.now(),
     };
+}
+
+function normalizeFlushDelayMs(value: unknown): number {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(parsed)) {
+        return DEFAULT_FLUSH_DELAY_MS;
+    }
+    return Math.min(MAX_FLUSH_DELAY_MS, Math.max(0, Math.round(parsed)));
 }
 
 function saveAllProfiles(profiles: Record<string, TextHookProfile>): void {
@@ -367,6 +398,7 @@ export function upsertProfile(profile: TextHookProfile): TextHookProfile {
     const normalized: TextHookProfile = {
         ...profile,
         exeName: profile.exeName.toLowerCase(),
+        flushDelayMs: normalizeFlushDelayMs(profile.flushDelayMs),
         lastUsed: Date.now(),
     };
     all[normalized.exeName] = normalized;
@@ -409,7 +441,9 @@ function isIgnorableEngineLine(line: string): boolean {
         line.startsWith('To see all hooks') ||
         line.startsWith('To continue with current selection') ||
         line === '======================' ||
-        line === 'Now showing text from all hooks.'
+        line === 'Now showing text from all hooks.' ||
+        line === 'Now showing text only from selected hook.' ||
+        /^Selected hook #[0-9a-fA-F]+(?: \(Handle: [0-9a-fA-F]+\))?(?:Now showing text only from selected hook\.)?$/.test(line)
     );
 }
 
@@ -563,15 +597,64 @@ function recordHookEvent(hookId: string, fn: string, text: string): void {
     }
 
     if (session.selectedHookId === hookId && text) {
-        sendTextHookLine({
+        queueSelectedHookText({
             text,
             hookId,
             hookFunction: fn,
             engine: session.engine,
             exeName: session.exeName,
         });
-        emitToRenderer('texthook.text', { hookId, text, ts: Date.now() });
     }
+}
+
+function sendSelectedHookText(payload: TextHookOutputPayload): void {
+    sendTextHookLine(payload);
+    emitToRenderer('texthook.text', {
+        hookId: payload.hookId,
+        text: payload.text,
+        ts: Date.now(),
+    });
+}
+
+function flushSelectedHookText(): void {
+    if (!session) return;
+    if (session.outputFlushTimer) {
+        clearTimeout(session.outputFlushTimer);
+        session.outputFlushTimer = null;
+    }
+    if (session.outputCollector.length === 0) return;
+
+    const pending = session.outputCollector;
+    session.outputCollector = [];
+    const merged = mergeTextHookOutput(pending);
+    if (merged) sendSelectedHookText(merged);
+}
+
+function mergeTextHookOutput(pending: TextHookOutputPayload[]): TextHookOutputPayload | null {
+    if (pending.length === 0) return null;
+    if (pending.length === 1) return pending[0];
+    const last = pending[pending.length - 1];
+    return {
+        ...last,
+        text: pending.map((item) => item.text).join('\n'),
+    };
+}
+
+function queueSelectedHookText(payload: TextHookOutputPayload): void {
+    if (!session) return;
+    const delayMs = normalizeFlushDelayMs(session.flushDelayMs);
+    if (delayMs <= 0) {
+        sendSelectedHookText(payload);
+        return;
+    }
+
+    session.outputCollector.push(payload);
+    if (session.outputFlushTimer) {
+        clearTimeout(session.outputFlushTimer);
+    }
+    session.outputFlushTimer = setTimeout(() => {
+        flushSelectedHookText();
+    }, delayMs);
 }
 
 // ---------------------------------------------------------------------------
@@ -600,6 +683,7 @@ function queueEngineCommand(
 export interface StartHookOptions {
     engine?: TextHookEngine;
     exeName?: string | null;
+    flushDelayMs?: number;
     /** Override the auto-detected PID (mainly for tests). */
     pidOverride?: number;
 }
@@ -671,6 +755,7 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
     }
 
     const profile = getProfileFor(exeName);
+    const flushDelayMs = normalizeFlushDelayMs(options.flushDelayMs ?? profile?.flushDelayMs);
     session = {
         proc,
         engine,
@@ -687,6 +772,9 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         stdoutCarry: Buffer.alloc(0),
         lineCarry: '',
         lastHookForContinuation: null,
+        outputCollector: [],
+        outputFlushTimer: null,
+        flushDelayMs,
     };
 
     proc.stdout.on('data', handleStdoutChunk);
@@ -756,9 +844,14 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
 
 function teardownSession(): void {
     if (!session) return;
+    flushSelectedHookText();
     if (session.pidWatcher) {
         clearInterval(session.pidWatcher);
         session.pidWatcher = undefined;
+    }
+    if (session.outputFlushTimer) {
+        clearTimeout(session.outputFlushTimer);
+        session.outputFlushTimer = null;
     }
     try {
         if (!session.proc.killed) {
@@ -783,6 +876,7 @@ export interface SelectHookOptions {
 export async function selectHook(hookId: string, options: SelectHookOptions = {}): Promise<boolean> {
     if (!session) return false;
     if (!session.hooks.has(hookId)) return false;
+    flushSelectedHookText();
     try {
         queueEngineCommand(session.proc, `select ${hookId}\n`, (err) => {
             emitLog(`Failed to select hook ${hookId}: ${err.message}`, 'error');
@@ -832,7 +926,50 @@ export function getRuntimeStatus() {
         exeName: session.exeName,
         selectedHookId: session.selectedHookId,
         hookCount: session.hooks.size,
+        flushDelayMs: session.flushDelayMs,
     };
+}
+
+export function setFlushDelayMs(value: number): { success: boolean; flushDelayMs?: number; error?: string } {
+    if (!session) return { success: false, error: 'No active text hook session.' };
+    const flushDelayMs = normalizeFlushDelayMs(value);
+    session.flushDelayMs = flushDelayMs;
+    if (flushDelayMs <= 0) {
+        flushSelectedHookText();
+    } else if (session.outputCollector.length > 0) {
+        if (session.outputFlushTimer) {
+            clearTimeout(session.outputFlushTimer);
+        }
+        session.outputFlushTimer = setTimeout(() => {
+            flushSelectedHookText();
+        }, flushDelayMs);
+    }
+    emitStatus();
+    return { success: true, flushDelayMs };
+}
+
+export function setTextHookUserStartListener(listener: TextHookUserActionListener | null): void {
+    userStartListener = listener;
+}
+
+export function setTextHookUserStopListener(listener: TextHookUserActionListener | null): void {
+    userStopListener = listener;
+}
+
+function notifyTextHookUserStart(status: TextHookRuntimeStatus): void {
+    try {
+        userStartListener?.(status);
+    } catch (err) {
+        emitLog(`Text hook user-start listener failed: ${(err as Error).message}`, 'warn');
+    }
+}
+
+function notifyTextHookUserStop(status: TextHookRuntimeStatus): void {
+    try {
+        userStopListener?.(status);
+    } catch (err) {
+        emitLog(`Text hook user-stop listener failed: ${(err as Error).message}`, 'warn');
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -855,12 +992,20 @@ export function registerTextHookIPC(): void {
         }
     });
 
-    ipcMain.handle('texthook.start', async (_event, options: StartHookOptions | undefined) =>
-        startHookSession(options ?? {}),
-    );
+    ipcMain.handle('texthook.start', async (_event, options: StartHookOptions | undefined) => {
+        const result = await startHookSession(options ?? {});
+        if (result.success) {
+            notifyTextHookUserStart(getRuntimeStatus());
+        }
+        return result;
+    });
 
     ipcMain.handle('texthook.stop', async () => {
+        const statusBeforeStop = getRuntimeStatus();
         stopHookSession();
+        if (statusBeforeStop.running) {
+            notifyTextHookUserStop(statusBeforeStop);
+        }
         return { success: true };
     });
 
@@ -871,6 +1016,10 @@ export function registerTextHookIPC(): void {
 
     ipcMain.handle('texthook.attachManualHook', async (_event, code: string) =>
         attachManualHookCode(String(code ?? '')),
+    );
+
+    ipcMain.handle('texthook.setFlushDelay', async (_event, value: number) =>
+        setFlushDelayMs(Number(value)),
     );
 
     ipcMain.handle('texthook.listHooks', async () => {
@@ -890,6 +1039,7 @@ export function registerTextHookIPC(): void {
                       exeName?: string;
                       engine?: TextHookEngine;
                       autoHook?: boolean;
+                      flushDelayMs?: number;
                       hookId?: string | null;
                       hookFunction?: string | null;
                       manualHookCode?: string | null;
@@ -904,6 +1054,7 @@ export function registerTextHookIPC(): void {
                 exeName: payload.exeName,
                 engine,
                 autoHook: payload.autoHook !== false,
+                flushDelayMs: normalizeFlushDelayMs(payload.flushDelayMs),
                 hookId: payload.hookId ?? null,
                 hookFunction: payload.hookFunction ?? null,
                 manualHookCode: payload.manualHookCode ?? null,
@@ -934,6 +1085,11 @@ export function shutdownTextHook(): void {
 export const __test = {
     sanitizeFilename,
     isValidHookCode,
+    isIgnorableEngineLine,
+    normalizeFlushDelayMs,
+    mergeTextHookOutput,
+    DEFAULT_FLUSH_DELAY_MS,
+    MAX_FLUSH_DELAY_MS,
     TEXTRACTOR_HOOK_LINE,
     LUNA_HOOK_LINE,
     LUNA_HOOK_CREATED_LINE,

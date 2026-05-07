@@ -124,8 +124,7 @@
     "tabs": {
       "home": "主页",
       "ocr": "OCR",
-      "textHook": "文本挂接",
-      "stats": "统计",
+      "textHook": "文本挂接",      "textProcessing": "文本预处理",      "stats": "统计",
       "gameSettings": "游戏自动化",
       "settings": "设置",
       "python": "Python",
@@ -818,6 +817,7 @@
       "title": "已保存配置",
       "saved": "已保存",
       "autoHook": "下次启动时自动附加挂接",
+      "flushDelay": "输出刷新延迟（ms）：",
       "manualHook": "手动挂接代码（H/R-code）：",
       "attachManual": "附加手动挂接",
       "save": "保存挂接",

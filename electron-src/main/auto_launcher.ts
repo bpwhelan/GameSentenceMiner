@@ -35,6 +35,8 @@ import type { SwitchScriptResolutionResult } from './agent_script_resolver.js';
 import {
     getProfileFor,
     getRuntimeStatus,
+    setTextHookUserStartListener,
+    setTextHookUserStopListener,
     startHookSession,
     stopHookSession,
 } from './ui/texthook.js';
@@ -65,6 +67,19 @@ export class AutoLauncher {
     private lastLauncherPollAt: number = 0;
     private lastOcrPollAt: number = 0;
     private lastTextHookStartFailureKey: string = "";
+    private suppressedAutoTextHookSceneId: string = "";
+    private suppressedAutoTextHookReason: string = "";
+    private lastTextHookAutomationSceneId: string = "";
+    private lastTextHookSuppressionSkipSceneId: string = "";
+
+    constructor() {
+        setTextHookUserStopListener(() => {
+            void this.suppressTextHookAutoStartForCurrentScene("user-stopped");
+        });
+        setTextHookUserStartListener(() => {
+            this.clearTextHookSuppression("user-started");
+        });
+    }
 
     private normalizeLaunchDelaySeconds(value: unknown): number {
         if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -127,6 +142,7 @@ export class AutoLauncher {
         this.expectedAutoLauncherOcrStop = false;
         this.lastObservedAutoLauncherOcrRunning = false;
         this.clearOcrSuppression("polling-stopped");
+        this.clearTextHookSuppression("polling-stopped");
     }
 
     private scheduleNextPoll(delay: number) {
@@ -189,6 +205,64 @@ export class AutoLauncher {
 
     private isAutoOcrSuppressedForScene(sceneId: string): boolean {
         return this.suppressedAutoOcrSceneId === sceneId;
+    }
+
+    private setTextHookSuppression(sceneId: string, reason: string) {
+        if (!sceneId) {
+            return;
+        }
+        this.suppressedAutoTextHookSceneId = sceneId;
+        this.suppressedAutoTextHookReason = reason;
+        this.lastTextHookSuppressionSkipSceneId = "";
+        this.logInternal(
+            `AutoLauncher: Text hook auto-start suppressed for scene ${sceneId} (${reason}).`
+        );
+    }
+
+    private clearTextHookSuppression(reason: string) {
+        if (!this.suppressedAutoTextHookSceneId) {
+            return;
+        }
+        this.logInternal(
+            `AutoLauncher: Clearing text hook auto-start suppression for scene ${this.suppressedAutoTextHookSceneId} (${reason}).`
+        );
+        this.suppressedAutoTextHookSceneId = "";
+        this.suppressedAutoTextHookReason = "";
+        this.lastTextHookSuppressionSkipSceneId = "";
+    }
+
+    private isAutoTextHookSuppressedForScene(sceneId: string): boolean {
+        return this.suppressedAutoTextHookSceneId === sceneId;
+    }
+
+    private clearTextHookSuppressionIfSceneChanged(currentScene: ObsScene) {
+        if (
+            this.suppressedAutoTextHookSceneId &&
+            this.suppressedAutoTextHookSceneId !== currentScene.id
+        ) {
+            this.clearTextHookSuppression("scene-changed");
+        }
+    }
+
+    private async suppressTextHookAutoStartForCurrentScene(reason: string) {
+        let sceneId = this.lastTextHookAutomationSceneId;
+        try {
+            const scene = await this.resolveCurrentScene();
+            sceneId = scene?.id || sceneId;
+        } catch {
+            // Use the last polled scene if OBS is temporarily unavailable.
+        }
+        this.setTextHookSuppression(sceneId, reason);
+    }
+
+    private logSuppressedTextHookAutoStartOnce(currentScene: ObsScene) {
+        if (this.lastTextHookSuppressionSkipSceneId === currentScene.id) {
+            return;
+        }
+        this.lastTextHookSuppressionSkipSceneId = currentScene.id;
+        this.logInternal(
+            `AutoLauncher: Text hook auto-start suppressed for scene "${currentScene.name}" until manual start or scene change.`
+        );
     }
 
     private stopOcrIfSceneChanged(currentScene: ObsScene) {
@@ -1162,6 +1236,8 @@ export class AutoLauncher {
 
     private async runTextHookAutomation(currentScene: ObsScene): Promise<boolean> {
         let keepFastPolling = false;
+        this.lastTextHookAutomationSceneId = currentScene.id;
+        this.clearTextHookSuppressionIfSceneChanged(currentScene);
 
         try {
             const sceneProfile = getSceneLaunchProfileForScene(currentScene);
@@ -1185,6 +1261,10 @@ export class AutoLauncher {
                 this.resetAgentTracking();
                 const engine = this.resolveIntegratedTextHookEngine(exeName, textHookMode);
                 if (engine) {
+                    if (this.isAutoTextHookSuppressedForScene(currentScene.id)) {
+                        this.logSuppressedTextHookAutoStartOnce(currentScene);
+                        return false;
+                    }
                     await this.handleIntegratedTextHookAutomation(
                         exeName,
                         engine,
@@ -1197,6 +1277,10 @@ export class AutoLauncher {
             const savedProfileEngine = this.resolveIntegratedTextHookEngine(exeName, textHookMode);
             if (savedProfileEngine) {
                 this.resetAgentTracking();
+                if (this.isAutoTextHookSuppressedForScene(currentScene.id)) {
+                    this.logSuppressedTextHookAutoStartOnce(currentScene);
+                    return false;
+                }
                 await this.handleIntegratedTextHookAutomation(exeName, savedProfileEngine);
                 return false;
             }

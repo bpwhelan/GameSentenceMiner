@@ -625,8 +625,76 @@ class StringReplacement:
 
 @dataclass_json
 @dataclass
+class TextProcessor:
+    """A single text processing step that can be enabled/disabled and reordered."""
+
+    id: str = ""
+    enabled: bool = False
+
+
+@dataclass_json
+@dataclass
+class RemoveRepeatCharsConfig:
+    repeat_count: int = 1  # 1 = auto-detect
+    keep_non_repeated: bool = True
+
+
+@dataclass_json
+@dataclass
+class RemoveRepeatLinesConfig:
+    repeat_count: int = 1  # 1 = auto-detect
+
+
+@dataclass_json
+@dataclass
+class ExtractLinesConfig:
+    max_lines: int = 3
+    from_end: bool = True
+
+
+@dataclass_json
+@dataclass
+class UnicodeNormalizeConfig:
+    form: str = "NFKC"  # NFD, NFC, NFKD, NFKC
+
+
+@dataclass_json
+@dataclass
 class TextProcessing:
     string_replacement: StringReplacement = field(default_factory=StringReplacement)
+    processor_order: List[str] = field(
+        default_factory=lambda: [
+            "string_replacement",
+            "remove_repeated_chars",
+            "remove_repeated_lines",
+            "remove_control_chars",
+            "remove_non_japanese",
+            "remove_newlines",
+            "remove_numbers",
+            "remove_english",
+            "remove_curly_braces",
+            "remove_angle_brackets",
+            "extract_bracketed_text",
+            "extract_lines",
+            "unicode_normalize",
+        ]
+    )
+    remove_repeated_chars: bool = False
+    remove_repeated_chars_config: RemoveRepeatCharsConfig = field(default_factory=RemoveRepeatCharsConfig)
+    remove_repeated_lines: bool = False
+    remove_repeated_lines_config: RemoveRepeatLinesConfig = field(default_factory=RemoveRepeatLinesConfig)
+    remove_control_chars: bool = False
+    remove_non_japanese: bool = False
+    remove_newlines: bool = False
+    remove_numbers: bool = False
+    remove_english: bool = False
+    remove_curly_braces: bool = False
+    remove_angle_brackets: bool = False
+    extract_bracketed_text: bool = False
+    extract_lines: bool = False
+    extract_lines_config: ExtractLinesConfig = field(default_factory=ExtractLinesConfig)
+    unicode_normalize: bool = False
+    unicode_normalize_config: UnicodeNormalizeConfig = field(default_factory=UnicodeNormalizeConfig)
 
 
 @dataclass_json
