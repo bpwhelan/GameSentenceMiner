@@ -131,6 +131,14 @@ jobs:
           path: dist/*Setup*.exe
           if-no-files-found: error
 
+      - name: Upload unsigned unpacked Windows build for SignPath
+        id: upload-unsigned-windows-unpacked
+        uses: actions/upload-artifact@v4
+        with:
+          name: signpath-dev-windows-unpacked-${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          path: dist/win-unpacked
+          if-no-files-found: error
+
       - name: Submit Windows signing request
         uses: signpath/github-action-submit-signing-request@v2
         with:
@@ -141,6 +149,18 @@ jobs:
           github-artifact-id: ${{ steps.upload-unsigned-windows.outputs.artifact-id }}
           wait-for-completion: true
           output-artifact-directory: signed_windows
+
+      - name: Submit unpacked Windows signing request
+        id: sign-windows-unpacked
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_APITOKEN }}
+          organization-id: c677c167-9f3e-4577-b967-5d7730bf742d
+          project-slug: GameSentenceMiner
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: Unpacked_GSM
+          github-artifact-id: ${{ steps.upload-unsigned-windows-unpacked.outputs.artifact-id }}
+          wait-for-completion: true
 
       - name: Replace installer with signed copy and recreate update metadata
         shell: pwsh
@@ -197,6 +217,24 @@ jobs:
           ) -join "`n"
           Set-Content -Path (Join-Path $distRoot "latest.yml") -Value $latestYml -Encoding utf8NoBOM
 
+      - name: Download signed unpacked Windows build
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content -Raw -Path "./package.json" | ConvertFrom-Json).version
+          if (-not $packageVersion) {
+            throw "Unable to read version from package.json."
+          }
+
+          $zipPath = Join-Path (Resolve-Path "dist").Path "GameSentenceMiner-$packageVersion-win-unpacked.zip"
+          if (Test-Path $zipPath) {
+            Remove-Item -LiteralPath $zipPath -Force
+          }
+
+          Invoke-WebRequest -Uri "${{ steps.sign-windows-unpacked.outputs.signed-artifact-download-url }}" -OutFile $zipPath
+          if (-not (Test-Path $zipPath)) {
+            throw "Failed to download signed unpacked Windows zip."
+          }
+
       - name: Upload to pre-release
         uses: softprops/action-gh-release@v2
         with:
@@ -207,6 +245,7 @@ jobs:
           overwrite_files: true
           files: |
             dist/*Setup*.exe
+            dist/GameSentenceMiner-*-win-unpacked.zip
             dist/latest.yml
             dist/*.blockmap
         env:
