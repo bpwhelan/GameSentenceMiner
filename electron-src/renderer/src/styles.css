@@ -4680,3 +4680,123 @@ button.danger:hover:not(:disabled) {
 .checkbox-item {
   color: var(--gsm-text-primary);
 }
+
+/* ============================================================ */
+/* Text Hook Tab                                                */
+/* ============================================================ */
+.texthook-workspace .texthook-hooks {
+  display: flex;
+  flex-direction: column;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--gsm-surface-1);
+  border: 1px solid var(--gsm-border-subtle);
+  border-radius: var(--gsm-radius-md);
+  padding: 4px;
+}
+
+.texthook-hook-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.texthook-hook-row {
+  display: flex;
+}
+
+.texthook-hook-row .texthook-hook-button {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 60px 180px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--gsm-radius-sm);
+  color: var(--gsm-text-primary);
+  cursor: pointer;
+  font-family: var(--gsm-font-mono, monospace);
+  font-size: 12px;
+  width: 100%;
+}
+
+.texthook-hook-row .texthook-hook-button:hover {
+  background: var(--gsm-surface-hover);
+  border-color: var(--gsm-border-default);
+}
+
+.texthook-hook-row.selected .texthook-hook-button {
+  background: var(--gsm-accent-soft, rgba(108, 194, 139, 0.18));
+  border-color: var(--gsm-accent-border);
+  color: var(--gsm-accent-strong);
+}
+
+.texthook-hook-id {
+  font-weight: 600;
+  color: var(--gsm-text-secondary);
+}
+
+.texthook-hook-fn {
+  color: var(--gsm-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.texthook-hook-preview {
+  color: var(--gsm-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.texthook-output,
+.texthook-log {
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--gsm-surface-1);
+  border: 1px solid var(--gsm-border-subtle);
+  border-radius: var(--gsm-radius-md);
+  padding: 8px 10px;
+  font-family: var(--gsm-font-mono, monospace);
+  font-size: 12px;
+  color: var(--gsm-text-primary);
+}
+
+.texthook-output-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.texthook-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.texthook-log-line {
+  padding: 1px 0;
+  color: var(--gsm-text-secondary);
+}
+
+.texthook-log-line--warn {
+  color: var(--gsm-warning, #d69e2e);
+}
+
+.texthook-log-line--error {
+  color: var(--gsm-danger, #e06b6b);
+}
+
+.texthook-empty {
+  padding: 20px 12px;
+  color: var(--gsm-text-tertiary, var(--gsm-text-secondary));
+  font-style: italic;
+  text-align: center;
+}

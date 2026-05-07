@@ -32,6 +32,14 @@ import {
     resolveSwitchAgentScript
 } from './agent_script_resolver.js';
 import type { SwitchScriptResolutionResult } from './agent_script_resolver.js';
+import {
+    getProfileFor,
+    getRuntimeStatus,
+    startHookSession,
+    stopHookSession,
+} from './ui/texthook.js';
+
+type IntegratedTextHookEngine = "textractor" | "luna";
 
 export class AutoLauncher {
     private intervalId: NodeJS.Timeout | null = null;
@@ -56,6 +64,7 @@ export class AutoLauncher {
     private suppressedAutoOcrReason: string = "";
     private lastLauncherPollAt: number = 0;
     private lastOcrPollAt: number = 0;
+    private lastTextHookStartFailureKey: string = "";
 
     private normalizeLaunchDelaySeconds(value: unknown): number {
         if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -713,6 +722,96 @@ export class AutoLauncher {
         );
     }
 
+    private resolveIntegratedTextHookEngine(
+        exeName: string | null | undefined,
+        textHookMode: string
+    ): IntegratedTextHookEngine | null {
+        if (textHookMode === "textractor" || textHookMode === "luna") {
+            return textHookMode;
+        }
+        if (!exeName || textHookMode !== "none") {
+            return null;
+        }
+
+        const profile = getProfileFor(exeName);
+        if (!profile || !profile.autoHook) {
+            return null;
+        }
+        if (!profile.hookId && !profile.hookFunction && !profile.manualHookCode) {
+            return null;
+        }
+        return profile.engine;
+    }
+
+    private async handleIntegratedTextHookAutomation(
+        exeName: string | null | undefined,
+        engine: IntegratedTextHookEngine,
+        launchDelaySeconds: number = 0
+    ): Promise<void> {
+        if (!exeName) {
+            return;
+        }
+
+        const gamePid = await this.getPidByProcessName(exeName);
+        if (gamePid <= 0) {
+            return;
+        }
+
+        const currentStatus = getRuntimeStatus();
+        if (currentStatus.running) {
+            if (
+                currentStatus.pid === gamePid &&
+                currentStatus.engine === engine &&
+                currentStatus.exeName.toLowerCase() === exeName.toLowerCase()
+            ) {
+                return;
+            }
+
+            this.logInternal(
+                `AutoLauncher: Stopping active text hook for ${currentStatus.exeName} before attaching ${engine} to ${exeName}.`
+            );
+            stopHookSession();
+        }
+
+        if (launchDelaySeconds > 0) {
+            this.logInternal(
+                `AutoLauncher: Waiting ${launchDelaySeconds.toFixed(1)}s before starting ${engine} text hook.`
+            );
+            await new Promise((resolve) => setTimeout(resolve, launchDelaySeconds * 1000));
+
+            const currentPid = await this.getPidByProcessName(exeName);
+            if (currentPid !== gamePid) {
+                this.logInternal(
+                    `AutoLauncher: Game process changed during ${engine} text hook delay (Old: ${gamePid}, New: ${currentPid}). Skipping attach.`
+                );
+                return;
+            }
+        }
+
+        const result = await startHookSession({
+            engine,
+            exeName,
+            pidOverride: gamePid,
+        });
+        const failureKey = `${engine}:${exeName}:${gamePid}:${result.error ?? "unknown"}`;
+
+        if (!result.success) {
+            if (this.lastTextHookStartFailureKey !== failureKey) {
+                this.warnInternal(
+                    `AutoLauncher: Failed to start ${engine} text hook for ${exeName} (PID: ${gamePid}): ${result.error ?? "unknown error"}`
+                );
+                this.lastTextHookStartFailureKey = failureKey;
+            }
+            return;
+        }
+
+        this.lastTextHookStartFailureKey = "";
+        this.currentPollingInterval = this.defaultPollingInterval;
+        this.logInternal(
+            `AutoLauncher: Started ${engine} text hook for ${exeName} (PID: ${gamePid}).`
+        );
+    }
+
     // On Windows, fetch the live window title for a PID using PowerShell (MainWindowTitle).
     // Returns null if unavailable or on non-Windows platforms.
     private async getLiveWindowTitle(pid: number): Promise<string | null> {
@@ -1084,11 +1183,21 @@ export class AutoLauncher {
 
             if (sceneProfile && textHookMode !== "agent") {
                 this.resetAgentTracking();
-                if (textHookMode === "textractor") {
-                    await this.handleTextractorAutomation(exeName, launchDelaySeconds);
-                } else if (textHookMode === "luna") {
-                    await this.handleLunaAutomation(exeName, launchDelaySeconds);
+                const engine = this.resolveIntegratedTextHookEngine(exeName, textHookMode);
+                if (engine) {
+                    await this.handleIntegratedTextHookAutomation(
+                        exeName,
+                        engine,
+                        launchDelaySeconds
+                    );
                 }
+                return false;
+            }
+
+            const savedProfileEngine = this.resolveIntegratedTextHookEngine(exeName, textHookMode);
+            if (savedProfileEngine) {
+                this.resetAgentTracking();
+                await this.handleIntegratedTextHookAutomation(exeName, savedProfileEngine);
                 return false;
             }
 

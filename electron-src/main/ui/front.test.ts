@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const existsSyncMock = vi.fn();
 const spawnMock = vi.fn();
+const execFileMock = vi.fn();
 let isDevValue = false;
+const originalPlatform = process.platform;
 
 vi.mock('electron', () => ({
     ipcMain: {
@@ -15,6 +17,7 @@ vi.mock('fs', () => ({
 }));
 
 vi.mock('child_process', () => ({
+    execFile: execFileMock,
     spawn: spawnMock,
 }));
 
@@ -65,6 +68,7 @@ vi.mock('../main.js', () => ({
 function createProcessHandle() {
     const listeners: Record<string, ((...args: any[]) => void) | undefined> = {};
     return {
+        pid: 1234,
         exitCode: null,
         kill: vi.fn(),
         once: vi.fn((event: string, callback: (...args: any[]) => void) => {
@@ -86,6 +90,11 @@ describe('runOverlayWithSource', () => {
         isDevValue = false;
         existsSyncMock.mockReset();
         spawnMock.mockReset();
+        execFileMock.mockReset();
+        Object.defineProperty(process, 'platform', {
+            value: originalPlatform,
+            configurable: true,
+        });
     });
 
     it('runs npm start in GSM_Overlay when launched from source', async () => {
@@ -108,6 +117,31 @@ describe('runOverlayWithSource', () => {
             isRunning: true,
             source: 'startup',
         });
+    });
+
+    it('stops the whole Windows process tree for source-launched overlays', async () => {
+        Object.defineProperty(process, 'platform', {
+            value: 'win32',
+            configurable: true,
+        });
+        isDevValue = true;
+        existsSyncMock.mockReturnValue(true);
+        const processHandle = createProcessHandle();
+        spawnMock.mockReturnValue(processHandle);
+        execFileMock.mockImplementation((_command, _args, _options, callback) => callback(null));
+
+        const { runOverlayWithSource, stopOverlay } = await loadFrontModule();
+
+        await expect(runOverlayWithSource('manual')).resolves.toBe(true);
+
+        expect(stopOverlay()).toBe(true);
+        expect(execFileMock).toHaveBeenCalledWith(
+            'taskkill',
+            ['/PID', '1234', '/T', '/F'],
+            { windowsHide: true },
+            expect.any(Function)
+        );
+        expect(processHandle.kill).not.toHaveBeenCalled();
     });
 
     it('runs the packaged overlay app through the shared Electron runtime outside source mode', async () => {

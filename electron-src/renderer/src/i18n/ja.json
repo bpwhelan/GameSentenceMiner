@@ -124,6 +124,7 @@
     "tabs": {
       "home": "ホーム",
       "ocr": "OCR",
+      "textHook": "テキストフック",
       "stats": "統計",
       "gameSettings": "ゲーム自動化",
       "settings": "設定",
@@ -795,6 +796,70 @@
       "importFailed": "インポートに失敗しました。",
       "areaConfigExported": "OCRエリア設定をクリップボードにコピーしました。",
       "exportFailed": "エクスポートに失敗しました。"
+    }
+  },
+  "texthook": {
+    "capture": {
+      "title": "キャプチャ対象",
+      "scene": "シーン",
+      "executable": "実行ファイル",
+      "pid": "PID",
+      "refresh": "更新",
+      "unknown": "不明",
+      "noScene": "アクティブなシーンがありません"
+    },
+    "engine": {
+      "title": "エンジン",
+      "label": "フックエンジン:",
+      "luna": "Luna Hook",
+      "textractor": "Textractor"
+    },
+    "profile": {
+      "title": "保存済みプロファイル",
+      "saved": "保存済み",
+      "autoHook": "次回起動時にフックを自動アタッチ",
+      "manualHook": "手動フックコード (H/Rコード):",
+      "attachManual": "手動フックをアタッチ",
+      "save": "フックを保存",
+      "delete": "プロファイル削除"
+    },
+    "hooks": {
+      "title": "検出されたフック",
+      "count": "フック {count} 件",
+      "waiting": "フック待機中。ゲームでテキストを表示してください。",
+      "notRunning": "「フック取得」を押してエンジンを開始してください。",
+      "noTextYet": "(まだテキストなし)"
+    },
+    "output": {
+      "title": "選択中フックの出力",
+      "waiting": "選択中フックからのテキストを待機中…",
+      "selectHook": "プレビューするフックを一覧から選択してください。"
+    },
+    "log": {
+      "title": "エンジンログ",
+      "empty": "ログはありません。"
+    },
+    "status": {
+      "attached": "アタッチ中",
+      "ready": "準備完了",
+      "noTarget": "対象なし"
+    },
+    "actions": {
+      "start": "フック取得",
+      "stop": "停止"
+    },
+    "notices": {
+      "started": "{exe} (PID {pid}) にアタッチしました。",
+      "selected": "フック #{id} を選択しました。出力は GSM に転送されます。",
+      "manualAttached": "手動フックコードをアタッチしました。",
+      "profileSaved": "このゲームのフックプロファイルを保存しました。",
+      "profileDeleted": "フックプロファイルを削除しました。"
+    },
+    "errors": {
+      "startFailed": "フックエンジンの起動に失敗しました。",
+      "manualFailed": "手動フックのアタッチに失敗しました。",
+      "profileSaveFailed": "プロファイルの保存に失敗しました。",
+      "noExe": "アクティブキャプチャの実行ファイルを検出できません。"
     }
   }
 }

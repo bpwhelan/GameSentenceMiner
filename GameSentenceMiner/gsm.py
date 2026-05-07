@@ -1034,10 +1034,51 @@ class GSMApplication:
                 sys.exit(0)
             elif function == FunctionName.CONNECT.value:
                 logger.debug("Electron reported connect")
+            elif function == FunctionName.TEXTHOOK_TEXT.value:
+                self._handle_texthook_line(cmd.get("data") if isinstance(cmd, dict) else None)
             else:
                 logger.background(f"Unknown IPC command: {cmd}")
         except Exception as e:
             logger.background(f"Error handling IPC command: {e}")
+
+    def _handle_texthook_line(self, data: Optional[dict]) -> None:
+        """Forward a line received from the Electron-side text hook engine into the
+        normal text-intake pipeline."""
+        if not isinstance(data, dict):
+            return
+        text = data.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return
+        engine = str(data.get("engine") or "").strip().lower()
+        exe_name = str(data.get("exeName") or "").strip()
+        hook_id = data.get("hookId")
+        source = "Texthook"
+        display_parts = []
+        if engine:
+            display_parts.append(engine.capitalize())
+        if exe_name:
+            display_parts.append(exe_name)
+        if hook_id is not None and str(hook_id):
+            display_parts.append(f"#{hook_id}")
+        display_name = " · ".join(display_parts) if display_parts else None
+
+        try:
+            from GameSentenceMiner.gametext import handle_new_text_event
+            from datetime import datetime as _dt
+        except Exception as e:
+            logger.background(f"Failed to import gametext for texthook intake: {e}")
+            return
+
+        coro = handle_new_text_event(
+            text,
+            line_time=_dt.now(),
+            source=source,
+            source_display_name=display_name,
+        )
+        try:
+            self.state.async_runner.submit(coro)
+        except Exception as e:
+            logger.background(f"Failed to schedule texthook line: {e}")
 
     def get_previous_lines_for_game(self) -> None:
         if not _is_overlay_previous_line_check_enabled():

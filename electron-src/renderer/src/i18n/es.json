@@ -124,6 +124,7 @@
     "tabs": {
       "home": "Inicio",
       "ocr": "OCR",
+      "textHook": "Text Hook",
       "stats": "Estadísticas",
       "gameSettings": "Automatización de juegos",
       "settings": "Ajustes",
@@ -795,6 +796,70 @@
       "importFailed": "Importación fallida.",
       "areaConfigExported": "Configuración de área OCR copiada al portapapeles.",
       "exportFailed": "Exportación fallida."
+    }
+  },
+  "texthook": {
+    "capture": {
+      "title": "Captura activa",
+      "scene": "Escena",
+      "executable": "Ejecutable",
+      "pid": "PID",
+      "refresh": "Actualizar",
+      "unknown": "Desconocido",
+      "noScene": "Sin escena activa"
+    },
+    "engine": {
+      "title": "Motor",
+      "label": "Motor de hooking:",
+      "luna": "Luna Hook",
+      "textractor": "Textractor"
+    },
+    "profile": {
+      "title": "Perfil guardado",
+      "saved": "Guardado",
+      "autoHook": "Adjuntar hook automáticamente al próximo inicio",
+      "manualHook": "Código de hook manual (H/R-code):",
+      "attachManual": "Adjuntar hook manual",
+      "save": "Guardar hook",
+      "delete": "Eliminar perfil"
+    },
+    "hooks": {
+      "title": "Hooks detectados",
+      "count": "{count} hooks",
+      "waiting": "Esperando hooks. Genera texto en el juego.",
+      "notRunning": "Pulsa 'Obtener hooks' para iniciar el motor.",
+      "noTextYet": "(sin texto aún)"
+    },
+    "output": {
+      "title": "Salida del hook seleccionado",
+      "waiting": "Esperando texto del hook seleccionado…",
+      "selectHook": "Selecciona un hook de la lista para ver su texto."
+    },
+    "log": {
+      "title": "Registro del motor",
+      "empty": "Aún no hay mensajes."
+    },
+    "status": {
+      "attached": "Adjuntado",
+      "ready": "Listo",
+      "noTarget": "Sin objetivo"
+    },
+    "actions": {
+      "start": "Obtener hooks",
+      "stop": "Detener"
+    },
+    "notices": {
+      "started": "Adjuntado a {exe} (PID {pid}).",
+      "selected": "Hook #{id} seleccionado. La salida se reenvía a GSM.",
+      "manualAttached": "Código de hook manual adjuntado.",
+      "profileSaved": "Perfil de hook guardado para este juego.",
+      "profileDeleted": "Perfil de hook eliminado."
+    },
+    "errors": {
+      "startFailed": "No se pudo iniciar el motor de hooking.",
+      "manualFailed": "No se pudo adjuntar el hook manual.",
+      "profileSaveFailed": "No se pudo guardar el perfil del hook.",
+      "noExe": "No se detectó ejecutable para la captura activa."
     }
   }
 }

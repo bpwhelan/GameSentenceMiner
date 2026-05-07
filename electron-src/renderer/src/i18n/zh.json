@@ -124,6 +124,7 @@
     "tabs": {
       "home": "主页",
       "ocr": "OCR",
+      "textHook": "文本挂接",
       "stats": "统计",
       "gameSettings": "游戏自动化",
       "settings": "设置",
@@ -795,6 +796,70 @@
       "importFailed": "导入失败。",
       "areaConfigExported": "OCR 区域配置已复制到剪贴板。",
       "exportFailed": "导出失败。"
+    }
+  },
+  "texthook": {
+    "capture": {
+      "title": "活动捕获",
+      "scene": "场景",
+      "executable": "可执行文件",
+      "pid": "PID",
+      "refresh": "刷新",
+      "unknown": "未知",
+      "noScene": "无活动场景"
+    },
+    "engine": {
+      "title": "引擎",
+      "label": "挂接引擎：",
+      "luna": "Luna Hook",
+      "textractor": "Textractor"
+    },
+    "profile": {
+      "title": "已保存配置",
+      "saved": "已保存",
+      "autoHook": "下次启动时自动附加挂接",
+      "manualHook": "手动挂接代码（H/R-code）：",
+      "attachManual": "附加手动挂接",
+      "save": "保存挂接",
+      "delete": "删除配置"
+    },
+    "hooks": {
+      "title": "检测到的挂接",
+      "count": "{count} 个挂接",
+      "waiting": "等待挂接中。请在游戏中触发文本。",
+      "notRunning": "点击“获取挂接”启动引擎。",
+      "noTextYet": "（尚无文本）"
+    },
+    "output": {
+      "title": "所选挂接输出",
+      "waiting": "等待所选挂接输出文本…",
+      "selectHook": "从列表中选择一个挂接以预览其文本。"
+    },
+    "log": {
+      "title": "引擎日志",
+      "empty": "暂无日志。"
+    },
+    "status": {
+      "attached": "已附加",
+      "ready": "就绪",
+      "noTarget": "无目标"
+    },
+    "actions": {
+      "start": "获取挂接",
+      "stop": "停止"
+    },
+    "notices": {
+      "started": "已附加到 {exe}（PID {pid}）。",
+      "selected": "已选择挂接 #{id}。输出正在转发到 GSM。",
+      "manualAttached": "手动挂接代码已附加。",
+      "profileSaved": "已为该游戏保存挂接配置。",
+      "profileDeleted": "挂接配置已删除。"
+    },
+    "errors": {
+      "startFailed": "无法启动挂接引擎。",
+      "manualFailed": "无法附加手动挂接。",
+      "profileSaveFailed": "无法保存挂接配置。",
+      "noExe": "未检测到活动捕获的可执行文件。"
     }
   }
 }

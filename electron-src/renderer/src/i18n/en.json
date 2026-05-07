@@ -124,6 +124,7 @@
     "tabs": {
       "home": "Home",
       "ocr": "OCR",
+      "textHook": "Text Hook",
       "stats": "Stats",
       "gameSettings": "Game Automation",
       "settings": "Settings",
@@ -795,6 +796,70 @@
       "importFailed": "Import failed.",
       "areaConfigExported": "OCR area config copied to clipboard.",
       "exportFailed": "Export failed."
+    }
+  },
+  "texthook": {
+    "capture": {
+      "title": "Active Capture",
+      "scene": "Scene",
+      "executable": "Executable",
+      "pid": "PID",
+      "refresh": "Refresh",
+      "unknown": "Unknown",
+      "noScene": "No active scene"
+    },
+    "engine": {
+      "title": "Engine",
+      "label": "Hooking engine:",
+      "luna": "Luna Hook",
+      "textractor": "Textractor"
+    },
+    "profile": {
+      "title": "Saved Profile",
+      "saved": "Saved",
+      "autoHook": "Auto-attach saved hook on next start",
+      "manualHook": "Manual hook code (H/R-code):",
+      "attachManual": "Attach manual hook",
+      "save": "Save Hook",
+      "delete": "Delete Profile"
+    },
+    "hooks": {
+      "title": "Detected Hooks",
+      "count": "{count} hooks",
+      "waiting": "Waiting for hooks. Trigger some text in the game.",
+      "notRunning": "Click 'Get Hooks' to start the hook engine.",
+      "noTextYet": "(no text yet)"
+    },
+    "output": {
+      "title": "Selected Hook Output",
+      "waiting": "Waiting for text from the selected hook…",
+      "selectHook": "Select a hook from the list to preview its text."
+    },
+    "log": {
+      "title": "Engine Log",
+      "empty": "No log messages yet."
+    },
+    "status": {
+      "attached": "Attached",
+      "ready": "Ready",
+      "noTarget": "No Target"
+    },
+    "actions": {
+      "start": "Get Hooks",
+      "stop": "Stop"
+    },
+    "notices": {
+      "started": "Attached to {exe} (PID {pid}).",
+      "selected": "Selected hook #{id}. Output is now being forwarded to GSM.",
+      "manualAttached": "Manual hook code attached.",
+      "profileSaved": "Hook profile saved for this game.",
+      "profileDeleted": "Hook profile deleted."
+    },
+    "errors": {
+      "startFailed": "Failed to start the hook engine.",
+      "manualFailed": "Failed to attach manual hook.",
+      "profileSaveFailed": "Failed to save hook profile.",
+      "noExe": "No executable detected for the active capture."
     }
   }
 }

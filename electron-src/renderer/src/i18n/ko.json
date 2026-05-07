@@ -124,6 +124,7 @@
     "tabs": {
       "home": "홈",
       "ocr": "OCR",
+      "textHook": "텍스트 훅",
       "stats": "통계",
       "gameSettings": "게임 자동화",
       "settings": "설정",
@@ -795,6 +796,70 @@
       "importFailed": "가져오기 실패.",
       "areaConfigExported": "OCR 영역 설정이 클립보드에 복사되었습니다.",
       "exportFailed": "내보내기 실패."
+    }
+  },
+  "texthook": {
+    "capture": {
+      "title": "활성 캘처",
+      "scene": "장면",
+      "executable": "실행 파일",
+      "pid": "PID",
+      "refresh": "새로고침",
+      "unknown": "알 수 없음",
+      "noScene": "활성 장면 없음"
+    },
+    "engine": {
+      "title": "엔진",
+      "label": "훅킹 엔진:",
+      "luna": "Luna Hook",
+      "textractor": "Textractor"
+    },
+    "profile": {
+      "title": "저장된 프로필",
+      "saved": "저장됨",
+      "autoHook": "다음 시작 시 훅 자동 연결",
+      "manualHook": "수동 훅 코드 (H/R-code):",
+      "attachManual": "수동 훅 연결",
+      "save": "훅 저장",
+      "delete": "프로필 삭제"
+    },
+    "hooks": {
+      "title": "감지된 훅",
+      "count": "훅 {count}개",
+      "waiting": "훅 대기 중. 게임에서 텍스트를 표시하세요.",
+      "notRunning": "'훅 가져오기'를 클릭해 엔진을 시작하세요.",
+      "noTextYet": "(아직 텍스트 없음)"
+    },
+    "output": {
+      "title": "선택된 훅 출력",
+      "waiting": "선택된 훅의 텍스트를 기다린니다…",
+      "selectHook": "목록에서 훅을 선택해 텍스트를 미리보세요."
+    },
+    "log": {
+      "title": "엔진 로그",
+      "empty": "아직 로그 메시지가 없습니다."
+    },
+    "status": {
+      "attached": "연결됨",
+      "ready": "준비 완료",
+      "noTarget": "대상 없음"
+    },
+    "actions": {
+      "start": "훅 가져오기",
+      "stop": "중지"
+    },
+    "notices": {
+      "started": "{exe} (PID {pid})에 연결되었습니다.",
+      "selected": "훅 #{id}가 선택되었습니다. 출력이 GSM으로 전달됩니다.",
+      "manualAttached": "수동 훅 코드가 연결되었습니다.",
+      "profileSaved": "이 게임의 훅 프로필이 저장되었습니다.",
+      "profileDeleted": "훅 프로필이 삭제되었습니다."
+    },
+    "errors": {
+      "startFailed": "훅 엔진을 시작할 수 없습니다.",
+      "manualFailed": "수동 훅을 연결할 수 없습니다.",
+      "profileSaveFailed": "프로필을 저장할 수 없습니다.",
+      "noExe": "활성 캘처의 실행 파일을 찾을 수 없습니다."
     }
   }
 }

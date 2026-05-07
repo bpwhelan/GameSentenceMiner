@@ -12,6 +12,10 @@ const stopOCRMock = vi.fn();
 const getOverlayRuntimeStateMock = vi.fn();
 const runOverlayWithSourceMock = vi.fn();
 const stopOverlayMock = vi.fn();
+const getProfileForMock = vi.fn();
+const getRuntimeStatusMock = vi.fn();
+const startHookSessionMock = vi.fn();
+const stopHookSessionMock = vi.fn();
 
 const getAgentPathMock = vi.fn();
 const getAgentScriptsPathMock = vi.fn();
@@ -48,6 +52,13 @@ vi.mock('./ui/front.js', () => ({
     getOverlayRuntimeState: getOverlayRuntimeStateMock,
     runOverlayWithSource: runOverlayWithSourceMock,
     stopOverlay: stopOverlayMock,
+}));
+
+vi.mock('./ui/texthook.js', () => ({
+    getProfileFor: getProfileForMock,
+    getRuntimeStatus: getRuntimeStatusMock,
+    startHookSession: startHookSessionMock,
+    stopHookSession: stopHookSessionMock,
 }));
 
 vi.mock('./store.js', () => ({
@@ -98,6 +109,10 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         getOverlayRuntimeStateMock.mockReset();
         runOverlayWithSourceMock.mockReset();
         stopOverlayMock.mockReset();
+        getProfileForMock.mockReset();
+        getRuntimeStatusMock.mockReset();
+        startHookSessionMock.mockReset();
+        stopHookSessionMock.mockReset();
         getAgentPathMock.mockReset();
         getAgentScriptsPathMock.mockReset();
         getLaunchAgentMinimizedMock.mockReset();
@@ -129,6 +144,9 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         });
         runOverlayWithSourceMock.mockResolvedValue(true);
         stopOverlayMock.mockReturnValue(false);
+        getProfileForMock.mockReturnValue(null);
+        getRuntimeStatusMock.mockReturnValue({ running: false });
+        startHookSessionMock.mockResolvedValue({ success: true });
         getObsOcrScenesMock.mockReturnValue([]);
         getSceneLaunchProfileForSceneMock.mockReturnValue(null);
         getSteamGamesMock.mockReturnValue([]);
@@ -373,6 +391,68 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             launchOverlay: sceneProfile.launchOverlay,
             agentScriptPath: scriptPath,
             launchDelaySeconds: sceneProfile.launchDelaySeconds,
+        });
+    });
+
+    it('starts the integrated Luna text hook for scenes configured with Luna mode', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        const scene = { id: 'scene-1', name: 'Nine Episode 2' };
+
+        getSceneLaunchProfileForSceneMock.mockReturnValue({
+            sceneId: scene.id,
+            sceneName: scene.name,
+            textHookMode: 'luna',
+            ocrMode: 'none',
+            launchOverlay: false,
+            agentScriptPath: '',
+            launchDelaySeconds: 0,
+        });
+        getExecutableNameFromSourceMock.mockResolvedValue('nine_sorairo.exe');
+        launcher.getPidByProcessName = vi.fn().mockResolvedValue(108800);
+
+        await launcher.runTextHookAutomation(scene);
+
+        expect(startHookSessionMock).toHaveBeenCalledWith({
+            engine: 'luna',
+            exeName: 'nine_sorairo.exe',
+            pidOverride: 108800,
+        });
+        expect(getLunaTranslatorPathMock).not.toHaveBeenCalled();
+    });
+
+    it('uses a saved auto-hook profile to start the integrated text hook when scene mode is none', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        const scene = { id: 'scene-1', name: 'Nine Episode 2' };
+
+        getSceneLaunchProfileForSceneMock.mockReturnValue({
+            sceneId: scene.id,
+            sceneName: scene.name,
+            textHookMode: 'none',
+            ocrMode: 'none',
+            launchOverlay: false,
+            agentScriptPath: '',
+            launchDelaySeconds: 0,
+        });
+        getExecutableNameFromSourceMock.mockResolvedValue('nine_sorairo.exe');
+        getProfileForMock.mockReturnValue({
+            exeName: 'nine_sorairo.exe',
+            engine: 'luna',
+            autoHook: true,
+            hookId: '2',
+            hookFunction: 'TextRender',
+            manualHookCode: null,
+            lastUsed: Date.now(),
+        });
+        launcher.getPidByProcessName = vi.fn().mockResolvedValue(108800);
+
+        await launcher.runTextHookAutomation(scene);
+
+        expect(startHookSessionMock).toHaveBeenCalledWith({
+            engine: 'luna',
+            exeName: 'nine_sorairo.exe',
+            pidOverride: 108800,
         });
     });
 });

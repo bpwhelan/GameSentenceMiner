@@ -68,6 +68,7 @@ const invokePrefixes = [
   "vn.",
   "yuzu.",
   "front.",
+  "texthook.",
   "wanakana-",
   "kuroshiro-"
 ];
@@ -92,7 +93,8 @@ const onPrefixes = [
   "state-",
   "websocket-",
   "settings-",
-  "gsm-"
+  "gsm-",
+  "texthook."
 ];
 
 function isValidChannelName(channel: string): boolean {

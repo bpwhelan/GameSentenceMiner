@@ -60,7 +60,7 @@ import {
 } from './ui/settings.js';
 import { startOCR, stopOCR } from './ui/ocr.js';
 import * as fs from 'node:fs';
-import { runOverlay, runOverlayWithSource } from './ui/front.js';
+import { runOverlay, runOverlayWithSource, stopOverlay } from './ui/front.js';
 import { execFile } from 'node:child_process';
 import { autoLauncher } from './auto_launcher.js';
 import { registerMainIPC } from './services/main_ipc.js';
@@ -2322,8 +2322,15 @@ async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<vo
     if (closeGSMFlag) {
         await closeGSM();
     }
+    stopOverlay();
     await stopOCR();
     await stopWindowTransparencyTool();
+    try {
+        const { shutdownTextHook } = await import('./ui/texthook.js');
+        shutdownTextHook();
+    } catch (err) {
+        console.warn('Failed to shut down text hook session:', err);
+    }
 }
 
 async function closeGSM(): Promise<void> {
@@ -2404,6 +2411,7 @@ export async function stopScripts(): Promise<void> {
 
 async function quit(): Promise<void> {
     autoLauncher.stopPolling();
+    stopOverlay();
     await stopScripts();
     if (pyProc != null && !pyProc.killed) {
         await closeAllPythonProcesses();
@@ -2436,3 +2444,21 @@ export function sendOpenOverlaySettings() {
     return true;
 }
 export function sendOpenTexthooker() { gsmStdoutManager?.sendOpenTexthooker(); }
+
+export interface TextHookLinePayload {
+    text: string;
+    hookId?: string;
+    hookFunction?: string;
+    engine?: 'textractor' | 'luna';
+    exeName?: string;
+}
+
+export function sendTextHookLine(payload: TextHookLinePayload): void {
+    if (!gsmStdoutManager) {
+        return;
+    }
+    gsmStdoutManager.sendCommand({
+        function: 'texthook_text',
+        data: { ...payload },
+    });
+}

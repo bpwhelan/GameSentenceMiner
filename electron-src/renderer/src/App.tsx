@@ -7,6 +7,7 @@ import { SetupWizard } from "./components/SetupWizard";
 import { InstallSessionModal } from "./components/InstallSessionModal";
 import type { ControlledTab } from "./types/models";
 import { OCRTab } from "./components/tabs/OCRTab";
+import { TextHookTab } from "./components/tabs/TextHookTab";
 import { HomeTab } from "./components/tabs/HomeTab";
 import { useTranslation } from "./i18n";
 import type { InstallSessionSnapshot } from "../../shared/install_session";
@@ -14,6 +15,7 @@ import type { InstallSessionSnapshot } from "../../shared/install_session";
 type TabId =
   | "obs"
   | "ocr"
+  | "texthook"
   | "stats"
   | "launcher"
   | "settings"
@@ -23,6 +25,7 @@ type TabId =
 const TABS: Array<{ id: TabId; labelKey: string }> = [
   { id: "obs", labelKey: "app.tabs.home" },
   { id: "ocr", labelKey: "app.tabs.ocr" },
+  { id: "texthook", labelKey: "app.tabs.textHook" },
   { id: "stats", labelKey: "app.tabs.stats" },
   { id: "launcher", labelKey: "app.tabs.gameSettings" },
   { id: "settings", labelKey: "app.tabs.settings" },
@@ -32,7 +35,7 @@ const TABS: Array<{ id: TabId; labelKey: string }> = [
 
 const TAB_IDS = new Set<TabId>(TABS.map((tab) => tab.id));
 
-const ALWAYS_VISIBLE_TABS = new Set<TabId>(["obs", "ocr", "settings"]);
+const ALWAYS_VISIBLE_TABS = new Set<TabId>(["obs", "ocr", "texthook", "settings"]);
 const CONTROLLABLE_TABS: ControlledTab[] = [
   "launcher",
   "stats",
@@ -1098,6 +1101,7 @@ export default function App() {
       <main className="tab-content-area">
         <HomeTab active={activeTab === "obs"} />
         <OCRTab active={activeTab === "ocr"} />
+        <TextHookTab active={activeTab === "texthook"} />
         <StatsPanel active={activeTab === "stats"} />
         <LauncherTab active={activeTab === "launcher"} />
         <SettingsTab active={activeTab === "settings"} />

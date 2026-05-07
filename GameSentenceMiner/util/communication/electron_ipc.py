@@ -46,6 +46,7 @@ class FunctionName(Enum):
     GET_STATUS = "get_status"
     CONNECT = "on_connect"
     RESTART_PYTHON_APP = "restart_python_app"
+    TEXTHOOK_TEXT = "texthook_text"
 
 
 CommandHandler = Callable[[Dict[str, Any]], None]

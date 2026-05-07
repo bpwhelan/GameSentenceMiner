@@ -1,4 +1,6 @@
 import { ipcMain } from 'electron';
+import { execFile } from 'child_process';
+import type { ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -27,7 +29,7 @@ import { getSceneOCRConfig } from './ocr.js';
 import { sendOpenTexthooker } from '../main.js';
 
 const OCR_CONFIG_DIR = path.join(BASE_DIR, 'ocr_config');
-let overlayProcess: any = null;
+let overlayProcess: ChildProcess | null = null;
 export type OverlayLaunchSource = 'manual' | 'startup' | 'auto-launcher';
 let overlayLaunchSource: OverlayLaunchSource | null = null;
 
@@ -145,8 +147,9 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
         return false;
     }
 
+    const processHandle = overlayProcess;
     try {
-        overlayProcess.kill();
+        terminateOverlayProcess(processHandle);
         return true;
     } catch (error) {
         console.error('Failed to stop overlay process:', error);
@@ -154,7 +157,25 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
     }
 }
 
-function registerOverlayProcess(processHandle: any, source: OverlayLaunchSource): void {
+function terminateOverlayProcess(processHandle: ChildProcess): void {
+    if (process.platform === 'win32' && processHandle.pid) {
+        execFile(
+            'taskkill',
+            ['/PID', String(processHandle.pid), '/T', '/F'],
+            { windowsHide: true },
+            (error) => {
+                if (error && processHandle.exitCode === null && !processHandle.killed) {
+                    processHandle.kill();
+                }
+            }
+        );
+        return;
+    }
+
+    processHandle.kill();
+}
+
+function registerOverlayProcess(processHandle: ChildProcess, source: OverlayLaunchSource): void {
     overlayProcess = processHandle;
     overlayLaunchSource = source;
     overlayProcess.once('exit', () => {
@@ -192,7 +213,7 @@ function spawnOverlayFromSource(overlayDir: string) {
     };
 }
 
-function spawnSharedOverlayRuntime(spawn: typeof import('child_process').spawn) {
+function spawnSharedOverlayRuntime(spawn: typeof import('child_process').spawn): ChildProcess {
     const overlayResourcesPath = getOverlayResourcesPath();
     const env: NodeJS.ProcessEnv = {
         ...process.env,
@@ -235,7 +256,7 @@ export async function runOverlayWithSource(
         }
 
         const sourceLaunch = spawnOverlayFromSource(overlayDir);
-        let processHandle: any;
+        let processHandle: ChildProcess;
         try {
             processHandle = spawn(
                 sourceLaunch.command,
