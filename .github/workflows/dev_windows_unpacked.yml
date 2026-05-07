@@ -1,0 +1,116 @@
+name: Build Unpacked Electron App (Windows)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: dev-windows-unpacked-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compute-version:
+    runs-on: ubuntu-latest
+    outputs:
+      PACKAGE_VERSION: ${{ steps.version.outputs.PACKAGE_VERSION }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+
+      - name: Compute next pre-release version
+        id: version
+        run: |
+          VERSION=$(node scripts/compute-version.cjs --pre-release --preid beta)
+          echo "Computed pre-release version: $VERSION"
+          echo "PACKAGE_VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+
+  build-windows-unpacked:
+    runs-on: windows-latest
+    needs:
+      - compute-version
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            GSM_Overlay/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-cache-
+
+      - name: Stamp version into package.json
+        run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
+
+      - name: Build gamepad server (Windows)
+        run: |
+          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+          New-Item -ItemType Directory -Force -Path GSM_Overlay/input_server/bin/win32 | Out-Null
+          Copy-Item GSM_Overlay/input_server/target/release/gsm_overlay_server.exe GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe -Force
+
+      - name: Write prerelease metadata
+        run: |
+          node -e "const fs=require('fs');const path=require('path');const branch=(process.env.GITHUB_HEAD_REF||process.env.GITHUB_REF_NAME||'unknown').trim()||'unknown';const payload={branch,generatedAt:new Date().toISOString()};const out=path.join('electron-src','assets','prerelease.json');fs.writeFileSync(out, JSON.stringify(payload, null, 2)+'\n');console.log('Wrote prerelease metadata to', out, 'for branch', branch);"
+
+      - name: Convert Handlebar files to LF
+        run: |
+          Get-ChildItem -Path ./GSM_Overlay/yomitan/data/templates -Recurse -Include *.handlebars | ForEach-Object {
+            $c = (Get-Content $_.FullName -Raw) -replace "`r`n", "`n"
+            Set-Content $_.FullName $c -NoNewline
+          }
+
+      - name: Build Overlay
+        working-directory: GSM_Overlay
+        run: |
+          npm ci --prefer-offline --no-audit --fund=false
+          npm run package
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Build unpacked Electron app
+        run: |
+          npm run build
+          npm run app:dir -- --win
+
+      - name: Upload unpacked Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-unpacked-${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          path: dist/win-unpacked
+          if-no-files-found: error
