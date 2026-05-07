@@ -393,7 +393,7 @@
                 'vndb.org': 'VNDB',
                 'anilist.co': 'AniList',
                 'myanimelist.net': 'MAL',
-                'jiten.moe': 'Jiten.moe',
+                'jiten.moe': 'Jiten',
                 'igdb.com': 'IGDB',
                 'infinitebacklog.net': 'Infinite Backlog',
                 'infinitebacklog.nl': 'Infinite Backlog',
@@ -483,9 +483,17 @@
 
         // Links
         const links = game.links || [];
-        if (links.length > 0) {
+        const hasJitenLink = links.some(function(link) {
+            const url = typeof link === 'string' ? link : (link.url || '');
+            return url.includes('jiten.moe');
+        });
+        const allLinks = links.slice();
+        if (!hasJitenLink && game.deck_id) {
+            allLinks.push({ url: 'https://jiten.moe/decks/media/' + game.deck_id + '/detail' });
+        }
+        if (allLinks.length > 0) {
             gameLinksPills.innerHTML = '';
-            links.forEach(function(link) {
+            allLinks.forEach(function(link) {
                 const url = typeof link === 'string' ? link : (link.url || '');
                 if (!url) return;
                 const pill = document.createElement('a');

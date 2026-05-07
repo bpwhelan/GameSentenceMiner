@@ -756,6 +756,10 @@ class GSMApplication:
             _get_qt_main_module().shutdown_qt_app()
             self.state.async_runner.stop()
 
+            # Release the single-instance lock before notifying Electron so that
+            # when Electron immediately spawns a new Python process it can acquire
+            # the lock without seeing a "GSM is already running" false-positive.
+            _release_single_instance_lock()
             send_message("cleanup_complete")
         except Exception as e:
             logger.exception(f"Error during cleanup: {e}")

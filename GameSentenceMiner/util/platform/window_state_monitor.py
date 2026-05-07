@@ -1140,9 +1140,7 @@ class WindowStateMonitor:
         self.last_hwnd_refresh_time = 0
         self.last_monitor_layout_signature: Optional[Tuple[Tuple[int, int, int, int], ...]] = None
         self.last_monitor_validation_time = 0.0
-        self.minimized_audio_mute_pid: Optional[int] = None
-        self.minimized_audio_mute_session_ids: Set[str] = set()
-        self.minimized_audio_mute_restore_all_sessions = False
+        self.minimized_audio_mutes: Dict[int, Tuple[Set[str], bool]] = {}
 
         # Known browser window classes to completely exclude
         self.BROWSER_CLASSES = {
@@ -1181,40 +1179,50 @@ class WindowStateMonitor:
     def _restore_minimized_audio_mute(self, reason: str = "") -> None:
         self._restore_minimized_audio_mute_internal(reason=reason)
 
-    def _restore_minimized_audio_mute_internal(self, reason: str = "", force_all_sessions: bool = False) -> bool:
-        if not self.minimized_audio_mute_pid:
-            return False
-
-        pid = self.minimized_audio_mute_pid
-        session_ids = set(self.minimized_audio_mute_session_ids)
-        restore_all_sessions = self.minimized_audio_mute_restore_all_sessions
-
-        self.minimized_audio_mute_pid = None
-        self.minimized_audio_mute_session_ids.clear()
-        self.minimized_audio_mute_restore_all_sessions = False
+    def _restore_minimized_audio_mute_internal(
+        self,
+        reason: str = "",
+        force_all_sessions: bool = False,
+        pid: Optional[int] = None,
+    ) -> bool:
+        if pid is not None:
+            if pid not in self.minimized_audio_mutes:
+                return False
+            mutes_to_restore = [(pid, self.minimized_audio_mutes.pop(pid))]
+        else:
+            if not self.minimized_audio_mutes:
+                return False
+            mutes_to_restore = list(self.minimized_audio_mutes.items())
+            self.minimized_audio_mutes.clear()
 
         if not is_windows():
             return False
 
-        try:
-            if force_all_sessions or restore_all_sessions:
-                results = set_process_mute(pid, False)
-            else:
-                results = set_process_mute(pid, False, session_instance_ids=session_ids)
+        restored_any = False
 
-                # Some games replace their Windows audio session while minimized.
-                # If the exact session we muted has disappeared, fall back to the
-                # whole process so the restored window does not stay silent.
-                if session_ids and not results:
-                    results = set_process_mute(pid, False)
+        for muted_pid, (session_ids, restore_all_sessions) in mutes_to_restore:
+            try:
+                if force_all_sessions or restore_all_sessions:
+                    results = set_process_mute(muted_pid, False)
+                else:
+                    results = set_process_mute(muted_pid, False, session_instance_ids=session_ids)
 
-            changed_count = sum(1 for result in results if result.changed)
-            if changed_count:
-                logger.debug(f"Restored audio for minimized target PID {pid} ({reason or 'window restored'}).")
-            return bool(results)
-        except Exception as e:
-            logger.debug(f"Failed to restore audio for minimized target PID {pid}: {e}")
-            return False
+                    # Some games replace their Windows audio session while minimized.
+                    # If the exact session we muted has disappeared, fall back to the
+                    # whole process so the restored window does not stay silent.
+                    if session_ids and not results:
+                        results = set_process_mute(muted_pid, False)
+
+                changed_count = sum(1 for result in results if result.changed)
+                if changed_count:
+                    logger.debug(
+                        f"Restored audio for minimized target PID {muted_pid} ({reason or 'window restored'})."
+                    )
+                restored_any = restored_any or bool(results)
+            except Exception as e:
+                logger.debug(f"Failed to restore audio for minimized target PID {muted_pid}: {e}")
+
+        return restored_any
 
     def _force_unmute_current_target_audio(self, reason: str = "") -> bool:
         if not is_windows() or not self.target_hwnd:
@@ -1244,34 +1252,37 @@ class WindowStateMonitor:
         except Exception:
             enabled = False
 
-        if not enabled or current_state != "minimized":
-            should_force_restore = (
-                enabled and self.last_state == "minimized" and current_state in {"active", "background", "obscured"}
-            )
-            restored = self._restore_minimized_audio_mute_internal(
-                "disabled" if not enabled else current_state,
-                force_all_sessions=should_force_restore,
-            )
-            if should_force_restore and not restored:
+        if not enabled:
+            self._restore_minimized_audio_mute_internal("disabled", force_all_sessions=True)
+            return
+
+        if current_state != "minimized":
+            should_force_restore = self.last_state == "minimized" and current_state in {
+                "active",
+                "background",
+                "obscured",
+            }
+            pid = _get_pid_for_hwnd(self.target_hwnd) if self.target_hwnd else 0
+            restored = False
+            if pid > 0:
+                restored = self._restore_minimized_audio_mute_internal(
+                    current_state,
+                    force_all_sessions=should_force_restore,
+                    pid=pid,
+                )
+            if should_force_restore and not restored and pid > 0:
                 self._force_unmute_current_target_audio(current_state)
             return
 
         if not self.target_hwnd:
-            self._restore_minimized_audio_mute("missing target")
             return
 
         pid = _get_pid_for_hwnd(self.target_hwnd)
         if pid <= 0:
-            self._restore_minimized_audio_mute("missing pid")
             return
 
-        if self.minimized_audio_mute_pid == pid and (
-            self.minimized_audio_mute_session_ids or self.minimized_audio_mute_restore_all_sessions
-        ):
+        if pid in self.minimized_audio_mutes:
             return
-
-        if self.minimized_audio_mute_pid and self.minimized_audio_mute_pid != pid:
-            self._restore_minimized_audio_mute("target changed")
 
         try:
             results = set_process_mute(pid, True)
@@ -1283,13 +1294,9 @@ class WindowStateMonitor:
         if not changed_results:
             return
 
-        self.minimized_audio_mute_pid = pid
-        self.minimized_audio_mute_session_ids = {
-            result.session_instance_id for result in changed_results if result.session_instance_id
-        }
-        self.minimized_audio_mute_restore_all_sessions = any(
-            not result.session_instance_id for result in changed_results
-        )
+        session_ids = {result.session_instance_id for result in changed_results if result.session_instance_id}
+        restore_all_sessions = any(not result.session_instance_id for result in changed_results)
+        self.minimized_audio_mutes[pid] = (session_ids, restore_all_sessions)
         logger.debug(f"Muted audio for minimized target PID {pid}.")
 
     def _get_window_exe_name(self, hwnd) -> str:
@@ -1877,7 +1884,6 @@ class WindowStateMonitor:
                         logger.info(
                             f"Scene changed from '{self.last_scene_name}' to '{current_scene}' - Resetting OBS dimensions."
                         )
-                    self._restore_minimized_audio_mute("scene changed")
                     self.overlay_processor.obs_width = None
                     self.overlay_processor.obs_height = None
                     self.target_hwnd = None
@@ -1899,7 +1905,6 @@ class WindowStateMonitor:
                         logger.info(
                             f"OBS Source changed from '{self.last_target_info.get('title')}' to '{new_info.get('title')}' - Resetting target."
                         )
-                        self._restore_minimized_audio_mute("OBS source changed")
                         self.target_hwnd = None
                         self.retry_find_count = 0
                         self.last_target_info = {}
@@ -1922,7 +1927,6 @@ class WindowStateMonitor:
             self.last_hwnd_refresh_time = now
 
         if not self.target_hwnd:
-            self._restore_minimized_audio_mute("target unavailable")
             self.retry_find_count += 1
             return
 

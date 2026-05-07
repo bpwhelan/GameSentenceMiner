@@ -1403,8 +1403,6 @@ function getPackagedGamepadServerCandidates() {
   const executableName = getGamepadServerExecutableName();
   const resourcesPath = getPackagedResourcesPath();
   return [
-    path.join(resourcesPath, 'bin', process.platform, executableName),
-    path.join(resourcesPath, 'bin', executableName),
     path.join(resourcesPath, executableName),
   ];
 }

@@ -1777,10 +1777,16 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         // Update links
-        if (gameMetadata.links && gameMetadata.links.length > 0) {
+        const existingLinks = gameMetadata.links || [];
+        const hasJitenLink = existingLinks.some(link => link.url && link.url.includes('jiten.moe'));
+        const allLinks = existingLinks.slice();
+        if (!hasJitenLink && gameMetadata.deck_id) {
+            allLinks.push({ url: `https://jiten.moe/decks/media/${gameMetadata.deck_id}/detail` });
+        }
+        if (allLinks.length > 0) {
             gameLinksPills.innerHTML = '';
             
-            gameMetadata.links.forEach(link => {
+            allLinks.forEach(link => {
                 if (link.url) {
                     const pill = document.createElement('a');
                     pill.href = link.url;
@@ -2004,6 +2010,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 'giantbomb.com': 'GiantBomb',
                 'howlongtobeat.com': 'HowLongToBeat',
                 'igdb.com': 'IGDB',
+                'jiten.moe': 'Jiten',
                 'mangadex.org': 'MangaDex',
                 'animeuknews.net': 'Anime UK News',
                 'mydramalist.com': 'MyDramaList',
@@ -2669,12 +2676,18 @@ document.addEventListener('DOMContentLoaded', function () {
             // Update game links
             const linksContainer = document.getElementById('gameLinksContainer');
             const linksPills = document.getElementById('gameLinksPills');
-            if (stats.links && stats.links.length > 0) {
+            const rawLinks = stats.links || [];
+            const hasJitenLinkHere = rawLinks.some(link => link.url && link.url.includes('jiten.moe'));
+            const allLinksHere = rawLinks.slice();
+            if (!hasJitenLinkHere && stats.deck_id) {
+                allLinksHere.push({ url: `https://jiten.moe/decks/media/${stats.deck_id}/detail` });
+            }
+            if (allLinksHere.length > 0) {
                 // Clear existing pills
                 linksPills.innerHTML = '';
                 
                 // Create a pill for each link
-                stats.links.forEach(link => {
+                allLinksHere.forEach(link => {
                     if (link.url) {
                         const pill = document.createElement('a');
                         pill.href = link.url;

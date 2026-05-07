@@ -13,6 +13,8 @@ concurrency:
 
 permissions:
   contents: write
+  actions: read
+  id-token: write
 
 jobs:
   compute-version:
@@ -120,6 +122,80 @@ jobs:
         run: npm run app:dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload unsigned Windows installer for SignPath
+        id: upload-unsigned-windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: signpath-dev-windows-${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          path: dist/*Setup*.exe
+          if-no-files-found: error
+
+      - name: Submit Windows signing request
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_APITOKEN }}
+          organization-id: c677c167-9f3e-4577-b967-5d7730bf742d
+          project-slug: GameSentenceMiner
+          signing-policy-slug: test-signing
+          github-artifact-id: ${{ steps.upload-unsigned-windows.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed_windows
+
+      - name: Replace installer with signed copy and recreate update metadata
+        shell: pwsh
+        run: |
+          $distRoot = (Resolve-Path "dist").Path
+          $artifactRoot = (Resolve-Path "signed_windows").Path
+
+          $distExe = Get-ChildItem -Path $distRoot -File -Filter "*Setup*.exe" | Select-Object -First 1
+          if (-not $distExe) {
+            throw "No unsigned installer found in dist."
+          }
+
+          $signedExe = Get-ChildItem -Path $artifactRoot -Recurse -File -Filter $distExe.Name | Select-Object -First 1
+          if (-not $signedExe) {
+            $signedExe = Get-ChildItem -Path $artifactRoot -Recurse -File -Filter "*Setup*.exe" | Select-Object -First 1
+          }
+          if (-not $signedExe) {
+            throw "No signed installer found in signed_windows."
+          }
+
+          if ($signedExe.Name -ne $distExe.Name) {
+            throw "Signed installer name '$($signedExe.Name)' does not match expected '$($distExe.Name)'."
+          }
+
+          Copy-Item -Path $signedExe.FullName -Destination $distExe.FullName -Force
+
+          $appBuilder = node -e "process.stdout.write(require('app-builder-bin').appBuilderPath)"
+          if (-not $appBuilder) {
+            throw "Unable to resolve app-builder path."
+          }
+
+          $blockmapOutput = "$($distExe.FullName).blockmap"
+          $blockmapJson = & $appBuilder blockmap --input "$($distExe.FullName)" --output "$blockmapOutput"
+          if ($LASTEXITCODE -ne 0) {
+            throw "app-builder failed to generate blockmap."
+          }
+          $blockmapInfo = $blockmapJson | ConvertFrom-Json
+
+          $packageVersion = (Get-Content -Raw -Path "./package.json" | ConvertFrom-Json).version
+          if (-not $packageVersion) {
+            throw "Unable to read version from package.json."
+          }
+
+          $releaseDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+          $latestYml = @(
+            "version: $packageVersion",
+            "files:",
+            "  - url: $($distExe.Name)",
+            "    sha512: $($blockmapInfo.sha512)",
+            "    size: $($blockmapInfo.size)",
+            "path: $($distExe.Name)",
+            "sha512: $($blockmapInfo.sha512)",
+            "releaseDate: '$releaseDate'"
+          ) -join "`n"
+          Set-Content -Path (Join-Path $distRoot "latest.yml") -Value $latestYml -Encoding utf8NoBOM
 
       - name: Upload to pre-release
         uses: softprops/action-gh-release@v2

@@ -1,5 +1,6 @@
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
+const fs = require('fs');
 const path = require('path');
 
 const isWindows = process.platform === 'win32';
@@ -53,12 +54,28 @@ function ignorePackagerFile(filePath) {
   return ignoredPackagerEntries.has(topLevelEntry) || ignoredPackagerFiles.has(relativePath);
 }
 
+function resolveInputServerExtraResource() {
+  const executableName = isWindows ? 'gsm_overlay_server.exe' : 'gsm_overlay_server';
+  const candidates = [
+    path.join('input_server', 'bin', process.platform, executableName),
+    path.join('input_server', 'bin', executableName),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(__dirname, candidate))) {
+      return candidate;
+    }
+  }
+
+  return candidates[0];
+}
+
 module.exports = {
   packagerConfig: {
     asar: true,
     icon: isWindows ? './overlay.ico' : (isMac ? undefined : './overlay-256.png'),
     ignore: ignorePackagerFile,
-    "extraResource": ["yomitan", "jiten.reader", "input_server/bin", "input_server/mecab_bridge.py"],
+    "extraResource": ["yomitan", "jiten.reader", resolveInputServerExtraResource(), "input_server/mecab_bridge.py"],
   },
   rebuildConfig: {},
   makers: [
