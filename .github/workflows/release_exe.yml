@@ -315,10 +315,15 @@ jobs:
 
       - name: Download signed unpacked Windows build
         shell: pwsh
+        env:
+          SIGNPATH_APITOKEN: ${{ secrets.SIGNPATH_APITOKEN }}
         run: |
           $packageVersion = (Get-Content -Raw -Path "./package.json" | ConvertFrom-Json).version
           if (-not $packageVersion) {
             throw "Unable to read version from package.json."
+          }
+          if (-not $env:SIGNPATH_APITOKEN) {
+            throw "SIGNPATH_APITOKEN secret is not available."
           }
 
           $zipPath = Join-Path (Resolve-Path "dist").Path "GameSentenceMiner-$packageVersion-win-unpacked.zip"
@@ -326,7 +331,10 @@ jobs:
             Remove-Item -LiteralPath $zipPath -Force
           }
 
-          Invoke-WebRequest -Uri "${{ steps.sign-windows-unpacked.outputs.signed-artifact-download-url }}" -OutFile $zipPath
+          $headers = @{
+            Authorization = "Bearer $env:SIGNPATH_APITOKEN"
+          }
+          Invoke-WebRequest -Uri "${{ steps.sign-windows-unpacked.outputs.signed-artifact-download-url }}" -Headers $headers -OutFile $zipPath
           if (-not (Test-Path $zipPath)) {
             throw "Failed to download signed unpacked Windows zip."
           }
