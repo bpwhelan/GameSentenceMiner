@@ -813,7 +813,22 @@
       "title": "エンジン",
       "label": "フックエンジン:",
       "luna": "Luna Hook",
-      "textractor": "Textractor"
+      "textractor": "Textractor",
+      "agent": "Agent"
+    },
+    "agent": {
+      "title": "Agentスクリプト",
+      "scriptPath": "スクリプトパス:",
+      "scriptPlaceholder": ".js Agentスクリプトを選択",
+      "search": "検索",
+      "browse": "参照",
+      "save": "保存",
+      "noScripts": "Agentスクリプトが見つかりません。",
+      "pickerTitle": "Agentスクリプトを選択",
+      "pickerClose": "閉じる",
+      "searchPlaceholder": "ゲーム名またはファイル名で検索",
+      "pickerNoResults": "一致するスクリプトがありません。",
+      "scriptCandidate": "Agentスクリプト"
     },
     "profile": {
       "title": "保存済みプロファイル",

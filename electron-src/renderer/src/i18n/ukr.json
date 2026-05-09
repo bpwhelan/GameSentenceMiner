@@ -813,7 +813,22 @@
       "title": "Рушій",
       "label": "Рушій хукінгу:",
       "luna": "Luna Hook",
-      "textractor": "Textractor"
+      "textractor": "Textractor",
+      "agent": "Agent"
+    },
+    "agent": {
+      "title": "Скрипт Agent",
+      "scriptPath": "Шлях до скрипта:",
+      "scriptPlaceholder": "Виберіть .js скрипт Agent",
+      "search": "Пошук",
+      "browse": "Огляд",
+      "save": "Зберегти",
+      "noScripts": "Скрипти Agent не знайдено.",
+      "pickerTitle": "Виберіть скрипт Agent",
+      "pickerClose": "Закрити",
+      "searchPlaceholder": "Пошук за грою або назвою файлу",
+      "pickerNoResults": "Відповідних скриптів не знайдено.",
+      "scriptCandidate": "Скрипт Agent"
     },
     "profile": {
       "title": "Збережений профіль",

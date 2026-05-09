@@ -813,7 +813,22 @@
       "title": "Engine",
       "label": "Hooking engine:",
       "luna": "Luna Hook",
-      "textractor": "Textractor"
+      "textractor": "Textractor",
+      "agent": "Agent"
+    },
+    "agent": {
+      "title": "Agent Script",
+      "scriptPath": "Script path:",
+      "scriptPlaceholder": "Select a .js Agent script",
+      "search": "Search",
+      "browse": "Browse",
+      "save": "Save",
+      "noScripts": "No Agent scripts were found.",
+      "pickerTitle": "Select Agent Script",
+      "pickerClose": "Close",
+      "searchPlaceholder": "Search scripts by game or file name",
+      "pickerNoResults": "No matching scripts found.",
+      "scriptCandidate": "Agent script"
     },
     "profile": {
       "title": "Saved Profile",

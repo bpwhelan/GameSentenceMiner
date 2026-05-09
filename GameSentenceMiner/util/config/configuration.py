@@ -1422,6 +1422,7 @@ class ProfileConfig:
     advanced: Advanced = field(default_factory=Advanced)
     ai: Ai = field(default_factory=Ai)
     overlay: Overlay = field(default_factory=Overlay)
+    process_pausing: ProcessPausing = field(default_factory=ProcessPausing)
     wip: WIP = field(default_factory=WIP)
     hotkeys: Hotkeys = field(default_factory=Hotkeys)
 
@@ -1577,7 +1578,6 @@ class Config:
     stats: StatsConfig = field(default_factory=StatsConfig)
     overlay: Overlay = field(default_factory=Overlay)
     experimental: Experimental = field(default_factory=Experimental)
-    process_pausing: ProcessPausing = field(default_factory=ProcessPausing)
     discord: Discord = field(default_factory=Discord)
     version: str = ""
 
@@ -1721,6 +1721,8 @@ class Config:
         if not isinstance(configs, dict):
             return data
 
+        legacy_process_pausing = data.pop("process_pausing", None)
+
         if not isinstance(data.get("overlay"), dict):
             current_profile = data.get("current_profile") or DEFAULT_CONFIG
             profile_data = configs.get(current_profile)
@@ -1733,6 +1735,12 @@ class Config:
                 data["overlay"] = dict(legacy_overlay)
 
         for profile_data in configs.values():
+            if isinstance(profile_data, dict) and "process_pausing" not in profile_data:
+                profile_data["process_pausing"] = (
+                    dict(legacy_process_pausing)
+                    if isinstance(legacy_process_pausing, dict)
+                    else ProcessPausing().to_dict()
+                )
             cls._migrate_anki_profile_data(profile_data)
             cls._migrate_single_port_fields(profile_data)
             cls._migrate_websocket_sources(profile_data)
@@ -1926,7 +1934,6 @@ class Config:
         for profile in self.configs.values():
             self.sync_shared_field(config.hotkeys, profile.hotkeys, "open_utility")
             self.sync_shared_field(config.hotkeys, profile.hotkeys, "play_latest_audio")
-            self.sync_shared_field(config.hotkeys, profile.hotkeys, "process_pause")
             self.sync_shared_field(config.anki, profile.anki, "url")
             self.sync_shared_field(config.anki, profile.anki, "sentence_field")
             self.sync_shared_field(config.anki, profile.anki, "sentence_field_enabled")
@@ -1996,7 +2003,6 @@ class Config:
             self.sync_shared_field(config.advanced, profile.advanced, "plaintext_websocket_port")
             self.sync_shared_field(config.advanced, profile.advanced, "localhost_bind_address")
             self.sync_shared_field(config.advanced, profile.advanced, "longest_sleep_time")
-            self.sync_shared_field(config.advanced, profile.advanced, "mute_game_on_minimize")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_enabled")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_auto_sync")
             self.sync_shared_field(config.advanced, profile.advanced, "cloud_sync_api_url")

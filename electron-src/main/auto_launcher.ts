@@ -814,7 +814,7 @@ export class AutoLauncher {
         if (!profile.hookId && !profile.hookFunction && !profile.manualHookCode) {
             return null;
         }
-        return profile.engine;
+        return profile.engine === "agent" ? null : profile.engine;
     }
 
     private async handleIntegratedTextHookAutomation(

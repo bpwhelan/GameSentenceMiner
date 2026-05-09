@@ -681,8 +681,7 @@ def _get_process_exe_name(pid: int) -> str:
 
 
 def _get_auto_resume_delay() -> float:
-    master = get_master_config()
-    process_cfg = getattr(master, "process_pausing", None) if master else None
+    process_cfg = getattr(get_config(), "process_pausing", None)
     if process_cfg and getattr(process_cfg, "auto_resume_seconds", None) is not None:
         try:
             return max(5.0, float(process_cfg.auto_resume_seconds))
@@ -840,8 +839,7 @@ def _get_detected_game_exe() -> str:
 
 
 def _is_pid_allowed_to_suspend(pid: int) -> bool:
-    master = get_master_config()
-    process_cfg = getattr(master, "process_pausing", None) if master else None
+    process_cfg = getattr(get_config(), "process_pausing", None)
     if not process_cfg:
         logger.warning("Process pausing config missing; refusing to suspend.")
         return False

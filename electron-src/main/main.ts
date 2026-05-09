@@ -2458,7 +2458,7 @@ export interface TextHookLinePayload {
     text: string;
     hookId?: string;
     hookFunction?: string;
-    engine?: 'textractor' | 'luna';
+    engine?: 'textractor' | 'luna' | 'agent';
     exeName?: string;
 }
 

@@ -717,6 +717,25 @@ class ConfigWindow(QWidget):
             if 0 <= selected_monitor_index < len(overlay_monitor_descriptors):
                 selected_monitor_descriptor = overlay_monitor_descriptors[selected_monitor_index]
 
+            process_pausing = ProcessPausing(
+                enabled=self.process_pausing_enabled_check.isChecked(),
+                auto_resume_seconds=self.process_pausing_auto_resume_seconds_edit.value(),
+                require_game_exe_match=True,  # Always true
+                overlay_manual_hotkey_requests_pause=self.process_pausing_overlay_manual_hotkey_requests_pause_check.isChecked(),
+                overlay_texthooker_hotkey_requests_pause=self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.isChecked(),
+                overlay_gamepad_navigation_requests_pause=self.process_pausing_overlay_gamepad_navigation_requests_pause_check.isChecked(),
+                allowlist=[
+                    item.strip().lower()
+                    for item in self.process_pausing_allowlist_edit.text().split(",")
+                    if item.strip()
+                ],
+                denylist=[
+                    item.strip().lower()
+                    for item in self.process_pausing_denylist_edit.text().split(",")
+                    if item.strip()
+                ],
+            )
+
             config = ProfileConfig(
                 scenes=selected_scenes,
                 general=copy.deepcopy(self.editor.profile.general),
@@ -982,6 +1001,7 @@ class ConfigWindow(QWidget):
                         and self.ocr_full_screen_instead_of_obs_checkbox.isChecked()
                     ),
                 ),
+                process_pausing=process_pausing,
             )
 
             # Handle custom audio encode settings
@@ -1009,30 +1029,10 @@ class ConfigWindow(QWidget):
             self.master_config.locale = self.editor.master_config.locale
             self.master_config.overlay = config.overlay
 
-            auto_resume_seconds = self.process_pausing_auto_resume_seconds_edit.value()
-
             self.master_config.experimental = Experimental(
                 enable_experimental_features=self.experimental_features_enabled_check.isChecked(),
                 enable_tokenization=self.enable_tokenization_check.isChecked(),
                 tokenize_low_performance=self.tokenize_low_performance_check.isChecked(),
-            )
-            self.master_config.process_pausing = ProcessPausing(
-                enabled=self.process_pausing_enabled_check.isChecked(),
-                auto_resume_seconds=auto_resume_seconds,
-                require_game_exe_match=True,  # Always true
-                overlay_manual_hotkey_requests_pause=self.process_pausing_overlay_manual_hotkey_requests_pause_check.isChecked(),
-                overlay_texthooker_hotkey_requests_pause=self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.isChecked(),
-                overlay_gamepad_navigation_requests_pause=self.process_pausing_overlay_gamepad_navigation_requests_pause_check.isChecked(),
-                allowlist=[
-                    item.strip().lower()
-                    for item in self.process_pausing_allowlist_edit.text().split(",")
-                    if item.strip()
-                ],
-                denylist=[
-                    item.strip().lower()
-                    for item in self.process_pausing_denylist_edit.text().split(",")
-                    if item.strip()
-                ],
             )
 
             # Get selected blacklisted scenes from Discord list
@@ -2966,7 +2966,7 @@ class ConfigWindow(QWidget):
         self.experimental_features_enabled_check.setChecked(experimental_cfg.enable_experimental_features)
         self.enable_tokenization_check.setChecked(getattr(experimental_cfg, "enable_tokenization", False))
         self.tokenize_low_performance_check.setChecked(getattr(experimental_cfg, "tokenize_low_performance", False))
-        process_cfg = getattr(self.master_config, "process_pausing", ProcessPausing())
+        process_cfg = getattr(s, "process_pausing", ProcessPausing())
         self.process_pausing_enabled_check.setChecked(process_cfg.enabled)
         self.process_pausing_auto_resume_seconds_edit.setValue(process_cfg.auto_resume_seconds)
         self.process_pausing_require_game_exe_match_check.setChecked(True)  # Always true

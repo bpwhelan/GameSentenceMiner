@@ -27,10 +27,18 @@ import {
     getCurrentScene,
     getExecutableNameFromSource,
 } from './obs.js';
+import {
+    getAgentHookRuntimeStatus,
+    isAgentHookRunning,
+    listAgentHooks,
+    setAgentFlushDelayMs,
+    startAgentHookSession,
+    stopAgentHookSession,
+} from './agent.js';
 
 const execFileAsync = promisify(execFile);
 
-export type TextHookEngine = 'textractor' | 'luna';
+export type TextHookEngine = 'textractor' | 'luna' | 'agent';
 export type TextHookArchitecture = 'x86' | 'x64';
 
 export interface TextHookProfile {
@@ -47,6 +55,8 @@ export interface TextHookProfile {
     hookFunction?: string | null;
     /** Manual H-/R-code, when set the engine is asked to attach this hook directly. */
     manualHookCode?: string | null;
+    /** Agent script path used when engine is "agent". */
+    agentScriptPath?: string | null;
     lastUsed: number;
 }
 
@@ -59,7 +69,7 @@ interface HookEntry {
 
 interface ActiveSession {
     proc: ChildProcessWithoutNullStreams;
-    engine: TextHookEngine;
+    engine: Exclude<TextHookEngine, 'agent'>;
     arch: TextHookArchitecture;
     pid: number;
     exeName: string;
@@ -99,7 +109,7 @@ interface TextHookOutputPayload {
     text: string;
     hookId: string;
     hookFunction: string;
-    engine: TextHookEngine;
+    engine: Exclude<TextHookEngine, 'agent'>;
     exeName: string;
 }
 
@@ -354,7 +364,8 @@ function normalizeProfile(value: unknown): TextHookProfile | null {
     if (!value || typeof value !== 'object') return null;
     const v = value as Partial<TextHookProfile>;
     if (typeof v.exeName !== 'string' || v.exeName.trim().length === 0) return null;
-    const engine: TextHookEngine = v.engine === 'textractor' ? 'textractor' : 'luna';
+    const engine: TextHookEngine =
+        v.engine === 'textractor' || v.engine === 'agent' ? v.engine : 'luna';
     return {
         exeName: v.exeName.trim().toLowerCase(),
         engine,
@@ -365,6 +376,10 @@ function normalizeProfile(value: unknown): TextHookProfile | null {
         manualHookCode:
             typeof v.manualHookCode === 'string' && v.manualHookCode.trim().length > 0
                 ? v.manualHookCode.trim()
+                : null,
+        agentScriptPath:
+            typeof v.agentScriptPath === 'string' && v.agentScriptPath.trim().length > 0
+                ? v.agentScriptPath.trim()
                 : null,
         lastUsed: typeof v.lastUsed === 'number' ? v.lastUsed : Date.now(),
     };
@@ -684,6 +699,7 @@ export interface StartHookOptions {
     engine?: TextHookEngine;
     exeName?: string | null;
     flushDelayMs?: number;
+    agentScriptPath?: string | null;
     /** Override the auto-detected PID (mainly for tests). */
     pidOverride?: number;
 }
@@ -697,14 +713,15 @@ export interface StartHookResult {
 }
 
 export async function startHookSession(options: StartHookOptions = {}): Promise<StartHookResult> {
-    if (session) {
+    if (session || isAgentHookRunning()) {
         return { success: false, error: 'A text hook session is already running.' };
     }
     if (!isWindows()) {
         return { success: false, error: 'Text hooking is currently only available on Windows.' };
     }
 
-    const engine: TextHookEngine = options.engine === 'textractor' ? 'textractor' : 'luna';
+    const engine: TextHookEngine =
+        options.engine === 'textractor' || options.engine === 'agent' ? options.engine : 'luna';
     let exeName = (options.exeName ?? '').trim();
     if (!exeName) {
         const capture = await getActiveCapture();
@@ -732,6 +749,24 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         };
     }
 
+    const profile = getProfileFor(exeName);
+    const flushDelayMs = normalizeFlushDelayMs(options.flushDelayMs ?? profile?.flushDelayMs);
+    if (engine === 'agent') {
+        const scriptPath =
+            typeof options.agentScriptPath === 'string' && options.agentScriptPath.trim().length > 0
+                ? options.agentScriptPath.trim()
+                : profile?.engine === 'agent'
+                    ? profile.agentScriptPath ?? ''
+                    : '';
+        return startAgentHookSession({
+            pid: target.pid,
+            exeName,
+            arch: target.arch,
+            scriptPath,
+            flushDelayMs,
+        });
+    }
+
     const cliPath = getEngineCliPath(engine, target.arch);
     if (!fs.existsSync(cliPath)) {
         return { success: false, error: `Hook engine binary missing: ${cliPath}` };
@@ -754,8 +789,6 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         return { success: false, error: 'Failed to spawn hook engine (no pid).' };
     }
 
-    const profile = getProfileFor(exeName);
-    const flushDelayMs = normalizeFlushDelayMs(options.flushDelayMs ?? profile?.flushDelayMs);
     session = {
         proc,
         engine,
@@ -867,6 +900,7 @@ function teardownSession(): void {
 
 export function stopHookSession(): void {
     teardownSession();
+    stopAgentHookSession();
 }
 
 export interface SelectHookOptions {
@@ -874,6 +908,9 @@ export interface SelectHookOptions {
 }
 
 export async function selectHook(hookId: string, options: SelectHookOptions = {}): Promise<boolean> {
+    if (isAgentHookRunning()) {
+        return hookId === 'agent';
+    }
     if (!session) return false;
     if (!session.hooks.has(hookId)) return false;
     flushSelectedHookText();
@@ -895,6 +932,9 @@ export async function selectHook(hookId: string, options: SelectHookOptions = {}
 }
 
 export function attachManualHookCode(code: string): { success: boolean; error?: string } {
+    if (isAgentHookRunning()) {
+        return { success: false, error: 'Manual H/R-code hooks are not used by Agent sessions.' };
+    }
     if (!session) return { success: false, error: 'No active text hook session.' };
     const trimmed = code.trim();
     if (!isValidHookCode(trimmed)) {
@@ -915,6 +955,10 @@ export function attachManualHookCode(code: string): { success: boolean; error?: 
 }
 
 export function getRuntimeStatus() {
+    const agentStatus = getAgentHookRuntimeStatus();
+    if (agentStatus) {
+        return agentStatus;
+    }
     if (!session) {
         return { running: false as const };
     }
@@ -931,6 +975,9 @@ export function getRuntimeStatus() {
 }
 
 export function setFlushDelayMs(value: number): { success: boolean; flushDelayMs?: number; error?: string } {
+    if (isAgentHookRunning()) {
+        return setAgentFlushDelayMs(normalizeFlushDelayMs(value));
+    }
     if (!session) return { success: false, error: 'No active text hook session.' };
     const flushDelayMs = normalizeFlushDelayMs(value);
     session.flushDelayMs = flushDelayMs;
@@ -1023,6 +1070,7 @@ export function registerTextHookIPC(): void {
     );
 
     ipcMain.handle('texthook.listHooks', async () => {
+        if (isAgentHookRunning()) return listAgentHooks();
         if (!session) return { hooks: [], selectedHookId: null };
         return {
             hooks: Array.from(session.hooks.values()),
@@ -1043,13 +1091,15 @@ export function registerTextHookIPC(): void {
                       hookId?: string | null;
                       hookFunction?: string | null;
                       manualHookCode?: string | null;
+                      agentScriptPath?: string | null;
                   }
                 | undefined,
         ) => {
             if (!payload || typeof payload.exeName !== 'string' || payload.exeName.trim().length === 0) {
                 return { success: false, error: 'exeName is required' };
             }
-            const engine: TextHookEngine = payload.engine === 'textractor' ? 'textractor' : 'luna';
+            const engine: TextHookEngine =
+                payload.engine === 'textractor' || payload.engine === 'agent' ? payload.engine : 'luna';
             const profile = upsertProfile({
                 exeName: payload.exeName,
                 engine,
@@ -1058,6 +1108,7 @@ export function registerTextHookIPC(): void {
                 hookId: payload.hookId ?? null,
                 hookFunction: payload.hookFunction ?? null,
                 manualHookCode: payload.manualHookCode ?? null,
+                agentScriptPath: payload.agentScriptPath ?? null,
                 lastUsed: Date.now(),
             });
             return { success: true, profile };
@@ -1079,6 +1130,7 @@ export function registerTextHookIPC(): void {
 // Used by main.ts on app shutdown to make sure the CLI process is killed.
 export function shutdownTextHook(): void {
     teardownSession();
+    stopAgentHookSession();
 }
 
 // Exported for tests.

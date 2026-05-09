@@ -5,7 +5,7 @@ from pathlib import Path
 
 from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.platform import monitor_selection
-from GameSentenceMiner.util.config.configuration import Config, Overlay, ProfileConfig
+from GameSentenceMiner.util.config.configuration import Config, Overlay, ProcessPausing, ProfileConfig
 
 
 def test_overlay_use_ocr_result_defaults_to_true():
@@ -137,6 +137,48 @@ def test_legacy_profile_overlay_migrates_when_global_overlay_missing():
     migrated = Config._migrate_raw_data(raw_config)
 
     assert migrated["overlay"]["periodic"] is True
+
+
+def test_legacy_global_process_pausing_migrates_into_profiles():
+    raw_config = {
+        "configs": {
+            "Default": ProfileConfig().to_dict(),
+            "Game": ProfileConfig().to_dict(),
+        },
+        "current_profile": "Default",
+        "process_pausing": ProcessPausing(
+            enabled=True,
+            auto_resume_seconds=45,
+            allowlist=["game.exe"],
+            denylist=["steam.exe"],
+        ).to_dict(),
+    }
+    for profile_data in raw_config["configs"].values():
+        profile_data.pop("process_pausing", None)
+
+    migrated = Config._migrate_raw_data(raw_config)
+
+    assert "process_pausing" not in migrated
+    assert migrated["configs"]["Default"]["process_pausing"]["enabled"] is True
+    assert migrated["configs"]["Default"]["process_pausing"]["auto_resume_seconds"] == 45
+    assert migrated["configs"]["Game"]["process_pausing"]["allowlist"] == ["game.exe"]
+
+
+def test_process_pausing_is_profile_scoped_round_trip():
+    config = Config(
+        configs={
+            "Default": ProfileConfig(process_pausing=ProcessPausing(enabled=True)),
+            "Game": ProfileConfig(process_pausing=ProcessPausing(enabled=False)),
+        },
+        current_profile="Game",
+    )
+
+    data = config.to_dict()
+    restored = Config.from_dict(data)
+
+    assert "process_pausing" not in data
+    assert restored.configs["Default"].process_pausing.enabled is True
+    assert restored.get_config().process_pausing.enabled is False
 
 
 def test_overlay_locales_include_use_ocr_result_strings():

@@ -2,7 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invokeIpc, onIpc } from "../../lib/ipc";
 import { useTranslation } from "../../i18n";
 
-type TextHookEngine = "luna" | "textractor";
+type TextHookEngine = "luna" | "textractor" | "agent";
+
+interface AgentScriptCandidate {
+  path: string;
+  reason?: string;
+  score?: number;
+}
+
+interface ListAgentScriptsResponse {
+  status?: string;
+  path?: string;
+  scripts?: string[];
+  message?: string;
+}
 
 interface HookEntry {
   id: string;
@@ -20,6 +33,7 @@ interface RuntimeStatusRunning {
   selectedHookId: string | null;
   hookCount: number;
   flushDelayMs?: number;
+  agentScriptPath?: string;
 }
 
 interface RuntimeStatusStopped {
@@ -43,6 +57,7 @@ interface SavedProfile {
   hookId?: string | null;
   hookFunction?: string | null;
   manualHookCode?: string | null;
+  agentScriptPath?: string | null;
   lastUsed: number;
 }
 
@@ -79,6 +94,30 @@ function normalizeFlushDelayMs(value: unknown): number {
   return Math.min(MAX_FLUSH_DELAY_MS, Math.max(0, Math.round(parsed)));
 }
 
+function fileNameFromPath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/");
+  const segments = normalized.split("/");
+  return segments[segments.length - 1] || filePath;
+}
+
+function normalizePathForCompare(filePath: string): string {
+  return filePath.replace(/\\/g, "/").toLowerCase();
+}
+
+function scriptScore(query: string, scriptPath: string): number {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return 0;
+  const normalizedPath = normalizePathForCompare(scriptPath);
+  const name = fileNameFromPath(scriptPath).toLowerCase();
+  if (normalizedPath === normalizedQuery || name === normalizedQuery) return 0;
+  if (name.includes(normalizedQuery)) return 0.1;
+  if (normalizedPath.includes(normalizedQuery)) return 0.2;
+  const tokens = normalizedQuery.split(/[^a-z0-9]+/).filter((token) => token.length > 1);
+  if (tokens.length === 0) return 1;
+  const matched = tokens.filter((token) => name.includes(token) || normalizedPath.includes(token));
+  return 1 - matched.length / tokens.length;
+}
+
 interface TextHookTabProps {
   active: boolean;
 }
@@ -94,6 +133,11 @@ export function TextHookTab({ active }: TextHookTabProps) {
   const [flushDelayMs, setFlushDelayMs] = useState(DEFAULT_FLUSH_DELAY_MS);
   const [flushDelayInput, setFlushDelayInput] = useState(String(DEFAULT_FLUSH_DELAY_MS));
   const [manualHookCode, setManualHookCode] = useState("");
+  const [agentScriptPath, setAgentScriptPath] = useState("");
+  const [agentScriptDialog, setAgentScriptDialog] = useState<{
+    candidates: AgentScriptCandidate[];
+    query: string;
+  } | null>(null);
   const [logLines, setLogLines] = useState<LogLine[]>([]);
   const [textLines, setTextLines] = useState<TextLine[]>([]);
   const [savedProfile, setSavedProfile] = useState<SavedProfile | null>(null);
@@ -131,6 +175,9 @@ export function TextHookTab({ active }: TextHookTabProps) {
       setSelectedHookId(next.selectedHookId);
       setEngine(next.engine);
       syncFlushDelayState(next.flushDelayMs);
+      if (next.engine === "agent" && next.agentScriptPath) {
+        setAgentScriptPath(next.agentScriptPath);
+      }
     }
   }, [syncFlushDelayState]);
 
@@ -157,6 +204,9 @@ export function TextHookTab({ active }: TextHookTabProps) {
         syncFlushDelayState(profile.flushDelayMs);
         if (profile.manualHookCode) {
           setManualHookCode(profile.manualHookCode);
+        }
+        if (profile.agentScriptPath) {
+          setAgentScriptPath(profile.agentScriptPath);
         }
       }
     } else {
@@ -260,6 +310,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
           engine,
           exeName: capture?.exeName ?? undefined,
           flushDelayMs,
+          agentScriptPath: engine === "agent" ? agentScriptPath.trim() : undefined,
         }
       );
       if (!result.success) {
@@ -279,7 +330,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
     } finally {
       setBusy(false);
     }
-  }, [capture?.exeName, engine, flushDelayMs, refreshHooks, refreshStatus, showNotice, t]);
+  }, [agentScriptPath, capture?.exeName, engine, flushDelayMs, refreshHooks, refreshStatus, showNotice, t]);
 
   const stopSession = useCallback(async () => {
     setBusy(true);
@@ -357,6 +408,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
         hookId: selectedHookId,
         hookFunction: targetHook?.function ?? null,
         manualHookCode: manualHookCode.trim() || null,
+        agentScriptPath: agentScriptPath.trim() || null,
       }
     );
     if (result?.success && result.profile) {
@@ -370,6 +422,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
     capture?.exeName,
     engine,
     flushDelayMs,
+    agentScriptPath,
     hooks,
     manualHookCode,
     selectedHookId,
@@ -385,6 +438,41 @@ export function TextHookTab({ active }: TextHookTabProps) {
     showNotice(t("texthook.notices.profileDeleted"), "info");
   }, [savedProfile, showNotice, t]);
 
+  const browseAgentScript = useCallback(async () => {
+    const response = await invokeIpc<{ status?: string; path?: string }>(
+      "settings.selectAgentScriptPath",
+      { path: agentScriptPath }
+    );
+    if (response?.status === "success" && response.path) {
+      setAgentScriptPath(response.path);
+    }
+  }, [agentScriptPath]);
+
+  const openAgentScriptSearch = useCallback(async () => {
+    const response = await invokeIpc<ListAgentScriptsResponse>("settings.listAgentScripts", {
+      path: agentScriptPath,
+    });
+    const scripts = Array.isArray(response?.scripts) ? response.scripts : [];
+    if (scripts.length === 0) {
+      showNotice(response?.message ?? t("texthook.agent.noScripts"), "error");
+      return;
+    }
+    const exeName = status.running ? status.exeName : capture?.exeName ?? "";
+    const initialQuery = fileNameFromPath(agentScriptPath || exeName).replace(/\.[^/.]+$/u, "");
+    const candidates = scripts
+      .map((script) => ({
+        path: script,
+        score: scriptScore(initialQuery, script),
+      }))
+      .sort((left, right) => (left.score ?? 1) - (right.score ?? 1));
+    setAgentScriptDialog({ candidates, query: initialQuery });
+  }, [agentScriptPath, capture?.exeName, showNotice, status, t]);
+
+  const pickAgentScriptCandidate = useCallback((scriptPath: string) => {
+    setAgentScriptPath(scriptPath);
+    setAgentScriptDialog(null);
+  }, []);
+
   const exeNameDisplay = status.running
     ? status.exeName
     : capture?.exeName ?? t("texthook.capture.unknown");
@@ -394,7 +482,24 @@ export function TextHookTab({ active }: TextHookTabProps) {
     () => textLines.map((line) => `${line.text}`).join("\n"),
     [textLines]
   );
-  const visibleHooks = useMemo(() => hooks.filter(hasHookText), [hooks]);
+  const visibleHooks = useMemo(
+    () => (engine === "agent" ? hooks : hooks.filter(hasHookText)),
+    [engine, hooks]
+  );
+  const startDisabled =
+    busy || !capture?.exeName || (engine === "agent" && agentScriptPath.trim().length === 0);
+  const filteredAgentScriptCandidates = useMemo(() => {
+    if (!agentScriptDialog) return [];
+    const query = agentScriptDialog.query.trim();
+    return agentScriptDialog.candidates
+      .map((candidate) => ({
+        ...candidate,
+        score: scriptScore(query, candidate.path),
+      }))
+      .filter((candidate) => !query || (candidate.score ?? 1) < 1)
+      .sort((left, right) => (left.score ?? 1) - (right.score ?? 1))
+      .slice(0, 80);
+  }, [agentScriptDialog]);
 
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
@@ -472,6 +577,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
                   >
                     <option value="luna">{t("texthook.engine.luna")}</option>
                     <option value="textractor">{t("texthook.engine.textractor")}</option>
+                    <option value="agent">{t("texthook.engine.agent")}</option>
                   </select>
                 </div>
                 <div className="link-row">
@@ -487,12 +593,54 @@ export function TextHookTab({ active }: TextHookTabProps) {
                   ) : (
                     <button
                       type="button"
-                      disabled={busy || !capture?.exeName}
+                      disabled={startDisabled}
                       onClick={() => void startSession()}
                     >
                       {t("texthook.actions.start")}
                     </button>
                   )}
+                </div>
+              </div>
+            </section>
+
+            <section className="card legacy-card ocr-card">
+              <div className="ocr-card-header-row">
+                <h2>{t("texthook.agent.title")}</h2>
+              </div>
+              <div className="form-group ocr-form-group">
+                <div className="input-group">
+                  <label htmlFor="texthook-agent-script-input">
+                    {t("texthook.agent.scriptPath")}
+                  </label>
+                  <input
+                    id="texthook-agent-script-input"
+                    type="text"
+                    value={agentScriptPath}
+                    disabled={status.running}
+                    placeholder={t("texthook.agent.scriptPlaceholder")}
+                    onChange={(e) => setAgentScriptPath(e.target.value)}
+                  />
+                </div>
+                <div className="link-row">
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={status.running}
+                    onClick={() => void openAgentScriptSearch()}
+                  >
+                    {t("texthook.agent.search")}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={status.running}
+                    onClick={() => void browseAgentScript()}
+                  >
+                    {t("texthook.agent.browse")}
+                  </button>
+                  <button type="button" className="secondary" onClick={() => void saveProfile()}>
+                    {t("texthook.agent.save")}
+                  </button>
                 </div>
               </div>
             </section>
@@ -544,13 +692,14 @@ export function TextHookTab({ active }: TextHookTabProps) {
                     type="text"
                     value={manualHookCode}
                     placeholder="HB4@0"
+                    disabled={engine === "agent"}
                     onChange={(e) => setManualHookCode(e.target.value)}
                   />
                 </div>
                 <div className="link-row">
                   <button
                     type="button"
-                    disabled={!status.running || !manualHookCode.trim()}
+                    disabled={!status.running || engine === "agent" || !manualHookCode.trim()}
                     onClick={() => void attachManual()}
                   >
                     {t("texthook.profile.attachManual")}
@@ -655,6 +804,54 @@ export function TextHookTab({ active }: TextHookTabProps) {
             </section>
           </div>
         </div>
+        {agentScriptDialog ? (
+          <div className="launcher-config-modal" role="dialog" aria-modal="true">
+            <div className="launcher-config-modal-header">
+              <strong>{t("texthook.agent.pickerTitle")}</strong>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setAgentScriptDialog(null)}
+              >
+                {t("texthook.agent.pickerClose")}
+              </button>
+            </div>
+            <div className="launcher-script-search-row">
+              <input
+                type="text"
+                className="launcher-script-search-input"
+                value={agentScriptDialog.query}
+                placeholder={t("texthook.agent.searchPlaceholder")}
+                onChange={(e) =>
+                  setAgentScriptDialog((current) =>
+                    current ? { ...current, query: e.target.value } : current
+                  )
+                }
+              />
+            </div>
+            <div className="launcher-script-picker">
+              {filteredAgentScriptCandidates.length === 0 ? (
+                <p className="muted">{t("texthook.agent.pickerNoResults")}</p>
+              ) : null}
+              {filteredAgentScriptCandidates.map((candidate) => (
+                <button
+                  type="button"
+                  key={candidate.path}
+                  className="launcher-script-option"
+                  onClick={() => pickAgentScriptCandidate(candidate.path)}
+                >
+                  <span className="launcher-script-option-name">
+                    {fileNameFromPath(candidate.path)}
+                  </span>
+                  <span className="launcher-script-option-meta">
+                    {t("texthook.agent.scriptCandidate")}
+                  </span>
+                  <span className="launcher-script-option-path mono-text">{candidate.path}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
