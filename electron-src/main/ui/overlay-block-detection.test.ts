@@ -107,4 +107,16 @@ describe("legacy overlay block detection", () => {
     expect(result.lineBlocks.get(1)).toBe(result.lineBlocks.get(2));
     expect(result.lineBlocks.get(2)).toBe(result.lineBlocks.get(3));
   });
+
+  it("does not merge unrelated same-row UI areas across most of the screen", () => {
+    const lines: OverlayLine[] = [
+      makeLine("洗濯物が乾きやすいですね", 0.02, 0.03, 0.31, 0.09),
+      makeLine("A 決定  LT パーティステータス表示  メニュー", 0.51, 0.03, 0.97, 0.09),
+    ];
+
+    const result = detectTextBlocks(lines);
+
+    expect(result.blockCount).toBe(2);
+    expect(result.lineBlocks.get(0)).not.toBe(result.lineBlocks.get(1));
+  });
 });

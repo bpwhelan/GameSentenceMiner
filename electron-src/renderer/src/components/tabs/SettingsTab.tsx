@@ -68,6 +68,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   runOverlayOnStartup: false,
   visibleTabs: ["launcher", "stats", "python", "console"],
   statsEndpoint: "overview",
+  singlePort: 7275,
   locale: "en"
 };
 

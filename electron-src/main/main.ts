@@ -70,6 +70,7 @@ import { UpdateManager } from './services/update_manager.js';
 import type { UpdateStatusSnapshot } from './services/update_manager.js';
 import { devFaultInjector } from './services/dev_fault_injection.js';
 import { runUpdateChaosHarness } from './services/update_chaos_harness.js';
+import { getConfiguredSinglePort } from './gsm_config.js';
 import {
     getStatusTrayIconPath,
     getTrayBaseIconPath,
@@ -267,7 +268,6 @@ const UPDATE_PROGRESS_PREFIX = 'UpdateProgress:';
 const STARTUP_REPAIR_WINDOW_MS = 15_000;
 const TRAY_READY_INDICATOR_MS = 10_000;
 const BACKEND_STATUS_POLL_MS = 2_000;
-const BACKEND_STATUS_URL = 'http://localhost:7275/get_status';
 const SIMULATED_STARTUP_FAILURE_MESSAGE = 'Simulated failure before starting GSM';
 let simulatedStartupFailureTriggered = false;
 let terminalLogSendDepth = 0;
@@ -829,7 +829,9 @@ async function pollBackendStatusOnce(): Promise<void> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 1500);
     try {
-        const response = await fetch(BACKEND_STATUS_URL, { signal: controller.signal });
+        const response = await fetch(`http://localhost:${getConfiguredSinglePort()}/get_status`, {
+            signal: controller.signal,
+        });
         if (!response.ok) {
             return;
         }

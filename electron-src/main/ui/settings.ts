@@ -70,6 +70,7 @@ import {
 import type { SceneLaunchProfile } from '../store.js';
 import { APP_NAME, BASE_DIR, getSanitizedPythonEnv } from '../util.js';
 import { syncPythonDisplayLocale } from '../python_locale.js';
+import { getConfiguredSinglePort } from '../gsm_config.js';
 // Replaced WebSocket usage with stdout IPC helpers
 import {
     isPythonLaunchBlockedByUpdate,
@@ -905,6 +906,7 @@ function getSettingsSnapshot() {
         runOverlayOnStartup: getRunOverlayOnStartup(),
         visibleTabs: getVisibleTabs(),
         statsEndpoint: getStatsEndpoint(),
+        singlePort: getConfiguredSinglePort(),
         iconStyle: store.get('iconStyle') || 'gsm',
         locale: getLocale(),
         consoleMode: getConsoleMode(),

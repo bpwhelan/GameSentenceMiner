@@ -80,6 +80,7 @@ export interface AppSettings {
   runOverlayOnStartup: boolean;
   visibleTabs: ControlledTab[];
   statsEndpoint: string;
+  singlePort: number;
   locale: string;
 }
 

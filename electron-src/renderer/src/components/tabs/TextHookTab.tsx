@@ -68,6 +68,11 @@ const MAX_TEXT_LINES = 300;
 const DEFAULT_FLUSH_DELAY_MS = 100;
 const MAX_FLUSH_DELAY_MS = 5000;
 
+function hasHookText(hook: HookEntry): boolean {
+  if (hook.preview.trim().length > 0) return true;
+  return hook.samples.some((sample) => sample.trim().length > 0);
+}
+
 function normalizeFlushDelayMs(value: unknown): number {
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(parsed)) return DEFAULT_FLUSH_DELAY_MS;
@@ -389,6 +394,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
     () => textLines.map((line) => `${line.text}`).join("\n"),
     [textLines]
   );
+  const visibleHooks = useMemo(() => hooks.filter(hasHookText), [hooks]);
 
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
@@ -570,11 +576,11 @@ export function TextHookTab({ active }: TextHookTabProps) {
               <div className="ocr-card-header-row">
                 <h2>{t("texthook.hooks.title")}</h2>
                 <span className="ocr-area-badge ocr-area-badge--ok">
-                  {t("texthook.hooks.count", { count: String(hooks.length) })}
+                  {t("texthook.hooks.count", { count: String(visibleHooks.length) })}
                 </span>
               </div>
               <div className="texthook-hooks">
-                {hooks.length === 0 ? (
+                {visibleHooks.length === 0 ? (
                   <div className="texthook-empty">
                     {status.running
                       ? t("texthook.hooks.waiting")
@@ -582,7 +588,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
                   </div>
                 ) : (
                   <ul className="texthook-hook-rows">
-                    {hooks.map((hook) => {
+                    {visibleHooks.map((hook) => {
                       const isSelected = hook.id === selectedHookId;
                       return (
                         <li

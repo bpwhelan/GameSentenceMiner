@@ -123,11 +123,20 @@ function StatsPanel({ active }: { active: boolean }) {
 
     loadingRef.current = true;
     try {
-      const settings = await window.ipcRenderer.invoke<{ statsEndpoint?: string }>(
+      const settings = await window.ipcRenderer.invoke<{
+        statsEndpoint?: string;
+        singlePort?: number;
+      }>(
         "settings.getSettings"
       );
       const statsEndpoint = settings?.statsEndpoint ?? "overview";
-      const statsUrl = `http://localhost:7275/${statsEndpoint}`;
+      const singlePort =
+        typeof settings?.singlePort === "number" &&
+        Number.isFinite(settings.singlePort) &&
+        settings.singlePort > 0
+          ? Math.trunc(settings.singlePort)
+          : 7275;
+      const statsUrl = `http://localhost:${singlePort}/${statsEndpoint}`;
 
       // If this URL already loaded, don't reset to a permanent loading state.
       if (!forceReload && loadedUrlRef.current === statsUrl) {
