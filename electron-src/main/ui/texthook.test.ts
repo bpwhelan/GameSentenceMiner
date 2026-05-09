@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({
+    BrowserWindow: class BrowserWindow {},
     ipcMain: {
         handle: vi.fn(),
     },

@@ -828,7 +828,8 @@
       "pickerClose": "Закрити",
       "searchPlaceholder": "Пошук за грою або назвою файлу",
       "pickerNoResults": "Відповідних скриптів не знайдено.",
-      "scriptCandidate": "Скрипт Agent"
+      "scriptCandidate": "Скрипт Agent",
+      "showScriptUi": "Показати UI скрипта"
     },
     "profile": {
       "title": "Збережений профіль",
@@ -876,6 +877,7 @@
       "startFailed": "Не вдалося запустити рушій хукінгу.",
       "manualFailed": "Не вдалося під'єднати ручний хук.",
       "profileSaveFailed": "Не вдалося зберегти профіль.",
+      "agentUiFailed": "Не вдалося відкрити UI скрипта Agent.",
       "noExe": "Не виявлено виконуваного файлу для активного захоплення."
     }
   }

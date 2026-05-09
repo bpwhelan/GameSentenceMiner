@@ -828,7 +828,8 @@
       "pickerClose": "閉じる",
       "searchPlaceholder": "ゲーム名またはファイル名で検索",
       "pickerNoResults": "一致するスクリプトがありません。",
-      "scriptCandidate": "Agentスクリプト"
+      "scriptCandidate": "Agentスクリプト",
+      "showScriptUi": "スクリプトUIを表示"
     },
     "profile": {
       "title": "保存済みプロファイル",
@@ -876,6 +877,7 @@
       "startFailed": "フックエンジンの起動に失敗しました。",
       "manualFailed": "手動フックのアタッチに失敗しました。",
       "profileSaveFailed": "プロファイルの保存に失敗しました。",
+      "agentUiFailed": "AgentスクリプトUIを開けませんでした。",
       "noExe": "アクティブキャプチャの実行ファイルを検出できません。"
     }
   }

@@ -34,6 +34,7 @@ interface RuntimeStatusRunning {
   hookCount: number;
   flushDelayMs?: number;
   agentScriptPath?: string;
+  agentHasUi?: boolean;
 }
 
 interface RuntimeStatusStopped {
@@ -473,6 +474,13 @@ export function TextHookTab({ active }: TextHookTabProps) {
     setAgentScriptDialog(null);
   }, []);
 
+  const showAgentScriptUi = useCallback(async () => {
+    const result = await invokeIpc<{ success: boolean; error?: string }>("texthook.showAgentUi");
+    if (!result?.success) {
+      showNotice(result?.error ?? t("texthook.errors.agentUiFailed"), "error");
+    }
+  }, [showNotice, t]);
+
   const exeNameDisplay = status.running
     ? status.exeName
     : capture?.exeName ?? t("texthook.capture.unknown");
@@ -641,6 +649,15 @@ export function TextHookTab({ active }: TextHookTabProps) {
                   <button type="button" className="secondary" onClick={() => void saveProfile()}>
                     {t("texthook.agent.save")}
                   </button>
+                  {status.running && status.engine === "agent" && status.agentHasUi ? (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => void showAgentScriptUi()}
+                    >
+                      {t("texthook.agent.showScriptUi")}
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </section>

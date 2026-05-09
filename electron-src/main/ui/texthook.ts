@@ -28,10 +28,13 @@ import {
     getExecutableNameFromSource,
 } from './obs.js';
 import {
+    callAgentUiRpc,
     getAgentHookRuntimeStatus,
     isAgentHookRunning,
     listAgentHooks,
+    sendAgentUiRpc,
     setAgentFlushDelayMs,
+    showAgentScriptUi,
     startAgentHookSession,
     stopAgentHookSession,
 } from './agent.js';
@@ -1077,6 +1080,16 @@ export function registerTextHookIPC(): void {
             selectedHookId: session.selectedHookId,
         };
     });
+
+    ipcMain.handle('texthook.showAgentUi', async () => showAgentScriptUi());
+
+    ipcMain.handle('texthook.agentUiRpcCall', async (_event, func: string, args: unknown[] | undefined) =>
+        callAgentUiRpc(String(func ?? ''), Array.isArray(args) ? args : []),
+    );
+
+    ipcMain.handle('texthook.agentUiRpcSend', async (_event, func: string, args: unknown[] | undefined) =>
+        sendAgentUiRpc(String(func ?? ''), Array.isArray(args) ? args : []),
+    );
 
     ipcMain.handle(
         'texthook.saveProfile',

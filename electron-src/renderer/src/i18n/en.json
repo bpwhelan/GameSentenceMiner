@@ -828,7 +828,8 @@
       "pickerClose": "Close",
       "searchPlaceholder": "Search scripts by game or file name",
       "pickerNoResults": "No matching scripts found.",
-      "scriptCandidate": "Agent script"
+      "scriptCandidate": "Agent script",
+      "showScriptUi": "Show Script UI"
     },
     "profile": {
       "title": "Saved Profile",
@@ -876,6 +877,7 @@
       "startFailed": "Failed to start the hook engine.",
       "manualFailed": "Failed to attach manual hook.",
       "profileSaveFailed": "Failed to save hook profile.",
+      "agentUiFailed": "Failed to open Agent script UI.",
       "noExe": "No executable detected for the active capture."
     }
   },

@@ -1,5 +1,6 @@
 import frida, { MessageType, ScriptRuntime } from 'frida';
 import type { LogLevel, Message, Script, Session } from 'frida';
+import { BrowserWindow } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { exec } from 'node:child_process';
@@ -45,6 +46,9 @@ interface AgentHookSession {
     pidWatcher?: NodeJS.Timeout;
     localStorage: Map<string, string>;
     sessionStorage: Map<string, string>;
+    uiHtml: string | null;
+    uiFileName: string | null;
+    uiWindow: BrowserWindow | null;
     stopping: boolean;
 }
 
@@ -52,6 +56,7 @@ let agentSession: AgentHookSession | null = null;
 
 const DEFAULT_AGENT_LOADER = path.resolve(process.cwd(), '.agent_scripts', 'libLoader.js');
 const STORAGE_DIR = path.join(BASE_DIR, 'texthook', 'agent-storage');
+const UI_DIR = path.join(BASE_DIR, 'texthook', 'agent-ui');
 
 const FRIDA_COMPAT_SHIM = `
 (function () {
@@ -118,6 +123,94 @@ function emitLog(message: string, level: 'info' | 'warn' | 'error' = 'info'): vo
 
 function emitHooks(): void {
     emitToRenderer('texthook.hooks', listAgentHooks());
+}
+
+function agentUiBridgeScript(): string {
+    return `
+<script>
+(() => {
+  const { ipcRenderer } = require("electron");
+  const eventHandlers = new Map();
+
+  ipcRenderer.on("agent-ui.rpc-event", (_event, payload) => {
+    if (!payload || typeof payload.func !== "string" || !Array.isArray(payload.args)) {
+      return;
+    }
+    const handlers = eventHandlers.get(payload.func) || [];
+    for (const handler of handlers) {
+      try {
+        handler(...payload.args);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+  });
+
+  window.rpc = {
+    exports: new Proxy({}, {
+      get(_target, property) {
+        return (...args) => ipcRenderer.invoke("texthook.agentUiRpcCall", String(property), args);
+      },
+    }),
+    on(name, handler) {
+      const key = String(name);
+      const handlers = eventHandlers.get(key) || [];
+      handlers.push(handler);
+      eventHandlers.set(key, handlers);
+    },
+    send(name, ...args) {
+      return ipcRenderer.invoke("texthook.agentUiRpcSend", String(name), args);
+    },
+  };
+})();
+</script>`;
+}
+
+function injectAgentUiBridge(html: string): string {
+    const bridge = agentUiBridgeScript();
+    if (/<head(?:\s[^>]*)?>/i.test(html)) {
+        return html.replace(/<head([^>]*)>/i, `<head$1>\n${bridge}`);
+    }
+    return `${bridge}\n${html}`;
+}
+
+function agentUiHtmlPath(current: AgentHookSession): string {
+    const safeName = path
+        .basename(current.scriptPath)
+        .replace(/[^a-zA-Z0-9._-]/g, '_')
+        .toLowerCase();
+    return path.join(UI_DIR, `${safeName}.html`);
+}
+
+function writeAgentUiHtml(current: AgentHookSession): string | null {
+    if (!current.uiHtml) return null;
+    fs.mkdirSync(UI_DIR, { recursive: true });
+    const filePath = agentUiHtmlPath(current);
+    fs.writeFileSync(filePath, injectAgentUiBridge(current.uiHtml), 'utf8');
+    return filePath;
+}
+
+function emitAgentUiEvent(current: AgentHookSession, func: string, args: unknown[]): void {
+    const win = current.uiWindow;
+    if (!win || win.isDestroyed()) return;
+    win.webContents.send('agent-ui.rpc-event', { func, args });
+}
+
+async function loadAgentUiWindow(current: AgentHookSession): Promise<void> {
+    const htmlPath = writeAgentUiHtml(current);
+    if (!htmlPath) return;
+    await current.uiWindow?.loadFile(htmlPath);
+}
+
+function closeAgentUiWindow(current: AgentHookSession): void {
+    const win = current.uiWindow;
+    current.uiWindow = null;
+    if (!win || win.isDestroyed()) return;
+    try {
+        win.close();
+    } catch {
+        // Ignore close failures during teardown.
+    }
 }
 
 function normalizeStorageValue(value: unknown): string {
@@ -428,7 +521,25 @@ function handleAgentPayload(current: AgentHookSession, payload: any, data: Buffe
             replyToAgent(current, payload.key, handleStorageCommand(current, current.sessionStorage, cmd, args));
             return;
         }
-        if (cmd === 'rpc_send' || cmd === 'rpc_invoke' || cmd === 'loadHtml' || cmd === 're_attach') {
+        if (cmd === 'loadHtml') {
+            current.uiHtml = typeof payload.text === 'string' ? payload.text : '';
+            current.uiFileName = typeof payload.fileName === 'string' ? payload.fileName : null;
+            emitStatus();
+            if (current.uiWindow && !current.uiWindow.isDestroyed()) {
+                void loadAgentUiWindow(current).catch((err) => {
+                    emitLog(`Failed to refresh Agent script UI: ${(err as Error).message}`, 'warn');
+                });
+            }
+            replyToAgent(current, payload.key, null, data);
+            return;
+        }
+        if (cmd === 'rpc_send') {
+            const func = typeof payload.func === 'string' ? payload.func : '';
+            if (func) emitAgentUiEvent(current, func, args);
+            replyToAgent(current, payload.key, null, data);
+            return;
+        }
+        if (cmd === 'rpc_invoke' || cmd === 're_attach') {
             replyToAgent(current, payload.key, null, data);
             return;
         }
@@ -496,6 +607,7 @@ async function teardownAgentSession(): Promise<void> {
         clearTimeout(current.outputFlushTimer);
         current.outputFlushTimer = null;
     }
+    closeAgentUiWindow(current);
     try {
         await current.script.unload();
     } catch {
@@ -551,6 +663,9 @@ export async function startAgentHookSession(options: StartAgentHookOptions): Pro
             outputFlushTimer: null,
             localStorage: loadLocalStorage(scriptPath),
             sessionStorage: new Map(),
+            uiHtml: null,
+            uiFileName: null,
+            uiWindow: null,
             stopping: false,
         };
         agentSession = current;
@@ -613,7 +728,78 @@ export function getAgentHookRuntimeStatus() {
         hookCount: 1,
         flushDelayMs: agentSession.flushDelayMs,
         agentScriptPath: agentSession.scriptPath,
+        agentHasUi: agentSession.uiHtml !== null,
     };
+}
+
+export async function showAgentScriptUi(): Promise<{ success: boolean; error?: string }> {
+    const current = agentSession;
+    if (!current) {
+        return { success: false, error: 'No active Agent hook session.' };
+    }
+    if (!current.uiHtml) {
+        return { success: false, error: 'The active Agent script has not exposed a UI.' };
+    }
+    try {
+        if (current.uiWindow && !current.uiWindow.isDestroyed()) {
+            current.uiWindow.show();
+            current.uiWindow.focus();
+            return { success: true };
+        }
+
+        current.uiWindow = new BrowserWindow({
+            width: 760,
+            height: 720,
+            title: `Agent UI - ${path.basename(current.scriptPath)}`,
+            show: false,
+            webPreferences: {
+                contextIsolation: false,
+                nodeIntegration: true,
+                sandbox: false,
+                devTools: true,
+                backgroundThrottling: false,
+            },
+        });
+        current.uiWindow.on('closed', () => {
+            if (agentSession === current) {
+                current.uiWindow = null;
+            }
+        });
+        await loadAgentUiWindow(current);
+        current.uiWindow.show();
+        current.uiWindow.focus();
+        return { success: true };
+    } catch (err) {
+        const message = (err as Error).message;
+        emitLog(`Failed to open Agent script UI: ${message}`, 'error');
+        return { success: false, error: message };
+    }
+}
+
+export async function callAgentUiRpc(func: string, args: unknown[]): Promise<unknown> {
+    const current = agentSession;
+    if (!current) {
+        throw new Error('No active Agent hook session.');
+    }
+    const exportsProxy = current.script.exports as Record<string, (...rpcArgs: unknown[]) => Promise<unknown>>;
+    const method = exportsProxy[func];
+    if (typeof method !== 'function') {
+        throw new Error(`Agent UI RPC method "${func}" is not available.`);
+    }
+    return method(...args);
+}
+
+export function sendAgentUiRpc(func: string, args: unknown[]): { success: boolean; error?: string } {
+    const current = agentSession;
+    if (!current) {
+        return { success: false, error: 'No active Agent hook session.' };
+    }
+    try {
+        current.script.post({ type: func, args });
+        return { success: true };
+    } catch (err) {
+        return { success: false, error: (err as Error).message };
+    }
 }
 
 export function setAgentFlushDelayMs(value: number): { success: boolean; flushDelayMs?: number; error?: string } {
