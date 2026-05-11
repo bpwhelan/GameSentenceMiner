@@ -2043,6 +2043,35 @@ def refresh_anki_beacon_connection_status(now: Optional[datetime] = None) -> boo
     return fresh
 
 
+def _is_anki_connect_reachable(timeout: float = 1.0) -> bool:
+    try:
+        response = requests.post(
+            get_config().anki.url,
+            json=request("version"),
+            headers={"Content-Type": "application/json"},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return isinstance(payload, dict) and payload.get("error") is None and payload.get("result") is not None
+    except Exception:
+        return False
+
+
+def refresh_anki_connect_connection_status(timeout: float = 1.0) -> bool:
+    """Refresh whether AnkiConnect is reachable without polling note state."""
+    if not get_config().anki.enabled:
+        return refresh_anki_beacon_connection_status()
+
+    if _is_anki_connect_reachable(timeout=timeout):
+        gsm_status.anki_connected = True
+        return True
+
+    if not refresh_anki_beacon_connection_status():
+        gsm_status.anki_connected = False
+    return False
+
+
 def handle_incoming_anki_event(payload: Dict[str, Any], received_at: Optional[datetime] = None) -> str:
     if not isinstance(payload, dict):
         raise ValueError("Anki event payload must be a JSON object.")
@@ -2503,6 +2532,7 @@ def _monitor_anki_iteration(unsuccessful_count: int, scaled_polling_rate: float)
         if anki_polling_gate_state.replay_buffer_polling_active:
             logger.info("OBS replay buffer inactive; disabling Anki polling.")
             anki_polling_gate_state.replay_buffer_polling_active = False
+        refresh_anki_connect_connection_status()
         time.sleep(base_polling_rate)
         return 0, base_polling_rate
 

@@ -486,10 +486,6 @@ export function TextHookTab({ active }: TextHookTabProps) {
     : capture?.exeName ?? t("texthook.capture.unknown");
   const sceneDisplay = capture?.sceneName || t("texthook.capture.noScene");
 
-  const formattedTextLines = useMemo(
-    () => textLines.map((line) => `${line.text}`).join("\n"),
-    [textLines]
-  );
   const visibleHooks = useMemo(
     () => (engine === "agent" ? hooks : hooks.filter(hasHookText)),
     [engine, hooks]
@@ -509,6 +505,27 @@ export function TextHookTab({ active }: TextHookTabProps) {
       .slice(0, 80);
   }, [agentScriptDialog]);
 
+  const statusBadgeClass = status.running
+    ? "ocr-area-badge--ok"
+    : capture?.exeName
+      ? "ocr-area-badge--ok"
+      : "ocr-area-badge--empty";
+
+  const statusBadgeText = status.running
+    ? t("texthook.status.attached")
+    : capture?.exeName
+      ? t("texthook.status.ready")
+      : t("texthook.status.noTarget");
+
+  const footerState = status.running ? "running" : capture?.exeName ? "ready" : "warning";
+
+  const engineDisplayName =
+    engine === "luna"
+      ? t("texthook.engine.luna")
+      : engine === "textractor"
+        ? t("texthook.engine.textractor")
+        : t("texthook.engine.agent");
+
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
       <div className="modern-tab texthook-workspace">
@@ -519,224 +536,274 @@ export function TextHookTab({ active }: TextHookTabProps) {
         ) : null}
 
         <div className="ocr-dashboard">
+          {/* ── Left column: guided configuration stepper ── */}
           <div className="ocr-col ocr-col--settings">
-            <section className="card legacy-card ocr-card">
-              <div className="ocr-card-header-row">
-                <h2>{t("texthook.capture.title")}</h2>
-                <span
-                  className={`ocr-area-badge ${
-                    status.running
-                      ? "ocr-area-badge--ok"
-                      : capture?.exeName
-                        ? "ocr-area-badge--ok"
-                        : "ocr-area-badge--empty"
-                  }`}
-                >
-                  {status.running
-                    ? t("texthook.status.attached")
-                    : capture?.exeName
-                      ? t("texthook.status.ready")
-                      : t("texthook.status.noTarget")}
-                </span>
-              </div>
-              <div className="form-group ocr-form-group">
-                <div className="input-group">
-                  <label>{t("texthook.capture.scene")}</label>
-                  <span>{sceneDisplay}</span>
-                </div>
-                <div className="input-group">
-                  <label>{t("texthook.capture.executable")}</label>
-                  <span>{exeNameDisplay}</span>
-                </div>
-                {status.running ? (
-                  <div className="input-group">
-                    <label>{t("texthook.capture.pid")}</label>
-                    <span>
-                      {status.pid} ({status.arch})
-                    </span>
-                  </div>
-                ) : null}
-                <div className="link-row">
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => {
-                      void refreshActiveCapture();
-                    }}
-                  >
-                    {t("texthook.capture.refresh")}
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            <section className="card legacy-card ocr-card">
-              <div className="ocr-card-header-row">
-                <h2>{t("texthook.engine.title")}</h2>
-              </div>
-              <div className="form-group ocr-form-group">
-                <div className="input-group">
-                  <label htmlFor="texthook-engine-select">{t("texthook.engine.label")}</label>
-                  <select
-                    id="texthook-engine-select"
-                    value={engine}
-                    onChange={(e) => setEngine(e.target.value as TextHookEngine)}
-                    disabled={status.running}
-                  >
-                    <option value="luna">{t("texthook.engine.luna")}</option>
-                    <option value="textractor">{t("texthook.engine.textractor")}</option>
-                    <option value="agent">{t("texthook.engine.agent")}</option>
-                  </select>
-                </div>
-                <div className="link-row">
-                  {status.running ? (
-                    <button
-                      type="button"
-                      className="danger"
-                      disabled={busy}
-                      onClick={() => void stopSession()}
-                    >
-                      {t("texthook.actions.stop")}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={startDisabled}
-                      onClick={() => void startSession()}
-                    >
-                      {t("texthook.actions.start")}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </section>
-
-            <section className="card legacy-card ocr-card">
-              <div className="ocr-card-header-row">
-                <h2>{t("texthook.agent.title")}</h2>
-              </div>
-              <div className="form-group ocr-form-group">
-                <div className="input-group">
-                  <label htmlFor="texthook-agent-script-input">
-                    {t("texthook.agent.scriptPath")}
-                  </label>
-                  <input
-                    id="texthook-agent-script-input"
-                    type="text"
-                    value={agentScriptPath}
-                    disabled={status.running}
-                    placeholder={t("texthook.agent.scriptPlaceholder")}
-                    onChange={(e) => setAgentScriptPath(e.target.value)}
-                  />
-                </div>
-                <div className="link-row">
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={status.running}
-                    onClick={() => void openAgentScriptSearch()}
-                  >
-                    {t("texthook.agent.search")}
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={status.running}
-                    onClick={() => void browseAgentScript()}
-                  >
-                    {t("texthook.agent.browse")}
-                  </button>
-                  <button type="button" className="secondary" onClick={() => void saveProfile()}>
-                    {t("texthook.agent.save")}
-                  </button>
-                  {status.running && status.engine === "agent" && status.agentHasUi ? (
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => void showAgentScriptUi()}
-                    >
-                      {t("texthook.agent.showScriptUi")}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </section>
-
-            <section className="card legacy-card ocr-card">
-              <div className="ocr-card-header-row">
-                <h2>{t("texthook.profile.title")}</h2>
-                {savedProfile ? (
-                  <span className="ocr-area-badge ocr-area-badge--ok">
-                    {t("texthook.profile.saved")}
+            <div className="texthook-stepper">
+              {/* ─── Step 1: Target ─── */}
+              <div
+                className={`texthook-step ${capture?.exeName ? "texthook-step--complete" : ""}`}
+              >
+                <div className="texthook-step-indicator">
+                  <span className="texthook-step-number">
+                    {capture?.exeName ? "✓" : "1"}
                   </span>
-                ) : null}
-              </div>
-              <div className="form-group ocr-form-group">
-                <div className="input-group">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={autoHook}
-                      onChange={(e) => setAutoHook(e.target.checked)}
-                    />{" "}
-                    {t("texthook.profile.autoHook")}
-                  </label>
+                  <div className="texthook-step-line" />
                 </div>
-                <div className="input-group">
-                  <label htmlFor="texthook-flush-delay-input">
-                    {t("texthook.profile.flushDelay")}
-                  </label>
-                  <input
-                    id="texthook-flush-delay-input"
-                    type="number"
-                    min="0"
-                    max={String(MAX_FLUSH_DELAY_MS)}
-                    step="10"
-                    value={flushDelayInput}
-                    onChange={(e) => updateFlushDelay(e.target.value)}
-                    onFocus={() => {
-                      flushDelayInputFocusedRef.current = true;
-                    }}
-                    onBlur={commitFlushDelayInput}
-                  />
-                </div>
-                <div className="input-group">
-                  <label htmlFor="texthook-manual-input">
-                    {t("texthook.profile.manualHook")}
-                  </label>
-                  <input
-                    id="texthook-manual-input"
-                    type="text"
-                    value={manualHookCode}
-                    placeholder="HB4@0"
-                    disabled={engine === "agent"}
-                    onChange={(e) => setManualHookCode(e.target.value)}
-                  />
-                </div>
-                <div className="link-row">
-                  <button
-                    type="button"
-                    disabled={!status.running || engine === "agent" || !manualHookCode.trim()}
-                    onClick={() => void attachManual()}
-                  >
-                    {t("texthook.profile.attachManual")}
-                  </button>
-                  <button type="button" className="secondary" onClick={() => void saveProfile()}>
-                    {t("texthook.profile.save")}
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    disabled={!savedProfile}
-                    onClick={() => void deleteProfile()}
-                  >
-                    {t("texthook.profile.delete")}
-                  </button>
+                <div className="texthook-step-content">
+                  <section className="card legacy-card ocr-card">
+                    <div className="ocr-card-header-row">
+                      <div>
+                        <h2>{t("texthook.capture.title")}</h2>
+                        <p className="texthook-step-desc">
+                          {t("texthook.steps.targetDesc")}
+                        </p>
+                      </div>
+                      <span className={`ocr-area-badge ${statusBadgeClass}`}>
+                        {statusBadgeText}
+                      </span>
+                    </div>
+                    <div className="form-group ocr-form-group">
+                      <div className="input-group">
+                        <label>{t("texthook.capture.scene")}</label>
+                        <span>{sceneDisplay}</span>
+                      </div>
+                      <div className="input-group">
+                        <label>{t("texthook.capture.executable")}</label>
+                        <span>{exeNameDisplay}</span>
+                      </div>
+                      {status.running ? (
+                        <div className="input-group">
+                          <label>{t("texthook.capture.pid")}</label>
+                          <span>
+                            {status.pid} ({status.arch})
+                          </span>
+                        </div>
+                      ) : null}
+                      <div className="link-row">
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => {
+                            void refreshActiveCapture();
+                          }}
+                        >
+                          {t("texthook.capture.refresh")}
+                        </button>
+                      </div>
+                    </div>
+                  </section>
                 </div>
               </div>
-            </section>
+
+              {/* ─── Step 2: Engine & Configuration ─── */}
+              <div
+                className={`texthook-step ${
+                  status.running
+                    ? "texthook-step--complete"
+                    : capture?.exeName
+                      ? "texthook-step--active"
+                      : ""
+                }`}
+              >
+                <div className="texthook-step-indicator">
+                  <span className="texthook-step-number">
+                    {status.running ? "✓" : "2"}
+                  </span>
+                  <div className="texthook-step-line" />
+                </div>
+                <div className="texthook-step-content">
+                  <section className="card legacy-card ocr-card">
+                    <div className="ocr-card-header-row">
+                      <div>
+                        <h2>{t("texthook.steps.engineConfig")}</h2>
+                        <p className="texthook-step-desc">
+                          {t("texthook.steps.engineDesc")}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="form-group ocr-form-group">
+                      <div className="input-group">
+                        <label htmlFor="texthook-engine-select">
+                          {t("texthook.engine.label")}
+                        </label>
+                        <select
+                          id="texthook-engine-select"
+                          value={engine}
+                          onChange={(e) => setEngine(e.target.value as TextHookEngine)}
+                          disabled={status.running}
+                        >
+                          <option value="luna">{t("texthook.engine.luna")}</option>
+                          <option value="textractor">{t("texthook.engine.textractor")}</option>
+                          <option value="agent">{t("texthook.engine.agent")}</option>
+                        </select>
+                      </div>
+
+                      {/* Agent-specific configuration */}
+                      {engine === "agent" ? (
+                        <div className="texthook-subsection">
+                          <div className="texthook-subsection-label">
+                            {t("texthook.agent.title")}
+                          </div>
+                          <div className="input-group">
+                            <label htmlFor="texthook-agent-script-input">
+                              {t("texthook.agent.scriptPath")}
+                            </label>
+                            <input
+                              id="texthook-agent-script-input"
+                              type="text"
+                              value={agentScriptPath}
+                              disabled={status.running}
+                              placeholder={t("texthook.agent.scriptPlaceholder")}
+                              onChange={(e) => setAgentScriptPath(e.target.value)}
+                            />
+                          </div>
+                          <div className="link-row">
+                            <button
+                              type="button"
+                              className="secondary"
+                              disabled={status.running}
+                              onClick={() => void openAgentScriptSearch()}
+                            >
+                              {t("texthook.agent.search")}
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary"
+                              disabled={status.running}
+                              onClick={() => void browseAgentScript()}
+                            >
+                              {t("texthook.agent.browse")}
+                            </button>
+                            {status.running &&
+                            status.engine === "agent" &&
+                            status.agentHasUi ? (
+                              <button
+                                type="button"
+                                className="secondary"
+                                onClick={() => void showAgentScriptUi()}
+                              >
+                                {t("texthook.agent.showScriptUi")}
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* Manual hook code (Luna / Textractor only) */}
+                      {engine !== "agent" ? (
+                        <div className="texthook-subsection">
+                          <div className="texthook-subsection-label">
+                            {t("texthook.steps.manualHookLabel")}
+                          </div>
+                          <div className="input-group">
+                            <label
+                              htmlFor="texthook-manual-input"
+                              title={t("texthook.profile.manualHookHint")}
+                            >
+                              {t("texthook.profile.manualHook")}
+                            </label>
+                            <input
+                              id="texthook-manual-input"
+                              type="text"
+                              value={manualHookCode}
+                              placeholder="HB4@0"
+                              onChange={(e) => setManualHookCode(e.target.value)}
+                            />
+                          </div>
+                          <div className="link-row">
+                            <button
+                              type="button"
+                              disabled={
+                                !status.running || !manualHookCode.trim()
+                              }
+                              onClick={() => void attachManual()}
+                            >
+                              {t("texthook.profile.attachManual")}
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </section>
+                </div>
+              </div>
+
+              {/* ─── Step 3: Options & Profile ─── */}
+              <div
+                className={`texthook-step ${savedProfile ? "texthook-step--complete" : ""}`}
+              >
+                <div className="texthook-step-indicator">
+                  <span className="texthook-step-number">3</span>
+                </div>
+                <div className="texthook-step-content">
+                  <section className="card legacy-card ocr-card">
+                    <div className="ocr-card-header-row">
+                      <div>
+                        <h2>{t("texthook.steps.options")}</h2>
+                        <p className="texthook-step-desc">
+                          {t("texthook.steps.optionsDesc")}
+                        </p>
+                      </div>
+                      {savedProfile ? (
+                        <span className="ocr-area-badge ocr-area-badge--ok">
+                          {t("texthook.profile.saved")}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="form-group ocr-form-group">
+                      <div className="input-group">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={autoHook}
+                            onChange={(e) => setAutoHook(e.target.checked)}
+                          />{" "}
+                          {t("texthook.profile.autoHook")}
+                        </label>
+                      </div>
+                      <div className="input-group">
+                        <label htmlFor="texthook-flush-delay-input">
+                          {t("texthook.profile.flushDelay")}
+                        </label>
+                        <input
+                          id="texthook-flush-delay-input"
+                          type="number"
+                          min="0"
+                          max={String(MAX_FLUSH_DELAY_MS)}
+                          step="10"
+                          value={flushDelayInput}
+                          onChange={(e) => updateFlushDelay(e.target.value)}
+                          onFocus={() => {
+                            flushDelayInputFocusedRef.current = true;
+                          }}
+                          onBlur={commitFlushDelayInput}
+                        />
+                      </div>
+                      <div className="link-row">
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => void saveProfile()}
+                        >
+                          {t("texthook.profile.save")}
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          disabled={!savedProfile}
+                          onClick={() => void deleteProfile()}
+                        >
+                          {t("texthook.profile.delete")}
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </div>
           </div>
 
+          {/* ── Right column: hooks, output, log ── */}
           <div className="ocr-col ocr-col--workspace">
             <section className="card legacy-card ocr-card texthook-hook-list">
               <div className="ocr-card-header-row">
@@ -786,8 +853,17 @@ export function TextHookTab({ active }: TextHookTabProps) {
                 <h2>{t("texthook.output.title")}</h2>
               </div>
               <div className="texthook-output" ref={textScrollRef}>
-                {formattedTextLines ? (
-                  <pre className="texthook-output-pre">{formattedTextLines}</pre>
+                {textLines.length > 0 ? (
+                  <ul className="texthook-output-list">
+                    {textLines.map((line, idx) => (
+                      <li
+                        key={`${line.ts}-${line.hookId}-${idx}`}
+                        className="texthook-output-line"
+                      >
+                        <pre className="texthook-output-pre">{line.text}</pre>
+                      </li>
+                    ))}
+                  </ul>
                 ) : (
                   <div className="texthook-empty">
                     {selectedHookId
@@ -821,6 +897,43 @@ export function TextHookTab({ active }: TextHookTabProps) {
             </section>
           </div>
         </div>
+
+        {/* ── Sticky footer: status + primary action ── */}
+        <div
+          className={`ocr-sticky-footer texthook-sticky-footer texthook-sticky-footer--${footerState}`}
+        >
+          <div className="ocr-sticky-footer-status">
+            <span className={`ocr-area-badge ${statusBadgeClass}`}>{statusBadgeText}</span>
+            <div className="ocr-sticky-footer-copy">
+              <strong>{exeNameDisplay}</strong>
+              <p>
+                {sceneDisplay} &bull; {engineDisplayName}
+              </p>
+            </div>
+          </div>
+          <div className="ocr-sticky-footer-actions">
+            {status.running ? (
+              <button
+                type="button"
+                className="danger"
+                disabled={busy}
+                onClick={() => void stopSession()}
+              >
+                {t("texthook.actions.stop")}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={startDisabled}
+                onClick={() => void startSession()}
+              >
+                {t("texthook.actions.start")}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* ── Agent script picker modal ── */}
         {agentScriptDialog ? (
           <div className="launcher-config-modal" role="dialog" aria-modal="true">
             <div className="launcher-config-modal-header">

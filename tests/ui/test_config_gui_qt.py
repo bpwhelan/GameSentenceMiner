@@ -225,6 +225,51 @@ def test_on_profile_changed_notifies_profile_change_hooks() -> None:
     assert window.delete_profile_button.hidden is False
 
 
+def test_on_profile_changed_can_suppress_profile_change_hooks() -> None:
+    calls: list[tuple[str, str]] = []
+    saved_profiles: list[str] = []
+    reloaded = []
+
+    class _FakeMasterConfig:
+        current_profile = "Default"
+
+        def save(self) -> None:
+            saved_profiles.append(self.current_profile)
+
+    class _FakeEditor:
+        def __init__(self, master_config) -> None:
+            self.master_config = master_config
+            self.profile = SimpleNamespace(name=master_config.current_profile)
+
+        def replace_master_config(self, master_config) -> None:
+            self.master_config = master_config
+            self.profile = SimpleNamespace(name=master_config.current_profile)
+
+    master_config = _FakeMasterConfig()
+    window = SimpleNamespace(
+        _profile_change_hooks=[],
+        _suppress_profile_change_hooks=True,
+        profile_combo=_FakeProfileCombo("Persona 3"),
+        settings=SimpleNamespace(name="Default"),
+        master_config=master_config,
+        editor=_FakeEditor(master_config),
+        delete_profile_button=_FakeDeleteButton(),
+        _flush_pending_auto_save=lambda **_kwargs: None,
+        _schedule_runtime_reload=lambda: reloaded.append(True),
+        _load_settings_to_ui_safely=lambda: None,
+        refresh_obs_scenes=lambda **_kwargs: None,
+        _update_window_title=lambda: None,
+    )
+
+    ConfigWindow.add_profile_change_hook(window, lambda previous, new: calls.append((previous, new)))
+    ConfigWindow._on_profile_changed(window)
+
+    assert calls == []
+    assert saved_profiles == ["Persona 3"]
+    assert reloaded == [True]
+    assert window.delete_profile_button.hidden is False
+
+
 def test_reload_settings_rebuilds_localized_ui_when_locale_changes(monkeypatch) -> None:
     calls: list[object] = []
 

@@ -1112,8 +1112,9 @@ def get_status():
         from GameSentenceMiner import anki as anki_module
 
         anki_module.refresh_anki_beacon_connection_status()
+        anki_module.refresh_anki_connect_connection_status()
     except Exception:
-        logger.debug("Unable to refresh AnkiBeacon status for /get_status.", exc_info=True)
+        logger.debug("Unable to refresh Anki status for /get_status.", exc_info=True)
     return jsonify(gsm_status.to_dict()), 200
 
 

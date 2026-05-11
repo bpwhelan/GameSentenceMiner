@@ -444,15 +444,16 @@ function flushAgentText(): void {
     const pending = agentSession.outputCollector;
     agentSession.outputCollector = [];
     const last = pending[pending.length - 1];
-    sendAgentText({
+    const merged = {
         ...last,
         text: pending.map((item) => item.text).join('\n'),
-    });
+    };
+    updateAgentHookPreview(merged.text);
+    sendAgentText(merged);
 }
 
 function queueAgentText(text: string): void {
     if (!agentSession || !text.trim()) return;
-    updateAgentHookPreview(text);
     const payload: AgentTextPayload = {
         text,
         hookId: agentSession.hook.id,
@@ -462,6 +463,7 @@ function queueAgentText(text: string): void {
     };
     const delayMs = Math.max(0, Math.round(agentSession.flushDelayMs));
     if (delayMs <= 0) {
+        updateAgentHookPreview(text);
         sendAgentText(payload);
         return;
     }

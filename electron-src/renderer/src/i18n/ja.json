@@ -800,6 +800,14 @@
     }
   },
   "texthook": {
+    "steps": {
+      "targetDesc": "OBSキャプチャから検出されたゲームプロセス",
+      "engineConfig": "エンジンと設定",
+      "engineDesc": "フックエンジンを選択して設定する",
+      "options": "オプションとプロファイル",
+      "optionsDesc": "出力タイミングの微調整と設定の保存",
+      "manualHookLabel": "任意 / 詳細: 手動フックコード"
+    },
     "capture": {
       "title": "キャプチャ対象",
       "scene": "シーン",
@@ -836,7 +844,8 @@
       "saved": "保存済み",
       "autoHook": "次回起動時にフックを自動アタッチ",
       "flushDelay": "出力フラッシュ遅延 (ms):",
-      "manualHook": "手動フックコード (H/Rコード):",
+      "manualHook": "手動フックコード (H/Rコード、任意):",
+      "manualHookHint": "特定のHコードまたはRコードがある場合だけ入力してください。通常はエンジンを開始して、検出されたフックを選択します。",
       "attachManual": "手動フックをアタッチ",
       "save": "フックを保存",
       "delete": "プロファイル削除"
@@ -845,7 +854,7 @@
       "title": "検出されたフック",
       "count": "フック {count} 件",
       "waiting": "フック待機中。ゲームでテキストを表示してください。",
-      "notRunning": "「フック取得」を押してエンジンを開始してください。",
+      "notRunning": "「開始」を押してエンジンを開始してください。",
       "noTextYet": "(まだテキストなし)"
     },
     "output": {
@@ -863,7 +872,7 @@
       "noTarget": "対象なし"
     },
     "actions": {
-      "start": "フック取得",
+      "start": "開始",
       "stop": "停止"
     },
     "notices": {

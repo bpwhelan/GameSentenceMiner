@@ -800,6 +800,14 @@
     }
   },
   "texthook": {
+    "steps": {
+      "targetDesc": "Detected game process from OBS capture",
+      "engineConfig": "Engine & Configuration",
+      "engineDesc": "Choose a hooking engine and configure it",
+      "options": "Options & Profile",
+      "optionsDesc": "Fine-tune output timing and save your settings",
+      "manualHookLabel": "Optional / Advanced: Manual Hook Code"
+    },
     "capture": {
       "title": "Active Capture",
       "scene": "Scene",
@@ -836,7 +844,8 @@
       "saved": "Saved",
       "autoHook": "Auto-attach saved hook on next start",
       "flushDelay": "Output flush delay (ms):",
-      "manualHook": "Manual hook code (H/R-code):",
+      "manualHook": "Manual hook code (H/R-code, optional):",
+      "manualHookHint": "Leave this blank unless you already have a specific H-code or R-code. Most users should start the engine and pick a detected hook instead.",
       "attachManual": "Attach manual hook",
       "save": "Save Hook",
       "delete": "Delete Profile"
@@ -845,7 +854,7 @@
       "title": "Detected Hooks",
       "count": "{count} hooks",
       "waiting": "Waiting for hooks. Trigger some text in the game.",
-      "notRunning": "Click 'Get Hooks' to start the hook engine.",
+      "notRunning": "Click 'Start' to start the hook engine.",
       "noTextYet": "(no text yet)"
     },
     "output": {
@@ -863,7 +872,7 @@
       "noTarget": "No Target"
     },
     "actions": {
-      "start": "Get Hooks",
+      "start": "Start",
       "stop": "Stop"
     },
     "notices": {

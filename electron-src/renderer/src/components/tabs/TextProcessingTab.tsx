@@ -572,7 +572,7 @@ function applyProcessorPreview(text: string, processorId: string, config: TextPr
     case "extract_bracketed_text": {
       const start = text.indexOf("「");
       const end = text.lastIndexOf("」");
-      if (start >= 0 && end > start) return text.slice(start, end + 1);
+      if (start >= 0 && end > start) return text.slice(start + 1, end);
       return text;
     }
     case "extract_lines": {

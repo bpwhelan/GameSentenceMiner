@@ -800,6 +800,14 @@
     }
   },
   "texthook": {
+    "steps": {
+      "targetDesc": "Proceso del juego detectado desde la captura de OBS",
+      "engineConfig": "Motor y configuración",
+      "engineDesc": "Elige un motor de hooking y configúralo",
+      "options": "Opciones y perfil",
+      "optionsDesc": "Ajusta el retardo de salida y guarda tus ajustes",
+      "manualHookLabel": "Opcional / avanzado: código de hook manual"
+    },
     "capture": {
       "title": "Captura activa",
       "scene": "Escena",
@@ -820,7 +828,8 @@
       "saved": "Guardado",
       "autoHook": "Adjuntar hook automáticamente al próximo inicio",
       "flushDelay": "Retardo de envío de salida (ms):",
-      "manualHook": "Código de hook manual (H/R-code):",
+      "manualHook": "Código de hook manual (H/R-code, opcional):",
+      "manualHookHint": "Déjalo vacío salvo que ya tengas un H-code o R-code específico. La mayoría de usuarios debería iniciar el motor y elegir un hook detectado.",
       "attachManual": "Adjuntar hook manual",
       "save": "Guardar hook",
       "delete": "Eliminar perfil"
@@ -829,7 +838,7 @@
       "title": "Hooks detectados",
       "count": "{count} hooks",
       "waiting": "Esperando hooks. Genera texto en el juego.",
-      "notRunning": "Pulsa 'Obtener hooks' para iniciar el motor.",
+      "notRunning": "Pulsa 'Iniciar' para iniciar el motor.",
       "noTextYet": "(sin texto aún)"
     },
     "output": {
@@ -847,7 +856,7 @@
       "noTarget": "Sin objetivo"
     },
     "actions": {
-      "start": "Obtener hooks",
+      "start": "Iniciar",
       "stop": "Detener"
     },
     "notices": {

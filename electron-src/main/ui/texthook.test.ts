@@ -63,6 +63,13 @@ describe('text hook flush delay helpers', () => {
         });
     });
 
+    it('erases known hook noise from output text', async () => {
+        const { __test } = await import('./texthook.js');
+
+        expect(__test.eraseTextHookNoise('%D$vl123;')).toBe('');
+        expect(__test.eraseTextHookNoise('before%D$vl456;after')).toBe('beforeafter');
+    });
+
     it('suppresses hook engine selection status lines', async () => {
         const { __test } = await import('./texthook.js');
 

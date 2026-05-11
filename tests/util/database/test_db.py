@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import os
+import gzip
 import sqlite3
 import tempfile
 import threading
 import time
+from datetime import datetime
 
-from GameSentenceMiner.util.database.db import SQLiteDB, sync_tokenization_schema_state
+from GameSentenceMiner.util.database import db as db_module
+from GameSentenceMiner.util.database.db import (
+    SQLiteDB,
+    backup_db,
+    schedule_database_backup,
+    sync_tokenization_schema_state,
+)
 
 
 def test_read_only_connection_can_query_without_setting_wal():
@@ -98,3 +106,111 @@ def test_transaction_serializes_writers_across_threads():
     finally:
         db.close()
         os.unlink(path)
+
+
+def test_backup_db_uses_online_snapshot_that_includes_wal_changes(tmp_path):
+    db_path = tmp_path / "wal-source.db"
+    restored_path = tmp_path / "restored.db"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("CREATE TABLE sample (value TEXT)")
+        conn.commit()
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+        conn.execute("INSERT INTO sample (value) VALUES ('from wal')")
+        conn.commit()
+
+        backup_path = backup_db(str(db_path), now=datetime(2026, 1, 1))
+    finally:
+        conn.close()
+
+    assert backup_path is not None
+    assert backup_path.endswith(os.path.join("backup", "database", "gsm_2026-01-01.db.gz"))
+
+    with gzip.open(backup_path, "rb") as source, open(restored_path, "wb") as restored:
+        restored.write(source.read())
+
+    restored_conn = sqlite3.connect(restored_path)
+    try:
+        assert restored_conn.execute("SELECT value FROM sample").fetchone() == ("from wal",)
+    finally:
+        restored_conn.close()
+
+
+def test_backup_db_skips_existing_daily_backup_without_copying(tmp_path, monkeypatch):
+    db_path = tmp_path / "source.db"
+    sqlite3.connect(db_path).close()
+
+    backup_dir = tmp_path / "backup" / "database"
+    backup_dir.mkdir(parents=True)
+    existing_backup = backup_dir / "gsm_2026-01-01.db.gz"
+    existing_backup.write_bytes(b"already backed up")
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("backup should not run when today's backup already exists")
+
+    monkeypatch.setattr(db_module, "_create_sqlite_backup", fail_if_called)
+
+    assert backup_db(str(db_path), now=datetime(2026, 1, 1)) is None
+    assert existing_backup.read_bytes() == b"already backed up"
+
+
+def test_backup_db_prunes_expired_daily_backups(tmp_path):
+    db_path = tmp_path / "source.db"
+    sqlite3.connect(db_path).close()
+
+    backup_dir = tmp_path / "backup" / "database"
+    backup_dir.mkdir(parents=True)
+    expired_backup = backup_dir / "gsm_2025-12-01.db.gz"
+    expired_backup.write_bytes(b"old")
+    recent_backup = backup_dir / "gsm_2025-12-31.db.gz"
+    recent_backup.write_bytes(b"recent")
+
+    now = datetime(2026, 1, 1)
+    now_timestamp = now.timestamp()
+    os.utime(
+        expired_backup,
+        (
+            now_timestamp - 6 * 24 * 60 * 60,
+            now_timestamp - 6 * 24 * 60 * 60,
+        ),
+    )
+    os.utime(
+        recent_backup,
+        (
+            now_timestamp - 2 * 24 * 60 * 60,
+            now_timestamp - 2 * 24 * 60 * 60,
+        ),
+    )
+
+    backup_db(str(db_path), now=now)
+
+    assert not expired_backup.exists()
+    assert recent_backup.exists()
+
+
+def test_schedule_database_backup_runs_on_daemon_thread_without_waiting(tmp_path, monkeypatch):
+    db_path = tmp_path / "source.db"
+    sqlite3.connect(db_path).close()
+    backup_started = threading.Event()
+    release_backup = threading.Event()
+
+    def fake_backup(path):
+        backup_started.set()
+        assert path == str(db_path)
+        assert release_backup.wait(timeout=2)
+
+    monkeypatch.setattr(db_module, "backup_db", fake_backup)
+
+    thread = schedule_database_backup(str(db_path))
+
+    assert thread is not None
+    assert thread.daemon is True
+    assert backup_started.wait(timeout=1)
+    assert thread.is_alive()
+
+    release_backup.set()
+    thread.join(timeout=1)
+    assert not thread.is_alive()

@@ -810,6 +810,18 @@ def test_connect_to_obs_sync_creates_service_and_manager(monkeypatch):
     assert obs_module.gsm_status.obs_connected is True
 
 
+def test_start_obs_skips_launch_when_already_connected(monkeypatch):
+    popen_calls = []
+
+    monkeypatch.setattr(obs_module.gsm_status, "obs_connected", True, raising=False)
+    monkeypatch.setattr(obs_module, "obs_process_pid", 4321, raising=False)
+    monkeypatch.setattr(obs_launch_module, "get_obs_path", lambda: "/missing/obs")
+    monkeypatch.setattr(obs_launch_module.subprocess, "Popen", lambda *args, **kwargs: popen_calls.append(args))
+
+    assert obs_launch_module.start_obs(force_restart=False) == 4321
+    assert popen_calls == []
+
+
 def test_disconnect_from_obs_clears_module_state(monkeypatch):
     disconnected = []
 

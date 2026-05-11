@@ -66,6 +66,7 @@ try:
 
     from GameSentenceMiner import obs
     from GameSentenceMiner.obs import check_obs_folder_is_correct
+    from GameSentenceMiner.profile_switcher import ProfileSwitcher, get_profile_switcher
     from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
     from GameSentenceMiner.util.communication.electron_ipc import (
         FunctionName,
@@ -91,7 +92,6 @@ try:
         is_mac,
         is_windows,
         logger,
-        switch_profile_and_save,
     )
     from GameSentenceMiner.util.gsm_cloud_auth_cache import gsm_cloud_auth_cache_service
     from GameSentenceMiner.util.cloud_sync import cloud_sync_service
@@ -358,7 +358,6 @@ class AppState:
     file_watcher_observer: Optional[Observer] = None
     file_watcher_path: Optional[str] = None
     async_runner: AsyncBackgroundRunner = field(default_factory=AsyncBackgroundRunner)
-    scene_profile_switch_resume_profile: Optional[str] = None
 
 
 class GSMTray(threading.Thread):
@@ -492,6 +491,14 @@ class GSMApplication:
         self._threads: list[threading.Thread] = []
         self._obs_connect_task: Optional[asyncio.Task] = None
         self._obs_launch_thread: Optional[threading.Thread] = None
+        self.profile_switcher = get_profile_switcher()
+
+    def _get_profile_switcher(self) -> ProfileSwitcher:
+        profile_switcher = getattr(self, "profile_switcher", None)
+        if profile_switcher is None:
+            profile_switcher = get_profile_switcher()
+            self.profile_switcher = profile_switcher
+        return profile_switcher
 
     def _start_thread(self, target, name: str) -> threading.Thread:
         thread = threading.Thread(target=target, name=name, daemon=True)
@@ -595,13 +602,7 @@ class GSMApplication:
         _get_texthooking_page_module().open_texthooker()
 
     def switch_profile(self, profile_name: str) -> None:
-        current_profile = get_master_config().current_profile
-        self._record_manual_profile_switch(current_profile, profile_name)
-        logger.info(f"Switching to profile: {profile_name}")
-        get_master_config().current_profile = profile_name
-        switch_profile_and_save(profile_name)
-        if self.state.settings_window:
-            self.state.settings_window.reload_settings()
+        self._get_profile_switcher().switch_profile(profile_name, settings_window=self.state.settings_window)
 
     def test_anki_confirmation(self, *args) -> None:
         from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
@@ -1099,98 +1100,13 @@ class GSMApplication:
         except Exception as e:
             logger.debug(f"Error getting previous lines for game: {e}")
 
-    @staticmethod
-    def _get_matching_profiles_for_scene(scene: str) -> list[str]:
-        normalized_scene = str(scene or "").strip()
-        if not normalized_scene:
-            return []
-
-        matching_profiles = []
-        for name, config in get_master_config().configs.items():
-            configured_scenes = {
-                str(configured_scene or "").strip() for configured_scene in getattr(config, "scenes", [])
-            }
-            configured_scenes.discard("")
-            if normalized_scene in configured_scenes:
-                matching_profiles.append(str(name).strip())
-        return matching_profiles
-
-    def _resolve_profile_for_scene(self, scene: str, *, interactive: bool) -> str | None:
-        matching_profiles = self._get_matching_profiles_for_scene(scene)
-        current_profile = get_master_config().current_profile
-
-        if len(matching_profiles) > 1:
-            if current_profile in matching_profiles:
-                return current_profile
-            if not interactive:
-                logger.info(f"Skipping ambiguous profile switch for scene '{scene}': {matching_profiles}")
-                return None
-
-            from GameSentenceMiner.ui.qt_main import launch_scene_selection
-
-            return launch_scene_selection(matching_profiles) or None
-
-        if matching_profiles:
-            return matching_profiles[0]
-        if get_master_config().switch_to_default_if_not_found:
-            return configuration.DEFAULT_CONFIG
-        return None
-
-    def _sync_profile_for_scene(
-        self, scene: str, *, interactive: bool, refresh_previous_lines_on_switch: bool = True
-    ) -> str | None:
-        if self._is_scene_profile_switch_paused():
-            return None
-
-        switch_to = self._resolve_profile_for_scene(scene, interactive=interactive)
-        if not switch_to or switch_to == get_master_config().current_profile:
-            return switch_to
-
-        logger.info(f"Switching to profile: {switch_to}")
-        get_master_config().current_profile = switch_to
-        switch_profile_and_save(switch_to)
-        if refresh_previous_lines_on_switch:
-            self.get_previous_lines_for_game()
-        if self.state.settings_window:
-            self.state.settings_window.reload_settings()
-        return switch_to
-
-    def _record_manual_profile_switch(self, previous_profile_name: str, new_profile_name: str) -> None:
-        previous_profile_name = str(previous_profile_name or "").strip()
-        new_profile_name = str(new_profile_name or "").strip()
-        if not new_profile_name or new_profile_name == previous_profile_name:
-            return
-
-        resume_profile = getattr(self.state, "scene_profile_switch_resume_profile", None)
-        if resume_profile:
-            if new_profile_name == resume_profile:
-                self.state.scene_profile_switch_resume_profile = None
-                logger.info(
-                    f"Resuming automatic scene profile switching after manual switch back to '{resume_profile}'."
-                )
-            return
-
-        if previous_profile_name:
-            self.state.scene_profile_switch_resume_profile = previous_profile_name
-            logger.info(
-                "Pausing automatic scene profile switching after manual switch from "
-                f"'{previous_profile_name}' to '{new_profile_name}'. Switch back to "
-                f"'{previous_profile_name}' or restart GSM to resume."
-            )
-
-    def _is_scene_profile_switch_paused(self) -> bool:
-        resume_profile = getattr(self.state, "scene_profile_switch_resume_profile", None)
-        if not resume_profile:
-            return False
-
-        logger.debug(
-            "Skipping automatic scene profile switch while manual profile override is active; "
-            f"switch back to '{resume_profile}' or restart GSM to resume."
-        )
-        return True
-
     def _check_profile_for_scene_tick(self, scene: str) -> None:
-        self._sync_profile_for_scene(scene, interactive=False)
+        self._get_profile_switcher().sync_profile_for_scene(
+            scene,
+            interactive=False,
+            settings_window=self.state.settings_window,
+            on_profile_switched=self.get_previous_lines_for_game,
+        )
 
     def _register_scene_observed_profile_check(self) -> None:
         service = getattr(obs, "obs_service", None)
@@ -1219,7 +1135,11 @@ class GSMApplication:
                 logger.debug(f"Failed to queue Sudachi user dictionary export from scene callback for '{scene}': {exc}")
             gsm_state.current_game = obs.get_current_game()
             self.get_previous_lines_for_game()
-            self._sync_profile_for_scene(scene, interactive=True, refresh_previous_lines_on_switch=False)
+            self._get_profile_switcher().sync_profile_for_scene(
+                scene,
+                interactive=True,
+                settings_window=self.state.settings_window,
+            )
 
         await obs.register_scene_change_callback(scene_switcher_callback)
 
@@ -1354,7 +1274,9 @@ class GSMApplication:
         self.state.settings_window.add_save_hook(self.register_hotkeys)
         self.state.settings_window.add_save_hook(self.on_config_changed)
         if hasattr(self.state.settings_window, "add_profile_change_hook"):
-            self.state.settings_window.add_profile_change_hook(self._record_manual_profile_switch)
+            self.state.settings_window.add_profile_change_hook(
+                self._get_profile_switcher().record_manual_profile_switch
+            )
 
         self.state.async_runner.start()
         post_init = self.state.async_runner.submit(self.post_init_async())

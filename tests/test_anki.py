@@ -378,6 +378,29 @@ def test_record_anki_beacon_heartbeat_uses_configured_freshness_window():
     assert anki.gsm_status.anki_beacon_connected is False
 
 
+def test_refresh_anki_connect_connection_status_marks_connected(monkeypatch):
+    config = SimpleNamespace(anki=SimpleNamespace(enabled=True))
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "_is_anki_connect_reachable", lambda timeout=1.0: True)
+    anki.gsm_status.anki_connected = False
+
+    assert anki.refresh_anki_connect_connection_status() is True
+    assert anki.gsm_status.anki_connected is True
+
+
+def test_refresh_anki_connect_connection_status_preserves_fresh_beacon_on_failure(monkeypatch):
+    config = SimpleNamespace(anki=SimpleNamespace(enabled=True))
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "_is_anki_connect_reachable", lambda timeout=1.0: False)
+    monkeypatch.setattr(anki, "refresh_anki_beacon_connection_status", lambda: True)
+    anki.gsm_status.anki_connected = True
+
+    assert anki.refresh_anki_connect_connection_status() is False
+    assert anki.gsm_status.anki_connected is True
+
+
 def test_handle_incoming_anki_event_queues_and_deduplicates_note_added(monkeypatch):
     processed = []
     monkeypatch.setattr(anki, "update_new_cards", lambda note_ids: processed.append(set(note_ids)))
@@ -430,11 +453,13 @@ def test_monitor_anki_iteration_skips_polling_when_replay_buffer_inactive(monkey
         obs=SimpleNamespace(disable_recording=False),
     )
     sleep_calls = []
+    refresh_calls = []
 
     monkeypatch.setattr(anki, "get_config", lambda: config)
     monkeypatch.setattr(anki, "get_anki_beacon_wait_timeout_seconds", lambda now=None: 0.0)
     monkeypatch.setattr(anki, "_process_next_anki_beacon_note", lambda timeout_seconds=0.0: False)
     monkeypatch.setattr(anki, "_is_anki_polling_allowed", lambda: False)
+    monkeypatch.setattr(anki, "refresh_anki_connect_connection_status", lambda: refresh_calls.append(True) or True)
     monkeypatch.setattr(anki.time, "sleep", lambda seconds: sleep_calls.append(seconds))
     monkeypatch.setattr(
         anki,
@@ -446,6 +471,7 @@ def test_monitor_anki_iteration_skips_polling_when_replay_buffer_inactive(monkey
 
     assert unsuccessful_count == 0
     assert scaled_polling_rate == 1.0
+    assert refresh_calls == [True]
     assert sleep_calls == [1.0]
 
 

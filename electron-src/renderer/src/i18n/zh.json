@@ -798,6 +798,14 @@
     }
   },
   "texthook": {
+    "steps": {
+      "targetDesc": "从 OBS 捕获检测到的游戏进程",
+      "engineConfig": "引擎和配置",
+      "engineDesc": "选择并配置挂接引擎",
+      "options": "选项和配置",
+      "optionsDesc": "微调输出时序并保存设置",
+      "manualHookLabel": "可选 / 高级：手动挂接代码"
+    },
     "capture": {
       "title": "活动捕获",
       "scene": "场景",
@@ -818,7 +826,8 @@
       "saved": "已保存",
       "autoHook": "下次启动时自动附加挂接",
       "flushDelay": "输出刷新延迟（ms）：",
-      "manualHook": "手动挂接代码（H/R-code）：",
+      "manualHook": "手动挂接代码（H/R-code，可选）：",
+      "manualHookHint": "除非你已有特定的 H-code 或 R-code，否则请留空。大多数用户应先启动引擎，然后选择检测到的挂接。",
       "attachManual": "附加手动挂接",
       "save": "保存挂接",
       "delete": "删除配置"
@@ -827,7 +836,7 @@
       "title": "检测到的挂接",
       "count": "{count} 个挂接",
       "waiting": "等待挂接中。请在游戏中触发文本。",
-      "notRunning": "点击“获取挂接”启动引擎。",
+      "notRunning": "点击“开始”启动引擎。",
       "noTextYet": "（尚无文本）"
     },
     "output": {
@@ -845,7 +854,7 @@
       "noTarget": "无目标"
     },
     "actions": {
-      "start": "获取挂接",
+      "start": "开始",
       "stop": "停止"
     },
     "notices": {

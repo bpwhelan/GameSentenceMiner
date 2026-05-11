@@ -798,6 +798,14 @@
     }
   },
   "texthook": {
+    "steps": {
+      "targetDesc": "OBS 캡처에서 감지된 게임 프로세스",
+      "engineConfig": "엔진 및 설정",
+      "engineDesc": "훅킹 엔진을 선택하고 설정하세요",
+      "options": "옵션 및 프로필",
+      "optionsDesc": "출력 타이밍을 조정하고 설정을 저장하세요",
+      "manualHookLabel": "선택 / 고급: 수동 훅 코드"
+    },
     "capture": {
       "title": "활성 캘처",
       "scene": "장면",
@@ -818,7 +826,8 @@
       "saved": "저장됨",
       "autoHook": "다음 시작 시 훅 자동 연결",
       "flushDelay": "출력 플러시 지연 (ms):",
-      "manualHook": "수동 훅 코드 (H/R-code):",
+      "manualHook": "수동 훅 코드 (H/R-code, 선택 사항):",
+      "manualHookHint": "특정 H-code 또는 R-code가 있을 때만 입력하세요. 대부분은 엔진을 시작한 뒤 감지된 훅을 선택하면 됩니다.",
       "attachManual": "수동 훅 연결",
       "save": "훅 저장",
       "delete": "프로필 삭제"
@@ -827,7 +836,7 @@
       "title": "감지된 훅",
       "count": "훅 {count}개",
       "waiting": "훅 대기 중. 게임에서 텍스트를 표시하세요.",
-      "notRunning": "'훅 가져오기'를 클릭해 엔진을 시작하세요.",
+      "notRunning": "'시작'을 클릭해 엔진을 시작하세요.",
       "noTextYet": "(아직 텍스트 없음)"
     },
     "output": {
@@ -845,7 +854,7 @@
       "noTarget": "대상 없음"
     },
     "actions": {
-      "start": "훅 가져오기",
+      "start": "시작",
       "stop": "중지"
     },
     "notices": {

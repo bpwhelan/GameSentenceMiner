@@ -271,7 +271,7 @@ def extract_bracketed_text(text: str) -> str:
         start = text.index("「")
         end = text.rindex("」")
         if start < end:
-            return text[start : end + 1]
+            return text[start + 1 : end]
     return text
 
 

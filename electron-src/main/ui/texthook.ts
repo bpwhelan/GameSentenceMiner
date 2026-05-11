@@ -93,6 +93,8 @@ interface ActiveSession {
     /** Debounced selected-hook text waiting to be forwarded. */
     outputCollector: TextHookOutputPayload[];
     outputFlushTimer: NodeJS.Timeout | null;
+    /** Debounced detected-hook preview text waiting to be shown in the hook list. */
+    hookPreviewCollectors: Map<string, HookPreviewCollector>;
     flushDelayMs: number;
     pidWatcher?: NodeJS.Timeout;
 }
@@ -103,6 +105,9 @@ const TEXTRACTOR_HOOK_LINE = /^\[([0-9a-fA-F]+):([^:]+):([^:]+):([^:]+):([^:]+):
 const LUNA_HOOK_LINE = /^\[#([0-9a-fA-F]+)\|([^\]]+)\] (.*)$/;
 const LUNA_HOOK_CREATED_LINE = /^\[Hook #([0-9a-fA-F]+) created\] Handle: ([0-9a-fA-F]+)$/;
 const CONSOLE_LINE = /^\[Console\] (.+)$/;
+const TEXT_HOOK_ERASE_PATTERNS = [
+    /%D\$vl\d+;/g,
+];
 
 const PROFILES_FILE = path.join(BASE_DIR, 'texthook', 'profiles.json');
 const DEFAULT_FLUSH_DELAY_MS = 100;
@@ -114,6 +119,13 @@ interface TextHookOutputPayload {
     hookFunction: string;
     engine: Exclude<TextHookEngine, 'agent'>;
     exeName: string;
+}
+
+interface HookPreviewCollector {
+    hookId: string;
+    hookFunction: string;
+    pending: string[];
+    timer: NodeJS.Timeout | null;
 }
 
 type TextHookRuntimeStatus = ReturnType<typeof getRuntimeStatus>;
@@ -244,24 +256,30 @@ async function findProcessByExeName(exeName: string): Promise<ProcessEntry | nul
     }
     const target = exeName.toLowerCase();
     try {
+        // Use PowerShell with explicit UTF-8 output so that Unicode (e.g. Japanese)
+        // process names are preserved correctly — tasklist uses the OEM code page and
+        // garbles non-ASCII characters in both the /FI filter and its output.
         const { stdout } = await execFileAsync(
-            'tasklist',
-            ['/FO', 'CSV', '/NH', '/FI', `IMAGENAME eq ${exeName}`],
-            { windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
+            'powershell',
+            [
+                '-NoProfile', '-NonInteractive', '-Command',
+                '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ' +
+                'Get-Process | Select-Object Id,Name,WorkingSet64 | ConvertTo-Json -Compress',
+            ],
+            { windowsHide: true, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' },
         );
+        const raw: unknown = JSON.parse(stdout);
+        const list = Array.isArray(raw) ? raw : [raw];
         const candidates: Array<{ pid: number; name: string; memory: number }> = [];
-        for (const line of stdout.split(/\r?\n/)) {
-            // CSV: "Image","PID","Session","Session#","MemUsage"
-            const match = line.match(/"([^"]+)",\s*"(\d+)",\s*"[^"]*",\s*"[^"]*",\s*"([^"]+)"/);
-            if (!match) continue;
-            const name = match[1];
-            const pid = parseInt(match[2], 10);
-            const memStr = match[3].replace(/[^\d]/g, '');
-            const memory = parseInt(memStr, 10);
+        for (const p of list as Array<Record<string, unknown>>) {
+            // PowerShell omits the .exe extension; re-add it for comparison.
+            const fullName = `${p['Name'] ?? ''}.exe`;
+            const pid = Number(p['Id']);
+            const memory = Number(p['WorkingSet64']);
             if (!Number.isFinite(pid) || pid <= 0) continue;
-            if (name.toLowerCase() !== target) continue;
-            if (memory <= 20000) continue; // skip tiny system/helper processes
-            candidates.push({ pid, name, memory: isNaN(memory) ? 0 : memory });
+            if (fullName.toLowerCase() !== target) continue;
+            if (memory <= 20 * 1024 * 1024) continue; // skip tiny system/helper processes (~20 MB)
+            candidates.push({ pid, name: fullName, memory: isNaN(memory) ? 0 : memory });
         }
         if (candidates.length === 0) return null;
         // Pick highest-memory process — most likely the game, not a helper.
@@ -477,6 +495,14 @@ function parseLunaContext(hookNumber: string, context: string): { id: string; fu
     return { id: hookNumber, function: functionName || 'Unknown' };
 }
 
+function eraseTextHookNoise(text: string): string {
+    let cleaned = text;
+    for (const pattern of TEXT_HOOK_ERASE_PATTERNS) {
+        cleaned = cleaned.replace(pattern, '');
+    }
+    return cleaned;
+}
+
 // ---------------------------------------------------------------------------
 // Output parsing (UTF-16LE)
 // ---------------------------------------------------------------------------
@@ -577,8 +603,8 @@ function handleLine(line: string): void {
     }
 }
 
-function recordHookEvent(hookId: string, fn: string, text: string): void {
-    if (!session) return;
+function getOrCreateHookEntry(hookId: string, fn: string): HookEntry | null {
+    if (!session) return null;
     let entry = session.hooks.get(hookId);
     if (!entry) {
         entry = {
@@ -591,13 +617,77 @@ function recordHookEvent(hookId: string, fn: string, text: string): void {
     } else if (fn && entry.function !== fn && /^Hook #/.test(entry.function)) {
         entry.function = fn;
     }
-    if (text) {
-        entry.preview = text.length > 80 ? text.slice(0, 80) + '…' : text;
-        if (entry.samples.length < 3) {
-            entry.samples.push(text);
-        }
+    return entry;
+}
+
+function applyHookPreviewText(hookId: string, fn: string, text: string): void {
+    const entry = getOrCreateHookEntry(hookId, fn);
+    if (!entry || !text) return;
+    entry.preview = text.length > 80 ? text.slice(0, 80) + '…' : text;
+    if (entry.samples.length < 3) {
+        entry.samples.push(text);
     }
     emitHooks();
+}
+
+function flushHookPreviewText(hookId: string): void {
+    if (!session) return;
+    const collector = session.hookPreviewCollectors.get(hookId);
+    if (!collector) return;
+    if (collector.timer) {
+        clearTimeout(collector.timer);
+        collector.timer = null;
+    }
+    session.hookPreviewCollectors.delete(hookId);
+    if (collector.pending.length === 0) return;
+    applyHookPreviewText(hookId, collector.hookFunction, collector.pending.join('\n'));
+}
+
+function flushAllHookPreviewText(): void {
+    if (!session) return;
+    for (const hookId of Array.from(session.hookPreviewCollectors.keys())) {
+        flushHookPreviewText(hookId);
+    }
+}
+
+function queueHookPreviewText(hookId: string, fn: string, text: string): void {
+    if (!session || !text) return;
+    const delayMs = normalizeFlushDelayMs(session.flushDelayMs);
+    if (delayMs <= 0) {
+        applyHookPreviewText(hookId, fn, text);
+        return;
+    }
+
+    let collector = session.hookPreviewCollectors.get(hookId);
+    if (!collector) {
+        collector = {
+            hookId,
+            hookFunction: fn,
+            pending: [],
+            timer: null,
+        };
+        session.hookPreviewCollectors.set(hookId, collector);
+    }
+    collector.hookFunction = fn;
+    collector.pending.push(text);
+    if (collector.timer) {
+        clearTimeout(collector.timer);
+    }
+    collector.timer = setTimeout(() => {
+        flushHookPreviewText(hookId);
+    }, delayMs);
+}
+
+function recordHookEvent(hookId: string, fn: string, text: string): void {
+    if (!session) return;
+    const entry = getOrCreateHookEntry(hookId, fn);
+    if (!entry) return;
+    const cleanedText = eraseTextHookNoise(text);
+    if (cleanedText) {
+        queueHookPreviewText(hookId, fn, cleanedText);
+    } else {
+        emitHooks();
+    }
 
     if (!session.selectedHookId) {
         const functionMatches =
@@ -614,9 +704,9 @@ function recordHookEvent(hookId: string, fn: string, text: string): void {
         }
     }
 
-    if (session.selectedHookId === hookId && text) {
+    if (session.selectedHookId === hookId && cleanedText) {
         queueSelectedHookText({
-            text,
+            text: cleanedText,
             hookId,
             hookFunction: fn,
             engine: session.engine,
@@ -810,6 +900,7 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         lastHookForContinuation: null,
         outputCollector: [],
         outputFlushTimer: null,
+        hookPreviewCollectors: new Map(),
         flushDelayMs,
     };
 
@@ -880,6 +971,7 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
 
 function teardownSession(): void {
     if (!session) return;
+    flushAllHookPreviewText();
     flushSelectedHookText();
     if (session.pidWatcher) {
         clearInterval(session.pidWatcher);
@@ -889,6 +981,12 @@ function teardownSession(): void {
         clearTimeout(session.outputFlushTimer);
         session.outputFlushTimer = null;
     }
+    for (const collector of session.hookPreviewCollectors.values()) {
+        if (collector.timer) {
+            clearTimeout(collector.timer);
+        }
+    }
+    session.hookPreviewCollectors.clear();
     try {
         if (!session.proc.killed) {
             session.proc.kill();
@@ -985,6 +1083,7 @@ export function setFlushDelayMs(value: number): { success: boolean; flushDelayMs
     const flushDelayMs = normalizeFlushDelayMs(value);
     session.flushDelayMs = flushDelayMs;
     if (flushDelayMs <= 0) {
+        flushAllHookPreviewText();
         flushSelectedHookText();
     } else if (session.outputCollector.length > 0) {
         if (session.outputFlushTimer) {
@@ -993,6 +1092,16 @@ export function setFlushDelayMs(value: number): { success: boolean; flushDelayMs
         session.outputFlushTimer = setTimeout(() => {
             flushSelectedHookText();
         }, flushDelayMs);
+    }
+    if (flushDelayMs > 0 && session.hookPreviewCollectors.size > 0) {
+        for (const collector of session.hookPreviewCollectors.values()) {
+            if (collector.timer) {
+                clearTimeout(collector.timer);
+            }
+            collector.timer = setTimeout(() => {
+                flushHookPreviewText(collector.hookId);
+            }, flushDelayMs);
+        }
     }
     emitStatus();
     return { success: true, flushDelayMs };
@@ -1151,6 +1260,7 @@ export const __test = {
     sanitizeFilename,
     isValidHookCode,
     isIgnorableEngineLine,
+    eraseTextHookNoise,
     normalizeFlushDelayMs,
     mergeTextHookOutput,
     DEFAULT_FLUSH_DELAY_MS,

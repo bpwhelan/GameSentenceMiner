@@ -18,6 +18,7 @@ from GameSentenceMiner.util.config.configuration import (
     get_config,
     get_master_config,
     gsm_state,
+    gsm_status,
     logger,
     reload_config,
 )
@@ -268,6 +269,10 @@ def is_process_running(pid):
 
 def start_obs(force_restart=False):
     import GameSentenceMiner.obs as _obs_pkg
+
+    if gsm_status.obs_connected and not force_restart:
+        logger.debug("OBS is already connected; skipping launch request.")
+        return _obs_pkg.obs_process_pid
 
     if os.path.exists(_obs_pkg.OBS_PID_FILE):
         with open(_obs_pkg.OBS_PID_FILE, "r") as f:
