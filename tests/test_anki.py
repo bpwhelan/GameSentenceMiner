@@ -499,6 +499,34 @@ def test_monitor_anki_iteration_seeds_polling_baseline_when_replay_buffer_activa
     assert anki.first_run is False
 
 
+def test_monitor_anki_iteration_limits_replay_buffer_baseline_seed_failure_logs(monkeypatch):
+    config = SimpleNamespace(
+        anki=SimpleNamespace(enabled=True, polling_rate_v2=1000),
+        obs=SimpleNamespace(disable_recording=False),
+    )
+    info_messages = []
+    warning_messages = []
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "get_anki_beacon_wait_timeout_seconds", lambda now=None: 0.0)
+    monkeypatch.setattr(anki, "_process_next_anki_beacon_note", lambda timeout_seconds=0.0: False)
+    monkeypatch.setattr(anki, "_is_anki_polling_allowed", lambda: True)
+    monkeypatch.setattr(anki, "get_note_ids", lambda: (_ for _ in ()).throw(RuntimeError("AnkiConnect down")))
+    monkeypatch.setattr(anki.time, "sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki.logger, "info", lambda message: info_messages.append(message))
+    monkeypatch.setattr(anki.logger, "warning", lambda message: warning_messages.append(message))
+
+    for _ in range(8):
+        unsuccessful_count, scaled_polling_rate = anki._monitor_anki_iteration(0, 1.0)
+
+    assert unsuccessful_count == 0
+    assert scaled_polling_rate == 1.0
+    assert info_messages == ["OBS replay buffer active; enabling Anki polling and seeding the current Anki baseline."]
+    assert len(warning_messages) == 5
+    assert all(message.startswith("Failed to seed Anki polling baseline") for message in warning_messages)
+    assert anki.anki_polling_gate_state.replay_buffer_polling_active is False
+
+
 def test_check_and_update_note_triggers_cache_sync_after_updating_note(monkeypatch):
     order = []
     config = SimpleNamespace(anki=SimpleNamespace(word_field="Word"))

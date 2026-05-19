@@ -70,6 +70,7 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "send_to_clipboard_auto": None,
         "send_to_clipboard_menu": None,
         "send_to_clipboard_area_select": None,
+        "send_to_websocket": True,
         "keep_newline": False,
         "keep_newline_auto": None,
         "keep_newline_menu": None,
@@ -453,6 +454,10 @@ def get_ocr_send_to_clipboard(source: str | None = None) -> bool:
         return True
 
     return _get_send_to_clipboard_key_for_source(source) == "send_to_clipboard_area_select"
+
+
+def get_ocr_send_to_websocket() -> bool:
+    return bool(_get_ocr_value("send_to_websocket", True))
 
 
 def get_ocr_scan_rate() -> float:

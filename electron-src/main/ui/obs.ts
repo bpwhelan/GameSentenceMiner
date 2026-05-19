@@ -45,8 +45,18 @@ export interface ObsScene {
     id: string;
 }
 
+export interface ObsScenePreviewSnapshot {
+    sceneName: string;
+    sceneId: string;
+    sourceName: string | null;
+    captureMode: ObsCaptureMode | null;
+    imageData: string | null;
+}
+
 const OBS_OUTPUT_PROBE_WIDTH = 8;
 const OBS_OUTPUT_PROBE_HEIGHT = 8;
+const OBS_PREVIEW_SCREENSHOT_WIDTH = 960;
+const OBS_PREVIEW_SCREENSHOT_HEIGHT = 540;
 
 // -------------------------------------------------------------------------
 // WINDOW FILTER CONFIGURATION
@@ -696,6 +706,15 @@ function chooseSwitchableCaptureItem(sceneItems: any[]): any | null {
     );
 }
 
+function choosePreviewCaptureItem(sceneItems: any[]): any | null {
+    const videoItems = sceneItems.filter(isVideoCaptureSceneItem);
+    if (videoItems.length === 0) {
+        return null;
+    }
+
+    return chooseSwitchableCaptureItem(videoItems) ?? videoItems[0] ?? null;
+}
+
 async function findSceneByUuid(sceneUuid: string): Promise<ObsScene | null> {
     const trimmedSceneUuid = sceneUuid.trim();
     if (!trimmedSceneUuid) {
@@ -711,6 +730,75 @@ async function findSceneByUuid(sceneUuid: string): Promise<ObsScene | null> {
     }
 
     return { name: scene.sceneName, id: scene.sceneUuid };
+}
+
+async function resolveSceneForPreview(sceneUuid?: string | null): Promise<ObsScene | null> {
+    const trimmedSceneUuid = typeof sceneUuid === 'string' ? sceneUuid.trim() : '';
+    if (trimmedSceneUuid) {
+        return await findSceneByUuid(trimmedSceneUuid);
+    }
+
+    return await getCurrentScene();
+}
+
+function getNumericDimension(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+        return value;
+    }
+    if (typeof value === 'string') {
+        const parsed = Number.parseFloat(value);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    return null;
+}
+
+async function fitSceneItemsToPreview(scene: ObsScene): Promise<any[]> {
+    const [videoSettings, sceneItemsResponse] = await Promise.all([
+        callOBS('GetVideoSettings'),
+        callOBS('GetSceneItemList', { sceneUuid: scene.id }),
+    ]);
+
+    const canvasWidth =
+        getNumericDimension(videoSettings?.baseWidth) ??
+        getNumericDimension(videoSettings?.base_width);
+    const canvasHeight =
+        getNumericDimension(videoSettings?.baseHeight) ??
+        getNumericDimension(videoSettings?.base_height);
+    const sceneItems = Array.isArray(sceneItemsResponse?.sceneItems)
+        ? sceneItemsResponse.sceneItems
+        : [];
+
+    if (!canvasWidth || !canvasHeight || sceneItems.length === 0) {
+        return sceneItems;
+    }
+
+    const transform = {
+        boundsType: 'OBS_BOUNDS_SCALE_INNER',
+        alignment: 5,
+        boundsWidth: canvasWidth,
+        boundsHeight: canvasHeight,
+        positionX: 0,
+        positionY: 0,
+    };
+
+    await Promise.all(
+        sceneItems
+            .filter((item: any) => typeof item.sceneItemId === 'number')
+            .map((item: any) =>
+                callOBS('SetSceneItemTransform', {
+                    sceneUuid: scene.id,
+                    sceneItemId: item.sceneItemId,
+                    sceneItemTransform: transform,
+                }).catch((error) => {
+                    logObsError(
+                        `Error fitting scene item "${String(item.sourceName ?? '')}" to preview:`,
+                        error
+                    );
+                })
+            )
+    );
+
+    return sceneItems;
 }
 
 async function getInputSettingsForSceneItem(
@@ -1421,6 +1509,12 @@ export async function registerOBSIPC() {
             }
             return null;
         }
+    });
+
+    ipcMain.handle('obs.getScenePreviewSnapshot', async (_, sceneUuid?: string) => {
+        return await getScenePreviewSnapshot(
+            typeof sceneUuid === 'string' ? sceneUuid : null
+        );
     });
 
     ipcMain.handle(
@@ -2293,6 +2387,70 @@ export async function getSceneCaptureMode(
             `Error detecting capture mode for scene "${trimmedSceneUuid}":`,
             error?.message ?? error
         );
+        return null;
+    }
+}
+
+export async function getScenePreviewSnapshot(
+    sceneUuid?: string | null
+): Promise<ObsScenePreviewSnapshot | null> {
+    try {
+        await getOBSConnection();
+        const scene = await resolveSceneForPreview(sceneUuid);
+        if (!scene || !scene.id || !scene.name) {
+            return null;
+        }
+
+        const sceneItems = await fitSceneItemsToPreview(scene);
+        const previewItem = choosePreviewCaptureItem(sceneItems);
+        const sourceName =
+            typeof previewItem?.sourceName === 'string' ? previewItem.sourceName : null;
+        const captureMode = isSwitchableCaptureMode(previewItem?.inputKind)
+            ? previewItem.inputKind
+            : null;
+
+        if (!sourceName) {
+            return {
+                sceneName: scene.name,
+                sceneId: scene.id,
+                sourceName: null,
+                captureMode,
+                imageData: null,
+            };
+        }
+
+        let imageData: string | null = null;
+        try {
+            const response = await callOBS('GetSourceScreenshot', {
+                sourceName: scene.name,
+                imageFormat: 'jpg',
+                imageWidth: OBS_PREVIEW_SCREENSHOT_WIDTH,
+                imageHeight: OBS_PREVIEW_SCREENSHOT_HEIGHT,
+            });
+            imageData = typeof response?.imageData === 'string' ? response.imageData : null;
+        } catch (sceneScreenshotError) {
+            logObsError(
+                `Error screenshotting OBS scene "${scene.name}", falling back to source "${sourceName}":`,
+                sceneScreenshotError
+            );
+            const response = await callOBS('GetSourceScreenshot', {
+                sourceName,
+                imageFormat: 'jpg',
+                imageWidth: OBS_PREVIEW_SCREENSHOT_WIDTH,
+                imageHeight: OBS_PREVIEW_SCREENSHOT_HEIGHT,
+            });
+            imageData = typeof response?.imageData === 'string' ? response.imageData : null;
+        }
+
+        return {
+            sceneName: scene.name,
+            sceneId: scene.id,
+            sourceName,
+            captureMode,
+            imageData,
+        };
+    } catch (error: any) {
+        logObsError('Error getting scene preview screenshot:', error?.message ?? error);
         return null;
     }
 }

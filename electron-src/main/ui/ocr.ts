@@ -27,6 +27,7 @@ import {
     isQuitting,
     mainWindow,
     restartGSM,
+    sendOCRResultLine,
 } from '../main.js';
 import { getCurrentScene, ObsScene } from './obs.js';
 import { OCRStdoutManager } from '../communication/ocrIPC.js';
@@ -449,6 +450,11 @@ function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: O
     ocrStdoutManager.on('status', (status) => {
         console.log('[OCR] Status:', status);
         sendToMainWindowFrames('ocr-ipc-status', status);
+    });
+
+    ocrStdoutManager.on('ocr_result', (result) => {
+        console.log('[OCR] Result:', result);
+        sendOCRResultLine(result ?? {});
     });
 
     ocrStdoutManager.on('error', (error) => {

@@ -1037,10 +1037,62 @@ class GSMApplication:
                 logger.debug("Electron reported connect")
             elif function == FunctionName.TEXTHOOK_TEXT.value:
                 self._handle_texthook_line(cmd.get("data") if isinstance(cmd, dict) else None)
+            elif function == FunctionName.OCR_RESULT.value:
+                self._handle_ocr_result(cmd.get("data") if isinstance(cmd, dict) else None)
             else:
                 logger.background(f"Unknown IPC command: {cmd}")
         except Exception as e:
             logger.background(f"Error handling IPC command: {e}")
+
+    def _handle_ocr_result(self, data: Optional[dict]) -> None:
+        """Forward OCR subprocess IPC results into the normal text-intake pipeline."""
+        if not isinstance(data, dict):
+            return
+
+        text = data.get("text") or data.get("sentence")
+        if not isinstance(text, str) or not text.strip():
+            return
+
+        line_time = None
+        raw_time = data.get("time")
+        if isinstance(raw_time, str) and raw_time.strip():
+            try:
+                from datetime import datetime as _dt
+
+                line_time = _dt.fromisoformat(raw_time)
+            except ValueError:
+                line_time = None
+
+        dict_from_ocr = data.get("dict_from_ocr")
+        source = str(data.get("source") or TextSource.OCR)
+        source_display_name = str(data.get("source_display_name") or "GSM OCR")
+
+        try:
+            from GameSentenceMiner import gametext as gametext_module
+        except Exception as e:
+            logger.background(f"Failed to import gametext for OCR intake: {e}")
+            return
+
+        if text == getattr(gametext_module, "current_line", ""):
+            return
+
+        coro = gametext_module.handle_new_text_event(
+            text,
+            line_time,
+            dict_from_ocr=dict_from_ocr,
+            source=source,
+            source_display_name=source_display_name,
+        )
+        try:
+            self.state.async_runner.submit(coro)
+            # Suppress duplicate delivery from the deprecated OCR websocket path.
+            gametext_module.current_line = text
+        except Exception as e:
+            try:
+                coro.close()
+            except Exception:
+                pass
+            logger.background(f"Failed to schedule OCR result: {e}")
 
     def _handle_texthook_line(self, data: Optional[dict]) -> None:
         """Forward a line received from the Electron-side text hook engine into the

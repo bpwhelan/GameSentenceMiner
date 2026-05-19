@@ -100,9 +100,12 @@ anki_beacon_state = AnkiBeaconState()
 @dataclass
 class AnkiPollingGateState:
     replay_buffer_polling_active: bool = False
+    baseline_seed_activation_logged: bool = False
+    baseline_seed_failure_logs_shown: int = 0
 
 
 anki_polling_gate_state = AnkiPollingGateState()
+MAX_BASELINE_SEED_FAILURE_LOGS = 5
 
 
 def _notify_anki_enhancement_failure(reason: str) -> None:
@@ -2482,6 +2485,23 @@ def _is_anki_polling_allowed() -> bool:
     return bool(getattr(obs_state, "replay_buffer_active", False))
 
 
+def _reset_anki_polling_baseline_seed_log_state() -> None:
+    anki_polling_gate_state.baseline_seed_activation_logged = False
+    anki_polling_gate_state.baseline_seed_failure_logs_shown = 0
+
+
+def _log_anki_polling_baseline_seed_failure(error: Exception) -> None:
+    if anki_polling_gate_state.baseline_seed_failure_logs_shown >= MAX_BASELINE_SEED_FAILURE_LOGS:
+        return
+
+    anki_polling_gate_state.baseline_seed_failure_logs_shown += 1
+    remaining_logs = MAX_BASELINE_SEED_FAILURE_LOGS - anki_polling_gate_state.baseline_seed_failure_logs_shown
+    logger.warning(
+        "Failed to seed Anki polling baseline after replay buffer activation: "
+        f"{error}. This warning will be shown {remaining_logs} more times"
+    )
+
+
 def _seed_anki_polling_baseline() -> bool:
     global previous_note_ids, first_run, errors_shown, final_warning_shown
 
@@ -2491,10 +2511,11 @@ def _seed_anki_polling_baseline() -> bool:
         gsm_status.anki_connected = True
         errors_shown = 0
         final_warning_shown = False
+        anki_polling_gate_state.baseline_seed_failure_logs_shown = 0
         return True
     except Exception as e:
         gsm_status.anki_connected = False
-        logger.warning(f"Failed to seed Anki polling baseline after replay buffer activation: {e}")
+        _log_anki_polling_baseline_seed_failure(e)
         return False
 
 
@@ -2532,12 +2553,15 @@ def _monitor_anki_iteration(unsuccessful_count: int, scaled_polling_rate: float)
         if anki_polling_gate_state.replay_buffer_polling_active:
             logger.info("OBS replay buffer inactive; disabling Anki polling.")
             anki_polling_gate_state.replay_buffer_polling_active = False
+        _reset_anki_polling_baseline_seed_log_state()
         refresh_anki_connect_connection_status()
         time.sleep(base_polling_rate)
         return 0, base_polling_rate
 
     if not anki_polling_gate_state.replay_buffer_polling_active:
-        logger.info("OBS replay buffer active; enabling Anki polling and seeding the current Anki baseline.")
+        if not anki_polling_gate_state.baseline_seed_activation_logged:
+            logger.info("OBS replay buffer active; enabling Anki polling and seeding the current Anki baseline.")
+            anki_polling_gate_state.baseline_seed_activation_logged = True
         if _seed_anki_polling_baseline():
             anki_polling_gate_state.replay_buffer_polling_active = True
         time.sleep(base_polling_rate)

@@ -29,6 +29,7 @@ import {
     getShowYuzuTab,
     getStartConsoleMinimized,
     getStatsEndpoint,
+    getTextCaptureWizardEnabled,
     getLocale,
     getTextractorPath32,
     getTextractorPath64,
@@ -58,6 +59,7 @@ import {
     setShowYuzuTab,
     setStartConsoleMinimized,
     setStatsEndpoint,
+    setTextCaptureWizardEnabled,
     setTextractorPath32,
     setTextractorPath64,
     setUiMode,
@@ -904,6 +906,7 @@ function getSettingsSnapshot() {
         windowTransparencyTarget: store.get('windowTransparencyTarget') || '',
         runWindowTransparencyToolOnStartup: getRunWindowTransparencyToolOnStartup(),
         runOverlayOnStartup: getRunOverlayOnStartup(),
+        textCaptureWizardEnabled: getTextCaptureWizardEnabled(),
         visibleTabs: getVisibleTabs(),
         statsEndpoint: getStatsEndpoint(),
         singlePort: getConfiguredSinglePort(),
@@ -1053,6 +1056,9 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         }
         if (typeof payload.runOverlayOnStartup === 'boolean') {
             setRunOverlayOnStartup(payload.runOverlayOnStartup);
+        }
+        if (typeof payload.textCaptureWizardEnabled === 'boolean') {
+            setTextCaptureWizardEnabled(payload.textCaptureWizardEnabled);
         }
         if (Array.isArray(payload.visibleTabs)) {
             setVisibleTabs(payload.visibleTabs);

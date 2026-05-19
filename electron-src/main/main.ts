@@ -2471,3 +2471,10 @@ export function sendTextHookLine(payload: TextHookLinePayload): void {
         data: { ...payload },
     });
 }
+
+export function sendOCRResultLine(payload: Record<string, unknown>): void {
+    if (!gsmStdoutManager) {
+        return;
+    }
+    gsmStdoutManager.sendOCRResult({ ...payload });
+}

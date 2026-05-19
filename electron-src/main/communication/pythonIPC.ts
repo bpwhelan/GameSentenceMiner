@@ -80,6 +80,9 @@ export class GSMStdoutManager extends EventEmitter {
     sendSwitchProfile(profileName: string) {
         this.sendCommand({ function: 'switch_profile', data: { profile_name: profileName } });
     }
+    sendOCRResult(data: Record<string, unknown>) {
+        this.sendCommand({ function: 'ocr_result', data });
+    }
     sendTestAnkiConfirmation() {
         this.sendCommand({ function: 'test_anki_confirmation' });
     }

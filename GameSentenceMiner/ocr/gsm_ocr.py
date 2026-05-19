@@ -67,6 +67,7 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_ocr1,
     get_ocr_keep_newline,
     get_ocr_ocr_screenshots,
+    get_ocr_send_to_websocket,
     get_ocr_area_select_ocr_hotkey,
     get_ocr_global_pause_hotkey,
     get_ocr_subset_chunk_min_length,
@@ -1280,6 +1281,29 @@ class WebsocketServerThread(threading.Thread):
         asyncio.run(main())
 
 
+def sync_legacy_websocket_server_state() -> None:
+    """Start or stop the deprecated OCR websocket output according to config."""
+    global websocket_server_thread
+
+    if get_ocr_send_to_websocket():
+        if websocket_server_thread is None or not websocket_server_thread.is_alive():
+            websocket_server_thread = WebsocketServerThread(read=True)
+            websocket_server_thread.start()
+            logger.info("Legacy OCR websocket output initialized")
+        return
+
+    if websocket_server_thread is None:
+        return
+
+    try:
+        if websocket_server_thread._event.wait(timeout=1):
+            websocket_server_thread.stop_server()
+    except Exception as e:
+        logger.debug(f"Failed to stop legacy OCR websocket output: {e}")
+    finally:
+        websocket_server_thread = None
+
+
 # compare_ocr_results imported from GameSentenceMiner.ocr.compare
 
 
@@ -1817,6 +1841,18 @@ async def send_result(text, time, response_dict=None, source=TextSource.OCR):
         else:
             overlay_payload = None
         try:
+            metadata = {
+                "sentence": text,
+                "time": time.isoformat(),
+                "process_path": obs.get_current_game(),
+                "source": source,
+            }
+            if overlay_payload:
+                metadata["dict_from_ocr"] = overlay_payload
+            ocr_ipc.announce_ocr_result(text, metadata)
+        except Exception as e:
+            logger.debug(f"Error sending OCR result over IPC: {e}")
+        try:
             if get_ocr_send_to_clipboard(source):
                 import pyperclipfix
 
@@ -1826,6 +1862,9 @@ async def send_result(text, time, response_dict=None, source=TextSource.OCR):
                 pyperclipfix.copy(text)
         except Exception as e:
             logger.error(f"Error sending text to clipboard: {e}")
+
+        if not get_ocr_send_to_websocket() or websocket_server_thread is None:
+            return
 
         try:
             send_future = websocket_server_thread.send_text(
@@ -2105,6 +2144,9 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
             if "ocr_screenshots" in changes:
                 ss_clipboard = get_ocr_ocr_screenshots()
                 logger.info(f"IPC: clipboard screenshot OCR set to {ss_clipboard}")
+
+            if "send_to_websocket" in changes:
+                sync_legacy_websocket_server_state()
 
             # Always sync furigana from per-scene settings file
             global furigana_filter_sensitivity
@@ -2753,9 +2795,8 @@ if __name__ == "__main__":
             ocr_ipc.announce_started()
             logger.info("OCR IPC communication initialized")
 
-            # Keep websocket for backward compatibility with texthooker page
-            websocket_server_thread = WebsocketServerThread(read=True)
-            websocket_server_thread.start()
+            # Keep optional websocket output for backward compatibility.
+            sync_legacy_websocket_server_state()
 
             if is_windows():
                 add_ss_hotkey()

@@ -256,6 +256,115 @@
       "guideDiscordLink": "Discord community"
     }
   },
+  "captureWizard": {
+    "title": "Text Capture Setup",
+    "subtitle": "Finish text input, OCR fallback, and automation for this game.",
+    "breadcrumbLabel": "Text capture setup steps",
+    "steps": {
+      "preview": "Preview",
+      "agent": "Agent",
+      "hook": "Hooks",
+      "ocr": "OCR",
+      "profile": "Profile",
+      "finish": "Review"
+    },
+    "actions": {
+      "deny": "Not now",
+      "dontAskAgain": "Don't ask again",
+      "back": "Back",
+      "next": "Next"
+    },
+    "preview": {
+      "title": "Check the OBS preview",
+      "description": "GSM refreshes this preview every second and fits the source to the OBS canvas before each screenshot.",
+      "scene": "Scene",
+      "executable": "Executable",
+      "captureType": "Capture type",
+      "gameCapture": "Game Capture",
+      "windowCapture": "Window Capture",
+      "unknown": "Unknown",
+      "imageAlt": "OBS capture preview",
+      "loading": "Loading preview...",
+      "noPreview": "No OBS preview is available yet.",
+      "refresh": "Refresh",
+      "switchToGame": "Switch to Game Capture",
+      "switchToWindow": "Switch to Window Capture",
+      "switchFailed": "Failed to change capture type.",
+      "looksCorrect": "Looks correct"
+    },
+    "agent": {
+      "title": "Try an Agent script first",
+      "description": "Agent scripts usually give cleaner text than OCR when a matching game script exists.",
+      "nsHint": "Scripts starting with NS_ are for Nintendo Switch emulator targets.",
+      "switchDetected": "This looks like a Switch emulator target. NS_ script matches are expected.",
+      "loading": "Searching Agent scripts...",
+      "noMatches": "No likely Agent scripts were found.",
+      "searchFailed": "Failed to search Agent scripts.",
+      "searchAgain": "Search again",
+      "tryHooks": "Try Luna/Textractor",
+      "useScript": "Use selected script"
+    },
+    "hook": {
+      "title": "Try Luna or Textractor",
+      "description": "Start a hook engine, advance the game text, then pick the hook that shows real dialogue.",
+      "engine": "Engine",
+      "luna": "Luna Hook",
+      "textractor": "Textractor",
+      "start": "Start hook engine",
+      "running": "{count} usable hooks found",
+      "notRunning": "Hook engine is not running.",
+      "waiting": "Waiting for hooks with text. Advance the game dialogue.",
+      "startFirst": "Start an engine to scan for hooks.",
+      "noPreview": "No text preview yet",
+      "refreshFailed": "Failed to refresh hooks.",
+      "startFailed": "Failed to start hook engine.",
+      "useOcrInstead": "Use OCR instead",
+      "useHook": "Use selected hook"
+    },
+    "ocr": {
+      "title": "Set up OCR fallback",
+      "description": "OCR is the most reliable option when no script or hook gives clean game text.",
+      "reasonStable": "An OCR area keeps scans focused on the dialogue box.",
+      "reasonNoise": "Smaller areas avoid menus, names, and UI noise.",
+      "reasonFallback": "It still works for console games, protected engines, and capture cards.",
+      "openAreaSelector": "Select OCR area",
+      "openOcrTab": "Open OCR tab",
+      "continue": "Continue",
+      "areaSelectorStarted": "OCR area selector opened."
+    },
+    "profile": {
+      "title": "Save this game setup",
+      "description": "Save automation for this OBS scene and optionally open GSM Profiles for a larger per-game profile split.",
+      "source": "Text source",
+      "sourceAgent": "Agent script",
+      "sourceLuna": "Luna Hook",
+      "sourceTextractor": "Textractor",
+      "sourceOcr": "OCR",
+      "sourceNone": "Not selected",
+      "saveAutomation": "Save Game Automation for this scene",
+      "launchTextHook": "Launch this text source automatically",
+      "ocrMode": "OCR mode",
+      "ocrNone": "No OCR",
+      "ocrManual": "Manual OCR",
+      "ocrAuto": "Auto OCR",
+      "launchOverlay": "Launch overlay with this game",
+      "openProfiles": "Open Profiles",
+      "save": "Save setup",
+      "saving": "Saving...",
+      "saved": "Setup saved.",
+      "saveFailed": "Failed to save setup."
+    },
+    "finish": {
+      "title": "Setup saved",
+      "description": "You can test the source now or review the saved automation for this scene.",
+      "openTextHook": "Open Text Hook",
+      "openAutomation": "Open Game Automation",
+      "done": "Done"
+    },
+    "errors": {
+      "contextFailed": "Failed to load the active capture."
+    }
+  },
   "install": {
     "title": "Installing GSM",
     "preparing": "Preparing setup...",
@@ -319,7 +428,8 @@
       "startMinimized": "Start Console Minimized:",
       "showYuzuLauncher": "Show Yuzu Launcher:",
       "runTransparencyOnStartup": "Run Window Transparency Tool on Startup:",
-      "runOverlayOnStartup": "Run Overlay on Startup:"
+      "runOverlayOnStartup": "Run Overlay on Startup:",
+      "textCaptureWizard": "Show Text Capture Wizard after capture setup:"
     },
     "visibility": {
       "title": "Visibility Settings",
@@ -560,7 +670,8 @@
       "areaCountPlural": "{count} areas",
       "sceneLabel": "Game:",
       "loading": "Loading...",
-      "noScenes": "No games found",
+      "noScenes": "Set Up Capture in Home Tab",
+      "noScenesHint": "Setup Capture in the Home tab before configuring OCR areas.",
       "reloadScenes": "Reload games",
       "selectAreas": "Select OCR Areas",
       "importAreas": "Import areas",
@@ -577,6 +688,8 @@
       "furiganaFilter": "Furigana Filter",
       "preview": "Preview",
       "copyToClipboard": "Copy to Clipboard:",
+      "sendToWebsocket": "Send to WebSocket (Legacy):",
+      "enabled": "Enabled",
       "lineBreaks": "Line Breaks:",
       "auto": "Auto",
       "menu": "Menu",
@@ -675,10 +788,11 @@
       "baseScale": "Controls how much the screenshot is scaled before scanning.\n• Lower = faster scans, less CPU, but may miss small text\n• Higher = more accurate on small fonts, but uses more CPU\n\n50% -> Fast | 75% -> Balanced | 100% -> Slowest\n\nTip: If OCR misses small kanji or skips characters, try increasing this value.",
       "furiganaFilter": "Filters characters smaller than the selected text size. If you notice real dialogue disappearing, either lower this or set it to 0.\n\nTip: Click Preview to open a window that helps you select the best sensitivity for your current game.",
       "furiganaPreview": "Open a preview window to tune furigana sensitivity against a sample character from your current game.",
-      "sendToClipboard": "OCR sends text to the websocket by default. Choose which OCR modes should also copy the final text to the clipboard.",
+      "sendToClipboard": "OCR sends text to GSM automatically. Choose which OCR modes should also copy the final text to the clipboard.",
       "sendToClipboardAuto": "Copy normal automatic OCR results to the clipboard.",
       "sendToClipboardMenu": "Copy menu OCR results to the clipboard.",
       "sendToClipboardAreaSelect": "Copy manual area-select OCR captures to the clipboard.",
+      "sendToWebsocket": "Deprecated legacy output. OCR now sends results to GSM through IPC, and this direct OCR WebSocket output will be removed in a future patch. External output consumers should use ws://localhost:7275. The old OCR WebSocket port is configured in GSM Settings > Advanced.",
       "keepNewline": "If enabled, OCR will attempt to keep line breaks in the output text for better readability. Not guaranteed.",
       "keepNewlineAuto": "Keep line breaks for normal automatic OCR results.",
       "keepNewlineMenu": "Keep line breaks for menu OCR results.",

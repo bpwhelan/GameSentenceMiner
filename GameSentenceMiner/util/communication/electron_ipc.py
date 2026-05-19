@@ -47,6 +47,7 @@ class FunctionName(Enum):
     CONNECT = "on_connect"
     RESTART_PYTHON_APP = "restart_python_app"
     TEXTHOOK_TEXT = "texthook_text"
+    OCR_RESULT = "ocr_result"
 
 
 CommandHandler = Callable[[Dict[str, Any]], None]

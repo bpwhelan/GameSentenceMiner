@@ -1111,7 +1111,7 @@ export default function App() {
       </header>
 
       <main className="tab-content-area">
-        <HomeTab active={activeTab === "obs"} />
+        <HomeTab active={activeTab === "obs"} onNavigateTab={selectTab} />
         <OCRTab active={activeTab === "ocr"} />
         <TextHookTab active={activeTab === "texthook"} />
         <TextProcessingTab active={activeTab === "textprocessing"} />

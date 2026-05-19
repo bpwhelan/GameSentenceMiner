@@ -55,6 +55,7 @@ interface OcrStoredConfig {
   send_to_clipboard_auto?: boolean | null;
   send_to_clipboard_menu?: boolean | null;
   send_to_clipboard_area_select?: boolean | null;
+  send_to_websocket?: boolean;
   keep_newline?: boolean;
   keep_newline_auto?: boolean;
   keep_newline_menu?: boolean;
@@ -86,6 +87,7 @@ interface OcrUiConfig {
   sendToClipboardAuto: boolean;
   sendToClipboardMenu: boolean;
   sendToClipboardAreaSelect: boolean;
+  sendToWebsocket: boolean;
   keepNewlineAuto: boolean;
   keepNewlineMenu: boolean;
   keepNewlineAreaSelect: boolean;
@@ -541,6 +543,12 @@ function sendToClipboardEnabled(
   return key === "send_to_clipboard_area_select";
 }
 
+function sendToWebsocketEnabled(config: OcrStoredConfig | null | undefined): boolean {
+  return typeof config?.send_to_websocket === "boolean"
+    ? config.send_to_websocket
+    : true;
+}
+
 function getEngineLabel(value: string): string {
   return ENGINE_LABELS.get(value) ?? value;
 }
@@ -630,6 +638,7 @@ function normalizeOcrConfig(
       value,
       "send_to_clipboard_area_select"
     ),
+    sendToWebsocket: sendToWebsocketEnabled(value),
     keepNewlineAuto: keepNewlineEnabled(value, "keep_newline_auto"),
     keepNewlineMenu: keepNewlineEnabled(value, "keep_newline_menu"),
     keepNewlineAreaSelect: keepNewlineEnabled(value, "keep_newline_area_select"),
@@ -673,6 +682,7 @@ function buildPersistedConfig(
     send_to_clipboard_auto: config.sendToClipboardAuto,
     send_to_clipboard_menu: config.sendToClipboardMenu,
     send_to_clipboard_area_select: config.sendToClipboardAreaSelect,
+    send_to_websocket: config.sendToWebsocket,
     keep_newline:
       config.keepNewlineAuto ||
       config.keepNewlineMenu ||
@@ -784,6 +794,7 @@ const OCR_TOOLTIP_KEYS = {
   sendToClipboardAuto: "ocr.tooltips.sendToClipboardAuto",
   sendToClipboardMenu: "ocr.tooltips.sendToClipboardMenu",
   sendToClipboardAreaSelect: "ocr.tooltips.sendToClipboardAreaSelect",
+  sendToWebsocket: "ocr.tooltips.sendToWebsocket",
   keepNewline: "ocr.tooltips.keepNewline",
   keepNewlineAuto: "ocr.tooltips.keepNewlineAuto",
   keepNewlineMenu: "ocr.tooltips.keepNewlineMenu",
@@ -1663,10 +1674,16 @@ export function OCRTab({ active }: OcrTabProps) {
                     </button>
                   </Tip>
                 </div>
+                {!loadingScenes && scenes.length === 0 ? (
+                  <div className="ocr-empty-state">
+                    {t("ocr.sceneAndAreas.noScenesHint")}
+                  </div>
+                ) : null}
                 <div className="link-row">
                   <button
                     type="button"
                     {...titleProps(ocrTooltips.selectAreas)}
+                    disabled={loadingScenes || scenes.length === 0}
                     onClick={runScreenSelector}
                   >
                     {t("ocr.sceneAndAreas.selectAreas")}
@@ -1675,6 +1692,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary ocr-icon-btn"
+                      disabled={loadingScenes || scenes.length === 0}
                       onClick={() => void importAreaConfig()}
                       aria-label={t("ocr.sceneAndAreas.importAreas")}
                     >
@@ -1685,6 +1703,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary ocr-icon-btn"
+                      disabled={loadingScenes || scenes.length === 0}
                       onClick={() => void exportAreaConfig()}
                       aria-label={t("ocr.sceneAndAreas.exportAreas")}
                     >
@@ -1934,6 +1953,28 @@ export function OCRTab({ active }: OcrTabProps) {
                       {...titleProps(ocrTooltips.sendToClipboardAreaSelect)}
                     >
                       {t("ocr.settings.areaSelect")}
+                    </span>
+                  </label>
+                </div>
+
+                <div className="ocr-linebreak-row">
+                  <Tip text={ocrTooltips.sendToWebsocket}>
+                    <span className="ocr-linebreak-label">{t("ocr.settings.sendToWebsocket")}</span>
+                  </Tip>
+                  <label className="checkbox-item" htmlFor="send-to-websocket">
+                    <input
+                      id="send-to-websocket"
+                      type="checkbox"
+                      checked={config.sendToWebsocket}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          sendToWebsocket: event.target.checked
+                        }));
+                      }}
+                    />
+                    <span {...titleProps(ocrTooltips.sendToWebsocket)}>
+                      {t("ocr.settings.enabled")}
                     </span>
                   </label>
                 </div>
