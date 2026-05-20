@@ -23,7 +23,6 @@ from GameSentenceMiner.util.config.configuration import (
     logger,
 )
 from GameSentenceMiner.util.config.feature_flags import (
-    experimental_feature,
     process_pausing_feature,
 )
 from GameSentenceMiner.util.platform.monitor_selection import (
@@ -854,10 +853,6 @@ def _is_pid_allowed_to_suspend(pid: int) -> bool:
         logger.warning(f"Pause hotkey: {exe_name} is denylisted.")
         return False
 
-    allow_set = _build_exe_name_set(list(getattr(process_cfg, "allowlist", []) or []))
-    if _exe_name_matches_set(exe_name, allow_set):
-        return True
-
     if getattr(process_cfg, "require_game_exe_match", True):
         detected_game_exe = _get_detected_game_exe()
         if not detected_game_exe:
@@ -1058,7 +1053,6 @@ def _handle_overlay_resume_request(source: str, hwnd: Optional[int]) -> bool:
 
 
 @process_pausing_feature(default_return=False)
-@experimental_feature(default_return=False)
 def request_overlay_process_pause(action: str, source: str = "overlay", hwnd: Optional[int] = None) -> bool:
     if not is_windows() or not user32:
         logger.info("Overlay pause requests are only supported on Windows.")
@@ -1076,7 +1070,6 @@ def request_overlay_process_pause(action: str, source: str = "overlay", hwnd: Op
 
 
 @process_pausing_feature(default_return=False)
-@experimental_feature(default_return=False)
 def toggle_active_game_pause(hwnd: Optional[int] = None) -> bool:
     if not is_windows() or not user32:
         logger.info("Pause hotkey is only supported on Windows.")

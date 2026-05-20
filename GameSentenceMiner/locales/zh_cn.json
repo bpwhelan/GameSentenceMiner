@@ -739,10 +739,6 @@
             "label": "需要游戏 EXE 匹配:",
             "tooltip": "仅当目标 exe 与检测到的游戏 exe 匹配时才允许暂停。"
           },
-          "allowlist": {
-            "label": "允许列表 (EXE 名称):",
-            "tooltip": "始终允许的 exe 名称（逗号分隔）。"
-          },
           "denylist": {
             "label": "拒绝列表 (EXE 名称):",
             "tooltip": "始终阻止的 exe 名称（逗号分隔）。"

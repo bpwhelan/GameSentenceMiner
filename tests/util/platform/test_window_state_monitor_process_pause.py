@@ -2,8 +2,11 @@ import ctypes
 import importlib
 import json
 import sys
+from types import SimpleNamespace
 
 import pytest
+
+from GameSentenceMiner.util.config import feature_flags
 
 
 window_state_monitor = importlib.import_module("GameSentenceMiner.util.platform.window_state_monitor")
@@ -168,3 +171,66 @@ def test_force_resume_suspended_processes_resumes_memory_and_persisted_entries(m
     assert window_state_monitor._overlay_pause_request_pid is None
     assert window_state_monitor._last_process_pausing_activity_ts == 0.0
     assert not persisted_file.exists()
+
+
+def test_pid_allowed_to_suspend_ignores_legacy_allowlist_when_game_exe_does_not_match(monkeypatch):
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(
+            process_pausing=SimpleNamespace(
+                denylist=[],
+                allowlist=["visual-novel.exe"],
+                require_game_exe_match=True,
+            )
+        ),
+    )
+    monkeypatch.setattr(window_state_monitor, "_get_process_exe_name", lambda _pid: "visual-novel.exe")
+    monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "actual-game.exe")
+
+    assert window_state_monitor._is_pid_allowed_to_suspend(1234) is False
+
+
+def test_overlay_pause_request_uses_profile_gate_without_global_experimental_toggle(monkeypatch):
+    profile = SimpleNamespace(process_pausing=SimpleNamespace(enabled=True))
+    master = SimpleNamespace(
+        experimental=SimpleNamespace(enable_experimental_features=False),
+        get_config=lambda: profile,
+    )
+    calls = []
+
+    monkeypatch.setattr(feature_flags, "get_master_config", lambda: master)
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+    monkeypatch.setattr(window_state_monitor, "user32", object(), raising=False)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "_handle_overlay_pause_request",
+        lambda source, hwnd: calls.append((source, hwnd)) or True,
+    )
+
+    assert window_state_monitor.request_overlay_process_pause("pause", source="manual", hwnd=123) is True
+    assert calls == [("manual", 123)]
+
+
+def test_hotkey_pause_uses_profile_gate_without_global_experimental_toggle(monkeypatch):
+    profile = SimpleNamespace(process_pausing=SimpleNamespace(enabled=True))
+    master = SimpleNamespace(
+        experimental=SimpleNamespace(enable_experimental_features=False),
+        get_config=lambda: profile,
+    )
+    calls = []
+
+    monkeypatch.setattr(feature_flags, "get_master_config", lambda: master)
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+    monkeypatch.setattr(window_state_monitor, "user32", object(), raising=False)
+    monkeypatch.setattr(window_state_monitor, "_resolve_pause_target_pid", lambda hwnd, context: 4242)
+    monkeypatch.setattr(window_state_monitor, "_suspended_pids", {}, raising=False)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "_suspend_process_with_tracking",
+        lambda pid, context: calls.append((pid, context)) or True,
+    )
+    monkeypatch.setattr(window_state_monitor, "_clear_overlay_pause_request_state", lambda: None)
+
+    assert window_state_monitor.toggle_active_game_pause(hwnd=123) is True
+    assert calls == [(4242, "Pause hotkey")]

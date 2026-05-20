@@ -6,16 +6,17 @@ import {
     execFileAsync,
     getAssetsDir,
     isLinux,
+    isMacOS,
     isWindows,
     isWindows10OrHigher,
 } from '../util.js';
 import { isQuitting } from '../main.js';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import OBSWebSocket from 'obs-websocket-js';
 import Store from 'electron-store';
 import * as fs from 'node:fs';
 import { inflateSync } from 'node:zlib';
-import { sendStartOBS, sendQuitOBS } from '../main.js';
+import { sendStartOBS } from '../main.js';
 import axios from 'axios';
 import {
     OBS_DSHOW_INPUT_KIND,
@@ -371,6 +372,48 @@ const VIDEO_CAPTURE_INPUT_KINDS = new Set([
     'monitor_capture',
     'xcomposite_input',
 ]);
+const OBS_PID_FILE = path.join(BASE_DIR, 'obs_pid.txt');
+
+type ElectronOBSProcessStatus =
+    | 'idle'
+    | 'launched'
+    | 'already-running'
+    | 'skipped'
+    | 'missing'
+    | 'failed'
+    | 'closed'
+    | 'not-running';
+
+interface ElectronOBSProcessResult {
+    status: Exclude<ElectronOBSProcessStatus, 'idle'>;
+    pid?: number;
+    error?: string;
+}
+
+interface ElectronOBSProcessOptions {
+    forceRestart?: boolean;
+    ignoreCloseConfig?: boolean;
+    reason?: string;
+}
+
+interface ElectronOBSStartupConfig {
+    openObs: boolean;
+    closeObs: boolean;
+    allowAutomaticUpdates: boolean;
+    disableRecording: boolean;
+    obsPath: string;
+    port: number;
+    password: string;
+}
+
+interface OBSLaunchCommand {
+    command: string;
+    args: string[];
+    cwd?: string;
+}
+
+let electronOBSLaunchPromise: Promise<ElectronOBSProcessResult> | null = null;
+let electronOBSLaunchStatus: ElectronOBSProcessStatus = 'idle';
 
 // Utility function to escape regex special characters in window titles
 function escapeRegexCharacters(str: string): string {
@@ -635,6 +678,380 @@ function refreshObsConfig(): void {
 
 function wait(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function deferOBSLaunchWork(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function getDefaultOBSExecutablePath(): string {
+    if (isWindows()) {
+        return path.join(BASE_DIR, 'obs-studio', 'bin', '64bit', 'obs64.exe');
+    }
+    if (isMacOS()) {
+        return '/opt/homebrew/bin/obs';
+    }
+    return '/usr/bin/obs';
+}
+
+function getCurrentProfileConfig(config: any): any {
+    if (!config || typeof config !== 'object') {
+        return {};
+    }
+
+    const configs = config.configs;
+    if (configs && typeof configs === 'object') {
+        const currentProfile =
+            typeof config.current_profile === 'string' && config.current_profile
+                ? config.current_profile
+                : 'Default';
+        return configs[currentProfile] ?? configs.Default ?? {};
+    }
+
+    return config;
+}
+
+function coercePort(value: unknown, fallback: number): number {
+    const port = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
+    return Number.isFinite(port) && port > 0 ? port : fallback;
+}
+
+export function getElectronOBSStartupConfig(): ElectronOBSStartupConfig {
+    const fallbackObsPath = getDefaultOBSExecutablePath();
+    const configPath = path.join(BASE_DIR, 'config.json');
+    let obsConfigFromDisk: any = {};
+
+    if (fs.existsSync(configPath)) {
+        try {
+            const rawConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+            const profileConfig = getCurrentProfileConfig(rawConfig);
+            obsConfigFromDisk =
+                profileConfig && typeof profileConfig === 'object'
+                    ? profileConfig.obs ?? {}
+                    : {};
+        } catch (error) {
+            logObsError('Failed to read OBS startup config:', error);
+        }
+    }
+
+    const configuredObsPath =
+        typeof obsConfigFromDisk.obs_path === 'string' && obsConfigFromDisk.obs_path.trim()
+            ? obsConfigFromDisk.obs_path.trim()
+            : fallbackObsPath;
+
+    return {
+        openObs: obsConfigFromDisk.open_obs !== false,
+        closeObs: obsConfigFromDisk.close_obs !== false,
+        allowAutomaticUpdates: obsConfigFromDisk.allow_automatic_updates === true,
+        disableRecording: obsConfigFromDisk.disable_recording === true,
+        obsPath: configuredObsPath,
+        port: coercePort(obsConfigFromDisk.port, 7274),
+        password:
+            typeof obsConfigFromDisk.password === 'string'
+                ? obsConfigFromDisk.password
+                : 'your_password',
+    };
+}
+
+function splitCommandLine(value: string): string[] {
+    const matches = value.match(/"([^"]*)"|'([^']*)'|[^\s]+/g) ?? [];
+    return matches.map((part) => {
+        if (
+            (part.startsWith('"') && part.endsWith('"')) ||
+            (part.startsWith("'") && part.endsWith("'"))
+        ) {
+            return part.slice(1, -1);
+        }
+        return part;
+    });
+}
+
+function commandLooksLikePath(command: string): boolean {
+    return (
+        path.isAbsolute(command) ||
+        command.includes('/') ||
+        command.includes('\\') ||
+        command.toLowerCase().endsWith('.exe')
+    );
+}
+
+export function resolveElectronOBSLaunchCommand(obsPath: string): OBSLaunchCommand | null {
+    if (!obsPath.trim()) {
+        return null;
+    }
+
+    if (fs.existsSync(obsPath)) {
+        return {
+            command: obsPath,
+            args: [],
+            cwd: path.dirname(obsPath),
+        };
+    }
+
+    const parts = splitCommandLine(obsPath);
+    if (parts.length === 0) {
+        return null;
+    }
+
+    const [command, ...args] = parts;
+    if (fs.existsSync(command)) {
+        return {
+            command,
+            args,
+            cwd: path.dirname(command),
+        };
+    }
+
+    if (commandLooksLikePath(command)) {
+        return null;
+    }
+
+    return { command, args };
+}
+
+function removeOBSStartupArtifact(targetPath: string): void {
+    if (!fs.existsSync(targetPath)) {
+        return;
+    }
+
+    try {
+        fs.rmSync(targetPath, { recursive: true, force: true });
+    } catch (error) {
+        logObsError(`Failed to delete OBS startup artifact ${targetPath}:`, error);
+    }
+}
+
+function cleanupOBSStartupArtifacts(): void {
+    const baseConfigDir = path.join(BASE_DIR, 'obs-studio', 'config', 'obs-studio');
+    removeOBSStartupArtifact(path.join(baseConfigDir, '.sentinel'));
+    removeOBSStartupArtifact(
+        path.join(
+            baseConfigDir,
+            'plugin_config',
+            'advanced-scene-switcher',
+            '.running'
+        )
+    );
+}
+
+function writeElectronOBSWebSocketConfig(config: ElectronOBSStartupConfig): void {
+    const websocketConfigDir = path.join(
+        BASE_DIR,
+        'obs-studio',
+        'config',
+        'obs-studio',
+        'plugin_config',
+        'obs-websocket'
+    );
+    const websocketConfigPath = path.join(websocketConfigDir, 'config.json');
+
+    try {
+        fs.mkdirSync(websocketConfigDir, { recursive: true });
+
+        let existingConfig: Record<string, unknown> = {};
+        if (fs.existsSync(websocketConfigPath)) {
+            try {
+                existingConfig = JSON.parse(fs.readFileSync(websocketConfigPath, 'utf-8'));
+            } catch {
+                existingConfig = {};
+            }
+        }
+
+        const nextConfig = {
+            alerts_enabled: false,
+            first_load: false,
+            ...existingConfig,
+            auth_required: false,
+            server_enabled: true,
+            server_password:
+                typeof existingConfig.server_password === 'string'
+                    ? existingConfig.server_password
+                    : config.password,
+            server_port: config.port,
+        };
+
+        fs.writeFileSync(websocketConfigPath, JSON.stringify(nextConfig, null, 4), 'utf-8');
+    } catch (error) {
+        logObsError('Failed to write OBS websocket startup config:', error);
+    }
+}
+
+function readOBSProcessPid(): number | null {
+    if (!fs.existsSync(OBS_PID_FILE)) {
+        return null;
+    }
+
+    try {
+        const rawPid = fs.readFileSync(OBS_PID_FILE, 'utf-8').trim();
+        const pid = Number.parseInt(rawPid, 10);
+        return Number.isFinite(pid) && pid > 0 ? pid : null;
+    } catch {
+        return null;
+    }
+}
+
+function clearOBSProcessPid(): void {
+    try {
+        fs.rmSync(OBS_PID_FILE, { force: true });
+    } catch {
+        // Best effort cleanup only.
+    }
+}
+
+function isProcessRunning(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (error: any) {
+        return error?.code === 'EPERM';
+    }
+}
+
+function buildOBSLaunchArgs(baseArgs: string[], config: ElectronOBSStartupConfig): string[] {
+    const args = [...baseArgs, '--disable-shutdown-check', '--portable'];
+    if (!config.allowAutomaticUpdates) {
+        args.push('--disable-updater');
+    }
+    if (!config.disableRecording) {
+        args.push('--startreplaybuffer');
+    }
+    return args;
+}
+
+async function launchOBSFromElectronInternal(
+    options: ElectronOBSProcessOptions = {}
+): Promise<ElectronOBSProcessResult> {
+    const config = getElectronOBSStartupConfig();
+    if (!config.openObs) {
+        electronOBSLaunchStatus = 'skipped';
+        return { status: 'skipped' };
+    }
+
+    const existingPid = readOBSProcessPid();
+    if (existingPid && isProcessRunning(existingPid)) {
+        if (!options.forceRestart) {
+            electronOBSLaunchStatus = 'already-running';
+            return { status: 'already-running', pid: existingPid };
+        }
+        await closeOBSFromElectron({ ignoreCloseConfig: true, reason: options.reason });
+    } else if (existingPid) {
+        clearOBSProcessPid();
+    }
+
+    const launchCommand = resolveElectronOBSLaunchCommand(config.obsPath);
+    if (!launchCommand) {
+        electronOBSLaunchStatus = 'missing';
+        return { status: 'missing', error: `OBS executable not found: ${config.obsPath}` };
+    }
+
+    try {
+        cleanupOBSStartupArtifacts();
+        writeElectronOBSWebSocketConfig(config);
+        const obsProcess = spawn(
+            launchCommand.command,
+            buildOBSLaunchArgs(launchCommand.args, config),
+            {
+                cwd: launchCommand.cwd,
+                detached: true,
+                stdio: 'ignore',
+            }
+        );
+
+        obsProcess.once('error', (error) => {
+            electronOBSLaunchStatus = 'failed';
+            logObsError('Electron-managed OBS launch failed:', error);
+        });
+        obsProcess.unref();
+
+        if (obsProcess.pid) {
+            fs.writeFileSync(OBS_PID_FILE, String(obsProcess.pid), 'utf-8');
+        }
+
+        electronOBSLaunchStatus = 'launched';
+        console.log(
+            `Electron launched OBS${options.reason ? ` (${options.reason})` : ''}.`
+        );
+        return { status: 'launched', pid: obsProcess.pid };
+    } catch (error) {
+        electronOBSLaunchStatus = 'failed';
+        return {
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+        };
+    }
+}
+
+export function shouldRetryElectronManagedOBSLaunch(): boolean {
+    return (
+        electronOBSLaunchStatus === 'idle' ||
+        electronOBSLaunchStatus === 'missing' ||
+        electronOBSLaunchStatus === 'failed'
+    );
+}
+
+export function launchOBSFromElectron(
+    options: ElectronOBSProcessOptions = {}
+): Promise<ElectronOBSProcessResult> {
+    if (electronOBSLaunchPromise && !options.forceRestart) {
+        return electronOBSLaunchPromise;
+    }
+
+    if (
+        !options.forceRestart &&
+        (electronOBSLaunchStatus === 'launched' ||
+            electronOBSLaunchStatus === 'already-running' ||
+            electronOBSLaunchStatus === 'skipped')
+    ) {
+        return Promise.resolve({ status: electronOBSLaunchStatus });
+    }
+
+    electronOBSLaunchPromise = (async () => {
+        await deferOBSLaunchWork();
+        return launchOBSFromElectronInternal(options);
+    })().finally(() => {
+        electronOBSLaunchPromise = null;
+    });
+    return electronOBSLaunchPromise;
+}
+
+export async function closeOBSFromElectron(
+    options: ElectronOBSProcessOptions = {}
+): Promise<ElectronOBSProcessResult> {
+    const config = getElectronOBSStartupConfig();
+    if (!options.ignoreCloseConfig && !config.closeObs) {
+        return { status: 'skipped' };
+    }
+
+    const pid = readOBSProcessPid();
+    if (!pid) {
+        electronOBSLaunchStatus = 'not-running';
+        return { status: 'not-running' };
+    }
+
+    if (!isProcessRunning(pid)) {
+        clearOBSProcessPid();
+        electronOBSLaunchStatus = 'not-running';
+        return { status: 'not-running', pid };
+    }
+
+    try {
+        if (isWindows()) {
+            await execFileAsync('taskkill', ['/PID', String(pid), '/T', '/F']);
+        } else {
+            process.kill(pid, 'SIGTERM');
+        }
+        clearOBSProcessPid();
+        electronOBSLaunchStatus = 'closed';
+        console.log(`Electron closed OBS${options.reason ? ` (${options.reason})` : ''}.`);
+        return { status: 'closed', pid };
+    } catch (error) {
+        electronOBSLaunchStatus = 'failed';
+        return {
+            status: 'failed',
+            pid,
+            error: error instanceof Error ? error.message : String(error),
+        };
+    }
 }
 
 class OBSTimeoutError extends Error {
@@ -1160,7 +1577,10 @@ async function modifyAutoSceneSwitcherInJSON(
 
         await wait(OBS_SCENE_SWITCHER_PRE_QUIT_DELAY_MS);
 
-        sendQuitOBS();
+        await closeOBSFromElectron({
+            ignoreCloseConfig: true,
+            reason: 'auto-scene-switcher update',
+        });
         shouldRestartOBS = true;
 
         await wait(OBS_SCENE_SWITCHER_SHUTDOWN_DELAY_MS);
@@ -1214,7 +1634,10 @@ async function modifyAutoSceneSwitcherInJSON(
         }
 
         try {
-            sendStartOBS();
+            await launchOBSFromElectron({
+                forceRestart: true,
+                reason: 'auto-scene-switcher update',
+            });
         } catch (startError) {
             logObsError('Failed to restart OBS after auto-scene-switcher update:', startError);
             return;
@@ -1368,11 +1791,15 @@ export async function registerOBSIPC() {
     obsIPCRegistered = true;
 
     ipcMain.handle('obs.launch', async () => {
-        exec('obs', (error: any) => {
-            if (error) {
-                logObsError('Error launching OBS:', error);
-            }
-        });
+        const result = await launchOBSFromElectron({ reason: 'ipc obs.launch' });
+        if (result.status === 'missing' || result.status === 'failed') {
+            exec('obs', (error: any) => {
+                if (error) {
+                    logObsError('Error launching OBS:', error);
+                }
+            });
+        }
+        return result;
     });
 
     ipcMain.handle('obs.saveReplay', async () => {
@@ -1580,7 +2007,11 @@ export async function registerOBSIPC() {
     });
 
     ipcMain.handle('openOBS', async () => {
-        sendStartOBS();
+        const result = await launchOBSFromElectron({ reason: 'openOBS ipc' });
+        if (result.status === 'missing' || result.status === 'failed') {
+            sendStartOBS();
+        }
+        return result;
     });
 
     const inputPropertyItemsPromises = new Map<string, Promise<ObsDevicePropertyItem[]>>();

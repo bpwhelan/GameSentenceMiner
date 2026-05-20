@@ -736,6 +736,63 @@ def test_obs_connection_pool_healthcheck_client_is_independent(monkeypatch):
     assert len(created_clients) == 2
 
 
+def test_obs_connection_pool_has_no_initial_connect_delay_by_default(monkeypatch):
+    sleeps = []
+
+    class _FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def get_version(self):
+            return SimpleNamespace(obs_version="30.0.0")
+
+        def disconnect(self):
+            return None
+
+    monkeypatch.setattr(obs_service_module.obs, "ReqClient", _FakeClient)
+    monkeypatch.setattr(obs_service_module.time, "sleep", sleeps.append)
+
+    pool = obs_service_module.OBSConnectionPool(
+        host="localhost",
+        port=4455,
+        password="",
+        timeout=1,
+    )
+
+    pool.connect_all()
+
+    assert sleeps == []
+
+
+def test_obs_connection_pool_initial_connect_delay_is_opt_in(monkeypatch):
+    sleeps = []
+
+    class _FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def get_version(self):
+            return SimpleNamespace(obs_version="30.0.0")
+
+        def disconnect(self):
+            return None
+
+    monkeypatch.setattr(obs_service_module.obs, "ReqClient", _FakeClient)
+    monkeypatch.setattr(obs_service_module.time, "sleep", sleeps.append)
+
+    pool = obs_service_module.OBSConnectionPool(
+        host="localhost",
+        port=4455,
+        password="",
+        timeout=1,
+        initial_connect_delay=2.0,
+    )
+
+    pool.connect_all()
+
+    assert sleeps == [2.0]
+
+
 def test_wait_for_obs_ready_disconnects_probe_client(monkeypatch):
     disconnected = []
 

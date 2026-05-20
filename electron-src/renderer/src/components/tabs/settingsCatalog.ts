@@ -399,7 +399,6 @@ export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
       "sleep time",
       "process pausing",
       "pause game",
-      "allowlist",
       "denylist",
       "overlay pause",
       "texthooker pause",

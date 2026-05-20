@@ -131,3 +131,7 @@ scripts/ocr_metrics_benchmark.py
 electron-src/assets/prerelease.json
 /build/lib/GameSentenceMiner
 .hypothesis/
+/.reference
+/.sugoi_hook
+/.LunaTranslator
+/.agent_scripts

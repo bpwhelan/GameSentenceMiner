@@ -45,13 +45,13 @@ def test_add_current_target_window_to_list_updates_line_edit(monkeypatch) -> Non
         lambda _parent, title, text: info_calls.append((title, text)),
     )
 
-    experimental._add_current_target_window_to_list(SimpleNamespace(), line_edit, "allowlist")
+    experimental._add_current_target_window_to_list(SimpleNamespace(), line_edit, "denylist")
 
     assert line_edit.text() == "steam.exe, game.exe"
     assert info_calls == [
         (
-            "Allowlist Updated",
-            "Added game.exe (Test Window) to the allowlist.",
+            "Denylist Updated",
+            "Added game.exe (Test Window) to the denylist.",
         )
     ]
 

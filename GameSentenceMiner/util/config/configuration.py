@@ -937,7 +937,6 @@ class ProcessPausing:
     overlay_manual_hotkey_requests_pause: bool = False
     overlay_texthooker_hotkey_requests_pause: bool = False
     overlay_gamepad_navigation_requests_pause: bool = False
-    allowlist: List[str] = field(default_factory=list)
     denylist: List[str] = field(
         default_factory=lambda: [
             "explorer.exe",
@@ -1741,10 +1740,19 @@ class Config:
                     if isinstance(legacy_process_pausing, dict)
                     else ProcessPausing().to_dict()
                 )
+            cls._migrate_process_pausing_data(profile_data)
             cls._migrate_anki_profile_data(profile_data)
             cls._migrate_single_port_fields(profile_data)
             cls._migrate_websocket_sources(profile_data)
         return data
+
+    @staticmethod
+    def _migrate_process_pausing_data(profile_data: Dict[str, Any]) -> None:
+        if not isinstance(profile_data, dict):
+            return
+        process_pausing = profile_data.get("process_pausing")
+        if isinstance(process_pausing, dict):
+            process_pausing.pop("allowlist", None)
 
     @staticmethod
     def _normalize_port(value: Any, fallback: int) -> int:
@@ -2219,6 +2227,9 @@ def _remove_deprecated_config_settings(config_data: dict):
         overlay = profile_data.get("overlay")
         if isinstance(overlay, dict):
             overlay.pop("send_hotkey_text_to_texthooker", None)
+        process_pausing = profile_data.get("process_pausing")
+        if isinstance(process_pausing, dict):
+            process_pausing.pop("allowlist", None)
         advanced = profile_data.get("advanced")
         if isinstance(advanced, dict):
             advanced.pop("multi_line_sentence_storage_field", None)

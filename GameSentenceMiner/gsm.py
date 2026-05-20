@@ -515,6 +515,9 @@ class GSMApplication:
             raise
 
     def _launch_obs_early(self) -> None:
+        if _is_running_under_electron():
+            logger.info("Skipping Python-managed OBS launch because GSM is running under Electron.")
+            return
         if self._obs_launch_thread and self._obs_launch_thread.is_alive():
             return
 
@@ -703,7 +706,7 @@ class GSMApplication:
             obs.stop_replay_buffer()
             obs.disconnect_from_obs()
 
-            if get_config().obs.close_obs:
+            if get_config().obs.close_obs and not _is_running_under_electron():
                 self.close_obs()
 
             _get_websocket_manager().stop_all()
@@ -1208,6 +1211,10 @@ class GSMApplication:
             self.on_config_changed()
 
         self.start_file_watcher()
+
+        if not gsm_status.obs_connected and (not self._obs_connect_task or self._obs_connect_task.done()):
+            self._obs_connect_task = asyncio.create_task(self._connect_obs_when_available())
+
         await _get_overlay_coords_module().init_overlay_processor()
         _get_window_state_monitor_module().cleanup_suspended_processes()
         _get_vad_processor().init()
@@ -1225,14 +1232,11 @@ class GSMApplication:
         except Exception as exc:
             logger.debug(f"Failed to queue Sudachi user dictionary startup export: {exc}")
 
-        if not self._obs_connect_task or self._obs_connect_task.done():
-            self._obs_connect_task = asyncio.create_task(self._connect_obs_when_available())
-
     async def _connect_obs_when_available(self) -> None:
         if gsm_status.obs_connected:
             return
 
-        await obs.wait_for_obs_ready()
+        await obs.wait_for_obs_ready(interval=0.5 if get_config().obs.open_obs else 2.0)
         if not gsm_state.keep_running:
             return
 
@@ -1241,6 +1245,7 @@ class GSMApplication:
             check_output=True,
             healthcheck_enabled=True,
             start_manager=True,
+            initial_connect_delay=2.0,
         )
         if not gsm_status.obs_connected:
             return

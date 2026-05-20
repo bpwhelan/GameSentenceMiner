@@ -1280,7 +1280,7 @@ requires-dist = [
     { name = "langid", specifier = "~=1.1.6" },
     { name = "loguru", specifier = "~=0.7.3" },
     { name = "matplotlib", specifier = "~=3.10.6" },
-    { name = "meikiocr", specifier = "~=0.3.3" },
+    { name = "meikiocr", specifier = "~=0.3.4" },
     { name = "mss", specifier = ">=10.1.0" },
     { name = "numpy", specifier = "==2.2.6" },
     { name = "obsws-python", specifier = "~=1.8.0" },

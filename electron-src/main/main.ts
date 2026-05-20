@@ -52,7 +52,12 @@ import {
 import { checkForUpdates } from './update_checker.js';
 import { launchSteamGameID } from './ui/steam.js';
 import { GSMStdoutManager } from './communication/pythonIPC.js';
-import { getOBSConnection, setOBSScene } from './ui/obs.js';
+import {
+    closeOBSFromElectron,
+    launchOBSFromElectron,
+    setOBSScene,
+    shouldRetryElectronManagedOBSLaunch,
+} from './ui/obs.js';
 import {
     runWindowTransparencyTool,
     stopWindowTransparencyTool,
@@ -396,6 +401,16 @@ function handleBackendInstallProgressMessage(data: Record<string, unknown> | und
         totalBytes,
         error,
     });
+
+    if (
+        stageId === 'obs' &&
+        (status === 'completed' || status === 'skipped') &&
+        shouldRetryElectronManagedOBSLaunch()
+    ) {
+        void launchOBSFromElectron({ reason: `backend obs ${status}` }).catch((launchError) => {
+            console.warn('Failed to launch OBS after backend dependency check:', launchError);
+        });
+    }
 }
 
 function formatBackendExitCode(code: number | null): string {
@@ -2029,8 +2044,6 @@ async function processArgsAndStartSettings() {
     let gameName: string | undefined;
     let runOCR = false;
 
-    await getOBSConnection();
-
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--scene' && args[i + 1]) {
             await setOBSScene(args[i + 1]);
@@ -2088,6 +2101,9 @@ if (!app.requestSingleInstanceLock()) {
     app.whenReady().then(async () => {
         try {
             bootstrapPreReleaseSettingsFromMetadata();
+            void launchOBSFromElectron({ reason: 'startup' }).catch((error) => {
+                console.warn('Electron-managed OBS startup launch failed:', error);
+            });
             ensureInstallSession('startup', async () => {
                 if (pythonPath) {
                     await ensureAndRunGSM(pythonPath, 1, { origin: 'startup' });
@@ -2424,10 +2440,9 @@ async function quit(): Promise<void> {
     await stopScripts();
     if (pyProc != null && !pyProc.killed) {
         await closeAllPythonProcesses();
-        app.quit();
-    } else {
-        app.quit();
     }
+    await closeOBSFromElectron({ reason: 'app quit' });
+    app.quit();
 }
 
 async function restart(): Promise<void> {

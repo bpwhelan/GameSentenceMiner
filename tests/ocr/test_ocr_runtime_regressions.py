@@ -388,6 +388,45 @@ def test_describe_obs_source_selection_handles_no_valid_source():
     )
 
 
+def test_obs_area_selector_uses_single_fast_initial_screenshot(monkeypatch):
+    calls = []
+
+    def fake_get_screenshot_pil(**kwargs):
+        calls.append(kwargs)
+        return Image.new("RGB", (640, 360), color=(255, 255, 255))
+
+    monkeypatch.setattr(area_selector_qt.obs, "get_screenshot_PIL", fake_get_screenshot_pil)
+    monkeypatch.setattr(
+        area_selector_qt.obs,
+        "get_active_video_sources",
+        lambda: (_ for _ in ()).throw(AssertionError("source enumeration should not run before first capture")),
+    )
+    monkeypatch.setattr(
+        area_selector_qt.obs,
+        "get_best_source_for_screenshot",
+        lambda: (_ for _ in ()).throw(AssertionError("source validation should not run before first capture")),
+    )
+
+    selector = SimpleNamespace(
+        overlay_config_mode=False,
+        screenshot_img=None,
+        target_window_geometry={},
+        bounding_box_original=None,
+        monitors=[],
+        _fit_capture_to_screen=lambda original_w, original_h: setattr(
+            selector,
+            "fit_args",
+            (original_w, original_h),
+        ),
+    )
+
+    area_selector_qt.OWOCRAreaSelectorWidget._init_obs_screenshot(selector)
+
+    assert calls == [{"compression": 90, "img_format": "jpg", "retry": 1}]
+    assert selector.fit_args == (640, 360)
+    assert selector.target_window_geometry == {"left": 0, "top": 0, "width": 640, "height": 360}
+
+
 def test_obs_screenshot_thread_capture_original_size_falls_back_when_source_dimensions_missing():
     thread = run_module.OBSScreenshotThread(SimpleNamespace(rectangles=[]), screen_capture_on_combo=False)
     del thread.source_width

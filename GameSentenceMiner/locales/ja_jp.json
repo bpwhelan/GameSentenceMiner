@@ -750,10 +750,6 @@
             "label": "ゲームEXE一致を要求:",
             "tooltip": "ターゲットexeが検出されたゲームexeと一致する場合のみ一時停止を許可します。"
           },
-          "allowlist": {
-            "label": "許可リスト (EXE名):",
-            "tooltip": "常に許可されるexe名（カンマ区切り）。"
-          },
           "denylist": {
             "label": "拒否リスト (EXE名):",
             "tooltip": "常にブロックされるexe名（カンマ区切り）。"

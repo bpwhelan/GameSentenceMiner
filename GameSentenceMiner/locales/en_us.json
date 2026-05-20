@@ -799,10 +799,6 @@
             "label": "Require Game EXE Match:",
             "tooltip": "Only allow pausing when the target exe matches the detected game exe."
           },
-          "allowlist": {
-            "label": "Allowlist (EXE Names):",
-            "tooltip": "Comma-separated exe names that are always allowed."
-          },
           "denylist": {
             "label": "Denylist (EXE Names):",
             "tooltip": "Comma-separated exe names that are always blocked."

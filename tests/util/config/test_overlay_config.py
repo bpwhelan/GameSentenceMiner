@@ -140,18 +140,19 @@ def test_legacy_profile_overlay_migrates_when_global_overlay_missing():
 
 
 def test_legacy_global_process_pausing_migrates_into_profiles():
+    legacy_process_pausing = ProcessPausing(
+        enabled=True,
+        auto_resume_seconds=45,
+        denylist=["steam.exe"],
+    ).to_dict()
+    legacy_process_pausing["allowlist"] = ["game.exe"]
     raw_config = {
         "configs": {
             "Default": ProfileConfig().to_dict(),
             "Game": ProfileConfig().to_dict(),
         },
         "current_profile": "Default",
-        "process_pausing": ProcessPausing(
-            enabled=True,
-            auto_resume_seconds=45,
-            allowlist=["game.exe"],
-            denylist=["steam.exe"],
-        ).to_dict(),
+        "process_pausing": legacy_process_pausing,
     }
     for profile_data in raw_config["configs"].values():
         profile_data.pop("process_pausing", None)
@@ -161,7 +162,22 @@ def test_legacy_global_process_pausing_migrates_into_profiles():
     assert "process_pausing" not in migrated
     assert migrated["configs"]["Default"]["process_pausing"]["enabled"] is True
     assert migrated["configs"]["Default"]["process_pausing"]["auto_resume_seconds"] == 45
-    assert migrated["configs"]["Game"]["process_pausing"]["allowlist"] == ["game.exe"]
+    assert "allowlist" not in migrated["configs"]["Game"]["process_pausing"]
+    assert migrated["configs"]["Game"]["process_pausing"]["denylist"] == ["steam.exe"]
+
+
+def test_deprecated_process_pausing_allowlist_removed_from_profileless_config():
+    config_data = {
+        "process_pausing": {
+            "allowlist": ["game.exe"],
+            "denylist": ["steam.exe"],
+        },
+    }
+
+    migrated = configuration._remove_deprecated_config_settings(config_data)
+
+    assert "allowlist" not in migrated["process_pausing"]
+    assert migrated["process_pausing"]["denylist"] == ["steam.exe"]
 
 
 def test_process_pausing_is_profile_scoped_round_trip():

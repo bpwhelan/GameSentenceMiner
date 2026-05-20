@@ -734,11 +734,6 @@ class ConfigWindow(QWidget):
                 overlay_manual_hotkey_requests_pause=self.process_pausing_overlay_manual_hotkey_requests_pause_check.isChecked(),
                 overlay_texthooker_hotkey_requests_pause=self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.isChecked(),
                 overlay_gamepad_navigation_requests_pause=self.process_pausing_overlay_gamepad_navigation_requests_pause_check.isChecked(),
-                allowlist=[
-                    item.strip().lower()
-                    for item in self.process_pausing_allowlist_edit.text().split(",")
-                    if item.strip()
-                ],
                 denylist=[
                     item.strip().lower()
                     for item in self.process_pausing_denylist_edit.text().split(",")
@@ -1540,7 +1535,6 @@ class ConfigWindow(QWidget):
         self.process_pausing_overlay_manual_hotkey_requests_pause_check = QCheckBox()
         self.process_pausing_overlay_texthooker_hotkey_requests_pause_check = QCheckBox()
         self.process_pausing_overlay_gamepad_navigation_requests_pause_check = QCheckBox()
-        self.process_pausing_allowlist_edit = QLineEdit()
         self.process_pausing_denylist_edit = QLineEdit()
         self.process_pausing_auto_resume_seconds_edit = QSpinBox()
         self.process_pausing_auto_resume_seconds_edit.setRange(5, 300)
@@ -1549,7 +1543,6 @@ class ConfigWindow(QWidget):
         )
 
         self.process_pause_hotkey_edit = QKeySequenceEdit()
-        self.process_pausing_allowlist_edit.setPlaceholderText("game.exe, foo.exe")
         self.process_pausing_denylist_edit.setPlaceholderText("explorer.exe, steam.exe")
 
     def _register_shared_bindings(self):
@@ -2993,7 +2986,6 @@ class ConfigWindow(QWidget):
         self.process_pausing_overlay_gamepad_navigation_requests_pause_check.setChecked(
             bool(getattr(process_cfg, "overlay_gamepad_navigation_requests_pause", False))
         )
-        self._set_text_value(self.process_pausing_allowlist_edit, ", ".join(process_cfg.allowlist))
         self._set_text_value(self.process_pausing_denylist_edit, ", ".join(process_cfg.denylist))
         self.process_pause_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.process_pause or ""))
 

@@ -70,8 +70,9 @@
     },
     "nsis": {
       "menuCategory": "GameSentenceMiner",
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
+      "packElevateHelper": true
     },
     "mac": {
       "target": "dmg",

@@ -1022,7 +1022,6 @@ export function registerOCRUtilsIPC() {
         } catch (err: any) {
             console.warn(`[OCR] Failed to write scene settings: ${err.message}`);
         }
-        console.log(`OCR config saved: ${JSON.stringify(newConfig)}`);
         if ('processPriority' in changes && ocrProcess) {
             applyWindowsOcrProcessPriority(ocrProcess);
         }

@@ -796,10 +796,6 @@
             "label": "게임 EXE 일치 필요:",
             "tooltip": "대상 exe가 감지된 게임 exe와 일치할 때만 일시 중지를 허용합니다."
           },
-          "allowlist": {
-            "label": "허용 목록 (EXE 이름):",
-            "tooltip": "항상 허용되는 쉼표로 구분된 exe 이름입니다."
-          },
           "denylist": {
             "label": "차단 목록 (EXE 이름):",
             "tooltip": "항상 차단되는 쉼표로 구분된 exe 이름입니다."

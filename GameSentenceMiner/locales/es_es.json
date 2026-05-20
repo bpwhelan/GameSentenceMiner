@@ -782,10 +782,6 @@
             "label": "Requerir Coincidencia de EXE de Juego:",
             "tooltip": "Solo permitir pausa cuando el exe objetivo coincide con el exe de juego detectado."
           },
-          "allowlist": {
-            "label": "Lista de Permitidos (Nombres EXE):",
-            "tooltip": "Nombres exe separados por comas que siempre están permitidos."
-          },
           "denylist": {
             "label": "Lista de Denegados (Nombres EXE):",
             "tooltip": "Nombres exe separados por comas que siempre están bloqueados."

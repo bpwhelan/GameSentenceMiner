@@ -54,9 +54,11 @@ def test_main_logs_pid_before_run_when_no_existing_instance(monkeypatch):
 def test_connect_obs_when_available_uses_single_connection(monkeypatch):
     app = gsm_module.GSMApplication()
     connect_calls = []
+    wait_calls = []
     previous_line_refreshes = []
 
-    async def _fake_wait_for_obs_ready():
+    async def _fake_wait_for_obs_ready(**kwargs):
+        wait_calls.append(kwargs)
         return True
 
     async def _fake_connect_to_obs(**kwargs):
@@ -71,6 +73,7 @@ def test_connect_obs_when_available_uses_single_connection(monkeypatch):
 
     monkeypatch.setattr(gsm_module.obs, "wait_for_obs_ready", _fake_wait_for_obs_ready)
     monkeypatch.setattr(gsm_module.obs, "connect_to_obs", _fake_connect_to_obs)
+    monkeypatch.setattr(gsm_module, "get_config", lambda: SimpleNamespace(obs=SimpleNamespace(open_obs=True)))
     monkeypatch.setattr(gsm_module, "check_obs_folder_is_correct", _fake_check_obs_folder_is_correct)
     monkeypatch.setattr(app, "register_scene_switcher_callback", _fake_register_scene_switcher_callback)
     monkeypatch.setattr(app, "get_previous_lines_for_game", lambda: previous_line_refreshes.append(True))
@@ -80,10 +83,27 @@ def test_connect_obs_when_available_uses_single_connection(monkeypatch):
 
     gsm_module.asyncio.run(app._connect_obs_when_available())
 
+    assert wait_calls == [{"interval": 0.5}]
     assert connect_calls[0]["connections"] == 2
     assert connect_calls[0]["check_output"] is True
     assert connect_calls[0]["start_manager"] is True
+    assert connect_calls[0]["initial_connect_delay"] == 2.0
     assert previous_line_refreshes == [True]
+
+
+def test_launch_obs_early_skips_python_launch_under_electron(monkeypatch):
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app._obs_launch_thread = None
+    calls = []
+
+    monkeypatch.setenv("GSM_ELECTRON", "1")
+    monkeypatch.setattr(gsm_module.obs, "start_obs", lambda: calls.append("start_obs"))
+    monkeypatch.setattr(gsm_module.logger, "info", lambda *_args, **_kwargs: None)
+
+    gsm_module.GSMApplication._launch_obs_early(app)
+
+    assert app._obs_launch_thread is None
+    assert calls == []
 
 
 def test_switch_profile_delegates_to_profile_switcher():
