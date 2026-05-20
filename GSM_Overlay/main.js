@@ -3024,9 +3024,15 @@ function handleGSMSettingsFileChanged(reason = "gsm-settings-file") {
 
 function shouldOverlayHotkeyRequestPause(source) {
   const currentSettings = getGSMSettings();
-  const experimentalEnabled = !!(currentSettings.experimental && currentSettings.experimental.enable_experimental_features);
-  const processPausing = currentSettings.process_pausing || {};
-  if (!experimentalEnabled || !processPausing.enabled) {
+  const profileSettings = getCurrentGSMProfileSettings(currentSettings);
+  const profileProcessPausing = profileSettings && typeof profileSettings.process_pausing === "object"
+    ? profileSettings.process_pausing
+    : null;
+  const legacyProcessPausing = currentSettings && typeof currentSettings.process_pausing === "object"
+    ? currentSettings.process_pausing
+    : null;
+  const processPausing = profileProcessPausing || legacyProcessPausing || {};
+  if (!processPausing.enabled) {
     return false;
   }
 
