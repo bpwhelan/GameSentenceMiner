@@ -221,6 +221,10 @@ class MediaAssets:
     animated_vad_end: float = 0.0
     animated_prefetch_event: Any = None
     animated_prefetch_path: str = ""
+    animated_prefetch_start: float = 0.0
+    animated_prefetch_end: float = 0.0
+    animated_target_start: float = 0.0
+    animated_target_end: float = 0.0
 
     # Video deferred generation
     pending_video: bool = False
@@ -601,6 +605,75 @@ def _apply_confirmation_dialog_state(
     return selected_lines, start_time, end_time, vad_result
 
 
+ANIMATED_TIMING_EPSILON_SECONDS = 0.02
+
+
+def _coerce_timing_window(value) -> Optional[Tuple[float, float]]:
+    if not value:
+        return None
+    try:
+        if len(value) != 2:
+            return None
+    except TypeError:
+        return None
+    try:
+        start = float(value[0])
+        end = float(value[1])
+    except (TypeError, ValueError, KeyError):
+        return None
+    if end <= start:
+        return None
+    return start, end
+
+
+def _animated_requested_window(assets: MediaAssets) -> Optional[Tuple[float, float]]:
+    if not assets:
+        return None
+
+    start = float(assets.animated_start_time or 0.0) + float(assets.animated_vad_start or 0.0)
+    end = float(assets.animated_start_time or 0.0) + float(assets.animated_vad_end or 0.0)
+    if end <= start:
+        return None
+    return start, end
+
+
+def _animated_prefetch_window(assets: MediaAssets) -> Optional[Tuple[float, float]]:
+    if not assets:
+        return None
+    return _coerce_timing_window((assets.animated_prefetch_start, assets.animated_prefetch_end))
+
+
+def _animated_target_window(assets: MediaAssets) -> Optional[Tuple[float, float]]:
+    if not assets:
+        return None
+    return _coerce_timing_window((assets.animated_target_start, assets.animated_target_end))
+
+
+def _windows_match(first: Tuple[float, float], second: Tuple[float, float]) -> bool:
+    return (
+        abs(first[0] - second[0]) <= ANIMATED_TIMING_EPSILON_SECONDS
+        and abs(first[1] - second[1]) <= ANIMATED_TIMING_EPSILON_SECONDS
+    )
+
+
+def _window_contains(outer: Tuple[float, float], inner: Tuple[float, float]) -> bool:
+    return (
+        inner[0] >= outer[0] - ANIMATED_TIMING_EPSILON_SECONDS
+        and inner[1] <= outer[1] + ANIMATED_TIMING_EPSILON_SECONDS
+    )
+
+
+def _apply_confirmed_animated_timing(assets: MediaAssets, dialog_state: Optional[Dict]):
+    if not assets or not assets.pending_animated or not dialog_state:
+        return
+
+    audio_range = _coerce_timing_window(dialog_state.get("audio_edit_range"))
+    if not audio_range:
+        return
+
+    assets.animated_target_start, assets.animated_target_end = audio_range
+
+
 def _synchronize_deferred_media_metadata(
     assets: MediaAssets,
     video_path: str,
@@ -636,6 +709,10 @@ def _start_animated_screenshot_prefetch(assets: MediaAssets, config):
         return
     if assets.animated_prefetch_event is not None:
         return
+
+    prefetch_window = _animated_requested_window(assets)
+    if prefetch_window:
+        assets.animated_prefetch_start, assets.animated_prefetch_end = prefetch_window
 
     assets.animated_prefetch_event = threading.Event()
 
@@ -891,6 +968,7 @@ def update_anki_card(
             vad_result,
             dialog_state,
         )
+        _apply_confirmed_animated_timing(assets, dialog_state)
         _apply_confirmed_sentence_fields(note, last_note, sentence)
         if config.ai.add_to_anki and config.ai.anki_field:
             note["fields"][config.ai.anki_field] = translation
@@ -1131,6 +1209,67 @@ def _process_previous_screenshot(
             )
 
 
+def _generate_animated_screenshot_for_window(assets: MediaAssets, config, timing_window: Optional[Tuple[float, float]]):
+    settings = config.screenshot.animated_settings
+    if timing_window:
+        return ffmpeg.video_to_animation_with_start_end(
+            assets.animated_video_path,
+            timing_window[0],
+            timing_window[1],
+            codec=settings.extension,
+            quality=settings.scaled_quality,
+            fps=settings.fps,
+            audio=False,
+        )
+
+    return ffmpeg.get_anki_compatible_video(
+        assets.animated_video_path,
+        assets.animated_start_time,
+        assets.animated_vad_start,
+        assets.animated_vad_end,
+        codec=settings.extension,
+        quality=settings.scaled_quality,
+        fps=settings.fps,
+        audio=False,
+    )
+
+
+def _trim_prefetched_animated_screenshot(
+    path: str,
+    assets: MediaAssets,
+    config,
+    target_window: Optional[Tuple[float, float]],
+) -> str:
+    if not path or not target_window:
+        return path
+
+    prefetch_window = _animated_prefetch_window(assets) or _animated_requested_window(assets)
+    if not prefetch_window:
+        return ""
+
+    if _windows_match(prefetch_window, target_window):
+        return path
+
+    if not _window_contains(prefetch_window, target_window):
+        return ""
+
+    settings = config.screenshot.animated_settings
+    start_offset = max(0.0, target_window[0] - prefetch_window[0])
+    duration = target_window[1] - target_window[0]
+    logger.info(
+        "Trimming prefetched animated screenshot to confirmed audio range "
+        f"({target_window[0]:.2f}s -> {target_window[1]:.2f}s)."
+    )
+    return ffmpeg.trim_animation(
+        path,
+        start_offset=start_offset,
+        duration=duration,
+        codec=settings.extension,
+        quality=settings.scaled_quality,
+        fps=settings.fps,
+    )
+
+
 def _process_animated_screenshot(
     assets: MediaAssets,
     note: dict,
@@ -1143,23 +1282,24 @@ def _process_animated_screenshot(
         return
 
     try:
-        path = _get_prefetched_animated_screenshot_path(assets)
-        if path:
-            logger.info(f"Using prefetched animated screenshot: {path}")
-        else:
-            logger.info("Generating animated screenshot...")
-            settings = config.screenshot.animated_settings
+        target_window = _animated_target_window(assets)
+        prefetch_window = _animated_prefetch_window(assets) or _animated_requested_window(assets)
+        can_use_prefetch = not target_window or (prefetch_window and _window_contains(prefetch_window, target_window))
 
-            path = ffmpeg.get_anki_compatible_video(
-                assets.animated_video_path,
-                assets.animated_start_time,
-                assets.animated_vad_start,
-                assets.animated_vad_end,
-                codec=settings.extension,
-                quality=settings.scaled_quality,
-                fps=settings.fps,
-                audio=False,
+        path = ""
+        if can_use_prefetch:
+            path = _get_prefetched_animated_screenshot_path(assets)
+            if path:
+                logger.info(f"Using prefetched animated screenshot: {path}")
+                path = _trim_prefetched_animated_screenshot(path, assets, config, target_window)
+        elif target_window:
+            logger.info(
+                "Confirmed audio range extends outside the prefetched animated screenshot; regenerating animation."
             )
+
+        if not path:
+            logger.info("Generating animated screenshot...")
+            path = _generate_animated_screenshot_for_window(assets, config, target_window)
 
         if path and os.path.exists(path):
             wait_for_stable_file(path)
@@ -1373,6 +1513,13 @@ def _perform_post_update_actions(last_note: AnkiCard, selected_notes, config: Pr
 
 
 def _cleanup_assets(assets: MediaAssets):
+    if assets and assets.animated_prefetch_event and not assets.animated_prefetch_event.is_set():
+        try:
+            logger.debug("Waiting for animated screenshot prefetch before cleanup.")
+            assets.animated_prefetch_event.wait()
+        except Exception as e:
+            logger.exception(f"Error waiting for animated screenshot prefetch: {e}")
+
     if assets and assets.cleanup_callback:
         try:
             logger.debug("Calling cleanup callback after background processing complete")

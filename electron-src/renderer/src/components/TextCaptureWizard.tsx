@@ -2,6 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invokeIpc, sendIpc } from "../lib/ipc";
 import { useTranslation } from "../i18n";
 import type { ObsCaptureMode, ObsScene, SceneOcrMode, SceneTextHookMode } from "../types/models";
+import { AgentScriptDisplay } from "./AgentScriptDisplay";
+import { AgentScriptSearchDialog } from "./AgentScriptSearchDialog";
+import {
+  buildAgentScriptCandidateList,
+  normalizeAgentScriptPathForCompare,
+  type AgentScriptCandidate,
+} from "../../../shared/agent_scripts";
 
 type TextHookEngine = "luna" | "textractor" | "agent";
 type WizardStep = "preview" | "agent" | "hook" | "ocr" | "profile" | "finish";
@@ -29,12 +36,6 @@ interface ObsScenePreviewSnapshot {
   imageData: string | null;
 }
 
-interface AgentScriptCandidate {
-  path: string;
-  reason?: string;
-  score?: number;
-}
-
 interface ResolveAgentScriptResponse {
   status?: string;
   path?: string;
@@ -51,6 +52,11 @@ interface ListAgentScriptsResponse {
   path?: string;
   scripts?: string[];
   message?: string;
+}
+
+interface AgentScriptSearchDialogState {
+  candidates: AgentScriptCandidate[];
+  query: string;
 }
 
 interface HookEntry {
@@ -89,33 +95,6 @@ const CAPTURE_WIZARD_STEPS: Array<{ id: WizardStep; labelKey: string }> = [
 
 const DEFAULT_FLUSH_DELAY_MS = 100;
 
-function fileNameFromPath(filePath: string): string {
-  const normalized = filePath.replace(/\\/g, "/");
-  const segments = normalized.split("/");
-  return segments[segments.length - 1] || filePath;
-}
-
-function normalizePathForCompare(filePath: string): string {
-  return filePath.replace(/\\/g, "/").toLowerCase();
-}
-
-function normalizeCandidateScore(value: unknown): number | null {
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function scoreScriptForScene(sceneName: string, scriptPath: string): number {
-  const query = sceneName.trim().toLowerCase();
-  if (!query) return 0.75;
-  const fileName = fileNameFromPath(scriptPath).toLowerCase();
-  const normalizedPath = normalizePathForCompare(scriptPath);
-  if (fileName.includes(query) || normalizedPath.includes(query)) return 0.05;
-  const tokens = query.split(/[^\p{L}\p{N}]+/u).filter((token) => token.length > 1);
-  if (tokens.length === 0) return 0.75;
-  const matches = tokens.filter((token) => fileName.includes(token) || normalizedPath.includes(token));
-  return 1 - matches.length / tokens.length;
-}
-
 function hasHookText(hook: HookEntry): boolean {
   if (hook.preview.trim().length > 0) return true;
   return hook.samples.some((sample) => sample.trim().length > 0);
@@ -125,6 +104,10 @@ function toSceneLaunchTextHookMode(source: WizardTextSource, launchTextHook: boo
   if (!launchTextHook) return "none";
   if (source === "agent" || source === "luna" || source === "textractor") return source;
   return "none";
+}
+
+function normalizeCaptureMode(value: unknown): ObsCaptureMode | null {
+  return value === "window_capture" || value === "game_capture" ? value : null;
 }
 
 export function TextCaptureWizard({
@@ -137,12 +120,14 @@ export function TextCaptureWizard({
   const [scene, setScene] = useState<ObsScene | null>(initialScene ?? null);
   const [capture, setCapture] = useState<ActiveCapture | null>(null);
   const [preview, setPreview] = useState<ObsScenePreviewSnapshot | null>(null);
+  const [previewCaptureMode, setPreviewCaptureMode] = useState<ObsCaptureMode | null>(null);
   const [previewLoading, setPreviewLoading] = useState(true);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [agentLoading, setAgentLoading] = useState(false);
   const [agentCandidates, setAgentCandidates] = useState<AgentScriptCandidate[]>([]);
   const [agentResolution, setAgentResolution] = useState<ResolveAgentScriptResponse | null>(null);
   const [selectedAgentScript, setSelectedAgentScript] = useState("");
+  const [agentSearchDialog, setAgentSearchDialog] = useState<AgentScriptSearchDialogState | null>(null);
   const [hookEngine, setHookEngine] = useState<Exclude<TextHookEngine, "agent">>("luna");
   const [hookStatus, setHookStatus] = useState<RuntimeStatus>({ running: false });
   const [hooks, setHooks] = useState<HookEntry[]>([]);
@@ -208,11 +193,21 @@ export function TextCaptureWizard({
     if (previewInFlightRef.current || !activeScene?.id) return;
     previewInFlightRef.current = true;
     try {
-      const snapshot = await invokeIpc<ObsScenePreviewSnapshot | null>(
-        "obs.getScenePreviewSnapshot",
-        activeScene.id
-      );
+      const [snapshotResult, captureModeResult] = await Promise.allSettled([
+        invokeIpc<ObsScenePreviewSnapshot | null>(
+          "obs.getScenePreviewSnapshot",
+          activeScene.id
+        ),
+        invokeIpc<ObsCaptureMode | null>("obs.getSceneCaptureMode", activeScene.id)
+      ]);
+      const snapshot = snapshotResult.status === "fulfilled" ? snapshotResult.value : null;
+      const captureMode =
+        normalizeCaptureMode(snapshot?.captureMode) ??
+        (captureModeResult.status === "fulfilled"
+          ? normalizeCaptureMode(captureModeResult.value)
+          : null);
       setPreview(snapshot);
+      setPreviewCaptureMode(captureMode);
       setPreviewError(snapshot ? null : t("captureWizard.preview.noPreview"));
     } catch {
       setPreviewError(t("captureWizard.preview.noPreview"));
@@ -233,22 +228,23 @@ export function TextCaptureWizard({
   }, [activeScene?.id, refreshPreview, step]);
 
   const switchCaptureMode = useCallback(async () => {
-    if (!activeScene?.id || !preview?.captureMode) return;
+    if (!activeScene?.id || !previewCaptureMode) return;
     const targetMode: ObsCaptureMode =
-      preview.captureMode === "window_capture" ? "game_capture" : "window_capture";
+      previewCaptureMode === "window_capture" ? "game_capture" : "window_capture";
     setPreviewLoading(true);
     try {
-      await invokeIpc("obs.switchSceneCaptureMode", {
+      const result = await invokeIpc<ObsCaptureMode | null>("obs.switchSceneCaptureMode", {
         sceneUuid: activeScene.id,
         targetMode
       });
+      setPreviewCaptureMode(normalizeCaptureMode(result) ?? targetMode);
       await refreshPreview();
     } catch {
       setPreviewError(t("captureWizard.preview.switchFailed"));
     } finally {
       setPreviewLoading(false);
     }
-  }, [activeScene?.id, preview?.captureMode, refreshPreview, t]);
+  }, [activeScene?.id, previewCaptureMode, refreshPreview, t]);
 
   const loadAgentCandidates = useCallback(async () => {
     if (!activeScene) return;
@@ -263,45 +259,57 @@ export function TextCaptureWizard({
       ]);
 
       setAgentResolution(resolved);
-      const candidateMap = new Map<string, AgentScriptCandidate>();
-      const addCandidate = (path: string, reason?: string, score?: number) => {
-        const trimmed = path.trim();
-        if (!trimmed) return;
-        const key = normalizePathForCompare(trimmed);
-        const explicitScore = normalizeCandidateScore(score);
-        const heuristicScore = scoreScriptForScene(activeScene.name, trimmed);
-        const nextScore = explicitScore === null ? heuristicScore : Math.min(explicitScore, heuristicScore);
-        const existing = candidateMap.get(key);
-        if (!existing || (normalizeCandidateScore(existing.score) ?? 1) > nextScore) {
-          candidateMap.set(key, { path: trimmed, reason, score: nextScore });
-        }
-      };
-
-      if (Array.isArray(resolved?.candidates)) {
-        resolved.candidates.forEach((candidate) =>
-          addCandidate(candidate.path, candidate.reason, candidate.score)
-        );
-      }
-      if (resolved?.status === "success" && resolved.path) {
-        addCandidate(resolved.path, resolved.reason, 0);
-      }
-      if (Array.isArray(listed?.scripts)) {
-        listed.scripts.forEach((scriptPath) => addCandidate(scriptPath));
-      }
-
-      const candidates = Array.from(candidateMap.values())
-        .sort((left, right) => {
-          const scoreDelta = (normalizeCandidateScore(left.score) ?? 1) - (normalizeCandidateScore(right.score) ?? 1);
-          if (scoreDelta !== 0) return scoreDelta;
-          return fileNameFromPath(left.path).localeCompare(fileNameFromPath(right.path));
-        })
-        .slice(0, 16);
+      const candidates = buildAgentScriptCandidateList({
+        query: activeScene.name,
+        scripts: Array.isArray(listed?.scripts) ? listed.scripts : [],
+        resolvedCandidates: Array.isArray(resolved?.candidates) ? resolved.candidates : [],
+        resolvedPath: resolved?.status === "success" ? resolved.path : null,
+        resolvedReason: resolved?.reason,
+        limit: 16,
+      });
 
       setAgentCandidates(candidates);
       setSelectedAgentScript((current) => current || candidates[0]?.path || "");
       if (candidates.length === 0) {
         setStatusMessage(listed?.message ?? t("captureWizard.agent.noMatches"));
       }
+    } catch {
+      setStatusMessage(t("captureWizard.agent.searchFailed"));
+    } finally {
+      setAgentLoading(false);
+    }
+  }, [activeScene, t]);
+
+  const openAgentScriptSearch = useCallback(async () => {
+    if (!activeScene) return;
+    setAgentLoading(true);
+    setStatusMessage(null);
+    try {
+      const [resolved, listed] = await Promise.all([
+        invokeIpc<ResolveAgentScriptResponse>("settings.resolveAgentScriptForScene", {
+          scene: activeScene
+        }),
+        invokeIpc<ListAgentScriptsResponse>("settings.listAgentScripts", {})
+      ]);
+      const scripts = Array.isArray(listed?.scripts) ? listed.scripts : [];
+      const candidates = buildAgentScriptCandidateList({
+        query: activeScene.name,
+        scripts,
+        resolvedCandidates: Array.isArray(resolved?.candidates) ? resolved.candidates : [],
+        resolvedPath: resolved?.status === "success" ? resolved.path : null,
+        resolvedReason: resolved?.reason,
+      });
+
+      if (candidates.length === 0) {
+        setStatusMessage(listed?.message ?? t("captureWizard.agent.noMatches"));
+        return;
+      }
+
+      setAgentResolution(resolved);
+      setAgentSearchDialog({
+        candidates,
+        query: activeScene.name,
+      });
     } catch {
       setStatusMessage(t("captureWizard.agent.searchFailed"));
     } finally {
@@ -371,6 +379,22 @@ export function TextCaptureWizard({
     setLaunchTextHook(true);
     setOcrMode("none");
     setStep("profile");
+  }, []);
+
+  const selectAgentScript = useCallback((scriptPath: string) => {
+    setSelectedAgentScript(scriptPath);
+    setAgentSearchDialog(null);
+    setAgentCandidates((current) => {
+      const normalizedScriptPath = normalizeAgentScriptPathForCompare(scriptPath);
+      if (
+        current.some(
+          (candidate) => normalizeAgentScriptPathForCompare(candidate.path) === normalizedScriptPath
+        )
+      ) {
+        return current;
+      }
+      return [{ path: scriptPath, score: 0 }, ...current];
+    });
   }, []);
 
   const acceptHook = useCallback(() => {
@@ -486,7 +510,7 @@ export function TextCaptureWizard({
 
         <div className="capture-wizard-body">
           {step === "preview" ? (
-            <section className="capture-wizard-step-panel">
+            <section className="capture-wizard-step-panel capture-wizard-step-panel--preview">
               <div className="capture-wizard-copy">
                 <h3>{t("captureWizard.preview.title")}</h3>
                 <p>{t("captureWizard.preview.description")}</p>
@@ -516,9 +540,9 @@ export function TextCaptureWizard({
                 <div>
                   <span>{t("captureWizard.preview.captureType")}</span>
                   <strong>
-                    {preview?.captureMode === "game_capture"
+                    {previewCaptureMode === "game_capture"
                       ? t("captureWizard.preview.gameCapture")
-                      : preview?.captureMode === "window_capture"
+                      : previewCaptureMode === "window_capture"
                         ? t("captureWizard.preview.windowCapture")
                         : t("captureWizard.preview.unknown")}
                   </strong>
@@ -528,9 +552,9 @@ export function TextCaptureWizard({
                 <button type="button" className="secondary" onClick={() => void refreshPreview()}>
                   {t("captureWizard.preview.refresh")}
                 </button>
-                {preview?.captureMode ? (
+                {previewCaptureMode ? (
                   <button type="button" className="secondary" onClick={() => void switchCaptureMode()}>
-                    {preview.captureMode === "window_capture"
+                    {previewCaptureMode === "window_capture"
                       ? t("captureWizard.preview.switchToGame")
                       : t("captureWizard.preview.switchToWindow")}
                   </button>
@@ -560,16 +584,23 @@ export function TextCaptureWizard({
               ) : (
                 <div className="capture-wizard-script-list">
                   {agentCandidates.map((candidate) => {
-                    const selected = candidate.path === selectedAgentScript;
+                    const selected =
+                      normalizeAgentScriptPathForCompare(candidate.path) ===
+                      normalizeAgentScriptPathForCompare(selectedAgentScript);
                     return (
                       <button
                         key={candidate.path}
                         type="button"
                         className={`capture-wizard-script ${selected ? "capture-wizard-script--selected" : ""}`}
+                        aria-pressed={selected}
                         onClick={() => setSelectedAgentScript(candidate.path)}
                       >
-                        <strong>{fileNameFromPath(candidate.path)}</strong>
-                        <span>{candidate.path}</span>
+                        <span className="capture-wizard-choice-body">
+                          <AgentScriptDisplay scriptPath={candidate.path} />
+                        </span>
+                        <span className="capture-wizard-choice-check" aria-hidden="true">
+                          {selected ? "✓" : ""}
+                        </span>
                       </button>
                     );
                   })}
@@ -578,6 +609,14 @@ export function TextCaptureWizard({
               <div className="capture-wizard-action-row">
                 <button type="button" className="secondary" onClick={() => void loadAgentCandidates()}>
                   {t("captureWizard.agent.searchAgain")}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={agentLoading}
+                  onClick={() => void openAgentScriptSearch()}
+                >
+                  {t("captureWizard.agent.manualSearch")}
                 </button>
                 <button type="button" className="secondary" onClick={() => setStep("hook")}>
                   {t("captureWizard.agent.tryHooks")}
@@ -631,18 +670,27 @@ export function TextCaptureWizard({
                 </div>
               ) : (
                 <div className="capture-wizard-hook-list">
-                  {visibleHooks.map((hook) => (
-                    <button
-                      key={hook.id}
-                      type="button"
-                      className={`capture-wizard-hook ${hook.id === selectedHookId ? "capture-wizard-hook--selected" : ""}`}
-                      onClick={() => void selectHook(hook.id)}
-                    >
-                      <span>#{hook.id}</span>
-                      <strong>{hook.function}</strong>
-                      <em>{hook.preview || hook.samples[0] || t("captureWizard.hook.noPreview")}</em>
-                    </button>
-                  ))}
+                  {visibleHooks.map((hook) => {
+                    const selected = hook.id === selectedHookId;
+                    return (
+                      <button
+                        key={hook.id}
+                        type="button"
+                        className={`capture-wizard-hook ${selected ? "capture-wizard-hook--selected" : ""}`}
+                        aria-pressed={selected}
+                        onClick={() => void selectHook(hook.id)}
+                      >
+                        <span className="capture-wizard-hook-id">#{hook.id}</span>
+                        <span className="capture-wizard-choice-body">
+                          <strong>{hook.function}</strong>
+                          <em>{hook.preview || hook.samples[0] || t("captureWizard.hook.noPreview")}</em>
+                        </span>
+                        <span className="capture-wizard-choice-check" aria-hidden="true">
+                          {selected ? "✓" : ""}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
               <div className="capture-wizard-action-row">
@@ -792,9 +840,6 @@ export function TextCaptureWizard({
                 >
                   {t("captureWizard.finish.openAutomation")}
                 </button>
-                <button type="button" onClick={() => void closeWizard()}>
-                  {t("captureWizard.finish.done")}
-                </button>
               </div>
             </section>
           ) : null}
@@ -821,9 +866,31 @@ export function TextCaptureWizard({
               >
                 {t("captureWizard.actions.next")}
               </button>
-            ) : null}
+            ) : (
+              <button type="button" onClick={() => void closeWizard()}>
+                {t("captureWizard.finish.done")}
+              </button>
+            )}
           </div>
         </div>
+        {agentSearchDialog ? (
+          <AgentScriptSearchDialog
+            candidates={agentSearchDialog.candidates}
+            query={agentSearchDialog.query}
+            title={t("captureWizard.agent.pickerTitle")}
+            closeLabel={t("captureWizard.agent.pickerClose")}
+            searchPlaceholder={t("captureWizard.agent.searchPlaceholder")}
+            noResultsLabel={t("captureWizard.agent.pickerNoResults")}
+            selectedPath={selectedAgentScript}
+            onClose={() => setAgentSearchDialog(null)}
+            onQueryChange={(query) =>
+              setAgentSearchDialog((current) =>
+                current ? { ...current, query } : current
+              )
+            }
+            onSelect={selectAgentScript}
+          />
+        ) : null}
       </div>
     </div>
   );

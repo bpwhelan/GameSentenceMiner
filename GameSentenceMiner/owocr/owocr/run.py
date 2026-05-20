@@ -1896,10 +1896,18 @@ class TextFiltering:
         all_blocks = []
         new_blocks = []
         new_block_indexes = []
+        duplicate_prefix_indexes = set()
+        for idx, block_compare in enumerate(orig_text_compare):
+            if not block_compare:
+                break
+            if block_compare not in last_text:
+                break
+            duplicate_prefix_indexes.add(idx)
+
         for idx, block in enumerate(orig_text):
             if orig_text_filtered[idx]:
                 all_blocks.append(str(block).strip().replace("BLANK_LINE", "\n"))
-            if orig_text_compare[idx] and (orig_text_compare[idx] not in last_text):
+            if orig_text_compare[idx] and idx not in duplicate_prefix_indexes:
                 new_blocks.append(str(block).strip().replace("BLANK_LINE", "\n"))
                 new_block_indexes.append(idx)
 

@@ -2230,12 +2230,12 @@ class TestLastSentSubstringTrim:
         assert len(sent_texts) == 1
         assert sent_texts[0]["text"] == "続き"
 
-    def test_same_engine_bypass_trims_suffix_match(self, sent_texts):
+    def test_same_engine_bypass_preserves_suffix_match(self, sent_texts):
         ctrl = _make_controller(self.CFG_SAME, sent_texts)
         ctrl.last_sent_result = "前の文"
         ctrl._send_same_engine_filtered(["続き  前の文"], _make_time(), _dummy_img())
         assert len(sent_texts) == 1
-        assert sent_texts[0]["text"] == "続き"
+        assert sent_texts[0]["text"] == "続き前の文"
 
     def test_dispatch_second_pass_trims_prefix_match(self, sent_texts):
         ctrl = _make_controller(self.CFG_DIFF, sent_texts)
@@ -2250,7 +2250,7 @@ class TestLastSentSubstringTrim:
         assert len(sent_texts) == 1
         assert sent_texts[0]["text"] == "続き"
 
-    def test_dispatch_second_pass_trims_suffix_match(self, sent_texts):
+    def test_dispatch_second_pass_preserves_suffix_match(self, sent_texts):
         ctrl = _make_controller(self.CFG_DIFF, sent_texts)
         ctrl.last_sent_result = "前の文"
         sent = ctrl._dispatch_second_pass_result(
@@ -2261,4 +2261,4 @@ class TestLastSentSubstringTrim:
         )
         assert sent is True
         assert len(sent_texts) == 1
-        assert sent_texts[0]["text"] == "続き"
+        assert sent_texts[0]["text"] == "続き  前の文"

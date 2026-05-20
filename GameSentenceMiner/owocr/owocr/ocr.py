@@ -68,6 +68,16 @@ _JAPANESE_LEADING_KANA_DASH_REGEX = regex.compile(
 _JAPANESE_CONTEXTUAL_KANA_DASH_REGEX = regex.compile(
     rf"(?<=[{_JAPANESE_KANA_CLASS}])[{_JAPANESE_DASH_VARIANTS_CLASS}]+(?=(?:[{_JAPANESE_KANA_CLASS}{_JAPANESE_DASH_TRAILERS}\n])|$)"
 )
+_JAPANESE_ELLIPSIS_DOT_TRANSLATION = str.maketrans(
+    {
+        "･": "・",
+        "·": "・",
+        "•": "・",
+        "∙": "・",
+        "⋅": "・",
+    }
+)
+_JAPANESE_ELLIPSIS_SEQUENCE_REGEX = re.compile(r"[・.．]{2,}")
 
 
 def _load_fpng_module():
@@ -453,6 +463,21 @@ def normalize_japanese_ocr_text_and_segments(text, segments=None):
     return normalized_text, normalized_segments
 
 
+def normalize_japanese_ocr_ellipses(text):
+    if not isinstance(text, str) or not text:
+        return text
+
+    text = text.replace("…", "・・・")
+    text = text.replace("‥", "・・")
+    text = text.replace("⋯", "・・・")
+    text = text.translate(_JAPANESE_ELLIPSIS_DOT_TRANSLATION)
+
+    def _collapse(match):
+        return "・・・" if len(match.group(0)) >= 3 else "・・"
+
+    return _JAPANESE_ELLIPSIS_SEQUENCE_REGEX.sub(_collapse, text)
+
+
 def post_process(text, keep_blank_lines=False):
     import jaconv
 
@@ -461,9 +486,7 @@ def post_process(text, keep_blank_lines=False):
         text = "\n".join(["".join(i.split()) for i in text.splitlines()])
     else:
         text = "".join(["".join(i.split()) for i in text.splitlines()])
-    text = text.replace("…", "・・・")
-    text = re.sub("[・.]{2,}", lambda x: (x.end() - x.start()) * "・", text)
-    text = re.sub(r"・{3,}", "・・・", text)
+    text = normalize_japanese_ocr_ellipses(text)
     text = jaconv.h2z(text, ascii=True, digit=True)
     text = normalize_japanese_ocr_dashes(text)
     return text

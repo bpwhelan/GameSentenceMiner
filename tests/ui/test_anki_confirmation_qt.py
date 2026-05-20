@@ -200,6 +200,21 @@ def test_sync_audio_edit_selection_scales_rebased_clip_selection_to_absolute_win
     assert probe._audio_edit_range == (116.13, 120.30)
 
 
+def test_build_dialog_result_metadata_includes_audio_edit_range():
+    selected_lines = [SimpleNamespace(id="line-1")]
+    probe = SimpleNamespace(
+        _selected_lines_for_pipeline=lambda: selected_lines,
+        _dialog_line_selection_changed=False,
+        _dialog_audio_result=None,
+        _dialog_translation_regenerated=False,
+        _audio_edit_range=(10.25, 12.75),
+    )
+
+    result = anki_confirmation_qt.AnkiConfirmationDialog._build_dialog_result_metadata(probe)
+
+    assert result["audio_edit_range"] == (10.25, 12.75)
+
+
 def test_expand_audio_start_resets_existing_start_trim_and_keeps_end_trim():
     captured = {"apply": None, "render": None}
     probe = SimpleNamespace(

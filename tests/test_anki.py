@@ -1281,6 +1281,125 @@ def test_process_previous_screenshot_uploads_and_sets_field(monkeypatch, tmp_pat
     assert note["fields"]["PrevImage"] == '<img src="prev-in-anki.webp">'
 
 
+def test_apply_confirmed_animated_timing_uses_dialog_audio_range():
+    assets = anki.MediaAssets(pending_animated=True)
+
+    anki._apply_confirmed_animated_timing(assets, {"audio_edit_range": (11.25, 13.75)})
+
+    assert assets.animated_target_start == 11.25
+    assert assets.animated_target_end == 13.75
+
+
+def test_process_animated_screenshot_trims_prefetched_subset(monkeypatch, tmp_path):
+    cfg = _base_config()
+    cfg.screenshot.animated_settings.extension = "avif"
+    prefetched = tmp_path / "prefetched.avif"
+    prefetched.write_bytes(b"prefetched")
+    trimmed = tmp_path / "trimmed.avif"
+    trimmed.write_bytes(b"trimmed")
+    calls = []
+
+    monkeypatch.setattr(anki, "_get_prefetched_animated_screenshot_path", lambda _assets: str(prefetched))
+    monkeypatch.setattr(
+        anki.ffmpeg,
+        "trim_animation",
+        lambda path, **kwargs: calls.append((path, kwargs)) or str(trimmed),
+        raising=False,
+    )
+    monkeypatch.setattr(anki, "wait_for_stable_file", lambda _path: None)
+    monkeypatch.setattr(anki, "store_media_file", lambda path: "trimmed-in-anki.avif")
+
+    assets = anki.MediaAssets(
+        pending_animated=True,
+        screenshot_path=str(tmp_path / "placeholder.png"),
+        animated_prefetch_start=10.0,
+        animated_prefetch_end=15.0,
+        animated_target_start=11.0,
+        animated_target_end=13.0,
+    )
+    note = {"fields": {}}
+
+    anki._process_animated_screenshot(
+        assets,
+        note,
+        cfg,
+        update_picture_flag=True,
+        use_existing_files=False,
+    )
+
+    assert calls == [
+        (
+            str(prefetched),
+            {
+                "start_offset": 1.0,
+                "duration": 2.0,
+                "codec": "avif",
+                "quality": 20,
+                "fps": 15,
+            },
+        )
+    ]
+    assert assets.screenshot_path == str(trimmed)
+    assert assets.screenshot_in_anki == "trimmed-in-anki.avif"
+    assert note["fields"]["Picture"] == '<img src="trimmed-in-anki.avif">'
+
+
+def test_process_animated_screenshot_regenerates_when_target_expands_past_prefetch(monkeypatch, tmp_path):
+    cfg = _base_config()
+    cfg.screenshot.animated_settings.extension = "avif"
+    regenerated = tmp_path / "regenerated.avif"
+    regenerated.write_bytes(b"regenerated")
+    calls = []
+
+    def fail_if_prefetch_waited(_assets):
+        raise AssertionError("prefetch should not be waited on when confirmed range expands")
+
+    monkeypatch.setattr(anki, "_get_prefetched_animated_screenshot_path", fail_if_prefetch_waited)
+    monkeypatch.setattr(
+        anki.ffmpeg,
+        "video_to_animation_with_start_end",
+        lambda path, start, end, **kwargs: calls.append((path, start, end, kwargs)) or str(regenerated),
+        raising=False,
+    )
+    monkeypatch.setattr(anki, "wait_for_stable_file", lambda _path: None)
+    monkeypatch.setattr(anki, "store_media_file", lambda path: "regenerated-in-anki.avif")
+
+    assets = anki.MediaAssets(
+        pending_animated=True,
+        animated_video_path="replay.mp4",
+        animated_prefetch_start=10.0,
+        animated_prefetch_end=15.0,
+        animated_target_start=9.75,
+        animated_target_end=15.25,
+    )
+    note = {"fields": {}}
+
+    anki._process_animated_screenshot(
+        assets,
+        note,
+        cfg,
+        update_picture_flag=True,
+        use_existing_files=False,
+    )
+
+    assert calls == [
+        (
+            "replay.mp4",
+            9.75,
+            15.25,
+            {
+                "codec": "avif",
+                "quality": 20,
+                "fps": 15,
+                "audio": False,
+            },
+        )
+    ]
+    assert assets.screenshot_path == str(regenerated)
+    assert assets.screenshot_in_anki == "regenerated-in-anki.avif"
+    assert note["fields"]["Picture"] == '<img src="regenerated-in-anki.avif">'
+
+
 def test_process_audio_with_existing_files_and_external_tool(monkeypatch):
     cfg = _base_config()
     cfg.audio.external_tool = "tool.exe"

@@ -94,6 +94,25 @@ def test_text_filtering_returns_all_current_blocks_for_state(monkeypatch):
     assert current_blocks == [first, second]
 
 
+def test_text_filtering_only_removes_duplicate_prefix_blocks(monkeypatch):
+    tf = _make_text_filtering_for_ja(monkeypatch)
+    tf.segmenter = _PipeSegmenter()
+
+    previous_tail = "思ったよりつらいかも。"
+    current_head = "このまま家まで我慢したいけど・・・"
+
+    _, prev_blocks = tf(previous_tail, [], engine="oneocr", is_second_ocr=True)
+    dispatched, current_blocks = tf(
+        f"{current_head}|{previous_tail}",
+        prev_blocks,
+        engine="oneocr",
+        is_second_ocr=True,
+    )
+
+    assert dispatched == f"{current_head}|{previous_tail}"
+    assert current_blocks == [current_head, previous_tail]
+
+
 def test_text_filtering_preserves_original_linebreaks_between_adjacent_blocks(monkeypatch):
     tf = _make_text_filtering_for_ja(monkeypatch)
 

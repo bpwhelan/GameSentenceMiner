@@ -84,10 +84,9 @@ import {
 import { reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall } from '../main.js';
 import { getExecutableNameFromSource, getWindowTitleFromSource } from './obs.js';
-import { resolveSwitchAgentScript } from '../agent_script_resolver.js';
+import { listAgentScriptFiles, resolveSwitchAgentScript } from '../agent_script_resolver.js';
 
 export let window_transparency_process: any = null; // Process for the Window Transparency Tool
-const AGENT_SCRIPT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs']);
 type DownloadableTool = 'agent' | 'textractor';
 type ToolName = DownloadableTool | 'luna';
 type ToolDownloadStage =
@@ -788,50 +787,6 @@ async function selectAgentScriptPath(defaultPath = "") {
     return result.filePaths[0];
 }
 
-function listAgentScriptsRecursive(rootPath: string): string[] {
-    const normalizedRootPath = typeof rootPath === "string" ? rootPath.trim() : "";
-    if (!normalizedRootPath || !fs.existsSync(normalizedRootPath)) {
-        return [];
-    }
-
-    const files: string[] = [];
-    const pendingDirectories: string[] = [normalizedRootPath];
-
-    while (pendingDirectories.length > 0) {
-        const directory = pendingDirectories.pop();
-        if (!directory) {
-            continue;
-        }
-
-        let entries: fs.Dirent[];
-        try {
-            entries = fs.readdirSync(directory, { withFileTypes: true });
-        } catch {
-            continue;
-        }
-
-        for (const entry of entries) {
-            const absolutePath = path.join(directory, entry.name);
-
-            if (entry.isDirectory()) {
-                pendingDirectories.push(absolutePath);
-                continue;
-            }
-
-            if (!entry.isFile()) {
-                continue;
-            }
-
-            const extension = path.extname(entry.name).toLowerCase();
-            if (AGENT_SCRIPT_EXTENSIONS.has(extension)) {
-                files.push(absolutePath);
-            }
-        }
-    }
-
-    return files.sort((left, right) => left.localeCompare(right));
-}
-
 async function resolveAgentScriptForScene(scene: { id: string; name: string }) {
     let processName: string | null = null;
     let windowTitle: string | null = null;
@@ -1338,7 +1293,7 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
             };
         }
 
-        const scripts = listAgentScriptsRecursive(scriptsPath);
+        const scripts = listAgentScriptFiles(scriptsPath);
         if (scripts.length === 0) {
             return {
                 status: 'empty',

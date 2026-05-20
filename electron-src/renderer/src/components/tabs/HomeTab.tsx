@@ -540,6 +540,12 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
     }
   }, [selectedSceneId, selectedSceneCaptureMode, refreshAll]);
 
+  const handleOpenCaptureWizard = useCallback(() => {
+    if (!selectedScene || isHelperScene) return;
+    setCaptureWizardScene(selectedScene);
+    setCaptureWizardOpen(true);
+  }, [isHelperScene, selectedScene]);
+
   const handleCreateScene = useCallback(async () => {
     const win = selectedWindow;
     if (!win) return;
@@ -582,6 +588,12 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
       setCaptureCardEnabled(!enabled);
     }
   }, [loadWindows]);
+
+  const handleCaptureWizardClose = useCallback(() => {
+    setCaptureWizardOpen(false);
+    setCaptureWizardScene(null);
+    void refreshAll();
+  }, [refreshAll]);
 
   /* ---- Actions --------------------------------------------------- */
   const openGSMSettings = useCallback(() => void invokeIpc("settings.openGSMSettings"), []);
@@ -753,6 +765,15 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                         : t("home.obs.switchToWindowCapture")}
                     </button>
                   )}
+                  <button
+                    type="button"
+                    className="home-text-btn"
+                    disabled={isHelperScene}
+                    onClick={handleOpenCaptureWizard}
+                    title={t("home.obs.runCaptureWizardTooltip")}
+                  >
+                    {t("home.obs.runCaptureWizard")}
+                  </button>
                   <button
                     type="button"
                     className="home-text-btn home-text-btn--danger"
@@ -1103,7 +1124,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
           <TextCaptureWizard
             initialScene={captureWizardScene}
             onNavigateTab={onNavigateTab}
-            onClose={() => setCaptureWizardOpen(false)}
+            onClose={handleCaptureWizardClose}
           />
         ) : null}
       </div>

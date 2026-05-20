@@ -94,6 +94,18 @@ def test_post_process_normalizes_contextual_japanese_dashes_to_choonpu():
     assert text == "一刻も早く、スーパーでＡ－１を買う"
 
 
+def test_post_process_collapses_repeated_japanese_middle_dots():
+    text = post_process("私は・・・・・・まだうまく受け止められてないから。")
+
+    assert text == "私は・・・まだうまく受け止められてないから。"
+
+
+def test_post_process_collapses_google_lens_dot_variants():
+    text = post_process("私は••••••まだ······うまく受け止められてないから。")
+
+    assert text == "私は・・・まだ・・・うまく受け止められてないから。"
+
+
 def test_build_overlay_coordinate_payload_normalizes_lookup_text_dashes():
     response_dict = {
         "line_coords": [

@@ -343,6 +343,86 @@ def video_to_animation_with_start_end(video_path: str | Path, start: float, end:
     )
 
 
+def trim_animation(
+    input_path: str | Path,
+    start_offset: float,
+    duration: float,
+    output_path: str | Path = None,
+    codec: str = None,
+    quality: int = None,
+    fps: int = None,
+) -> Path:
+    """Trim an existing animated WebP/AVIF by re-encoding only the selected span."""
+    if duration <= 0:
+        raise ValueError("duration must be positive")
+
+    input_path = Path(input_path)
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input not found: {input_path}")
+
+    codec = (codec or input_path.suffix.lstrip(".")).lower()
+    if codec not in {"webp", "avif"}:
+        raise ValueError("codec must be 'webp' or 'avif'")
+
+    if quality is None:
+        quality = get_config().screenshot.animated_settings.scaled_quality
+
+    if output_path:
+        output_path = Path(output_path)
+    else:
+        output_path = Path(get_unique_temp_file_for_game(obs.get_current_game(sanitize=True), codec))
+    target_ext = f".{codec}"
+    if output_path.suffix.lower() != target_ext:
+        output_path = output_path.with_suffix(target_ext)
+
+    command = ffmpeg_base_command_list.copy()
+    if start_offset > 0:
+        command.extend(["-ss", f"{start_offset:.3f}"])
+    command.extend(["-i", str(input_path), "-t", f"{duration:.3f}", "-an"])
+
+    video_filters = ["pad=ceil(iw/2)*2:ceil(ih/2)*2"]
+    if fps:
+        video_filters.insert(0, f"fps={fps}")
+    command.extend(["-vf", ",".join(video_filters)])
+
+    if codec == "webp":
+        command.extend(
+            [
+                "-c:v",
+                "libwebp",
+                "-lossless",
+                "0",
+                "-q:v",
+                str(quality),
+                "-compression_level",
+                "6",
+                "-preset",
+                "picture",
+                "-loop",
+                "0",
+                "-threads",
+                "0",
+            ]
+        )
+    else:
+        command.extend(
+            [
+                "-c:v",
+                "libaom-av1",
+                "-cpu-used",
+                "6",
+                "-crf",
+                str(quality),
+                "-pix_fmt",
+                "yuv420p",
+            ]
+        )
+
+    command.append(str(output_path))
+    FFmpegHelper.run(command, check=True)
+    return str(output_path)
+
+
 def call_frame_extractor(video_path, timestamp):
     """Calls the video frame extractor script."""
     try:

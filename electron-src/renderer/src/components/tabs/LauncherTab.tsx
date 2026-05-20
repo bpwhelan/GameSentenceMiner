@@ -13,18 +13,17 @@ import type {
   SceneTextHookMode
 } from "../../types/models";
 import { useTranslation } from "../../i18n";
+import { AgentScriptSearchDialog } from "../AgentScriptSearchDialog";
+import {
+  buildAgentScriptCandidateList,
+  type AgentScriptCandidate,
+} from "../../../../shared/agent_scripts";
 
 interface LauncherTabProps {
   active: boolean;
 }
 
 type SharedGameSettings = Omit<GameSettings, "sceneProfiles">;
-
-interface AgentScriptCandidate {
-  path: string;
-  reason?: string;
-  score?: number;
-}
 
 interface ResolveAgentScriptResponse {
   status?: string;
@@ -224,12 +223,6 @@ function normalizeSharedSettings(
   };
 }
 
-function fileNameFromPath(filePath: string): string {
-  const normalized = filePath.replace(/\\/g, "/");
-  const segments = normalized.split("/");
-  return segments[segments.length - 1] || filePath;
-}
-
 function formatCandidateReasonKey(reason?: string): string {
   if (reason === "matched_explicit_id") {
     return "launcher.scriptPicker.explicitId";
@@ -259,73 +252,6 @@ function formatCandidateConfidencePercent(score?: number): string | null {
     return null;
   }
   return String(Math.round(confidence * 100));
-}
-
-function normalizePathForCompare(filePath: string): string {
-  return filePath.replace(/\\/g, "/").toLowerCase();
-}
-
-function tokenizeForSimilarity(value: string): string[] {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 2);
-}
-
-function toScriptStem(filePath: string): string {
-  const fileName = fileNameFromPath(filePath);
-  return fileName.replace(/\.[^/.]+$/u, "");
-}
-
-function getHeuristicScriptScore(sceneName: string, scriptPath: string): number {
-  const sceneTokens = Array.from(new Set(tokenizeForSimilarity(sceneName)));
-  if (sceneTokens.length === 0) {
-    return 1;
-  }
-
-  const scriptStem = toScriptStem(scriptPath);
-  const scriptTokens = Array.from(new Set(tokenizeForSimilarity(scriptStem)));
-  if (scriptTokens.length === 0) {
-    return 1;
-  }
-
-  let exactMatches = 0;
-  let partialMatches = 0;
-  for (const sceneToken of sceneTokens) {
-    if (scriptTokens.includes(sceneToken)) {
-      exactMatches += 1;
-      continue;
-    }
-
-    if (sceneToken.length < 3) {
-      continue;
-    }
-
-    const hasPartial = scriptTokens.some(
-      (scriptToken) =>
-        scriptToken.includes(sceneToken) || sceneToken.includes(scriptToken)
-    );
-    if (hasPartial) {
-      partialMatches += 1;
-    }
-  }
-
-  const normalizedScene = sceneTokens.join("");
-  const normalizedScript = scriptTokens.join("");
-  const phraseBonus =
-    normalizedScene.length >= 4 && normalizedScript.includes(normalizedScene) ? 0.5 : 0;
-  const matchedUnits = exactMatches + partialMatches * 0.6 + phraseBonus;
-  const coverage = Math.max(0, Math.min(1, matchedUnits / sceneTokens.length));
-  return Math.max(0, Math.min(1, 1 - coverage));
-}
-
-function normalizeCandidateScore(score: unknown): number | null {
-  if (typeof score !== "number" || !Number.isFinite(score)) {
-    return null;
-  }
-  return Math.max(0, Math.min(1, score));
 }
 
 function isDownloadableTool(value: unknown): value is DownloadableTool {
@@ -780,78 +706,24 @@ export function LauncherTab({ active }: LauncherTabProps) {
       return;
     }
 
-    const normalizedSceneName = configuredScene.name.trim();
-    const candidateMap = new Map<string, AgentScriptCandidate>();
-    const addCandidate = (
-      candidatePath: string,
-      reason?: string,
-      score?: number
-    ) => {
-      const normalizedPath = candidatePath.trim();
-      if (!normalizedPath) {
-        return;
-      }
-
-      const compareKey = normalizePathForCompare(normalizedPath);
-      const heuristicScore = getHeuristicScriptScore(normalizedSceneName, normalizedPath);
-      const explicitScore = normalizeCandidateScore(score);
-      const combinedScore =
-        explicitScore !== null ? Math.min(explicitScore, heuristicScore) : heuristicScore;
-
-      const existing = candidateMap.get(compareKey);
-      if (!existing) {
-        candidateMap.set(compareKey, {
-          path: normalizedPath,
-          reason,
-          score: combinedScore
-        });
-        return;
-      }
-
-      const existingScore = normalizeCandidateScore(existing.score);
-      if (existingScore === null || combinedScore < existingScore) {
-        candidateMap.set(compareKey, {
-          path: normalizedPath,
-          reason: reason ?? existing.reason,
-          score: combinedScore
-        });
-      }
-    };
-
     const resolvedCandidates = Array.isArray(resolvedResult?.candidates)
       ? resolvedResult.candidates.filter(
           (candidate): candidate is AgentScriptCandidate =>
             Boolean(candidate && typeof candidate.path === "string" && candidate.path.trim())
         )
       : [];
-    resolvedCandidates.forEach((candidate) =>
-      addCandidate(candidate.path, candidate.reason, candidate.score)
-    );
 
-    if (
-      resolvedResult?.status === "success" &&
-      typeof resolvedResult.path === "string" &&
-      resolvedResult.path.trim()
-    ) {
-      addCandidate(resolvedResult.path, resolvedResult.reason);
-    }
-
-    listedScripts.forEach((scriptPath) => addCandidate(scriptPath));
-
-    const mergedCandidates = Array.from(candidateMap.values()).sort((left, right) => {
-      const leftScore = normalizeCandidateScore(left.score) ?? 1;
-      const rightScore = normalizeCandidateScore(right.score) ?? 1;
-      if (leftScore !== rightScore) {
-        return leftScore - rightScore;
-      }
-
-      const leftName = fileNameFromPath(left.path).toLowerCase();
-      const rightName = fileNameFromPath(right.path).toLowerCase();
-      if (leftName !== rightName) {
-        return leftName.localeCompare(rightName);
-      }
-
-      return left.path.localeCompare(right.path);
+    const mergedCandidates = buildAgentScriptCandidateList({
+      query: configuredScene.name,
+      scripts: listedScripts,
+      resolvedCandidates,
+      resolvedPath:
+        resolvedResult?.status === "success" &&
+        typeof resolvedResult.path === "string" &&
+        resolvedResult.path.trim()
+          ? resolvedResult.path
+          : null,
+      resolvedReason: resolvedResult?.reason,
     });
 
     setCandidateDialog({
@@ -1040,18 +912,6 @@ export function LauncherTab({ active }: LauncherTabProps) {
           downloadUiByTool[downloadingTool]?.progress ?? null
         )
       : "";
-
-  const filteredDialogCandidates = candidateDialog
-    ? candidateDialog.candidates.filter((candidate) => {
-        const query = candidateDialog.query.trim().toLowerCase();
-        if (!query) {
-          return true;
-        }
-        const normalizedPath = candidate.path.toLowerCase();
-        const normalizedName = fileNameFromPath(candidate.path).toLowerCase();
-        return normalizedPath.includes(query) || normalizedName.includes(query);
-      })
-    : [];
 
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
@@ -1606,62 +1466,41 @@ export function LauncherTab({ active }: LauncherTabProps) {
       </div>
 
       {candidateDialog && configuredScene && candidateDialog.sceneId === configuredScene.id ? (
-        <div className="launcher-config-modal" role="dialog" aria-modal="true">
-          <div className="launcher-config-modal-header">
-            <strong title={t(TOOLTIPS.candidatePicker)}>
-              {t("launcher.scriptPicker.title", { filtered: String(filteredDialogCandidates.length), total: String(candidateDialog.candidates.length) })}
-            </strong>
-            <button
-              type="button"
-              className="secondary"
-              title={t("launcher.scriptPicker.closeTooltip")}
-              onClick={() => setCandidateDialog(null)}
-            >
-              {t("launcher.scriptPicker.close")}
-            </button>
-          </div>
-          <div className="launcher-script-search-row">
-            <input
-              type="text"
-              className="launcher-script-search-input"
-              value={candidateDialog.query}
-              placeholder={t("launcher.scriptPicker.searchPlaceholder")}
-              onChange={(event) => {
-                const nextQuery = event.target.value;
-                setCandidateDialog((current) =>
-                  current ? { ...current, query: nextQuery } : current
-                );
-              }}
-            />
-          </div>
-          <div className="launcher-script-picker">
-            {filteredDialogCandidates.length === 0 ? (
-              <p className="muted">{t("launcher.scriptPicker.noResults")}</p>
-            ) : null}
-            {filteredDialogCandidates.map((candidate, index) => (
-              <button
-                key={`${candidate.path}-${index}`}
-                type="button"
-                className="launcher-script-option"
-                title={`${t(formatCandidateReasonKey(candidate.reason))} | ${candidate.path}`}
-                onClick={() => {
-                  void pickCandidateScript(candidate.path);
-                }}
-              >
-                <span className="launcher-script-option-name">
-                  {fileNameFromPath(candidate.path)}
-                </span>
-                <span className="launcher-script-option-meta">
-                  {t(formatCandidateReasonKey(candidate.reason))}
-                  {formatCandidateConfidencePercent(candidate.score)
-                    ? ` | ${t("launcher.scriptPicker.matchPercent", { percent: formatCandidateConfidencePercent(candidate.score)! })}`
-                    : ""}
-                </span>
-                <span className="launcher-script-option-path mono-text">{candidate.path}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+        <AgentScriptSearchDialog
+          candidates={candidateDialog.candidates}
+          query={candidateDialog.query}
+          title={(filteredCount, totalCount) =>
+            t("launcher.scriptPicker.title", {
+              filtered: String(filteredCount),
+              total: String(totalCount)
+            })
+          }
+          titleTooltip={t(TOOLTIPS.candidatePicker)}
+          closeLabel={t("launcher.scriptPicker.close")}
+          closeTitle={t("launcher.scriptPicker.closeTooltip")}
+          searchPlaceholder={t("launcher.scriptPicker.searchPlaceholder")}
+          noResultsLabel={t("launcher.scriptPicker.noResults")}
+          onClose={() => setCandidateDialog(null)}
+          onQueryChange={(query) => {
+            setCandidateDialog((current) =>
+              current ? { ...current, query } : current
+            );
+          }}
+          onSelect={(candidatePath) => {
+            void pickCandidateScript(candidatePath);
+          }}
+          getCandidateMeta={(candidate) => {
+            const reasonLabel = t(formatCandidateReasonKey(candidate.reason));
+            const confidencePercent = formatCandidateConfidencePercent(candidate.score);
+            return confidencePercent
+              ? `${reasonLabel} | ${t("launcher.scriptPicker.matchPercent", { percent: confidencePercent })}`
+              : reasonLabel;
+          }}
+          getCandidateTitle={(candidate) => {
+            const reasonLabel = t(formatCandidateReasonKey(candidate.reason));
+            return `${reasonLabel} | ${candidate.path}`;
+          }}
+        />
       ) : null}
     </div>
   );

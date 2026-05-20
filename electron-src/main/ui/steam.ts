@@ -19,8 +19,8 @@ import {
 } from '../store.js';
 import path from "path";
 import {getCurrentScene, ObsScene} from "./obs.js";
-import * as fs from "fs";
-import Fuse from 'fuse.js'
+import { listAgentScriptFiles } from "../agent_script_resolver.js";
+import { scoreAgentScriptForQuery } from "../../shared/agent_scripts.js";
 
 export let steamWindow: BrowserWindow | null = null;
 export let gameConfigWindow: BrowserWindow | null = null;
@@ -325,17 +325,20 @@ export function registerSteamIPC() {
                         const agentScriptsPath = getAgentScriptsPath();
 
                         try {
-                            const files = await fs.promises.readdir(agentScriptsPath);
+                            const bestMatch = listAgentScriptFiles(agentScriptsPath)
+                                .map((scriptPath) => ({
+                                    path: scriptPath,
+                                    score: scoreAgentScriptForQuery(gameName, scriptPath),
+                                }))
+                                .filter((candidate) => candidate.score < 1)
+                                .sort((left, right) => {
+                                    if (left.score !== right.score) {
+                                        return left.score - right.score;
+                                    }
+                                    return left.path.localeCompare(right.path);
+                                })[0]?.path;
 
-                            const fuse = new Fuse(files, {
-                                keys: ['name'],
-                                threshold: 0.6
-                            });
-
-                            const results = fuse.search(gameName);
-
-                            if (results.length > 0) {
-                                const bestMatch = path.join(agentScriptsPath, results[0].item);
+                            if (bestMatch) {
                                 // Option 1: Pre-populate in UI (you'd need to send this back to the renderer)
                                 // return { status: "success", message: "Likely match found", path: bestMatch };
 

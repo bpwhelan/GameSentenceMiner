@@ -1,6 +1,9 @@
 import * as fs from "fs";
 import * as path from "path";
 import Fuse from "fuse.js";
+import {
+    isListableAgentScriptPath,
+} from "../shared/agent_scripts.js";
 
 const SWITCH_EMULATOR_HINTS = [
     "yuzu",
@@ -35,7 +38,6 @@ const NAME_STOP_WORDS = new Set([
     ...SWITCH_EMULATOR_HINTS,
 ]);
 
-const AGENT_SCRIPT_EXTENSIONS = new Set([".js", ".mjs", ".cjs"]);
 const MIN_AUTO_SELECT_CONFIDENCE = 0.85;
 const MAX_MATCH_SCORE = 1;
 
@@ -106,17 +108,67 @@ function dedupe(values: string[]): string[] {
     return result;
 }
 
-function listAgentScriptFiles(scriptsPath: string): string[] {
+function dedupeScriptPaths(filePaths: string[]): string[] {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const filePath of filePaths) {
+        const key = path.normalize(filePath).toLowerCase();
+        if (!seen.has(key)) {
+            seen.add(key);
+            result.push(filePath);
+        }
+    }
+    return result;
+}
+
+export function listAgentScriptFiles(scriptsPath: string): string[] {
     try {
         if (!scriptsPath || !fs.existsSync(scriptsPath)) {
             return [];
         }
 
-        return fs
-            .readdirSync(scriptsPath)
-            .sort((a, b) => a.localeCompare(b))
-            .filter((file) => AGENT_SCRIPT_EXTENSIONS.has(path.extname(file).toLowerCase()))
-            .map((file) => path.join(scriptsPath, file));
+        const normalizedScriptsPath = path.resolve(scriptsPath);
+        const rootStats = fs.statSync(normalizedScriptsPath);
+        if (rootStats.isFile()) {
+            return isListableAgentScriptPath(normalizedScriptsPath)
+                ? [normalizedScriptsPath]
+                : [];
+        }
+        if (!rootStats.isDirectory()) {
+            return [];
+        }
+
+        const files: string[] = [];
+        const pendingDirectories: string[] = [normalizedScriptsPath];
+
+        while (pendingDirectories.length > 0) {
+            const directory = pendingDirectories.pop();
+            if (!directory) {
+                continue;
+            }
+
+            let entries: fs.Dirent[];
+            try {
+                entries = fs.readdirSync(directory, { withFileTypes: true });
+            } catch {
+                continue;
+            }
+
+            for (const entry of entries) {
+                const absolutePath = path.join(directory, entry.name);
+
+                if (entry.isDirectory()) {
+                    pendingDirectories.push(absolutePath);
+                    continue;
+                }
+
+                if (entry.isFile() && isListableAgentScriptPath(absolutePath)) {
+                    files.push(absolutePath);
+                }
+            }
+        }
+
+        return dedupeScriptPaths(files).sort((a, b) => a.localeCompare(b));
     } catch {
         return [];
     }
