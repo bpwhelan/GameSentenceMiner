@@ -82,6 +82,8 @@ class GameText:
     def __init__(self):
         self.values = []
         self.values_dict = {}
+        self.previous_lines = set()
+        self.game_line_index = 0
 
     def __getitem__(self, index):
         return self.values[index]
