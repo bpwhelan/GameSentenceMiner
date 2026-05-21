@@ -940,6 +940,19 @@ export function LauncherTab({ active }: LauncherTabProps) {
           </div>
         </div>
         <div className="launcher-stack">
+          <section
+            className="launcher-texthook-nudge"
+            aria-label={t("launcher.nudge.title")}
+          >
+            <span className="launcher-texthook-nudge__icon" aria-hidden="true">
+              i
+            </span>
+            <div className="launcher-texthook-nudge__body">
+              <h2>{t("launcher.nudge.title")}</h2>
+              <p>{t("launcher.nudge.description")}</p>
+            </div>
+          </section>
+
           <section className="card legacy-card">
             <div className="launcher-card-header">
               <h2 className="launcher-card-title" title={t(TOOLTIPS.sharedToolSettings)}>

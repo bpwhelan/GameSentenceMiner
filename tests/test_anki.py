@@ -135,17 +135,30 @@ def test_normalize_for_signature_uses_html_strip_and_text_normalization(monkeypa
 
 def test_build_sentence_audio_key_from_selected_lines(monkeypatch):
     monkeypatch.setattr(anki, "_normalize_for_signature", lambda text: text.strip().lower())
-    selected = [SimpleNamespace(text=" One "), None, SimpleNamespace(text="Two")]
+    selected = [SimpleNamespace(id="line-1", text=" One "), None, SimpleNamespace(id="line-2", text="Two")]
 
-    key = anki._build_sentence_audio_key(SimpleNamespace(text="unused"), selected)
+    key = anki._build_sentence_audio_key(SimpleNamespace(id="line-1", text=" One "), selected)
 
-    assert key == ("onetwo", ("one", "two"))
+    assert key == ("onetwo", (("line-1", "one"), ("line-2", "two")), ("line-1", "one"))
 
 
 def test_build_sentence_audio_key_falls_back_to_game_line(monkeypatch):
     monkeypatch.setattr(anki, "_normalize_for_signature", lambda text: text.lower())
-    key = anki._build_sentence_audio_key(SimpleNamespace(text="Single"), None)
-    assert key == ("single", ("single",))
+    key = anki._build_sentence_audio_key(SimpleNamespace(id="line-1", text="Single"), None)
+    assert key == ("single", (("line-1", "single"),), ("line-1", "single"))
+
+
+def test_build_sentence_audio_key_requires_same_mined_line(monkeypatch):
+    monkeypatch.setattr(anki, "_normalize_for_signature", lambda text: text.strip().lower())
+    first_line = SimpleNamespace(id="line-1", text="First selected line")
+    second_line = SimpleNamespace(id="line-2", text="Second selected line")
+    selected = [first_line, second_line]
+
+    first_key = anki._build_sentence_audio_key(first_line, selected)
+    second_key = anki._build_sentence_audio_key(second_line, selected)
+
+    assert first_key != second_key
+    assert first_key == anki._build_sentence_audio_key(first_line, selected)
 
 
 def test_build_sentence_audio_key_returns_none_when_empty_signature(monkeypatch):
@@ -155,12 +168,12 @@ def test_build_sentence_audio_key_returns_none_when_empty_signature(monkeypatch)
 
 
 def test_set_sentence_audio_cache_entry_and_prune():
-    key = ("sig", ("sig",))
+    key = ("sig", (("line-1", "sig"),), ("line-1", "sig"))
     anki._set_sentence_audio_cache_entry(key, "line-1", "word")
     assert key in anki.sentence_audio_cache
     assert anki.sentence_audio_cache[key].line_id == "line-1"
 
-    stale_key = ("stale", ("stale",))
+    stale_key = ("stale", (("old", "stale"),), ("old", "stale"))
     anki.sentence_audio_cache[stale_key] = anki.SentenceAudioCacheEntry(
         line_id="old",
         word="old",
@@ -171,6 +184,135 @@ def test_set_sentence_audio_cache_entry_and_prune():
 
     assert stale_key not in anki.sentence_audio_cache
     assert key in anki.sentence_audio_cache
+
+
+def test_update_single_card_treats_same_selection_different_mined_line_as_new(monkeypatch):
+    config = _base_config()
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "_normalize_for_signature", lambda text: text.strip().lower())
+
+    first_line = SimpleNamespace(id="line-1", text="なんだか……すごいね。")
+    second_line = SimpleNamespace(id="line-2", text="アーティファクト関係なしに、体質？")
+    selected_lines = [first_line, second_line]
+    previous_key = anki._build_sentence_audio_key(first_line, selected_lines)
+    anki._set_sentence_audio_cache_entry(previous_key, first_line.id, "なんだか")
+
+    class FakeCard:
+        noteId = 42
+        tags = []
+
+        def get_field(self, field):
+            return {
+                "Word": "関係なし",
+                "Sentence": second_line.text,
+            }.get(field, "")
+
+    card = FakeCard()
+    queue_calls = []
+
+    monkeypatch.setattr(
+        anki,
+        "_get_texthooking_page_module",
+        lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
+    )
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: second_line)
+    monkeypatch.setattr(anki, "queue_card_for_processing", lambda *args: queue_calls.append(args))
+    monkeypatch.setattr(
+        anki,
+        "run_new_thread",
+        lambda _fn, *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not reuse media")),
+    )
+
+    anki.update_single_card(card)
+
+    assert queue_calls == [(card, selected_lines, second_line)]
+
+
+def test_update_single_card_reuses_same_selection_and_mined_line(monkeypatch):
+    config = _base_config()
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "_normalize_for_signature", lambda text: text.strip().lower())
+
+    first_line = SimpleNamespace(id="line-1", text="なんだか……すごいね。")
+    second_line = SimpleNamespace(id="line-2", text="アーティファクト関係なしに、体質？")
+    selected_lines = [first_line, second_line]
+    previous_key = anki._build_sentence_audio_key(first_line, selected_lines)
+    anki._set_sentence_audio_cache_entry(previous_key, first_line.id, "なんだか")
+
+    class FakeCard:
+        noteId = 42
+        tags = []
+
+        def get_field(self, field):
+            return {
+                "Word": "力を持って",
+                "Sentence": first_line.text,
+            }.get(field, "")
+
+    card = FakeCard()
+    reuse_calls = []
+
+    monkeypatch.setattr(
+        anki,
+        "_get_texthooking_page_module",
+        lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
+    )
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: first_line)
+    monkeypatch.setattr(
+        anki,
+        "queue_card_for_processing",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should reuse media")),
+    )
+    monkeypatch.setattr(anki, "run_new_thread", lambda fn, *args, **kwargs: fn())
+    monkeypatch.setattr(
+        anki, "update_card_from_same_sentence", lambda *args, **kwargs: reuse_calls.append((args, kwargs))
+    )
+
+    anki.update_single_card(card)
+
+    assert reuse_calls == [
+        ((card,), {"lines": selected_lines, "game_line": first_line, "reuse_result_id": first_line.id})
+    ]
+
+
+def test_update_single_card_does_not_use_line_result_without_matching_selection_cache(monkeypatch):
+    config = _base_config()
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+
+    first_line = SimpleNamespace(id="line-1", text="なんだか……すごいね。")
+    second_line = SimpleNamespace(id="line-2", text="アーティファクト関係なしに、体質？")
+    selected_lines = [first_line, second_line]
+    anki.anki_results[first_line.id] = anki.AnkiUpdateResult(success=True, word="なんだか")
+
+    class FakeCard:
+        noteId = 42
+        tags = []
+
+        def get_field(self, field):
+            return {
+                "Word": "力を持って",
+                "Sentence": first_line.text,
+            }.get(field, "")
+
+    card = FakeCard()
+    queue_calls = []
+
+    monkeypatch.setattr(
+        anki,
+        "_get_texthooking_page_module",
+        lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
+    )
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: first_line)
+    monkeypatch.setattr(anki, "queue_card_for_processing", lambda *args: queue_calls.append(args))
+    monkeypatch.setattr(
+        anki,
+        "run_new_thread",
+        lambda _fn, *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not reuse media")),
+    )
+
+    anki.update_single_card(card)
+
+    assert queue_calls == [(card, selected_lines, first_line)]
 
 
 def test_wait_for_reuse_result_times_out_without_activity(monkeypatch):

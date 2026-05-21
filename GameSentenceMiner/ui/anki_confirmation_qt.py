@@ -163,7 +163,6 @@ class AspectRatioLabel(QLabel):
 
 _anki_confirmation_dialog_instance = None
 
-EXPERIMENTAL_DIALOGUE_LINE_EXPANSION_ENABLED = True
 AUTO_ADD_DIALOGUE_LINE_EPSILON_SECONDS = 0.05
 AUTO_ADD_DIALOGUE_LINE_DEBOUNCE_MS = 175
 
@@ -871,8 +870,7 @@ class AnkiConfirmationDialog(QDialog):
 
     def _dialogue_line_expansion_enabled(self):
         return bool(
-            EXPERIMENTAL_DIALOGUE_LINE_EXPANSION_ENABLED
-            and self._replay_context
+            self._replay_context
             and getattr(self._replay_context, "video_path", None)
             and self._dialog_selected_lines
         )

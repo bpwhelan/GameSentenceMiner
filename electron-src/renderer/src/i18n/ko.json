@@ -124,7 +124,7 @@
     "tabs": {
       "home": "홈",
       "ocr": "OCR",
-      "textHook": "텍스트 훅",      "textProcessing": "텍스트 처리",      "stats": "통계",
+      "textHook": "Texthook / Agent",      "textProcessing": "텍스트 처리",      "stats": "통계",
       "gameSettings": "게임 자동화",
       "settings": "설정",
       "python": "Python",
@@ -798,6 +798,12 @@
     }
   },
   "texthook": {
+    "credits": {
+      "text": "텍스트 후킹 도구",
+      "agent": "Agent",
+      "textractor": "Textractor",
+      "luna": "LunaTranslator"
+    },
     "steps": {
       "targetDesc": "OBS 캡처에서 감지된 게임 프로세스",
       "engineConfig": "엔진 및 설정",

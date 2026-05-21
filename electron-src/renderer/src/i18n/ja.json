@@ -126,7 +126,7 @@
     "tabs": {
       "home": "ホーム",
       "ocr": "OCR",
-      "textHook": "テキストフック",
+      "textHook": "Texthook / Agent",
       "textProcessing": "テキスト処理",
       "stats": "統計",
       "gameSettings": "ゲーム自動化",
@@ -567,6 +567,10 @@
     "docsButtonTooltip": "自動ランチャーのドキュメントを開く",
     "infoLabel": "ゲーム自動化の概要",
     "overviewTooltip": "共有テキストフックツールパスとゲームごとの自動化を設定します。各ゲームにテキストフックモード（なし/Agent/Textractor/Luna）とOCRモード（なし/自動/手動）を1つずつ選択してください。",
+    "nudge": {
+      "title": "テキストフックはTexthook / Agentタブで",
+      "description": "Agent、Luna、Textractorには、ここにあるランチャー操作ではなくTexthook / Agentタブを使ってください。"
+    },
     "shared": {
       "title": "共有ツール設定",
       "collapse": "共有ツール設定を折りたたむ。",
@@ -921,6 +925,16 @@
     }
   },
   "texthook": {
+    "experimental": {
+      "title": "実験的なテキストフック",
+      "description": "このタブはまだ実験的です。フックはノイズが入ったりゲームごとに変わったりするため、プロファイルを保存する前に選択中のフックを確認してください。"
+    },
+    "credits": {
+      "text": "テキストフックツール",
+      "agent": "Agent",
+      "textractor": "Textractor",
+      "luna": "LunaTranslator"
+    },
     "steps": {
       "targetDesc": "OBSキャプチャから検出されたゲームプロセス",
       "engineConfig": "エンジンと設定",
@@ -974,6 +988,10 @@
     "hooks": {
       "title": "検出されたフック",
       "count": "フック {count} 件",
+      "selectHint": "検出されたフック行をクリックすると、出力に使うフックを選択できます。",
+      "selected": "選択中 #{id}",
+      "rowLabel": "フック #{id} を選択: {name}",
+      "searchTitle": "フック検索",
       "waiting": "フック待機中。ゲームでテキストを表示してください。",
       "notRunning": "「開始」を押してエンジンを開始してください。",
       "noTextYet": "(まだテキストなし)"
@@ -994,6 +1012,7 @@
     },
     "actions": {
       "start": "開始",
+      "searchHooks": "フックを検索",
       "stop": "停止"
     },
     "notices": {

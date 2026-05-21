@@ -124,7 +124,7 @@
     "tabs": {
       "home": "主页",
       "ocr": "OCR",
-      "textHook": "文本挂接",      "textProcessing": "文本预处理",      "stats": "统计",
+      "textHook": "Texthook / Agent",      "textProcessing": "文本预处理",      "stats": "统计",
       "gameSettings": "游戏自动化",
       "settings": "设置",
       "python": "Python",
@@ -798,6 +798,12 @@
     }
   },
   "texthook": {
+    "credits": {
+      "text": "文本挂接工具",
+      "agent": "Agent",
+      "textractor": "Textractor",
+      "luna": "LunaTranslator"
+    },
     "steps": {
       "targetDesc": "从 OBS 捕获检测到的游戏进程",
       "engineConfig": "引擎和配置",

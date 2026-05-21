@@ -126,7 +126,7 @@
     "tabs": {
       "home": "Home",
       "ocr": "OCR",
-      "textHook": "Text Hook",
+      "textHook": "Texthook / Agent",
       "textProcessing": "Text Processing",
       "stats": "Stats",
       "gameSettings": "Game Automation",
@@ -567,6 +567,10 @@
     "docsButtonTooltip": "Open Auto Launcher documentation",
     "infoLabel": "Game Automation Overview",
     "overviewTooltip": "Configure shared text-hook tool paths and per-game automation. Pick one text hook mode (None/Agent/Textractor/Luna) and one OCR mode (None/Auto/Manual) for each game.",
+    "nudge": {
+      "title": "Use Texthook / Agent for text hooking",
+      "description": "For Agent, Luna, or Textractor, try the Texthook / Agent tab instead of the launcher controls here."
+    },
     "shared": {
       "title": "Shared Tool Settings",
       "collapse": "Collapse shared tool settings.",
@@ -921,6 +925,16 @@
     }
   },
   "texthook": {
+    "experimental": {
+      "title": "Experimental",
+      "description": "This tab is still experimental. Hooks can be noisy or change between games, so verify the selected hook before saving a profile."
+    },
+    "credits": {
+      "text": "Credits",
+      "agent": "Agent",
+      "textractor": "Textractor",
+      "luna": "LunaTranslator"
+    },
     "steps": {
       "targetDesc": "Detected game process from OBS capture",
       "engineConfig": "Engine & Configuration",
@@ -974,6 +988,10 @@
     "hooks": {
       "title": "Detected Hooks",
       "count": "{count} hooks",
+      "selectHint": "Click a detected hook row to select it for output.",
+      "selected": "Selected #{id}",
+      "rowLabel": "Select hook #{id}: {name}",
+      "searchTitle": "Hook Search",
       "waiting": "Waiting for hooks. Trigger some text in the game.",
       "notRunning": "Click 'Start' to start the hook engine.",
       "noTextYet": "(no text yet)"
@@ -994,6 +1012,7 @@
     },
     "actions": {
       "start": "Start",
+      "searchHooks": "Search for hooks",
       "stop": "Stop"
     },
     "notices": {

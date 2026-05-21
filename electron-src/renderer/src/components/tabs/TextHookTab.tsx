@@ -83,6 +83,9 @@ const MAX_LOG_LINES = 200;
 const MAX_TEXT_LINES = 300;
 const DEFAULT_FLUSH_DELAY_MS = 100;
 const MAX_FLUSH_DELAY_MS = 5000;
+const AGENT_RELEASES_URL = "https://github.com/0xDC00/agent/releases/latest";
+const LUNA_TRANSLATOR_RELEASES_URL = "https://github.com/HIllya51/LunaTranslator/releases";
+const TEXTRACTOR_RELEASES_URL = "https://github.com/Chenx221/Textractor/releases";
 
 function hasHookText(hook: HookEntry): boolean {
   if (hook.preview.trim().length > 0) return true;
@@ -461,11 +464,15 @@ export function TextHookTab({ active }: TextHookTabProps) {
   const sceneDisplay = capture?.sceneName || t("texthook.capture.noScene");
 
   const visibleHooks = useMemo(
-    () => (engine === "agent" ? hooks : hooks.filter(hasHookText)),
-    [engine, hooks]
+    () =>
+      engine === "agent"
+        ? hooks
+        : hooks.filter((hook) => hook.id === selectedHookId || hasHookText(hook)),
+    [engine, hooks, selectedHookId]
   );
   const startDisabled =
     busy || !capture?.exeName || (engine === "agent" && agentScriptPath.trim().length === 0);
+  const searchHooksDisabled = status.running || startDisabled;
   const statusBadgeClass = status.running
     ? "ocr-area-badge--ok"
     : capture?.exeName
@@ -479,6 +486,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
       : t("texthook.status.noTarget");
 
   const footerState = status.running ? "running" : capture?.exeName ? "ready" : "warning";
+  const openExternal = useCallback((url: string) => void invokeIpc("open-external-link", url), []);
 
   const engineDisplayName =
     engine === "luna"
@@ -496,6 +504,19 @@ export function TextHookTab({ active }: TextHookTabProps) {
           </div>
         ) : null}
 
+        <section
+          className="card legacy-card ocr-card texthook-experimental-card"
+          aria-labelledby="texthook-experimental-title"
+        >
+          <div className="texthook-experimental-icon" aria-hidden="true">
+            !
+          </div>
+          <div>
+            <h2 id="texthook-experimental-title">{t("texthook.experimental.title")}</h2>
+            <p>{t("texthook.experimental.description")}</p>
+          </div>
+        </section>
+
         <div className="ocr-dashboard">
           {/* ── Left column: guided configuration stepper ── */}
           <div className="ocr-col ocr-col--settings">
@@ -511,7 +532,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
                   <div className="texthook-step-line" />
                 </div>
                 <div className="texthook-step-content">
-                  <section className="card legacy-card ocr-card">
+                  <section className="card legacy-card ocr-card texthook-capture-card">
                     <div className="ocr-card-header-row">
                       <div>
                         <h2>{t("texthook.capture.title")}</h2>
@@ -652,37 +673,49 @@ export function TextHookTab({ active }: TextHookTabProps) {
 
                       {/* Manual hook code (Luna / Textractor only) */}
                       {engine !== "agent" ? (
-                        <div className="texthook-subsection">
-                          <div className="texthook-subsection-label">
-                            {t("texthook.steps.manualHookLabel")}
-                          </div>
-                          <div className="input-group">
-                            <label
-                              htmlFor="texthook-manual-input"
-                              title={t("texthook.profile.manualHookHint")}
-                            >
-                              {t("texthook.profile.manualHook")}
-                            </label>
-                            <input
-                              id="texthook-manual-input"
-                              type="text"
-                              value={manualHookCode}
-                              placeholder="HB4@0"
-                              onChange={(e) => setManualHookCode(e.target.value)}
-                            />
-                          </div>
-                          <div className="link-row">
+                        <>
+                          <div className="link-row texthook-hook-search-row">
                             <button
                               type="button"
-                              disabled={
-                                !status.running || !manualHookCode.trim()
-                              }
-                              onClick={() => void attachManual()}
+                              disabled={searchHooksDisabled}
+                              onClick={() => void startSession()}
                             >
-                              {t("texthook.profile.attachManual")}
+                              {t("texthook.actions.searchHooks")}
                             </button>
                           </div>
-                        </div>
+
+                          <div className="texthook-subsection">
+                            <div className="texthook-subsection-label">
+                              {t("texthook.steps.manualHookLabel")}
+                            </div>
+                            <div className="input-group">
+                              <label
+                                htmlFor="texthook-manual-input"
+                                title={t("texthook.profile.manualHookHint")}
+                              >
+                                {t("texthook.profile.manualHook")}
+                              </label>
+                              <input
+                                id="texthook-manual-input"
+                                type="text"
+                                value={manualHookCode}
+                                placeholder="HB4@0"
+                                onChange={(e) => setManualHookCode(e.target.value)}
+                              />
+                            </div>
+                            <div className="link-row">
+                              <button
+                                type="button"
+                                disabled={
+                                  !status.running || !manualHookCode.trim()
+                                }
+                                onClick={() => void attachManual()}
+                              >
+                                {t("texthook.profile.attachManual")}
+                              </button>
+                            </div>
+                          </div>
+                        </>
                       ) : null}
                     </div>
                   </section>
@@ -768,10 +801,20 @@ export function TextHookTab({ active }: TextHookTabProps) {
           <div className="ocr-col ocr-col--workspace">
             <section className="card legacy-card ocr-card texthook-hook-list">
               <div className="ocr-card-header-row">
-                <h2>{t("texthook.hooks.title")}</h2>
-                <span className="ocr-area-badge ocr-area-badge--ok">
-                  {t("texthook.hooks.count", { count: String(visibleHooks.length) })}
-                </span>
+                <div>
+                  <h2>{t("texthook.hooks.title")}</h2>
+                  <p className="texthook-card-hint">{t("texthook.hooks.selectHint")}</p>
+                </div>
+                <div className="texthook-hook-summary">
+                  {selectedHookId ? (
+                    <span className="ocr-area-badge ocr-area-badge--ok">
+                      {t("texthook.hooks.selected", { id: selectedHookId })}
+                    </span>
+                  ) : null}
+                  <span className="ocr-area-badge ocr-area-badge--ok">
+                    {t("texthook.hooks.count", { count: String(visibleHooks.length) })}
+                  </span>
+                </div>
               </div>
               <div className="texthook-hooks">
                 {visibleHooks.length === 0 ? (
@@ -794,11 +837,19 @@ export function TextHookTab({ active }: TextHookTabProps) {
                             className="texthook-hook-button"
                             onClick={() => void selectHook(hook.id)}
                             title={hook.preview || ""}
+                            aria-pressed={isSelected}
+                            aria-label={t("texthook.hooks.rowLabel", {
+                              id: hook.id,
+                              name: hook.function,
+                            })}
                           >
                             <span className="texthook-hook-id">#{hook.id}</span>
                             <span className="texthook-hook-fn">{hook.function}</span>
                             <span className="texthook-hook-preview">
                               {hook.preview || t("texthook.hooks.noTextYet")}
+                            </span>
+                            <span className="texthook-hook-radio" aria-hidden="true">
+                              <span className="texthook-hook-radio-dot" />
                             </span>
                           </button>
                         </li>
@@ -893,6 +944,41 @@ export function TextHookTab({ active }: TextHookTabProps) {
             )}
           </div>
         </div>
+
+        <footer className="home-support texthook-credits">
+          <span className="texthook-credits__mark" aria-hidden="true">!</span>
+          <span className="home-support__text">{t("texthook.credits.text")}</span>
+          <a
+            href={AGENT_RELEASES_URL}
+            className="home-support__link"
+            onClick={(e) => {
+              e.preventDefault();
+              openExternal(AGENT_RELEASES_URL);
+            }}
+          >
+            {t("texthook.credits.agent")}
+          </a>
+          <a
+            href={TEXTRACTOR_RELEASES_URL}
+            className="home-support__link"
+            onClick={(e) => {
+              e.preventDefault();
+              openExternal(TEXTRACTOR_RELEASES_URL);
+            }}
+          >
+            {t("texthook.credits.textractor")}
+          </a>
+          <a
+            href={LUNA_TRANSLATOR_RELEASES_URL}
+            className="home-support__link"
+            onClick={(e) => {
+              e.preventDefault();
+              openExternal(LUNA_TRANSLATOR_RELEASES_URL);
+            }}
+          >
+            {t("texthook.credits.luna")}
+          </a>
+        </footer>
 
         {/* ── Agent script picker modal ── */}
         {agentScriptDialog ? (

@@ -124,7 +124,7 @@
     "tabs": {
       "home": "Inicio",
       "ocr": "OCR",
-      "textHook": "Text Hook",
+      "textHook": "Texthook / Agent",
       "textProcessing": "Procesamiento de texto",
       "stats": "Estadísticas",
       "gameSettings": "Automatización de juegos",
@@ -800,6 +800,12 @@
     }
   },
   "texthook": {
+    "credits": {
+      "text": "Herramientas de text hook",
+      "agent": "Agent",
+      "textractor": "Textractor",
+      "luna": "LunaTranslator"
+    },
     "steps": {
       "targetDesc": "Proceso del juego detectado desde la captura de OBS",
       "engineConfig": "Motor y configuración",

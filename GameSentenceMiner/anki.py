@@ -2386,6 +2386,7 @@ def update_single_card(card):
     game_line.mined_time = datetime.now()
     current_word = card.get_field(get_config().anki.word_field) if card else ""
     reuse_key = _build_sentence_audio_key(game_line, lines)
+    has_selected_lines = bool(lines)
     reuse_result_id = None
     use_prev_audio = False
 
@@ -2399,7 +2400,7 @@ def update_single_card(card):
                 reuse_result_id = cached_entry.line_id
             else:
                 logger.info("Same word detected for cached sentence, generating new audio.")
-        elif game_line.id in anki_results:
+        elif not has_selected_lines and game_line.id in anki_results:
             cached_result = anki_results[game_line.id]
             if cached_result.word != current_word:
                 use_prev_audio = True
@@ -2506,24 +2507,40 @@ def _normalize_for_signature(text: str) -> str:
     return strip_whitespace_and_punctuation(remove_html_and_cloze_tags(text or "")).lower()
 
 
+SentenceAudioKey = Tuple[str, Tuple[Tuple[str, str], ...], Tuple[str, str]]
+
+
+def _line_signature_for_reuse(line: Optional[GameLine]) -> Tuple[str, str]:
+    if not line:
+        return ("", "")
+    line_id = str(getattr(line, "id", "") or "").strip()
+    text_sig = _normalize_for_signature(getattr(line, "text", "") or "")
+    return (line_id, text_sig)
+
+
 def _build_sentence_audio_key(
     game_line: GameLine, selected_lines: Optional[List[GameLine]]
-) -> Optional[Tuple[str, Tuple[str, ...]]]:
+) -> Optional[SentenceAudioKey]:
     if selected_lines:
-        line_sig = tuple(_normalize_for_signature(line.text) for line in selected_lines if line and line.text)
+        line_sig = tuple(
+            signature
+            for signature in (_line_signature_for_reuse(line) for line in selected_lines if line)
+            if signature[1]
+        )
     elif game_line and game_line.text:
-        line_sig = (_normalize_for_signature(game_line.text),)
+        line_sig = (_line_signature_for_reuse(game_line),)
     else:
         line_sig = tuple()
 
-    if not line_sig or all(not part for part in line_sig):
+    mined_line_sig = _line_signature_for_reuse(game_line)
+    if not line_sig or all(not part[1] for part in line_sig) or not mined_line_sig[1]:
         return None
 
-    sentence_sig = "".join(line_sig)
-    return (sentence_sig, line_sig)
+    sentence_sig = "".join(text_sig for _line_id, text_sig in line_sig)
+    return (sentence_sig, line_sig, mined_line_sig)
 
 
-def _set_sentence_audio_cache_entry(key: Optional[Tuple[str, Tuple[str, ...]]], line_id: Optional[str], word: str):
+def _set_sentence_audio_cache_entry(key: Optional[SentenceAudioKey], line_id: Optional[str], word: str):
     if not key or not line_id:
         return
     sentence_audio_cache[key] = SentenceAudioCacheEntry(line_id=line_id, word=word or "", created_at=datetime.now())

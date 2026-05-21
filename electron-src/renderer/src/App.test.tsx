@@ -248,6 +248,50 @@ describe('App install-session integration', () => {
         );
     });
 
+    it('hides the Texthook / Agent tab outside Windows', async () => {
+        Object.defineProperty(window, 'gsmEnv', {
+            configurable: true,
+            value: {
+                platform: 'linux',
+            },
+        });
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') {
+                return null;
+            }
+            if (channel === 'settings.getSettings') {
+                return { hasCompletedSetup: true };
+            }
+            if (channel === 'state.set') {
+                return null;
+            }
+            return {};
+        });
+
+        const { default: App } = await import('./App.js');
+
+        await act(async () => {
+            root.render(<App />);
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(
+            Array.from(container.querySelectorAll('.tab-button')).map((button) => button.textContent)
+        ).not.toContain('Texthook / Agent');
+
+        await act(async () => {
+            for (const callback of listeners.get('app.navigateToTab') ?? []) {
+                callback({}, 'texthook');
+            }
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(container.textContent).toContain('Home Tab');
+        expect(container.textContent).not.toContain('Texthook / Agent');
+    });
+
     it('shows the blocking install modal automatically for an active failed session', async () => {
         const { default: App } = await import('./App.js');
 

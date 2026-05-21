@@ -126,7 +126,7 @@
     "tabs": {
       "home": "Головна",
       "ocr": "OCR",
-      "textHook": "Текстовий хук",
+      "textHook": "Texthook / Agent",
       "textProcessing": "Обробка тексту",
       "stats": "Статистика",
       "gameSettings": "Автоматизація ігор",
@@ -567,6 +567,10 @@
     "docsButtonTooltip": "Відкрити документацію автозапуску",
     "infoLabel": "Огляд автоматизації ігор",
     "overviewTooltip": "Налаштуйте спільні шляхи text hook та автоматизацію для кожної гри. Виберіть один режим text hook (Немає/Agent/Textractor/Luna) та один режим OCR (Немає/Авто/Ручний) для кожної гри.",
+    "nudge": {
+      "title": "Налаштовуйте text hook у Texthook / Agent",
+      "description": "Для Agent, Luna або Textractor використовуйте вкладку Texthook / Agent замість елементів запуску тут."
+    },
     "shared": {
       "title": "Спільні налаштування інструментів",
       "collapse": "Згорнути спільні налаштування інструментів.",
@@ -921,6 +925,16 @@
     }
   },
   "texthook": {
+    "experimental": {
+      "title": "Експериментальний text hook",
+      "description": "Ця вкладка все ще експериментальна. Хуки можуть шуміти або змінюватися між іграми, тому перевірте вибраний хук перед збереженням профілю."
+    },
+    "credits": {
+      "text": "Інструменти text hook",
+      "agent": "Agent",
+      "textractor": "Textractor",
+      "luna": "LunaTranslator"
+    },
     "steps": {
       "targetDesc": "Виявлений ігровий процес із захоплення OBS",
       "engineConfig": "Рушій та налаштування",
@@ -974,6 +988,10 @@
     "hooks": {
       "title": "Виявлені хуки",
       "count": "{count} хуків",
+      "selectHint": "Натисніть рядок виявленого хука, щоб вибрати його для виводу.",
+      "selected": "Вибрано #{id}",
+      "rowLabel": "Вибрати хук #{id}: {name}",
+      "searchTitle": "Пошук хуків",
       "waiting": "Очікування на хуки. Викличте текст у грі.",
       "notRunning": "Натисніть «Запустити», щоб запустити рушій.",
       "noTextYet": "(тексту ще немає)"
@@ -994,6 +1012,7 @@
     },
     "actions": {
       "start": "Запустити",
+      "searchHooks": "Шукати хуки",
       "stop": "Зупинити"
     },
     "notices": {

@@ -39,6 +39,7 @@ const TABS: Array<{ id: TabId; labelKey: string }> = [
 const TAB_IDS = new Set<TabId>(TABS.map((tab) => tab.id));
 
 const ALWAYS_VISIBLE_TABS = new Set<TabId>(["obs", "ocr", "texthook", "textprocessing", "settings"]);
+const WINDOWS_ONLY_TABS = new Set<TabId>(["texthook"]);
 const CONTROLLABLE_TABS: ControlledTab[] = [
   "launcher",
   "stats",
@@ -851,6 +852,8 @@ function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
 
 export default function App() {
   const t = useTranslation();
+  const platform = window.gsmEnv?.platform ?? "win32";
+  const isWindows = platform === "win32";
   const [activeTab, setActiveTab] = useState<TabId>("obs");
   const [showWizard, setShowWizard] = useState(false);
   const [wizardChecked, setWizardChecked] = useState(false);
@@ -867,6 +870,9 @@ export default function App() {
 
   const isTabVisible = useCallback(
     (tab: TabId) => {
+      if (WINDOWS_ONLY_TABS.has(tab) && !isWindows) {
+        return false;
+      }
       if (ALWAYS_VISIBLE_TABS.has(tab)) {
         return true;
       }
@@ -875,18 +881,29 @@ export default function App() {
       }
       return true;
     },
-    [visibleControlledTabs]
+    [isWindows, visibleControlledTabs]
   );
 
   const visibleTabs = useMemo(
     () => TABS.filter((tab) => isTabVisible(tab.id)),
     [isTabVisible]
   );
+  const isTabVisibleRef = useRef(isTabVisible);
 
-  const selectTab = useCallback((tab: TabId) => {
-    setActiveTab(tab);
-    window.ipcRenderer.send("tab-changed", tab);
-  }, []);
+  useEffect(() => {
+    isTabVisibleRef.current = isTabVisible;
+  }, [isTabVisible]);
+
+  const selectTab = useCallback(
+    (tab: TabId) => {
+      if (!isTabVisible(tab)) {
+        return;
+      }
+      setActiveTab(tab);
+      window.ipcRenderer.send("tab-changed", tab);
+    },
+    [isTabVisible]
+  );
 
   const switchToConsole = useCallback(() => {
     setActiveTab("console");
@@ -940,7 +957,10 @@ export default function App() {
       "app.navigateToTab",
       (_event, requestedTab) => {
         if (typeof requestedTab === "string" && TAB_IDS.has(requestedTab as TabId)) {
-          setActiveTab(requestedTab as TabId);
+          const tab = requestedTab as TabId;
+          if (isTabVisibleRef.current(tab)) {
+            setActiveTab(tab);
+          }
         }
       }
     );
@@ -1030,7 +1050,6 @@ export default function App() {
   }, [hasCompletedSetup, installSession]);
 
   useEffect(() => {
-    const platform = window.gsmEnv?.platform ?? "win32";
     const info = {
       platform,
       isWindows: platform === "win32",
@@ -1039,7 +1058,7 @@ export default function App() {
       detectedAt: Date.now()
     };
     void window.ipcRenderer.invoke("state.set", "systemInfo", info);
-  }, []);
+  }, [platform]);
 
   // // Check if setup wizard should show (first launch)
   // useEffect(() => {
@@ -1113,7 +1132,7 @@ export default function App() {
       <main className="tab-content-area">
         <HomeTab active={activeTab === "obs"} onNavigateTab={selectTab} />
         <OCRTab active={activeTab === "ocr"} />
-        <TextHookTab active={activeTab === "texthook"} />
+        {isWindows ? <TextHookTab active={activeTab === "texthook"} /> : null}
         <TextProcessingTab active={activeTab === "textprocessing"} />
         <StatsPanel active={activeTab === "stats"} />
         <LauncherTab active={activeTab === "launcher"} />
