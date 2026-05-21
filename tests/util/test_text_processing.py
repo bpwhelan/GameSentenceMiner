@@ -8,6 +8,7 @@ from GameSentenceMiner.util.config.configuration import (
 from GameSentenceMiner.util.text_processing import (
     apply_string_replacements,
     apply_text_processing,
+    extract_bracketed_text,
 )
 
 
@@ -48,6 +49,15 @@ def test_apply_text_processing_runs_string_replacement():
         )
     )
     assert apply_text_processing("foo", config) == "bar"
+
+
+def test_extract_bracketed_text_returns_text_between_japanese_quotes():
+    text = "前「おやおや～？　寂しいのかな～？\n泊まって欲しいのかな～？\nも～、にぃにったらシスコン～」後"
+
+    assert (
+        extract_bracketed_text(text)
+        == "おやおや～？　寂しいのかな～？\n泊まって欲しいのかな～？\nも～、にぃにったらシスコン～"
+    )
 
 
 def test_apply_string_replacements_passthrough_when_disabled():

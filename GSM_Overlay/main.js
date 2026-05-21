@@ -58,6 +58,7 @@ const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
 const OVERLAY_WS_COMMAND_OPEN_SETTINGS = "open-overlay-settings";
 const DEFAULT_MANUAL_HOTKEY = "Shift + Space";
 const DEFAULT_TEXTHOOKER_HOTKEY = "Alt+Shift+W";
+const PROFILE_SWITCH_FOCUS_RESTORE_SUPPRESSION_MS = 5000;
 const MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY = "hide-overlay";
 const MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION = "disable-interaction";
 const VALID_MANUAL_MODE_INACTIVE_BEHAVIORS = new Set([
@@ -67,15 +68,65 @@ const VALID_MANUAL_MODE_INACTIVE_BEHAVIORS = new Set([
 const GSM_APPDATA = process.env.APPDATA
   ? path.join(process.env.APPDATA, "GameSentenceMiner") // Windows
   : path.join(os.homedir(), '.config', "GameSentenceMiner"); // macOS/Linux
+const gsmSettingsPath = path.join(GSM_APPDATA, 'config.json');
+const sharedRuntimeResourcesPath = process.env.GSM_OVERLAY_RESOURCES_PATH || "";
 const FIND_IN_PAGE_PRELOAD_PATH = path.join(__dirname, 'find-in-page-preload.js');
 const TEXTHOOKER_HOTKEY_FALLBACKS = [
   DEFAULT_TEXTHOOKER_HOTKEY,
   "Alt+Shift+Q",
   "Alt+Shift+T",
 ];
+const DEFAULT_GSM_PROFILE_NAME = "Default";
+const OVERLAY_SETTINGS_PROFILES_ENABLED_KEY = "overlaySettingsProfilesEnabled";
+const OVERLAY_PROFILE_SETTINGS_KEY = "overlayProfileSettings";
+const OVERLAY_ACTIVE_PROFILE_KEY = "overlayActiveProfileName";
+const OVERLAY_PROFILE_CONTROL_KEYS = new Set([
+  OVERLAY_SETTINGS_PROFILES_ENABLED_KEY,
+  OVERLAY_PROFILE_SETTINGS_KEY,
+  OVERLAY_ACTIVE_PROFILE_KEY,
+]);
+const OVERLAY_NON_PROFILE_SETTING_KEYS = new Set([
+  ...OVERLAY_PROFILE_CONTROL_KEYS,
+  "weburl1",
+  "weburl2",
+  "texthookerUrl",
+  "showRecycledIndicator",
+  "mainBoxStartupWarningAcknowledged",
+  "dismissedFullscreenRecommendations",
+  "gamepadServerPort",
+  "gamepadJitenApiKey",
+  "gamepadJpdbApiKey",
+  "gamepadYomitanApiUrl",
+]);
+
+function getPackagedResourcesPath() {
+  return sharedRuntimeResourcesPath || process.resourcesPath;
+}
+
+function relaunchOverlayApp() {
+  const relaunchArgs = process.argv.slice(1);
+  if (relaunchArgs.length > 0) {
+    app.relaunch({ args: relaunchArgs });
+  } else {
+    app.relaunch();
+  }
+}
+
+function traceSharedRuntimeOverlay(message) {
+  const tracePath = process.env.GSM_OVERLAY_BOOTSTRAP_TRACE;
+  if (!tracePath) {
+    return;
+  }
+  try {
+    fs.appendFileSync(tracePath, `${new Date().toISOString()} overlay: ${message}\n`, "utf8");
+  } catch {
+    // Tracing is best-effort only.
+  }
+}
+
+traceSharedRuntimeOverlay("main.js loaded");
 
 function getGSMSettings() {
-  const gsmSettingsPath = path.join(GSM_APPDATA, 'config.json');
   let gsmSettings = {};
   if (fs.existsSync(gsmSettingsPath)) {
     try {
@@ -88,6 +139,46 @@ function getGSMSettings() {
   return gsmSettings;
 }
 
+function getGSMProfileSummaries(gsmSettings = getGSMSettings()) {
+  const configs = gsmSettings && typeof gsmSettings === "object" ? gsmSettings.configs : null;
+  if (!configs || typeof configs !== "object") {
+    return [];
+  }
+
+  const currentProfileName = typeof gsmSettings.current_profile === "string" && gsmSettings.current_profile.trim()
+    ? gsmSettings.current_profile.trim()
+    : DEFAULT_GSM_PROFILE_NAME;
+
+  return Object.entries(configs)
+    .filter(([name, config]) => typeof name === "string" && name.trim() && config && typeof config === "object")
+    .map(([name, config]) => {
+      const scenes = Array.isArray(config.scenes)
+        ? config.scenes
+            .map((scene) => String(scene || "").trim())
+            .filter((scene) => scene.length > 0)
+        : [];
+      return {
+        name: name.trim(),
+        scenes,
+        active: name.trim() === currentProfileName,
+      };
+    });
+}
+
+function getCurrentGSMProfileName(gsmSettings = getGSMSettings()) {
+  const profiles = getGSMProfileSummaries(gsmSettings);
+  const configuredName = typeof gsmSettings.current_profile === "string" && gsmSettings.current_profile.trim()
+    ? gsmSettings.current_profile.trim()
+    : DEFAULT_GSM_PROFILE_NAME;
+  if (profiles.some((profile) => profile.name === configuredName)) {
+    return configuredName;
+  }
+  if (profiles.some((profile) => profile.name === DEFAULT_GSM_PROFILE_NAME)) {
+    return DEFAULT_GSM_PROFILE_NAME;
+  }
+  return profiles[0]?.name || DEFAULT_GSM_PROFILE_NAME;
+}
+
 function getCurrentGSMProfileSettings(gsmSettings = getGSMSettings()) {
   const configs = gsmSettings && typeof gsmSettings === "object" ? gsmSettings.configs : null;
   if (!configs || typeof configs !== "object") {
@@ -96,13 +187,13 @@ function getCurrentGSMProfileSettings(gsmSettings = getGSMSettings()) {
 
   const currentProfileName = typeof gsmSettings.current_profile === "string"
     ? gsmSettings.current_profile
-    : "Default";
+    : DEFAULT_GSM_PROFILE_NAME;
   const directMatch = configs[currentProfileName];
   if (directMatch && typeof directMatch === "object") {
     return directMatch;
   }
 
-  const defaultProfile = configs.Default;
+  const defaultProfile = configs[DEFAULT_GSM_PROFILE_NAME];
   if (defaultProfile && typeof defaultProfile === "object") {
     return defaultProfile;
   }
@@ -249,11 +340,234 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadYomitanScanLength": 10, // scanLength used for Yomitan /tokenize
   "gamepadJitenApiKey": "", // User-provided API key for Jiten/api/reader/parse
   "gamepadJpdbApiKey": "", // User-provided bearer token for JPDB /api/v1/parse
+  "overlaySettingsProfilesEnabled": false,
+  "overlayActiveProfileName": DEFAULT_GSM_PROFILE_NAME,
 });
 
-let userSettings = { ...DEFAULT_USER_SETTINGS };
+let userSettings = { ...DEFAULT_USER_SETTINGS, [OVERLAY_PROFILE_SETTINGS_KEY]: {} };
+let reconfigureOverlayRuntimeForSettingsChange = () => {};
 
 const MANUAL_HOTKEY_ELECTRON_RELEASE_TIMEOUT_MS = 650;
+
+function cloneOverlaySettingValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => cloneOverlaySettingValue(entry));
+  }
+  if (value && typeof value === "object") {
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch {
+      return { ...value };
+    }
+  }
+  return value;
+}
+
+function isOverlayProfileScopedSetting(key) {
+  return (
+    typeof key === "string" &&
+    Object.prototype.hasOwnProperty.call(DEFAULT_USER_SETTINGS, key) &&
+    !OVERLAY_NON_PROFILE_SETTING_KEYS.has(key)
+  );
+}
+
+function normalizeOverlayProfileName(profileName) {
+  const normalized = String(profileName || "").trim();
+  return normalized || DEFAULT_GSM_PROFILE_NAME;
+}
+
+function getOverlayProfileSettingsContainer() {
+  if (!userSettings[OVERLAY_PROFILE_SETTINGS_KEY] || typeof userSettings[OVERLAY_PROFILE_SETTINGS_KEY] !== "object" || Array.isArray(userSettings[OVERLAY_PROFILE_SETTINGS_KEY])) {
+    userSettings[OVERLAY_PROFILE_SETTINGS_KEY] = {};
+  }
+  return userSettings[OVERLAY_PROFILE_SETTINGS_KEY];
+}
+
+function buildOverlayProfileSnapshot(settings = userSettings) {
+  const snapshot = {};
+  for (const key of Object.keys(DEFAULT_USER_SETTINGS)) {
+    if (!isOverlayProfileScopedSetting(key)) {
+      continue;
+    }
+    snapshot[key] = cloneOverlaySettingValue(settings[key]);
+  }
+  return snapshot;
+}
+
+function seedOverlayProfileSettings(profileName, sourceSettings = userSettings) {
+  const normalizedName = normalizeOverlayProfileName(profileName);
+  const profiles = getOverlayProfileSettingsContainer();
+  if (profiles[normalizedName] && typeof profiles[normalizedName] === "object" && !Array.isArray(profiles[normalizedName])) {
+    return false;
+  }
+
+  profiles[normalizedName] = buildOverlayProfileSnapshot(sourceSettings);
+  return true;
+}
+
+function normalizeOverlaySettingsProfiles(reason = "unknown") {
+  let changed = false;
+  userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] = userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] === true;
+  userSettings[OVERLAY_ACTIVE_PROFILE_KEY] = normalizeOverlayProfileName(userSettings[OVERLAY_ACTIVE_PROFILE_KEY]);
+  const profiles = getOverlayProfileSettingsContainer();
+
+  for (const [profileName, profileSettings] of Object.entries({ ...profiles })) {
+    const normalizedName = normalizeOverlayProfileName(profileName);
+    if (normalizedName !== profileName) {
+      delete profiles[profileName];
+      changed = true;
+    }
+
+    if (!profileSettings || typeof profileSettings !== "object" || Array.isArray(profileSettings)) {
+      profiles[normalizedName] = {};
+      changed = true;
+      continue;
+    }
+
+    const cleanedSettings = {};
+    for (const [key, value] of Object.entries(profileSettings)) {
+      if (isOverlayProfileScopedSetting(key)) {
+        cleanedSettings[key] = cloneOverlaySettingValue(value);
+      } else {
+        changed = true;
+      }
+    }
+    profiles[normalizedName] = cleanedSettings;
+  }
+
+  if (changed) {
+    console.log(`[OverlayProfiles] Normalized overlay profile settings (${reason}).`);
+  }
+  return changed;
+}
+
+function ensureOverlayProfilesForGSMProfiles(gsmSettings = getGSMSettings()) {
+  if (userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] !== true) {
+    return false;
+  }
+
+  let changed = false;
+  const summaries = getGSMProfileSummaries(gsmSettings);
+  const activeProfile = getCurrentGSMProfileName(gsmSettings);
+  const sourceSnapshot = buildOverlayProfileSnapshot(userSettings);
+
+  for (const profile of summaries) {
+    changed = seedOverlayProfileSettings(profile.name, sourceSnapshot) || changed;
+  }
+  changed = seedOverlayProfileSettings(activeProfile, sourceSnapshot) || changed;
+  return changed;
+}
+
+function persistOverlaySettingForActiveProfile(key, value) {
+  if (userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] !== true || !isOverlayProfileScopedSetting(key)) {
+    return false;
+  }
+
+  const activeProfileName = normalizeOverlayProfileName(userSettings[OVERLAY_ACTIVE_PROFILE_KEY]);
+  const profiles = getOverlayProfileSettingsContainer();
+  if (!profiles[activeProfileName] || typeof profiles[activeProfileName] !== "object" || Array.isArray(profiles[activeProfileName])) {
+    profiles[activeProfileName] = {};
+  }
+  profiles[activeProfileName][key] = cloneOverlaySettingValue(value);
+  return true;
+}
+
+function setOverlaySettingValue(key, value) {
+  userSettings[key] = value;
+  persistOverlaySettingForActiveProfile(key, value);
+}
+
+function applyOverlayProfileSettings(profileName, reason = "unknown", options = {}) {
+  if (userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] !== true) {
+    return false;
+  }
+
+  const normalizedName = normalizeOverlayProfileName(profileName);
+  const previousProfileName = normalizeOverlayProfileName(userSettings[OVERLAY_ACTIVE_PROFILE_KEY]);
+  const previousSettings = { ...userSettings };
+  const profiles = getOverlayProfileSettingsContainer();
+
+  if (!profiles[normalizedName] || typeof profiles[normalizedName] !== "object" || Array.isArray(profiles[normalizedName])) {
+    profiles[normalizedName] = buildOverlayProfileSnapshot(userSettings);
+  }
+
+  for (const [key, value] of Object.entries(profiles[normalizedName])) {
+    if (isOverlayProfileScopedSetting(key)) {
+      userSettings[key] = cloneOverlaySettingValue(value);
+    }
+  }
+  userSettings[OVERLAY_ACTIVE_PROFILE_KEY] = normalizedName;
+
+  normalizeFuriganaSettings(userSettings);
+  normalizeGamepadTokenizerSettings(userSettings);
+  setOverlaySettingValue("manualModeType", normalizeManualModeType(userSettings.manualModeType));
+  setOverlaySettingValue("manualModeInactiveBehavior", normalizeManualModeInactiveBehavior(userSettings.manualModeInactiveBehavior));
+  ensureManualAndTexthookerHotkeysDistinct(`overlay-profile:${reason}`);
+
+  for (const key of Object.keys(profiles[normalizedName])) {
+    if (isOverlayProfileScopedSetting(key)) {
+      profiles[normalizedName][key] = cloneOverlaySettingValue(userSettings[key]);
+    }
+  }
+
+  const switched = previousProfileName !== normalizedName || options.force === true;
+  if (switched && options.reconfigure !== false) {
+    reconfigureOverlayRuntimeForSettingsChange(previousSettings, `overlay-profile:${reason}`);
+  }
+  return switched;
+}
+
+function syncOverlayProfileFromGSM(reason = "unknown", options = {}) {
+  normalizeOverlaySettingsProfiles(reason);
+  if (userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] !== true) {
+    return false;
+  }
+
+  const currentGSMSettings = getGSMSettings();
+  ensureOverlayProfilesForGSMProfiles(currentGSMSettings);
+  const targetProfileName = getCurrentGSMProfileName(currentGSMSettings);
+  const switched = applyOverlayProfileSettings(targetProfileName, reason, options);
+  if (switched && options.notify !== false) {
+    publishOverlaySettingsSnapshot(`overlay-profile:${reason}`);
+  }
+  return switched;
+}
+
+function getOverlayProfileState(gsmSettings = getGSMSettings()) {
+  const profiles = getOverlayProfileSettingsContainer();
+  const currentGSMProfileName = getCurrentGSMProfileName(gsmSettings);
+  const activeProfileName = normalizeOverlayProfileName(userSettings[OVERLAY_ACTIVE_PROFILE_KEY] || currentGSMProfileName);
+  return {
+    enabled: userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] === true,
+    activeProfileName,
+    currentGSMProfileName,
+    profiles: getGSMProfileSummaries(gsmSettings).map((profile) => ({
+      name: profile.name,
+      scenes: profile.scenes,
+      active: profile.name === activeProfileName,
+      current: profile.name === currentGSMProfileName,
+      hasOverlaySettings: !!profiles[profile.name],
+    })),
+  };
+}
+
+function publishOverlayProfileState() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send("overlay-profile-state-updated", getOverlayProfileState());
+  }
+}
+
+function publishOverlaySettingsSnapshot(reason = "unknown") {
+  const snapshot = { ...userSettings };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("settings-updated", snapshot);
+  }
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send("settings-updated", snapshot);
+  }
+  publishOverlayProfileState();
+  console.log(`[OverlayProfiles] Published overlay settings snapshot (${reason}).`);
+}
 
 function enforceOverlayWebSocketUrls(settings) {
   const enforcedUrls = getEnforcedOverlayTransportUrls();
@@ -423,8 +737,8 @@ function ensureManualAndTexthookerHotkeysDistinct(source = "unknown") {
   const manualHotkey = String(userSettings.showHotkey || DEFAULT_MANUAL_HOTKEY).trim() || DEFAULT_MANUAL_HOTKEY;
   const currentTexthookerHotkey = String(userSettings.texthookerHotkey || DEFAULT_TEXTHOOKER_HOTKEY).trim() || DEFAULT_TEXTHOOKER_HOTKEY;
 
-  userSettings.showHotkey = manualHotkey;
-  userSettings.texthookerHotkey = currentTexthookerHotkey;
+  setOverlaySettingValue("showHotkey", manualHotkey);
+  setOverlaySettingValue("texthookerHotkey", currentTexthookerHotkey);
 
   if (!hotkeysConflict(manualHotkey, currentTexthookerHotkey)) {
     return false;
@@ -438,7 +752,7 @@ function ensureManualAndTexthookerHotkeysDistinct(source = "unknown") {
     return false;
   }
 
-  userSettings.texthookerHotkey = replacementHotkey;
+  setOverlaySettingValue("texthookerHotkey", replacementHotkey);
   console.warn(
     `[Hotkeys] Conflict detected for showHotkey (${manualHotkey}) and texthookerHotkey (${currentTexthookerHotkey}). ` +
     `Reassigned texthookerHotkey to ${replacementHotkey} [source=${source}]`
@@ -687,6 +1001,7 @@ let currentMagpieState = createMagpieState(null);
 let translationRequested = false; // Track if translation has been requested for current text
 let yomitanRecoveryVersion = 0; // Cancels stale async recovery attempts when popup state flips quickly
 let lastFocusRestoreRequestAt = 0;
+let suppressBackendFocusRestoreUntil = 0;
 let lastOverlayTopmostReassertAt = 0;
 let pendingOverlayTopmostReassertTimer = null;
 let lastYomitanEventAt = 0;
@@ -1086,10 +1401,9 @@ function getGamepadServerExecutableName() {
 
 function getPackagedGamepadServerCandidates() {
   const executableName = getGamepadServerExecutableName();
+  const resourcesPath = getPackagedResourcesPath();
   return [
-    path.join(process.resourcesPath, 'bin', process.platform, executableName),
-    path.join(process.resourcesPath, 'bin', executableName),
-    path.join(process.resourcesPath, executableName),
+    path.join(resourcesPath, executableName),
   ];
 }
 
@@ -1562,7 +1876,8 @@ function loadOverlayPage(win, relativePath) {
   if (pageUrl) {
     return win.loadURL(pageUrl);
   }
-  return win.loadFile(relativePath);
+  const filePath = path.isAbsolute(relativePath) ? relativePath : path.join(__dirname, relativePath);
+  return win.loadFile(filePath);
 }
 
 const EXTENSION_READY_TIMEOUT_MS = 15000;
@@ -1585,7 +1900,7 @@ function getExtensionSessionApi() {
 }
 
 async function loadExtension(name) {
-  const extDir = isDev ? path.join(__dirname, name) : path.join(process.resourcesPath, name);
+  const extDir = isDev ? path.join(__dirname, name) : path.join(getPackagedResourcesPath(), name);
   const extTargetDir = ensureExtensionCopy(name, extDir);
   const extensionApi = getExtensionSessionApi();
   const observedReadyIds = new Set();
@@ -1786,8 +2101,13 @@ function requestBackendFocusRestore(source, options = {}) {
     return false;
   }
 
-  const force = !!options.force;
   const now = Date.now();
+  if (now < suppressBackendFocusRestoreUntil) {
+    console.log(`[FocusRestore] Suppressed backend restore request (${source})`);
+    return false;
+  }
+
+  const force = !!options.force;
   if (!force && (now - lastFocusRestoreRequestAt) < FOCUS_RESTORE_THROTTLE_MS) {
     console.log(`[FocusRestore] Throttled backend restore request (${source})`);
     return false;
@@ -1799,6 +2119,12 @@ function requestBackendFocusRestore(source, options = {}) {
     type: 'restore-focus-request'
   });
   return true;
+}
+
+function suppressBackendFocusRestoreForProfileSwitch(reason = "unknown") {
+  const until = Date.now() + PROFILE_SWITCH_FOCUS_RESTORE_SUPPRESSION_MS;
+  suppressBackendFocusRestoreUntil = Math.max(suppressBackendFocusRestoreUntil, until);
+  console.log(`[FocusRestore] Suppressing backend restore during profile switch (${reason})`);
 }
 
 function blurAndRestoreFocus(options = {}) {
@@ -2198,9 +2524,13 @@ if (hasPersistedOverlaySettings) {
     if (isWindows()) {
       userSettings.offsetX = 0;
       userSettings.offsetY = 0;
+      persistOverlaySettingForActiveProfile("offsetX", 0);
+      persistOverlaySettingForActiveProfile("offsetY", 0);
     } else {
       userSettings.manualMode = true;
       userSettings.magpieCompatibility = false;
+      persistOverlaySettingForActiveProfile("manualMode", true);
+      persistOverlaySettingForActiveProfile("magpieCompatibility", false);
     }
   } catch (error) {
     console.error("Failed to load settings.json:", error)
@@ -2212,6 +2542,12 @@ const websocketEndpointsNormalized = enforceOverlayWebSocketUrls(userSettings);
 const texthookerUrlNormalized = enforceTexthookerUrl(userSettings);
 const furiganaSettingsNormalized = normalizeFuriganaSettings(userSettings);
 const gamepadTokenizerSettingsNormalized = normalizeGamepadTokenizerSettings(userSettings);
+const overlayProfilesNormalized = normalizeOverlaySettingsProfiles("settings-load");
+const overlayProfileAppliedOnLoad = syncOverlayProfileFromGSM("settings-load", {
+  force: true,
+  notify: false,
+  reconfigure: false,
+});
 const hotkeyConflictResolvedOnLoad = ensureManualAndTexthookerHotkeysDistinct("settings-load");
 const gsmOwnedSettingsNormalized = syncGsmOwnedOverlaySettingsFromGSM("settings-load");
 if (
@@ -2219,6 +2555,8 @@ if (
   texthookerUrlNormalized ||
   furiganaSettingsNormalized ||
   gamepadTokenizerSettingsNormalized ||
+  overlayProfilesNormalized ||
+  overlayProfileAppliedOnLoad ||
   hotkeyConflictResolvedOnLoad ||
   gsmOwnedSettingsNormalized
 ) {
@@ -2228,8 +2566,8 @@ if (hasPersistedOverlaySettings && shouldPersistOverlaySettings) {
   saveSettings();
 }
 
-userSettings.manualModeType = normalizeManualModeType(userSettings.manualModeType);
-userSettings.manualModeInactiveBehavior = normalizeManualModeInactiveBehavior(userSettings.manualModeInactiveBehavior);
+setOverlaySettingValue("manualModeType", normalizeManualModeType(userSettings.manualModeType));
+setOverlaySettingValue("manualModeInactiveBehavior", normalizeManualModeInactiveBehavior(userSettings.manualModeInactiveBehavior));
 
 function getGSMOverlaySettings() {
   let gsmSettings = getGSMSettings();
@@ -2661,12 +2999,40 @@ function scheduleOverlayDisplaySync(reason = "unknown") {
 }
 
 let gsmSettings = getGSMSettings();
+let lastObservedGSMProfileName = getCurrentGSMProfileName(gsmSettings);
+
+function handleGSMSettingsFileChanged(reason = "gsm-settings-file") {
+  const previousProfileName = lastObservedGSMProfileName;
+  gsmSettings = getGSMSettings();
+  lastObservedGSMProfileName = getCurrentGSMProfileName(gsmSettings);
+
+  const transportChanged = refreshOverlayTransportSettingsFromGSM(reason);
+  const gsmOwnedChanged = syncGsmOwnedOverlaySettingsFromGSM(reason);
+  const profileChanged = syncOverlayProfileFromGSM(reason, {
+    notify: false,
+  });
+
+  publishOverlayProfileState();
+  if (profileChanged) {
+    console.log(`[OverlayProfiles] Active GSM profile changed ${previousProfileName} -> ${lastObservedGSMProfileName} (${reason}).`);
+    publishOverlaySettingsSnapshot(reason);
+    saveSettings();
+  } else if (transportChanged || gsmOwnedChanged) {
+    publishOverlayProfileState();
+  }
+}
 
 function shouldOverlayHotkeyRequestPause(source) {
   const currentSettings = getGSMSettings();
-  const experimentalEnabled = !!(currentSettings.experimental && currentSettings.experimental.enable_experimental_features);
-  const processPausing = currentSettings.process_pausing || {};
-  if (!experimentalEnabled || !processPausing.enabled) {
+  const profileSettings = getCurrentGSMProfileSettings(currentSettings);
+  const profileProcessPausing = profileSettings && typeof profileSettings.process_pausing === "object"
+    ? profileSettings.process_pausing
+    : null;
+  const legacyProcessPausing = currentSettings && typeof currentSettings.process_pausing === "object"
+    ? currentSettings.process_pausing
+    : null;
+  const processPausing = profileProcessPausing || legacyProcessPausing || {};
+  if (!processPausing.enabled) {
     return false;
   }
 
@@ -2847,9 +3213,13 @@ function saveSettings() {
     if (isWindows()) {
       userSettings.offsetX = 0;
       userSettings.offsetY = 0;
+      persistOverlaySettingForActiveProfile("offsetX", 0);
+      persistOverlaySettingForActiveProfile("offsetY", 0);
     } else {
       userSettings.manualMode = true;
       userSettings.magpieCompatibility = false;
+      persistOverlaySettingForActiveProfile("manualMode", true);
+      persistOverlaySettingForActiveProfile("magpieCompatibility", false);
     }
 
     if (oldUserSettings) {
@@ -2929,6 +3299,15 @@ function restoreAutomaticOverlayPassThrough(reason = "auto-reset") {
     return;
   }
 
+  if (!isLinux()) {
+    mainWindow.setIgnoreMouseEvents(true, { forward: true });
+  }
+
+  if (shouldHideOverlayWindowForManualInactive()) {
+    hideAndRestoreFocus();
+    return;
+  }
+
   if (shouldKeepOverlayVisibleWhenManualInactive()) {
     showOverlayWithoutFocusForManualVisibleMode(`auto-pass-through:${reason}`);
   } else if (currentMagpieState.active) {
@@ -2940,14 +3319,6 @@ function restoreAutomaticOverlayPassThrough(reason = "auto-reset") {
     });
   } else {
     mainWindow.show();
-  }
-
-  if (!isLinux()) {
-    mainWindow.setIgnoreMouseEvents(true, { forward: true });
-  }
-
-  if (shouldHideOverlayWindowForManualInactive()) {
-    hideAndRestoreFocus();
   }
 }
 
@@ -3148,7 +3519,7 @@ function waitForTexthookerUrl(win, targetUrl) {
 function registerTexthookerHotkey(oldHotkey) {
   const conflictResolved = ensureManualAndTexthookerHotkeysDistinct("registerTexthookerHotkey");
   const texthookerHotkey = String(userSettings.texthookerHotkey || DEFAULT_TEXTHOOKER_HOTKEY).trim() || DEFAULT_TEXTHOOKER_HOTKEY;
-  userSettings.texthookerHotkey = texthookerHotkey;
+  setOverlaySettingValue("texthookerHotkey", texthookerHotkey);
 
   if (oldHotkey && !hotkeysConflict(oldHotkey, userSettings.showHotkey)) {
     globalShortcut.unregister(oldHotkey);
@@ -3412,6 +3783,7 @@ function openSettings() {
         websocketStates,
         defaultSettings: DEFAULT_USER_SETTINGS,
         runtimeSettings: getManualHotkeyRuntimeStatus(),
+        profileState: getOverlayProfileState(),
       });
     });
     settingsWindow.on("closed", () => {
@@ -3662,7 +4034,7 @@ function updateTrayMenu() {
       type: 'checkbox',
       checked: isManualMode(),
       click: (menuItem) => {
-        userSettings.manualMode = menuItem.checked;
+        setOverlaySettingValue("manualMode", menuItem.checked);
         clearManualActivationState("tray:manualMode");
         requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
         restoreAutomaticOverlayPassThrough("tray:manualMode");
@@ -3680,7 +4052,7 @@ function updateTrayMenu() {
       type: 'checkbox',
       checked: userSettings.showFurigana,
       click: (menuItem) => {
-        userSettings.showFurigana = menuItem.checked;
+        setOverlaySettingValue("showFurigana", menuItem.checked);
         syncGamepadServerState("tray:showFurigana");
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("settings-updated", { showFurigana: menuItem.checked });
@@ -3694,7 +4066,7 @@ function updateTrayMenu() {
       type: 'checkbox',
       checked: userSettings.showTextIndicators !== false,
       click: (menuItem) => {
-        userSettings.showTextIndicators = menuItem.checked;
+        setOverlaySettingValue("showTextIndicators", menuItem.checked);
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("settings-updated", { showTextIndicators: menuItem.checked });
         }
@@ -3708,7 +4080,7 @@ function updateTrayMenu() {
       checked: userSettings.fadeTextIndicators === true,
       enabled: userSettings.showTextIndicators !== false,
       click: (menuItem) => {
-        userSettings.fadeTextIndicators = menuItem.checked;
+        setOverlaySettingValue("fadeTextIndicators", menuItem.checked);
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("settings-updated", { fadeTextIndicators: menuItem.checked });
         }
@@ -3736,7 +4108,7 @@ app.whenReady().then(async () => {
   }
 
   if (!isWindows()) {
-    userSettings.manualMode = true; // enforce manual mode on non-Windows platforms
+    setOverlaySettingValue("manualMode", true); // enforce manual mode on non-Windows platforms
     const manualModeDescription = normalizeManualModeType(userSettings.manualModeType) === "toggle"
       ? "press the hotkey once to show the overlay and press it again to hide it"
       : "hold the hotkey to keep the overlay visible";
@@ -3755,7 +4127,13 @@ app.whenReady().then(async () => {
   // ===========================================================
 
   isDev = !app.isPackaged;
-  const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(process.resourcesPath, "yomitan");
+  fs.watchFile(gsmSettingsPath, { interval: 1000 }, () => {
+    handleGSMSettingsFileChanged("config-watch");
+  });
+  app.once("before-quit", () => {
+    fs.unwatchFile(gsmSettingsPath);
+  });
+  const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), "yomitan");
 
   // 1. Define Paths
   // 'manifest.json' is what Electron reads.
@@ -3850,7 +4228,7 @@ app.whenReady().then(async () => {
                 fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
 
                 // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
-                app.relaunch();
+                relaunchOverlayApp();
                 app.exit(0);
                 return; // Halt execution
               }
@@ -3864,7 +4242,7 @@ app.whenReady().then(async () => {
               fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
 
               // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
-              app.relaunch();
+              relaunchOverlayApp();
               app.exit(0);
               return; // Halt execution
             }
@@ -3893,7 +4271,38 @@ app.whenReady().then(async () => {
   // Start background manager and register periodic tasks
   bg.start();
 
-  yomitanExt = await loadExtension('yomitan');
+  // Detect if yomitan extension files changed since last overlay launch (e.g. GSM app update).
+  // If so, clear Chromium's cached service workers to prevent stale compiled background scripts.
+  {
+    const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
+    const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
+    const yomitanMtimePath = path.join(app.getPath('userData'), 'yomitan_last_mtime.json');
+    let currentMtime = 0;
+    try { currentMtime = fs.statSync(yomitanManifestPath).mtimeMs; } catch {}
+    let storedMtime = 0;
+    try {
+      const stored = JSON.parse(fs.readFileSync(yomitanMtimePath, 'utf-8'));
+      storedMtime = stored && typeof stored.mtime === 'number' ? stored.mtime : 0;
+    } catch {}
+
+    if (currentMtime > 0 && currentMtime !== storedMtime) {
+      console.log(`[YomitanStartup] Extension files changed (stored=${storedMtime}, current=${currentMtime}). Clearing service worker cache...`);
+      try {
+        await session.defaultSession.clearStorageData({ storages: ['serviceworkers'] });
+        console.log('[YomitanStartup] Service worker cache cleared.');
+      } catch (e) {
+        console.warn('[YomitanStartup] Failed to clear service worker cache:', e);
+      }
+    }
+
+    yomitanExt = await loadExtension('yomitan');
+
+    // Persist the mtime after successful load
+    try {
+      fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime }));
+    } catch {}
+  }
+
   if (userSettings.enableJitenReader) {
     jitenReaderExt = await loadExtension('jiten.reader');
   }
@@ -3904,6 +4313,63 @@ app.whenReady().then(async () => {
     if (!markerData.id && yomitanExt) {
       markerData.id = yomitanExt.id;
       fs.writeFileSync(markerPath, JSON.stringify(markerData));
+    }
+  }
+
+  // Watch yomitan extension directory for rebuilds and hot-reload on change (dev workflow)
+  {
+    const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
+    const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
+    const yomitanMtimePath = path.join(app.getPath('userData'), 'yomitan_last_mtime.json');
+    let yomitanReloadDebounce = null;
+    let yomitanLastMtime = (() => { try { return fs.statSync(yomitanManifestPath).mtimeMs; } catch { return 0; } })();
+
+    const reloadYomitanExtension = async () => {
+      // Check if the file was actually rewritten (handles same-version rebuilds)
+      let currentMtime;
+      try { currentMtime = fs.statSync(yomitanManifestPath).mtimeMs; } catch { return; }
+      if (currentMtime === yomitanLastMtime) {
+        return;
+      }
+      yomitanLastMtime = currentMtime;
+      const newVersion = readExtensionPackageVersion(yomitanExtDir);
+      console.log(`[YomitanHotReload] Detected yomitan update (version: ${newVersion}). Reloading extension...`);
+
+      try {
+        // Clear stale service worker cache before reloading
+        await session.defaultSession.clearStorageData({ storages: ['serviceworkers'] });
+        const extensionApi = getExtensionSessionApi();
+        if (yomitanExt && yomitanExt.id) {
+          extensionApi.removeExtension(yomitanExt.id);
+          console.log(`[YomitanHotReload] Unloaded old yomitan extension (id: ${yomitanExt.id})`);
+        }
+        yomitanExt = await loadExtension('yomitan');
+        console.log(`[YomitanHotReload] Reloaded yomitan extension (id: ${yomitanExt ? yomitanExt.id : 'null'})`);
+
+        // Persist new mtime
+        try { fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime })); } catch {}
+
+        // Reload all webContents so content scripts re-inject
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.reload();
+        }
+        if (texthookerWindow && !texthookerWindow.isDestroyed()) {
+          texthookerWindow.webContents.reload();
+        }
+      } catch (e) {
+        console.error('[YomitanHotReload] Failed to reload yomitan extension:', e);
+      }
+    };
+
+    if (fs.existsSync(yomitanManifestPath)) {
+      fs.watch(yomitanManifestPath, { persistent: false }, (eventType) => {
+        if (eventType === 'change' || eventType === 'rename') {
+          // Debounce: build scripts may write multiple times in quick succession
+          if (yomitanReloadDebounce) clearTimeout(yomitanReloadDebounce);
+          yomitanReloadDebounce = setTimeout(reloadYomitanExtension, 2000);
+        }
+      });
+      console.log(`[YomitanHotReload] Watching ${yomitanManifestPath} for extension updates.`);
     }
   }
 
@@ -4057,13 +4523,71 @@ app.whenReady().then(async () => {
     if (!registerAndReport(requestedHotkey)) {
       console.log(`[Gamepad] Keyboard hotkey registration failed for ${requestedHotkey}`);
       if (requestedHotkey !== "Alt+G" && registerAndReport("Alt+G")) {
-        userSettings.gamepadKeyboardHotkey = "Alt+G";
+        setOverlaySettingValue("gamepadKeyboardHotkey", "Alt+G");
         saveSettings();
         console.log('[Gamepad] Fell back to default keyboard hotkey Alt+G');
       }
     }
   }
   registerGamepadKeyboardHotkey();
+
+  reconfigureOverlayRuntimeForSettingsChange = (previousSettings = {}, reason = "unknown") => {
+    const previous = previousSettings || {};
+    const changed = (key) => previous[key] !== userSettings[key];
+    const profileSwitchReconfigure = String(reason || "").startsWith("overlay-profile:");
+
+    if (profileSwitchReconfigure) {
+      suppressBackendFocusRestoreForProfileSwitch(reason);
+    }
+
+    if (changed("showHotkey") || changed("manualMode") || changed("manualModeType")) {
+      clearManualActivationState(reason);
+      requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
+      restoreAutomaticOverlayPassThrough(reason);
+      registerManualShowHotkey(previous.showHotkey);
+      syncGamepadServerState(`${reason}:manual-hotkey`);
+    }
+    if (changed("toggleFuriganaHotkey")) registerToggleFuriganaHotkey(previous.toggleFuriganaHotkey);
+    if (changed("toggleWindowHotkey")) registerToggleWindowHotkey(previous.toggleWindowHotkey);
+    if (changed("minimizeHotkey")) registerMinimizeHotkey(previous.minimizeHotkey);
+    if (changed("yomitanSettingsHotkey")) registerYomitanSettingsHotkey(previous.yomitanSettingsHotkey);
+    if (changed("overlaySettingsHotkey")) registerOverlaySettingsHotkey(previous.overlaySettingsHotkey);
+    if (changed("translateHotkey")) registerTranslateHotkey(previous.translateHotkey);
+    if (changed("texthookerHotkey")) registerTexthookerHotkey(previous.texthookerHotkey);
+    if (changed("gamepadKeyboardHotkey") || changed("gamepadKeyboardEnabled") || changed("gamepadEnabled")) {
+      registerGamepadKeyboardHotkey(previous.gamepadKeyboardHotkey);
+      syncGamepadServerState(`${reason}:gamepad-keyboard`);
+    }
+    if (
+      changed("gamepadTokenizerBackend") ||
+      changed("gamepadLocalTokenizerFallbackBackend") ||
+      changed("gamepadSudachiDictionary") ||
+      changed("showFurigana")
+    ) {
+      syncGamepadServerState(`${reason}:tokenizer`);
+      if (
+        changed("gamepadTokenizerBackend") ||
+        changed("gamepadLocalTokenizerFallbackBackend") ||
+        changed("gamepadSudachiDictionary")
+      ) {
+        void restartGamepadServer(`${reason}:tokenizer`);
+      }
+    }
+    if (changed("gamepadServerPort")) {
+      void restartGamepadServer(`${reason}:gamepadServerPort`);
+    }
+    if (changed("texthookerUrl") && texthookerWindow && !texthookerWindow.isDestroyed()) {
+      waitForTexthookerUrl(texthookerWindow, userSettings.texthookerUrl || DEFAULT_TEXTHOOKER_URL);
+    }
+    if (changed("weburl1")) {
+      connectOverlayWebSocket("ws1", userSettings.weburl1);
+    }
+    if (changed("weburl2")) {
+      connectOverlayWebSocket("ws2", userSettings.weburl2);
+      if (backend) backend.connect(userSettings.weburl2);
+    }
+    updateTrayMenu();
+  };
 
   createTexthookerWindow();
   registerTexthookerHotkey();
@@ -4113,7 +4637,7 @@ app.whenReady().then(async () => {
     title: "GSM Overlay",
     fullscreen: false,
     focusable: true,
-    // skipTaskbar: true,
+    skipTaskbar: true,
     webPreferences: {
       contextIsolation: false,
       nodeIntegration: true,
@@ -4566,6 +5090,16 @@ app.whenReady().then(async () => {
   ipcMain.on("open-settings", () => {
     openSettings();
   });
+  ipcMain.on("open-gsm-profile-settings", () => {
+    if (!backend || !backend.connected) {
+      console.warn("Cannot open GSM profile settings: backend websocket is not connected.");
+      return;
+    }
+    backend.send({
+      type: "open-gsm-settings",
+      root_tab_key: "profiles",
+    });
+  });
   ipcMain.on("gamepad-input-test-active", (event, payload) => {
     gamepadInputTestActive = !!(payload && payload.active);
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -4596,8 +5130,8 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("save-offset", (event, { offsetX, offsetY }) => {
-    userSettings.offsetX = offsetX;
-    userSettings.offsetY = offsetY;
+    setOverlaySettingValue("offsetX", offsetX);
+    setOverlaySettingValue("offsetY", offsetY);
     saveSettings();
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("settings-updated", { offsetX, offsetY });
@@ -4624,14 +5158,32 @@ app.whenReady().then(async () => {
     } else if (key === "showTextBackground") {
       // Legacy key mapping for older settings UIs.
       const indicatorEnabled = !!value;
-      userSettings.showTextIndicators = indicatorEnabled;
-      userSettings.fadeTextIndicators = indicatorEnabled;
+      setOverlaySettingValue("showTextIndicators", indicatorEnabled);
+      setOverlaySettingValue("fadeTextIndicators", indicatorEnabled);
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("settings-updated", {
           showTextIndicators: indicatorEnabled,
           fadeTextIndicators: indicatorEnabled,
         });
       }
+      saveSettings();
+      updateTrayMenu();
+      return;
+    }
+    if (key === OVERLAY_SETTINGS_PROFILES_ENABLED_KEY) {
+      const previousSettings = { ...userSettings };
+      userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] = value === true;
+      normalizeOverlaySettingsProfiles(`setting-changed:${key}`);
+      if (userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] === true) {
+        ensureOverlayProfilesForGSMProfiles();
+        applyOverlayProfileSettings(getCurrentGSMProfileName(), `setting-changed:${key}`, {
+          force: true,
+          reconfigure: true,
+        });
+      } else {
+        reconfigureOverlayRuntimeForSettingsChange(previousSettings, `setting-changed:${key}`);
+      }
+      publishOverlaySettingsSnapshot(`setting-changed:${key}`);
       saveSettings();
       updateTrayMenu();
       return;
@@ -4672,11 +5224,14 @@ app.whenReady().then(async () => {
       value = normalizeManualModeInactiveBehavior(value);
     }
     const oldValue = userSettings[key];
-    userSettings[key] = value;
+    setOverlaySettingValue(key, value);
     switch (key) {
       case "showHotkey":
         {
           const resolved = ensureManualAndTexthookerHotkeysDistinct("setting-changed:showHotkey");
+          if (resolved) {
+            persistOverlaySettingForActiveProfile("texthookerHotkey", userSettings.texthookerHotkey);
+          }
           registerManualShowHotkey(oldValue);
           syncGamepadServerState("setting-changed:showHotkey");
           if (resolved) {
@@ -4733,6 +5288,9 @@ app.whenReady().then(async () => {
       case "texthookerHotkey":
         {
           const resolved = ensureManualAndTexthookerHotkeysDistinct("setting-changed:texthookerHotkey");
+          if (resolved) {
+            persistOverlaySettingForActiveProfile("texthookerHotkey", userSettings.texthookerHotkey);
+          }
           registerTexthookerHotkey(oldValue);
           if (resolved && mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send("settings-updated", { texthookerHotkey: userSettings.texthookerHotkey });
@@ -4845,7 +5403,7 @@ app.whenReady().then(async () => {
 
   // Legacy handlers for backward compatibility - can be removed after transition
   ipcMain.on("fontsize-changed", (event, newsize) => {
-    userSettings.fontSize = newsize;
+    setOverlaySettingValue("fontSize", newsize);
     mainWindow.webContents.send("settings-updated", { fontSize: newsize });
     saveSettings();
   })
@@ -4865,12 +5423,12 @@ app.whenReady().then(async () => {
     if (backend) backend.connect(enforcedTransportUrls.weburl2);
   })
   ipcMain.on("hideonstartup-changed", (event, newValue) => {
-    userSettings.hideOnStartup = newValue;
+    setOverlaySettingValue("hideOnStartup", newValue);
     mainWindow.webContents.send("settings-updated", { hideOnStartup: newValue });
     saveSettings();
   })
   ipcMain.on("manualmode-changed", (event, newValue) => {
-    userSettings.manualMode = newValue;
+    setOverlaySettingValue("manualMode", newValue);
     console.log("manualmode-changed", newValue);
     clearManualActivationState("legacy:manualmode-changed");
     requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
@@ -4884,7 +5442,7 @@ app.whenReady().then(async () => {
 
   ipcMain.on("showHotkey-changed", (event, newValue) => {
     let oldValue = userSettings.showHotkey;
-    userSettings.showHotkey = newValue;
+    setOverlaySettingValue("showHotkey", newValue);
     const resolved = ensureManualAndTexthookerHotkeysDistinct("legacy:showHotkey-changed");
     mainWindow.webContents.send("settings-updated", { showHotkey: newValue });
     if (resolved) {
@@ -4899,15 +5457,15 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("pinned-changed", (event, newValue) => {
-    userSettings.pinned = newValue;
+    setOverlaySettingValue("pinned", newValue);
     mainWindow.webContents.send("settings-updated", { pinned: newValue });
     saveSettings();
   });
 
   ipcMain.on("showTextBackground-changed", (event, newValue) => {
     const indicatorEnabled = !!newValue;
-    userSettings.showTextIndicators = indicatorEnabled;
-    userSettings.fadeTextIndicators = indicatorEnabled;
+    setOverlaySettingValue("showTextIndicators", indicatorEnabled);
+    setOverlaySettingValue("fadeTextIndicators", indicatorEnabled);
     mainWindow.webContents.send("settings-updated", {
       showTextIndicators: indicatorEnabled,
       fadeTextIndicators: indicatorEnabled,

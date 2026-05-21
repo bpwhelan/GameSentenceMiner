@@ -29,6 +29,7 @@ import {
     getShowYuzuTab,
     getStartConsoleMinimized,
     getStatsEndpoint,
+    getTextCaptureWizardEnabled,
     getLocale,
     getTextractorPath32,
     getTextractorPath64,
@@ -58,6 +59,7 @@ import {
     setShowYuzuTab,
     setStartConsoleMinimized,
     setStatsEndpoint,
+    setTextCaptureWizardEnabled,
     setTextractorPath32,
     setTextractorPath64,
     setUiMode,
@@ -69,20 +71,22 @@ import {
 } from '../store.js';
 import type { SceneLaunchProfile } from '../store.js';
 import { APP_NAME, BASE_DIR, getSanitizedPythonEnv } from '../util.js';
+import { syncPythonDisplayLocale } from '../python_locale.js';
+import { getConfiguredSinglePort } from '../gsm_config.js';
 // Replaced WebSocket usage with stdout IPC helpers
 import {
     isPythonLaunchBlockedByUpdate,
     mainWindow,
     sendOpenOverlaySettings,
     sendOpenSettings,
+    sendReloadSettings,
 } from '../main.js';
 import { reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall } from '../main.js';
 import { getExecutableNameFromSource, getWindowTitleFromSource } from './obs.js';
-import { resolveSwitchAgentScript } from '../agent_script_resolver.js';
+import { listAgentScriptFiles, resolveSwitchAgentScript } from '../agent_script_resolver.js';
 
 export let window_transparency_process: any = null; // Process for the Window Transparency Tool
-const AGENT_SCRIPT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs']);
 type DownloadableTool = 'agent' | 'textractor';
 type ToolName = DownloadableTool | 'luna';
 type ToolDownloadStage =
@@ -783,50 +787,6 @@ async function selectAgentScriptPath(defaultPath = "") {
     return result.filePaths[0];
 }
 
-function listAgentScriptsRecursive(rootPath: string): string[] {
-    const normalizedRootPath = typeof rootPath === "string" ? rootPath.trim() : "";
-    if (!normalizedRootPath || !fs.existsSync(normalizedRootPath)) {
-        return [];
-    }
-
-    const files: string[] = [];
-    const pendingDirectories: string[] = [normalizedRootPath];
-
-    while (pendingDirectories.length > 0) {
-        const directory = pendingDirectories.pop();
-        if (!directory) {
-            continue;
-        }
-
-        let entries: fs.Dirent[];
-        try {
-            entries = fs.readdirSync(directory, { withFileTypes: true });
-        } catch {
-            continue;
-        }
-
-        for (const entry of entries) {
-            const absolutePath = path.join(directory, entry.name);
-
-            if (entry.isDirectory()) {
-                pendingDirectories.push(absolutePath);
-                continue;
-            }
-
-            if (!entry.isFile()) {
-                continue;
-            }
-
-            const extension = path.extname(entry.name).toLowerCase();
-            if (AGENT_SCRIPT_EXTENSIONS.has(extension)) {
-                files.push(absolutePath);
-            }
-        }
-    }
-
-    return files.sort((left, right) => left.localeCompare(right));
-}
-
 async function resolveAgentScriptForScene(scene: { id: string; name: string }) {
     let processName: string | null = null;
     let windowTitle: string | null = null;
@@ -901,8 +861,10 @@ function getSettingsSnapshot() {
         windowTransparencyTarget: store.get('windowTransparencyTarget') || '',
         runWindowTransparencyToolOnStartup: getRunWindowTransparencyToolOnStartup(),
         runOverlayOnStartup: getRunOverlayOnStartup(),
+        textCaptureWizardEnabled: getTextCaptureWizardEnabled(),
         visibleTabs: getVisibleTabs(),
         statsEndpoint: getStatsEndpoint(),
+        singlePort: getConfiguredSinglePort(),
         iconStyle: store.get('iconStyle') || 'gsm',
         locale: getLocale(),
         consoleMode: getConsoleMode(),
@@ -933,6 +895,8 @@ interface SettingsIPCDependencies {
 }
 
 export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
+    syncPythonDisplayLocale(getLocale());
+
     ipcMain.handle('settings.getSettings', async () => {
         return getSettingsSnapshot();
     });
@@ -1048,6 +1012,9 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         if (typeof payload.runOverlayOnStartup === 'boolean') {
             setRunOverlayOnStartup(payload.runOverlayOnStartup);
         }
+        if (typeof payload.textCaptureWizardEnabled === 'boolean') {
+            setTextCaptureWizardEnabled(payload.textCaptureWizardEnabled);
+        }
         if (Array.isArray(payload.visibleTabs)) {
             setVisibleTabs(payload.visibleTabs);
         }
@@ -1058,7 +1025,12 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
             setIconStyle(payload.iconStyle || 'gsm');
         }
         if (typeof payload.locale === 'string') {
-            setLocale(payload.locale || 'en');
+            const nextLocale = payload.locale || 'en';
+            setLocale(nextLocale);
+            const didSyncPythonLocale = syncPythonDisplayLocale(nextLocale);
+            if (didSyncPythonLocale) {
+                sendReloadSettings();
+            }
         }
         if (payload.consoleMode === 'simple' || payload.consoleMode === 'advanced') {
             setConsoleMode(payload.consoleMode);
@@ -1321,7 +1293,7 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
             };
         }
 
-        const scripts = listAgentScriptsRecursive(scriptsPath);
+        const scripts = listAgentScriptFiles(scriptsPath);
         if (scripts.length === 0) {
             return {
                 status: 'empty',

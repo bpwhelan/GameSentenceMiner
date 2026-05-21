@@ -62,6 +62,9 @@ export class GSMStdoutManager extends EventEmitter {
     sendOpenSettings(data?: Record<string, unknown>) {
         this.sendCommand({ function: 'open_settings', data });
     }
+    sendReloadSettings() {
+        this.sendCommand({ function: 'reload_settings' });
+    }
     sendOpenOverlaySettings() {
         this.sendCommand({ function: 'open_overlay_settings' });
     }
@@ -76,6 +79,9 @@ export class GSMStdoutManager extends EventEmitter {
     }
     sendSwitchProfile(profileName: string) {
         this.sendCommand({ function: 'switch_profile', data: { profile_name: profileName } });
+    }
+    sendOCRResult(data: Record<string, unknown>) {
+        this.sendCommand({ function: 'ocr_result', data });
     }
     sendTestAnkiConfirmation() {
         this.sendCommand({ function: 'test_anki_confirmation' });

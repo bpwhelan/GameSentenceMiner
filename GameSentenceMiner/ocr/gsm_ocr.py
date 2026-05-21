@@ -19,13 +19,19 @@ import websockets
 from PIL import Image
 from dataclasses import dataclass, field
 from datetime import datetime
+from difflib import SequenceMatcher
 from pathlib import Path
 from time import perf_counter
 import multiprocessing as mp
 import sys
 from typing import Any, Callable, Protocol, runtime_checkable
 
-from GameSentenceMiner.ocr.compare import OCRCompareSettings, compare_ocr_results, normalize_for_comparison
+from GameSentenceMiner.ocr.compare import (
+    OCRCompareSettings,
+    compare_ocr_results,
+    is_evolving_text,
+    normalize_for_comparison,
+)
 from GameSentenceMiner import obs
 from GameSentenceMiner.ocr.gsm_ocr_config import (
     OCRConfig,
@@ -67,6 +73,7 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_ocr1,
     get_ocr_keep_newline,
     get_ocr_ocr_screenshots,
+    get_ocr_send_to_websocket,
     get_ocr_area_select_ocr_hotkey,
     get_ocr_global_pause_hotkey,
     get_ocr_subset_chunk_min_length,
@@ -92,6 +99,11 @@ DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHAN
 # Beangate-only OCR metrics capture switch.
 # Requires both this flag and is_beangate to be true.
 OCR_METRICS_CAPTURE_ENABLED = True
+# Opt-in controller rewrite inspired by owocr's frame-stability flow.
+# Keep this False unless intentionally testing/enabling the v2 path.
+USE_TWO_PASS_OCR_V2 = False
+TWO_PASS_OCR_V2_STABLE_FRAME_COUNT = 2
+TWO_PASS_OCR_V2_DETECTION_PADDING = 5
 
 websocket_server_thread = None
 websocket_queue = queue.Queue()
@@ -196,7 +208,7 @@ class _MeikiTracker:
 class TwoPassOCRController:
     """Manages the full lifecycle of the two-pass OCR pipeline."""
 
-    MEIKI_TOL: int = 5
+    MEIKI_TOL: int = 2
 
     def __init__(
         self,
@@ -428,8 +440,6 @@ class TwoPassOCRController:
         if last_sent and filtered_text and len(filtered_text) > len(last_sent):
             if filtered_text.startswith(last_sent):
                 filtered_text = filtered_text[len(last_sent) :].strip()
-            elif filtered_text.endswith(last_sent):
-                filtered_text = filtered_text[: -len(last_sent)].strip()
         if filtered_text:
             elapsed = perf_counter() - start
             engine_name = (
@@ -496,8 +506,6 @@ class TwoPassOCRController:
         if last_sent and len(text) > len(last_sent):
             if text.startswith(last_sent):
                 text = text[len(last_sent) :].strip()
-            elif text.endswith(last_sent):
-                text = text[: -len(last_sent)].strip()
             if not text:
                 return False
         if self._is_duplicate_candidate(
@@ -754,6 +762,391 @@ class TwoPassOCRController:
         return self._handle_detection(text, crop_coords, time, img, response_dict, source)
 
 
+@dataclass
+class _V2PendingTextState:
+    """First-pass text frame waiting for a stable confirmation."""
+
+    text: str
+    raw_text: str
+    orig_text: str
+    orig_text_list: list
+    start_time: datetime
+    img: Any
+    crop_coords: Any
+    source: str = "ocr"
+    response_dict: dict | None = None
+    stable_frames: int = 1
+
+
+@dataclass
+class _V2PendingDetectionState:
+    """Detector crop waiting for a second matching frame."""
+
+    crop_coords: tuple
+    start_time: datetime
+    img: Any
+    response_dict: dict | None = None
+    source: str = "ocr"
+
+
+class TwoPassOCRControllerV2(TwoPassOCRController):
+    """Opt-in two-pass controller based on first-pass frame stability.
+
+    The legacy controller flushes pending OCR mostly when text disappears or
+    changes. V2 instead treats OCR1 as a stabilizer: two matching text frames
+    trigger OCR2 immediately, while detector-only engines trigger OCR2 when the
+    detected crop is stable and the cropped pixels differ from the last OCR2
+    attempt for that same region.
+    """
+
+    def __init__(
+        self,
+        *args,
+        stable_frame_count: int = TWO_PASS_OCR_V2_STABLE_FRAME_COUNT,
+        detection_padding: int = TWO_PASS_OCR_V2_DETECTION_PADDING,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.stable_frame_count = max(2, int(stable_frame_count or 2))
+        self.detection_padding = max(0, int(detection_padding or 0))
+        self._v2_pending_text: _V2PendingTextState | None = None
+        self._v2_pending_detection: _V2PendingDetectionState | None = None
+        self._v2_last_processed_text: str = ""
+        self._v2_last_processed_chunks: list = []
+        self._v2_last_detection_crop_coords: tuple | None = None
+        self._v2_last_detection_signature: tuple | None = None
+
+    def reset(self) -> None:
+        super().reset()
+        self._v2_pending_text = None
+        self._v2_pending_detection = None
+        self._v2_last_processed_text = ""
+        self._v2_last_processed_chunks = []
+        self._v2_last_detection_crop_coords = None
+        self._v2_last_detection_signature = None
+
+    def handle_ocr_result(
+        self,
+        text: str,
+        orig_text: list,
+        time: datetime | None = None,
+        img: Any = None,
+        *,
+        came_from_ss: bool = False,
+        crop_coords: Any = None,
+        meiki_boxes: list | None = None,
+        detection_boxes: list | None = None,
+        response_dict: dict | None = None,
+        source: str = "ocr",
+        manual: bool = False,
+        raw_text: str | None = None,
+    ) -> None:
+        orig_text_string = "".join(item for item in orig_text if item is not None) if orig_text else ""
+        orig_text_list = [item for item in (orig_text or []) if item is not None]
+        raw_text_string = str(raw_text if raw_text is not None else (text or ""))
+        current_time = time or datetime.now()
+
+        if came_from_ss:
+            self._save_image(img)
+            self._send_result(text, current_time, response_dict=response_dict, source=source)
+            self._clear_v2_pending()
+            return
+
+        active_detection_boxes = detection_boxes if detection_boxes is not None else meiki_boxes
+        if active_detection_boxes is not None or _looks_like_detection_payload(response_dict):
+            if self._handle_v2_detection(
+                text=text,
+                detection_boxes=active_detection_boxes,
+                crop_coords=crop_coords,
+                time=current_time,
+                img=img,
+                response_dict=response_dict,
+                source=source,
+            ):
+                return
+
+        if manual or not self.config.two_pass_enabled:
+            self._send_direct(
+                text,
+                current_time,
+                img,
+                orig_text_list=orig_text_list,
+                response_dict=response_dict,
+                source=source,
+            )
+            self._clear_v2_pending()
+            return
+
+        self._handle_v2_text(
+            text=text or "",
+            orig_text_string=orig_text_string,
+            orig_text_list=orig_text_list,
+            current_time=current_time,
+            img=img,
+            crop_coords=crop_coords,
+            response_dict=response_dict,
+            raw_text=raw_text_string,
+            source=source,
+        )
+
+    def _clear_v2_pending(self) -> None:
+        self._v2_pending_text = None
+        self._v2_pending_detection = None
+        self._clear_pending()
+
+    def _handle_v2_text(
+        self,
+        *,
+        text: str,
+        orig_text_string: str,
+        orig_text_list: list,
+        current_time: datetime,
+        img: Any,
+        crop_coords: Any,
+        response_dict: dict | None,
+        raw_text: str,
+        source: str,
+    ) -> None:
+        candidate_text = orig_text_string or raw_text or text
+
+        if not text and not candidate_text.strip():
+            self._flush_v2_pending_text()
+            return
+
+        if self.force_stable and self._v2_pending_text is not None:
+            self._flush_v2_pending_text()
+            if self._v2_is_already_processed_text(candidate_text, orig_text_list):
+                return
+
+        if self._v2_is_already_processed_text(candidate_text, orig_text_list):
+            self._v2_pending_text = None
+            return
+
+        pending = self._v2_pending_text
+        if pending is None:
+            self._store_v2_pending_text(
+                text=text,
+                raw_text=raw_text,
+                orig_text_string=candidate_text,
+                orig_text_list=orig_text_list,
+                current_time=current_time,
+                img=img,
+                crop_coords=crop_coords,
+                response_dict=response_dict,
+                source=source,
+                stable_frames=1,
+            )
+            return
+
+        if _v2_texts_stable(pending.orig_text, candidate_text, self.config.duplicate_threshold):
+            stable_frames = pending.stable_frames + 1
+            self._store_v2_pending_text(
+                text=text,
+                raw_text=raw_text,
+                orig_text_string=candidate_text,
+                orig_text_list=orig_text_list,
+                current_time=pending.start_time,
+                img=img,
+                crop_coords=crop_coords,
+                response_dict=response_dict,
+                source=source,
+                stable_frames=stable_frames,
+            )
+            if stable_frames >= self.stable_frame_count:
+                self._flush_v2_pending_text()
+            return
+
+        if _v2_text_is_evolving(pending.orig_text, candidate_text, self.config.compare_settings):
+            replace_pending = _v2_normalized_len(candidate_text) >= _v2_normalized_len(pending.orig_text)
+            if replace_pending:
+                self._store_v2_pending_text(
+                    text=text,
+                    raw_text=raw_text,
+                    orig_text_string=candidate_text,
+                    orig_text_list=orig_text_list,
+                    current_time=current_time,
+                    img=img,
+                    crop_coords=crop_coords,
+                    response_dict=response_dict,
+                    source=source,
+                    stable_frames=1,
+                )
+            else:
+                pending.stable_frames = 1
+            return
+
+        self._flush_v2_pending_text()
+        if not self._v2_is_already_processed_text(candidate_text, orig_text_list):
+            self._store_v2_pending_text(
+                text=text,
+                raw_text=raw_text,
+                orig_text_string=candidate_text,
+                orig_text_list=orig_text_list,
+                current_time=current_time,
+                img=img,
+                crop_coords=crop_coords,
+                response_dict=response_dict,
+                source=source,
+                stable_frames=1,
+            )
+
+    def _store_v2_pending_text(
+        self,
+        *,
+        text: str,
+        raw_text: str,
+        orig_text_string: str,
+        orig_text_list: list,
+        current_time: datetime,
+        img: Any,
+        crop_coords: Any,
+        response_dict: dict | None,
+        source: str,
+        stable_frames: int,
+    ) -> None:
+        self._v2_pending_text = _V2PendingTextState(
+            text=text,
+            raw_text=raw_text,
+            orig_text=orig_text_string,
+            orig_text_list=orig_text_list,
+            start_time=current_time,
+            img=_copy_img(img),
+            crop_coords=crop_coords,
+            source=source,
+            response_dict=response_dict,
+            stable_frames=stable_frames,
+        )
+
+    def _v2_is_already_processed_text(self, text: str, chunks: list | None = None) -> bool:
+        if not self._v2_last_processed_text:
+            return False
+        if chunks and self._v2_last_processed_chunks:
+            return all(
+                _v2_texts_stable(prev_chunk, new_chunk, self.config.duplicate_threshold)
+                for prev_chunk, new_chunk in zip(self._v2_last_processed_chunks, chunks, strict=False)
+            ) and len(chunks) == len(self._v2_last_processed_chunks)
+        return _v2_texts_stable(self._v2_last_processed_text, text, self.config.duplicate_threshold)
+
+    def _flush_v2_pending_text(self) -> bool:
+        pending = self._v2_pending_text
+        if pending is None:
+            if self.force_stable:
+                self.force_stable = False
+            return False
+
+        self._v2_pending_text = None
+        self.force_stable = False
+
+        if self._is_duplicate_candidate(
+            self.last_sent_result,
+            pending.text,
+            self.config.duplicate_threshold,
+            prev_chunks=self.last_ocr2_result,
+            new_chunks=pending.orig_text_list,
+        ):
+            self._v2_last_processed_text = pending.orig_text
+            self._v2_last_processed_chunks = list(pending.orig_text_list or [])
+            return False
+
+        if self.config.same_engine:
+            self._send_same_engine_filtered(
+                pending.orig_text_list,
+                pending.start_time,
+                pending.img,
+                raw_text=pending.raw_text,
+                response_dict=pending.response_dict,
+                source=pending.source,
+            )
+            self._v2_last_processed_text = pending.orig_text
+            self._v2_last_processed_chunks = list(pending.orig_text_list or [])
+            return True
+
+        ocr2_img = self._build_ocr2_image(pending.crop_coords, pending.img)
+        queued = self._queue_second_pass_task(
+            pending.text,
+            pending.start_time,
+            ocr2_img,
+            pre_crop_image=pending.img,
+            response_dict=pending.response_dict,
+            source=pending.source,
+        )
+        if not queued:
+            self._execute_second_pass(
+                pending.text,
+                pending.start_time,
+                pending.img,
+                crop_coords=pending.crop_coords,
+                response_dict=pending.response_dict,
+                source=pending.source,
+            )
+
+        self._v2_last_processed_text = pending.orig_text
+        self._v2_last_processed_chunks = list(pending.orig_text_list or [])
+        return True
+
+    def _handle_v2_detection(
+        self,
+        *,
+        text: str,
+        detection_boxes: list | None,
+        crop_coords: Any,
+        time: datetime,
+        img: Any,
+        response_dict: dict | None,
+        source: str,
+    ) -> bool:
+        resolved_crop = _resolve_detection_crop_coords(crop_coords, detection_boxes, response_dict)
+        if resolved_crop is None:
+            self._v2_pending_detection = None
+            return True
+
+        pending = self._v2_pending_detection
+        if pending is None or not _coords_close(resolved_crop, pending.crop_coords, self.MEIKI_TOL):
+            self._v2_pending_detection = _V2PendingDetectionState(
+                crop_coords=resolved_crop,
+                start_time=time,
+                img=_copy_img(img),
+                response_dict=response_dict,
+                source=source,
+            )
+            return True
+
+        pre_crop_img = pending.img
+        ocr2_img = self._build_ocr2_image(resolved_crop, pre_crop_img, extra_padding=self.detection_padding)
+        signature = _image_visual_signature(ocr2_img)
+        if (
+            signature is not None
+            and self._v2_last_detection_signature == signature
+            and self._v2_last_detection_crop_coords
+            and _coords_close(resolved_crop, self._v2_last_detection_crop_coords, self.MEIKI_TOL)
+        ):
+            self._v2_pending_detection = None
+            return True
+
+        queued = self._queue_second_pass_task(
+            text,
+            pending.start_time,
+            ocr2_img,
+            pre_crop_image=pre_crop_img,
+            response_dict=response_dict or pending.response_dict,
+            source=pending.source,
+        )
+        if not queued:
+            self._execute_second_pass(
+                text,
+                pending.start_time,
+                ocr2_img,
+                crop_coords=None,
+                response_dict=response_dict or pending.response_dict,
+                source=pending.source,
+            )
+
+        self._v2_last_detection_crop_coords = resolved_crop
+        self._v2_last_detection_signature = signature
+        self._v2_pending_detection = None
+        return True
+
+
 def _copy_img(img: Any) -> Any:
     """Safely copy an image if it supports ``.copy()``."""
     if img is None:
@@ -776,6 +1169,136 @@ def _coords_close(
         return all(abs(int(a[i]) - int(b[i])) <= tol for i in range(4))
     except Exception:
         return False
+
+
+def _v2_normalized_text(text: str) -> str:
+    normalized = normalize_for_comparison(str(text or "")).strip()
+    return normalized or str(text or "").strip()
+
+
+def _v2_normalized_len(text: str) -> int:
+    return len(_v2_normalized_text(text))
+
+
+def _v2_texts_stable(prev_text: str, new_text: str, duplicate_threshold: int) -> bool:
+    prev_norm = _v2_normalized_text(prev_text)
+    new_norm = _v2_normalized_text(new_text)
+    if not prev_norm or not new_norm:
+        return False
+
+    if prev_norm == new_norm:
+        return True
+
+    max_len = max(len(prev_norm), len(new_norm))
+    len_delta = abs(len(prev_norm) - len(new_norm))
+    if len_delta > max(2, int(max_len * 0.10)):
+        return False
+
+    threshold = max(90, int(duplicate_threshold or 90))
+    return (SequenceMatcher(None, prev_norm, new_norm, autojunk=False).ratio() * 100) >= threshold
+
+
+def _v2_text_is_evolving(prev_text: str, new_text: str, settings: OCRCompareSettings | None = None) -> bool:
+    prev_norm = _v2_normalized_text(prev_text)
+    new_norm = _v2_normalized_text(new_text)
+    if not prev_norm or not new_norm:
+        return False
+    return is_evolving_text(prev_norm, new_norm, settings=settings) or is_evolving_text(
+        new_norm,
+        prev_norm,
+        settings=settings,
+    )
+
+
+def _coerce_four_coords(coords: Any) -> tuple[int, int, int, int] | None:
+    if not isinstance(coords, (list, tuple)) or len(coords) < 4:
+        return None
+    try:
+        x1, y1, x2, y2 = (int(round(float(coords[i]))) for i in range(4))
+    except Exception:
+        return None
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return x1, y1, x2, y2
+
+
+def _union_coords(coords_list: list[tuple[int, int, int, int]]) -> tuple[int, int, int, int] | None:
+    if not coords_list:
+        return None
+    return (
+        min(coords[0] for coords in coords_list),
+        min(coords[1] for coords in coords_list),
+        max(coords[2] for coords in coords_list),
+        max(coords[3] for coords in coords_list),
+    )
+
+
+def _looks_like_detection_payload(response_dict: dict | None) -> bool:
+    return isinstance(response_dict, dict) and isinstance(response_dict.get("boxes"), list)
+
+
+def _iter_detection_coord_candidates(
+    detection_boxes: list | None,
+    response_dict: dict | None,
+) -> list[tuple[int, int, int, int]]:
+    candidates: list[tuple[int, int, int, int]] = []
+
+    def _append_from_entries(entries: Any, *, box_key: str | None = None) -> None:
+        if not isinstance(entries, list):
+            return
+        for entry in entries:
+            coords = entry.get(box_key) if box_key and isinstance(entry, dict) else entry
+            coerced = _coerce_four_coords(coords)
+            if coerced is not None:
+                candidates.append(coerced)
+
+    if isinstance(response_dict, dict):
+        _append_from_entries(response_dict.get("crop_coords_list"))
+        _append_from_entries(response_dict.get("boxes"), box_key="box")
+
+    _append_from_entries(detection_boxes, box_key="box")
+    return candidates
+
+
+def _resolve_detection_crop_coords(
+    crop_coords: Any,
+    detection_boxes: list | None,
+    response_dict: dict | None,
+) -> tuple[int, int, int, int] | None:
+    resolved = _coerce_four_coords(crop_coords)
+    if resolved is not None:
+        return resolved
+
+    if isinstance(response_dict, dict):
+        resolved = _coerce_four_coords(response_dict.get("crop_coords"))
+        if resolved is not None:
+            return resolved
+
+    return _union_coords(_iter_detection_coord_candidates(detection_boxes, response_dict))
+
+
+def _pil_image_or_none(img: Any) -> Image.Image | None:
+    if isinstance(img, Image.Image):
+        return img
+    if isinstance(img, (bytes, bytearray)):
+        try:
+            return Image.open(io.BytesIO(img)).convert("RGB")
+        except Exception:
+            return None
+    return None
+
+
+def _image_visual_signature(img: Any, max_size: tuple[int, int] = (64, 64)) -> tuple | None:
+    pil_img = _pil_image_or_none(img)
+    if pil_img is None:
+        return None
+    try:
+        sample = pil_img.convert("L")
+        resampling = getattr(getattr(Image, "Resampling", Image), "BILINEAR", 2)
+        sample.thumbnail(max_size, resampling)
+        return sample.size, sample.tobytes()
+    except Exception:
+        return None
 
 
 def _normalize_bypass_text(text: str, keep_newline: bool) -> str:
@@ -1278,6 +1801,29 @@ class WebsocketServerThread(threading.Thread):
                 await stop_event.wait()
 
         asyncio.run(main())
+
+
+def sync_legacy_websocket_server_state() -> None:
+    """Start or stop the deprecated OCR websocket output according to config."""
+    global websocket_server_thread
+
+    if get_ocr_send_to_websocket():
+        if websocket_server_thread is None or not websocket_server_thread.is_alive():
+            websocket_server_thread = WebsocketServerThread(read=True)
+            websocket_server_thread.start()
+            logger.info("Legacy OCR websocket output initialized")
+        return
+
+    if websocket_server_thread is None:
+        return
+
+    try:
+        if websocket_server_thread._event.wait(timeout=1):
+            websocket_server_thread.stop_server()
+    except Exception as e:
+        logger.debug(f"Failed to stop legacy OCR websocket output: {e}")
+    finally:
+        websocket_server_thread = None
 
 
 # compare_ocr_results imported from GameSentenceMiner.ocr.compare
@@ -1817,6 +2363,18 @@ async def send_result(text, time, response_dict=None, source=TextSource.OCR):
         else:
             overlay_payload = None
         try:
+            metadata = {
+                "sentence": text,
+                "time": time.isoformat(),
+                "process_path": obs.get_current_game(),
+                "source": source,
+            }
+            if overlay_payload:
+                metadata["dict_from_ocr"] = overlay_payload
+            ocr_ipc.announce_ocr_result(text, metadata)
+        except Exception as e:
+            logger.debug(f"Error sending OCR result over IPC: {e}")
+        try:
             if get_ocr_send_to_clipboard(source):
                 import pyperclipfix
 
@@ -1826,6 +2384,9 @@ async def send_result(text, time, response_dict=None, source=TextSource.OCR):
                 pyperclipfix.copy(text)
         except Exception as e:
             logger.error(f"Error sending text to clipboard: {e}")
+
+        if not get_ocr_send_to_websocket() or websocket_server_thread is None:
+            return
 
         try:
             send_future = websocket_server_thread.send_text(
@@ -2037,7 +2598,8 @@ def _build_controller() -> TwoPassOCRController:
     """Build a new TwoPassOCRController with current config and callbacks."""
     cfg = _build_two_pass_config()
     processor = get_second_ocr_processor()
-    return TwoPassOCRController(
+    controller_cls = TwoPassOCRControllerV2 if USE_TWO_PASS_OCR_V2 else TwoPassOCRController
+    return controller_cls(
         config=cfg,
         filtering=processor.filtering,
         send_result=_send_result_callback,
@@ -2105,6 +2667,9 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
             if "ocr_screenshots" in changes:
                 ss_clipboard = get_ocr_ocr_screenshots()
                 logger.info(f"IPC: clipboard screenshot OCR set to {ss_clipboard}")
+
+            if "send_to_websocket" in changes:
+                sync_legacy_websocket_server_state()
 
             # Always sync furigana from per-scene settings file
             global furigana_filter_sensitivity
@@ -2322,7 +2887,9 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
     global done
     screen_area = None
     screen_areas = [
-        ",".join(str(c) for c in rect_config.coordinates) for rect_config in rectangles if not rect_config.is_excluded
+        ",".join(str(c) for c in rect_config.coordinates)
+        for rect_config in rectangles
+        if not rect_config.is_excluded and not getattr(rect_config, "is_black_hole", False)
     ]
     exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, rectangles)))
 
@@ -2497,7 +3064,9 @@ def add_ss_hotkey():
             secondary_rectangles = [
                 list(rectangle.coordinates)
                 for rectangle in current_ocr_config.rectangles
-                if rectangle.is_secondary and not rectangle.is_excluded
+                if rectangle.is_secondary
+                and not rectangle.is_excluded
+                and not getattr(rectangle, "is_black_hole", False)
             ]
             img, crop_offset = run.apply_ocr_config_to_image(img, current_ocr_config, is_secondary=True)
             image_metadata["ocr_area_rectangles"] = secondary_rectangles
@@ -2749,9 +3318,8 @@ if __name__ == "__main__":
             ocr_ipc.announce_started()
             logger.info("OCR IPC communication initialized")
 
-            # Keep websocket for backward compatibility with texthooker page
-            websocket_server_thread = WebsocketServerThread(read=True)
-            websocket_server_thread.start()
+            # Keep optional websocket output for backward compatibility.
+            sync_legacy_websocket_server_state()
 
             if is_windows():
                 add_ss_hotkey()

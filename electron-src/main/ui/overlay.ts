@@ -107,15 +107,121 @@ function getGSMOverlaySettings() {
         websocket_port: 55499,
         engine: 'lens',
         monitor_to_capture: 0,
+        monitor_to_capture_id: '',
+        monitor_to_capture_bounds: {},
         periodic: false,
         periodic_interval: 3.0,
         scan_delay: 0.25,
     };
 }
 
+function normalizeMonitorSelectionBounds(bounds: any) {
+    if (!bounds || typeof bounds !== 'object') {
+        return null;
+    }
+    const left = Math.round(Number(bounds.left ?? bounds.x ?? 0));
+    const top = Math.round(Number(bounds.top ?? bounds.y ?? 0));
+    const width = Math.round(Number(bounds.width ?? 0));
+    const height = Math.round(Number(bounds.height ?? 0));
+    if (!Number.isFinite(left) || !Number.isFinite(top) || width <= 0 || height <= 0) {
+        return null;
+    }
+    return { left, top, width, height };
+}
+
+function monitorIdentityFromBounds(bounds: any): string {
+    const normalized = normalizeMonitorSelectionBounds(bounds);
+    if (!normalized) {
+        return '';
+    }
+    return `bounds:${normalized.left}:${normalized.top}:${normalized.width}:${normalized.height}`;
+}
+
+function getDisplayPhysicalBounds(display: Electron.Display) {
+    const bounds = display.bounds;
+    if (typeof screen.dipToScreenRect === 'function') {
+        try {
+            return normalizeMonitorSelectionBounds(screen.dipToScreenRect(null, bounds));
+        } catch {
+            return normalizeMonitorSelectionBounds(bounds);
+        }
+    }
+    return normalizeMonitorSelectionBounds(bounds);
+}
+
+function monitorBoundsMatch(left: any, right: any, tolerance = 2): boolean {
+    if (!left || !right) {
+        return false;
+    }
+    return (
+        Math.abs(left.left - right.left) <= tolerance &&
+        Math.abs(left.top - right.top) <= tolerance &&
+        Math.abs(left.width - right.width) <= tolerance &&
+        Math.abs(left.height - right.height) <= tolerance
+    );
+}
+
+function monitorBoundsOverlapArea(left: any, right: any): number {
+    if (!left || !right) {
+        return 0;
+    }
+    const leftRight = left.left + left.width;
+    const leftBottom = left.top + left.height;
+    const rightRight = right.left + right.width;
+    const rightBottom = right.top + right.height;
+    const overlapWidth = Math.max(0, Math.min(leftRight, rightRight) - Math.max(left.left, right.left));
+    const overlapHeight = Math.max(0, Math.min(leftBottom, rightBottom) - Math.max(left.top, right.top));
+    return overlapWidth * overlapHeight;
+}
+
+function findDisplayDescriptorByBounds(descriptors: any[], requestedBounds: any) {
+    const exactMatch = descriptors.find((descriptor) => monitorBoundsMatch(descriptor.bounds, requestedBounds));
+    if (exactMatch) {
+        return exactMatch;
+    }
+
+    const targetArea = Math.max(1, requestedBounds.width * requestedBounds.height);
+    let bestDescriptor = null;
+    let bestOverlapRatio = 0;
+    for (const descriptor of descriptors) {
+        const overlapRatio = monitorBoundsOverlapArea(descriptor.bounds, requestedBounds) / targetArea;
+        if (overlapRatio > bestOverlapRatio) {
+            bestOverlapRatio = overlapRatio;
+            bestDescriptor = descriptor;
+        }
+    }
+    return bestOverlapRatio >= 0.95 ? bestDescriptor : null;
+}
+
+function resolveDisplayByMonitorIdentity(displays: Electron.Display[], overlaySettings: any) {
+    const descriptors = displays
+        .map((display, index) => {
+            const bounds = getDisplayPhysicalBounds(display);
+            return { display, index, bounds, id: monitorIdentityFromBounds(bounds) };
+        })
+        .filter((descriptor) => descriptor.id);
+    const requestedId = String(overlaySettings.monitor_to_capture_id || '').trim();
+    if (requestedId) {
+        const idMatch = descriptors.find((descriptor) => descriptor.id === requestedId);
+        if (idMatch) {
+            return idMatch;
+        }
+    }
+    const requestedBounds = normalizeMonitorSelectionBounds(overlaySettings.monitor_to_capture_bounds);
+    if (requestedBounds) {
+        return findDisplayDescriptorByBounds(descriptors, requestedBounds);
+    }
+    return null;
+}
+
 function getCurrentOverlayMonitor() {
     const overlaySettings = getGSMOverlaySettings();
-    return screen.getAllDisplays()[overlaySettings.monitor_to_capture] || screen.getPrimaryDisplay();
+    const displays = screen.getAllDisplays();
+    const identitySelection = resolveDisplayByMonitorIdentity(displays, overlaySettings);
+    if (identitySelection) {
+        return identitySelection.display;
+    }
+    return displays[overlaySettings.monitor_to_capture] || screen.getPrimaryDisplay();
 }
 
 function saveSettings() {

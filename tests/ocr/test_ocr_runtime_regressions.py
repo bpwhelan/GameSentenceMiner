@@ -94,6 +94,18 @@ def test_post_process_normalizes_contextual_japanese_dashes_to_choonpu():
     assert text == "一刻も早く、スーパーでＡ－１を買う"
 
 
+def test_post_process_collapses_repeated_japanese_middle_dots():
+    text = post_process("私は・・・・・・まだうまく受け止められてないから。")
+
+    assert text == "私は・・・まだうまく受け止められてないから。"
+
+
+def test_post_process_collapses_google_lens_dot_variants():
+    text = post_process("私は••••••まだ······うまく受け止められてないから。")
+
+    assert text == "私は・・・まだ・・・うまく受け止められてないから。"
+
+
 def test_build_overlay_coordinate_payload_normalizes_lookup_text_dashes():
     response_dict = {
         "line_coords": [
@@ -283,6 +295,35 @@ def test_apply_ocr_config_to_image_scales_percentage_rectangles_to_frame_size():
     assert offset == (640, 360)
 
 
+def test_apply_ocr_config_to_image_includes_black_hole_rectangles_in_primary_crop():
+    img = Image.new("L", (100, 20), color=255)
+    config = SimpleNamespace(
+        rectangles=[
+            SimpleNamespace(
+                coordinates=[0, 0, 10, 10],
+                is_excluded=False,
+                is_secondary=False,
+                is_black_hole=False,
+            ),
+            SimpleNamespace(
+                coordinates=[40, 0, 10, 10],
+                is_excluded=False,
+                is_secondary=False,
+                is_black_hole=True,
+            ),
+        ]
+    )
+
+    processed, offset = run_module.apply_ocr_config_to_image(
+        img,
+        config,
+        return_full_size=False,
+    )
+
+    assert processed.size == (50, 10)
+    assert offset == (0, 0)
+
+
 def test_ocr_processor_second_pass_suppresses_subset_chunk_duplicate(monkeypatch):
     sent = []
     saved = []
@@ -345,6 +386,45 @@ def test_describe_obs_source_selection_handles_no_valid_source():
     assert message == (
         "Multiple active video sources found, but no valid source has output yet. Retrying screenshot capture."
     )
+
+
+def test_obs_area_selector_uses_single_fast_initial_screenshot(monkeypatch):
+    calls = []
+
+    def fake_get_screenshot_pil(**kwargs):
+        calls.append(kwargs)
+        return Image.new("RGB", (640, 360), color=(255, 255, 255))
+
+    monkeypatch.setattr(area_selector_qt.obs, "get_screenshot_PIL", fake_get_screenshot_pil)
+    monkeypatch.setattr(
+        area_selector_qt.obs,
+        "get_active_video_sources",
+        lambda: (_ for _ in ()).throw(AssertionError("source enumeration should not run before first capture")),
+    )
+    monkeypatch.setattr(
+        area_selector_qt.obs,
+        "get_best_source_for_screenshot",
+        lambda: (_ for _ in ()).throw(AssertionError("source validation should not run before first capture")),
+    )
+
+    selector = SimpleNamespace(
+        overlay_config_mode=False,
+        screenshot_img=None,
+        target_window_geometry={},
+        bounding_box_original=None,
+        monitors=[],
+        _fit_capture_to_screen=lambda original_w, original_h: setattr(
+            selector,
+            "fit_args",
+            (original_w, original_h),
+        ),
+    )
+
+    area_selector_qt.OWOCRAreaSelectorWidget._init_obs_screenshot(selector)
+
+    assert calls == [{"compression": 90, "img_format": "jpg", "retry": 1}]
+    assert selector.fit_args == (640, 360)
+    assert selector.target_window_geometry == {"left": 0, "top": 0, "width": 640, "height": 360}
 
 
 def test_obs_screenshot_thread_capture_original_size_falls_back_when_source_dimensions_missing():

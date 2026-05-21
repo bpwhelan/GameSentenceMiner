@@ -935,22 +935,24 @@ class TestMeikiFirstPass:
             second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_refined",
         )
+        base_coords = (10, 20, 100, 50)
+        tol = TwoPassOCRController.MEIKI_TOL
+        shifted_coords = tuple(coord + tol for coord in base_coords)
         ctrl.handle_ocr_result(
             "テスト",
             ["テスト"],
             _make_time(),
             _dummy_img(),
-            meiki_boxes=[{"box": (10, 20, 100, 50)}],
-            crop_coords=(10, 20, 100, 50),
+            meiki_boxes=[{"box": base_coords}],
+            crop_coords=base_coords,
         )
-        # +3 pixels – within tolerance of 5
         ctrl.handle_ocr_result(
             "テスト",
             ["テスト"],
             _make_time(1),
             _dummy_img(),
-            meiki_boxes=[{"box": (13, 22, 102, 53)}],
-            crop_coords=(13, 22, 102, 53),
+            meiki_boxes=[{"box": shifted_coords}],
+            crop_coords=shifted_coords,
         )
         assert len(sent_texts) == 1
 
@@ -962,22 +964,24 @@ class TestMeikiFirstPass:
             second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_refined",
         )
+        base_coords = (10, 20, 100, 50)
+        outside_tol = TwoPassOCRController.MEIKI_TOL + 1
+        shifted_coords = tuple(coord + outside_tol for coord in base_coords)
         ctrl.handle_ocr_result(
             "テスト",
             ["テスト"],
             _make_time(),
             _dummy_img(),
-            meiki_boxes=[{"box": (10, 20, 100, 50)}],
-            crop_coords=(10, 20, 100, 50),
+            meiki_boxes=[{"box": base_coords}],
+            crop_coords=base_coords,
         )
-        # +6 pixels – outside tolerance
         ctrl.handle_ocr_result(
             "テスト",
             ["テスト"],
             _make_time(1),
             _dummy_img(),
-            meiki_boxes=[{"box": (16, 26, 106, 56)}],
-            crop_coords=(16, 26, 106, 56),
+            meiki_boxes=[{"box": shifted_coords}],
+            crop_coords=shifted_coords,
         )
         assert len(sent_texts) == 0
 
@@ -2226,12 +2230,12 @@ class TestLastSentSubstringTrim:
         assert len(sent_texts) == 1
         assert sent_texts[0]["text"] == "続き"
 
-    def test_same_engine_bypass_trims_suffix_match(self, sent_texts):
+    def test_same_engine_bypass_preserves_suffix_match(self, sent_texts):
         ctrl = _make_controller(self.CFG_SAME, sent_texts)
         ctrl.last_sent_result = "前の文"
         ctrl._send_same_engine_filtered(["続き  前の文"], _make_time(), _dummy_img())
         assert len(sent_texts) == 1
-        assert sent_texts[0]["text"] == "続き"
+        assert sent_texts[0]["text"] == "続き前の文"
 
     def test_dispatch_second_pass_trims_prefix_match(self, sent_texts):
         ctrl = _make_controller(self.CFG_DIFF, sent_texts)
@@ -2246,7 +2250,7 @@ class TestLastSentSubstringTrim:
         assert len(sent_texts) == 1
         assert sent_texts[0]["text"] == "続き"
 
-    def test_dispatch_second_pass_trims_suffix_match(self, sent_texts):
+    def test_dispatch_second_pass_preserves_suffix_match(self, sent_texts):
         ctrl = _make_controller(self.CFG_DIFF, sent_texts)
         ctrl.last_sent_result = "前の文"
         sent = ctrl._dispatch_second_pass_result(
@@ -2257,4 +2261,4 @@ class TestLastSentSubstringTrim:
         )
         assert sent is True
         assert len(sent_texts) == 1
-        assert sent_texts[0]["text"] == "続き"
+        assert sent_texts[0]["text"] == "続き  前の文"

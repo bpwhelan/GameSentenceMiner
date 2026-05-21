@@ -296,15 +296,6 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(
             tabs_i18n,
             "game_pausing",
-            "allowlist",
-            default_tooltip="Comma-separated exe names that are always allowed.",
-        ),
-        _create_process_list_row(window, window.process_pausing_allowlist_edit, "allowlist"),
-    )
-    process_layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n,
-            "game_pausing",
             "denylist",
             default_tooltip="Comma-separated exe names that are always blocked.",
         ),

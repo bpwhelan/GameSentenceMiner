@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import datetime
 import json
-import time
 
 import flask
 import pytest
@@ -230,6 +229,35 @@ class TestStatsResponseShape:
         assert "vocabularyStats" in data
         assert "newWordsSeries" in data
         assert "newWordsByGame" in data
+
+    def test_stats_can_skip_tokenization_payload_for_fast_overview_load(self, client, monkeypatch):
+        _patch_heavy_deps(monkeypatch)
+        monkeypatch.setattr(
+            "GameSentenceMiner.web.stats_api.build_global_word_novelty",
+            lambda start, end: pytest.fail("word novelty should be lazy-loaded outside overview startup"),
+        )
+
+        target_day = datetime.date.today() - datetime.timedelta(days=1)
+        _seed_rollup(target_day.strftime("%Y-%m-%d"), total_chars=2000, anki_cards=3)
+
+        start_ts = datetime.datetime.combine(target_day, datetime.time.min).timestamp()
+        end_ts = datetime.datetime.combine(target_day, datetime.time.max).timestamp()
+        resp = client.get(f"/api/stats?start={start_ts}&end={end_ts}&include_tokenization=false")
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["tokenizationStatus"] == {"enabled": False, "percentComplete": 0.0}
+        assert data["vocabularyStats"] == {
+            "uniqueWordsSeen": 0,
+            "newWordsFirstSeen": 0,
+            "newWordsPer10kChars": 0.0,
+        }
+        assert data["newWordsSeries"] == {
+            "labels": [target_day.isoformat()],
+            "dailyNew": [0],
+            "cumulative": [0],
+        }
+        assert data["newWordsByGame"] == {"labels": [], "totals": []}
 
     def test_stats_returns_word_novelty_payload_when_tokenization_data_exists(self, client, monkeypatch, _in_memory_db):
         _patch_heavy_deps(monkeypatch)

@@ -54,6 +54,72 @@ def _guess_image_mimetype(raw: bytes, declared_mimetype: str | None = None) -> s
     return "image/png"
 
 
+def _get_game_line_dates(game_id: str) -> list[str]:
+    rows = GameLinesTable._db.fetchall(
+        f"""
+        SELECT DISTINCT DATE(datetime(timestamp, 'unixepoch', 'localtime')) AS date
+        FROM {GameLinesTable._table}
+        WHERE game_id = ? AND timestamp IS NOT NULL
+        ORDER BY date
+        """,
+        (game_id,),
+    )
+    return [str(row[0]) for row in rows if row and row[0]]
+
+
+def _get_game_rollup_dates(game_id: str) -> list[str]:
+    import json
+
+    from GameSentenceMiner.util.database.game_daily_rollup_table import GameDailyRollupTable
+    from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+
+    dates = {
+        str(row[0])
+        for row in GameLinesTable._db.fetchall(
+            f"SELECT DISTINCT date FROM {GameDailyRollupTable._table} WHERE game_id = ?",
+            (game_id,),
+        )
+        if row and row[0]
+    }
+
+    matching_rollups = GameLinesTable._db.fetchall(
+        f"""
+        SELECT date, game_activity_data, games_played_ids
+        FROM {StatsRollupTable._table}
+        WHERE game_activity_data LIKE ? OR games_played_ids LIKE ?
+        """,
+        (f"%{game_id}%", f"%{game_id}%"),
+    )
+    for date_str, raw_activity, raw_ids in matching_rollups:
+        try:
+            activity = json.loads(raw_activity or "{}")
+        except (TypeError, json.JSONDecodeError):
+            activity = {}
+        try:
+            game_ids = json.loads(raw_ids or "[]")
+        except (TypeError, json.JSONDecodeError):
+            game_ids = []
+
+        if game_id in activity or game_id in game_ids:
+            dates.add(str(date_str))
+
+    return sorted(dates)
+
+
+def _refresh_rollups_for_dates(dates: list[str]) -> None:
+    if not dates:
+        return
+
+    from GameSentenceMiner.util.cron.daily_rollup import replace_rollup_for_date
+
+    for date_str in dates:
+        try:
+            result = replace_rollup_for_date(date_str)
+            logger.debug(f"Refreshed stats rollup after game deletion for {date_str}: {result}")
+        except Exception as rollup_error:
+            logger.error(f"Stats rollup refresh failed for {date_str} after game deletion: {rollup_error}")
+
+
 @game_management_bp.route("/api/games-management", methods=["GET"])
 def api_games_management():
     """
@@ -438,6 +504,7 @@ def api_delete_game_lines(game_id):
             (game_id,),
         )
         lines_to_delete = lines_count[0] if lines_count else 0
+        affected_dates = sorted({*_get_game_line_dates(game_id), *_get_game_rollup_dates(game_id)})
 
         # PERMANENTLY DELETE all lines for this game (may be zero)
         GameLinesTable._db.execute(
@@ -455,6 +522,7 @@ def api_delete_game_lines(game_id):
 
         # Trigger stats rollup after deleting game lines
         invalidate_game_profiles_cache()
+        _refresh_rollups_for_dates(affected_dates)
         try:
             logger.info("Triggering stats rollup after game lines deletion")
             cron_scheduler.force_daily_rollup()

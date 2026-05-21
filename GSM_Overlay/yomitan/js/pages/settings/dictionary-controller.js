@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023-2025  Yomitan Authors
+ * Copyright (C) 2023-2026  Yomitan Authors
  * Copyright (C) 2020-2022  Yomichan Authors
  *
  * This program is free software: you can redistribute it and/or modify
@@ -356,6 +356,8 @@ class DictionaryEntry {
             kanjiMeta: 'Kanji Meta Count',
             tagMeta: 'Tag Count',
             media: 'Media Count',
+            frequencyMode: 'Frequency Mode',
+            prefixWildcardsSupported: 'Prefix Wildcards Enabled',
             importSuccess: 'Import Success',
         };
 

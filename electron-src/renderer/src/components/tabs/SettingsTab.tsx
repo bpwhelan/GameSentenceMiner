@@ -66,8 +66,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   windowTransparencyTarget: "",
   runWindowTransparencyToolOnStartup: false,
   runOverlayOnStartup: false,
+  textCaptureWizardEnabled: true,
   visibleTabs: ["launcher", "stats", "python", "console"],
   statsEndpoint: "overview",
+  singlePort: 7275,
   locale: "en"
 };
 
@@ -655,6 +657,20 @@ export function SettingsTab({ active }: SettingsTabProps) {
                   />
                 </div>
               ) : null}
+
+              <div className="input-group">
+                <label htmlFor="text-capture-wizard-enabled">
+                  {t("settings.desktop.textCaptureWizard")}
+                </label>
+                <input
+                  id="text-capture-wizard-enabled"
+                  type="checkbox"
+                  checked={settings.textCaptureWizardEnabled}
+                  onChange={(event) =>
+                    patchSettings({ textCaptureWizardEnabled: event.target.checked })
+                  }
+                />
+              </div>
             </div>
           </section>
 

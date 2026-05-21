@@ -163,7 +163,6 @@ class AspectRatioLabel(QLabel):
 
 _anki_confirmation_dialog_instance = None
 
-EXPERIMENTAL_DIALOGUE_LINE_EXPANSION_ENABLED = True
 AUTO_ADD_DIALOGUE_LINE_EPSILON_SECONDS = 0.05
 AUTO_ADD_DIALOGUE_LINE_DEBOUNCE_MS = 175
 
@@ -366,6 +365,15 @@ class AnkiConfirmationDialog(QDialog):
         self.screenshot_button.clicked.connect(self._cancel_auto_accept)
         self.screenshot_button.clicked.connect(lambda: self._select_screenshot(previous=False))
         self.grid_layout.addWidget(self.screenshot_button, row, 2, Qt.AlignmentFlag.AlignLeft)
+        row += 1
+
+        self.animated_audio_notice_label = QLabel(
+            "Heads up: adding audio padding regenerates the AVIF; trimming shorter reuses the background render."
+        )
+        self.animated_audio_notice_label.setStyleSheet("color: #856404; font-size: 11px;")
+        self.animated_audio_notice_label.setWordWrap(True)
+        self.animated_audio_notice_label.setVisible(False)
+        self.grid_layout.addWidget(self.animated_audio_notice_label, row, 1, 1, 2)
         row += 1
 
         # 5. Previous Screenshot
@@ -610,6 +618,8 @@ class AnkiConfirmationDialog(QDialog):
             self.screenshot_button.setText("Select New Screenshot")
             self.screenshot_button.setStyleSheet("")
             self.screenshot_button.setEnabled(True)
+        animated_extension = getattr(get_config().screenshot.animated_settings, "extension", "").lower()
+        self.animated_audio_notice_label.setVisible(bool(pending_animated and animated_extension == "avif"))
 
         use_prev_image = bool(self.previous_screenshot_path and get_config().anki.previous_image_field)
         self.prev_screenshot_label_title.setVisible(use_prev_image)
@@ -742,7 +752,6 @@ class AnkiConfirmationDialog(QDialog):
     def _on_handle_moved(self, which, start, end):
         self._sync_audio_edit_selection_to_current_clip(start, end)
         self._update_audio_expand_buttons()
-        self._schedule_auto_line_expand(which)
         if which == "start":
             # Stop audio and force restart (debounced)
             self.audio_player.stop_audio()
@@ -861,10 +870,7 @@ class AnkiConfirmationDialog(QDialog):
 
     def _dialogue_line_expansion_enabled(self):
         return bool(
-            EXPERIMENTAL_DIALOGUE_LINE_EXPANSION_ENABLED
-            and self._replay_context
-            and getattr(self._replay_context, "video_path", None)
-            and self._dialog_selected_lines
+            self._replay_context and getattr(self._replay_context, "video_path", None) and self._dialog_selected_lines
         )
 
     def _initialize_dialogue_line_timeline(self):
@@ -1544,6 +1550,7 @@ class AnkiConfirmationDialog(QDialog):
         # Check if trimmed
         start, end = self.waveform_widget.get_selection_range()
         duration = self.waveform_widget.duration
+        self._sync_audio_edit_selection_to_current_clip(start, end)
 
         # Tolerance for float comparison
         if abs(start) < 0.01 and abs(end - duration) < 0.01:
@@ -1659,11 +1666,16 @@ class AnkiConfirmationDialog(QDialog):
         self.audio_player.cleanup()
 
     def _build_dialog_result_metadata(self):
+        audio_edit_range = None
+        if self._audio_edit_range:
+            audio_edit_range = (float(self._audio_edit_range[0]), float(self._audio_edit_range[1]))
+
         return {
             "selected_lines": self._selected_lines_for_pipeline(),
             "line_selection_changed": self._dialog_line_selection_changed,
             "audio_result": self._dialog_audio_result if self._dialog_line_selection_changed else None,
             "translation_regenerated": self._dialog_translation_regenerated,
+            "audio_edit_range": audio_edit_range,
         }
 
     def _on_voice(self):

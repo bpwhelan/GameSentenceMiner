@@ -66,6 +66,7 @@ try:
 
     from GameSentenceMiner import obs
     from GameSentenceMiner.obs import check_obs_folder_is_correct
+    from GameSentenceMiner.profile_switcher import ProfileSwitcher, get_profile_switcher
     from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
     from GameSentenceMiner.util.communication.electron_ipc import (
         FunctionName,
@@ -91,7 +92,6 @@ try:
         is_mac,
         is_windows,
         logger,
-        switch_profile_and_save,
     )
     from GameSentenceMiner.util.gsm_cloud_auth_cache import gsm_cloud_auth_cache_service
     from GameSentenceMiner.util.cloud_sync import cloud_sync_service
@@ -491,6 +491,14 @@ class GSMApplication:
         self._threads: list[threading.Thread] = []
         self._obs_connect_task: Optional[asyncio.Task] = None
         self._obs_launch_thread: Optional[threading.Thread] = None
+        self.profile_switcher = get_profile_switcher()
+
+    def _get_profile_switcher(self) -> ProfileSwitcher:
+        profile_switcher = getattr(self, "profile_switcher", None)
+        if profile_switcher is None:
+            profile_switcher = get_profile_switcher()
+            self.profile_switcher = profile_switcher
+        return profile_switcher
 
     def _start_thread(self, target, name: str) -> threading.Thread:
         thread = threading.Thread(target=target, name=name, daemon=True)
@@ -507,6 +515,9 @@ class GSMApplication:
             raise
 
     def _launch_obs_early(self) -> None:
+        if _is_running_under_electron():
+            logger.info("Skipping Python-managed OBS launch because GSM is running under Electron.")
+            return
         if self._obs_launch_thread and self._obs_launch_thread.is_alive():
             return
 
@@ -594,11 +605,7 @@ class GSMApplication:
         _get_texthooking_page_module().open_texthooker()
 
     def switch_profile(self, profile_name: str) -> None:
-        logger.info(f"Switching to profile: {profile_name}")
-        get_master_config().current_profile = profile_name
-        switch_profile_and_save(profile_name)
-        if self.state.settings_window:
-            self.state.settings_window.reload_settings()
+        self._get_profile_switcher().switch_profile(profile_name, settings_window=self.state.settings_window)
 
     def test_anki_confirmation(self, *args) -> None:
         from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
@@ -699,7 +706,7 @@ class GSMApplication:
             obs.stop_replay_buffer()
             obs.disconnect_from_obs()
 
-            if get_config().obs.close_obs:
+            if get_config().obs.close_obs and not _is_running_under_electron():
                 self.close_obs()
 
             _get_websocket_manager().stop_all()
@@ -747,10 +754,16 @@ class GSMApplication:
                 except Exception as e:
                     logger.error(f"Error removing temporary video file {video}: {e}")
 
-            _get_window_state_monitor_module().cleanup_suspended_processes()
+            window_state_monitor_module = _get_window_state_monitor_module()
+            getattr(window_state_monitor_module, "cleanup_minimized_audio_mutes", lambda: None)()
+            window_state_monitor_module.cleanup_suspended_processes()
             _get_qt_main_module().shutdown_qt_app()
             self.state.async_runner.stop()
 
+            # Release the single-instance lock before notifying Electron so that
+            # when Electron immediately spawns a new Python process it can acquire
+            # the lock without seeing a "GSM is already running" false-positive.
+            _release_single_instance_lock()
             send_message("cleanup_complete")
         except Exception as e:
             logger.exception(f"Error during cleanup: {e}")
@@ -966,7 +979,7 @@ class GSMApplication:
         self._start_thread(_get_run_text_hooker_page(), "texthooker-page")
 
     def handle_ipc_command(self, cmd: dict) -> None:
-        logger.background(f"IPC Command Received: {cmd}")
+        logger.debug(f"IPC Command Received: {cmd}")
         try:
             function = cmd.get("function")
             if function == FunctionName.QUIT.value:
@@ -984,6 +997,11 @@ class GSMApplication:
                     root_tab_key=str(data.get("root_tab_key") or ""),
                     subtab_key=str(data.get("subtab_key") or ""),
                 )
+            elif function == FunctionName.RELOAD_SETTINGS.value:
+                configuration.reload_config()
+                if self.state.settings_window:
+                    self.state.settings_window.reload_settings()
+                self.on_config_changed()
             elif function == FunctionName.OPEN_OVERLAY_SETTINGS.value:
                 from GameSentenceMiner.web.gsm_websocket import (
                     request_overlay_settings_open,
@@ -1020,10 +1038,103 @@ class GSMApplication:
                 sys.exit(0)
             elif function == FunctionName.CONNECT.value:
                 logger.debug("Electron reported connect")
+            elif function == FunctionName.TEXTHOOK_TEXT.value:
+                self._handle_texthook_line(cmd.get("data") if isinstance(cmd, dict) else None)
+            elif function == FunctionName.OCR_RESULT.value:
+                self._handle_ocr_result(cmd.get("data") if isinstance(cmd, dict) else None)
             else:
                 logger.background(f"Unknown IPC command: {cmd}")
         except Exception as e:
             logger.background(f"Error handling IPC command: {e}")
+
+    def _handle_ocr_result(self, data: Optional[dict]) -> None:
+        """Forward OCR subprocess IPC results into the normal text-intake pipeline."""
+        if not isinstance(data, dict):
+            return
+
+        text = data.get("text") or data.get("sentence")
+        if not isinstance(text, str) or not text.strip():
+            return
+
+        line_time = None
+        raw_time = data.get("time")
+        if isinstance(raw_time, str) and raw_time.strip():
+            try:
+                from datetime import datetime as _dt
+
+                line_time = _dt.fromisoformat(raw_time)
+            except ValueError:
+                line_time = None
+
+        dict_from_ocr = data.get("dict_from_ocr")
+        source = str(data.get("source") or TextSource.OCR)
+        source_display_name = str(data.get("source_display_name") or "GSM OCR")
+
+        try:
+            from GameSentenceMiner import gametext as gametext_module
+        except Exception as e:
+            logger.background(f"Failed to import gametext for OCR intake: {e}")
+            return
+
+        if text == getattr(gametext_module, "current_line", ""):
+            return
+
+        coro = gametext_module.handle_new_text_event(
+            text,
+            line_time,
+            dict_from_ocr=dict_from_ocr,
+            source=source,
+            source_display_name=source_display_name,
+        )
+        try:
+            self.state.async_runner.submit(coro)
+            # Suppress duplicate delivery from the deprecated OCR websocket path.
+            gametext_module.current_line = text
+        except Exception as e:
+            try:
+                coro.close()
+            except Exception:
+                pass
+            logger.background(f"Failed to schedule OCR result: {e}")
+
+    def _handle_texthook_line(self, data: Optional[dict]) -> None:
+        """Forward a line received from the Electron-side text hook engine into the
+        normal text-intake pipeline."""
+        if not isinstance(data, dict):
+            return
+        text = data.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return
+        engine = str(data.get("engine") or "").strip().lower()
+        exe_name = str(data.get("exeName") or "").strip()
+        hook_id = data.get("hookId")
+        source = "Texthook"
+        display_parts = []
+        if engine:
+            display_parts.append(engine.capitalize())
+        if exe_name:
+            display_parts.append(exe_name)
+        if hook_id is not None and str(hook_id):
+            display_parts.append(f"#{hook_id}")
+        display_name = " · ".join(display_parts) if display_parts else None
+
+        try:
+            from GameSentenceMiner.gametext import handle_new_text_event
+            from datetime import datetime as _dt
+        except Exception as e:
+            logger.background(f"Failed to import gametext for texthook intake: {e}")
+            return
+
+        coro = handle_new_text_event(
+            text,
+            line_time=_dt.now(),
+            source=source,
+            source_display_name=display_name,
+        )
+        try:
+            self.state.async_runner.submit(coro)
+        except Exception as e:
+            logger.background(f"Failed to schedule texthook line: {e}")
 
     def get_previous_lines_for_game(self) -> None:
         if not _is_overlay_previous_line_check_enabled():
@@ -1044,61 +1155,13 @@ class GSMApplication:
         except Exception as e:
             logger.debug(f"Error getting previous lines for game: {e}")
 
-    @staticmethod
-    def _get_matching_profiles_for_scene(scene: str) -> list[str]:
-        normalized_scene = str(scene or "").strip()
-        if not normalized_scene:
-            return []
-
-        matching_profiles = []
-        for name, config in get_master_config().configs.items():
-            configured_scenes = {
-                str(configured_scene or "").strip() for configured_scene in getattr(config, "scenes", [])
-            }
-            configured_scenes.discard("")
-            if normalized_scene in configured_scenes:
-                matching_profiles.append(str(name).strip())
-        return matching_profiles
-
-    def _resolve_profile_for_scene(self, scene: str, *, interactive: bool) -> str | None:
-        matching_profiles = self._get_matching_profiles_for_scene(scene)
-        current_profile = get_master_config().current_profile
-
-        if len(matching_profiles) > 1:
-            if current_profile in matching_profiles:
-                return current_profile
-            if not interactive:
-                logger.info(f"Skipping ambiguous profile switch for scene '{scene}': {matching_profiles}")
-                return None
-
-            from GameSentenceMiner.ui.qt_main import launch_scene_selection
-
-            return launch_scene_selection(matching_profiles) or None
-
-        if matching_profiles:
-            return matching_profiles[0]
-        if get_master_config().switch_to_default_if_not_found:
-            return configuration.DEFAULT_CONFIG
-        return None
-
-    def _sync_profile_for_scene(
-        self, scene: str, *, interactive: bool, refresh_previous_lines_on_switch: bool = True
-    ) -> str | None:
-        switch_to = self._resolve_profile_for_scene(scene, interactive=interactive)
-        if not switch_to or switch_to == get_master_config().current_profile:
-            return switch_to
-
-        logger.info(f"Switching to profile: {switch_to}")
-        get_master_config().current_profile = switch_to
-        switch_profile_and_save(switch_to)
-        if refresh_previous_lines_on_switch:
-            self.get_previous_lines_for_game()
-        if self.state.settings_window:
-            self.state.settings_window.reload_settings()
-        return switch_to
-
     def _check_profile_for_scene_tick(self, scene: str) -> None:
-        self._sync_profile_for_scene(scene, interactive=False)
+        self._get_profile_switcher().sync_profile_for_scene(
+            scene,
+            interactive=False,
+            settings_window=self.state.settings_window,
+            on_profile_switched=self.get_previous_lines_for_game,
+        )
 
     def _register_scene_observed_profile_check(self) -> None:
         service = getattr(obs, "obs_service", None)
@@ -1127,7 +1190,11 @@ class GSMApplication:
                 logger.debug(f"Failed to queue Sudachi user dictionary export from scene callback for '{scene}': {exc}")
             gsm_state.current_game = obs.get_current_game()
             self.get_previous_lines_for_game()
-            self._sync_profile_for_scene(scene, interactive=True, refresh_previous_lines_on_switch=False)
+            self._get_profile_switcher().sync_profile_for_scene(
+                scene,
+                interactive=True,
+                settings_window=self.state.settings_window,
+            )
 
         await obs.register_scene_change_callback(scene_switcher_callback)
 
@@ -1144,6 +1211,10 @@ class GSMApplication:
             self.on_config_changed()
 
         self.start_file_watcher()
+
+        if not gsm_status.obs_connected and (not self._obs_connect_task or self._obs_connect_task.done()):
+            self._obs_connect_task = asyncio.create_task(self._connect_obs_when_available())
+
         await _get_overlay_coords_module().init_overlay_processor()
         _get_window_state_monitor_module().cleanup_suspended_processes()
         _get_vad_processor().init()
@@ -1161,14 +1232,11 @@ class GSMApplication:
         except Exception as exc:
             logger.debug(f"Failed to queue Sudachi user dictionary startup export: {exc}")
 
-        if not self._obs_connect_task or self._obs_connect_task.done():
-            self._obs_connect_task = asyncio.create_task(self._connect_obs_when_available())
-
     async def _connect_obs_when_available(self) -> None:
         if gsm_status.obs_connected:
             return
 
-        await obs.wait_for_obs_ready()
+        await obs.wait_for_obs_ready(interval=0.5 if get_config().obs.open_obs else 2.0)
         if not gsm_state.keep_running:
             return
 
@@ -1177,6 +1245,7 @@ class GSMApplication:
             check_output=True,
             healthcheck_enabled=True,
             start_manager=True,
+            initial_connect_delay=2.0,
         )
         if not gsm_status.obs_connected:
             return
@@ -1261,6 +1330,10 @@ class GSMApplication:
         self.register_hotkeys()
         self.state.settings_window.add_save_hook(self.register_hotkeys)
         self.state.settings_window.add_save_hook(self.on_config_changed)
+        if hasattr(self.state.settings_window, "add_profile_change_hook"):
+            self.state.settings_window.add_profile_change_hook(
+                self._get_profile_switcher().record_manual_profile_switch
+            )
 
         self.state.async_runner.start()
         post_init = self.state.async_runner.submit(self.post_init_async())

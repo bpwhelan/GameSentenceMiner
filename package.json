@@ -1,9 +1,9 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "2026.5.4",
+  "version": "2026.5.5",
   "description": "GameSentenceMiner",
-  "main": "dist/main/main.js",
+  "main": "dist/main/bootstrap.js",
   "scripts": {
     "start": "npm run build && electron .",
     "build": "npm run sync:legacy && npm run build:main && npm run build:renderer",
@@ -51,7 +51,12 @@
       },
       {
         "from": "GSM_Overlay/out",
-        "to": "resources/GSM_Overlay"
+        "to": "resources/GSM_Overlay",
+        "filter": [
+          "**/resources/**",
+          "!make",
+          "!make/**/*"
+        ]
       },
       {
         "from": "uv.lock",
@@ -65,7 +70,9 @@
     },
     "nsis": {
       "menuCategory": "GameSentenceMiner",
-      "include": "build/installer.nsh"
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
+      "packElevateHelper": true
     },
     "mac": {
       "target": "dmg",
@@ -122,6 +129,7 @@
     "electron-store": "^10.0.1",
     "electron-updater": "^6.8.3",
     "extract-zip": "^2.0.1",
+    "frida": "^17.9.7",
     "fuse.js": "^7.3.0",
     "node-window-manager": "^2.2.4",
     "nodejs-file-downloader": "^4.13.0",

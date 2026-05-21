@@ -21,8 +21,13 @@ const writeFileMock = vi.fn();
 const sendStartOBSMock = vi.fn();
 const sendQuitOBSMock = vi.fn();
 const execFileAsyncMock = vi.fn();
+const spawnMock = vi.fn();
 const storeData = new Map<string, unknown>();
 const storeSetMock = vi.fn<(key: string, value: unknown) => void>();
+const readFileSyncMock = vi.fn();
+const writeFileSyncMock = vi.fn();
+const rmSyncMock = vi.fn();
+const mkdirSyncMock = vi.fn();
 
 const UNIFORM_PNG_DATA_URL =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAkSURBVChThcihAQAACIAw/n9asxAMKwOYR8ISlrCEJSxhiWMBgkg/wTHeyiUAAAAASUVORK5CYII=';
@@ -41,6 +46,7 @@ vi.mock('electron', () => ({
 
 vi.mock('child_process', () => ({
     exec: vi.fn(),
+    spawn: spawnMock,
 }));
 
 vi.mock('electron-store', () => ({
@@ -72,6 +78,7 @@ vi.mock('../util.js', () => ({
     BASE_DIR: TEST_BASE_DIR,
     execFileAsync: execFileAsyncMock,
     getAssetsDir: () => 'C:\\test-gsm\\assets',
+    isMacOS: () => false,
     isLinux: () => false,
     isWindows: () => true,
     isWindows10OrHigher: () => true,
@@ -94,6 +101,10 @@ vi.mock('node:fs', async () => {
     return {
         ...actual,
         existsSync: existsSyncMock,
+        readFileSync: readFileSyncMock,
+        writeFileSync: writeFileSyncMock,
+        rmSync: rmSyncMock,
+        mkdirSync: mkdirSyncMock,
         promises: {
             ...actual.promises,
             readFile: readFileMock,
@@ -122,6 +133,100 @@ async function flushPromises() {
     await Promise.resolve();
 }
 
+describe('launchOBSFromElectron', () => {
+    const CONFIG_PATH = 'C:\\test-gsm\\config.json';
+    const DEFAULT_OBS_PATH = 'C:\\test-gsm\\obs-studio\\bin\\64bit\\obs64.exe';
+
+    beforeEach(() => {
+        existsSyncMock.mockReset();
+        readFileSyncMock.mockReset();
+        writeFileSyncMock.mockReset();
+        rmSyncMock.mockReset();
+        mkdirSyncMock.mockReset();
+        spawnMock.mockReset();
+        obsCallMock.mockReset();
+        obsConnectMock.mockReset();
+        obsDisconnectMock.mockReset();
+        obsOnMock.mockReset();
+        obsRemoveAllListenersMock.mockReset();
+        storeData.clear();
+        readFileSyncMock.mockReturnValue('{}');
+        spawnMock.mockReturnValue({ pid: 4242, once: vi.fn(), unref: vi.fn() });
+    });
+
+    it('skips startup launch when the active Python profile disables open_obs', async () => {
+        existsSyncMock.mockImplementation((targetPath: string) => targetPath === CONFIG_PATH);
+        readFileSyncMock.mockReturnValue(
+            JSON.stringify({
+                current_profile: 'Default',
+                configs: {
+                    Default: {
+                        obs: {
+                            open_obs: false,
+                        },
+                    },
+                },
+            })
+        );
+        const { launchOBSFromElectron } = await loadObsModule();
+
+        const result = await launchOBSFromElectron({ reason: 'test' });
+
+        expect(result.status).toBe('skipped');
+        expect(spawnMock).not.toHaveBeenCalled();
+    });
+
+    it('launches the portable OBS runtime with GSM startup flags', async () => {
+        existsSyncMock.mockImplementation((targetPath: string) => targetPath === DEFAULT_OBS_PATH);
+        const { launchOBSFromElectron } = await loadObsModule();
+
+        const result = await launchOBSFromElectron({ reason: 'test' });
+
+        expect(result).toEqual({ status: 'launched', pid: 4242 });
+        expect(spawnMock).toHaveBeenCalledWith(
+            DEFAULT_OBS_PATH,
+            expect.arrayContaining([
+                '--disable-shutdown-check',
+                '--portable',
+                '--disable-updater',
+                '--startreplaybuffer',
+            ]),
+            expect.objectContaining({
+                cwd: 'C:\\test-gsm\\obs-studio\\bin\\64bit',
+                detached: true,
+                stdio: 'ignore',
+            })
+        );
+        expect(writeFileSyncMock).toHaveBeenCalledWith(
+            'C:\\test-gsm\\obs_pid.txt',
+            '4242',
+            'utf-8'
+        );
+    });
+
+    it('does not perform launch filesystem work synchronously', async () => {
+        existsSyncMock.mockImplementation((targetPath: string) => targetPath === DEFAULT_OBS_PATH);
+        const { launchOBSFromElectron } = await loadObsModule();
+
+        const launchPromise = launchOBSFromElectron({ reason: 'test' });
+
+        expect(existsSyncMock).not.toHaveBeenCalled();
+        expect(spawnMock).not.toHaveBeenCalled();
+
+        await launchPromise;
+    });
+
+    it('reports missing when the configured OBS executable is unavailable', async () => {
+        existsSyncMock.mockReturnValue(false);
+        const { launchOBSFromElectron } = await loadObsModule();
+
+        const result = await launchOBSFromElectron({ reason: 'test' });
+
+        expect(result.status).toBe('missing');
+        expect(spawnMock).not.toHaveBeenCalled();
+    });
+});
+
 describe('renameOBSScene', () => {
     beforeEach(() => {
         obsCallMock.mockReset();
@@ -141,7 +246,12 @@ describe('renameOBSScene', () => {
         sendStartOBSMock.mockReset();
         sendQuitOBSMock.mockReset();
         execFileAsyncMock.mockReset();
+        spawnMock.mockReset();
         storeSetMock.mockReset();
+        readFileSyncMock.mockReset();
+        writeFileSyncMock.mockReset();
+        rmSyncMock.mockReset();
+        mkdirSyncMock.mockReset();
         storeData.clear();
         mergeObsWindowItemsMock.mockReturnValue([]);
         buildCaptureCardOptionsMock.mockReturnValue([]);
@@ -189,8 +299,10 @@ describe('renameOBSScene', () => {
             return '[]';
         });
         writeFileMock.mockResolvedValue(undefined);
+        readFileSyncMock.mockReturnValue('{}');
         showMessageBoxMock.mockResolvedValue({ response: 0, checkboxChecked: false });
         execFileAsyncMock.mockResolvedValue({ stdout: '', stderr: '' });
+        spawnMock.mockReturnValue({ pid: 4242, once: vi.fn(), unref: vi.fn() });
 
         obsCallMock.mockImplementation(async (requestType: string) => {
             if (requestType === 'GetVersion') {
@@ -229,6 +341,17 @@ describe('renameOBSScene', () => {
         vi.useFakeTimers();
 
         try {
+            const defaultObsPath = `${TEST_BASE_DIR}\\obs-studio\\bin\\64bit\\obs64.exe`;
+            const obsPidPath = `${TEST_BASE_DIR}\\obs_pid.txt`;
+            existsSyncMock.mockImplementation((targetPath: string) =>
+                targetPath === SCENE_COLLECTION_PATH ||
+                targetPath === defaultObsPath ||
+                targetPath === obsPidPath
+            );
+            readFileSyncMock.mockImplementation((targetPath: string) =>
+                targetPath === obsPidPath ? '4242' : '{}'
+            );
+
             const { registerOBSIPC } = await loadObsModule();
 
             buildWindowsSceneCaptureInputsMock.mockReturnValue([
@@ -268,6 +391,8 @@ describe('renameOBSScene', () => {
                 sceneName: 'My Scene',
             });
             await vi.advanceTimersByTimeAsync(1_250);
+            await Promise.resolve();
+            await vi.runOnlyPendingTimersAsync();
 
             await expect(createScenePromise).resolves.toBeUndefined();
 
@@ -281,8 +406,13 @@ describe('renameOBSScene', () => {
                 expect.stringContaining('"scene": "My Scene"'),
                 'utf-8'
             );
-            expect(sendQuitOBSMock).toHaveBeenCalledTimes(1);
-            expect(sendStartOBSMock).toHaveBeenCalledTimes(1);
+            expect(sendQuitOBSMock).not.toHaveBeenCalled();
+            expect(sendStartOBSMock).not.toHaveBeenCalled();
+            expect(spawnMock).toHaveBeenCalledWith(
+                defaultObsPath,
+                expect.arrayContaining(['--portable', '--startreplaybuffer']),
+                expect.objectContaining({ detached: true })
+            );
         } finally {
             vi.useRealTimers();
         }

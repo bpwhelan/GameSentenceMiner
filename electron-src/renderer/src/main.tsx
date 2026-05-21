@@ -23,8 +23,24 @@ const suppressReactDevtoolsBanner = (original: (...args: unknown[]) => void) => 
 console.info = suppressReactDevtoolsBanner(originalConsoleInfo);
 console.log = suppressReactDevtoolsBanner(originalConsoleLog);
 
-createRoot(document.getElementById("root")!).render(
-  <I18nProvider>
-    <App />
-  </I18nProvider>
-);
+async function getInitialLocale(): Promise<string> {
+  try {
+    const settings = await window.ipcRenderer.invoke<{ locale?: string }>(
+      "settings.getSettings"
+    );
+    return settings?.locale || "en";
+  } catch (error) {
+    console.error("Failed to load initial locale:", error);
+    return "en";
+  }
+}
+
+const root = createRoot(document.getElementById("root")!);
+
+void getInitialLocale().then((initialLocale) => {
+  root.render(
+    <I18nProvider initialLocale={initialLocale}>
+      <App />
+    </I18nProvider>
+  );
+});

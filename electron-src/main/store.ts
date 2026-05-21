@@ -59,6 +59,7 @@ interface OCRConfig {
     send_to_clipboard_auto?: boolean | null;
     send_to_clipboard_menu?: boolean | null;
     send_to_clipboard_area_select?: boolean | null;
+    send_to_websocket?: boolean;
     keep_newline: boolean;
     keep_newline_auto?: boolean | null;
     keep_newline_menu?: boolean | null;
@@ -152,6 +153,7 @@ interface StoreConfig {
     windowTransparencyTarget: string; // Target window for transparency tool
     runWindowTransparencyToolOnStartup: boolean; // Whether to run the transparency tool on startup
     runOverlayOnStartup: boolean; // Whether to run the overlay on startup
+    textCaptureWizardEnabled: boolean; // Whether to show the text capture wizard after capture setup
     obsOcrScenes: string[];
     pullPreReleases: boolean;
     preReleaseMetadataAutoEnableApplied: boolean;
@@ -233,6 +235,7 @@ export const store = new Store<StoreConfig>({
             send_to_clipboard_auto: null,
             send_to_clipboard_menu: null,
             send_to_clipboard_area_select: null,
+            send_to_websocket: false,
             scanRate: 0.5,
             keep_newline: false,
             keep_newline_auto: null,
@@ -270,6 +273,7 @@ export const store = new Store<StoreConfig>({
         windowTransparencyTarget: '', // Default to empty string if not set
         runWindowTransparencyToolOnStartup: false, // Whether to run the transparency tool on startup
         runOverlayOnStartup: false, // Whether to run the overlay on startup    
+        textCaptureWizardEnabled: true,
         obsOcrScenes: [],
         pullPreReleases: false,
         preReleaseMetadataAutoEnableApplied: false,
@@ -736,6 +740,14 @@ export function getRunOverlayOnStartup(): boolean {
 
 export function setRunOverlayOnStartup(run: boolean): void {
     store.set("runOverlayOnStartup", run);
+}
+
+export function getTextCaptureWizardEnabled(): boolean {
+    return store.get("textCaptureWizardEnabled", true);
+}
+
+export function setTextCaptureWizardEnabled(enabled: boolean): void {
+    store.set("textCaptureWizardEnabled", enabled);
 }
 
 export function getObsOcrScenes(): string[] {

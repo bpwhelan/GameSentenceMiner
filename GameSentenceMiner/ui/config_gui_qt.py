@@ -175,7 +175,7 @@ class ConfigWindow(QWidget):
     # Signals for thread-safe operations
     _show_window_signal = pyqtSignal(str, str)
     _close_window_signal = pyqtSignal()
-    _reload_settings_signal = pyqtSignal()
+    _reload_settings_signal = pyqtSignal(bool, bool)
     _quit_app_signal = pyqtSignal()
     _selector_finished_signal = pyqtSignal()
     _gsm_cloud_sync_finished_signal = pyqtSignal(dict)
@@ -215,6 +215,8 @@ class ConfigWindow(QWidget):
         self._settings_tab_indices = {}
         self._settings_subtab_widgets = {}
         self._settings_subtab_indices = {}
+        self._profile_change_hooks = []
+        self._suppress_profile_change_hooks = False
 
         # --- Load Configuration and Localization ---
         self.editor = ConfigEditor()
@@ -407,31 +409,63 @@ class ConfigWindow(QWidget):
         self._save_window_geometry()
         self.hide()
 
-    def reload_settings(self, force_refresh=False):
+    def reload_settings(self, force_refresh=False, suppress_profile_change_hooks=False):
         """
         Reloads the settings in the UI.
         Thread-safe: Can be called from any thread.
         """
-        self._reload_settings_signal.emit()
+        self._reload_settings_signal.emit(force_refresh, suppress_profile_change_hooks)
 
-    def _reload_settings_impl(self, force_refresh=False):
-        self._flush_pending_auto_save()
-        new_config = configuration.load_config()
-        current_config = new_config.get_config()
+    def _reload_settings_impl(self, force_refresh=False, suppress_profile_change_hooks=False):
+        previous_suppress_profile_hooks = getattr(self, "_suppress_profile_change_hooks", False)
+        self._suppress_profile_change_hooks = previous_suppress_profile_hooks or suppress_profile_change_hooks
+        try:
+            self._flush_pending_auto_save()
+            new_config = configuration.load_config()
+            current_config = new_config.get_config()
+            locale_changed = new_config.get_locale() != self.master_config.get_locale()
 
-        if force_refresh or current_config.name != self.settings.name or self.settings.config_changed(current_config):
-            logger.info("Config changed, reloading UI.")
-            self.editor.replace_master_config(new_config)
-            self.master_config = self.editor.master_config
-            self.settings = self.editor.profile
-            self._load_settings_to_ui_safely()
-            self.binder.refresh_all()
-            self._update_window_title()
-            self.refresh_obs_scenes(force_reload=True)
+            if locale_changed:
+                logger.info("Locale changed, reloading UI localization.")
+                self.editor.replace_master_config(new_config)
+                self.master_config = self.editor.master_config
+                self.settings = self.editor.profile
+                self.i18n = load_localization(self.master_config.get_locale())
+                self.editor.clear_listeners()
+                self.binder = BindingManager(self.editor)
+                self._register_shared_bindings()
+                self.tab_widget.clear()
+                self._create_tabs()
+                self._create_button_bar()
+                self._load_settings_to_ui_safely()
+                self._connect_signals()
+                self._update_window_title()
+                self.refresh_obs_scenes(force_reload=True)
+                return
+
+            if (
+                force_refresh
+                or current_config.name != self.settings.name
+                or self.settings.config_changed(current_config)
+            ):
+                logger.info("Config changed, reloading UI.")
+                self.editor.replace_master_config(new_config)
+                self.master_config = self.editor.master_config
+                self.settings = self.editor.profile
+                self._load_settings_to_ui_safely()
+                self.binder.refresh_all()
+                self._update_window_title()
+                self.refresh_obs_scenes(force_reload=True)
+        finally:
+            self._suppress_profile_change_hooks = previous_suppress_profile_hooks
 
     def add_save_hook(self, func):
         if func not in on_save:
             on_save.append(func)
+
+    def add_profile_change_hook(self, func):
+        if func not in self._profile_change_hooks:
+            self._profile_change_hooks.append(func)
 
     def set_test_func(self, func):
         self.test_func = func
@@ -693,6 +727,20 @@ class ConfigWindow(QWidget):
             if 0 <= selected_monitor_index < len(overlay_monitor_descriptors):
                 selected_monitor_descriptor = overlay_monitor_descriptors[selected_monitor_index]
 
+            process_pausing = ProcessPausing(
+                enabled=self.process_pausing_enabled_check.isChecked(),
+                auto_resume_seconds=self.process_pausing_auto_resume_seconds_edit.value(),
+                require_game_exe_match=True,  # Always true
+                overlay_manual_hotkey_requests_pause=self.process_pausing_overlay_manual_hotkey_requests_pause_check.isChecked(),
+                overlay_texthooker_hotkey_requests_pause=self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.isChecked(),
+                overlay_gamepad_navigation_requests_pause=self.process_pausing_overlay_gamepad_navigation_requests_pause_check.isChecked(),
+                denylist=[
+                    item.strip().lower()
+                    for item in self.process_pausing_denylist_edit.text().split(",")
+                    if item.strip()
+                ],
+            )
+
             config = ProfileConfig(
                 scenes=selected_scenes,
                 general=copy.deepcopy(self.editor.profile.general),
@@ -871,6 +919,7 @@ class ConfigWindow(QWidget):
                     localhost_bind_address=self.localhost_bind_address_edit.text(),
                     longest_sleep_time=float(self.longest_sleep_time_edit.text() or 5.0),
                     dont_collect_stats=self.dont_collect_stats_check.isChecked(),
+                    mute_game_on_minimize=self.mute_game_on_minimize_check.isChecked(),
                 ),
                 ai=Ai(
                     add_to_anki=self.ai_enabled_check.isChecked(),
@@ -957,6 +1006,7 @@ class ConfigWindow(QWidget):
                         and self.ocr_full_screen_instead_of_obs_checkbox.isChecked()
                     ),
                 ),
+                process_pausing=process_pausing,
             )
 
             # Handle custom audio encode settings
@@ -984,30 +1034,10 @@ class ConfigWindow(QWidget):
             self.master_config.locale = self.editor.master_config.locale
             self.master_config.overlay = config.overlay
 
-            auto_resume_seconds = self.process_pausing_auto_resume_seconds_edit.value()
-
             self.master_config.experimental = Experimental(
                 enable_experimental_features=self.experimental_features_enabled_check.isChecked(),
                 enable_tokenization=self.enable_tokenization_check.isChecked(),
                 tokenize_low_performance=self.tokenize_low_performance_check.isChecked(),
-            )
-            self.master_config.process_pausing = ProcessPausing(
-                enabled=self.process_pausing_enabled_check.isChecked(),
-                auto_resume_seconds=auto_resume_seconds,
-                require_game_exe_match=True,  # Always true
-                overlay_manual_hotkey_requests_pause=self.process_pausing_overlay_manual_hotkey_requests_pause_check.isChecked(),
-                overlay_texthooker_hotkey_requests_pause=self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.isChecked(),
-                overlay_gamepad_navigation_requests_pause=self.process_pausing_overlay_gamepad_navigation_requests_pause_check.isChecked(),
-                allowlist=[
-                    item.strip().lower()
-                    for item in self.process_pausing_allowlist_edit.text().split(",")
-                    if item.strip()
-                ],
-                denylist=[
-                    item.strip().lower()
-                    for item in self.process_pausing_denylist_edit.text().split(",")
-                    if item.strip()
-                ],
             )
 
             # Get selected blacklisted scenes from Discord list
@@ -1091,6 +1121,14 @@ class ConfigWindow(QWidget):
         self._flush_pending_auto_save(target_profile_name=previous_profile_name)
         self.master_config.current_profile = new_profile_name
         self.master_config.save()
+        if not getattr(self, "_suppress_profile_change_hooks", False):
+            for func in list(self._profile_change_hooks):
+                try:
+                    func(previous_profile_name, new_profile_name)
+                except Exception as e:
+                    logger.debug(
+                        f"Profile change hook failed for '{previous_profile_name}' -> '{new_profile_name}': {e}"
+                    )
         self.editor.replace_master_config(self.master_config)
         self.master_config = self.editor.master_config
         self.settings = self.editor.profile
@@ -1458,6 +1496,7 @@ class ConfigWindow(QWidget):
         self.localhost_bind_address_edit = QLineEdit()
         self.longest_sleep_time_edit = QLineEdit()
         self.dont_collect_stats_check = QCheckBox()
+        self.mute_game_on_minimize_check = QCheckBox()
         self.current_version_label = QLabel()
         self.latest_version_label = QLabel()
 
@@ -1496,7 +1535,6 @@ class ConfigWindow(QWidget):
         self.process_pausing_overlay_manual_hotkey_requests_pause_check = QCheckBox()
         self.process_pausing_overlay_texthooker_hotkey_requests_pause_check = QCheckBox()
         self.process_pausing_overlay_gamepad_navigation_requests_pause_check = QCheckBox()
-        self.process_pausing_allowlist_edit = QLineEdit()
         self.process_pausing_denylist_edit = QLineEdit()
         self.process_pausing_auto_resume_seconds_edit = QSpinBox()
         self.process_pausing_auto_resume_seconds_edit.setRange(5, 300)
@@ -1505,7 +1543,6 @@ class ConfigWindow(QWidget):
         )
 
         self.process_pause_hotkey_edit = QKeySequenceEdit()
-        self.process_pausing_allowlist_edit.setPlaceholderText("game.exe, foo.exe")
         self.process_pausing_denylist_edit.setPlaceholderText("explorer.exe, steam.exe")
 
     def _register_shared_bindings(self):
@@ -2935,7 +2972,7 @@ class ConfigWindow(QWidget):
         self.experimental_features_enabled_check.setChecked(experimental_cfg.enable_experimental_features)
         self.enable_tokenization_check.setChecked(getattr(experimental_cfg, "enable_tokenization", False))
         self.tokenize_low_performance_check.setChecked(getattr(experimental_cfg, "tokenize_low_performance", False))
-        process_cfg = getattr(self.master_config, "process_pausing", ProcessPausing())
+        process_cfg = getattr(s, "process_pausing", ProcessPausing())
         self.process_pausing_enabled_check.setChecked(process_cfg.enabled)
         self.process_pausing_auto_resume_seconds_edit.setValue(process_cfg.auto_resume_seconds)
         self.process_pausing_require_game_exe_match_check.setChecked(True)  # Always true
@@ -2949,7 +2986,6 @@ class ConfigWindow(QWidget):
         self.process_pausing_overlay_gamepad_navigation_requests_pause_check.setChecked(
             bool(getattr(process_cfg, "overlay_gamepad_navigation_requests_pause", False))
         )
-        self._set_text_value(self.process_pausing_allowlist_edit, ", ".join(process_cfg.allowlist))
         self._set_text_value(self.process_pausing_denylist_edit, ", ".join(process_cfg.denylist))
         self.process_pause_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.process_pause or ""))
 
@@ -2967,6 +3003,7 @@ class ConfigWindow(QWidget):
         self._set_text_value(self.localhost_bind_address_edit, s.advanced.localhost_bind_address)
         self.longest_sleep_time_edit.setText(str(s.advanced.longest_sleep_time))
         self.dont_collect_stats_check.setChecked(s.advanced.dont_collect_stats)
+        self.mute_game_on_minimize_check.setChecked(bool(getattr(s.advanced, "mute_game_on_minimize", False)))
         self.current_version_label.setText(get_current_version())
         self.latest_version_label.setText(get_latest_version())
 

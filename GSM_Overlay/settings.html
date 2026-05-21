@@ -683,6 +683,93 @@
       line-height: 1.45;
     }
 
+    .profile-status-panel {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .profile-status-item {
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .profile-status-label {
+      display: block;
+      color: #8f9aaa;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .profile-status-value {
+      color: #f4f8ff;
+      font-size: 13px;
+      font-weight: 600;
+      word-break: break-word;
+    }
+
+    .profile-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .profile-card {
+      padding: 11px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .profile-card.active {
+      border-color: rgba(76, 175, 80, 0.55);
+      background: rgba(76, 175, 80, 0.11);
+    }
+
+    .profile-card.current {
+      box-shadow: inset 0 0 0 1px rgba(90, 163, 255, 0.22);
+    }
+
+    .profile-card-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .profile-card-name {
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 700;
+      word-break: break-word;
+    }
+
+    .profile-card-badge {
+      flex-shrink: 0;
+      padding: 3px 6px;
+      border-radius: 999px;
+      background: rgba(76, 175, 80, 0.2);
+      color: #c8e6c9;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .profile-card-scenes {
+      color: #b8c0cc;
+      font-size: 11px;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
     @media (max-width: 1024px) {
       .settings-grid {
         grid-template-columns: 1fr;
@@ -748,6 +835,7 @@
 
     <div class="settings-tabs" role="tablist" aria-label="Settings Categories">
       <button type="button" class="settings-tab-button active" data-settings-tab="general" role="tab" aria-selected="true">General</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="profiles" role="tab" aria-selected="false">Profiles</button>
       <button type="button" class="settings-tab-button" data-settings-tab="furigana" role="tab" aria-selected="false">Furigana</button>
       <button type="button" class="settings-tab-button" data-settings-tab="controller" role="tab" aria-selected="false">Controller</button>
       <button type="button" class="settings-tab-button" data-settings-tab="advanced" role="tab" aria-selected="false">Advanced</button>
@@ -1230,7 +1318,7 @@
         Click a controller binding field, press one or more controller buttons, then release to save. Analog stick movement is ignored. Press Backspace/Delete to disable a binding, or Esc to cancel capture.
       </div>
       <div class="gamepad-binding-hint">
-        Click a keyboard binding field, then press a key (with optional modifiers) to save. The key is captured from the Input Server so it works when the game is focused.
+        Click a keyboard binding field, then press a key (with optional modifiers) to save. Press Backspace/Delete to disable a binding, or Esc to cancel capture. The key is captured from the Input Server so it works when the game is focused.
       </div>
       <label>
         <span class="label-text">
@@ -1502,6 +1590,37 @@
     </div>
 
     <div class="settings-grid single-column">
+    <div class="setting-group" data-tab="profiles">
+      <h4>Overlay Profiles</h4>
+      <label>
+        <span class="label-text">
+          Enable Profile-Specific Overlay Settings
+          <div class="hotkey-info">Uses GSM profile names and scene assignments from the main Profiles settings.</div>
+        </span>
+        <input type="checkbox" id="overlaySettingsProfilesEnabled" />
+      </label>
+      <div class="profile-status-panel">
+        <div class="profile-status-item">
+          <span class="profile-status-label">Overlay Profile</span>
+          <span class="profile-status-value" id="overlayActiveProfileName">Default</span>
+        </div>
+        <div class="profile-status-item">
+          <span class="profile-status-label">GSM Profile</span>
+          <span class="profile-status-value" id="overlayCurrentGsmProfileName">Default</span>
+        </div>
+      </div>
+      <div class="label-row">
+        <span class="label-text">
+          Main Profile Settings
+          <div class="hotkey-info">Opens the GSM Profiles tab to edit profile names and scene assignments.</div>
+        </span>
+        <button type="button" id="openGSMProfileSettings" class="guide-button">Open Profiles</button>
+      </div>
+      <div id="overlayProfilesList" class="profile-list"></div>
+    </div>
+    </div>
+
+    <div class="settings-grid single-column">
     <div class="setting-group" data-tab="advanced">
       <h4>Developer</h4>
       <label>
@@ -1571,6 +1690,12 @@
 
     let mainBoxStartupWarningAcknowledged = false;
     let activeSettingsTab = "general";
+    let overlayProfileState = {
+      enabled: false,
+      activeProfileName: "Default",
+      currentGSMProfileName: "Default",
+      profiles: [],
+    };
     const GAMEPAD_INPUT_CONSOLE_MAX_LINES = 120;
     const gamepadInputConsoleLines = [];
     const GAMEPAD_BUTTON_LABELS = {
@@ -1687,6 +1812,88 @@
 
       document.body.classList.add("tabs-initialized");
       updateSettingsTabVisibility(activeSettingsTab);
+    }
+
+    function normalizeProfileState(profileState = {}) {
+      const profiles = Array.isArray(profileState.profiles) ? profileState.profiles : [];
+      return {
+        enabled: profileState.enabled === true,
+        activeProfileName: String(profileState.activeProfileName || "Default"),
+        currentGSMProfileName: String(profileState.currentGSMProfileName || "Default"),
+        profiles: profiles
+          .filter((profile) => profile && typeof profile === "object" && typeof profile.name === "string")
+          .map((profile) => ({
+            name: profile.name,
+            scenes: Array.isArray(profile.scenes) ? profile.scenes.filter((scene) => typeof scene === "string" && scene.trim()) : [],
+            active: profile.active === true,
+            current: profile.current === true,
+            hasOverlaySettings: profile.hasOverlaySettings === true,
+          })),
+      };
+    }
+
+    function renderOverlayProfileState() {
+      const activeName = document.getElementById("overlayActiveProfileName");
+      const currentName = document.getElementById("overlayCurrentGsmProfileName");
+      const list = document.getElementById("overlayProfilesList");
+
+      if (activeName) {
+        activeName.textContent = overlayProfileState.enabled ? overlayProfileState.activeProfileName : "Disabled";
+      }
+      if (currentName) {
+        currentName.textContent = overlayProfileState.currentGSMProfileName;
+      }
+      if (!list) return;
+
+      if (overlayProfileState.profiles.length === 0) {
+        list.innerHTML = '<div class="profile-card"><div class="profile-card-scenes">No GSM profiles found.</div></div>';
+        return;
+      }
+
+      list.replaceChildren(...overlayProfileState.profiles.map((profile) => {
+        const card = document.createElement("div");
+        card.className = "profile-card";
+        card.classList.toggle("active", overlayProfileState.enabled && profile.name === overlayProfileState.activeProfileName);
+        card.classList.toggle("current", profile.current);
+
+        const header = document.createElement("div");
+        header.className = "profile-card-header";
+
+        const name = document.createElement("div");
+        name.className = "profile-card-name";
+        name.textContent = profile.name;
+        header.appendChild(name);
+
+        if (overlayProfileState.enabled && profile.name === overlayProfileState.activeProfileName) {
+          const badge = document.createElement("span");
+          badge.className = "profile-card-badge";
+          badge.textContent = "Active";
+          header.appendChild(badge);
+        } else if (profile.current) {
+          const badge = document.createElement("span");
+          badge.className = "profile-card-badge";
+          badge.textContent = "GSM";
+          header.appendChild(badge);
+        }
+
+        const scenes = document.createElement("div");
+        scenes.className = "profile-card-scenes";
+        scenes.textContent = profile.scenes.length > 0
+          ? `Scenes: ${profile.scenes.join(", ")}`
+          : "No scenes assigned";
+
+        card.appendChild(header);
+        card.appendChild(scenes);
+        return card;
+      }));
+    }
+
+    function updateOverlayProfileState(profileState = {}) {
+      overlayProfileState = normalizeProfileState(profileState);
+      if (settingBindingMap.has("overlaySettingsProfilesEnabled")) {
+        setSettingValueWithoutPersist("overlaySettingsProfilesEnabled", overlayProfileState.enabled);
+      }
+      renderOverlayProfileState();
     }
 
     function updateFadeTextIndicatorsState() {
@@ -2314,6 +2521,12 @@
       }),
       createCheckboxBinding("fadeTextIndicators", "#fadeTextIndicators"),
       createCheckboxBinding("showRecycledIndicator", "#showRecycledIndicator"),
+      createCheckboxBinding("overlaySettingsProfilesEnabled", "#overlaySettingsProfilesEnabled", {
+        afterApply: (value) => {
+          overlayProfileState.enabled = value === true;
+          renderOverlayProfileState();
+        },
+      }),
       createNumberBinding("offsetX", "#offsetX", {
         fallback: 0,
         normalize: (value) => {
@@ -2597,6 +2810,13 @@
     document.getElementById("openJitenReaderSettings").addEventListener("click", () => {
       ipcRenderer.send("open-jiten-reader-settings");
     });
+
+    const openGSMProfileSettingsButton = document.getElementById("openGSMProfileSettings");
+    if (openGSMProfileSettingsButton) {
+      openGSMProfileSettingsButton.addEventListener("click", () => {
+        ipcRenderer.send("open-gsm-profile-settings");
+      });
+    }
 
     // Reusable hotkey input initialization function
     function initializeHotkeyInput(inputId, options = {}) {
@@ -2945,12 +3165,17 @@
     }
 
     function formatKeyboardBindingDisplayValue(settingValue, fallbackValue) {
-      if (!settingValue || /^(disabled|none|off)$/i.test(String(settingValue).trim())) {
+      if (settingValue === null || settingValue === undefined) {
         if (fallbackValue !== null && fallbackValue !== undefined) {
           return formatKeyboardBindingDisplayFromSettingValue(fallbackValue);
         }
         return "Disabled";
       }
+
+      if (/^(disabled|none|off)?$/i.test(String(settingValue).trim())) {
+        return "Disabled";
+      }
+
       return formatKeyboardBindingDisplayFromSettingValue(settingValue);
     }
 
@@ -3002,16 +3227,29 @@
         event.stopPropagation();
         // We DON'T capture browser keyboard events — we wait for server events instead.
         // But we handle Escape, Backspace, Delete for UX.
-        if (event.key === "Escape") {
-          stopKeyboardBindingCapture({ restorePrevious: true });
-          input.blur();
+        if (handleKeyboardBindingControlKey(inputId, event.key)) {
           return;
         }
-        if (event.key === "Backspace" || event.key === "Delete") {
-          clearKeyboardBindingInput(inputId);
-          input.blur();
-        }
       });
+    }
+
+    function handleKeyboardBindingControlKey(inputId, key) {
+      const input = document.getElementById(inputId);
+      if (!input) return false;
+
+      if (key === "Escape") {
+        stopKeyboardBindingCapture({ restorePrevious: true });
+        input.blur();
+        return true;
+      }
+
+      if (key === "Backspace" || key === "Delete") {
+        clearKeyboardBindingInput(inputId);
+        input.blur();
+        return true;
+      }
+
+      return false;
     }
 
     function startKeyboardBindingCapture(inputId) {
@@ -3042,6 +3280,7 @@
       const handler = (event) => {
         const { key, pressed, modifiers } = event.detail;
         if (!activeKeyboardBindingCapture || activeKeyboardBindingCapture.inputId !== inputId) return;
+        if (pressed && handleKeyboardBindingControlKey(inputId, key)) return;
         if (!pressed) {
           // Key released — if we captured something, commit it
           if (activeKeyboardBindingCapture.capturedKey !== null || activeKeyboardBindingCapture.capturedModifiers !== null) {
@@ -3375,10 +3614,15 @@
       void applyPlatformSpecifics();
     }
 
-    ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates, defaultSettings, runtimeSettings }) => {
+    ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates, defaultSettings, runtimeSettings, profileState }) => {
       applyPreloadedSettings(userSettings, defaultSettings, runtimeSettings);
+      updateOverlayProfileState(profileState);
       updateWebSocketStatus("ws1", websocketStates.ws1);
       updateWebSocketStatus("ws2", websocketStates.ws2);
+    });
+
+    ipcRenderer.on("overlay-profile-state-updated", (event, profileState = {}) => {
+      updateOverlayProfileState(profileState);
     });
 
     ipcRenderer.on("settings-updated", (event, updatedSettings = {}) => {

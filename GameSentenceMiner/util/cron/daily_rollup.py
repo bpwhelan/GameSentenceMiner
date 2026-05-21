@@ -690,6 +690,115 @@ def _build_game_daily_rollup_rows(date_str: str, per_game_daily_rollups: dict) -
     return rows
 
 
+def replace_rollup_for_date(date_str: str) -> dict:
+    """Recompute or remove persisted rollups for one local date."""
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    if date_str >= today_str:
+        GameDailyRollupTable.replace_for_date(date_str, [])
+        existing = StatsRollupTable.get_by_date(date_str)
+        if existing:
+            StatsRollupTable._db.execute(
+                f"DELETE FROM {StatsRollupTable._table} WHERE date = ?",
+                (date_str,),
+                commit=True,
+            )
+        return {
+            "date": date_str,
+            "deleted": bool(existing),
+            "updated": False,
+            "created": False,
+            "skipped_current_or_future_date": True,
+        }
+
+    stats = calculate_daily_stats(date_str)
+    GameDailyRollupTable.replace_for_date(
+        date_str,
+        _build_game_daily_rollup_rows(date_str, stats.get("per_game_daily_rollups", {})),
+    )
+
+    existing = StatsRollupTable.get_by_date(date_str)
+    if stats["total_lines"] <= 0:
+        if existing:
+            StatsRollupTable._db.execute(
+                f"DELETE FROM {StatsRollupTable._table} WHERE date = ?",
+                (date_str,),
+                commit=True,
+            )
+        return {"date": date_str, "deleted": bool(existing), "updated": False, "created": False}
+
+    if existing:
+        existing.date = stats["date"]
+        existing.total_lines = stats["total_lines"]
+        existing.total_characters = stats["total_characters"]
+        existing.total_sessions = stats["total_sessions"]
+        existing.unique_games_played = stats["unique_games_played"]
+        existing.total_reading_time_seconds = stats["total_reading_time_seconds"]
+        existing.total_active_time_seconds = stats["total_active_time_seconds"]
+        existing.longest_session_seconds = stats["longest_session_seconds"]
+        existing.shortest_session_seconds = stats["shortest_session_seconds"]
+        existing.average_session_seconds = stats["average_session_seconds"]
+        existing.average_reading_speed_chars_per_hour = stats["average_reading_speed_chars_per_hour"]
+        existing.peak_reading_speed_chars_per_hour = stats["peak_reading_speed_chars_per_hour"]
+        existing.games_completed = stats["games_completed"]
+        existing.games_started = stats["games_started"]
+        existing.anki_cards_created = stats["anki_cards_created"]
+        existing.lines_with_screenshots = stats["lines_with_screenshots"]
+        existing.lines_with_audio = stats["lines_with_audio"]
+        existing.lines_with_translations = stats["lines_with_translations"]
+        existing.unique_kanji_seen = stats["unique_kanji_seen"]
+        existing.kanji_frequency_data = stats["kanji_frequency_data"]
+        existing.hourly_activity_data = stats["hourly_activity_data"]
+        existing.hourly_reading_speed_data = stats["hourly_reading_speed_data"]
+        existing.game_activity_data = stats["game_activity_data"]
+        existing.games_played_ids = stats["games_played_ids"]
+        existing.genre_activity_data = stats["genre_activity_data"]
+        existing.type_activity_data = stats["type_activity_data"]
+        existing.max_chars_in_session = stats["max_chars_in_session"]
+        existing.max_time_in_session_seconds = stats["max_time_in_session_seconds"]
+        existing.unique_words_seen = stats.get("unique_words_seen", 0)
+        existing.word_frequency_data = stats.get("word_frequency_data", "{}")
+        existing.updated_at = time.time()
+        existing.save()
+        return {"date": date_str, "deleted": False, "updated": True, "created": False}
+
+    rollup = StatsRollupTable(
+        date=stats["date"],
+        total_lines=stats["total_lines"],
+        total_characters=stats["total_characters"],
+        total_sessions=stats["total_sessions"],
+        unique_games_played=stats["unique_games_played"],
+        total_reading_time_seconds=stats["total_reading_time_seconds"],
+        total_active_time_seconds=stats["total_active_time_seconds"],
+        longest_session_seconds=stats["longest_session_seconds"],
+        shortest_session_seconds=stats["shortest_session_seconds"],
+        average_session_seconds=stats["average_session_seconds"],
+        average_reading_speed_chars_per_hour=stats["average_reading_speed_chars_per_hour"],
+        peak_reading_speed_chars_per_hour=stats["peak_reading_speed_chars_per_hour"],
+        games_completed=stats["games_completed"],
+        games_started=stats["games_started"],
+        anki_cards_created=stats["anki_cards_created"],
+        lines_with_screenshots=stats["lines_with_screenshots"],
+        lines_with_audio=stats["lines_with_audio"],
+        lines_with_translations=stats["lines_with_translations"],
+        unique_kanji_seen=stats["unique_kanji_seen"],
+        kanji_frequency_data=stats["kanji_frequency_data"],
+        hourly_activity_data=stats["hourly_activity_data"],
+        hourly_reading_speed_data=stats["hourly_reading_speed_data"],
+        game_activity_data=stats["game_activity_data"],
+        games_played_ids=stats["games_played_ids"],
+        genre_activity_data=stats["genre_activity_data"],
+        type_activity_data=stats["type_activity_data"],
+        max_chars_in_session=stats["max_chars_in_session"],
+        max_time_in_session_seconds=stats["max_time_in_session_seconds"],
+        unique_words_seen=stats.get("unique_words_seen", 0),
+        word_frequency_data=stats.get("word_frequency_data", "{}"),
+        created_at=time.time(),
+        updated_at=time.time(),
+    )
+    rollup.save()
+    return {"date": date_str, "deleted": False, "updated": False, "created": True}
+
+
 def run_daily_rollup() -> Dict:
     """
     Run the daily statistics rollup for all dates up to yesterday.

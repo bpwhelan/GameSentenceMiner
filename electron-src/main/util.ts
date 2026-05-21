@@ -12,6 +12,7 @@ export const isArmMac: boolean = isMac && !!cpuModel && /Apple M\d/i.test(cpuMod
 
 export const APP_NAME = 'GameSentenceMiner';
 export const PACKAGE_NAME = "GameSentenceMiner";
+export const OVERLAY_RESOURCES_ENV = 'GSM_OVERLAY_RESOURCES_PATH';
 export const execFileAsync = promisify(execFile);
 
 export const isDev = !app.isPackaged;
@@ -106,6 +107,14 @@ export function getOverlayPath(): string {
     return isDev
         ? path.join(__dirname, `../../GSM_Overlay/out/${dirName}`) // Development path
         : path.join(process.resourcesPath, `GSM_Overlay/${dirName}`); // Production (ASAR-safe)
+}
+
+export function getOverlayResourcesPath(): string {
+    return path.join(getOverlayPath(), 'resources');
+}
+
+export function getOverlayAppAsarPath(): string {
+    return path.join(getOverlayResourcesPath(), 'app.asar');
 }
 
 export function getOverlayExecName(): string {

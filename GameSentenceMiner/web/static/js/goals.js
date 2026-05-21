@@ -1223,6 +1223,15 @@ document.addEventListener('DOMContentLoaded', function () {
             formattedProjection = projectionData.projection.toLocaleString();
         }
 
+        let formattedTarget;
+        if (goal.metricType === 'hours') {
+            formattedTarget = formatHours(projectionData.target, globalUseRawHours);
+        } else if (goal.metricType === 'characters') {
+            formattedTarget = formatGoalNumber(projectionData.target);
+        } else {
+            formattedTarget = projectionData.target.toLocaleString();
+        }
+
         // Format target date - parse YYYY-MM-DD as local date
         const targetDate = GoalsUtils.parseLocalDate(projectionData.end_date);
         const formattedTargetDate = targetDate ? targetDate.toLocaleDateString(navigator.language) : 'N/A';
@@ -1272,11 +1281,13 @@ document.addEventListener('DOMContentLoaded', function () {
         // Return combined HTML with status summary inside the box
         return `
             <div class="dashboard-stat-item custom-goal-projection-item tooltip"
-                 data-tooltip="Total ${metricLabel.toLowerCase()} you'll have by ${formattedTargetDate}"
+                 data-tooltip="Projected ${metricLabel.toLowerCase()} by ${formattedTargetDate} / goal"
                  data-goal-id="${goal.id}">
                 <span class="dashboard-stat-value">
                     <span class="goal-icon" style="margin-right: 4px;">${goal.icon}</span>
                     ${formattedProjection}
+                    <span class="goal-separator">/</span>
+                    <span class="goal-target">${formattedTarget}</span>
                 </span>
                 <span class="dashboard-stat-label">${goal.name} by ${formattedTargetDate}</span>
                 <div class="projection-status ${statusClass}" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-color); ${percentDiff < -5 ? 'color: var(--warning-color);' : ''} ${percentDiff < -15 ? 'color: var(--danger-color);' : ''}">

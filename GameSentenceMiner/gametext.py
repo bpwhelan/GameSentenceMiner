@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import uuid
 
 # import pyperclip
@@ -10,6 +11,7 @@ from rapidfuzz import fuzz
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
+from GameSentenceMiner.util.communication.electron_ipc import send_message
 from GameSentenceMiner.util.config.configuration import (
     get_config,
     gsm_status,
@@ -51,6 +53,30 @@ def _log_info(message: str, *, colors: bool = False) -> None:
         except Exception:
             pass
     logger.info(message)
+
+
+def _send_text_received_preview_event(
+    raw_text: str,
+    processed_text: str,
+    line_time: datetime,
+    source: str | None,
+    source_display_name: str | None,
+) -> None:
+    if not os.environ.get("GSM_ELECTRON"):
+        return
+    try:
+        send_message(
+            "text_received",
+            {
+                "text": raw_text,
+                "processed_text": processed_text,
+                "time": line_time.isoformat(),
+                "source": source or "",
+                "source_display_name": source_display_name or "",
+            },
+        )
+    except Exception as exc:
+        logger.debug(f"Failed to send text preview event to Electron: {exc}")
 
 
 async def _add_event_to_texthooker(new_line):
@@ -590,6 +616,13 @@ async def add_line_to_text_log(
     source_label = source_display_name or source or "Unknown"
     _log_info(f"<cyan>Line Received from [{source_label}]: {current_line_after_regex}</cyan>", colors=True)
     current_line_time = line_time if line_time else datetime.now()
+    _send_text_received_preview_event(
+        line,
+        current_line_after_regex,
+        current_line_time,
+        source,
+        source_display_name,
+    )
     if is_text_intake_paused():
         await _handle_paused_text_input(
             current_line_after_regex,

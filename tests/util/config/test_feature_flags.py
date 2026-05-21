@@ -36,7 +36,8 @@ def test_experimental_feature_executes_when_enabled(monkeypatch):
 
 
 def test_process_pausing_feature_returns_default_when_disabled(monkeypatch):
-    master = SimpleNamespace(process_pausing=SimpleNamespace(enabled=False))
+    profile = SimpleNamespace(process_pausing=SimpleNamespace(enabled=False))
+    master = SimpleNamespace(get_config=lambda: profile)
     monkeypatch.setattr(feature_flags, "get_master_config", lambda: master)
 
     @feature_flags.process_pausing_feature(default_return=123)
@@ -47,7 +48,8 @@ def test_process_pausing_feature_returns_default_when_disabled(monkeypatch):
 
 
 def test_process_pausing_feature_executes_when_enabled(monkeypatch):
-    master = SimpleNamespace(process_pausing=SimpleNamespace(enabled=True))
+    profile = SimpleNamespace(process_pausing=SimpleNamespace(enabled=True))
+    master = SimpleNamespace(get_config=lambda: profile)
     monkeypatch.setattr(feature_flags, "get_master_config", lambda: master)
 
     @feature_flags.process_pausing_feature(default_return=None)

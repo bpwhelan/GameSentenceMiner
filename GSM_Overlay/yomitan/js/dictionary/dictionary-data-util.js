@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023-2025  Yomitan Authors
+ * Copyright (C) 2023-2026  Yomitan Authors
  * Copyright (C) 2020-2022  Yomichan Authors
  *
  * This program is free software: you can redistribute it and/or modify
@@ -106,7 +106,7 @@ export function groupTermFrequencies(dictionaryEntry, dictionaryInfo) {
 
     const averageFrequencies = [];
     for (let i = 0; i < dictionaryEntry.headwords.length; i++) {
-        const averageFrequency = getFrequencyHarmonic(dictionaryEntry, i);
+        const averageFrequency = getFrequencyHarmonic(dictionaryEntry, i, null);
         averageFrequencies.push({
             term: dictionaryEntry.headwords[i].term,
             reading: dictionaryEntry.headwords[i].reading,

@@ -48,6 +48,7 @@ class Rectangle:
     is_excluded: bool
     is_secondary: bool = False
     is_exclusive: bool = False
+    is_black_hole: bool = False
 
 
 @dataclass_json

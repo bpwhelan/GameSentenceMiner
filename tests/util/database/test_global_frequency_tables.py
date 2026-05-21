@@ -61,6 +61,42 @@ def test_create_global_frequency_tables_is_idempotent(db):
     assert "idx_word_global_frequencies_rank" in index_names
 
 
+def test_create_global_frequency_tables_can_skip_rank_index_for_startup(db):
+    create_global_frequency_tables(db, create_indexes=False)
+
+    assert db.table_exists("global_frequency_sources")
+    assert db.table_exists("word_global_frequencies")
+
+    index_names = [row[1] for row in db.fetchall("PRAGMA index_list('word_global_frequencies')")]
+    assert "idx_word_global_frequencies_rank" not in index_names
+
+
+def test_create_tokenization_indexes_prepares_frequency_tables_without_scheduling_sync(db, monkeypatch):
+    for cls in [WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable]:
+        cls.set_db(db)
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS game_lines (
+            id TEXT PRIMARY KEY,
+            timestamp REAL DEFAULT 0,
+            game_id TEXT DEFAULT '',
+            tokenized INTEGER DEFAULT 0
+        )
+        """,
+        commit=True,
+    )
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.database.tokenization_tables.start_global_frequency_source_sync",
+        lambda _scheduled_db: pytest.fail("frequency sync should not be scheduled during index creation"),
+    )
+
+    create_tokenization_indexes(db)
+
+    assert db.table_exists("global_frequency_sources")
+    assert db.table_exists("word_global_frequencies")
+
+
 def test_setup_global_frequency_sources_seeds_rows_and_deduplicates_words(db, source_dir):
     _write_source_file(
         source_dir,
@@ -160,6 +196,50 @@ def test_setup_global_frequency_sources_refreshes_rows_when_version_changes(db, 
         """
     )
     assert rank_rows == [("alpha", 8), ("gamma", 12)]
+
+
+def test_setup_global_frequency_sources_skips_full_entry_load_when_source_is_current(db, source_dir, monkeypatch):
+    create_global_frequency_tables(db)
+    db.execute(
+        """
+        INSERT INTO global_frequency_sources
+        (id, name, version, source_url, is_default, max_rank, entry_count, synced_at)
+        VALUES ('jiten-global', 'Jiten Global', 'v1', '', 1, 20, 2, 0)
+        """,
+        commit=True,
+    )
+    db.executemany(
+        """
+        INSERT INTO word_global_frequencies (source_id, word, rank)
+        VALUES ('jiten-global', ?, ?)
+        """,
+        [("alpha", 10), ("beta", 20)],
+        commit=True,
+    )
+    _write_source_file(
+        source_dir,
+        {
+            "id": "jiten-global",
+            "name": "Jiten Global",
+            "version": "v1",
+            "default": True,
+            "max_rank": 20,
+            "entry_count": 2,
+            "entries": [["alpha", 10], ["beta", 20]],
+        },
+    )
+
+    def fail_full_entry_load(_path):
+        raise AssertionError("full entry payload should not be loaded")
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.database.global_frequency_tables._read_source_file",
+        fail_full_entry_load,
+    )
+
+    setup_global_frequency_sources(db)
+
+    assert get_active_global_frequency_source(db)["id"] == "jiten-global"
 
 
 def test_get_active_global_frequency_source_prefers_default_row(db):

@@ -135,17 +135,30 @@ def test_normalize_for_signature_uses_html_strip_and_text_normalization(monkeypa
 
 def test_build_sentence_audio_key_from_selected_lines(monkeypatch):
     monkeypatch.setattr(anki, "_normalize_for_signature", lambda text: text.strip().lower())
-    selected = [SimpleNamespace(text=" One "), None, SimpleNamespace(text="Two")]
+    selected = [SimpleNamespace(id="line-1", text=" One "), None, SimpleNamespace(id="line-2", text="Two")]
 
-    key = anki._build_sentence_audio_key(SimpleNamespace(text="unused"), selected)
+    key = anki._build_sentence_audio_key(SimpleNamespace(id="line-1", text=" One "), selected)
 
-    assert key == ("onetwo", ("one", "two"))
+    assert key == ("onetwo", (("line-1", "one"), ("line-2", "two")), ("line-1", "one"))
 
 
 def test_build_sentence_audio_key_falls_back_to_game_line(monkeypatch):
     monkeypatch.setattr(anki, "_normalize_for_signature", lambda text: text.lower())
-    key = anki._build_sentence_audio_key(SimpleNamespace(text="Single"), None)
-    assert key == ("single", ("single",))
+    key = anki._build_sentence_audio_key(SimpleNamespace(id="line-1", text="Single"), None)
+    assert key == ("single", (("line-1", "single"),), ("line-1", "single"))
+
+
+def test_build_sentence_audio_key_requires_same_mined_line(monkeypatch):
+    monkeypatch.setattr(anki, "_normalize_for_signature", lambda text: text.strip().lower())
+    first_line = SimpleNamespace(id="line-1", text="First selected line")
+    second_line = SimpleNamespace(id="line-2", text="Second selected line")
+    selected = [first_line, second_line]
+
+    first_key = anki._build_sentence_audio_key(first_line, selected)
+    second_key = anki._build_sentence_audio_key(second_line, selected)
+
+    assert first_key != second_key
+    assert first_key == anki._build_sentence_audio_key(first_line, selected)
 
 
 def test_build_sentence_audio_key_returns_none_when_empty_signature(monkeypatch):
@@ -155,12 +168,12 @@ def test_build_sentence_audio_key_returns_none_when_empty_signature(monkeypatch)
 
 
 def test_set_sentence_audio_cache_entry_and_prune():
-    key = ("sig", ("sig",))
+    key = ("sig", (("line-1", "sig"),), ("line-1", "sig"))
     anki._set_sentence_audio_cache_entry(key, "line-1", "word")
     assert key in anki.sentence_audio_cache
     assert anki.sentence_audio_cache[key].line_id == "line-1"
 
-    stale_key = ("stale", ("stale",))
+    stale_key = ("stale", (("old", "stale"),), ("old", "stale"))
     anki.sentence_audio_cache[stale_key] = anki.SentenceAudioCacheEntry(
         line_id="old",
         word="old",
@@ -171,6 +184,135 @@ def test_set_sentence_audio_cache_entry_and_prune():
 
     assert stale_key not in anki.sentence_audio_cache
     assert key in anki.sentence_audio_cache
+
+
+def test_update_single_card_treats_same_selection_different_mined_line_as_new(monkeypatch):
+    config = _base_config()
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "_normalize_for_signature", lambda text: text.strip().lower())
+
+    first_line = SimpleNamespace(id="line-1", text="なんだか……すごいね。")
+    second_line = SimpleNamespace(id="line-2", text="アーティファクト関係なしに、体質？")
+    selected_lines = [first_line, second_line]
+    previous_key = anki._build_sentence_audio_key(first_line, selected_lines)
+    anki._set_sentence_audio_cache_entry(previous_key, first_line.id, "なんだか")
+
+    class FakeCard:
+        noteId = 42
+        tags = []
+
+        def get_field(self, field):
+            return {
+                "Word": "関係なし",
+                "Sentence": second_line.text,
+            }.get(field, "")
+
+    card = FakeCard()
+    queue_calls = []
+
+    monkeypatch.setattr(
+        anki,
+        "_get_texthooking_page_module",
+        lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
+    )
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: second_line)
+    monkeypatch.setattr(anki, "queue_card_for_processing", lambda *args: queue_calls.append(args))
+    monkeypatch.setattr(
+        anki,
+        "run_new_thread",
+        lambda _fn, *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not reuse media")),
+    )
+
+    anki.update_single_card(card)
+
+    assert queue_calls == [(card, selected_lines, second_line)]
+
+
+def test_update_single_card_reuses_same_selection_and_mined_line(monkeypatch):
+    config = _base_config()
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "_normalize_for_signature", lambda text: text.strip().lower())
+
+    first_line = SimpleNamespace(id="line-1", text="なんだか……すごいね。")
+    second_line = SimpleNamespace(id="line-2", text="アーティファクト関係なしに、体質？")
+    selected_lines = [first_line, second_line]
+    previous_key = anki._build_sentence_audio_key(first_line, selected_lines)
+    anki._set_sentence_audio_cache_entry(previous_key, first_line.id, "なんだか")
+
+    class FakeCard:
+        noteId = 42
+        tags = []
+
+        def get_field(self, field):
+            return {
+                "Word": "力を持って",
+                "Sentence": first_line.text,
+            }.get(field, "")
+
+    card = FakeCard()
+    reuse_calls = []
+
+    monkeypatch.setattr(
+        anki,
+        "_get_texthooking_page_module",
+        lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
+    )
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: first_line)
+    monkeypatch.setattr(
+        anki,
+        "queue_card_for_processing",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should reuse media")),
+    )
+    monkeypatch.setattr(anki, "run_new_thread", lambda fn, *args, **kwargs: fn())
+    monkeypatch.setattr(
+        anki, "update_card_from_same_sentence", lambda *args, **kwargs: reuse_calls.append((args, kwargs))
+    )
+
+    anki.update_single_card(card)
+
+    assert reuse_calls == [
+        ((card,), {"lines": selected_lines, "game_line": first_line, "reuse_result_id": first_line.id})
+    ]
+
+
+def test_update_single_card_does_not_use_line_result_without_matching_selection_cache(monkeypatch):
+    config = _base_config()
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+
+    first_line = SimpleNamespace(id="line-1", text="なんだか……すごいね。")
+    second_line = SimpleNamespace(id="line-2", text="アーティファクト関係なしに、体質？")
+    selected_lines = [first_line, second_line]
+    anki.anki_results[first_line.id] = anki.AnkiUpdateResult(success=True, word="なんだか")
+
+    class FakeCard:
+        noteId = 42
+        tags = []
+
+        def get_field(self, field):
+            return {
+                "Word": "力を持って",
+                "Sentence": first_line.text,
+            }.get(field, "")
+
+    card = FakeCard()
+    queue_calls = []
+
+    monkeypatch.setattr(
+        anki,
+        "_get_texthooking_page_module",
+        lambda: SimpleNamespace(get_selected_lines=lambda: selected_lines, reset_checked_lines=lambda: None),
+    )
+    monkeypatch.setattr(anki, "get_mined_line", lambda _card, _lines=None: first_line)
+    monkeypatch.setattr(anki, "queue_card_for_processing", lambda *args: queue_calls.append(args))
+    monkeypatch.setattr(
+        anki,
+        "run_new_thread",
+        lambda _fn, *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not reuse media")),
+    )
+
+    anki.update_single_card(card)
+
+    assert queue_calls == [(card, selected_lines, first_line)]
 
 
 def test_wait_for_reuse_result_times_out_without_activity(monkeypatch):
@@ -378,6 +520,29 @@ def test_record_anki_beacon_heartbeat_uses_configured_freshness_window():
     assert anki.gsm_status.anki_beacon_connected is False
 
 
+def test_refresh_anki_connect_connection_status_marks_connected(monkeypatch):
+    config = SimpleNamespace(anki=SimpleNamespace(enabled=True))
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "_is_anki_connect_reachable", lambda timeout=1.0: True)
+    anki.gsm_status.anki_connected = False
+
+    assert anki.refresh_anki_connect_connection_status() is True
+    assert anki.gsm_status.anki_connected is True
+
+
+def test_refresh_anki_connect_connection_status_preserves_fresh_beacon_on_failure(monkeypatch):
+    config = SimpleNamespace(anki=SimpleNamespace(enabled=True))
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "_is_anki_connect_reachable", lambda timeout=1.0: False)
+    monkeypatch.setattr(anki, "refresh_anki_beacon_connection_status", lambda: True)
+    anki.gsm_status.anki_connected = True
+
+    assert anki.refresh_anki_connect_connection_status() is False
+    assert anki.gsm_status.anki_connected is True
+
+
 def test_handle_incoming_anki_event_queues_and_deduplicates_note_added(monkeypatch):
     processed = []
     monkeypatch.setattr(anki, "update_new_cards", lambda note_ids: processed.append(set(note_ids)))
@@ -430,11 +595,13 @@ def test_monitor_anki_iteration_skips_polling_when_replay_buffer_inactive(monkey
         obs=SimpleNamespace(disable_recording=False),
     )
     sleep_calls = []
+    refresh_calls = []
 
     monkeypatch.setattr(anki, "get_config", lambda: config)
     monkeypatch.setattr(anki, "get_anki_beacon_wait_timeout_seconds", lambda now=None: 0.0)
     monkeypatch.setattr(anki, "_process_next_anki_beacon_note", lambda timeout_seconds=0.0: False)
     monkeypatch.setattr(anki, "_is_anki_polling_allowed", lambda: False)
+    monkeypatch.setattr(anki, "refresh_anki_connect_connection_status", lambda: refresh_calls.append(True) or True)
     monkeypatch.setattr(anki.time, "sleep", lambda seconds: sleep_calls.append(seconds))
     monkeypatch.setattr(
         anki,
@@ -446,6 +613,7 @@ def test_monitor_anki_iteration_skips_polling_when_replay_buffer_inactive(monkey
 
     assert unsuccessful_count == 0
     assert scaled_polling_rate == 1.0
+    assert refresh_calls == [True]
     assert sleep_calls == [1.0]
 
 
@@ -471,6 +639,34 @@ def test_monitor_anki_iteration_seeds_polling_baseline_when_replay_buffer_activa
     assert check_calls == []
     assert anki.previous_note_ids == {10, 20, 30}
     assert anki.first_run is False
+
+
+def test_monitor_anki_iteration_limits_replay_buffer_baseline_seed_failure_logs(monkeypatch):
+    config = SimpleNamespace(
+        anki=SimpleNamespace(enabled=True, polling_rate_v2=1000),
+        obs=SimpleNamespace(disable_recording=False),
+    )
+    info_messages = []
+    warning_messages = []
+
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(anki, "get_anki_beacon_wait_timeout_seconds", lambda now=None: 0.0)
+    monkeypatch.setattr(anki, "_process_next_anki_beacon_note", lambda timeout_seconds=0.0: False)
+    monkeypatch.setattr(anki, "_is_anki_polling_allowed", lambda: True)
+    monkeypatch.setattr(anki, "get_note_ids", lambda: (_ for _ in ()).throw(RuntimeError("AnkiConnect down")))
+    monkeypatch.setattr(anki.time, "sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki.logger, "info", lambda message: info_messages.append(message))
+    monkeypatch.setattr(anki.logger, "warning", lambda message: warning_messages.append(message))
+
+    for _ in range(8):
+        unsuccessful_count, scaled_polling_rate = anki._monitor_anki_iteration(0, 1.0)
+
+    assert unsuccessful_count == 0
+    assert scaled_polling_rate == pytest.approx(1.0)
+    assert info_messages == ["OBS replay buffer active; enabling Anki polling and seeding the current Anki baseline."]
+    assert len(warning_messages) == 5
+    assert all(message.startswith("Failed to seed Anki polling baseline") for message in warning_messages)
+    assert anki.anki_polling_gate_state.replay_buffer_polling_active is False
 
 
 def test_check_and_update_note_triggers_cache_sync_after_updating_note(monkeypatch):
@@ -1225,6 +1421,125 @@ def test_process_previous_screenshot_uploads_and_sets_field(monkeypatch, tmp_pat
 
     assert assets.prev_screenshot_in_anki == "prev-in-anki.webp"
     assert note["fields"]["PrevImage"] == '<img src="prev-in-anki.webp">'
+
+
+def test_apply_confirmed_animated_timing_uses_dialog_audio_range():
+    assets = anki.MediaAssets(pending_animated=True)
+
+    anki._apply_confirmed_animated_timing(assets, {"audio_edit_range": (11.25, 13.75)})
+
+    assert assets.animated_target_start == pytest.approx(11.25)
+    assert assets.animated_target_end == pytest.approx(13.75)
+
+
+def test_process_animated_screenshot_trims_prefetched_subset(monkeypatch, tmp_path):
+    cfg = _base_config()
+    cfg.screenshot.animated_settings.extension = "avif"
+    prefetched = tmp_path / "prefetched.avif"
+    prefetched.write_bytes(b"prefetched")
+    trimmed = tmp_path / "trimmed.avif"
+    trimmed.write_bytes(b"trimmed")
+    calls = []
+
+    monkeypatch.setattr(anki, "_get_prefetched_animated_screenshot_path", lambda _assets: str(prefetched))
+    monkeypatch.setattr(
+        anki.ffmpeg,
+        "trim_animation",
+        lambda path, **kwargs: calls.append((path, kwargs)) or str(trimmed),
+        raising=False,
+    )
+    monkeypatch.setattr(anki, "wait_for_stable_file", lambda _path: None)
+    monkeypatch.setattr(anki, "store_media_file", lambda path: "trimmed-in-anki.avif")
+
+    assets = anki.MediaAssets(
+        pending_animated=True,
+        screenshot_path=str(tmp_path / "placeholder.png"),
+        animated_prefetch_start=10.0,
+        animated_prefetch_end=15.0,
+        animated_target_start=11.0,
+        animated_target_end=13.0,
+    )
+    note = {"fields": {}}
+
+    anki._process_animated_screenshot(
+        assets,
+        note,
+        cfg,
+        update_picture_flag=True,
+        use_existing_files=False,
+    )
+
+    assert calls == [
+        (
+            str(prefetched),
+            {
+                "start_offset": 1.0,
+                "duration": 2.0,
+                "codec": "avif",
+                "quality": 20,
+                "fps": 15,
+            },
+        )
+    ]
+    assert assets.screenshot_path == str(trimmed)
+    assert assets.screenshot_in_anki == "trimmed-in-anki.avif"
+    assert note["fields"]["Picture"] == '<img src="trimmed-in-anki.avif">'
+
+
+def test_process_animated_screenshot_regenerates_when_target_expands_past_prefetch(monkeypatch, tmp_path):
+    cfg = _base_config()
+    cfg.screenshot.animated_settings.extension = "avif"
+    regenerated = tmp_path / "regenerated.avif"
+    regenerated.write_bytes(b"regenerated")
+    calls = []
+
+    def fail_if_prefetch_waited(_assets):
+        raise AssertionError("prefetch should not be waited on when confirmed range expands")
+
+    monkeypatch.setattr(anki, "_get_prefetched_animated_screenshot_path", fail_if_prefetch_waited)
+    monkeypatch.setattr(
+        anki.ffmpeg,
+        "video_to_animation_with_start_end",
+        lambda path, start, end, **kwargs: calls.append((path, start, end, kwargs)) or str(regenerated),
+        raising=False,
+    )
+    monkeypatch.setattr(anki, "wait_for_stable_file", lambda _path: None)
+    monkeypatch.setattr(anki, "store_media_file", lambda path: "regenerated-in-anki.avif")
+
+    assets = anki.MediaAssets(
+        pending_animated=True,
+        animated_video_path="replay.mp4",
+        animated_prefetch_start=10.0,
+        animated_prefetch_end=15.0,
+        animated_target_start=9.75,
+        animated_target_end=15.25,
+    )
+    note = {"fields": {}}
+
+    anki._process_animated_screenshot(
+        assets,
+        note,
+        cfg,
+        update_picture_flag=True,
+        use_existing_files=False,
+    )
+
+    assert calls == [
+        (
+            "replay.mp4",
+            9.75,
+            15.25,
+            {
+                "codec": "avif",
+                "quality": 20,
+                "fps": 15,
+                "audio": False,
+            },
+        )
+    ]
+    assert assets.screenshot_path == str(regenerated)
+    assert assets.screenshot_in_anki == "regenerated-in-anki.avif"
+    assert note["fields"]["Picture"] == '<img src="regenerated-in-anki.avif">'
 
 
 def test_process_audio_with_existing_files_and_external_tool(monkeypatch):

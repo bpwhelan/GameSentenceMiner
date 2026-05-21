@@ -104,8 +104,9 @@ class OBSConnectionPool:
     single-client setup.
     """
 
-    def __init__(self, size=1, **kwargs):
+    def __init__(self, size=1, initial_connect_delay=0.0, **kwargs):
         self.size = max(1, size)
+        self.initial_connect_delay = max(0.0, float(initial_connect_delay or 0.0))
         self.connection_kwargs = kwargs
         self._clients: list[Optional[obs.ReqClient]] = [None] * self.size
         self._locks: list[threading.Lock] = [threading.Lock() for _ in range(self.size)]
@@ -122,7 +123,8 @@ class OBSConnectionPool:
     # -- connection lifecycle ------------------------------------------------
 
     def connect_all(self):
-        time.sleep(2)
+        if self.initial_connect_delay > 0:
+            time.sleep(self.initial_connect_delay)
         for idx in range(self.size):
             self._attempt_connect_slot(idx, initial=True)
         return True
@@ -271,7 +273,7 @@ class OBSTickOptions:
 # OBSService
 # ---------------------------------------------------------------------------
 class OBSService:
-    def __init__(self, host, port, password, connections=2, check_output=False):
+    def __init__(self, host, port, password, connections=2, check_output=False, initial_connect_delay=0.0):
         self.host = host
         self.port = port
         self.password = password
@@ -281,7 +283,11 @@ class OBSService:
         self._pool_kwargs = {"host": host, "port": port, "password": password, "timeout": 3}
         self._event_client_kwargs = {"host": host, "port": port, "password": password, "timeout": 1}
 
-        self.connection_pool = OBSConnectionPool(size=connections, **self._pool_kwargs)
+        self.connection_pool = OBSConnectionPool(
+            size=connections,
+            initial_connect_delay=initial_connect_delay,
+            **self._pool_kwargs,
+        )
         self.connection_pool.connect_all()
 
         self.event_client = obs.EventClient(**self._event_client_kwargs)
@@ -1301,6 +1307,7 @@ async def connect_to_obs(
     check_output=False,
     healthcheck_enabled=True,
     start_manager=True,
+    initial_connect_delay=0.0,
 ):
     import GameSentenceMiner.obs as _obs_pkg
 
@@ -1320,6 +1327,7 @@ async def connect_to_obs(
                     password=get_config().obs.password,
                     connections=connections,
                     check_output=check_output,
+                    initial_connect_delay=initial_connect_delay,
                 )
                 _bind_obs_service_clients()
                 gsm_status.obs_connected = True
@@ -1365,7 +1373,14 @@ async def connect_to_obs(
         _obs_pkg.connecting = False
 
 
-def connect_to_obs_sync(retry=2, connections=2, check_output=False, healthcheck_enabled=True, start_manager=True):
+def connect_to_obs_sync(
+    retry=2,
+    connections=2,
+    check_output=False,
+    healthcheck_enabled=True,
+    start_manager=True,
+    initial_connect_delay=0.0,
+):
     import GameSentenceMiner.obs as _obs_pkg
 
     if _obs_pkg.obs_service or _obs_pkg.connecting:
@@ -1384,6 +1399,7 @@ def connect_to_obs_sync(retry=2, connections=2, check_output=False, healthcheck_
                     password=get_config().obs.password,
                     connections=connections,
                     check_output=check_output,
+                    initial_connect_delay=initial_connect_delay,
                 )
                 _bind_obs_service_clients()
                 gsm_status.obs_connected = True

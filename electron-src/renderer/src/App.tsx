@@ -7,6 +7,8 @@ import { SetupWizard } from "./components/SetupWizard";
 import { InstallSessionModal } from "./components/InstallSessionModal";
 import type { ControlledTab } from "./types/models";
 import { OCRTab } from "./components/tabs/OCRTab";
+import { TextHookTab } from "./components/tabs/TextHookTab";
+import { TextProcessingTab } from "./components/tabs/TextProcessingTab";
 import { HomeTab } from "./components/tabs/HomeTab";
 import { useTranslation } from "./i18n";
 import type { InstallSessionSnapshot } from "../../shared/install_session";
@@ -14,6 +16,8 @@ import type { InstallSessionSnapshot } from "../../shared/install_session";
 type TabId =
   | "obs"
   | "ocr"
+  | "texthook"
+  | "textprocessing"
   | "stats"
   | "launcher"
   | "settings"
@@ -23,6 +27,8 @@ type TabId =
 const TABS: Array<{ id: TabId; labelKey: string }> = [
   { id: "obs", labelKey: "app.tabs.home" },
   { id: "ocr", labelKey: "app.tabs.ocr" },
+  { id: "texthook", labelKey: "app.tabs.textHook" },
+  { id: "textprocessing", labelKey: "app.tabs.textProcessing" },
   { id: "stats", labelKey: "app.tabs.stats" },
   { id: "launcher", labelKey: "app.tabs.gameSettings" },
   { id: "settings", labelKey: "app.tabs.settings" },
@@ -32,7 +38,8 @@ const TABS: Array<{ id: TabId; labelKey: string }> = [
 
 const TAB_IDS = new Set<TabId>(TABS.map((tab) => tab.id));
 
-const ALWAYS_VISIBLE_TABS = new Set<TabId>(["obs", "ocr", "settings"]);
+const ALWAYS_VISIBLE_TABS = new Set<TabId>(["obs", "ocr", "texthook", "textprocessing", "settings"]);
+const WINDOWS_ONLY_TABS = new Set<TabId>(["texthook"]);
 const CONTROLLABLE_TABS: ControlledTab[] = [
   "launcher",
   "stats",
@@ -117,11 +124,20 @@ function StatsPanel({ active }: { active: boolean }) {
 
     loadingRef.current = true;
     try {
-      const settings = await window.ipcRenderer.invoke<{ statsEndpoint?: string }>(
+      const settings = await window.ipcRenderer.invoke<{
+        statsEndpoint?: string;
+        singlePort?: number;
+      }>(
         "settings.getSettings"
       );
       const statsEndpoint = settings?.statsEndpoint ?? "overview";
-      const statsUrl = `http://localhost:7275/${statsEndpoint}`;
+      const singlePort =
+        typeof settings?.singlePort === "number" &&
+        Number.isFinite(settings.singlePort) &&
+        settings.singlePort > 0
+          ? Math.trunc(settings.singlePort)
+          : 7275;
+      const statsUrl = `http://localhost:${singlePort}/${statsEndpoint}`;
 
       // If this URL already loaded, don't reset to a permanent loading state.
       if (!forceReload && loadedUrlRef.current === statsUrl) {
@@ -836,6 +852,8 @@ function PythonPanel({ onRequestConsole }: { onRequestConsole: () => void }) {
 
 export default function App() {
   const t = useTranslation();
+  const platform = window.gsmEnv?.platform ?? "win32";
+  const isWindows = platform === "win32";
   const [activeTab, setActiveTab] = useState<TabId>("obs");
   const [showWizard, setShowWizard] = useState(false);
   const [wizardChecked, setWizardChecked] = useState(false);
@@ -852,6 +870,9 @@ export default function App() {
 
   const isTabVisible = useCallback(
     (tab: TabId) => {
+      if (WINDOWS_ONLY_TABS.has(tab) && !isWindows) {
+        return false;
+      }
       if (ALWAYS_VISIBLE_TABS.has(tab)) {
         return true;
       }
@@ -860,18 +881,29 @@ export default function App() {
       }
       return true;
     },
-    [visibleControlledTabs]
+    [isWindows, visibleControlledTabs]
   );
 
   const visibleTabs = useMemo(
     () => TABS.filter((tab) => isTabVisible(tab.id)),
     [isTabVisible]
   );
+  const isTabVisibleRef = useRef(isTabVisible);
 
-  const selectTab = useCallback((tab: TabId) => {
-    setActiveTab(tab);
-    window.ipcRenderer.send("tab-changed", tab);
-  }, []);
+  useEffect(() => {
+    isTabVisibleRef.current = isTabVisible;
+  }, [isTabVisible]);
+
+  const selectTab = useCallback(
+    (tab: TabId) => {
+      if (!isTabVisible(tab)) {
+        return;
+      }
+      setActiveTab(tab);
+      window.ipcRenderer.send("tab-changed", tab);
+    },
+    [isTabVisible]
+  );
 
   const switchToConsole = useCallback(() => {
     setActiveTab("console");
@@ -925,7 +957,10 @@ export default function App() {
       "app.navigateToTab",
       (_event, requestedTab) => {
         if (typeof requestedTab === "string" && TAB_IDS.has(requestedTab as TabId)) {
-          setActiveTab(requestedTab as TabId);
+          const tab = requestedTab as TabId;
+          if (isTabVisibleRef.current(tab)) {
+            setActiveTab(tab);
+          }
         }
       }
     );
@@ -1015,7 +1050,6 @@ export default function App() {
   }, [hasCompletedSetup, installSession]);
 
   useEffect(() => {
-    const platform = window.gsmEnv?.platform ?? "win32";
     const info = {
       platform,
       isWindows: platform === "win32",
@@ -1024,7 +1058,7 @@ export default function App() {
       detectedAt: Date.now()
     };
     void window.ipcRenderer.invoke("state.set", "systemInfo", info);
-  }, []);
+  }, [platform]);
 
   // // Check if setup wizard should show (first launch)
   // useEffect(() => {
@@ -1096,8 +1130,10 @@ export default function App() {
       </header>
 
       <main className="tab-content-area">
-        <HomeTab active={activeTab === "obs"} />
+        <HomeTab active={activeTab === "obs"} onNavigateTab={selectTab} />
         <OCRTab active={activeTab === "ocr"} />
+        {isWindows ? <TextHookTab active={activeTab === "texthook"} /> : null}
+        <TextProcessingTab active={activeTab === "textprocessing"} />
         <StatsPanel active={activeTab === "stats"} />
         <LauncherTab active={activeTab === "launcher"} />
         <SettingsTab active={activeTab === "settings"} />

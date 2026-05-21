@@ -1,6 +1,8 @@
 import sys
 from types import ModuleType, SimpleNamespace
 
+import pytest
+
 import GameSentenceMiner.gsm as gsm_module
 from GameSentenceMiner.util import text_log
 
@@ -54,9 +56,11 @@ def test_main_logs_pid_before_run_when_no_existing_instance(monkeypatch):
 def test_connect_obs_when_available_uses_single_connection(monkeypatch):
     app = gsm_module.GSMApplication()
     connect_calls = []
+    wait_calls = []
     previous_line_refreshes = []
 
-    async def _fake_wait_for_obs_ready():
+    async def _fake_wait_for_obs_ready(**kwargs):
+        wait_calls.append(kwargs)
         return True
 
     async def _fake_connect_to_obs(**kwargs):
@@ -71,6 +75,7 @@ def test_connect_obs_when_available_uses_single_connection(monkeypatch):
 
     monkeypatch.setattr(gsm_module.obs, "wait_for_obs_ready", _fake_wait_for_obs_ready)
     monkeypatch.setattr(gsm_module.obs, "connect_to_obs", _fake_connect_to_obs)
+    monkeypatch.setattr(gsm_module, "get_config", lambda: SimpleNamespace(obs=SimpleNamespace(open_obs=True)))
     monkeypatch.setattr(gsm_module, "check_obs_folder_is_correct", _fake_check_obs_folder_is_correct)
     monkeypatch.setattr(app, "register_scene_switcher_callback", _fake_register_scene_switcher_callback)
     monkeypatch.setattr(app, "get_previous_lines_for_game", lambda: previous_line_refreshes.append(True))
@@ -80,63 +85,72 @@ def test_connect_obs_when_available_uses_single_connection(monkeypatch):
 
     gsm_module.asyncio.run(app._connect_obs_when_available())
 
+    assert wait_calls == [{"interval": 0.5}]
     assert connect_calls[0]["connections"] == 2
     assert connect_calls[0]["check_output"] is True
     assert connect_calls[0]["start_manager"] is True
+    assert connect_calls[0]["initial_connect_delay"] == pytest.approx(2.0)
     assert previous_line_refreshes == [True]
 
 
-def test_sync_profile_for_scene_switches_to_matching_profile_without_prompt(monkeypatch):
+def test_launch_obs_early_skips_python_launch_under_electron(monkeypatch):
     app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
-    app.state = SimpleNamespace(settings_window=None)
-    previous_line_refreshes = []
-    app.get_previous_lines_for_game = lambda: previous_line_refreshes.append(True)
+    app._obs_launch_thread = None
+    calls = []
 
-    master_config = SimpleNamespace(
-        configs={
-            "Default": SimpleNamespace(scenes=[]),
-            "Persona 3": SimpleNamespace(scenes=["Dorm"]),
-        },
-        current_profile="Default",
-        switch_to_default_if_not_found=True,
-    )
-    saved_profiles = []
+    monkeypatch.setenv("GSM_ELECTRON", "1")
+    monkeypatch.setattr(gsm_module.obs, "start_obs", lambda: calls.append("start_obs"))
+    monkeypatch.setattr(gsm_module.logger, "info", lambda *_args, **_kwargs: None)
 
-    monkeypatch.setattr(gsm_module, "get_master_config", lambda: master_config)
-    monkeypatch.setattr(gsm_module, "switch_profile_and_save", lambda profile_name: saved_profiles.append(profile_name))
+    gsm_module.GSMApplication._launch_obs_early(app)
 
-    result = gsm_module.GSMApplication._sync_profile_for_scene(app, "Dorm", interactive=False)
-
-    assert result == "Persona 3"
-    assert master_config.current_profile == "Persona 3"
-    assert saved_profiles == ["Persona 3"]
-    assert previous_line_refreshes == [True]
+    assert app._obs_launch_thread is None
+    assert calls == []
 
 
-def test_sync_profile_for_scene_skips_ambiguous_matches_during_periodic_checks(monkeypatch):
+def test_switch_profile_delegates_to_profile_switcher():
     app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
-    app.state = SimpleNamespace(settings_window=None)
-    app.get_previous_lines_for_game = lambda: None
+    settings_window = object()
+    calls = []
 
-    master_config = SimpleNamespace(
-        configs={
-            "Default": SimpleNamespace(scenes=[]),
-            "VN A": SimpleNamespace(scenes=["Shared Scene"]),
-            "VN B": SimpleNamespace(scenes=["Shared Scene"]),
-        },
-        current_profile="Default",
-        switch_to_default_if_not_found=True,
-    )
-    saved_profiles = []
+    class _FakeProfileSwitcher:
+        def switch_profile(self, profile_name, *, settings_window=None):
+            calls.append((profile_name, settings_window))
 
-    monkeypatch.setattr(gsm_module, "get_master_config", lambda: master_config)
-    monkeypatch.setattr(gsm_module, "switch_profile_and_save", lambda profile_name: saved_profiles.append(profile_name))
+    app.state = SimpleNamespace(settings_window=settings_window)
+    app.profile_switcher = _FakeProfileSwitcher()
 
-    result = gsm_module.GSMApplication._sync_profile_for_scene(app, "Shared Scene", interactive=False)
+    gsm_module.GSMApplication.switch_profile(app, "Default")
 
-    assert result is None
-    assert master_config.current_profile == "Default"
-    assert saved_profiles == []
+    assert calls == [("Default", settings_window)]
+
+
+def test_check_profile_for_scene_tick_delegates_to_profile_switcher():
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    settings_window = object()
+    calls = []
+    refreshes = []
+
+    class _FakeProfileSwitcher:
+        def sync_profile_for_scene(
+            self,
+            scene,
+            *,
+            interactive,
+            settings_window=None,
+            on_profile_switched=None,
+        ):
+            calls.append((scene, interactive, settings_window, on_profile_switched))
+            on_profile_switched()
+
+    app.state = SimpleNamespace(settings_window=settings_window)
+    app.profile_switcher = _FakeProfileSwitcher()
+    app.get_previous_lines_for_game = lambda: refreshes.append(True)
+
+    gsm_module.GSMApplication._check_profile_for_scene_tick(app, "Dorm")
+
+    assert calls == [("Dorm", False, settings_window, app.get_previous_lines_for_game)]
+    assert refreshes == [True]
 
 
 def test_register_scene_observed_profile_check_registers_handler_and_checks_current_scene(monkeypatch):

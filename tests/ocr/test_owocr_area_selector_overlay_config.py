@@ -58,5 +58,7 @@ def test_load_existing_overlay_rectangles_translates_legacy_monitor_rects_to_win
             "monitor_index": 0,
             "is_excluded": False,
             "is_secondary": False,
+            "is_exclusive": False,
+            "is_black_hole": False,
         }
     ]

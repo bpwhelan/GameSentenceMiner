@@ -78,8 +78,10 @@ export interface AppSettings {
   windowTransparencyTarget: string;
   runWindowTransparencyToolOnStartup: boolean;
   runOverlayOnStartup: boolean;
+  textCaptureWizardEnabled: boolean;
   visibleTabs: ControlledTab[];
   statsEndpoint: string;
+  singlePort: number;
   locale: string;
 }
 

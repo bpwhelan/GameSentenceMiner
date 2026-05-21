@@ -21,6 +21,18 @@
       horizontalGapMinPercent: 4,
       horizontalGapMaxPercent: 32,
     }),
+    sameRowBridge: Object.freeze({
+      wideGapMinPercent: 16,
+      wideSpanMinPercent: 80,
+      asymmetryGapMinPercent: 3.5,
+      verticalNeighborGapMedianHeightMultiplier: 1.8,
+      verticalNeighborCenterYMedianHeightMultiplier: 2.6,
+      verticalNeighborXOverlapRatioMin: 0.28,
+      verticalNeighborEdgeDiffMinPercent: 3,
+      verticalNeighborEdgeDiffCharWidthMultiplier: 3,
+      verticalNeighborCenterXMinPercent: 5,
+      verticalNeighborCenterXWidthMultiplier: 0.65,
+    }),
     crossRow: Object.freeze({
       verticalGapMinPercent: 1.2,
       verticalGapMedianHeightMultiplier: 0.9,
@@ -207,6 +219,87 @@
     };
   }
 
+  function hasVerticalNeighbor(line, metrics, ignoredIndex, medianHeight, tuning = BLOCK_DETECTION_TUNING) {
+    if (!Array.isArray(metrics) || metrics.length === 0) {
+      return false;
+    }
+
+    const sameRowBridgeCfg = tuning.sameRowBridge;
+    const crossRowCfg = tuning.crossRow;
+    const centerX = (line.x1 + line.x3) / 2;
+    const neighborVerticalGapThreshold = Math.max(
+      crossRowCfg.verticalGapMinPercent,
+      medianHeight * sameRowBridgeCfg.verticalNeighborGapMedianHeightMultiplier
+    );
+    const neighborCenterYThreshold = Math.max(
+      crossRowCfg.centerYMinPercent,
+      medianHeight * sameRowBridgeCfg.verticalNeighborCenterYMedianHeightMultiplier
+    );
+    const edgeThreshold = Math.max(
+      sameRowBridgeCfg.verticalNeighborEdgeDiffMinPercent,
+      line.charWidth * sameRowBridgeCfg.verticalNeighborEdgeDiffCharWidthMultiplier
+    );
+    const centerXThreshold = Math.max(
+      sameRowBridgeCfg.verticalNeighborCenterXMinPercent,
+      line.width * sameRowBridgeCfg.verticalNeighborCenterXWidthMultiplier
+    );
+
+    return metrics.some((candidate) => {
+      if (!candidate || candidate.index === line.index || candidate.index === ignoredIndex) {
+        return false;
+      }
+
+      const verticalGap = getAxisGap(line.y1, line.y3, candidate.y1, candidate.y3);
+      if (verticalGap <= 0 || verticalGap > neighborVerticalGapThreshold) {
+        return false;
+      }
+
+      const centerYDiff = Math.abs(line.centerY - candidate.centerY);
+      if (centerYDiff > neighborCenterYThreshold) {
+        return false;
+      }
+
+      const xOverlap = getAxisOverlap(line.x1, line.x3, candidate.x1, candidate.x3);
+      const minWidth = Math.max(tuning.minDimensionPercent, Math.min(line.width, candidate.width));
+      const xOverlapRatio = xOverlap / minWidth;
+      const candidateCenterX = (candidate.x1 + candidate.x3) / 2;
+      return (
+        xOverlapRatio >= sameRowBridgeCfg.verticalNeighborXOverlapRatioMin ||
+        Math.abs(line.x1 - candidate.x1) <= edgeThreshold ||
+        Math.abs(line.x3 - candidate.x3) <= edgeThreshold ||
+        Math.abs(centerX - candidateCenterX) <= centerXThreshold
+      );
+    });
+  }
+
+  function shouldRejectSameRowBridge(
+    lineA,
+    lineB,
+    horizontalGap,
+    medianHeight,
+    tuning = BLOCK_DETECTION_TUNING,
+    metrics = []
+  ) {
+    const sameRowBridgeCfg = tuning.sameRowBridge;
+    const { left, right } = orderMetricsByX(lineA, lineB);
+    const pairSpan = Math.max(tuning.minDimensionPercent, right.x3 - left.x1);
+
+    if (
+      horizontalGap >= sameRowBridgeCfg.wideGapMinPercent &&
+      pairSpan >= sameRowBridgeCfg.wideSpanMinPercent
+    ) {
+      return true;
+    }
+
+    if (horizontalGap < sameRowBridgeCfg.asymmetryGapMinPercent) {
+      return false;
+    }
+
+    const leftHasVerticalNeighbor = hasVerticalNeighbor(left, metrics, right.index, medianHeight, tuning);
+    const rightHasVerticalNeighbor = hasVerticalNeighbor(right, metrics, left.index, medianHeight, tuning);
+    return leftHasVerticalNeighbor !== rightHasVerticalNeighbor;
+  }
+
   function buildPersistentGapSeparators(metrics, medianHeight, tuning = BLOCK_DETECTION_TUNING) {
     const persistentGapCfg = tuning.persistentGap;
     const rowCandidates = [];
@@ -305,7 +398,14 @@
     ));
   }
 
-  function shouldLinesShareBlock(lineA, lineB, medianHeight, tuning = BLOCK_DETECTION_TUNING, persistentSeparators = []) {
+  function shouldLinesShareBlock(
+    lineA,
+    lineB,
+    medianHeight,
+    tuning = BLOCK_DETECTION_TUNING,
+    persistentSeparators = [],
+    metrics = []
+  ) {
     const sameRowCfg = tuning.sameRow;
     const crossRowCfg = tuning.crossRow;
     const crossRowRelaxedCfg = tuning.crossRowRelaxed;
@@ -345,6 +445,9 @@
       horizontalGap <= sameRowGapThreshold;
 
     if (sameRow) {
+      if (shouldRejectSameRowBridge(lineA, lineB, horizontalGap, medianHeight, tuning, metrics)) {
+        return false;
+      }
       return true;
     }
 
@@ -368,6 +471,12 @@
         horizontalGap <= Math.max(crossRowCfg.horizontalGapMinPercent, avgCharWidth * crossRowCfg.horizontalGapCharWidthMultiplier)
       );
     if (strictCrossRowMatch) {
+      if (
+        xOverlap <= 0 &&
+        shouldRejectSameRowBridge(lineA, lineB, horizontalGap, medianHeight, tuning, metrics)
+      ) {
+        return false;
+      }
       return true;
     }
 
@@ -444,7 +553,7 @@
 
     for (let i = 0; i < metrics.length; i++) {
       for (let j = i + 1; j < metrics.length; j++) {
-        if (shouldLinesShareBlock(metrics[i], metrics[j], medianHeight, tuning, persistentSeparators)) {
+        if (shouldLinesShareBlock(metrics[i], metrics[j], medianHeight, tuning, persistentSeparators, metrics)) {
           unite(i, j);
         }
       }
@@ -510,7 +619,9 @@
     getAxisOverlap,
     getMedianValue,
     getPersistentGapRowCandidate,
+    hasVerticalNeighbor,
     pairCrossesPersistentSeparator,
+    shouldRejectSameRowBridge,
     shouldLinesShareBlock,
   };
 }));

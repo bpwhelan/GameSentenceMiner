@@ -1,7 +1,7 @@
 import rapidfuzz
 import unicodedata
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -76,12 +76,14 @@ class GameLine:
 class GameText:
     values: list[GameLine]
     values_dict: dict[str, GameLine]
-    previous_lines = set()
-    game_line_index = 0
+    previous_lines: set = field(default_factory=set)
+    game_line_index: int = 0
 
     def __init__(self):
         self.values = []
         self.values_dict = {}
+        self.previous_lines = set()
+        self.game_line_index = 0
 
     def __getitem__(self, index):
         return self.values[index]
@@ -208,8 +210,8 @@ def lines_match(texthooker_sentence, anki_sentence, similarity_threshold=80) -> 
     # elif anki_sentence in texthooker_sentence:
     #     logger.debug(f"One contains the other: {anki_sentence} in {texthooker_sentence} - Similarity: {similarity}")
     return (
-        (anki_sentence in texthooker_sentence)
-        or (texthooker_sentence in anki_sentence)
+        (anki_sentence in texthooker_sentence and len(anki_sentence) >= 0.3 * len(texthooker_sentence))
+        or (texthooker_sentence in anki_sentence and len(texthooker_sentence) >= 0.3 * len(anki_sentence))
         or (similarity >= similarity_threshold)
     )
 

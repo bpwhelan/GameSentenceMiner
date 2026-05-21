@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import threading
 import time
 from functools import lru_cache
 from pathlib import Path
@@ -11,6 +13,9 @@ from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.db import SQLiteDB
 
 _SOURCE_DIR = Path(__file__).resolve().parents[2] / "web" / "templates" / "components" / "word_frequency_sources"
+_BACKGROUND_SYNC_START_DELAY_SECONDS = 2.0
+_global_frequency_sync_lock = threading.Lock()
+_global_frequency_sync_thread: threading.Thread | None = None
 
 
 def get_global_frequency_source_dir() -> Path:
@@ -19,6 +24,7 @@ def get_global_frequency_source_dir() -> Path:
 
 def clear_global_frequency_source_cache() -> None:
     load_global_frequency_sources.cache_clear()
+    load_global_frequency_source_metadata.cache_clear()
 
 
 def _normalize_source_entries(raw_entries: list[Any], source_id: str) -> list[tuple[str, int]]:
@@ -93,6 +99,52 @@ def _read_source_file(path: Path) -> dict[str, Any] | None:
     }
 
 
+def _read_source_metadata(path: Path) -> dict[str, Any] | None:
+    try:
+        data = None
+        text = ""
+        with path.open("r", encoding="utf-8") as file:
+            for _ in range(16):
+                chunk = file.read(4096)
+                if not chunk:
+                    break
+                text += chunk
+                match = re.search(r",?\s*\"entries\"\s*:", text)
+                if match:
+                    prefix = text[: match.start()].rstrip().rstrip(",")
+                    data = json.loads(prefix + "}")
+                    break
+        if data is None:
+            data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning(f"Failed to load word-frequency metadata {path.name}: {exc}")
+        return None
+
+    source_id = str(data.get("id") or path.stem).strip()
+    if not source_id:
+        return None
+
+    try:
+        max_rank = int(data.get("max_rank") or 0)
+    except (TypeError, ValueError):
+        max_rank = 0
+    try:
+        entry_count = int(data.get("entry_count") or 0)
+    except (TypeError, ValueError):
+        entry_count = 0
+
+    return {
+        "path": path,
+        "id": source_id,
+        "name": str(data.get("name") or source_id).strip(),
+        "version": str(data.get("version") or "1").strip(),
+        "source_url": str(data.get("source") or data.get("source_url") or "").strip(),
+        "is_default": bool(data.get("default")),
+        "max_rank": max_rank,
+        "entry_count": entry_count,
+    }
+
+
 @lru_cache(maxsize=1)
 def load_global_frequency_sources() -> list[dict[str, Any]]:
     source_dir = get_global_frequency_source_dir()
@@ -113,7 +165,23 @@ def load_global_frequency_sources() -> list[dict[str, Any]]:
     return sources
 
 
-def create_global_frequency_tables(db: SQLiteDB) -> None:
+@lru_cache(maxsize=1)
+def load_global_frequency_source_metadata() -> list[dict[str, Any]]:
+    source_dir = get_global_frequency_source_dir()
+    if not source_dir.exists():
+        logger.info(f"Word-frequency source directory does not exist yet: {source_dir}")
+        return []
+
+    sources = [source for path in sorted(source_dir.glob("*.json")) if (source := _read_source_metadata(path))]
+
+    default_count = sum(1 for source in sources if source["is_default"])
+    if sources and default_count == 0:
+        sources[0]["is_default"] = True
+
+    return sources
+
+
+def create_global_frequency_tables(db: SQLiteDB, *, create_indexes: bool = True) -> None:
     db.execute(
         """
         CREATE TABLE IF NOT EXISTS global_frequency_sources (
@@ -140,6 +208,9 @@ def create_global_frequency_tables(db: SQLiteDB) -> None:
         """,
         commit=True,
     )
+    if not create_indexes:
+        return
+
     db.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_word_global_frequencies_rank
@@ -149,13 +220,43 @@ def create_global_frequency_tables(db: SQLiteDB) -> None:
     )
 
 
+def start_global_frequency_source_sync(db: SQLiteDB) -> None:
+    if db.read_only or os.getenv("GAME_SENTENCE_MINER_TESTING") == "1" or "PYTEST_CURRENT_TEST" in os.environ:
+        return
+
+    global _global_frequency_sync_thread
+    with _global_frequency_sync_lock:
+        if _global_frequency_sync_thread and _global_frequency_sync_thread.is_alive():
+            return
+
+        _global_frequency_sync_thread = threading.Thread(
+            target=_run_global_frequency_source_sync,
+            args=(db,),
+            name="GlobalFrequencySync",
+            daemon=True,
+        )
+        _global_frequency_sync_thread.start()
+
+
+def _run_global_frequency_source_sync(db: SQLiteDB) -> None:
+    global _global_frequency_sync_thread
+    try:
+        time.sleep(_BACKGROUND_SYNC_START_DELAY_SECONDS)
+        setup_global_frequency_sources(db)
+    except Exception as exc:
+        logger.warning(f"Failed to sync global-frequency sources in background: {exc}")
+    finally:
+        with _global_frequency_sync_lock:
+            _global_frequency_sync_thread = None
+
+
 def setup_global_frequency_sources(db: SQLiteDB) -> None:
     create_global_frequency_tables(db)
 
     if os.getenv("GAME_SENTENCE_MINER_TESTING") == "1":
         return
 
-    sources = load_global_frequency_sources()
+    sources = load_global_frequency_source_metadata()
     if not sources:
         return
 
@@ -165,17 +266,45 @@ def setup_global_frequency_sources(db: SQLiteDB) -> None:
     )
 
     for source in sources:
+        source = dict(source)
         source_id = source["id"]
         row = db.fetchone(
             """
-            SELECT version, entry_count
+            SELECT version, entry_count, max_rank
             FROM global_frequency_sources
             WHERE id = ?
             """,
             (source_id,),
         )
 
-        needs_refresh = row is None or str(row[0]) != source["version"] or int(row[1]) != source["entry_count"]
+        if row is not None and int(source["entry_count"]) <= 0:
+            source["entry_count"] = int(row[1])
+        if row is not None and int(source["max_rank"]) <= 0:
+            source["max_rank"] = int(row[2])
+
+        has_frequency_rows = row is not None and db.fetchone(
+            """
+            SELECT 1
+            FROM word_global_frequencies
+            WHERE source_id = ?
+            LIMIT 1
+            """,
+            (source_id,),
+        )
+        needs_refresh = (
+            row is None
+            or not has_frequency_rows
+            or str(row[0]) != source["version"]
+            or int(row[1]) != source["entry_count"]
+        )
+        if needs_refresh:
+            loaded_source = _read_source_file(source["path"])
+            if loaded_source is None:
+                continue
+            source = loaded_source
+            source_id = source["id"]
+
+        refreshed = False
 
         with db.transaction():
             if needs_refresh:
@@ -193,6 +322,7 @@ def setup_global_frequency_sources(db: SQLiteDB) -> None:
                     rows_to_insert,
                     commit=True,
                 )
+                refreshed = True
 
             db.execute(
                 """
@@ -213,14 +343,15 @@ def setup_global_frequency_sources(db: SQLiteDB) -> None:
                 commit=True,
             )
 
-    try:
-        from GameSentenceMiner.util.database.tokenization_tables import (
-            refresh_word_stats_active_global_ranks,
-        )
+        if refreshed:
+            try:
+                from GameSentenceMiner.util.database.tokenization_tables import (
+                    refresh_word_stats_active_global_ranks,
+                )
 
-        refresh_word_stats_active_global_ranks(db)
-    except Exception as exc:
-        logger.warning(f"Failed to refresh cached word ranks after source sync: {exc}")
+                refresh_word_stats_active_global_ranks(db)
+            except Exception as exc:
+                logger.warning(f"Failed to refresh cached word ranks after source sync: {exc}")
 
 
 def teardown_global_frequency_sources(db: SQLiteDB) -> None:

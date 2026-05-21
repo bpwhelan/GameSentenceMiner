@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invokeIpc } from "../../lib/ipc";
 import { useTranslation } from "../../i18n";
+import { TextCaptureWizard } from "../TextCaptureWizard";
 import type { GsmStatus, ObsCaptureMode, ObsScene, ObsWindow } from "../../types/models";
 
 /* ------------------------------------------------------------------ */
@@ -9,6 +10,7 @@ import type { GsmStatus, ObsCaptureMode, ObsScene, ObsWindow } from "../../types
 
 interface HomeTabProps {
   active: boolean;
+  onNavigateTab?: (tab: "ocr" | "texthook" | "launcher" | "settings") => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -298,7 +300,7 @@ function RenameModal({ scene, onClose, onConfirm }: RenameModalProps) {
 /*  Main HomeTab                                                       */
 /* ------------------------------------------------------------------ */
 
-export function HomeTab({ active }: HomeTabProps) {
+export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   const t = useTranslation();
 
   /* ---- Status ---------------------------------------------------- */
@@ -372,6 +374,8 @@ export function HomeTab({ active }: HomeTabProps) {
   const [selectedCaptureMode, setSelectedCaptureMode] = useState<ObsCaptureMode>("window_capture");
   const [overrideSceneName, setOverrideSceneName] = useState("");
   const [captureCardEnabled, setCaptureCardEnabled] = useState(false);
+  const [captureWizardOpen, setCaptureWizardOpen] = useState(false);
+  const [captureWizardScene, setCaptureWizardScene] = useState<ObsScene | null>(null);
 
   /* ---- Loaders --------------------------------------------------- */
   const [scenesLoading, setScenesLoading] = useState(true);
@@ -536,7 +540,13 @@ export function HomeTab({ active }: HomeTabProps) {
     }
   }, [selectedSceneId, selectedSceneCaptureMode, refreshAll]);
 
-  const handleCreateScene = useCallback(() => {
+  const handleOpenCaptureWizard = useCallback(() => {
+    if (!selectedScene || isHelperScene) return;
+    setCaptureWizardScene(selectedScene);
+    setCaptureWizardOpen(true);
+  }, [isHelperScene, selectedScene]);
+
+  const handleCreateScene = useCallback(async () => {
     const win = selectedWindow;
     if (!win) return;
     const payload = {
@@ -550,8 +560,24 @@ export function HomeTab({ active }: HomeTabProps) {
       audioDeviceId: win.audioDeviceId,
       wasapiInputDeviceId: win.wasapiInputDeviceId,
     };
-    void invokeIpc("obs.createScene", payload);
-  }, [selectedWindow, overrideSceneName, selectedCaptureMode]);
+    await invokeIpc("obs.createScene", payload);
+    await refreshAll();
+
+    try {
+      const [settings, activeScene] = await Promise.all([
+        invokeIpc<{ textCaptureWizardEnabled?: boolean }>("settings.getSettings"),
+        invokeIpc<ObsScene | null>("obs.getActiveScene")
+      ]);
+      if (settings?.textCaptureWizardEnabled === false) {
+        return;
+      }
+      setCaptureWizardScene(activeScene ?? null);
+      setCaptureWizardOpen(true);
+    } catch {
+      setCaptureWizardScene(null);
+      setCaptureWizardOpen(true);
+    }
+  }, [selectedWindow, overrideSceneName, selectedCaptureMode, refreshAll]);
 
   const handleCaptureCardToggle = useCallback(async (enabled: boolean) => {
     try {
@@ -562,6 +588,12 @@ export function HomeTab({ active }: HomeTabProps) {
       setCaptureCardEnabled(!enabled);
     }
   }, [loadWindows]);
+
+  const handleCaptureWizardClose = useCallback(() => {
+    setCaptureWizardOpen(false);
+    setCaptureWizardScene(null);
+    void refreshAll();
+  }, [refreshAll]);
 
   /* ---- Actions --------------------------------------------------- */
   const openGSMSettings = useCallback(() => void invokeIpc("settings.openGSMSettings"), []);
@@ -735,6 +767,15 @@ export function HomeTab({ active }: HomeTabProps) {
                   )}
                   <button
                     type="button"
+                    className="home-text-btn"
+                    disabled={isHelperScene}
+                    onClick={handleOpenCaptureWizard}
+                    title={t("home.obs.runCaptureWizardTooltip")}
+                  >
+                    {t("home.obs.runCaptureWizard")}
+                  </button>
+                  <button
+                    type="button"
                     className="home-text-btn home-text-btn--danger"
                     disabled={isHelperScene}
                     onClick={() => void handleRemoveScene()}
@@ -898,7 +939,7 @@ export function HomeTab({ active }: HomeTabProps) {
                   <button
                     type="button"
                     disabled={!canCreateScene}
-                    onClick={handleCreateScene}
+                    onClick={() => void handleCreateScene()}
                     title={t("home.obs.setupCaptureTooltip")}
                   >
                     {t("home.obs.setupCapture")}
@@ -1079,6 +1120,13 @@ export function HomeTab({ active }: HomeTabProps) {
             onClose={closeAnkiBeaconModal}
           />
         )}
+        {captureWizardOpen ? (
+          <TextCaptureWizard
+            initialScene={captureWizardScene}
+            onNavigateTab={onNavigateTab}
+            onClose={handleCaptureWizardClose}
+          />
+        ) : null}
       </div>
     </div>
   );

@@ -18,6 +18,7 @@ from GameSentenceMiner.util.config.configuration import (
     get_config,
     get_master_config,
     gsm_state,
+    gsm_status,
     logger,
     reload_config,
 )
@@ -269,6 +270,10 @@ def is_process_running(pid):
 def start_obs(force_restart=False):
     import GameSentenceMiner.obs as _obs_pkg
 
+    if gsm_status.obs_connected and not force_restart:
+        logger.debug("OBS is already connected; skipping launch request.")
+        return _obs_pkg.obs_process_pid
+
     if os.path.exists(_obs_pkg.OBS_PID_FILE):
         with open(_obs_pkg.OBS_PID_FILE, "r") as f:
             try:
@@ -391,7 +396,7 @@ def get_obs_websocket_config_values():
         if not os.path.isfile(config_path):
             return
 
-        with open(config_path, "r") as file:
+        with open(config_path, "r", encoding="utf-8-sig") as file:
             config = json.load(file)
 
         server_enabled = config.get("server_enabled", False)
@@ -403,7 +408,7 @@ def get_obs_websocket_config_values():
                 "OBS WebSocket server is not enabled. Enabling it now... Restart OBS for changes to take effect."
             )
             config["server_enabled"] = True
-            with open(config_path, "w") as file:
+            with open(config_path, "w", encoding="utf-8") as file:
                 json.dump(config, file, indent=4)
 
         if get_config().obs.password == "your_password":

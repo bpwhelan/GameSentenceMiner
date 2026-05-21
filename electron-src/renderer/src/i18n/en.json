@@ -45,6 +45,8 @@
       "remove": "Remove",
       "switchToGameCapture": "Switch to Game Capture",
       "switchToWindowCapture": "Switch to Window Capture",
+      "runCaptureWizard": "Run Capture Wizard",
+      "runCaptureWizardTooltip": "Open text capture setup for the selected game.",
       "switchProfile": "Switch Profile",
       "preview": "Preview",
       "captureCardPrefix": "Capture Card: {title}",
@@ -124,8 +126,10 @@
     "tabs": {
       "home": "Home",
       "ocr": "OCR",
+      "textHook": "Texthook / Agent",
+      "textProcessing": "Text Processing",
       "stats": "Stats",
-      "gameSettings": "Game Settings",
+      "gameSettings": "Game Automation",
       "settings": "Settings",
       "python": "Python",
       "logs": "Logs"
@@ -245,13 +249,127 @@
       "title": "You're All Set! 🎉",
       "description": "GSM is ready to go. Here are some tips to get started:",
       "tipHome": "Open the <strong>Home</strong> tab to see the current game text stream",
-      "tipGameSettings": "Use <strong>Game Settings</strong> to configure per-game profiles",
+      "tipGameSettings": "Use <strong>Game Automation</strong> to configure per-game automation",
       "tipSettings": "Check the <strong>Settings</strong> tab for Anki, audio, and hotkey configuration",
       "tipConsole": "The <strong>Console</strong> tab shows what GSM is doing behind the scenes",
       "guidePre": "For detailed guides and troubleshooting, visit the",
       "guideWikiLink": "GSM Wiki",
       "guideOr": "or join the",
       "guideDiscordLink": "Discord community"
+    }
+  },
+  "captureWizard": {
+    "title": "Text Capture Wizard (WIP)",
+    "subtitle": "Finish text input, OCR fallback, and automation for this game.",
+    "breadcrumbLabel": "Text capture setup steps",
+    "steps": {
+      "preview": "Preview",
+      "agent": "Agent",
+      "hook": "Hooks",
+      "ocr": "OCR",
+      "profile": "Profile",
+      "finish": "Review"
+    },
+    "actions": {
+      "deny": "Not now",
+      "dontAskAgain": "Don't ask again",
+      "back": "Back",
+      "next": "Next"
+    },
+    "preview": {
+      "title": "Check the OBS preview",
+      "description": "GSM refreshes this preview every second and fits the source to the OBS canvas before each screenshot.",
+      "scene": "Scene",
+      "executable": "Executable",
+      "captureType": "Capture type",
+      "gameCapture": "Game Capture",
+      "windowCapture": "Window Capture",
+      "unknown": "Unknown",
+      "imageAlt": "OBS capture preview",
+      "loading": "Loading preview...",
+      "noPreview": "No OBS preview is available yet.",
+      "refresh": "Refresh",
+      "switchToGame": "Switch to Game Capture",
+      "switchToWindow": "Switch to Window Capture",
+      "switchFailed": "Failed to change capture type.",
+      "looksCorrect": "Looks correct"
+    },
+    "agent": {
+      "title": "Try an Agent script first",
+      "description": "Agent scripts usually give cleaner text than OCR when a matching game script exists.",
+      "nsHint": "Scripts starting with NS_ are for Nintendo Switch emulator targets.",
+      "switchDetected": "This looks like a Switch emulator target. NS_ script matches are expected.",
+      "loading": "Searching Agent scripts...",
+      "noMatches": "No likely Agent scripts were found.",
+      "searchFailed": "Failed to search Agent scripts.",
+      "searchAgain": "Search again",
+      "manualSearch": "Search scripts",
+      "pickerTitle": "Search Agent scripts",
+      "pickerClose": "Close",
+      "searchPlaceholder": "Search scripts by game or file name",
+      "pickerNoResults": "No matching scripts found.",
+      "tryHooks": "Try Luna/Textractor",
+      "useScript": "Use selected script"
+    },
+    "hook": {
+      "title": "Try Luna or Textractor",
+      "description": "Start a hook engine, advance the game text, then pick the hook that shows real dialogue.",
+      "engine": "Engine",
+      "luna": "Luna Hook",
+      "textractor": "Textractor",
+      "start": "Start hook engine",
+      "running": "{count} usable hooks found",
+      "notRunning": "Hook engine is not running.",
+      "waiting": "Waiting for hooks with text. Advance the game dialogue.",
+      "startFirst": "Start an engine to scan for hooks.",
+      "noPreview": "No text preview yet",
+      "refreshFailed": "Failed to refresh hooks.",
+      "startFailed": "Failed to start hook engine.",
+      "useOcrInstead": "Use OCR instead",
+      "useHook": "Use selected hook"
+    },
+    "ocr": {
+      "title": "Set up OCR fallback",
+      "description": "OCR is the most reliable option when no script or hook gives clean game text.",
+      "reasonStable": "An OCR area keeps scans focused on the dialogue box.",
+      "reasonNoise": "Smaller areas avoid menus, names, and UI noise.",
+      "reasonFallback": "It still works for console games, protected engines, and capture cards.",
+      "openAreaSelector": "Select OCR area",
+      "openOcrTab": "Open OCR tab",
+      "continue": "Continue",
+      "areaSelectorStarted": "OCR area selector opened."
+    },
+    "profile": {
+      "title": "Save this game setup",
+      "description": "Save automation for this OBS scene and optionally open GSM Profiles for a larger per-game profile split.",
+      "source": "Text source",
+      "sourceAgent": "Agent script",
+      "sourceLuna": "Luna Hook",
+      "sourceTextractor": "Textractor",
+      "sourceOcr": "OCR",
+      "sourceNone": "Not selected",
+      "saveAutomation": "Save Game Automation for this scene",
+      "launchTextHook": "Launch this text source automatically",
+      "ocrMode": "OCR mode",
+      "ocrNone": "No OCR",
+      "ocrManual": "Manual OCR",
+      "ocrAuto": "Auto OCR",
+      "launchOverlay": "Launch overlay with this game",
+      "openProfiles": "Open Profiles",
+      "save": "Save setup",
+      "saving": "Saving...",
+      "saved": "Setup saved.",
+      "saveFailed": "Failed to save setup."
+    },
+    "finish": {
+      "title": "Setup saved",
+      "description": "You can test the source now or review the saved automation for this scene.",
+      "openTextHook": "Open Text Hook",
+      "openAutomation": "Open Game Automation",
+      "done": "Done"
+    },
+    "errors": {
+      "contextFailed": "Failed to load the active capture."
     }
   },
   "install": {
@@ -317,12 +435,13 @@
       "startMinimized": "Start Console Minimized:",
       "showYuzuLauncher": "Show Yuzu Launcher:",
       "runTransparencyOnStartup": "Run Window Transparency Tool on Startup:",
-      "runOverlayOnStartup": "Run Overlay on Startup:"
+      "runOverlayOnStartup": "Run Overlay on Startup:",
+      "textCaptureWizard": "Show Text Capture Wizard after capture setup:"
     },
     "visibility": {
       "title": "Visibility Settings",
       "visibleTabs": "Visible Tabs:",
-      "tabGameSettings": "Game Settings",
+      "tabGameSettings": "Game Automation",
       "tabStats": "Stats",
       "tabPython": "Python",
       "tabConsole": "Console",
@@ -443,11 +562,15 @@
     }
   },
   "launcher": {
-    "title": "Game Settings",
+    "title": "Game Automation",
     "docsButton": "Auto Launcher Docs",
     "docsButtonTooltip": "Open Auto Launcher documentation",
-    "infoLabel": "Game Settings Overview",
+    "infoLabel": "Game Automation Overview",
     "overviewTooltip": "Configure shared text-hook tool paths and per-game automation. Pick one text hook mode (None/Agent/Textractor/Luna) and one OCR mode (None/Auto/Manual) for each game.",
+    "nudge": {
+      "title": "Use Texthook / Agent for text hooking",
+      "description": "For Agent, Luna, or Textractor, try the Texthook / Agent tab instead of the launcher controls here."
+    },
     "shared": {
       "title": "Shared Tool Settings",
       "collapse": "Collapse shared tool settings.",
@@ -504,7 +627,7 @@
       "openedReleases": "Opened {label} releases page.",
       "failedOpenReleases": "Failed to open releases page.",
       "failedOpenDocs": "Failed to open documentation.",
-      "savedShared": "Saved shared game settings.",
+      "savedShared": "Saved shared game automation settings.",
       "updatedPath": "Updated shared path setting.",
       "savedScene": "Saved automation for game: {scene}",
       "updatedScript": "Updated agent script for game: {scene}",
@@ -518,7 +641,7 @@
       "downloadFailed": "Failed to install {tool}."
     },
     "tooltips": {
-      "sharedToolSettings": "Shared paths used by Game Settings across all games in this profile.",
+      "sharedToolSettings": "Shared paths used by Game Automation across all games in this profile.",
       "sceneAutomation": "Game-specific startup behavior. Each game can use different text hook and OCR settings.",
       "agentPath": "Path to Agent executable used when Text Hook Launcher is set to Agent.",
       "agentScriptsPath": "Folder containing Agent script files (.js). Used for Auto Detect and Browse defaults.",
@@ -546,7 +669,7 @@
       "ocrNone": "Do not start OCR for this game.",
       "ocrAuto": "Start continuous Auto OCR when this game is active.",
       "ocrManual": "Start manual OCR runtime for this game. OCR capture remains manual via controls/hotkeys.",
-      "status": "Latest save/detect status from Game Settings actions.",
+      "status": "Latest save/detect status from Game Automation actions.",
       "candidatePicker": "Choose the best matching Agent script candidate for this game.",
       "noScene": "No game profile is loaded. Select a game first."
     }
@@ -558,7 +681,8 @@
       "areaCountPlural": "{count} areas",
       "sceneLabel": "Game:",
       "loading": "Loading...",
-      "noScenes": "No games found",
+      "noScenes": "Set Up Capture in Home Tab",
+      "noScenesHint": "Setup Capture in the Home tab before configuring OCR areas.",
       "reloadScenes": "Reload games",
       "selectAreas": "Select OCR Areas",
       "importAreas": "Import areas",
@@ -575,6 +699,8 @@
       "furiganaFilter": "Furigana Filter",
       "preview": "Preview",
       "copyToClipboard": "Copy to Clipboard:",
+      "sendToWebsocket": "Send to WebSocket (Legacy):",
+      "enabled": "Enabled",
       "lineBreaks": "Line Breaks:",
       "auto": "Auto",
       "menu": "Menu",
@@ -673,10 +799,11 @@
       "baseScale": "Controls how much the screenshot is scaled before scanning.\n• Lower = faster scans, less CPU, but may miss small text\n• Higher = more accurate on small fonts, but uses more CPU\n\n50% -> Fast | 75% -> Balanced | 100% -> Slowest\n\nTip: If OCR misses small kanji or skips characters, try increasing this value.",
       "furiganaFilter": "Filters characters smaller than the selected text size. If you notice real dialogue disappearing, either lower this or set it to 0.\n\nTip: Click Preview to open a window that helps you select the best sensitivity for your current game.",
       "furiganaPreview": "Open a preview window to tune furigana sensitivity against a sample character from your current game.",
-      "sendToClipboard": "OCR sends text to the websocket by default. Choose which OCR modes should also copy the final text to the clipboard.",
+      "sendToClipboard": "OCR sends text to GSM automatically. Choose which OCR modes should also copy the final text to the clipboard.",
       "sendToClipboardAuto": "Copy normal automatic OCR results to the clipboard.",
       "sendToClipboardMenu": "Copy menu OCR results to the clipboard.",
       "sendToClipboardAreaSelect": "Copy manual area-select OCR captures to the clipboard.",
+      "sendToWebsocket": "Deprecated legacy output. OCR now sends results to GSM through IPC, and this direct OCR WebSocket output will be removed in a future patch. External output consumers should use ws://localhost:7275. The old OCR WebSocket port is configured in GSM Settings > Advanced.",
       "keepNewline": "If enabled, OCR will attempt to keep line breaks in the output text for better readability. Not guaranteed.",
       "keepNewlineAuto": "Keep line breaks for normal automatic OCR results.",
       "keepNewlineMenu": "Keep line breaks for menu OCR results.",
@@ -795,6 +922,177 @@
       "importFailed": "Import failed.",
       "areaConfigExported": "OCR area config copied to clipboard.",
       "exportFailed": "Export failed."
+    }
+  },
+  "texthook": {
+    "experimental": {
+      "title": "Experimental",
+      "description": "This tab is still experimental. Hooks can be noisy or change between games, so verify the selected hook before saving a profile."
+    },
+    "credits": {
+      "text": "Credits",
+      "agent": "Agent",
+      "textractor": "Textractor",
+      "luna": "LunaTranslator"
+    },
+    "steps": {
+      "targetDesc": "Detected game process from OBS capture",
+      "engineConfig": "Engine & Configuration",
+      "engineDesc": "Choose a hooking engine and configure it",
+      "options": "Options & Profile",
+      "optionsDesc": "Fine-tune output timing and save your settings",
+      "manualHookLabel": "Optional / Advanced: Manual Hook Code"
+    },
+    "capture": {
+      "title": "Active Capture",
+      "scene": "Scene",
+      "executable": "Executable",
+      "pid": "PID",
+      "refresh": "Refresh",
+      "unknown": "Unknown",
+      "noScene": "No active scene"
+    },
+    "engine": {
+      "title": "Engine",
+      "label": "Hooking engine:",
+      "luna": "Luna Hook",
+      "textractor": "Textractor",
+      "agent": "Agent"
+    },
+    "agent": {
+      "title": "Agent Script",
+      "scriptPath": "Script path:",
+      "scriptPlaceholder": "Select a .js Agent script",
+      "search": "Search",
+      "browse": "Browse",
+      "save": "Save",
+      "noScripts": "No Agent scripts were found.",
+      "pickerTitle": "Select Agent Script",
+      "pickerClose": "Close",
+      "searchPlaceholder": "Search scripts by game or file name",
+      "pickerNoResults": "No matching scripts found.",
+      "scriptCandidate": "Agent script",
+      "showScriptUi": "Show Script UI"
+    },
+    "profile": {
+      "title": "Saved Profile",
+      "saved": "Saved",
+      "autoHook": "Auto-attach saved hook on next start",
+      "flushDelay": "Output flush delay (ms):",
+      "manualHook": "Manual hook code (H/R-code, optional):",
+      "manualHookHint": "Leave this blank unless you already have a specific H-code or R-code. Most users should start the engine and pick a detected hook instead.",
+      "attachManual": "Attach manual hook",
+      "save": "Save Hook",
+      "delete": "Delete Profile"
+    },
+    "hooks": {
+      "title": "Detected Hooks",
+      "count": "{count} hooks",
+      "selectHint": "Click a detected hook row to select it for output.",
+      "selected": "Selected #{id}",
+      "rowLabel": "Select hook #{id}: {name}",
+      "searchTitle": "Hook Search",
+      "waiting": "Waiting for hooks. Trigger some text in the game.",
+      "notRunning": "Click 'Start' to start the hook engine.",
+      "noTextYet": "(no text yet)"
+    },
+    "output": {
+      "title": "Selected Hook Output",
+      "waiting": "Waiting for text from the selected hook…",
+      "selectHook": "Select a hook from the list to preview its text."
+    },
+    "log": {
+      "title": "Engine Log",
+      "empty": "No log messages yet."
+    },
+    "status": {
+      "attached": "Attached",
+      "ready": "Ready",
+      "noTarget": "No Target"
+    },
+    "actions": {
+      "start": "Start",
+      "searchHooks": "Search for hooks",
+      "stop": "Stop"
+    },
+    "notices": {
+      "started": "Attached to {exe} (PID {pid}).",
+      "selected": "Selected hook #{id}. Output is now being forwarded to GSM.",
+      "manualAttached": "Manual hook code attached.",
+      "profileSaved": "Hook profile saved for this game.",
+      "profileDeleted": "Hook profile deleted."
+    },
+    "errors": {
+      "startFailed": "Failed to start the hook engine.",
+      "manualFailed": "Failed to attach manual hook.",
+      "profileSaveFailed": "Failed to save hook profile.",
+      "agentUiFailed": "Failed to open Agent script UI.",
+      "noExe": "No executable detected for the active capture."
+    }
+  },
+  "textProcessing": {
+    "title": "Text Preprocessing",
+    "subtitle": "Configure text processing rules applied to captured game text before it reaches Anki. Drag to reorder processing pipeline.",
+    "loading": "Loading text processing configuration...",
+    "save": "Save",
+    "saving": "Saving...",
+    "saved": "Configuration saved",
+    "saveFailed": "Failed to save configuration",
+    "processorListTitle": "Processing Pipeline",
+    "dragToReorder": "Drag items to change execution order. Processors run top-to-bottom.",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "configure": "Configure",
+    "preview": "Live Preview",
+    "previewInput": "Input text",
+    "previewOutput": "Output (after processing)",
+    "previewPlaceholder": "Paste game text here to test your processing rules...",
+    "processors": {
+      "stringReplacement": "String Replacement",
+      "stringReplacementDesc": "Custom find-and-replace rules (plain text or regex)",
+      "removeRepeatedChars": "Remove Repeated Characters",
+      "removeRepeatedCharsDesc": "AAAABBBBCCCC → ABC",
+      "removeRepeatedLines": "Remove Repeated Lines",
+      "removeRepeatedLinesDesc": "ABCDABCDABCD → ABCD",
+      "removeControlChars": "Remove Control Characters",
+      "removeControlCharsDesc": "Strip ASCII control characters (except newline/tab)",
+      "removeNonJapanese": "Remove Non-Japanese Characters",
+      "removeNonJapaneseDesc": "Filter out characters not in the Shift-JIS character set",
+      "removeNewlines": "Remove Newlines",
+      "removeNewlinesDesc": "Join all lines into a single line separated by spaces",
+      "removeNumbers": "Remove Numbers",
+      "removeNumbersDesc": "Strip all numeric digits (0-9)",
+      "removeEnglish": "Remove English Letters",
+      "removeEnglishDesc": "Strip all ASCII letters (a-z, A-Z)",
+      "removeCurlyBraces": "Remove Curly Braces / Script Tags",
+      "removeCurlyBracesDesc": "Remove game script markup like {tag}...{/tag}",
+      "removeAngleBrackets": "Remove Angle Brackets / HTML",
+      "removeAngleBracketsDesc": "Strip HTML/XML-style tags like <br>, <ruby>...",
+      "extractBracketedText": "Extract 「」 Bracketed Text",
+      "extractBracketedTextDesc": "Keep only text between Japanese quotation marks 「...」",
+      "extractLines": "Extract/Limit Lines",
+      "extractLinesDesc": "Keep only a specified number of lines from the text",
+      "unicodeNormalize": "Unicode Normalization",
+      "unicodeNormalizeDesc": "Normalize full-width/half-width characters (NFKC, NFC, etc.)"
+    },
+    "config": {
+      "repeatCount": "Repeat count:",
+      "repeatCountHint": "(1 = auto-detect)",
+      "keepNonRepeated": "Keep non-repeated characters",
+      "maxLines": "Max lines:",
+      "fromEnd": "Keep lines from end",
+      "normalizeForm": "Form:"
+    },
+    "rules": {
+      "addRule": "+ Add Rule",
+      "toggleEnabled": "Toggle rule",
+      "plain": "Plain",
+      "regex": "Regex",
+      "findPlaceholder": "Find...",
+      "replacePlaceholder": "Replace with...",
+      "caseSensitive": "Case sensitive",
+      "wholeWord": "Whole word",
+      "remove": "Remove rule"
     }
   }
 }

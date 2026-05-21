@@ -260,6 +260,7 @@ class OverlayProcessor:
                         tuple(getattr(rect, "coordinates", []) or []),
                         bool(getattr(rect, "is_excluded", False)),
                         bool(getattr(rect, "is_secondary", False)),
+                        bool(getattr(rect, "is_black_hole", False)),
                         monitor_signature,
                     )
                 )
@@ -371,6 +372,8 @@ class OverlayProcessor:
         use_exclusions = bool(getattr(overlay_settings, "ocr_area_config_use_exclusion_zones", True))
 
         def _should_include_rectangle(rectangle) -> bool:
+            if getattr(rectangle, "is_black_hole", False):
+                return False
             if getattr(rectangle, "is_excluded", False):
                 return use_exclusions
             if getattr(rectangle, "is_secondary", False):
@@ -2045,7 +2048,7 @@ class OverlayProcessor:
         corrected_text = "".join([line.get("text", "") for line in ocr_results])
         if corrected_text != ocr_text and current_changes:
             changes_str = ", ".join([f"'{c['old']}'->'{c['new']}'" for c in current_changes])
-            logger.debug(f"OCR corrections: {changes_str} (using {len(sentences_to_remove)} past sentences + current)")
+            logger.background(f"OCR corrections: {changes_str} (using {len(sentences_to_remove)} past sentences + current)")
 
         return ocr_results
 

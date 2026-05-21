@@ -52,7 +52,12 @@ import {
 import { checkForUpdates } from './update_checker.js';
 import { launchSteamGameID } from './ui/steam.js';
 import { GSMStdoutManager } from './communication/pythonIPC.js';
-import { getOBSConnection, setOBSScene } from './ui/obs.js';
+import {
+    closeOBSFromElectron,
+    launchOBSFromElectron,
+    setOBSScene,
+    shouldRetryElectronManagedOBSLaunch,
+} from './ui/obs.js';
 import {
     runWindowTransparencyTool,
     stopWindowTransparencyTool,
@@ -60,15 +65,17 @@ import {
 } from './ui/settings.js';
 import { startOCR, stopOCR } from './ui/ocr.js';
 import * as fs from 'node:fs';
-import { runOverlay, runOverlayWithSource } from './ui/front.js';
+import { runOverlay, runOverlayWithSource, stopOverlay } from './ui/front.js';
 import { execFile } from 'node:child_process';
 import { autoLauncher } from './auto_launcher.js';
 import { registerMainIPC } from './services/main_ipc.js';
 import { installSessionManager } from './services/install_session_state.js';
+import { recordLatestTextProcessingInput } from './services/latest_text.js';
 import { UpdateManager } from './services/update_manager.js';
 import type { UpdateStatusSnapshot } from './services/update_manager.js';
 import { devFaultInjector } from './services/dev_fault_injection.js';
 import { runUpdateChaosHarness } from './services/update_chaos_harness.js';
+import { getConfiguredSinglePort } from './gsm_config.js';
 import {
     getStatusTrayIconPath,
     getTrayBaseIconPath,
@@ -266,7 +273,6 @@ const UPDATE_PROGRESS_PREFIX = 'UpdateProgress:';
 const STARTUP_REPAIR_WINDOW_MS = 15_000;
 const TRAY_READY_INDICATOR_MS = 10_000;
 const BACKEND_STATUS_POLL_MS = 2_000;
-const BACKEND_STATUS_URL = 'http://localhost:7275/get_status';
 const SIMULATED_STARTUP_FAILURE_MESSAGE = 'Simulated failure before starting GSM';
 let simulatedStartupFailureTriggered = false;
 let terminalLogSendDepth = 0;
@@ -395,6 +401,16 @@ function handleBackendInstallProgressMessage(data: Record<string, unknown> | und
         totalBytes,
         error,
     });
+
+    if (
+        stageId === 'obs' &&
+        (status === 'completed' || status === 'skipped') &&
+        shouldRetryElectronManagedOBSLaunch()
+    ) {
+        void launchOBSFromElectron({ reason: `backend obs ${status}` }).catch((launchError) => {
+            console.warn('Failed to launch OBS after backend dependency check:', launchError);
+        });
+    }
 }
 
 function formatBackendExitCode(code: number | null): string {
@@ -828,7 +844,9 @@ async function pollBackendStatusOnce(): Promise<void> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 1500);
     try {
-        const response = await fetch(BACKEND_STATUS_URL, { signal: controller.signal });
+        const response = await fetch(`http://localhost:${getConfiguredSinglePort()}/get_status`, {
+            signal: controller.signal,
+        });
         if (!response.ok) {
             return;
         }
@@ -1103,6 +1121,12 @@ function runGSM(command: string, args: string[]): Promise<void> {
             }
             if (msg.function === 'text_intake_state') {
                 setTextIntakePausedState(Boolean(msg.data?.paused));
+            }
+            if (msg.function === 'text_received') {
+                const latestText = recordLatestTextProcessingInput(msg.data);
+                if (latestText) {
+                    safeSendToMainWindow('textprocess-latest-text', latestText);
+                }
             }
             if (msg.function === 'on_connect') {
                 markPythonIPCConnected();
@@ -2020,8 +2044,6 @@ async function processArgsAndStartSettings() {
     let gameName: string | undefined;
     let runOCR = false;
 
-    await getOBSConnection();
-
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--scene' && args[i + 1]) {
             await setOBSScene(args[i + 1]);
@@ -2079,6 +2101,9 @@ if (!app.requestSingleInstanceLock()) {
     app.whenReady().then(async () => {
         try {
             bootstrapPreReleaseSettingsFromMetadata();
+            void launchOBSFromElectron({ reason: 'startup' }).catch((error) => {
+                console.warn('Electron-managed OBS startup launch failed:', error);
+            });
             ensureInstallSession('startup', async () => {
                 if (pythonPath) {
                     await ensureAndRunGSM(pythonPath, 1, { origin: 'startup' });
@@ -2322,8 +2347,15 @@ async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<vo
     if (closeGSMFlag) {
         await closeGSM();
     }
+    stopOverlay();
     await stopOCR();
     await stopWindowTransparencyTool();
+    try {
+        const { shutdownTextHook } = await import('./ui/texthook.js');
+        shutdownTextHook();
+    } catch (err) {
+        console.warn('Failed to shut down text hook session:', err);
+    }
 }
 
 async function closeGSM(): Promise<void> {
@@ -2404,13 +2436,13 @@ export async function stopScripts(): Promise<void> {
 
 async function quit(): Promise<void> {
     autoLauncher.stopPolling();
+    stopOverlay();
     await stopScripts();
     if (pyProc != null && !pyProc.killed) {
         await closeAllPythonProcesses();
-        app.quit();
-    } else {
-        app.quit();
     }
+    await closeOBSFromElectron({ reason: 'app quit' });
+    app.quit();
 }
 
 async function restart(): Promise<void> {
@@ -2425,6 +2457,9 @@ export function sendQuitOBS() { gsmStdoutManager?.sendQuitOBS(); }
 export function sendOpenSettings(data?: Record<string, unknown>) {
     gsmStdoutManager?.sendOpenSettings(data);
 }
+export function sendReloadSettings() {
+    gsmStdoutManager?.sendReloadSettings();
+}
 export function sendOpenOverlaySettings() {
     if (!gsmStdoutManager) {
         return false;
@@ -2433,3 +2468,28 @@ export function sendOpenOverlaySettings() {
     return true;
 }
 export function sendOpenTexthooker() { gsmStdoutManager?.sendOpenTexthooker(); }
+
+export interface TextHookLinePayload {
+    text: string;
+    hookId?: string;
+    hookFunction?: string;
+    engine?: 'textractor' | 'luna' | 'agent';
+    exeName?: string;
+}
+
+export function sendTextHookLine(payload: TextHookLinePayload): void {
+    if (!gsmStdoutManager) {
+        return;
+    }
+    gsmStdoutManager.sendCommand({
+        function: 'texthook_text',
+        data: { ...payload },
+    });
+}
+
+export function sendOCRResultLine(payload: Record<string, unknown>): void {
+    if (!gsmStdoutManager) {
+        return;
+    }
+    gsmStdoutManager.sendOCRResult({ ...payload });
+}

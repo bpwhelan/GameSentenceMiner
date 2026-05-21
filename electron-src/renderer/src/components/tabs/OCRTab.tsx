@@ -55,6 +55,7 @@ interface OcrStoredConfig {
   send_to_clipboard_auto?: boolean | null;
   send_to_clipboard_menu?: boolean | null;
   send_to_clipboard_area_select?: boolean | null;
+  send_to_websocket?: boolean;
   keep_newline?: boolean;
   keep_newline_auto?: boolean;
   keep_newline_menu?: boolean;
@@ -86,6 +87,7 @@ interface OcrUiConfig {
   sendToClipboardAuto: boolean;
   sendToClipboardMenu: boolean;
   sendToClipboardAreaSelect: boolean;
+  sendToWebsocket: boolean;
   keepNewlineAuto: boolean;
   keepNewlineMenu: boolean;
   keepNewlineAreaSelect: boolean;
@@ -372,6 +374,10 @@ const COMPARISON_FIELDS: ComparisonFieldDefinition[] = [
 const MENU_ONLY_LOG_MESSAGE =
   "Text is identified as all menu items, skipping further processing.";
 const MENU_ONLY_CONSOLE_MESSAGE = "\x1b[33mSkipped OCR result: detected only menu text\x1b[0m";
+const BLACK_HOLE_LOG_MESSAGE =
+  "Text is inside a black hole OCR box, skipping further processing.";
+const BLACK_HOLE_CONSOLE_MESSAGE =
+  "\x1b[33mSkipped OCR result: text is inside a black hole box\x1b[0m";
 const ANSI_RESET = "\x1b[0m";
 
 function formatRepeatedTerminalLine(message: string, count: number): string {
@@ -537,6 +543,12 @@ function sendToClipboardEnabled(
   return key === "send_to_clipboard_area_select";
 }
 
+function sendToWebsocketEnabled(config: OcrStoredConfig | null | undefined): boolean {
+  return typeof config?.send_to_websocket === "boolean"
+    ? config.send_to_websocket
+    : true;
+}
+
 function getEngineLabel(value: string): string {
   return ENGINE_LABELS.get(value) ?? value;
 }
@@ -626,6 +638,7 @@ function normalizeOcrConfig(
       value,
       "send_to_clipboard_area_select"
     ),
+    sendToWebsocket: sendToWebsocketEnabled(value),
     keepNewlineAuto: keepNewlineEnabled(value, "keep_newline_auto"),
     keepNewlineMenu: keepNewlineEnabled(value, "keep_newline_menu"),
     keepNewlineAreaSelect: keepNewlineEnabled(value, "keep_newline_area_select"),
@@ -669,6 +682,7 @@ function buildPersistedConfig(
     send_to_clipboard_auto: config.sendToClipboardAuto,
     send_to_clipboard_menu: config.sendToClipboardMenu,
     send_to_clipboard_area_select: config.sendToClipboardAreaSelect,
+    send_to_websocket: config.sendToWebsocket,
     keep_newline:
       config.keepNewlineAuto ||
       config.keepNewlineMenu ||
@@ -780,6 +794,7 @@ const OCR_TOOLTIP_KEYS = {
   sendToClipboardAuto: "ocr.tooltips.sendToClipboardAuto",
   sendToClipboardMenu: "ocr.tooltips.sendToClipboardMenu",
   sendToClipboardAreaSelect: "ocr.tooltips.sendToClipboardAreaSelect",
+  sendToWebsocket: "ocr.tooltips.sendToWebsocket",
   keepNewline: "ocr.tooltips.keepNewline",
   keepNewlineAuto: "ocr.tooltips.keepNewlineAuto",
   keepNewlineMenu: "ocr.tooltips.keepNewlineMenu",
@@ -1349,14 +1364,21 @@ export function OCRTab({ active }: OcrTabProps) {
       }
 
       const isMenuOnlyLog = lowerLine.includes(MENU_ONLY_LOG_MESSAGE.toLowerCase());
+      const isBlackHoleLog = lowerLine.includes(BLACK_HOLE_LOG_MESSAGE.toLowerCase());
       const nextTerminalLine = isMenuOnlyLog
         ? MENU_ONLY_CONSOLE_MESSAGE
+        : isBlackHoleLog
+          ? BLACK_HOLE_CONSOLE_MESSAGE
         : OCR_RUN_2_RECOGNIZED_PATTERN.test(trimmedLine)
           ? `\x1b[92m${trimmedLine}\x1b[0m`
           : replaceEngineLabelsWithAnsi(trimmedLine);
 
       appendTerminalLine(nextTerminalLine, {
-        dedupeKey: isMenuOnlyLog ? MENU_ONLY_LOG_MESSAGE : undefined
+        dedupeKey: isMenuOnlyLog
+          ? MENU_ONLY_LOG_MESSAGE
+          : isBlackHoleLog
+            ? BLACK_HOLE_LOG_MESSAGE
+            : undefined
       });
       previousLogLineRef.current = trimmedLine;
     });
@@ -1652,10 +1674,16 @@ export function OCRTab({ active }: OcrTabProps) {
                     </button>
                   </Tip>
                 </div>
+                {!loadingScenes && scenes.length === 0 ? (
+                  <div className="ocr-empty-state">
+                    {t("ocr.sceneAndAreas.noScenesHint")}
+                  </div>
+                ) : null}
                 <div className="link-row">
                   <button
                     type="button"
                     {...titleProps(ocrTooltips.selectAreas)}
+                    disabled={loadingScenes || scenes.length === 0}
                     onClick={runScreenSelector}
                   >
                     {t("ocr.sceneAndAreas.selectAreas")}
@@ -1664,6 +1692,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary ocr-icon-btn"
+                      disabled={loadingScenes || scenes.length === 0}
                       onClick={() => void importAreaConfig()}
                       aria-label={t("ocr.sceneAndAreas.importAreas")}
                     >
@@ -1674,6 +1703,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     <button
                       type="button"
                       className="secondary ocr-icon-btn"
+                      disabled={loadingScenes || scenes.length === 0}
                       onClick={() => void exportAreaConfig()}
                       aria-label={t("ocr.sceneAndAreas.exportAreas")}
                     >
@@ -1923,6 +1953,28 @@ export function OCRTab({ active }: OcrTabProps) {
                       {...titleProps(ocrTooltips.sendToClipboardAreaSelect)}
                     >
                       {t("ocr.settings.areaSelect")}
+                    </span>
+                  </label>
+                </div>
+
+                <div className="ocr-linebreak-row">
+                  <Tip text={ocrTooltips.sendToWebsocket}>
+                    <span className="ocr-linebreak-label">{t("ocr.settings.sendToWebsocket")}</span>
+                  </Tip>
+                  <label className="checkbox-item" htmlFor="send-to-websocket">
+                    <input
+                      id="send-to-websocket"
+                      type="checkbox"
+                      checked={config.sendToWebsocket}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          sendToWebsocket: event.target.checked
+                        }));
+                      }}
+                    />
+                    <span {...titleProps(ocrTooltips.sendToWebsocket)}>
+                      {t("ocr.settings.enabled")}
                     </span>
                   </label>
                 </div>

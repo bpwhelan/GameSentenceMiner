@@ -25,6 +25,7 @@ import path from "path";
 import { getAssetsDir, getSecureWebPreferences } from "../util.js";
 import {isQuitting, mainWindow} from "../main.js";
 import {ObsScene} from "./obs.js";
+import { findAgentScriptById } from "../agent_script_resolver.js";
 
 export let yuzuWindow: BrowserWindow | null = null;
 
@@ -78,13 +79,7 @@ function launchYuzu(romPath: string): number | null {
  * Find the agent script that matches the game ID.
  */
 function findAgentScript(gameId: string): string | null {
-    const files = readdirSync(getAgentScriptsPath());
-    for (const file of files) {
-        if (file.includes(gameId) && file.endsWith(".js")) {
-            return join(getAgentScriptsPath(), file);
-        }
-    }
-    return null;
+    return findAgentScriptById(getAgentScriptsPath(), gameId);
 }
 
 /**

@@ -604,6 +604,10 @@
           "polling_rate": {
             "label": "Polling Rate:",
             "tooltip": "Rate at which Anki will check for updates (in milliseconds)."
+          },
+          "mute_game_on_minimize": {
+            "label": "Mute Game When Minimized:",
+            "tooltip": "On Windows, mute the captured game while its window is minimized. Background or unfocused windows are not muted."
           }
         },
         "ai": {
@@ -794,10 +798,6 @@
           "require_game_exe_match": {
             "label": "Require Game EXE Match:",
             "tooltip": "Only allow pausing when the target exe matches the detected game exe."
-          },
-          "allowlist": {
-            "label": "Allowlist (EXE Names):",
-            "tooltip": "Comma-separated exe names that are always allowed."
           },
           "denylist": {
             "label": "Denylist (EXE Names):",

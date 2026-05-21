@@ -49,6 +49,9 @@ from GameSentenceMiner.util.gsm_utils import sanitize_filename
 MIN_RECT_WIDTH = 25
 MIN_RECT_HEIGHT = 25
 COORD_SYSTEM_PERCENTAGE = "percentage"
+OBS_SELECTOR_CAPTURE_RETRY_COUNT = 1
+OBS_SELECTOR_SCREENSHOT_RETRY_COUNT = 3
+OBS_SELECTOR_SCREENSHOT_RETRY_DELAY_SECONDS = 1.0
 
 
 def describe_obs_source_selection(sources, best_source):
@@ -103,6 +106,7 @@ class ControlPanelWidget(QWidget):
                 "• Shift + Left Click + Drag: Create an exclusion area (orange).\n"
                 "• Ctrl + Left Click + Drag: Create a secondary (menu) area (purple).\n"
                 "• Alt + Left Click + Drag: Create an exclusive auto OCR area (cyan).\n"
+                "• Ctrl + Alt + Left Click + Drag: Create a black hole area (black).\n"
                 "• Ctrl + A: Select entire screen (green).\n"
                 "• Right-Click on a box: Delete it."
             )
@@ -213,6 +217,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.drawing_excluded = False
         self.drawing_secondary = False
         self.drawing_exclusive = False
+        self.drawing_black_hole = False
         self.menu_drawing_mode = False
 
         self.undo_stack = []
@@ -220,7 +225,7 @@ class OWOCRAreaSelectorWidget(QWidget):
 
         self.instructions_visible = True
         self.instructions_dimmed = False
-        self.instructions_rect = QRect(20, 20, 400, 320)
+        self.instructions_rect = QRect(20, 20, 400, 340)
 
         self.control_panel = None
 
@@ -243,6 +248,15 @@ class OWOCRAreaSelectorWidget(QWidget):
     def _primary_only_mode(self) -> bool:
         return self.select_monitor_area or self.overlay_config_mode
 
+    def _connect_to_obs(self):
+        """Connect to OBS without the normal startup grace delay used by long-lived services."""
+        obs.connect_to_obs_sync(
+            connections=1,
+            check_output=False,
+            healthcheck_enabled=False,
+            start_manager=False,
+        )
+
     def _initialize(self):
         """Initialize appropriate capture method."""
         try:
@@ -251,12 +265,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                 logger.info("Initializing monitor capture mode...")
                 self._init_monitor_capture()
                 logger.info("Connecting to OBS...")
-                obs.connect_to_obs_sync(
-                    connections=1,
-                    check_output=False,
-                    healthcheck_enabled=False,
-                    start_manager=False,
-                )
+                self._connect_to_obs()
                 logger.info("Getting current scene...")
                 self.scene = obs.get_current_scene()
                 logger.info(f"Current scene: {self.scene}")
@@ -265,12 +274,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                     self._load_existing_overlay_rectangles()
             else:
                 logger.info("Connecting to OBS...")
-                obs.connect_to_obs_sync(
-                    connections=1,
-                    check_output=False,
-                    healthcheck_enabled=False,
-                    start_manager=False,
-                )
+                self._connect_to_obs()
                 logger.info("Getting current scene...")
                 self.scene = obs.get_current_scene()
                 logger.info(f"Current scene: {self.scene}")
@@ -403,63 +407,94 @@ class OWOCRAreaSelectorWidget(QWidget):
 
     def _init_obs_screenshot(self):
         """Initialize using OBS screenshot."""
-        sources = obs.get_active_video_sources()
-        best_source = obs.get_best_source_for_screenshot()
-        source_selection_message = describe_obs_source_selection(sources, best_source)
-        if source_selection_message:
-            logger.warning(source_selection_message)
-
-        # Attempt to get screenshot with retry logic
         self.screenshot_img = None
-        retry_count = 10
-        retry_delay = 3
+        retry_count = max(1, OBS_SELECTOR_SCREENSHOT_RETRY_COUNT)
+        retry_delay = max(0.0, OBS_SELECTOR_SCREENSHOT_RETRY_DELAY_SECONDS)
+        progress = None
+        source_selection_logged = False
 
-        # Create a progress dialog to warn the user and allow quitting
-        progress = QProgressDialog("Connecting to OBS...", "Quit", 0, retry_count)
-        progress.setWindowTitle("Waiting for Game Source")
-        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-        progress.setMinimumDuration(0)
-        progress.setCancelButtonText("Quit")
-
-        # Center the dialog on the primary screen
-        screen = QApplication.primaryScreen()
-        if screen:
-            geo = screen.geometry()
-            progress.move(geo.center() - progress.rect().center())
-
-        for i in range(retry_count):
+        def log_source_selection_once():
+            nonlocal source_selection_logged
+            if source_selection_logged:
+                return
+            source_selection_logged = True
             try:
-                # Update dialog text
-                remaining = retry_count - i
+                sources = obs.get_active_video_sources()
+                source_selection_message = describe_obs_source_selection(sources, None)
+                if source_selection_message:
+                    logger.warning(source_selection_message)
+            except Exception as e:
+                logger.debug(f"Could not inspect OBS sources after screenshot failure: {e}")
+
+        def ensure_progress():
+            nonlocal progress
+            if progress is not None:
+                return progress
+
+            progress = QProgressDialog("Connecting to OBS...", "Quit", 0, retry_count)
+            progress.setWindowTitle("Waiting for Game Source")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setCancelButtonText("Quit")
+
+            screen = QApplication.primaryScreen()
+            if screen:
+                geo = screen.geometry()
+                progress.move(geo.center() - progress.rect().center())
+
+            return progress
+
+        try:
+            for i in range(retry_count):
+                if progress is not None:
+                    remaining = retry_count - i
+                    progress.setLabelText(
+                        "OBS Source appears blank or invalid.\n"
+                        "Please open your game.\n"
+                        f"Retrying... ({remaining} attempts left)"
+                    )
+                    progress.setValue(i)
+
+                    if progress.wasCanceled():
+                        logger.info("User quit during screenshot retry.")
+                        sys.exit(0)
+
+                try:
+                    self.screenshot_img = obs.get_screenshot_PIL(
+                        compression=90,
+                        img_format="jpg",
+                        retry=OBS_SELECTOR_CAPTURE_RETRY_COUNT,
+                    )
+
+                    if self.screenshot_img:
+                        break
+
+                except Exception as e:
+                    logger.debug(f"Attempt {i + 1} failed: {e}")
+
+                log_source_selection_once()
+
+                if i >= retry_count - 1:
+                    break
+
+                progress = ensure_progress()
                 progress.setLabelText(
                     "OBS Source appears blank or invalid.\n"
                     "Please open your game.\n"
-                    f"Retrying... ({remaining} attempts left)"
+                    f"Retrying... ({retry_count - i - 1} attempts left)"
                 )
-                progress.setValue(i)
+                progress.setValue(i + 1)
 
-                # Check for cancellation/quit
-                if progress.wasCanceled():
-                    logger.info("User quit during screenshot retry.")
-                    sys.exit(0)
-
-                # Attempt capture - get fresh scene data implicitly via the obs call or connection check
-                self.screenshot_img = obs.get_screenshot_PIL(compression=90, img_format="jpg")
-
-                # If we got a valid image, break the loop
-                if self.screenshot_img:
-                    break
-
-            except Exception as e:
-                logger.debug(f"Attempt {i + 1} failed: {e}")
-
-            # Wait with event processing to keep UI responsive
-            t_end = time.time() + retry_delay
-            while time.time() < t_end:
-                QApplication.processEvents()
-                time.sleep(0.01)
-
-        progress.close()
+                t_end = time.time() + retry_delay
+                while time.time() < t_end:
+                    QApplication.processEvents()
+                    time.sleep(0.01)
+                    if progress.wasCanceled():
+                        logger.info("User quit during screenshot retry.")
+                        sys.exit(0)
+        finally:
+            if progress is not None:
+                progress.close()
 
         if not self.screenshot_img:
             raise RuntimeError(
@@ -667,6 +702,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                             "is_excluded": rect_data["is_excluded"],
                             "is_secondary": rect_data.get("is_secondary", False),
                             "is_exclusive": rect_data.get("is_exclusive", False),
+                            "is_black_hole": rect_data.get("is_black_hole", False),
                         }
                     )
                     # Add to undo stack so previously saved boxes can be undone
@@ -759,6 +795,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                                     "is_excluded": False,
                                     "is_secondary": False,
                                     "is_exclusive": False,
+                                    "is_black_hole": False,
                                 }
                             )
                             self.undo_stack.append(("add", len(self.rectangles) - 1))
@@ -780,6 +817,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                                 "is_excluded": False,
                                 "is_secondary": False,
                                 "is_exclusive": False,
+                                "is_black_hole": False,
                             }
                         )
                         self.undo_stack.append(("add", len(self.rectangles) - 1))
@@ -848,6 +886,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                                 "is_excluded": False,
                                 "is_secondary": False,
                                 "is_exclusive": False,
+                                "is_black_hole": False,
                             }
                         )
                         self.undo_stack.append(("add", len(self.rectangles) - 1))
@@ -956,6 +995,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                 "is_excluded": self.drawing_excluded,
                 "is_secondary": self.drawing_secondary,
                 "is_exclusive": self.drawing_exclusive,
+                "is_black_hole": self.drawing_black_hole,
             }
             self._draw_rectangle(painter, temp_rect)
 
@@ -968,7 +1008,9 @@ class OWOCRAreaSelectorWidget(QWidget):
         # Save painter state to avoid affecting other drawing
         painter.save()
 
-        if rect["is_excluded"]:
+        if rect.get("is_black_hole", False):
+            color = QColor(0, 0, 0)  # Black for black hole
+        elif rect["is_excluded"]:
             color = QColor(255, 165, 0)  # Orange for excluded
         elif rect.get("is_secondary", False):
             color = QColor(128, 0, 128)  # Purple for secondary
@@ -999,7 +1041,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         panel_x = 20
         panel_y = 20
         panel_width = 400
-        panel_height = 320
+        panel_height = 340
 
         # Determine opacity based on hover state
         alpha = 5 if self.instructions_dimmed else 230
@@ -1040,6 +1082,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                 "• Shift + Left Click + Drag: Exclusion area (orange)",
                 "• Ctrl + Left Click + Drag: Secondary area (purple)",
                 "• Alt + Left Click + Drag: Exclusive auto OCR area (cyan)",
+                "• Ctrl + Alt + Left Click + Drag: Black hole area (black)",
                 "• Ctrl + A: Select entire screen (green)",
                 "• Right-Click on box: Delete it",
                 "• Right-Click empty space: Menu",
@@ -1071,17 +1114,22 @@ class OWOCRAreaSelectorWidget(QWidget):
                 self.drawing_excluded = False
                 self.drawing_secondary = False
                 self.drawing_exclusive = False
+                self.drawing_black_hole = False
                 self.menu_drawing_mode = False
             else:
                 # Menu-selected mode should persist; otherwise use current modifiers for this drag.
                 if not self.menu_drawing_mode:
-                    self.drawing_exclusive = bool(event.modifiers() & Qt.KeyboardModifier.AltModifier)
+                    modifiers = event.modifiers()
+                    has_alt = bool(modifiers & Qt.KeyboardModifier.AltModifier)
+                    has_ctrl = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+                    self.drawing_black_hole = has_alt and has_ctrl
+                    self.drawing_exclusive = has_alt and not self.drawing_black_hole
                     self.drawing_excluded = (
-                        bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier) and not self.drawing_exclusive
+                        bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+                        and not self.drawing_exclusive
+                        and not self.drawing_black_hole
                     )
-                    self.drawing_secondary = (
-                        bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier) and not self.drawing_exclusive
-                    )
+                    self.drawing_secondary = has_ctrl and not self.drawing_exclusive and not self.drawing_black_hole
                     self.menu_drawing_mode = False
 
             # Start long-press timer (1 second)
@@ -1171,6 +1219,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                     "is_excluded": self.drawing_excluded,
                     "is_secondary": self.drawing_secondary,
                     "is_exclusive": self.drawing_exclusive,
+                    "is_black_hole": self.drawing_black_hole,
                 }
 
                 self.undo_stack.append(("add", len(self.rectangles)))
@@ -1187,6 +1236,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                 self.drawing_excluded = False
                 self.drawing_secondary = False
                 self.drawing_exclusive = False
+                self.drawing_black_hole = False
             self.update()
 
     def _delete_rectangle_at(self, pos):
@@ -1239,6 +1289,18 @@ class OWOCRAreaSelectorWidget(QWidget):
             )
             menu.addAction(draw_exclusive_action)
 
+            draw_black_hole_action = QAction("Draw Black Hole Area(s)", self)
+            draw_black_hole_action.triggered.connect(
+                lambda: self._start_box_drawing(
+                    pos,
+                    excluded=False,
+                    secondary=False,
+                    exclusive=False,
+                    black_hole=True,
+                )
+            )
+            menu.addAction(draw_black_hole_action)
+
         menu.addSeparator()
 
         save_action = QAction("💾 Save and Quit", self)
@@ -1274,7 +1336,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         # Show menu at cursor position
         menu.exec(self.mapToGlobal(pos))
 
-    def _start_box_drawing(self, pos, excluded=False, secondary=False, exclusive=False):
+    def _start_box_drawing(self, pos, excluded=False, secondary=False, exclusive=False, black_hole=False):
         """Start drawing a box from the context menu position."""
         # Reset any previous drawing state first
         self.is_drawing = False
@@ -1287,15 +1349,19 @@ class OWOCRAreaSelectorWidget(QWidget):
             self.drawing_excluded = False
             self.drawing_secondary = False
             self.drawing_exclusive = False
+            self.drawing_black_hole = False
             self.menu_drawing_mode = False
         else:
-            self.drawing_exclusive = exclusive
-            self.drawing_excluded = excluded and not exclusive
-            self.drawing_secondary = secondary and not exclusive
+            self.drawing_black_hole = black_hole
+            self.drawing_exclusive = exclusive and not black_hole
+            self.drawing_excluded = excluded and not exclusive and not black_hole
+            self.drawing_secondary = secondary and not exclusive and not black_hole
             self.menu_drawing_mode = True
 
         # Set cursor to indicate drawing mode
-        if excluded:
+        if black_hole:
+            logger.info("Drawing mode set to black hole area - click and drag to draw")
+        elif excluded:
             logger.info("Drawing mode set to exclusion area - click and drag to draw")
         elif secondary:
             logger.info("Drawing mode set to secondary area - click and drag to draw")
@@ -1393,7 +1459,12 @@ class OWOCRAreaSelectorWidget(QWidget):
         removed_indices = []
 
         for i, rect in enumerate(self.rectangles):
-            if rect["is_excluded"] or rect.get("is_secondary", False) or rect.get("is_exclusive", False):
+            if (
+                rect["is_excluded"]
+                or rect.get("is_secondary", False)
+                or rect.get("is_exclusive", False)
+                or rect.get("is_black_hole", False)
+            ):
                 # Keep specialized rectangles
                 remaining_rects.append(rect)
             else:
@@ -1426,6 +1497,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             "is_excluded": False,
             "is_secondary": False,
             "is_exclusive": False,
+            "is_black_hole": False,
         }
 
         self.undo_stack.append(("add", len(self.rectangles)))
@@ -1585,6 +1657,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                     "is_excluded": rect["is_excluded"],
                     "is_secondary": rect.get("is_secondary", False),
                     "is_exclusive": rect.get("is_exclusive", False),
+                    "is_black_hole": rect.get("is_black_hole", False),
                 }
             )
 
@@ -1634,6 +1707,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                             "is_excluded": False,
                             "is_secondary": False,
                             "is_exclusive": False,
+                            "is_black_hole": False,
                         }
                     )
             else:
@@ -1667,6 +1741,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                             "is_excluded": rect["is_excluded"],
                             "is_secondary": rect.get("is_secondary", False),
                             "is_exclusive": rect.get("is_exclusive", False),
+                            "is_black_hole": rect.get("is_black_hole", False),
                         }
                     )
 

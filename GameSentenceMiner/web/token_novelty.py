@@ -95,6 +95,17 @@ def _empty_global_payload(labels: list[str]) -> dict:
     }
 
 
+def build_empty_global_word_novelty(start_date_str: str, end_date_str: str) -> tuple[dict, dict, dict, dict]:
+    labels = _build_date_labels(start_date_str, end_date_str)
+    empty_payload = _empty_global_payload(labels)
+    return (
+        {"enabled": False, "percentComplete": 0.0},
+        empty_payload["vocabularyStats"],
+        empty_payload["newWordsSeries"],
+        empty_payload["newWordsByGame"],
+    )
+
+
 def _empty_game_payload(labels: list[str]) -> dict:
     return {
         "uniqueWordsInGame": 0,

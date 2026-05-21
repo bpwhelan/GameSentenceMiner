@@ -7,8 +7,11 @@ import ko from "./ko.json";
 import es from "./es.json";
 
 type TranslationMap = typeof en;
+type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends Record<string, unknown> ? DeepPartial<T[K]> : T[K];
+};
 
-const locales: Record<string, TranslationMap> = { en, ja, ukr, zh, ko, es };
+const locales: Record<string, DeepPartial<TranslationMap>> = { en, ja, ukr, zh, ko, es };
 
 export const SUPPORTED_LOCALES: Array<{ code: string; label: string }> = [
   { code: "en", label: "English" },

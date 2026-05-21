@@ -30,6 +30,7 @@ class FunctionName(Enum):
     QUIT_OBS = "quit_obs"
     START_OBS = "start_obs"
     OPEN_SETTINGS = "open_settings"
+    RELOAD_SETTINGS = "reload_settings"
     OPEN_OVERLAY_SETTINGS = "open_overlay_settings"
     OPEN_TEXTHOOKER = "open_texthooker"
     SWITCH_PROFILE = "switch_profile"
@@ -45,6 +46,8 @@ class FunctionName(Enum):
     GET_STATUS = "get_status"
     CONNECT = "on_connect"
     RESTART_PYTHON_APP = "restart_python_app"
+    TEXTHOOK_TEXT = "texthook_text"
+    OCR_RESULT = "ocr_result"
 
 
 CommandHandler = Callable[[Dict[str, Any]], None]

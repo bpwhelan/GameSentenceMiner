@@ -178,7 +178,8 @@ def sanitize_and_resolve_path(input_path: str) -> str:
 class Locale(Enum):
     English = "en_us"
     日本語 = "ja_jp"
-    # 한국어 = 'ko_kr'
+    한국어 = "ko_kr"
+    Українська = "ukr_ua"
     中文 = "zh_cn"
     Español = "es_es"
     # Français = 'fr_fr'
@@ -193,6 +194,19 @@ class Locale(Enum):
         Case-insensitive.
         """
         value_lower = value.lower()
+        aliases = {
+            "en": cls.English.value,
+            "ja": cls.日本語.value,
+            "ko": cls.한국어.value,
+            "kr": cls.한국어.value,
+            "uk": cls.Українська.value,
+            "ukr": cls.Українська.value,
+            "ua": cls.Українська.value,
+            "zh": cls.中文.value,
+            "cn": cls.中文.value,
+            "es": cls.Español.value,
+        }
+        value_lower = aliases.get(value_lower, value_lower)
         for locale in cls:
             if locale.name.lower() == value_lower or locale.value.lower() == value_lower:
                 return locale
@@ -611,8 +625,76 @@ class StringReplacement:
 
 @dataclass_json
 @dataclass
+class TextProcessor:
+    """A single text processing step that can be enabled/disabled and reordered."""
+
+    id: str = ""
+    enabled: bool = False
+
+
+@dataclass_json
+@dataclass
+class RemoveRepeatCharsConfig:
+    repeat_count: int = 1  # 1 = auto-detect
+    keep_non_repeated: bool = True
+
+
+@dataclass_json
+@dataclass
+class RemoveRepeatLinesConfig:
+    repeat_count: int = 1  # 1 = auto-detect
+
+
+@dataclass_json
+@dataclass
+class ExtractLinesConfig:
+    max_lines: int = 3
+    from_end: bool = True
+
+
+@dataclass_json
+@dataclass
+class UnicodeNormalizeConfig:
+    form: str = "NFKC"  # NFD, NFC, NFKD, NFKC
+
+
+@dataclass_json
+@dataclass
 class TextProcessing:
     string_replacement: StringReplacement = field(default_factory=StringReplacement)
+    processor_order: List[str] = field(
+        default_factory=lambda: [
+            "string_replacement",
+            "remove_repeated_chars",
+            "remove_repeated_lines",
+            "remove_control_chars",
+            "remove_non_japanese",
+            "remove_newlines",
+            "remove_numbers",
+            "remove_english",
+            "remove_curly_braces",
+            "remove_angle_brackets",
+            "extract_bracketed_text",
+            "extract_lines",
+            "unicode_normalize",
+        ]
+    )
+    remove_repeated_chars: bool = False
+    remove_repeated_chars_config: RemoveRepeatCharsConfig = field(default_factory=RemoveRepeatCharsConfig)
+    remove_repeated_lines: bool = False
+    remove_repeated_lines_config: RemoveRepeatLinesConfig = field(default_factory=RemoveRepeatLinesConfig)
+    remove_control_chars: bool = False
+    remove_non_japanese: bool = False
+    remove_newlines: bool = False
+    remove_numbers: bool = False
+    remove_english: bool = False
+    remove_curly_braces: bool = False
+    remove_angle_brackets: bool = False
+    extract_bracketed_text: bool = False
+    extract_lines: bool = False
+    extract_lines_config: ExtractLinesConfig = field(default_factory=ExtractLinesConfig)
+    unicode_normalize: bool = False
+    unicode_normalize_config: UnicodeNormalizeConfig = field(default_factory=UnicodeNormalizeConfig)
 
 
 @dataclass_json
@@ -855,7 +937,6 @@ class ProcessPausing:
     overlay_manual_hotkey_requests_pause: bool = False
     overlay_texthooker_hotkey_requests_pause: bool = False
     overlay_gamepad_navigation_requests_pause: bool = False
-    allowlist: List[str] = field(default_factory=list)
     denylist: List[str] = field(
         default_factory=lambda: [
             "explorer.exe",
@@ -1067,6 +1148,7 @@ class Advanced:
     audio_backend: str = "sounddevice"  # 'sounddevice' or 'qt6'
     slowest_polling_rate: int = 5000  # in ms
     longest_sleep_time: float = 5.0
+    mute_game_on_minimize: bool = False
     cloud_sync_enabled: bool = False
     cloud_sync_auto_sync: bool = False
     cloud_sync_api_url: str = ""
@@ -1339,6 +1421,7 @@ class ProfileConfig:
     advanced: Advanced = field(default_factory=Advanced)
     ai: Ai = field(default_factory=Ai)
     overlay: Overlay = field(default_factory=Overlay)
+    process_pausing: ProcessPausing = field(default_factory=ProcessPausing)
     wip: WIP = field(default_factory=WIP)
     hotkeys: Hotkeys = field(default_factory=Hotkeys)
 
@@ -1415,7 +1498,7 @@ class ProfileConfig:
 
         self.hotkeys.process_pause = config_data["hotkeys"].get("process_pause", self.hotkeys.process_pause)
 
-        with open(get_config_path(), "w") as f:
+        with open(get_config_path(), "w", encoding="utf-8") as f:
             f.write(self.to_json(indent=4))
             logger.warning(
                 "config.json successfully generated from previous settings. config.toml will no longer be used."
@@ -1494,7 +1577,6 @@ class Config:
     stats: StatsConfig = field(default_factory=StatsConfig)
     overlay: Overlay = field(default_factory=Overlay)
     experimental: Experimental = field(default_factory=Experimental)
-    process_pausing: ProcessPausing = field(default_factory=ProcessPausing)
     discord: Discord = field(default_factory=Discord)
     version: str = ""
 
@@ -1638,6 +1720,8 @@ class Config:
         if not isinstance(configs, dict):
             return data
 
+        legacy_process_pausing = data.pop("process_pausing", None)
+
         if not isinstance(data.get("overlay"), dict):
             current_profile = data.get("current_profile") or DEFAULT_CONFIG
             profile_data = configs.get(current_profile)
@@ -1650,10 +1734,25 @@ class Config:
                 data["overlay"] = dict(legacy_overlay)
 
         for profile_data in configs.values():
+            if isinstance(profile_data, dict) and "process_pausing" not in profile_data:
+                profile_data["process_pausing"] = (
+                    dict(legacy_process_pausing)
+                    if isinstance(legacy_process_pausing, dict)
+                    else ProcessPausing().to_dict()
+                )
+            cls._migrate_process_pausing_data(profile_data)
             cls._migrate_anki_profile_data(profile_data)
             cls._migrate_single_port_fields(profile_data)
             cls._migrate_websocket_sources(profile_data)
         return data
+
+    @staticmethod
+    def _migrate_process_pausing_data(profile_data: Dict[str, Any]) -> None:
+        if not isinstance(profile_data, dict):
+            return
+        process_pausing = profile_data.get("process_pausing")
+        if isinstance(process_pausing, dict):
+            process_pausing.pop("allowlist", None)
 
     @staticmethod
     def _normalize_port(value: Any, fallback: int) -> int:
@@ -1749,7 +1848,7 @@ class Config:
     def load(cls):
         config_path = get_config_path()
         if os.path.exists(config_path):
-            with open(config_path, "r") as file:
+            with open(config_path, "r", encoding="utf-8-sig") as file:
                 data = json.load(file)
                 data = cls._migrate_raw_data(data)
                 return cls.from_dict(data)
@@ -1790,7 +1889,7 @@ class Config:
     def save(self):
         if self.current_profile in self.configs:
             self.configs[self.current_profile].overlay = self.overlay
-        with open(get_config_path(), "w") as file:
+        with open(get_config_path(), "w", encoding="utf-8") as file:
             json.dump(self.to_dict(), file, indent=4)
         return self
 
@@ -1843,7 +1942,6 @@ class Config:
         for profile in self.configs.values():
             self.sync_shared_field(config.hotkeys, profile.hotkeys, "open_utility")
             self.sync_shared_field(config.hotkeys, profile.hotkeys, "play_latest_audio")
-            self.sync_shared_field(config.hotkeys, profile.hotkeys, "process_pause")
             self.sync_shared_field(config.anki, profile.anki, "url")
             self.sync_shared_field(config.anki, profile.anki, "sentence_field")
             self.sync_shared_field(config.anki, profile.anki, "sentence_field_enabled")
@@ -2129,6 +2227,9 @@ def _remove_deprecated_config_settings(config_data: dict):
         overlay = profile_data.get("overlay")
         if isinstance(overlay, dict):
             overlay.pop("send_hotkey_text_to_texthooker", None)
+        process_pausing = profile_data.get("process_pausing")
+        if isinstance(process_pausing, dict):
+            process_pausing.pop("allowlist", None)
         advanced = profile_data.get("advanced")
         if isinstance(advanced, dict):
             advanced.pop("multi_line_sentence_storage_field", None)
@@ -2150,7 +2251,7 @@ def load_config():
 
     if os.path.exists(config_path):
         try:
-            with open(config_path, "r") as file:
+            with open(config_path, "r", encoding="utf-8-sig") as file:
                 config_file = json.load(file)
                 config_file = _remove_legacy_hotkeys(config_file)
                 config_file = _remove_deprecated_config_settings(config_file)
@@ -2159,7 +2260,7 @@ def load_config():
                     return Config.from_dict(config_file)
                 else:
                     logger.warning("Loading Profile-less Config, Converting to new Config!")
-                    with open(config_path, "r") as file:
+                    with open(config_path, "r", encoding="utf-8-sig") as file:
                         config_file = json.load(file)
                     config_file = _remove_legacy_hotkeys(config_file)
                     config_file = _remove_deprecated_config_settings(config_file)
@@ -2226,7 +2327,7 @@ def get_master_config():
 def save_full_config(config):
     if hasattr(config, "get_config") and getattr(config, "current_profile", None) in getattr(config, "configs", {}):
         config.configs[config.current_profile].overlay = config.overlay
-    with open(get_config_path(), "w") as file:
+    with open(get_config_path(), "w", encoding="utf-8") as file:
         json.dump(config.to_dict(), file, indent=4)
 
 

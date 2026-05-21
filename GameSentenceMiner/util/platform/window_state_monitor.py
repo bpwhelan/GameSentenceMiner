@@ -16,13 +16,13 @@ from GameSentenceMiner.obs import (
 )
 from GameSentenceMiner.util.config.configuration import (
     get_app_directory,
+    get_config,
     get_overlay_config,
     get_master_config,
     is_windows,
     logger,
 )
 from GameSentenceMiner.util.config.feature_flags import (
-    experimental_feature,
     process_pausing_feature,
 )
 from GameSentenceMiner.util.platform.monitor_selection import (
@@ -30,6 +30,7 @@ from GameSentenceMiner.util.platform.monitor_selection import (
     set_overlay_monitor_identity_from_index,
 )
 from GameSentenceMiner.util.platform.windows_dpi import per_monitor_v2_dpi_context
+from GameSentenceMiner.util.platform.windows_audio import set_process_mute
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 
 if is_windows():
@@ -521,6 +522,12 @@ def get_window_state_monitor() -> Optional["WindowStateMonitor"]:
     return _window_state_monitor
 
 
+def cleanup_minimized_audio_mutes() -> None:
+    monitor = get_window_state_monitor()
+    if monitor:
+        monitor._restore_minimized_audio_mute_internal("shutdown", force_all_sessions=True)
+
+
 def _clear_overlay_pause_request_state() -> None:
     global _overlay_pause_request_pid
     with _suspended_pids_lock:
@@ -643,7 +650,7 @@ def _get_process_exe_path(pid: int) -> str:
 def _normalize_exe_entry(entry: str) -> Set[str]:
     if not entry:
         return set()
-    exe = os.path.basename(entry).lower()
+    exe = os.path.basename(entry.replace("\\", "/")).lower()
     if not exe:
         return set()
     variants = {exe}
@@ -673,8 +680,7 @@ def _get_process_exe_name(pid: int) -> str:
 
 
 def _get_auto_resume_delay() -> float:
-    master = get_master_config()
-    process_cfg = getattr(master, "process_pausing", None) if master else None
+    process_cfg = getattr(get_config(), "process_pausing", None)
     if process_cfg and getattr(process_cfg, "auto_resume_seconds", None) is not None:
         try:
             return max(5.0, float(process_cfg.auto_resume_seconds))
@@ -832,8 +838,7 @@ def _get_detected_game_exe() -> str:
 
 
 def _is_pid_allowed_to_suspend(pid: int) -> bool:
-    master = get_master_config()
-    process_cfg = getattr(master, "process_pausing", None) if master else None
+    process_cfg = getattr(get_config(), "process_pausing", None)
     if not process_cfg:
         logger.warning("Process pausing config missing; refusing to suspend.")
         return False
@@ -847,10 +852,6 @@ def _is_pid_allowed_to_suspend(pid: int) -> bool:
     if _exe_name_matches_set(exe_name, deny_set):
         logger.warning(f"Pause hotkey: {exe_name} is denylisted.")
         return False
-
-    allow_set = _build_exe_name_set(list(getattr(process_cfg, "allowlist", []) or []))
-    if _exe_name_matches_set(exe_name, allow_set):
-        return True
 
     if getattr(process_cfg, "require_game_exe_match", True):
         detected_game_exe = _get_detected_game_exe()
@@ -1052,7 +1053,6 @@ def _handle_overlay_resume_request(source: str, hwnd: Optional[int]) -> bool:
 
 
 @process_pausing_feature(default_return=False)
-@experimental_feature(default_return=False)
 def request_overlay_process_pause(action: str, source: str = "overlay", hwnd: Optional[int] = None) -> bool:
     if not is_windows() or not user32:
         logger.info("Overlay pause requests are only supported on Windows.")
@@ -1070,7 +1070,6 @@ def request_overlay_process_pause(action: str, source: str = "overlay", hwnd: Op
 
 
 @process_pausing_feature(default_return=False)
-@experimental_feature(default_return=False)
 def toggle_active_game_pause(hwnd: Optional[int] = None) -> bool:
     if not is_windows() or not user32:
         logger.info("Pause hotkey is only supported on Windows.")
@@ -1132,6 +1131,7 @@ class WindowStateMonitor:
         self.last_hwnd_refresh_time = 0
         self.last_monitor_layout_signature: Optional[Tuple[Tuple[int, int, int, int], ...]] = None
         self.last_monitor_validation_time = 0.0
+        self.minimized_audio_mutes: Dict[int, Tuple[Set[str], bool]] = {}
 
         # Known browser window classes to completely exclude
         self.BROWSER_CLASSES = {
@@ -1166,6 +1166,129 @@ class WindowStateMonitor:
         self.EXCLUDED_EXES = {
             "ocenaudio.exe",
         }
+
+    def _restore_minimized_audio_mute(self, reason: str = "") -> None:
+        self._restore_minimized_audio_mute_internal(reason=reason)
+
+    def _restore_minimized_audio_mute_internal(
+        self,
+        reason: str = "",
+        force_all_sessions: bool = False,
+        pid: Optional[int] = None,
+    ) -> bool:
+        if pid is not None:
+            if pid not in self.minimized_audio_mutes:
+                return False
+            mutes_to_restore = [(pid, self.minimized_audio_mutes.pop(pid))]
+        else:
+            if not self.minimized_audio_mutes:
+                return False
+            mutes_to_restore = list(self.minimized_audio_mutes.items())
+            self.minimized_audio_mutes.clear()
+
+        if not is_windows():
+            return False
+
+        restored_any = False
+
+        for muted_pid, (session_ids, restore_all_sessions) in mutes_to_restore:
+            try:
+                if force_all_sessions or restore_all_sessions:
+                    results = set_process_mute(muted_pid, False)
+                else:
+                    results = set_process_mute(muted_pid, False, session_instance_ids=session_ids)
+
+                    # Some games replace their Windows audio session while minimized.
+                    # If the exact session we muted has disappeared, fall back to the
+                    # whole process so the restored window does not stay silent.
+                    if session_ids and not results:
+                        results = set_process_mute(muted_pid, False)
+
+                changed_count = sum(1 for result in results if result.changed)
+                if changed_count:
+                    logger.debug(
+                        f"Restored audio for minimized target PID {muted_pid} ({reason or 'window restored'})."
+                    )
+                restored_any = restored_any or bool(results)
+            except Exception as e:
+                logger.debug(f"Failed to restore audio for minimized target PID {muted_pid}: {e}")
+
+        return restored_any
+
+    def _force_unmute_current_target_audio(self, reason: str = "") -> bool:
+        if not is_windows() or not self.target_hwnd:
+            return False
+
+        pid = _get_pid_for_hwnd(self.target_hwnd)
+        if pid <= 0:
+            return False
+
+        try:
+            results = set_process_mute(pid, False)
+            changed_count = sum(1 for result in results if result.changed)
+            if changed_count:
+                logger.debug(f"Force-restored audio for target PID {pid} ({reason or 'window restored'}).")
+            return bool(results)
+        except Exception as e:
+            logger.debug(f"Failed to force-restore audio for target PID {pid}: {e}")
+            return False
+
+    def _sync_minimized_audio_mute(self, current_state: str) -> None:
+        if not is_windows():
+            return
+
+        try:
+            advanced_cfg = get_config().advanced
+            enabled = bool(getattr(advanced_cfg, "mute_game_on_minimize", False))
+        except Exception:
+            enabled = False
+
+        if not enabled:
+            self._restore_minimized_audio_mute_internal("disabled", force_all_sessions=True)
+            return
+
+        if current_state != "minimized":
+            should_force_restore = self.last_state == "minimized" and current_state in {
+                "active",
+                "background",
+                "obscured",
+            }
+            pid = _get_pid_for_hwnd(self.target_hwnd) if self.target_hwnd else 0
+            restored = False
+            if pid > 0:
+                restored = self._restore_minimized_audio_mute_internal(
+                    current_state,
+                    force_all_sessions=should_force_restore,
+                    pid=pid,
+                )
+            if should_force_restore and not restored and pid > 0:
+                self._force_unmute_current_target_audio(current_state)
+            return
+
+        if not self.target_hwnd:
+            return
+
+        pid = _get_pid_for_hwnd(self.target_hwnd)
+        if pid <= 0:
+            return
+
+        if pid in self.minimized_audio_mutes:
+            return
+
+        try:
+            results = set_process_mute(pid, True)
+        except Exception as e:
+            logger.debug(f"Failed to mute minimized target PID {pid}: {e}")
+            return
+
+        changed_results = [result for result in results if result.changed]
+        if not changed_results:
+            return
+
+        session_ids = {result.session_instance_id for result in changed_results if result.session_instance_id}
+        restore_all_sessions = any(not result.session_instance_id for result in changed_results)
+        self.minimized_audio_mutes[pid] = (session_ids, restore_all_sessions)
+        logger.debug(f"Muted audio for minimized target PID {pid}.")
 
     def _get_window_exe_name(self, hwnd) -> str:
         """Helper to get the .exe name from an HWND."""
@@ -1825,6 +1948,8 @@ class WindowStateMonitor:
 
             # Only check rect if visible (not minimized)
             current_rect = get_window_rect_physical(self.target_hwnd)
+
+        self._sync_minimized_audio_mute(current_state)
 
         window_moved_or_resized = current_rect != self.last_window_rect
         if window_moved_or_resized:

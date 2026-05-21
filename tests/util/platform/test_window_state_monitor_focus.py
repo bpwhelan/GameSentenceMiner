@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -151,6 +152,179 @@ def test_activate_target_window_retries_until_helper_succeeds(monkeypatch):
     assert asyncio.run(monitor.activate_target_window()) is True
     assert attempt_numbers == [(20, 1), (20, 2)]
     assert sleep_delays == [0.08]
+
+
+def test_sync_minimized_audio_mute_only_mutes_minimized_windows(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+
+    calls = []
+
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(advanced=SimpleNamespace(mute_game_on_minimize=True)),
+    )
+    monkeypatch.setattr(window_state_monitor, "_get_pid_for_hwnd", lambda hwnd: 222 if hwnd == 20 else 0)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "set_process_mute",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or [],
+    )
+
+    monitor._sync_minimized_audio_mute("background")
+
+    assert calls == []
+
+
+def test_sync_minimized_audio_mute_restores_only_sessions_it_changed(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+
+    calls = []
+
+    def fake_set_process_mute(pid, muted, session_instance_ids=None):
+        calls.append((pid, muted, session_instance_ids))
+        return [SimpleNamespace(changed=True, session_instance_id="session-1")]
+
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(advanced=SimpleNamespace(mute_game_on_minimize=True)),
+    )
+    monkeypatch.setattr(window_state_monitor, "_get_pid_for_hwnd", lambda hwnd: 222 if hwnd == 20 else 0)
+    monkeypatch.setattr(window_state_monitor, "set_process_mute", fake_set_process_mute)
+
+    monitor._sync_minimized_audio_mute("minimized")
+    monitor._sync_minimized_audio_mute("active")
+
+    assert calls == [
+        (222, True, None),
+        (222, False, {"session-1"}),
+    ]
+
+
+def test_sync_minimized_audio_mute_leaves_previous_target_muted_when_target_changes(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+
+    calls = []
+
+    def fake_set_process_mute(pid, muted, session_instance_ids=None):
+        calls.append((pid, muted, session_instance_ids))
+        return [SimpleNamespace(changed=True, session_instance_id=f"session-{pid}")]
+
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(advanced=SimpleNamespace(mute_game_on_minimize=True)),
+    )
+    monkeypatch.setattr(window_state_monitor, "_get_pid_for_hwnd", lambda hwnd: {20: 222, 30: 333}.get(hwnd, 0))
+    monkeypatch.setattr(window_state_monitor, "set_process_mute", fake_set_process_mute)
+
+    monitor._sync_minimized_audio_mute("minimized")
+    monitor.target_hwnd = 30
+    monitor._sync_minimized_audio_mute("minimized")
+
+    assert calls == [
+        (222, True, None),
+        (333, True, None),
+    ]
+    assert monitor.minimized_audio_mutes == {
+        222: ({"session-222"}, False),
+        333: ({"session-333"}, False),
+    }
+
+
+def test_sync_minimized_audio_mute_falls_back_when_tracked_session_disappears(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+    monitor.last_state = "minimized"
+    monitor.minimized_audio_mutes[222] = ({"session-1"}, False)
+
+    calls = []
+
+    def fake_set_process_mute(pid, muted, session_instance_ids=None):
+        calls.append((pid, muted, session_instance_ids))
+        if session_instance_ids == {"session-1"}:
+            return []
+        return [SimpleNamespace(changed=True, session_instance_id="session-2")]
+
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(advanced=SimpleNamespace(mute_game_on_minimize=True)),
+    )
+    monkeypatch.setattr(window_state_monitor, "_get_pid_for_hwnd", lambda hwnd: 222 if hwnd == 20 else 0)
+    monkeypatch.setattr(window_state_monitor, "set_process_mute", fake_set_process_mute)
+
+    monitor._sync_minimized_audio_mute("active")
+
+    assert calls == [
+        (222, False, None),
+    ]
+    assert monitor.minimized_audio_mutes == {}
+
+
+def test_cleanup_minimized_audio_mutes_restores_all_tracked_targets(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.minimized_audio_mutes = {
+        222: ({"session-1"}, False),
+        333: ({"session-2"}, False),
+    }
+    window_state_monitor.set_window_state_monitor(monitor)
+
+    calls = []
+
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "set_process_mute",
+        lambda pid, muted, session_instance_ids=None: (
+            calls.append((pid, muted, session_instance_ids))
+            or [SimpleNamespace(changed=True, session_instance_id=f"session-{pid}")]
+        ),
+    )
+
+    try:
+        window_state_monitor.cleanup_minimized_audio_mutes()
+    finally:
+        window_state_monitor.set_window_state_monitor(None)
+
+    assert calls == [
+        (222, False, None),
+        (333, False, None),
+    ]
+    assert monitor.minimized_audio_mutes == {}
+
+
+def test_sync_minimized_audio_mute_force_unmutes_active_target_after_untracked_minimized_state(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+    monitor.last_state = "minimized"
+
+    calls = []
+
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(advanced=SimpleNamespace(mute_game_on_minimize=True)),
+    )
+    monkeypatch.setattr(window_state_monitor, "_get_pid_for_hwnd", lambda hwnd: 222 if hwnd == 20 else 0)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "set_process_mute",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or [],
+    )
+
+    monitor._sync_minimized_audio_mute("active")
+
+    assert calls == [((222, False), {})]
 
 
 def test_send_enter_to_target_window_uses_activation_retry_helper(monkeypatch):

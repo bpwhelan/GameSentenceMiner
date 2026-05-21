@@ -1009,9 +1009,9 @@ background: rgba(202, 12, 12, 0.692);
   });
 
 
-  // Safety check: detect stale popup state
-  // Since Yomitan popups are in shadow roots, we can't query the DOM directly.
-  // Instead, we'll detect if the count seems stuck and hasn't changed in a while.
+  // Safety check: detect stale popup state. Older fallback logic cleared the
+  // popup state solely because the count was unchanged for a while, which made
+  // long-lived dictionary popups click-through and leaked wheel input to games.
   let lastPopupChangeTime = Date.now();
   let lastPopupCount = 0;
   const STALE_TIMEOUT = 12000;
@@ -1099,8 +1099,54 @@ background: rgba(202, 12, 12, 0.692);
       void ensureGsmCharacterDictionaryFresh(reason);
     }, GSM_CHARACTER_DICTIONARY_STARTUP_DELAY_MS);
   }
+
+  function isYomitanPopupElement(element) {
+    return (
+      element instanceof HTMLElement &&
+      (element.classList.contains('yomitan-popup') || element.tagName === 'YOMITAN-POPUP-TAG-NAME')
+    );
+  }
+
+  function getVisibleYomitanPopupFrames() {
+    return Array.from(document.querySelectorAll('iframe.yomitan-popup'))
+      .filter((frame) => {
+        const style = window.getComputedStyle(frame);
+        if (style.visibility === 'hidden' || style.display === 'none') {
+          return false;
+        }
+
+        const rect = frame.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+  }
+
+  function syncYomitanPopupStateFromDom(reason = 'dom-sync') {
+    const visiblePopupFrames = getVisibleYomitanPopupFrames();
+    if (visiblePopupFrames.length === 0) {
+      return false;
+    }
+
+    if (!yomitanShowing || yomitanPopupCount !== visiblePopupFrames.length) {
+      yomitanPopupIds.clear();
+      visiblePopupFrames.forEach((_, index) => {
+        yomitanPopupIds.add(`dom-popup-${index}`);
+      });
+      yomitanPopupCount = visiblePopupFrames.length;
+      yomitanShowing = true;
+      ipcRenderer.send('yomitan-event', true);
+      console.log(`[Yomitan] Synced visible popup state from DOM (${reason}): ${visiblePopupFrames.length}`);
+    }
+
+    lastPopupCount = yomitanPopupCount;
+    lastPopupChangeTime = Date.now();
+    return true;
+  }
   
   setInterval(() => {
+    if (syncYomitanPopupStateFromDom('stale-check')) {
+      return;
+    }
+
     // Track when count last changed
     if (yomitanPopupCount !== lastPopupCount) {
       lastPopupChangeTime = Date.now();
@@ -2701,9 +2747,7 @@ background: rgba(202, 12, 12, 0.692);
   document.addEventListener("click", (event) => {
     // Use composedPath to see into Shadow DOMs
     const path = event.composedPath();
-    const isYomitanPopup = path.some(el => 
-      el instanceof HTMLElement && (el.classList.contains('yomitan-popup') || el.tagName === 'YOMITAN-POPUP-TAG-NAME')
-    );
+    const isYomitanPopup = path.some(isYomitanPopupElement);
     
     const target = event.target;
     const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');
@@ -2724,9 +2768,7 @@ background: rgba(202, 12, 12, 0.692);
   // Use mousedown to catch events earlier in the chain, giving better pass-through behavior
   document.addEventListener("mousedown", (event) => {
     const path = event.composedPath();
-    const isYomitanPopup = path.some(el => 
-      el instanceof HTMLElement && (el.classList.contains('yomitan-popup') || el.tagName === 'YOMITAN-POPUP-TAG-NAME')
-    );
+    const isYomitanPopup = path.some(isYomitanPopupElement);
     
     const target = event.target;
     // const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');

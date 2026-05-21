@@ -195,7 +195,101 @@ describe('App install-session integration', () => {
             root.unmount();
         });
         container.remove();
+        vi.unstubAllGlobals();
         (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
+    });
+
+    it('loads the stats tab from the configured GSM single port', async () => {
+        const fetchMock = vi.fn(async () => ({ ok: true }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') {
+                return null;
+            }
+            if (channel === 'settings.getSettings') {
+                return {
+                    hasCompletedSetup: true,
+                    statsEndpoint: 'overview',
+                    singlePort: 6123,
+                };
+            }
+            if (channel === 'state.set') {
+                return null;
+            }
+            return {};
+        });
+
+        const { default: App } = await import('./App.js');
+
+        await act(async () => {
+            root.render(<App />);
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        const statsButton = Array.from(container.querySelectorAll('button')).find(
+            (button) => button.textContent === 'Stats'
+        );
+        expect(statsButton).toBeDefined();
+
+        await act(async () => {
+            statsButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(fetchMock).toHaveBeenCalledWith(
+            'http://localhost:6123/overview',
+            expect.objectContaining({ signal: expect.any(AbortSignal) })
+        );
+        expect(container.querySelector('iframe[title="stats"]')?.getAttribute('src')).toBe(
+            'http://localhost:6123/overview'
+        );
+    });
+
+    it('hides the Texthook / Agent tab outside Windows', async () => {
+        Object.defineProperty(window, 'gsmEnv', {
+            configurable: true,
+            value: {
+                platform: 'linux',
+            },
+        });
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') {
+                return null;
+            }
+            if (channel === 'settings.getSettings') {
+                return { hasCompletedSetup: true };
+            }
+            if (channel === 'state.set') {
+                return null;
+            }
+            return {};
+        });
+
+        const { default: App } = await import('./App.js');
+
+        await act(async () => {
+            root.render(<App />);
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(
+            Array.from(container.querySelectorAll('.tab-button')).map((button) => button.textContent)
+        ).not.toContain('Texthook / Agent');
+
+        await act(async () => {
+            for (const callback of listeners.get('app.navigateToTab') ?? []) {
+                callback({}, 'texthook');
+            }
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(container.textContent).toContain('Home Tab');
+        expect(container.textContent).not.toContain('Texthook / Agent');
     });
 
     it('shows the blocking install modal automatically for an active failed session', async () => {

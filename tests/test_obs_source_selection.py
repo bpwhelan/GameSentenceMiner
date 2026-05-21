@@ -736,6 +736,63 @@ def test_obs_connection_pool_healthcheck_client_is_independent(monkeypatch):
     assert len(created_clients) == 2
 
 
+def test_obs_connection_pool_has_no_initial_connect_delay_by_default(monkeypatch):
+    sleeps = []
+
+    class _FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def get_version(self):
+            return SimpleNamespace(obs_version="30.0.0")
+
+        def disconnect(self):
+            return None
+
+    monkeypatch.setattr(obs_service_module.obs, "ReqClient", _FakeClient)
+    monkeypatch.setattr(obs_service_module.time, "sleep", sleeps.append)
+
+    pool = obs_service_module.OBSConnectionPool(
+        host="localhost",
+        port=4455,
+        password="",
+        timeout=1,
+    )
+
+    pool.connect_all()
+
+    assert sleeps == []
+
+
+def test_obs_connection_pool_initial_connect_delay_is_opt_in(monkeypatch):
+    sleeps = []
+
+    class _FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def get_version(self):
+            return SimpleNamespace(obs_version="30.0.0")
+
+        def disconnect(self):
+            return None
+
+    monkeypatch.setattr(obs_service_module.obs, "ReqClient", _FakeClient)
+    monkeypatch.setattr(obs_service_module.time, "sleep", sleeps.append)
+
+    pool = obs_service_module.OBSConnectionPool(
+        host="localhost",
+        port=4455,
+        password="",
+        timeout=1,
+        initial_connect_delay=2.0,
+    )
+
+    pool.connect_all()
+
+    assert sleeps == [2.0]
+
+
 def test_wait_for_obs_ready_disconnects_probe_client(monkeypatch):
     disconnected = []
 
@@ -808,6 +865,18 @@ def test_connect_to_obs_sync_creates_service_and_manager(monkeypatch):
     assert obs_module.obs_connection_manager is not None
     assert obs_module.obs_connection_manager.started is True
     assert obs_module.gsm_status.obs_connected is True
+
+
+def test_start_obs_skips_launch_when_already_connected(monkeypatch):
+    popen_calls = []
+
+    monkeypatch.setattr(obs_module.gsm_status, "obs_connected", True, raising=False)
+    monkeypatch.setattr(obs_module, "obs_process_pid", 4321, raising=False)
+    monkeypatch.setattr(obs_launch_module, "get_obs_path", lambda: "/missing/obs")
+    monkeypatch.setattr(obs_launch_module.subprocess, "Popen", lambda *args, **kwargs: popen_calls.append(args))
+
+    assert obs_launch_module.start_obs(force_restart=False) == 4321
+    assert popen_calls == []
 
 
 def test_disconnect_from_obs_clears_module_state(monkeypatch):

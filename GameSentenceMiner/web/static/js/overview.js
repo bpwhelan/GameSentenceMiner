@@ -266,6 +266,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     let learningHistoryChartInstance = null;
     let learningHistoryData = null;
+    let learningHistoryRequest = null;
+    let learningHistoryLoadScheduled = false;
     let activeLearningHistoryMetric = 'mature_words';
 
     const LEARNING_HISTORY_METRICS = {
@@ -501,6 +503,52 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     }
 
+    function runAfterInitialOverviewPaint(callback) {
+        const runWhenIdle = () => {
+            const runAfterPaint = () => {
+                if (window.requestIdleCallback) {
+                    window.requestIdleCallback(callback, { timeout: 5000 });
+                } else {
+                    setTimeout(callback, 250);
+                }
+            };
+
+            if (window.requestAnimationFrame) {
+                window.requestAnimationFrame(() => {
+                    window.requestAnimationFrame(runAfterPaint);
+                });
+            } else {
+                runAfterPaint();
+            }
+        };
+
+        if (document.readyState === 'complete') {
+            runWhenIdle();
+        } else {
+            window.addEventListener('load', runWhenIdle, { once: true });
+        }
+    }
+
+    function scheduleLearningHistoryLoad() {
+        if (!DOM_CACHE.learningHistorySummary || learningHistoryLoadScheduled || learningHistoryRequest) {
+            return;
+        }
+
+        learningHistoryLoadScheduled = true;
+        runAfterInitialOverviewPaint(() => {
+            learningHistoryLoadScheduled = false;
+            if (learningHistoryRequest) {
+                return;
+            }
+
+            learningHistoryRequest = fetchLearningHistoryData()
+                .then(handleLearningHistoryResponse)
+                .finally(() => {
+                    learningHistoryRequest = null;
+                });
+        });
+    }
+
     if (DOM_CACHE.learningHistoryMatureWordsBtn) {
         DOM_CACHE.learningHistoryMatureWordsBtn.addEventListener('click', function() {
             activeLearningHistoryMetric = 'mature_words';
@@ -709,10 +757,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Function to load stats data with optional year filter
     function loadStatsData() {
-        let url = '/api/stats';
-        
-        // Start learning history in parallel, but don't block the main overview render on it.
-        fetchLearningHistoryData().then(handleLearningHistoryResponse);
+        let url = '/api/stats?include_tokenization=false';
 
         // Fetch main stats and allLinesData in parallel.
         const statsPromise = fetch(url).then(response => response.json());
@@ -733,6 +778,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (!data.labels || data.labels.length === 0) {
                     console.log("No data to display.");
                     showNoDataPopup();
+                    scheduleLearningHistoryLoad();
                     return data;
                 }
 
@@ -747,11 +793,14 @@ document.addEventListener('DOMContentLoaded', function () {
                 loadDashboardData(data);
 
                 // Load goal progress chart (always refresh)
+                let goalProgressPromise = Promise.resolve();
                 if (typeof loadGoalProgress === 'function') {
-                    updateGoalProgressWithData(data, allLinesData);
+                    goalProgressPromise = Promise.resolve(updateGoalProgressWithData(data, allLinesData));
                 }
 
-                return data;
+                return goalProgressPromise.finally(() => {
+                    scheduleLearningHistoryLoad();
+                }).then(() => data);
             })
             .catch(error => {
                 console.error('Error fetching chart data:', error);
@@ -1016,7 +1065,7 @@ document.addEventListener('DOMContentLoaded', function () {
             // Load goal settings, stats, and allLinesData in parallel
             await loadGoalSettings();
             const [statsResponse, allLinesData] = await Promise.all([
-                fetch('/api/stats').then(r => r.json()),
+                fetch('/api/stats?include_tokenization=false').then(r => r.json()),
                 fetch('/api/stats/all-lines-data')
                     .then(r => r.json())
                     .catch(() => [])
@@ -1728,10 +1777,16 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         // Update links
-        if (gameMetadata.links && gameMetadata.links.length > 0) {
+        const existingLinks = gameMetadata.links || [];
+        const hasJitenLink = existingLinks.some(link => link.url && link.url.includes('jiten.moe'));
+        const allLinks = existingLinks.slice();
+        if (!hasJitenLink && gameMetadata.deck_id) {
+            allLinks.push({ url: `https://jiten.moe/decks/media/${gameMetadata.deck_id}/detail` });
+        }
+        if (allLinks.length > 0) {
             gameLinksPills.innerHTML = '';
             
-            gameMetadata.links.forEach(link => {
+            allLinks.forEach(link => {
                 if (link.url) {
                     const pill = document.createElement('a');
                     pill.href = link.url;
@@ -1883,7 +1938,7 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
             // Fetch fresh data
             showDashboardLoading();
-            fetch('/api/stats')
+            fetch('/api/stats?include_tokenization=false')
                 .then(response => response.json())
                 .then(data => {
                     if (data.currentGameStats && data.allGamesStats) {
@@ -1955,6 +2010,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 'giantbomb.com': 'GiantBomb',
                 'howlongtobeat.com': 'HowLongToBeat',
                 'igdb.com': 'IGDB',
+                'jiten.moe': 'Jiten',
                 'mangadex.org': 'MangaDex',
                 'animeuknews.net': 'Anime UK News',
                 'mydramalist.com': 'MyDramaList',
@@ -2620,12 +2676,18 @@ document.addEventListener('DOMContentLoaded', function () {
             // Update game links
             const linksContainer = document.getElementById('gameLinksContainer');
             const linksPills = document.getElementById('gameLinksPills');
-            if (stats.links && stats.links.length > 0) {
+            const rawLinks = stats.links || [];
+            const hasJitenLinkHere = rawLinks.some(link => link.url && link.url.includes('jiten.moe'));
+            const allLinksHere = rawLinks.slice();
+            if (!hasJitenLinkHere && stats.deck_id) {
+                allLinksHere.push({ url: `https://jiten.moe/decks/media/${stats.deck_id}/detail` });
+            }
+            if (allLinksHere.length > 0) {
                 // Clear existing pills
                 linksPills.innerHTML = '';
                 
                 // Create a pill for each link
-                stats.links.forEach(link => {
+                allLinksHere.forEach(link => {
                     if (link.url) {
                         const pill = document.createElement('a');
                         pill.href = link.url;

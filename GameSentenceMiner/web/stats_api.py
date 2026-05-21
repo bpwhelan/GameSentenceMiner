@@ -54,6 +54,7 @@ from GameSentenceMiner.web.stats_service import (
     load_stats_range_context as load_stats_range_context_service,
 )
 from GameSentenceMiner.web.token_novelty import (
+    build_empty_global_word_novelty,
     build_game_word_novelty,
     build_global_word_novelty,
 )
@@ -93,6 +94,12 @@ def _count_cards_from_raw_fields(
     has_screenshot = bool(str(screenshot_in_anki).strip()) if screenshot_in_anki is not None else False
     has_audio = bool(str(audio_in_anki).strip()) if audio_in_anki is not None else False
     return 1 if (has_screenshot or has_audio) else 0
+
+
+def _is_truthy_query_arg(value: str | None, default: bool = True) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
 
 
 # ---------------------------------------------------------------------------
@@ -1341,6 +1348,7 @@ def register_stats_api_routes(app):
             filter_year = request.args.get("year", None)
             start_timestamp = request.args.get("start", None)
             end_timestamp = request.args.get("end", None)
+            include_tokenization = _is_truthy_query_arg(request.args.get("include_tokenization"), default=True)
             start_timestamp = float(start_timestamp) if start_timestamp else None
             end_timestamp = float(end_timestamp) if end_timestamp else None
             precomputed_start_date_str, precomputed_end_date_str = get_date_range_params(
@@ -1398,12 +1406,20 @@ def register_stats_api_routes(app):
 
             today_str = datetime.date.today().isoformat()
             today_in_range = (not end_date_str) or (end_date_str >= today_str)
-            (
-                tokenization_status,
-                vocabulary_stats,
-                new_words_series,
-                new_words_by_game,
-            ) = build_global_word_novelty(start_date_str, end_date_str)
+            if include_tokenization:
+                (
+                    tokenization_status,
+                    vocabulary_stats,
+                    new_words_series,
+                    new_words_by_game,
+                ) = build_global_word_novelty(start_date_str, end_date_str)
+            else:
+                (
+                    tokenization_status,
+                    vocabulary_stats,
+                    new_words_series,
+                    new_words_by_game,
+                ) = build_empty_global_word_novelty(start_date_str, end_date_str)
             all_games = GamesTable.all_without_images()
             games_by_id = {game.id: game for game in all_games if getattr(game, "id", None)}
             completed_games_count = sum(1 for game in all_games if game.completed)
