@@ -753,7 +753,6 @@ class AnkiConfirmationDialog(QDialog):
     def _on_handle_moved(self, which, start, end):
         self._sync_audio_edit_selection_to_current_clip(start, end)
         self._update_audio_expand_buttons()
-        self._schedule_auto_line_expand(which)
         if which == "start":
             # Stop audio and force restart (debounced)
             self.audio_player.stop_audio()

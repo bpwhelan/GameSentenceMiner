@@ -355,6 +355,31 @@ def test_first_expand_audio_resets_full_selection_when_clip_cannot_expand():
     assert probe._has_performed_audio_expand is True
 
 
+def test_handle_moved_does_not_schedule_dialogue_line_expansion():
+    calls = []
+    probe = SimpleNamespace(
+        _sync_audio_edit_selection_to_current_clip=lambda start, end: calls.append(("sync", start, end)),
+        _update_audio_expand_buttons=lambda: calls.append(("update_expand_buttons",)),
+        _schedule_auto_line_expand=lambda which: calls.append(("schedule_auto_line_expand", which)),
+        audio_player=SimpleNamespace(stop_audio=lambda: calls.append(("stop_audio",))),
+        _force_autoplay=False,
+        _trim_autoplay_timer=SimpleNamespace(start=lambda: calls.append(("start_autoplay_timer",))),
+        autoplay_checkbox=SimpleNamespace(isChecked=lambda: True),
+    )
+
+    anki_confirmation_qt.AnkiConfirmationDialog._on_handle_moved(probe, "start", 1.25, 3.5)
+    anki_confirmation_qt.AnkiConfirmationDialog._on_handle_moved(probe, "end", 1.25, 3.75)
+
+    assert ("schedule_auto_line_expand", "start") not in calls
+    assert ("schedule_auto_line_expand", "end") not in calls
+    assert ("sync", 1.25, 3.5) in calls
+    assert ("sync", 1.25, 3.75) in calls
+    assert ("update_expand_buttons",) in calls
+    assert ("stop_audio",) in calls
+    assert ("start_autoplay_timer",) in calls
+    assert probe._force_autoplay is True
+
+
 def test_apply_dialogue_line_change_refreshes_audio_edit_context(monkeypatch):
     monkeypatch.setattr(anki_confirmation_qt.gsm_state, "audio_edit_context", None, raising=False)
     monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None, raising=False)
