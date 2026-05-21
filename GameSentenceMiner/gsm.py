@@ -979,7 +979,7 @@ class GSMApplication:
         self._start_thread(_get_run_text_hooker_page(), "texthooker-page")
 
     def handle_ipc_command(self, cmd: dict) -> None:
-        logger.background(f"IPC Command Received: {cmd}")
+        logger.debug(f"IPC Command Received: {cmd}")
         try:
             function = cmd.get("function")
             if function == FunctionName.QUIT.value:

@@ -2048,7 +2048,7 @@ class OverlayProcessor:
         corrected_text = "".join([line.get("text", "") for line in ocr_results])
         if corrected_text != ocr_text and current_changes:
             changes_str = ", ".join([f"'{c['old']}'->'{c['new']}'" for c in current_changes])
-            logger.debug(f"OCR corrections: {changes_str} (using {len(sentences_to_remove)} past sentences + current)")
+            logger.background(f"OCR corrections: {changes_str} (using {len(sentences_to_remove)} past sentences + current)")
 
         return ocr_results
 
