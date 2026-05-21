@@ -34,11 +34,11 @@ function normalizePackagerPath(filePath) {
 
   const normalizedPath = filePath.replaceAll('\\', '/');
   if (/^\/(?!\/)/.test(normalizedPath)) {
-    return normalizedPath.replaceAll(/^\/+/, '');
+    return normalizedPath.replace(/^\/+/, '');
   }
 
   if (!path.isAbsolute(filePath)) {
-    return normalizedPath.replaceAll(/^\/+/, '');
+    return normalizedPath.replace(/^\/+/, '');
   }
 
   return path.relative(__dirname, filePath).replaceAll('\\', '/');
