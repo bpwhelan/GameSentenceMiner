@@ -32,7 +32,7 @@ function normalizePackagerPath(filePath) {
     return '';
   }
 
-  const normalizedPath = filePath.replace(/\\/g, '/');
+  const normalizedPath = filePath.replaceAll('\\', '/');
   if (/^\/(?!\/)/.test(normalizedPath)) {
     return normalizedPath.replace(/^\/+/, '');
   }
@@ -41,7 +41,7 @@ function normalizePackagerPath(filePath) {
     return normalizedPath.replace(/^\/+/, '');
   }
 
-  return path.relative(__dirname, filePath).replace(/\\/g, '/');
+  return path.relative(__dirname, filePath).replaceAll('\\', '/');
 }
 
 function ignorePackagerFile(filePath) {

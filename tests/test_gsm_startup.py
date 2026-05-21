@@ -1,6 +1,8 @@
 import sys
 from types import ModuleType, SimpleNamespace
 
+import pytest
+
 import GameSentenceMiner.gsm as gsm_module
 from GameSentenceMiner.util import text_log
 
@@ -87,7 +89,7 @@ def test_connect_obs_when_available_uses_single_connection(monkeypatch):
     assert connect_calls[0]["connections"] == 2
     assert connect_calls[0]["check_output"] is True
     assert connect_calls[0]["start_manager"] is True
-    assert connect_calls[0]["initial_connect_delay"] == 2.0
+    assert connect_calls[0]["initial_connect_delay"] == pytest.approx(2.0)
     assert previous_line_refreshes == [True]
 
 

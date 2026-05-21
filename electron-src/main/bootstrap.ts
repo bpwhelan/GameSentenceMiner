@@ -38,10 +38,7 @@ function getArgValue(name: string): string | null {
 }
 
 function getOverlayPlatformDirName(): string {
-    const arch = process.arch === 'x64' || process.arch === 'arm64'
-        ? process.arch
-        : process.arch;
-    return `gsm_overlay-${process.platform}-${arch}`;
+    return `gsm_overlay-${process.platform}-${process.arch}`;
 }
 
 function isOverlayChildProcess(): boolean {

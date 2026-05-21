@@ -1,7 +1,7 @@
 import rapidfuzz
 import unicodedata
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -76,8 +76,8 @@ class GameLine:
 class GameText:
     values: list[GameLine]
     values_dict: dict[str, GameLine]
-    previous_lines = set()
-    game_line_index = 0
+    previous_lines: set = field(default_factory=set)
+    game_line_index: int = 0
 
     def __init__(self):
         self.values = []

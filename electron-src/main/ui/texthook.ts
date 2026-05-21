@@ -279,7 +279,7 @@ async function findProcessByExeName(exeName: string): Promise<ProcessEntry | nul
             if (!Number.isFinite(pid) || pid <= 0) continue;
             if (fullName.toLowerCase() !== target) continue;
             if (memory <= 20 * 1024 * 1024) continue; // skip tiny system/helper processes (~20 MB)
-            candidates.push({ pid, name: fullName, memory: isNaN(memory) ? 0 : memory });
+            candidates.push({ pid, name: fullName, memory: Number.isNaN(memory) ? 0 : memory });
         }
         if (candidates.length === 0) return null;
         // Pick highest-memory process — most likely the game, not a helper.

@@ -662,7 +662,7 @@ def test_monitor_anki_iteration_limits_replay_buffer_baseline_seed_failure_logs(
         unsuccessful_count, scaled_polling_rate = anki._monitor_anki_iteration(0, 1.0)
 
     assert unsuccessful_count == 0
-    assert scaled_polling_rate == 1.0
+    assert scaled_polling_rate == pytest.approx(1.0)
     assert info_messages == ["OBS replay buffer active; enabling Anki polling and seeding the current Anki baseline."]
     assert len(warning_messages) == 5
     assert all(message.startswith("Failed to seed Anki polling baseline") for message in warning_messages)
@@ -1428,8 +1428,8 @@ def test_apply_confirmed_animated_timing_uses_dialog_audio_range():
 
     anki._apply_confirmed_animated_timing(assets, {"audio_edit_range": (11.25, 13.75)})
 
-    assert assets.animated_target_start == 11.25
-    assert assets.animated_target_end == 13.75
+    assert assets.animated_target_start == pytest.approx(11.25)
+    assert assets.animated_target_end == pytest.approx(13.75)
 
 
 def test_process_animated_screenshot_trims_prefetched_subset(monkeypatch, tmp_path):

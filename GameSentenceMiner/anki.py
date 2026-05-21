@@ -234,8 +234,8 @@ class MediaAssets:
     cleanup_callback: Any = None  # Callable to run after processing
 
     # Success Message Flags
-    animated = False
-    video = False
+    animated: bool = False
+    video: bool = False
 
 
 def _get_anki_field_config(field_key: str, anki_cfg=None):

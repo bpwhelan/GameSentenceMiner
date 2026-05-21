@@ -20,7 +20,7 @@ function normalizePort(value: unknown, fallback = DEFAULT_GSM_SINGLE_PORT): numb
             ? value
             : typeof value === 'string'
                 ? Number(value.trim())
-                : NaN;
+                : Number.NaN;
 
     if (!Number.isFinite(port) || port <= 0) {
         return fallback;

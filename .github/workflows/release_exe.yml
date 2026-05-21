@@ -10,17 +10,11 @@ concurrency:
   group: release-exe-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: write
-  id-token: write
-  packages: none
-  actions: read
-  pull-requests: none
-  issues: none
-
 jobs:
   prepare-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       should_build_any: ${{ steps.version_check.outputs.should_build_any }}
       should_create_release: ${{ steps.version_check.outputs.should_create_release }}
@@ -132,6 +126,8 @@ jobs:
     needs:
       - prepare-release
     if: needs.prepare-release.outputs.should_create_release == 'true'
+    permissions:
+      contents: write
     steps:
       - name: Create release shell
         uses: softprops/action-gh-release@v2
@@ -152,6 +148,10 @@ jobs:
       - prepare-release
       - create-release
     if: always() && needs.prepare-release.outputs.should_build_windows == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    permissions:
+      contents: write
+      id-token: write
+      actions: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -365,6 +365,8 @@ jobs:
       - prepare-release
       - create-release
     if: always() && needs.prepare-release.outputs.should_build_linux == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -458,6 +460,8 @@ jobs:
       - prepare-release
       - create-release
     if: always() && needs.prepare-release.outputs.should_build_mac_arm64 == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -546,6 +550,8 @@ jobs:
     needs:
       - prepare-release
     if: needs.prepare-release.outputs.should_build_any == 'false'
+    permissions:
+      contents: read
     steps:
       - name: Report skipped build
         run: |

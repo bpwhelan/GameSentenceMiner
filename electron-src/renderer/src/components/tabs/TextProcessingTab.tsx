@@ -175,7 +175,7 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
   useEffect(() => {
     if (!active) return;
 
-    const useLatestText = (latest: LatestTextProcessingInput | null | undefined) => {
+    const handleLatestText = (latest: LatestTextProcessingInput | null | undefined) => {
       if (!latest || typeof latest.text !== "string" || !latest.text) return;
       setPreviewInput((current) => {
         if (!followingLatestText && current) return current;
@@ -184,11 +184,11 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
     };
 
     invokeIpc<LatestTextProcessingInput | null>("textprocess.latestText")
-      .then(useLatestText)
+      .then(handleLatestText)
       .catch(() => {});
 
     return onIpc("textprocess-latest-text", (_event, payload) => {
-      useLatestText(payload as LatestTextProcessingInput);
+      handleLatestText(payload as LatestTextProcessingInput);
     });
   }, [active, followingLatestText]);
 
@@ -291,6 +291,8 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
             {orderedProcessors.map((proc, index) => (
               <div
                 key={proc.id}
+                role="listitem"
+                tabIndex={0}
                 className={`processor-item ${isProcessorEnabled(config, proc.id) ? "enabled" : "disabled"}`}
                 draggable
                 onDragStart={() => handleDragStart(index)}
@@ -351,7 +353,7 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
                             type="number" min={1} max={100}
                             value={config.remove_repeated_chars_config.repeat_count}
                             onChange={(e) => updateConfig((c) => ({
-                              ...c, remove_repeated_chars_config: { ...c.remove_repeated_chars_config, repeat_count: parseInt(e.target.value) || 1 }
+                              ...c, remove_repeated_chars_config: { ...c.remove_repeated_chars_config, repeat_count: Number.parseInt(e.target.value) || 1 }
                             }))}
                           />
                           <span className="config-hint">{t("textProcessing.config.repeatCountHint")}</span>
@@ -376,7 +378,7 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
                             type="number" min={1} max={100}
                             value={config.remove_repeated_lines_config.repeat_count}
                             onChange={(e) => updateConfig((c) => ({
-                              ...c, remove_repeated_lines_config: { ...c.remove_repeated_lines_config, repeat_count: parseInt(e.target.value) || 1 }
+                              ...c, remove_repeated_lines_config: { ...c.remove_repeated_lines_config, repeat_count: Number.parseInt(e.target.value) || 1 }
                             }))}
                           />
                           <span className="config-hint">{t("textProcessing.config.repeatCountHint")}</span>
@@ -391,7 +393,7 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
                             type="number" min={1} max={1000}
                             value={config.extract_lines_config.max_lines}
                             onChange={(e) => updateConfig((c) => ({
-                              ...c, extract_lines_config: { ...c.extract_lines_config, max_lines: parseInt(e.target.value) || 3 }
+                              ...c, extract_lines_config: { ...c.extract_lines_config, max_lines: Number.parseInt(e.target.value) || 3 }
                             }))}
                           />
                         </label>
@@ -521,7 +523,7 @@ function StringReplacementConfig({ rules, onChange }: StringReplacementConfigPro
                 checked={rule.case_sensitive}
                 onChange={(e) => updateRule(index, { case_sensitive: e.target.checked })}
               />
-              Aa
+              {" "}Aa
             </label>
             <label className="rule-option" title={t("textProcessing.rules.wholeWord")}>
               <input
@@ -529,7 +531,7 @@ function StringReplacementConfig({ rules, onChange }: StringReplacementConfigPro
                 checked={rule.whole_word}
                 onChange={(e) => updateRule(index, { whole_word: e.target.checked })}
               />
-              \\b
+              {" "}\\b
             </label>
             <button className="btn-icon btn-danger" onClick={() => removeRule(index)} title={t("textProcessing.rules.remove")}>✕</button>
           </div>
