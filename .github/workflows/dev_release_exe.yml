@@ -140,7 +140,7 @@ jobs:
           if-no-files-found: error
 
       - name: Submit Windows signing request
-        uses: signpath/github-action-submit-signing-request@v2
+        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd
         with:
           api-token: ${{ secrets.SIGNPATH_APITOKEN }}
           organization-id: c677c167-9f3e-4577-b967-5d7730bf742d
@@ -152,7 +152,7 @@ jobs:
 
       - name: Submit unpacked Windows signing request
         id: sign-windows-unpacked
-        uses: signpath/github-action-submit-signing-request@v2
+        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd
         with:
           api-token: ${{ secrets.SIGNPATH_APITOKEN }}
           organization-id: c677c167-9f3e-4577-b967-5d7730bf742d

@@ -567,8 +567,15 @@ function applyProcessorPreview(text: string, processorId: string, config: TextPr
       t2 = t2.replace(/\{.*?\}/g, "");
       return t2;
     }
-    case "remove_angle_brackets":
-      return text.replace(/<[^>]*>/g, "");
+    case "remove_angle_brackets": {
+      let _prev: string;
+      let _result = text;
+      do {
+        _prev = _result;
+        _result = _result.replace(/<[^>]*>/g, "");
+      } while (_result !== _prev);
+      return _result;
+    }
     case "extract_bracketed_text": {
       const start = text.indexOf("「");
       const end = text.lastIndexOf("」");
