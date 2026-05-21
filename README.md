@@ -97,6 +97,11 @@ For full setup guides and configuration details, check the [Wiki](https://docs.g
 *   [Renji's Texthooker](https://github.com/Renji-XD/texthooker-ui) & [Saplling](https://github.com/Saplling/transparent-texthooker-overlay).
 *   [exSTATic](https://github.com/KamWithK/exSTATic) for the stats design inspiration.
 *   [chaiNNer](https://github.com/chaiNNer-org/chaiNNer) for the Python integration strategy.
+*   [Yomitan](https://github.com/yomidevs/yomitan) for the integrated popup dictionary overlay.
+*   [LunaTranslator](https://github.com/HIllya51/LunaTranslator) for text hooking support.
+*   [Textractor](https://github.com/Chenx221/Textractor) for text hooking support.
+*   [Agent](https://github.com/0xDC00/agent) & [Agent Scripts](https://github.com/0xDC00/scripts) for game text hooking support.
+*   [Sugoi Hook](https://github.com/sugoi-toolkit-official/sugoi-hook) for text hooking inspiration and CLI binaries.
 
 ### Integrated Components
 

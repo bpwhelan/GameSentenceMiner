@@ -650,7 +650,7 @@ def _get_process_exe_path(pid: int) -> str:
 def _normalize_exe_entry(entry: str) -> Set[str]:
     if not entry:
         return set()
-    exe = os.path.basename(entry).lower()
+    exe = os.path.basename(entry.replace("\\", "/")).lower()
     if not exe:
         return set()
     variants = {exe}
