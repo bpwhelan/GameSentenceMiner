@@ -259,7 +259,7 @@
     }
   },
   "captureWizard": {
-    "title": "テキストキャプチャ設定",
+    "title": "テキストキャプチャウィザード (WIP)",
     "subtitle": "このゲームのテキスト入力、OCRフォールバック、自動化を仕上げます。",
     "breadcrumbLabel": "テキストキャプチャ設定のステップ",
     "steps": {

@@ -101,9 +101,9 @@ DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHAN
 OCR_METRICS_CAPTURE_ENABLED = True
 # Opt-in controller rewrite inspired by owocr's frame-stability flow.
 # Keep this False unless intentionally testing/enabling the v2 path.
-USE_TWO_PASS_OCR_V2 = True
+USE_TWO_PASS_OCR_V2 = False
 TWO_PASS_OCR_V2_STABLE_FRAME_COUNT = 2
-TWO_PASS_OCR_V2_DETECTION_PADDING = 10
+TWO_PASS_OCR_V2_DETECTION_PADDING = 5
 
 websocket_server_thread = None
 websocket_queue = queue.Queue()

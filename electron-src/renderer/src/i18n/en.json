@@ -259,7 +259,7 @@
     }
   },
   "captureWizard": {
-    "title": "Text Capture Setup",
+    "title": "Text Capture Wizard (WIP)",
     "subtitle": "Finish text input, OCR fallback, and automation for this game.",
     "breadcrumbLabel": "Text capture setup steps",
     "steps": {

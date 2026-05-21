@@ -4,6 +4,7 @@ import re
 import shutil
 import tempfile
 import threading
+import wave
 import warnings
 from abc import abstractmethod, ABC
 from dataclasses import dataclass, field
@@ -43,6 +44,29 @@ WHISPER_FILLER_SEGMENTS = {"縺医・", "繧・"}
 
 def _get_vad_config_value(name: str, default):
     return getattr(get_config().vad, name, default)
+
+
+def _load_whisper_audio_from_wav(path: str):
+    import numpy as np
+
+    with wave.open(path, "rb") as wav_file:
+        sample_rate = wav_file.getframerate()
+        sample_width = wav_file.getsampwidth()
+        channel_count = wav_file.getnchannels()
+        frame_count = wav_file.getnframes()
+        raw_audio = wav_file.readframes(frame_count)
+
+    if sample_rate != 16000:
+        raise RuntimeError(f"Whisper VAD expected 16 kHz audio, got {sample_rate} Hz from '{path}'")
+    if sample_width != 2:
+        raise RuntimeError(f"Whisper VAD expected 16-bit PCM audio, got {sample_width * 8}-bit audio from '{path}'")
+    if frame_count <= 0:
+        raise RuntimeError(f"Whisper VAD temporary wav contains no samples: '{path}'")
+
+    audio = np.frombuffer(raw_audio, dtype="<i2")
+    if channel_count > 1:
+        audio = audio.reshape(-1, channel_count).mean(axis=1)
+    return audio.astype(np.float32) / 32768.0
 
 
 @dataclass(frozen=True)
@@ -466,6 +490,7 @@ class WhisperVADProcessor(VADProcessor):
 
         # Transcribe the audio using Whisper
         with TempWav(input_audio) as temp_wav:
+            whisper_audio = _load_whisper_audio_from_wav(temp_wav)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 transcribe_kwargs = {
@@ -485,7 +510,7 @@ class WhisperVADProcessor(VADProcessor):
                     # If we can't introspect, stick with safe defaults.
                     pass
 
-                result: WhisperResult = self.vad_model.transcribe(temp_wav, **transcribe_kwargs)
+                result: WhisperResult = self.vad_model.transcribe(whisper_audio, **transcribe_kwargs)
         segments = []
 
         logger.debug(json.dumps(result.to_dict()))

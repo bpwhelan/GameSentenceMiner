@@ -870,9 +870,7 @@ class AnkiConfirmationDialog(QDialog):
 
     def _dialogue_line_expansion_enabled(self):
         return bool(
-            self._replay_context
-            and getattr(self._replay_context, "video_path", None)
-            and self._dialog_selected_lines
+            self._replay_context and getattr(self._replay_context, "video_path", None) and self._dialog_selected_lines
         )
 
     def _initialize_dialogue_line_timeline(self):

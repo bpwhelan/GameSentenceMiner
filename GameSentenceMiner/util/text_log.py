@@ -208,8 +208,8 @@ def lines_match(texthooker_sentence, anki_sentence, similarity_threshold=80) -> 
     # elif anki_sentence in texthooker_sentence:
     #     logger.debug(f"One contains the other: {anki_sentence} in {texthooker_sentence} - Similarity: {similarity}")
     return (
-        (anki_sentence in texthooker_sentence)
-        or (texthooker_sentence in anki_sentence)
+        (anki_sentence in texthooker_sentence and len(anki_sentence) >= 0.3 * len(texthooker_sentence))
+        or (texthooker_sentence in anki_sentence and len(texthooker_sentence) >= 0.3 * len(anki_sentence))
         or (similarity >= similarity_threshold)
     )
 

@@ -16,7 +16,10 @@ else:
 
 
 _COM_METHOD = getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE)
-_HRESULT = ctypes.c_long
+_HRESULT = ctypes.c_int32
+_DWORD = ctypes.c_uint32
+_WORD = ctypes.c_uint16
+_BYTE = ctypes.c_ubyte
 _CLSCTX_ALL = 0x17
 _DEVICE_STATE_ACTIVE = 0x00000001
 _E_RENDER = 0
@@ -25,10 +28,10 @@ _RPC_E_CHANGED_MODE = -2147417850
 
 class _GUID(ctypes.Structure):
     _fields_ = [
-        ("Data1", wintypes.DWORD),
-        ("Data2", wintypes.WORD),
-        ("Data3", wintypes.WORD),
-        ("Data4", wintypes.BYTE * 8),
+        ("Data1", _DWORD),
+        ("Data2", _WORD),
+        ("Data3", _WORD),
+        ("Data4", _BYTE * 8),
     ]
 
     @classmethod
