@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication, QCheckBox, QMessageBox
 
 from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
 from GameSentenceMiner.util.config.configuration import Locale
@@ -179,6 +179,48 @@ def test_get_auto_accept_timer_value_uses_default_when_enabled_without_value() -
     )
 
     assert ConfigWindow._get_auto_accept_timer_value(window) == 10
+
+
+def test_process_pausing_saved_enabled_state_loads_without_warning() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    warning_calls = []
+    checkbox = QCheckBox()
+    window = SimpleNamespace(
+        process_pausing_enabled_check=checkbox,
+        _show_game_pausing_warning=lambda: warning_calls.append(True) or False,
+    )
+    checkbox.stateChanged.connect(lambda state: ConfigWindow._handle_game_pausing_toggle(window, state))
+
+    try:
+        ConfigWindow._set_process_pausing_enabled_from_config(window, True)
+
+        assert checkbox.isChecked() is True
+        assert warning_calls == []
+    finally:
+        checkbox.close()
+        app.processEvents()
+
+
+def test_process_pausing_user_enable_still_requires_warning() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    warning_calls = []
+    checkbox = QCheckBox()
+    window = SimpleNamespace(
+        process_pausing_enabled_check=checkbox,
+        _show_game_pausing_warning=lambda: warning_calls.append(True) or False,
+    )
+    checkbox.stateChanged.connect(lambda state: ConfigWindow._handle_game_pausing_toggle(window, state))
+
+    try:
+        checkbox.setChecked(True)
+
+        assert checkbox.isChecked() is False
+        assert warning_calls == [True]
+    finally:
+        checkbox.close()
+        app.processEvents()
 
 
 def test_on_profile_changed_notifies_profile_change_hooks() -> None:

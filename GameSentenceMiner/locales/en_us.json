@@ -759,8 +759,12 @@
             "tooltip": "Apply exclusion zones from the OCR area config to mask parts of the overlay capture. These are the regions previously shown as orange boxes."
           },
           "use_ocr_result": {
-            "label": "Use OCR Result (Experimental):",
-            "tooltip": "When enabled, the overlay uses pre-computed OCR results when available. Disable this to force a fresh overlay OCR scan."
+            "label": "Use OCR Result Only (Experimental):",
+            "tooltip": "When enabled, the overlay uses ONLY pre-computed OCR results when available. The rest of the screen becomes unlookupable. Mutually exclusive with 'Supplement with Overlay Scan'."
+          },
+          "supplement_ocr_result_with_overlay": {
+            "label": "Supplement OCR Result with Overlay Scan:",
+            "tooltip": "When enabled, the overlay immediately shows pre-computed OCR results, then performs a supplemental overlay scan to make the rest of the screen lookupable too. The supplemental results are added without clearing the primary text."
           },
           "check_previous_lines_for_recycled_indicator": {
             "label": "Check Previous Lines:",

@@ -227,6 +227,7 @@ class OverlayProcessor:
         self.last_raw_source: Optional[str] = None
         self.last_img_dimensions: Tuple[int, int] = (0, 0)
         self.last_scan_window_offset: Tuple[int, int] = (0, 0)
+        self._last_precomputed_percentage_data: Optional[List[Dict[str, Any]]] = None
 
         # Reference to WindowStateMonitor (injected by OverlayThread)
         self.window_monitor: Optional[WindowStateMonitor] = None
@@ -443,6 +444,7 @@ class OverlayProcessor:
         overlay_data: List[Dict[str, Any]],
         *,
         line_id: Optional[str] = None,
+        supplemental: bool = False,
     ) -> Dict[str, Any]:
         payload = {
             "type": "word_coordinates",
@@ -451,6 +453,8 @@ class OverlayProcessor:
         }
         if line_id:
             payload["line_id"] = str(line_id)
+        if supplemental:
+            payload["supplemental"] = True
         return payload
 
     def _send_sentence_recycled_status(self, *, line_id: Optional[str], sentence: Optional[str]) -> None:
@@ -511,9 +515,16 @@ class OverlayProcessor:
 
     def _is_use_ocr_result_enabled(self) -> bool:
         try:
-            return get_overlay_config().use_ocr_result_v2
+            overlay_cfg = get_overlay_config()
+            return overlay_cfg.use_ocr_result_v2 or overlay_cfg.supplement_ocr_result_with_overlay
         except Exception:
             return True
+
+    def _is_supplement_mode_enabled(self) -> bool:
+        try:
+            return get_overlay_config().supplement_ocr_result_with_overlay
+        except Exception:
+            return False
 
     def _should_use_precomputed_overlay_payload(self, dict_from_ocr: Any) -> bool:
         if not self._is_precomputed_overlay_payload(dict_from_ocr):
@@ -637,6 +648,67 @@ class OverlayProcessor:
 
         return filtered_results
 
+    @staticmethod
+    def _boxes_overlap_significantly(
+        box_a: Dict[str, float],
+        box_b: Dict[str, float],
+        threshold: float = 0.5,
+    ) -> bool:
+        """Check if two bounding rects (percentage-based, x1/y1/x3/y3) overlap significantly."""
+        a_x1 = min(float(box_a.get("x1", 0)), float(box_a.get("x3", 0)))
+        a_x2 = max(float(box_a.get("x1", 0)), float(box_a.get("x3", 0)))
+        a_y1 = min(float(box_a.get("y1", 0)), float(box_a.get("y3", 0)))
+        a_y2 = max(float(box_a.get("y1", 0)), float(box_a.get("y3", 0)))
+
+        b_x1 = min(float(box_b.get("x1", 0)), float(box_b.get("x3", 0)))
+        b_x2 = max(float(box_b.get("x1", 0)), float(box_b.get("x3", 0)))
+        b_y1 = min(float(box_b.get("y1", 0)), float(box_b.get("y3", 0)))
+        b_y2 = max(float(box_b.get("y1", 0)), float(box_b.get("y3", 0)))
+
+        inter_x1 = max(a_x1, b_x1)
+        inter_y1 = max(a_y1, b_y1)
+        inter_x2 = min(a_x2, b_x2)
+        inter_y2 = min(a_y2, b_y2)
+
+        if inter_x1 >= inter_x2 or inter_y1 >= inter_y2:
+            return False
+
+        inter_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
+        a_area = (a_x2 - a_x1) * (a_y2 - a_y1)
+        if a_area <= 0:
+            return False
+
+        return (inter_area / a_area) >= threshold
+
+    def _filter_results_overlapping_precomputed(
+        self,
+        ocr_results: List[Dict[str, Any]],
+        precomputed_regions: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Remove OCR lines whose bounding rects overlap significantly with precomputed regions."""
+        if not precomputed_regions or not ocr_results:
+            return ocr_results
+
+        precomputed_boxes = [
+            line.get("bounding_rect", {})
+            for line in precomputed_regions
+            if isinstance(line, dict) and line.get("bounding_rect")
+        ]
+        if not precomputed_boxes:
+            return ocr_results
+
+        filtered = []
+        for line in ocr_results:
+            line_box = line.get("bounding_rect", {})
+            if not line_box:
+                filtered.append(line)
+                continue
+            overlaps = any(self._boxes_overlap_significantly(line_box, pb) for pb in precomputed_boxes)
+            if not overlaps:
+                filtered.append(line)
+
+        return filtered
+
     async def find_box_and_send_to_overlay(
         self,
         line: "GameLine" = None,
@@ -661,7 +733,8 @@ class OverlayProcessor:
 
         has_precomputed_payload = self._should_use_precomputed_overlay_payload(dict_from_ocr)
 
-        if not has_precomputed_payload:
+        # In supplement mode, we need engines loaded even when precomputed payload exists
+        if not has_precomputed_payload or self._is_supplement_mode_enabled():
             self._ensure_correct_engine_loaded()
             effective_engine = self._get_effective_engine()
 
@@ -1425,6 +1498,7 @@ class OverlayProcessor:
         self.last_raw_source = "precomputed"
         self.last_img_dimensions = (source_w, source_h)
         self.last_scan_window_offset = (off_x, off_y)
+        self._last_precomputed_percentage_data = final_data
 
         payload = self._build_overlay_word_coordinates_payload(final_data, line_id=line_id)
         await send_word_coordinates_to_overlay(payload)
@@ -1559,6 +1633,10 @@ class OverlayProcessor:
         normalized_sentence_to_check = normalize_text_for_comparison(line.text) if line else None
         self._log_timing(op_start, "Sentence preprocessing and recycling check")
 
+        is_supplement_mode = self._is_supplement_mode_enabled()
+        precomputed_sent = False
+        precomputed_percentage_data = None
+
         if self._is_use_ocr_result_enabled() and dict_from_ocr:
             op_start = time.time()
             used_precomputed = await self._try_send_precomputed_overlay_payload(
@@ -1568,7 +1646,12 @@ class OverlayProcessor:
             )
             self._log_timing(op_start, "Use precomputed OCR metadata")
             if used_precomputed:
-                return []
+                if not is_supplement_mode:
+                    return []
+                # In supplement mode, remember we sent precomputed and continue to OCR scan
+                precomputed_sent = True
+                # Store the percentage-converted data for overlap filtering later
+                precomputed_percentage_data = self._last_precomputed_percentage_data
 
         if not self.lens and not self.oneocr and not self.meikiocr and not self.screenai:
             logger.error("OCR engines are not initialized. Cannot perform OCR for Overlay.")
@@ -1733,7 +1816,22 @@ class OverlayProcessor:
                 )
                 self._log_timing(op_start, "Convert OCR results to percentages")
 
-                data = self._build_overlay_word_coordinates_payload(oneocr_final, line_id=line_id)
+                # In supplement mode, filter out results that overlap with precomputed regions
+                if precomputed_sent and precomputed_percentage_data:
+                    op_start = time.time()
+                    oneocr_final = self._filter_results_overlapping_precomputed(
+                        oneocr_final, precomputed_percentage_data
+                    )
+                    self._log_timing(op_start, "Filter supplemental results overlapping precomputed")
+                    if not oneocr_final:
+                        logger.info("Supplemental overlay scan: all results overlap with precomputed, nothing to add.")
+                        if stabilized:
+                            break
+                        continue
+
+                data = self._build_overlay_word_coordinates_payload(
+                    oneocr_final, line_id=line_id, supplemental=precomputed_sent
+                )
 
                 send_start_time = time.time()
                 await send_word_coordinates_to_overlay(data)
@@ -1889,7 +1987,18 @@ class OverlayProcessor:
             extracted_data = self._correct_ocr_with_backlog(extracted_data, sentence_to_check)
             self._log_timing(op_start, "Lens OCR correction with backlog")
 
-        data = self._build_overlay_word_coordinates_payload(extracted_data, line_id=line_id)
+        # In supplement mode, filter out results that overlap with precomputed regions
+        if precomputed_sent and precomputed_percentage_data:
+            op_start = time.time()
+            extracted_data = self._filter_results_overlapping_precomputed(extracted_data, precomputed_percentage_data)
+            self._log_timing(op_start, "Filter Lens supplemental results overlapping precomputed")
+            if not extracted_data:
+                logger.info("Supplemental Lens scan: all results overlap with precomputed, nothing to add.")
+                return
+
+        data = self._build_overlay_word_coordinates_payload(
+            extracted_data, line_id=line_id, supplemental=precomputed_sent
+        )
 
         op_start = time.time()
         await send_word_coordinates_to_overlay(data)
@@ -2048,7 +2157,9 @@ class OverlayProcessor:
         corrected_text = "".join([line.get("text", "") for line in ocr_results])
         if corrected_text != ocr_text and current_changes:
             changes_str = ", ".join([f"'{c['old']}'->'{c['new']}'" for c in current_changes])
-            logger.background(f"OCR corrections: {changes_str} (using {len(sentences_to_remove)} past sentences + current)")
+            logger.background(
+                f"OCR corrections: {changes_str} (using {len(sentences_to_remove)} past sentences + current)"
+            )
 
         return ocr_results
 

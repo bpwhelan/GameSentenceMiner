@@ -87,6 +87,7 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_truncation_min_ratio_percent,
     get_ocr_truncation_similarity_margin,
     get_ocr_truncation_strict_threshold_min,
+    get_ocr_text_appears_instantly,
     get_ocr_whole_window_ocr_hotkey,
 )
 
@@ -103,7 +104,7 @@ OCR_METRICS_CAPTURE_ENABLED = True
 # Keep this False unless intentionally testing/enabling the v2 path.
 USE_TWO_PASS_OCR_V2 = False
 TWO_PASS_OCR_V2_STABLE_FRAME_COUNT = 2
-TWO_PASS_OCR_V2_DETECTION_PADDING = 5
+TWO_PASS_OCR_V2_DETECTION_PADDING = 10
 
 websocket_server_thread = None
 websocket_queue = queue.Queue()
@@ -153,6 +154,7 @@ class TwoPassConfig:
     ocr1_engine_readable: str = ""
     ocr2_engine_readable: str = ""
     optimize_second_scan: bool = True
+    text_appears_instantly: bool = False
     keep_newline: bool = False
     language: str = "ja"
     duplicate_threshold: int = 80
@@ -235,6 +237,8 @@ class TwoPassOCRController:
 
         self._pending: _PendingTextState | None = None
         self._meiki = _MeikiTracker()
+        self._instant_last_processed_text: str = ""
+        self._instant_last_processed_chunks: list = []
 
     def reset(self) -> None:
         """Reset all state to initial values."""
@@ -243,6 +247,8 @@ class TwoPassOCRController:
         self.force_stable = False
         self._pending = None
         self._meiki = _MeikiTracker()
+        self._instant_last_processed_text = ""
+        self._instant_last_processed_chunks = []
 
     def set_force_stable(self, value: bool) -> None:
         self.force_stable = value
@@ -295,6 +301,20 @@ class TwoPassOCRController:
             )
             return
 
+        if self.config.text_appears_instantly and text:
+            if self._handle_instant_text(
+                text=text,
+                orig_text_string=orig_text_string,
+                orig_text_list=orig_text_list,
+                current_time=current_time,
+                img=img,
+                crop_coords=crop_coords,
+                response_dict=response_dict,
+                raw_text=raw_text_string,
+                source=source,
+            ):
+                return
+
         should_process = self._should_trigger(
             text,
             orig_text_string,
@@ -325,6 +345,63 @@ class TwoPassOCRController:
                 raw_text_string,
                 source,
             )
+
+    def _handle_instant_text(
+        self,
+        *,
+        text: str,
+        orig_text_string: str,
+        orig_text_list: list,
+        current_time: datetime,
+        img: Any,
+        crop_coords: Any,
+        response_dict: dict | None,
+        raw_text: str,
+        source: str,
+    ) -> bool:
+        candidate_text = orig_text_string or raw_text or text
+        if not candidate_text.strip():
+            return False
+
+        if self._is_instant_text_already_processed(candidate_text, orig_text_list):
+            return True
+
+        self._pending = _PendingTextState(
+            text=text,
+            raw_text=raw_text,
+            orig_text=candidate_text,
+            orig_text_list=orig_text_list,
+            start_time=current_time,
+            img=_copy_img(img),
+            crop_coords=crop_coords,
+            source=source,
+            response_dict=response_dict,
+        )
+        handled = self._process_trigger(
+            text,
+            candidate_text,
+            current_time,
+            img,
+            response_dict,
+            source,
+        )
+        if handled:
+            self._mark_instant_text_processed(candidate_text, orig_text_list)
+        return handled
+
+    def _is_instant_text_already_processed(self, text: str, chunks: list | None = None) -> bool:
+        if not self._instant_last_processed_text:
+            return False
+        if chunks and self._instant_last_processed_chunks:
+            return all(
+                _v2_texts_stable(prev_chunk, new_chunk, self.config.duplicate_threshold)
+                for prev_chunk, new_chunk in zip(self._instant_last_processed_chunks, chunks, strict=False)
+            ) and len(chunks) == len(self._instant_last_processed_chunks)
+        return _v2_texts_stable(self._instant_last_processed_text, text, self.config.duplicate_threshold)
+
+    def _mark_instant_text_processed(self, text: str, chunks: list | None = None) -> None:
+        self._instant_last_processed_text = text
+        self._instant_last_processed_chunks = [x for x in (chunks or []) if x is not None]
 
     def _should_trigger(
         self,
@@ -599,10 +676,10 @@ class TwoPassOCRController:
         crop_coords: Any = None,
         response_dict: dict | None = None,
         source: str = "ocr",
-    ) -> None:
+    ) -> bool:
         """Run OCR2 immediately and dispatch the result."""
         if self._run_second_ocr is None:
-            return
+            return False
 
         ocr2_img = self._build_ocr2_image(crop_coords, img)
         result = self._run_second_ocr(
@@ -614,7 +691,7 @@ class TwoPassOCRController:
         )
 
         final_payload = response_dict or result.response_dict
-        self._dispatch_second_pass_result(
+        return self._dispatch_second_pass_result(
             result.text,
             result.orig_text,
             time,
@@ -631,11 +708,11 @@ class TwoPassOCRController:
         img: Any,
         response_dict: dict | None,
         source: str,
-    ) -> None:
+    ) -> bool:
         """Handle a trigger event (text disappeared / changed / force stable)."""
         pending = self._pending
         if not pending:
-            return
+            return False
 
         if self._is_duplicate_candidate(
             self.last_sent_result,
@@ -645,7 +722,7 @@ class TwoPassOCRController:
             new_chunks=pending.orig_text_list,
         ):
             self._clear_pending()
-            return
+            return True
 
         pending_text = pending.text
         pending_time = pending.start_time
@@ -687,6 +764,7 @@ class TwoPassOCRController:
             )
 
         self._clear_pending()
+        return True
 
     def _handle_detection(
         self,
@@ -699,6 +777,9 @@ class TwoPassOCRController:
     ) -> bool:
         """Handle detector bounding-box stability. Returns True -> caller returns."""
         m = self._meiki
+
+        if self.config.text_appears_instantly:
+            return self._handle_instant_detection(text, crop_coords, time, img, response_dict, source)
 
         if m.last_crop_coords is None:
             m.last_crop_coords = crop_coords
@@ -745,7 +826,51 @@ class TwoPassOCRController:
             return True
 
         m.last_crop_coords = crop_coords
+        m.last_crop_time = time
         m.last_success_coords = None
+        m.previous_img = _copy_img(img)
+        return True
+
+    def _handle_instant_detection(
+        self,
+        text: str,
+        crop_coords: Any,
+        time: datetime,
+        img: Any,
+        response_dict: dict | None,
+        source: str,
+    ) -> bool:
+        m = self._meiki
+        if not crop_coords:
+            m.last_crop_coords = None
+            m.last_crop_time = None
+            return True
+
+        if m.last_success_coords and _coords_close(crop_coords, m.last_success_coords, self.MEIKI_TOL):
+            return True
+
+        ocr2_img = self._build_ocr2_image(crop_coords, img, extra_padding=10)
+        queued = self._queue_second_pass_task(
+            text,
+            time,
+            ocr2_img,
+            pre_crop_image=img,
+            response_dict=response_dict,
+            source=source,
+        )
+        if not queued:
+            self._execute_second_pass(
+                text,
+                time,
+                ocr2_img,
+                crop_coords=None,
+                response_dict=response_dict,
+                source=source,
+            )
+
+        m.last_success_coords = crop_coords
+        m.last_crop_coords = None
+        m.last_crop_time = None
         m.previous_img = _copy_img(img)
         return True
 
@@ -910,6 +1035,25 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         candidate_text = orig_text_string or raw_text or text
 
         if not text and not candidate_text.strip():
+            self._flush_v2_pending_text()
+            return
+
+        if self.config.text_appears_instantly:
+            if self._v2_is_already_processed_text(candidate_text, orig_text_list):
+                self._v2_pending_text = None
+                return
+            self._store_v2_pending_text(
+                text=text,
+                raw_text=raw_text,
+                orig_text_string=candidate_text,
+                orig_text_list=orig_text_list,
+                current_time=current_time,
+                img=img,
+                crop_coords=crop_coords,
+                response_dict=response_dict,
+                source=source,
+                stable_frames=self.stable_frame_count,
+            )
             self._flush_v2_pending_text()
             return
 
@@ -1100,6 +1244,16 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             self._v2_pending_detection = None
             return True
 
+        if self.config.text_appears_instantly:
+            return self._handle_v2_instant_detection(
+                text=text,
+                resolved_crop=resolved_crop,
+                time=time,
+                img=img,
+                response_dict=response_dict,
+                source=source,
+            )
+
         pending = self._v2_pending_detection
         if pending is None or not _coords_close(resolved_crop, pending.crop_coords, self.MEIKI_TOL):
             self._v2_pending_detection = _V2PendingDetectionState(
@@ -1139,6 +1293,50 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
                 crop_coords=None,
                 response_dict=response_dict or pending.response_dict,
                 source=pending.source,
+            )
+
+        self._v2_last_detection_crop_coords = resolved_crop
+        self._v2_last_detection_signature = signature
+        self._v2_pending_detection = None
+        return True
+
+    def _handle_v2_instant_detection(
+        self,
+        *,
+        text: str,
+        resolved_crop: tuple,
+        time: datetime,
+        img: Any,
+        response_dict: dict | None,
+        source: str,
+    ) -> bool:
+        ocr2_img = self._build_ocr2_image(resolved_crop, img, extra_padding=self.detection_padding)
+        signature = _image_visual_signature(ocr2_img)
+        if (
+            signature is not None
+            and self._v2_last_detection_signature == signature
+            and self._v2_last_detection_crop_coords
+            and _coords_close(resolved_crop, self._v2_last_detection_crop_coords, self.MEIKI_TOL)
+        ):
+            self._v2_pending_detection = None
+            return True
+
+        queued = self._queue_second_pass_task(
+            text,
+            time,
+            ocr2_img,
+            pre_crop_image=img,
+            response_dict=response_dict,
+            source=source,
+        )
+        if not queued:
+            self._execute_second_pass(
+                text,
+                time,
+                ocr2_img,
+                crop_coords=None,
+                response_dict=response_dict,
+                source=source,
             )
 
         self._v2_last_detection_crop_coords = resolved_crop
@@ -1296,7 +1494,11 @@ def _image_visual_signature(img: Any, max_size: tuple[int, int] = (64, 64)) -> t
         sample = pil_img.convert("L")
         resampling = getattr(getattr(Image, "Resampling", Image), "BILINEAR", 2)
         sample.thumbnail(max_size, resampling)
-        return sample.size, sample.tobytes()
+        # Live captures can vary by a few luma values between identical frames
+        # due to scaling/compression. Bucket pixels so detector dedupe responds
+        # to real glyph/content changes instead of harmless capture jitter.
+        bucket_size = 32
+        return sample.size, bytes(pixel // bucket_size for pixel in sample.tobytes())
     except Exception:
         return None
 
@@ -2485,6 +2687,7 @@ def _build_two_pass_config() -> TwoPassConfig:
         ocr1_engine_readable=_resolve_engine_readable_name(ocr1_name),
         ocr2_engine_readable=_resolve_engine_readable_name(ocr2_name),
         optimize_second_scan=get_ocr_optimize_second_scan(),
+        text_appears_instantly=get_ocr_text_appears_instantly(),
         keep_newline=get_ocr_keep_newline(),
         language=get_ocr_language(),
         duplicate_threshold=get_ocr_duplicate_similarity_threshold(),
@@ -2702,7 +2905,16 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
                 "subset_longest_block_divisor",
             }
             config_needs_reset = any(
-                c in changes for c in ("ocr1", "ocr2", "language", "furigana_filter_sensitivity", "basic", "advanced")
+                c in changes
+                for c in (
+                    "ocr1",
+                    "ocr2",
+                    "language",
+                    "furigana_filter_sensitivity",
+                    "text_appears_instantly",
+                    "basic",
+                    "advanced",
+                )
             )
             if not config_needs_reset:
                 config_needs_reset = any(key in changes for key in compare_config_keys)

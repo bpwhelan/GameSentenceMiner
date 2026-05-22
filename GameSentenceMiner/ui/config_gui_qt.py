@@ -998,6 +998,7 @@ class ConfigWindow(QWidget):
                     ocr_area_config_include_secondary_areas=self.ocr_area_config_include_secondary_areas_check.isChecked(),
                     ocr_area_config_use_exclusion_zones=self.ocr_area_config_use_exclusion_zones_check.isChecked(),
                     use_ocr_result_v2=self.use_ocr_result_check.isChecked(),
+                    supplement_ocr_result_with_overlay=self.supplement_ocr_result_with_overlay_check.isChecked(),
                     check_previous_lines_for_recycled_indicator=bool(
                         getattr(self.settings.overlay, "check_previous_lines_for_recycled_indicator", False)
                     ),
@@ -1480,6 +1481,7 @@ class ConfigWindow(QWidget):
         self.ocr_area_config_include_secondary_areas_check = QCheckBox()
         self.ocr_area_config_use_exclusion_zones_check = QCheckBox()
         self.use_ocr_result_check = QCheckBox()
+        self.supplement_ocr_result_with_overlay_check = QCheckBox()
         self.check_previous_lines_for_recycled_indicator_check = QCheckBox()
         self.pause_text_intake_hotkey_edit = QKeySequenceEdit()
         self.relay_outputs_when_text_intake_paused_check = QCheckBox()
@@ -2488,6 +2490,11 @@ class ConfigWindow(QWidget):
             if not self._show_game_pausing_warning():
                 self.process_pausing_enabled_check.setChecked(False)
 
+    def _set_process_pausing_enabled_from_config(self, enabled: bool):
+        """Apply saved process-pausing state without treating it as a user enable action."""
+        with QSignalBlocker(self.process_pausing_enabled_check):
+            self.process_pausing_enabled_check.setChecked(bool(enabled))
+
     def _anki_invoke(self, action, **params):
         url = (self.anki_url_edit.text() or get_config().anki.url).strip()
         payload = {"action": action, "version": 6, "params": params}
@@ -2953,6 +2960,9 @@ class ConfigWindow(QWidget):
             bool(getattr(s.overlay, "ocr_area_config_use_exclusion_zones", True))
         )
         self.use_ocr_result_check.setChecked(s.overlay.use_ocr_result_v2)
+        self.supplement_ocr_result_with_overlay_check.setChecked(
+            bool(getattr(s.overlay, "supplement_ocr_result_with_overlay", False))
+        )
         self.check_previous_lines_for_recycled_indicator_check.setChecked(
             bool(getattr(s.overlay, "check_previous_lines_for_recycled_indicator", True))
         )
@@ -2973,7 +2983,7 @@ class ConfigWindow(QWidget):
         self.enable_tokenization_check.setChecked(getattr(experimental_cfg, "enable_tokenization", False))
         self.tokenize_low_performance_check.setChecked(getattr(experimental_cfg, "tokenize_low_performance", False))
         process_cfg = getattr(s, "process_pausing", ProcessPausing())
-        self.process_pausing_enabled_check.setChecked(process_cfg.enabled)
+        self._set_process_pausing_enabled_from_config(process_cfg.enabled)
         self.process_pausing_auto_resume_seconds_edit.setValue(process_cfg.auto_resume_seconds)
         self.process_pausing_require_game_exe_match_check.setChecked(True)  # Always true
         self.process_pausing_require_game_exe_match_check.setEnabled(False)  # Always disabled

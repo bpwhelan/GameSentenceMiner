@@ -756,8 +756,12 @@
             "tooltip": "OCR 영역 설정의 제외 구역을 적용해 오버레이 캡처의 일부를 마스킹합니다. 이전에 주황색 상자로 표시되었던 영역입니다."
           },
           "use_ocr_result": {
-            "label": "OCR 결과 사용 (실험적):",
-            "tooltip": "활성화되면 오버레이가 가능한 경우 사전 계산된 OCR 결과를 사용합니다. 새로운 오버레이 OCR 스캔을 강제하려면 비활성화하세요."
+            "label": "OCR 결과만 사용 (실험적):",
+            "tooltip": "활성화되면 오버레이가 사전 계산된 OCR 결과만 사용합니다. 나머지 화면은 조회할 수 없게 됩니다. '오버레이 스캔으로 보완'과 상호 배타적입니다."
+          },
+          "supplement_ocr_result_with_overlay": {
+            "label": "오버레이 스캔으로 OCR 결과 보완:",
+            "tooltip": "활성화되면 사전 계산된 OCR 결과를 즉시 표시한 후 보완 스캔을 수행하여 나머지 화면도 조회 가능하게 합니다."
           },
           "check_previous_lines_for_recycled_indicator": {
             "label": "이전 줄 확인:",

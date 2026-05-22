@@ -2067,9 +2067,56 @@ button:disabled {
   margin-right: 2px;
 }
 
+.ocr-linebreak-row--warning {
+  border-color: rgba(227, 183, 101, 0.38);
+  background: var(--gsm-warning-soft);
+}
+
 .ocr-linebreak-row .checkbox-item {
   gap: 5px;
   font-size: 0.82rem;
+}
+
+.ocr-instant-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  cursor: pointer;
+}
+
+.ocr-instant-toggle input {
+  margin-top: 3px;
+}
+
+.ocr-instant-copy {
+  display: flex;
+  min-width: 0;
+}
+
+.ocr-instant-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.ocr-instant-qualifier {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--gsm-warning);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.ocr-warning-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gsm-warning);
+  font-size: 0.82rem;
+  line-height: 1;
 }
 
 /* --- Details / collapsible sections --- */

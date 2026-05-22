@@ -22,7 +22,7 @@ import {
     runtimeState,
     upsertSceneLaunchProfile
 } from './store.js';
-import type { SceneLaunchProfile, SceneOcrMode } from './store.js';
+import type { SceneLaunchProfile, SceneOcrMode, SceneTextHookMode } from './store.js';
 import { exec, ChildProcess, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -41,7 +41,7 @@ import {
     stopHookSession,
 } from './ui/texthook.js';
 
-type IntegratedTextHookEngine = "textractor" | "luna";
+type IntegratedTextHookEngine = "textractor" | "luna" | "agent";
 
 export class AutoLauncher {
     private intervalId: NodeJS.Timeout | null = null;
@@ -797,13 +797,9 @@ export class AutoLauncher {
     }
 
     private resolveIntegratedTextHookEngine(
-        exeName: string | null | undefined,
-        textHookMode: string
+        exeName: string | null | undefined
     ): IntegratedTextHookEngine | null {
-        if (textHookMode === "textractor" || textHookMode === "luna") {
-            return textHookMode;
-        }
-        if (!exeName || textHookMode !== "none") {
+        if (!exeName) {
             return null;
         }
 
@@ -811,10 +807,16 @@ export class AutoLauncher {
         if (!profile || !profile.autoHook) {
             return null;
         }
+
+        if (profile.engine === "agent") {
+            return profile.agentScriptPath?.trim() ? "agent" : null;
+        }
+
         if (!profile.hookId && !profile.hookFunction && !profile.manualHookCode) {
             return null;
         }
-        return profile.engine === "agent" ? null : profile.engine;
+
+        return profile.engine;
     }
 
     private async handleIntegratedTextHookAutomation(
@@ -1234,6 +1236,53 @@ export class AutoLauncher {
         return resolvedScriptPath;
     }
 
+    private async runSavedTextHookProfileAutomation(
+        currentScene: ObsScene,
+        exeName: string | null | undefined
+    ): Promise<void> {
+        const savedProfileEngine = this.resolveIntegratedTextHookEngine(exeName);
+        if (!savedProfileEngine) {
+            return;
+        }
+
+        if (this.isAutoTextHookSuppressedForScene(currentScene.id)) {
+            this.logSuppressedTextHookAutoStartOnce(currentScene);
+            return;
+        }
+
+        await this.handleIntegratedTextHookAutomation(exeName, savedProfileEngine);
+    }
+
+    private async runLauncherTextHookAutomation(
+        currentScene: ObsScene,
+        exeName: string | null | undefined,
+        sceneProfile: SceneLaunchProfile | null,
+        textHookMode: SceneTextHookMode,
+        launchDelaySeconds: number
+    ): Promise<boolean> {
+        if (!sceneProfile) {
+            return this.handleAgentAutomation(currentScene, exeName, sceneProfile, true);
+        }
+
+        if (textHookMode === "agent") {
+            return this.handleAgentAutomation(currentScene, exeName, sceneProfile, false);
+        }
+
+        this.resetAgentTracking();
+
+        if (textHookMode === "textractor") {
+            await this.handleTextractorAutomation(exeName, launchDelaySeconds);
+            return false;
+        }
+
+        if (textHookMode === "luna") {
+            await this.handleLunaAutomation(exeName, launchDelaySeconds);
+            return false;
+        }
+
+        return false;
+    }
+
     private async runTextHookAutomation(currentScene: ObsScene): Promise<boolean> {
         let keepFastPolling = false;
         this.lastTextHookAutomationSceneId = currentScene.id;
@@ -1241,7 +1290,7 @@ export class AutoLauncher {
 
         try {
             const sceneProfile = getSceneLaunchProfileForScene(currentScene);
-            const textHookMode = sceneProfile?.textHookMode ?? "none";
+            const textHookMode: SceneTextHookMode = sceneProfile?.textHookMode ?? "none";
             const launchDelaySeconds = this.normalizeLaunchDelaySeconds(
                 sceneProfile?.launchDelaySeconds
             );
@@ -1257,39 +1306,13 @@ export class AutoLauncher {
                 );
             }
 
-            if (sceneProfile && textHookMode !== "agent") {
-                this.resetAgentTracking();
-                const engine = this.resolveIntegratedTextHookEngine(exeName, textHookMode);
-                if (engine) {
-                    if (this.isAutoTextHookSuppressedForScene(currentScene.id)) {
-                        this.logSuppressedTextHookAutoStartOnce(currentScene);
-                        return false;
-                    }
-                    await this.handleIntegratedTextHookAutomation(
-                        exeName,
-                        engine,
-                        launchDelaySeconds
-                    );
-                }
-                return false;
-            }
-
-            const savedProfileEngine = this.resolveIntegratedTextHookEngine(exeName, textHookMode);
-            if (savedProfileEngine) {
-                this.resetAgentTracking();
-                if (this.isAutoTextHookSuppressedForScene(currentScene.id)) {
-                    this.logSuppressedTextHookAutoStartOnce(currentScene);
-                    return false;
-                }
-                await this.handleIntegratedTextHookAutomation(exeName, savedProfileEngine);
-                return false;
-            }
-
-            keepFastPolling = await this.handleAgentAutomation(
+            await this.runSavedTextHookProfileAutomation(currentScene, exeName);
+            keepFastPolling = await this.runLauncherTextHookAutomation(
                 currentScene,
                 exeName,
                 sceneProfile,
-                !sceneProfile
+                textHookMode,
+                launchDelaySeconds
             );
         } catch (error) {
             this.errorInternal("AutoLauncher poll error:", error);

@@ -117,6 +117,31 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.use_ocr_result_check,
     )
+    main_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "overlay",
+            "supplement_ocr_result_with_overlay",
+            color=LabelColor.RECOMMENDED,
+            bold=True,
+        ),
+        window.supplement_ocr_result_with_overlay_check,
+    )
+
+    # Mutual exclusion: "use OCR result only" and "supplement with overlay" are exclusive
+    @safe_config_call(name="overlay.sync_ocr_result_mutual_exclusion_use")
+    def _on_use_ocr_result_toggled() -> None:
+        if window.use_ocr_result_check.isChecked():
+            window.supplement_ocr_result_with_overlay_check.setChecked(False)
+
+    @safe_config_call(name="overlay.sync_ocr_result_mutual_exclusion_supplement")
+    def _on_supplement_toggled() -> None:
+        if window.supplement_ocr_result_with_overlay_check.isChecked():
+            window.use_ocr_result_check.setChecked(False)
+
+    window.use_ocr_result_check.stateChanged.connect(_on_use_ocr_result_toggled)
+    window.supplement_ocr_result_with_overlay_check.stateChanged.connect(_on_supplement_toggled)
+
     ocr_area_subset_widgets = [
         window.ocr_area_config_include_primary_areas_check,
         window.ocr_area_config_include_secondary_areas_check,

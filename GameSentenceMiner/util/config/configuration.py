@@ -1360,6 +1360,7 @@ class Overlay:
     ocr_area_config_include_secondary_areas: bool = True
     ocr_area_config_use_exclusion_zones: bool = True
     use_ocr_result_v2: bool = False
+    supplement_ocr_result_with_overlay: bool = False
     check_previous_lines_for_recycled_indicator: bool = False
     ocr_full_screen_instead_of_obs: bool = False
 

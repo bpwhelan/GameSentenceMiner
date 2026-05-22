@@ -55,6 +55,7 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
     "OCR": {
         "twoPassOCR": True,
         "optimize_second_scan": True,
+        "text_appears_instantly": False,
         "ocr1": "oneocr",
         "ocr2": "glens",
         "scanRate": 0.5,
@@ -378,6 +379,10 @@ def get_ocr_optimize_second_scan() -> bool:
     if not _is_advanced_mode():
         return True
     return bool(_get_ocr_value("optimize_second_scan", True))
+
+
+def get_ocr_text_appears_instantly() -> bool:
+    return bool(_get_ocr_value("text_appears_instantly", False))
 
 
 def get_ocr_ocr1() -> str:

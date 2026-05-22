@@ -1823,13 +1823,19 @@ background: rgba(202, 12, 12, 0.692);
         // Check if data has words array (new word-level coordinate format)
         if (data.type == "word_coordinates" && Array.isArray(data.data) && data.data.every(item => item.text && item.bounding_rect)) {
           renderedTextPayload = true;
+          const isSupplemental = data.supplemental === true;
           const isSentenceRecycled = resolvePendingSentenceRecycledState(data.line_id, data.is_sentence_recycled);
-          setImmediateSentenceRecycled(isSentenceRecycled);
+          if (!isSupplemental) {
+            setImmediateSentenceRecycled(isSentenceRecycled);
+          }
           // Handle array of {text, bounding_rect}
           ipcRenderer.send("text-received", data);
 
-          clearTextBoxes({ preserveFurigana: true });
-          const renderGeneration = ++overlayRenderGeneration;
+          // Supplemental results append to existing overlay without clearing
+          if (!isSupplemental) {
+            clearTextBoxes({ preserveFurigana: true });
+          }
+          const renderGeneration = isSupplemental ? overlayRenderGeneration : ++overlayRenderGeneration;
           
           // FIRST PASS: Detect blocks by "general area" (y-first with soft x guards)
           const {
@@ -2120,7 +2126,7 @@ background: rgba(202, 12, 12, 0.692);
           // Add recycled sentence indicator if applicable. Anchor it to the
           // final rendered block bounds so it stays beside the visible text,
           // including when Magpie remaps coordinates.
-          if (showRecycledIndicator && isSentenceRecycled && blockIndicatorBounds.size > 0) {
+          if (!isSupplemental && showRecycledIndicator && isSentenceRecycled && blockIndicatorBounds.size > 0) {
             const renderedBlockBounds = Array.from(blockIndicatorBounds.values());
             const lastBlockBounds = renderedBlockBounds[renderedBlockBounds.length - 1];
 
@@ -2146,9 +2152,12 @@ background: rgba(202, 12, 12, 0.692);
             }
           }
           
-          renderFuriganaForFrame(data.data, renderGeneration).catch((err) => {
-            console.warn('[Furigana] Async render failed:', err);
-          });
+          // Skip furigana rendering for supplemental results (background text)
+          if (!isSupplemental) {
+            renderFuriganaForFrame(data.data, renderGeneration).catch((err) => {
+              console.warn('[Furigana] Async render failed:', err);
+            });
+          }
 
         } else {
           const line = data?.sentence ?? data;
@@ -2163,7 +2172,7 @@ background: rgba(202, 12, 12, 0.692);
           }
         }
 
-        if (renderedTextPayload && shouldShowReadyIndicator) {
+        if (renderedTextPayload && shouldShowReadyIndicator && !(data && data.supplemental)) {
           showReadyIndicator();
         }
         if (manualMode && !manualHotkeyPressed) {

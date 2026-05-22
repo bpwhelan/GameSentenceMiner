@@ -616,6 +616,44 @@ class TestTwoPassDifferentEngines:
         assert len(sent_texts) == 1
         assert sent_texts[0]["text"] == ocr2_text
 
+    def test_text_appears_instantly_runs_second_ocr_on_first_text_frame(
+        self,
+        sent_texts,
+        second_ocr_calls,
+    ):
+        cfg = dataclasses.replace(self.CFG, text_appears_instantly=True)
+        ctrl = _make_controller(
+            cfg,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
+            second_ocr_return="instant_refined",
+        )
+
+        ctrl.handle_ocr_result("新しいセリフ", ["新しいセリフ"], _make_time(), _dummy_img())
+
+        assert len(second_ocr_calls) == 1
+        assert [item["text"] for item in sent_texts] == ["instant_refined"]
+
+    def test_text_appears_instantly_does_not_repeat_same_stability_text(
+        self,
+        sent_texts,
+        second_ocr_calls,
+    ):
+        cfg = dataclasses.replace(self.CFG, text_appears_instantly=True)
+        ctrl = _make_controller(
+            cfg,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
+            second_ocr_return="instant_refined",
+        )
+        text = "新しいセリフ"
+
+        ctrl.handle_ocr_result(text, [text], _make_time(), _dummy_img())
+        ctrl.handle_ocr_result(text, [text], _make_time(1), _dummy_img())
+
+        assert len(second_ocr_calls) == 1
+        assert [item["text"] for item in sent_texts] == ["instant_refined"]
+
     def test_second_ocr_receives_correct_engine(
         self,
         sent_texts,
@@ -823,6 +861,32 @@ class TestMeikiFirstPass:
         )
         assert len(sent_texts) == 0
 
+    def test_text_appears_instantly_detection_box_triggers_on_first_frame(
+        self,
+        sent_texts,
+        second_ocr_calls,
+    ):
+        cfg = dataclasses.replace(self.CFG, text_appears_instantly=True)
+        ctrl = _make_controller(
+            cfg,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
+            second_ocr_return="meiki_instant_refined",
+        )
+        coords = (10, 20, 100, 50)
+
+        ctrl.handle_ocr_result(
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords}],
+            crop_coords=coords,
+        )
+
+        assert len(second_ocr_calls) == 1
+        assert [item["text"] for item in sent_texts] == ["meiki_instant_refined"]
+
     def test_meiki_stable_coords_triggers_second_pass(
         self,
         sent_texts,
@@ -885,6 +949,44 @@ class TestMeikiFirstPass:
             crop_coords=(200, 300, 500, 400),
         )
         assert len(second_ocr_calls) == 0
+
+    def test_meiki_changed_coords_reset_start_time(self, sent_texts, second_ocr_calls):
+        ctrl = _make_controller(
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
+            second_ocr_return="meiki_refined",
+        )
+        false_positive_coords = (10, 20, 100, 50)
+        real_text_coords = (200, 300, 500, 400)
+
+        ctrl.handle_ocr_result(
+            "",
+            [],
+            _make_time(0),
+            _dummy_img(),
+            meiki_boxes=[{"box": false_positive_coords}],
+            crop_coords=false_positive_coords,
+        )
+        ctrl.handle_ocr_result(
+            "",
+            [],
+            _make_time(10),
+            _dummy_img(),
+            meiki_boxes=[{"box": real_text_coords}],
+            crop_coords=real_text_coords,
+        )
+        ctrl.handle_ocr_result(
+            "",
+            [],
+            _make_time(11),
+            _dummy_img(),
+            meiki_boxes=[{"box": real_text_coords}],
+            crop_coords=real_text_coords,
+        )
+
+        assert len(second_ocr_calls) == 1
+        assert sent_texts[0]["time"] == _make_time(10)
 
     def test_meiki_stable_then_same_coords_suppressed(
         self,

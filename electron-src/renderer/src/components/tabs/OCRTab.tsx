@@ -40,6 +40,7 @@ interface OcrStoredConfig {
   ocr2_advanced?: string;
   twoPassOCR?: boolean;
   optimize_second_scan?: boolean;
+  text_appears_instantly?: boolean;
   scanRate?: number;
   scanRate_basic?: number;
   scanRate_advanced?: number;
@@ -76,6 +77,7 @@ interface OcrUiConfig {
   stabilityOcr: string;
   twoPassOCR: boolean;
   optimizeSecondScan: boolean;
+  textAppearsInstantly: boolean;
   language: string;
   ocrScreenshots: boolean;
   furiganaFilterSensitivity: number;
@@ -122,6 +124,15 @@ interface OcrStatusPayload {
   scan_rate?: number;
 }
 
+interface NormalizedOcrStatus {
+  paused: boolean;
+  mode: "auto" | "manual";
+  engineKey: string;
+  engineLabel: string;
+  scanRate: number;
+  signature: string;
+}
+
 interface NoticeState {
   type: "info" | "success" | "error";
   message: string;
@@ -149,6 +160,12 @@ interface TerminalRepeatState {
   dedupeKey: string;
   count: number;
   baseMessage: string;
+}
+
+interface OcrScanTiming {
+  engineKey: string;
+  recordedAt: number;
+  durationSeconds: number;
 }
 
 const MAIN_OCR_OPTIONS: Option[] = [
@@ -189,11 +206,12 @@ const LANGUAGE_OPTIONS: Option[] = [
   { value: "hi", label: "Hindi" }
 ];
 
-const BASIC_SCAN_RATE_OPTIONS: Option[] = [
-  { value: "0.2", label: "Instant" },
-  { value: "0.5", label: "Normal" },
-  { value: "0.8", label: "Slow" },
-  { value: "1", label: "Very Slow" }
+const BASIC_SCAN_RATE_OPTIONS: Array<{ value: string; labelKey: string }> = [
+  { value: "0", labelKey: "ocr.scanRates.asFastAsPossibleWarning" },
+  { value: "0.2", labelKey: "ocr.scanRates.fast" },
+  { value: "0.5", labelKey: "ocr.scanRates.normal" },
+  { value: "0.8", labelKey: "ocr.scanRates.slow" },
+  { value: "1", labelKey: "ocr.scanRates.verySlow" }
 ];
 
 const PROCESS_PRIORITY_OPTIONS: Array<{ value: ProcessPriority; label: string }> =
@@ -379,6 +397,7 @@ const BLACK_HOLE_LOG_MESSAGE =
 const BLACK_HOLE_CONSOLE_MESSAGE =
   "\x1b[33mSkipped OCR result: text is inside a black hole box\x1b[0m";
 const ANSI_RESET = "\x1b[0m";
+const OCR_SCAN_AVERAGE_WINDOW_MS = 5000;
 
 function formatRepeatedTerminalLine(message: string, count: number): string {
   if (count <= 1) {
@@ -557,6 +576,42 @@ function getEngineAnsiColor(value: string): string {
   return ENGINE_COLORS[value] ?? "";
 }
 
+function normalizeOcrStatusPayload(
+  status: OcrStatusPayload,
+  fallbackScanRate: number
+): NormalizedOcrStatus {
+  const engineKey =
+    typeof status.current_engine === "string" ? status.current_engine : "";
+  const scanRate = numericValue(status.scan_rate, fallbackScanRate);
+  const paused = Boolean(status.paused);
+  const mode = status.manual ? "manual" : "auto";
+
+  return {
+    paused,
+    mode,
+    engineKey,
+    engineLabel: engineKey ? getEngineLabel(engineKey) : "",
+    scanRate,
+    signature: [
+      paused ? "paused" : "running",
+      mode,
+      engineKey,
+      scanRate.toFixed(3)
+    ].join("|")
+  };
+}
+
+function ocrRunningStatesEqual(
+  left: OcrRunningState,
+  right: OcrRunningState
+): boolean {
+  return (
+    left.isRunning === right.isRunning &&
+    left.source === right.source &&
+    left.mode === right.mode
+  );
+}
+
 function replaceEngineLabelsWithAnsi(line: string): string {
   let next = line;
   for (const [value, label] of ENGINE_LABELS.entries()) {
@@ -606,6 +661,7 @@ function normalizeOcrConfig(
       value?.optimize_second_scan === undefined
         ? true
         : Boolean(value.optimize_second_scan),
+    textAppearsInstantly: value?.text_appears_instantly === true,
     language: typeof value?.language === "string" ? value.language : "ja",
     ocrScreenshots: Boolean(value?.ocr_screenshots),
     furiganaFilterSensitivity: integerValue(
@@ -663,6 +719,7 @@ function buildPersistedConfig(
     ...baseConfig,
     twoPassOCR: config.twoPassOCR,
     optimize_second_scan: config.optimizeSecondScan,
+    text_appears_instantly: config.textAppearsInstantly,
     scanRate: config.advancedMode ? config.advancedScanRate : config.basicScanRate,
     scanRate_basic: config.basicScanRate,
     scanRate_advanced: config.advancedScanRate,
@@ -714,17 +771,20 @@ function buildPersistedConfig(
   return next;
 }
 
-function basicSpeedLabel(scanRate: number): string {
+function basicSpeedLabelKey(scanRate: number): string {
+  if (scanRate <= 0) {
+    return "ocr.scanRates.asFastAsPossible";
+  }
   if (scanRate <= 0.3) {
-    return "Instant";
+    return "ocr.scanRates.fast";
   }
   if (scanRate <= 0.65) {
-    return "Normal";
+    return "ocr.scanRates.normal";
   }
   if (scanRate <= 0.9) {
-    return "Slow";
+    return "ocr.scanRates.slow";
   }
-  return "Very Slow";
+  return "ocr.scanRates.verySlow";
 }
 
 function captureHotkey(event: React.KeyboardEvent<HTMLInputElement>): string {
@@ -799,6 +859,7 @@ const OCR_TOOLTIP_KEYS = {
   keepNewlineAuto: "ocr.tooltips.keepNewlineAuto",
   keepNewlineMenu: "ocr.tooltips.keepNewlineMenu",
   keepNewlineAreaSelect: "ocr.tooltips.keepNewlineAreaSelect",
+  textAppearsInstantly: "ocr.tooltips.textAppearsInstantly",
   twoPassOCR: "ocr.tooltips.twoPassOCR",
   stabilityOcr: "ocr.tooltips.stabilityOcr",
   mainOcr: "ocr.tooltips.mainOcr",
@@ -900,6 +961,9 @@ export function OCRTab({ active }: OcrTabProps) {
   const pausedRef = useRef(paused);
   const previousLogLineRef = useRef("");
   const repeatedTerminalLineRef = useRef<TerminalRepeatState | null>(null);
+  const lastOcrStatusSignatureRef = useRef("");
+  const lastFooterScanKeyRef = useRef("");
+  const scanTimingsRef = useRef<OcrScanTiming[]>([]);
 
   const selectedScene = useMemo(
     () => scenes.find((scene) => scene.id === selectedSceneId) ?? null,
@@ -949,7 +1013,7 @@ export function OCRTab({ active }: OcrTabProps) {
   const sceneSummary = selectedScene?.name ?? t("ocr.footer.noSceneSelected");
   const scanSummary = config.advancedMode
     ? `${effectiveScanRate.toFixed(1)}s`
-    : basicSpeedLabel(config.basicScanRate);
+    : t(basicSpeedLabelKey(config.basicScanRate));
   const pipelineSummary = config.twoPassOCR
     ? `${getEngineLabel(effectiveStabilityEngine)} at ${effectiveScanRate.toFixed(1)}s -> ${getEngineLabel(effectiveMainEngine)}`
     : `${getEngineLabel(effectiveMainEngine)} at ${effectiveScanRate.toFixed(1)}s`;
@@ -1214,13 +1278,19 @@ export function OCRTab({ active }: OcrTabProps) {
   const refreshRunningState = useCallback(async () => {
     try {
       const nextState = await invokeIpc<OcrRunningState>("ocr.get-running-state");
-      setRunningState({
+      const normalizedState: OcrRunningState = {
         isRunning: Boolean(nextState?.isRunning),
         source: nextState?.source,
         mode: nextState?.mode ?? null
-      });
+      };
+      setRunningState((current) =>
+        ocrRunningStatesEqual(current, normalizedState) ? current : normalizedState
+      );
 
       if (!nextState?.isRunning) {
+        lastOcrStatusSignatureRef.current = "";
+        lastFooterScanKeyRef.current = "";
+        scanTimingsRef.current = [];
         setPaused(false);
         setRuntimeMessage("Idle");
         setRuntimeEngine("");
@@ -1345,14 +1415,68 @@ export function OCRTab({ active }: OcrTabProps) {
         STABILITY_OCR_OPTIONS.find((option) => option.label === engineMatch)?.value ??
         "";
 
-      if (trimmedLine.endsWith(":") && engineKey && !pausedRef.current) {
-        setRuntimeEngine(getEngineLabel(engineKey));
+      if (
+        trimmedLine.endsWith(":") &&
+        engineKey &&
+        !pausedRef.current &&
+        !OCR_RUN_2_RECOGNIZED_PATTERN.test(trimmedLine)
+      ) {
+        const engineLabel = getEngineLabel(engineKey);
         const speed = trimmedLine.split(" in ")[1]?.split("s")[0]?.trim();
-        setRuntimeMessage(
-          speed
-            ? `Scanning with ${getEngineLabel(engineKey)} in ${speed}s`
-            : `Scanning with ${getEngineLabel(engineKey)}`
+        const scanDurationSeconds = speed ? Number.parseFloat(speed) : Number.NaN;
+        let displaySpeed = speed;
+        if (Number.isFinite(scanDurationSeconds)) {
+          const now = Date.now();
+          const cutoff = now - OCR_SCAN_AVERAGE_WINDOW_MS;
+          scanTimingsRef.current = [
+            ...scanTimingsRef.current.filter(
+              (entry) => entry.recordedAt >= cutoff
+            ),
+            {
+              engineKey,
+              recordedAt: now,
+              durationSeconds: scanDurationSeconds
+            }
+          ];
+          const engineTimings = scanTimingsRef.current.filter(
+            (entry) => entry.engineKey === engineKey
+          );
+          const averageDuration =
+            engineTimings.reduce(
+              (sum, entry) => sum + entry.durationSeconds,
+              0
+            ) / engineTimings.length;
+          displaySpeed = averageDuration.toFixed(3);
+        }
+        const currentConfig = configRef.current;
+        const textResultEngineKey = currentConfig.advancedMode
+          ? currentConfig.mainOcr
+          : "glens";
+        const usesSeparateTextResultEngine =
+          !(currentConfig.advancedMode && !currentConfig.twoPassOCR) &&
+          textResultEngineKey &&
+          textResultEngineKey !== engineKey;
+        const textResultSuffix = usesSeparateTextResultEngine
+          ? ` and using ${getEngineLabel(textResultEngineKey)} for text results`
+          : "";
+        const nextRuntimeMessage = speed
+          ? `Scanning with ${engineLabel} in ${displaySpeed}s${textResultSuffix}`
+          : `Scanning with ${engineLabel}${textResultSuffix}`;
+        const footerScanKey = `scan:${engineKey}:${nextRuntimeMessage}`;
+        setRuntimeEngine((current) =>
+          current === engineLabel ? current : engineLabel
         );
+        if (lastFooterScanKeyRef.current !== footerScanKey) {
+          lastFooterScanKeyRef.current = footerScanKey;
+          setRuntimeMessage(nextRuntimeMessage);
+        }
+        return;
+      }
+
+      if (
+        trimmedLine.endsWith(":") &&
+        OCR_RUN_2_RECOGNIZED_PATTERN.test(trimmedLine)
+      ) {
         return;
       }
 
@@ -1384,7 +1508,12 @@ export function OCRTab({ active }: OcrTabProps) {
     });
 
     const offStarted = onIpc("ocr-started", () => {
-      setRunningState((current) => ({ ...current, isRunning: true }));
+      lastOcrStatusSignatureRef.current = "";
+      lastFooterScanKeyRef.current = "";
+      scanTimingsRef.current = [];
+      setRunningState((current) =>
+        current.isRunning ? current : { ...current, isRunning: true }
+      );
       setPaused(false);
       setRuntimeMessage("Starting OCR...");
     });
@@ -1394,46 +1523,59 @@ export function OCRTab({ active }: OcrTabProps) {
     });
 
     const offPaused = onIpc("ocr-ipc-paused", () => {
+      lastFooterScanKeyRef.current = "";
       setPaused(true);
       setRuntimeMessage("Paused");
     });
 
     const offUnpaused = onIpc("ocr-ipc-unpaused", () => {
+      lastFooterScanKeyRef.current = "";
       setPaused(false);
       setRuntimeMessage("Running");
     });
 
     const offStatus = onIpc("ocr-ipc-status", (_event, payload) => {
-      const status = (payload ?? {}) as OcrStatusPayload;
-      setPaused(Boolean(status.paused));
-      setRunningState((current) => ({
-        ...current,
-        isRunning: true,
-        mode: status.manual ? "manual" : "auto"
-      }));
+      const status = normalizeOcrStatusPayload(
+        (payload ?? {}) as OcrStatusPayload,
+        effectiveScanRate
+      );
+      if (lastOcrStatusSignatureRef.current === status.signature) {
+        return;
+      }
+      lastOcrStatusSignatureRef.current = status.signature;
+      lastFooterScanKeyRef.current = "";
 
-      const engineLabel = status.current_engine
-        ? getEngineLabel(status.current_engine)
-        : "";
-      setRuntimeEngine(engineLabel);
+      setPaused((current) => (current === status.paused ? current : status.paused));
+      setRunningState((current) => {
+        const nextState = {
+          ...current,
+          isRunning: true,
+          mode: status.mode
+        };
+        return ocrRunningStatesEqual(current, nextState) ? current : nextState;
+      });
+      setRuntimeEngine((current) =>
+        current === status.engineLabel ? current : status.engineLabel
+      );
 
       if (status.paused) {
         setRuntimeMessage("Paused");
         return;
       }
 
-      if (status.manual) {
+      if (status.mode === "manual") {
         setRuntimeMessage(
-          engineLabel ? `Running manual OCR with ${engineLabel}` : "Running manual OCR"
+          status.engineLabel
+            ? `Running manual OCR with ${status.engineLabel}`
+            : "Running manual OCR"
         );
         return;
       }
 
-      const scanRate = numericValue(status.scan_rate, effectiveScanRate);
       setRuntimeMessage(
-        engineLabel
-          ? `Running auto OCR with ${engineLabel} at ${scanRate.toFixed(1)}s`
-          : `Running auto OCR at ${scanRate.toFixed(1)}s`
+        status.engineLabel
+          ? `Running auto OCR with ${status.engineLabel} at ${status.scanRate.toFixed(1)}s`
+          : `Running auto OCR at ${status.scanRate.toFixed(1)}s`
       );
     });
 
@@ -1561,6 +1703,9 @@ export function OCRTab({ active }: OcrTabProps) {
     async (manual: boolean) => {
       clearTerminal();
       flushConfigSave();
+      lastOcrStatusSignatureRef.current = "";
+      lastFooterScanKeyRef.current = "";
+      scanTimingsRef.current = [];
       setPaused(false);
       setRuntimeMessage(manual ? "Starting manual OCR..." : "Starting auto OCR...");
       setRunningState((current) => ({
@@ -1579,7 +1724,13 @@ export function OCRTab({ active }: OcrTabProps) {
       if (state?.isRunning) {
         sendIpc("ocr.kill-ocr");
       }
-      setRunningState({ isRunning: false, mode: null });
+      lastOcrStatusSignatureRef.current = "";
+      lastFooterScanKeyRef.current = "";
+      scanTimingsRef.current = [];
+      setRunningState((current) => {
+        const nextState = { isRunning: false, mode: null };
+        return ocrRunningStatesEqual(current, nextState) ? current : nextState;
+      });
       setPaused(false);
       setRuntimeMessage("Idle");
       setRuntimeEngine("");
@@ -1778,7 +1929,7 @@ export function OCRTab({ active }: OcrTabProps) {
                       htmlFor="ocr-basic-speed"
                       {...titleProps(ocrTooltips.basicScanRate)}
                     >
-                      {t("ocr.settings.textSpeed")}
+                      {t("ocr.settings.scanSpeed")}
                     </label>
                     <select
                       id="ocr-basic-speed"
@@ -1792,7 +1943,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     >
                       {BASIC_SCAN_RATE_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
-                          {option.label}
+                          {t(option.labelKey)}
                         </option>
                       ))}
                     </select>
@@ -1819,6 +1970,40 @@ export function OCRTab({ active }: OcrTabProps) {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div className="ocr-linebreak-row ocr-linebreak-row--warning">
+                  <label
+                    className="ocr-instant-toggle"
+                    htmlFor="ocr-text-appears-instantly"
+                    {...titleProps(ocrTooltips.textAppearsInstantly)}
+                  >
+                    <input
+                      id="ocr-text-appears-instantly"
+                      type="checkbox"
+                      checked={config.textAppearsInstantly}
+                      disabled={config.advancedMode && !config.twoPassOCR}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          textAppearsInstantly: event.target.checked
+                        }));
+                      }}
+                    />
+                    <span className="ocr-instant-copy">
+                      <span className="ocr-linebreak-label ocr-instant-label">
+                        <span>{t("ocr.settings.textAppearsInstantly")}</span>
+                        <span className="ocr-instant-qualifier">
+                          (
+                          <span className="ocr-warning-icon" aria-hidden="true">
+                            ⚠
+                          </span>
+                          <span>{t("ocr.settings.textAppearsInstantlyQualifier")}</span>
+                          )
+                        </span>
+                      </span>
+                    </span>
+                  </label>
                 </div>
 
                 <div className="ocr-slider-field">

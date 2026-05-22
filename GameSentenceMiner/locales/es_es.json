@@ -758,8 +758,12 @@
             "tooltip": "Aplica las zonas de exclusión de la configuración de áreas para enmascarar partes de la captura de la superposición. Son las regiones que antes aparecían como cuadros naranjas."
           },
           "use_ocr_result": {
-            "label": "Usar resultado OCR:",
-            "tooltip": "Al activar, la superposición usa resultados OCR precomputados cuando estén disponibles. Desactívalo para forzar un nuevo escaneo OCR en la superposición."
+            "label": "Usar solo resultado OCR (Experimental):",
+            "tooltip": "Al activar, la superposición usa SOLO resultados OCR precomputados cuando estén disponibles. El resto de la pantalla no se puede consultar. Mutuamente exclusivo con 'Complementar con escaneo de superposición'."
+          },
+          "supplement_ocr_result_with_overlay": {
+            "label": "Complementar resultado OCR con escaneo:",
+            "tooltip": "Al activar, muestra inmediatamente los resultados OCR precomputados y luego realiza un escaneo complementario para que el resto de la pantalla también sea consultable."
           }
         },
         "experimental": {

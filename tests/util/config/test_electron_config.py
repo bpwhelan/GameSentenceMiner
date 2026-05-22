@@ -81,6 +81,7 @@ def test_get_ocr_values_basic_mode(monkeypatch):
                 "scanRate": None,
                 "keep_newline": False,
                 "twoPassOCR": False,
+                "text_appears_instantly": True,
             }
         }
     )
@@ -94,6 +95,7 @@ def test_get_ocr_values_basic_mode(monkeypatch):
     assert electron_config.get_ocr_keep_newline("secondary") is True
     assert electron_config.get_ocr_keep_newline("screen_cropper") is True
     assert electron_config.get_ocr_two_pass_ocr() is True
+    assert electron_config.get_ocr_text_appears_instantly() is True
 
 
 def test_get_ocr_values_advanced_mode(monkeypatch):
@@ -108,6 +110,7 @@ def test_get_ocr_values_advanced_mode(monkeypatch):
                 "keep_newline": False,
                 "twoPassOCR": False,
                 "optimize_second_scan": False,
+                "text_appears_instantly": False,
                 "manualOcrHotkey": "Alt+M",
             }
         }
@@ -123,6 +126,7 @@ def test_get_ocr_values_advanced_mode(monkeypatch):
     assert electron_config.get_ocr_keep_newline("screen_cropper") is False
     assert electron_config.get_ocr_two_pass_ocr() is False
     assert electron_config.get_ocr_optimize_second_scan() is False
+    assert electron_config.get_ocr_text_appears_instantly() is False
     assert electron_config.get_ocr_manual_ocr_hotkey() == "Alt+M"
 
 

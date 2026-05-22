@@ -715,8 +715,12 @@
             "tooltip": "应用 OCR 区域配置中的排除区域来遮罩覆盖层截图的一部分，也就是之前显示为橙色框的区域。"
           },
           "use_ocr_result": {
-            "label": "使用 OCR 结果:",
-            "tooltip": "启用时，覆盖层会在可用情况下使用预先计算的 OCR 结果。禁用后将强制覆盖层重新执行 OCR 扫描。"
+            "label": "仅使用 OCR 结果（实验性）:",
+            "tooltip": "启用时，覆盖层仅使用预先计算的 OCR 结果。屏幕其余部分将无法查找。与'用覆盖层扫描补充'互斥。"
+          },
+          "supplement_ocr_result_with_overlay": {
+            "label": "用覆盖层扫描补充 OCR 结果:",
+            "tooltip": "启用时，立即显示预计算的 OCR 结果，然后执行补充扫描使屏幕其余部分也可查找。"
           }
         },
         "experimental": {

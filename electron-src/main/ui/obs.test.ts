@@ -21,6 +21,7 @@ const writeFileMock = vi.fn();
 const sendStartOBSMock = vi.fn();
 const sendQuitOBSMock = vi.fn();
 const execFileAsyncMock = vi.fn();
+const execMock = vi.fn();
 const spawnMock = vi.fn();
 const storeData = new Map<string, unknown>();
 const storeSetMock = vi.fn<(key: string, value: unknown) => void>();
@@ -45,7 +46,7 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('child_process', () => ({
-    exec: vi.fn(),
+    exec: execMock,
     spawn: spawnMock,
 }));
 
@@ -143,6 +144,7 @@ describe('launchOBSFromElectron', () => {
         writeFileSyncMock.mockReset();
         rmSyncMock.mockReset();
         mkdirSyncMock.mockReset();
+        execMock.mockReset();
         spawnMock.mockReset();
         obsCallMock.mockReset();
         obsConnectMock.mockReset();
@@ -176,6 +178,35 @@ describe('launchOBSFromElectron', () => {
         expect(spawnMock).not.toHaveBeenCalled();
     });
 
+    it('allows manual launch when the active Python profile disables open_obs', async () => {
+        existsSyncMock.mockImplementation((targetPath: string) =>
+            targetPath === CONFIG_PATH || targetPath === DEFAULT_OBS_PATH
+        );
+        readFileSyncMock.mockReturnValue(
+            JSON.stringify({
+                current_profile: 'Default',
+                configs: {
+                    Default: {
+                        obs: {
+                            open_obs: false,
+                        },
+                    },
+                },
+            })
+        );
+        const { launchOBSFromElectron } = await loadObsModule();
+
+        const startupResult = await launchOBSFromElectron({ reason: 'startup test' });
+        const manualResult = await launchOBSFromElectron({
+            ignoreOpenConfig: true,
+            reason: 'manual test',
+        });
+
+        expect(startupResult.status).toBe('skipped');
+        expect(manualResult).toEqual({ status: 'launched', pid: 4242 });
+        expect(spawnMock).toHaveBeenCalledOnce();
+    });
+
     it('launches the portable OBS runtime with GSM startup flags', async () => {
         existsSyncMock.mockImplementation((targetPath: string) => targetPath === DEFAULT_OBS_PATH);
         const { launchOBSFromElectron } = await loadObsModule();
@@ -193,7 +224,8 @@ describe('launchOBSFromElectron', () => {
             ]),
             expect.objectContaining({
                 cwd: 'C:\\test-gsm\\obs-studio\\bin\\64bit',
-                detached: true,
+                detached: false,
+                shell: false,
                 stdio: 'ignore',
             })
         );
@@ -202,6 +234,115 @@ describe('launchOBSFromElectron', () => {
             '4242',
             'utf-8'
         );
+    });
+
+    it('rechecks the managed OBS pid before using a cached launched state', async () => {
+        const obsPidPath = 'C:\\test-gsm\\obs_pid.txt';
+        let pidFileExists = false;
+        let storedPid = '';
+        const notRunningError = new Error('not running') as NodeJS.ErrnoException;
+        notRunningError.code = 'ESRCH';
+        const killSpy = vi
+            .spyOn(process, 'kill')
+            .mockImplementation((() => {
+                throw notRunningError;
+            }) as typeof process.kill);
+
+        try {
+            existsSyncMock.mockImplementation((targetPath: string) =>
+                targetPath === DEFAULT_OBS_PATH || (targetPath === obsPidPath && pidFileExists)
+            );
+            readFileSyncMock.mockImplementation((targetPath: string) =>
+                targetPath === obsPidPath ? storedPid : '{}'
+            );
+            writeFileSyncMock.mockImplementation((targetPath: string, value: string) => {
+                if (targetPath === obsPidPath) {
+                    pidFileExists = true;
+                    storedPid = value;
+                }
+            });
+            rmSyncMock.mockImplementation((targetPath: string) => {
+                if (targetPath === obsPidPath) {
+                    pidFileExists = false;
+                    storedPid = '';
+                }
+            });
+            spawnMock
+                .mockReturnValueOnce({ pid: 4242, once: vi.fn(), unref: vi.fn() })
+                .mockReturnValueOnce({ pid: 5151, once: vi.fn(), unref: vi.fn() });
+            const { launchOBSFromElectron } = await loadObsModule();
+
+            await expect(launchOBSFromElectron({ reason: 'first launch' })).resolves.toEqual({
+                status: 'launched',
+                pid: 4242,
+            });
+            await expect(launchOBSFromElectron({ reason: 'manual relaunch' })).resolves.toEqual({
+                status: 'launched',
+                pid: 5151,
+            });
+
+            expect(spawnMock).toHaveBeenCalledTimes(2);
+            expect(rmSyncMock).toHaveBeenCalledWith(obsPidPath, { force: true });
+        } finally {
+            killSpy.mockRestore();
+        }
+    });
+
+    it('opens OBS from IPC even when startup auto-open is disabled', async () => {
+        existsSyncMock.mockImplementation((targetPath: string) =>
+            targetPath === CONFIG_PATH || targetPath === DEFAULT_OBS_PATH
+        );
+        readFileSyncMock.mockReturnValue(
+            JSON.stringify({
+                current_profile: 'Default',
+                configs: {
+                    Default: {
+                        obs: {
+                            open_obs: false,
+                        },
+                    },
+                },
+            })
+        );
+        const { registerOBSIPC } = await loadObsModule();
+
+        await registerOBSIPC();
+        const openOBSHandler = ipcHandleMock.mock.calls.find(
+            ([channel]) => channel === 'openOBS'
+        )?.[1];
+
+        expect(openOBSHandler).toBeTypeOf('function');
+        await expect(openOBSHandler({})).resolves.toEqual({
+            status: 'launched',
+            pid: 4242,
+        });
+        expect(spawnMock).toHaveBeenCalledOnce();
+    });
+
+    it('uses managed spawn fallback for obs.launch instead of exec', async () => {
+        existsSyncMock.mockReturnValue(false);
+        const { registerOBSIPC } = await loadObsModule();
+
+        await registerOBSIPC();
+        const launchHandler = ipcHandleMock.mock.calls.find(
+            ([channel]) => channel === 'obs.launch'
+        )?.[1];
+
+        expect(launchHandler).toBeTypeOf('function');
+        await expect(launchHandler({})).resolves.toEqual({
+            status: 'launched',
+            pid: 4242,
+        });
+        expect(spawnMock).toHaveBeenCalledWith(
+            'obs',
+            expect.arrayContaining(['--disable-shutdown-check', '--portable']),
+            expect.objectContaining({
+                detached: false,
+                shell: false,
+                stdio: 'ignore',
+            })
+        );
+        expect(execMock).not.toHaveBeenCalled();
     });
 
     it('does not perform launch filesystem work synchronously', async () => {
@@ -246,6 +387,7 @@ describe('renameOBSScene', () => {
         sendStartOBSMock.mockReset();
         sendQuitOBSMock.mockReset();
         execFileAsyncMock.mockReset();
+        execMock.mockReset();
         spawnMock.mockReset();
         storeSetMock.mockReset();
         readFileSyncMock.mockReset();
@@ -411,7 +553,7 @@ describe('renameOBSScene', () => {
             expect(spawnMock).toHaveBeenCalledWith(
                 defaultObsPath,
                 expect.arrayContaining(['--portable', '--startreplaybuffer']),
-                expect.objectContaining({ detached: true })
+                expect.objectContaining({ detached: false, shell: false })
             );
         } finally {
             vi.useRealTimers();

@@ -571,7 +571,7 @@
       "title": "Ajustes OCR",
       "advanced": "Avanzado",
       "scanRate": "Frecuencia de escaneo (s):",
-      "textSpeed": "Velocidad de texto:",
+      "scanSpeed": "Velocidad de escaneo:",
       "language": "Idioma:",
       "scanImageQuality": "Calidad de imagen de escaneo",
       "furiganaFilter": "Filtro de furigana",
@@ -669,7 +669,7 @@
       "exportAreas": "Copia los rectángulos OCR de la escena actual al portapapeles como JSON.",
       "docs": "Abre la guía de OCR con ayuda de configuración, notas de motores y flujos de trabajo.",
       "advancedMode": "Muestra la selección de motor y el ajuste de comparación. El modo básico mantiene visibles los ajustes comunes y oculta los controles expertos.",
-      "basicScanRate": "Qué tan rápido aparece el texto en el juego.\n• Instantáneo: mejor para texto inmediato, mayor uso de CPU\n• Normal: equilibrado para la mayoría de diálogos\n• Lento: mejor para texto que aparece gradualmente",
+      "basicScanRate": "Con qué frecuencia escanea OCR en modo básico.\n• Lo más rápido posible (0): sin retraso de escaneo; puede exponer problemas de UTF-8/codificación y usa más CPU\n• Rápido: sondeo rápido para texto reactivo\n• Normal: equilibrado para la mayoría de diálogos\n• Lento/Muy lento: mejor para texto que aparece gradualmente",
       "advancedScanRate": "Intervalo de sondeo de OCR en segundos. Los valores bajos escanean más a menudo y reaccionan más rápido, pero usan más recursos. Los valores altos escanean menos y pueden sentirse más tranquilos con texto lento.",
       "language": "Selecciona el idioma para el procesamiento OCR. Esto garantiza que solo se capturen bloques con los caracteres correctos. Todos los idiomas de escritura latina (inglés, español, francés, alemán, etc.) están cubiertos por inglés.",
       "baseScale": "Controla cuánto se escala la captura antes de escanear.\n• Menor = escaneos más rápidos, menos CPU, pero puede omitir texto pequeño\n• Mayor = más preciso con fuentes pequeñas, pero usa más CPU\n\n50% -> Rápido | 75% -> Equilibrado | 100% -> Más lento\n\nConsejo: si OCR omite kanji pequeños o caracteres, intenta aumentar este valor.",
@@ -757,7 +757,9 @@
       "hi": "Hindi"
     },
     "scanRates": {
-      "instant": "Instantáneo",
+      "asFastAsPossible": "Lo más rápido posible (0)",
+      "asFastAsPossibleWarning": "Lo más rápido posible (0) - advertencia UTF-8",
+      "fast": "Rápido",
       "normal": "Normal",
       "slow": "Lento",
       "verySlow": "Muy lento"

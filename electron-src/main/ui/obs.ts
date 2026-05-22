@@ -11,7 +11,7 @@ import {
     isWindows10OrHigher,
 } from '../util.js';
 import { isQuitting } from '../main.js';
-import { exec, spawn } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import OBSWebSocket from 'obs-websocket-js';
 import Store from 'electron-store';
 import * as fs from 'node:fs';
@@ -392,7 +392,9 @@ interface ElectronOBSProcessResult {
 
 interface ElectronOBSProcessOptions {
     forceRestart?: boolean;
+    ignoreOpenConfig?: boolean;
     ignoreCloseConfig?: boolean;
+    allowPathFallback?: boolean;
     reason?: string;
 }
 
@@ -414,6 +416,7 @@ interface OBSLaunchCommand {
 
 let electronOBSLaunchPromise: Promise<ElectronOBSProcessResult> | null = null;
 let electronOBSLaunchStatus: ElectronOBSProcessStatus = 'idle';
+let electronOBSProcess: ChildProcess | null = null;
 
 // Utility function to escape regex special characters in window titles
 function escapeRegexCharacters(str: string): string {
@@ -907,6 +910,74 @@ function isProcessRunning(pid: number): boolean {
     }
 }
 
+function getOwnedOBSProcessPid(): number | null {
+    if (!electronOBSProcess?.pid) {
+        return null;
+    }
+
+    if (electronOBSProcess.exitCode != null || electronOBSProcess.signalCode != null) {
+        return null;
+    }
+
+    return electronOBSProcess.pid;
+}
+
+function clearOwnedOBSProcess(
+    obsProcess: ChildProcess,
+    status: ElectronOBSProcessStatus = 'not-running'
+): void {
+    if (electronOBSProcess !== obsProcess) {
+        return;
+    }
+
+    const pid = obsProcess.pid;
+    electronOBSProcess = null;
+
+    if (pid === undefined || readOBSProcessPid() === pid) {
+        clearOBSProcessPid();
+    }
+
+    electronOBSLaunchStatus = status;
+}
+
+function trackOwnedOBSProcess(obsProcess: ChildProcess): void {
+    electronOBSProcess = obsProcess;
+
+    obsProcess.once('error', (error) => {
+        logObsError('Electron-managed OBS launch failed:', error);
+        clearOwnedOBSProcess(obsProcess, 'failed');
+    });
+
+    obsProcess.once('exit', () => {
+        clearOwnedOBSProcess(obsProcess);
+    });
+}
+
+function getRunningManagedOBSPid(): number | null {
+    const ownedPid = getOwnedOBSProcessPid();
+    if (ownedPid) {
+        if (isProcessRunning(ownedPid)) {
+            return ownedPid;
+        }
+
+        if (electronOBSProcess) {
+            clearOwnedOBSProcess(electronOBSProcess);
+        }
+    }
+
+    const pid = readOBSProcessPid();
+    if (!pid) {
+        return null;
+    }
+
+    if (isProcessRunning(pid)) {
+        return pid;
+    }
+
+    clearOBSProcessPid();
+    return null;
+}
+
 function buildOBSLaunchArgs(baseArgs: string[], config: ElectronOBSStartupConfig): string[] {
     const args = [...baseArgs, '--disable-shutdown-check', '--portable'];
     if (!config.allowAutomaticUpdates) {
@@ -922,23 +993,24 @@ async function launchOBSFromElectronInternal(
     options: ElectronOBSProcessOptions = {}
 ): Promise<ElectronOBSProcessResult> {
     const config = getElectronOBSStartupConfig();
-    if (!config.openObs) {
+    if (!config.openObs && !options.ignoreOpenConfig) {
         electronOBSLaunchStatus = 'skipped';
         return { status: 'skipped' };
     }
 
-    const existingPid = readOBSProcessPid();
-    if (existingPid && isProcessRunning(existingPid)) {
+    const existingPid = getRunningManagedOBSPid();
+    if (existingPid) {
         if (!options.forceRestart) {
             electronOBSLaunchStatus = 'already-running';
             return { status: 'already-running', pid: existingPid };
         }
         await closeOBSFromElectron({ ignoreCloseConfig: true, reason: options.reason });
-    } else if (existingPid) {
-        clearOBSProcessPid();
     }
 
-    const launchCommand = resolveElectronOBSLaunchCommand(config.obsPath);
+    let launchCommand = resolveElectronOBSLaunchCommand(config.obsPath);
+    if (!launchCommand && options.allowPathFallback) {
+        launchCommand = resolveElectronOBSLaunchCommand('obs');
+    }
     if (!launchCommand) {
         electronOBSLaunchStatus = 'missing';
         return { status: 'missing', error: `OBS executable not found: ${config.obsPath}` };
@@ -952,16 +1024,13 @@ async function launchOBSFromElectronInternal(
             buildOBSLaunchArgs(launchCommand.args, config),
             {
                 cwd: launchCommand.cwd,
-                detached: true,
+                detached: false,
+                shell: false,
                 stdio: 'ignore',
             }
         );
 
-        obsProcess.once('error', (error) => {
-            electronOBSLaunchStatus = 'failed';
-            logObsError('Electron-managed OBS launch failed:', error);
-        });
-        obsProcess.unref();
+        trackOwnedOBSProcess(obsProcess);
 
         if (obsProcess.pid) {
             fs.writeFileSync(OBS_PID_FILE, String(obsProcess.pid), 'utf-8');
@@ -996,13 +1065,24 @@ export function launchOBSFromElectron(
         return electronOBSLaunchPromise;
     }
 
-    if (
-        !options.forceRestart &&
-        (electronOBSLaunchStatus === 'launched' ||
-            electronOBSLaunchStatus === 'already-running' ||
-            electronOBSLaunchStatus === 'skipped')
-    ) {
-        return Promise.resolve({ status: electronOBSLaunchStatus });
+    if (!options.forceRestart) {
+        if (
+            electronOBSLaunchStatus === 'launched' ||
+            electronOBSLaunchStatus === 'already-running'
+        ) {
+            const runningPid = getRunningManagedOBSPid();
+            if (runningPid) {
+                return Promise.resolve({
+                    status: 'already-running',
+                    pid: runningPid,
+                });
+            }
+            electronOBSLaunchStatus = 'not-running';
+        }
+
+        if (electronOBSLaunchStatus === 'skipped' && !options.ignoreOpenConfig) {
+            return Promise.resolve({ status: 'skipped' });
+        }
     }
 
     electronOBSLaunchPromise = (async () => {
@@ -1019,16 +1099,21 @@ export async function closeOBSFromElectron(
 ): Promise<ElectronOBSProcessResult> {
     const config = getElectronOBSStartupConfig();
     if (!options.ignoreCloseConfig && !config.closeObs) {
+        electronOBSProcess?.unref();
         return { status: 'skipped' };
     }
 
-    const pid = readOBSProcessPid();
+    const ownedProcess = electronOBSProcess;
+    const pid = getOwnedOBSProcessPid() ?? readOBSProcessPid();
     if (!pid) {
         electronOBSLaunchStatus = 'not-running';
         return { status: 'not-running' };
     }
 
     if (!isProcessRunning(pid)) {
+        if (ownedProcess?.pid === pid) {
+            electronOBSProcess = null;
+        }
         clearOBSProcessPid();
         electronOBSLaunchStatus = 'not-running';
         return { status: 'not-running', pid };
@@ -1037,8 +1122,13 @@ export async function closeOBSFromElectron(
     try {
         if (isWindows()) {
             await execFileAsync('taskkill', ['/PID', String(pid), '/T', '/F']);
+        } else if (ownedProcess?.pid === pid) {
+            ownedProcess.kill('SIGTERM');
         } else {
             process.kill(pid, 'SIGTERM');
+        }
+        if (ownedProcess?.pid === pid) {
+            electronOBSProcess = null;
         }
         clearOBSProcessPid();
         electronOBSLaunchStatus = 'closed';
@@ -1791,15 +1881,11 @@ export async function registerOBSIPC() {
     obsIPCRegistered = true;
 
     ipcMain.handle('obs.launch', async () => {
-        const result = await launchOBSFromElectron({ reason: 'ipc obs.launch' });
-        if (result.status === 'missing' || result.status === 'failed') {
-            exec('obs', (error: any) => {
-                if (error) {
-                    logObsError('Error launching OBS:', error);
-                }
-            });
-        }
-        return result;
+        return await launchOBSFromElectron({
+            ignoreOpenConfig: true,
+            allowPathFallback: true,
+            reason: 'ipc obs.launch',
+        });
     });
 
     ipcMain.handle('obs.saveReplay', async () => {
@@ -2007,7 +2093,11 @@ export async function registerOBSIPC() {
     });
 
     ipcMain.handle('openOBS', async () => {
-        const result = await launchOBSFromElectron({ reason: 'openOBS ipc' });
+        const result = await launchOBSFromElectron({
+            ignoreOpenConfig: true,
+            allowPathFallback: true,
+            reason: 'openOBS ipc',
+        });
         if (result.status === 'missing' || result.status === 'failed') {
             sendStartOBS();
         }

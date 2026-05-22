@@ -44,6 +44,7 @@ interface SteamConfig {
 interface OCRConfig {
     twoPassOCR: boolean;
     optimize_second_scan: boolean;
+    text_appears_instantly?: boolean;
     ocr1: string;
     ocr2: string;
     scanRate: number;
@@ -221,6 +222,7 @@ export const store = new Store<StoreConfig>({
         OCR: {
             twoPassOCR: true,
             optimize_second_scan: true,
+            text_appears_instantly: false,
             ocr1: "oneocr",
             ocr2: "glens",
             language: "ja",

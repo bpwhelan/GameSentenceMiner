@@ -313,7 +313,7 @@
     },
     "hook": {
       "title": "Try Luna or Textractor",
-      "description": "Start a hook engine, advance the game text, then pick the hook that shows real dialogue.",
+      "description": "Luna and Textractor hooks are mainly for visual novels. For video games, an Agent script or OCR is more likely to work; only use this if you see clean dialogue.",
       "engine": "Engine",
       "luna": "Luna Hook",
       "textractor": "Textractor",
@@ -693,7 +693,7 @@
       "title": "OCR Settings",
       "advanced": "Advanced",
       "scanRate": "Scan Rate (s):",
-      "textSpeed": "Text Speed:",
+      "scanSpeed": "Scan Speed:",
       "language": "Language:",
       "scanImageQuality": "Scan Image Quality",
       "furiganaFilter": "Furigana Filter",
@@ -704,7 +704,10 @@
       "lineBreaks": "Line Breaks:",
       "auto": "Auto",
       "menu": "Menu",
-      "areaSelect": "Area Select"
+      "areaSelect": "Area Select",
+      "textAppearsInstantly": "Text Appears Instantly",
+      "textAppearsInstantlyQualifier": "only if truly instant",
+      "textAppearsInstantlyWarning": "Warning: Only turn this on when the full text appears instantly. If text reveals gradually or animates in, this can get very messy."
     },
     "pipeline": {
       "title": "Recognition Pipeline",
@@ -793,7 +796,7 @@
       "exportAreas": "Copy the current scene's OCR rectangles to your clipboard as JSON.",
       "docs": "Open the OCR guide documentation for setup help, engine notes, and workflows.",
       "advancedMode": "Show engine selection and comparison tuning. Basic mode keeps common settings visible and hides the expert knobs.",
-      "basicScanRate": "How quickly the text appears in your game.\n• Instant: best for immediate text, highest CPU usage\n• Normal: balanced for most dialogue\n• Slow: better for gradually revealed text",
+      "basicScanRate": "How often OCR scans in basic mode.\n• As fast as possible (0): no scan delay; can expose UTF-8/encoding issues and uses the most CPU\n• Fast: quick polling for responsive text\n• Normal: balanced for most dialogue\n• Slow/Very Slow: better for gradually revealed text",
       "advancedScanRate": "OCR polling interval in seconds. Lower values scan more often and react faster, but use more resources. Higher values scan less often and may feel calmer on slower text.",
       "language": "Select the language for OCR processing. This ensures only blocks with the correct characters are captured. All Latin-script languages (English, Spanish, French, German, etc.) are supported under English.",
       "baseScale": "Controls how much the screenshot is scaled before scanning.\n• Lower = faster scans, less CPU, but may miss small text\n• Higher = more accurate on small fonts, but uses more CPU\n\n50% -> Fast | 75% -> Balanced | 100% -> Slowest\n\nTip: If OCR misses small kanji or skips characters, try increasing this value.",
@@ -808,6 +811,7 @@
       "keepNewlineAuto": "Keep line breaks for normal automatic OCR results.",
       "keepNewlineMenu": "Keep line breaks for menu OCR results.",
       "keepNewlineAreaSelect": "Keep line breaks for manual area-select OCR captures.",
+      "textAppearsInstantly": "Immediately run the main OCR when the stability OCR first sees new text or a new text box. Only use this for games where full dialogue appears instantly. Leave it off for typewriter-style, animated, or gradually appearing text, otherwise OCR output can get very messy.",
       "twoPassOCR": "OCR Option 1 runs at the set scan rate. If two pass is enabled and the text does not change by the next scan, it will then do the second scan with the main OCR engine.",
       "stabilityOcr": "This runs first to watch for text changes and stability. Fast engines work best here. On Windows, OneOCR is recommended.",
       "mainOcr": "This engine sends the final OCR result to the websocket or clipboard. Pick the most accurate option that works well for your game.",
@@ -882,7 +886,9 @@
       "hi": "Hindi"
     },
     "scanRates": {
-      "instant": "Instant",
+      "asFastAsPossible": "As fast as possible",
+      "asFastAsPossibleWarning": "As fast as possible ⚠",
+      "fast": "Fast",
       "normal": "Normal",
       "slow": "Slow",
       "verySlow": "Very Slow"
