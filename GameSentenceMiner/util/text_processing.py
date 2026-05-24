@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 import re
+import runpy
 import unicodedata
 from collections import Counter
+from pathlib import Path
 from typing import Iterable
 
 from GameSentenceMiner.util.config.configuration import (
     StringReplacement,
     TextProcessing,
     TextReplacementRule,
+    get_app_directory,
     logger,
 )
 
 HTML_TAG_WILDCARD_PATTERNS = {"<.*>", "<.+>"}
+CUSTOM_PYTHON_SCRIPT_FILENAME = "Text_Processing.py"
 
 
 def apply_text_processing(text: str, config: TextProcessing | None) -> str:
@@ -21,6 +25,8 @@ def apply_text_processing(text: str, config: TextProcessing | None) -> str:
 
     for processor_id in config.processor_order:
         text = _run_processor(text, processor_id, config)
+        if processor_id == "string_replacement" and text:
+            text = apply_custom_python_script(text)
         if not text:
             break
     return text
@@ -79,6 +85,37 @@ def _run_processor(text: str, processor_id: str, config: TextProcessing) -> str:
         if config.unicode_normalize:
             return unicode_normalize(text, config.unicode_normalize_config.form)
     return text
+
+
+# --- Custom Python Script ---
+
+
+def get_custom_python_script_path() -> Path:
+    return Path(get_app_directory()) / CUSTOM_PYTHON_SCRIPT_FILENAME
+
+
+def apply_custom_python_script(text: str) -> str:
+    script_path = get_custom_python_script_path()
+    if not script_path.exists():
+        return text
+
+    try:
+        script_globals = runpy.run_path(str(script_path))
+        filter_fn = script_globals.get("filter")
+        if not callable(filter_fn):
+            logger.warning(f"Custom Python text processing script is missing filter(s): {script_path}")
+            return text
+
+        result = filter_fn(text)
+        if not isinstance(result, str):
+            logger.warning(
+                f"Custom Python text processing script returned a non-string value from filter(s): {script_path}"
+            )
+            return text
+        return result
+    except Exception as exc:
+        logger.warning(f"Custom Python text processing script failed: {script_path}: {exc}")
+        return text
 
 
 # --- String Replacement (existing) ---
