@@ -1035,5 +1035,12 @@
       "agentUiFailed": "Не вдалося відкрити UI скрипта Agent.",
       "noExe": "Не виявлено виконуваного файлу для активного захоплення."
     }
+  },
+  "textProcessing": {
+    "openCustomPythonScript": "Відкрити Python-скрипт",
+    "customPythonScriptCreated": "Python-скрипт створено та відкрито",
+    "customPythonScriptOpened": "Python-скрипт відкрито",
+    "customPythonScriptOpenFailed": "Не вдалося відкрити Python-скрипт: {error}",
+    "customPythonScriptPreviewFailed": "Не вдалося переглянути Python-скрипт: {error}"
   }
 }

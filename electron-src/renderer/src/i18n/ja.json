@@ -1035,5 +1035,12 @@
       "agentUiFailed": "AgentスクリプトUIを開けませんでした。",
       "noExe": "アクティブキャプチャの実行ファイルを検出できません。"
     }
+  },
+  "textProcessing": {
+    "openCustomPythonScript": "Pythonスクリプトを開く",
+    "customPythonScriptCreated": "Pythonスクリプトを作成して開きました",
+    "customPythonScriptOpened": "Pythonスクリプトを開きました",
+    "customPythonScriptOpenFailed": "Pythonスクリプトを開けませんでした: {error}",
+    "customPythonScriptPreviewFailed": "Pythonスクリプトのプレビューに失敗しました: {error}"
   }
 }

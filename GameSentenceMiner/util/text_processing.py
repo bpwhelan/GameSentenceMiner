@@ -29,7 +29,12 @@ def apply_text_processing(text: str, config: TextProcessing | None) -> str:
 
     for processor_id in config.processor_order:
         text = _run_processor(text, processor_id, config)
-        if processor_id == "string_replacement" and text:
+        if (
+            processor_id == "string_replacement"
+            and text
+            and config.string_replacement
+            and config.string_replacement.enabled
+        ):
             text = apply_custom_python_script(text)
         if not text:
             break

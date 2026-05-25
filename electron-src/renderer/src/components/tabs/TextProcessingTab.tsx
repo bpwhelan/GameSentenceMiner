@@ -270,7 +270,7 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
       if (isProcessorEnabled(config, processorId)) {
         text = applyProcessorPreview(text, processorId, config);
       }
-      if (processorId === "string_replacement" && text) {
+      if (processorId === "string_replacement" && text && isProcessorEnabled(config, processorId)) {
         try {
           const preview = await invokeIpc<{ result: string; error?: string }>(
             "textprocess.previewCustomPythonScript",
