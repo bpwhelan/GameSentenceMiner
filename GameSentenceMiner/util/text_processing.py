@@ -1,22 +1,25 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import re
 import runpy
+import sys
 import unicodedata
 from collections import Counter
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
-from GameSentenceMiner.util.config.configuration import (
-    StringReplacement,
-    TextProcessing,
-    TextReplacementRule,
-    get_app_directory,
-    logger,
-)
+if TYPE_CHECKING:
+    from GameSentenceMiner.util.config.configuration import (
+        StringReplacement,
+        TextProcessing,
+        TextReplacementRule,
+    )
 
 HTML_TAG_WILDCARD_PATTERNS = {"<.*>", "<.+>"}
 CUSTOM_PYTHON_SCRIPT_FILENAME = "Text_Processing.py"
+CUSTOM_PYTHON_PREVIEW_MODE = "preview-custom-python"
 
 
 def apply_text_processing(text: str, config: TextProcessing | None) -> str:
@@ -91,10 +94,12 @@ def _run_processor(text: str, processor_id: str, config: TextProcessing) -> str:
 
 
 def get_custom_python_script_path() -> Path:
+    from GameSentenceMiner.util.config.configuration import get_app_directory
+
     return Path(get_app_directory()) / CUSTOM_PYTHON_SCRIPT_FILENAME
 
 
-def apply_custom_python_script(text: str) -> str:
+def apply_custom_python_script(text: str, *, log_warnings: bool = True) -> str:
     script_path = get_custom_python_script_path()
     if not script_path.exists():
         return text
@@ -103,19 +108,56 @@ def apply_custom_python_script(text: str) -> str:
         script_globals = runpy.run_path(str(script_path))
         filter_fn = script_globals.get("filter")
         if not callable(filter_fn):
-            logger.warning(f"Custom Python text processing script is missing filter(s): {script_path}")
+            _warn_custom_python_script(
+                f"Custom Python text processing script is missing filter(s): {script_path}",
+                log_warnings,
+            )
             return text
 
         result = filter_fn(text)
         if not isinstance(result, str):
-            logger.warning(
-                f"Custom Python text processing script returned a non-string value from filter(s): {script_path}"
+            _warn_custom_python_script(
+                f"Custom Python text processing script returned a non-string value from filter(s): {script_path}",
+                log_warnings,
             )
             return text
         return result
     except Exception as exc:
-        logger.warning(f"Custom Python text processing script failed: {script_path}: {exc}")
+        _warn_custom_python_script(
+            f"Custom Python text processing script failed: {script_path}: {exc}",
+            log_warnings,
+        )
         return text
+
+
+def _warn_custom_python_script(message: str, log_warnings: bool) -> None:
+    if log_warnings:
+        from GameSentenceMiner.util.config.configuration import logger
+
+        logger.warning(message)
+    else:
+        print(message, file=sys.stderr)
+
+
+def _run_custom_python_preview() -> int:
+    text = sys.stdin.read()
+    stdout_capture = io.StringIO()
+    with contextlib.redirect_stdout(stdout_capture):
+        result = apply_custom_python_script(text, log_warnings=False)
+    sys.stdout.write(result)
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    if args == [CUSTOM_PYTHON_PREVIEW_MODE]:
+        return _run_custom_python_preview()
+
+    print(
+        f"Usage: python -m GameSentenceMiner.util.text_processing {CUSTOM_PYTHON_PREVIEW_MODE}",
+        file=sys.stderr,
+    )
+    return 2
 
 
 # --- String Replacement (existing) ---
@@ -155,6 +197,8 @@ def _apply_rule(text: str, rule: TextReplacementRule) -> str:
         try:
             return re.sub(pattern, replacement, text, flags=flags)
         except re.error as exc:
+            from GameSentenceMiner.util.config.configuration import logger
+
             logger.warning(f"Invalid regex in text replacement rule '{find}': {exc}")
             return text
 
@@ -332,3 +376,7 @@ def unicode_normalize(text: str, form: str = "NFKC") -> str:
     if form not in ("NFD", "NFC", "NFKD", "NFKC"):
         form = "NFKC"
     return unicodedata.normalize(form, text)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
