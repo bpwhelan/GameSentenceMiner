@@ -50,6 +50,8 @@ interface ProcessorInfo {
   hasConfig: boolean;
 }
 
+const CUSTOM_PYTHON_PREVIEW_DEBOUNCE_MS = 250;
+
 const PROCESSOR_META: ProcessorInfo[] = [
   { id: "string_replacement", labelKey: "textProcessing.processors.stringReplacement", descKey: "textProcessing.processors.stringReplacementDesc", hasConfig: true },
   { id: "remove_repeated_chars", labelKey: "textProcessing.processors.removeRepeatedChars", descKey: "textProcessing.processors.removeRepeatedCharsDesc", hasConfig: false },
@@ -155,6 +157,8 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
   const [previewOutput, setPreviewOutput] = useState("");
   const [followingLatestText, setFollowingLatestText] = useState(true);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewRunId = useRef(0);
+  const lastPreviewError = useRef("");
   const dragItem = useRef<number | null>(null);
   const dragOver = useRef<number | null>(null);
 
@@ -212,6 +216,27 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
     }
   }, [config, showNotice, t]);
 
+  const handleOpenCustomPythonScript = useCallback(async () => {
+    const result = await invokeIpc<{ success: boolean; created?: boolean; error?: string }>(
+      "textprocess.openCustomPythonScript"
+    );
+    if (result.success) {
+      showNotice(
+        result.created
+          ? t("textProcessing.customPythonScriptCreated")
+          : t("textProcessing.customPythonScriptOpened"),
+        "success"
+      );
+    } else {
+      showNotice(
+        t("textProcessing.customPythonScriptOpenFailed", {
+          error: result.error || t("home.status.error"),
+        }),
+        "error"
+      );
+    }
+  }, [showNotice, t]);
+
   const moveProcessor = useCallback((fromIndex: number, toIndex: number) => {
     updateConfig((prev) => {
       const order = [...prev.processor_order];
@@ -237,19 +262,67 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
     dragOver.current = null;
   }, [moveProcessor]);
 
-  // Client-side preview
-  const computePreview = useCallback((input: string) => {
+  const showPreviewError = useCallback((error: string) => {
+    if (error === lastPreviewError.current) return;
+    lastPreviewError.current = error;
+    showNotice(
+      t("textProcessing.customPythonScriptPreviewFailed", { error }),
+      "error"
+    );
+  }, [showNotice, t]);
+
+  const applyCustomPythonPreview = useCallback(async (text: string, runId: number) => {
+    try {
+      const preview = await invokeIpc<{ result: string; error?: string }>(
+        "textprocess.previewCustomPythonScript",
+        { text }
+      );
+      if (runId !== previewRunId.current) return null;
+      if (preview.error) {
+        showPreviewError(preview.error);
+      } else {
+        lastPreviewError.current = "";
+      }
+      return typeof preview.result === "string" ? preview.result : text;
+    } catch (error) {
+      if (runId !== previewRunId.current) return null;
+      showPreviewError(error instanceof Error ? error.message : String(error));
+      return text;
+    }
+  }, [showPreviewError]);
+
+  const computePreview = useCallback(async (input: string) => {
+    const runId = ++previewRunId.current;
     if (!input) { setPreviewOutput(""); return; }
     let text = input;
     for (const processorId of config.processor_order) {
-      if (!isProcessorEnabled(config, processorId)) continue;
-      text = applyProcessorPreview(text, processorId, config);
+      const processorEnabled = isProcessorEnabled(config, processorId);
+      if (processorEnabled) {
+        text = applyProcessorPreview(text, processorId, config);
+      }
+      if (processorId === "string_replacement" && text && processorEnabled) {
+        const previewText = await applyCustomPythonPreview(text, runId);
+        if (previewText === null) {
+          return;
+        }
+        text = previewText;
+      }
+      if (!text) break;
     }
-    setPreviewOutput(text);
-  }, [config]);
+    if (runId === previewRunId.current) {
+      setPreviewOutput(text);
+    }
+  }, [applyCustomPythonPreview, config]);
 
   useEffect(() => {
-    computePreview(previewInput);
+    previewRunId.current += 1;
+    const timeout = setTimeout(() => {
+      computePreview(previewInput).catch(() => {});
+    }, CUSTOM_PYTHON_PREVIEW_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(timeout);
+      previewRunId.current += 1;
+    };
   }, [previewInput, computePreview]);
 
   const orderedProcessors = useMemo(() => {
@@ -276,6 +349,9 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
           <div className="text-processing-actions">
             <button className="btn-primary" onClick={handleSave} disabled={saving || !dirty}>
               {saving ? t("textProcessing.saving") : t("textProcessing.save")}
+            </button>
+            <button className="btn-secondary" onClick={handleOpenCustomPythonScript}>
+              {t("textProcessing.openCustomPythonScript")}
             </button>
             {notice && (
               <span className={`notice-badge ${notice.type}`}>{notice.msg}</span>

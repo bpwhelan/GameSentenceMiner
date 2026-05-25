@@ -1,11 +1,28 @@
-import { ipcMain } from 'electron';
+import { spawn } from 'node:child_process';
+import { ipcMain, shell } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { BASE_DIR } from '../util.js';
+import { getPythonPath } from '../store.js';
+import { BASE_DIR, getGSMBaseDir, getSanitizedPythonEnv } from '../util.js';
 import { sendReloadSettings } from '../main.js';
 import { getLatestTextProcessingInput } from '../services/latest_text.js';
 
 const CONFIG_PATH = path.join(BASE_DIR, 'config.json');
+const CUSTOM_PYTHON_SCRIPT_FILENAME = 'Text_Processing.py';
+const CUSTOM_PYTHON_SCRIPT_PATH = path.join(BASE_DIR, CUSTOM_PYTHON_SCRIPT_FILENAME);
+const CUSTOM_PYTHON_PREVIEW_MODE = 'preview-custom-python';
+const CUSTOM_PYTHON_PREVIEW_TIMEOUT_MS = 3000;
+const CUSTOM_PYTHON_PREVIEW_STDOUT_LIMIT = 1024 * 1024;
+const CUSTOM_PYTHON_PREVIEW_STDERR_LIMIT = 64 * 1024;
+const CUSTOM_PYTHON_SCRIPT_TEMPLATE = `"""Custom Python text processing for GameSentenceMiner.
+
+Edit filter() to transform captured text after String Replacement runs.
+"""
+
+
+def filter(s: str) -> str:
+    return s
+`;
 
 interface TextProcessingConfig {
     string_replacement: {
@@ -36,6 +53,17 @@ interface TextProcessingConfig {
     extract_lines_config: { max_lines: number; from_end: boolean };
     unicode_normalize: boolean;
     unicode_normalize_config: { form: string };
+}
+
+interface TextProcessingIpcResult {
+    success: boolean;
+    created?: boolean;
+    error?: string;
+}
+
+interface CustomPythonPreviewResult {
+    result: string;
+    error?: string;
 }
 
 function readGSMConfig(): Record<string, any> {
@@ -97,7 +125,106 @@ export function registerTextProcessIPC(): void {
         return { result: payload.text };
     });
 
+    ipcMain.handle('textprocess.openCustomPythonScript', async (): Promise<TextProcessingIpcResult> => {
+        try {
+            fs.mkdirSync(BASE_DIR, { recursive: true });
+            const created = !fs.existsSync(CUSTOM_PYTHON_SCRIPT_PATH);
+            if (created) {
+                fs.writeFileSync(CUSTOM_PYTHON_SCRIPT_PATH, CUSTOM_PYTHON_SCRIPT_TEMPLATE, 'utf-8');
+            }
+
+            const openError = await shell.openPath(CUSTOM_PYTHON_SCRIPT_PATH);
+            if (openError) {
+                return { success: false, error: openError };
+            }
+            return { success: true, created };
+        } catch (error: any) {
+            return { success: false, error: error?.message || String(error) };
+        }
+    });
+
+    ipcMain.handle(
+        'textprocess.previewCustomPythonScript',
+        async (_, payload: { text?: string }): Promise<CustomPythonPreviewResult> => {
+            const text = typeof payload?.text === 'string' ? payload.text : '';
+            return previewCustomPythonScript(text);
+        }
+    );
+
     ipcMain.handle('textprocess.latestText', async () => getLatestTextProcessingInput());
+}
+
+function previewCustomPythonScript(text: string): Promise<CustomPythonPreviewResult> {
+    return new Promise((resolve) => {
+        const proc = spawn(
+            getPythonPath(),
+            ['-m', 'GameSentenceMiner.util.text_processing', CUSTOM_PYTHON_PREVIEW_MODE],
+            {
+                cwd: getGSMBaseDir(),
+                env: getSanitizedPythonEnv(),
+                stdio: ['pipe', 'pipe', 'pipe'],
+            }
+        );
+
+        let stdout = '';
+        let stderr = '';
+        let settled = false;
+        let timeout: ReturnType<typeof setTimeout> | null = null;
+
+        const finish = (result: CustomPythonPreviewResult) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            if (timeout) {
+                clearTimeout(timeout);
+            }
+            resolve(result);
+        };
+
+        timeout = setTimeout(() => {
+            proc.kill();
+            finish({
+                result: text,
+                error: `Custom Python preview timed out after ${CUSTOM_PYTHON_PREVIEW_TIMEOUT_MS}ms`,
+            });
+        }, CUSTOM_PYTHON_PREVIEW_TIMEOUT_MS);
+
+        proc.stdout.setEncoding('utf-8');
+        proc.stdout.on('data', (chunk: string) => {
+            if (stdout.length + chunk.length > CUSTOM_PYTHON_PREVIEW_STDOUT_LIMIT) {
+                proc.kill();
+                finish({
+                    result: text,
+                    error: `Custom Python preview output exceeded ${CUSTOM_PYTHON_PREVIEW_STDOUT_LIMIT} bytes`,
+                });
+                return;
+            }
+            stdout += chunk;
+        });
+
+        proc.stderr.setEncoding('utf-8');
+        proc.stderr.on('data', (chunk: string) => {
+            stderr = `${stderr}${chunk}`.slice(0, CUSTOM_PYTHON_PREVIEW_STDERR_LIMIT);
+        });
+
+        proc.on('error', (error) => {
+            finish({ result: text, error: error.message });
+        });
+
+        proc.on('close', (code) => {
+            const trimmedError = stderr.trim();
+            if (code === 0) {
+                finish({ result: stdout, error: trimmedError || undefined });
+                return;
+            }
+
+            const error = trimmedError || `Custom Python preview exited with code ${code}`;
+            finish({ result: text, error });
+        });
+
+        proc.stdin.end(text, 'utf-8');
+    });
 }
 
 function getDefaultTextProcessing(): TextProcessingConfig {
