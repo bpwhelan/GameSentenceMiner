@@ -262,56 +262,62 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
     dragOver.current = null;
   }, [moveProcessor]);
 
+  const showPreviewError = useCallback((error: string) => {
+    if (error === lastPreviewError.current) return;
+    lastPreviewError.current = error;
+    showNotice(
+      t("textProcessing.customPythonScriptPreviewFailed", { error }),
+      "error"
+    );
+  }, [showNotice, t]);
+
+  const applyCustomPythonPreview = useCallback(async (text: string, runId: number) => {
+    try {
+      const preview = await invokeIpc<{ result: string; error?: string }>(
+        "textprocess.previewCustomPythonScript",
+        { text }
+      );
+      if (runId !== previewRunId.current) return null;
+      if (preview.error) {
+        showPreviewError(preview.error);
+      } else {
+        lastPreviewError.current = "";
+      }
+      return typeof preview.result === "string" ? preview.result : text;
+    } catch (error) {
+      if (runId !== previewRunId.current) return null;
+      showPreviewError(error instanceof Error ? error.message : String(error));
+      return text;
+    }
+  }, [showPreviewError]);
+
   const computePreview = useCallback(async (input: string) => {
     const runId = ++previewRunId.current;
     if (!input) { setPreviewOutput(""); return; }
     let text = input;
     for (const processorId of config.processor_order) {
-      if (isProcessorEnabled(config, processorId)) {
+      const processorEnabled = isProcessorEnabled(config, processorId);
+      if (processorEnabled) {
         text = applyProcessorPreview(text, processorId, config);
       }
-      if (processorId === "string_replacement" && text && isProcessorEnabled(config, processorId)) {
-        try {
-          const preview = await invokeIpc<{ result: string; error?: string }>(
-            "textprocess.previewCustomPythonScript",
-            { text }
-          );
-          if (runId !== previewRunId.current) return;
-          if (typeof preview.result === "string") {
-            text = preview.result;
-          }
-          if (preview.error && preview.error !== lastPreviewError.current) {
-            lastPreviewError.current = preview.error;
-            showNotice(
-              t("textProcessing.customPythonScriptPreviewFailed", { error: preview.error }),
-              "error"
-            );
-          } else if (!preview.error) {
-            lastPreviewError.current = "";
-          }
-        } catch (error) {
-          if (runId !== previewRunId.current) return;
-          const message = error instanceof Error ? error.message : String(error);
-          if (message !== lastPreviewError.current) {
-            lastPreviewError.current = message;
-            showNotice(
-              t("textProcessing.customPythonScriptPreviewFailed", { error: message }),
-              "error"
-            );
-          }
+      if (processorId === "string_replacement" && text && processorEnabled) {
+        const previewText = await applyCustomPythonPreview(text, runId);
+        if (previewText === null) {
+          return;
         }
+        text = previewText;
       }
       if (!text) break;
     }
     if (runId === previewRunId.current) {
       setPreviewOutput(text);
     }
-  }, [config, showNotice, t]);
+  }, [applyCustomPythonPreview, config]);
 
   useEffect(() => {
     previewRunId.current += 1;
     const timeout = setTimeout(() => {
-      void computePreview(previewInput);
+      computePreview(previewInput).catch(() => {});
     }, CUSTOM_PYTHON_PREVIEW_DEBOUNCE_MS);
     return () => {
       clearTimeout(timeout);

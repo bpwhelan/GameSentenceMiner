@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn } from 'node:child_process';
 import { ipcMain, shell } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
