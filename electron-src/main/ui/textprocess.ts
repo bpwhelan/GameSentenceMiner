@@ -11,9 +11,12 @@ const CONFIG_PATH = path.join(BASE_DIR, 'config.json');
 const CUSTOM_PYTHON_SCRIPT_FILENAME = 'Text_Processing.py';
 const CUSTOM_PYTHON_SCRIPT_PATH = path.join(BASE_DIR, CUSTOM_PYTHON_SCRIPT_FILENAME);
 const CUSTOM_PYTHON_PREVIEW_MODE = 'preview-custom-python';
+const CUSTOM_PYTHON_PREVIEW_TIMEOUT_MS = 3000;
+const CUSTOM_PYTHON_PREVIEW_STDOUT_LIMIT = 1024 * 1024;
+const CUSTOM_PYTHON_PREVIEW_STDERR_LIMIT = 64 * 1024;
 const CUSTOM_PYTHON_SCRIPT_TEMPLATE = `"""Custom Python text processing for GameSentenceMiner.
 
-Edit filter(s) to transform captured text after String Replacement runs.
+Edit filter() to transform captured text after String Replacement runs.
 """
 
 
@@ -166,23 +169,43 @@ function previewCustomPythonScript(text: string): Promise<CustomPythonPreviewRes
         let stdout = '';
         let stderr = '';
         let settled = false;
+        let timeout: ReturnType<typeof setTimeout> | null = null;
 
         const finish = (result: CustomPythonPreviewResult) => {
             if (settled) {
                 return;
             }
             settled = true;
+            if (timeout) {
+                clearTimeout(timeout);
+            }
             resolve(result);
         };
 
+        timeout = setTimeout(() => {
+            proc.kill();
+            finish({
+                result: text,
+                error: `Custom Python preview timed out after ${CUSTOM_PYTHON_PREVIEW_TIMEOUT_MS}ms`,
+            });
+        }, CUSTOM_PYTHON_PREVIEW_TIMEOUT_MS);
+
         proc.stdout.setEncoding('utf-8');
         proc.stdout.on('data', (chunk: string) => {
+            if (stdout.length + chunk.length > CUSTOM_PYTHON_PREVIEW_STDOUT_LIMIT) {
+                proc.kill();
+                finish({
+                    result: text,
+                    error: `Custom Python preview output exceeded ${CUSTOM_PYTHON_PREVIEW_STDOUT_LIMIT} bytes`,
+                });
+                return;
+            }
             stdout += chunk;
         });
 
         proc.stderr.setEncoding('utf-8');
         proc.stderr.on('data', (chunk: string) => {
-            stderr += chunk;
+            stderr = `${stderr}${chunk}`.slice(0, CUSTOM_PYTHON_PREVIEW_STDERR_LIMIT);
         });
 
         proc.on('error', (error) => {

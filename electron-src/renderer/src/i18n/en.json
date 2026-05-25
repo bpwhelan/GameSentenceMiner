@@ -1048,6 +1048,7 @@
     "customPythonScriptCreated": "Python script created and opened",
     "customPythonScriptOpened": "Python script opened",
     "customPythonScriptOpenFailed": "Failed to open Python script: {error}",
+    "customPythonScriptPreviewFailed": "Python script preview failed: {error}",
     "processorListTitle": "Processing Pipeline",
     "dragToReorder": "Drag items to change execution order. Processors run top-to-bottom.",
     "moveUp": "Move up",

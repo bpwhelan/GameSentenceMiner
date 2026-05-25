@@ -50,6 +50,8 @@ interface ProcessorInfo {
   hasConfig: boolean;
 }
 
+const CUSTOM_PYTHON_PREVIEW_DEBOUNCE_MS = 250;
+
 const PROCESSOR_META: ProcessorInfo[] = [
   { id: "string_replacement", labelKey: "textProcessing.processors.stringReplacement", descKey: "textProcessing.processors.stringReplacementDesc", hasConfig: true },
   { id: "remove_repeated_chars", labelKey: "textProcessing.processors.removeRepeatedChars", descKey: "textProcessing.processors.removeRepeatedCharsDesc", hasConfig: false },
@@ -156,6 +158,7 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
   const [followingLatestText, setFollowingLatestText] = useState(true);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewRunId = useRef(0);
+  const lastPreviewError = useRef("");
   const dragItem = useRef<number | null>(null);
   const dragOver = useRef<number | null>(null);
 
@@ -277,8 +280,25 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
           if (typeof preview.result === "string") {
             text = preview.result;
           }
-        } catch {
+          if (preview.error && preview.error !== lastPreviewError.current) {
+            lastPreviewError.current = preview.error;
+            showNotice(
+              t("textProcessing.customPythonScriptPreviewFailed", { error: preview.error }),
+              "error"
+            );
+          } else if (!preview.error) {
+            lastPreviewError.current = "";
+          }
+        } catch (error) {
           if (runId !== previewRunId.current) return;
+          const message = error instanceof Error ? error.message : String(error);
+          if (message !== lastPreviewError.current) {
+            lastPreviewError.current = message;
+            showNotice(
+              t("textProcessing.customPythonScriptPreviewFailed", { error: message }),
+              "error"
+            );
+          }
         }
       }
       if (!text) break;
@@ -286,10 +306,17 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
     if (runId === previewRunId.current) {
       setPreviewOutput(text);
     }
-  }, [config]);
+  }, [config, showNotice, t]);
 
   useEffect(() => {
-    void computePreview(previewInput);
+    previewRunId.current += 1;
+    const timeout = setTimeout(() => {
+      void computePreview(previewInput);
+    }, CUSTOM_PYTHON_PREVIEW_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(timeout);
+      previewRunId.current += 1;
+    };
   }, [previewInput, computePreview]);
 
   const orderedProcessors = useMemo(() => {

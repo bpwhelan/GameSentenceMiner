@@ -8,7 +8,7 @@ import sys
 import unicodedata
 from collections import Counter
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Callable, Iterable, Iterator
 
 if TYPE_CHECKING:
     from GameSentenceMiner.util.config.configuration import (
@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 HTML_TAG_WILDCARD_PATTERNS = {"<.*>", "<.+>"}
 CUSTOM_PYTHON_SCRIPT_FILENAME = "Text_Processing.py"
 CUSTOM_PYTHON_PREVIEW_MODE = "preview-custom-python"
+_CUSTOM_PYTHON_FILTER_CACHE: tuple[Path, int, int, Callable[[str], object]] | None = None
 
 
 def apply_text_processing(text: str, config: TextProcessing | None) -> str:
@@ -105,19 +106,15 @@ def apply_custom_python_script(text: str, *, log_warnings: bool = True) -> str:
         return text
 
     try:
-        script_globals = runpy.run_path(str(script_path))
-        filter_fn = script_globals.get("filter")
-        if not callable(filter_fn):
-            _warn_custom_python_script(
-                f"Custom Python text processing script is missing filter(s): {script_path}",
-                log_warnings,
-            )
+        filter_fn = _get_custom_python_filter(script_path, log_warnings)
+        if filter_fn is None:
             return text
 
-        result = filter_fn(text)
+        with _suppress_custom_python_output():
+            result = filter_fn(text)
         if not isinstance(result, str):
             _warn_custom_python_script(
-                f"Custom Python text processing script returned a non-string value from filter(s): {script_path}",
+                f"Custom Python text processing script returned a non-string value from filter(): {script_path}",
                 log_warnings,
             )
             return text
@@ -128,6 +125,49 @@ def apply_custom_python_script(text: str, *, log_warnings: bool = True) -> str:
             log_warnings,
         )
         return text
+
+
+def _get_custom_python_filter(
+    script_path: Path,
+    log_warnings: bool,
+) -> Callable[[str], object] | None:
+    global _CUSTOM_PYTHON_FILTER_CACHE
+
+    stat = script_path.stat()
+    if (
+        _CUSTOM_PYTHON_FILTER_CACHE
+        and _CUSTOM_PYTHON_FILTER_CACHE[0] == script_path
+        and _CUSTOM_PYTHON_FILTER_CACHE[1] == stat.st_mtime_ns
+        and _CUSTOM_PYTHON_FILTER_CACHE[2] == stat.st_size
+    ):
+        return _CUSTOM_PYTHON_FILTER_CACHE[3]
+
+    with _suppress_custom_python_output():
+        script_globals = runpy.run_path(str(script_path))
+    filter_fn = script_globals.get("filter")
+    if not callable(filter_fn):
+        _warn_custom_python_script(
+            f"Custom Python text processing script is missing filter(): {script_path}",
+            log_warnings,
+        )
+        return None
+
+    _CUSTOM_PYTHON_FILTER_CACHE = (
+        script_path,
+        stat.st_mtime_ns,
+        stat.st_size,
+        filter_fn,
+    )
+    return filter_fn
+
+
+@contextlib.contextmanager
+def _suppress_custom_python_output() -> Iterator[None]:
+    with (
+        contextlib.redirect_stdout(io.StringIO()),
+        contextlib.redirect_stderr(io.StringIO()),
+    ):
+        yield
 
 
 def _warn_custom_python_script(message: str, log_warnings: bool) -> None:
