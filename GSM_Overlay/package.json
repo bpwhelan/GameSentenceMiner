@@ -22,13 +22,13 @@
     "@electron-forge/maker-zip": "^7.11.1",
     "@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
     "@electron-forge/plugin-fuses": "^7.11.1",
-    "@electron/fuses": "^1.8.0",
+    "@electron/fuses": "^2.1.1",
     "concurrently": "^9.2.1",
     "cross-env": "^10.0.0",
     "electron": "^41.3.0",
     "nodemon": "^3.1.14",
-    "vite": "^7.3.2",
-    "wait-on": "^8.0.5"
+    "vite": "^8.0.10",
+    "wait-on": "^9.0.5"
   },
   "dependencies": {
     "electron-squirrel-startup": "1.0.1",
