@@ -142,16 +142,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build-windows:
+  build-windows-unsigned:
     runs-on: windows-latest
     needs:
       - prepare-release
       - create-release
     if: always() && needs.prepare-release.outputs.should_build_windows == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     permissions:
-      contents: write
+      contents: read
       id-token: write
       actions: read
+    outputs:
+      windows_installer_artifact_id: ${{ steps.upload-unsigned-windows.outputs.artifact-id }}
+      windows_unpacked_artifact_id: ${{ steps.upload-unsigned-windows-unpacked.outputs.artifact-id }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -235,17 +238,44 @@ jobs:
           path: dist/win-unpacked
           if-no-files-found: error
 
-      - name: Submit Windows signing request
+  sign-windows-installer:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-release
+      - build-windows-unsigned
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    steps:
+      - name: Submit Windows installer signing request
         uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd
         with:
           api-token: ${{ secrets.SIGNPATH_APITOKEN }}
           organization-id: c677c167-9f3e-4577-b967-5d7730bf742d
           project-slug: GameSentenceMiner
           signing-policy-slug: release-signing
-          github-artifact-id: ${{ steps.upload-unsigned-windows.outputs.artifact-id }}
+          github-artifact-id: ${{ needs.build-windows-unsigned.outputs.windows_installer_artifact_id }}
           wait-for-completion: true
           output-artifact-directory: signed_windows
 
+      - name: Upload signed Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-windows-installer-${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
+          path: signed_windows
+          if-no-files-found: error
+
+  sign-windows-unpacked:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-release
+      - build-windows-unsigned
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    steps:
       - name: Submit unpacked Windows signing request
         id: sign-windows-unpacked
         uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd
@@ -255,78 +285,25 @@ jobs:
           project-slug: GameSentenceMiner
           signing-policy-slug: release-signing
           artifact-configuration-slug: Unpacked_GSM
-          github-artifact-id: ${{ steps.upload-unsigned-windows-unpacked.outputs.artifact-id }}
+          github-artifact-id: ${{ needs.build-windows-unsigned.outputs.windows_unpacked_artifact_id }}
           wait-for-completion: true
-
-      - name: Replace installer with signed copy and recreate update metadata
-        shell: pwsh
-        run: |
-          $distRoot = (Resolve-Path "dist").Path
-          $artifactRoot = (Resolve-Path "signed_windows").Path
-
-          $distExe = Get-ChildItem -Path $distRoot -File -Filter "*Setup*.exe" | Select-Object -First 1
-          if (-not $distExe) {
-            throw "No unsigned installer found in dist."
-          }
-
-          $signedExe = Get-ChildItem -Path $artifactRoot -Recurse -File -Filter $distExe.Name | Select-Object -First 1
-          if (-not $signedExe) {
-            $signedExe = Get-ChildItem -Path $artifactRoot -Recurse -File -Filter "*Setup*.exe" | Select-Object -First 1
-          }
-          if (-not $signedExe) {
-            throw "No signed installer found in signed_windows."
-          }
-
-          if ($signedExe.Name -ne $distExe.Name) {
-            throw "Signed installer name '$($signedExe.Name)' does not match expected '$($distExe.Name)'."
-          }
-
-          Copy-Item -Path $signedExe.FullName -Destination $distExe.FullName -Force
-
-          $appBuilder = node -e "process.stdout.write(require('app-builder-bin').appBuilderPath)"
-          if (-not $appBuilder) {
-            throw "Unable to resolve app-builder path."
-          }
-
-          $blockmapOutput = "$($distExe.FullName).blockmap"
-          $blockmapJson = & $appBuilder blockmap --input "$($distExe.FullName)" --output "$blockmapOutput"
-          if ($LASTEXITCODE -ne 0) {
-            throw "app-builder failed to generate blockmap."
-          }
-          $blockmapInfo = $blockmapJson | ConvertFrom-Json
-
-          $packageVersion = (Get-Content -Raw -Path "./package.json" | ConvertFrom-Json).version
-          if (-not $packageVersion) {
-            throw "Unable to read version from package.json."
-          }
-
-          $releaseDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
-          $latestYml = @(
-            "version: $packageVersion",
-            "files:",
-            "  - url: $($distExe.Name)",
-            "    sha512: $($blockmapInfo.sha512)",
-            "    size: $($blockmapInfo.size)",
-            "path: $($distExe.Name)",
-            "sha512: $($blockmapInfo.sha512)",
-            "releaseDate: '$releaseDate'"
-          ) -join "`n"
-          Set-Content -Path (Join-Path $distRoot "latest.yml") -Value $latestYml -Encoding utf8NoBOM
 
       - name: Download signed unpacked Windows build
         shell: pwsh
         env:
           SIGNPATH_APITOKEN: ${{ secrets.SIGNPATH_APITOKEN }}
         run: |
-          $packageVersion = (Get-Content -Raw -Path "./package.json" | ConvertFrom-Json).version
+          $packageVersion = "${{ needs.prepare-release.outputs.PACKAGE_VERSION }}"
           if (-not $packageVersion) {
-            throw "Unable to read version from package.json."
+            throw "Package version is not available."
           }
           if (-not $env:SIGNPATH_APITOKEN) {
             throw "SIGNPATH_APITOKEN secret is not available."
           }
 
-          $zipPath = Join-Path (Resolve-Path "dist").Path "GameSentenceMiner-$packageVersion-win-unpacked.zip"
+          $distRoot = "dist"
+          New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
+          $zipPath = Join-Path (Resolve-Path $distRoot).Path "GameSentenceMiner-$packageVersion-win-unpacked.zip"
           if (Test-Path $zipPath) {
             Remove-Item -LiteralPath $zipPath -Force
           }
@@ -338,6 +315,105 @@ jobs:
           if (-not (Test-Path $zipPath)) {
             throw "Failed to download signed unpacked Windows zip."
           }
+
+      - name: Upload signed unpacked Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-windows-unpacked-${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
+          path: dist/GameSentenceMiner-${{ needs.prepare-release.outputs.PACKAGE_VERSION }}-win-unpacked.zip
+          if-no-files-found: error
+
+  publish-windows-release:
+    runs-on: windows-latest
+    needs:
+      - prepare-release
+      - sign-windows-installer
+      - sign-windows-unpacked
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies for release metadata
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Download signed Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-windows-installer-${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
+          path: signed_windows
+
+      - name: Download signed unpacked Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-windows-unpacked-${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
+          path: dist
+
+      - name: Stage signed installer and recreate update metadata
+        shell: pwsh
+        run: |
+          $packageVersion = "${{ needs.prepare-release.outputs.PACKAGE_VERSION }}"
+          if (-not $packageVersion) {
+            throw "Package version is not available."
+          }
+
+          $distRoot = "dist"
+          New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
+          $distRoot = (Resolve-Path $distRoot).Path
+          $artifactRoot = (Resolve-Path "signed_windows").Path
+
+          $expectedInstallerName = "GameSentenceMiner-Setup-$packageVersion.exe"
+          $distExePath = Join-Path $distRoot $expectedInstallerName
+
+          $signedExe = Get-ChildItem -Path $artifactRoot -Recurse -File -Filter $expectedInstallerName | Select-Object -First 1
+          if (-not $signedExe) {
+            $signedExe = Get-ChildItem -Path $artifactRoot -Recurse -File -Filter "*Setup*.exe" | Select-Object -First 1
+          }
+          if (-not $signedExe) {
+            throw "No signed installer found in signed_windows."
+          }
+
+          if ($signedExe.Name -ne $expectedInstallerName) {
+            throw "Signed installer name '$($signedExe.Name)' does not match expected '$expectedInstallerName'."
+          }
+
+          Copy-Item -Path $signedExe.FullName -Destination $distExePath -Force
+
+          $appBuilder = node -e "process.stdout.write(require('app-builder-bin').appBuilderPath)"
+          if (-not $appBuilder) {
+            throw "Unable to resolve app-builder path."
+          }
+
+          $blockmapOutput = "$distExePath.blockmap"
+          $blockmapJson = & $appBuilder blockmap --input "$distExePath" --output "$blockmapOutput"
+          if ($LASTEXITCODE -ne 0) {
+            throw "app-builder failed to generate blockmap."
+          }
+          $blockmapInfo = $blockmapJson | ConvertFrom-Json
+
+          $releaseDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+          $latestYml = @(
+            "version: $packageVersion",
+            "files:",
+            "  - url: $expectedInstallerName",
+            "    sha512: $($blockmapInfo.sha512)",
+            "    size: $($blockmapInfo.size)",
+            "path: $expectedInstallerName",
+            "sha512: $($blockmapInfo.sha512)",
+            "releaseDate: '$releaseDate'"
+          ) -join "`n"
+          Set-Content -Path (Join-Path $distRoot "latest.yml") -Value $latestYml -Encoding utf8NoBOM
 
       - name: Upload Windows release assets
         uses: softprops/action-gh-release@v2

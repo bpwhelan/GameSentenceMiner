@@ -170,6 +170,20 @@ class HorizontalTextTabBar(QTabBar):
             painter.drawControl(QStyle.ControlElement.CE_TabBarTabLabel, option)
 
 
+class ClearableKeySequenceEdit(QKeySequenceEdit):
+    """Key sequence editor that treats Esc and Backspace as clear commands."""
+
+    _CLEAR_KEYS = {Qt.Key.Key_Escape, Qt.Key.Key_Backspace}
+
+    def keyPressEvent(self, event):
+        if event.key() in self._CLEAR_KEYS and event.modifiers() == Qt.KeyboardModifier.NoModifier:
+            self.clear()
+            event.accept()
+            return
+
+        super().keyPressEvent(event)
+
+
 @safe_config_methods()
 class ConfigWindow(QWidget):
     # Signals for thread-safe operations
@@ -1474,7 +1488,7 @@ class ConfigWindow(QWidget):
         self.periodic_ratio_edit = QLineEdit()
         self.number_of_local_scans_per_event_edit = QLineEdit()
         self.overlay_minimum_character_size_edit = QLineEdit()
-        self.manual_overlay_scan_hotkey_edit = QKeySequenceEdit()
+        self.manual_overlay_scan_hotkey_edit = ClearableKeySequenceEdit()
         self.use_overlay_area_config_check = QCheckBox()
         self.use_ocr_area_config_check = QCheckBox()
         self.ocr_area_config_include_primary_areas_check = QCheckBox()
@@ -1483,13 +1497,13 @@ class ConfigWindow(QWidget):
         self.use_ocr_result_check = QCheckBox()
         self.supplement_ocr_result_with_overlay_check = QCheckBox()
         self.check_previous_lines_for_recycled_indicator_check = QCheckBox()
-        self.pause_text_intake_hotkey_edit = QKeySequenceEdit()
+        self.pause_text_intake_hotkey_edit = ClearableKeySequenceEdit()
         self.relay_outputs_when_text_intake_paused_check = QCheckBox()
 
         # Advanced
         self.audio_player_path_edit = QLineEdit()
         self.video_player_path_edit = QLineEdit()
-        self.play_latest_audio_hotkey_edit = QKeySequenceEdit()
+        self.play_latest_audio_hotkey_edit = ClearableKeySequenceEdit()
         self.multi_line_line_break_edit = QLineEdit()
         self.ocr_websocket_port_edit = QLineEdit()
         self.texthooker_communication_websocket_port_edit = QLineEdit()
@@ -1544,7 +1558,7 @@ class ConfigWindow(QWidget):
             "Number of seconds to auto-resume after pausing (5-300) NON-NEGOTIABLE."
         )
 
-        self.process_pause_hotkey_edit = QKeySequenceEdit()
+        self.process_pause_hotkey_edit = ClearableKeySequenceEdit()
         self.process_pausing_denylist_edit.setPlaceholderText("explorer.exe, steam.exe")
 
     def _register_shared_bindings(self):

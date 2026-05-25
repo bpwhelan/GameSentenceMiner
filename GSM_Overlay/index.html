@@ -639,6 +639,7 @@ background: rgba(202, 12, 12, 0.692);
 </style>
 
 <style src="shared.css"></style>
+<link rel="stylesheet" href="live_stats_widget.css">
   <meta charset="UTF-8">
 </head>
 
@@ -1287,6 +1288,7 @@ background: rgba(202, 12, 12, 0.692);
 </script>
 
 <script src="block_detection.js"></script>
+<script src="live_stats_widget.js"></script>
 <script>
   const { ipcRenderer } = require("electron");
   // Try to load OverlayUtils if available (since this is an Electron renderer process)
@@ -1604,7 +1606,7 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function getFuriganaBackendCacheSignature() {
-    const backend = String(gamepadSettings?.tokenizerBackend || 'mecab').toLowerCase();
+    const backend = String(gamepadSettings?.tokenizerBackend || 'sudachi').toLowerCase();
     if (backend === 'yomitan-bridge' || backend === 'yomitan-api') {
       return `${backend}|${String(gamepadSettings?.yomitanApiUrl || '').trim()}|${Number.parseInt(gamepadSettings?.yomitanScanLength, 10) || 10}`;
     }
@@ -1751,6 +1753,10 @@ background: rgba(202, 12, 12, 0.692);
     }
   }
 
+  function dispatchOverlayPayloadEvent(eventName, payload) {
+    window.dispatchEvent(new CustomEvent(eventName, { detail: payload }));
+  }
+
   async function handleOverlayWebSocketData(rawData) {
         let data = rawData;
         try {
@@ -1763,9 +1769,15 @@ background: rgba(202, 12, 12, 0.692);
           ipcRenderer.send("config-received", data.config);
         }
 
+        if (data.type === "live_stats_update") {
+          dispatchOverlayPayloadEvent("gsm-live-stats-update", data);
+          return;
+        }
+
         // Handle window state events
         if (data.type === "window_state") {
           console.log("Window state event received:", data.data, "for game:", data.game);
+          dispatchOverlayPayloadEvent("gsm-window-state-update", data);
           
           // Process magpie_info from websocket
           if (data.magpie_info !== undefined) {
@@ -2875,6 +2887,12 @@ background: rgba(202, 12, 12, 0.692);
     if (newsettings.gamepadManualOverlayScanButton !== undefined) {
       gamepadSettings.manualOverlayScanButton = newsettings.gamepadManualOverlayScanButton;
     }
+    if (newsettings.gamepadTokenModeToggleButton !== undefined) {
+      gamepadSettings.tokenModeToggleButton = newsettings.gamepadTokenModeToggleButton;
+    }
+    if (newsettings.gamepadMineButton !== undefined) {
+      gamepadSettings.mineButton = newsettings.gamepadMineButton;
+    }
     if (newsettings.gamepadNextEntryButton !== undefined) {
       gamepadSettings.nextEntryButton = newsettings.gamepadNextEntryButton;
     }
@@ -3492,6 +3510,8 @@ background: rgba(202, 12, 12, 0.692);
     cancelButton: 1, // B
     forwardEnterButton: -1, // Disabled
     manualOverlayScanButton: -1, // Disabled
+    tokenModeToggleButton: 3, // Y
+    mineButton: 0, // A
     nextEntryButton: 7, // RT trigger - navigate to next Yomitan entry
     prevEntryButton: 6, // LT trigger - navigate to previous Yomitan entry
     repeatDelay: 400,
@@ -3500,7 +3520,7 @@ background: rgba(202, 12, 12, 0.692);
     focusOverlayOnEntry: true, // Focus overlay window when navigation activates
     tokenMode: false, // Navigate by tokenizer word units instead of characters
     tokenizerBackend: 'sudachi', // "mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api"
-    localTokenizerFallbackBackend: 'mecab', // Local retry backend when the selected tokenizer fails
+    localTokenizerFallbackBackend: 'sudachi', // Local retry backend when the selected tokenizer fails
     yomitanApiUrl: 'http://127.0.0.1:19633', // Base URL for Yomitan API
     yomitanScanLength: 10, // scanLength for Yomitan /tokenize
     jitenApiKey: '', // X-Api-Key used for Jiten/api/reader/parse
@@ -3539,7 +3559,7 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function usesServerBackedGamepadTokenizer(backend) {
-    const tokenizerBackend = String(backend || 'mecab').toLowerCase();
+    const tokenizerBackend = String(backend || 'sudachi').toLowerCase();
     return tokenizerBackend === 'mecab' || tokenizerBackend === 'sudachi';
   }
 
@@ -3577,6 +3597,8 @@ background: rgba(202, 12, 12, 0.692);
       cancelButton: gamepadSettings.cancelButton,
       forwardEnterButton: gamepadSettings.forwardEnterButton,
       manualOverlayScanButton: gamepadSettings.manualOverlayScanButton,
+      tokenModeToggleButton: gamepadSettings.tokenModeToggleButton,
+      mineButton: gamepadSettings.mineButton,
       nextEntryButton: gamepadSettings.nextEntryButton,
       prevEntryButton: gamepadSettings.prevEntryButton,
       repeatDelay: gamepadSettings.repeatDelay,
@@ -3959,6 +3981,14 @@ background: rgba(202, 12, 12, 0.692);
     }
     if (updatedSettings.gamepadManualOverlayScanButton !== undefined) {
       gamepadSettings.manualOverlayScanButton = updatedSettings.gamepadManualOverlayScanButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadTokenModeToggleButton !== undefined) {
+      gamepadSettings.tokenModeToggleButton = updatedSettings.gamepadTokenModeToggleButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadMineButton !== undefined) {
+      gamepadSettings.mineButton = updatedSettings.gamepadMineButton;
       needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadNextEntryButton !== undefined) {

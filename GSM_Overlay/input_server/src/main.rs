@@ -100,8 +100,9 @@ enum ServerTokenizerBackend {
 impl ServerTokenizerBackend {
     fn from_value(value: Option<&str>) -> Self {
         match value.map(|v| v.trim().to_ascii_lowercase()) {
+            Some(v) if v == "mecab" => Self::Mecab,
             Some(v) if v == "sudachi" => Self::Sudachi,
-            _ => Self::Mecab,
+            _ => Self::Sudachi,
         }
     }
 
@@ -2652,16 +2653,18 @@ async fn main() {
         },
         ..ManualHotkeyState::default()
     }));
-    {
-        let mut svc = mecab.lock().await;
-        if let Err(e) = svc.ensure_bridge().await {
-            warn!("mecab bridge init failed; continuing without mecab: {e}");
+    match preferred_server_tokenizer_backend_from_env() {
+        ServerTokenizerBackend::Mecab => {
+            let mut svc = mecab.lock().await;
+            if let Err(e) = svc.ensure_bridge().await {
+                warn!("mecab bridge init failed; continuing without mecab: {e}");
+            }
         }
-    }
-    if preferred_server_tokenizer_backend_from_env() == ServerTokenizerBackend::Sudachi {
-        let mut svc = sudachi.lock().await;
-        if let Err(e) = svc.ensure_tokenizer().await {
-            warn!("sudachi init failed; continuing without sudachi: {e}");
+        ServerTokenizerBackend::Sudachi => {
+            let mut svc = sudachi.lock().await;
+            if let Err(e) = svc.ensure_tokenizer().await {
+                warn!("sudachi init failed; continuing without sudachi: {e}");
+            }
         }
     }
 
@@ -2713,7 +2716,7 @@ mod tests {
     }
 
     #[test]
-    fn tokenizer_backend_defaults_to_mecab() {
+    fn tokenizer_backend_defaults_to_sudachi() {
         assert_eq!(
             ServerTokenizerBackend::from_value(Some("sudachi")),
             ServerTokenizerBackend::Sudachi
@@ -2724,11 +2727,11 @@ mod tests {
         );
         assert_eq!(
             ServerTokenizerBackend::from_value(Some("unknown")),
-            ServerTokenizerBackend::Mecab
+            ServerTokenizerBackend::Sudachi
         );
         assert_eq!(
             ServerTokenizerBackend::from_value(None),
-            ServerTokenizerBackend::Mecab
+            ServerTokenizerBackend::Sudachi
         );
     }
 

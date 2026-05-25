@@ -835,6 +835,7 @@
 
     <div class="settings-tabs" role="tablist" aria-label="Settings Categories">
       <button type="button" class="settings-tab-button active" data-settings-tab="general" role="tab" aria-selected="true">General</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="stats" role="tab" aria-selected="false">Stats</button>
       <button type="button" class="settings-tab-button" data-settings-tab="profiles" role="tab" aria-selected="false">Profiles</button>
       <button type="button" class="settings-tab-button" data-settings-tab="furigana" role="tab" aria-selected="false">Furigana</button>
       <button type="button" class="settings-tab-button" data-settings-tab="controller" role="tab" aria-selected="false">Controller</button>
@@ -861,6 +862,71 @@
         <input type="checkbox" id="showRecycledIndicator" />
       </label>
       
+    </div>
+
+    <div class="setting-group" data-tab="stats">
+      <h4>Live Stats</h4>
+      <label>
+        <span class="label-text">
+          Enable Live Stats
+          <div class="hotkey-info">Shows the current live reading session stats in the overlay.</div>
+        </span>
+        <input type="checkbox" id="showLiveStats" />
+      </label>
+      <label>
+        <span class="label-text">
+          Display Mode
+          <div class="hotkey-info">Choose whether stats stay visible or appear briefly after new stats arrive.</div>
+        </span>
+        <select id="liveStatsDisplayMode">
+          <option value="new-line">Show briefly after updates</option>
+          <option value="always">Always show</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">
+          Layout
+          <div class="hotkey-info">One-line mode keeps selected stats in a compact horizontal strip.</div>
+        </span>
+        <select id="liveStatsLayout">
+          <option value="stacked">Stacked</option>
+          <option value="one-line">One line</option>
+        </select>
+      </label>
+      <label class="sub-option">
+        <span class="label-text">
+          Hide After Seconds
+          <div class="hotkey-info">Only used by brief display mode. Set 0 to keep visible after the first update.</div>
+        </span>
+        <input type="number" id="liveStatsAutoHideSeconds" value="5" min="0" max="60" step="1" />
+      </label>
+      <label>
+        <span class="label-text">
+          Position
+          <div class="hotkey-info">Active window uses the detected game window when bounds are available.</div>
+        </span>
+        <select id="liveStatsPositionMode">
+          <option value="active-window">Top right of active game window</option>
+          <option value="overlay">Top right of overlay monitor</option>
+        </select>
+      </label>
+      <h4>Fields</h4>
+      <label>
+        <span class="label-text">Characters per Hour</span>
+        <input type="checkbox" id="liveStatsFieldCharsPerHour" />
+      </label>
+      <label>
+        <span class="label-text">Total Characters</span>
+        <input type="checkbox" id="liveStatsFieldTotalCharacters" />
+      </label>
+      <label>
+        <span class="label-text">Active Reading Time</span>
+        <input type="checkbox" id="liveStatsFieldActiveReadingTime" />
+      </label>
+      <label>
+        <span class="label-text">Cards Mined</span>
+        <input type="checkbox" id="liveStatsFieldCardsMined" />
+      </label>
     </div>
 
     <div class="setting-group" id="text-offset-group" data-tab="general">
@@ -1389,6 +1455,7 @@
           Token Mode Toggle
           <div class="hotkey-info">Press to switch between character and token navigation</div>
         </span>
+        <input type="text" id="gamepadTokenModeToggleButton" class="gamepad-binding-input" value="Y" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardTokenModeToggleKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
       </label>
       <label>
@@ -1396,6 +1463,7 @@
           Mine Button
           <div class="hotkey-info">Press to mine the current Yomitan entry</div>
         </span>
+        <input type="text" id="gamepadMineButton" class="gamepad-binding-input" value="A" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardMineButton" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
       </label>
       <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Keyboard Navigation</h5>
@@ -1430,7 +1498,7 @@
       <label>
         <span class="label-text">
           Token Navigation Mode
-          <div class="hotkey-info">Navigate by MeCab tokens (words) instead of individual characters. Press Y during navigation to toggle.</div>
+          <div class="hotkey-info">Navigate by tokenizer word units instead of individual characters. Use the Token Mode Toggle binding during navigation to switch modes.</div>
         </span>
         <input type="checkbox" id="gamepadTokenMode" />
       </label>
@@ -1751,6 +1819,8 @@
       gamepadCancelButton: { settingKey: "gamepadCancelButton", label: "Cancel Button", fallbackValue: 1 },
       gamepadForwardEnterButton: { settingKey: "gamepadForwardEnterButton", label: "Forward Enter Button", fallbackValue: -1 },
       gamepadManualOverlayScanButton: { settingKey: "gamepadManualOverlayScanButton", label: "Manual Overlay Scan Button", fallbackValue: -1 },
+      gamepadTokenModeToggleButton: { settingKey: "gamepadTokenModeToggleButton", label: "Token Mode Toggle Button", fallbackValue: 3 },
+      gamepadMineButton: { settingKey: "gamepadMineButton", label: "Mine Button", fallbackValue: 0 },
       gamepadNextEntryButton: { settingKey: "gamepadNextEntryButton", label: "Next Yomitan Entry Button", fallbackValue: 7 },
       gamepadPrevEntryButton: { settingKey: "gamepadPrevEntryButton", label: "Previous Yomitan Entry Button", fallbackValue: 6 },
     };
@@ -2026,6 +2096,15 @@
     const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
     const VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS = new Set(["mecab", "sudachi"]);
     const VALID_SUDACHI_DICTIONARIES = new Set(["small", "core", "full"]);
+    const VALID_LIVE_STATS_DISPLAY_MODES = new Set(["always", "new-line"]);
+    const VALID_LIVE_STATS_LAYOUTS = new Set(["stacked", "one-line"]);
+    const VALID_LIVE_STATS_POSITION_MODES = new Set(["active-window", "overlay"]);
+    const LIVE_STATS_FIELD_DEFINITIONS = [
+      { key: "chars_per_hour", controlId: "liveStatsFieldCharsPerHour" },
+      { key: "total_characters", controlId: "liveStatsFieldTotalCharacters" },
+      { key: "active_reading_time", controlId: "liveStatsFieldActiveReadingTime" },
+      { key: "cards_mined", controlId: "liveStatsFieldCardsMined" },
+    ];
     let overlaySettingDefaults = {};
     const settingBindingMap = new Map();
     const settingBindingState = new Map();
@@ -2072,7 +2151,7 @@
 
     function normalizeLocalTokenizerFallbackBackendValue(value) {
       const normalized = String(value || "").trim().toLowerCase();
-      return VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS.has(normalized) ? normalized : "mecab";
+      return VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS.has(normalized) ? normalized : "sudachi";
     }
 
     function normalizeYomitanApiUrlValue(value) {
@@ -2101,6 +2180,36 @@
     function normalizeGamepadActivationModeValue(value) {
       const normalized = String(value || "").trim();
       return VALID_GAMEPAD_ACTIVATION_MODES.has(normalized) ? normalized : "modifier";
+    }
+
+    function normalizeLiveStatsDisplayModeValue(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      return VALID_LIVE_STATS_DISPLAY_MODES.has(normalized) ? normalized : "new-line";
+    }
+
+    function normalizeLiveStatsLayoutValue(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      return VALID_LIVE_STATS_LAYOUTS.has(normalized) ? normalized : "stacked";
+    }
+
+    function normalizeLiveStatsPositionModeValue(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      return VALID_LIVE_STATS_POSITION_MODES.has(normalized) ? normalized : "active-window";
+    }
+
+    function normalizeLiveStatsFieldsValue(value = {}) {
+      const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      const normalized = {};
+      LIVE_STATS_FIELD_DEFINITIONS.forEach((field) => {
+        normalized[field.key] = source[field.key] !== false;
+      });
+      return normalized;
+    }
+
+    function areLiveStatsFieldsEqual(left, right) {
+      const normalizedLeft = normalizeLiveStatsFieldsValue(left);
+      const normalizedRight = normalizeLiveStatsFieldsValue(right);
+      return LIVE_STATS_FIELD_DEFINITIONS.every((field) => normalizedLeft[field.key] === normalizedRight[field.key]);
     }
 
     function normalizeBooleanValue(value) {
@@ -2380,6 +2489,8 @@
         "gamepadCancelButton",
         "gamepadForwardEnterButton",
         "gamepadManualOverlayScanButton",
+        "gamepadTokenModeToggleButton",
+        "gamepadMineButton",
         "gamepadNextEntryButton",
         "gamepadPrevEntryButton",
         "gamepadTokenMode",
@@ -2514,6 +2625,32 @@
       };
     }
 
+    function createLiveStatsFieldsBinding() {
+      return {
+        key: "liveStatsFields",
+        selectors: LIVE_STATS_FIELD_DEFINITIONS.map((field) => `#${field.controlId}`),
+        event: "change",
+        read: () => {
+          const value = {};
+          LIVE_STATS_FIELD_DEFINITIONS.forEach((field) => {
+            value[field.key] = document.getElementById(field.controlId)?.checked !== false;
+          });
+          return value;
+        },
+        write: (_control, value) => {
+          const normalizedValue = normalizeLiveStatsFieldsValue(value);
+          LIVE_STATS_FIELD_DEFINITIONS.forEach((field) => {
+            const checkbox = document.getElementById(field.controlId);
+            if (checkbox) {
+              checkbox.checked = normalizedValue[field.key] !== false;
+            }
+          });
+        },
+        normalize: normalizeLiveStatsFieldsValue,
+        equals: areLiveStatsFieldsEqual,
+      };
+    }
+
     const SETTING_BINDING_DEFINITIONS = [
       createCheckboxBinding("showReadyIndicator", "#showReadyIndicator"),
       createCheckboxBinding("showTextIndicators", "#showTextIndicators", {
@@ -2521,6 +2658,23 @@
       }),
       createCheckboxBinding("fadeTextIndicators", "#fadeTextIndicators"),
       createCheckboxBinding("showRecycledIndicator", "#showRecycledIndicator"),
+      createCheckboxBinding("showLiveStats", "#showLiveStats"),
+      createSelectBinding("liveStatsDisplayMode", "#liveStatsDisplayMode", {
+        normalize: normalizeLiveStatsDisplayModeValue,
+      }),
+      createSelectBinding("liveStatsLayout", "#liveStatsLayout", {
+        normalize: normalizeLiveStatsLayoutValue,
+      }),
+      createNumberBinding("liveStatsAutoHideSeconds", "#liveStatsAutoHideSeconds", {
+        fallback: 5,
+        min: 0,
+        max: 60,
+        integer: true,
+      }),
+      createSelectBinding("liveStatsPositionMode", "#liveStatsPositionMode", {
+        normalize: normalizeLiveStatsPositionModeValue,
+      }),
+      createLiveStatsFieldsBinding(),
       createCheckboxBinding("overlaySettingsProfilesEnabled", "#overlaySettingsProfilesEnabled", {
         afterApply: (value) => {
           overlayProfileState.enabled = value === true;
@@ -2635,6 +2789,8 @@
       createGamepadBindingSetting("gamepadCancelButton"),
       createGamepadBindingSetting("gamepadForwardEnterButton"),
       createGamepadBindingSetting("gamepadManualOverlayScanButton"),
+      createGamepadBindingSetting("gamepadTokenModeToggleButton"),
+      createGamepadBindingSetting("gamepadMineButton"),
       createGamepadBindingSetting("gamepadNextEntryButton"),
       createGamepadBindingSetting("gamepadPrevEntryButton"),
       createKeyboardBindingSetting("keyboardModifierKey"),
@@ -2659,7 +2815,7 @@
       }),
       createSelectBinding("gamepadLocalTokenizerFallbackBackend", "#furiganaLocalTokenizerFallbackBackend", {
         normalize: normalizeLocalTokenizerFallbackBackendValue,
-        getDefault: () => "mecab",
+        getDefault: () => "sudachi",
       }),
       createSelectBinding("gamepadSudachiDictionary", ["#gamepadSudachiDictionary", "#furiganaSudachiDictionary"], {
         normalize: normalizeSudachiDictionaryValue,
@@ -3552,6 +3708,12 @@
           ? userSettings.fadeTextIndicators === true
           : (userSettings.showTextBackground === true),
         showRecycledIndicator: userSettings.showRecycledIndicator !== false,
+        showLiveStats: userSettings.showLiveStats !== false,
+        liveStatsDisplayMode: normalizeLiveStatsDisplayModeValue(userSettings.liveStatsDisplayMode),
+        liveStatsLayout: normalizeLiveStatsLayoutValue(userSettings.liveStatsLayout),
+        liveStatsAutoHideSeconds: clampNumericValue(userSettings.liveStatsAutoHideSeconds, 5, 0, 60, true),
+        liveStatsPositionMode: normalizeLiveStatsPositionModeValue(userSettings.liveStatsPositionMode),
+        liveStatsFields: normalizeLiveStatsFieldsValue(userSettings.liveStatsFields),
         manualModeInactiveBehavior: normalizeManualModeInactiveBehaviorValue(userSettings.manualModeInactiveBehavior),
         enableJitenReader: userSettings.enableJitenReader !== false,
         gamepadEnabled: userSettings.gamepadEnabled !== false,

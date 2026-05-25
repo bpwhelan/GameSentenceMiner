@@ -12,7 +12,11 @@ import {
 import { sendNotificationFromPython } from './notifications.js';
 import * as path from 'path';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
-import { getOrInstallPython, reinstallPython } from './python/python_downloader.js';
+import {
+    getOrInstallPython,
+    hasManagedPythonInstall,
+    reinstallPython,
+} from './python/python_downloader.js';
 import {
     APP_NAME,
     BASE_DIR,
@@ -42,9 +46,12 @@ import {
     getRunWindowTransparencyToolOnStartup,
     getStartConsoleMinimized,
     getElectronAppVersion,
+    getHasCompletedSetup,
     setPythonPath,
     setElectronAppVersion,
+    setHasCompletedSetup,
     getIconStyle,
+    setIconStyle,
     setPythonExtras,
     setPullPreReleases,
     setPreReleaseMetadataAutoEnableApplied,
@@ -118,6 +125,7 @@ export class FeatureFlags {
     static DISABLE_GPU_INSTALLS = false;
 }
 
+const APP_USER_MODEL_ID = 'com.beangate.gamesentenceminer';
 let cachedPreReleaseBranch: string | null | undefined = undefined;
 
 function resolvePreReleaseBranchFromMetadata(): string | null {
@@ -315,6 +323,61 @@ function ensureInstallSession(
     return installSessionManager.ensureSession(origin, retryHandler).id;
 }
 
+function markStartupInstallComplete(reason: string): void {
+    if (getHasCompletedSetup()) {
+        return;
+    }
+    setHasCompletedSetup(true);
+    log.info(`Marked first install complete: ${reason}`);
+}
+
+function shouldTrackStartupInstallSession(): boolean {
+    if (getHasCompletedSetup()) {
+        return false;
+    }
+
+    return !hasManagedPythonInstall();
+}
+
+function startStartupInstallSession(): void {
+    ensureInstallSession('startup', async () => {
+        const retryPythonPath = pythonPath || (await getOrInstallPython());
+        pythonPath = retryPythonPath;
+        setPythonPath(retryPythonPath);
+        await ensureAndRunGSM(retryPythonPath, 1, {
+            origin: 'startup',
+            trackInstallSession: true,
+        });
+    });
+    updateInstallStage(
+        'prepare',
+        'running',
+        'estimated',
+        0.05,
+        'Preparing first-run startup workflow...'
+    );
+}
+
+async function resolveStartupInstallSessionAfterPythonReady(
+    runtimePythonPath: string
+): Promise<boolean> {
+    if (getHasCompletedSetup()) {
+        return false;
+    }
+
+    try {
+        if (await isPackageInstalled(runtimePythonPath, APP_NAME)) {
+            markStartupInstallComplete('managed backend package already exists');
+            return false;
+        }
+    } catch (error) {
+        console.warn('Unable to inspect existing backend package before startup:', error);
+    }
+
+    startStartupInstallSession();
+    return true;
+}
+
 function updateInstallStage(
     stageId: InstallStageId,
     status?: 'pending' | 'running' | 'completed' | 'skipped' | 'failed',
@@ -344,7 +407,10 @@ function finishInstallSession(
     message?: string,
     error?: string | null
 ): void {
-    installSessionManager.finishActive(status, message, error);
+    const snapshot = installSessionManager.finishActive(status, message, error);
+    if (snapshot?.origin === 'startup' && status === 'completed') {
+        markStartupInstallComplete(message || 'startup install session completed');
+    }
 }
 
 function isInstallStageId(value: unknown): value is InstallStageId {
@@ -710,19 +776,35 @@ let iconStyle = "";
 
 const availableIcons = ['gsm', 'gsm_cute', 'gsm_jacked', 'gsm_cursed'];
 
-if (getIconStyle().includes('random')) {
+function selectRandomIconStyle(): string {
     const randomIndex = Math.floor(Math.random() * availableIcons.length);
-    const selectedIcon = availableIcons[randomIndex];
-    iconStyle = selectedIcon;
+    return availableIcons[randomIndex];
 }
 
+function refreshResolvedRandomIconStyle(configuredIconStyle: string = getIconStyle()): void {
+    iconStyle = configuredIconStyle.includes('random') ? selectRandomIconStyle() : "";
+}
+
+function getResolvedIconStyle(configuredIconStyle: string = getIconStyle()): string {
+    if (!configuredIconStyle.includes('random')) {
+        return configuredIconStyle;
+    }
+    if (!iconStyle) {
+        refreshResolvedRandomIconStyle(configuredIconStyle);
+    }
+    return iconStyle;
+}
+
+refreshResolvedRandomIconStyle();
+
 export function getIconPath(forTray: boolean = false): string {
-    let style = getIconStyle().includes('random') ? iconStyle : getIconStyle();
+    const configuredIconStyle = getIconStyle();
+    let style = getResolvedIconStyle(configuredIconStyle);
     const extension: 'ico' | 'png' = isWindows() ? 'ico' : 'png';
     if (forTray) {
         return getTrayBaseIconPath({
             assetsDir: getAssetsDir(),
-            configuredIconStyle: getIconStyle(),
+            configuredIconStyle,
             resolvedRandomStyle: iconStyle,
             extension,
         });
@@ -733,6 +815,33 @@ export function getIconPath(forTray: boolean = false): string {
     style = style.replace(/\[.*\]/, ''); // Remove any [.*] suffix if present
     let filename = `${style}.${extension}`;
     return path.join(getAssetsDir(), filename);
+}
+
+export function applyIconStyle(nextIconStyle?: string): void {
+    if (typeof nextIconStyle === 'string') {
+        setIconStyle(nextIconStyle || 'gsm');
+    }
+
+    refreshResolvedRandomIconStyle();
+    const windowIconPath = getIconPath();
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        try {
+            mainWindow.setIcon(windowIconPath);
+        } catch (error) {
+            console.warn('Failed to update main window icon:', error);
+        }
+    }
+
+    if (process.platform === 'darwin') {
+        try {
+            app.dock?.setIcon(windowIconPath);
+        } catch (error) {
+            console.warn('Failed to update dock icon:', error);
+        }
+    }
+
+    refreshTrayPresentation();
 }
 
 function createPausedTrayFallbackIcon(): Electron.NativeImage {
@@ -1286,11 +1395,7 @@ async function createWindow() {
 
     registerMainIPC({
         getMainWindow: () => mainWindow,
-        restartApplication: async () => {
-            await closeAllPythonProcesses();
-            app.relaunch();
-            app.exit(0);
-        },
+        applyIconStyle,
         getUpdateStatus: async () => await getUpdateStatus(),
         checkForUpdates: async () => await checkForAvailableUpdates(),
         updateNow: async () => await updateAvailableTargets(),
@@ -1682,6 +1787,7 @@ function updateTrayMenu(): void {
 interface EnsureAndRunOptions {
     allowDuringUpdate?: boolean;
     origin?: InstallSessionOrigin;
+    trackInstallSession?: boolean;
 }
 
 async function ensureAndRunGSM(
@@ -1690,14 +1796,21 @@ async function ensureAndRunGSM(
     options?: EnsureAndRunOptions
 ): Promise<void> {
     const origin = options?.origin ?? 'startup';
-    ensureInstallSession(origin, async () => {
-        await ensureAndRunGSM(pythonPath, 1, {
-            ...options,
-            allowDuringUpdate: true,
-            origin,
+    const trackInstallSession =
+        options?.trackInstallSession ??
+        (origin !== 'startup' || installSessionManager.getActiveSnapshot()?.origin === 'startup');
+
+    if (trackInstallSession) {
+        ensureInstallSession(origin, async () => {
+            await ensureAndRunGSM(pythonPath, 1, {
+                ...options,
+                allowDuringUpdate: true,
+                origin,
+                trackInstallSession: true,
+            });
         });
-    });
-    updateInstallStage('prepare', 'running', 'estimated', 0.2, 'Preparing install session...');
+        updateInstallStage('prepare', 'running', 'estimated', 0.2, 'Preparing install session...');
+    }
 
     if (!options?.allowDuringUpdate) {
         await waitForPythonLaunchReadiness('GSM backend startup');
@@ -2078,7 +2191,7 @@ async function processArgsAndStartSettings() {
 
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
 if (isWindows()) {
-    app.setAppUserModelId('GameSentenceMiner');
+    app.setAppUserModelId(APP_USER_MODEL_ID);
 }
 
 // Fix for name and icon on macOS
@@ -2104,18 +2217,10 @@ if (!app.requestSingleInstanceLock()) {
             void launchOBSFromElectron({ reason: 'startup' }).catch((error) => {
                 console.warn('Electron-managed OBS startup launch failed:', error);
             });
-            ensureInstallSession('startup', async () => {
-                if (pythonPath) {
-                    await ensureAndRunGSM(pythonPath, 1, { origin: 'startup' });
-                }
-            });
-            updateInstallStage(
-                'prepare',
-                'running',
-                'estimated',
-                0.05,
-                'Preparing first-run startup workflow...'
-            );
+            let trackStartupInstallSession = shouldTrackStartupInstallSession();
+            if (trackStartupInstallSession) {
+                startStartupInstallSession();
+            }
             createWindow().then(async () => {
                 createTray();
                 autoLauncher.startPolling();
@@ -2150,6 +2255,11 @@ if (!app.requestSingleInstanceLock()) {
             const pyPath = await getOrInstallPython();
             pythonPath = pyPath;
             setPythonPath(pythonPath);
+            if (!trackStartupInstallSession) {
+                trackStartupInstallSession = await resolveStartupInstallSessionAfterPythonReady(
+                    pythonPath
+                );
+            }
 
             if (wantsChaosHarnessRun()) {
                 if (!isDev) {
@@ -2264,7 +2374,10 @@ if (!app.requestSingleInstanceLock()) {
             }
 
             // Launch backend before UI/module initialization, then continue startup.
-            void ensureAndRunGSM(pythonPath, 1, { origin: 'startup' }).catch(async (err) => {
+            void ensureAndRunGSM(pythonPath, 1, {
+                origin: 'startup',
+                trackInstallSession: trackStartupInstallSession,
+            }).catch(async (err) => {
                 console.log('Failed to run GSM, attempting repair of python package...', err);
                 await updateGSM(true, true);
             });

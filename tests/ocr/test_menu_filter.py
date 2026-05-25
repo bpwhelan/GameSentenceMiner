@@ -180,7 +180,7 @@ def test_check_text_is_in_black_hole_matches_any_detected_text_box(monkeypatch):
     )
 
 
-def test_check_text_is_in_black_hole_requires_box_inside_black_hole(monkeypatch):
+def test_check_text_is_in_black_hole_ignores_disjoint_box(monkeypatch):
     rectangles = [
         SimpleNamespace(
             is_secondary=False,
@@ -200,10 +200,39 @@ def test_check_text_is_in_black_hole_requires_box_inside_black_hole(monkeypatch)
     )
     monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_config)
 
-    crop_coords_list = [(5, 5, 145, 95, "partial overlap")]
+    crop_coords_list = [(105, 5, 145, 95, "outside")]
 
     assert not run_module.check_text_is_in_black_hole(
-        (5, 5, 145, 95),
+        (105, 5, 145, 95),
+        crop_coords_list,
+        crop_offset=(0, 0),
+    )
+
+
+def test_check_text_is_in_black_hole_matches_box_overlap(monkeypatch):
+    rectangles = [
+        SimpleNamespace(
+            is_secondary=False,
+            is_excluded=False,
+            is_exclusive=False,
+            is_black_hole=True,
+            coordinates=(0, 0, 100, 100),
+        ),
+    ]
+    fake_config = SimpleNamespace(rectangles=rectangles)
+
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_config)
+
+    crop_coords_list = [(5, 5, 205, 95, "line overlaps black hole")]
+
+    assert run_module.check_text_is_in_black_hole(
+        (5, 5, 205, 95),
         crop_coords_list,
         crop_offset=(0, 0),
     )

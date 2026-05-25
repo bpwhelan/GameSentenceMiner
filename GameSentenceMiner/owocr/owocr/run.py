@@ -3281,6 +3281,20 @@ def _box_is_inside_any_rectangle(box, rectangles):
     return False
 
 
+def _box_overlaps_any_rectangle(box, rectangles):
+    if not box:
+        return False
+
+    box_left, box_top, box_right, box_bottom = box
+    for rect in rectangles:
+        rect_left, rect_top, rect_width, rect_height = getattr(rect, "coordinates", (0, 0, 0, 0))
+        rect_right = rect_left + rect_width
+        rect_bottom = rect_top + rect_height
+        if box_left < rect_right and box_right > rect_left and box_top < rect_bottom and box_bottom > rect_top:
+            return True
+    return False
+
+
 def check_text_is_in_black_hole(
     crop_coords: tuple,
     crop_coords_list: list,
@@ -3288,7 +3302,7 @@ def check_text_is_in_black_hole(
     crop_padding: int = 5,
 ) -> bool:
     """
-    Checks if any recognized text is inside a black-hole OCR rectangle.
+    Checks if any recognized text overlaps a black-hole OCR rectangle.
 
     Black-hole rectangles void the whole OCR result before exclusive filtering.
     """
@@ -3324,35 +3338,17 @@ def check_text_is_in_black_hole(
     if not black_hole_rectangles:
         return False
 
-    offset_x, offset_y = crop_offset
-
     for coord_entry in coords_to_check:
-        if len(coord_entry) < 4:
+        original_box = _coord_entry_to_original_box(coord_entry, crop_offset, crop_padding)
+        if original_box is None:
             return False
 
-        crop_x, crop_y, crop_x2, crop_y2 = coord_entry[:4]
-        # Remove OCR crop padding before checking against black-hole rectangles.
-        crop_x += crop_padding
-        crop_y += crop_padding
-        crop_x2 -= crop_padding
-        crop_y2 -= crop_padding
-
-        # Apply offset to convert from cropped image coordinates to original image coordinates
-        crop_x += offset_x
-        crop_y += offset_y
-        crop_x2 += offset_x
-        crop_y2 += offset_y
-
-        if crop_x < 0 or crop_y < 0 or crop_x2 > original_width or crop_y2 > original_height:
+        box_left, box_top, box_right, box_bottom = original_box
+        if box_left < 0 or box_top < 0 or box_right > original_width or box_bottom > original_height:
             return False
 
-        for black_hole_rect in black_hole_rectangles:
-            rect_left, rect_top, rect_width, rect_height = black_hole_rect.coordinates
-            rect_right = rect_left + rect_width
-            rect_bottom = rect_top + rect_height
-
-            if crop_x >= rect_left and crop_y >= rect_top and crop_x2 <= rect_right and crop_y2 <= rect_bottom:
-                return True
+        if _box_overlaps_any_rectangle(original_box, black_hole_rectangles):
+            return True
 
     return False
 

@@ -1,3 +1,5 @@
+import time
+
 from GameSentenceMiner.util.config.configuration import get_stats_config
 from GameSentenceMiner.util.database.db import clean_text_for_stats
 from GameSentenceMiner.util.stats.stats_util import (
@@ -5,6 +7,87 @@ from GameSentenceMiner.util.stats.stats_util import (
     FLOOR_SECONDS,
     ABSOLUTE_CEILING,
 )
+
+
+LIVE_STATS_UPDATE_TYPE = "live_stats_update"
+
+LIVE_STATS_FIELDS = (
+    {
+        "key": "chars_per_hour",
+        "label": "Chars/hour",
+        "format": "integer",
+        "default_visible": True,
+    },
+    {
+        "key": "total_characters",
+        "label": "Characters",
+        "format": "integer",
+        "default_visible": True,
+    },
+    {
+        "key": "active_reading_time",
+        "label": "Active time",
+        "format": "duration",
+        "default_visible": True,
+    },
+    {
+        "key": "cards_mined",
+        "label": "Cards mined",
+        "format": "integer",
+        "default_visible": True,
+    },
+)
+
+
+def get_live_stats_field_options() -> list[dict]:
+    """Return user-selectable live stats fields for overlay display."""
+    return [dict(field) for field in LIVE_STATS_FIELDS]
+
+
+def build_live_stats_payload(
+    tracker: "LiveSessionTracker",
+    *,
+    reason: str = "update",
+    now: float | None = None,
+) -> dict:
+    """Build a serializable live stats snapshot for overlay consumers."""
+    updated_at = time.time() if now is None else float(now)
+    return {
+        "type": LIVE_STATS_UPDATE_TYPE,
+        "reason": reason,
+        "updated_at": updated_at,
+        "session_active": tracker.last_line_time is not None,
+        "session_start_time": tracker.session_start_time,
+        "last_line_time": tracker.last_line_time,
+        "fields": get_live_stats_field_options(),
+        "values": {
+            "chars_per_hour": tracker.get_chars_per_hour(),
+            "total_characters": tracker.get_total_chars(),
+            "active_reading_time": round(tracker.get_active_reading_time(), 1),
+            "cards_mined": tracker.get_cards_mined(),
+        },
+    }
+
+
+def publish_live_stats_update(
+    tracker: "LiveSessionTracker",
+    *,
+    reason: str = "update",
+) -> bool:
+    """Publish a live stats snapshot to overlay websocket clients if available."""
+    try:
+        from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
+
+        if not websocket_manager.has_clients(ID_OVERLAY):
+            return False
+
+        websocket_manager.send_nowait(
+            ID_OVERLAY,
+            build_live_stats_payload(tracker, reason=reason),
+        )
+        return True
+    except Exception:
+        return False
 
 
 class LiveSessionTracker:
@@ -62,6 +145,7 @@ class LiveSessionTracker:
         )
 
         self.total_characters += len(line_text) if line_text else 0
+        publish_live_stats_update(self, reason="line")
 
     def get_chars_per_hour(self) -> int:
         """
@@ -89,6 +173,7 @@ class LiveSessionTracker:
     def add_mined_line(self):
         """Increments the count of lines mined in this session."""
         self.times_mined += 1
+        publish_live_stats_update(self, reason="mined")
 
 
 # Singleton instance to be used across the application

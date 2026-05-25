@@ -6110,6 +6110,11 @@ button.danger:hover:not(:disabled) {
   height: 13px;
 }
 
+.rule-actions {
+  display: flex;
+  gap: 4px;
+}
+
 .btn-secondary {
   padding: 6px 14px;
   border: 1px solid var(--gsm-border-default);

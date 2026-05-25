@@ -238,6 +238,10 @@ function isPythonInstalled(): boolean {
     return fs.existsSync(getPythonExecutablePath());
 }
 
+export function hasManagedPythonInstall(): boolean {
+    return isPythonInstalled();
+}
+
 /**
  * Checks if uv is installed.
  */

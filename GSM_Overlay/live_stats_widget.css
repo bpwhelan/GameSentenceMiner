@@ -1,0 +1,129 @@
+#gsm-live-stats {
+  --gsm-live-stats-x: auto;
+  --gsm-live-stats-y: 16px;
+  position: fixed;
+  top: var(--gsm-live-stats-y);
+  right: 16px;
+  left: var(--gsm-live-stats-x);
+  z-index: 10004;
+  min-width: 190px;
+  max-width: min(270px, calc(100vw - 32px));
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(13, 17, 23, 0.74);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  color: #f5f7fb;
+  font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+  font-size: 12px;
+  line-height: 1.25;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 160ms ease, transform 160ms ease;
+  user-select: none;
+}
+
+#gsm-live-stats.gsm-live-stats-visible {
+  opacity: 0.9;
+  transform: translateY(0);
+}
+
+#gsm-live-stats.gsm-live-stats-one-line {
+  width: max-content;
+  min-width: 0;
+  max-width: calc(100vw - 32px);
+  padding: 5px 8px;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(13, 17, 23, 0.68);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.24);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gsm-live-stats-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  color: #dce5f3;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.gsm-live-stats-status {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #697386;
+  box-shadow: 0 0 8px rgba(105, 115, 134, 0.65);
+  flex: 0 0 auto;
+}
+
+.gsm-live-stats-status.active {
+  background: #33d17a;
+  box-shadow: 0 0 9px rgba(51, 209, 122, 0.75);
+}
+
+.gsm-live-stats-grid {
+  display: grid;
+  gap: 6px;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-stats-header {
+  display: none;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-stats-grid {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.gsm-live-stats-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 16px;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-stats-row {
+  flex: 0 0 auto;
+  gap: 4px;
+  min-height: 0;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-stats-row + .gsm-live-stats-row {
+  padding-left: 9px;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.gsm-live-stats-label {
+  color: #aeb8c7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gsm-live-stats-value {
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.gsm-live-stats-empty {
+  color: #aeb8c7;
+  font-size: 11px;
+}

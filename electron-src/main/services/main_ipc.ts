@@ -21,7 +21,7 @@ import type { InstallSessionSnapshot } from '../../shared/install_session.js';
 
 interface MainIPCDependencies {
     getMainWindow: () => BrowserWindow | null;
-    restartApplication: () => Promise<void>;
+    applyIconStyle: (iconStyle: string) => void;
     getUpdateStatus: () => Promise<unknown>;
     checkForUpdates: () => Promise<unknown>;
     updateNow: () => Promise<unknown>;
@@ -191,23 +191,11 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
         return { success: await deps.retryInstallSession() };
     });
 
-    ipcMain.on('settings.iconStyleChanged', async () => {
-        const mainWindow = deps.getMainWindow();
-        if (!mainWindow || mainWindow.isDestroyed()) {
+    ipcMain.on('settings.iconStyleChanged', (_event, iconStyle) => {
+        if (typeof iconStyle !== 'string') {
             return;
         }
 
-        const response = await dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            title: 'Restart Required',
-            message: 'Changing the icon requires restarting the app. Restart now?',
-            buttons: ['Restart', 'Later'],
-            defaultId: 0,
-            cancelId: 1,
-        });
-
-        if (response.response === 0) {
-            await deps.restartApplication();
-        }
+        deps.applyIconStyle(iconStyle);
     });
 }

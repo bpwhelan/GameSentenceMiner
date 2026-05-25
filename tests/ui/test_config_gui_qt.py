@@ -3,9 +3,11 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
+from PyQt6.QtCore import QEvent, Qt
+from PyQt6.QtGui import QKeyEvent, QKeySequence
 from PyQt6.QtWidgets import QApplication, QCheckBox, QMessageBox
 
-from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
+from GameSentenceMiner.ui.config_gui_qt import ClearableKeySequenceEdit, ConfigWindow
 from GameSentenceMiner.util.config.configuration import Locale
 
 
@@ -221,6 +223,29 @@ def test_process_pausing_user_enable_still_requires_warning() -> None:
     finally:
         checkbox.close()
         app.processEvents()
+
+
+def test_clearable_key_sequence_edit_clears_with_escape_or_backspace() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+
+    for key in (Qt.Key.Key_Escape, Qt.Key.Key_Backspace):
+        edit = ClearableKeySequenceEdit()
+        changes: list[str] = []
+        edit.keySequenceChanged.connect(lambda sequence: changes.append(sequence.toString()))
+
+        try:
+            edit.setKeySequence(QKeySequence("Ctrl+M"))
+            changes.clear()
+
+            event = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+            edit.keyPressEvent(event)
+
+            assert edit.keySequence().isEmpty()
+            assert changes == [""]
+        finally:
+            edit.close()
+            app.processEvents()
 
 
 def test_on_profile_changed_notifies_profile_change_hooks() -> None:

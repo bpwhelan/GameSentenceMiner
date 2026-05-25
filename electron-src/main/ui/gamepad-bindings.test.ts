@@ -173,6 +173,146 @@ describe("legacy gamepad button bindings", () => {
 
     expect(calls).toEqual(["next", "prev"]);
   });
+
+  it("uses configurable controller bindings for token toggle and mining", () => {
+    const handler = Object.create(GamepadHandler.prototype) as {
+      config: {
+        activationMode: string;
+        controllerEnabled: boolean;
+        confirmButton: string;
+        tokenModeToggleButton: string;
+        mineButton: string;
+      };
+      buttonStates: Map<string, Record<number, boolean>>;
+      buttonBindings: Record<string, any>;
+      bindingContainsButton: (binding: any, buttonIndex: number) => boolean;
+      isButtonBindingHeld: (binding: any, device: string) => boolean;
+      matchesButtonBindingDown: (binding: any, device: string, buttonIndex: number) => boolean;
+      areButtonBindingsEquivalent: (left: any, right: any) => boolean;
+      refreshButtonBindings: () => void;
+      onButtonDown: (buttonIndex: number, device: string) => void;
+      yomitanPopupVisible: boolean;
+      isNavigationActive: () => boolean;
+      shouldProcessNavigation: () => boolean;
+      confirmSelection: () => void;
+      cancelSelection: () => void;
+      toggleTokenMode: () => void;
+      triggerMining: () => void;
+    };
+
+    handler.config = {
+      activationMode: "modifier",
+      controllerEnabled: true,
+      confirmButton: "A",
+      tokenModeToggleButton: "Y",
+      mineButton: "X"
+    };
+    handler.buttonStates = new Map([["pad-1", { 3: true }]]);
+    handler.bindingContainsButton = GamepadHandler.prototype.bindingContainsButton;
+    handler.isButtonBindingHeld = GamepadHandler.prototype.isButtonBindingHeld;
+    handler.matchesButtonBindingDown = GamepadHandler.prototype.matchesButtonBindingDown;
+    handler.areButtonBindingsEquivalent = GamepadHandler.prototype.areButtonBindingsEquivalent;
+    handler.refreshButtonBindings = GamepadHandler.prototype.refreshButtonBindings;
+    handler.onButtonDown = GamepadHandler.prototype.onButtonDown;
+    handler.yomitanPopupVisible = false;
+    handler.isNavigationActive = () => true;
+    handler.shouldProcessNavigation = () => false;
+
+    const calls: string[] = [];
+    handler.confirmSelection = () => {
+      calls.push("confirm");
+    };
+    handler.cancelSelection = () => {
+      calls.push("cancel");
+    };
+    handler.toggleTokenMode = () => {
+      calls.push("token-toggle");
+    };
+    handler.triggerMining = () => {
+      calls.push("mine");
+    };
+
+    handler.refreshButtonBindings();
+
+    expect(handler.buttonBindings.tokenModeToggleButton).toMatchObject({
+      buttons: [3],
+      disabled: false,
+      label: "Y"
+    });
+    expect(handler.buttonBindings.mineButton).toMatchObject({
+      buttons: [2],
+      disabled: false,
+      label: "X"
+    });
+
+    handler.onButtonDown(3, "pad-1");
+    handler.buttonStates = new Map([["pad-1", { 2: true }]]);
+    handler.onButtonDown(2, "pad-1");
+
+    expect(calls).toEqual(["token-toggle", "mine"]);
+  });
+
+  it("preserves confirm behavior when mine and confirm share the default A button", () => {
+    const handler = Object.create(GamepadHandler.prototype) as {
+      config: {
+        activationMode: string;
+        controllerEnabled: boolean;
+        confirmButton: number;
+        mineButton: number;
+      };
+      buttonStates: Map<string, Record<number, boolean>>;
+      buttonBindings: Record<string, any>;
+      bindingContainsButton: (binding: any, buttonIndex: number) => boolean;
+      isButtonBindingHeld: (binding: any, device: string) => boolean;
+      matchesButtonBindingDown: (binding: any, device: string, buttonIndex: number) => boolean;
+      areButtonBindingsEquivalent: (left: any, right: any) => boolean;
+      refreshButtonBindings: () => void;
+      onButtonDown: (buttonIndex: number, device: string) => void;
+      yomitanPopupVisible: boolean;
+      isNavigationActive: () => boolean;
+      shouldProcessNavigation: () => boolean;
+      confirmSelection: () => void;
+      cancelSelection: () => void;
+      toggleTokenMode: () => void;
+      triggerMining: () => void;
+    };
+
+    handler.config = {
+      activationMode: "modifier",
+      controllerEnabled: true,
+      confirmButton: 0,
+      mineButton: 0
+    };
+    handler.buttonStates = new Map([["pad-1", { 0: true }]]);
+    handler.bindingContainsButton = GamepadHandler.prototype.bindingContainsButton;
+    handler.isButtonBindingHeld = GamepadHandler.prototype.isButtonBindingHeld;
+    handler.matchesButtonBindingDown = GamepadHandler.prototype.matchesButtonBindingDown;
+    handler.areButtonBindingsEquivalent = GamepadHandler.prototype.areButtonBindingsEquivalent;
+    handler.refreshButtonBindings = GamepadHandler.prototype.refreshButtonBindings;
+    handler.onButtonDown = GamepadHandler.prototype.onButtonDown;
+    handler.yomitanPopupVisible = false;
+    handler.isNavigationActive = () => true;
+    handler.shouldProcessNavigation = () => false;
+
+    const calls: string[] = [];
+    handler.confirmSelection = () => {
+      calls.push("confirm");
+    };
+    handler.cancelSelection = () => {
+      calls.push("cancel");
+    };
+    handler.toggleTokenMode = () => {
+      calls.push("token-toggle");
+    };
+    handler.triggerMining = () => {
+      calls.push("mine");
+    };
+
+    handler.refreshButtonBindings();
+    handler.onButtonDown(0, "pad-1");
+
+    expect(calls).toEqual(["confirm"]);
+  });
 });
 
 describe("legacy gamepad start block selection", () => {

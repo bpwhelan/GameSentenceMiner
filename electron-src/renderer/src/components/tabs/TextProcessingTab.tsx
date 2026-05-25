@@ -479,6 +479,14 @@ function StringReplacementConfig({ rules, onChange }: StringReplacementConfigPro
     onChange(rules.filter((_, i) => i !== index));
   };
 
+  const moveRule = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || toIndex < 0 || toIndex >= rules.length) return;
+    const nextRules = [...rules];
+    const [movedRule] = nextRules.splice(fromIndex, 1);
+    nextRules.splice(toIndex, 0, movedRule);
+    onChange(nextRules);
+  };
+
   const updateRule = (index: number, updates: Partial<TextReplacementRule>) => {
     onChange(rules.map((r, i) => i === index ? { ...r, ...updates } : r));
   };
@@ -533,6 +541,24 @@ function StringReplacementConfig({ rules, onChange }: StringReplacementConfigPro
               />
               {" "}\\b
             </label>
+            <div className="rule-actions">
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={() => moveRule(index, index - 1)}
+                disabled={index === 0}
+                title={t("textProcessing.moveUp")}
+                aria-label={t("textProcessing.moveUp")}
+              >▲</button>
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={() => moveRule(index, index + 1)}
+                disabled={index === rules.length - 1}
+                title={t("textProcessing.moveDown")}
+                aria-label={t("textProcessing.moveDown")}
+              >▼</button>
+            </div>
             <button className="btn-icon btn-danger" onClick={() => removeRule(index)} title={t("textProcessing.rules.remove")}>✕</button>
           </div>
         ))}

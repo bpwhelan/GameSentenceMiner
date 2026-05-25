@@ -1655,6 +1655,41 @@ class WindowStateMonitor:
             logger.debug(f"Error getting Magpie info: {e}")
             self.magpie_info = None
 
+    def _build_window_rect_payload(self, rect: Optional[Tuple[int, int, int, int]]) -> Optional[Dict[str, int]]:
+        if not rect:
+            return None
+
+        left, top, right, bottom = [int(value) for value in rect]
+        if right <= left or bottom <= top:
+            return None
+
+        return {
+            "left": left,
+            "top": top,
+            "right": right,
+            "bottom": bottom,
+            "width": right - left,
+            "height": bottom - top,
+        }
+
+    def _build_client_rect_payload(self) -> Optional[Dict[str, int]]:
+        geometry = get_window_client_physical_geometry(self.target_hwnd)
+        if not geometry:
+            return None
+
+        left, top, width, height = [int(value) for value in geometry]
+        if width <= 0 or height <= 0:
+            return None
+
+        return {
+            "left": left,
+            "top": top,
+            "right": left + width,
+            "bottom": top + height,
+            "width": width,
+            "height": height,
+        }
+
     def find_target_hwnd(self) -> Optional[int]:
         """Attempts to find the HWND for the current game, robustly excluding browsers."""
         try:
@@ -1992,7 +2027,7 @@ class WindowStateMonitor:
 
         fullscreen_changed = is_fullscreen != self.last_is_fullscreen
 
-        if current_state != self.last_state or magpie_changed or fullscreen_changed:
+        if current_state != self.last_state or magpie_changed or fullscreen_changed or window_moved_or_resized:
             logger.debug(
                 f"Window state changed: {self.last_state} -> {current_state} (game: {game_name_ref}, fullscreen: {is_fullscreen})"
             )
@@ -2014,6 +2049,8 @@ class WindowStateMonitor:
                 "magpie_info": self.magpie_info,
                 "is_fullscreen": is_fullscreen,
                 "recommend_manual_mode": recommend_manual,
+                "target_window_rect": self._build_window_rect_payload(current_rect),
+                "target_client_rect": self._build_client_rect_payload(),
             }
 
             if websocket_manager.has_clients(ID_OVERLAY):

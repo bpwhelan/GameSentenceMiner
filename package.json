@@ -28,7 +28,7 @@
   "tsc": {},
   "build": {
     "asar": true,
-    "appId": "com.bpwhelan.gsm",
+    "appId": "com.beangate.gamesentenceminer",
     "files": [
       "dist/main/**/*",
       "dist/preload/**/*",
@@ -71,8 +71,7 @@
     "nsis": {
       "menuCategory": "GameSentenceMiner",
       "oneClick": true,
-      "allowToChangeInstallationDirectory": false,
-      "packElevateHelper": true
+      "allowToChangeInstallationDirectory": false
     },
     "mac": {
       "target": "dmg",

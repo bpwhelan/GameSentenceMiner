@@ -53,6 +53,10 @@ const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "sudachi", "yomitan-b
 const VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS = new Set(["mecab", "sudachi"]);
 const VALID_SUDACHI_DICTIONARIES = new Set(["small", "core", "full"]);
 const VALID_TRACKED_GAME_WINDOW_STATES = new Set(["active", "background", "obscured", "minimized", "closed", "unknown"]);
+const VALID_LIVE_STATS_DISPLAY_MODES = new Set(["always", "new-line"]);
+const VALID_LIVE_STATS_LAYOUTS = new Set(["stacked", "one-line"]);
+const VALID_LIVE_STATS_POSITION_MODES = new Set(["active-window", "overlay"]);
+const LIVE_STATS_FIELD_KEYS = ["chars_per_hour", "total_characters", "active_reading_time", "cards_mined"];
 const GAMEPAD_SERVER_BASE_PORT = 7276;
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
 const OVERLAY_WS_COMMAND_OPEN_SETTINGS = "open-overlay-settings";
@@ -293,6 +297,17 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "showReadyIndicator": true,
   "showTextIndicators": true,
   "fadeTextIndicators": false,
+  "showLiveStats": true,
+  "liveStatsDisplayMode": "new-line",
+  "liveStatsLayout": "stacked",
+  "liveStatsAutoHideSeconds": 5,
+  "liveStatsPositionMode": "active-window",
+  "liveStatsFields": {
+    "chars_per_hour": true,
+    "total_characters": true,
+    "active_reading_time": true,
+    "cards_mined": true,
+  },
   "showTextBackground": false, // Legacy key; migrated to showTextIndicators/fadeTextIndicators.
   "afkTimer": 5, // in minutes
   "showFurigana": false,
@@ -322,6 +337,8 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadCancelButton": 1, // B
   "gamepadForwardEnterButton": -1, // Disabled by default; forwards Enter to target game window
   "gamepadManualOverlayScanButton": -1, // Disabled by default; triggers manual overlay scan
+  "gamepadTokenModeToggleButton": 3, // Y button - toggles token/character navigation
+  "gamepadMineButton": 0, // A button - mines the current Yomitan entry
   "gamepadNextEntryButton": 7, // RT trigger - navigate to next Yomitan entry
   "gamepadPrevEntryButton": 6, // LT trigger - navigate to previous Yomitan entry
   "gamepadAutoConfirmSelection": true,
@@ -334,7 +351,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadControllerEnabled": true, // Enable controller button activation
   "gamepadTokenMode": true, // Default to character mode (false) or token mode (true)
   "gamepadTokenizerBackend": "sudachi", // "mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api" for tokenization/furigana
-  "gamepadLocalTokenizerFallbackBackend": "mecab", // Local retry backend used when the selected tokenizer fails
+  "gamepadLocalTokenizerFallbackBackend": "sudachi", // Local retry backend used when the selected tokenizer fails
   "gamepadSudachiDictionary": "core", // "small", "core", or "full" for Sudachi auto-download
   "gamepadYomitanApiUrl": DEFAULT_YOMITAN_API_URL, // Base URL for Yomitan API
   "gamepadYomitanScanLength": 10, // scanLength used for Yomitan /tokenize
@@ -662,6 +679,96 @@ function normalizeTrackedGameWindowState(value) {
   return VALID_TRACKED_GAME_WINDOW_STATES.has(normalized) ? normalized : "unknown";
 }
 
+function normalizeLiveStatsDisplayMode(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return VALID_LIVE_STATS_DISPLAY_MODES.has(normalized) ? normalized : "new-line";
+}
+
+function normalizeLiveStatsLayout(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return VALID_LIVE_STATS_LAYOUTS.has(normalized) ? normalized : "stacked";
+}
+
+function normalizeLiveStatsPositionMode(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return VALID_LIVE_STATS_POSITION_MODES.has(normalized) ? normalized : "active-window";
+}
+
+function normalizeLiveStatsAutoHideSeconds(value) {
+  const numeric = Number.parseInt(value, 10);
+  if (!Number.isFinite(numeric)) {
+    return 5;
+  }
+  return Math.max(0, Math.min(60, numeric));
+}
+
+function normalizeLiveStatsFields(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const defaults = DEFAULT_USER_SETTINGS.liveStatsFields || {};
+  const normalized = {};
+  for (const key of LIVE_STATS_FIELD_KEYS) {
+    normalized[key] = Object.prototype.hasOwnProperty.call(source, key)
+      ? source[key] !== false
+      : defaults[key] !== false;
+  }
+  return normalized;
+}
+
+function areLiveStatsFieldsEqual(a, b) {
+  const normalizedA = normalizeLiveStatsFields(a);
+  const normalizedB = normalizeLiveStatsFields(b);
+  return LIVE_STATS_FIELD_KEYS.every((key) => normalizedA[key] === normalizedB[key]);
+}
+
+function hasAllLiveStatsFieldKeys(value) {
+  return value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    LIVE_STATS_FIELD_KEYS.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function normalizeLiveStatsSettings(settings) {
+  let changed = false;
+
+  const normalizedEnabled = settings.showLiveStats !== false;
+  if (settings.showLiveStats !== normalizedEnabled) {
+    settings.showLiveStats = normalizedEnabled;
+    changed = true;
+  }
+
+  const normalizedDisplayMode = normalizeLiveStatsDisplayMode(settings.liveStatsDisplayMode);
+  if (settings.liveStatsDisplayMode !== normalizedDisplayMode) {
+    settings.liveStatsDisplayMode = normalizedDisplayMode;
+    changed = true;
+  }
+
+  const normalizedLayout = normalizeLiveStatsLayout(settings.liveStatsLayout);
+  if (settings.liveStatsLayout !== normalizedLayout) {
+    settings.liveStatsLayout = normalizedLayout;
+    changed = true;
+  }
+
+  const normalizedAutoHideSeconds = normalizeLiveStatsAutoHideSeconds(settings.liveStatsAutoHideSeconds);
+  if (settings.liveStatsAutoHideSeconds !== normalizedAutoHideSeconds) {
+    settings.liveStatsAutoHideSeconds = normalizedAutoHideSeconds;
+    changed = true;
+  }
+
+  const normalizedPositionMode = normalizeLiveStatsPositionMode(settings.liveStatsPositionMode);
+  if (settings.liveStatsPositionMode !== normalizedPositionMode) {
+    settings.liveStatsPositionMode = normalizedPositionMode;
+    changed = true;
+  }
+
+  const normalizedFields = normalizeLiveStatsFields(settings.liveStatsFields);
+  if (!hasAllLiveStatsFieldKeys(settings.liveStatsFields) || !areLiveStatsFieldsEqual(settings.liveStatsFields, normalizedFields)) {
+    settings.liveStatsFields = normalizedFields;
+    changed = true;
+  }
+
+  return changed;
+}
+
 function setTrackedGameWindowState(state, source = "unknown") {
   const normalized = normalizeTrackedGameWindowState(state);
   trackedGameWindowState = normalized;
@@ -802,7 +909,7 @@ function normalizeGamepadTokenizerBackend(value) {
   if (VALID_GAMEPAD_TOKENIZER_BACKENDS.has(normalized)) {
     return normalized;
   }
-  return "mecab";
+  return "sudachi";
 }
 
 function normalizeLocalTokenizerFallbackBackend(value) {
@@ -810,7 +917,7 @@ function normalizeLocalTokenizerFallbackBackend(value) {
   if (VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS.has(normalized)) {
     return normalized;
   }
-  return "mecab";
+  return "sudachi";
 }
 
 function isServerBackedGamepadTokenizerBackend(value) {
@@ -2542,6 +2649,7 @@ const websocketEndpointsNormalized = enforceOverlayWebSocketUrls(userSettings);
 const texthookerUrlNormalized = enforceTexthookerUrl(userSettings);
 const furiganaSettingsNormalized = normalizeFuriganaSettings(userSettings);
 const gamepadTokenizerSettingsNormalized = normalizeGamepadTokenizerSettings(userSettings);
+const liveStatsSettingsNormalized = normalizeLiveStatsSettings(userSettings);
 const overlayProfilesNormalized = normalizeOverlaySettingsProfiles("settings-load");
 const overlayProfileAppliedOnLoad = syncOverlayProfileFromGSM("settings-load", {
   force: true,
@@ -2555,6 +2663,7 @@ if (
   texthookerUrlNormalized ||
   furiganaSettingsNormalized ||
   gamepadTokenizerSettingsNormalized ||
+  liveStatsSettingsNormalized ||
   overlayProfilesNormalized ||
   overlayProfileAppliedOnLoad ||
   hotkeyConflictResolvedOnLoad ||
@@ -5222,6 +5331,16 @@ app.whenReady().then(async () => {
       value = normalizeManualModeType(value);
     } else if (key === "manualModeInactiveBehavior") {
       value = normalizeManualModeInactiveBehavior(value);
+    } else if (key === "liveStatsDisplayMode") {
+      value = normalizeLiveStatsDisplayMode(value);
+    } else if (key === "liveStatsLayout") {
+      value = normalizeLiveStatsLayout(value);
+    } else if (key === "liveStatsAutoHideSeconds") {
+      value = normalizeLiveStatsAutoHideSeconds(value);
+    } else if (key === "liveStatsPositionMode") {
+      value = normalizeLiveStatsPositionMode(value);
+    } else if (key === "liveStatsFields") {
+      value = normalizeLiveStatsFields(value);
     }
     const oldValue = userSettings[key];
     setOverlaySettingValue(key, value);
@@ -5353,6 +5472,8 @@ app.whenReady().then(async () => {
       case "gamepadCancelButton":
       case "gamepadForwardEnterButton":
       case "gamepadManualOverlayScanButton":
+      case "gamepadTokenModeToggleButton":
+      case "gamepadMineButton":
       case "gamepadNextEntryButton":
       case "gamepadPrevEntryButton":
       case "gamepadAutoConfirmSelection":
