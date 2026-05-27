@@ -76,6 +76,7 @@ def build_screenshot_tab(window: ConfigWindow, i18n: dict) -> QWidget:
 
     animated_layout = QFormLayout()
     animated_layout.addRow(QLabel("FPS (10-30):"), window.animated_fps_spin)
+    animated_layout.addRow(QLabel("Codec:"), window.animated_codec_combo)
     animated_layout.addRow(QLabel("Quality (0-10):"), window.animated_quality_spin)
     window.animated_settings_group.setLayout(animated_layout)
     layout.addRow(window.animated_settings_group)

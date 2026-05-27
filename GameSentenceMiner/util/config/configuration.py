@@ -103,6 +103,13 @@ DEBUG = "DEBUG"
 
 DEFAULT_CONFIG = "Default"
 
+ANIMATED_SCREENSHOT_CODEC_DEFAULT = "libsvtav1"
+ANIMATED_SCREENSHOT_CODEC_LABELS = {
+    "libsvtav1": "libsvtav1 (fast)",
+    "libaom-av1": "libaom-av1 (slow, but higher quality, not recommended)",
+}
+ANIMATED_SCREENSHOT_CODECS = tuple(ANIMATED_SCREENSHOT_CODEC_LABELS.keys())
+
 current_game = ""
 
 supported_formats = {
@@ -969,12 +976,15 @@ class ProcessPausing:
 class AnimatedScreenshotSettings:
     fps: int = 15  # max 30
     extension: str = "avif"  # 'webp'
+    codec: str = ANIMATED_SCREENSHOT_CODEC_DEFAULT
     quality: int = 8  # 0-10
     scaled_quality: int = 10  # 0-90 for webp, 10-45 for avif
 
     def __post_init__(self):
         # Disable webp due to it being garbage
         self.extension = "avif"
+        if self.codec not in ANIMATED_SCREENSHOT_CODECS:
+            self.codec = ANIMATED_SCREENSHOT_CODEC_DEFAULT
         self.scaled_quality = self._scale_quality(self.quality, self.extension)
 
     def _scale_quality(self, q: int, codec: str) -> int:

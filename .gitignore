@@ -135,3 +135,5 @@ electron-src/assets/prerelease.json
 /.sugoi_hook
 /.LunaTranslator
 /.agent_scripts
+/.history
+/.owocr

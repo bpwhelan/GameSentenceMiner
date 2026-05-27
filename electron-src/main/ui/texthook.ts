@@ -43,6 +43,7 @@ const execFileAsync = promisify(execFile);
 
 export type TextHookEngine = 'textractor' | 'luna' | 'agent';
 export type TextHookArchitecture = 'x86' | 'x64';
+type DetectedTextHookArchitecture = TextHookArchitecture | 'unknown';
 
 export interface TextHookProfile {
     /** Lower-case executable name (e.g. "game.exe") used as the lookup key. */
@@ -74,6 +75,8 @@ interface ActiveSession {
     proc: ChildProcessWithoutNullStreams;
     engine: Exclude<TextHookEngine, 'agent'>;
     arch: TextHookArchitecture;
+    architectureFallbackAttempted: boolean;
+    recoveringArchitectureMismatch: boolean;
     pid: number;
     exeName: string;
     selectedHookId: string | null;
@@ -157,6 +160,11 @@ function emitLog(message: string, level: 'info' | 'error' | 'warn' = 'info'): vo
     emitToRenderer('texthook.log', { message, level, ts: Date.now() });
 }
 
+function emitEngineLog(message: string, level: 'info' | 'error' | 'warn' = 'info'): void {
+    const trimmed = message.trim();
+    emitLog(trimmed.startsWith('[Engine]') ? trimmed : `[Engine] ${trimmed}`, level);
+}
+
 function emitHooks(): void {
     if (!session) {
         emitToRenderer('texthook.hooks', { hooks: [], selectedHookId: null });
@@ -195,53 +203,144 @@ interface ProcessEntry {
     arch: TextHookArchitecture;
 }
 
-/** Read the PE header from disk to determine bitness — same approach as auto_launcher.ts. */
-function readPortableExecutableBitness(executablePath: string): TextHookArchitecture {
+function normalizeDetectedArchitecture(value: string): DetectedTextHookArchitecture {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'x86' || normalized === 'x64') return normalized;
+    return 'unknown';
+}
+
+function chooseEngineArchitecture(arch: DetectedTextHookArchitecture, pid: number): TextHookArchitecture {
+    if (arch === 'x86' || arch === 'x64') return arch;
+    emitLog(`Could not determine architecture for PID ${pid}; trying x64 first.`, 'warn');
+    return 'x64';
+}
+
+/** Read the PE header from disk to determine bitness. */
+function readPortableExecutableBitness(executablePath: string): DetectedTextHookArchitecture {
     let fd: number | null = null;
     try {
         fd = fs.openSync(executablePath, 'r');
         const dosHeader = Buffer.alloc(64);
         fs.readSync(fd, dosHeader, 0, 64, 0);
-        if (dosHeader.readUInt16LE(0) !== 0x5a4d) return 'x64'; // not MZ
+        if (dosHeader.readUInt16LE(0) !== 0x5a4d) return 'unknown';
         const peOffset = dosHeader.readUInt32LE(0x3c);
         const peHeader = Buffer.alloc(6);
         fs.readSync(fd, peHeader, 0, 6, peOffset);
-        if (peHeader.toString('ascii', 0, 4) !== 'PE\u0000\u0000') return 'x64';
+        if (peHeader.toString('ascii', 0, 4) !== 'PE\u0000\u0000') return 'unknown';
         const machine = peHeader.readUInt16LE(4);
-        return machine === 0x14c ? 'x86' : 'x64';
+        if (machine === 0x14c) return 'x86';
+        if (machine === 0x8664) return 'x64';
+        return 'unknown';
     } catch {
-        return 'x64';
+        return 'unknown';
     } finally {
         if (fd !== null) { try { fs.closeSync(fd); } catch { /* ignore */ } }
     }
 }
 
-/** Resolve the on-disk path for a running PID via PowerShell Get-Process.Path. */
-async function getProcessExecutablePath(pid: number): Promise<string | null> {
-    if (!isWindows() || pid <= 0) return null;
-    const cmd = `$p=Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if ($p -and $p.Path) { $p.Path }`;
+async function detectProcessArchWithWindowsApi(pid: number): Promise<DetectedTextHookArchitecture> {
+    if (!isWindows() || pid <= 0) return 'unknown';
+    const cmd = `
+$ErrorActionPreference = "SilentlyContinue"
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class NativeProcessBitness {
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern IntPtr OpenProcess(UInt32 dwDesiredAccess, bool bInheritHandle, UInt32 dwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("kernel32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWow64Process(IntPtr hProcess, out bool wow64Process);
+
+    [DllImport("kernel32.dll", SetLastError=true, EntryPoint="IsWow64Process2")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWow64Process2(IntPtr hProcess, out UInt16 processMachine, out UInt16 nativeMachine);
+}
+"@
+$h = [NativeProcessBitness]::OpenProcess(0x1000, $false, [uint32]${pid})
+if ($h -eq [IntPtr]::Zero) { "unknown"; exit }
+try {
+    $processMachine = [uint16]0
+    $nativeMachine = [uint16]0
+    try {
+        if ([NativeProcessBitness]::IsWow64Process2($h, [ref]$processMachine, [ref]$nativeMachine)) {
+            if ($processMachine -eq 0x14c) { "x86"; exit }
+            if ($processMachine -eq 0x8664) { "x64"; exit }
+            if ($processMachine -eq 0 -and $nativeMachine -eq 0x14c) { "x86"; exit }
+            if ($processMachine -eq 0 -and $nativeMachine -eq 0x8664) { "x64"; exit }
+            "unknown"; exit
+        }
+    } catch {}
+
+    $wow64 = $false
+    if ([NativeProcessBitness]::IsWow64Process($h, [ref]$wow64)) {
+        if ($wow64) { "x86" }
+        elseif ([Environment]::Is64BitOperatingSystem) { "x64" }
+        else { "x86" }
+    } else {
+        "unknown"
+    }
+} finally {
+    [void][NativeProcessBitness]::CloseHandle($h)
+}
+`;
     try {
         const { stdout } = await execFileAsync(
             'powershell',
-            ['-NoLogo', '-NoProfile', '-Command', cmd],
-            { windowsHide: true, timeout: 4000 },
+            ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', cmd],
+            { windowsHide: true, timeout: 4000, encoding: 'utf8' },
         );
-        const p = stdout.trim();
-        return p.length > 0 ? p : null;
+        const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        return normalizeDetectedArchitecture(lines[lines.length - 1] ?? '');
+    } catch {
+        return 'unknown';
+    }
+}
+
+/** Resolve the on-disk path for a running PID via PowerShell process metadata. */
+async function getProcessExecutablePath(pid: number): Promise<string | null> {
+    if (!isWindows() || pid <= 0) return null;
+    const cmd = `
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue
+if ($p -and $p.Path) { $p.Path; exit }
+$c = Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" -ErrorAction SilentlyContinue
+if ($c -and $c.ExecutablePath) { $c.ExecutablePath; exit }
+`;
+    try {
+        const { stdout } = await execFileAsync(
+            'powershell',
+            ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', cmd],
+            { windowsHide: true, timeout: 4000, encoding: 'utf8' },
+        );
+        const p = stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+        return p && p.length > 0 ? p : null;
     } catch {
         return null;
     }
 }
 
 /**
- * Detect process architecture by reading the PE header from the executable on
- * disk. Mirrors the same logic used in auto_launcher.ts getPortableExecutableBitness.
+ * Detect process architecture from the running process first, then fall back to
+ * the executable PE header. Reading the live process avoids treating inaccessible
+ * executable paths as x64.
  */
 async function detectProcessArch(pid: number): Promise<TextHookArchitecture> {
     if (!isWindows()) return 'x64';
+    const liveArch = await detectProcessArchWithWindowsApi(pid);
+    if (liveArch !== 'unknown') return liveArch;
     const exePath = await getProcessExecutablePath(pid);
-    if (exePath) return readPortableExecutableBitness(exePath);
-    return 'x64';
+    if (exePath) {
+        const peArch = readPortableExecutableBitness(exePath);
+        if (peArch !== 'unknown') return peArch;
+    }
+    return chooseEngineArchitecture('unknown', pid);
 }
 
 /**
@@ -489,6 +588,43 @@ function isIgnoredTextractorHook(fn: string, hookCode: string): boolean {
     return fn === 'Console' || fn === 'Clipboard' || hookCode === 'HB0@0';
 }
 
+function getRequiredArchitectureFromMismatchMessage(message: string): TextHookArchitecture | null {
+    const match = /\barchitecture mismatch:\s*only\s+(?:[A-Za-z0-9_.-]+\s+)*(x86|x64)\s+can inject\b/i.exec(
+        message,
+    );
+    if (!match) return null;
+    return match[1].toLowerCase() as TextHookArchitecture;
+}
+
+function handleArchitectureMismatchMessage(
+    message: string,
+    currentSession: ActiveSession | null = session,
+): boolean {
+    const requiredArch = getRequiredArchitectureFromMismatchMessage(message);
+    if (!requiredArch) return false;
+
+    emitEngineLog(message, 'warn');
+    if (!currentSession || session !== currentSession) return true;
+    currentSession.lastHookForContinuation = null;
+    if (currentSession.arch === requiredArch) {
+        emitLog(
+            `Ignoring stale architecture mismatch message because ${currentSession.engine} is already running as ${requiredArch}.`,
+            'warn',
+        );
+        return true;
+    }
+    if (currentSession.architectureFallbackAttempted || currentSession.recoveringArchitectureMismatch) {
+        emitLog('Hook engine architecture recovery already ran once for this session.', 'error');
+        return true;
+    }
+
+    const failedSession = currentSession;
+    failedSession.recoveringArchitectureMismatch = true;
+    emitLog(`Restarting ${failedSession.engine} as ${requiredArch} for PID ${failedSession.pid}.`, 'warn');
+    void restartSessionWithArchitecture(failedSession, requiredArch);
+    return true;
+}
+
 function parseLunaContext(hookNumber: string, context: string): { id: string; function: string } {
     const parts = context.split(':');
     const functionName = parts.length > 5 ? parts[5] : parts[parts.length - 2] || 'Unknown';
@@ -507,55 +643,57 @@ function eraseTextHookNoise(text: string): string {
 // Output parsing (UTF-16LE)
 // ---------------------------------------------------------------------------
 
-function decodeStdout(chunk: Buffer): string {
-    if (!session) return '';
-    const buf = Buffer.concat([session.stdoutCarry, chunk]);
+function decodeStdout(currentSession: ActiveSession, chunk: Buffer): string {
+    const buf = Buffer.concat([currentSession.stdoutCarry, chunk]);
     // Keep a trailing odd byte for the next round so we never split a UTF-16 unit.
     const usableLen = buf.length - (buf.length % 2);
     const decoded = buf.slice(0, usableLen).toString('utf16le');
-    session.stdoutCarry = buf.slice(usableLen);
+    currentSession.stdoutCarry = buf.slice(usableLen);
     return decoded;
 }
 
-function consumeLines(text: string): string[] {
-    if (!session) return [];
-    const combined = session.lineCarry + text;
+function consumeLines(currentSession: ActiveSession, text: string): string[] {
+    const combined = currentSession.lineCarry + text;
     const lines = combined.split(/\r?\n/);
-    session.lineCarry = lines.pop() ?? '';
+    currentSession.lineCarry = lines.pop() ?? '';
     return lines.map((l) => l.replace(/\u0000+$/, ''));
 }
 
-function handleStdoutChunk(chunk: Buffer): void {
-    if (!session) return;
-    const decoded = decodeStdout(chunk);
+function handleStdoutChunk(chunk: Buffer, currentSession: ActiveSession): void {
+    if (session !== currentSession) return;
+    const decoded = decodeStdout(currentSession, chunk);
     if (!decoded) return;
-    const lines = consumeLines(decoded);
+    const lines = consumeLines(currentSession, decoded);
     for (const raw of lines) {
+        if (session !== currentSession) return;
         const line = raw.trim();
         if (!line) continue;
-        handleLine(line);
+        handleLine(line, currentSession);
     }
 }
 
-function handleLine(line: string): void {
-    if (!session) return;
+function handleLine(line: string, currentSession: ActiveSession): void {
+    if (session !== currentSession) return;
     if (isIgnorableEngineLine(line)) {
-        session.lastHookForContinuation = null;
+        currentSession.lastHookForContinuation = null;
         return;
     }
+    if (handleArchitectureMismatchMessage(line, currentSession)) return;
 
     const consoleMatch = CONSOLE_LINE.exec(line);
     if (consoleMatch) {
-        emitLog(`[Engine] ${consoleMatch[1]}`);
-        session.lastHookForContinuation = null;
+        const message = consoleMatch[1];
+        if (handleArchitectureMismatchMessage(message, currentSession)) return;
+        emitEngineLog(message);
+        currentSession.lastHookForContinuation = null;
         return;
     }
 
-    if (session.engine === 'textractor') {
+    if (currentSession.engine === 'textractor') {
         const m = TEXTRACTOR_HOOK_LINE.exec(line);
         if (!m) {
-            if (session.lastHookForContinuation && !line.startsWith('[')) {
-                const last = session.lastHookForContinuation;
+            if (currentSession.lastHookForContinuation && !line.startsWith('[')) {
+                const last = currentSession.lastHookForContinuation;
                 if (!last.ignored) {
                     recordHookEvent(last.id, last.function, line);
                 }
@@ -563,19 +701,20 @@ function handleLine(line: string): void {
             }
             // Log raw unmatched output so format issues can be diagnosed.
             emitLog(`[raw] ${line}`);
-            session.lastHookForContinuation = null;
+            currentSession.lastHookForContinuation = null;
             return;
         }
         const fn = m[6];
         const hookCode = m[7];
         const text = m[8];
         if (fn === 'Console') {
-            emitLog(`[Engine] ${text}`);
-            session.lastHookForContinuation = null;
+            if (handleArchitectureMismatchMessage(text, currentSession)) return;
+            emitEngineLog(text);
+            currentSession.lastHookForContinuation = null;
             return;
         }
         const ignored = isIgnoredTextractorHook(fn, hookCode);
-        session.lastHookForContinuation = { id: m[1], function: fn, ignored };
+        currentSession.lastHookForContinuation = { id: m[1], function: fn, ignored };
         if (!ignored) {
             recordHookEvent(m[1], fn, text);
         }
@@ -583,22 +722,22 @@ function handleLine(line: string): void {
         const created = LUNA_HOOK_CREATED_LINE.exec(line);
         if (created) {
             recordHookEvent(created[1], `Hook #${created[1]}`, '');
-            session.lastHookForContinuation = null;
+            currentSession.lastHookForContinuation = null;
             return;
         }
         const m = LUNA_HOOK_LINE.exec(line);
         if (!m) {
-            if (session.lastHookForContinuation && !line.startsWith('[')) {
-                const last = session.lastHookForContinuation;
+            if (currentSession.lastHookForContinuation && !line.startsWith('[')) {
+                const last = currentSession.lastHookForContinuation;
                 recordHookEvent(last.id, last.function, line);
                 return;
             }
             emitLog(`[raw] ${line}`);
-            session.lastHookForContinuation = null;
+            currentSession.lastHookForContinuation = null;
             return;
         }
         const parsed = parseLunaContext(m[1], m[2]);
-        session.lastHookForContinuation = { id: parsed.id, function: parsed.function, ignored: false };
+        currentSession.lastHookForContinuation = { id: parsed.id, function: parsed.function, ignored: false };
         recordHookEvent(parsed.id, parsed.function, m[3]);
     }
 }
@@ -795,6 +934,10 @@ export interface StartHookOptions {
     agentScriptPath?: string | null;
     /** Override the auto-detected PID (mainly for tests). */
     pidOverride?: number;
+    /** Internal recovery path: force a specific hook engine architecture. */
+    archOverride?: TextHookArchitecture;
+    /** Internal recovery path: prevent architecture retry loops. */
+    architectureFallbackAttempted?: boolean;
 }
 
 export interface StartHookResult {
@@ -827,14 +970,17 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         exeName = capture.exeName;
     }
 
-    const target =
+    const archOverride =
+        options.archOverride === 'x86' || options.archOverride === 'x64' ? options.archOverride : null;
+    const foundTarget =
         typeof options.pidOverride === 'number' && options.pidOverride > 0
             ? {
                   pid: options.pidOverride,
                   exeName,
-                  arch: await detectProcessArch(options.pidOverride),
+                  arch: archOverride ?? (await detectProcessArch(options.pidOverride)),
               }
             : await findProcessByExeName(exeName);
+    const target = foundTarget && archOverride ? { ...foundTarget, arch: archOverride } : foundTarget;
     if (!target) {
         return {
             success: false,
@@ -886,6 +1032,8 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         proc,
         engine,
         arch: target.arch,
+        architectureFallbackAttempted: options.architectureFallbackAttempted === true,
+        recoveringArchitectureMismatch: false,
         pid: target.pid,
         exeName,
         selectedHookId: null,
@@ -904,13 +1052,25 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         flushDelayMs,
     };
 
-    proc.stdout.on('data', handleStdoutChunk);
-    proc.stderr.on('data', (data: Buffer) => emitLog(`[stderr] ${data.toString('utf-8')}`, 'warn'));
+    proc.stdout.on('data', (chunk: Buffer) => {
+        const currentSession = session;
+        if (!currentSession || currentSession.proc !== proc) return;
+        handleStdoutChunk(chunk, currentSession);
+    });
+    proc.stderr.on('data', (data: Buffer) => {
+        const currentSession = session;
+        if (!currentSession || currentSession.proc !== proc) return;
+        const message = data.toString('utf-8').trim();
+        if (message && handleArchitectureMismatchMessage(message, currentSession)) return;
+        emitLog(`[stderr] ${message}`, 'warn');
+    });
     proc.on('exit', (code, signal) => {
+        if (!session || session.proc !== proc) return;
         emitLog(`Hook engine exited (code=${code ?? 'null'} signal=${signal ?? 'null'}).`);
         teardownSession();
     });
     proc.on('error', (err) => {
+        if (!session || session.proc !== proc) return;
         emitLog(`Hook engine error: ${err.message}`, 'error');
     });
 
@@ -967,6 +1127,34 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
     emitStatus();
     emitHooks();
     return { success: true, pid: target.pid, exeName, arch: target.arch };
+}
+
+async function restartSessionWithArchitecture(
+    failedSession: ActiveSession,
+    arch: TextHookArchitecture,
+): Promise<void> {
+    const { engine, exeName, pid, flushDelayMs } = failedSession;
+    if (session !== failedSession) return;
+
+    teardownSession();
+    const result = await startHookSession({
+        engine,
+        exeName,
+        pidOverride: pid,
+        flushDelayMs,
+        archOverride: arch,
+        architectureFallbackAttempted: true,
+    });
+    if (result.success) {
+        emitLog(`Recovered by attaching ${engine} (${arch}) to ${exeName} (PID ${pid}).`);
+    } else {
+        emitLog(
+            `Failed to recover with ${engine} (${arch}) for ${exeName} (PID ${pid}): ${
+                result.error ?? 'unknown error'
+            }`,
+            'error',
+        );
+    }
 }
 
 function teardownSession(): void {
@@ -1260,6 +1448,8 @@ export const __test = {
     sanitizeFilename,
     isValidHookCode,
     isIgnorableEngineLine,
+    getRequiredArchitectureFromMismatchMessage,
+    readPortableExecutableBitness,
     eraseTextHookNoise,
     normalizeFlushDelayMs,
     mergeTextHookOutput,

@@ -87,6 +87,7 @@ from GameSentenceMiner.ocr.gsm_ocr_config import (
 )
 from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.config.configuration import (
+    ANIMATED_SCREENSHOT_CODEC_LABELS,
     Config,
     Locale,
     is_gsm_cloud_ai_preview_enabled,
@@ -875,7 +876,7 @@ class ConfigWindow(QWidget):
                     trim_black_bars_wip=self.trim_black_bars_check.isChecked(),
                     animated_settings=AnimatedScreenshotSettings(
                         fps=max(10, min(30, self.animated_fps_spin.value())),
-                        # extension=self.animated_extension_combo.currentText(),
+                        codec=str(self.animated_codec_combo.currentData() or self.animated_codec_combo.currentText()),
                         quality=max(0, min(10, self.animated_quality_spin.value())),
                     ),
                 ),
@@ -1358,7 +1359,7 @@ class ConfigWindow(QWidget):
         # Animated Screenshot Settings
         self.animated_fps_spin = QSpinBox()
         self.animated_fps_spin.setRange(10, 30)
-        # self.animated_extension_combo = QComboBox()
+        self.animated_codec_combo = QComboBox()
         self.animated_quality_spin = QSpinBox()
         self.animated_quality_spin.setRange(0, 10)
         self.animated_settings_group = QGroupBox()
@@ -2838,9 +2839,15 @@ class ConfigWindow(QWidget):
 
         # Animated Screenshot Settings
         self.animated_fps_spin.setValue(max(10, min(30, s.screenshot.animated_settings.fps)))
-        # self.animated_extension_combo.clear()
-        # self.animated_extension_combo.addItems(['avif'])
-        # self.animated_extension_combo.setCurrentText(s.screenshot.animated_settings.extension)
+        self.animated_codec_combo.clear()
+        for codec, label in ANIMATED_SCREENSHOT_CODEC_LABELS.items():
+            self.animated_codec_combo.addItem(label, codec)
+        codec_index = self.animated_codec_combo.findData(
+            getattr(s.screenshot.animated_settings, "codec", next(iter(ANIMATED_SCREENSHOT_CODEC_LABELS)))
+        )
+        if codec_index < 0:
+            codec_index = 0
+        self.animated_codec_combo.setCurrentIndex(codec_index)
         self.animated_quality_spin.setValue(max(0, min(10, s.screenshot.animated_settings.quality)))
 
         # Update visibility of animated settings

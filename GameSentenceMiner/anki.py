@@ -19,6 +19,7 @@ from GameSentenceMiner import obs
 from GameSentenceMiner.mecab import mecab
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.util.config.configuration import (
+    ANIMATED_SCREENSHOT_CODEC_DEFAULT,
     CommonLanguages,
     ProfileConfig,
     get_config,
@@ -64,6 +65,10 @@ def _get_ai_prompt_result():
     from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
 
     return get_ai_prompt_result
+
+
+def _animated_screenshot_codec(settings) -> str:
+    return getattr(settings, "codec", ANIMATED_SCREENSHOT_CODEC_DEFAULT)
 
 
 # Global variables to track state
@@ -815,6 +820,7 @@ def _start_animated_screenshot_prefetch(assets: MediaAssets, config):
                 assets.animated_vad_start,
                 assets.animated_vad_end,
                 codec=settings.extension,
+                av1_encoder=_animated_screenshot_codec(settings),
                 quality=settings.scaled_quality,
                 fps=settings.fps,
                 audio=False,
@@ -1325,6 +1331,7 @@ def _generate_animated_screenshot_for_window(assets: MediaAssets, config, timing
             timing_window[0],
             timing_window[1],
             codec=settings.extension,
+            av1_encoder=_animated_screenshot_codec(settings),
             quality=settings.scaled_quality,
             fps=settings.fps,
             audio=False,
@@ -1336,6 +1343,7 @@ def _generate_animated_screenshot_for_window(assets: MediaAssets, config, timing
         assets.animated_vad_start,
         assets.animated_vad_end,
         codec=settings.extension,
+        av1_encoder=_animated_screenshot_codec(settings),
         quality=settings.scaled_quality,
         fps=settings.fps,
         audio=False,
@@ -1373,6 +1381,7 @@ def _trim_prefetched_animated_screenshot(
         start_offset=start_offset,
         duration=duration,
         codec=settings.extension,
+        av1_encoder=_animated_screenshot_codec(settings),
         quality=settings.scaled_quality,
         fps=settings.fps,
     )
@@ -1465,6 +1474,7 @@ def _process_video(
             assets.video_params["vad_start"],
             assets.video_params["vad_end"],
             codec=settings.extension,
+            av1_encoder=_animated_screenshot_codec(settings),
             quality=settings.scaled_quality,
             fps=settings.fps,
             audio=True,

@@ -1,9 +1,11 @@
 import json
 import os
 import platform
+import re
 import requests
 import secrets
 import shutil
+import subprocess
 import tempfile
 import time
 import zipfile
@@ -25,6 +27,14 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_PROGRESS_MIN_INTERVAL_S = 0.25
 DOWNLOAD_PROGRESS_MIN_BYTES = 512 * 1024
 DOWNLOAD_PROGRESS_MIN_RATIO = 0.01
+FFMPEG_WINDOWS_X64_VERSION = "8.1.1"
+FFMPEG_WINDOWS_X64_BUILD = "full_build_shared"
+FFMPEG_WINDOWS_X64_URL = (
+    "https://github.com/GyanD/codexffmpeg/releases/download/8.1.1/ffmpeg-8.1.1-full_build-shared.zip"
+)
+FFMPEG_WINDOWS_ARM64_VERSION = "8.0"
+FFMPEG_WINDOWS_ARM64_BUILD = "essentials_shared"
+FFMPEG_WINDOWS_ARM64_URL = "https://gsm.beangate.us/ffmpeg-8.0-essentials-shared-win-arm64.zip"
 
 
 def report_install_progress(
@@ -433,80 +443,204 @@ def write_obs_configs(obs_path):
     write_default_scene_configs(obs_path)
 
 
+def get_ffmpeg_download_spec():
+    system = platform.system()
+    if system != "Windows":
+        return None
+
+    machine = platform.machine().lower()
+    if machine in ["arm64", "aarch64"]:
+        return {
+            "url": FFMPEG_WINDOWS_ARM64_URL,
+            "version": FFMPEG_WINDOWS_ARM64_VERSION,
+            "build": FFMPEG_WINDOWS_ARM64_BUILD,
+            "compressed_format": "zip",
+        }
+
+    return {
+        "url": FFMPEG_WINDOWS_X64_URL,
+        "version": FFMPEG_WINDOWS_X64_VERSION,
+        "build": FFMPEG_WINDOWS_X64_BUILD,
+        "compressed_format": "zip",
+    }
+
+
+def parse_ffmpeg_version_output(output):
+    version = None
+    version_match = re.search(r"\bffmpeg version\s+([^\s]+)", output, re.IGNORECASE)
+    if version_match:
+        numeric_match = re.search(r"\d+(?:\.\d+)+", version_match.group(1))
+        if numeric_match:
+            version = numeric_match.group(0)
+
+    build = None
+    output_lower = output.lower()
+    if "full_build" in output_lower:
+        build = (
+            "full_build_shared"
+            if "--enable-shared" in output_lower or "full_build-shared" in output_lower
+            else "full_build"
+        )
+    elif "essentials_build" in output_lower:
+        build = "essentials_build"
+    elif "essentials-shared" in output_lower or "essentials_shared" in output_lower:
+        build = "essentials_shared"
+
+    return version, build
+
+
+def get_installed_ffmpeg_info(ffmpeg_exe_path):
+    try:
+        result = subprocess.run(
+            [ffmpeg_exe_path, "-version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except Exception as e:
+        logger.debug(f"Failed to inspect installed FFmpeg at {ffmpeg_exe_path}: {e}")
+        return None, None
+
+    return parse_ffmpeg_version_output(f"{result.stdout}\n{result.stderr}")
+
+
+def is_ffmpeg_install_current(ffmpeg_dir, ffmpeg_exe_path, ffprobe_exe_path, spec):
+    if not os.path.exists(ffmpeg_dir) or not os.path.exists(ffmpeg_exe_path) or not os.path.exists(ffprobe_exe_path):
+        return False
+
+    installed_version, installed_build = get_installed_ffmpeg_info(ffmpeg_exe_path)
+    if installed_version == spec["version"] and installed_build == spec["build"]:
+        return True
+
+    logger.info(
+        "Installed FFmpeg does not match required bundle "
+        f"({installed_version or 'unknown'} {installed_build or 'unknown'} != {spec['version']} {spec['build']})."
+    )
+    return False
+
+
+def flatten_directory(directory):
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            file_path = os.path.join(root, file)
+            if root != directory:  # Only move files from subdirectories
+                target_path = os.path.join(directory, file)
+                # Handle name conflicts by keeping the first occurrence
+                if not os.path.exists(target_path):
+                    shutil.move(file_path, target_path)
+
+    for root, dirs, files in os.walk(directory, topdown=False):
+        for dir_name in dirs:
+            dir_path = os.path.join(root, dir_name)
+            try:
+                os.rmdir(dir_path)
+            except OSError:
+                pass  # Directory not empty
+
+
+def prune_ffmpeg_directory(directory):
+    allowed_files = {"ffmpeg.exe", "ffprobe.exe"}
+    for root, dirs, files in os.walk(directory, topdown=False):
+        for file in files:
+            file_name = file.lower()
+            if file_name not in allowed_files and not file_name.endswith(".dll"):
+                os.remove(os.path.join(root, file))
+
+        for dir_name in dirs:
+            dir_path = os.path.join(root, dir_name)
+            try:
+                os.rmdir(dir_path)
+            except OSError:
+                pass  # Directory not empty
+
+
+def extract_ffmpeg_archive(ffmpeg_archive, extract_dir, compressed_format):
+    if compressed_format == "7z":
+        import py7zr
+
+        with py7zr.SevenZipFile(ffmpeg_archive, mode="r") as z:
+            z.extractall(extract_dir)
+    else:
+        with zipfile.ZipFile(ffmpeg_archive, "r") as zip_ref:
+            zip_ref.extractall(extract_dir)
+
+
+def replace_directory_with_rollback(source_dir, target_dir):
+    backup_dir = f"{target_dir}.bak"
+    if os.path.exists(backup_dir):
+        shutil.rmtree(backup_dir)
+
+    moved_existing = False
+    if os.path.exists(target_dir):
+        shutil.move(target_dir, backup_dir)
+        moved_existing = True
+
+    try:
+        shutil.move(source_dir, target_dir)
+    except Exception:
+        if moved_existing and not os.path.exists(target_dir) and os.path.exists(backup_dir):
+            shutil.move(backup_dir, target_dir)
+        raise
+
+    if moved_existing and os.path.exists(backup_dir):
+        try:
+            shutil.rmtree(backup_dir)
+        except Exception as e:
+            logger.debug(f"FFmpeg was updated, but the old backup at {backup_dir} could not be removed: {e}")
+
+
+def install_ffmpeg_archive(ffmpeg_archive, ffmpeg_dir, spec):
+    temp_ffmpeg_dir = f"{ffmpeg_dir}.tmp"
+    if os.path.exists(temp_ffmpeg_dir):
+        shutil.rmtree(temp_ffmpeg_dir)
+    os.makedirs(temp_ffmpeg_dir, exist_ok=True)
+
+    try:
+        extract_ffmpeg_archive(ffmpeg_archive, temp_ffmpeg_dir, spec["compressed_format"])
+        flatten_directory(temp_ffmpeg_dir)
+
+        expected_ffmpeg = os.path.join(temp_ffmpeg_dir, "ffmpeg.exe")
+        expected_ffprobe = os.path.join(temp_ffmpeg_dir, "ffprobe.exe")
+        if not os.path.exists(expected_ffmpeg) or not os.path.exists(expected_ffprobe):
+            raise RuntimeError("Downloaded FFmpeg archive did not contain ffmpeg.exe and ffprobe.exe.")
+
+        prune_ffmpeg_directory(temp_ffmpeg_dir)
+        replace_directory_with_rollback(temp_ffmpeg_dir, ffmpeg_dir)
+    except Exception:
+        if os.path.exists(temp_ffmpeg_dir):
+            shutil.rmtree(temp_ffmpeg_dir)
+        raise
+
+
 def download_ffmpeg_if_needed(stage_id: Optional[str] = "ffmpeg"):
     ffmpeg_dir = os.path.join(get_app_directory(), "ffmpeg")
     ffmpeg_exe_path = get_ffmpeg_path()
     ffprobe_exe_path = get_ffprobe_path()
+    ffmpeg_spec = get_ffmpeg_download_spec()
 
-    if os.path.exists(ffmpeg_dir) and os.path.exists(ffmpeg_exe_path) and os.path.exists(ffprobe_exe_path):
+    if ffmpeg_spec is None:
+        raise RuntimeError("Unsupported OS/architecture. Please install FFmpeg manually.")
+
+    if is_ffmpeg_install_current(ffmpeg_dir, ffmpeg_exe_path, ffprobe_exe_path, ffmpeg_spec):
+        prune_ffmpeg_directory(ffmpeg_dir)
         logger.debug(f"FFmpeg already installed at {ffmpeg_dir}.")
         return "skipped"
 
     if os.path.exists(ffmpeg_dir) and (not os.path.exists(ffmpeg_exe_path) or not os.path.exists(ffprobe_exe_path)):
         logger.info("FFmpeg directory exists but executables are missing. Re-downloading FFmpeg...")
-        shutil.rmtree(ffmpeg_dir)
-
-    system = platform.system()
-    ffmpeg_url = None
-    compressed_format = "zip"
-    if system == "Windows":
-        machine = platform.machine().lower()
-        if machine in ["arm64", "aarch64"]:
-            ffmpeg_url = "https://gsm.beangate.us/ffmpeg-8.0-essentials-shared-win-arm64.zip"
-            compressed_format = "zip"
-        else:
-            ffmpeg_url = (
-                "https://github.com/GyanD/codexffmpeg/releases/download/8.0.1/ffmpeg-8.0.1-essentials_build.zip"
-            )
-            compressed_format = "zip"
-    # elif system == "Linux":
-    #     ffmpeg_url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
-    # elif system == "Darwin":
-    #     ffmpeg_url = "https://evermeet.cx/ffmpeg/ffmpeg.zip"
-
-    if ffmpeg_url is None:
-        raise RuntimeError("Unsupported OS/architecture. Please install FFmpeg manually.")
+    elif os.path.exists(ffmpeg_dir):
+        logger.info("FFmpeg is installed but does not match the required bundle. Upgrading FFmpeg...")
 
     download_dir = os.path.join(get_app_directory(), "downloads")
     os.makedirs(download_dir, exist_ok=True)
-    ffmpeg_archive = os.path.join(download_dir, f"ffmpeg.{compressed_format}")
+    ffmpeg_archive = os.path.join(download_dir, f"ffmpeg.{ffmpeg_spec['compressed_format']}")
 
-    if download_file(ffmpeg_url, ffmpeg_archive, stage_id=stage_id, message="Downloading FFmpeg..."):
+    if download_file(ffmpeg_spec["url"], ffmpeg_archive, stage_id=stage_id, message="Downloading FFmpeg..."):
         logger.info(f"FFmpeg downloaded. Extracting to {ffmpeg_dir}...")
 
-        os.makedirs(ffmpeg_dir, exist_ok=True)
-
-        # Extract archive
         try:
-            if ffmpeg_url.endswith(".7z"):
-                import py7zr
-
-                with py7zr.SevenZipFile(ffmpeg_archive, mode="r") as z:
-                    z.extractall(ffmpeg_dir)
-            else:
-                with zipfile.ZipFile(ffmpeg_archive, "r") as zip_ref:
-                    zip_ref.extractall(ffmpeg_dir)
-
-            # Flatten directory structure - move all files to root ffmpeg_dir
-            def flatten_directory(directory):
-                for root, dirs, files in os.walk(directory):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        if root != directory:  # Only move files from subdirectories
-                            target_path = os.path.join(directory, file)
-                            # Handle name conflicts by keeping the first occurrence
-                            if not os.path.exists(target_path):
-                                shutil.move(file_path, target_path)
-                # Remove empty subdirectories
-                for root, dirs, files in os.walk(directory, topdown=False):
-                    for dir_name in dirs:
-                        dir_path = os.path.join(root, dir_name)
-                        try:
-                            os.rmdir(dir_path)
-                        except OSError:
-                            pass  # Directory not empty
-
-            flatten_directory(ffmpeg_dir)
+            install_ffmpeg_archive(ffmpeg_archive, ffmpeg_dir, ffmpeg_spec)
             logger.success(f"FFmpeg extracted to {ffmpeg_dir}.")
             return "completed"
         except Exception as e:

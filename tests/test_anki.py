@@ -1643,6 +1643,7 @@ def test_process_animated_screenshot_trims_prefetched_subset(monkeypatch, tmp_pa
                 "start_offset": 1.0,
                 "duration": 2.0,
                 "codec": "avif",
+                "av1_encoder": "libsvtav1",
                 "quality": 20,
                 "fps": 15,
             },
@@ -1698,6 +1699,7 @@ def test_process_animated_screenshot_regenerates_when_target_expands_past_prefet
             15.25,
             {
                 "codec": "avif",
+                "av1_encoder": "libsvtav1",
                 "quality": 20,
                 "fps": 15,
                 "audio": False,
