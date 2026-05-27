@@ -878,6 +878,10 @@ class ConfigWindow(QWidget):
                         fps=max(10, min(30, self.animated_fps_spin.value())),
                         codec=str(self.animated_codec_combo.currentData() or self.animated_codec_combo.currentText()),
                         quality=max(0, min(10, self.animated_quality_spin.value())),
+                        max_width=max(0, min(3840, self.animated_max_width_spin.value())),
+                        adaptive_avif=self.animated_adaptive_avif_check.isChecked(),
+                        faststart=self.animated_faststart_check.isChecked(),
+                        encoder_fallback=self.animated_encoder_fallback_check.isChecked(),
                     ),
                 ),
                 audio=Audio(
@@ -1359,9 +1363,16 @@ class ConfigWindow(QWidget):
         # Animated Screenshot Settings
         self.animated_fps_spin = QSpinBox()
         self.animated_fps_spin.setRange(10, 30)
+        self.animated_max_width_spin = QSpinBox()
+        self.animated_max_width_spin.setRange(0, 3840)
+        self.animated_max_width_spin.setSingleStep(40)
+        self.animated_max_width_spin.setSpecialValueText("Source width")
         self.animated_codec_combo = QComboBox()
         self.animated_quality_spin = QSpinBox()
         self.animated_quality_spin.setRange(0, 10)
+        self.animated_adaptive_avif_check = QCheckBox()
+        self.animated_faststart_check = QCheckBox()
+        self.animated_encoder_fallback_check = QCheckBox()
         self.animated_settings_group = QGroupBox()
 
         # Discord Settings
@@ -2839,6 +2850,9 @@ class ConfigWindow(QWidget):
 
         # Animated Screenshot Settings
         self.animated_fps_spin.setValue(max(10, min(30, s.screenshot.animated_settings.fps)))
+        self.animated_max_width_spin.setValue(
+            max(0, min(3840, getattr(s.screenshot.animated_settings, "max_width", 960)))
+        )
         self.animated_codec_combo.clear()
         for codec, label in ANIMATED_SCREENSHOT_CODEC_LABELS.items():
             self.animated_codec_combo.addItem(label, codec)
@@ -2849,6 +2863,13 @@ class ConfigWindow(QWidget):
             codec_index = 0
         self.animated_codec_combo.setCurrentIndex(codec_index)
         self.animated_quality_spin.setValue(max(0, min(10, s.screenshot.animated_settings.quality)))
+        self.animated_adaptive_avif_check.setChecked(
+            bool(getattr(s.screenshot.animated_settings, "adaptive_avif", False))
+        )
+        self.animated_faststart_check.setChecked(bool(getattr(s.screenshot.animated_settings, "faststart", True)))
+        self.animated_encoder_fallback_check.setChecked(
+            bool(getattr(s.screenshot.animated_settings, "encoder_fallback", True))
+        )
 
         # Update visibility of animated settings
         self._update_animated_settings_visibility()

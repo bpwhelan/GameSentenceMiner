@@ -362,12 +362,22 @@ class BoundingBox:
 
 
 @dataclass
+class Symbol:
+    """Represents a single recognized character/symbol with its bounding box."""
+
+    text: str
+    bounding_box: BoundingBox
+    separator: Optional[str] = None  # The character(s) that follow the symbol, e.g., a space
+
+
+@dataclass
 class Word:
     """Represents a single recognized word and its properties."""
 
     text: str
     bounding_box: BoundingBox
     separator: Optional[str] = None  # The character(s) that follow the word, e.g., a space
+    symbols: Optional[List[Symbol]] = None  # Optional: character-level breakdown of the word
 
 
 @dataclass
@@ -377,6 +387,7 @@ class Line:
     bounding_box: BoundingBox
     words: List[Word] = field(default_factory=list)
     text: Optional[str] = None  # Optional: The entire text line, as reported by the OCR engine
+    writing_direction: Optional[str] = None  # Optional: e.g., "LEFT_TO_RIGHT", "TOP_TO_BOTTOM"
 
 
 @dataclass
@@ -411,6 +422,8 @@ class EngineCapabilities:
     line_bounding_boxes: bool
     paragraphs: bool
     paragraph_bounding_boxes: bool
+    symbols: bool = False
+    symbol_bounding_boxes: bool = False
 
 
 @dataclass

@@ -1001,6 +1001,9 @@ class TextFiltering:
         # Furigana filter sensitivity logic from config
         self.furigana_filter = get_furigana_filter_sensitivity() > 0
         self.debug_filtering = False
+        # Layout-analysis tuning flags (ported from upstream owocr)
+        self.support_center_aligned_text = True
+        self.merge_close_paragraphs = True
 
         self.kana_variants = {
             "ぁ": ["ぁ", "あ"],
@@ -1123,25 +1126,29 @@ class TextFiltering:
             filtered_text = self._convert_small_kana_to_big(filtered_text)
         return filtered_text
 
-    # --- Layout Analysis Methods from run_base.py ---
+    # --- Layout Analysis Methods (ported from upstream owocr) ---
 
     def order_paragraphs_and_lines(self, ocr_result):
         # Update sensitivity config
         self.furigana_filter = get_furigana_filter_sensitivity() > 0
 
-        # Extract all lines and determine their orientation
-        all_lines = []
-        for paragraph in ocr_result.paragraphs:
-            for line in paragraph.lines:
-                if line.text is None:
-                    line.text = self.get_line_text(line)
+        if self.debug_filtering:
+            for p in ocr_result.paragraphs:
+                lines_repr = []
+                for line in p.lines:
+                    line_text = self.get_line_text(line)
+                    if getattr(line, "writing_direction", None):
+                        lines_repr.append(f"{line_text} writing_direction: {line.writing_direction}")
+                    else:
+                        lines_repr.append(line_text)
+                logger.opt(colors=True).debug(
+                    "<red>Engine paragraph: '{}' writing_direction: '{}'</>",
+                    lines_repr,
+                    p.writing_direction,
+                )
 
-                if paragraph.writing_direction:
-                    is_vertical = paragraph.writing_direction == "TOP_TO_BOTTOM"
-                else:
-                    is_vertical = self._is_line_vertical(line, ocr_result.image_properties)
-
-                all_lines.append({"line_obj": line, "is_vertical": is_vertical})
+        # Wrap lines into dicts with extra metadata needed for reordering
+        all_lines = self._create_line_dicts(ocr_result)
 
         if not all_lines:
             return ocr_result
@@ -1167,13 +1174,59 @@ class TextFiltering:
             paragraphs=final_paragraphs,
         )
 
+    def _create_line_dicts(self, ocr_result):
+        lang = get_ocr_language()
+        lines = []
+        for paragraph in ocr_result.paragraphs:
+            for line in paragraph.lines:
+                if line.text is None:
+                    line.text = self.get_line_text(line)
+                if not line.text.strip():
+                    continue
+
+                normalized_text = "".join(self.cj_regex.findall(line.text))
+                has_jp_text = normalized_text != ""
+                has_kanji = has_jp_text and bool(self.kanji_regex.search(normalized_text))
+
+                line_writing_direction = getattr(line, "writing_direction", None)
+                if line_writing_direction:
+                    is_vertical = line_writing_direction == "TOP_TO_BOTTOM"
+                    is_rtl = line_writing_direction == "RIGHT_TO_LEFT"
+                elif paragraph.writing_direction:
+                    is_vertical = paragraph.writing_direction == "TOP_TO_BOTTOM"
+                    is_rtl = paragraph.writing_direction == "RIGHT_TO_LEFT"
+                else:
+                    is_vertical = self._is_line_vertical(line, ocr_result.image_properties)
+                    is_rtl = (not is_vertical) and lang in ("ar", "he")
+
+                line_dimension = line.bounding_box.height if is_vertical else line.bounding_box.width
+                char_count = len(line.text)
+                character_size = line_dimension / char_count if char_count > 0 else 0.0
+
+                lines.append(
+                    {
+                        "line_obj": line,
+                        "is_vertical": is_vertical,
+                        "is_rtl": is_rtl,
+                        "character_size": character_size,
+                        "has_jp_text": has_jp_text,
+                        "has_kanji": has_kanji,
+                        "is_furigana": False,
+                        "paragraph_id": None,
+                    }
+                )
+
+        return lines
+
     def _create_paragraphs_from_lines(self, lines):
         grouped = set()
         all_paragraphs = []
 
-        def _group_lines(is_vertical):
+        def _group_lines(is_vertical, is_rtl):
             indices = [
-                i for i, line in enumerate(lines) if (line["is_vertical"] in (is_vertical, None)) and i not in grouped
+                i
+                for i, line in enumerate(lines)
+                if (line["is_vertical"] in (is_vertical, None)) and (line["is_rtl"] == is_rtl) and i not in grouped
             ]
 
             if len(indices) < 2:
@@ -1182,6 +1235,9 @@ class TextFiltering:
             if is_vertical:
                 get_start = lambda l: l["line_obj"].bounding_box.top
                 get_end = lambda l: l["line_obj"].bounding_box.bottom
+            elif is_rtl:
+                get_start = lambda l: l["line_obj"].bounding_box.right
+                get_end = lambda l: l["line_obj"].bounding_box.left
             else:
                 get_start = lambda l: l["line_obj"].bounding_box.left
                 get_end = lambda l: l["line_obj"].bounding_box.right
@@ -1201,8 +1257,9 @@ class TextFiltering:
                     all_paragraphs.append(new_paragraph)
                     grouped.update(original_indices)
 
-        _group_lines(True)
-        _group_lines(False)
+        _group_lines(True, False)
+        _group_lines(False, True)
+        _group_lines(False, False)
 
         # Create paragraphs out of ungrouped lines
         ungrouped_lines = [line for i, line in enumerate(lines) if i not in grouped]
@@ -1238,52 +1295,84 @@ class TextFiltering:
                 height=bottom - top,
             )
 
-            writing_direction = "TOP_TO_BOTTOM" if is_vertical else "LEFT_TO_RIGHT"
+            if is_vertical:
+                writing_direction = "TOP_TO_BOTTOM"
+            elif lines[0]["is_rtl"]:
+                writing_direction = "RIGHT_TO_LEFT"
+            else:
+                writing_direction = "LEFT_TO_RIGHT"
         else:
             line_objs = [lines[0]["line_obj"]]
             new_bbox = lines[0]["line_obj"].bounding_box
-            writing_direction = "TOP_TO_BOTTOM" if lines[0]["is_vertical"] else "LEFT_TO_RIGHT"
+            if lines[0]["is_vertical"]:
+                writing_direction = "TOP_TO_BOTTOM"
+            elif lines[0]["is_rtl"]:
+                writing_direction = "RIGHT_TO_LEFT"
+            else:
+                writing_direction = "LEFT_TO_RIGHT"
 
         paragraph = Paragraph(bounding_box=new_bbox, lines=line_objs, writing_direction=writing_direction)
 
         if not merging_step:
-            character_size = self._calculate_character_size(lines, is_vertical)
+            if is_vertical:
+                largest_line = max(lines, key=lambda x: x["line_obj"].bounding_box.width)
+            else:
+                largest_line = max(lines, key=lambda x: x["line_obj"].bounding_box.height)
 
-            return {"paragraph_obj": paragraph, "character_size": character_size}
+            return {
+                "paragraph_obj": paragraph,
+                "character_size": largest_line["character_size"],
+            }
 
-        return paragraph
-
-    def _calculate_character_size(self, lines, is_vertical):
-        if is_vertical:
-            largest_line = max(lines, key=lambda x: x["line_obj"].bounding_box.width)
-            line_dimension = largest_line["line_obj"].bounding_box.height
-        else:
-            largest_line = max(lines, key=lambda x: x["line_obj"].bounding_box.height)
-            line_dimension = largest_line["line_obj"].bounding_box.width
-
-        char_count = len(self.get_line_text(largest_line["line_obj"]))
-
-        if char_count == 0:
-            return 0.0
-
-        return line_dimension / char_count
+        # When merging_step is True, don't allow mixing distinct original paragraphs
+        paragraph_ids = [line["paragraph_id"] for line in lines if line["paragraph_id"] is not None]
+        if len(set(paragraph_ids)) <= 1:
+            return paragraph
+        return None
 
     def _should_group_in_same_paragraph(self, line1, line2, is_vertical):
         bbox1 = line1["line_obj"].bounding_box
         bbox2 = line2["line_obj"].bounding_box
 
+        character_size = max(line1["character_size"], line2["character_size"])
+
         if is_vertical:
-            vertical_overlap = self._check_vertical_overlap(bbox1, bbox2)
             horizontal_distance = self._calculate_horizontal_distance(bbox1, bbox2)
             line_width = max(bbox1.width, bbox2.width)
 
-            return vertical_overlap > 0.1 and horizontal_distance < line_width * 2
-        else:
-            horizontal_overlap = self._check_horizontal_overlap(bbox1, bbox2)
-            vertical_distance = self._calculate_vertical_distance(bbox1, bbox2)
-            line_height = max(bbox1.height, bbox2.height)
+            if not (horizontal_distance < line_width * 2):
+                return False
 
-            return horizontal_overlap > 0.1 and vertical_distance < line_height * 2
+            if (bbox1.top - bbox2.top) < (2 * character_size):
+                return True
+        else:
+            vertical_distance = self._calculate_vertical_distance(bbox1, bbox2)
+            max_line_height = max(bbox1.height, bbox2.height)
+
+            if not (vertical_distance < max_line_height * 2):
+                return False
+
+            if line1["is_rtl"]:
+                coord1 = bbox2.right
+                coord2 = bbox1.right
+            else:
+                coord1 = bbox1.left
+                coord2 = bbox2.left
+
+            if (coord1 - coord2) < (2 * character_size):
+                return True
+
+            if self.support_center_aligned_text:
+                horizontal_overlap = self._check_horizontal_overlap(bbox1, bbox2)
+                if horizontal_overlap > 0.9:
+                    return True
+
+        # Last-chance: group when one line is furigana of the other
+        if len(self._furigana_filter([line1, line2], is_vertical)) == 1:
+            line1["is_furigana"] = True
+            return True
+
+        return False
 
     def _merge_overlapping_lines(self, lines, is_vertical):
         if len(lines) < 2:
@@ -1316,31 +1405,55 @@ class TextFiltering:
             if len(merge_group) > 1:
                 merged_line = self._merge_multiple_lines(merge_group, is_vertical)
                 merged.append(merged_line)
+                if self.debug_filtering:
+                    logger.opt(colors=True).debug(
+                        "<green>Merged lines: '{}' vertical: '{}'</>",
+                        [line["line_obj"].text for line in merge_group],
+                        is_vertical,
+                    )
             else:
                 merged.append(current_line)
 
         return merged
 
     def _merge_multiple_lines(self, lines, is_vertical):
+        is_rtl = lines[0]["is_rtl"]
+
         if is_vertical:
             # Sort lines by y-coordinate (top to bottom)
             sort_key = lambda line: line["line_obj"].bounding_box.center_y
+            reverse_sort = False
         else:
-            # Sort lines by x-coordinate (left to right)
+            # Sort lines by x-coordinate (right to left if RTL, else left to right)
             sort_key = lambda line: line["line_obj"].bounding_box.center_x
+            reverse_sort = is_rtl
 
-        lines = sorted(lines, key=sort_key)
+        lines = sorted(lines, key=sort_key, reverse=reverse_sort)
 
         text_sorted = ""
+        words_sorted = []
+        bboxes = []
+        no_space_size = 0.0
+        has_jp_text = False
+        has_kanji = False
+        is_furigana = False
         for line in lines:
             text_sorted += line["line_obj"].text
-
-        words_sorted = []
-        for line in lines:
             words_sorted.extend(line["line_obj"].words)
+            bboxes.append(line["line_obj"].bounding_box)
+            line_dimension = (
+                line["line_obj"].bounding_box.height if is_vertical else line["line_obj"].bounding_box.width
+            )
+            no_space_size += line_dimension
+            if line["has_jp_text"]:
+                has_jp_text = True
+            if line["is_furigana"] and not has_kanji:
+                is_furigana = True
+            if line["has_kanji"]:
+                is_furigana = False
+                has_kanji = True
 
-        # Calculate new bounding box that encompasses all lines
-        bboxes = [line["line_obj"].bounding_box for line in lines]
+        character_size = no_space_size / len(text_sorted) if text_sorted else 0.0
 
         left = min(bbox.left for bbox in bboxes)
         right = max(bbox.right for bbox in bboxes)
@@ -1357,7 +1470,16 @@ class TextFiltering:
         # Create new merged line
         merged_line = Line(bounding_box=new_bbox, words=words_sorted, text=text_sorted)
 
-        return {"line_obj": merged_line, "is_vertical": is_vertical}
+        return {
+            "line_obj": merged_line,
+            "is_vertical": is_vertical,
+            "is_rtl": is_rtl,
+            "character_size": character_size,
+            "has_jp_text": has_jp_text,
+            "has_kanji": has_kanji,
+            "is_furigana": is_furigana,
+            "paragraph_id": None,
+        }
 
     def _should_merge_lines(self, line1, line2, is_vertical):
         bbox1 = line1["line_obj"].bounding_box
@@ -1367,46 +1489,50 @@ class TextFiltering:
             horizontal_overlap = self._check_horizontal_overlap(bbox1, bbox2)
             vertical_overlap = self._check_vertical_overlap(bbox1, bbox2)
 
-            return horizontal_overlap > 0.7 and vertical_overlap < 0.4
+            return horizontal_overlap > 0.8 and vertical_overlap < 0.4
 
         else:
             vertical_overlap = self._check_vertical_overlap(bbox1, bbox2)
             horizontal_overlap = self._check_horizontal_overlap(bbox1, bbox2)
 
-            return vertical_overlap > 0.7 and horizontal_overlap < 0.4
+            return vertical_overlap > 0.8 and horizontal_overlap < 0.4
 
     def _furigana_filter(self, lines, is_vertical):
         filtered_lines = []
-
-        for line in lines:
-            line_text = self.get_line_text(line["line_obj"])
-            normalized_line_text = "".join(self.cj_regex.findall(line_text))
-            line["normalized_text"] = normalized_line_text
-        if all(not line["normalized_text"] for line in lines):
-            return lines
-
         for i, line in enumerate(lines):
             if i >= len(lines) - 1:
                 filtered_lines.append(line)
                 continue
 
-            current_line_text = self.get_line_text(line["line_obj"])
-            current_line_bbox = line["line_obj"].bounding_box
             next_line = lines[i + 1]
-            next_line_text = self.get_line_text(next_line["line_obj"])
+
+            if not (line["has_jp_text"] and next_line["has_jp_text"]):
+                filtered_lines.append(line)
+                continue
+            if line["has_kanji"]:
+                filtered_lines.append(line)
+                continue
+            if not next_line["has_kanji"]:
+                filtered_lines.append(line)
+                continue
+            if next_line["is_furigana"]:
+                filtered_lines.append(line)
+                continue
+            if line["is_furigana"]:
+                continue
+
+            current_line_text = line["line_obj"].text
+            current_line_bbox = line["line_obj"].bounding_box
+            next_line_text = next_line["line_obj"].text
             next_line_bbox = next_line["line_obj"].bounding_box
 
-            if not (line["normalized_text"] and next_line["normalized_text"]):
-                filtered_lines.append(line)
-                continue
-            has_kanji = self.kanji_regex.search(line["normalized_text"])
-            if has_kanji:
-                filtered_lines.append(line)
-                continue
-            next_has_kanji = self.kanji_regex.search(next_line["normalized_text"])
-            if not next_has_kanji:
-                filtered_lines.append(line)
-                continue
+            if self.debug_filtering:
+                logger.opt(colors=True).debug(
+                    "<magenta>Furigana check line: '{}' against line: '{}' vertical: '{}'</>",
+                    current_line_text,
+                    next_line_text,
+                    is_vertical,
+                )
 
             if is_vertical:
                 min_h_distance = abs(next_line_bbox.width - current_line_bbox.width) / 2
@@ -1415,6 +1541,12 @@ class TextFiltering:
 
                 horizontal_distance = current_line_bbox.center_x - next_line_bbox.center_x
                 vertical_overlap = self._check_vertical_overlap(current_line_bbox, next_line_bbox)
+
+                if self.debug_filtering:
+                    logger.opt(colors=True).debug(
+                        f"<magenta>Vertical position: min h.dist '{min_h_distance:.4f}' max h.dist '{max_h_distance:.4f}' "
+                        f"h.dist '{horizontal_distance:.4f}' v.overlap '{vertical_overlap:.4f}'</>"
+                    )
 
                 passed_position_check = (
                     min_h_distance < horizontal_distance < max_h_distance and vertical_overlap > min_v_overlap
@@ -1427,6 +1559,12 @@ class TextFiltering:
                 vertical_distance = next_line_bbox.center_y - current_line_bbox.center_y
                 horizontal_overlap = self._check_horizontal_overlap(current_line_bbox, next_line_bbox)
 
+                if self.debug_filtering:
+                    logger.opt(colors=True).debug(
+                        f"<magenta>Horizontal position: min v.dist '{min_v_distance:.4f}' max v.dist '{max_v_distance:.4f}' "
+                        f"v.dist '{vertical_distance:.4f}' h.overlap '{horizontal_overlap:.4f}'</>"
+                    )
+
                 passed_position_check = (
                     min_v_distance < vertical_distance < max_v_distance and horizontal_overlap > min_h_overlap
                 )
@@ -1436,17 +1574,32 @@ class TextFiltering:
                 continue
 
             if is_vertical:
-                width_threshold = next_line_bbox.width * 0.77
-                passed_size_check = current_line_bbox.width < width_threshold
+                height_threshold = next_line["character_size"] * 0.85
+                passed_size_check = line["character_size"] < height_threshold
+                if self.debug_filtering:
+                    logger.opt(colors=True).debug(
+                        f"<magenta>Vertical size: kanji '{next_line['character_size']:.4f}' "
+                        f"kana '{line['character_size']:.4f}' max kana '{height_threshold:.4f}'</>"
+                    )
             else:
                 height_threshold = next_line_bbox.height * 0.85
                 passed_size_check = current_line_bbox.height < height_threshold
+                if self.debug_filtering:
+                    logger.opt(colors=True).debug(
+                        f"<magenta>Horizontal height: kanji '{next_line_bbox.height:.4f}' "
+                        f"kana '{current_line_bbox.height:.4f}' max kana '{height_threshold:.4f}'</>"
+                    )
 
             if not passed_size_check:
                 filtered_lines.append(line)
                 continue
 
-            # Skip line (furigana detected)
+            if self.debug_filtering:
+                logger.opt(colors=True).debug(
+                    "<yellow>Detected furigana line: '{}' next to line: '{}'</>",
+                    current_line_text,
+                    next_line_text,
+                )
 
         return filtered_lines
 
@@ -1460,15 +1613,18 @@ class TextFiltering:
             vertical_distance = self._calculate_vertical_distance(bbox1, bbox2)
             horizontal_overlap = self._check_horizontal_overlap(bbox1, bbox2)
 
-            return vertical_distance <= 3 * character_size and horizontal_overlap > 0.4
+            return vertical_distance <= 2 * character_size and horizontal_overlap > 0.9
         else:
+            if paragraph1["paragraph_obj"].writing_direction != paragraph2["paragraph_obj"].writing_direction:
+                return False
+
             horizontal_distance = self._calculate_horizontal_distance(bbox1, bbox2)
             vertical_overlap = self._check_vertical_overlap(bbox1, bbox2)
 
-            return horizontal_distance <= 3 * character_size and vertical_overlap > 0.4
+            return horizontal_distance <= 3 * character_size and vertical_overlap > 0.9
 
     def _merge_close_paragraphs(self, paragraphs):
-        if len(paragraphs) < 2:
+        if (not self.merge_close_paragraphs) or len(paragraphs) < 2:
             return [p["paragraph_obj"] for p in paragraphs]
 
         merged_paragraphs = []
@@ -1506,8 +1662,23 @@ class TextFiltering:
                     merged_paragraphs.append(paragraphs[original_indices[0]]["paragraph_obj"])
                 else:
                     component_paragraphs = [paragraphs[i] for i in original_indices]
+                    if self.debug_filtering:
+                        logger.opt(colors=True).debug(
+                            "<green>Trying to merge paragraphs vertical: '{}'</>",
+                            is_vertical,
+                        )
+                        for p in component_paragraphs:
+                            logger.opt(colors=True).debug(
+                                "<green>    Paragraph: '{}'</>",
+                                [line.text for line in p["paragraph_obj"].lines],
+                            )
                     merged_paragraph = self._merge_multiple_paragraphs(component_paragraphs, is_vertical)
-                    merged_paragraphs.append(merged_paragraph)
+                    if merged_paragraph:
+                        if self.debug_filtering:
+                            logger.opt(colors=True).debug("<green>Merged paragraphs!</>")
+                        merged_paragraphs.append(merged_paragraph)
+                    else:
+                        merged_paragraphs.extend([p["paragraph_obj"] for p in component_paragraphs])
 
         _merge_paragraphs(True)
         _merge_paragraphs(False)
@@ -1516,19 +1687,33 @@ class TextFiltering:
 
     def _merge_multiple_paragraphs(self, paragraphs, is_vertical):
         merged_lines = []
+        paragraph_id = 0
         for p in paragraphs:
+            paragraph_id += 1
             for line in p["paragraph_obj"].lines:
-                merged_lines.append({"line_obj": line, "is_vertical": is_vertical})
+                merged_lines.append(
+                    {
+                        "line_obj": line,
+                        "is_vertical": is_vertical,
+                        "is_rtl": p["paragraph_obj"].writing_direction == "RIGHT_TO_LEFT",
+                        "character_size": 0.0,
+                        "has_jp_text": False,
+                        "has_kanji": False,
+                        "is_furigana": False,
+                        "paragraph_id": paragraph_id,
+                    }
+                )
 
         return self._create_paragraph_from_lines(merged_lines, is_vertical, True)
 
     def _group_paragraphs_into_rows(self, paragraphs):
         if len(paragraphs) < 2:
-            return [{"paragraphs": paragraphs, "is_vertical": False}]
+            is_vertical_or_rtl = paragraphs[0].writing_direction != "LEFT_TO_RIGHT" if paragraphs else False
+            return [{"paragraphs": paragraphs, "is_vertical_or_rtl": is_vertical_or_rtl}]
 
         components = self._find_connected_components(
             items=paragraphs,
-            should_connect=lambda p1, p2: self._check_vertical_overlap(p1.bounding_box, p2.bounding_box) > 0.4,
+            should_connect=lambda p1, p2: self._check_vertical_overlap(p1.bounding_box, p2.bounding_box) > 0.2,
             get_start_coord=lambda p: p.bounding_box.top,
             get_end_coord=lambda p: p.bounding_box.bottom,
         )
@@ -1536,10 +1721,10 @@ class TextFiltering:
         rows = []
         for component in components:
             row_paragraphs = [paragraphs[i] for i in component]
-            vertical_count = sum(1 for p in row_paragraphs if p.writing_direction == "TOP_TO_BOTTOM")
-            is_vertical = vertical_count * 2 >= len(row_paragraphs)
+            vertical_or_rtl_count = sum(1 for p in row_paragraphs if p.writing_direction != "LEFT_TO_RIGHT")
+            is_vertical_or_rtl = vertical_or_rtl_count * 2 >= len(row_paragraphs)
 
-            rows.append({"paragraphs": row_paragraphs, "is_vertical": is_vertical})
+            rows.append({"paragraphs": row_paragraphs, "is_vertical_or_rtl": is_vertical_or_rtl})
 
         return rows
 
@@ -1548,7 +1733,7 @@ class TextFiltering:
 
         for row in rows:
             paragraphs = row["paragraphs"]
-            is_vertical = row["is_vertical"]
+            is_vertical_or_rtl = row["is_vertical_or_rtl"]
 
             if len(paragraphs) < 2:
                 reordered_rows.append(row)
@@ -1557,33 +1742,33 @@ class TextFiltering:
             # Sort paragraphs by x-coordinate (left edge)
             paragraphs_sorted = sorted(paragraphs, key=lambda p: p.bounding_box.left)
 
-            if is_vertical:
-                # Reverse the entire order for predominantly vertical rows
+            if is_vertical_or_rtl:
+                # Reverse the entire order for predominantly vertical/RTL rows
                 paragraphs_sorted.reverse()
 
             # Further reorder contiguous blocks with different orientation
-            final_order = self._reorder_mixed_orientation_blocks(paragraphs_sorted, is_vertical)
+            final_order = self._reorder_mixed_orientation_blocks(paragraphs_sorted, is_vertical_or_rtl)
 
-            reordered_rows.append({"paragraphs": final_order, "is_vertical": is_vertical})
+            reordered_rows.append({"paragraphs": final_order, "is_vertical_or_rtl": is_vertical_or_rtl})
 
         return reordered_rows
 
-    def _reorder_mixed_orientation_blocks(self, paragraphs, row_is_vertical):
+    def _reorder_mixed_orientation_blocks(self, paragraphs, row_is_vertical_or_rtl):
         if len(paragraphs) < 2:
             return paragraphs
 
         result = []
         current_block = [paragraphs[0]]
-        current_orientation = paragraphs[0].writing_direction == "TOP_TO_BOTTOM"
+        current_orientation = paragraphs[0].writing_direction != "LEFT_TO_RIGHT"
 
         for para in paragraphs[1:]:
-            para_orientation = para.writing_direction == "TOP_TO_BOTTOM"
+            para_orientation = para.writing_direction != "LEFT_TO_RIGHT"
 
             if para_orientation == current_orientation:
                 current_block.append(para)
             else:
                 # Process the completed block
-                if current_orientation != row_is_vertical:
+                if current_orientation != row_is_vertical_or_rtl:
                     # Reverse blocks that don't match row orientation
                     current_block.reverse()
                 result.extend(current_block)
@@ -1593,7 +1778,7 @@ class TextFiltering:
                 current_orientation = para_orientation
 
         # Process the last block
-        if current_orientation != row_is_vertical:
+        if current_orientation != row_is_vertical_or_rtl:
             current_block.reverse()
         result.extend(current_block)
 
@@ -1601,6 +1786,19 @@ class TextFiltering:
 
     def _flatten_rows_to_paragraphs(self, rows):
         rows_sorted = sorted(rows, key=lambda r: min(p.bounding_box.top for p in r["paragraphs"]))
+
+        if self.debug_filtering:
+            for r in rows_sorted:
+                logger.opt(colors=True).debug(
+                    "<green>Row vertical_or_rtl: '{}'</>",
+                    r["is_vertical_or_rtl"],
+                )
+                for p in r["paragraphs"]:
+                    logger.opt(colors=True).debug(
+                        "<green>    Paragraph: '{}' writing_direction: '{}'</>",
+                        [line.text for line in p.lines],
+                        p.writing_direction,
+                    )
 
         all_paragraphs = []
         for row in rows_sorted:
@@ -1632,6 +1830,9 @@ class TextFiltering:
         bbox = line.bounding_box
         pixel_width = bbox.width * image_properties.width
         pixel_height = bbox.height * image_properties.height
+
+        if pixel_height <= 0:
+            return False
 
         aspect_ratio = pixel_width / pixel_height
         return aspect_ratio < 0.8

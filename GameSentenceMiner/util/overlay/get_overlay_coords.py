@@ -27,7 +27,7 @@ from GameSentenceMiner.ocr.image_scaling import (
     scale_pil_image,
     ScaledSize,
 )
-from GameSentenceMiner.owocr.owocr.run import apply_ocr_config_to_image
+from GameSentenceMiner.owocr.owocr.run import apply_ocr_config_to_image, TextFiltering
 from GameSentenceMiner.util.config.configuration import (
     OverlayEngine,
     get_config,
@@ -74,9 +74,19 @@ try:
         OneOCR,
         normalize_japanese_ocr_dashes,
         normalize_japanese_ocr_text_and_segments,
+        BoundingBox,
+        Word,
+        Line,
+        Paragraph,
+        ImageProperties,
+        EngineCapabilities,
+        OcrResult,
+        ocr_result_to_oneocr_tuple,
     )
 except ImportError:
     OneOCR = None
+    BoundingBox = Word = Line = Paragraph = ImageProperties = EngineCapabilities = OcrResult = None
+    ocr_result_to_oneocr_tuple = None
 
     def normalize_japanese_ocr_dashes(text):
         return text
@@ -1831,6 +1841,15 @@ class OverlayProcessor:
                 self.last_img_dimensions = full_screenshot.size
                 self.last_scan_window_offset = (off_x, off_y)
 
+                # Apply TextFiltering for paragraph reordering and furigana filtering
+                if get_overlay_config().use_text_filtering and response_dict:
+                    op_start = time.time()
+                    filtered = self._apply_text_filtering_to_results(response_dict, minimum_character_size)
+                    if filtered is not None:
+                        oneocr_results = filtered
+                        self.last_raw_results = copy.deepcopy(oneocr_results)
+                    self._log_timing(op_start, "TextFiltering (reorder + furigana filter)")
+
                 op_start = time.time()
                 oneocr_final = self._convert_oneocr_results_to_percentages(
                     oneocr_results,
@@ -2418,6 +2437,114 @@ class OverlayProcessor:
             "x4": center_x - half_w,
             "y4": center_y + half_h,
         }
+
+    def _apply_text_filtering_to_results(
+        self,
+        response_dict: Dict[str, Any],
+        furigana_filter_sensitivity: int = 0,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Applies TextFiltering (paragraph reordering, furigana filter) to raw OCR results.
+
+        Reconstructs an OcrResult from the response_dict, runs TextFiltering.order_paragraphs_and_lines(),
+        then re-flattens the result via ocr_result_to_oneocr_tuple.
+
+        Returns the reordered/filtered line dicts, or None if reconstruction fails.
+        """
+        if not response_dict or not OcrResult or not ocr_result_to_oneocr_tuple:
+            return None
+
+        try:
+            # Reconstruct OcrResult from asdict() output
+            img_props_dict = response_dict.get("image_properties", {})
+            img_props = ImageProperties(
+                width=img_props_dict.get("width", 0),
+                height=img_props_dict.get("height", 0),
+                x=img_props_dict.get("x"),
+                y=img_props_dict.get("y"),
+                window_handle=img_props_dict.get("window_handle"),
+                window_x=img_props_dict.get("window_x"),
+                window_y=img_props_dict.get("window_y"),
+            )
+
+            caps_dict = response_dict.get("engine_capabilities", {})
+            caps = EngineCapabilities(
+                words=caps_dict.get("words", False),
+                word_bounding_boxes=caps_dict.get("word_bounding_boxes", False),
+                lines=caps_dict.get("lines", False),
+                line_bounding_boxes=caps_dict.get("line_bounding_boxes", False),
+                paragraphs=caps_dict.get("paragraphs", False),
+                paragraph_bounding_boxes=caps_dict.get("paragraph_bounding_boxes", False),
+                symbols=caps_dict.get("symbols", False),
+                symbol_bounding_boxes=caps_dict.get("symbol_bounding_boxes", False),
+            )
+
+            paragraphs = []
+            for p_dict in response_dict.get("paragraphs", []):
+                p_bb = p_dict.get("bounding_box", {})
+                p_bbox = BoundingBox(
+                    center_x=p_bb.get("center_x", 0),
+                    center_y=p_bb.get("center_y", 0),
+                    width=p_bb.get("width", 0),
+                    height=p_bb.get("height", 0),
+                    rotation_z=p_bb.get("rotation_z"),
+                )
+                lines = []
+                for l_dict in p_dict.get("lines", []):
+                    l_bb = l_dict.get("bounding_box", {})
+                    l_bbox = BoundingBox(
+                        center_x=l_bb.get("center_x", 0),
+                        center_y=l_bb.get("center_y", 0),
+                        width=l_bb.get("width", 0),
+                        height=l_bb.get("height", 0),
+                        rotation_z=l_bb.get("rotation_z"),
+                    )
+                    words = []
+                    for w_dict in l_dict.get("words", []):
+                        w_bb = w_dict.get("bounding_box", {})
+                        w_bbox = BoundingBox(
+                            center_x=w_bb.get("center_x", 0),
+                            center_y=w_bb.get("center_y", 0),
+                            width=w_bb.get("width", 0),
+                            height=w_bb.get("height", 0),
+                            rotation_z=w_bb.get("rotation_z"),
+                        )
+                        words.append(Word(text=w_dict.get("text", ""), bounding_box=w_bbox))
+                    lines.append(
+                        Line(
+                            bounding_box=l_bbox,
+                            words=words,
+                            text=l_dict.get("text"),
+                            writing_direction=l_dict.get("writing_direction"),
+                        )
+                    )
+                paragraphs.append(
+                    Paragraph(
+                        bounding_box=p_bbox,
+                        lines=lines,
+                        writing_direction=p_dict.get("writing_direction"),
+                    )
+                )
+
+            ocr_result = OcrResult(
+                image_properties=img_props,
+                engine_capabilities=caps,
+                paragraphs=paragraphs,
+            )
+
+            # Apply TextFiltering
+            text_filter = TextFiltering(get_ocr_language())
+            filtered_result = text_filter.order_paragraphs_and_lines(ocr_result)
+
+            # Re-flatten to oneocr tuple format
+            _, _, filtered_lines, _, _, _ = ocr_result_to_oneocr_tuple(
+                (True, filtered_result),
+                furigana_filter_sensitivity=furigana_filter_sensitivity,
+            )
+
+            return filtered_lines
+        except Exception as e:
+            logger.debug(f"TextFiltering failed, falling back to unfiltered results: {e}")
+            return None
 
     def _convert_oneocr_results_to_percentages(
         self,

@@ -978,26 +978,41 @@ class AnimatedScreenshotSettings:
     extension: str = "avif"  # 'webp'
     codec: str = ANIMATED_SCREENSHOT_CODEC_DEFAULT
     quality: int = 8  # 0-10
-    scaled_quality: int = 10  # 0-90 for webp, 10-45 for avif
+    max_width: int = 960  # 0 disables scaling
+    adaptive_avif: bool = False
+    faststart: bool = True
+    encoder_fallback: bool = True
+    scaled_quality: int = 10  # 0-90 for webp, encoder-specific CRF for avif
 
     def __post_init__(self):
         # Disable webp due to it being garbage
         self.extension = "avif"
+        self.fps = max(1, min(60, int(self.fps or 15)))
+        self.quality = max(0, min(10, int(self.quality or 0)))
+        self.max_width = max(0, min(3840, int(self.max_width or 0)))
+        self.adaptive_avif = bool(self.adaptive_avif)
+        self.faststart = bool(self.faststart)
+        self.encoder_fallback = bool(self.encoder_fallback)
         if self.codec not in ANIMATED_SCREENSHOT_CODECS:
             self.codec = ANIMATED_SCREENSHOT_CODEC_DEFAULT
-        self.scaled_quality = self._scale_quality(self.quality, self.extension)
+        self.scaled_quality = self._scale_quality(self.quality, self.extension, self.codec)
 
-    def _scale_quality(self, q: int, codec: str) -> int:
+    def _scale_quality(self, q: int, extension: str, av1_encoder: str | None = None) -> int:
         q = max(0, min(10, q))
 
-        if codec == "webp":
-            # 0 → 60, 10 → 80
+        if extension == "webp":
+            # 0 -> 60, 10 -> 80
             return int(60 + q * 2)
 
-        if codec == "avif":
+        if extension == "avif":
             # AV1 CRF: 0 = best, 63 = worst
-            # We expose 10-45 (recommended usable range)
-            # 0 → 45, 10 → 10
+            if av1_encoder == "libsvtav1":
+                # SVT-AV1 produces much larger files than libaom at the same CRF.
+                # 0 -> 45, 10 -> 24
+                return int(45 - q * 2.1)
+
+            # libaom-av1 historical range.
+            # 0 -> 45, 10 -> 10
             return int(45 - q * 3.5)
 
         return q
@@ -1375,6 +1390,7 @@ class Overlay:
     supplement_ocr_result_with_overlay: bool = False
     check_previous_lines_for_recycled_indicator: bool = False
     ocr_full_screen_instead_of_obs: bool = False
+    use_text_filtering: bool = True
 
     def __post_init__(self):
         if self.monitor_to_capture == -1:

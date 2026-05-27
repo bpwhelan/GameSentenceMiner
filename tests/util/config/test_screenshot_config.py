@@ -27,3 +27,23 @@ def test_animated_screenshot_codec_ui_labels():
         "libsvtav1": "libsvtav1 (fast)",
         "libaom-av1": "libaom-av1 (slow, but higher quality, not recommended)",
     }
+
+
+def test_animated_screenshot_quality_uses_encoder_specific_av1_scale():
+    assert AnimatedScreenshotSettings(codec="libaom-av1", quality=8).scaled_quality == 17
+    assert AnimatedScreenshotSettings(codec="libsvtav1", quality=8).scaled_quality == 28
+
+
+def test_animated_screenshot_avif_options_round_trip():
+    settings = AnimatedScreenshotSettings(
+        max_width=480,
+        adaptive_avif=True,
+        faststart=False,
+        encoder_fallback=False,
+    )
+    loaded = AnimatedScreenshotSettings.from_dict(settings.to_dict())
+
+    assert loaded.max_width == 480
+    assert loaded.adaptive_avif is True
+    assert loaded.faststart is False
+    assert loaded.encoder_fallback is False
