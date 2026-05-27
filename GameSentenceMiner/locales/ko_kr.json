@@ -274,6 +274,14 @@
             "label": "무성 카드 태그:",
             "tooltip": "오디오가 없는 카드에 자동으로 'unvoiced' 태그를 추가합니다."
           },
+          "reuse_audio_for_same_selected_lines_different_mined_line": {
+            "label": "같은 선택 줄, 다른 마이닝 줄: 오디오 재사용:",
+            "tooltip": "같은 선택 줄에서 다른 마이닝 줄의 단어를 마이닝할 때 새 리플레이를 저장하고 이전 카드의 오디오를 재사용합니다. 같은 선택 줄과 같은 마이닝 줄은 여전히 전체 미디어 재사용 경로를 사용합니다."
+          },
+          "reuse_screenshot_for_same_selected_lines_different_mined_line": {
+            "label": "같은 선택 줄, 다른 마이닝 줄: 스크린샷 재사용:",
+            "tooltip": "같은 선택 줄에서 다른 마이닝 줄의 단어를 마이닝할 때 새 리플레이를 저장하고 이전 카드의 스크린샷을 재사용합니다."
+          },
           "multi_overwrites_sentence": {
             "label": "멀티라인 마이닝 문장 덮어쓰기:",
             "tooltip": "멀티라인 마이닝 사용 시 선택한 줄을 연결하여 문장을 덮어씁니다."

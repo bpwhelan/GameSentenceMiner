@@ -16,6 +16,7 @@ import json
 import os
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from typing import Callable, Optional, Dict, Any
 
@@ -52,6 +53,13 @@ class FunctionName(Enum):
 
 CommandHandler = Callable[[Dict[str, Any]], None]
 _command_handler: Optional[CommandHandler] = None
+
+# Text events are non-blocking (just schedule a coroutine onto the async loop).
+# They must never be queued behind slow commands like config reloads or OBS restarts.
+_FAST_PATH_FUNCTIONS = frozenset({FunctionName.TEXTHOOK_TEXT.value, FunctionName.OCR_RESULT.value})
+
+# Worker thread for slow IPC commands so the stdin reader is never blocked.
+_command_dispatch_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="GSM_IPC_Cmd")
 
 
 def register_command_handler(handler: CommandHandler) -> None:
@@ -106,8 +114,23 @@ def send_install_progress(
     send_message("install_progress", payload)
 
 
+def _safe_dispatch(msg: Dict[str, Any]) -> None:
+    """Execute a command handler on the dispatch worker thread."""
+    try:
+        if _command_handler:
+            _command_handler(msg)
+    except Exception as e:
+        logger.warning(f"Error in IPC command dispatch: {e}")
+
+
 def _stdin_loop() -> None:
-    """Blocking loop reading stdin for GSMCMD lines."""
+    """Blocking loop reading stdin for GSMCMD lines.
+
+    Text events (texthook_text, ocr_result) are handled inline since they only
+    schedule a coroutine and return immediately.  All other commands are dispatched
+    to a worker thread so that slow operations (config reload, OBS restart, etc.)
+    never block the reader and cause text lines to back up.
+    """
     logger.debug("Starting stdin IPC loop (GSMCMD)...")
     for raw in sys.stdin:
         line = raw.strip()
@@ -124,7 +147,16 @@ def _stdin_loop() -> None:
             continue
         logger.debug(f"IPC Received command: {msg}")
         if _command_handler:
-            _command_handler(msg)
+            func = msg.get("function") or ""
+            if func in _FAST_PATH_FUNCTIONS:
+                # Fast-path: handle inline — these just schedule a coroutine and return.
+                try:
+                    _command_handler(msg)
+                except Exception as e:
+                    logger.warning(f"Error in fast-path IPC handler: {e}")
+            else:
+                # Slow-path: dispatch to worker so stdin reader is never blocked.
+                _command_dispatch_pool.submit(_safe_dispatch, msg)
 
 
 def start_ipc_listener_in_thread() -> threading.Thread:

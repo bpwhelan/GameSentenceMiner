@@ -201,7 +201,11 @@ class MediaAssets:
 
     # Filenames after being stored in Anki's media collection
     audio_in_anki: str = ""
+    reused_audio: bool = False
+    reused_audio_result_id: str = ""
     screenshot_in_anki: str = ""
+    reused_screenshot: bool = False
+    reused_screenshot_result_id: str = ""
     prev_screenshot_in_anki: str = ""
     video_in_anki: str = ""
 
@@ -437,6 +441,91 @@ def _generate_media_files(
             wait_for_stable_file(assets.prev_screenshot_path)
 
     return assets
+
+
+def _get_reusable_audio_from_result(result_id: Optional[str]) -> str:
+    if not result_id:
+        return ""
+    anki_result = anki_results.get(result_id)
+    if not anki_result or not anki_result.success:
+        return ""
+    return anki_result.audio_in_anki or ""
+
+
+def _get_reusable_screenshot_from_result(result_id: Optional[str]) -> str:
+    if not result_id:
+        return ""
+    anki_result = anki_results.get(result_id)
+    if not anki_result or not anki_result.success:
+        return ""
+    return anki_result.screenshot_in_anki or ""
+
+
+def _resolve_reused_audio_result_id(
+    reuse_audio_result_id: Optional[str],
+    reuse_entry: Optional[SentenceAudioCacheEntry] = None,
+) -> Optional[str]:
+    if not reuse_audio_result_id:
+        return None
+    if reuse_audio_result_id not in anki_results:
+        result_ready, waited_seconds = _wait_for_reuse_result(reuse_audio_result_id, reuse_entry)
+        if not result_ready:
+            logger.warning(
+                f"Timed out waiting for reusable audio result {reuse_audio_result_id} "
+                f"after {waited_seconds:.1f}s; falling back to generated audio."
+            )
+            return None
+    if _get_reusable_audio_from_result(reuse_audio_result_id):
+        return reuse_audio_result_id
+    logger.warning(f"Reusable audio result {reuse_audio_result_id} did not contain Anki audio.")
+    return None
+
+
+def _resolve_reused_screenshot_result_id(
+    reuse_screenshot_result_id: Optional[str],
+    reuse_entry: Optional[SentenceAudioCacheEntry] = None,
+) -> Optional[str]:
+    if not reuse_screenshot_result_id:
+        return None
+    if reuse_screenshot_result_id not in anki_results:
+        result_ready, waited_seconds = _wait_for_reuse_result(reuse_screenshot_result_id, reuse_entry)
+        if not result_ready:
+            logger.warning(
+                f"Timed out waiting for reusable screenshot result {reuse_screenshot_result_id} "
+                f"after {waited_seconds:.1f}s; falling back to generated screenshot."
+            )
+            return None
+    if _get_reusable_screenshot_from_result(reuse_screenshot_result_id):
+        return reuse_screenshot_result_id
+    logger.warning(f"Reusable screenshot result {reuse_screenshot_result_id} did not contain an Anki screenshot.")
+    return None
+
+
+def _find_same_selection_reuse_entry(
+    reuse_key: Optional["SentenceAudioKey"],
+    current_word: str,
+) -> Optional[SentenceAudioCacheEntry]:
+    if not reuse_key:
+        return None
+    sentence_sig, line_sig, mined_line_sig = reuse_key
+    found_same_word_entry = False
+    for cached_key, entry in sentence_audio_cache.items():
+        if cached_key == reuse_key:
+            continue
+        if len(cached_key) != 3:
+            continue
+        cached_sentence_sig, cached_line_sig, cached_mined_line_sig = cached_key
+        if cached_sentence_sig != sentence_sig or cached_line_sig != line_sig:
+            continue
+        if cached_mined_line_sig == mined_line_sig:
+            continue
+        if entry.word == current_word:
+            found_same_word_entry = True
+            continue
+        return entry
+    if found_same_word_entry:
+        logger.info("Same word detected for cached line selection, generating new media.")
+    return None
 
 
 def _prepare_anki_note_fields(note: Dict, last_note: "AnkiCard", assets: MediaAssets, game_line: "GameLine") -> Dict:
@@ -852,6 +941,8 @@ def update_anki_card(
     end_time=None,
     vad_result=None,
     reuse_result_id: Optional[str] = None,
+    reuse_audio_result_id: Optional[str] = None,
+    reuse_screenshot_result_id: Optional[str] = None,
     precomputed_assets: Optional[MediaAssets] = None,
     precomputed_translation: Optional[str] = None,
 ):
@@ -864,6 +955,8 @@ def update_anki_card(
     # 1. Decide what to update based on config and existing note state
     update_audio_flag, update_picture_flag = _determine_update_conditions(last_note)
     update_audio_flag = bool(update_audio_flag and should_update_audio)
+    reuse_audio_result_id = _resolve_reused_audio_result_id(reuse_audio_result_id)
+    reuse_screenshot_result_id = _resolve_reused_screenshot_result_id(reuse_screenshot_result_id)
 
     # 2. Generate or retrieve all necessary media files
     assets = precomputed_assets or _generate_media_files(
@@ -877,8 +970,21 @@ def update_anki_card(
         reuse_result_id=reuse_result_id,
     )
     _synchronize_deferred_media_metadata(assets, video_path, start_time, vad_result)
-    assets.audio_path = audio_path  # Assign the passed audio path
-    if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files:
+    if reuse_audio_result_id:
+        assets.audio_in_anki = _get_reusable_audio_from_result(reuse_audio_result_id)
+        assets.reused_audio = bool(assets.audio_in_anki)
+        assets.reused_audio_result_id = reuse_audio_result_id if assets.reused_audio else ""
+        assets.audio_path = ""
+    else:
+        assets.audio_path = audio_path  # Assign the passed audio path
+    if reuse_screenshot_result_id:
+        assets.screenshot_in_anki = _get_reusable_screenshot_from_result(reuse_screenshot_result_id)
+        assets.reused_screenshot = bool(assets.screenshot_in_anki)
+        assets.reused_screenshot_result_id = reuse_screenshot_result_id if assets.reused_screenshot else ""
+        if assets.reused_screenshot:
+            assets.screenshot_path = ""
+            assets.pending_animated = False
+    if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files and not assets.reused_screenshot:
         _start_animated_screenshot_prefetch(assets, config)
 
     # 3. Prepare the basic structure of the Anki note and its tags
@@ -912,7 +1018,7 @@ def update_anki_card(
         # Determine which audio path to pass to the dialog
         # If VAD failed but we have trimmed audio, pass that so user can choose to keep it
         dialog_audio_path = None
-        if update_audio_flag:
+        if update_audio_flag and not assets.reused_audio:
             if assets.audio_path and os.path.isfile(assets.audio_path):
                 dialog_audio_path = assets.audio_path
             elif (
@@ -941,6 +1047,8 @@ def update_anki_card(
             ss_time,
             previous_ss_time,
             assets.pending_animated,
+            reusing_audio=assets.reused_audio,
+            reusing_screenshot=assets.reused_screenshot,
         )
 
         if result is None:
@@ -1128,8 +1236,8 @@ def _process_screenshot(
     if not assets:
         return
 
-    # If reusing existing files, just add the field to the note
-    if use_existing_files:
+    # If reusing an existing screenshot, just add the Anki media reference to the note.
+    if use_existing_files or assets.screenshot_in_anki:
         if assets.screenshot_in_anki and update_picture_flag:
             _apply_field_policy(
                 note,
@@ -1401,8 +1509,8 @@ def _process_audio(
     if not assets or not use_voice:
         return
 
-    # If reusing existing files, just add the field to the note
-    if use_existing_files:
+    # If reusing existing audio, just add the Anki media reference to the note.
+    if use_existing_files or assets.audio_in_anki:
         if assets.audio_in_anki:
             _apply_field_policy(
                 note,
@@ -2388,6 +2496,8 @@ def update_single_card(card):
     reuse_key = _build_sentence_audio_key(game_line, lines)
     has_selected_lines = bool(lines)
     reuse_result_id = None
+    reuse_audio_result_id = None
+    reuse_screenshot_result_id = None
     use_prev_audio = False
 
     _prune_sentence_audio_cache()
@@ -2400,6 +2510,19 @@ def update_single_card(card):
                 reuse_result_id = cached_entry.line_id
             else:
                 logger.info("Same word detected for cached sentence, generating new audio.")
+        elif has_selected_lines:
+            reuse_entry = _find_same_selection_reuse_entry(reuse_key, current_word)
+            if reuse_entry:
+                config = get_config()
+                if config.screenshot.animated:
+                    use_prev_audio = True
+                    reuse_result_id = reuse_entry.line_id
+                elif getattr(config.anki, "reuse_audio_for_same_selected_lines_different_mined_line", True):
+                    reuse_audio_result_id = reuse_entry.line_id
+                if not config.screenshot.animated and getattr(
+                    config.anki, "reuse_screenshot_for_same_selected_lines_different_mined_line", False
+                ):
+                    reuse_screenshot_result_id = reuse_entry.line_id
         elif not has_selected_lines and game_line.id in anki_results:
             cached_result = anki_results[game_line.id]
             if cached_result.word != current_word:
@@ -2413,7 +2536,11 @@ def update_single_card(card):
         if cached_result.word != current_word:
             use_prev_audio = True
             reuse_result_id = game_line.id
-    logger.info(f"New card using previous audio: {use_prev_audio}")
+    logger.info(
+        f"New card using previous media: {use_prev_audio}, "
+        f"reusing audio only: {bool(reuse_audio_result_id)}, "
+        f"reusing screenshot only: {bool(reuse_screenshot_result_id)}"
+    )
     if get_config().obs.get_game_from_scene:
         obs.update_current_game()
     if use_prev_audio:
@@ -2429,11 +2556,32 @@ def update_single_card(card):
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
         gsm_state.last_mined_line = game_line
-        queue_card_for_processing(card, lines, game_line)
+        queue_card_for_processing(
+            card,
+            lines,
+            game_line,
+            reuse_audio_result_id=reuse_audio_result_id,
+            reuse_screenshot_result_id=reuse_screenshot_result_id,
+        )
 
 
-def queue_card_for_processing(last_card, lines, last_mined_line):
-    card_queue.append((last_card, datetime.now(), lines, last_mined_line))
+def queue_card_for_processing(
+    last_card,
+    lines,
+    last_mined_line,
+    reuse_audio_result_id: Optional[str] = None,
+    reuse_screenshot_result_id: Optional[str] = None,
+):
+    card_queue.append(
+        (
+            last_card,
+            datetime.now(),
+            lines,
+            last_mined_line,
+            reuse_audio_result_id,
+            reuse_screenshot_result_id,
+        )
+    )
     reuse_key = _build_sentence_audio_key(last_mined_line, lines)
     current_word = last_card.get_field(get_config().anki.word_field) if last_card else ""
     previous_entry = sentence_audio_cache.get(reuse_key) if reuse_key else None

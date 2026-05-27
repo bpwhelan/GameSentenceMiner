@@ -265,6 +265,14 @@
             "label": "無音カードにタグ付け:",
             "tooltip": "音声がないカードに自動的に'unvoiced'タグを追加します。"
           },
+          "reuse_audio_for_same_selected_lines_different_mined_line": {
+            "label": "同じ選択行・別の採掘行: 音声を再利用:",
+            "tooltip": "同じ選択行から別の採掘行の単語を採掘するとき、新しいリプレイを保存し、前回のカードの音声を再利用します。同じ選択行かつ同じ採掘行の場合は、従来の全メディア再利用パスを使用します。"
+          },
+          "reuse_screenshot_for_same_selected_lines_different_mined_line": {
+            "label": "同じ選択行・別の採掘行: スクリーンショットを再利用:",
+            "tooltip": "同じ選択行から別の採掘行の単語を採掘するとき、新しいリプレイを保存し、前回のカードのスクリーンショットを再利用します。"
+          },
           "multi_overwrites_sentence": {
             "label": "複数行マイニングで文章を上書き:",
             "tooltip": "複数行マイニング時、選択した行を結合して文章フィールドを上書きします。"

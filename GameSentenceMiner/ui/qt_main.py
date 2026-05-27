@@ -154,6 +154,8 @@ class DialogManager(QObject):
         timestamp,
         previous_timestamp,
         pending_animated,
+        reusing_audio,
+        reusing_screenshot,
         callback,
     ):
         result = _get_show_anki_confirmation()(
@@ -167,6 +169,8 @@ class DialogManager(QObject):
             screenshot_timestamp=timestamp,
             previous_screenshot_timestamp=previous_timestamp,
             pending_animated=pending_animated,
+            reusing_audio=reusing_audio,
+            reusing_screenshot=reusing_screenshot,
         )
         callback(result)
 
@@ -181,6 +185,8 @@ class DialogManager(QObject):
         timestamp=0,
         previous_timestamp=0,
         pending_animated=False,
+        reusing_audio=False,
+        reusing_screenshot=False,
         parent=None,
     ):
         return await self._run_async(
@@ -195,6 +201,8 @@ class DialogManager(QObject):
                 timestamp,
                 previous_timestamp,
                 pending_animated,
+                reusing_audio,
+                reusing_screenshot,
                 cb,
             )
         )
@@ -210,6 +218,8 @@ class DialogManager(QObject):
         timestamp=0,
         previous_timestamp=0,
         pending_animated=False,
+        reusing_audio=False,
+        reusing_screenshot=False,
         parent=None,
     ):
         return self._run_sync(
@@ -224,6 +234,8 @@ class DialogManager(QObject):
                 timestamp,
                 previous_timestamp,
                 pending_animated,
+                reusing_audio,
+                reusing_screenshot,
                 cb,
             )
         )
@@ -465,6 +477,8 @@ def launch_anki_confirmation(
     screenshot_timestamp=0,
     previous_screenshot_timestamp=0,
     pending_animated=False,
+    reusing_audio=False,
+    reusing_screenshot=False,
 ):
     """
     Launch Anki confirmation. Thread-safe, blocking.
@@ -480,6 +494,8 @@ def launch_anki_confirmation(
         screenshot_timestamp,
         previous_screenshot_timestamp,
         pending_animated,
+        reusing_audio,
+        reusing_screenshot,
     )
 
 

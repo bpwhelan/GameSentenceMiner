@@ -812,6 +812,8 @@ class Anki:
     parent_tag: str = "Game"
     autoplay_audio: bool = False
     replay_audio_on_tts_generation: bool = True
+    reuse_audio_for_same_selected_lines_different_mined_line: bool = True
+    reuse_screenshot_for_same_selected_lines_different_mined_line: bool = False
     tag_unvoiced_cards: bool = False
     remove_overlay_tag: bool = False
 
@@ -1989,6 +1991,16 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "confirmation_always_on_top")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_focus_on_show")
             self.sync_shared_field(config.anki, profile.anki, "replay_audio_on_tts_generation")
+            self.sync_shared_field(
+                config.anki,
+                profile.anki,
+                "reuse_audio_for_same_selected_lines_different_mined_line",
+            )
+            self.sync_shared_field(
+                config.anki,
+                profile.anki,
+                "reuse_screenshot_for_same_selected_lines_different_mined_line",
+            )
             self.sync_shared_field(config.general, profile.general, "open_config_on_startup")
             self.sync_shared_field(config.general, profile.general, "open_multimine_on_startup")
             self.sync_shared_field(config.general, profile.general, "websocket_uri")

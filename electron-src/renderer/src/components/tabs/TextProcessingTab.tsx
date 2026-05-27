@@ -43,6 +43,12 @@ interface LatestTextProcessingInput {
   time?: string;
 }
 
+interface TextProcessingPreviewResult {
+  success: boolean;
+  result?: string;
+  error?: string;
+}
+
 interface ProcessorInfo {
   id: string;
   labelKey: string;
@@ -155,6 +161,7 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
   const [previewOutput, setPreviewOutput] = useState("");
   const [followingLatestText, setFollowingLatestText] = useState(true);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewRequest = useRef(0);
   const dragItem = useRef<number | null>(null);
   const dragOver = useRef<number | null>(null);
 
@@ -237,20 +244,37 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
     dragOver.current = null;
   }, [moveProcessor]);
 
-  // Client-side preview
-  const computePreview = useCallback((input: string) => {
-    if (!input) { setPreviewOutput(""); return; }
-    let text = input;
-    for (const processorId of config.processor_order) {
-      if (!isProcessorEnabled(config, processorId)) continue;
-      text = applyProcessorPreview(text, processorId, config);
-    }
-    setPreviewOutput(text);
-  }, [config]);
-
   useEffect(() => {
-    computePreview(previewInput);
-  }, [previewInput, computePreview]);
+    if (!active) return;
+
+    const requestId = previewRequest.current + 1;
+    previewRequest.current = requestId;
+
+    if (!previewInput) {
+      setPreviewOutput("");
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      invokeIpc<TextProcessingPreviewResult>("textprocess.preview", { text: previewInput, config })
+        .then((result) => {
+          if (previewRequest.current !== requestId) return;
+          if (result.success) {
+            setPreviewOutput(result.result ?? "");
+          } else {
+            setPreviewOutput("");
+            showNotice(t("textProcessing.previewFailed"), "error");
+          }
+        })
+        .catch(() => {
+          if (previewRequest.current !== requestId) return;
+          setPreviewOutput("");
+          showNotice(t("textProcessing.previewFailed"), "error");
+        });
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [active, previewInput, config, showNotice, t]);
 
   const orderedProcessors = useMemo(() => {
     return config.processor_order.map((id) => PROCESSOR_META.find((p) => p.id === id)!).filter(Boolean);
@@ -294,14 +318,16 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
                 role="listitem"
                 tabIndex={0}
                 className={`processor-item ${isProcessorEnabled(config, proc.id) ? "enabled" : "disabled"}`}
-                draggable
-                onDragStart={() => handleDragStart(index)}
                 onDragEnter={() => handleDragEnter(index)}
-                onDragEnd={handleDragEnd}
                 onDragOver={(e) => e.preventDefault()}
               >
                 <div className="processor-item-main">
-                  <span className="processor-drag-handle">⠿</span>
+                  <span 
+                    className="processor-drag-handle"
+                    draggable
+                    onDragStart={() => handleDragStart(index)}
+                    onDragEnd={handleDragEnd}
+                  >⠿</span>
                   <label className="processor-toggle">
                     <input
                       type="checkbox"
@@ -566,148 +592,4 @@ function StringReplacementConfig({ rules, onChange }: StringReplacementConfigPro
       <button className="btn-secondary" onClick={addRule}>{t("textProcessing.rules.addRule")}</button>
     </div>
   );
-}
-
-// --- Client-Side Preview Logic ---
-
-function applyProcessorPreview(text: string, processorId: string, config: TextProcessingConfig): string {
-  switch (processorId) {
-    case "string_replacement":
-      return applyStringReplacementPreview(text, config.string_replacement.rules);
-    case "remove_repeated_chars":
-      return removeRepeatedCharsPreview(text, config.remove_repeated_chars_config);
-    case "remove_repeated_lines":
-      return removeRepeatedLinesPreview(text, config.remove_repeated_lines_config);
-    case "remove_control_chars":
-      return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
-    case "remove_non_japanese":
-      // Simplified: keep CJK, kana, katakana, punctuation, ASCII
-      return text.replace(/[^\u0000-\u007F\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uFF00-\uFFEF\u2000-\u206F]/g, "");
-    case "remove_newlines":
-      return text.split(/\r?\n/).filter(Boolean).join(" ");
-    case "remove_numbers":
-      return text.replace(/[0-9]+/g, "");
-    case "remove_english":
-      return text.replace(/[a-zA-Z]+/g, "");
-    case "remove_curly_braces": {
-      let t2 = text.replace(/\{(\w+)(.*?)\}(.*?)\{\/\1\}/g, "$3");
-      t2 = t2.replace(/\{([^}]?)[:/](.*?)\}/g, "$1");
-      t2 = t2.replace(/\{.*?\}/g, "");
-      return t2;
-    }
-    case "remove_angle_brackets": {
-      let _prev: string;
-      let _result = text;
-      do {
-        _prev = _result;
-        _result = _result.replace(/<[^>]*>/g, "");
-      } while (_result !== _prev);
-      return _result;
-    }
-    case "extract_bracketed_text": {
-      const start = text.indexOf("「");
-      const end = text.lastIndexOf("」");
-      if (start >= 0 && end > start) return text.slice(start + 1, end);
-      return text;
-    }
-    case "extract_lines": {
-      const lines = text.split(/\r?\n/);
-      const max = config.extract_lines_config.max_lines;
-      if (lines.length <= max) return text;
-      if (config.extract_lines_config.from_end) return lines.slice(-max).join("\n");
-      return lines.slice(0, max).join("\n");
-    }
-    case "unicode_normalize":
-      return text.normalize(config.unicode_normalize_config.form as any);
-    default:
-      return text;
-  }
-}
-
-function applyStringReplacementPreview(text: string, rules: TextReplacementRule[]): string {
-  for (const rule of rules) {
-    if (!rule.enabled || !rule.find) continue;
-    if (rule.mode === "regex") {
-      try {
-        const flags = rule.case_sensitive ? "g" : "gi";
-        let pattern = rule.find;
-        if (rule.whole_word) pattern = `\\b${pattern}\\b`;
-        text = text.replace(new RegExp(pattern, flags), rule.replace);
-      } catch { /* invalid regex, skip */ }
-    } else {
-      if (rule.case_sensitive && !rule.whole_word) {
-        text = text.split(rule.find).join(rule.replace);
-      } else {
-        let pattern = rule.find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        if (rule.whole_word) pattern = `\\b${pattern}\\b`;
-        const flags = rule.case_sensitive ? "g" : "gi";
-        text = text.replace(new RegExp(pattern, flags), rule.replace);
-      }
-    }
-  }
-  return text;
-}
-
-function removeRepeatedCharsPreview(text: string, cfg: { repeat_count: number; keep_non_repeated: boolean }): string {
-  if (!text) return text;
-  let guessTimes = cfg.repeat_count;
-  if (guessTimes < 2) {
-    // Auto-detect
-    const counts = new Map<number, number>();
-    let cnt = 1;
-    for (let i = 1; i <= text.length; i++) {
-      if (i < text.length && text[i] === text[i - 1]) {
-        cnt++;
-      } else {
-        counts.set(cnt, (counts.get(cnt) || 0) + 1);
-        cnt = 1;
-      }
-    }
-    if (counts.size === 0) return text;
-    let maxFreq = 0;
-    for (const v of counts.values()) if (v > maxFreq) maxFreq = v;
-    const candidates = [...counts.entries()].filter(([, v]) => v === maxFreq).map(([k]) => k).sort((a, b) => a - b);
-    if (candidates[0] === 1 && candidates.length > 1) candidates.shift();
-    guessTimes = candidates[0] || 1;
-  }
-  if (guessTimes <= 1) return text;
-
-  if (cfg.keep_non_repeated) {
-    let result = "";
-    let i = 0;
-    while (i < text.length) {
-      result += text[i];
-      const seg = text.slice(i, i + guessTimes);
-      if (seg.length === guessTimes && new Set(seg).size === 1) {
-        i += guessTimes;
-      } else {
-        i++;
-      }
-    }
-    return result;
-  } else {
-    let result = "";
-    for (let i = 0; i < Math.floor(text.length / guessTimes); i++) {
-      result += text[i * guessTimes];
-    }
-    return result;
-  }
-}
-
-function removeRepeatedLinesPreview(text: string, cfg: { repeat_count: number }): string {
-  if (!text) return text;
-  let guessTimes = cfg.repeat_count;
-  if (guessTimes < 2) {
-    // Auto-detect smallest repeating unit
-    guessTimes = text.length;
-    while (guessTimes >= 1) {
-      const unitLen = Math.floor(text.length / guessTimes);
-      if (unitLen > 0 && text.slice(0, unitLen).repeat(guessTimes) === text) break;
-      guessTimes--;
-    }
-    if (guessTimes <= 0) return text;
-  }
-  const unitLen = Math.floor(text.length / guessTimes);
-  if (unitLen <= 0) return text;
-  return text.slice(0, unitLen);
 }

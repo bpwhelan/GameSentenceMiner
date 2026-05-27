@@ -930,6 +930,9 @@
       "exportFailed": "Помилка експорту."
     }
   },
+  "textProcessing": {
+    "previewFailed": "Не вдалося створити попередній перегляд"
+  },
   "texthook": {
     "experimental": {
       "title": "Експериментальний text hook",

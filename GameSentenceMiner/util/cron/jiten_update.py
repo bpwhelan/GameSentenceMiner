@@ -128,6 +128,15 @@ def update_character_data_from_vndb_anilist(game: GamesTable) -> Dict:
                         )
                     except Exception as queue_error:
                         logger.debug(f"Failed to queue Sudachi user dictionary export after VNDB update: {queue_error}")
+                    try:
+                        from GameSentenceMiner.web.yomitan_api import notify_yomitan_character_dictionary_changed
+
+                        notify_yomitan_character_dictionary_changed(
+                            "jiten-update:vndb-character-data",
+                            game.id,
+                        )
+                    except Exception as notify_error:
+                        logger.debug(f"Failed to notify Yomitan character dictionary update: {notify_error}")
                     logger.info(f"Updated VNDB data for {game.title_original}")
                     vndb_updated = True
                 else:
@@ -171,6 +180,15 @@ def update_character_data_from_vndb_anilist(game: GamesTable) -> Dict:
                         logger.debug(
                             f"Failed to queue Sudachi user dictionary export after AniList update: {queue_error}"
                         )
+                    try:
+                        from GameSentenceMiner.web.yomitan_api import notify_yomitan_character_dictionary_changed
+
+                        notify_yomitan_character_dictionary_changed(
+                            "jiten-update:anilist-character-data",
+                            game.id,
+                        )
+                    except Exception as notify_error:
+                        logger.debug(f"Failed to notify Yomitan character dictionary update: {notify_error}")
                     logger.info(f"Updated AniList data for {game.title_original}")
                     anilist_updated = True
                 else:

@@ -552,6 +552,84 @@
       font-style: italic;
     }
 
+    .gamepad-device-lists {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 10px;
+      margin: 10px 0;
+    }
+
+    .gamepad-device-panel {
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.18);
+      padding: 8px;
+      min-width: 0;
+    }
+
+    .gamepad-device-panel-title {
+      margin-bottom: 6px;
+      color: #b8b8b8;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .gamepad-device-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .gamepad-device-empty {
+      color: #7f7f7f;
+      font-size: 11px;
+      font-style: italic;
+      padding: 6px 0;
+    }
+
+    .gamepad-device-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .gamepad-device-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #dddddd;
+      font-size: 12px;
+    }
+
+    .gamepad-device-action {
+      width: 26px;
+      height: 26px;
+      flex: 0 0 26px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      color: #d8d8d8;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .gamepad-device-action:hover {
+      border-color: rgba(76, 175, 80, 0.55);
+      background: rgba(76, 175, 80, 0.18);
+      color: #ffffff;
+    }
+
     /* Sudachi download progress bar */
     .sudachi-progress-container {
       display: none;
@@ -1636,6 +1714,16 @@
         </span>
         <span id="gamepadStatusText" style="color: #888;">Checking...</span>
       </label>
+      <div class="gamepad-device-lists">
+        <div class="gamepad-device-panel">
+          <div class="gamepad-device-panel-title">Detected Devices</div>
+          <div id="gamepadDetectedDeviceList" class="gamepad-device-list"></div>
+        </div>
+        <div class="gamepad-device-panel">
+          <div class="gamepad-device-panel-title">Ignored Devices</div>
+          <div id="gamepadIgnoredDeviceList" class="gamepad-device-list"></div>
+        </div>
+      </div>
       <label>
         <span class="label-text">
           Input Test
@@ -1812,6 +1900,7 @@
     };
     const GAMEPAD_BINDING_CAPTURE_POLL_MS = 50;
     const GAMEPAD_BUTTON_ALIAS_LOOKUP = buildGamepadButtonAliasLookup();
+    const gamepadDeviceBlacklist = new Set();
     const GAMEPAD_BINDING_INPUT_CONFIG = {
       gamepadModifierButton: { settingKey: "gamepadModifierButton", label: "Modifier Button", fallbackValue: 4 },
       gamepadToggleButton: { settingKey: "gamepadToggleButton", label: "Toggle Button", fallbackValue: 8 },
@@ -3722,6 +3811,7 @@
         gamepadFocusOverlayOnEntry: userSettings.gamepadFocusOverlayOnEntry !== false,
         gamepadControllerEnabled: userSettings.gamepadControllerEnabled !== false,
         gamepadKeyboardEnabled: userSettings.gamepadKeyboardEnabled !== false,
+        gamepadDeviceBlacklist: normalizeGamepadDeviceBlacklistValue(userSettings.gamepadDeviceBlacklist),
       };
     }
 
@@ -3765,6 +3855,7 @@
 
       syncShowMainBoxStartupUi();
       syncJitenReaderUi(resolvedSettings.enableJitenReader !== false);
+      setGamepadDeviceBlacklist(resolvedSettings.gamepadDeviceBlacklist, { persist: false, send: false });
       updateControllerActivationFieldState();
       updateTokenizerBackendFieldState();
       syncManualHotkeyStatusUi();
@@ -3803,6 +3894,10 @@
         }
         if (key === "manualHotkeyKeyboardError") {
           manualHotkeyRuntimeState.keyboardError = value || null;
+          return;
+        }
+        if (key === "gamepadDeviceBlacklist") {
+          setGamepadDeviceBlacklist(value, { persist: false, send: true });
           return;
         }
 
@@ -3930,6 +4025,7 @@
     let gamepadStatusSocketPort = null;
     let gamepadStatusSocketReconnectTimer = null;
     let activeGamepadBindingCapture = null;
+    let renderingGamepadDeviceLists = false;
     let overlayInputSuppressed = false;
     const activeGamepadSuppressionReasons = new Set();
     const serverReportedGamepads = new Set();
@@ -4061,6 +4157,171 @@
       if (typeof name !== "string" || !name.trim()) return "Unknown controller";
       const trimmed = name.trim();
       return trimmed.length > 40 ? `${trimmed.slice(0, 40)}...` : trimmed;
+    }
+
+    function normalizeGamepadDeviceName(name) {
+      const normalized = String(name || "").trim();
+      return normalized || null;
+    }
+
+    function normalizeGamepadDeviceBlacklistValue(value) {
+      if (!Array.isArray(value)) {
+        return [];
+      }
+      return Array.from(new Set(value.map(normalizeGamepadDeviceName).filter(Boolean)))
+        .sort((a, b) => a.localeCompare(b));
+    }
+
+    function getSortedGamepadDeviceBlacklist() {
+      return Array.from(gamepadDeviceBlacklist.values()).sort((a, b) => a.localeCompare(b));
+    }
+
+    function isGamepadDeviceBlacklisted(name) {
+      const normalized = normalizeGamepadDeviceName(name);
+      return Boolean(normalized && gamepadDeviceBlacklist.has(normalized));
+    }
+
+    function setGamepadDeviceBlacklist(devices, options = {}) {
+      gamepadDeviceBlacklist.clear();
+      normalizeGamepadDeviceBlacklistValue(devices).forEach((deviceName) => {
+        gamepadDeviceBlacklist.add(deviceName);
+      });
+
+      renderGamepadDeviceLists();
+      updateGamepadStatus();
+
+      if (options.persist) {
+        handleSettingChange("gamepadDeviceBlacklist", getSortedGamepadDeviceBlacklist());
+      }
+      if (options.send !== false) {
+        sendGamepadDeviceBlacklistToServer();
+      }
+    }
+
+    function sendGamepadDeviceBlacklistToServer() {
+      if (!gamepadStatusSocket || gamepadStatusSocket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      try {
+        gamepadStatusSocket.send(JSON.stringify({
+          type: "configure_device_blacklist",
+          devices: getSortedGamepadDeviceBlacklist(),
+        }));
+      } catch (e) {
+        // Ignore send errors and rely on reconnect.
+      }
+    }
+
+    function addGamepadDeviceToBlacklist(deviceName) {
+      const normalized = normalizeGamepadDeviceName(deviceName);
+      if (!normalized || gamepadDeviceBlacklist.has(normalized)) {
+        return;
+      }
+      gamepadDeviceBlacklist.add(normalized);
+      serverReportedGamepads.delete(normalized);
+      setGamepadDeviceBlacklist(getSortedGamepadDeviceBlacklist(), { persist: true });
+      addGamepadInputConsoleLine(`Ignored device: ${getDisplayControllerLabel(normalized)}`);
+    }
+
+    function removeGamepadDeviceFromBlacklist(deviceName) {
+      const normalized = normalizeGamepadDeviceName(deviceName);
+      if (!normalized || !gamepadDeviceBlacklist.delete(normalized)) {
+        return;
+      }
+      setGamepadDeviceBlacklist(getSortedGamepadDeviceBlacklist(), { persist: true });
+      addGamepadInputConsoleLine(`Allowed device: ${getDisplayControllerLabel(normalized)}`);
+    }
+
+    function getDetectedGamepadDeviceNames() {
+      const names = new Set();
+      serverReportedGamepads.forEach((name) => {
+        const normalized = normalizeGamepadDeviceName(name);
+        if (normalized && !isGamepadDeviceBlacklisted(normalized)) {
+          names.add(normalized);
+        }
+      });
+
+      getConnectedGamepads().forEach((gamepad) => {
+        const normalized = normalizeGamepadDeviceName(gamepad.id);
+        if (normalized && !isGamepadDeviceBlacklisted(normalized)) {
+          names.add(normalized);
+        }
+      });
+
+      return Array.from(names.values()).sort((a, b) => a.localeCompare(b));
+    }
+
+    function createGamepadDeviceRow(deviceName, actionLabel, actionTitle, onClick) {
+      const row = document.createElement("div");
+      row.className = "gamepad-device-row";
+
+      const name = document.createElement("div");
+      name.className = "gamepad-device-name";
+      name.textContent = getDisplayControllerLabel(deviceName);
+      name.title = deviceName;
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "gamepad-device-action";
+      button.textContent = actionLabel;
+      button.title = actionTitle;
+      button.setAttribute("aria-label", actionTitle);
+      button.addEventListener("click", onClick);
+
+      row.appendChild(name);
+      row.appendChild(button);
+      return row;
+    }
+
+    function renderGamepadDeviceList(container, devices, emptyText, renderRow) {
+      if (!container) return;
+      if (!devices.length) {
+        const empty = document.createElement("div");
+        empty.className = "gamepad-device-empty";
+        empty.textContent = emptyText;
+        container.replaceChildren(empty);
+        return;
+      }
+      container.replaceChildren(...devices.map(renderRow));
+    }
+
+    function renderGamepadDeviceLists() {
+      if (renderingGamepadDeviceLists) {
+        return;
+      }
+      renderingGamepadDeviceLists = true;
+      try {
+        const detectedList = document.getElementById("gamepadDetectedDeviceList");
+        const ignoredList = document.getElementById("gamepadIgnoredDeviceList");
+        const detectedDevices = getDetectedGamepadDeviceNames();
+        const ignoredDevices = getSortedGamepadDeviceBlacklist();
+
+        renderGamepadDeviceList(
+          detectedList,
+          detectedDevices,
+          "No detected devices.",
+          (deviceName) => createGamepadDeviceRow(
+            deviceName,
+            "-",
+            `Ignore ${deviceName}`,
+            () => addGamepadDeviceToBlacklist(deviceName)
+          )
+        );
+
+        renderGamepadDeviceList(
+          ignoredList,
+          ignoredDevices,
+          "No ignored devices.",
+          (deviceName) => createGamepadDeviceRow(
+            deviceName,
+            "+",
+            `Allow ${deviceName}`,
+            () => removeGamepadDeviceFromBlacklist(deviceName)
+          )
+        );
+      } finally {
+        renderingGamepadDeviceLists = false;
+      }
     }
 
     function getGamepadButtonLabel(index) {
@@ -4289,21 +4550,23 @@
     function getConnectedGamepads() {
       if (!navigator.getGamepads) return [];
       const gamepads = navigator.getGamepads();
-      return Array.from(gamepads).filter(g => g !== null);
+      return Array.from(gamepads).filter(g => g !== null && !isGamepadDeviceBlacklisted(g.id));
     }
     
     function updateGamepadStatus() {
       const statusText = document.getElementById("gamepadStatusText");
       if (!statusText) return;
 
-      if (serverReportedGamepads.size > 0) {
-        const serverNames = Array.from(serverReportedGamepads.values());
+      const serverNames = Array.from(serverReportedGamepads.values())
+        .filter((deviceName) => !isGamepadDeviceBlacklisted(deviceName));
+      if (serverNames.length > 0) {
         if (serverNames.length === 1) {
           statusText.textContent = `✓ ${getDisplayControllerLabel(serverNames[0])}`;
         } else {
           statusText.textContent = `✓ ${serverNames.length} controllers connected`;
         }
         statusText.style.color = "#4CAF50";
+        renderGamepadDeviceLists();
         return;
       }
 
@@ -4319,6 +4582,8 @@
         statusText.textContent = `✓ ${connectedGamepads.length} controllers connected`;
         statusText.style.color = "#4CAF50";
       }
+
+      renderGamepadDeviceLists();
     }
 
     function connectGamepadStatusSocket(port) {
@@ -4363,6 +4628,7 @@
       ws.onopen = () => {
         if (gamepadStatusSocket !== ws) return;
         try {
+          sendGamepadDeviceBlacklistToServer();
           ws.send(JSON.stringify({ type: "get_state" }));
         } catch (e) {
           // Ignore send error and rely on reconnect.
@@ -4382,7 +4648,7 @@
         const deviceName = typeof data.device === "string" ? data.device : "";
         switch (data.type) {
           case "gamepad_connected":
-            if (deviceName) serverReportedGamepads.add(deviceName);
+            if (deviceName && !isGamepadDeviceBlacklisted(deviceName)) serverReportedGamepads.add(deviceName);
             updateGamepadStatus();
             break;
           case "gamepad_disconnected":
@@ -4390,8 +4656,11 @@
             updateGamepadStatus();
             break;
           case "gamepad_state":
-            if (deviceName) serverReportedGamepads.add(deviceName);
+            if (deviceName && !isGamepadDeviceBlacklisted(deviceName)) serverReportedGamepads.add(deviceName);
             updateGamepadStatus();
+            break;
+          case "device_blacklist_updated":
+            setGamepadDeviceBlacklist(data.devices, { persist: false, send: false });
             break;
           case "keyboard_event":
             // Forward server keyboard events for keyboard binding capture
@@ -4512,6 +4781,7 @@
     gamepadStatusInterval = setInterval(updateGamepadStatus, 2000);
     updateGamepadStatus();
     setGamepadInputTestUi(false);
+    renderGamepadDeviceLists();
     renderGamepadInputConsole();
     connectGamepadStatusSocket(parseInt(document.getElementById("gamepadServerPort")?.value, 10) || 7276);
 

@@ -422,7 +422,6 @@ function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: O
 
     // Forward structured OCR events to renderer
     ocrStdoutManager.on('message', (msg) => {
-        console.log('[OCR IPC]:', msg);
         sendToMainWindowFrames('ocr-ipc-message', msg);
     });
 
@@ -448,7 +447,6 @@ function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: O
     });
 
     ocrStdoutManager.on('status', (status) => {
-        console.log('[OCR] Status:', status);
         sendToMainWindowFrames('ocr-ipc-status', status);
     });
 

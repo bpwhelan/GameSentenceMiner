@@ -266,6 +266,14 @@
             "label": "标记无音频卡片:",
             "tooltip": "自动为没有音频的卡片添加'unvoiced'标签。"
           },
+          "reuse_audio_for_same_selected_lines_different_mined_line": {
+            "label": "相同选中行、不同挖掘行：复用音频:",
+            "tooltip": "当从相同选中行中挖掘另一个词，但挖掘行不同的时候，保存新的回放并复用上一张卡片的音频。相同选中行且相同挖掘行仍会使用完整媒体复用流程。"
+          },
+          "reuse_screenshot_for_same_selected_lines_different_mined_line": {
+            "label": "相同选中行、不同挖掘行：复用截图:",
+            "tooltip": "当从相同选中行中挖掘另一个词，但挖掘行不同的时候，保存新的回放并复用上一张卡片的截图。"
+          },
           "multi_overwrites_sentence": {
             "label": "多行挖掘覆盖句子:",
             "tooltip": "使用多行挖掘时，用所选行的串联覆盖句子。"

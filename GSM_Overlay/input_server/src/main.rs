@@ -1,7 +1,10 @@
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
 use gilrs::{Axis, Button, Event, EventType, GamepadId, Gilrs};
-use rdev::{listen as listen_global_keyboard, Event as KeyboardEvent, EventType as KeyboardEventType, Key as KeyboardKey};
+use rdev::{
+    listen as listen_global_keyboard, Event as KeyboardEvent, EventType as KeyboardEventType,
+    Key as KeyboardKey,
+};
 use reqwest::Client as HttpClient;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -321,9 +324,61 @@ impl DevInputLogger {
 }
 
 type SharedStates = Mutex<HashMap<GamepadId, GamepadState>>;
+type SharedDeviceBlacklist = Arc<StdMutex<HashSet<String>>>;
 type SharedMecab = Mutex<MecabService>;
 type SharedSudachi = Mutex<SudachiService>;
 type SharedManualHotkey = Arc<StdMutex<ManualHotkeyState>>;
+
+fn normalize_device_blacklist_entry(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn normalize_device_blacklist(values: Vec<String>) -> HashSet<String> {
+    values
+        .into_iter()
+        .filter_map(|value| normalize_device_blacklist_entry(&value))
+        .collect()
+}
+
+fn gamepad_device_blacklist_from_env() -> HashSet<String> {
+    let Ok(raw) = std::env::var("GSM_GAMEPAD_DEVICE_BLACKLIST") else {
+        return HashSet::new();
+    };
+
+    let parsed: Result<Vec<String>, _> = serde_json::from_str(&raw);
+    match parsed {
+        Ok(values) => normalize_device_blacklist(values),
+        Err(err) => {
+            warn!("failed to parse GSM_GAMEPAD_DEVICE_BLACKLIST: {err}");
+            HashSet::new()
+        }
+    }
+}
+
+fn is_device_blacklisted(blacklist: &SharedDeviceBlacklist, device_name: &str) -> bool {
+    let Some(normalized) = normalize_device_blacklist_entry(device_name) else {
+        return false;
+    };
+    let guard = blacklist.lock().expect("device blacklist mutex poisoned");
+    guard.contains(&normalized)
+}
+
+fn device_blacklist_payload(blacklist: &SharedDeviceBlacklist) -> Value {
+    let mut devices = {
+        let guard = blacklist.lock().expect("device blacklist mutex poisoned");
+        guard.iter().cloned().collect::<Vec<_>>()
+    };
+    devices.sort();
+    json!({
+        "type": "device_blacklist_updated",
+        "devices": devices,
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 struct ManualHotkeyModifiers {
@@ -1476,8 +1531,7 @@ fn pressed_modifiers(pressed_keys: &HashSet<KeyboardKey>) -> ManualHotkeyModifie
     ManualHotkeyModifiers {
         ctrl: pressed_keys.contains(&KeyboardKey::ControlLeft)
             || pressed_keys.contains(&KeyboardKey::ControlRight),
-        alt: pressed_keys.contains(&KeyboardKey::Alt)
-            || pressed_keys.contains(&KeyboardKey::AltGr),
+        alt: pressed_keys.contains(&KeyboardKey::Alt) || pressed_keys.contains(&KeyboardKey::AltGr),
         shift: pressed_keys.contains(&KeyboardKey::ShiftLeft)
             || pressed_keys.contains(&KeyboardKey::ShiftRight),
         cmd: pressed_keys.contains(&KeyboardKey::MetaLeft)
@@ -1485,7 +1539,10 @@ fn pressed_modifiers(pressed_keys: &HashSet<KeyboardKey>) -> ManualHotkeyModifie
     }
 }
 
-fn manual_hotkey_binding_active(binding: &ManualHotkeyBinding, pressed_keys: &HashSet<KeyboardKey>) -> bool {
+fn manual_hotkey_binding_active(
+    binding: &ManualHotkeyBinding,
+    pressed_keys: &HashSet<KeyboardKey>,
+) -> bool {
     let pressed_modifiers = pressed_modifiers(pressed_keys);
     if binding.modifiers.ctrl && !pressed_modifiers.ctrl {
         return false;
@@ -1523,6 +1580,12 @@ enum ClientMsg {
         enabled: bool,
         #[serde(default)]
         hotkey: String,
+    },
+
+    #[serde(rename = "configure_device_blacklist")]
+    ConfigureDeviceBlacklist {
+        #[serde(default)]
+        devices: Vec<String>,
     },
 
     #[serde(rename = "tokenize")]
@@ -1593,6 +1656,58 @@ fn send_broadcast(tx: &broadcast::Sender<String>, payload: String, label: &str) 
         Ok(receivers) => debug!("broadcast {label} to {receivers} subscriber(s)"),
         Err(_) => warn!("broadcast {label} dropped: no websocket subscribers"),
     }
+}
+
+async fn configure_device_blacklist(
+    blacklist: &SharedDeviceBlacklist,
+    states: &'static SharedStates,
+    tx: &broadcast::Sender<String>,
+    devices: Vec<String>,
+) {
+    let normalized = normalize_device_blacklist(devices);
+    let mut sorted_devices = normalized.iter().cloned().collect::<Vec<_>>();
+    sorted_devices.sort();
+
+    {
+        let mut guard = blacklist.lock().expect("device blacklist mutex poisoned");
+        *guard = normalized.clone();
+    }
+
+    let disconnected_devices = {
+        let mut guard = states.lock().await;
+        let ids_to_remove = guard
+            .iter()
+            .filter_map(|(id, st)| {
+                normalize_device_blacklist_entry(&st.device_name)
+                    .filter(|device_name| normalized.contains(device_name))
+                    .map(|_| (*id, st.device_name.clone()))
+            })
+            .collect::<Vec<_>>();
+
+        for (id, _) in &ids_to_remove {
+            guard.remove(id);
+        }
+
+        ids_to_remove
+            .into_iter()
+            .map(|(_, device_name)| device_name)
+            .collect::<Vec<_>>()
+    };
+
+    for device_name in disconnected_devices {
+        let msg = json!({
+            "type": "gamepad_disconnected",
+            "device": device_name,
+            "reason": "blacklisted",
+        });
+        send_broadcast(tx, msg.to_string(), "gamepad_disconnected(blacklisted)");
+    }
+
+    let msg = json!({
+        "type": "device_blacklist_updated",
+        "devices": sorted_devices,
+    });
+    send_broadcast(tx, msg.to_string(), "device_blacklist_updated");
 }
 
 fn configure_manual_hotkey(
@@ -1927,6 +2042,7 @@ async fn handle_socket(
     _tx: broadcast::Sender<String>,
     mut rx: broadcast::Receiver<String>,
     states: &'static SharedStates,
+    device_blacklist: SharedDeviceBlacklist,
     mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
     manual_hotkey: SharedManualHotkey,
@@ -1949,6 +2065,7 @@ async fn handle_socket(
         let guard = states.lock().await;
         guard
             .values()
+            .filter(|st| !is_device_blacklisted(&device_blacklist, &st.device_name))
             .map(|st| (st.device_name.clone(), st.buttons.clone(), st.axes.clone()))
             .collect::<Vec<_>>()
     };
@@ -1965,6 +2082,16 @@ async fn handle_socket(
             info!("client {peer} disconnected during initial snapshot");
             return;
         }
+    }
+
+    let blacklist_message = device_blacklist_payload(&device_blacklist).to_string();
+    if ws_sink
+        .send(Message::Text(blacklist_message))
+        .await
+        .is_err()
+    {
+        info!("client {peer} disconnected during device blacklist snapshot");
+        return;
     }
 
     let manual_status_message = {
@@ -2011,6 +2138,7 @@ async fn handle_socket(
                                     let guard = states.lock().await;
                                     guard
                                         .values()
+                                        .filter(|st| !is_device_blacklisted(&device_blacklist, &st.device_name))
                                         .map(|st| (st.device_name.clone(), st.buttons.clone(), st.axes.clone()))
                                         .collect::<Vec<_>>()
                                 };
@@ -2026,6 +2154,9 @@ async fn handle_socket(
                                         break;
                                     }
                                 }
+                            }
+                            Ok(ClientMsg::ConfigureDeviceBlacklist { devices }) => {
+                                configure_device_blacklist(&device_blacklist, states, &_tx, devices).await;
                             }
                             Ok(ClientMsg::ConfigureManualHotkey { enabled, hotkey }) => {
                                 if let Err(err) =
@@ -2153,6 +2284,7 @@ async fn websocket_server(
     bind: SocketAddr,
     tx: broadcast::Sender<String>,
     states: &'static SharedStates,
+    device_blacklist: SharedDeviceBlacklist,
     mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
     manual_hotkey: SharedManualHotkey,
@@ -2171,6 +2303,7 @@ async fn websocket_server(
 
         let rx = tx.subscribe();
         let tx_clone = tx.clone();
+        let device_blacklist_clone = device_blacklist.clone();
 
         tokio::spawn(handle_socket(
             peer,
@@ -2178,6 +2311,7 @@ async fn websocket_server(
             tx_clone,
             rx,
             states,
+            device_blacklist_clone,
             mecab,
             sudachi,
             manual_hotkey.clone(),
@@ -2191,6 +2325,7 @@ async fn websocket_server(
 fn gilrs_input_thread(
     tx: broadcast::Sender<String>,
     states: &'static SharedStates,
+    device_blacklist: SharedDeviceBlacklist,
     cfg: Config,
     dev_environment: bool,
 ) {
@@ -2220,6 +2355,11 @@ fn gilrs_input_thread(
 
     // Use blocking_lock() since we're on a plain thread.
     for (id, name) in connected {
+        if is_device_blacklisted(&device_blacklist, &name) {
+            info!("gamepad ignored at startup by device blacklist: {name}");
+            continue;
+        }
+
         let mut guard = states.blocking_lock();
         if !guard.contains_key(&id) {
             guard.insert(id, GamepadState::new(name.clone()));
@@ -2239,6 +2379,26 @@ fn gilrs_input_thread(
         while let Some(Event { id, event, .. }) = gilrs.next_event() {
             let now = Instant::now();
             let device_name = gilrs.gamepad(id).name().to_string();
+
+            if is_device_blacklisted(&device_blacklist, &device_name) {
+                let removed_state = {
+                    let mut guard = states.blocking_lock();
+                    guard.remove(&id).is_some()
+                };
+                if removed_state {
+                    let msg = json!({
+                        "type": "gamepad_disconnected",
+                        "device": device_name,
+                        "reason": "blacklisted",
+                    });
+                    send_broadcast(
+                        &tx,
+                        msg.to_string(),
+                        "gamepad_disconnected(blacklisted_event)",
+                    );
+                }
+                continue;
+            }
 
             if dev_logger.enabled {
                 match &event {
@@ -2551,6 +2711,7 @@ fn gilrs_input_thread(
 async fn axis_repeat_loop(
     tx: broadcast::Sender<String>,
     states: &'static SharedStates,
+    device_blacklist: SharedDeviceBlacklist,
     cfg: Config,
 ) {
     let stick_axes = ["left_x", "left_y", "right_x", "right_y"];
@@ -2561,7 +2722,7 @@ async fn axis_repeat_loop(
         {
             let mut guard = states.lock().await;
             for (_id, st) in guard.iter_mut() {
-                if !st.connected {
+                if !st.connected || is_device_blacklisted(&device_blacklist, &st.device_name) {
                     continue;
                 }
 
@@ -2634,6 +2795,8 @@ async fn main() {
 
     // Leak states so spawned tasks can use 'static reference.
     let states: &'static SharedStates = Box::leak(Box::new(Mutex::new(HashMap::new())));
+    let device_blacklist: SharedDeviceBlacklist =
+        Arc::new(StdMutex::new(gamepad_device_blacklist_from_env()));
     let mecab_script = resolve_mecab_script_path();
     let mecab: &'static SharedMecab =
         Box::leak(Box::new(Mutex::new(MecabService::new(mecab_script))));
@@ -2675,17 +2838,26 @@ async fn main() {
         bind,
         tx.clone(),
         states,
+        device_blacklist.clone(),
         mecab,
         sudachi,
         manual_hotkey.clone(),
     ));
-    tokio::spawn(axis_repeat_loop(tx.clone(), states, cfg.clone()));
+    tokio::spawn(axis_repeat_loop(
+        tx.clone(),
+        states,
+        device_blacklist.clone(),
+        cfg.clone(),
+    ));
 
     // Gilrs input loop runs on a dedicated OS thread (Gilrs isn't Send).
     {
         let tx2 = tx.clone();
+        let device_blacklist2 = device_blacklist.clone();
         let cfg2 = cfg.clone();
-        thread::spawn(move || gilrs_input_thread(tx2, states, cfg2, dev_environment));
+        thread::spawn(move || {
+            gilrs_input_thread(tx2, states, device_blacklist2, cfg2, dev_environment)
+        });
     }
     {
         let tx2 = tx.clone();
@@ -2736,6 +2908,29 @@ mod tests {
     }
 
     #[test]
+    fn device_blacklist_normalization_trims_deduplicates_and_drops_empty_entries() {
+        let normalized = normalize_device_blacklist(vec![
+            "  BT D700  ".to_string(),
+            "".to_string(),
+            "BT D700".to_string(),
+            "Xbox 360 Controller".to_string(),
+        ]);
+
+        assert_eq!(normalized.len(), 2);
+        assert!(normalized.contains("BT D700"));
+        assert!(normalized.contains("Xbox 360 Controller"));
+    }
+
+    #[test]
+    fn empty_device_blacklist_entries_are_rejected() {
+        assert_eq!(normalize_device_blacklist_entry("   "), None);
+        assert_eq!(
+            normalize_device_blacklist_entry("  Keychron Link  "),
+            Some("Keychron Link".to_string())
+        );
+    }
+
+    #[test]
     fn modifier_only_manual_hotkey_parses() {
         let binding = parse_manual_hotkey_binding("Shift").expect("shift hotkey should parse");
         assert_eq!(binding.key, None);
@@ -2761,13 +2956,22 @@ mod tests {
         let mut pressed_keys = HashSet::new();
         pressed_keys.insert(KeyboardKey::ShiftLeft);
         assert!(manual_hotkey_binding_active(&modifier_only, &pressed_keys));
-        assert!(!manual_hotkey_binding_active(&modifier_with_key, &pressed_keys));
+        assert!(!manual_hotkey_binding_active(
+            &modifier_with_key,
+            &pressed_keys
+        ));
 
         pressed_keys.insert(KeyboardKey::Space);
-        assert!(manual_hotkey_binding_active(&modifier_with_key, &pressed_keys));
+        assert!(manual_hotkey_binding_active(
+            &modifier_with_key,
+            &pressed_keys
+        ));
 
         pressed_keys.remove(&KeyboardKey::ShiftLeft);
         assert!(!manual_hotkey_binding_active(&modifier_only, &pressed_keys));
-        assert!(!manual_hotkey_binding_active(&modifier_with_key, &pressed_keys));
+        assert!(!manual_hotkey_binding_active(
+            &modifier_with_key,
+            &pressed_keys
+        ));
     }
 }

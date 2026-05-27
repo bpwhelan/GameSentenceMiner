@@ -930,6 +930,9 @@
       "exportFailed": "エクスポートに失敗しました。"
     }
   },
+  "textProcessing": {
+    "previewFailed": "プレビューを生成できませんでした"
+  },
   "texthook": {
     "experimental": {
       "title": "実験的なテキストフック",

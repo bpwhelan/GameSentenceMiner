@@ -11,14 +11,14 @@ version = "2026.5.7"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
-license = { text = "MIT License" }
+license = { file = "LICENSE" }
 authors = [
   { name = "Beangate", email = "bpwhelan95@gmail.com"}
 ]
 urls = { Homepage = "https://github.com/bpwhelan/GameSentenceMiner", Repository = "https://github.com/bpwhelan/GameSentenceMiner" }
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: MIT License",
+  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
   "Operating System :: OS Independent"
 ]
 dependencies = [

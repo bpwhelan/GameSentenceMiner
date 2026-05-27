@@ -232,6 +232,36 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     behavior_group.setLayout(behavior_layout)
     layout.addRow(behavior_group)
 
+    same_selection_group = window._create_group_box("Same Selected Lines, Different Mined Line")
+    same_selection_layout = QFormLayout()
+    same_selection_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    same_selection_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "anki",
+            "reuse_audio_for_same_selected_lines_different_mined_line",
+            (
+                "When mining another word from the same selected lines but a different mined line, "
+                "save a new replay and reuse the previous card's audio."
+            ),
+        ),
+        window.anki_same_selection_different_line_reuse_audio_check,
+    )
+    same_selection_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "anki",
+            "reuse_screenshot_for_same_selected_lines_different_mined_line",
+            (
+                "When mining another word from the same selected lines but a different mined line, "
+                "save a new replay and reuse the previous card's screenshot."
+            ),
+        ),
+        window.anki_same_selection_different_line_reuse_screenshot_check,
+    )
+    same_selection_group.setLayout(same_selection_layout)
+    layout.addRow(same_selection_group)
+
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "advanced", "multiline_linebreak"),
         window.multi_line_line_break_edit,

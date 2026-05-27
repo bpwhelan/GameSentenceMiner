@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import argparse
+import json
 import re
+import sys
 import unicodedata
 from collections import Counter
-from typing import Iterable
+from typing import Any, Iterable
 
 from GameSentenceMiner.util.config.configuration import (
     StringReplacement,
@@ -13,6 +16,7 @@ from GameSentenceMiner.util.config.configuration import (
 )
 
 HTML_TAG_WILDCARD_PATTERNS = {"<.*>", "<.+>"}
+DOLLAR_CAPTURE_GROUP_PATTERN = re.compile(r"(?<!\\)\$(\d+)")
 
 
 def apply_text_processing(text: str, config: TextProcessing | None) -> str:
@@ -24,6 +28,18 @@ def apply_text_processing(text: str, config: TextProcessing | None) -> str:
         if not text:
             break
     return text
+
+
+def preview_text_processing_request(payload: dict[str, Any]) -> dict[str, str]:
+    text = payload.get("text", "")
+    if text is None:
+        text = ""
+    elif not isinstance(text, str):
+        text = str(text)
+
+    raw_config = payload.get("config")
+    config = TextProcessing.from_dict(raw_config) if isinstance(raw_config, dict) else None
+    return {"result": apply_text_processing(text, config)}
 
 
 def _run_processor(text: str, processor_id: str, config: TextProcessing) -> str:
@@ -116,7 +132,7 @@ def _apply_rule(text: str, rule: TextReplacementRule) -> str:
             pattern = r"\b" + pattern + r"\b"
         flags = 0 if rule.case_sensitive else re.IGNORECASE
         try:
-            return re.sub(pattern, replacement, text, flags=flags)
+            return re.sub(pattern, _normalize_regex_replacement(replacement), text, flags=flags)
         except re.error as exc:
             logger.warning(f"Invalid regex in text replacement rule '{find}': {exc}")
             return text
@@ -129,6 +145,11 @@ def _apply_rule(text: str, rule: TextReplacementRule) -> str:
         pattern = r"\b" + pattern + r"\b"
     flags = 0 if rule.case_sensitive else re.IGNORECASE
     return re.sub(pattern, lambda _: replacement, text, flags=flags)
+
+
+def _normalize_regex_replacement(replacement: str) -> str:
+    """Allow JavaScript-style $1 capture references in regex replacements."""
+    return DOLLAR_CAPTURE_GROUP_PATTERN.sub(r"\\g<\1>", replacement)
 
 
 # --- Remove Repeated Characters (AAAABBBBCCCC -> ABC) ---
@@ -295,3 +316,28 @@ def unicode_normalize(text: str, form: str = "NFKC") -> str:
     if form not in ("NFD", "NFC", "NFKD", "NFKC"):
         form = "NFKC"
     return unicodedata.normalize(form, text)
+
+
+def _main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--preview-json", action="store_true")
+    args = parser.parse_args(argv)
+
+    if not args.preview_json:
+        parser.print_help(sys.stderr)
+        return 2
+
+    try:
+        payload = json.load(sys.stdin)
+        if not isinstance(payload, dict):
+            raise ValueError("Preview payload must be a JSON object")
+        response = preview_text_processing_request(payload)
+        print(json.dumps(response, ensure_ascii=False), flush=True)
+        return 0
+    except Exception as exc:
+        print(json.dumps({"error": str(exc)}, ensure_ascii=False), file=sys.stderr, flush=True)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

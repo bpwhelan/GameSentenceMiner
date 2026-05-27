@@ -98,6 +98,7 @@ const OVERLAY_NON_PROFILE_SETTING_KEYS = new Set([
   "mainBoxStartupWarningAcknowledged",
   "dismissedFullscreenRecommendations",
   "gamepadServerPort",
+  "gamepadDeviceBlacklist",
   "gamepadJitenApiKey",
   "gamepadJpdbApiKey",
   "gamepadYomitanApiUrl",
@@ -346,6 +347,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadRepeatDelay": 400,
   "gamepadRepeatRate": 150,
   "gamepadServerPort": GAMEPAD_SERVER_BASE_PORT, // Port for gamepad server
+  "gamepadDeviceBlacklist": [], // Controller device names ignored by the input server
   "gamepadKeyboardHotkey": "Alt+G", // Keyboard hotkey to toggle gamepad mode
   "gamepadKeyboardEnabled": true, // Enable keyboard hotkey activation
   "gamepadControllerEnabled": true, // Enable controller button activation
@@ -712,6 +714,18 @@ function normalizeLiveStatsFields(value) {
       : defaults[key] !== false;
   }
   return normalized;
+}
+
+function normalizeGamepadDeviceBlacklist(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(new Set(
+    value
+      .map((deviceName) => String(deviceName || "").trim())
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b));
 }
 
 function areLiveStatsFieldsEqual(a, b) {
@@ -1165,7 +1179,7 @@ const manualHotkeyController = createManualHotkeyController({
 
 const FOCUS_RESTORE_THROTTLE_MS = 150;
 const OVERLAY_TOPMOST_REASSERT_THROTTLE_MS = 1500;
-const OVERLAY_MAGPIE_TEXT_REASSERT_THROTTLE_MS = 2500;
+const OVERLAY_MAGPIE_TEXT_REASSERT_MIN_INTERVAL_MS = 10000;
 const YOMITAN_STATE_STALE_TIMEOUT_MS = 12000;
 const FIND_IN_PAGE_COMMAND_CHANNEL = 'gsm-find-in-page:command';
 const FIND_IN_PAGE_RESULT_CHANNEL = 'gsm-find-in-page:result';
@@ -1657,6 +1671,7 @@ async function startGamepadServer(reason = "unknown") {
           GSM_OVERLAY_DATA_PATH: app.getPath('userData'),
           GSM_GAMEPAD_TOKENIZER_BACKEND: normalizeGamepadTokenizerBackend(userSettings.gamepadTokenizerBackend),
           GSM_SUDACHI_DICT_KIND: normalizeGamepadSudachiDictionary(userSettings.gamepadSudachiDictionary),
+          GSM_GAMEPAD_DEVICE_BLACKLIST: JSON.stringify(normalizeGamepadDeviceBlacklist(userSettings.gamepadDeviceBlacklist)),
         },
       });
 
@@ -2649,6 +2664,11 @@ const websocketEndpointsNormalized = enforceOverlayWebSocketUrls(userSettings);
 const texthookerUrlNormalized = enforceTexthookerUrl(userSettings);
 const furiganaSettingsNormalized = normalizeFuriganaSettings(userSettings);
 const gamepadTokenizerSettingsNormalized = normalizeGamepadTokenizerSettings(userSettings);
+const normalizedGamepadDeviceBlacklist = normalizeGamepadDeviceBlacklist(userSettings.gamepadDeviceBlacklist);
+const gamepadDeviceBlacklistNormalized = JSON.stringify(userSettings.gamepadDeviceBlacklist) !== JSON.stringify(normalizedGamepadDeviceBlacklist);
+if (gamepadDeviceBlacklistNormalized) {
+  userSettings.gamepadDeviceBlacklist = normalizedGamepadDeviceBlacklist;
+}
 const liveStatsSettingsNormalized = normalizeLiveStatsSettings(userSettings);
 const overlayProfilesNormalized = normalizeOverlaySettingsProfiles("settings-load");
 const overlayProfileAppliedOnLoad = syncOverlayProfileFromGSM("settings-load", {
@@ -2663,6 +2683,7 @@ if (
   texthookerUrlNormalized ||
   furiganaSettingsNormalized ||
   gamepadTokenizerSettingsNormalized ||
+  gamepadDeviceBlacklistNormalized ||
   liveStatsSettingsNormalized ||
   overlayProfilesNormalized ||
   overlayProfileAppliedOnLoad ||
@@ -5313,6 +5334,8 @@ app.whenReady().then(async () => {
       value = normalizeGamepadJitenApiKey(value);
     } else if (key === "gamepadJpdbApiKey") {
       value = normalizeGamepadJpdbApiKey(value);
+    } else if (key === "gamepadDeviceBlacklist") {
+      value = normalizeGamepadDeviceBlacklist(value);
     } else if (key === "furiganaScale") {
       value = normalizeFuriganaScale(value);
     } else if (key === "furiganaYOffset") {
@@ -5488,6 +5511,7 @@ app.whenReady().then(async () => {
       case "gamepadYomitanScanLength":
       case "gamepadJitenApiKey":
       case "gamepadJpdbApiKey":
+      case "gamepadDeviceBlacklist":
         // These settings are handled by the renderer's GamepadHandler
         // Just save and forward - no main process action needed
         console.log(`[Gamepad] Setting changed: ${key} = ${(key === "gamepadJitenApiKey" || key === "gamepadJpdbApiKey") ? "***" : value}`);
@@ -5658,12 +5682,14 @@ app.whenReady().then(async () => {
       });
     }
 
-    // Magpie can steal z-order, but forcing Electron's topmost/show calls on
-    // every line causes visible flicker. Coalesce routine line updates and keep
-    // stronger recovery for state changes, minimized windows, and Yomitan close.
+    // Magpie can steal z-order, but delayed topmost bumps after routine line
+    // updates are visibly disruptive. Keep line-based recovery rare and
+    // immediate; stronger recovery still runs for state changes, minimized
+    // windows, and Yomitan close.
     if (currentMagpieState.active && !isManualMode()) {
       requestOverlayTopmostReassert("text-received-magpie", {
-        throttleMs: OVERLAY_MAGPIE_TEXT_REASSERT_THROTTLE_MS,
+        throttleMs: OVERLAY_MAGPIE_TEXT_REASSERT_MIN_INTERVAL_MS,
+        scheduleTrailing: false,
         moveToTop: true,
         releaseFocusAfter: true,
         shouldRun: () => (

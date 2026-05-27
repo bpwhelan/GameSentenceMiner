@@ -692,6 +692,8 @@ class GamepadHandler {
     // DOM change tracking for live text updates
     this.textMutationObserver = null;
     this.pendingTextRefresh = false;
+    this.skipNextTextRefresh = false;
+    this.preserveSelectionOnNextTextRefresh = false;
     this.lastSelectionSnapshot = null; // Last known block rect + anchor position for redraw recovery
     
     // Bind methods
@@ -1072,7 +1074,9 @@ class GamepadHandler {
 
           if (this.tokens.length > 0 && this.tokenMode && this.isNavigationActive()) {
             const syncedFromMouse = this.syncSelectionFromVirtualMouse();
-            if (!syncedFromMouse) {
+            if (syncedFromMouse) {
+              this.syncVirtualMouseToCurrentSelection();
+            } else {
               const anchorCharIndex = this.getCurrentAnchorCharIndex();
               this.currentCursorIndex = this.charIndexToTokenIndex(anchorCharIndex >= 0 ? anchorCharIndex : 0);
               this.currentLineIndex = this.getLineIndexForCursor();
@@ -3667,23 +3671,91 @@ class GamepadHandler {
     return true;
   }
 
+  prepareForOverlayTextRender() {
+    return this.rememberCurrentSelectionSnapshot();
+  }
+
+  restoreSelectionFromSnapshot(snapshot = this.lastSelectionSnapshot) {
+    if (!snapshot || this.textBlocks.length === 0) {
+      return false;
+    }
+
+    const nearbyBlockIndex = this.findNearbySelectableBlockIndex(snapshot);
+    const currentBlockIsUsable = (
+      this.currentBlockIndex >= 0 &&
+      this.currentBlockIndex < this.textBlocks.length &&
+      this.blockHasSelectableCharacters(this.textBlocks[this.currentBlockIndex])
+    );
+    const targetBlockIndex = nearbyBlockIndex >= 0
+      ? nearbyBlockIndex
+      : (currentBlockIsUsable ? this.currentBlockIndex : this.findFirstSelectableBlockIndex());
+
+    if (targetBlockIndex < 0 || targetBlockIndex >= this.textBlocks.length) {
+      return false;
+    }
+
+    this.currentBlockIndex = targetBlockIndex;
+    this.refreshCharacters();
+    this.currentCursorIndex = this.restoreCursorFromSelectionSnapshot(snapshot);
+    this.currentLineIndex = this.getLineIndexForCursor();
+    this.rememberCurrentSelectionSnapshot();
+    return true;
+  }
+
+  handleOverlayTextRenderComplete(options = {}) {
+    const preserveSelection = options.preserveSelection !== false;
+    const snapshot = options.snapshot || this.lastSelectionSnapshot;
+    const navigationActive = this.isNavigationActive();
+
+    if (snapshot) {
+      this.lastSelectionSnapshot = snapshot;
+    }
+
+    this.skipNextTextRefresh = true;
+    this.preserveSelectionOnNextTextRefresh = preserveSelection;
+    this.virtualMouse.movedByAnalog = false;
+    this.virtualMouse.lastMoveTime = 0;
+    this.updateVirtualMouseCursor();
+
+    this.refreshTextBlocks();
+    if (preserveSelection && snapshot) {
+      this.restoreSelectionFromSnapshot(snapshot);
+    }
+    this.prefetchTokenizationForAllBlocks();
+    this.syncVirtualMouseToCurrentSelection();
+
+    if (navigationActive) {
+      this.updateVisuals();
+    }
+  }
+
   scheduleTextRefresh() {
     if (this.pendingTextRefresh) return;
     this.pendingTextRefresh = true;
 
     requestAnimationFrame(() => {
       this.pendingTextRefresh = false;
+      if (this.skipNextTextRefresh) {
+        this.skipNextTextRefresh = false;
+        this.preserveSelectionOnNextTextRefresh = false;
+        return;
+      }
       this.refreshOnTextChange();
     });
   }
 
   refreshOnTextChange() {
     const navigationActive = this.isNavigationActive();
+    const preserveSelection = this.preserveSelectionOnNextTextRefresh === true;
+    const selectionSnapshot = preserveSelection
+      ? (this.lastSelectionSnapshot || this.rememberCurrentSelectionSnapshot())
+      : null;
+    this.preserveSelectionOnNextTextRefresh = false;
     this.virtualMouse.movedByAnalog = false;
     this.virtualMouse.lastMoveTime = 0;
     this.updateVirtualMouseCursor();
 
-    if (navigationActive) {
+    if (navigationActive && !preserveSelection) {
       this.scanHiddenCharacterToHideYomitan();
     }
 
@@ -3701,18 +3773,24 @@ class GamepadHandler {
     }
 
     // When content collapses to a single block, default selection to its first position.
-    if (this.textBlocks.length === 1 && (previousBlockCount !== 1 || this.currentBlockIndex !== 0 || this.currentCursorIndex !== 0)) {
+    if (!preserveSelection && this.textBlocks.length === 1 && (previousBlockCount !== 1 || this.currentBlockIndex !== 0 || this.currentCursorIndex !== 0)) {
       this.resetSelectionToSingleBlockStart();
     }
 
     // If we were on the last block, follow newly appended text while active.
-    if (navigationActive && wasOnLastBlock && this.textBlocks.length > previousBlockCount) {
+    if (!preserveSelection && navigationActive && wasOnLastBlock && this.textBlocks.length > previousBlockCount) {
       this.currentBlockIndex = this.textBlocks.length - 1;
       this.currentCursorIndex = 0;
       this.currentLineIndex = 0;
       this.lineNavPrefersCharacters = false;
       this.refreshCharacters();
     }
+
+    if (preserveSelection && selectionSnapshot) {
+      this.restoreSelectionFromSnapshot(selectionSnapshot);
+    }
+
+    this.syncVirtualMouseToCurrentSelection();
 
     if (navigationActive) {
       this.updateVisuals();
@@ -4924,8 +5002,35 @@ class GamepadHandler {
     const unitType = this.tokenMode && this.tokens.length > 0 ? 'token' : 'char';
     console.log(`[GamepadHandler] Cursor RIGHT: now at ${unitType} ${this.currentCursorIndex}`);
   }
-  
+
   // ==================== Cursor Positioning for Yomitan ====================
+
+  syncVirtualMouseToCurrentSelection() {
+    if (!this.virtualMouse || !Array.isArray(this.characters) || this.characters.length === 0) {
+      if (this.virtualMouse) {
+        this.virtualMouse.initialized = false;
+        this.virtualMouse.movedByAnalog = false;
+        this.virtualMouse.lastMoveTime = 0;
+        this.virtualMouse.lastUpdateTime = 0;
+      }
+      return false;
+    }
+
+    const lookupTarget = this.getTargetCharForLookup();
+    if (!lookupTarget.targetChar) {
+      this.virtualMouse.initialized = false;
+      this.virtualMouse.movedByAnalog = false;
+      this.virtualMouse.lastMoveTime = 0;
+      this.virtualMouse.lastUpdateTime = 0;
+      return false;
+    }
+
+    this.virtualMouse.movedByAnalog = false;
+    this.virtualMouse.lastMoveTime = 0;
+    this.virtualMouse.lastUpdateTime = 0;
+    this.setVirtualMousePosition(lookupTarget.centerX, lookupTarget.centerY, false);
+    return true;
+  }
 
   initializeVirtualMousePosition(force = false) {
     if (this.virtualMouse.initialized && !force) return;
@@ -4942,11 +5047,114 @@ class GamepadHandler {
     this.setVirtualMousePosition(x, y, false);
   }
 
+  getVirtualMouseConstraintRects() {
+    if ((!Array.isArray(this.textBlocks) || this.textBlocks.length === 0) && typeof this.refreshTextBlocks === 'function') {
+      this.refreshTextBlocks();
+    }
+
+    const rects = [];
+    (Array.isArray(this.textBlocks) ? this.textBlocks : []).forEach((block, index) => {
+      if (!block || !block.isConnected) return;
+      if (typeof this.blockHasSelectableCharacters === 'function' && !this.blockHasSelectableCharacters(block)) return;
+
+      const rawRect = this.getBlockBoundingRect(block);
+      if (!rawRect) return;
+
+      const left = Number.isFinite(rawRect.left) ? rawRect.left : 0;
+      const top = Number.isFinite(rawRect.top) ? rawRect.top : 0;
+      const width = Number.isFinite(rawRect.width)
+        ? Math.max(0, rawRect.width)
+        : Math.max(0, (Number.isFinite(rawRect.right) ? rawRect.right : left) - left);
+      const height = Number.isFinite(rawRect.height)
+        ? Math.max(0, rawRect.height)
+        : Math.max(0, (Number.isFinite(rawRect.bottom) ? rawRect.bottom : top) - top);
+      const right = Number.isFinite(rawRect.right) ? rawRect.right : left + width;
+      const bottom = Number.isFinite(rawRect.bottom) ? rawRect.bottom : top + height;
+
+      if (width <= 0 || height <= 0 || right <= left || bottom <= top) return;
+
+      rects.push({
+        block,
+        index,
+        left,
+        top,
+        right,
+        bottom,
+        width,
+        height,
+      });
+    });
+
+    return rects;
+  }
+
+  isPointInRect(x, y, rect) {
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  }
+
+  clampPointToRect(x, y, rect) {
+    return {
+      x: Math.max(rect.left, Math.min(x, rect.right)),
+      y: Math.max(rect.top, Math.min(y, rect.bottom)),
+    };
+  }
+
+  constrainVirtualMousePointToBlocks(x, y) {
+    const rects = this.getVirtualMouseConstraintRects();
+    if (rects.length === 0) {
+      return { x, y, block: null, blockIndex: -1, constrained: false };
+    }
+
+    const currentRect = rects.find(rect => rect.index === this.currentBlockIndex && this.isPointInRect(x, y, rect));
+    if (currentRect) {
+      return { x, y, block: currentRect.block, blockIndex: currentRect.index, constrained: false };
+    }
+
+    const containingRect = rects.find(rect => this.isPointInRect(x, y, rect));
+    if (containingRect) {
+      return { x, y, block: containingRect.block, blockIndex: containingRect.index, constrained: false };
+    }
+
+    let best = null;
+    for (const rect of rects) {
+      const point = this.clampPointToRect(x, y, rect);
+      const dx = point.x - x;
+      const dy = point.y - y;
+      const score = (dx * dx) + (dy * dy);
+      const isCurrentBlock = rect.index === this.currentBlockIndex;
+
+      if (
+        !best ||
+        score < best.score ||
+        (score === best.score && isCurrentBlock && best.blockIndex !== this.currentBlockIndex)
+      ) {
+        best = {
+          ...point,
+          block: rect.block,
+          blockIndex: rect.index,
+          score,
+        };
+      }
+    }
+
+    return best
+      ? { x: best.x, y: best.y, block: best.block, blockIndex: best.blockIndex, constrained: true }
+      : { x, y, block: null, blockIndex: -1, constrained: false };
+  }
+
   setVirtualMousePosition(x, y, dispatchMove = false) {
-    const viewportWidth = Math.max(1, window.innerWidth || document.documentElement.clientWidth || 1);
-    const viewportHeight = Math.max(1, window.innerHeight || document.documentElement.clientHeight || 1);
-    const clampedX = Math.min(viewportWidth - 1, Math.max(0, Number(x) || 0));
-    const clampedY = Math.min(viewportHeight - 1, Math.max(0, Number(y) || 0));
+    const viewportWidth = Math.max(1, window.innerWidth || document.documentElement?.clientWidth || 1);
+    const viewportHeight = Math.max(1, window.innerHeight || document.documentElement?.clientHeight || 1);
+    let clampedX = Math.min(viewportWidth - 1, Math.max(0, Number(x) || 0));
+    let clampedY = Math.min(viewportHeight - 1, Math.max(0, Number(y) || 0));
+    const constrainedPoint = dispatchMove
+      ? this.constrainVirtualMousePointToBlocks(clampedX, clampedY)
+      : null;
+
+    if (constrainedPoint) {
+      clampedX = Math.min(viewportWidth - 1, Math.max(0, constrainedPoint.x));
+      clampedY = Math.min(viewportHeight - 1, Math.max(0, constrainedPoint.y));
+    }
 
     this.virtualMouse.x = clampedX;
     this.virtualMouse.y = clampedY;
@@ -4955,10 +5163,17 @@ class GamepadHandler {
 
     if (!dispatchMove) return;
 
-    const targetElement = document.elementFromPoint(clampedX, clampedY);
-    if (targetElement) {
-      this.simulateMousePosition(clampedX, clampedY, targetElement);
-      this.syncSelectionFromVirtualMouse(targetElement);
+    const targetElement = typeof document.elementFromPoint === 'function'
+      ? document.elementFromPoint(clampedX, clampedY)
+      : null;
+    let sourceElement = targetElement;
+    if (constrainedPoint?.block && (!targetElement || this.getBlockIndexForElement(targetElement) < 0)) {
+      sourceElement = constrainedPoint.block;
+    }
+
+    if (sourceElement) {
+      this.simulateMousePosition(clampedX, clampedY, sourceElement);
+      this.syncSelectionFromVirtualMouse(sourceElement);
     }
   }
 

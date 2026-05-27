@@ -1027,23 +1027,79 @@ describe('renameOBSScene', () => {
     });
 });
 
-describe('sceneHasVisibleOutput', () => {
-    it('detects visible scene output from a non-uniform screenshot', async () => {
-        const { sceneHasVisibleOutput } = await loadObsModule();
+describe('getScenePreviewSnapshot', () => {
+    beforeEach(() => {
+        obsCallMock.mockReset();
+        obsConnectMock.mockReset();
+        obsDisconnectMock.mockReset();
+        obsOnMock.mockReset();
+        obsRemoveAllListenersMock.mockReset();
+        obsConnectMock.mockResolvedValue(undefined);
+    });
+
+    it('screenshots the OBS scene composite when no preview source is recognized', async () => {
+        const { getScenePreviewSnapshot } = await loadObsModule();
+        const imageData = 'data:image/jpeg;base64,preview';
 
         obsCallMock.mockImplementation(async (requestType: string) => {
             if (requestType === 'GetVersion') {
                 return {};
             }
+            if (requestType === 'GetSceneList') {
+                return {
+                    scenes: [
+                        {
+                            sceneName: 'Webcam Scene',
+                            sceneUuid: 'scene-webcam',
+                        },
+                    ],
+                };
+            }
+            if (requestType === 'GetVideoSettings') {
+                return { baseWidth: 1920, baseHeight: 1080 };
+            }
             if (requestType === 'GetSceneItemList') {
                 return {
                     sceneItems: [
                         {
-                            sourceName: 'Octopath Traveler 0',
-                            inputKind: 'window_capture',
+                            sceneItemId: 7,
+                            sourceName: 'Webcam',
+                            inputKind: 'dshow_input',
+                            sceneItemEnabled: true,
                         },
                     ],
                 };
+            }
+            if (requestType === 'GetSourceScreenshot') {
+                return { imageData };
+            }
+            return {};
+        });
+
+        await expect(getScenePreviewSnapshot('scene-webcam')).resolves.toEqual({
+            sceneName: 'Webcam Scene',
+            sceneId: 'scene-webcam',
+            sourceName: null,
+            captureMode: null,
+            imageData,
+        });
+
+        expect(obsCallMock).toHaveBeenCalledWith('GetSourceScreenshot', {
+            sourceName: 'Webcam Scene',
+            imageFormat: 'jpg',
+            imageWidth: 960,
+            imageHeight: 540,
+        });
+    });
+});
+
+describe('sceneHasVisibleOutput', () => {
+    it('detects visible scene output from the OBS scene composite screenshot', async () => {
+        const { sceneHasVisibleOutput } = await loadObsModule();
+
+        obsCallMock.mockImplementation(async (requestType: string) => {
+            if (requestType === 'GetVersion') {
+                return {};
             }
             if (requestType === 'GetSourceScreenshot') {
                 return { imageData: NON_UNIFORM_PNG_DATA_URL };
@@ -1061,24 +1117,17 @@ describe('sceneHasVisibleOutput', () => {
             imageWidth: 8,
             imageHeight: 8,
         });
+        expect(obsCallMock.mock.calls.map(([requestType]) => requestType)).not.toContain(
+            'GetSceneItemList'
+        );
     });
 
-    it('treats a uniform screenshot as no visible output', async () => {
+    it('treats a uniform scene composite screenshot as no visible output', async () => {
         const { sceneHasVisibleOutput } = await loadObsModule();
 
         obsCallMock.mockImplementation(async (requestType: string) => {
             if (requestType === 'GetVersion') {
                 return {};
-            }
-            if (requestType === 'GetSceneItemList') {
-                return {
-                    sceneItems: [
-                        {
-                            sourceName: 'Empty Scene',
-                            inputKind: 'window_capture',
-                        },
-                    ],
-                };
             }
             if (requestType === 'GetSourceScreenshot') {
                 return { imageData: UNIFORM_PNG_DATA_URL };
@@ -1089,6 +1138,24 @@ describe('sceneHasVisibleOutput', () => {
         await expect(
             sceneHasVisibleOutput({ id: 'scene-123', name: 'Empty Scene' })
         ).resolves.toBe(false);
+    });
+
+    it('returns null when the OBS scene composite cannot be captured', async () => {
+        const { sceneHasVisibleOutput } = await loadObsModule();
+
+        obsCallMock.mockImplementation(async (requestType: string) => {
+            if (requestType === 'GetVersion') {
+                return {};
+            }
+            if (requestType === 'GetSourceScreenshot') {
+                throw new Error('No source was found');
+            }
+            return {};
+        });
+
+        await expect(
+            sceneHasVisibleOutput({ id: 'scene-123', name: 'Missing Scene' })
+        ).resolves.toBeNull();
     });
 });
 

@@ -18,6 +18,7 @@ from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.cron import cron_scheduler
 from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.shared import GameUpdateService
+from GameSentenceMiner.web.yomitan_api import notify_yomitan_character_dictionary_changed
 
 jiten_linking_bp = Blueprint("jiten_linking", __name__)
 
@@ -167,6 +168,10 @@ def api_link_game_to_jiten(game_id):
                         logger.info(
                             f"Stored {vndb_data.get('character_count', 0)} characters for {game.title_original}"
                         )
+                        notify_yomitan_character_dictionary_changed(
+                            "jiten-link:vndb-character-data",
+                            game.id,
+                        )
                     else:
                         logger.debug(f"No VNDB character data returned for VN ID: {vndb_id}")
                         # Still save the vndb_id even if character data fetch fails
@@ -220,6 +225,10 @@ def api_link_game_to_jiten(game_id):
                             )
                         logger.info(
                             f"Stored {anilist_data.get('character_count', 0)} AniList characters for {game.title_original}"
+                        )
+                        notify_yomitan_character_dictionary_changed(
+                            "jiten-link:anilist-character-data",
+                            game.id,
                         )
                     else:
                         logger.warning(f"No AniList character data returned for {media_type} ID: {media_id}")
@@ -572,6 +581,10 @@ def api_repull_game_from_jiten(game_id):
                     except Exception as queue_error:
                         logger.debug(f"Failed to queue Sudachi user dictionary export after VNDB repull: {queue_error}")
                     logger.info(f"Updated VNDB character data for {game.title_original}")
+                    notify_yomitan_character_dictionary_changed(
+                        "jiten-repull:vndb-character-data",
+                        game.id,
+                    )
             except Exception as e:
                 logger.error(f"Failed to fetch VNDB character data: {e}")
 
@@ -606,6 +619,10 @@ def api_repull_game_from_jiten(game_id):
                             f"Failed to queue Sudachi user dictionary export after AniList repull: {queue_error}"
                         )
                     logger.info(f"Updated AniList character data for {game.title_original}")
+                    notify_yomitan_character_dictionary_changed(
+                        "jiten-repull:anilist-character-data",
+                        game.id,
+                    )
             except Exception as e:
                 logger.exception(f"Failed to fetch AniList character data: {e}")
 

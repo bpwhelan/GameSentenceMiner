@@ -134,6 +134,10 @@ if os.name == "nt":
 
 
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+ASYNC_LOOP_STRESS_SECONDS = 0
+ASYNC_LOOP_STRESS_DELAY_SECONDS = 10.0
+ASYNC_LOOP_STRESS_REPEAT = 1
+ASYNC_LOOP_STRESS_MODE = "block"
 _instance_lock_handle = None
 
 
@@ -358,6 +362,10 @@ class AppState:
     file_watcher_observer: Optional[Observer] = None
     file_watcher_path: Optional[str] = None
     async_runner: AsyncBackgroundRunner = field(default_factory=AsyncBackgroundRunner)
+    text_async_runner: AsyncBackgroundRunner = field(default_factory=lambda: AsyncBackgroundRunner("gsm-text-async"))
+    overlay_async_runner: AsyncBackgroundRunner = field(
+        default_factory=lambda: AsyncBackgroundRunner("gsm-overlay-async")
+    )
 
 
 class GSMTray(threading.Thread):
@@ -758,6 +766,8 @@ class GSMApplication:
             getattr(window_state_monitor_module, "cleanup_minimized_audio_mutes", lambda: None)()
             window_state_monitor_module.cleanup_suspended_processes()
             _get_qt_main_module().shutdown_qt_app()
+            self.state.overlay_async_runner.stop()
+            self.state.text_async_runner.stop()
             self.state.async_runner.stop()
 
             # Release the single-instance lock before notifying Electron so that
@@ -1087,7 +1097,7 @@ class GSMApplication:
             source_display_name=source_display_name,
         )
         try:
-            self.state.async_runner.submit(coro)
+            self.state.text_async_runner.submit(coro)
             # Suppress duplicate delivery from the deprecated OCR websocket path.
             gametext_module.current_line = text
         except Exception as e:
@@ -1132,7 +1142,7 @@ class GSMApplication:
             source_display_name=display_name,
         )
         try:
-            self.state.async_runner.submit(coro)
+            self.state.text_async_runner.submit(coro)
         except Exception as e:
             logger.background(f"Failed to schedule texthook line: {e}")
 
@@ -1215,7 +1225,7 @@ class GSMApplication:
         if not gsm_status.obs_connected and (not self._obs_connect_task or self._obs_connect_task.done()):
             self._obs_connect_task = asyncio.create_task(self._connect_obs_when_available())
 
-        await _get_overlay_coords_module().init_overlay_processor()
+        await self.init_overlay_processor_async()
         _get_window_state_monitor_module().cleanup_suspended_processes()
         _get_vad_processor().init()
 
@@ -1268,6 +1278,58 @@ class GSMApplication:
 
     async def start_text_monitor_async(self) -> None:
         await _get_gametext_module().start_text_monitor()
+
+    async def init_overlay_processor_async(self) -> None:
+        overlay_coords = _get_overlay_coords_module()
+        overlay_runner = getattr(getattr(self, "state", None), "overlay_async_runner", None)
+        if overlay_runner is None:
+            await overlay_coords.init_overlay_processor()
+            return
+
+        await asyncio.wrap_future(overlay_runner.submit(overlay_coords.init_overlay_processor()))
+
+    async def async_loop_stress_test_task(self) -> None:
+        stress_seconds = max(0.0, float(ASYNC_LOOP_STRESS_SECONDS))
+        if stress_seconds <= 0:
+            return
+
+        delay_seconds = max(0.0, float(ASYNC_LOOP_STRESS_DELAY_SECONDS))
+        repeat_count = max(1, int(ASYNC_LOOP_STRESS_REPEAT))
+        mode = str(ASYNC_LOOP_STRESS_MODE).strip().lower()
+        if mode not in {"block", "yield"}:
+            logger.warning(f"Unknown ASYNC_LOOP_STRESS_MODE {mode!r}; using 'block'.")
+            mode = "block"
+
+        if delay_seconds:
+            await asyncio.sleep(delay_seconds)
+
+        for run_index in range(repeat_count):
+            started = time.monotonic()
+            deadline = started + stress_seconds
+            iterations = 0
+            logger.warning(
+                "Starting async loop stress test "
+                f"{run_index + 1}/{repeat_count}: mode={mode}, seconds={stress_seconds:g}"
+            )
+
+            if mode == "yield":
+                while time.monotonic() < deadline:
+                    chunk_deadline = min(deadline, time.monotonic() + 0.05)
+                    while time.monotonic() < chunk_deadline:
+                        iterations += 1
+                    await asyncio.sleep(0)
+            else:
+                while time.monotonic() < deadline:
+                    iterations += 1
+
+            elapsed = time.monotonic() - started
+            logger.warning(
+                "Finished async loop stress test "
+                f"{run_index + 1}/{repeat_count}: elapsed={elapsed:.3f}s, iterations={iterations}"
+            )
+
+            if run_index < repeat_count - 1 and delay_seconds:
+                await asyncio.sleep(delay_seconds)
 
     def _wait_for_startup_ready(self, timeout: float = 20.0, interval: float = 0.1) -> None:
         wait_for_obs = bool(get_config().obs.open_obs)
@@ -1336,10 +1398,13 @@ class GSMApplication:
             )
 
         self.state.async_runner.start()
+        self.state.text_async_runner.start()
+        self.state.overlay_async_runner.start()
         post_init = self.state.async_runner.submit(self.post_init_async())
         post_init.result()
         self.state.async_runner.submit(self.background_tasks_async())
-        self.state.async_runner.submit(self.start_text_monitor_async())
+        self.state.text_async_runner.submit(self.start_text_monitor_async())
+        self.state.async_runner.submit(self.async_loop_stress_test_task())
 
         signal.signal(signal.SIGTERM, self.handle_exit())
         signal.signal(signal.SIGINT, self.handle_exit())

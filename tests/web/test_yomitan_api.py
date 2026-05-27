@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import flask
 import pytest
+import sys
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -94,3 +95,27 @@ def test_yomitan_index_revision_changes_when_character_data_changes():
     assert first.status_code == 200
     assert second.status_code == 200
     assert first.get_json()["revision"] != second.get_json()["revision"]
+
+
+def test_notify_yomitan_character_dictionary_changed_sends_overlay_event(monkeypatch):
+    from GameSentenceMiner.web.yomitan_api import notify_yomitan_character_dictionary_changed
+
+    sent = []
+    fake_websocket_module = SimpleNamespace(
+        ID_OVERLAY="overlay",
+        websocket_manager=SimpleNamespace(send_nowait=lambda channel, payload: sent.append((channel, payload))),
+    )
+    monkeypatch.setitem(sys.modules, "GameSentenceMiner.web.gsm_websocket", fake_websocket_module)
+
+    notify_yomitan_character_dictionary_changed("test-reason", "game-1")
+
+    assert sent == [
+        (
+            "overlay",
+            {
+                "type": "yomitan_character_dictionary_changed",
+                "reason": "test-reason",
+                "game_id": "game-1",
+            },
+        )
+    ]

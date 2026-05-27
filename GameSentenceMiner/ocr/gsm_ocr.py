@@ -5,6 +5,7 @@ two-pass controller logic while keeping compatibility shims for legacy imports.
 """
 
 import asyncio
+import copy
 from collections import deque
 import io
 import json
@@ -102,7 +103,7 @@ DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHAN
 OCR_METRICS_CAPTURE_ENABLED = True
 # Opt-in controller rewrite inspired by owocr's frame-stability flow.
 # Keep this False unless intentionally testing/enabling the v2 path.
-USE_TWO_PASS_OCR_V2 = False
+USE_TWO_PASS_OCR_V2 = True
 TWO_PASS_OCR_V2_STABLE_FRAME_COUNT = 2
 TWO_PASS_OCR_V2_DETECTION_PADDING = 10
 
@@ -204,6 +205,8 @@ class _MeikiTracker:
     last_crop_coords: tuple | None = None
     last_crop_time: datetime | None = None
     last_success_coords: tuple | None = None
+    last_box_list: list | None = None
+    last_success_box_list: list | None = None
     previous_img: Any = None
 
 
@@ -287,7 +290,9 @@ class TwoPassOCRController:
 
         active_detection_boxes = detection_boxes if detection_boxes is not None else meiki_boxes
         if active_detection_boxes:
-            if self._handle_detection(text, crop_coords, current_time, img, response_dict, source):
+            if self._handle_detection(
+                text, crop_coords, current_time, img, response_dict, source, active_detection_boxes
+            ):
                 return
 
         if manual or not self.config.two_pass_enabled:
@@ -690,7 +695,7 @@ class TwoPassOCRController:
             source=source,
         )
 
-        final_payload = response_dict or result.response_dict
+        final_payload = _select_second_pass_payload(response_dict, result.response_dict)
         return self._dispatch_second_pass_result(
             result.text,
             result.orig_text,
@@ -774,6 +779,7 @@ class TwoPassOCRController:
         img: Any,
         response_dict: dict | None,
         source: str,
+        detection_boxes: list | None = None,
     ) -> bool:
         """Handle detector bounding-box stability. Returns True -> caller returns."""
         m = self._meiki
@@ -781,23 +787,39 @@ class TwoPassOCRController:
         if self.config.text_appears_instantly:
             return self._handle_instant_detection(text, crop_coords, time, img, response_dict, source)
 
+        current_box_list = _extract_sorted_box_list(detection_boxes, response_dict)
+
         if m.last_crop_coords is None:
             m.last_crop_coords = crop_coords
             m.last_crop_time = time
+            m.last_box_list = current_box_list or None
             m.previous_img = _copy_img(img)
             return True
 
         if not crop_coords or not m.last_crop_coords:
             m.last_crop_coords = crop_coords
             m.last_crop_time = time
+            m.last_box_list = current_box_list or None
             return True
 
-        close = _coords_close(crop_coords, m.last_crop_coords, self.MEIKI_TOL)
+        # Use per-box comparison when available, fall back to union crop coords
+        if current_box_list and m.last_box_list:
+            close = _detection_boxes_stable(m.last_box_list, current_box_list, self.MEIKI_TOL)
+        else:
+            close = _coords_close(crop_coords, m.last_crop_coords, self.MEIKI_TOL)
 
         if close:
-            if m.last_success_coords and _coords_close(crop_coords, m.last_success_coords, self.MEIKI_TOL):
+            # Check if this matches the last successfully processed detection
+            if m.last_success_box_list and current_box_list:
+                if _detection_boxes_stable(current_box_list, m.last_success_box_list, self.MEIKI_TOL):
+                    m.last_crop_coords = None
+                    m.last_crop_time = None
+                    m.last_box_list = None
+                    return True
+            elif m.last_success_coords and _coords_close(crop_coords, m.last_success_coords, self.MEIKI_TOL):
                 m.last_crop_coords = None
                 m.last_crop_time = None
+                m.last_box_list = None
                 return True
 
             stable_time = m.last_crop_time or time
@@ -821,13 +843,17 @@ class TwoPassOCRController:
                     source=source,
                 )
             m.last_success_coords = crop_coords
+            m.last_success_box_list = current_box_list or None
             m.last_crop_coords = None
             m.last_crop_time = None
+            m.last_box_list = None
             return True
 
         m.last_crop_coords = crop_coords
         m.last_crop_time = time
+        m.last_box_list = current_box_list or None
         m.last_success_coords = None
+        m.last_success_box_list = None
         m.previous_img = _copy_img(img)
         return True
 
@@ -908,8 +934,9 @@ class _V2PendingDetectionState:
     """Detector crop waiting for a second matching frame."""
 
     crop_coords: tuple
-    start_time: datetime
-    img: Any
+    box_list: list | None = None
+    start_time: datetime = field(default_factory=datetime.now)
+    img: Any = None
     response_dict: dict | None = None
     source: str = "ocr"
 
@@ -939,6 +966,7 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         self._v2_last_processed_text: str = ""
         self._v2_last_processed_chunks: list = []
         self._v2_last_detection_crop_coords: tuple | None = None
+        self._v2_last_detection_box_list: list | None = None
         self._v2_last_detection_signature: tuple | None = None
 
     def reset(self) -> None:
@@ -948,6 +976,7 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         self._v2_last_processed_text = ""
         self._v2_last_processed_chunks = []
         self._v2_last_detection_crop_coords = None
+        self._v2_last_detection_box_list = None
         self._v2_last_detection_signature = None
 
     def handle_ocr_result(
@@ -1244,10 +1273,13 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             self._v2_pending_detection = None
             return True
 
+        current_box_list = _extract_sorted_box_list(detection_boxes, response_dict)
+
         if self.config.text_appears_instantly:
             return self._handle_v2_instant_detection(
                 text=text,
                 resolved_crop=resolved_crop,
+                box_list=current_box_list,
                 time=time,
                 img=img,
                 response_dict=response_dict,
@@ -1255,9 +1287,20 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             )
 
         pending = self._v2_pending_detection
-        if pending is None or not _coords_close(resolved_crop, pending.crop_coords, self.MEIKI_TOL):
+
+        # Determine stability: prefer per-box comparison over union crop coords
+        if pending is not None:
+            if current_box_list and pending.box_list:
+                is_stable = _detection_boxes_stable(pending.box_list, current_box_list, self.MEIKI_TOL)
+            else:
+                is_stable = _coords_close(resolved_crop, pending.crop_coords, self.MEIKI_TOL)
+        else:
+            is_stable = False
+
+        if not is_stable:
             self._v2_pending_detection = _V2PendingDetectionState(
                 crop_coords=resolved_crop,
+                box_list=current_box_list or None,
                 start_time=time,
                 img=_copy_img(img),
                 response_dict=response_dict,
@@ -1296,6 +1339,7 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             )
 
         self._v2_last_detection_crop_coords = resolved_crop
+        self._v2_last_detection_box_list = current_box_list if current_box_list else None
         self._v2_last_detection_signature = signature
         self._v2_pending_detection = None
         return True
@@ -1305,11 +1349,24 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         *,
         text: str,
         resolved_crop: tuple,
+        box_list: list | None = None,
         time: datetime,
         img: Any,
         response_dict: dict | None,
         source: str,
     ) -> bool:
+        # Per-box dedup: if every individual box is unchanged, skip OCR2.
+        # This is more robust than pixel signatures for live captures where
+        # minor frame-to-frame pixel jitter causes false signature mismatches.
+        if (
+            box_list
+            and self._v2_last_detection_box_list
+            and _detection_boxes_stable(self._v2_last_detection_box_list, box_list, self.MEIKI_TOL)
+        ):
+            self._v2_pending_detection = None
+            return True
+
+        # Fallback: pixel-level signature dedup for engines that don't provide boxes
         ocr2_img = self._build_ocr2_image(resolved_crop, img, extra_padding=self.detection_padding)
         signature = _image_visual_signature(ocr2_img)
         if (
@@ -1340,6 +1397,7 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             )
 
         self._v2_last_detection_crop_coords = resolved_crop
+        self._v2_last_detection_box_list = box_list if box_list else None
         self._v2_last_detection_signature = signature
         self._v2_pending_detection = None
         return True
@@ -1367,6 +1425,38 @@ def _coords_close(
         return all(abs(int(a[i]) - int(b[i])) <= tol for i in range(4))
     except Exception:
         return False
+
+
+def _extract_sorted_box_list(
+    detection_boxes: list | None,
+    response_dict: dict | None,
+) -> list[tuple[int, int, int, int]]:
+    """Extract individual box coords from detection data, sorted for stable comparison."""
+    candidates = _iter_detection_coord_candidates(detection_boxes, response_dict)
+    if not candidates:
+        return []
+    # Sort by y1 then x1 so ordering is deterministic
+    return sorted(set(candidates), key=lambda c: (c[1], c[0]))
+
+
+def _detection_boxes_stable(
+    prev_boxes: list[tuple[int, int, int, int]] | None,
+    new_boxes: list[tuple[int, int, int, int]] | None,
+    tol: int,
+) -> bool:
+    """True when individual detection boxes are stable between frames.
+
+    Compares per-box coordinates rather than just the union bounding box.
+    This prevents false stabilization when text is spooling on a new line
+    (where the union X2 is already maxed but individual boxes are changing).
+    """
+    if prev_boxes is None or new_boxes is None:
+        return False
+    if len(prev_boxes) != len(new_boxes):
+        return False
+    if not prev_boxes:
+        return False
+    return all(_coords_close(a, b, tol) for a, b in zip(prev_boxes, new_boxes))
 
 
 def _v2_normalized_text(text: str) -> str:
@@ -2128,7 +2218,15 @@ def _is_overlay_supported_engine(engine_name: Any) -> bool:
     normalized = str(engine_name or "").strip().lower()
     if not normalized:
         return False
-    return "oneocr" in normalized or "meiki" in normalized or "screenai" in normalized
+    compact = normalized.replace(" ", "").replace("_", "").replace("-", "")
+    return (
+        "oneocr" in compact
+        or "meiki" in compact
+        or "screenai" in compact
+        or "glens" in compact
+        or "googlelens" in compact
+        or compact == "lens"
+    )
 
 
 def _normalize_overlay_lookup_lines(lines: Any) -> list[dict[str, Any]]:
@@ -2271,6 +2369,104 @@ def build_overlay_coordinate_payload(response_dict: Any) -> dict[str, Any] | Non
         },
         "lines": translated_lines,
     }
+
+
+def _sizes_match(left: dict[str, int], right: dict[str, int]) -> bool:
+    return _safe_int(left.get("width")) == _safe_int(right.get("width")) and _safe_int(left.get("height")) == _safe_int(
+        right.get("height")
+    )
+
+
+def _clamped_crop_origin(
+    crop_coords: Any,
+    source_size: dict[str, int],
+    cropped_size: dict[str, int],
+) -> tuple[int, int]:
+    if not isinstance(crop_coords, (list, tuple)) or len(crop_coords) < 4:
+        return 0, 0
+
+    try:
+        raw_x1, raw_y1, raw_x2, raw_y2 = [int(crop_coords[i]) for i in range(4)]
+    except (TypeError, ValueError):
+        return 0, 0
+
+    source_w = max(1, _safe_int(source_size.get("width")))
+    source_h = max(1, _safe_int(source_size.get("height")))
+
+    no_pad_x1 = min(max(0, raw_x1), source_w)
+    no_pad_y1 = min(max(0, raw_y1), source_h)
+    no_pad_x2 = min(max(no_pad_x1, raw_x2), source_w)
+    no_pad_y2 = min(max(no_pad_y1, raw_y2), source_h)
+
+    if no_pad_x2 <= no_pad_x1:
+        no_pad_x2 = min(source_w, no_pad_x1 + 1)
+        no_pad_x1 = max(0, no_pad_x2 - 1)
+    if no_pad_y2 <= no_pad_y1:
+        no_pad_y2 = min(source_h, no_pad_y1 + 1)
+        no_pad_y1 = max(0, no_pad_y2 - 1)
+
+    inferred_pad_x = max(0, (_safe_int(cropped_size.get("width")) - (no_pad_x2 - no_pad_x1)) // 2)
+    inferred_pad_y = max(0, (_safe_int(cropped_size.get("height")) - (no_pad_y2 - no_pad_y1)) // 2)
+
+    return min(max(0, raw_x1 - inferred_pad_x), source_w), min(max(0, raw_y1 - inferred_pad_y), source_h)
+
+
+def _rebase_second_pass_payload_to_first_pass(first_pass_payload: Any, second_pass_payload: Any) -> Any:
+    if not isinstance(first_pass_payload, dict) or not isinstance(second_pass_payload, dict):
+        return second_pass_payload
+
+    first_pipeline = first_pass_payload.get("pipeline")
+    second_pipeline = second_pass_payload.get("pipeline")
+    if not isinstance(first_pipeline, dict) or not isinstance(second_pipeline, dict):
+        return second_pass_payload
+
+    first_capture = first_pipeline.get("capture") if isinstance(first_pipeline.get("capture"), dict) else {}
+    first_processing = first_pipeline.get("processing") if isinstance(first_pipeline.get("processing"), dict) else {}
+    second_processing = second_pipeline.get("processing") if isinstance(second_pipeline.get("processing"), dict) else {}
+
+    first_capture_scaled_size = _normalize_size(first_capture.get("scaled_size"))
+    if first_capture_scaled_size["width"] <= 0 or first_capture_scaled_size["height"] <= 0:
+        return second_pass_payload
+
+    first_processed_size = _normalize_size(first_processing.get("processed_size"))
+    second_processed_size = _normalize_size(second_processing.get("processed_size"))
+    if first_processed_size["width"] <= 0 or first_processed_size["height"] <= 0:
+        return second_pass_payload
+
+    ocr2_crop_x = 0
+    ocr2_crop_y = 0
+    if not _sizes_match(first_processed_size, second_processed_size):
+        first_ocr = first_pipeline.get("ocr") if isinstance(first_pipeline.get("ocr"), dict) else {}
+        crop_coords = first_ocr.get("crop_coords")
+        if crop_coords is None:
+            crop_coords = first_pass_payload.get("crop_coords")
+        ocr2_crop_x, ocr2_crop_y = _clamped_crop_origin(crop_coords, first_processed_size, second_processed_size)
+
+    first_crop_offset = (
+        first_processing.get("crop_offset") if isinstance(first_processing.get("crop_offset"), dict) else {}
+    )
+    rebased = copy.deepcopy(second_pass_payload)
+    rebased_pipeline = rebased.setdefault("pipeline", {})
+    rebased_pipeline["capture"] = copy.deepcopy(first_capture)
+
+    rebased_processing = rebased_pipeline.setdefault("processing", {})
+    rebased_processing["crop_offset"] = {
+        "x": _safe_int(first_crop_offset.get("x"), 0) + ocr2_crop_x,
+        "y": _safe_int(first_crop_offset.get("y"), 0) + ocr2_crop_y,
+    }
+    for key in ("capture_origin", "coordinate_mode", "crop_rectangles"):
+        if key in first_processing:
+            rebased_processing[key] = copy.deepcopy(first_processing[key])
+
+    return rebased
+
+
+def _select_second_pass_payload(first_pass_payload: Any, second_pass_payload: Any) -> Any:
+    """Prefer OCR2 metadata when it can drive overlay lookups; otherwise keep the old fallback order."""
+    rebased_second_pass_payload = _rebase_second_pass_payload_to_first_pass(first_pass_payload, second_pass_payload)
+    if build_overlay_coordinate_payload(rebased_second_pass_payload) is not None:
+        return rebased_second_pass_payload
+    return first_pass_payload if first_pass_payload else second_pass_payload
 
 
 def get_screen_crop_image_metadata(image: Any) -> dict[str, Any] | None:
@@ -2521,7 +2717,7 @@ class OCRProcessor:
             save_result_image(ocr2_input_img, pre_crop_image=pre_crop_image)
             ctrl.last_ocr2_result = [x for x in (orig_text or []) if x is not None]
             ctrl.last_sent_result = text
-            final_payload = response_dict if response_dict else generated_payload
+            final_payload = _select_second_pass_payload(response_dict, generated_payload)
             if source == TextSource.SECONDARY and build_overlay_coordinate_payload(final_payload) is None:
                 fallback_payload = self._build_geometry_payload_with_local_engine(
                     ocr2_input_img,

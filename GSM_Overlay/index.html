@@ -1017,8 +1017,10 @@ background: rgba(202, 12, 12, 0.692);
   let lastPopupCount = 0;
   const STALE_TIMEOUT = 12000;
   const GSM_CHARACTER_DICTIONARY_STARTUP_DELAY_MS = 30000;
+  const GSM_CHARACTER_DICTIONARY_REFRESH_DELAY_MS = 2000;
   let gsmCharacterDictionaryEnsureStarted = false;
   let gsmCharacterDictionaryEnsureTimeoutId = null;
+  let gsmCharacterDictionaryEnsureInProgress = false;
 
   async function closeYomitanLookups(reason = 'manual-hide') {
     if (!yomitanShowing) {
@@ -1064,21 +1066,25 @@ background: rgba(202, 12, 12, 0.692);
     }
   }
 
-  async function ensureGsmCharacterDictionaryFresh(reason = 'startup') {
-    if (gsmCharacterDictionaryEnsureStarted) {
+  async function ensureGsmCharacterDictionaryFresh(reason = 'startup', options = {}) {
+    const force = options.force === true;
+    if (gsmCharacterDictionaryEnsureInProgress || (gsmCharacterDictionaryEnsureStarted && !force)) {
       return;
     }
     gsmCharacterDictionaryEnsureStarted = true;
+    gsmCharacterDictionaryEnsureInProgress = true;
 
     const bridge = window.gsmYomitanBridge;
     if (!bridge || typeof bridge.ensureGsmCharacterDictionary !== 'function') {
       console.warn(`[Yomitan] GSM dictionary bridge unavailable (${reason})`);
+      gsmCharacterDictionaryEnsureInProgress = false;
       return;
     }
 
     const urls = getGsmDictionaryUrls();
     if (!urls) {
       console.warn(`[Yomitan] GSM dictionary URLs unavailable (${reason})`);
+      gsmCharacterDictionaryEnsureInProgress = false;
       return;
     }
 
@@ -1087,18 +1093,29 @@ background: rgba(202, 12, 12, 0.692);
       console.log(`[Yomitan] GSM character dictionary ensure result (${reason}):`, result);
     } catch (error) {
       console.warn(`[Yomitan] Failed to ensure GSM character dictionary (${reason}):`, error);
+    } finally {
+      gsmCharacterDictionaryEnsureInProgress = false;
     }
   }
 
-  function scheduleGsmCharacterDictionaryEnsure(reason = 'startup') {
-    if (gsmCharacterDictionaryEnsureStarted || gsmCharacterDictionaryEnsureTimeoutId !== null) {
+  function scheduleGsmCharacterDictionaryEnsure(reason = 'startup', options = {}) {
+    const force = options.force === true;
+    if (gsmCharacterDictionaryEnsureStarted && !force) {
       return;
     }
+    if (gsmCharacterDictionaryEnsureTimeoutId !== null) {
+      if (!force) {
+        return;
+      }
+      window.clearTimeout(gsmCharacterDictionaryEnsureTimeoutId);
+      gsmCharacterDictionaryEnsureTimeoutId = null;
+    }
 
+    const delayMs = Number.isFinite(options.delayMs) ? options.delayMs : GSM_CHARACTER_DICTIONARY_STARTUP_DELAY_MS;
     gsmCharacterDictionaryEnsureTimeoutId = window.setTimeout(() => {
       gsmCharacterDictionaryEnsureTimeoutId = null;
-      void ensureGsmCharacterDictionaryFresh(reason);
-    }, GSM_CHARACTER_DICTIONARY_STARTUP_DELAY_MS);
+      void ensureGsmCharacterDictionaryFresh(reason, { force });
+    }, delayMs);
   }
 
   function isYomitanPopupElement(element) {
@@ -1395,6 +1412,7 @@ background: rgba(202, 12, 12, 0.692);
   let showRecycledIndicator = true;
   let immediateSentenceRecycled = false;
   let overlayRenderGeneration = 0;
+  let lastOverlayTextRenderSignature = null;
   const FURIGANA_LINE_CACHE_TTL_MS = 2500;
   const MAX_FURIGANA_LINE_CACHE_ENTRIES = 200;
   let lastFuriganaRenderSignature = null;
@@ -1757,6 +1775,146 @@ background: rgba(202, 12, 12, 0.692);
     window.dispatchEvent(new CustomEvent(eventName, { detail: payload }));
   }
 
+  function buildOverlayLineRenderUnits(line, lineIdx, lineBlocks, blockBoundaries, blockCount) {
+    const blockId = lineBlocks.get(lineIdx);
+    const boundaries = blockBoundaries.get(blockId) || { start: lineIdx, end: lineIdx };
+    const isBlockStart = lineIdx === boundaries.start;
+    const isBlockEnd = lineIdx === boundaries.end;
+    const wordList = [];
+    const useLexicalWordBoxes = shouldPreserveLexicalWordBoxes(line.text);
+
+    if (useLexicalWordBoxes) {
+      wordList.push(...buildLexicalWordRenderUnits(line.words, line.text, !isBlockEnd));
+    } else {
+      if (isBlockStart && blockId > 0 && Array.isArray(line.words) && line.words[0]?.bounding_rect) {
+        wordList.push({
+          text: '\n',
+          bounding_rect: {
+            x1: line.words[0].bounding_rect.x1,
+            y1: line.words[0].bounding_rect.y1,
+            x3: line.words[0].bounding_rect.x1,
+            y3: line.words[0].bounding_rect.y3
+          }
+        });
+      }
+
+      for (const w of Array.isArray(line.words) ? line.words : []) {
+        if (!w || typeof w.text !== 'string' || !w.text.length || !w.bounding_rect) {
+          continue;
+        }
+        const glyphs = Array.from(w.text);
+        const len = glyphs.length;
+        if (len <= 1) {
+          wordList.push(w);
+          continue;
+        }
+        const charWidth = (w.bounding_rect.x3 - w.bounding_rect.x1) / len;
+        for (let k = 0; k < len; k++) {
+          wordList.push({
+            text: glyphs[k],
+            bounding_rect: {
+              x1: w.bounding_rect.x1 + (k * charWidth),
+              y1: w.bounding_rect.y1,
+              x3: w.bounding_rect.x1 + ((k + 1) * charWidth),
+              y3: w.bounding_rect.y3
+            }
+          });
+        }
+      }
+
+      if (isBlockEnd && Array.isArray(line.words) && line.words.length > 0) {
+        const lastWord = line.words[line.words.length - 1];
+        if (lastWord?.bounding_rect) {
+          wordList.push({
+            text: '\n',
+            bounding_rect: {
+              x1: lastWord.bounding_rect.x3,
+              y1: lastWord.bounding_rect.y1,
+              x3: lastWord.bounding_rect.x3,
+              y3: lastWord.bounding_rect.y3
+            }
+          });
+        }
+      }
+    }
+
+    return {
+      blockId,
+      boundaries,
+      isBlockStart,
+      isBlockEnd,
+      wordList,
+      blockCount,
+    };
+  }
+
+  function getOverlayTextRenderSignature(lines, lineBlocks, blockBoundaries, blockCount) {
+    const signature = [];
+    let textBoxCount = 0;
+
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      const linePlan = buildOverlayLineRenderUnits(lines[lineIdx], lineIdx, lineBlocks, blockBoundaries, blockCount);
+      textBoxCount += linePlan.wordList.length;
+      signature.push(JSON.stringify(linePlan.wordList.map((word) => String(word.text || ''))));
+    }
+
+    return {
+      signature: signature.join('|'),
+      textBoxCount,
+    };
+  }
+
+  function getReusableOverlayTextBoxes(renderSignature, expectedTextBoxCount) {
+    if (!renderSignature || renderSignature !== lastOverlayTextRenderSignature) {
+      return null;
+    }
+
+    const textBoxes = Array.from(document.querySelectorAll('.text-box'));
+    return textBoxes.length === expectedTextBoxCount ? textBoxes : null;
+  }
+
+  function clearOverlayRecalibrationDecorations() {
+    const selectors = ['.big-interactive-area', '.line-box', '.recycled-indicator', '.block-separator'];
+    selectors.forEach(sel => {
+      const elements = document.querySelectorAll(sel);
+      for (let i = 0; i < elements.length; i++) {
+        elements[i].remove();
+      }
+    });
+    const trans = document.getElementById('translation-display');
+    if (trans) trans.remove();
+  }
+
+  function prepareGamepadForOverlayTextRender() {
+    if (gamepadHandler && typeof gamepadHandler.prepareForOverlayTextRender === 'function') {
+      return gamepadHandler.prepareForOverlayTextRender();
+    }
+    if (gamepadHandler && typeof gamepadHandler.rememberCurrentSelectionSnapshot === 'function') {
+      return gamepadHandler.rememberCurrentSelectionSnapshot();
+    }
+    return null;
+  }
+
+  function completeGamepadOverlayTextRender(snapshot, options = {}) {
+    if (!gamepadHandler) {
+      return;
+    }
+
+    if (typeof gamepadHandler.handleOverlayTextRenderComplete === 'function') {
+      gamepadHandler.handleOverlayTextRenderComplete({
+        snapshot,
+        preserveSelection: options.preserveSelection !== false,
+      });
+    } else if (typeof gamepadHandler.refreshTextBlocks === 'function') {
+      gamepadHandler.refreshTextBlocks();
+      if (typeof gamepadHandler.updateVisuals === 'function') {
+        gamepadHandler.updateVisuals();
+      }
+    }
+
+    updateGamepadStatusIndicator();
+  }
+
   async function handleOverlayWebSocketData(rawData) {
         let data = rawData;
         try {
@@ -1771,6 +1929,18 @@ background: rgba(202, 12, 12, 0.692);
 
         if (data.type === "live_stats_update") {
           dispatchOverlayPayloadEvent("gsm-live-stats-update", data);
+          return;
+        }
+
+        if (data.type === "yomitan_character_dictionary_changed") {
+          console.log("[Yomitan] Character dictionary change event received:", data);
+          scheduleGsmCharacterDictionaryEnsure(
+            data.reason || "character-dictionary-changed",
+            {
+              force: true,
+              delayMs: GSM_CHARACTER_DICTIONARY_REFRESH_DELAY_MS,
+            }
+          );
           return;
         }
 
@@ -1843,10 +2013,6 @@ background: rgba(202, 12, 12, 0.692);
           // Handle array of {text, bounding_rect}
           ipcRenderer.send("text-received", data);
 
-          // Supplemental results append to existing overlay without clearing
-          if (!isSupplemental) {
-            clearTextBoxes({ preserveFurigana: true });
-          }
           const renderGeneration = isSupplemental ? overlayRenderGeneration : ++overlayRenderGeneration;
           
           // FIRST PASS: Detect blocks by "general area" (y-first with soft x guards)
@@ -1855,6 +2021,27 @@ background: rgba(202, 12, 12, 0.692);
             blockBoundaries,
             blockCount: currentBlockId,
           } = detectTextBlocks(data.data);
+          const renderSignatureInfo = getOverlayTextRenderSignature(
+            data.data,
+            lineBlocks,
+            blockBoundaries,
+            currentBlockId
+          );
+          const reusableTextBoxes = isSupplemental
+            ? null
+            : getReusableOverlayTextBoxes(renderSignatureInfo.signature, renderSignatureInfo.textBoxCount);
+          const isRecalibration = Array.isArray(reusableTextBoxes);
+          const gamepadRenderSnapshot = prepareGamepadForOverlayTextRender();
+
+          // Supplemental results append to existing overlay without clearing.
+          // Retry recalibrations keep text nodes in place and only refresh geometry.
+          if (!isSupplemental) {
+            if (isRecalibration) {
+              clearOverlayRecalibrationDecorations();
+            } else {
+              clearTextBoxes({ preserveFurigana: true });
+            }
+          }
           
           console.log("Detected text blocks:", Array.from(blockBoundaries.entries()).map(([blockId, boundaries]) => ({
             blockId,
@@ -1876,20 +2063,24 @@ background: rgba(202, 12, 12, 0.692);
           // SECOND PASS: Process lines with block awareness
           const blockContainers = new Map(); // Map from block ID to container div
           const blockIndicatorBounds = new Map();
+          let reusableTextBoxIndex = 0;
           
           for (let lineIdx = 0; lineIdx < data.data.length; lineIdx++) {
             const line = data.data[lineIdx];
             console.log("Processing line:", line);
             
             // Check if this is the start or end of a block
-            const blockId = lineBlocks.get(lineIdx);
-            const boundaries = blockBoundaries.get(blockId) || { start: lineIdx, end: lineIdx };
-            const isBlockStart = lineIdx === boundaries.start;
-            const isBlockEnd = lineIdx === boundaries.end;
+            const linePlan = buildOverlayLineRenderUnits(line, lineIdx, lineBlocks, blockBoundaries, currentBlockId);
+            const { blockId, boundaries, isBlockStart, isBlockEnd, wordList } = linePlan;
             
             // Create a container paragraph for this block if it's the start
             if (isBlockStart) {
-              const blockContainer = document.createElement('p');
+              let blockContainer = isRecalibration
+                ? document.querySelector(`.text-block-container[data-block-id="${blockId}"]`)
+                : null;
+              if (!blockContainer) {
+                blockContainer = document.createElement('p');
+              }
               blockContainer.className = 'text-block-container';
               blockContainer.setAttribute('data-block-id', blockId);
               blockContainer.setAttribute('data-line-start', boundaries.start);
@@ -1902,7 +2093,9 @@ background: rgba(202, 12, 12, 0.692);
               blockContainer.style.height = '100%';
               blockContainer.style.margin = '0';
               blockContainer.style.padding = '0';
-              document.body.appendChild(blockContainer);
+              if (!blockContainer.isConnected) {
+                document.body.appendChild(blockContainer);
+              }
               blockContainers.set(blockId, blockContainer);
             }
             
@@ -1923,64 +2116,6 @@ background: rgba(202, 12, 12, 0.692);
             let origMinx = Infinity, origMiny = Infinity, origMaxx = -Infinity, origMaxy = -Infinity;
             let bigInteractiveArea = document.createElement("div");
             bigInteractiveArea.className = "big-interactive-area interactive half-interactive";
-            const wordList = [];
-            const useLexicalWordBoxes = shouldPreserveLexicalWordBoxes(line.text);
-
-            if (useLexicalWordBoxes) {
-              wordList.push(...buildLexicalWordRenderUnits(line.words, line.text, !isBlockEnd));
-            } else {
-              // Flatten CJK tokens into single characters so Yomitan can anchor each glyph precisely.
-              if (isBlockStart && blockId > 0 && Array.isArray(line.words) && line.words[0]?.bounding_rect) {
-                wordList.push({
-                  text: '\n',
-                  bounding_rect: {
-                    x1: line.words[0].bounding_rect.x1,
-                    y1: line.words[0].bounding_rect.y1,
-                    x3: line.words[0].bounding_rect.x1,
-                    y3: line.words[0].bounding_rect.y3
-                  }
-                });
-              }
-
-              for (const w of Array.isArray(line.words) ? line.words : []) {
-                if (!w || typeof w.text !== 'string' || !w.text.length || !w.bounding_rect) {
-                  continue;
-                }
-                const glyphs = Array.from(w.text);
-                const len = glyphs.length;
-                if (len <= 1) {
-                  wordList.push(w);
-                  continue;
-                }
-                const charWidth = (w.bounding_rect.x3 - w.bounding_rect.x1) / len;
-                for (let k = 0; k < len; k++) {
-                  wordList.push({
-                    text: glyphs[k],
-                    bounding_rect: {
-                      x1: w.bounding_rect.x1 + (k * charWidth),
-                      y1: w.bounding_rect.y1,
-                      x3: w.bounding_rect.x1 + ((k + 1) * charWidth),
-                      y3: w.bounding_rect.y3
-                    }
-                  });
-                }
-              }
-
-              if (isBlockEnd && Array.isArray(line.words) && line.words.length > 0) {
-                const lastWord = line.words[line.words.length - 1];
-                if (lastWord?.bounding_rect) {
-                  wordList.push({
-                    text: '\n',
-                    bounding_rect: {
-                      x1: lastWord.bounding_rect.x3,
-                      y1: lastWord.bounding_rect.y1,
-                      x3: lastWord.bounding_rect.x3,
-                      y3: lastWord.bounding_rect.y3
-                    }
-                  });
-                }
-              }
-            }
 
             const lineWordBoxes = [];
 
@@ -2010,12 +2145,16 @@ background: rgba(202, 12, 12, 0.692);
               miny = Math.min(miny, y1);
               maxx = Math.max(maxx, x3);
               maxy = Math.max(maxy, y3);
-              const box = createTextBox(word.text, x1, y1, x3, y3, 0, true, true, false);
+              const box = isRecalibration
+                ? applyTextBoxLayout(reusableTextBoxes[reusableTextBoxIndex++], word.text, x1, y1, x3, y3, true, false)
+                : createTextBox(word.text, x1, y1, x3, y3, 0, true, true, false);
               box.dataset.lineIndex = lineIdx;
               const blockContainer = blockContainers.get(blockId);
-              if (blockContainer) {
+              if (blockContainer && box.parentNode !== blockContainer) {
                 blockContainer.appendChild(box);
-              } else {
+              } else if (!blockContainer && box.parentNode !== document.body) {
+                document.body.appendChild(box);
+              } else if (!box.isConnected) {
                 document.body.appendChild(box);
               }
 
@@ -2121,6 +2260,15 @@ background: rgba(202, 12, 12, 0.692);
             document.body.appendChild(bigInteractiveArea);
           }
 
+          if (isRecalibration) {
+            const activeBlockContainers = new Set(blockContainers.values());
+            document.querySelectorAll('.text-block-container').forEach((container) => {
+              if (!activeBlockContainers.has(container) && !container.querySelector('.text-box')) {
+                container.remove();
+              }
+            });
+          }
+
           blockIndicatorBounds.forEach((bounds) => {
             const blockBox = document.createElement("div");
             blockBox.className = "line-box";
@@ -2170,6 +2318,10 @@ background: rgba(202, 12, 12, 0.692);
               console.warn('[Furigana] Async render failed:', err);
             });
           }
+          lastOverlayTextRenderSignature = isSupplemental
+            ? null
+            : renderSignatureInfo.signature;
+          completeGamepadOverlayTextRender(gamepadRenderSnapshot, { preserveSelection: true });
 
         } else {
           const line = data?.sentence ?? data;
@@ -2207,9 +2359,7 @@ background: rgba(202, 12, 12, 0.692);
     });
   });
 
-  function createTextBox(sentence, x1, y1, x2, y2, fontSize, noBackground = false, transparentText = false, verticalText = false) {
-    const textBox = document.createElement('span');
-    textBox.className = 'text-box';
+  function applyTextBoxLayout(textBox, sentence, x1, y1, x2, y2, transparentText = false, verticalText = false) {
     const text = sentence[0] == '\n' ? sentence.slice(1) : sentence;
     textBox.textContent = text;
     textBox.classList.add('interactive');
@@ -2243,6 +2393,12 @@ background: rgba(202, 12, 12, 0.692);
       textBox.style.whiteSpace = 'nowrap';
     }
     return textBox;
+  }
+
+  function createTextBox(sentence, x1, y1, x2, y2, fontSize, noBackground = false, transparentText = false, verticalText = false) {
+    const textBox = document.createElement('span');
+    textBox.className = 'text-box';
+    return applyTextBoxLayout(textBox, sentence, x1, y1, x2, y2, transparentText, verticalText);
   }
 
   function createNavigationBox(sentence, x1, y1, x2, y2) {
@@ -2678,6 +2834,7 @@ background: rgba(202, 12, 12, 0.692);
   // Function to clear all existing text boxes
   function clearTextBoxes(options = {}) {
     const preserveFurigana = options.preserveFurigana === true;
+    lastOverlayTextRenderSignature = null;
     // Fast way to clear DOM without leaving residue
     const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.recycled-indicator', '.text-block-container', '.block-separator'];
     selectors.forEach(sel => {

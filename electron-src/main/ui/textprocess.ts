@@ -1,11 +1,14 @@
 import { ipcMain } from 'electron';
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { BASE_DIR } from '../util.js';
+import { BASE_DIR, getGSMBaseDir, getSanitizedPythonEnv } from '../util.js';
 import { sendReloadSettings } from '../main.js';
 import { getLatestTextProcessingInput } from '../services/latest_text.js';
+import { getOrInstallPython } from '../python/python_downloader.js';
 
 const CONFIG_PATH = path.join(BASE_DIR, 'config.json');
+const PREVIEW_TIMEOUT_MS = 10000;
 
 interface TextProcessingConfig {
     string_replacement: {
@@ -37,6 +40,15 @@ interface TextProcessingConfig {
     unicode_normalize: boolean;
     unicode_normalize_config: { form: string };
 }
+
+interface TextProcessingPreviewPayload {
+    text: string;
+    config: TextProcessingConfig;
+}
+
+type TextProcessingPreviewResult =
+    | { success: true; result: string }
+    | { success: false; error: string };
 
 function readGSMConfig(): Record<string, any> {
     if (!fs.existsSync(CONFIG_PATH)) {
@@ -91,13 +103,111 @@ export function registerTextProcessIPC(): void {
         }
     });
 
-    ipcMain.handle('textprocess.preview', async (_, payload: { text: string; config: TextProcessingConfig }) => {
-        // Preview is handled client-side for responsiveness
-        // This endpoint is reserved for future server-side preview if needed
-        return { result: payload.text };
-    });
+    ipcMain.handle(
+        'textprocess.preview',
+        async (_, payload: TextProcessingPreviewPayload): Promise<TextProcessingPreviewResult> => {
+            try {
+                const pythonPath = await getOrInstallPython();
+                const result = await runTextProcessingPreview(pythonPath, payload);
+                return { success: true, result };
+            } catch (error: any) {
+                console.error('Failed to preview text processing config:', error);
+                return { success: false, error: error?.message || String(error) };
+            }
+        }
+    );
 
     ipcMain.handle('textprocess.latestText', async () => getLatestTextProcessingInput());
+}
+
+export function parseTextProcessingPreviewOutput(stdout: string): string {
+    const lines = stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .reverse();
+
+    for (const line of lines) {
+        try {
+            const parsed = JSON.parse(line);
+            if (parsed && typeof parsed.result === 'string') {
+                return parsed.result;
+            }
+        } catch {
+            // Python logging can write startup lines before the JSON response.
+        }
+    }
+
+    throw new Error('Python text processing preview did not return JSON output');
+}
+
+export function runTextProcessingPreview(
+    pythonPath: string,
+    payload: TextProcessingPreviewPayload,
+    timeoutMs: number = PREVIEW_TIMEOUT_MS
+): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const child = spawn(
+            pythonPath,
+            ['-m', 'GameSentenceMiner.util.text_processing', '--preview-json'],
+            {
+                cwd: getGSMBaseDir(),
+                env: {
+                    ...getSanitizedPythonEnv(),
+                    GSM_ELECTRON: '1',
+                },
+                stdio: ['pipe', 'pipe', 'pipe'],
+                windowsHide: true,
+            }
+        );
+
+        let stdout = '';
+        let stderr = '';
+        let settled = false;
+
+        const finish = (fn: () => void) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            clearTimeout(timeout);
+            fn();
+        };
+
+        const timeout = setTimeout(() => {
+            child.kill();
+            finish(() => reject(new Error('Python text processing preview timed out')));
+        }, timeoutMs);
+
+        child.stdout?.on('data', (data) => {
+            stdout += data.toString('utf8');
+        });
+
+        child.stderr?.on('data', (data) => {
+            stderr += data.toString('utf8');
+        });
+
+        child.on('error', (error) => {
+            finish(() => reject(error));
+        });
+
+        child.on('close', (code) => {
+            finish(() => {
+                if (code !== 0) {
+                    reject(new Error(stderr.trim() || `Python text processing preview exited with code ${code}`));
+                    return;
+                }
+
+                try {
+                    resolve(parseTextProcessingPreviewOutput(stdout));
+                } catch (error) {
+                    reject(error);
+                }
+            });
+        });
+
+        child.stdin?.end(JSON.stringify(payload), 'utf8');
+    });
 }
 
 function getDefaultTextProcessing(): TextProcessingConfig {

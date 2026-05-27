@@ -42,6 +42,22 @@ class _ExecRoutingProbe:
         return "without"
 
 
+class _WidgetProbe:
+    def __init__(self):
+        self.text = ""
+        self.style = ""
+        self.visible = None
+
+    def setText(self, text):
+        self.text = text
+
+    def setStyleSheet(self, style):
+        self.style = style
+
+    def setVisible(self, visible):
+        self.visible = visible
+
+
 def test_apply_window_behavior_preferences_sets_show_without_activating(monkeypatch):
     config = SimpleNamespace(anki=SimpleNamespace(confirmation_always_on_top=True))
     monkeypatch.setattr(anki_confirmation_qt, "get_config", lambda: config)
@@ -143,6 +159,35 @@ def test_audio_expand_seconds_shared_between_dialog_and_waveform_labels():
     assert audio_waveform_widget.AUDIO_EXPAND_SECONDS == 0.25
     assert anki_confirmation_qt.AUDIO_EXPAND_SECONDS == audio_waveform_widget.AUDIO_EXPAND_SECONDS
     assert audio_waveform_widget.EXPAND_BUTTON_SECONDS_TEXT == "0.25s"
+
+
+def test_refresh_audio_controls_shows_reused_audio_without_waveform():
+    calls = []
+    probe = SimpleNamespace(
+        reusing_audio=True,
+        audio_status_label=_WidgetProbe(),
+        codec_info_label=_WidgetProbe(),
+        waveform_widget=_WidgetProbe(),
+        audio_button=_WidgetProbe(),
+        play_original_button=_WidgetProbe(),
+        reset_audio_button=_WidgetProbe(),
+        tts_button=_WidgetProbe(),
+        tts_status_label=_WidgetProbe(),
+        voice_button=_WidgetProbe(),
+        no_voice_button=_WidgetProbe(),
+        confirm_button=_WidgetProbe(),
+        _update_audio_expand_buttons=lambda **kwargs: calls.append(kwargs),
+    )
+
+    anki_confirmation_qt.AnkiConfirmationDialog._refresh_audio_controls(probe, "sentence")
+
+    assert probe.audio_status_label.text == "Reusing audio from the previous mining operation."
+    assert probe.waveform_widget.visible is False
+    assert probe.audio_button.visible is False
+    assert probe.voice_button.visible is False
+    assert probe.no_voice_button.visible is False
+    assert probe.confirm_button.visible is True
+    assert calls == [{"allow_buttons": False}]
 
 
 def test_sync_audio_edit_selection_maps_to_current_source_window():

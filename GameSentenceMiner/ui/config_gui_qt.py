@@ -846,6 +846,12 @@ class ConfigWindow(QWidget):
                     confirmation_always_on_top=self.anki_confirmation_always_on_top_check.isChecked(),
                     confirmation_focus_on_show=self.anki_confirmation_focus_on_show_check.isChecked(),
                     replay_audio_on_tts_generation=self.anki_confirmation_replay_audio_on_tts_generation_check.isChecked(),
+                    reuse_audio_for_same_selected_lines_different_mined_line=(
+                        self.anki_same_selection_different_line_reuse_audio_check.isChecked()
+                    ),
+                    reuse_screenshot_for_same_selected_lines_different_mined_line=(
+                        self.anki_same_selection_different_line_reuse_screenshot_check.isChecked()
+                    ),
                 ),
                 features=Features(
                     full_auto=self.full_auto_check.isChecked(),
@@ -1286,6 +1292,8 @@ class ConfigWindow(QWidget):
         self.anki_confirmation_focus_on_show_check = QCheckBox()
         self.anki_confirmation_autoplay_audio_check = QCheckBox()
         self.anki_confirmation_replay_audio_on_tts_generation_check = QCheckBox()
+        self.anki_same_selection_different_line_reuse_audio_check = QCheckBox()
+        self.anki_same_selection_different_line_reuse_screenshot_check = QCheckBox()
         self.anki_url_edit = QLineEdit()
         self.anki_note_type_combo = self._create_anki_field_combo()
         self.sentence_field_edit = self._create_anki_field_combo()
@@ -1612,6 +1620,22 @@ class ConfigWindow(QWidget):
             self.picture_field_overwrite_check,
         )
         self.binder.bind(("profile", "anki", "picture_field_append"), self.picture_field_append_check)
+        self.binder.bind(
+            (
+                "profile",
+                "anki",
+                "reuse_audio_for_same_selected_lines_different_mined_line",
+            ),
+            self.anki_same_selection_different_line_reuse_audio_check,
+        )
+        self.binder.bind(
+            (
+                "profile",
+                "anki",
+                "reuse_screenshot_for_same_selected_lines_different_mined_line",
+            ),
+            self.anki_same_selection_different_line_reuse_screenshot_check,
+        )
         self.binder.bind(("profile", "anki", "word_field"), self.word_field_edit)
         self.binder.bind(
             ("profile", "anki", "previous_sentence_field"),
@@ -2732,6 +2756,12 @@ class ConfigWindow(QWidget):
         self.anki_confirmation_autoplay_audio_check.setChecked(bool(s.anki.autoplay_audio))
         self.anki_confirmation_replay_audio_on_tts_generation_check.setChecked(
             bool(getattr(s.anki, "replay_audio_on_tts_generation", True))
+        )
+        self.anki_same_selection_different_line_reuse_audio_check.setChecked(
+            bool(getattr(s.anki, "reuse_audio_for_same_selected_lines_different_mined_line", True))
+        )
+        self.anki_same_selection_different_line_reuse_screenshot_check.setChecked(
+            bool(getattr(s.anki, "reuse_screenshot_for_same_selected_lines_different_mined_line", False))
         )
         self._set_text_value(self.anki_url_edit, s.anki.url)
         self._suppress_anki_field_refresh = True

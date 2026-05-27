@@ -2843,41 +2843,18 @@ export async function sceneHasVisibleOutput(
     try {
         await getOBSConnection();
 
-        // Iterate individual video sources instead of screenshotting the scene
-        // composite.  A disabled-but-present game_capture can render black on
-        // top and mask a perfectly-good window_capture underneath.
-        const sceneItems = await callOBS('GetSceneItemList', { sceneName });
-        const videoItems = (sceneItems?.sceneItems ?? []).filter(isVideoCaptureSceneItem);
+        const response = await callOBS('GetSourceScreenshot', {
+            sourceName: sceneName,
+            imageFormat: 'png',
+            imageWidth: OBS_OUTPUT_PROBE_WIDTH,
+            imageHeight: OBS_OUTPUT_PROBE_HEIGHT,
+        });
 
-        if (videoItems.length === 0) {
-            return null;
+        if (!response?.imageData) {
+            return false;
         }
 
-        for (const item of videoItems) {
-            const sourceNameValue = item.sourceName as string | undefined;
-            if (!sourceNameValue) {
-                continue;
-            }
-
-            try {
-                const response = await callOBS('GetSourceScreenshot', {
-                    sourceName: sourceNameValue,
-                    imageFormat: 'png',
-                    imageWidth: OBS_OUTPUT_PROBE_WIDTH,
-                    imageHeight: OBS_OUTPUT_PROBE_HEIGHT,
-                });
-                if (
-                    response?.imageData &&
-                    !isScreenshotImageDataEffectivelyEmpty(response.imageData)
-                ) {
-                    return true;
-                }
-            } catch {
-                // Source failed to render — try next.
-            }
-        }
-
-        return false;
+        return !isScreenshotImageDataEffectivelyEmpty(response.imageData);
     } catch (error: any) {
         logObsError(`Error probing scene output for "${sceneName}":`, error?.message ?? error);
         return null;
@@ -2930,16 +2907,6 @@ export async function getScenePreviewSnapshot(
             ? previewItem.inputKind
             : null;
 
-        if (!sourceName) {
-            return {
-                sceneName: scene.name,
-                sceneId: scene.id,
-                sourceName: null,
-                captureMode,
-                imageData: null,
-            };
-        }
-
         let imageData: string | null = null;
         try {
             const response = await callOBS('GetSourceScreenshot', {
@@ -2950,17 +2917,24 @@ export async function getScenePreviewSnapshot(
             });
             imageData = typeof response?.imageData === 'string' ? response.imageData : null;
         } catch (sceneScreenshotError) {
-            logObsError(
-                `Error screenshotting OBS scene "${scene.name}", falling back to source "${sourceName}":`,
-                sceneScreenshotError
-            );
-            const response = await callOBS('GetSourceScreenshot', {
-                sourceName,
-                imageFormat: 'jpg',
-                imageWidth: OBS_PREVIEW_SCREENSHOT_WIDTH,
-                imageHeight: OBS_PREVIEW_SCREENSHOT_HEIGHT,
-            });
-            imageData = typeof response?.imageData === 'string' ? response.imageData : null;
+            if (!sourceName) {
+                logObsError(
+                    `Error screenshotting OBS scene "${scene.name}":`,
+                    sceneScreenshotError
+                );
+            } else {
+                logObsError(
+                    `Error screenshotting OBS scene "${scene.name}", falling back to source "${sourceName}":`,
+                    sceneScreenshotError
+                );
+                const response = await callOBS('GetSourceScreenshot', {
+                    sourceName,
+                    imageFormat: 'jpg',
+                    imageWidth: OBS_PREVIEW_SCREENSHOT_WIDTH,
+                    imageHeight: OBS_PREVIEW_SCREENSHOT_HEIGHT,
+                });
+                imageData = typeof response?.imageData === 'string' ? response.imageData : null;
+            }
         }
 
         return {

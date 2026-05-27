@@ -146,6 +146,168 @@ def test_build_overlay_coordinate_payload_normalizes_lookup_text_dashes():
     assert payload["lines"][0]["words"][1]["text"] == "A-1"
 
 
+def test_google_lens_is_overlay_supported_engine():
+    assert gsm_ocr._is_overlay_supported_engine("glens")
+    assert gsm_ocr._is_overlay_supported_engine("Google Lens")
+
+
+def test_second_ocr_prefers_google_lens_overlay_payload(monkeypatch):
+    sent = []
+    saved = []
+    ctrl = SimpleNamespace(
+        last_sent_result="",
+        last_ocr2_result=[],
+        config=gsm_ocr.TwoPassConfig(),
+    )
+    first_pass_payload = {
+        "schema": "gsm_ocr_geometry_v1",
+        "line_coords": [
+            {
+                "text": "oneocr",
+                "bounding_rect": {"x1": 0, "y1": 0, "x2": 40, "y2": 0, "x3": 40, "y3": 10, "x4": 0, "y4": 10},
+                "words": [
+                    {
+                        "text": "oneocr",
+                        "bounding_rect": {"x1": 0, "y1": 0, "x2": 40, "y2": 0, "x3": 40, "y3": 10, "x4": 0, "y4": 10},
+                    }
+                ],
+            }
+        ],
+        "pipeline": {
+            "engine": "oneocr",
+            "capture": {"scaled_size": {"width": 100, "height": 20}, "original_size": {"width": 100, "height": 20}},
+            "processing": {
+                "processed_size": {"width": 100, "height": 20},
+                "crop_offset": {"x": 0, "y": 0},
+                "coordinate_mode": "source_content",
+            },
+            "ocr": {},
+        },
+    }
+    lens_payload = {
+        "schema": "gsm_ocr_geometry_v1",
+        "line_coords": [
+            {
+                "text": "lens",
+                "bounding_rect": {"x1": 5, "y1": 0, "x2": 45, "y2": 0, "x3": 45, "y3": 10, "x4": 5, "y4": 10},
+                "words": [
+                    {
+                        "text": "lens",
+                        "bounding_rect": {"x1": 5, "y1": 0, "x2": 45, "y2": 0, "x3": 45, "y3": 10, "x4": 5, "y4": 10},
+                    }
+                ],
+            }
+        ],
+        "pipeline": {
+            "engine": "glens",
+            "capture": {"scaled_size": {"width": 100, "height": 20}, "original_size": {"width": 100, "height": 20}},
+            "processing": {
+                "processed_size": {"width": 100, "height": 20},
+                "crop_offset": {"x": 0, "y": 0},
+                "coordinate_mode": "source_content",
+            },
+            "ocr": {},
+        },
+    }
+
+    monkeypatch.setattr(gsm_ocr, "TextFiltering", lambda lang: object())
+    monkeypatch.setattr(gsm_ocr, "get_ocr_language", lambda: "ja")
+    monkeypatch.setattr(gsm_ocr, "get_controller", lambda: ctrl)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_ocr2", lambda: "glens")
+    monkeypatch.setattr(gsm_ocr, "capture_ocr_metrics_sample", lambda *args, **kwargs: None)
+    monkeypatch.setattr(gsm_ocr, "save_result_image", lambda *args, **kwargs: saved.append(args))
+
+    async def _send_result(text, time, *, response_dict=None, source=None):
+        sent.append({"text": text, "response_dict": response_dict, "source": source})
+
+    monkeypatch.setattr(gsm_ocr, "send_result", _send_result)
+    monkeypatch.setattr(
+        gsm_ocr.run,
+        "process_and_write_results",
+        lambda *args, **kwargs: (["lens"], "lens", lens_payload),
+    )
+
+    processor = gsm_ocr.OCRProcessor()
+    processor.do_second_ocr(
+        "",
+        datetime(2026, 2, 22, 12, 0, 0),
+        Image.new("RGB", (2, 2), color=255),
+        filtering=None,
+        response_dict=first_pass_payload,
+    )
+
+    assert saved
+    assert sent[0]["response_dict"]["pipeline"]["engine"] == "glens"
+    assert sent[0]["response_dict"]["line_coords"] == lens_payload["line_coords"]
+
+
+def test_second_ocr_rebases_cropped_google_lens_overlay_payload():
+    first_pass_payload = {
+        "schema": "gsm_ocr_geometry_v1",
+        "line_coords": [],
+        "pipeline": {
+            "engine": "oneocr",
+            "capture": {
+                "scaled_size": {"width": 1000, "height": 500},
+                "original_size": {"width": 1000, "height": 500},
+            },
+            "processing": {
+                "processed_size": {"width": 1000, "height": 500},
+                "crop_offset": {"x": 10, "y": 20},
+                "coordinate_mode": "source_content",
+            },
+            "ocr": {"crop_coords": [100, 50, 300, 150]},
+        },
+    }
+    lens_payload = {
+        "schema": "gsm_ocr_geometry_v1",
+        "line_coords": [
+            {
+                "text": "lens",
+                "bounding_rect": {"x1": 5, "y1": 6, "x2": 45, "y2": 6, "x3": 45, "y3": 26, "x4": 5, "y4": 26},
+                "words": [
+                    {
+                        "text": "lens",
+                        "bounding_rect": {
+                            "x1": 5,
+                            "y1": 6,
+                            "x2": 45,
+                            "y2": 6,
+                            "x3": 45,
+                            "y3": 26,
+                            "x4": 5,
+                            "y4": 26,
+                        },
+                    }
+                ],
+            }
+        ],
+        "pipeline": {
+            "engine": "glens",
+            "capture": {
+                "scaled_size": {"width": 200, "height": 100},
+                "original_size": {"width": 200, "height": 100},
+            },
+            "processing": {
+                "processed_size": {"width": 200, "height": 100},
+                "crop_offset": {"x": 0, "y": 0},
+                "coordinate_mode": "source_content",
+            },
+            "ocr": {},
+        },
+    }
+
+    selected_payload = gsm_ocr._select_second_pass_payload(first_pass_payload, lens_payload)
+    overlay_payload = gsm_ocr.build_overlay_coordinate_payload(selected_payload)
+
+    assert selected_payload is not lens_payload
+    assert overlay_payload["coordinate_space"]["source_width"] == 1000
+    assert overlay_payload["coordinate_space"]["source_height"] == 500
+    assert overlay_payload["coordinate_space"]["crop_offset"] == {"x": 110, "y": 70}
+    assert overlay_payload["lines"][0]["bounding_rect"]["x1"] == 115
+    assert overlay_payload["lines"][0]["bounding_rect"]["y1"] == 76
+
+
 def test_no_text_similarity_backoff_only_starts_after_no_text_cap():
     threshold_sleep = run_module._get_sleep_add_for_target_rate(
         0.5,

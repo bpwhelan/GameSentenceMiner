@@ -83,6 +83,8 @@ class ReplayProcessingContext:
     prefetched_assets: object = None
     prefetched_translation: object = None
     audio_result: ReplayAudioResult | None = None
+    reuse_audio_result_id: str | None = None
+    reuse_screenshot_result_id: str | None = None
 
     @property
     def final_audio_output(self) -> str:
@@ -214,12 +216,17 @@ class ReplayAudioExtractor:
             return
         try:
             if anki.card_queue and len(anki.card_queue) > 0:
+                queued_card = anki.card_queue.pop(0)
                 (
                     context.last_note,
                     context.anki_card_creation_time,
                     context.selected_lines,
                     context.mined_line,
-                ) = anki.card_queue.pop(0)
+                ) = queued_card[:4]
+                if len(queued_card) > 4:
+                    context.reuse_audio_result_id = queued_card[4]
+                if len(queued_card) > 5:
+                    context.reuse_screenshot_result_id = queued_card[5]
             else:
                 logger.info("Replay buffer initiated externally. Skipping processing.")
                 context.skip_delete = True
@@ -384,6 +391,8 @@ class ReplayAudioExtractor:
                         start_time=context.start_time,
                         end_time=context.end_time,
                         vad_result=context.vad_result,
+                        reuse_audio_result_id=context.reuse_audio_result_id,
+                        reuse_screenshot_result_id=context.reuse_screenshot_result_id,
                         precomputed_assets=context.prefetched_assets,
                         precomputed_translation=context.prefetched_translation,
                     )

@@ -66,6 +66,7 @@ MAX_SCALED_OCR_CACHE_SIZE = 24
 OVERLAY_VISIBLE_TEXT_REGEX = regex.compile(r"\S")
 OVERLAY_EXTENDED_CJK_MARK_REGEX = regex.compile(r"[々〆〇〻ヶヵ]")
 LOG_RESULTS_TO_JSON = False  # Set to True to log OCR results to JSON files for debugging
+_overlay_background_tasks: List[asyncio.Task] = []
 
 # Conditionally import OCR engines
 try:
@@ -76,8 +77,13 @@ try:
     )
 except ImportError:
     OneOCR = None
-    normalize_japanese_ocr_dashes = lambda text: text
-    normalize_japanese_ocr_text_and_segments = lambda text, segments=None: (text, segments)
+
+    def normalize_japanese_ocr_dashes(text):
+        return text
+
+    def normalize_japanese_ocr_text_and_segments(text, segments=None):
+        return text, segments
+
 
 try:
     from GameSentenceMiner.owocr.owocr.ocr import (
@@ -99,6 +105,57 @@ except ImportError:
     mss = None
 
 
+async def _window_monitor_loop(window_monitor: WindowStateMonitor):
+    """Secondary loop to monitor window state (High Frequency)."""
+    while True:
+        try:
+            if websocket_manager.has_clients(ID_OVERLAY):
+                await window_monitor.check_and_send()
+            await asyncio.sleep(window_monitor.poll_interval)
+        except Exception as e:
+            logger.debug(f"Window monitor error: {e}")
+            await asyncio.sleep(1)
+
+
+async def _overlay_loop():
+    """Main loop to periodically process and send overlay data."""
+    first_time_run = True
+    while True:
+        if websocket_manager.has_clients(ID_OVERLAY):
+            if get_config().overlay.periodic:
+                await overlay_processor.find_box_and_send_to_overlay(check_against_last=True, local_ocr_retry=0)
+                await asyncio.sleep(get_config().overlay.periodic_interval)
+            elif first_time_run:
+                await overlay_processor.find_box_and_send_to_overlay(check_against_last=False, local_ocr_retry=0)
+                first_time_run = False
+            else:
+                await asyncio.sleep(3)
+        else:
+            first_time_run = True
+            await asyncio.sleep(3)
+
+
+def _configure_overlay_processor_for_loop(loop: asyncio.AbstractEventLoop) -> None:
+    overlay_processor.processing_loop = loop
+    if is_windows():
+        window_monitor = WindowStateMonitor(overlay_processor)
+        set_window_state_monitor(window_monitor)
+        overlay_processor.window_monitor = window_monitor
+
+
+def _start_overlay_background_tasks(loop: asyncio.AbstractEventLoop = None) -> None:
+    global _overlay_background_tasks
+
+    _overlay_background_tasks = [task for task in _overlay_background_tasks if not task.done()]
+    if _overlay_background_tasks:
+        return
+
+    create_task = loop.create_task if loop else asyncio.create_task
+    if is_windows() and overlay_processor.window_monitor:
+        _overlay_background_tasks.append(create_task(_window_monitor_loop(overlay_processor.window_monitor)))
+    _overlay_background_tasks.append(create_task(_overlay_loop()))
+
+
 class OverlayThread(threading.Thread):
     """
     A thread to run the overlay processing loop.
@@ -113,45 +170,13 @@ class OverlayThread(threading.Thread):
         # Load and resume any orphaned suspended processes from previous session
         _load_suspended_pids()
 
-        self.window_monitor = WindowStateMonitor(overlay_processor)
-        set_window_state_monitor(self.window_monitor)
-        overlay_processor.window_monitor = self.window_monitor
-        overlay_processor.processing_loop = self.loop
+        _configure_overlay_processor_for_loop(self.loop)
 
     def run(self):
         """Runs the overlay processing loop."""
         asyncio.set_event_loop(self.loop)
-        if is_windows():
-            self.loop.create_task(self.window_monitor_loop())
-        self.loop.create_task(self.overlay_loop())
+        _start_overlay_background_tasks(self.loop)
         self.loop.run_forever()
-
-    async def window_monitor_loop(self):
-        """Secondary loop to monitor window state (High Frequency)."""
-        while True:
-            try:
-                if websocket_manager.has_clients(ID_OVERLAY):
-                    await self.window_monitor.check_and_send()
-                await asyncio.sleep(self.window_monitor.poll_interval)
-            except Exception as e:
-                logger.debug(f"Window monitor error: {e}")
-                await asyncio.sleep(1)
-
-    async def overlay_loop(self):
-        """Main loop to periodically process and send overlay data."""
-        while True:
-            if websocket_manager.has_clients(ID_OVERLAY):
-                if get_config().overlay.periodic:
-                    await overlay_processor.find_box_and_send_to_overlay(check_against_last=True, local_ocr_retry=0)
-                    await asyncio.sleep(get_config().overlay.periodic_interval)
-                elif self.first_time_run:
-                    await overlay_processor.find_box_and_send_to_overlay(check_against_last=False, local_ocr_retry=0)
-                    self.first_time_run = False
-                else:
-                    await asyncio.sleep(3)
-            else:
-                self.first_time_run = True
-                await asyncio.sleep(3)
 
 
 class OverlayProcessor:
@@ -2475,10 +2500,17 @@ def get_overlay_preview_capture() -> Tuple[Image.Image, str]:
 
 
 async def init_overlay_processor():
-    """Initializes the overlay processor and starts the overlay thread."""
+    """Initializes the overlay processor and starts overlay background tasks."""
+    global _overlay_background_tasks
+
+    _overlay_background_tasks = [task for task in _overlay_background_tasks if not task.done()]
+    if _overlay_background_tasks:
+        logger.background("Overlay processor ready")
+        return
+
     overlay_processor.init()
-    overlay_thread = OverlayThread()
-    overlay_thread.start()
+    _configure_overlay_processor_for_loop(asyncio.get_running_loop())
+    _start_overlay_background_tasks()
     logger.background("Overlay processor ready")
 
 

@@ -1052,6 +1052,7 @@
     "preview": "Live Preview",
     "previewInput": "Input text",
     "previewOutput": "Output (after processing)",
+    "previewFailed": "Failed to generate preview",
     "previewPlaceholder": "Paste game text here to test your processing rules...",
     "processors": {
       "stringReplacement": "String Replacement",

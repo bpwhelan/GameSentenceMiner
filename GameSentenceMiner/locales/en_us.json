@@ -274,6 +274,14 @@
             "label": "Tag Unvoiced Cards:",
             "tooltip": "Automatically add 'unvoiced' tag to cards that have no audio."
           },
+          "reuse_audio_for_same_selected_lines_different_mined_line": {
+            "label": "Same Selection, Different Line: Reuse Audio:",
+            "tooltip": "When mining another word from the same selected lines but a different mined line, save a new replay and reuse the previous card's audio. Same selected lines plus the same mined line still uses the full-media reuse path."
+          },
+          "reuse_screenshot_for_same_selected_lines_different_mined_line": {
+            "label": "Same Selection, Different Line: Reuse Screenshot:",
+            "tooltip": "When mining another word from the same selected lines but a different mined line, save a new replay and reuse the previous card's screenshot."
+          },
           "multi_overwrites_sentence": {
             "label": "Multi-line Mining Overwrite Sentence:",
             "tooltip": "When using Multi-line Mining, overwrite the sentence with a concatenation of the lines selected."

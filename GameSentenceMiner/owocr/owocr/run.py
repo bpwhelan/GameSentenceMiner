@@ -3654,11 +3654,21 @@ def process_and_write_results(
                     return "", "", None
                 return "", ""
 
+            pipeline_metadata["ocr"] = {
+                "crop_coords": list(detection_payload.get("crop_coords"))
+                if detection_payload.get("crop_coords")
+                else None,
+                "crop_coords_list": [list(c[:5]) for c in (detection_payload.get("crop_coords_list") or [])],
+                "line_count": 0,
+            }
+            detection_payload["pipeline"] = pipeline_metadata
+
             if write_to == "callback":
                 logger.opt(ansi=True).info(
                     f"{len(detection_payload['boxes'])} text boxes recognized in {end_time - start_time:0.03f}s using "
                     f"<{engine_color}>{engine_instance.readable_name}</{engine_color}>:"
                 )
+                logger.opt(ansi=True).info(crop_coords)
                 callback_kwargs = {}
                 try:
                     sig = inspect.signature(txt_callback)

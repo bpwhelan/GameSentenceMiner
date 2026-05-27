@@ -9,6 +9,7 @@ from GameSentenceMiner.util.text_processing import (
     apply_string_replacements,
     apply_text_processing,
     extract_bracketed_text,
+    preview_text_processing_request,
 )
 
 
@@ -49,6 +50,31 @@ def test_apply_text_processing_runs_string_replacement():
         )
     )
     assert apply_text_processing("foo", config) == "bar"
+
+
+def test_preview_text_processing_request_uses_text_processing_config_dict():
+    result = preview_text_processing_request(
+        {
+            "text": "foo",
+            "config": {
+                "string_replacement": {
+                    "enabled": True,
+                    "rules": [
+                        {
+                            "enabled": True,
+                            "mode": "plain",
+                            "find": "foo",
+                            "replace": "bar",
+                            "case_sensitive": False,
+                            "whole_word": False,
+                        }
+                    ],
+                }
+            },
+        }
+    )
+
+    assert result == {"result": "bar"}
 
 
 def test_extract_bracketed_text_returns_text_between_japanese_quotes():
@@ -97,6 +123,24 @@ def test_regex_replacement_with_capture_groups():
         ]
     )
     assert apply_string_replacements("a1b22", config) == "a[1]b[22]"
+
+
+def test_regex_replacement_supports_dollar_capture_groups():
+    config = _cfg(
+        rules=[
+            _rule(mode="regex", find=r"(\w+)-(\d+)", replace=r"$2:$1"),
+        ]
+    )
+    assert apply_string_replacements("item-42", config) == "42:item"
+
+
+def test_plain_replacement_treats_dollar_capture_groups_literally():
+    config = _cfg(
+        rules=[
+            _rule(mode="plain", find="item", replace="$1"),
+        ]
+    )
+    assert apply_string_replacements("item-42", config) == "$1-42"
 
 
 def test_regex_whole_word_wraps_pattern_boundaries():

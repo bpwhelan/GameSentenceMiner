@@ -266,6 +266,14 @@
             "label": "Etiquetar Tarjetas sin Audio:",
             "tooltip": "Agregar automáticamente la etiqueta 'unvoiced' a las tarjetas que no tienen audio."
           },
+          "reuse_audio_for_same_selected_lines_different_mined_line": {
+            "label": "Misma Selección, Línea Diferente: Reutilizar Audio:",
+            "tooltip": "Al minar otra palabra de las mismas líneas seleccionadas pero desde una línea minada diferente, guardar una nueva repetición y reutilizar el audio de la tarjeta anterior. Las mismas líneas seleccionadas con la misma línea minada siguen usando la ruta de reutilización completa de medios."
+          },
+          "reuse_screenshot_for_same_selected_lines_different_mined_line": {
+            "label": "Misma Selección, Línea Diferente: Reutilizar Captura:",
+            "tooltip": "Al minar otra palabra de las mismas líneas seleccionadas pero desde una línea minada diferente, guardar una nueva repetición y reutilizar la captura de pantalla de la tarjeta anterior."
+          },
           "multi_overwrites_sentence": {
             "label": "Minería de Múltiples Líneas Sobrescribe Oración:",
             "tooltip": "Al usar Minería de Múltiples Líneas, sobrescribir la oración con una concatenación de las líneas seleccionadas."

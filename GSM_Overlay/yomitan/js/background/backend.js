@@ -33,6 +33,7 @@ import {arrayBufferToBase64} from '../data/array-buffer-util.js';
 import {OptionsUtil} from '../data/options-util.js';
 import {getAllPermissions, hasPermissions, hasRequiredPermissionsForOptions} from '../data/permissions-util.js';
 import {DictionaryDatabase} from '../dictionary/dictionary-database.js';
+import {DictionaryWorker} from '../dictionary/dictionary-worker.js';
 import {Environment} from '../extension/environment.js';
 import {CacheMap} from '../general/cache-map.js';
 import {ObjectPropertyAccessor} from '../general/object-property-accessor.js';
@@ -1091,7 +1092,149 @@ export class Backend {
             await this._sendBridgeClosePopups(sender);
             return {data: {closed: true}, responseStatusCode: 200};
         }
+        if (action === 'ensureGsmCharacterDictionary') {
+            return {data: await this._ensureGsmCharacterDictionary(body), responseStatusCode: 200};
+        }
         return await this._yomitanApi.invokeBridgeAction(action, body);
+    }
+
+    /**
+     * @param {unknown} body
+     * @returns {Promise<import('core').SerializableObject>}
+     */
+    async _ensureGsmCharacterDictionary(body) {
+        const input = isObjectNotArray(body) ? body : {};
+        const downloadUrl = typeof input.downloadUrl === 'string' ? input.downloadUrl : '';
+        const indexUrl = typeof input.indexUrl === 'string' ? input.indexUrl : '';
+        if (!this._isHttpUrl(downloadUrl) || !this._isHttpUrl(indexUrl)) {
+            throw new Error('Invalid GSM character dictionary URLs');
+        }
+
+        const latestIndexResponse = await fetch(indexUrl, {cache: 'no-store'});
+        if (!latestIndexResponse.ok) {
+            return {
+                action: 'skipped',
+                reason: 'index-unavailable',
+                status: latestIndexResponse.status,
+            };
+        }
+
+        const latestIndex = await latestIndexResponse.json();
+        if (!isObjectNotArray(latestIndex)) {
+            throw new Error('Invalid GSM character dictionary index response');
+        }
+
+        const title = typeof latestIndex.title === 'string' ? latestIndex.title : 'GSM Character Dictionary';
+        const latestRevision = typeof latestIndex.revision === 'string' ? latestIndex.revision : '';
+        if (latestRevision.length === 0) {
+            throw new Error('Invalid GSM character dictionary revision');
+        }
+
+        const dictionaries = await this._dictionaryDatabase.getDictionaryInfo();
+        const existing = dictionaries.find((dictionary) => dictionary.title === title);
+        if (existing && existing.revision === latestRevision) {
+            await this._ensureDictionaryEnabled(title, existing.styles);
+            return {
+                action: 'unchanged',
+                title,
+                revision: latestRevision,
+            };
+        }
+
+        const dictionaryResponse = await fetch(downloadUrl, {cache: 'no-store'});
+        if (!dictionaryResponse.ok) {
+            return {
+                action: 'skipped',
+                reason: 'download-unavailable',
+                status: dictionaryResponse.status,
+                title,
+                revision: latestRevision,
+            };
+        }
+
+        if (existing) {
+            await new DictionaryWorker().deleteDictionary(title, null);
+        }
+
+        const archiveContent = await dictionaryResponse.arrayBuffer();
+        const {result, errors} = await new DictionaryWorker().importDictionary(
+            archiveContent,
+            {
+                prefixWildcardsSupported: false,
+                yomitanVersion: chrome.runtime.getManifest().version,
+            },
+            null,
+        );
+        if (result === null || errors.length > 0) {
+            const message = errors.map((error) => error.message).join('; ') || 'Dictionary import failed';
+            throw new Error(message);
+        }
+
+        await this._ensureDictionaryEnabled(title, result.styles);
+        this._triggerDatabaseUpdated('dictionary', existing ? 'update' : 'import');
+
+        return {
+            action: existing ? 'updated' : 'imported',
+            title,
+            revision: result.revision,
+        };
+    }
+
+    /**
+     * @param {string} title
+     * @param {string|undefined} styles
+     */
+    async _ensureDictionaryEnabled(title, styles) {
+        const options = this._getOptionsFull(false);
+        /** @type {import('settings-modifications').ScopedModification[]} */
+        const targets = [];
+        for (let i = 0, ii = options.profiles.length; i < ii; ++i) {
+            const dictionaries = options.profiles[i].options.dictionaries;
+            if (dictionaries.some((dictionary) => dictionary.name === title)) {
+                continue;
+            }
+            dictionaries.push(this._createDefaultDictionarySettings(title, true, styles));
+            targets.push({
+                action: 'set',
+                path: `profiles[${i}].options.dictionaries`,
+                value: dictionaries,
+                scope: 'global',
+            });
+        }
+        if (targets.length > 0) {
+            await this._modifySettings(targets, 'gsm-character-dictionary');
+        }
+    }
+
+    /**
+     * @param {string} name
+     * @param {boolean} enabled
+     * @param {string|undefined} styles
+     * @returns {import('settings').DictionaryOptions}
+     */
+    _createDefaultDictionarySettings(name, enabled, styles) {
+        return {
+            name,
+            enabled,
+            allowSecondarySearches: false,
+            definitionsCollapsible: 'not-collapsible',
+            partsOfSpeechFilter: true,
+            useDeinflections: true,
+            styles: styles ?? '',
+        };
+    }
+
+    /**
+     * @param {string} url
+     * @returns {boolean}
+     */
+    _isHttpUrl(url) {
+        try {
+            const parsed = new URL(url);
+            return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        } catch (_) {
+            return false;
+        }
     }
 
     /**
