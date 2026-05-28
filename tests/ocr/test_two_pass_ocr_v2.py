@@ -169,6 +169,22 @@ def test_v2_text_growth_waits_for_final_stable_frame():
     assert [item["text"] for item in sent] == ["refined-full"]
 
 
+def test_v2_text_truncated_same_line_waits_for_blank_flush():
+    queued: list[dict] = []
+    ctrl = _make_queued_controller(queued)
+
+    full = "「はやい、はやい」みすず"
+    truncated = "はやい、はやい」"
+    ctrl.handle_ocr_result(full, [full], _make_time(0), _image_with_text(full))
+    ctrl.handle_ocr_result(truncated, [truncated], _make_time(1), _image_with_text(full))
+
+    assert queued == []
+
+    ctrl.handle_ocr_result("", [], _make_time(2), _image_with_text(""))
+    assert len(queued) == 1
+    assert queued[0]["ocr1_text"] == full
+
+
 def test_v2_detector_same_coords_reocr_when_cropped_pixels_change():
     sent: list[dict] = []
     calls: list[dict] = []
@@ -221,6 +237,23 @@ def test_v2_detector_same_crop_not_requeued_while_lens_in_flight():
     ctrl.handle_ocr_result("", [], _make_time(3), changed_img, detection_boxes=[{"box": coords}], crop_coords=coords)
 
     assert len(queued) == 1
+
+
+def test_v2_detector_completion_allows_changed_same_crop_to_requeue():
+    queued: list[dict] = []
+    ctrl = _make_queued_controller(queued)
+    coords = (10, 10, 180, 60)
+
+    first_img = _image_with_text("first")
+    ctrl.handle_ocr_result("", [], _make_time(0), first_img, detection_boxes=[{"box": coords}], crop_coords=coords)
+    ctrl.handle_ocr_result("", [], _make_time(1), first_img, detection_boxes=[{"box": coords}], crop_coords=coords)
+    ctrl.mark_v2_detection_ocr2_complete(coords, duplicate=False)
+
+    changed_img = _image_with_text("second")
+    ctrl.handle_ocr_result("", [], _make_time(2), changed_img, detection_boxes=[{"box": coords}], crop_coords=coords)
+    ctrl.handle_ocr_result("", [], _make_time(3), changed_img, detection_boxes=[{"box": coords}], crop_coords=coords)
+
+    assert len(queued) == 2
 
 
 def test_v2_detector_duplicate_latches_same_crop_until_box_disappears():

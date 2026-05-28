@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, ClassVar
@@ -49,6 +50,58 @@ class ProfileSwitcher:
             on_profile_switched()
         self._reload_settings_window(settings_window, suppress_profile_change_hooks=True)
         return switch_to
+
+    @staticmethod
+    def create_profile(profile_name: str) -> bool:
+        """Create a new profile cloned from the Default profile. Returns True if created."""
+        profile_name = str(profile_name or "").strip()
+        if not profile_name:
+            return False
+        master = get_master_config()
+        if profile_name in master.configs:
+            return False
+
+        new_config = copy.deepcopy(master.get_default_config())
+        new_config.name = profile_name
+        new_config.scenes = []
+        master.configs[profile_name] = new_config
+        master.save()
+        logger.info(f"Created new profile '{profile_name}'.")
+        return True
+
+    @staticmethod
+    def associate_scene_with_profile(scene: str, profile_name: str, *, exclusive: bool = True) -> bool:
+        """Associate an OBS scene with a profile.
+
+        When ``exclusive`` is True the scene is removed from every other profile so
+        that each scene maps to exactly one profile. Returns True if anything changed.
+        """
+        scene = str(scene or "").strip()
+        profile_name = str(profile_name or "").strip()
+        if not scene or not profile_name:
+            return False
+
+        master = get_master_config()
+        if profile_name not in master.configs:
+            logger.warning(f"Cannot relate scene '{scene}': profile '{profile_name}' not found.")
+            return False
+
+        changed = False
+        for name, config in master.configs.items():
+            scenes = [str(s or "").strip() for s in (getattr(config, "scenes", []) or [])]
+            scenes = [s for s in scenes if s]
+            if name == profile_name:
+                if scene not in scenes:
+                    config.scenes = scenes + [scene]
+                    changed = True
+            elif exclusive and scene in scenes:
+                config.scenes = [s for s in scenes if s != scene]
+                changed = True
+
+        if changed:
+            master.save()
+            logger.info(f"Related scene '{scene}' with profile '{profile_name}'.")
+        return changed
 
     @staticmethod
     def get_matching_profiles_for_scene(scene: str) -> list[str]:

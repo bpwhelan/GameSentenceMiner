@@ -8,13 +8,18 @@ Usage:
     python -m GameSentenceMiner.util.cron.run_crons
 """
 
-import asyncio
 import enum
+import queue
+import threading
+import time
 from dataclasses import dataclass
 from typing import Optional
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.cron_table import CronTable
+
+
+MAX_QUEUE_WAIT_SECONDS = 0.5
 
 
 class Crons(enum.Enum):
@@ -40,42 +45,29 @@ class MockCron:
 
 class CronScheduler:
     """
-    Async-based cron scheduler that checks for due cron jobs every 15 minutes.
-    It uses an Event Queue to allow immediate execution of forced tasks.
+    Thread-based cron scheduler that checks for due cron jobs every 15 minutes.
+    It uses a Queue to allow immediate execution of forced tasks.
     """
 
     def __init__(self, check_interval: int = 900):
         self.check_interval = check_interval
-        self._task: Optional[asyncio.Task] = None
+        self._thread: Optional[threading.Thread] = None
         self._running = False
 
-        self._lock = asyncio.Lock()
+        self._lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._stop_event = threading.Event()
 
-        self._queue = None
-        self.loop = None
-
-    def _ensure_init(self):
-        """Lazy initialization of loop-dependent objects"""
-        if self._queue is None:
-            self._queue = asyncio.Queue()
-        if self.loop is None:
-            try:
-                self.loop = asyncio.get_running_loop()
-            except RuntimeError:
-                self.loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self.loop)
+        self._queue: queue.Queue[Crons] = queue.Queue()
 
     def add_external_task(self, task: Crons):
         """
         Add an external cron task to be executed IMMEDIATELY.
         Thread-safe: Can be called from UI threads.
         """
-        self._ensure_init()
-        if self.loop.is_running():
-            self.loop.call_soon_threadsafe(self._queue.put_nowait, task)
-        else:
-            logger.warning("CronScheduler loop is not running, task queued but won't run until start()")
-            self._queue.put_nowait(task)
+        if not self.is_running():
+            logger.warning("CronScheduler is not running, task queued but won't run until start()")
+        self._queue.put(task)
 
     def force_daily_rollup(self):
         self.add_external_task(Crons.DAILY_STATS_ROLLUP)
@@ -101,84 +93,110 @@ class CronScheduler:
     def force_anki_card_sync(self):
         self.add_external_task(Crons.ANKI_CARD_SYNC)
 
-    async def start(self):
+    def start(self):
         """Start the cron scheduler in the background."""
-        if self._running:
-            logger.warning("CronScheduler is already running")
-            return
+        with self._state_lock:
+            if self._thread and self._thread.is_alive():
+                logger.warning("CronScheduler is already running")
+                return
 
-        self._ensure_init()
-        self._running = True
-        self._task = asyncio.create_task(self._run_scheduler())
+            self._running = True
+            self._stop_event.clear()
+            self._thread = threading.Thread(
+                target=self._run_scheduler,
+                name="gsm-cron-scheduler",
+                daemon=True,
+            )
+            self._thread.start()
+
         logger.debug(f"CronScheduler started with check interval of {self.check_interval}s")
 
-    async def stop(self):
+    def stop(self, timeout: float = 2.0):
         """Stop the cron scheduler gracefully."""
-        if not self._running:
-            return
+        with self._state_lock:
+            thread = self._thread
+            if not self._running and not (thread and thread.is_alive()):
+                return
 
-        self._running = False
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-        logger.info("CronScheduler stopped")
+            self._running = False
+            self._stop_event.set()
 
-    async def _run_scheduler(self):
+        if thread and thread.is_alive() and threading.current_thread() is not thread:
+            thread.join(timeout=timeout)
+
+        with self._state_lock:
+            if self._thread is thread and thread and not thread.is_alive():
+                self._thread = None
+
+        if thread and thread.is_alive():
+            logger.warning("CronScheduler stop requested, but the scheduler thread is still running")
+        else:
+            logger.info("CronScheduler stopped")
+
+    def _run_scheduler(self):
         """
         The main loop.
         It waits for 'check_interval' seconds OR for a forced task in the queue.
         """
-        logger.debug("CronScheduler loop started")
+        logger.debug("CronScheduler thread started")
 
         try:
-            logger.background("Running initial scheduled task check on startup...")
-            await self._execute_safe(None)
-        except Exception as e:
-            logger.warning(f"Failed to check scheduled tasks on startup: {e}")
-
-        while self._running:
             try:
-                forced_task = await asyncio.wait_for(self._queue.get(), timeout=self.check_interval)
-
-                logger.info(f"Received forced trigger for: {forced_task}")
-                await self._execute_safe(forced_task)
-
-            except asyncio.TimeoutError:
-                if self._running:
-                    await self._execute_safe(None)
-
-            except asyncio.CancelledError:
-                logger.info("CronScheduler task cancelled")
-                break
+                if not self._stop_event.is_set():
+                    logger.background("Running initial scheduled task check on startup...")
+                    self._execute_safe(None)
             except Exception as e:
-                logger.exception(f"Error in CronScheduler loop: {e}")
-                await asyncio.sleep(60)  # Backoff on error
+                logger.warning(f"Failed to check scheduled tasks on startup: {e}")
 
-    async def _execute_safe(self, force_task: Optional[Crons]):
+            next_check_time = time.monotonic() + self.check_interval
+
+            while not self._stop_event.is_set():
+                got_queue_item = False
+                forced_task: Optional[Crons] = None
+                seconds_until_check = max(0.0, next_check_time - time.monotonic())
+                queue_wait_seconds = min(MAX_QUEUE_WAIT_SECONDS, seconds_until_check)
+
+                try:
+                    forced_task = self._queue.get(timeout=queue_wait_seconds)
+                    got_queue_item = True
+
+                    logger.info(f"Received forced trigger for: {forced_task}")
+                    self._execute_safe(forced_task)
+                    next_check_time = time.monotonic() + self.check_interval
+                except queue.Empty:
+                    if not self._stop_event.is_set() and time.monotonic() >= next_check_time:
+                        self._execute_safe(None)
+                        next_check_time = time.monotonic() + self.check_interval
+                except Exception as e:
+                    logger.exception(f"Error in CronScheduler loop: {e}")
+                    self._stop_event.wait(60)  # Backoff on error, but wake promptly on stop.
+                    next_check_time = time.monotonic() + self.check_interval
+                finally:
+                    if got_queue_item:
+                        self._queue.task_done()
+        finally:
+            with self._state_lock:
+                self._running = False
+            logger.debug("CronScheduler thread exited")
+
+    def _execute_safe(self, force_task: Optional[Crons]):
         """Helper to acquire lock and run logic"""
-        if self._lock.locked():
+        acquired = self._lock.acquire(blocking=False)
+        if not acquired:
             logger.background("Cron task is already running, skipping/queuing...")
             return
 
-        async with self._lock:
-            await run_due_crons(force_task)
+        try:
+            run_due_crons(force_task)
+        finally:
+            self._lock.release()
 
     def is_running(self) -> bool:
-        return self._running
+        with self._state_lock:
+            return self._running
 
 
-async def run_due_crons(force_task: Optional["Crons"] = None) -> dict:
-    """
-    Run cron processing in a worker thread so long-running sync tasks
-    do not block the async event loop (text input/websocket responsiveness).
-    """
-    return await asyncio.to_thread(_run_due_crons_sync, force_task)
-
-
-def _run_due_crons_sync(force_task: Optional["Crons"] = None) -> dict:
+def run_due_crons(force_task: Optional["Crons"] = None) -> dict:
     """
     Check for and execute all due cron jobs.
     """
@@ -403,21 +421,18 @@ cron_scheduler = CronScheduler()
 
 # for me to manually check
 if __name__ == "__main__":
-
-    async def main():
+    try:
         # Start the scheduler
-        await cron_scheduler.start()
+        cron_scheduler.start()
 
         # Simulate a manual trigger
         print("Waiting 2 seconds then forcing task...")
-        await asyncio.sleep(2)
+        time.sleep(2)
         cron_scheduler.force_populate_games()
 
         # Keep alive briefly to let it run
-        await asyncio.sleep(5)
-        await cron_scheduler.stop()
-
-    try:
-        asyncio.run(main())
+        time.sleep(5)
     except KeyboardInterrupt:
         pass
+    finally:
+        cron_scheduler.stop()

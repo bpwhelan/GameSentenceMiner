@@ -395,6 +395,10 @@
             "label": "Extension:",
             "tooltip": "File extension for the screenshot format."
           },
+          "capture_backend": {
+            "label": "Capture Backend:",
+            "tooltip": "Screenshot capture backend. auto uses fast Windows capture with OBS fallback, obs avoids direct Windows capture, and winapi prefers direct Windows capture."
+          },
           "animated": {
             "label": "Animated:",
             "tooltip": "Enable to create an animated screenshot. Will be a webm file encoded with AV1. All settings under this are not applicable with this ON."
@@ -854,6 +858,10 @@
           "message": "Are you sure you want to delete the profile '{profile_name}'?",
           "error_title": "Error",
           "error_cannot_delete_default": "Cannot delete the Default profile."
+        },
+        "relate_scene": {
+          "title": "Relate Scene",
+          "message": "Relate the current scene '{scene}' with profile '{profile}'?\n\nThe scene will switch to this profile automatically and be removed from any other profile."
         },
         "install_ocenaudio": {
           "title": "Download OcenAudio?",

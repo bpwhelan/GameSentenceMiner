@@ -35,6 +35,7 @@ class FunctionName(Enum):
     OPEN_OVERLAY_SETTINGS = "open_overlay_settings"
     OPEN_TEXTHOOKER = "open_texthooker"
     SWITCH_PROFILE = "switch_profile"
+    RELATE_SCENE_TO_PROFILE = "relate_scene_to_profile"
     OPEN_LOG = "open_log"
     TOGGLE_REPLAY_BUFFER = "toggle_replay_buffer"
     RESTART_OBS = "restart_obs"

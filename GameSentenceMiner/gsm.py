@@ -1,5 +1,7 @@
 import sys
 
+from GameSentenceMiner.util.clipboard import test_qt6_copy
+
 
 def handle_error_in_initialization(exc: Exception) -> None:
     boot_logger = globals().get("logger")
@@ -615,6 +617,21 @@ class GSMApplication:
     def switch_profile(self, profile_name: str) -> None:
         self._get_profile_switcher().switch_profile(profile_name, settings_window=self.state.settings_window)
 
+    def relate_scene_to_profile(self, scene: str, profile_name: str, create_new: bool = False) -> None:
+        scene = str(scene or "").strip()
+        profile_name = str(profile_name or "").strip()
+        if not profile_name:
+            return
+        switcher = self._get_profile_switcher()
+        if create_new:
+            switcher.create_profile(profile_name)
+        switcher.associate_scene_with_profile(scene, profile_name, exclusive=True)
+        if self.state.settings_window:
+            try:
+                self.state.settings_window.reload_settings()
+            except Exception as e:
+                logger.debug(f"Failed to reload settings window after relating scene: {e}")
+
     def test_anki_confirmation(self, *args) -> None:
         from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
         from GameSentenceMiner.util.models.model import VADResult
@@ -1027,6 +1044,15 @@ class GSMApplication:
                 profile_name = str(data.get("profile_name") or "").strip()
                 if profile_name:
                     self.switch_profile(profile_name)
+            elif function == FunctionName.RELATE_SCENE_TO_PROFILE.value:
+                data = cmd.get("data") if isinstance(cmd, dict) else {}
+                if not isinstance(data, dict):
+                    data = {}
+                scene = str(data.get("scene") or "").strip()
+                profile_name = str(data.get("profile_name") or "").strip()
+                create_new = bool(data.get("create_new"))
+                if profile_name:
+                    self.relate_scene_to_profile(scene, profile_name, create_new=create_new)
             elif function == FunctionName.OPEN_LOG.value:
                 self.open_log()
             elif function == FunctionName.TOGGLE_REPLAY_BUFFER.value:
@@ -1079,6 +1105,7 @@ class GSMApplication:
         dict_from_ocr = data.get("dict_from_ocr")
         source = str(data.get("source") or TextSource.OCR)
         source_display_name = str(data.get("source_display_name") or "GSM OCR")
+        copy_to_clipboard = bool(data.get("copyToClipboard", False))
 
         try:
             from GameSentenceMiner import gametext as gametext_module
@@ -1095,6 +1122,7 @@ class GSMApplication:
             dict_from_ocr=dict_from_ocr,
             source=source,
             source_display_name=source_display_name,
+            copy_to_clipboard=copy_to_clipboard,
         )
         try:
             self.state.text_async_runner.submit(coro)
@@ -1118,6 +1146,7 @@ class GSMApplication:
         engine = str(data.get("engine") or "").strip().lower()
         exe_name = str(data.get("exeName") or "").strip()
         hook_id = data.get("hookId")
+        copy_to_clipboard = bool(data.get("copyToClipboard", False))
         source = "Texthook"
         display_parts = []
         if engine:
@@ -1140,6 +1169,7 @@ class GSMApplication:
             line_time=_dt.now(),
             source=source,
             source_display_name=display_name,
+            copy_to_clipboard=copy_to_clipboard,
         )
         try:
             self.state.text_async_runner.submit(coro)
@@ -1270,11 +1300,13 @@ class GSMApplication:
         from GameSentenceMiner.util.cron import cron_scheduler
 
         self.get_previous_lines_for_game()
-        await cron_scheduler.start()
+        cron_scheduler.start()
         try:
             await asyncio.Event().wait()
         except asyncio.CancelledError:
             pass
+        finally:
+            cron_scheduler.stop()
 
     async def start_text_monitor_async(self) -> None:
         await _get_gametext_module().start_text_monitor()

@@ -1,6 +1,7 @@
 import base64
 import ctypes
 import curl_cffi
+import functools
 import importlib
 import io
 import json
@@ -15,6 +16,7 @@ import struct
 import sys
 import time
 import urllib.request
+import jaconv
 from PIL import Image, ImageOps, UnidentifiedImageError
 from dataclasses import dataclass, field, asdict
 from math import sqrt, floor, sin, cos, atan2
@@ -492,8 +494,6 @@ def normalize_japanese_ocr_ellipses(text):
 
 
 def post_process(text, keep_blank_lines=False):
-    import jaconv
-
     text = text.replace('"', "")
     if keep_blank_lines:
         text = "\n".join(["".join(i.split()) for i in text.splitlines()])
@@ -608,27 +608,26 @@ def limit_image_size(img, max_size):
     return False, "", (None, None)
 
 
+_LANG_REGEX_PATTERNS = {
+    "ja": r"[\u3041-\u3096\u30A1-\u30FA\u4E00-\u9FFF]",
+    "zh": r"[\u4E00-\u9FFF]",
+    "ko": r"[\uAC00-\uD7AF]",
+    "ar": r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]",
+    "ru": r"[\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F\u1C80-\u1C8F]",
+    "el": r"[\u0370-\u03FF\u1F00-\u1FFF]",
+    "he": r"[\u0590-\u05FF\uFB1D-\uFB4F]",
+    "th": r"[\u0E00-\u0E7F]",
+}
+_LANG_REGEX_DEFAULT_PATTERN = (
+    r"[a-zA-Z\u00C0-\u00FF\u0100-\u017F\u0180-\u024F\u0250-\u02AF\u1D00-\u1D7F"
+    r"\u1D80-\u1DBF\u1E00-\u1EFF\u2C60-\u2C7F\uA720-\uA7FF\uAB30-\uAB6F]"
+)
+
+
+@functools.lru_cache(maxsize=None)
 def get_regex(lang):
-    if lang == "ja":
-        return re.compile(r"[\u3041-\u3096\u30A1-\u30FA\u4E00-\u9FFF]")
-    elif lang == "zh":
-        return re.compile(r"[\u4E00-\u9FFF]")
-    elif lang == "ko":
-        return re.compile(r"[\uAC00-\uD7AF]")
-    elif lang == "ar":
-        return re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
-    elif lang == "ru":
-        return re.compile(r"[\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F\u1C80-\u1C8F]")
-    elif lang == "el":
-        return re.compile(r"[\u0370-\u03FF\u1F00-\u1FFF]")
-    elif lang == "he":
-        return re.compile(r"[\u0590-\u05FF\uFB1D-\uFB4F]")
-    elif lang == "th":
-        return re.compile(r"[\u0E00-\u0E7F]")
-    else:
-        return re.compile(
-            r"[a-zA-Z\u00C0-\u00FF\u0100-\u017F\u0180-\u024F\u0250-\u02AF\u1D00-\u1D7F\u1D80-\u1DBF\u1E00-\u1EFF\u2C60-\u2C7F\uA720-\uA7FF\uAB30-\uAB6F]"
-        )
+    pattern = _LANG_REGEX_PATTERNS.get(lang, _LANG_REGEX_DEFAULT_PATTERN)
+    return re.compile(pattern)
 
 
 def quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width=None, img_height=None):
@@ -856,17 +855,22 @@ def line_dict_to_spatial_entry(line_dict, is_vertical=False):
     }
 
 
+_INTER_LINE_OPENING_PUNCTUATION = "([{\"'\u300c\u300e\uff08\u3010\u3008\u300a\uff3b\uff5b\uff1c"
+_INTER_LINE_CLOSING_PUNCTUATION_RE = re.compile(
+    r"^[\)\]\}\.,!?:;%\u2026\uff0c\u3002\u3001\uff1f\uff01\uff1a\uff1b\u300d\u300f\uff09\u3011\u3009\u300b\uff3d\uff5d\uff1e]"
+)
+
+
 def _should_insert_inter_line_space(previous_text, current_text):
     if not previous_text or not current_text:
         return False
-    if previous_text[-1].isspace() or current_text[0].isspace():
+    prev_last = previous_text[-1]
+    curr_first = current_text[0]
+    if prev_last.isspace() or curr_first.isspace():
         return False
-    if previous_text[-1] in "([{\"'\u300c\u300e\uff08\u3010\u3008\u300a\uff3b\uff5b\uff1c":
+    if prev_last in _INTER_LINE_OPENING_PUNCTUATION:
         return False
-    if re.match(
-        r"^[\)\]\}\.,!?:;%\u2026\uff0c\u3002\u3001\uff1f\uff01\uff1a\uff1b\u300d\u300f\uff09\u3011\u3009\u300b\uff3d\uff5d\uff1e]",
-        current_text,
-    ):
+    if _INTER_LINE_CLOSING_PUNCTUATION_RE.match(current_text):
         return False
     return True
 

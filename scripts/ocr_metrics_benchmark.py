@@ -240,7 +240,7 @@ def ensure_gsm_imports() -> None:
     if run is not None:
         return
     try:
-        from GameSentenceMiner.owocr.owocr import run as gsm_run
+        from GameSentenceMiner.owocr.owocr import ocr_runtime as gsm_run
         from GameSentenceMiner.util.config.configuration import (
             get_app_directory as gsm_get_app_directory,
         )

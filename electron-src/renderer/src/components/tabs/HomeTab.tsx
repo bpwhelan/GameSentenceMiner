@@ -28,6 +28,15 @@ const STATUS_POLL_MS = 1000;
 const SCENE_POLL_MS = 3000;
 const ANKI_BEACON_NUDGE_DELAY_MS = 15_000;
 
+const DEFAULT_PROFILE_NAME = "Default";
+const NEW_PROFILE_VALUE = "__new__";
+
+interface GsmProfileList {
+  profiles?: string[];
+  currentProfile?: string;
+  profileScenes?: Record<string, string[]>;
+}
+
 const OVERLAY_DOCS_URL =
   "https://docs.gamesentenceminer.com/docs/features/overlay";
 const ANKI_BEACON_ANKIWEB_CODE = "1577021707";
@@ -377,6 +386,13 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   const [captureWizardOpen, setCaptureWizardOpen] = useState(false);
   const [captureWizardScene, setCaptureWizardScene] = useState<ObsScene | null>(null);
 
+  /* ---- GSM profiles ---------------------------------------------- */
+  const [gsmProfiles, setGsmProfiles] = useState<string[]>([]);
+  const [profileScenes, setProfileScenes] = useState<Record<string, string[]>>({});
+  const [profileAssigning, setProfileAssigning] = useState(false);
+  const [newProfileMode, setNewProfileMode] = useState(false);
+  const [newProfileName, setNewProfileName] = useState("");
+
   /* ---- Loaders --------------------------------------------------- */
   const [scenesLoading, setScenesLoading] = useState(true);
   const [windowsLoading, setWindowsLoading] = useState(true);
@@ -417,12 +433,25 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
     setWindowsLoading(false);
   }, []);
 
+  const loadGsmProfiles = useCallback(async () => {
+    try {
+      const result = await invokeIpc<GsmProfileList | null>("settings.listGSMProfiles");
+      setGsmProfiles(Array.isArray(result?.profiles) ? result.profiles : []);
+      setProfileScenes(
+        result?.profileScenes && typeof result.profileScenes === "object"
+          ? result.profileScenes
+          : {},
+      );
+    } catch { /* swallow */ }
+  }, []);
+
   const refreshAll = useCallback(
     async (quick = false) => {
       await loadScenes();
       await loadWindows(quick);
+      await loadGsmProfiles();
     },
-    [loadScenes, loadWindows],
+    [loadScenes, loadWindows, loadGsmProfiles],
   );
 
   const handleWindowSelectionChange = useCallback((value: string) => {
@@ -455,11 +484,25 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
     }
   }, [selectedWindowValue]);
 
+  // Leave "new profile" entry mode whenever the active scene changes.
+  useEffect(() => {
+    setNewProfileMode(false);
+    setNewProfileName("");
+  }, [selectedSceneId]);
+
   /* ---- Scene actions --------------------------------------------- */
   const selectedScene = scenes.find((s) => s.id === selectedSceneId) ?? null;
   const isHelperScene = selectedScene ? HELPER_SCENE_NAMES.has(selectedScene.name) : true;
   const hasUserScenes = scenes.some((s) => !HELPER_SCENE_NAMES.has(s.name));
   if (hasUserScenes && !captureCardEverShown) setCaptureCardEverShown(true);
+
+  /* ---- Scene profile mapping ------------------------------------- */
+  const otherProfilesExist = gsmProfiles.some((p) => p !== DEFAULT_PROFILE_NAME);
+  // A scene that isn't explicitly assigned to any profile effectively runs under Default.
+  const sceneProfile = selectedScene
+    ? gsmProfiles.find((p) => (profileScenes[p] ?? []).includes(selectedScene.name)) ?? DEFAULT_PROFILE_NAME
+    : DEFAULT_PROFILE_NAME;
+  const showSceneProfileRow = Boolean(otherProfilesExist && selectedScene && !isHelperScene);
 
   const selectedWindow = windows.find((w) => w.value === selectedWindowValue) ?? null;
   const isCaptureCardSelection = selectedWindow?.targetKind === "capture_card";
@@ -501,6 +544,66 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
     setSelectedSceneId(id);
     if (id) void invokeIpc("obs.switchScene.id", id);
   }, []);
+
+  const handleSceneProfileChange = useCallback(
+    async (value: string) => {
+      const sceneName = selectedScene?.name;
+      if (!sceneName) return;
+      if (value === NEW_PROFILE_VALUE) {
+        setNewProfileName("");
+        setNewProfileMode(true);
+        return;
+      }
+      // Optimistically move the scene to the chosen profile (exclusive).
+      setProfileScenes((prev) => {
+        const next: Record<string, string[]> = {};
+        for (const [profile, sceneList] of Object.entries(prev)) {
+          next[profile] = sceneList.filter((s) => s !== sceneName);
+        }
+        next[value] = [...(next[value] ?? []), sceneName];
+        return next;
+      });
+      setProfileAssigning(true);
+      try {
+        await invokeIpc("settings.relateSceneToProfile", {
+          sceneName,
+          profileName: value,
+          createNew: false,
+        });
+      } catch { /* swallow */ } finally {
+        setProfileAssigning(false);
+      }
+    },
+    [selectedScene],
+  );
+
+  const handleCreateProfileForScene = useCallback(async () => {
+    const sceneName = selectedScene?.name;
+    const name = newProfileName.trim();
+    if (!sceneName || !name) return;
+    setProfileAssigning(true);
+    try {
+      await invokeIpc("settings.relateSceneToProfile", {
+        sceneName,
+        profileName: name,
+        createNew: true,
+      });
+      // Optimistically reflect the new profile + assignment.
+      setGsmProfiles((prev) => (prev.includes(name) ? prev : [...prev, name]));
+      setProfileScenes((prev) => {
+        const next: Record<string, string[]> = {};
+        for (const [profile, sceneList] of Object.entries(prev)) {
+          next[profile] = sceneList.filter((s) => s !== sceneName);
+        }
+        next[name] = [...(next[name] ?? []), sceneName];
+        return next;
+      });
+      setNewProfileMode(false);
+      setNewProfileName("");
+    } catch { /* swallow */ } finally {
+      setProfileAssigning(false);
+    }
+  }, [newProfileName, selectedScene]);
 
   const handleRemoveScene = useCallback(async () => {
     if (!selectedSceneId) return;
@@ -740,6 +843,77 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                   </button>
                 </div>
               </div>
+
+                            {/* Scene profile selector — only when more than the Default profile exists */}
+              {showSceneProfileRow && (
+                <div className="home-row">
+                  <div className="home-row__label home-profile-label">
+                    <label htmlFor="home-scene-profile-select">{t("home.obs.profileLabel")}</label>
+                    <button
+                      type="button"
+                      className="home-profile-help-btn"
+                      data-tip={t("home.obs.profileTooltip")}
+                      aria-label={t("home.obs.profileTooltip")}
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10"/>
+                        <path d="M12 16v-4"/>
+                        <path d="M12 8h.01"/>
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="home-row__controls">
+                    {newProfileMode ? (
+                      <>
+                        <input
+                          id="home-scene-profile-new"
+                          className="home-input"
+                          type="text"
+                          value={newProfileName}
+                          placeholder={t("home.obs.profileNewPlaceholder")}
+                          autoComplete="off"
+                          autoFocus
+                          onChange={(e) => setNewProfileName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") { e.preventDefault(); void handleCreateProfileForScene(); }
+                            if (e.key === "Escape") { e.preventDefault(); setNewProfileMode(false); setNewProfileName(""); }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="home-text-btn"
+                          disabled={profileAssigning || !newProfileName.trim()}
+                          onClick={() => void handleCreateProfileForScene()}
+                        >
+                          {t("home.obs.profileCreate")}
+                        </button>
+                        <button
+                          type="button"
+                          className="home-text-btn"
+                          disabled={profileAssigning}
+                          onClick={() => { setNewProfileMode(false); setNewProfileName(""); }}
+                        >
+                          {t("home.obs.profileCancel")}
+                        </button>
+                      </>
+                    ) : (
+                      <select
+                        id="home-scene-profile-select"
+                        className="home-select"
+                        value={sceneProfile}
+                        disabled={profileAssigning}
+                        onChange={(e) => void handleSceneProfileChange(e.target.value)}
+                      >
+                        {gsmProfiles.map((name) => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                        <option value={NEW_PROFILE_VALUE}>{t("home.obs.profileNewOption")}</option>
+                      </select>
+                    )}
+                  </div>
+                </div>
+              )}
+
 
               {/* Scene actions */}
               <div className="home-row">

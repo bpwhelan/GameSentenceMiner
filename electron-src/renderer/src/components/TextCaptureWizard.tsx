@@ -94,6 +94,12 @@ const CAPTURE_WIZARD_STEPS: Array<{ id: WizardStep; labelKey: string }> = [
 ];
 
 const DEFAULT_FLUSH_DELAY_MS = 100;
+const NEW_PROFILE_VALUE = "__new__";
+
+interface GsmProfileList {
+  profiles?: string[];
+  currentProfile?: string;
+}
 
 function hasHookText(hook: HookEntry): boolean {
   if (hook.preview.trim().length > 0) return true;
@@ -140,6 +146,12 @@ export function TextCaptureWizard({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [dontAskAgain, setDontAskAgain] = useState(false);
+  const [gsmProfiles, setGsmProfiles] = useState<string[]>([]);
+  const [currentGsmProfile, setCurrentGsmProfile] = useState("");
+  const [selectedProfile, setSelectedProfile] = useState("");
+  const [newProfileName, setNewProfileName] = useState("");
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [assigningProfile, setAssigningProfile] = useState(false);
   const previewInFlightRef = useRef(false);
 
   const activeScene = useMemo(() => {
@@ -461,6 +473,67 @@ export function TextCaptureWizard({
     textSource,
     t
   ]);
+
+  const loadGsmProfiles = useCallback(async () => {
+    setProfilesLoading(true);
+    try {
+      const result = await invokeIpc<GsmProfileList | null>("settings.listGSMProfiles");
+      const profiles = Array.isArray(result?.profiles) ? result.profiles : [];
+      const current = typeof result?.currentProfile === "string" ? result.currentProfile : "";
+      setGsmProfiles(profiles);
+      setCurrentGsmProfile(current);
+      setSelectedProfile((existing) => existing || current || profiles[0] || "");
+    } catch {
+      // Profile assignment is optional; ignore failures to keep the wizard usable.
+    } finally {
+      setProfilesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (step === "profile") void loadGsmProfiles();
+  }, [loadGsmProfiles, step]);
+
+  const assignSceneToProfile = useCallback(async () => {
+    const sceneName = activeScene?.name?.trim();
+    if (!sceneName) {
+      setStatusMessage(t("captureWizard.profile.assignNoScene"));
+      return;
+    }
+    const isNew = selectedProfile === NEW_PROFILE_VALUE;
+    const profileName = isNew ? newProfileName.trim() : selectedProfile.trim();
+    if (!profileName) {
+      setStatusMessage(t("captureWizard.profile.assignNoProfile"));
+      return;
+    }
+    setAssigningProfile(true);
+    setStatusMessage(null);
+    try {
+      const result = await invokeIpc<{ success?: boolean }>("settings.relateSceneToProfile", {
+        sceneName,
+        profileName,
+        createNew: isNew
+      });
+      if (result?.success === false) {
+        setStatusMessage(t("captureWizard.profile.assignFailed"));
+        return;
+      }
+      if (isNew) {
+        setGsmProfiles((current) =>
+          current.includes(profileName) ? current : [...current, profileName]
+        );
+        setNewProfileName("");
+      }
+      setSelectedProfile(profileName);
+      setStatusMessage(
+        t("captureWizard.profile.assignSuccess", { scene: sceneName, profile: profileName })
+      );
+    } catch {
+      setStatusMessage(t("captureWizard.profile.assignFailed"));
+    } finally {
+      setAssigningProfile(false);
+    }
+  }, [activeScene?.name, newProfileName, selectedProfile, t]);
 
   const closeWizard = useCallback(async () => {
     try {
@@ -793,15 +866,58 @@ export function TextCaptureWizard({
                   {t("captureWizard.profile.launchOverlay")}
                 </label>
               </div>
+              <div className="capture-wizard-profile-assign">
+                <label htmlFor="capture-wizard-gsm-profile">
+                  {t("captureWizard.profile.assignLabel")}
+                </label>
+                <p className="capture-wizard-profile-assign-hint">
+                  {t("captureWizard.profile.assignHint", { scene: activeScene?.name ?? "" })}
+                </p>
+                <div className="capture-wizard-profile-assign-row">
+                  <select
+                    id="capture-wizard-gsm-profile"
+                    value={selectedProfile}
+                    disabled={profilesLoading || assigningProfile}
+                    onChange={(event) => setSelectedProfile(event.target.value)}
+                  >
+                    {gsmProfiles.map((name) => (
+                      <option key={name} value={name}>
+                        {name === currentGsmProfile
+                          ? t("captureWizard.profile.assignCurrentProfile", { profile: name })
+                          : name}
+                      </option>
+                    ))}
+                    <option value={NEW_PROFILE_VALUE}>
+                      {t("captureWizard.profile.assignNewOption")}
+                    </option>
+                  </select>
+                  {selectedProfile === NEW_PROFILE_VALUE ? (
+                    <input
+                      type="text"
+                      value={newProfileName}
+                      placeholder={t("captureWizard.profile.assignNewPlaceholder")}
+                      onChange={(event) => setNewProfileName(event.target.value)}
+                    />
+                  ) : null}
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={
+                      assigningProfile ||
+                      profilesLoading ||
+                      !selectedProfile ||
+                      (selectedProfile === NEW_PROFILE_VALUE && !newProfileName.trim())
+                    }
+                    onClick={() => void assignSceneToProfile()}
+                  >
+                    {assigningProfile
+                      ? t("captureWizard.profile.assigning")
+                      : t("captureWizard.profile.assignButton")}
+                  </button>
+                </div>
+              </div>
               {statusMessage ? <div className="capture-wizard-note">{statusMessage}</div> : null}
               <div className="capture-wizard-action-row">
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => void invokeIpc("settings.openGSMSettings", { rootTabKey: "profiles" })}
-                >
-                  {t("captureWizard.profile.openProfiles")}
-                </button>
                 <button type="button" disabled={saving} onClick={() => void saveProfileChoices()}>
                   {saving ? t("captureWizard.profile.saving") : t("captureWizard.profile.save")}
                 </button>

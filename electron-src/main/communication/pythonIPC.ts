@@ -80,6 +80,12 @@ export class GSMStdoutManager extends EventEmitter {
     sendSwitchProfile(profileName: string) {
         this.sendCommand({ function: 'switch_profile', data: { profile_name: profileName } });
     }
+    sendRelateSceneToProfile(scene: string, profileName: string, createNew = false) {
+        this.sendCommand({
+            function: 'relate_scene_to_profile',
+            data: { scene, profile_name: profileName, create_new: createNew },
+        });
+    }
     sendOCRResult(data: Record<string, unknown>) {
         this.sendCommand({ function: 'ocr_result', data });
     }

@@ -1889,6 +1889,66 @@ class WindowStateMonitor:
 
         return topology_changed or monitor_selection_changed
 
+    def _obs_reports_no_output(self) -> bool:
+        """Read the OBS service's existing output probe result.
+
+        The OBS service already probes capture output every ``output_probe_seconds``
+        (see ``OBSService._is_output_active_from_screenshot``) and caches the result
+        on ``state.source_output_active``. We just read that cache here - no extra
+        screenshots - and only treat it as authoritative when it's a recent,
+        confirmed "empty" result (``False``). ``True`` (has output) and ``None``
+        (undetermined / probe hasn't run) both mean "leave the overlay alone".
+        """
+        import GameSentenceMiner.obs as _obs_pkg
+
+        svc = _obs_pkg.obs_service
+        if not svc:
+            return False
+
+        state = svc.state
+        if state.source_output_active is not False:
+            return False
+
+        checked_at = state.source_output_checked_at
+        if not checked_at or (time.time() - checked_at) > 30.0:
+            return False
+        return True
+
+    async def _hide_overlay_if_obs_has_no_output(self):
+        """Hide the overlay (as if minimized) when the game window can't be found
+        and OBS reports no output.
+
+        ``check_and_send`` returns early when no target window is found, so no
+        window-state event would otherwise fire in cases like the game closing or
+        switching to a scene with no live capture. Reading the OBS service's
+        existing output probe here lets the overlay get out of the way in those
+        cases without doing any extra work.
+        """
+        # Already hidden via a prior minimized/closed broadcast.
+        if self.last_state in ("minimized", "closed"):
+            return
+
+        if not self._obs_reports_no_output():
+            return
+
+        logger.info("Target window not found and OBS reports no output - hiding overlay (minimized).")
+        self.last_state = "minimized"
+        self.last_is_fullscreen = False
+
+        payload = {
+            "type": "window_state",
+            "data": "minimized",
+            "game": self.last_target_info.get("title", self.last_game_name),
+            "magpie_info": None,
+            "is_fullscreen": False,
+            "recommend_manual_mode": False,
+            "target_window_rect": None,
+            "target_client_rect": None,
+        }
+
+        if websocket_manager.has_clients(ID_OVERLAY):
+            await websocket_manager.send(ID_OVERLAY, json.dumps(payload))
+
     async def check_and_send(self):
         """Checks window state and broadcasts if changed."""
         if not is_windows():
@@ -1954,6 +2014,7 @@ class WindowStateMonitor:
 
         if not self.target_hwnd:
             self.retry_find_count += 1
+            await self._hide_overlay_if_obs_has_no_output()
             return
 
         current_state = "unknown"

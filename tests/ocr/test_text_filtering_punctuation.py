@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import re
 
-from GameSentenceMiner.owocr.owocr import run as run_module
-from GameSentenceMiner.owocr.owocr.run import TextFiltering
+from GameSentenceMiner.owocr.owocr import ocr_runtime as run_module
+from GameSentenceMiner.owocr.owocr.ocr_runtime import TextFiltering
 
 
 class _PassthroughSegmenter:

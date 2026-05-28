@@ -12,7 +12,7 @@ import GameSentenceMiner.ocr.gsm_ocr as gsm_ocr
 from GameSentenceMiner.ocr import owocr_area_selector_qt as area_selector_qt
 from GameSentenceMiner.ocr.gsm_ocr_config import Monitor, OCRConfig, Rectangle
 from GameSentenceMiner.owocr.owocr.ocr import post_process
-from GameSentenceMiner.owocr.owocr import run as run_module
+from GameSentenceMiner.owocr.owocr import ocr_runtime as run_module
 
 
 def test_resolve_requested_engines_prioritizes_cli_values():
@@ -45,8 +45,8 @@ def test_resolve_requested_engines_falls_back_to_config_values():
 def test_run_oneocr_disables_manual_combo_in_auto_mode(monkeypatch):
     captured = {}
 
-    monkeypatch.setattr(gsm_ocr.run, "init_config", lambda _parse_args: None)
-    monkeypatch.setattr(gsm_ocr.run, "run", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "init_config", lambda _parse_args: None)
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "run", lambda **kwargs: captured.update(kwargs))
 
     monkeypatch.setattr(gsm_ocr, "obs_ocr", True)
     monkeypatch.setattr(gsm_ocr, "window", None)
@@ -68,8 +68,8 @@ def test_run_oneocr_disables_manual_combo_in_auto_mode(monkeypatch):
 def test_run_oneocr_uses_manual_combo_in_manual_mode(monkeypatch):
     captured = {}
 
-    monkeypatch.setattr(gsm_ocr.run, "init_config", lambda _parse_args: None)
-    monkeypatch.setattr(gsm_ocr.run, "run", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "init_config", lambda _parse_args: None)
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "run", lambda **kwargs: captured.update(kwargs))
 
     monkeypatch.setattr(gsm_ocr, "obs_ocr", True)
     monkeypatch.setattr(gsm_ocr, "window", None)
@@ -222,7 +222,7 @@ def test_second_ocr_prefers_google_lens_overlay_payload(monkeypatch):
 
     monkeypatch.setattr(gsm_ocr, "send_result", _send_result)
     monkeypatch.setattr(
-        gsm_ocr.run,
+        gsm_ocr.ocr_runtime,
         "process_and_write_results",
         lambda *args, **kwargs: (["lens"], "lens", lens_payload),
     )
@@ -306,110 +306,6 @@ def test_second_ocr_rebases_cropped_google_lens_overlay_payload():
     assert overlay_payload["coordinate_space"]["crop_offset"] == {"x": 110, "y": 70}
     assert overlay_payload["lines"][0]["bounding_rect"]["x1"] == 115
     assert overlay_payload["lines"][0]["bounding_rect"]["y1"] == 76
-
-
-def test_no_text_similarity_backoff_only_starts_after_no_text_cap():
-    threshold_sleep = run_module._get_sleep_add_for_target_rate(
-        0.5,
-        run_module._get_no_text_scan_rate_cap(0.5),
-    )
-
-    assert (
-        run_module._should_check_no_text_similarity(
-            base_scan_rate=0.5,
-            sleep_time_to_add=threshold_sleep - 0.01,
-            sleep_reason="no_text",
-        )
-        is False
-    )
-
-    assert (
-        run_module._should_check_no_text_similarity(
-            base_scan_rate=0.5,
-            sleep_time_to_add=threshold_sleep,
-            sleep_reason="no_text",
-        )
-        is True
-    )
-
-    assert (
-        run_module._should_check_no_text_similarity(
-            base_scan_rate=0.5,
-            sleep_time_to_add=3.0,
-            sleep_reason="identical",
-        )
-        is False
-    )
-
-
-def test_no_text_similarity_backoff_requires_cached_last_image():
-    threshold_sleep = run_module._get_sleep_add_for_target_rate(
-        0.5,
-        run_module._get_no_text_scan_rate_cap(0.5),
-    )
-
-    assert (
-        run_module._can_check_no_text_similarity(
-            base_scan_rate=0.5,
-            sleep_time_to_add=threshold_sleep,
-            sleep_reason="no_text",
-            last_image=None,
-            last_image_np=None,
-        )
-        is False
-    )
-
-    assert (
-        run_module._can_check_no_text_similarity(
-            base_scan_rate=0.5,
-            sleep_time_to_add=threshold_sleep,
-            sleep_reason="no_text",
-            last_image=object(),
-            last_image_np=object(),
-        )
-        is True
-    )
-
-
-def test_update_image_comparison_cache_copies_image_and_builds_numpy_cache():
-    img = Image.new("RGB", (3, 2), color=(10, 20, 30))
-
-    cached_image, cached_image_np = run_module._update_image_comparison_cache(None, img)
-
-    assert cached_image is not img
-    assert cached_image.size == img.size
-    assert cached_image_np.shape == (2, 3, 3)
-    assert tuple(cached_image_np[0, 0]) == (10, 20, 30)
-
-
-def test_no_text_similarity_backoff_extends_beyond_normal_cap():
-    sleep_time_to_add, sleep_reason = run_module._update_no_text_similarity_sleep_state(
-        base_scan_rate=0.5,
-        sleep_time_to_add=0.5,
-        sleep_reason="no_text",
-        is_similar=True,
-    )
-
-    assert sleep_reason == "no_text_similar"
-    assert sleep_time_to_add > 0.5
-    assert run_module._get_adjusted_scan_rate(0.5, sleep_time_to_add, sleep_reason) > 1.0
-
-
-def test_no_text_similarity_backoff_clamps_back_to_normal_cap_when_frame_changes():
-    expected_sleep = run_module._get_sleep_add_for_target_rate(
-        0.5,
-        run_module._get_no_text_scan_rate_cap(0.5),
-    )
-    sleep_time_to_add, sleep_reason = run_module._update_no_text_similarity_sleep_state(
-        base_scan_rate=0.5,
-        sleep_time_to_add=2.75,
-        sleep_reason="no_text_similar",
-        is_similar=False,
-    )
-
-    assert sleep_reason == "no_text"
-    assert sleep_time_to_add == expected_sleep
-    assert run_module._get_adjusted_scan_rate(0.5, sleep_time_to_add, sleep_reason) == 2.0
 
 
 def test_apply_ocr_config_to_image_supports_grayscale_masking():
@@ -518,7 +414,7 @@ def test_ocr_processor_second_pass_suppresses_subset_chunk_duplicate(monkeypatch
 
     monkeypatch.setattr(gsm_ocr, "send_result", _send_result)
     monkeypatch.setattr(
-        gsm_ocr.run,
+        gsm_ocr.ocr_runtime,
         "process_and_write_results",
         lambda *args, **kwargs: (["・「荘厳」？"], "・「荘厳」？", {"engine": "glens"}),
     )
@@ -685,7 +581,7 @@ def test_handle_command_reload_config_announces_reloaded_status(monkeypatch):
     monkeypatch.setattr(gsm_ocr, "_build_status_payload", lambda: {"paused": False, "scan_rate": 0.5})
     monkeypatch.setattr(gsm_ocr.ocr_ipc, "announce_config_reloaded", lambda: announced.append(("config", None)))
     monkeypatch.setattr(gsm_ocr.ocr_ipc, "announce_status", lambda payload: announced.append(("status", payload)))
-    monkeypatch.delattr(gsm_ocr.run, "paused", raising=False)
+    monkeypatch.delattr(gsm_ocr.ocr_runtime, "paused", raising=False)
 
     response = gsm_ocr._handle_command(
         {"command": "reload_config", "data": {"reload_electron": True}},

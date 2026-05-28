@@ -12,6 +12,7 @@ import subprocess
 import time
 from typing import Dict, List, Optional
 
+from GameSentenceMiner.obs.screenshot_capture import is_image_empty  # noqa: F401 — re-exported
 from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.config.configuration import (
     get_app_directory,
@@ -99,24 +100,6 @@ def get_video_scene_items(scene_items: List[dict]) -> List[dict]:
     if not scene_items:
         return []
     return [item for item in scene_items if item.get("inputKind") in VIDEO_SOURCE_KINDS]
-
-
-def is_image_empty(img, tolerance: int = 5) -> bool:
-    """Return True when *img* is uniform (or near-uniform) colour.
-
-    A pure-black frame from an inactive game_capture is the most common case,
-    but JPEG compression artefacts may introduce small channel variations.
-    ``tolerance`` (default 5) allows for that noise.
-    """
-    try:
-        extrema = img.getextrema()
-        if not extrema:
-            return True
-        if isinstance(extrema[0], tuple):
-            return all((channel_max - channel_min) <= tolerance for channel_min, channel_max in extrema)
-        return (extrema[1] - extrema[0]) <= tolerance
-    except Exception:
-        return False
 
 
 HELPER_SCENE_NAMES = {"GSM Helper - DONT TOUCH"}

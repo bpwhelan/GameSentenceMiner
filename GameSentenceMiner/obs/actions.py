@@ -1,8 +1,6 @@
 """OBS action functions — the public API that consumers call."""
 
-import base64
 import functools
-import io
 import os
 import time
 from typing import Optional
@@ -484,35 +482,19 @@ def get_screenshot_base64(client, compression=75, width=None, height=None):
     return None
 
 
-def get_screenshot_PIL_from_source(source_name, compression=75, img_format="png", width=None, height=None, retry=3):
-    from PIL import Image
+def get_screenshot_PIL_from_source(
+    source_name, compression=75, img_format="png", width=None, height=None, retry=3, force_obs=False
+):
+    from GameSentenceMiner.obs.screenshot_capture import screenshot_capture
 
-    if not source_name:
-        logger.error("No source name provided.")
-        return None
-
-    def _capture(client):
-        response = client.get_source_screenshot(
-            name=source_name,
-            img_format=img_format,
-            quality=compression,
-            width=width,
-            height=height,
-        )
-        if not response or not hasattr(response, "image_data") or not response.image_data:
-            raise AttributeError("Invalid screenshot response")
-        image_data = response.image_data.split(",", 1)[-1]
-        image_data = base64.b64decode(image_data)
-        img = Image.open(io.BytesIO(image_data))
-        img.load()
-        return img
-
-    return _call_with_obs_client(
-        _capture,
-        default=None,
-        error_msg=f"Error getting screenshot from source '{source_name}'",
-        retryable=True,
-        retries=max(0, retry - 1),
+    return screenshot_capture.capture(
+        source_name=source_name,
+        compression=compression,
+        img_format=img_format,
+        width=width,
+        height=height,
+        retry=retry,
+        force_obs=force_obs,
     )
 
 
@@ -577,6 +559,7 @@ def get_screenshot_PIL(
     preprocess_mode=None,
     log_missing_source=True,
     suppress_errors=False,
+    force_obs=False,
 ):
     import GameSentenceMiner.obs as _obs_pkg
 
@@ -592,7 +575,9 @@ def get_screenshot_PIL(
                         return src
             return None
 
-        img = get_screenshot_PIL_from_source(source_name, compression, img_format, width, height, retry)
+        img = get_screenshot_PIL_from_source(
+            source_name, compression, img_format, width, height, retry, force_obs=force_obs
+        )
         img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
         return img
 
@@ -700,6 +685,12 @@ def update_current_game():
         gsm_state.current_game = get_current_scene()
 
     if gsm_state.current_game and gsm_state.current_game != previous_game:
+        try:
+            from GameSentenceMiner.obs.screenshot_capture import screenshot_capture
+
+            screenshot_capture.invalidate_hwnd()
+        except Exception:
+            pass
         try:
             from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
                 queue_ensure_scene_dictionary,

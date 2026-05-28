@@ -42,6 +42,10 @@ def build_advanced_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.localhost_bind_address_edit,
     )
     layout.addRow(QLabel("Longest Sleep Time (s)"), window.longest_sleep_time_edit)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "screenshot", "capture_backend", color=LabelColor.ADVANCED),
+        window.screenshot_capture_backend_combo,
+    )
     if is_windows():
         layout.addRow(
             window._create_labeled_widget(tabs_i18n, "advanced", "mute_game_on_minimize"),

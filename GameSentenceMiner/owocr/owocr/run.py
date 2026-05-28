@@ -55,8 +55,6 @@ from .ocr import build_spatial_text, line_dict_to_spatial_entry
 from .config import Config
 from GameSentenceMiner.util.config.configuration import get_config
 
-from typing import Union
-
 _UNINITIALIZED = object()
 
 _WIN32_CAPTURE_DEPS = _UNINITIALIZED
@@ -66,7 +64,6 @@ _MSS_MODULE = _UNINITIALIZED
 _WEBSOCKETS_MODULE = _UNINITIALIZED
 _CV2_MODULE = _UNINITIALIZED
 _PSUTIL_MODULE = _UNINITIALIZED
-_SSIM_FUNCTION = _UNINITIALIZED
 _DESKTOP_NOTIFIER_SYNC = _UNINITIALIZED
 
 win32gui = None
@@ -242,16 +239,6 @@ def _load_psutil_module():
         except ImportError:
             _PSUTIL_MODULE = None
     return _PSUTIL_MODULE
-
-
-def _load_ssim_function():
-    global _SSIM_FUNCTION
-    if _SSIM_FUNCTION is _UNINITIALIZED:
-        try:
-            _SSIM_FUNCTION = importlib.import_module("skimage.metrics").structural_similarity
-        except ImportError:
-            _SSIM_FUNCTION = None
-    return _SSIM_FUNCTION
 
 
 def _create_notifier():
@@ -2526,27 +2513,6 @@ class ScreenshotThread(threading.Thread):
             self.windows_window_tracker_instance.join()
 
 
-def apply_adaptive_threshold_filter(img):
-    cv2_module = _load_cv2_module()
-    if cv2_module is None:
-        raise RuntimeError("opencv-python is not installed")
-    img = cv2_module.cvtColor(np.array(img), cv2_module.COLOR_RGB2BGR)
-    gray = cv2_module.cvtColor(img, cv2_module.COLOR_BGR2GRAY)
-    inverted = cv2_module.bitwise_not(gray)
-    blur = cv2_module.GaussianBlur(inverted, (3, 3), 0)
-    thresh = cv2_module.adaptiveThreshold(
-        blur,
-        255,
-        cv2_module.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2_module.THRESH_BINARY,
-        11,
-        2,
-    )
-    result = cv2_module.bitwise_not(thresh)
-
-    return Image.fromarray(result)
-
-
 def _close_cached_image(image):
     try:
         if image is not None and hasattr(image, "close"):
@@ -2556,261 +2522,82 @@ def _close_cached_image(image):
 
 
 def _update_image_comparison_cache(cached_image, image):
+    """Cache the given image and its numpy view for fast pixel comparisons.
+
+    The returned ``cached_image`` is the same object passed in (no PIL.copy),
+    because callers treat the cache as read-only. We pay the PIL→numpy
+    conversion exactly once per cache update instead of per comparison.
+    """
     if image is None:
         _close_cached_image(cached_image)
         return None, None
 
     try:
-        cached_snapshot = image.copy() if isinstance(image, Image.Image) else image
-        cached_snapshot_np = np.array(cached_snapshot)
+        cached_snapshot_np = image if isinstance(image, np.ndarray) else np.asarray(image)
     except Exception:
         logger.debug("Failed to cache image for comparison.")
         _close_cached_image(cached_image)
         return None, None
 
-    _close_cached_image(cached_image)
-    return cached_snapshot, cached_snapshot_np
+    if cached_image is not None and cached_image is not image:
+        _close_cached_image(cached_image)
+    return image, cached_snapshot_np
 
 
 def set_last_image(image):
     global last_image, last_image_np
     last_image, last_image_np = _update_image_comparison_cache(last_image, image)
-    # last_image = apply_adaptive_threshold_filter(image)
 
 
 def are_images_identical(img1, img2, img2_np=None):
-    """
-    Compares two images for pixel-wise identity.
-    Optionally, pass a cached np.array for img2 as img2_np to avoid repeated conversion.
+    """Pixel-identical comparison. Accepts PIL or numpy for either side.
 
-    Args:
-        img1: PIL.Image or np.ndarray
-        img2: PIL.Image or np.ndarray
-        img2_np: Optional cached np.ndarray for img2
-
-    Returns:
-        bool: True if images are identical, False otherwise.
+    Pass ``img2_np`` (a cached numpy view of ``img2``) to skip the conversion
+    of the reference image; ``img1`` is converted lazily as well.
     """
-    if any(v is None for v in (img1, img2, img2_np)):
+    if img1 is None or (img2 is None and img2_np is None):
         return False
 
     try:
-        img1_np = np.array(img1)
-        img2_np = img2_np if img2_np is not None else np.array(img2)
+        img1_np = img1 if isinstance(img1, np.ndarray) else np.asarray(img1)
+        if img2_np is None:
+            img2_np = img2 if isinstance(img2, np.ndarray) else np.asarray(img2)
     except Exception:
         logger.warning("Failed to convert images to numpy arrays for comparison.")
         return False
 
-    return (img1_np.shape == img2_np.shape) and np.array_equal(img1_np, img2_np)
+    if img1_np.shape != img2_np.shape:
+        return False
+    # Sample a handful of pixels first to reject obviously-different frames
+    # in O(1) before paying for the full bytewise comparison.
+    if img1_np.size >= 256:
+        if img1_np.ndim >= 2:
+            corners = (
+                (0, 0),
+                (0, -1),
+                (-1, 0),
+                (-1, -1),
+                (img1_np.shape[0] // 2, img1_np.shape[1] // 2),
+            )
+            for y, x in corners:
+                if not np.array_equal(img1_np[y, x], img2_np[y, x]):
+                    return False
+    return np.array_equal(img1_np, img2_np)
 
 
-ImageType = Union[np.ndarray, Image.Image]
-
-
-def _prepare_image(image: ImageType) -> np.ndarray:
-    """
-    Standardizes an image (PIL or NumPy) into an OpenCV-compatible NumPy array (BGR).
-    """
-    cv2_module = _load_cv2_module()
-    if cv2_module is None:
-        raise RuntimeError("opencv-python is not installed")
-    # If the image is a PIL Image, convert it to a NumPy array
-    if isinstance(image, Image.Image):
-        # Convert PIL Image (which is RGB) to a NumPy array, then convert RGB to BGR for OpenCV
-        prepared_image = cv2_module.cvtColor(np.array(image), cv2_module.COLOR_RGB2BGR)
-    # If it's already a NumPy array, assume it's in a compatible format (like BGR)
-    elif isinstance(image, np.ndarray):
-        prepared_image = image
-    else:
-        raise TypeError(f"Unsupported image type: {type(image)}. Must be a PIL Image or NumPy array.")
-
-    return prepared_image
-
-
-i = 1
-
-
-def calculate_ssim_score(imageA: ImageType, imageB: ImageType) -> float:
-    global i
-    """
-    Calculates the structural similarity index (SSIM) between two images.
-
-    Args:
-        imageA: The first image as a NumPy array.
-        imageB: The second image as a NumPy array.
-
-    Returns:
-        The SSIM score between the two images (between -1 and 1).
-    """
-
-    if isinstance(imageA, Image.Image):
-        imageA = apply_adaptive_threshold_filter(imageA)
-
-    # Save Images to temp for debugging on a random 1/20 chance
-    # if np.random.rand() < 0.05:
-    # if i < 600:
-    #     # Save as image_000
-    #     imageA.save(os.path.join(get_temporary_directory(), f'frame_{i:03d}.png'), 'PNG')
-    #     i += 1
-    # imageB.save(os.path.join(get_temporary_directory(), f'ssim_imageB_{i:03d}.png'), 'PNG')
-
-    imageA = _prepare_image(imageA)
-    imageB = _prepare_image(imageB)
-
-    # Images must have the same dimensions
-    if imageA.shape != imageB.shape:
-        raise ValueError("Input images must have the same dimensions.")
-
-    # Convert images to grayscale for a more robust SSIM comparison
-    # This is less sensitive to minor color changes and lighting.
-    # grayA = cv2.cvtColor(imageA, cv2.COLOR_BGR2GRAY)
-    # grayB = cv2.cvtColor(imageB, cv2.COLOR_BGR2GRAY)
-
-    # Calculate the SSIM. The `score` is the main value.
-    # The `win_size` parameter must be an odd number and less than the image dimensions.
-    # We choose a value that is likely to be safe for a variety of image sizes.
-    win_size = min(3, imageA.shape[0] // 2, imageA.shape[1] // 2)
-    if win_size % 2 == 0:  # ensure it's odd
-        win_size -= 1
-
-    ssim_func = _load_ssim_function()
-    if ssim_func is None:
-        raise RuntimeError("scikit-image is not installed")
-    score, _ = ssim_func(imageA, imageB, full=True, win_size=win_size)
-
-    return score
-
-
-showed = False
-
-
-def are_images_similar(imageA: Image.Image, imageB: Image.Image, threshold: float = 0.98) -> bool:
-    """
-    Compares two images and returns True if their similarity score is above a threshold.
-
-    Args:
-        imageA: The first image as a NumPy array.
-        imageB: The second image as a NumPy array.
-        threshold: The minimum SSIM score to be considered "similar".
-                   Defaults to 0.98 (very high similarity). Your original `90` would
-                   be equivalent to a threshold of `0.90` here.
-
-    Returns:
-        True if the images are similar, False otherwise.
-    """
-    return False
-    if None in (imageA, imageB):
-        logger.info("One of the images is None, cannot compare.")
+def is_image_empty(img_np):
+    """Cheap blank-frame detector: True if the image is uniform colour."""
+    if img_np is None or img_np.size == 0:
         return False
     try:
-        global showed
-        if not showed:
-            imageA.show()
-            imageB.show()
-            showed = True
-        score = calculate_ssim_score(imageA, imageB)
-        logger.info(f"SSIM score between images: {score}")
-    except Exception as e:
-        logger.info(e)
+        patch = img_np[:8, :8]
+        if patch.ndim == 3:
+            return bool(np.all(patch.max(axis=(0, 1)) - patch.min(axis=(0, 1)) == 0)) and bool(
+                np.all(img_np.max(axis=(0, 1)) - img_np.min(axis=(0, 1)) == 0)
+            )
+        return bool(patch.max() - patch.min() == 0) and bool(img_np.max() - img_np.min() == 0)
+    except Exception:
         return False
-    return score > threshold
-
-
-EMPTY_SCAN_RATE_MAX = 5.0
-NO_TEXT_SCAN_RATE_MAX = 2.0
-NO_TEXT_SIMILAR_SCAN_RATE_MAX = 5.0
-NO_TEXT_SLEEP_INCREMENT = 0.005
-NO_TEXT_SIMILAR_SLEEP_INCREMENT = 0.25
-NO_TEXT_SIMILARITY_THRESHOLD = 0.98
-
-
-def _get_sleep_scan_rate_cap(base_scan_rate: float, sleep_reason: str) -> float:
-    if sleep_reason in ("empty", "no_text_similar"):
-        return EMPTY_SCAN_RATE_MAX
-    return NO_TEXT_SCAN_RATE_MAX
-
-
-def _get_adjusted_scan_rate(base_scan_rate: float, sleep_time_to_add: float, sleep_reason: str) -> float:
-    return max(
-        base_scan_rate, min(base_scan_rate + sleep_time_to_add, _get_sleep_scan_rate_cap(base_scan_rate, sleep_reason))
-    )
-
-
-def _get_sleep_add_for_target_rate(base_scan_rate: float, target_scan_rate: float) -> float:
-    return max(0.0, target_scan_rate - base_scan_rate)
-
-
-def _get_no_text_scan_rate_cap(base_scan_rate: float) -> float:
-    return max(base_scan_rate, NO_TEXT_SCAN_RATE_MAX)
-
-
-def _should_check_no_text_similarity(base_scan_rate: float, sleep_time_to_add: float, sleep_reason: str) -> bool:
-    if sleep_reason not in ("no_text", "no_text_similar"):
-        return False
-    current_scan_rate = _get_adjusted_scan_rate(base_scan_rate, sleep_time_to_add, sleep_reason)
-    return current_scan_rate >= _get_no_text_scan_rate_cap(base_scan_rate)
-
-
-def _can_check_no_text_similarity(
-    base_scan_rate: float,
-    sleep_time_to_add: float,
-    sleep_reason: str,
-    last_image,
-    last_image_np,
-) -> bool:
-    return (
-        last_image is not None
-        and last_image_np is not None
-        and _should_check_no_text_similarity(base_scan_rate, sleep_time_to_add, sleep_reason)
-    )
-
-
-def _update_no_text_similarity_sleep_state(
-    base_scan_rate: float,
-    sleep_time_to_add: float,
-    sleep_reason: str,
-    is_similar: bool,
-) -> tuple[float, str]:
-    if is_similar:
-        max_sleep_add = max(0.0, NO_TEXT_SIMILAR_SCAN_RATE_MAX - base_scan_rate)
-        min_sleep_add = _get_sleep_add_for_target_rate(base_scan_rate, _get_no_text_scan_rate_cap(base_scan_rate))
-        next_sleep_add = max(sleep_time_to_add, min_sleep_add) + NO_TEXT_SIMILAR_SLEEP_INCREMENT
-        return min(next_sleep_add, max_sleep_add), "no_text_similar"
-
-    if sleep_reason == "no_text_similar":
-        sleep_time_to_add = min(
-            sleep_time_to_add,
-            _get_sleep_add_for_target_rate(base_scan_rate, _get_no_text_scan_rate_cap(base_scan_rate)),
-        )
-        return sleep_time_to_add, "no_text"
-
-    return sleep_time_to_add, sleep_reason
-
-
-def quick_text_detection(pil_image, threshold_ratio=0.01):
-    """
-    Quick check if image likely contains text using edge detection.
-
-    Args:
-        pil_image (PIL.Image): Input image
-        threshold_ratio (float): Minimum ratio of edge pixels to consider text present
-
-    Returns:
-        bool: True if text is likely present
-    """
-    # Convert to grayscale
-    gray = np.array(pil_image.convert("L"))
-
-    # Apply Canny edge detection
-    cv2_module = _load_cv2_module()
-    if cv2_module is None:
-        raise RuntimeError("opencv-python is not installed")
-    edges = cv2_module.Canny(gray, 50, 150)
-
-    # Calculate ratio of edge pixels
-    edge_ratio = np.sum(edges > 0) / edges.size
-
-    return edge_ratio > threshold_ratio
 
 
 # Use OBS for Screenshot Source (i.e. Linux)
@@ -4504,16 +4291,28 @@ def run(
     if config_check_thread:
         config_check_thread.add_config_callback(handle_config_changes)
         config_check_thread.add_area_callback(handle_area_config_changes)
+
+    # --- Adaptive scan-rate state ---
+    # Sleep additions accumulate while nothing interesting is happening (blank
+    # frames, no text detected, or pixel-identical frames). They reset the
+    # moment we get a useful OCR result.
+    EMPTY_FRAME_SCAN_RATE_CAP = 5.0
+    NO_TEXT_SCAN_RATE_CAP = 2.0
+    NO_TEXT_SLEEP_INCREMENT = 0.005
+    EMPTY_SLEEP_INCREMENT = 0.5
+    IDENTICAL_SLEEP_INCREMENT = 0.005
+    IDLE_BACKOFF_AFTER_SECONDS = 10
+
     no_text_streak = 0
-    sleep_time_to_add = 0
+    sleep_time_to_add = 0.0
     last_result_time = time.time()
     has_seen_text_result = False
     sleep_reason = ""
-    last_no_text_compare_image = None
-    last_no_text_compare_image_np = None
+    base_scan_rate = get_ocr_scan_rate()
 
     def get_adjusted_scan_rate():
-        return _get_adjusted_scan_rate(get_ocr_scan_rate(), sleep_time_to_add, sleep_reason)
+        cap = EMPTY_FRAME_SCAN_RATE_CAP if sleep_reason == "empty" else NO_TEXT_SCAN_RATE_CAP
+        return max(base_scan_rate, min(base_scan_rate + sleep_time_to_add, max(base_scan_rate, cap)))
 
     while not terminated:
         ocr_start_time = datetime.now()
@@ -4521,6 +4320,9 @@ def run(
         img = None
         filter_img = False
         image_metadata = None
+        # Snapshot scan rate once per iteration to avoid repeated Store.get() lookups
+        # (each call deep-copies the OCR config under an RLock).
+        base_scan_rate = get_ocr_scan_rate()
 
         if process_queue:
             try:
@@ -4551,8 +4353,8 @@ def run(
                 notify = False
                 last_screenshot_time = time.time()
                 ocr_start_time = datetime.now()
-                if adjusted_scan_rate > get_ocr_scan_rate():
-                    ocr_start_time = ocr_start_time - timedelta(seconds=adjusted_scan_rate - get_ocr_scan_rate())
+                if adjusted_scan_rate > base_scan_rate:
+                    ocr_start_time = ocr_start_time - timedelta(seconds=adjusted_scan_rate - base_scan_rate)
 
         if img == 0:
             on_window_closed(False)
@@ -4560,75 +4362,35 @@ def run(
             break
         elif img:
             if filter_img:
-                base_scan_rate = get_ocr_scan_rate()
-                # Check if the image is completely empty (all white or all black), this is pretty much 0 cpu usage and saves a lot of useless OCR attempts
-                try:
-                    extrema = img.getextrema()
-                    # For RGB or RGBA images, extrema is a tuple of (min, max) for each channel
-                    if isinstance(extrema[0], tuple):
-                        is_empty = all(e[0] == e[1] for e in extrema)
-                    else:
-                        is_empty = extrema[0] == extrema[1]
-                    if is_empty:
-                        logger.background("Image is empty (all pixels same), sleeping.")
-                        max_empty_add = max(0, EMPTY_SCAN_RATE_MAX - base_scan_rate)
-                        if sleep_reason != "empty":
-                            sleep_time_to_add = 0
-                        sleep_reason = "empty"
-                        sleep_time_to_add = min(sleep_time_to_add + 0.5, max_empty_add)
-                        continue
-                except Exception as e:
-                    logger.info(f"Could not determine if image is empty: {e}")
+                # Cheap blank-frame detector. Skips OCR when the capture is a
+                # solid color (game minimized, OBS scene blank, etc.).
+                img_np = img if isinstance(img, np.ndarray) else None
+                if img_np is None:
+                    try:
+                        img_np = np.asarray(img)
+                    except Exception:
+                        img_np = None
+                if img_np is not None and is_image_empty(img_np):
+                    logger.background("Image is empty (all pixels same), sleeping.")
+                    max_empty_add = max(0.0, EMPTY_FRAME_SCAN_RATE_CAP - base_scan_rate)
+                    if sleep_reason != "empty":
+                        sleep_time_to_add = 0.0
+                    sleep_reason = "empty"
+                    sleep_time_to_add = min(sleep_time_to_add + EMPTY_SLEEP_INCREMENT, max_empty_add)
+                    continue
 
                 if sleep_reason == "empty":
-                    sleep_time_to_add = 0
+                    sleep_time_to_add = 0.0
                     sleep_reason = ""
 
-                if _can_check_no_text_similarity(
-                    base_scan_rate,
-                    sleep_time_to_add,
-                    sleep_reason,
-                    last_no_text_compare_image,
-                    last_no_text_compare_image_np,
-                ):
-                    is_similar = are_images_identical(img, last_no_text_compare_image, last_no_text_compare_image_np)
-                    if not is_similar:
-                        is_similar = are_images_similar(
-                            img,
-                            last_no_text_compare_image,
-                            threshold=NO_TEXT_SIMILARITY_THRESHOLD,
-                        )
-                    if is_similar:
-                        sleep_time_to_add, sleep_reason = _update_no_text_similarity_sleep_state(
-                            base_scan_rate,
-                            sleep_time_to_add,
-                            sleep_reason,
-                            is_similar=True,
-                        )
-                        logger.info(
-                            f"No-text frame still >= {NO_TEXT_SIMILARITY_THRESHOLD:.0%} similar to last OCR frame, extending sleep."
-                        )
-                        continue
-                    sleep_time_to_add, sleep_reason = _update_no_text_similarity_sleep_state(
-                        base_scan_rate,
-                        sleep_time_to_add,
-                        sleep_reason,
-                        is_similar=False,
-                    )
-
-                # Compare images, but only if it's one box, multiple boxes skews results way too much and produces false positives
-                # if ocr_config and len(ocr_config.rectangles) < 2:
-                #     if are_images_similar(img, last_image):
-                #         logger.info("Captured screenshot is similar to the last one, sleeping.")
-                #         if time.time() - last_result_time > 10:
-                #             sleep_time_to_add += .005
-                #         continue
-                # else:
-                if are_images_identical(img, last_image, last_image_np):
+                if are_images_identical(img_np if img_np is not None else img, last_image, last_image_np):
                     logger.background("Screenshot identical to last, sleeping.")
                     sleep_reason = "identical"
-                    if time.time() - last_result_time > 10:
-                        sleep_time_to_add += 0.005
+                    if time.time() - last_result_time > IDLE_BACKOFF_AFTER_SECONDS:
+                        sleep_time_to_add = min(
+                            sleep_time_to_add + IDENTICAL_SLEEP_INCREMENT,
+                            max(0.0, NO_TEXT_SCAN_RATE_CAP - base_scan_rate),
+                        )
                     continue
 
                 orig_text, text = process_and_write_results(
@@ -4641,23 +4403,22 @@ def run(
                     furigana_filter_sensitivity=None if get_ocr_two_pass_ocr() else get_furigana_filter_sensitivity(),
                     image_metadata=image_metadata,
                 )
-                last_no_text_compare_image, last_no_text_compare_image_np = _update_image_comparison_cache(
-                    last_no_text_compare_image,
-                    img,
-                )
                 if not text:
                     no_text_streak += 1
-                    enough_idle_time = (time.time() - last_result_time) > 10
+                    enough_idle_time = (time.time() - last_result_time) > IDLE_BACKOFF_AFTER_SECONDS
                     if no_text_streak > 1 and (not has_seen_text_result or enough_idle_time):
-                        sleep_time_to_add += NO_TEXT_SLEEP_INCREMENT
+                        sleep_time_to_add = min(
+                            sleep_time_to_add + NO_TEXT_SLEEP_INCREMENT,
+                            max(0.0, NO_TEXT_SCAN_RATE_CAP - base_scan_rate),
+                        )
                         sleep_reason = "no_text"
                         logger.background("No text detected, sleeping.")
                     else:
-                        sleep_time_to_add = 0
+                        sleep_time_to_add = 0.0
                         sleep_reason = ""
                 else:
                     no_text_streak = 0
-                    sleep_time_to_add = 0
+                    sleep_time_to_add = 0.0
                     last_result_time = time.time()
                     sleep_reason = ""
                     has_seen_text_result = True
@@ -4701,7 +4462,6 @@ def run(
         key_combo_listener.stop()
     if config_check_thread:
         config_check_thread.join()
-    _close_cached_image(last_no_text_compare_image)
 
 
 def get_engine_names():

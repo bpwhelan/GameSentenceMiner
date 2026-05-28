@@ -395,6 +395,10 @@
             "label": "Extensión:",
             "tooltip": "Extensión de archivo para el formato de captura de pantalla."
           },
+          "capture_backend": {
+            "label": "Método de Captura:",
+            "tooltip": "Método de captura de pantalla. auto usa la captura rápida de Windows con fallback a OBS, obs evita la captura directa de Windows y winapi prefiere la captura directa de Windows."
+          },
           "animated": {
             "label": "Animado:",
             "tooltip": "Habilitar para crear una captura de pantalla animada. Será un archivo webm codificado con AV1. Todas las configuraciones debajo de esto no son aplicables con esto ACTIVADO."
@@ -837,6 +841,10 @@
           "message": "¿Está seguro de que desea eliminar el perfil '{profile_name}'?",
           "error_title": "Error",
           "error_cannot_delete_default": "No se puede eliminar el perfil Predeterminado."
+        },
+        "relate_scene": {
+          "title": "Relacionar escena",
+          "message": "¿Relacionar la escena actual '{scene}' con el perfil '{profile}'?\n\nLa escena cambiará automáticamente a este perfil y se eliminará de cualquier otro perfil."
         },
         "install_ocenaudio": {
           "title": "¿Descargar OcenAudio?",

@@ -110,6 +110,33 @@ ANIMATED_SCREENSHOT_CODEC_LABELS = {
 }
 ANIMATED_SCREENSHOT_CODECS = tuple(ANIMATED_SCREENSHOT_CODEC_LABELS.keys())
 
+SCREENSHOT_CAPTURE_BACKEND_AUTO = "auto"
+SCREENSHOT_CAPTURE_BACKEND_OBS = "obs"
+SCREENSHOT_CAPTURE_BACKEND_WINAPI = "winapi"
+SCREENSHOT_CAPTURE_BACKENDS = (
+    SCREENSHOT_CAPTURE_BACKEND_AUTO,
+    SCREENSHOT_CAPTURE_BACKEND_OBS,
+    SCREENSHOT_CAPTURE_BACKEND_WINAPI,
+)
+
+
+def normalize_screenshot_capture_backend(value: str | None) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "": SCREENSHOT_CAPTURE_BACKEND_AUTO,
+        "default": SCREENSHOT_CAPTURE_BACKEND_AUTO,
+        "websocket": SCREENSHOT_CAPTURE_BACKEND_OBS,
+        "obs_websocket": SCREENSHOT_CAPTURE_BACKEND_OBS,
+        "printwindow": SCREENSHOT_CAPTURE_BACKEND_WINAPI,
+        "win32": SCREENSHOT_CAPTURE_BACKEND_WINAPI,
+        "windows": SCREENSHOT_CAPTURE_BACKEND_WINAPI,
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized in SCREENSHOT_CAPTURE_BACKENDS:
+        return normalized
+    return SCREENSHOT_CAPTURE_BACKEND_AUTO
+
+
 current_game = ""
 
 supported_formats = {
@@ -1175,6 +1202,7 @@ class Advanced:
     audio_backend: str = "sounddevice"  # 'sounddevice' or 'qt6'
     slowest_polling_rate: int = 5000  # in ms
     longest_sleep_time: float = 5.0
+    screenshot_capture_backend: str = SCREENSHOT_CAPTURE_BACKEND_AUTO
     mute_game_on_minimize: bool = False
     cloud_sync_enabled: bool = False
     cloud_sync_auto_sync: bool = False
@@ -1192,6 +1220,7 @@ class Advanced:
         # "communication_port + 1" while allowing new installs to keep this off.
         if self.plaintext_websocket_port == -1:
             self.plaintext_websocket_port = self.texthooker_communication_websocket_port + 1
+        self.screenshot_capture_backend = normalize_screenshot_capture_backend(self.screenshot_capture_backend)
         self.cloud_sync_api_url = str(self.cloud_sync_api_url or "").strip().rstrip("/")
         self.cloud_sync_email = str(self.cloud_sync_email or "").strip()
         self.cloud_sync_api_token = str(self.cloud_sync_api_token or "").strip()
@@ -1500,6 +1529,9 @@ class ProfileConfig:
         self.screenshot.height = config_data["screenshot"].get("height", self.screenshot.height)
         self.screenshot.quality = config_data["screenshot"].get("quality", self.screenshot.quality)
         self.screenshot.extension = config_data["screenshot"].get("extension", self.screenshot.extension)
+        self.screenshot.capture_backend = normalize_screenshot_capture_backend(
+            config_data["screenshot"].get("capture_backend", self.screenshot.capture_backend)
+        )
         self.screenshot.custom_ffmpeg_settings = config_data["screenshot"].get(
             "custom_ffmpeg_settings", self.screenshot.custom_ffmpeg_settings
         )

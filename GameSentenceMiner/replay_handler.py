@@ -609,7 +609,7 @@ class ReplayFileWatcher(FileSystemEventHandler):
             return
         if "Replay" not in file_name and "GSM" not in file_name:
             return
-        if file_name.endswith(".mkv") or file_name.endswith(".mp4"):
+        if file_name.endswith(".mkv") or file_name.endswith(".mp4") or file_name.endswith(".mov"):
             logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
             wait_for_stable_file(event.src_path)
             self._extractor.process_replay(event.src_path)

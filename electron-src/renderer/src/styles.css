@@ -315,7 +315,7 @@ body {
 
 .modern-tab button:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
-  ):not(.launcher-script-option):not(.capture-wizard-script):not(.capture-wizard-hook):not(.capture-wizard-crumb):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill),
+  ):not(.launcher-script-option):not(.capture-wizard-script):not(.capture-wizard-hook):not(.capture-wizard-crumb):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):not(.home-profile-help-btn),
 .python-panel button:not(.card-header) {
   border: 1px solid #5f88cc;
   border-radius: 999px;
@@ -332,7 +332,7 @@ body {
 
 .modern-tab button:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
-  ):not(.launcher-script-option):not(.capture-wizard-script):not(.capture-wizard-hook):not(.capture-wizard-crumb):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):hover:not(
+  ):not(.launcher-script-option):not(.capture-wizard-script):not(.capture-wizard-hook):not(.capture-wizard-crumb):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):not(.home-profile-help-btn):hover:not(
     :disabled
   ),
 .python-panel button:not(.card-header):hover:not(:disabled) {
@@ -1767,6 +1767,46 @@ button:disabled {
   max-width: 680px;
 }
 
+/* Match the rest of the app's form controls (see .home-select / .home-input). */
+.capture-wizard-card select,
+.capture-wizard-card input[type="text"] {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  background: #1e1e1e;
+  color: #ddd;
+  font-size: 0.84rem;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.capture-wizard-card select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+}
+
+.capture-wizard-card select:hover,
+.capture-wizard-card input[type="text"]:hover {
+  border-color: #4a4a4a;
+}
+
+.capture-wizard-card select:focus,
+.capture-wizard-card input[type="text"]:focus {
+  border-color: #5a8ac8;
+}
+
+.capture-wizard-card select:disabled,
+.capture-wizard-card input[type="text"]:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .capture-wizard-form label {
   color: #c8d1df;
   line-height: 1.45;
@@ -1777,6 +1817,47 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.capture-wizard-profile-assign {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 680px;
+  padding: 12px 14px;
+  border: 1px solid #343a44;
+  border-radius: 8px;
+  background: #1a1c20;
+}
+
+.capture-wizard-profile-assign > label {
+  color: #e3e8f0;
+  font-weight: 600;
+}
+
+.capture-wizard-profile-assign-hint {
+  margin: 0;
+  color: #8b95a6;
+  font-size: 0.85em;
+  line-height: 1.4;
+}
+
+.capture-wizard-profile-assign-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.capture-wizard-profile-assign-row select,
+.capture-wizard-profile-assign-row input {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.capture-wizard-profile-assign-row button {
+  flex: 0 0 auto;
 }
 
 .capture-wizard-footer {
@@ -3745,6 +3826,34 @@ body {
   white-space: normal;
 }
 
+.home-profile-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.home-profile-help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: #4a4a4a;
+  cursor: help;
+  line-height: 1;
+  transition: color 150ms ease;
+}
+
+.home-profile-help-btn:hover {
+  color: #8ab4f8;
+}
+
+.home-tab .home-obs-card {
+  overflow: visible;
+}
+
 .home-tab .home-select,
 .home-tab .home-input {
   height: 32px;
@@ -3838,7 +3947,7 @@ body {
 }
 
 /* ---- Primary action buttons (e.g. "Set up capture") ---- */
-.home-tab .card-body button[type="button"]:not(.home-icon-btn):not(.home-text-btn):not(.home-quick-btn):not(.home-status-pill) {
+.home-tab .card-body button[type="button"]:not(.home-icon-btn):not(.home-text-btn):not(.home-quick-btn):not(.home-status-pill):not(.home-profile-help-btn) {
   height: 32px;
   padding: 0 16px;
   border-radius: var(--gsm-radius-sm);
@@ -3851,7 +3960,7 @@ body {
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
-.home-tab .card-body button[type="button"]:not(.home-icon-btn):not(.home-text-btn):not(.home-quick-btn):not(.home-status-pill):hover:not(:disabled) {
+.home-tab .card-body button[type="button"]:not(.home-icon-btn):not(.home-text-btn):not(.home-quick-btn):not(.home-status-pill):not(.home-profile-help-btn):hover:not(:disabled) {
   background: rgba(122, 162, 255, 0.22);
   border-color: var(--gsm-accent);
   color: #ffffff;
@@ -5035,7 +5144,7 @@ button[data-tip]::after,
    specificity without changing layout (padding/border-radius stay). */
 .modern-tab button:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
-  ):not(.launcher-script-option):not(.capture-wizard-script):not(.capture-wizard-hook):not(.capture-wizard-crumb):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):not(.tab-button):not(.icon-link):not(.ocr-icon-btn),
+  ):not(.launcher-script-option):not(.capture-wizard-script):not(.capture-wizard-hook):not(.capture-wizard-crumb):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):not(.tab-button):not(.icon-link):not(.ocr-icon-btn):not(.home-profile-help-btn),
 .python-panel button:not(.card-header) {
   background: var(--gsm-accent-soft);
   border-color: var(--gsm-accent-border);
@@ -5044,7 +5153,7 @@ button[data-tip]::after,
 
 .modern-tab button:not(.launcher-docs-button):not(.launcher-info-icon):not(
     .launcher-card-toggle
-  ):not(.launcher-script-option):not(.capture-wizard-script):not(.capture-wizard-hook):not(.capture-wizard-crumb):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):not(.tab-button):not(.icon-link):not(.ocr-icon-btn):hover:not(:disabled),
+  ):not(.launcher-script-option):not(.capture-wizard-script):not(.capture-wizard-hook):not(.capture-wizard-crumb):not(.status-button):not(.card-header):not(.home-icon-btn):not(.home-quick-btn):not(.home-text-btn):not(.home-status-pill):not(.tab-button):not(.icon-link):not(.ocr-icon-btn):not(.home-profile-help-btn):hover:not(:disabled),
 .python-panel button:not(.card-header):hover:not(:disabled) {
   background: rgba(122, 162, 255, 0.22);
   border-color: var(--gsm-accent);

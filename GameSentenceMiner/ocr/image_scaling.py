@@ -7,8 +7,8 @@ from typing import Iterable, Optional, Tuple
 
 AspectBucket = Tuple[float, Tuple[int, int]]
 
-DEFAULT_MIN_WIDTH = 1024
-DEFAULT_MIN_HEIGHT = 768
+DEFAULT_MIN_WIDTH = 1280
+DEFAULT_MIN_HEIGHT = 720
 
 # Standard aspect buckets used across the app (ordered high-to-low thresholds)
 DEFAULT_ASPECT_BUCKETS: Tuple[AspectBucket, ...] = (

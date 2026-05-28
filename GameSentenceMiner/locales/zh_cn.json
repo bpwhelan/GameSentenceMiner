@@ -387,6 +387,10 @@
             "label": "扩展名:",
             "tooltip": "截图格式的文件扩展名。"
           },
+          "capture_backend": {
+            "label": "捕获方式:",
+            "tooltip": "截图捕获方式。auto 使用快速 Windows 捕获并在失败时回退到 OBS，obs 避免直接 Windows 捕获，winapi 优先使用直接 Windows 捕获。"
+          },
           "animated": {
             "label": "动画:",
             "tooltip": "启用创建动画截图。将是使用AV1编码的webm文件。启用此选项时，以下所有设置均不适用。"
@@ -794,6 +798,10 @@
           "message": "您确定要删除配置文件 '{profile_name}' 吗？",
           "error_title": "错误",
           "error_cannot_delete_default": "无法删除默认配置文件。"
+        },
+        "relate_scene": {
+          "title": "关联场景",
+          "message": "将当前场景 '{scene}' 与配置文件 '{profile}' 关联？\n\n该场景将自动切换到此配置文件，并从其他任何配置文件中移除。"
         },
         "install_ocenaudio": {
           "title": "下载 OcenAudio？",

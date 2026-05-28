@@ -548,6 +548,7 @@ async def handle_new_text_event(
     dict_from_ocr=None,
     source=None,
     source_display_name=None,
+    copy_to_clipboard=False,
 ):
     global \
         current_line, \
@@ -601,6 +602,7 @@ async def handle_new_text_event(
             dict_from_ocr=dict_from_ocr,
             source=source,
             source_display_name=source_display_name,
+            copy_to_clipboard=copy_to_clipboard,
         )
 
 
@@ -611,11 +613,18 @@ async def add_line_to_text_log(
     source=None,
     skip_overlay=False,
     source_display_name=None,
+    copy_to_clipboard=False,
 ):
     current_line_after_regex = apply_text_processing(line, get_config().text_processing)
     source_label = source_display_name or source or "Unknown"
     _log_info(f"<cyan>Line Received from [{source_label}]: {current_line_after_regex}</cyan>", colors=True)
     current_line_time = line_time if line_time else datetime.now()
+
+    if copy_to_clipboard and current_line_after_regex:
+        from GameSentenceMiner.util.clipboard import copy as clipboard_copy
+
+        clipboard_copy(current_line_after_regex)
+
     _send_text_received_preview_event(
         line,
         current_line_after_regex,

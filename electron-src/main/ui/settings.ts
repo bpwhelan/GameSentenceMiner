@@ -72,7 +72,7 @@ import {
 import type { SceneLaunchProfile } from '../store.js';
 import { APP_NAME, BASE_DIR, getSanitizedPythonEnv } from '../util.js';
 import { syncPythonDisplayLocale } from '../python_locale.js';
-import { getConfiguredSinglePort } from '../gsm_config.js';
+import { getConfiguredSinglePort, getGsmProfileNames } from '../gsm_config.js';
 // Replaced WebSocket usage with stdout IPC helpers
 import {
     isPythonLaunchBlockedByUpdate,
@@ -80,11 +80,18 @@ import {
     sendOpenOverlaySettings,
     sendOpenSettings,
     sendReloadSettings,
+    sendRelateSceneToProfile,
 } from '../main.js';
 import { reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall } from '../main.js';
 import { getExecutableNameFromSource, getWindowTitleFromSource } from './obs.js';
 import { listAgentScriptFiles, resolveSwitchAgentScript } from '../agent_script_resolver.js';
+import {
+    ensureManagedAgentScriptsCurrent,
+    getEffectiveAgentScriptsPath,
+    getManagedAgentScriptsPath,
+    isManagedAgentScriptsPath,
+} from '../agent_scripts_repository.js';
 
 export let window_transparency_process: any = null; // Process for the Window Transparency Tool
 type DownloadableTool = 'agent' | 'textractor';
@@ -120,11 +127,6 @@ const TOOL_RELEASES_URLS: Record<ToolName, string> = {
     textractor: 'https://github.com/Chenx221/Textractor/releases',
 };
 const TEXTRACTOR_WEBSOCKET_RELEASES_URL = 'https://github.com/kuroahna/textractor_websocket/releases/';
-
-// Optional override for downloading Agent "data" bundle during Agent installation.
-// Leave as empty string to disable.
-// Expected: URL to a ZIP archive containing Agent data files (for example: data/scripts/**).
-const AGENT_DATA_ARCHIVE_URL = 'https://gsm.beangate.us/agent/data.zip';
 
 interface GitHubReleaseAsset {
     name?: string;
@@ -590,36 +592,17 @@ async function installToolArchive(
         });
         await extract(zipPath, { dir: destinationPath });
 
-        if (tool === 'agent' && AGENT_DATA_ARCHIVE_URL.trim()) {
-            const dataArchivePath = path.join(tempDirectory, 'agent-data.zip');
-            const dataDestinationPath = path.join(destinationPath, 'data');
+        if (tool === 'agent') {
             reportProgress?.({
                 stage: 'download_data',
-                message: 'Downloading Agent data bundle...',
-                assetName: 'agent-data.zip',
-                progress: 0,
-            });
-            await downloadZipFile(AGENT_DATA_ARCHIVE_URL.trim(), dataArchivePath, (payload) => {
-                const normalizedProgress =
-                    typeof payload.totalBytes === 'number' && payload.totalBytes > 0
-                        ? clampUnitProgress(payload.downloadedBytes / payload.totalBytes)
-                        : null;
-                reportProgress?.({
-                    stage: 'download_data',
-                    message: 'Downloading Agent data bundle...',
-                    assetName: 'agent-data.zip',
-                    progress: normalizedProgress,
-                    downloadedBytes: payload.downloadedBytes,
-                    totalBytes: payload.totalBytes,
-                });
-            });
-            reportProgress?.({
-                stage: 'extract_archive',
-                message: 'Extracting Agent data bundle...',
-                assetName: 'agent-data.zip',
+                message: 'Updating Agent scripts from 0xDC00/scripts...',
+                assetName: '0xDC00/scripts',
                 progress: null,
             });
-            await extract(dataArchivePath, { dir: dataDestinationPath });
+            const scriptsStatus = await ensureManagedAgentScriptsCurrent();
+            if (scriptsStatus.warning) {
+                warnings.push(scriptsStatus.warning);
+            }
         }
 
         if (tool === 'textractor') {
@@ -652,7 +635,7 @@ async function installToolArchive(
 
     if (tool === 'agent') {
         const agentPath = path.join(destinationPath, 'agent.exe');
-        const agentScriptsPath = path.join(destinationPath, 'data', 'scripts');
+        const agentScriptsPath = getManagedAgentScriptsPath();
         setAgentPath(agentPath);
         setAgentScriptsPath(agentScriptsPath);
         paths.agentPath = agentPath;
@@ -770,7 +753,14 @@ async function selectDirectoryPath(defaultPath = "") {
 }
 
 async function selectAgentScriptPath(defaultPath = "") {
-    const fallbackPath = defaultPath || getAgentScriptsPath() || "";
+    const fallbackPath = defaultPath || getAgentScriptsPath() || getManagedAgentScriptsPath();
+    if (!defaultPath || isManagedAgentScriptsPath(defaultPath)) {
+        try {
+            await ensureManagedAgentScriptsCurrent();
+        } catch (error) {
+            console.warn('Failed to prepare managed Agent scripts before browsing:', error);
+        }
+    }
     const result = await dialog.showOpenDialog({
         properties: ['openFile'],
         filters: [
@@ -785,6 +775,49 @@ async function selectAgentScriptPath(defaultPath = "") {
     }
 
     return result.filePaths[0];
+}
+
+async function prepareAgentScriptsPath(preferredPath = ""): Promise<{
+    path: string;
+    warning?: string;
+}> {
+    let scriptsPath = getEffectiveAgentScriptsPath(preferredPath || getAgentScriptsPath());
+
+    if (scriptsPath && fs.existsSync(scriptsPath)) {
+        try {
+            const stats = fs.statSync(scriptsPath);
+            if (stats.isFile()) {
+                scriptsPath = path.dirname(scriptsPath);
+            }
+        } catch {
+            // Keep the current value and let the listing logic handle failures.
+        }
+    }
+
+    const isManagedPath = isManagedAgentScriptsPath(scriptsPath);
+    const hasExistingScripts = listAgentScriptFiles(scriptsPath).length > 0;
+    if (!isManagedPath && hasExistingScripts) {
+        return { path: scriptsPath };
+    }
+
+    try {
+        const managedStatus = await ensureManagedAgentScriptsCurrent();
+        if (isManagedPath || !hasExistingScripts) {
+            return {
+                path: managedStatus.path,
+                warning: managedStatus.warning,
+            };
+        }
+    } catch (error) {
+        if (isManagedPath || !hasExistingScripts) {
+            return {
+                path: scriptsPath,
+                warning: `Failed to download Agent scripts from 0xDC00/scripts: ${(error as Error).message}`,
+            };
+        }
+    }
+
+    return { path: scriptsPath };
 }
 
 async function resolveAgentScriptForScene(scene: { id: string; name: string }) {
@@ -813,8 +846,9 @@ async function resolveAgentScriptForScene(scene: { id: string; name: string }) {
         return typeof game.scene.name === 'string' && game.scene.name === scene.name;
     });
 
+    const preparedScripts = await prepareAgentScriptsPath();
     const resolution = resolveSwitchAgentScript({
-        scriptsPath: getAgentScriptsPath(),
+        scriptsPath: preparedScripts.path,
         processName,
         windowTitle,
         sceneName: scene.name,
@@ -896,6 +930,9 @@ interface SettingsIPCDependencies {
 
 export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
     syncPythonDisplayLocale(getLocale());
+    void ensureManagedAgentScriptsCurrent().catch((error) => {
+        console.warn('Failed to update managed Agent scripts:', error);
+    });
 
     ipcMain.handle('settings.getSettings', async () => {
         return getSettingsSnapshot();
@@ -1241,6 +1278,33 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         return resolveAgentScriptForScene({ id: scene.id, name: scene.name });
     });
 
+    ipcMain.handle('settings.listGSMProfiles', async () => {
+        return getGsmProfileNames(path.join(BASE_DIR, 'config.json'));
+    });
+
+    ipcMain.handle('settings.relateSceneToProfile', async (_, payload: any) => {
+        if (!payload || typeof payload !== 'object') {
+            return { success: false };
+        }
+
+        const sceneName =
+            typeof payload.sceneName === 'string'
+                ? payload.sceneName.trim()
+                : typeof payload.scene === 'object' && typeof payload.scene?.name === 'string'
+                    ? payload.scene.name.trim()
+                    : '';
+        const profileName =
+            typeof payload.profileName === 'string' ? payload.profileName.trim() : '';
+        const createNew = payload.createNew === true;
+
+        if (!profileName || (!sceneName && !createNew)) {
+            return { success: false };
+        }
+
+        const sent = sendRelateSceneToProfile(sceneName, profileName, createNew);
+        return { success: sent };
+    });
+
     ipcMain.handle('settings.selectAgentPath', async () => {
         const filePath = await selectExecutablePath(getAgentPath());
         if (!filePath) {
@@ -1272,18 +1336,8 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
     ipcMain.handle('settings.listAgentScripts', async (_, payload: any) => {
         const payloadPath =
             payload && typeof payload.path === "string" ? payload.path.trim() : "";
-        let scriptsPath = payloadPath || getAgentScriptsPath() || "";
-
-        if (scriptsPath && fs.existsSync(scriptsPath)) {
-            try {
-                const stats = fs.statSync(scriptsPath);
-                if (stats.isFile()) {
-                    scriptsPath = path.dirname(scriptsPath);
-                }
-            } catch {
-                // Keep the current value and let the listing logic handle failures.
-            }
-        }
+        const preparedScripts = await prepareAgentScriptsPath(payloadPath);
+        const scriptsPath = preparedScripts.path;
 
         if (!scriptsPath) {
             return {
@@ -1298,7 +1352,7 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
             return {
                 status: 'empty',
                 scripts: [],
-                message: `No scripts found in ${scriptsPath}.`,
+                message: preparedScripts.warning || `No scripts found in ${scriptsPath}.`,
             };
         }
 
@@ -1306,6 +1360,7 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
             status: 'success',
             scripts,
             path: scriptsPath,
+            warning: preparedScripts.warning,
         };
     });
 

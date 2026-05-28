@@ -6,6 +6,10 @@ import * as os from "os";
 import path from "path";
 import { findAgentScriptById } from "./agent_script_resolver.js";
 
+const APP_BASE_DIR = process.env.APPDATA
+    ? path.join(process.env.APPDATA, "GameSentenceMiner")
+    : path.join(os.homedir(), ".config", "GameSentenceMiner");
+const DEFAULT_AGENT_SCRIPTS_PATH = path.join(APP_BASE_DIR, "agent-scripts", "scripts");
 
 interface YuzuConfig {
     emuPath: string;
@@ -190,7 +194,7 @@ export const store = new Store<StoreConfig>({
             lastGameLaunched: "",
             games: []
         },
-        agentScriptsPath: ``,
+        agentScriptsPath: DEFAULT_AGENT_SCRIPTS_PATH,
         textractorPath: ``,
         textractorPath64: "",
         textractorPath32: "",
@@ -1081,7 +1085,10 @@ export function setYuzuGamesConfig(games: YuzuGame[]): void {
 
 // Agent scripts path getters and setters
 export function getAgentScriptsPath(): string {
-    return store.get('agentScriptsPath');
+    const configuredPath = store.get('agentScriptsPath');
+    return typeof configuredPath === "string" && configuredPath.trim().length > 0
+        ? configuredPath
+        : DEFAULT_AGENT_SCRIPTS_PATH;
 }
 
 export function setAgentScriptsPath(path: string): void {

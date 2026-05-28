@@ -386,6 +386,10 @@
             "label": "拡張子:",
             "tooltip": "スクリーンショットのファイル形式。"
           },
+          "capture_backend": {
+            "label": "キャプチャ方式:",
+            "tooltip": "スクリーンショットの取得方式。autoは高速なWindowsキャプチャを使い、失敗時はOBSに戻します。obsは直接Windowsキャプチャを避け、winapiは直接Windowsキャプチャを優先します。"
+          },
           "animated": {
             "label": "アニメーション:",
             "tooltip": "アニメーションスクリーンショットを作成する。AV1でエンコードされたwebmファイルになります。この設定がONの場合、以下の設定は適用されません。"
@@ -805,6 +809,10 @@
           "message": "プロファイル '{profile_name}' を本当に削除しますか？",
           "error_title": "エラー",
           "error_cannot_delete_default": "Defaultプロファイルは削除できません。"
+        },
+        "relate_scene": {
+          "title": "シーンを関連付け",
+          "message": "現在のシーン「{scene}」をプロファイル「{profile}」に関連付けますか？\n\nこのシーンは自動的にこのプロファイルに切り替わり、他のプロファイルからは削除されます。"
         },
         "install_ocenaudio": {
           "title": "Ocenaudioをダウンロードしますか？",

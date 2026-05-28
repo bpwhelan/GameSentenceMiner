@@ -153,6 +153,103 @@ def test_manual_switch_back_to_original_profile_resumes_scene_profile_switching(
     assert saved_profiles == ["Persona 4"]
 
 
+def test_associate_scene_with_profile_moves_scene_exclusively(monkeypatch):
+    save_calls = []
+    master_config = SimpleNamespace(
+        configs={
+            "Default": SimpleNamespace(scenes=["Shared Scene"]),
+            "Persona 3": SimpleNamespace(scenes=["Dorm"]),
+        },
+        current_profile="Default",
+        switch_to_default_if_not_found=True,
+        save=lambda: save_calls.append(True),
+    )
+    monkeypatch.setattr(profile_switcher_module, "get_master_config", lambda: master_config)
+
+    changed = ProfileSwitcher.associate_scene_with_profile("Shared Scene", "Persona 3")
+
+    assert changed is True
+    assert master_config.configs["Persona 3"].scenes == ["Dorm", "Shared Scene"]
+    assert master_config.configs["Default"].scenes == []
+    assert save_calls == [True]
+
+
+def test_associate_scene_with_profile_is_noop_when_already_linked(monkeypatch):
+    save_calls = []
+    master_config = SimpleNamespace(
+        configs={
+            "Default": SimpleNamespace(scenes=[]),
+            "Persona 3": SimpleNamespace(scenes=["Dorm"]),
+        },
+        current_profile="Default",
+        switch_to_default_if_not_found=True,
+        save=lambda: save_calls.append(True),
+    )
+    monkeypatch.setattr(profile_switcher_module, "get_master_config", lambda: master_config)
+
+    changed = ProfileSwitcher.associate_scene_with_profile("Dorm", "Persona 3")
+
+    assert changed is False
+    assert master_config.configs["Persona 3"].scenes == ["Dorm"]
+    assert save_calls == []
+
+
+def test_associate_scene_with_profile_unknown_profile_does_nothing(monkeypatch):
+    save_calls = []
+    master_config = SimpleNamespace(
+        configs={"Default": SimpleNamespace(scenes=[])},
+        current_profile="Default",
+        switch_to_default_if_not_found=True,
+        save=lambda: save_calls.append(True),
+    )
+    monkeypatch.setattr(profile_switcher_module, "get_master_config", lambda: master_config)
+
+    changed = ProfileSwitcher.associate_scene_with_profile("Dorm", "Missing")
+
+    assert changed is False
+    assert save_calls == []
+
+
+def test_create_profile_clones_default_and_saves(monkeypatch):
+    save_calls = []
+    default_profile = SimpleNamespace(name="Default", scenes=["Dorm"])
+    master_config = SimpleNamespace(
+        configs={"Default": default_profile},
+        current_profile="Default",
+        switch_to_default_if_not_found=True,
+        save=lambda: save_calls.append(True),
+        get_default_config=lambda: default_profile,
+    )
+    monkeypatch.setattr(profile_switcher_module, "get_master_config", lambda: master_config)
+
+    created = ProfileSwitcher.create_profile("Persona 3")
+
+    assert created is True
+    assert "Persona 3" in master_config.configs
+    assert master_config.configs["Persona 3"].name == "Persona 3"
+    assert master_config.configs["Persona 3"].scenes == []
+    # Cloning must not mutate the Default profile.
+    assert default_profile.scenes == ["Dorm"]
+    assert save_calls == [True]
+
+
+def test_create_profile_existing_name_is_noop(monkeypatch):
+    save_calls = []
+    master_config = SimpleNamespace(
+        configs={"Default": SimpleNamespace(name="Default", scenes=[])},
+        current_profile="Default",
+        switch_to_default_if_not_found=True,
+        save=lambda: save_calls.append(True),
+        get_default_config=lambda: SimpleNamespace(name="Default", scenes=[]),
+    )
+    monkeypatch.setattr(profile_switcher_module, "get_master_config", lambda: master_config)
+
+    created = ProfileSwitcher.create_profile("Default")
+
+    assert created is False
+    assert save_calls == []
+
+
 def test_switch_profile_records_manual_profile_override(monkeypatch):
     switcher = ProfileSwitcher()
     master_config = SimpleNamespace(current_profile="Persona 3")

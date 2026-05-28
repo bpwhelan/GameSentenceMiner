@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from PIL import Image
 
 from GameSentenceMiner.owocr.owocr import ocr as ocr_module
-from GameSentenceMiner.owocr.owocr import run as run_module
+from GameSentenceMiner.owocr.owocr import ocr_runtime as run_module
 
 
 def test_check_text_is_all_menu_uses_crop_coords_list_over_union_box(monkeypatch):

@@ -75,6 +75,51 @@ export function resolveSinglePortFromConfigData(configData: unknown): number {
     return normalizePort(profileData.general.texthooker_port);
 }
 
+export interface GsmProfileList {
+    profiles: string[];
+    currentProfile: string;
+    /** Map of profile name -> the OBS scene names associated with that profile. */
+    profileScenes: Record<string, string[]>;
+}
+
+export function resolveGsmProfilesFromConfigData(configData: unknown): GsmProfileList {
+    if (!isJsonObject(configData) || !isJsonObject(configData.configs)) {
+        return { profiles: [], currentProfile: '', profileScenes: {} };
+    }
+
+    const profiles = Object.keys(configData.configs);
+    const currentProfile =
+        typeof configData.current_profile === 'string' &&
+        profiles.includes(configData.current_profile)
+            ? configData.current_profile
+            : profiles[0] ?? '';
+
+    const profileScenes: Record<string, string[]> = {};
+    for (const [name, profileData] of Object.entries(configData.configs)) {
+        const scenes = isJsonObject(profileData) ? profileData.scenes : undefined;
+        profileScenes[name] = Array.isArray(scenes)
+            ? scenes.filter((scene): scene is string => typeof scene === 'string')
+            : [];
+    }
+
+    return { profiles, currentProfile, profileScenes };
+}
+
+export function getGsmProfileNames(
+    configPath = path.join(DEFAULT_GSM_BASE_DIR, 'config.json')
+): GsmProfileList {
+    try {
+        if (!fs.existsSync(configPath)) {
+            return { profiles: [], currentProfile: '', profileScenes: {} };
+        }
+
+        const raw = fs.readFileSync(configPath, 'utf8').replace(/^\uFEFF/, '');
+        return resolveGsmProfilesFromConfigData(JSON.parse(raw));
+    } catch {
+        return { profiles: [], currentProfile: '', profileScenes: {} };
+    }
+}
+
 export function getConfiguredSinglePort(
     configPath = path.join(DEFAULT_GSM_BASE_DIR, 'config.json')
 ): number {

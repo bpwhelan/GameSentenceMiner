@@ -2581,6 +2581,13 @@ export function sendOpenOverlaySettings() {
     return true;
 }
 export function sendOpenTexthooker() { gsmStdoutManager?.sendOpenTexthooker(); }
+export function sendRelateSceneToProfile(scene: string, profileName: string, createNew = false) {
+    if (!gsmStdoutManager) {
+        return false;
+    }
+    gsmStdoutManager.sendRelateSceneToProfile(scene, profileName, createNew);
+    return true;
+}
 
 export interface TextHookLinePayload {
     text: string;
@@ -2588,6 +2595,7 @@ export interface TextHookLinePayload {
     hookFunction?: string;
     engine?: 'textractor' | 'luna' | 'agent';
     exeName?: string;
+    copyToClipboard?: boolean;
 }
 
 export function sendTextHookLine(payload: TextHookLinePayload): void {

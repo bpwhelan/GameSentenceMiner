@@ -618,7 +618,7 @@ describe("HomeTab", () => {
       await flushAsyncWork();
     });
 
-    expect(container.textContent).toContain("Text Capture Setup");
+    expect(container.textContent).toContain("Text Capture Wizard");
     expect(invokeMock).toHaveBeenCalledWith("obs.getScenePreviewSnapshot", "scene-1");
   });
 });

@@ -27,7 +27,7 @@ from GameSentenceMiner.ocr.image_scaling import (
     scale_pil_image,
     ScaledSize,
 )
-from GameSentenceMiner.owocr.owocr.run import apply_ocr_config_to_image, TextFiltering
+from GameSentenceMiner.owocr.owocr.ocr_runtime import apply_ocr_config_to_image, TextFiltering
 from GameSentenceMiner.util.config.configuration import (
     OverlayEngine,
     get_config,

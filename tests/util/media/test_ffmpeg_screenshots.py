@@ -129,15 +129,97 @@ def test_video_to_anim_adaptive_avif_compacts_long_clips(monkeypatch, tmp_path):
         av1_encoder="libsvtav1",
         start=1,
         duration=12,
-        fps=15,
+        fps=30,
         max_width=960,
         quality=28,
         adaptive_avif=True,
         audio=False,
     )
 
-    assert commands[0][commands[0].index("-vf") + 1] == "fps=6,scale=360:-1,pad=ceil(iw/2)*2:ceil(ih/2)*2"
-    assert commands[0][commands[0].index("-crf") + 1] == "45"
+    assert commands[0][commands[0].index("-vf") + 1] == "fps=15,scale=720:-1,pad=ceil(iw/2)*2:ceil(ih/2)*2"
+    assert commands[0][commands[0].index("-crf") + 1] == "33"
+
+
+def test_video_to_anim_adaptive_avif_uses_config_as_short_clip_target(monkeypatch, tmp_path):
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"video")
+    output = tmp_path / "out.avif"
+    commands = []
+
+    monkeypatch.setattr(ffmpeg.shutil, "which", lambda _name: "ffmpeg")
+    monkeypatch.setattr(ffmpeg, "get_config", lambda: _screenshot_config())
+    monkeypatch.setattr(
+        ffmpeg.FFmpegHelper,
+        "run",
+        lambda command, **_kwargs: (
+            commands.append(command) or subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        ),
+    )
+
+    ffmpeg.video_to_anim(
+        source,
+        output_path=output,
+        codec="avif",
+        av1_encoder="libsvtav1",
+        start=1,
+        duration=4,
+        fps=30,
+        max_width=960,
+        quality=28,
+        adaptive_avif=True,
+        audio=False,
+    )
+
+    assert commands[0][commands[0].index("-vf") + 1] == "fps=30,scale=960:-1,pad=ceil(iw/2)*2:ceil(ih/2)*2"
+    assert commands[0][commands[0].index("-crf") + 1] == "28"
+
+
+def test_trim_animation_maps_animated_avif_stream(monkeypatch, tmp_path):
+    source = tmp_path / "source.avif"
+    source.write_bytes(b"video")
+    output = tmp_path / "out.avif"
+    commands = []
+
+    monkeypatch.setattr(ffmpeg, "get_config", lambda: _screenshot_config())
+    monkeypatch.setattr(
+        ffmpeg.FFmpegHelper,
+        "get_probe_json",
+        lambda *_args, **_kwargs: {
+            "streams": [
+                {"index": 0, "avg_frame_rate": "1/1", "nb_frames": "1", "tags": {}},
+                {
+                    "index": 1,
+                    "avg_frame_rate": "30/1",
+                    "duration": "2.000000",
+                    "nb_frames": "60",
+                    "tags": {"handler_name": "PictureHandler"},
+                },
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        ffmpeg.FFmpegHelper,
+        "run",
+        lambda command, **_kwargs: (
+            commands.append(command) or subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        ),
+    )
+
+    ffmpeg.trim_animation(
+        source,
+        start_offset=0.25,
+        duration=1,
+        output_path=output,
+        codec="avif",
+        av1_encoder="libsvtav1",
+        quality=28,
+        fps=30,
+    )
+
+    command = commands[0]
+    assert command[command.index("-map") + 1] == "0:1"
+    assert command.index("-map") > command.index(str(source))
+    assert command.index("-map") < command.index("-t")
 
 
 def test_video_to_anim_retries_avif_with_fallback_encoder(monkeypatch, tmp_path):

@@ -131,6 +131,7 @@ from GameSentenceMiner.util.config.configuration import (
     is_gsm_cloud_preview_enabled,
     save_full_config,
     AnimatedScreenshotSettings,
+    SCREENSHOT_CAPTURE_BACKENDS,
     Discord,
     Experimental,
     AnkiField,
@@ -232,6 +233,7 @@ class ConfigWindow(QWidget):
         self._settings_subtab_indices = {}
         self._profile_change_hooks = []
         self._suppress_profile_change_hooks = False
+        self._suppress_relate_scene_prompt = False
 
         # --- Load Configuration and Localization ---
         self.editor = ConfigEditor()
@@ -943,6 +945,7 @@ class ConfigWindow(QWidget):
                     plaintext_websocket_port=self.settings.advanced.plaintext_websocket_port,
                     localhost_bind_address=self.localhost_bind_address_edit.text(),
                     longest_sleep_time=float(self.longest_sleep_time_edit.text() or 5.0),
+                    screenshot_capture_backend=self.screenshot_capture_backend_combo.currentText(),
                     dont_collect_stats=self.dont_collect_stats_check.isChecked(),
                     mute_game_on_minimize=self.mute_game_on_minimize_check.isChecked(),
                 ),
@@ -1164,6 +1167,63 @@ class ConfigWindow(QWidget):
         self._update_window_title()
         is_default = new_profile_name == DEFAULT_CONFIG
         self.delete_profile_button.setHidden(is_default)
+        self._maybe_prompt_relate_scene(new_profile_name)
+
+    def _maybe_prompt_relate_scene(self, profile_name: str) -> None:
+        """Offer to relate the current OBS scene with the newly selected profile."""
+        if getattr(self, "_suppress_relate_scene_prompt", False):
+            return
+        try:
+            current_scene = str(obs.get_current_scene() or "").strip()
+        except Exception:
+            current_scene = ""
+        if not current_scene:
+            return
+        profile = self.master_config.configs.get(profile_name)
+        if profile is None:
+            return
+        existing = {str(s or "").strip() for s in (getattr(profile, "scenes", []) or [])}
+        if current_scene in existing:
+            return
+
+        i18n = self.i18n.get("dialogs", {}).get("relate_scene", {})
+        title = i18n.get("title", "Relate Scene")
+        message_template = i18n.get(
+            "message", "Relate the current scene '{scene}' with profile '{profile}'?"
+        )
+        try:
+            message = message_template.format(scene=current_scene, profile=profile_name)
+        except (KeyError, ValueError):
+            message = f"Relate the current scene '{current_scene}' with profile '{profile_name}'?"
+
+        reply = QMessageBox.question(
+            self,
+            title,
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._relate_current_scene_to_profile(profile_name, current_scene)
+
+    def _relate_current_scene_to_profile(self, profile_name: str, scene: str) -> None:
+        scene = str(scene or "").strip()
+        if not scene:
+            return
+        # Exclusive: drop the scene from every other profile so it maps to exactly one.
+        for name, config in self.master_config.configs.items():
+            if name == profile_name:
+                continue
+            scenes = self._normalize_scene_selection(getattr(config, "scenes", []))
+            if scene in scenes:
+                config.scenes = [s for s in scenes if s != scene]
+        # Add to the now-current profile's working copy so the save path persists it.
+        current_scenes = self._normalize_scene_selection(getattr(self.settings, "scenes", []))
+        if scene not in current_scenes:
+            current_scenes.append(scene)
+        self.settings.scenes = current_scenes
+        self.save_settings(show_indicator=False)
+        self.refresh_obs_scenes(force_reload=True)
 
     @staticmethod
     def _normalize_scene_selection(scene_names):
@@ -1354,6 +1414,7 @@ class ConfigWindow(QWidget):
         self.screenshot_height_edit = QLineEdit()
         self.screenshot_quality_edit = QLineEdit()
         self.screenshot_extension_combo = QComboBox()
+        self.screenshot_capture_backend_combo = QComboBox()
         self.animated_screenshot_check = QCheckBox()
         self.screenshot_custom_ffmpeg_settings_edit = QLineEdit()
         self.screenshot_timing_combo = QComboBox()
@@ -2840,6 +2901,9 @@ class ConfigWindow(QWidget):
         self.screenshot_extension_combo.clear()
         self.screenshot_extension_combo.addItems(["webp", "avif", "png", "jpeg"])
         self.screenshot_extension_combo.setCurrentText(s.screenshot.extension)
+        self.screenshot_capture_backend_combo.clear()
+        self.screenshot_capture_backend_combo.addItems(list(SCREENSHOT_CAPTURE_BACKENDS))
+        self.screenshot_capture_backend_combo.setCurrentText(s.advanced.screenshot_capture_backend)
         self.animated_screenshot_check.setChecked(s.screenshot.animated)
         self._set_text_value(self.screenshot_custom_ffmpeg_settings_edit, s.screenshot.custom_ffmpeg_settings)
         self.screenshot_timing_combo.clear()
@@ -3438,8 +3502,12 @@ class ConfigWindow(QWidget):
             self.master_config.configs[name].name = name
             self._create_button_bar()
             self._connect_signals()
-            self.profile_combo.addItem(name)
-            self.profile_combo.setCurrentText(name)  # This will trigger the change handler
+            self._suppress_relate_scene_prompt = True
+            try:
+                self.profile_combo.addItem(name)
+                self.profile_combo.setCurrentText(name)  # This will trigger the change handler
+            finally:
+                self._suppress_relate_scene_prompt = False
 
     def copy_profile(self):
         source_profile = self.profile_combo.currentText()
@@ -3454,8 +3522,12 @@ class ConfigWindow(QWidget):
             self.master_config.configs[name].name = name
             self._create_button_bar()
             self._connect_signals()
-            self.profile_combo.addItem(name)
-            self.profile_combo.setCurrentText(name)
+            self._suppress_relate_scene_prompt = True
+            try:
+                self.profile_combo.addItem(name)
+                self.profile_combo.setCurrentText(name)
+            finally:
+                self._suppress_relate_scene_prompt = False
 
     def delete_profile(self):
         self._flush_pending_auto_save()

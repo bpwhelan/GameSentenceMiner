@@ -61,6 +61,8 @@ export interface TextHookProfile {
     manualHookCode?: string | null;
     /** Agent script path used when engine is "agent". */
     agentScriptPath?: string | null;
+    /** Copy processed text to clipboard after forwarding to Python. */
+    copyToClipboard?: boolean;
     lastUsed: number;
 }
 
@@ -99,6 +101,7 @@ interface ActiveSession {
     /** Debounced detected-hook preview text waiting to be shown in the hook list. */
     hookPreviewCollectors: Map<string, HookPreviewCollector>;
     flushDelayMs: number;
+    copyToClipboard: boolean;
     pidWatcher?: NodeJS.Timeout;
 }
 
@@ -122,6 +125,7 @@ interface TextHookOutputPayload {
     hookFunction: string;
     engine: Exclude<TextHookEngine, 'agent'>;
     exeName: string;
+    copyToClipboard: boolean;
 }
 
 interface HookPreviewCollector {
@@ -501,6 +505,7 @@ function normalizeProfile(value: unknown): TextHookProfile | null {
             typeof v.agentScriptPath === 'string' && v.agentScriptPath.trim().length > 0
                 ? v.agentScriptPath.trim()
                 : null,
+        copyToClipboard: v.copyToClipboard === true,
         lastUsed: typeof v.lastUsed === 'number' ? v.lastUsed : Date.now(),
     };
 }
@@ -850,12 +855,13 @@ function recordHookEvent(hookId: string, fn: string, text: string): void {
             hookFunction: fn,
             engine: session.engine,
             exeName: session.exeName,
+            copyToClipboard: session.copyToClipboard,
         });
     }
 }
 
 function sendSelectedHookText(payload: TextHookOutputPayload): void {
-    sendTextHookLine(payload);
+    sendTextHookLine({ ...payload, copyToClipboard: payload.copyToClipboard });
     emitToRenderer('texthook.text', {
         hookId: payload.hookId,
         text: payload.text,
@@ -932,6 +938,7 @@ export interface StartHookOptions {
     exeName?: string | null;
     flushDelayMs?: number;
     agentScriptPath?: string | null;
+    copyToClipboard?: boolean;
     /** Override the auto-detected PID (mainly for tests). */
     pidOverride?: number;
     /** Internal recovery path: force a specific hook engine architecture. */
@@ -1050,6 +1057,7 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         outputFlushTimer: null,
         hookPreviewCollectors: new Map(),
         flushDelayMs,
+        copyToClipboard: options.copyToClipboard ?? profile?.copyToClipboard ?? false,
     };
 
     proc.stdout.on('data', (chunk: Buffer) => {
@@ -1260,6 +1268,7 @@ export function getRuntimeStatus() {
         selectedHookId: session.selectedHookId,
         hookCount: session.hooks.size,
         flushDelayMs: session.flushDelayMs,
+        copyToClipboard: session.copyToClipboard,
     };
 }
 
@@ -1293,6 +1302,13 @@ export function setFlushDelayMs(value: number): { success: boolean; flushDelayMs
     }
     emitStatus();
     return { success: true, flushDelayMs };
+}
+
+export function setCopyToClipboard(value: boolean): { success: boolean; copyToClipboard?: boolean; error?: string } {
+    if (!session) return { success: false, error: 'No active text hook session.' };
+    session.copyToClipboard = value;
+    emitStatus();
+    return { success: true, copyToClipboard: value };
 }
 
 export function setTextHookUserStartListener(listener: TextHookUserActionListener | null): void {
@@ -1369,6 +1385,10 @@ export function registerTextHookIPC(): void {
         setFlushDelayMs(Number(value)),
     );
 
+    ipcMain.handle('texthook.setCopyToClipboard', async (_event, value: boolean) =>
+        setCopyToClipboard(Boolean(value)),
+    );
+
     ipcMain.handle('texthook.listHooks', async () => {
         if (isAgentHookRunning()) return listAgentHooks();
         if (!session) return { hooks: [], selectedHookId: null };
@@ -1402,6 +1422,7 @@ export function registerTextHookIPC(): void {
                       hookFunction?: string | null;
                       manualHookCode?: string | null;
                       agentScriptPath?: string | null;
+                      copyToClipboard?: boolean;
                   }
                 | undefined,
         ) => {
@@ -1419,6 +1440,7 @@ export function registerTextHookIPC(): void {
                 hookFunction: payload.hookFunction ?? null,
                 manualHookCode: payload.manualHookCode ?? null,
                 agentScriptPath: payload.agentScriptPath ?? null,
+                copyToClipboard: payload.copyToClipboard === true,
                 lastUsed: Date.now(),
             });
             return { success: true, profile };

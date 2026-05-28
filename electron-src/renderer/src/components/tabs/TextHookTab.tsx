@@ -33,6 +33,7 @@ interface RuntimeStatusRunning {
   selectedHookId: string | null;
   hookCount: number;
   flushDelayMs?: number;
+  copyToClipboard?: boolean;
   agentScriptPath?: string;
   agentHasUi?: boolean;
 }
@@ -59,6 +60,7 @@ interface SavedProfile {
   hookFunction?: string | null;
   manualHookCode?: string | null;
   agentScriptPath?: string | null;
+  copyToClipboard?: boolean;
   lastUsed: number;
 }
 
@@ -121,6 +123,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
   const [logLines, setLogLines] = useState<LogLine[]>([]);
   const [textLines, setTextLines] = useState<TextLine[]>([]);
   const [savedProfile, setSavedProfile] = useState<SavedProfile | null>(null);
+  const [copyToClipboard, setCopyToClipboard] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -155,6 +158,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
       setSelectedHookId(next.selectedHookId);
       setEngine(next.engine);
       syncFlushDelayState(next.flushDelayMs);
+      setCopyToClipboard(next.copyToClipboard ?? false);
       if (next.engine === "agent" && next.agentScriptPath) {
         setAgentScriptPath(next.agentScriptPath);
       }
@@ -182,6 +186,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
         setEngine(profile.engine);
         setAutoHook(profile.autoHook);
         syncFlushDelayState(profile.flushDelayMs);
+        setCopyToClipboard(profile.copyToClipboard ?? false);
         if (profile.manualHookCode) {
           setManualHookCode(profile.manualHookCode);
         }
@@ -290,6 +295,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
           engine,
           exeName: capture?.exeName ?? undefined,
           flushDelayMs,
+          copyToClipboard,
           agentScriptPath: engine === "agent" ? agentScriptPath.trim() : undefined,
         }
       );
@@ -310,7 +316,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
     } finally {
       setBusy(false);
     }
-  }, [agentScriptPath, capture?.exeName, engine, flushDelayMs, refreshHooks, refreshStatus, showNotice, t]);
+  }, [agentScriptPath, capture?.exeName, copyToClipboard, engine, flushDelayMs, refreshHooks, refreshStatus, showNotice, t]);
 
   const stopSession = useCallback(async () => {
     setBusy(true);
@@ -371,6 +377,16 @@ export function TextHookTab({ active }: TextHookTabProps) {
     }
   }, [flushDelayInput, status.running, syncFlushDelayState]);
 
+  const toggleCopyToClipboard = useCallback(
+    (checked: boolean) => {
+      setCopyToClipboard(checked);
+      if (status.running) {
+        void invokeIpc("texthook.setCopyToClipboard", checked);
+      }
+    },
+    [status.running]
+  );
+
   const saveProfile = useCallback(async () => {
     const exeName = status.running ? status.exeName : capture?.exeName;
     if (!exeName) {
@@ -385,6 +401,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
         engine,
         autoHook,
         flushDelayMs,
+        copyToClipboard,
         hookId: selectedHookId,
         hookFunction: targetHook?.function ?? null,
         manualHookCode: manualHookCode.trim() || null,
@@ -400,6 +417,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
   }, [
     autoHook,
     capture?.exeName,
+    copyToClipboard,
     engine,
     flushDelayMs,
     agentScriptPath,
@@ -753,6 +771,16 @@ export function TextHookTab({ active }: TextHookTabProps) {
                             onChange={(e) => setAutoHook(e.target.checked)}
                           />{" "}
                           {t("texthook.profile.autoHook")}
+                        </label>
+                      </div>
+                      <div className="input-group">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={copyToClipboard}
+                            onChange={(e) => toggleCopyToClipboard(e.target.checked)}
+                          />{" "}
+                          {t("texthook.profile.copyToClipboard")}
                         </label>
                       </div>
                       <div className="input-group">

@@ -50,6 +50,12 @@ supported_formats = {
 
 # How close the detected ratio needs to be to a known ratio to snap (e.g., 0.05 = 5%)
 RATIO_TOLERANCE = 0.05
+ADAPTIVE_AVIF_BASE_CRF = 40
+ADAPTIVE_AVIF_TIERS = (
+    (10.0, 0.50, 0.75, 5),
+    (5.0, 0.80, 5 / 6, 2),
+    (0.0, 1.00, 1.00, 0),
+)
 
 
 def _normalize_av1_encoder(av1_encoder: str | None) -> str:
@@ -111,26 +117,85 @@ def _coerce_int(value: Any, default: int) -> int:
         return default
 
 
+def _coerce_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _fraction_to_float(value: Any) -> float:
+    if not value:
+        return 0.0
+
+    try:
+        numerator, denominator = str(value).split("/", 1)
+        denominator_value = float(denominator)
+        if denominator_value == 0:
+            return 0.0
+        return float(numerator) / denominator_value
+    except (TypeError, ValueError):
+        return _coerce_float(value, 0.0)
+
+
+def _avif_animation_stream_map_args(input_path: str | Path, codec: str) -> List[str]:
+    if codec != "avif":
+        return []
+
+    info = FFmpegHelper.get_probe_json(
+        str(input_path),
+        "stream=index,nb_frames,duration,avg_frame_rate:stream_tags=handler_name",
+        "v",
+    )
+    streams = info.get("streams", []) if info else []
+    if len(streams) < 2:
+        return []
+
+    def _score(stream: dict) -> tuple[bool, bool, bool, bool, float]:
+        tags = stream.get("tags") or {}
+        frame_count = _coerce_int(stream.get("nb_frames"), 0)
+        duration = _coerce_float(stream.get("duration"), 0.0)
+        frame_rate = _fraction_to_float(stream.get("avg_frame_rate"))
+        return (
+            frame_count > 1,
+            duration > 0,
+            frame_rate > 1,
+            tags.get("handler_name") == "PictureHandler",
+            frame_rate,
+        )
+
+    selected = max(streams, key=_score)
+    if not any(_score(selected)[:-1]):
+        return []
+
+    stream_index = selected.get("index")
+    if stream_index is None:
+        return []
+
+    return ["-map", f"0:{stream_index}"]
+
+
 def _adaptive_avif_encode_settings(
     duration: float,
     fps: int | None,
     max_width: int | None,
     quality: int | str,
 ) -> tuple[int, int, int]:
-    if duration > 10.0:
-        target_fps, target_width, target_crf = 6, 360, 45
-    elif duration > 5.0:
-        target_fps, target_width, target_crf = 8, 400, 42
-    else:
-        target_fps, target_width, target_crf = 10, 480, 40
+    fps_value = _coerce_int(fps, 30)
+    max_width_value = _coerce_int(max_width, 480)
+    quality_value = _coerce_int(quality, ADAPTIVE_AVIF_BASE_CRF)
 
-    quality_value = _coerce_int(quality, target_crf)
-    fps_value = _coerce_int(fps, target_fps)
-    max_width_value = _coerce_int(max_width, target_width)
+    fps_multiplier, width_multiplier, crf_offset = ADAPTIVE_AVIF_TIERS[-1][1:]
+    for minimum_duration, tier_fps_multiplier, tier_width_multiplier, tier_crf_offset in ADAPTIVE_AVIF_TIERS:
+        if duration > minimum_duration:
+            fps_multiplier = tier_fps_multiplier
+            width_multiplier = tier_width_multiplier
+            crf_offset = tier_crf_offset
+            break
 
-    effective_fps = min(fps_value, target_fps) if fps_value > 0 else target_fps
-    effective_width = min(max_width_value, target_width) if max_width_value > 0 else 0
-    effective_quality = max(quality_value, target_crf)
+    effective_fps = max(1, round(fps_value * fps_multiplier)) if fps_value > 0 else max(1, round(30 * fps_multiplier))
+    effective_width = max(2, round(max_width_value * width_multiplier)) if max_width_value > 0 else 0
+    effective_quality = max(0, min(63, quality_value + crf_offset))
     return effective_fps, effective_width, effective_quality
 
 
@@ -538,7 +603,9 @@ def trim_animation(
     command = ffmpeg_base_command_list.copy()
     if start_offset > 0:
         command.extend(["-ss", f"{start_offset:.3f}"])
-    command.extend(["-i", str(input_path), "-t", f"{duration:.3f}", "-an"])
+    command.extend(["-i", str(input_path)])
+    command.extend(_avif_animation_stream_map_args(input_path, codec))
+    command.extend(["-t", f"{duration:.3f}", "-an"])
 
     video_filters = ["pad=ceil(iw/2)*2:ceil(ih/2)*2"]
     if fps:

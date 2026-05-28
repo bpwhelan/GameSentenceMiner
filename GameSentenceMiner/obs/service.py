@@ -243,6 +243,10 @@ class OBSState:
     replay_buffer_active: Optional[bool] = None
     record_active: Optional[bool] = None
     current_source_name: Optional[str] = None
+    # Last result of the screenshot output probe (_is_output_active_from_screenshot):
+    # True = capture producing output, False = capture empty, None = undetermined.
+    source_output_active: Optional[bool] = None
+    source_output_checked_at: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -844,9 +848,11 @@ class OBSService:
         from GameSentenceMiner.obs.actions import get_screenshot_PIL
 
         img = get_screenshot_PIL(compression=50, img_format="jpg", width=8, height=8)
-        if not img:
-            return None
-        return not is_image_empty(img)
+        result = None if not img else not is_image_empty(img)
+        with self._state_lock:
+            self.state.source_output_active = result
+            self.state.source_output_checked_at = time.time()
+        return result
 
     # -- fit-to-screen -------------------------------------------------------
 
