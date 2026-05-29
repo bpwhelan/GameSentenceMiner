@@ -6,9 +6,15 @@ import {
     execFileAsync,
     getResourcesDir,
     getSanitizedPythonEnv,
+    BASE_DIR,
 } from '../util.js';
 
 const PINNED_UV_VERSION = '0.9.22';
+
+const MAIN_BRANCH_RAW_BASE =
+    'https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/refs/heads/main';
+const UV_LOCK_URL = `${MAIN_BRANCH_RAW_BASE}/uv.lock`;
+const PYPROJECT_URL = `${MAIN_BRANCH_RAW_BASE}/pyproject.toml`;
 
 // ---------------------------------------------------------------------------
 // General helpers
@@ -367,6 +373,41 @@ export function getProjectPath(): string {
     return path.resolve(getResourcesDir());
 }
 
+/**
+ * Try to download the latest uv.lock from the main branch and stage it in a
+ * writable cache directory alongside a copy of pyproject.toml.  Returns the
+ * cache directory path on success, or the bundled resources path as fallback.
+ */
+async function downloadText(url: string): Promise<string> {
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status} for ${url}`);
+    }
+    return response.text();
+}
+
+async function resolveUvLockProjectPath(): Promise<string> {
+    const bundledPath = getProjectPath();
+    const cacheDir = path.join(BASE_DIR, 'uv-project');
+
+    try {
+        // Download both files together so the lockfile and pyproject stay a
+        // consistent pair – `uv sync --frozen` rejects a mismatched pair.
+        const [lockContent, pyprojectContent] = await Promise.all([
+            downloadText(UV_LOCK_URL),
+            downloadText(PYPROJECT_URL),
+        ]);
+        fs.mkdirSync(cacheDir, { recursive: true });
+        fs.writeFileSync(path.join(cacheDir, 'uv.lock'), lockContent, 'utf8');
+        fs.writeFileSync(path.join(cacheDir, 'pyproject.toml'), pyprojectContent, 'utf8');
+        console.log('Downloaded latest uv.lock + pyproject.toml from main.');
+        return cacheDir;
+    } catch (err) {
+        console.warn(`Failed to download latest uv.lock (${err}). Falling back to bundled lockfile.`);
+        return bundledPath;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Extras resolution
 // ---------------------------------------------------------------------------
@@ -466,7 +507,7 @@ export async function syncLockedEnvironment(
     checkOnly: boolean = false,
     onProgress?: (event: UvCommandProgressEvent) => void
 ): Promise<void> {
-    const projectPath = getProjectPath();
+    const projectPath = await resolveUvLockProjectPath();
     const normalizedExtras = normalizeExtras(extras);
     const args = [
         '-m',
