@@ -1202,7 +1202,7 @@ class Advanced:
     audio_backend: str = "sounddevice"  # 'sounddevice' or 'qt6'
     slowest_polling_rate: int = 5000  # in ms
     longest_sleep_time: float = 5.0
-    screenshot_capture_backend: str = SCREENSHOT_CAPTURE_BACKEND_AUTO
+    screenshot_capture_backend: str = SCREENSHOT_CAPTURE_BACKEND_OBS
     mute_game_on_minimize: bool = False
     cloud_sync_enabled: bool = False
     cloud_sync_auto_sync: bool = False
