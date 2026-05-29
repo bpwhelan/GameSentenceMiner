@@ -3,6 +3,27 @@
 
 <head>
 <style>
+  /* Hidden container for Jiten Reader to parse text into .jiten-word spans.
+     Positioned off-screen but NOT display:none so Jiten's parser can see it. */
+  #jiten-parse-container {
+    position: absolute;
+    left: -99999px;
+    top: -99999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    user-select: none;
+    font-size: 16px;
+    color: transparent;
+  }
+  /* Override Jiten Reader's own CSS styles inside the parse container */
+  #jiten-parse-container .jiten-word {
+    all: unset !important;
+    display: inline !important;
+  }
+
   /* Hidden character for Yomitan popup hiding */
   #yomitan-hide-char {
     position: absolute;
@@ -69,14 +90,12 @@ background: rgba(202, 12, 12, 0.692);
     white-space: nowrap;
     background: rgba(15, 15, 15, 0);
     color: rgba(255, 255, 255, 0);
-    text-align: start;
     pointer-events: auto;
     user-select: text;
     z-index: 999;
-    line-height: 1;
-    display: block;
+    display: flex;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
     overflow: visible;
   }
 
@@ -130,6 +149,78 @@ background: rgba(202, 12, 12, 0.692);
     pointer-events: none;
     user-select: none;
     z-index: 1002;
+  }
+
+  /* ==================== Jiten SRS Highlighting ==================== */
+  /* Highlights are drawn as overlay boxes (one per token) by jiten_highlight.js,
+     NOT by styling the per-character .text-box glyphs — a single box spanning
+     the whole token reads as one highlight instead of one-per-character. The
+     overlay sits behind the (normally transparent) text glyphs. Mature/mastered
+     (known) words are subtle; i+1 is the most prominent (blue) signal. */
+  :root {
+    --gsm-jiten-highlight-opacity: 0.7;
+    --gsm-jiten-color-new: 165, 102, 239;
+    --gsm-jiten-color-young: 208, 135, 0;
+    --gsm-jiten-color-mature: 112, 192, 0;
+    --gsm-jiten-color-due: 255, 69, 0;
+    --gsm-jiten-color-mastered: 112, 192, 0;
+    --gsm-jiten-color-blacklisted: 119, 119, 119;
+    --gsm-jiten-color-frequent: 75, 141, 127;
+    --gsm-jiten-color-iplus1: 53, 158, 255;
+  }
+
+  /* Full-viewport layer holding the token highlight boxes. Sits just below the
+     text boxes (z-index 999) so transparent glyphs render on top of it. */
+  #jiten-highlight-layer {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    overflow: visible;
+    z-index: 997;
+  }
+
+  /* Each .gsm-jiten-hl is positioned (position: fixed) over a token's union
+     bounding rect. Modifier classes (--new, --due, --frequent, --iplus1, …)
+     layer the visual treatment for that token's SRS state. */
+  .gsm-jiten-hl {
+    position: fixed;
+    pointer-events: none;
+    box-sizing: border-box;
+    border-radius: 3px;
+  }
+  .gsm-jiten-hl--new {
+    border-bottom: 3px solid rgba(var(--gsm-jiten-color-new), var(--gsm-jiten-highlight-opacity));
+    box-shadow: 0 2px 8px -2px rgba(var(--gsm-jiten-color-new), calc(var(--gsm-jiten-highlight-opacity) * 0.6));
+  }
+  .gsm-jiten-hl--young {
+    border-bottom: 3px solid rgba(var(--gsm-jiten-color-young), var(--gsm-jiten-highlight-opacity));
+    box-shadow: 0 2px 8px -2px rgba(var(--gsm-jiten-color-young), calc(var(--gsm-jiten-highlight-opacity) * 0.6));
+  }
+  .gsm-jiten-hl--due {
+    border-bottom: 3px solid rgba(var(--gsm-jiten-color-due), var(--gsm-jiten-highlight-opacity));
+    box-shadow: 0 2px 8px -2px rgba(var(--gsm-jiten-color-due), calc(var(--gsm-jiten-highlight-opacity) * 0.6));
+  }
+  .gsm-jiten-hl--mature {
+    /* Known words: subtle. */
+    border-bottom: 2px solid rgba(var(--gsm-jiten-color-mature), calc(var(--gsm-jiten-highlight-opacity) * 0.4));
+  }
+  .gsm-jiten-hl--mastered {
+    border-bottom: 2px solid rgba(var(--gsm-jiten-color-mastered), calc(var(--gsm-jiten-highlight-opacity) * 0.4));
+  }
+  .gsm-jiten-hl--blacklisted {
+    border-bottom: 2px solid rgba(var(--gsm-jiten-color-blacklisted), calc(var(--gsm-jiten-highlight-opacity) * 0.4));
+  }
+  .gsm-jiten-hl--frequent {
+    /* Modest teal underline layered on top of the state highlight. */
+    box-shadow: inset 0 -3px 0 rgba(var(--gsm-jiten-color-frequent), 0.6);
+  }
+  .gsm-jiten-hl--iplus1 {
+    /* Primary "you should know this word" signal. Strong blue highlight. */
+    border-bottom: 3px solid rgba(var(--gsm-jiten-color-iplus1), 0.95) !important;
+    box-shadow:
+      0 2px 10px -2px rgba(var(--gsm-jiten-color-iplus1), 0.8),
+      0 3px 16px -3px rgba(var(--gsm-jiten-color-iplus1), 0.5) !important;
+    background: rgba(var(--gsm-jiten-color-iplus1), 0.12) !important;
   }
 
   .text-box-container {
@@ -645,6 +736,9 @@ background: rgba(202, 12, 12, 0.692);
 
 
 <body style="margin:0px;">
+  <!-- Hidden container for Jiten Reader to parse text -->
+  <div id="jiten-parse-container"></div>
+
   <!-- Gamepad Status Indicator -->
   <div id="gamepad-status">🎮 No controller</div>
 
@@ -1417,6 +1511,42 @@ background: rgba(202, 12, 12, 0.692);
   const MAX_FURIGANA_LINE_CACHE_ENTRIES = 200;
   let lastFuriganaRenderSignature = null;
   const furiganaLineCache = new Map();
+  // Jiten SRS Highlighting state (mirror approach)
+  let jitenHighlightingEnabled = true;
+
+  function setJitenHighlightOpacity(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return;
+    const clamped = Math.max(0, Math.min(1, n));
+    document.documentElement.style.setProperty('--gsm-jiten-highlight-opacity', String(clamped));
+  }
+
+  /**
+   * Request Jiten Reader to parse the current lines and mirror SRS highlights.
+   * This replaces the old API-payload approach. Now we let the extension's own
+   * content script do the parsing (which has access to SRS state from storage).
+   */
+  function applyJitenHighlightingForLines(lines) {
+    if (!jitenHighlightingEnabled) return;
+    const api = window.GsmJitenHighlight;
+    if (!api || typeof api.requestParse !== 'function') {
+      console.log('[JitenHighlight] Skipped: jiten_highlight.js not loaded');
+      return;
+    }
+    if (!Array.isArray(lines) || lines.length === 0) return;
+    api.requestParse(lines).catch((err) => {
+      console.warn('[JitenHighlight] Parse request failed:', err);
+    });
+  }
+
+  // Initialize highlight module on page load
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.GsmJitenHighlight) window.GsmJitenHighlight.init();
+    }, { once: true });
+  } else {
+    if (window.GsmJitenHighlight) window.GsmJitenHighlight.init();
+  }
   const pendingSentenceRecycledStates = new Map();
   let display = null;
   let width = 2560;
@@ -1808,14 +1938,16 @@ background: rgba(202, 12, 12, 0.692);
           wordList.push(w);
           continue;
         }
-        const charWidth = (w.bounding_rect.x3 - w.bounding_rect.x1) / len;
+        // Slice the word box by per-glyph advance weight rather than evenly, so
+        // mixed full/half-width runs stay aligned with the underlying glyphs.
+        const edges = distributeGlyphWidths(glyphs, w.bounding_rect.x1, w.bounding_rect.x3);
         for (let k = 0; k < len; k++) {
           wordList.push({
             text: glyphs[k],
             bounding_rect: {
-              x1: w.bounding_rect.x1 + (k * charWidth),
+              x1: edges[k],
               y1: w.bounding_rect.y1,
-              x3: w.bounding_rect.x1 + ((k + 1) * charWidth),
+              x3: k + 1 < len ? edges[k + 1] : w.bounding_rect.x3,
               y3: w.bounding_rect.y3
             }
           });
@@ -2188,9 +2320,12 @@ background: rgba(202, 12, 12, 0.692);
                 lineWordBox.boundBox
               );
               lineWordBox.estimatedFontSize = fontSize;
-              lineWordBox.box.style.fontSize = `${fontSize}px`;
             }
 
+            // Use the median font-size across non-punctuation characters on the line.
+            // OCR bounding boxes are tight ink bounds with measurement noise, so
+            // individual characters get slightly different widths even at the same
+            // game font-size. The median normalizes this for consistent rendering.
             const surroundingBoxes = lineWordBoxes.filter((lineWordBox) => (
               !lineWordBox.hiddenByMainBox
               && !isContextSizedPunctuationMarker(lineWordBox.text)
@@ -2203,22 +2338,33 @@ background: rgba(202, 12, 12, 0.692);
               && lineWordBox.estimatedFontSize > 0
             ));
             const fontReferenceBoxes = surroundingBoxes.length > 0 ? surroundingBoxes : visibleBoxes;
-            const surroundingFontSize = getMedianValue(fontReferenceBoxes.map((lineWordBox) => lineWordBox.estimatedFontSize));
-            const surroundingHeightPercent = getMedianValue(fontReferenceBoxes.map((lineWordBox) => lineWordBox.heightPercent));
+            const lineFontSize = getMedianValue(fontReferenceBoxes.map((lineWordBox) => lineWordBox.estimatedFontSize));
 
-            if (surroundingFontSize > 0) {
-              for (const lineWordBox of lineWordBoxes) {
-                if (lineWordBox.hiddenByMainBox || !isContextSizedPunctuationMarker(lineWordBox.text)) {
-                  continue;
-                }
-                lineWordBox.box.style.fontSize = `${Math.round(surroundingFontSize)}px`;
+            // Clamp every character box on the line to a single uniform height
+            // (the max across reference glyphs) anchored at a shared top, so the
+            // boxes line up evenly instead of each tracking its own ink-tight
+            // height (which makes punctuation/kana boxes shorter than kanji).
+            // Horizontal position and width stay per-character.
+            const heightReferenceBoxes = fontReferenceBoxes.length > 0 ? fontReferenceBoxes : visibleBoxes;
+            let uniformTopPercent = null;
+            let uniformHeightPercent = null;
+            if (heightReferenceBoxes.length > 0) {
+              uniformTopPercent = Math.min(...heightReferenceBoxes.map((lineWordBox) => lineWordBox.y1));
+              uniformHeightPercent = Math.max(...heightReferenceBoxes.map((lineWordBox) => lineWordBox.heightPercent));
+            }
 
-                if (surroundingHeightPercent > 0 && surroundingHeightPercent > lineWordBox.heightPercent * 1.1) {
-                  const centerY = (lineWordBox.y1 + lineWordBox.y3) / 2;
-                  const newY1 = Math.max(0, Math.min(100 - surroundingHeightPercent, centerY - (surroundingHeightPercent / 2)));
-                  lineWordBox.box.style.top = `${newY1 + offsetY}%`;
-                  lineWordBox.box.style.height = `${surroundingHeightPercent}%`;
-                }
+            // Apply consistent font-size and uniform height to all characters on the line
+            for (const lineWordBox of lineWordBoxes) {
+              if (lineWordBox.hiddenByMainBox) {
+                continue;
+              }
+              const effectiveFontSize = lineFontSize > 0 ? Math.round(lineFontSize) : lineWordBox.estimatedFontSize;
+              lineWordBox.box.style.fontSize = `${effectiveFontSize}px`;
+
+              if (uniformHeightPercent > 0) {
+                const clampedTop = Math.max(0, Math.min(100 - uniformHeightPercent, uniformTopPercent));
+                lineWordBox.box.style.top = `${clampedTop + offsetY}%`;
+                lineWordBox.box.style.height = `${uniformHeightPercent}%`;
               }
             }
 
@@ -2368,12 +2514,13 @@ background: rgba(202, 12, 12, 0.692);
     textBox.style.top = `${y1 + offsetY}%`;
     textBox.style.width = `${x2 - x1}%`;
     textBox.style.height = `${y2 - y1}%`;
-    textBox.style.display = 'block';
+    textBox.style.display = 'flex';
+    textBox.style.alignItems = 'center';
+    textBox.style.justifyContent = 'center';
     textBox.style.overflow = 'visible';
     textBox.style.whiteSpace = 'nowrap';
     textBox.style.fontSize = '48px';
-    textBox.style.lineHeight = 'normal';
-    textBox.style.textOverflow = 'ellipsis';
+    textBox.style.lineHeight = '1';
     textBox.style.background = 'rgba(0,0,0,0)';
     textBox.style.border = 'none';
     if (transparentText) {
@@ -2382,15 +2529,7 @@ background: rgba(202, 12, 12, 0.692);
 
     if (verticalText && /[^\u0000-\u007F]+/.test(sentence)) {
       textBox.style.writingMode = 'vertical-rl';
-      textBox.style.textAlign = 'center';
-      textBox.style.alignItems = 'flex-start';
-      textBox.style.justifyContent = 'center';
       textBox.style.whiteSpace = 'normal';
-    } else {
-      textBox.style.lineHeight = '1';
-      textBox.style.display = 'block';
-      textBox.style.overflow = 'visible';
-      textBox.style.whiteSpace = 'nowrap';
     }
     return textBox;
   }
@@ -2420,6 +2559,41 @@ background: rgba(202, 12, 12, 0.692);
 
   function normalizeLexicalFragmentText(text) {
     return String(text || '').replace(/\s+/g, '');
+  }
+
+  // Approximate horizontal advance of a single glyph relative to a full-width
+  // CJK cell (= 1.0). OneOCR only gives word-level boxes, so per-character boxes
+  // are produced by slicing a word box; slicing by *advance weight* instead of
+  // evenly keeps boxes aligned when a word mixes full-width and half-width
+  // glyphs (e.g. kanji + ASCII/digits/half-width punctuation). Pure full-width
+  // CJK is unaffected (every weight is 1.0).
+  const FULL_WIDTH_ADVANCE_REGEX = /[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Hangul}　-〿！-｠￠-￦⺀-⻿ㇰ-ㇿ‥…]/u;
+  function glyphAdvanceWeight(glyph) {
+    if (!glyph) return 1.0;
+    const codePoint = glyph.codePointAt(0);
+    // C0/C1 controls (e.g. injected "\n") take no horizontal space.
+    if (codePoint < 0x20 || (codePoint >= 0x7f && codePoint <= 0x9f)) return 0;
+    return FULL_WIDTH_ADVANCE_REGEX.test(glyph) ? 1.0 : 0.5;
+  }
+
+  // Split [x1, x3] across glyphs proportionally to their advance weights and
+  // return the left edge of each glyph plus the total span consumed.
+  function distributeGlyphWidths(glyphs, x1, x3) {
+    const span = x3 - x1;
+    const weights = glyphs.map(glyphAdvanceWeight);
+    let totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+    if (!(totalWeight > 0)) {
+      // All zero-width (defensive): fall back to even distribution.
+      totalWeight = glyphs.length || 1;
+      for (let i = 0; i < weights.length; i++) weights[i] = 1;
+    }
+    const edges = [];
+    let cursor = x1;
+    for (let i = 0; i < glyphs.length; i++) {
+      edges.push(cursor);
+      cursor += span * (weights[i] / totalWeight);
+    }
+    return edges;
   }
 
   function buildLexicalWordRenderUnits(words, lineText, appendTrailingSpace = false) {
@@ -2512,11 +2686,54 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function estimateFontSize(word, widthPercent, heightPercent, rect) {
-    if (rect && Number.isFinite(rect.height) && rect.height > 0) {
-      return Math.max(8, Math.min(100, Math.round(rect.height)));
+    const text = typeof word === 'string' ? word : '';
+    const charCount = Math.max(1, text.length);
+
+    // Get actual pixel dimensions of the bounding box
+    let pixelHeight, pixelWidth;
+    if (rect && Number.isFinite(rect.height) && rect.height > 0 && Number.isFinite(rect.width) && rect.width > 0) {
+      pixelHeight = rect.height;
+      pixelWidth = rect.width;
+    } else {
+      pixelHeight = (heightPercent / 100) * window.innerHeight;
+      pixelWidth = (widthPercent / 100) * window.innerWidth;
     }
-    const pixelHeight = (heightPercent / 100) * window.innerHeight;
-    return Math.max(8, Math.min(100, Math.round(pixelHeight)));
+
+    if (pixelHeight <= 0 || pixelWidth <= 0) return 8;
+
+    const isCJK = CJK_LEXICAL_REGEX.test(text);
+    const aspectRatio = pixelWidth / pixelHeight;
+
+    // Detect vertical text: for vertical CJK, width ≈ single char width,
+    // height ≈ charCount * char_height, giving a narrow aspect ratio.
+    const isLikelyVertical = isCJK && charCount > 1 && aspectRatio < 0.8;
+
+    if (isCJK) {
+      let fontSize;
+      if (isLikelyVertical) {
+        // Vertical CJK: characters stack top-to-bottom.
+        // Each character's advance = 1em vertically, so:
+        //   font-size = box_height / char_count
+        // Constrain by box_width (the column width) to prevent horizontal overflow.
+        const sizeFromHeight = pixelHeight / charCount;
+        const sizeFromWidth = pixelWidth;
+        fontSize = Math.min(sizeFromHeight, sizeFromWidth);
+      } else {
+        // Horizontal CJK: characters advance left-to-right, each advance = 1em.
+        // font-size = box_width / char_count ensures characters span the box exactly.
+        // Constrain by box_height to prevent vertical overflow.
+        const sizeFromWidth = pixelWidth / charCount;
+        const sizeFromHeight = pixelHeight;
+        fontSize = Math.min(sizeFromWidth, sizeFromHeight);
+      }
+      return Math.max(8, Math.round(fontSize));
+    } else {
+      // Latin/other scripts: average character advance ≈ 0.55em,
+      // visible glyph height (cap + descenders) ≈ 0.75em.
+      const sizeFromWidth = pixelWidth / (charCount * 0.55);
+      const sizeFromHeight = pixelHeight / 0.75;
+      return Math.max(8, Math.round(Math.min(sizeFromHeight, sizeFromWidth)));
+    }
   }
 
   function isContextSizedPunctuationMarker(text) {
@@ -2689,6 +2906,15 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   async function renderFuriganaForFrame(lines, renderGeneration) {
+    // Jiten highlighting works independently via the extension's content script.
+    // Trigger it regardless of furigana readiness.
+    if (jitenHighlightingEnabled) {
+      Promise.resolve().then(() => {
+        if (renderGeneration !== overlayRenderGeneration) return;
+        applyJitenHighlightingForLines(lines);
+      });
+    }
+
     if (showFurigana && !gamepadHandler && typeof syncGamepadHandlerLifecycle === 'function') {
       await syncGamepadHandlerLifecycle();
     }
@@ -2698,7 +2924,11 @@ background: rgba(202, 12, 12, 0.692);
         ? gamepadHandler.canRequestFurigana()
         : gamepadHandler.isServerConnected()
     );
-    if (!showFurigana || !furiganaReady) {
+    if (!showFurigana) {
+      resetFuriganaRenderState();
+      return;
+    }
+    if (!furiganaReady) {
       resetFuriganaRenderState();
       return;
     }
@@ -2847,7 +3077,11 @@ background: rgba(202, 12, 12, 0.692);
       resetFuriganaRenderState();
     }
     
-    // Don't remove translation-display here if you want it to persist, 
+    // Token highlights are overlay boxes positioned over the now-removed
+    // text boxes, so clear them too or they'd be left floating.
+    if (window.GsmJitenHighlight) window.GsmJitenHighlight.clearJitenHighlighting();
+
+    // Don't remove translation-display here if you want it to persist,
     // but DO remove it if you're getting new text.
     const trans = document.getElementById('translation-display');
     if (trans) trans.remove();
@@ -2864,8 +3098,11 @@ background: rgba(202, 12, 12, 0.692);
     if (furiganaLayer) {
       furiganaLayer.style.display = 'none';
     }
-    
-    // Don't remove translation-display here if you want it to persist, 
+
+    // Token highlights are overlay boxes over the text; hide them with it.
+    if (window.GsmJitenHighlight) window.GsmJitenHighlight.clearJitenHighlighting();
+
+    // Don't remove translation-display here if you want it to persist,
     // but DO remove it if you're getting new text.
     const trans = document.getElementById('translation-display');
     if (trans) trans.style.display = 'none';
@@ -2880,8 +3117,11 @@ background: rgba(202, 12, 12, 0.692);
         }
     });
     updateFuriganaVisibilityState();
-    
-    // Don't remove translation-display here if you want it to persist, 
+
+    // Re-draw token highlights over the now-visible boxes.
+    if (window.GsmJitenHighlight) window.GsmJitenHighlight.reposition();
+
+    // Don't remove translation-display here if you want it to persist,
     // but DO remove it if you're getting new text.
     const trans = document.getElementById('translation-display');
     if (trans) trans.style.display = 'block';
@@ -2985,6 +3225,13 @@ background: rgba(202, 12, 12, 0.692);
     showFurigana = newsettings.showFurigana;
     hideFuriganaOnStartup = newsettings.hideFuriganaOnStartup === true;
     hideFuriganaAfterSeconds = clampNumber(newsettings.hideFuriganaAfterSeconds, 0, 0, 60);
+    if (Object.prototype.hasOwnProperty.call(newsettings, "jitenHighlightingEnabled")) {
+      jitenHighlightingEnabled = newsettings.jitenHighlightingEnabled !== false;
+      if (window.GsmJitenHighlight) window.GsmJitenHighlight.setEnabled(jitenHighlightingEnabled);
+    }
+    if (Object.prototype.hasOwnProperty.call(newsettings, "jitenHighlightOpacity")) {
+      setJitenHighlightOpacity(newsettings.jitenHighlightOpacity);
+    }
     applyFuriganaStyleSettings({
       furiganaScale: newsettings.furiganaScale,
       furiganaYOffset: newsettings.furiganaYOffset,
@@ -3195,6 +3442,15 @@ background: rgba(202, 12, 12, 0.692);
           break;
         case "showReadyIndicator":
           shouldShowReadyIndicator = value !== false;
+          break;
+        case "jitenHighlightingEnabled":
+          jitenHighlightingEnabled = value !== false;
+          if (window.GsmJitenHighlight) {
+            window.GsmJitenHighlight.setEnabled(jitenHighlightingEnabled);
+          }
+          break;
+        case "jitenHighlightOpacity":
+          setJitenHighlightOpacity(value);
           break;
         case "showFurigana":
           showFurigana = value;
@@ -3642,6 +3898,7 @@ background: rgba(202, 12, 12, 0.692);
 </script>
 
 <script src="yomitan_bridge.js"></script>
+<script src="jiten_highlight.js"></script>
 
 <script>
   // ==================== Gamepad Integration ====================

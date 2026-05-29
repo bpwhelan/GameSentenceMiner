@@ -1684,6 +1684,7 @@ class GamepadHandler {
         segments,
         mecabAvailable: false,
         jitenApiAvailable: true,
+        jitenPayload: payload,
       };
     } catch (error) {
       throw error;
@@ -1736,6 +1737,25 @@ class GamepadHandler {
     const requestTimeout = Number.isFinite(timeout) ? timeout : this.config.jitenRequestTimeout;
     const safeTimeout = Math.max(400, Math.min(20000, Number(requestTimeout) || 2200));
     const endpoint = this.getJitenApiEndpoint();
+
+    // Prefer the main-process cache (shared with the Jiten Reader extension).
+    // Falls back to a direct fetch if the IPC bridge is unavailable.
+    const ipc = (typeof window !== 'undefined') ? window.ipcRenderer : null;
+    if (ipc && typeof ipc.invoke === 'function') {
+      try {
+        const payload = await ipc.invoke('gsm-jiten-parse', {
+          text,
+          apiKey,
+          endpoint,
+          timeout: safeTimeout,
+        });
+        this.jitenApiReachable = true;
+        return payload;
+      } catch (error) {
+        this.jitenApiReachable = false;
+        throw error;
+      }
+    }
 
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
     let timeoutId = null;

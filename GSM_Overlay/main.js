@@ -10,6 +10,7 @@ const WebSocket = require('ws');
 const bg = require('./background');
 const BackendConnector = require('./backend_connector');
 const { createMagpieState } = require('./magpie');
+const { JitenParseCache, DEFAULT_JITEN_PARSE_URL: JITEN_DEFAULT_PARSE_URL } = require('./jiten_cache');
 const {
   MANUAL_HOTKEY_BACKEND_ELECTRON,
   MANUAL_HOTKEY_BACKEND_INPUT_SERVER,
@@ -274,6 +275,31 @@ let activityTimer = null;
 let isDev = false;
 let yomitanExt;
 let jitenReaderExt;
+
+// Jiten parse cache (initialized on app ready). See jiten_cache.js.
+// Only used for the overlay's own IPC calls — the extension talks to the
+// API directly without any interception or proxy.
+const jitenParseCache = new JitenParseCache({ ttlMs: 10_000, maxEntries: 100 });
+
+// Renderer-process bridge to the cache. The overlay's gamepad/furigana
+// pipeline calls this instead of fetching directly, so cache hits skip
+// the HTTP round-trip entirely.
+ipcMain.handle('gsm-jiten-parse', async (_event, args = {}) => {
+  const { text, apiKey, endpoint, timeout } = args || {};
+  if (!text) throw new Error('gsm-jiten-parse: text is required');
+  return jitenParseCache.parse({
+    text: String(text),
+    apiKey: String(apiKey || ''),
+    endpoint: String(endpoint || JITEN_DEFAULT_PARSE_URL),
+    timeout: Number(timeout) || 4000,
+  });
+});
+
+ipcMain.handle('gsm-jiten-parse-cached', (_event, text) => {
+  if (!text) return null;
+  return jitenParseCache.getCached(String(text));
+});
+
 const DEFAULT_USER_SETTINGS = Object.freeze({
   "fontSize": 42,
   "weburl1": DEFAULT_ENFORCED_PLAINTEXT_WS_URL,
@@ -328,6 +354,9 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "texthookerHotkey": DEFAULT_TEXTHOOKER_HOTKEY,
   "texthookerUrl": DEFAULT_TEXTHOOKER_URL,
   "enableJitenReader": true,
+  // Jiten Reader style SRS highlighting on the overlay text
+  "jitenHighlightingEnabled": true,
+  "jitenHighlightOpacity": 0.7,
   // Gamepad navigation settings
   // TODO CHANGE THIS TO FALSE BEFORE RELEASE
   "gamepadEnabled": true,
