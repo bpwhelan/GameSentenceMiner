@@ -198,6 +198,20 @@ def _get_wgc_session(hwnd: int, *, include_cursor: bool = False, draw_border: bo
         return new_session
 
 
+def stop_wgc_session(hwnd: int) -> None:
+    """Stop and discard the persistent WGC session for a single hwnd, if any.
+
+    Call this when the window is known to be gone or stale.  Otherwise the
+    session's capture thread keeps running and ``grab()`` keeps returning the
+    last buffered frame — which can be stale, non-black content from before the
+    window closed.
+    """
+    with _wgc_sessions_lock:
+        session = _wgc_sessions.pop(hwnd, None)
+    if session is not None:
+        session.stop()
+
+
 def stop_wgc_sessions():
     """Stop all persistent WGC sessions (call on app shutdown)."""
     with _wgc_sessions_lock:
@@ -438,6 +452,8 @@ class ScreenshotCapture:
 
     def invalidate_hwnd(self) -> None:
         """Force HWND to be re-resolved on next capture (e.g. on scene change)."""
+        if self._hwnd is not None:
+            stop_wgc_session(self._hwnd)
         self._hwnd = None
         self._hwnd_timestamp = 0.0
         self._hwnd_source_name = None
@@ -487,7 +503,9 @@ class ScreenshotCapture:
             # Quick validity check — is the window still alive?
             if self._is_hwnd_valid(self._hwnd):
                 return self._hwnd
-            # Window went away
+            # Window went away — tear down its capture session so we don't keep
+            # serving the last buffered frame from a now-dead window.
+            stop_wgc_session(self._hwnd)
             self._hwnd = None
 
         # Try to resolve HWND
@@ -705,15 +723,21 @@ def is_image_empty(
     img: Image.Image | np.ndarray,
     *,
     tolerance: int = 5,
-    black_threshold: int = 12,
+    black_threshold: int = 30,
     sample_step: int = 64,
 ) -> bool:
     """
     Cheap detector for inactive/blank capture frames.
 
-    Returns True when sampled pixels suggest the frame is near-uniform and near-black.
+    Returns True under two conditions:
+    1. Uniform solid colour: sampled pixel range ≤ tolerance (catches any solid frame).
+    2. Near-black with noise: all sampled channel maxima ≤ black_threshold AND range
+       ≤ black_threshold // 2.  Covers OBS sources that show a slightly-noisy dark
+       frame when the game is not running (e.g. values 13–30 that JPEG or the
+       compositing pipeline adds to an otherwise-black source).
 
-    This is intentionally a heuristic. It avoids scanning every pixel of large frames.
+    sample_step is clamped so that at least 4×4 positions are checked even on small
+    images, preventing single-pixel samples from masking real variation.
     """
 
     if img is None:
@@ -733,28 +757,39 @@ def is_image_empty(
     if arr.ndim == 3 and arr.shape[2] >= 3:
         arr = arr[:, :, :3]
 
-    sampled = arr[::sample_step, ::sample_step]
-    
+    # Clamp step so small images still get meaningful coverage (≥4 positions per axis).
+    h, w = arr.shape[:2]
+    effective_step = max(1, min(sample_step, max(h // 4, 1), max(w // 4, 1)))
+    sampled = arr[::effective_step, ::effective_step]
+
     if sampled.size == 0:
         return False
 
     try:
         if sampled.ndim == 3:
             maxs = sampled.max(axis=(0, 1))
-            
-            if np.any(maxs > black_threshold):
-                return False
-                
             mins = sampled.min(axis=(0, 1))
-            return bool(np.all((maxs - mins) <= tolerance))
+            range_vals = maxs - mins
+
+            # Primary: uniform solid colour at any brightness
+            if np.all(range_vals <= tolerance):
+                return True
+
+            # Secondary: near-black with mild noise (JPEG artefacts, OBS dark source)
+            if np.all(maxs <= black_threshold) and np.all(range_vals <= black_threshold // 2):
+                return True
+
+            return False
 
         max_val = sampled.max()
-        
-        if max_val > black_threshold:
-            return False
-            
         min_val = sampled.min()
-        return bool((max_val - min_val) <= tolerance)
+        range_val = max_val - min_val
+
+        if range_val <= tolerance:
+            return True
+        if max_val <= black_threshold and range_val <= black_threshold // 2:
+            return True
+        return False
 
     except Exception:
         return False

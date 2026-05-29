@@ -1203,8 +1203,10 @@ def test_is_image_empty_near_black_within_tolerance():
 
 
 def test_is_image_empty_beyond_tolerance():
+    # All pixels near-black but with variation beyond both tolerance and black_threshold//2.
+    # Use a bright pixel so max > black_threshold (30) — clearly non-empty.
     img = Image.new("RGB", (4, 4), (0, 0, 0))
-    img.putpixel((0, 0), (10, 10, 10))  # beyond default tolerance=5
+    img.putpixel((0, 0), (80, 80, 80))
     assert obs_launch_module.is_image_empty(img) is False
 
 
@@ -1212,11 +1214,37 @@ def test_is_image_empty_grayscale():
     img = Image.new("L", (4, 4), 0)
     img.putpixel((0, 0), 4)
     assert obs_launch_module.is_image_empty(img) is True
-    img.putpixel((1, 1), 20)
+    # Value 80 is above black_threshold (30) and creates range > black_threshold//2 → not empty.
+    img.putpixel((1, 1), 80)
     assert obs_launch_module.is_image_empty(img) is False
 
 
 def test_is_image_empty_explicit_zero_tolerance():
+    # With tolerance=0, even a 1-unit deviation must be detected — BUT the near-black
+    # secondary path (black_threshold=30, range <= 15) still applies.  Use a value
+    # large enough to exceed both paths: max > black_threshold and range > black_threshold//2.
     img = Image.new("RGB", (4, 4), (0, 0, 0))
-    img.putpixel((0, 0), (1, 0, 0))
+    img.putpixel((0, 0), (80, 0, 0))
     assert obs_launch_module.is_image_empty(img, tolerance=0) is False
+
+
+def test_is_image_empty_near_black_obs_noise():
+    """Near-black OBS frame (game not running) should be treated as empty.
+
+    OBS sources sometimes return values slightly above 0 (JPEG artefacts,
+    compositing pipeline noise) when the game window is absent.  Values in the
+    13-30 range with low variation must not be falsely classified as non-empty.
+    """
+    # All pixels at value 20 — uniform near-black, well above the old threshold of 12.
+    img = Image.new("RGB", (64, 64), (20, 20, 20))
+    assert obs_launch_module.is_image_empty(img) is True
+
+    # Near-black with mild variation (simulates JPEG block artefacts on a dark frame).
+    img2 = Image.new("RGB", (64, 64), (15, 15, 15))
+    img2.putpixel((0, 0), (28, 27, 26))  # max=28 ≤ 30, range=13 ≤ 15
+    assert obs_launch_module.is_image_empty(img2) is True
+
+    # Slightly above threshold — should still be non-empty (has real variation).
+    img3 = Image.new("RGB", (64, 64), (0, 0, 0))
+    img3.putpixel((0, 0), (60, 60, 60))  # max=60 > 30 → non-empty
+    assert obs_launch_module.is_image_empty(img3) is False

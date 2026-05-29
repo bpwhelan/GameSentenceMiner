@@ -623,6 +623,7 @@ def get_screenshot_PIL(
                 width,
                 height,
                 retry,
+                force_obs=force_obs,
             )
             if not img:
                 return None
@@ -643,6 +644,7 @@ def get_screenshot_PIL(
             width,
             height,
             retry,
+            force_obs=force_obs,
         )
         img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
         return img
@@ -652,7 +654,9 @@ def get_screenshot_PIL(
         if not found_source_name:
             continue
 
-        img = get_screenshot_PIL_from_source(found_source_name, compression, img_format, width, height, retry)
+        img = get_screenshot_PIL_from_source(
+            found_source_name, compression, img_format, width, height, retry, force_obs=force_obs
+        )
 
         if not img:
             continue

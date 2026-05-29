@@ -847,7 +847,12 @@ class OBSService:
     def _is_output_active_from_screenshot(self) -> Optional[bool]:
         from GameSentenceMiner.obs.actions import get_screenshot_PIL
 
-        img = get_screenshot_PIL(compression=50, img_format="jpg", width=8, height=8)
+        # force_obs=True: this probe decides whether to stop the replay buffer, which
+        # records OBS's composited output.  We must sample that same output, not a
+        # direct Windows Graphics Capture of the game window — WGC bypasses OBS and can
+        # return a stale buffered frame (or a wrong/stale HWND's content) after the game
+        # has closed, which would keep the buffer running on a black OBS scene.
+        img = get_screenshot_PIL(compression=50, img_format="jpg", width=8, height=8, force_obs=True)
         result = None if not img else not is_image_empty(img)
         with self._state_lock:
             self.state.source_output_active = result
