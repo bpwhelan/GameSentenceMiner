@@ -1179,7 +1179,7 @@ wheels = [
 
 [[package]]
 name = "gamesentenceminer"
-version = "2026.5.7"
+version = "2026.5.8"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -1242,7 +1242,7 @@ dependencies = [
     { name = "waitress" },
     { name = "watchdog" },
     { name = "websockets" },
-    { name = "windows-capture" },
+    { name = "windows-capture", marker = "sys_platform == 'win32'" },
 ]
 
 [package.optional-dependencies]
@@ -1328,7 +1328,7 @@ requires-dist = [
     { name = "waitress", specifier = "==3.0.2" },
     { name = "watchdog", specifier = "~=6.0.0" },
     { name = "websockets", specifier = "~=15.0.1" },
-    { name = "windows-capture", specifier = ">=2.0.0" },
+    { name = "windows-capture", marker = "sys_platform == 'win32'", specifier = ">=2.0.0" },
 ]
 provides-extras = ["lens", "gpu", "dev"]
 

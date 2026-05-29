@@ -82,7 +82,7 @@ dependencies = [
   "fpng~=0.1.0",
   "onnxruntime~=1.23.2",
   "google-genai~=1.70.0",
-  "windows-capture>=2.0.0",
+  "windows-capture>=2.0.0 ; sys_platform == 'win32'",
 ]
 
 
