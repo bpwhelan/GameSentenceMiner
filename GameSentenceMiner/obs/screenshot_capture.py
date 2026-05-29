@@ -220,6 +220,37 @@ def stop_wgc_sessions():
         _wgc_sessions.clear()
 
 
+def _get_wgc_frame_bounds(hwnd: int) -> tuple[int, int, int, int]:
+    """Return the (left, top, right, bottom) bounds WGC actually captures.
+
+    Windows Graphics Capture frames a window at its DWM *extended frame bounds*
+    (the visible window), which is inset from ``GetWindowRect`` by the invisible
+    resize-border padding the DWM adds (~7px left/right/bottom on Win10/11).
+    Using these bounds as the crop origin keeps the client-area crop aligned.
+
+    Falls back to ``GetWindowRect`` if the DWM query is unavailable.
+    """
+    import ctypes.wintypes
+
+    import win32gui
+
+    DWMWA_EXTENDED_FRAME_BOUNDS = 9
+    try:
+        rect = ctypes.wintypes.RECT()
+        hr = ctypes.windll.dwmapi.DwmGetWindowAttribute(
+            ctypes.wintypes.HWND(hwnd),
+            ctypes.wintypes.DWORD(DWMWA_EXTENDED_FRAME_BOUNDS),
+            ctypes.byref(rect),
+            ctypes.sizeof(rect),
+        )
+        if hr == 0:
+            return int(rect.left), int(rect.top), int(rect.right), int(rect.bottom)
+    except Exception as e:
+        logger.debug(f"ScreenshotCapture: DwmGetWindowAttribute failed, using GetWindowRect: {e}")
+
+    return win32gui.GetWindowRect(hwnd)
+
+
 def _capture_hwnd_windows_graphics_capture(
     hwnd: int,
     width: Optional[int] = None,
@@ -264,7 +295,13 @@ def _capture_hwnd_windows_graphics_capture(
     # WGC captures the full window frame; we calculate the client area offset
     # relative to the window rect and crop accordingly.
     try:
-        win_left, win_top, win_right, win_bottom = win32gui.GetWindowRect(hwnd)
+        # WGC frames the window at its DWM *extended frame bounds* (the visible
+        # window), NOT GetWindowRect. GetWindowRect includes the invisible
+        # resize-border padding the DWM adds (~7px left/right/bottom on Win10/11),
+        # so using it as the crop origin shifts the client crop by that padding
+        # and misaligns every OCR box. Prefer the extended frame bounds; fall
+        # back to GetWindowRect if the DWM query fails.
+        win_left, win_top, win_right, win_bottom = _get_wgc_frame_bounds(hwnd)
         client_left, client_top = win32gui.ClientToScreen(hwnd, (0, 0))
         client_rect = win32gui.GetClientRect(hwnd)  # (0, 0, client_w, client_h)
         client_w = client_rect[2]

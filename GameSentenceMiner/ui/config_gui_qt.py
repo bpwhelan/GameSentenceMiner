@@ -1188,9 +1188,7 @@ class ConfigWindow(QWidget):
 
         i18n = self.i18n.get("dialogs", {}).get("relate_scene", {})
         title = i18n.get("title", "Relate Scene")
-        message_template = i18n.get(
-            "message", "Relate the current scene '{scene}' with profile '{profile}'?"
-        )
+        message_template = i18n.get("message", "Relate the current scene '{scene}' with profile '{profile}'?")
         try:
             message = message_template.format(scene=current_scene, profile=profile_name)
         except (KeyError, ValueError):

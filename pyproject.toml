@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2026.5.7"
+version = "2026.5.9"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
@@ -82,7 +82,7 @@ dependencies = [
   "fpng~=0.1.0",
   "onnxruntime~=1.23.2",
   "google-genai~=1.70.0",
-  "windows-capture>=2.0.0",
+  "windows-capture>=2.0.0 ; sys_platform == 'win32'",
 ]
 
 
