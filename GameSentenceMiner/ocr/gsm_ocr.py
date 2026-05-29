@@ -1325,11 +1325,8 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
 
         pre_crop_img = pending.img
         ocr2_img = self._build_ocr2_image(resolved_crop, pre_crop_img, extra_padding=self.detection_padding)
-        signature = _image_visual_signature(ocr2_img)
         if (
-            signature is not None
-            and self._v2_last_detection_signature == signature
-            and self._v2_last_detection_crop_coords
+            self._v2_last_detection_crop_coords
             and _coords_close(resolved_crop, self._v2_last_detection_crop_coords, self.MEIKI_TOL)
         ):
             self._v2_pending_detection = None

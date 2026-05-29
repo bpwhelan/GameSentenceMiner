@@ -348,13 +348,14 @@ def _join_selected_blocks_with_source_separators(source_text, blocks, selected_i
     return "".join(result_parts)
 
 
-def _rebuild_text_from_structured_result(raw_response_dict, coords, filtering):
+def _rebuild_text_from_structured_result(raw_response_dict, coords, filtering, is_second_ocr=False):
     if raw_response_dict and isinstance(raw_response_dict, dict) and "paragraphs" in raw_response_dict and filtering:
         try:
             ocr_result = dict_to_ocr_result(raw_response_dict)
             if ocr_result:
-                ordered_ocr_result = filtering.order_paragraphs_and_lines(ocr_result)
-                return filtering.extract_text_from_ocr_result(ordered_ocr_result)
+                if is_second_ocr:
+                    ocr_result = filtering.order_paragraphs_and_lines(ocr_result)
+                return filtering.extract_text_from_ocr_result(ocr_result)
         except Exception as e:
             logger.warning(f"Error applying advanced layout analysis: {e}")
 
@@ -3683,7 +3684,9 @@ def process_and_write_results(
                 return "", "", detection_payload
             return str(detection_payload), str(detection_payload)
 
-        rebuilt_text = _rebuild_text_from_structured_result(raw_response_dict, coords, filtering)
+        rebuilt_text = _rebuild_text_from_structured_result(
+            raw_response_dict, coords, filtering, is_second_ocr=is_second_ocr
+        )
         if rebuilt_text is not None:
             text = rebuilt_text
 

@@ -129,6 +129,7 @@ class _WGCSession:
             draw_border=draw_border,
             monitor_index=None,
             window_hwnd=hwnd,
+            minimum_update_interval=167,
         )
 
         @capture.event
@@ -137,7 +138,8 @@ class _WGCSession:
                 self._frame_buffer = frame.frame_buffer
                 self._frame_width = frame.width
                 self._frame_height = frame.height
-            self._ready.set()
+                self._ready.set()
+                time.sleep(0.167) # 10 FPS cap to reduce CPU usage; WGC captures at full framerate by default
 
         @capture.event
         def on_closed():

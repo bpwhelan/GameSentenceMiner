@@ -185,7 +185,7 @@ async function downloadFile(downloadUrl: string, destinationPath: string): Promi
         timeout: 120000,
         maxRedirects: 5,
         headers: {
-            Accept: 'application/octet-stream',
+            Accept: '*/*',
             'User-Agent': 'GameSentenceMiner',
         },
         validateStatus: (status) => status >= 200 && status < 300,
