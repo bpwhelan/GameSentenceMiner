@@ -122,7 +122,7 @@
     "@xterm/xterm": "^5.5.0",
     "archiver": "^7.0.1",
     "archiver-utils": "^5.0.2",
-    "axios": "^1.15.2",
+    "axios": "^1.16.1",
     "detect-port": "^2.1.0",
     "electron-log": "^5.4.3",
     "electron-store": "^10.0.1",
