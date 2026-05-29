@@ -2027,6 +2027,28 @@ class TestCompareModuleCoverageGaps:
 
         assert is_evolving_text("text", "") is False
 
+    def test_is_evolving_text_tolerates_garbled_growing_edge(self):
+        """A garbled trailing char on the shorter (growing) frame must not
+        drop a clearly-evolving line below the prefix threshold.
+
+        Regression: OneOCR read 熱 as 热Ｃ mid-render; the partial frame still
+        evolves into the full line and must be detected as such.
+        """
+        from GameSentenceMiner.ocr.compare import is_evolving_text, normalize_for_comparison
+
+        shorter = normalize_for_comparison("無理をすると、すぐに热Ｃ")
+        longer = normalize_for_comparison("無理をすると、すぐに熱をだして、肺に六")
+        assert is_evolving_text(shorter, longer) is True
+
+    def test_normalize_for_comparison_folds_full_width(self):
+        """Half-width/full-width variants must compare equal after folding."""
+        from GameSentenceMiner.ocr.compare import compare_ocr_results, normalize_for_comparison
+
+        assert normalize_for_comparison("ＡＢＣ１２３") == normalize_for_comparison("ABC123")
+        assert normalize_for_comparison("ﾊﾛｰ") == normalize_for_comparison("ハロー")
+        # And the dedupe path treats them as duplicates.
+        assert compare_ocr_results("ﾊﾛｰ123", "ハロー１２３", threshold=90) is True
+
     def test_compare_empty_after_strip(self):
         """When both texts are only whitespace, should return False."""
         assert compare_ocr_results("   ", "   ") is False

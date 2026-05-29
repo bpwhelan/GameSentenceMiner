@@ -6,6 +6,7 @@ pulling in heavy dependencies.
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
@@ -48,8 +49,14 @@ def normalize_for_comparison(text: str) -> str:
     from inflating fuzzy-match scores between otherwise unrelated strings.
     Requires the ``regex`` package for Unicode property escapes (``\\p{L}``,
     ``\\p{N}``).
+
+    Text is first folded with Unicode NFKC so half-width/full-width variants of
+    the same character (e.g. ``ＡＢＣ``/``ABC``, ``ﾊﾛｰ``/``ハロー``, ``１２３``/``123``)
+    compare equal. OCR engines flip between these forms frame-to-frame, which
+    would otherwise make a stable line look like it is still changing.
     """
-    return punctuation_regex.sub("", str(text))
+    folded = unicodedata.normalize("NFKC", str(text))
+    return punctuation_regex.sub("", folded)
 
 
 def is_evolving_text(
@@ -69,7 +76,22 @@ def is_evolving_text(
     n = len(shorter)
     active_settings = _resolve_settings(settings)
     resolved_threshold = active_settings.evolving_prefix_threshold if prefix_threshold is None else prefix_threshold
-    return fuzz.ratio(shorter, longer[:n]) >= resolved_threshold
+    if fuzz.ratio(shorter, longer[:n]) >= resolved_threshold:
+        return True
+
+    # The growing edge of an OCR line is often garbled (the newest glyphs are
+    # still rasterizing), which can drop the prefix ratio below threshold even
+    # though the line is clearly still evolving. A couple of bad trailing chars
+    # on a short partial string is enough to misclassify it as a brand-new line.
+    # Retry while tolerating a small unstable tail on the shorter string.
+    tail_tolerance = min(2, n // 4)
+    for k in range(1, tail_tolerance + 1):
+        trimmed = shorter[: n - k]
+        if len(trimmed) < 2:
+            break
+        if fuzz.ratio(trimmed, longer[: len(trimmed)]) >= resolved_threshold:
+            return True
+    return False
 
 
 def _normalize_candidate(text: str) -> str:

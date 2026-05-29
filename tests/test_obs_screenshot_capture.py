@@ -5,6 +5,7 @@ from PIL import Image
 
 from GameSentenceMiner.util.config.configuration import (
     SCREENSHOT_CAPTURE_BACKEND_OBS,
+    SCREENSHOT_CAPTURE_BACKEND_WINAPI,
     normalize_screenshot_capture_backend,
 )
 from GameSentenceMiner.obs.screenshot_capture import ScreenshotCapture, _resolve_output_size
@@ -32,10 +33,11 @@ def test_capture_passes_requested_dimensions_to_winapi(monkeypatch):
     image = Image.new("RGB", (640, 360))
     calls = []
 
+    monkeypatch.setattr(capture, "_get_configured_capture_backend", lambda: SCREENSHOT_CAPTURE_BACKEND_WINAPI)
     monkeypatch.setattr(capture, "_should_use_winapi", lambda source_name: source_name == "Game Source")
     monkeypatch.setattr(
         capture,
-        "_capture_winapi",
+        "_capture_windows",
         lambda *, width=None, height=None: calls.append((width, height)) or image,
     )
 
@@ -55,8 +57,9 @@ def test_capture_falls_back_to_obs_after_winapi_failure(monkeypatch):
     fallback_image = Image.new("RGB", (640, 360))
     obs_calls = []
 
+    monkeypatch.setattr(capture, "_get_configured_capture_backend", lambda: SCREENSHOT_CAPTURE_BACKEND_WINAPI)
     monkeypatch.setattr(capture, "_should_use_winapi", lambda _source_name: True)
-    monkeypatch.setattr(capture, "_capture_winapi", lambda *, width=None, height=None: None)
+    monkeypatch.setattr(capture, "_capture_windows", lambda *, width=None, height=None: None)
 
     def fake_capture_obs(source_name, compression, img_format, width, height, retry):
         obs_calls.append((source_name, compression, img_format, width, height, retry))
@@ -79,7 +82,7 @@ def test_capture_configured_obs_backend_skips_winapi(monkeypatch):
     monkeypatch.setattr(
         screenshot_capture_module,
         "get_config",
-        lambda: SimpleNamespace(screenshot=SimpleNamespace(capture_backend=SCREENSHOT_CAPTURE_BACKEND_OBS)),
+        lambda: SimpleNamespace(advanced=SimpleNamespace(screenshot_capture_backend=SCREENSHOT_CAPTURE_BACKEND_OBS)),
     )
     monkeypatch.setattr(
         capture,
@@ -106,9 +109,9 @@ def test_capture_winapi_unavailable_marks_backend_unavailable(monkeypatch):
     def fail_capture(*_args, **_kwargs):
         raise screenshot_capture_module.WinAPICaptureUnavailable("missing pywin32")
 
-    monkeypatch.setattr(screenshot_capture_module, "_capture_hwnd_winapi", fail_capture)
+    monkeypatch.setattr(screenshot_capture_module, "_capture_hwnd_windows_graphics_capture", fail_capture)
 
-    assert capture._capture_winapi(width=640, height=360) is None
+    assert capture._capture_windows(width=640, height=360) is None
     assert capture._winapi_available is False
 
 

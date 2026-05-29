@@ -108,6 +108,23 @@ OCR_METRICS_CAPTURE_ENABLED = True
 USE_TWO_PASS_OCR_V2 = True
 TWO_PASS_OCR_V2_STABLE_FRAME_COUNT = 2
 TWO_PASS_OCR_V2_DETECTION_PADDING = 10
+# Max seconds a first-pass line may keep "evolving" before we stop waiting and
+# flush the most complete frame we have. Safety net so leaning-evolving (and
+# OCR hallucinations that keep perturbing the text) can't stall OCR2 forever.
+TWO_PASS_OCR_V2_MAX_PENDING_AGE_SECONDS = 4.0
+# When a frame is neither stable nor a clean prefix-evolution, still treat it as
+# the same evolving line (rather than a brand-new line) when it shares at least
+# this fraction of the shorter normalized string as a literal common prefix.
+# Guards against mid/late hallucinations that drop the fuzzy evolving score.
+TWO_PASS_OCR_V2_LEAN_PREFIX_RATIO = 0.5
+TWO_PASS_OCR_V2_LEAN_PREFIX_MIN_CHARS = 3
+# Trigger OCR2 once the recognized text's bounding box has been stable for
+# ``stable_frame_count`` frames, independent of whether the (hallucination-prone)
+# OCR1 text has settled. Reuses the same coords-stability primitive as the
+# detector path instead of a jitter-prone downscaled-image signature. Only
+# active when OCR1 supplies crop coordinates.
+TWO_PASS_OCR_V2_REQUIRE_BOX_STABILITY = True
+TWO_PASS_OCR_V2_BOX_STABILITY_TOL = 3
 
 websocket_server_thread = None
 websocket_queue = queue.Queue()
@@ -929,6 +946,9 @@ class _V2PendingTextState:
     source: str = "ocr"
     response_dict: dict | None = None
     stable_frames: int = 1
+    first_seen: datetime | None = None
+    stable_box_frames: int = 1
+    line_boxes: list | None = None
 
 
 @dataclass
@@ -958,20 +978,30 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         *args,
         stable_frame_count: int = TWO_PASS_OCR_V2_STABLE_FRAME_COUNT,
         detection_padding: int = TWO_PASS_OCR_V2_DETECTION_PADDING,
+        max_pending_age_seconds: float = TWO_PASS_OCR_V2_MAX_PENDING_AGE_SECONDS,
+        lean_prefix_ratio: float = TWO_PASS_OCR_V2_LEAN_PREFIX_RATIO,
+        lean_prefix_min_chars: int = TWO_PASS_OCR_V2_LEAN_PREFIX_MIN_CHARS,
+        require_box_stability: bool = TWO_PASS_OCR_V2_REQUIRE_BOX_STABILITY,
+        box_stability_tol: int = TWO_PASS_OCR_V2_BOX_STABILITY_TOL,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.stable_frame_count = max(2, int(stable_frame_count or 2))
         self.detection_padding = max(0, int(detection_padding or 0))
+        self.max_pending_age_seconds = max(0.0, float(max_pending_age_seconds or 0.0))
+        self.lean_prefix_ratio = min(1.0, max(0.0, float(lean_prefix_ratio or 0.0)))
+        self.lean_prefix_min_chars = max(1, int(lean_prefix_min_chars or 1))
+        self.require_box_stability = bool(require_box_stability)
+        self.box_stability_tol = max(0, int(box_stability_tol or 0))
         self._v2_pending_text: _V2PendingTextState | None = None
         self._v2_pending_detection: _V2PendingDetectionState | None = None
         self._v2_last_processed_text: str = ""
         self._v2_last_processed_chunks: list = []
         self._v2_last_detection_crop_coords: tuple | None = None
         self._v2_last_detection_box_list: list | None = None
-        self._v2_last_detection_signature: tuple | None = None
         self._v2_inflight_detection_crop_coords: tuple | None = None
         self._v2_duplicate_detection_crop_coords: tuple | None = None
+        self._v2_last_box_trigger_coords: tuple | None = None
 
     def reset(self) -> None:
         super().reset()
@@ -981,9 +1011,9 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         self._v2_last_processed_chunks = []
         self._v2_last_detection_crop_coords = None
         self._v2_last_detection_box_list = None
-        self._v2_last_detection_signature = None
         self._v2_inflight_detection_crop_coords = None
         self._v2_duplicate_detection_crop_coords = None
+        self._v2_last_box_trigger_coords = None
 
     def handle_ocr_result(
         self,
@@ -1068,6 +1098,15 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         source: str,
     ) -> None:
         candidate_text = orig_text_string or raw_text or text
+        line_boxes = _extract_text_line_boxes(response_dict, crop_coords)
+
+        # Release the box-trigger latch as soon as the text region moves away
+        # (or disappears) from where we last fired OCR2 on box stability, so a
+        # genuinely new line at a different position can box-trigger again.
+        if self._v2_last_box_trigger_coords is not None:
+            cc = _coerce_four_coords(crop_coords)
+            if cc is None or not _coords_close(cc, self._v2_last_box_trigger_coords, self.box_stability_tol):
+                self._v2_last_box_trigger_coords = None
 
         if not text and not candidate_text.strip():
             self._flush_v2_pending_text()
@@ -1088,6 +1127,7 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
                 response_dict=response_dict,
                 source=source,
                 stable_frames=self.stable_frame_count,
+                line_boxes=line_boxes,
             )
             self._flush_v2_pending_text()
             return
@@ -1114,8 +1154,15 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
                 response_dict=response_dict,
                 source=source,
                 stable_frames=1,
+                line_boxes=line_boxes,
             )
             return
+
+        # Track when this line first appeared so a line that keeps "evolving"
+        # forever (slow render, or OCR noise that never settles) can't stall
+        # OCR2 indefinitely. Preserved across stable/evolving continuations.
+        first_seen = pending.first_seen
+        stale = self._v2_pending_is_stale(pending, current_time)
 
         if _v2_texts_stable(pending.orig_text, candidate_text, self.config.duplicate_threshold):
             stable_frames = pending.stable_frames + 1
@@ -1130,12 +1177,26 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
                 response_dict=response_dict,
                 source=source,
                 stable_frames=stable_frames,
+                first_seen=first_seen,
+                line_boxes=line_boxes,
             )
-            if stable_frames >= self.stable_frame_count:
+            if stable_frames >= self.stable_frame_count or stale:
                 self._flush_v2_pending_text()
+                return
+            self._v2_flush_if_box_stable()
             return
 
-        if _v2_text_is_evolving(pending.orig_text, candidate_text, self.config.compare_settings):
+        # A clean prefix-evolution, or (lean fallback) a frame that still shares
+        # a long literal prefix with the pending text — treat both as the same
+        # line continuing rather than flushing a partial frame as a new line.
+        if _v2_text_is_evolving(
+            pending.orig_text, candidate_text, self.config.compare_settings
+        ) or _v2_looks_like_same_line(
+            pending.orig_text,
+            candidate_text,
+            min_ratio=self.lean_prefix_ratio,
+            min_chars=self.lean_prefix_min_chars,
+        ):
             replace_pending = _v2_normalized_len(candidate_text) >= _v2_normalized_len(pending.orig_text)
             if replace_pending:
                 self._store_v2_pending_text(
@@ -1149,25 +1210,46 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
                     response_dict=response_dict,
                     source=source,
                     stable_frames=1,
+                    first_seen=first_seen,
+                    line_boxes=line_boxes,
                 )
             else:
                 pending.stable_frames = 1
+            if stale:
+                self._flush_v2_pending_text()
+                return
+            self._v2_flush_if_box_stable()
             return
 
-        self._flush_v2_pending_text()
-        if not self._v2_is_already_processed_text(candidate_text, orig_text_list):
-            self._store_v2_pending_text(
-                text=text,
-                raw_text=raw_text,
-                orig_text_string=candidate_text,
-                orig_text_list=orig_text_list,
-                current_time=current_time,
-                img=img,
-                crop_coords=crop_coords,
-                response_dict=response_dict,
-                source=source,
-                stable_frames=1,
-            )
+        # Disjoint from the pending text, but the pending was never confirmed
+        # (it would already have been flushed by the stable/box triggers). This
+        # is almost always the SAME block still settling rather than a brand-new
+        # line: the line wrapped, or OCR1 momentarily dropped the leading line
+        # for a frame (its "original" text loses the prefix). Flushing here fires
+        # OCR2 on a half-rendered frame — the reported "firing early" bug. So do
+        # NOT flush: replace the pending (union the crop so OCR2 still covers the
+        # whole region even with optimized second-scan cropping) and let the
+        # stable/box/age triggers fire once the text actually stops changing.
+        if self._v2_is_already_processed_text(candidate_text, orig_text_list):
+            self._v2_pending_text = None
+            return
+        self._store_v2_pending_text(
+            text=text,
+            raw_text=raw_text,
+            orig_text_string=candidate_text,
+            orig_text_list=orig_text_list,
+            current_time=current_time,
+            img=img,
+            crop_coords=_v2_union_crop(pending.crop_coords, crop_coords),
+            response_dict=response_dict,
+            source=source,
+            stable_frames=1,
+            line_boxes=line_boxes,
+        )
+        if stale:
+            self._flush_v2_pending_text()
+            return
+        self._v2_flush_if_box_stable()
 
     def _store_v2_pending_text(
         self,
@@ -1182,7 +1264,32 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         response_dict: dict | None,
         source: str,
         stable_frames: int,
+        first_seen: datetime | None = None,
+        line_boxes: list | None = None,
     ) -> None:
+        # Carry forward how many consecutive frames the recognized text's
+        # geometry has held still. Computed against the pending frame we are
+        # replacing so it survives stable/evolving continuations, and resets
+        # whenever the text spools (a line grows / a new line appears).
+        #
+        # Prefer per-line box comparison: the union box falsely stabilizes when
+        # text spools onto a new line that stays under an earlier, wider line's
+        # X2. Fall back to the union crop when no per-line geometry is available.
+        prev = self._v2_pending_text
+        stable_box_frames = 1
+        if self.require_box_stability and prev is not None:
+            if line_boxes and prev.line_boxes:
+                if _detection_boxes_stable(prev.line_boxes, line_boxes, self.box_stability_tol):
+                    stable_box_frames = prev.stable_box_frames + 1
+            elif (
+                not line_boxes
+                and not prev.line_boxes
+                and crop_coords
+                and prev.crop_coords
+                and _coords_close(prev.crop_coords, crop_coords, self.box_stability_tol)
+            ):
+                stable_box_frames = prev.stable_box_frames + 1
+
         self._v2_pending_text = _V2PendingTextState(
             text=text,
             raw_text=raw_text,
@@ -1194,6 +1301,49 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             source=source,
             response_dict=response_dict,
             stable_frames=stable_frames,
+            first_seen=first_seen or current_time,
+            stable_box_frames=stable_box_frames,
+            line_boxes=line_boxes,
+        )
+
+    def _v2_flush_if_box_stable(self) -> bool:
+        """Flush when the text region's bounding box has held still long enough.
+
+        This is the text-side analogue of the detector's coords-stability
+        trigger: it fires OCR2 once the line has stopped moving/growing on
+        screen, regardless of whether the (hallucination-prone) OCR1 text ever
+        settled. Only active when OCR1 supplies crop coordinates.
+        """
+        pending = self._v2_pending_text
+        if pending is None or not self.require_box_stability:
+            return False
+        coords = _coerce_four_coords(pending.crop_coords)
+        if coords is None or pending.stable_box_frames < self.stable_frame_count:
+            return False
+        # Latch: don't keep re-firing OCR2 on a persistent box while OCR1 text
+        # flickers. Suppress until the box moves/disappears (which clears the
+        # latch at the top of _handle_v2_text).
+        if self._v2_last_box_trigger_coords and _coords_close(
+            coords, self._v2_last_box_trigger_coords, self.box_stability_tol
+        ):
+            return False
+        flushed = self._flush_v2_pending_text()
+        if flushed:
+            self._v2_last_box_trigger_coords = coords
+        return flushed
+
+    def _v2_pending_age_seconds(self, pending: _V2PendingTextState, now: datetime) -> float:
+        base = pending.first_seen or pending.start_time
+        if base is None:
+            return 0.0
+        try:
+            return max(0.0, (now - base).total_seconds())
+        except Exception:
+            return 0.0
+
+    def _v2_pending_is_stale(self, pending: _V2PendingTextState, now: datetime) -> bool:
+        return self.max_pending_age_seconds > 0 and (
+            self._v2_pending_age_seconds(pending, now) >= self.max_pending_age_seconds
         )
 
     def _v2_is_already_processed_text(self, text: str, chunks: list | None = None) -> bool:
@@ -1281,7 +1431,6 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             self._v2_duplicate_detection_crop_coords = None
             self._v2_last_detection_crop_coords = None
             self._v2_last_detection_box_list = None
-            self._v2_last_detection_signature = None
             return True
 
         current_box_list = _extract_sorted_box_list(detection_boxes, response_dict)
@@ -1353,7 +1502,6 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
 
         self._v2_last_detection_crop_coords = resolved_crop
         self._v2_last_detection_box_list = current_box_list if current_box_list else None
-        self._v2_last_detection_signature = signature
         self._v2_pending_detection = None
         return True
 
@@ -1383,14 +1531,9 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
             self._v2_pending_detection = None
             return True
 
-        # Fallback: pixel-level signature dedup for engines that don't provide boxes
         ocr2_img = self._build_ocr2_image(resolved_crop, img, extra_padding=self.detection_padding)
-        signature = _image_visual_signature(ocr2_img)
-        if (
-            signature is not None
-            and self._v2_last_detection_signature == signature
-            and self._v2_last_detection_crop_coords
-            and _coords_close(resolved_crop, self._v2_last_detection_crop_coords, self.MEIKI_TOL)
+        if self._v2_last_detection_crop_coords and _coords_close(
+            resolved_crop, self._v2_last_detection_crop_coords, self.MEIKI_TOL
         ):
             self._v2_pending_detection = None
             return True
@@ -1417,7 +1560,6 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
 
         self._v2_last_detection_crop_coords = resolved_crop
         self._v2_last_detection_box_list = box_list if box_list else None
-        self._v2_last_detection_signature = signature
         self._v2_pending_detection = None
         return True
 
@@ -1549,6 +1691,38 @@ def _v2_text_is_evolving(prev_text: str, new_text: str, settings: OCRCompareSett
     )
 
 
+def _v2_common_prefix_len(a: str, b: str) -> int:
+    n = 0
+    for ca, cb in zip(a, b):
+        if ca != cb:
+            break
+        n += 1
+    return n
+
+
+def _v2_looks_like_same_line(prev_text: str, new_text: str, *, min_ratio: float, min_chars: int) -> bool:
+    """True when two frames share a long literal common prefix.
+
+    This is a deliberately conservative fallback for when the fuzzy evolving
+    check fails: OCR hallucinations mid/late in a line can drop the evolving
+    score below threshold, but a genuinely new line almost never shares a long
+    literal prefix with the previous one. When the shared prefix still covers a
+    large fraction of the shorter normalized string, treat it as the same line
+    continuing rather than flushing a partial frame as if it were a new line.
+    """
+    prev_norm = _v2_normalized_text(prev_text)
+    new_norm = _v2_normalized_text(new_text)
+    if not prev_norm or not new_norm:
+        return False
+    shorter = min(len(prev_norm), len(new_norm))
+    if shorter <= 0:
+        return False
+    lcp = _v2_common_prefix_len(prev_norm, new_norm)
+    if lcp < max(1, min_chars):
+        return False
+    return (lcp / shorter) >= min_ratio
+
+
 def _coerce_four_coords(coords: Any) -> tuple[int, int, int, int] | None:
     if not isinstance(coords, (list, tuple)) or len(coords) < 4:
         return None
@@ -1570,6 +1744,50 @@ def _union_coords(coords_list: list[tuple[int, int, int, int]]) -> tuple[int, in
         max(coords[2] for coords in coords_list),
         max(coords[3] for coords in coords_list),
     )
+
+
+def _v2_union_crop(prev_coords: Any, new_coords: Any) -> Any:
+    """Union two crop boxes so OCR2 still covers a block whose text spans more
+    than one region (e.g. a line wrap). Falls back to whichever side is valid."""
+    a = _coerce_four_coords(prev_coords)
+    b = _coerce_four_coords(new_coords)
+    if a and b:
+        return _union_coords([a, b])
+    return new_coords if b else (prev_coords if a else new_coords)
+
+
+def _extract_text_line_boxes(response_dict: dict | None, crop_coords: Any) -> list[tuple[int, int, int, int]]:
+    """Per-line boxes for an OCR1 *text* result, for per-line stability checks.
+
+    Mirrors the detector path's per-box comparison: comparing the union box
+    falsely stabilizes when text spools onto a new line whose width is still
+    growing but stays under an earlier (wider) line's X2. We therefore compare
+    individual line boxes instead. Falls back to the single union ``crop_coords``
+    when the engine supplies no per-line geometry.
+    """
+    boxes: list[tuple[int, int, int, int]] = []
+    if isinstance(response_dict, dict):
+        pipeline = response_dict.get("pipeline")
+        ocr_meta = pipeline.get("ocr") if isinstance(pipeline, dict) else None
+        sources = [
+            ocr_meta.get("crop_coords_list") if isinstance(ocr_meta, dict) else None,
+            response_dict.get("crop_coords_list"),
+            response_dict.get("line_coords"),
+        ]
+        for source in sources:
+            if not isinstance(source, list) or not source:
+                continue
+            for entry in source:
+                coerced = _coerce_four_coords(entry)
+                if coerced is not None:
+                    boxes.append(coerced)
+            if boxes:
+                break
+    if not boxes:
+        coerced = _coerce_four_coords(crop_coords)
+        if coerced is not None:
+            boxes.append(coerced)
+    return sorted(set(boxes), key=lambda b: (b[1], b[0]))
 
 
 def _looks_like_detection_payload(response_dict: dict | None) -> bool:
@@ -1625,23 +1843,6 @@ def _pil_image_or_none(img: Any) -> Image.Image | None:
         except Exception:
             return None
     return None
-
-
-def _image_visual_signature(img: Any, max_size: tuple[int, int] = (64, 64)) -> tuple | None:
-    pil_img = _pil_image_or_none(img)
-    if pil_img is None:
-        return None
-    try:
-        sample = pil_img.convert("L")
-        resampling = getattr(getattr(Image, "Resampling", Image), "BILINEAR", 2)
-        sample.thumbnail(max_size, resampling)
-        # Live captures can vary by a few luma values between identical frames
-        # due to scaling/compression. Bucket pixels so detector dedupe responds
-        # to real glyph/content changes instead of harmless capture jitter.
-        bucket_size = 32
-        return sample.size, bytes(pixel // bucket_size for pixel in sample.tobytes())
-    except Exception:
-        return None
 
 
 def _normalize_bypass_text(text: str, keep_newline: bool) -> str:

@@ -24,6 +24,13 @@ import pytest
 
 MOV_ASSET = Path(__file__).resolve().parent / "assets" / "Replay_2025-12-19_22-24-52.mov"
 
+_FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
+
+# The integration tests below shell out to the real ffmpeg/ffprobe binaries. CI
+# installs ffmpeg, but skip gracefully anywhere the binaries are unavailable so
+# the suite stays green on bare environments.
+requires_ffmpeg = pytest.mark.skipif(not _FFMPEG_AVAILABLE, reason="ffmpeg/ffprobe not available")
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -147,6 +154,7 @@ def test_replay_file_watcher_rejects_non_replay_mov(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@requires_ffmpeg
 @pytest.mark.skipif(not MOV_ASSET.exists(), reason="Test asset not found")
 def test_extract_audio_from_mov(tmp_path):
     """
@@ -175,6 +183,7 @@ def test_extract_audio_from_mov(tmp_path):
     assert duration <= 3.5, f"Extracted audio is unexpectedly long: {duration}s"
 
 
+@requires_ffmpeg
 @pytest.mark.skipif(not MOV_ASSET.exists(), reason="Test asset not found")
 def test_extract_audio_aac_stream_copy_from_mov(tmp_path):
     """
@@ -210,6 +219,7 @@ def test_extract_audio_aac_stream_copy_from_mov(tmp_path):
     assert float(stream["duration"]) > 0, "Extracted AAC has zero duration"
 
 
+@requires_ffmpeg
 @pytest.mark.skipif(not MOV_ASSET.exists(), reason="Test asset not found")
 def test_extract_video_frame_from_mov(tmp_path):
     """
@@ -238,6 +248,7 @@ def test_extract_video_frame_from_mov(tmp_path):
     assert output.stat().st_size > 100_000, f"Frame PNG unexpectedly small: {output.stat().st_size} bytes"
 
 
+@requires_ffmpeg
 @pytest.mark.skipif(not MOV_ASSET.exists(), reason="Test asset not found")
 def test_mov_video_codec_is_h264():
     """The video stream in the macOS OBS .mov should be H.264 (not ProRes, etc.)."""
@@ -251,6 +262,7 @@ def test_mov_video_codec_is_h264():
     assert info["streams"][0]["codec_name"] == "h264", "Expected H.264 video stream in .mov asset"
 
 
+@requires_ffmpeg
 @pytest.mark.skipif(not MOV_ASSET.exists(), reason="Test asset not found")
 def test_mov_audio_codec_is_aac():
     """The audio stream in the macOS OBS .mov should be AAC."""
@@ -264,6 +276,7 @@ def test_mov_audio_codec_is_aac():
     assert info["streams"][0]["codec_name"] == "aac", "Expected AAC audio stream in .mov asset"
 
 
+@requires_ffmpeg
 @pytest.mark.skipif(not MOV_ASSET.exists(), reason="Test asset not found")
 def test_trim_mov_to_mp4(tmp_path):
     """

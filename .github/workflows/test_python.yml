@@ -49,6 +49,9 @@ jobs:
       - name: Sync dependencies (project + dev)
         run: uv sync --extra dev
 
+      - name: Install ffmpeg
+        uses: federicocarboni/setup-ffmpeg@v3
+
       # - name: Check Python formatting
       #   run: uv run ruff format --check GameSentenceMiner tests scripts
 
