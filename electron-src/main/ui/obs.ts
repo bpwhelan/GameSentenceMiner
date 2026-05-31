@@ -953,9 +953,41 @@ function trackOwnedOBSProcess(obsProcess: ChildProcess): void {
     });
 }
 
-function getRunningManagedOBSPid(): number | null {
+/**
+ * Verify that the process behind a PID is actually OBS.
+ *
+ * `isProcessRunning` only tells us a PID is alive — on Windows that PID may have
+ * been reused by an unrelated process after our OBS exited (e.g. after a manual
+ * close or an app update orphaned the previous instance). Mirrors the original
+ * Python behaviour (`"obs" in process.exe()`) so a stale/reused PID in
+ * `obs_pid.txt` cannot masquerade as a running OBS and block a fresh launch.
+ */
+async function processImageIsObs(pid: number): Promise<boolean> {
+    try {
+        if (isWindows()) {
+            const { stdout } = await execFileAsync('tasklist', [
+                '/NH',
+                '/FO',
+                'CSV',
+                '/FI',
+                `PID eq ${pid}`,
+            ]);
+            return /obs/i.test(stdout ?? '');
+        }
+        const { stdout } = await execFileAsync('ps', ['-p', String(pid), '-o', 'comm=']);
+        return /obs/i.test(stdout ?? '');
+    } catch (error) {
+        // If we can't determine the image name, assume it is NOT our OBS so a
+        // stale/reused PID does not permanently block launching a fresh one.
+        logObsError(`Failed to verify OBS process image for pid ${pid}:`, error);
+        return false;
+    }
+}
+
+async function getRunningManagedOBSPid(): Promise<number | null> {
     const ownedPid = getOwnedOBSProcessPid();
     if (ownedPid) {
+        // We spawned this process ourselves, so it is trusted to be OBS.
         if (isProcessRunning(ownedPid)) {
             return ownedPid;
         }
@@ -970,10 +1002,12 @@ function getRunningManagedOBSPid(): number | null {
         return null;
     }
 
-    if (isProcessRunning(pid)) {
+    if (isProcessRunning(pid) && (await processImageIsObs(pid))) {
         return pid;
     }
 
+    // PID is dead, or has been reused by a non-OBS process. Treat the pid file
+    // as stale so a fresh OBS launch is allowed.
     clearOBSProcessPid();
     return null;
 }
@@ -998,7 +1032,7 @@ async function launchOBSFromElectronInternal(
         return { status: 'skipped' };
     }
 
-    const existingPid = getRunningManagedOBSPid();
+    const existingPid = await getRunningManagedOBSPid();
     if (existingPid) {
         if (!options.forceRestart) {
             electronOBSLaunchStatus = 'already-running';
@@ -1065,27 +1099,24 @@ export function launchOBSFromElectron(
         return electronOBSLaunchPromise;
     }
 
-    if (!options.forceRestart) {
-        if (
-            electronOBSLaunchStatus === 'launched' ||
-            electronOBSLaunchStatus === 'already-running'
-        ) {
-            const runningPid = getRunningManagedOBSPid();
-            if (runningPid) {
-                return Promise.resolve({
-                    status: 'already-running',
-                    pid: runningPid,
-                });
-            }
-            electronOBSLaunchStatus = 'not-running';
-        }
-
-        if (electronOBSLaunchStatus === 'skipped' && !options.ignoreOpenConfig) {
-            return Promise.resolve({ status: 'skipped' });
-        }
-    }
-
     electronOBSLaunchPromise = (async () => {
+        if (!options.forceRestart) {
+            if (
+                electronOBSLaunchStatus === 'launched' ||
+                electronOBSLaunchStatus === 'already-running'
+            ) {
+                const runningPid = await getRunningManagedOBSPid();
+                if (runningPid) {
+                    return { status: 'already-running', pid: runningPid } as const;
+                }
+                electronOBSLaunchStatus = 'not-running';
+            }
+
+            if (electronOBSLaunchStatus === 'skipped' && !options.ignoreOpenConfig) {
+                return { status: 'skipped' } as const;
+            }
+        }
+
         await deferOBSLaunchWork();
         return launchOBSFromElectronInternal(options);
     })().finally(() => {
@@ -1104,7 +1135,8 @@ export async function closeOBSFromElectron(
     }
 
     const ownedProcess = electronOBSProcess;
-    const pid = getOwnedOBSProcessPid() ?? readOBSProcessPid();
+    const ownedPid = getOwnedOBSProcessPid();
+    const pid = ownedPid ?? readOBSProcessPid();
     if (!pid) {
         electronOBSLaunchStatus = 'not-running';
         return { status: 'not-running' };
@@ -1114,6 +1146,15 @@ export async function closeOBSFromElectron(
         if (ownedProcess?.pid === pid) {
             electronOBSProcess = null;
         }
+        clearOBSProcessPid();
+        electronOBSLaunchStatus = 'not-running';
+        return { status: 'not-running', pid };
+    }
+
+    // For a PID we didn't spawn this session (read from obs_pid.txt), confirm it
+    // is actually OBS before killing it — Windows may have reused the PID for an
+    // unrelated process after our OBS exited.
+    if (!ownedPid && !(await processImageIsObs(pid))) {
         clearOBSProcessPid();
         electronOBSLaunchStatus = 'not-running';
         return { status: 'not-running', pid };

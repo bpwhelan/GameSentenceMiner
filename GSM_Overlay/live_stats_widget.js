@@ -8,8 +8,8 @@
 
   const DEFAULT_SETTINGS = Object.freeze({
     showLiveStats: true,
-    liveStatsDisplayMode: "new-line",
-    liveStatsLayout: "stacked",
+    liveStatsDisplayModeV2: "always",
+    liveStatsLayoutV2: "one-line",
     liveStatsAutoHideSeconds: 5,
     liveStatsPositionMode: "active-window",
     liveStatsFields: {
@@ -64,7 +64,7 @@
 
   function normalizeDisplayMode(value) {
     const normalized = String(value || "").trim().toLowerCase();
-    return VALID_DISPLAY_MODES.has(normalized) ? normalized : DEFAULT_SETTINGS.liveStatsDisplayMode;
+    return VALID_DISPLAY_MODES.has(normalized) ? normalized : DEFAULT_SETTINGS.liveStatsDisplayModeV2;
   }
 
   function normalizePositionMode(value) {
@@ -74,7 +74,7 @@
 
   function normalizeLayout(value) {
     const normalized = String(value || "").trim().toLowerCase();
-    return VALID_LAYOUTS.has(normalized) ? normalized : DEFAULT_SETTINGS.liveStatsLayout;
+    return VALID_LAYOUTS.has(normalized) ? normalized : DEFAULT_SETTINGS.liveStatsLayoutV2;
   }
 
   function normalizeLiveStatsFields(value = {}) {
@@ -89,8 +89,8 @@
   function normalizeSettings(settings = {}) {
     return {
       showLiveStats: normalizeBoolean(settings.showLiveStats, state.settings.showLiveStats),
-      liveStatsDisplayMode: normalizeDisplayMode(settings.liveStatsDisplayMode ?? state.settings.liveStatsDisplayMode),
-      liveStatsLayout: normalizeLayout(settings.liveStatsLayout ?? state.settings.liveStatsLayout),
+      liveStatsDisplayModeV2: normalizeDisplayMode(settings.liveStatsDisplayModeV2 ?? state.settings.liveStatsDisplayModeV2),
+      liveStatsLayoutV2: normalizeLayout(settings.liveStatsLayoutV2 ?? state.settings.liveStatsLayoutV2),
       liveStatsAutoHideSeconds: clampNumber(
         settings.liveStatsAutoHideSeconds ?? state.settings.liveStatsAutoHideSeconds,
         DEFAULT_SETTINGS.liveStatsAutoHideSeconds,
@@ -274,7 +274,7 @@
 
   function render() {
     ensureRoot();
-    state.root.classList.toggle("gsm-live-stats-one-line", state.settings.liveStatsLayout === "one-line");
+    state.root.classList.toggle("gsm-live-stats-one-line", state.settings.liveStatsLayoutV2 === "one-line");
     const payload = state.payload;
     state.status.classList.toggle("active", !!payload?.session_active);
     state.grid.replaceChildren();
@@ -424,7 +424,7 @@
       return;
     }
 
-    if (state.settings.liveStatsDisplayMode === "always") {
+    if (state.settings.liveStatsDisplayModeV2 === "always") {
       setVisible(true);
       return;
     }
@@ -433,7 +433,7 @@
   }
 
   function revealForUpdate() {
-    if (state.settings.liveStatsDisplayMode === "always") {
+    if (state.settings.liveStatsDisplayModeV2 === "always") {
       state.temporarilyVisible = true;
       updateVisibility();
       return;

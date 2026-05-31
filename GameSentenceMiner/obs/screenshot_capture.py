@@ -139,7 +139,7 @@ class _WGCSession:
                 self._frame_width = frame.width
                 self._frame_height = frame.height
                 self._ready.set()
-                time.sleep(0.167) # 10 FPS cap to reduce CPU usage; WGC captures at full framerate by default
+                time.sleep(0.167)  # 10 FPS cap to reduce CPU usage; WGC captures at full framerate by default
 
         @capture.event
         def on_closed():

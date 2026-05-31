@@ -337,6 +337,10 @@
             "label": "Force CPU:",
             "tooltip": "Even if CUDA is installed, use CPU for Whisper"
           },
+          "preload_vad_model": {
+            "label": "Preload VAD Model:",
+            "tooltip": "Load the VAD model at startup instead of on first use. Shared across all profiles."
+          },
           "use_tts_as_fallback": {
             "label": "Use TTS as Fallback:",
             "tooltip": "Use Text-to-Speech as a fallback when no audio is found."

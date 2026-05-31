@@ -7,7 +7,7 @@ two-pass controller logic while keeping compatibility shims for legacy imports.
 import asyncio
 import copy
 import functools
-from collections import deque
+
 import io
 import json
 import mss
@@ -17,7 +17,7 @@ import queue
 import re
 import threading
 import time
-import websockets
+
 from PIL import Image
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -51,7 +51,6 @@ from GameSentenceMiner.owocr.owocr.ocr_runtime import TextFiltering
 from GameSentenceMiner.util.communication import ocr_ipc
 from GameSentenceMiner.util.config.configuration import (
     get_app_directory,
-    get_config,
     get_temporary_directory,
     is_windows,
     is_beangate,
@@ -76,7 +75,6 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_ocr1,
     get_ocr_keep_newline,
     get_ocr_ocr_screenshots,
-    get_ocr_send_to_websocket,
     get_ocr_area_select_ocr_hotkey,
     get_ocr_global_pause_hotkey,
     get_ocr_subset_chunk_min_length,
@@ -126,8 +124,7 @@ TWO_PASS_OCR_V2_LEAN_PREFIX_MIN_CHARS = 3
 TWO_PASS_OCR_V2_REQUIRE_BOX_STABILITY = True
 TWO_PASS_OCR_V2_BOX_STABILITY_TOL = 3
 
-websocket_server_thread = None
-websocket_queue = queue.Queue()
+
 paused = False
 shutdown_requested = False
 ocr_metrics_capture_lock = threading.Lock()
@@ -232,7 +229,7 @@ class _MeikiTracker:
 class TwoPassOCRController:
     """Manages the full lifecycle of the two-pass OCR pipeline."""
 
-    MEIKI_TOL: int = 2
+    MEIKI_TOL: int = 10
 
     def __init__(
         self,
@@ -2037,7 +2034,7 @@ def run_qt_event_loop_for_ocr(qt_main_module=None):
 
 
 def request_clean_shutdown(reason: str = "unknown") -> None:
-    global done, shutdown_requested, websocket_server_thread
+    global done, shutdown_requested
 
     if shutdown_requested:
         return
@@ -2051,12 +2048,6 @@ def request_clean_shutdown(reason: str = "unknown") -> None:
         second_ocr_queue.put_nowait(None)
     except Exception:
         pass
-
-    try:
-        if websocket_server_thread:
-            websocket_server_thread.stop_server()
-    except Exception as e:
-        logger.debug(f"Failed to stop OCR websocket server cleanly: {e}")
 
     try:
         qt_main = _get_qt_main_module()
@@ -2220,155 +2211,6 @@ def handle_websocket_command(message_str: str) -> dict | None:
         return {"success": False, "error": "No command specified"}
 
     return _handle_command(cmd_data, announce_ipc=False)
-
-
-class WebsocketServerThread(threading.Thread):
-    def __init__(self, read):
-        super().__init__(daemon=True)
-        self._loop = None
-        self.read = read
-        self.clients = set()
-        self._pending_messages = deque()
-        self._has_connected_client = False
-        self._event = threading.Event()
-
-    @property
-    def loop(self):
-        self._event.wait()
-        return self._loop
-
-    async def send_text_coroutine(self, message):
-        disconnected_clients = []
-        for client in list(self.clients):
-            try:
-                await client.send(message)
-            except (
-                websockets.exceptions.ConnectionClosedError,
-                websockets.exceptions.ConnectionClosedOK,
-            ):
-                disconnected_clients.append(client)
-        for client in disconnected_clients:
-            self.clients.discard(client)
-
-    async def _flush_pending_messages(self):
-        while self._pending_messages and self.clients:
-            await self.send_text_coroutine(self._pending_messages.popleft())
-
-    async def _register_client(self, websocket):
-        self.clients.add(websocket)
-        first_client_connected = not self._has_connected_client
-        self._has_connected_client = True
-        if first_client_connected and self._pending_messages:
-            await self._flush_pending_messages()
-
-    async def _queue_or_send_message(self, message):
-        if self.clients:
-            await self.send_text_coroutine(message)
-            return
-        if not self._has_connected_client:
-            self._pending_messages.append(message)
-
-    async def server_handler(self, websocket):
-        await self._register_client(websocket)
-        try:
-            async for message in websocket:
-                # Check if this is a remote control command
-                command_response = handle_websocket_command(message)
-                if command_response is not None:
-                    try:
-                        await websocket.send(json.dumps(command_response))
-                    except websockets.exceptions.ConnectionClosedOK:
-                        pass
-                    continue
-
-                # Regular message handling - use ocr_runtime.paused to check current state
-                is_paused = ocr_runtime.paused if hasattr(ocr_runtime, "paused") else paused
-                if self.read and not is_paused:
-                    websocket_queue.put(message)
-                    try:
-                        await websocket.send("True")
-                    except websockets.exceptions.ConnectionClosedOK:
-                        pass
-                else:
-                    try:
-                        await websocket.send("False")
-                    except websockets.exceptions.ConnectionClosedOK:
-                        pass
-        except websockets.exceptions.ConnectionClosedError:
-            pass
-        finally:
-            self.clients.discard(websocket)
-
-    def _get_running_loop(self):
-        loop = self._loop
-        if loop is None:
-            raise RuntimeError("OCR websocket event loop is not initialized")
-        if loop.is_closed():
-            raise RuntimeError("OCR websocket event loop is closed")
-        if not loop.is_running():
-            raise RuntimeError("OCR websocket event loop is not running")
-        return loop
-
-    def send_text(self, text, line_time: datetime, response_dict=None, source=TextSource.OCR, copy_to_clipboard=False):
-        if text:
-            data = {
-                "sentence": text,
-                "time": line_time.isoformat(),
-                "process_path": obs.get_current_game(),
-                "source": source,
-                "copyToClipboard": copy_to_clipboard,
-            }
-            if response_dict:
-                data["dict_from_ocr"] = response_dict
-            loop = self._get_running_loop()
-            send_coro = self._queue_or_send_message(json.dumps(data))
-            try:
-                return asyncio.run_coroutine_threadsafe(send_coro, loop)
-            except Exception:
-                send_coro.close()
-                raise
-
-    def stop_server(self):
-        self.loop.call_soon_threadsafe(self._stop_event.set)
-
-    def run(self):
-        async def main():
-            self._loop = asyncio.get_running_loop()
-            self._stop_event = stop_event = asyncio.Event()
-            self._event.set()
-            self.server = start_server = websockets.serve(
-                self.server_handler,
-                get_config().advanced.localhost_bind_address,
-                get_config().advanced.ocr_websocket_port,
-                max_size=1000000000,
-            )
-            async with start_server:
-                await stop_event.wait()
-
-        asyncio.run(main())
-
-
-def sync_legacy_websocket_server_state() -> None:
-    """Start or stop the deprecated OCR websocket output according to config."""
-    global websocket_server_thread
-
-    if get_ocr_send_to_websocket():
-        if websocket_server_thread is None or not websocket_server_thread.is_alive():
-            websocket_server_thread = WebsocketServerThread(read=True)
-            websocket_server_thread.start()
-            logger.info("Legacy OCR websocket output initialized")
-        return
-
-    if websocket_server_thread is None:
-        return
-
-    try:
-        if websocket_server_thread._event.wait(timeout=1):
-            websocket_server_thread.stop_server()
-    except Exception as e:
-        logger.debug(f"Failed to stop legacy OCR websocket output: {e}")
-    finally:
-        websocket_server_thread = None
 
 
 # compare_ocr_results imported from GameSentenceMiner.ocr.compare
@@ -3055,22 +2897,6 @@ async def send_result(text, time, response_dict=None, source=TextSource.OCR):
         except Exception as e:
             logger.debug(f"Error sending OCR result over IPC: {e}")
 
-        if not get_ocr_send_to_websocket() or websocket_server_thread is None:
-            return
-
-        try:
-            send_future = websocket_server_thread.send_text(
-                text,
-                time,
-                response_dict=overlay_payload,
-                source=source,
-                copy_to_clipboard=get_ocr_send_to_clipboard(source),
-            )
-            if send_future is not None:
-                await asyncio.wrap_future(send_future)
-        except Exception as e:
-            logger.debug(f"Error sending text to websocket: {e}")
-
 
 TEXT_APPEARENCE_DELAY = get_ocr_scan_rate() * 1000 + 500  # Adjust as needed
 
@@ -3339,9 +3165,6 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
             if "ocr_screenshots" in changes:
                 ss_clipboard = get_ocr_ocr_screenshots()
                 logger.info(f"IPC: clipboard screenshot OCR set to {ss_clipboard}")
-
-            if "send_to_websocket" in changes:
-                sync_legacy_websocket_server_state()
 
             # Always sync furigana from per-scene settings file
             global furigana_filter_sensitivity
@@ -3998,9 +3821,6 @@ if __name__ == "__main__":
             ocr_ipc.start_ipc_listener()
             ocr_ipc.announce_started()
             logger.info("OCR IPC communication initialized")
-
-            # Keep optional websocket output for backward compatibility.
-            sync_legacy_websocket_server_state()
 
             if is_windows():
                 add_ss_hotkey()

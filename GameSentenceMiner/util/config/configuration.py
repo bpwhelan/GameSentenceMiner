@@ -1167,6 +1167,7 @@ class VAD:
     use_cpu_for_inference: bool = False
     use_cpu_for_inference_v2: bool = True
     use_vad_filter_for_whisper: bool = True
+    preload_vad_model: bool = True
 
     def __post_init__(self):
         if self.selected_vad_model == self.backup_vad_model:
@@ -2065,6 +2066,7 @@ class Config:
             self.sync_shared_field(config.general, profile.general, "single_port")
             self.sync_shared_field(config.general, profile.general, "texthooker_port")
             self.sync_shared_field(config.general, profile.general, "target_language")
+            self.sync_shared_field(config.vad, profile.vad, "preload_vad_model")
             self.sync_shared_field(config.audio, profile.audio, "external_tool")
             self.sync_shared_field(config.audio, profile.audio, "anki_media_collection")
             self.sync_shared_field(config.audio, profile.audio, "external_tool_enabled")

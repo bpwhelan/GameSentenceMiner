@@ -935,6 +935,7 @@ class ConfigWindow(QWidget):
                     use_cpu_for_inference=self.use_cpu_for_inference_check.isChecked(),
                     use_cpu_for_inference_v2=self.use_cpu_for_inference_check.isChecked(),
                     use_vad_filter_for_whisper=self.use_vad_filter_for_whisper_check.isChecked(),
+                    preload_vad_model=self.vad_preload_model_check.isChecked(),
                 ),
                 advanced=Advanced(
                     audio_player_path=self.audio_player_path_edit.text(),
@@ -1482,6 +1483,7 @@ class ConfigWindow(QWidget):
         self.splice_padding_edit = QLineEdit()
         self.use_cpu_for_inference_check = QCheckBox()
         self.use_vad_filter_for_whisper_check = QCheckBox()
+        self.vad_preload_model_check = QCheckBox()
 
         # OBS
         self.obs_open_obs_check = QCheckBox()
@@ -2981,6 +2983,7 @@ class ConfigWindow(QWidget):
             getattr(s.vad, "use_cpu_for_inference_v2", s.vad.use_cpu_for_inference)
         )
         self.use_vad_filter_for_whisper_check.setChecked(s.vad.use_vad_filter_for_whisper)
+        self.vad_preload_model_check.setChecked(getattr(s.vad, "preload_vad_model", True))
 
         # OBS
         self.obs_open_obs_check.setChecked(s.obs.open_obs)

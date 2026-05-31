@@ -105,7 +105,7 @@ def test_request_clean_shutdown_quits_qt_app_without_config_window(monkeypatch):
 
     monkeypatch.setattr(gsm_ocr, "_get_hotkey_manager", lambda: fake_hotkeys)
     monkeypatch.setattr(gsm_ocr, "second_ocr_queue", queue.Queue())
-    monkeypatch.setattr(gsm_ocr, "websocket_server_thread", None)
+
     monkeypatch.setattr(gsm_ocr, "shutdown_requested", False)
     monkeypatch.setattr(gsm_ocr, "done", False)
 

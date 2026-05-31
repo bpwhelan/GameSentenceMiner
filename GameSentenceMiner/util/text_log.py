@@ -186,6 +186,32 @@ def is_line_recycled(line_text: str) -> bool:
     return normalized_line in game_log.previous_lines
 
 
+CONTAINMENT_MIN_RATIO = 0.3
+CONTAINMENT_MIN_CHARS = 5
+
+
+def _is_contained(needle: str, haystack: str) -> bool:
+    if needle not in haystack:
+        return False
+    return len(needle) >= CONTAINMENT_MIN_CHARS or len(needle) >= CONTAINMENT_MIN_RATIO * len(haystack)
+
+
+def _match_score(line_text: str, anki_sentence: str) -> float:
+    """Rank how well a candidate game line matches the Anki sentence.
+
+    Higher is better; a punctuation-insensitive exact match scores 100. Used to
+    choose between several lines that all satisfy ``lines_match`` -- e.g. a full
+    sentence and a short recycled fragment that is merely *contained* in it. The
+    Anki sentence is the ground truth, so similarity to it separates the real
+    line (high ratio) from an incidental containment hit (low ratio).
+    """
+    normalized_line = normalize_text_for_comparison(line_text)
+    normalized_anki = normalize_text_for_comparison(anki_sentence)
+    if not normalized_line or not normalized_anki:
+        return 0.0
+    return rapidfuzz.fuzz.ratio(normalized_line, normalized_anki)
+
+
 # Do not use partial_ratio here, ever
 def lines_match(texthooker_sentence, anki_sentence, similarity_threshold=80) -> bool:
     raw_texthooker_sentence = "" if texthooker_sentence is None else str(texthooker_sentence)
@@ -205,13 +231,9 @@ def lines_match(texthooker_sentence, anki_sentence, similarity_threshold=80) -> 
 
     similarity = rapidfuzz.fuzz.ratio(texthooker_sentence, anki_sentence)
     # logger.debug(f"Comparing sentences: '{texthooker_sentence}' and '{anki_sentence}' - Similarity: {similarity}")
-    # if texthooker_sentence in anki_sentence:
-    #     logger.debug(f"One contains the other: {texthooker_sentence} in {anki_sentence} - Similarity: {similarity}")
-    # elif anki_sentence in texthooker_sentence:
-    #     logger.debug(f"One contains the other: {anki_sentence} in {texthooker_sentence} - Similarity: {similarity}")
     return (
-        (anki_sentence in texthooker_sentence and len(anki_sentence) >= 0.3 * len(texthooker_sentence))
-        or (texthooker_sentence in anki_sentence and len(texthooker_sentence) >= 0.3 * len(anki_sentence))
+        _is_contained(anki_sentence, texthooker_sentence)
+        or _is_contained(texthooker_sentence, anki_sentence)
         or (similarity >= similarity_threshold)
     )
 
@@ -244,17 +266,31 @@ def get_matching_line(last_note: AnkiCard, lines=None) -> GameLine:
     if not sentence:
         return last_line
 
+    anki_sentence = remove_html_and_cloze_tags(sentence)
     time_window = datetime.now() - timedelta(seconds=gsm_state.replay_buffer_length) - timedelta(seconds=5)
+
+    # Don't return the first line that merely matches: a short recycled fragment
+    # (e.g. "性質を……入れ替える？") normalizes to text that is *contained* in a
+    # longer sentence the user actually mined, so it would win on recency alone.
+    # Instead, scan every candidate within the window and keep the best-scoring
+    # one. ">" keeps the most recent line on ties; an exact match short-circuits.
+    best_line = None
+    best_score = -1.0
     for line in reversed(lines):
         if line.time < time_window:
-            logger.info(
-                "Could not find matching sentence from GSM's history within the replay buffer time window. Using the latest line."
-            )
-            return last_line
-        if lines_match(line.text, remove_html_and_cloze_tags(sentence)):
-            return line
+            break
+        if lines_match(line.text, anki_sentence):
+            score = _match_score(line.text, anki_sentence)
+            if score > best_score:
+                best_score = score
+                best_line = line
+                if score >= 100:
+                    break
 
-    logger.info("Could not find matching sentence from GSM's history. Using the latest line.")
+    if best_line is not None:
+        return best_line
+
+    logger.info("Could not find matching sentence from GSM's history within the time window. Using the latest line.")
     return last_line
 
 

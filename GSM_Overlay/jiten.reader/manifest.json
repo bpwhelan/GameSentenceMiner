@@ -45,7 +45,8 @@
         "<all_urls>"
       ],
       "js": [
-        "js/ajb.js"
+        "js/ajb.js",
+        "js/gsm-settings-bridge.js"
       ],
       "all_frames": true
     }

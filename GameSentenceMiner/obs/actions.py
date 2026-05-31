@@ -683,10 +683,14 @@ def update_current_game():
 
     previous_game = gsm_state.current_game
     svc = _obs_pkg.obs_service
+    # Read from the cached OBS state only — never fall through to a synchronous
+    # OBS websocket call here. This function is on the hot path for every
+    # incoming text line, and a blocking websocket round-trip can stall the
+    # entire text-intake pipeline. The obs_service background poller keeps
+    # state.current_scene fresh.
     if svc and svc.state.current_scene:
         gsm_state.current_game = svc.state.current_scene
-    else:
-        gsm_state.current_game = get_current_scene()
+    # else: leave gsm_state.current_game at its previous value
 
     if gsm_state.current_game and gsm_state.current_game != previous_game:
         try:
