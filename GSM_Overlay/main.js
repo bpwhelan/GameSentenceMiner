@@ -10,7 +10,7 @@ const WebSocket = require('ws');
 const bg = require('./background');
 const BackendConnector = require('./backend_connector');
 const { createMagpieState } = require('./magpie');
-const { JitenParseCache, DEFAULT_JITEN_PARSE_URL: JITEN_DEFAULT_PARSE_URL } = require('./jiten_cache');
+const { JitenParseCache, postJitenSrs, DEFAULT_JITEN_PARSE_URL: JITEN_DEFAULT_PARSE_URL } = require('./jiten_cache');
 const {
   MANUAL_HOTKEY_BACKEND_ELECTRON,
   MANUAL_HOTKEY_BACKEND_INPUT_SERVER,
@@ -300,6 +300,55 @@ ipcMain.handle('gsm-jiten-parse-cached', (_event, text) => {
   return jitenParseCache.getCached(String(text));
 });
 
+// Jiten SRS grading bridges (used by the Yomitan popup's grading bar, proxied
+// through the overlay so the API key never leaves the main/renderer process and
+// no extra host permission is needed in the Yomitan extension).
+ipcMain.handle('gsm-jiten-review', async (_event, args = {}) => {
+  const { wordId, readingIndex, rating, apiKey, endpoint, timeout } = args || {};
+  if (!Number.isFinite(Number(wordId))) throw new Error('gsm-jiten-review: wordId is required');
+  return postJitenSrs({
+    action: 'srs/review',
+    body: {
+      wordId: Number(wordId),
+      readingIndex: Number(readingIndex) || 0,
+      rating: Number(rating),
+    },
+    apiKey: String(apiKey || ''),
+    endpoint: String(endpoint || JITEN_DEFAULT_PARSE_URL),
+    timeout: Number(timeout) || 4000,
+  });
+});
+
+ipcMain.handle('gsm-jiten-set-vocabulary-state', async (_event, args = {}) => {
+  const { wordId, readingIndex, state, apiKey, endpoint, timeout } = args || {};
+  if (!Number.isFinite(Number(wordId))) throw new Error('gsm-jiten-set-vocabulary-state: wordId is required');
+  if (!state) throw new Error('gsm-jiten-set-vocabulary-state: state is required');
+  return postJitenSrs({
+    action: 'srs/set-vocabulary-state',
+    body: {
+      wordId: Number(wordId),
+      readingIndex: Number(readingIndex) || 0,
+      state: String(state),
+    },
+    apiKey: String(apiKey || ''),
+    endpoint: String(endpoint || JITEN_DEFAULT_PARSE_URL),
+    timeout: Number(timeout) || 4000,
+  });
+});
+
+// Authoritative SRS-state lookup, used to refresh the overlay highlight after a
+// grade so it reflects the word's new state (mirrors the Jiten Reader widget).
+ipcMain.handle('gsm-jiten-lookup-vocabulary', async (_event, args = {}) => {
+  const { words, apiKey, endpoint, timeout } = args || {};
+  return postJitenSrs({
+    action: 'reader/lookup-vocabulary',
+    body: { words: Array.isArray(words) ? words : [] },
+    apiKey: String(apiKey || ''),
+    endpoint: String(endpoint || JITEN_DEFAULT_PARSE_URL),
+    timeout: Number(timeout) || 4000,
+  });
+});
+
 const DEFAULT_USER_SETTINGS = Object.freeze({
   "fontSize": 42,
   "weburl1": DEFAULT_ENFORCED_PLAINTEXT_WS_URL,
@@ -357,6 +406,9 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   // Jiten Reader style SRS highlighting on the overlay text
   "jitenHighlightingEnabled": false,
   "jitenHighlightOpacity": 0.7,
+  "jitenHighlightOffsetY": 3, // px to nudge the SRS underline down from the glyph baseline
+  // Jiten SRS grading buttons at the top of the Yomitan popup
+  "showJitenGradingButtons": false,
   // Gamepad navigation settings
   "gamepadEnabled": true,
   "gamepadActivationMode": "modifier", // "modifier" or "toggle"

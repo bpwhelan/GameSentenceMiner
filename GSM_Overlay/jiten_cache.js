@@ -223,6 +223,78 @@ function startProxyServer(cache, options = {}) {
   });
 }
 
+/**
+ * Derive the Jiten API base (e.g. https://api.jiten.moe/api) from a configured
+ * reader/parse endpoint, so SRS endpoints (srs/review, srs/set-vocabulary-state)
+ * can be addressed without a separate setting.
+ */
+function deriveJitenApiBase(parseUrl) {
+  const raw = String(parseUrl || DEFAULT_JITEN_PARSE_URL).trim();
+  const stripped = raw.replace(/\/reader\/parse\/?(\?.*)?$/i, '');
+  return stripped || 'https://api.jiten.moe/api';
+}
+
+/**
+ * POST a Jiten SRS action (e.g. 'srs/review', 'srs/set-vocabulary-state').
+ * Mirrors the auth/header style of the parse path and the Jiten Reader
+ * extension's own requests. Resolves with the parsed JSON body (or { ok: true }
+ * for an empty 2xx body); rejects on transport/HTTP/`error_message` failures.
+ */
+function postJitenSrs({ action, body, apiKey, endpoint, timeout }) {
+  const base = deriveJitenApiBase(endpoint);
+  const url = `${base}/${String(action || '').replace(/^\/+/, '')}`;
+  const safeTimeout = Math.max(400, Math.min(20_000, Number(timeout) || 4000));
+  const payload = JSON.stringify(body || {});
+
+  return new Promise((resolve, reject) => {
+    let parsed;
+    try { parsed = new URL(url); } catch (e) { reject(e); return; }
+    const lib = parsed.protocol === 'http:' ? http : https;
+    const req = lib.request({
+      method: 'POST',
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === 'http:' ? 80 : 443),
+      path: parsed.pathname + parsed.search,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        // Send both auth styles the Jiten backend accepts (the parse path uses
+        // X-Api-Key, the extension's grading path uses Authorization: ApiKey).
+        'Authorization': `ApiKey ${String(apiKey || '')}`,
+        'X-Api-Key': String(apiKey || ''),
+        'X-Client-Name': 'GameSentenceMiner',
+        'X-Client-Component': 'GSM-Overlay-Grading',
+        'Content-Length': Buffer.byteLength(payload),
+      },
+      timeout: safeTimeout,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          let json = null;
+          if (raw) { try { json = JSON.parse(raw); } catch (_) { json = null; } }
+          if (json && typeof json === 'object' && 'error_message' in json) {
+            reject(new Error(String(json.error_message)));
+            return;
+          }
+          resolve(json == null ? { ok: true } : json);
+        } else {
+          const err = new Error(`Jiten HTTP ${res.statusCode}`);
+          err.statusCode = res.statusCode;
+          err.responseBody = raw;
+          reject(err);
+        }
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('Jiten request timed out')));
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 function forwardRaw(url, rawBody, apiKey, timeout) {
   return new Promise((resolve, reject) => {
     let parsed;
@@ -326,6 +398,8 @@ function splitBatchAndCache(cache, texts, payload) {
 module.exports = {
   JitenParseCache,
   startProxyServer,
+  postJitenSrs,
+  deriveJitenApiBase,
   DEFAULT_JITEN_PARSE_URL,
   PROXY_PATH,
 };

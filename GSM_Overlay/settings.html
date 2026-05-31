@@ -266,6 +266,29 @@
       margin-bottom: 0;
     }
 
+    label.master-toggle {
+      padding: 14px 16px;
+      margin-bottom: 14px;
+      background: linear-gradient(135deg, rgba(76, 175, 80, 0.16) 0%, rgba(255, 255, 255, 0.04) 100%);
+      border: 1px solid rgba(76, 175, 80, 0.4);
+      border-radius: 8px;
+    }
+
+    label.master-toggle:hover {
+      background: linear-gradient(135deg, rgba(76, 175, 80, 0.22) 0%, rgba(255, 255, 255, 0.06) 100%);
+      border-color: rgba(76, 175, 80, 0.6);
+    }
+
+    label.master-toggle .label-text {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    label.master-toggle input[type="checkbox"] {
+      width: 22px;
+      height: 22px;
+    }
+
     label.sub-option {
       margin-left: 20px;
       background: rgba(255, 255, 255, 0.01);
@@ -941,6 +964,7 @@
       <button type="button" class="settings-tab-button" data-settings-tab="stats" role="tab" aria-selected="false">Stats</button>
       <button type="button" class="settings-tab-button" data-settings-tab="profiles" role="tab" aria-selected="false">Profiles</button>
       <button type="button" class="settings-tab-button" data-settings-tab="furigana" role="tab" aria-selected="false">Furigana</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="jiten" role="tab" aria-selected="false">Jiten Reader</button>
       <button type="button" class="settings-tab-button" data-settings-tab="controller" role="tab" aria-selected="false">Controller</button>
       <button type="button" class="settings-tab-button" data-settings-tab="advanced" role="tab" aria-selected="false">Advanced</button>
     </div>
@@ -1330,18 +1354,52 @@
     </div>
 
     
-    <div class="setting-group" data-tab="general">
-      <h4>Dictionary Extensions</h4>
-      <label>
-        <span class="label-text">Enable Jiten Reader</span>
+    <div class="setting-group" data-tab="jiten">
+      <h4>Jiten Reader</h4>
+      <label class="master-toggle">
+        <span class="label-text">
+          Enable Jiten Reader
+          <div class="hotkey-info">Master switch for the Jiten Reader dictionary extension and its overlay integrations.</div>
+        </span>
         <input type="checkbox" id="enableJitenReader" />
       </label>
       <label>
         <span class="label-text">
             Jiten Reader Settings
-            <div class="hotkey-info">Configure Jiten Reader popup settings</div>
+            <div class="hotkey-info">Configure Jiten Reader popup settings (decks, parsing, grading, and more).</div>
         </span>
         <button type="button" id="openJitenReaderSettings" class="guide-button">Open Settings</button>
+      </label>
+    </div>
+
+    <div class="setting-group" data-tab="jiten">
+      <h4>Overlay Integration <span style="color: #ff6b6b; font-size: 13px; font-weight: normal;">⚠️ WIP</span></h4>
+      <div class="hotkey-info" style="color: #ffcc66; margin-bottom: 10px;">
+        Work in progress. To avoid unnecessary API calls, some operations are intentionally deferred — for example,
+        SRS state lookups and text parsing are delayed until the overlay is actually visible or a word is hovered,
+        rather than running on every new line of game text.
+      </div>
+      <label>
+        <span class="label-text">
+          Show Jiten Style Text Highlighting
+          <div class="hotkey-info" style="color: #ff6b6b;">⚠️ WIP Feature</div>
+          <div class="hotkey-info">Highlights overlay text by SRS state, Jiten Reader style. Some options are configured in Jiten Reader itself.</div>
+        </span>
+        <input type="checkbox" id="jitenHighlightingEnabled" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">
+          Highlight Vertical Offset (px)
+          <div class="hotkey-info">Move the SRS highlight underline up or down relative to the word.</div>
+        </span>
+        <input type="number" id="jitenHighlightOffsetY" value="3" min="-48" max="48" step="0.5" />
+      </label>
+      <label>
+        <span class="label-text">
+          Show Jiten Grader Buttons Above Yomitan Popup
+          <div class="hotkey-info">Adds Blacklist / Never Forget / review-grade buttons to the top of the Yomitan popup.</div>
+        </span>
+        <input type="checkbox" id="showJitenGradingButtons" />
       </label>
     </div>
 
@@ -2538,10 +2596,19 @@
     }
 
     function syncJitenReaderUi(enabled) {
-      const openSettingsButton = document.getElementById("openJitenReaderSettings");
-      if (openSettingsButton) {
-        openSettingsButton.disabled = !enabled;
-      }
+      const checkbox = document.getElementById("enableJitenReader");
+      const isEnabled = enabled !== undefined ? enabled : (checkbox?.checked !== false);
+      [
+        "openJitenReaderSettings",
+        "jitenHighlightingEnabled",
+        "jitenHighlightOffsetY",
+        "showJitenGradingButtons",
+      ].forEach((id) => {
+        const control = document.getElementById(id);
+        if (control) {
+          control.disabled = !isEnabled;
+        }
+      });
     }
 
     function syncGamepadSettingsEnabledUi() {
@@ -2799,6 +2866,11 @@
         min: -48,
         max: 48,
       }),
+      createNumberBinding("jitenHighlightOffsetY", "#jitenHighlightOffsetY", {
+        fallback: 3,
+        min: -48,
+        max: 48,
+      }),
       createTextBinding("furiganaColor", "#furiganaColor", {
         event: "input",
         normalize: (value) => normalizeTrimmedString(value, "#ffffff").toLowerCase(),
@@ -2833,8 +2905,10 @@
       createCheckboxBinding("autoRequestTranslation", "#autoRequestTranslation"),
       createHotkeyBinding("translateHotkey", "#translateHotkey"),
       createCheckboxBinding("enableJitenReader", "#enableJitenReader", {
-        afterApply: (value) => syncJitenReaderUi(value),
+        afterApply: () => syncJitenReaderUi(),
       }),
+      createCheckboxBinding("jitenHighlightingEnabled", "#jitenHighlightingEnabled"),
+      createCheckboxBinding("showJitenGradingButtons", "#showJitenGradingButtons"),
       createHotkeyBinding("toggleFuriganaHotkey", "#toggleFuriganaHotkey"),
       createHotkeyBinding("toggleWindowHotkey", "#toggleWindowHotkey"),
       createHotkeyBinding("minimizeHotkey", "#minimizeHotkey"),
@@ -3665,6 +3739,8 @@
         liveStatsFields: normalizeLiveStatsFieldsValue(userSettings.liveStatsFields),
         manualModeInactiveBehavior: normalizeManualModeInactiveBehaviorValue(userSettings.manualModeInactiveBehavior),
         enableJitenReader: userSettings.enableJitenReader !== false,
+        jitenHighlightingEnabled: userSettings.jitenHighlightingEnabled === true,
+        showJitenGradingButtons: userSettings.showJitenGradingButtons !== false,
         gamepadEnabled: userSettings.gamepadEnabled !== false,
         gamepadTokenMode: userSettings.gamepadTokenMode !== false,
         gamepadAutoConfirmSelection: userSettings.gamepadAutoConfirmSelection !== false,

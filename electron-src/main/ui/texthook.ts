@@ -207,6 +207,21 @@ interface ProcessEntry {
     arch: TextHookArchitecture;
 }
 
+/** A running process as enumerated from Win32_Process (extension preserved). */
+interface RawProcess {
+    pid: number;
+    ppid: number;
+    /** Full image name including the real extension, e.g. "game.bin" / "game.log" / "game.exe". */
+    name: string;
+    /** Working set in bytes. */
+    memory: number;
+}
+
+// Processes at or below this size are treated as thin launchers/helpers rather
+// than the game itself. Many games ship a tiny launcher .exe that spawns the
+// real engine under a .bin/.log image; we look past those to find the heavy one.
+const LAUNCHER_MEMORY_FLOOR = 20 * 1024 * 1024;
+
 function normalizeDetectedArchitecture(value: string): DetectedTextHookArchitecture {
     const normalized = value.trim().toLowerCase();
     if (normalized === 'x86' || normalized === 'x64') return normalized;
@@ -347,53 +362,144 @@ async function detectProcessArch(pid: number): Promise<TextHookArchitecture> {
     return chooseEngineArchitecture('unknown', pid);
 }
 
+/** Lower-cased image name with its final extension stripped (e.g. "game.bin" -> "game"). */
+function processBaseName(name: string): string {
+    const dot = name.lastIndexOf('.');
+    return (dot > 0 ? name.slice(0, dot) : name).toLowerCase();
+}
+
 /**
- * Find the best matching process for a given exe name.
- * Mirrors auto_launcher.ts: filters small system processes (mem ≤ 20 KB),
- * then picks the highest-memory candidate so launchers/helpers are skipped.
+ * Breadth-first collect every descendant of the given root PIDs.
+ * Guards against the cyclic / reused ParentProcessId values Windows hands out
+ * (e.g. a launcher and its child reporting each other as parent after PID reuse).
+ */
+function collectDescendants(processes: RawProcess[], rootPids: number[]): RawProcess[] {
+    const byParent = new Map<number, RawProcess[]>();
+    for (const proc of processes) {
+        const siblings = byParent.get(proc.ppid);
+        if (siblings) siblings.push(proc);
+        else byParent.set(proc.ppid, [proc]);
+    }
+    const seen = new Set<number>(rootPids);
+    const out: RawProcess[] = [];
+    const queue = [...rootPids];
+    while (queue.length > 0) {
+        const pid = queue.shift() as number;
+        for (const child of byParent.get(pid) ?? []) {
+            if (seen.has(child.pid)) continue;
+            seen.add(child.pid);
+            out.push(child);
+            queue.push(child.pid);
+        }
+    }
+    return out;
+}
+
+/**
+ * Pick the real game process for a captured executable name.
+ *
+ * OBS reports whatever image owns the captured window — which may be the game
+ * itself (often a non-.exe image like "game.bin"/"game.log") or a thin launcher
+ * .exe that spawned it. Resolution order:
+ *   1. Heaviest exact-name match above the launcher floor (the game directly).
+ *   2. Heaviest descendant of an exact match (captured a thin launcher).
+ *   3. Heaviest process sharing the base name, different extension
+ *      (e.g. captured "game.exe" but the engine runs as "game.bin").
+ *   4. Heaviest exact match even if tiny (last resort).
+ *
+ * Exported via __test for unit coverage.
+ */
+function selectGameProcess(processes: RawProcess[], exeName: string): RawProcess | null {
+    const target = exeName.toLowerCase();
+    const targetBase = processBaseName(exeName);
+    const byMemoryDesc = (a: RawProcess, b: RawProcess) => b.memory - a.memory;
+
+    const exact = processes.filter((p) => p.name.toLowerCase() === target);
+
+    // 1. The game is usually the heaviest process matching the captured name.
+    const heavyExact = exact.filter((p) => p.memory > LAUNCHER_MEMORY_FLOOR).sort(byMemoryDesc);
+    if (heavyExact.length > 0) return heavyExact[0];
+
+    // 2. We captured a thin launcher — follow it down to the heaviest child.
+    if (exact.length > 0) {
+        const descendants = collectDescendants(processes, exact.map((p) => p.pid))
+            .filter((p) => p.memory > LAUNCHER_MEMORY_FLOOR)
+            .sort(byMemoryDesc);
+        if (descendants.length > 0) return descendants[0];
+    }
+
+    // 3. Same base name under a different extension (launcher.exe -> engine.bin),
+    //    even when PID reuse hid the parent/child link.
+    const baseMatches = processes
+        .filter((p) => processBaseName(p.name) === targetBase && p.memory > LAUNCHER_MEMORY_FLOOR)
+        .sort(byMemoryDesc);
+    if (baseMatches.length > 0) return baseMatches[0];
+
+    // 4. Nothing heavy found; fall back to the heaviest exact match regardless of size.
+    if (exact.length > 0) return [...exact].sort(byMemoryDesc)[0];
+
+    return null;
+}
+
+/**
+ * Enumerate running processes via Win32_Process. Unlike Get-Process (whose Name
+ * is the .NET ProcessName with the extension stripped), CIM preserves the real
+ * image name — so non-.exe games like "game.bin"/"game.log" match correctly.
+ * Explicit UTF-8 output keeps Unicode (e.g. Japanese) names intact.
+ */
+async function listWindowsProcesses(): Promise<RawProcess[] | null> {
+    try {
+        const { stdout } = await execFileAsync(
+            'powershell',
+            [
+                '-NoProfile', '-NonInteractive', '-Command',
+                '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ' +
+                'Get-CimInstance Win32_Process | ' +
+                'Select-Object ProcessId,ParentProcessId,Name,WorkingSetSize | ConvertTo-Json -Compress',
+            ],
+            { windowsHide: true, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' },
+        );
+        const raw: unknown = JSON.parse(stdout);
+        const list = Array.isArray(raw) ? raw : [raw];
+        const out: RawProcess[] = [];
+        for (const p of list as Array<Record<string, unknown>>) {
+            const pid = Number(p['ProcessId']);
+            const ppid = Number(p['ParentProcessId']);
+            const name = String(p['Name'] ?? '');
+            const memory = Number(p['WorkingSetSize']);
+            if (!Number.isFinite(pid) || pid <= 0 || !name) continue;
+            out.push({
+                pid,
+                ppid: Number.isFinite(ppid) ? ppid : 0,
+                name,
+                memory: Number.isFinite(memory) ? memory : 0,
+            });
+        }
+        return out;
+    } catch (err) {
+        emitLog(`Process lookup failed: ${(err as Error).message}`, 'error');
+        return null;
+    }
+}
+
+/**
+ * Find the best matching process for a given exe name, transparently resolving
+ * thin-launcher setups (a small .exe spawning the real engine as .bin/.log).
  */
 async function findProcessByExeName(exeName: string): Promise<ProcessEntry | null> {
     if (!isWindows()) {
         emitLog('Process detection is currently only implemented on Windows.', 'warn');
         return null;
     }
-    const target = exeName.toLowerCase();
-    try {
-        // Use PowerShell with explicit UTF-8 output so that Unicode (e.g. Japanese)
-        // process names are preserved correctly — tasklist uses the OEM code page and
-        // garbles non-ASCII characters in both the /FI filter and its output.
-        const { stdout } = await execFileAsync(
-            'powershell',
-            [
-                '-NoProfile', '-NonInteractive', '-Command',
-                '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ' +
-                'Get-Process | Select-Object Id,Name,WorkingSet64 | ConvertTo-Json -Compress',
-            ],
-            { windowsHide: true, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' },
-        );
-        const raw: unknown = JSON.parse(stdout);
-        const list = Array.isArray(raw) ? raw : [raw];
-        const candidates: Array<{ pid: number; name: string; memory: number }> = [];
-        for (const p of list as Array<Record<string, unknown>>) {
-            // PowerShell omits the .exe extension; re-add it for comparison.
-            const fullName = `${p['Name'] ?? ''}.exe`;
-            const pid = Number(p['Id']);
-            const memory = Number(p['WorkingSet64']);
-            if (!Number.isFinite(pid) || pid <= 0) continue;
-            if (fullName.toLowerCase() !== target) continue;
-            if (memory <= 20 * 1024 * 1024) continue; // skip tiny system/helper processes (~20 MB)
-            candidates.push({ pid, name: fullName, memory: Number.isNaN(memory) ? 0 : memory });
-        }
-        if (candidates.length === 0) return null;
-        // Pick highest-memory process — most likely the game, not a helper.
-        candidates.sort((a, b) => b.memory - a.memory);
-        const best = candidates[0];
-        const arch = await detectProcessArch(best.pid);
-        return { pid: best.pid, exeName: best.name, arch };
-    } catch (err) {
-        emitLog(`Process lookup failed: ${(err as Error).message}`, 'error');
+    const processes = await listWindowsProcesses();
+    if (!processes) return null;
+    const chosen = selectGameProcess(processes, exeName);
+    if (!chosen) return null;
+    if (chosen.name.toLowerCase() !== exeName.toLowerCase()) {
+        emitLog(`Resolved "${exeName}" to game process ${chosen.name} (PID ${chosen.pid}).`);
     }
-    return null;
+    const arch = await detectProcessArch(chosen.pid);
+    return { pid: chosen.pid, exeName: chosen.name, arch };
 }
 
 async function isPidAlive(pid: number): Promise<boolean> {
@@ -1475,6 +1581,10 @@ export const __test = {
     eraseTextHookNoise,
     normalizeFlushDelayMs,
     mergeTextHookOutput,
+    selectGameProcess,
+    collectDescendants,
+    processBaseName,
+    LAUNCHER_MEMORY_FLOOR,
     DEFAULT_FLUSH_DELAY_MS,
     MAX_FLUSH_DELAY_MS,
     TEXTRACTOR_HOOK_LINE,

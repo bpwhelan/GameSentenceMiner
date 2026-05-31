@@ -551,6 +551,7 @@ class OverlayProcessor:
         *,
         line_id: Optional[str] = None,
         supplemental: bool = False,
+        is_final: bool = False,
     ) -> Dict[str, Any]:
         payload = {
             "type": "word_coordinates",
@@ -561,6 +562,12 @@ class OverlayProcessor:
             payload["line_id"] = str(line_id)
         if supplemental:
             payload["supplemental"] = True
+        # Marks the stabilized/authoritative pass for a line. Consumers that throttle
+        # per-line work (e.g. the Jiten SRS highlight parse) use this together with
+        # line_id to act at most twice per line: once on the first payload, once on
+        # this final one. Intermediate (jittering) passes are left unflagged.
+        if is_final:
+            payload["is_final"] = True
         return payload
 
     def _send_sentence_recycled_status(self, *, line_id: Optional[str], sentence: Optional[str]) -> None:
@@ -1606,7 +1613,9 @@ class OverlayProcessor:
         self.last_scan_window_offset = (off_x, off_y)
         self._last_precomputed_percentage_data = final_data
 
-        payload = self._build_overlay_word_coordinates_payload(final_data, line_id=line_id)
+        # Precomputed coordinates come from the (stable) texthook sentence, so this
+        # single send is authoritative — flag it final so highlight consumers parse it.
+        payload = self._build_overlay_word_coordinates_payload(final_data, line_id=line_id, is_final=True)
         await send_word_coordinates_to_overlay(payload)
         logger.info(
             "Overlay OCR bypass: used precomputed OCR coordinates ({} text boxes).",
@@ -1939,8 +1948,18 @@ class OverlayProcessor:
                             break
                         continue
 
+                # Local OCR is the final pass only for local-only engines; when Lens
+                # is configured the local result is just a fast preliminary and the
+                # Lens send below is the authoritative one. Flag the stabilized (or
+                # last) local pass so highlight consumers re-parse exactly once more.
+                local_is_final_engine = effective_engine in [
+                    OverlayEngine.ONEOCR.value,
+                    OverlayEngine.MEIKIOCR.value,
+                    OverlayEngine.SCREENAI.value,
+                ]
+                is_final_payload = local_is_final_engine and (stabilized or i == tries - 1)
                 data = self._build_overlay_word_coordinates_payload(
-                    oneocr_final, line_id=line_id, supplemental=precomputed_sent
+                    oneocr_final, line_id=line_id, supplemental=precomputed_sent, is_final=is_final_payload
                 )
 
                 send_start_time = time.time()
@@ -2106,8 +2125,9 @@ class OverlayProcessor:
                 logger.info("Supplemental Lens scan: all results overlap with precomputed, nothing to add.")
                 return
 
+        # Lens is the authoritative final pass (it runs after any local preliminary).
         data = self._build_overlay_word_coordinates_payload(
-            extracted_data, line_id=line_id, supplemental=precomputed_sent
+            extracted_data, line_id=line_id, supplemental=precomputed_sent, is_final=True
         )
 
         op_start = time.time()

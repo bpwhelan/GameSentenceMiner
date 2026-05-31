@@ -42,6 +42,10 @@
     'newStates',
     'activeProfile',
     'profiles',
+    // Grading-bar config (mirrored into the Yomitan popup's grading bar).
+    'showGradingActions',
+    'jitenUseTwoGrades',
+    'jitenDisableReviews',
   ];
 
   function readSettings() {

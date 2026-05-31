@@ -131,3 +131,89 @@ describe('text hook flush delay helpers', () => {
         expect(__test.getRequiredArchitectureFromMismatchMessage('Attached successfully')).toBeNull();
     });
 });
+
+describe('game process resolution', () => {
+    // LAUNCHER_MEMORY_FLOOR is 20 MB; pick values comfortably above/below it.
+    const heavy = 200 * 1024 * 1024;
+    const tiny = 5 * 1024 * 1024;
+
+    it('keeps the launcher floor at 20 MB', async () => {
+        const { __test } = await import('./texthook.js');
+        expect(__test.LAUNCHER_MEMORY_FLOOR).toBe(20 * 1024 * 1024);
+    });
+
+    it('strips the final extension for base-name comparison', async () => {
+        const { __test } = await import('./texthook.js');
+        expect(__test.processBaseName('Game.BIN')).toBe('game');
+        expect(__test.processBaseName('game.log')).toBe('game');
+        expect(__test.processBaseName('game')).toBe('game');
+        expect(__test.processBaseName('my.game.exe')).toBe('my.game');
+    });
+
+    it('matches a non-.exe game image such as game.log directly', async () => {
+        const { __test } = await import('./texthook.js');
+        // Mirrors a real captured game on this machine (YU-RIS engine .log image).
+        const procs = [
+            { pid: 77064, ppid: 464, name: 'サメと生きる七日間.log', memory: heavy },
+            { pid: 55536, ppid: 59380, name: 'obs64.exe', memory: heavy * 2 },
+        ];
+        const chosen = __test.selectGameProcess(procs, 'サメと生きる七日間.log');
+        expect(chosen?.pid).toBe(77064);
+        expect(chosen?.name).toBe('サメと生きる七日間.log');
+    });
+
+    it('does not mangle .bin names by assuming a .exe extension', async () => {
+        const { __test } = await import('./texthook.js');
+        // Regression: the old code appended ".exe" (-> "Tartarus.bin.exe") and never matched.
+        const procs = [{ pid: 7, ppid: 0, name: 'Tartarus.bin', memory: heavy }];
+        expect(__test.selectGameProcess(procs, 'Tartarus.bin')?.pid).toBe(7);
+    });
+
+    it('follows a thin launcher to its heaviest child', async () => {
+        const { __test } = await import('./texthook.js');
+        const procs = [
+            { pid: 10, ppid: 4, name: 'launcher.exe', memory: tiny },
+            { pid: 11, ppid: 10, name: 'engine.bin', memory: heavy },
+            { pid: 12, ppid: 10, name: 'helper.exe', memory: tiny },
+        ];
+        const chosen = __test.selectGameProcess(procs, 'launcher.exe');
+        expect(chosen?.pid).toBe(11);
+        expect(chosen?.name).toBe('engine.bin');
+    });
+
+    it('resolves same-base-name engines when PID reuse hides the parent link', async () => {
+        const { __test } = await import('./texthook.js');
+        // Windows can report cyclic ParentProcessId values after PID reuse.
+        const procs = [
+            { pid: 1052, ppid: 26116, name: 'game.log', memory: tiny },
+            { pid: 26116, ppid: 1052, name: 'game.bin', memory: heavy },
+        ];
+        // Captured the light launcher; expect the heavy engine of the same base.
+        expect(__test.selectGameProcess(procs, 'game.log')?.pid).toBe(26116);
+    });
+
+    it('does not loop forever on cyclic parent references', async () => {
+        const { __test } = await import('./texthook.js');
+        const procs = [
+            { pid: 1, ppid: 2, name: 'a.exe', memory: tiny },
+            { pid: 2, ppid: 1, name: 'b.exe', memory: tiny },
+        ];
+        const descendants = __test.collectDescendants(procs, [1]);
+        expect(descendants.map((p) => p.pid)).toEqual([2]);
+    });
+
+    it('falls back to the heaviest exact match when nothing clears the floor', async () => {
+        const { __test } = await import('./texthook.js');
+        const procs = [
+            { pid: 1, ppid: 0, name: 'game.exe', memory: tiny },
+            { pid: 2, ppid: 0, name: 'game.exe', memory: tiny * 2 },
+        ];
+        expect(__test.selectGameProcess(procs, 'game.exe')?.pid).toBe(2);
+    });
+
+    it('returns null when no process matches at all', async () => {
+        const { __test } = await import('./texthook.js');
+        const procs = [{ pid: 1, ppid: 0, name: 'other.exe', memory: heavy }];
+        expect(__test.selectGameProcess(procs, 'game.bin')).toBeNull();
+    });
+});

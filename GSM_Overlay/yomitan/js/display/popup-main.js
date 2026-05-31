@@ -24,6 +24,7 @@ import {DisplayAudio} from './display-audio.js';
 import {DisplayProfileSelection} from './display-profile-selection.js';
 import {DisplayResizer} from './display-resizer.js';
 import {Display} from './display.js';
+import {GsmJitenGrading} from './gsm-jiten-grading.js';
 
 await Application.main(true, async (application) => {
     const documentFocusController = new DocumentFocusController();
@@ -40,6 +41,11 @@ await Application.main(true, async (application) => {
 
     const displayAnki = new DisplayAnki(display, displayAudio);
     displayAnki.prepare();
+
+    // GSM add-on: Jiten SRS grading bar at the top of the popup (no-op unless
+    // the GSM overlay reports Jiten Reader + highlighting are both enabled).
+    const gsmJitenGrading = new GsmJitenGrading(display);
+    gsmJitenGrading.prepare();
 
     const displayProfileSelection = new DisplayProfileSelection(display);
     void displayProfileSelection.prepare();

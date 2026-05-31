@@ -505,6 +505,44 @@
     }
   }
 
+  /**
+   * Optimistically reflect a word's new SRS state on the existing highlights
+   * (e.g. after grading it from the Yomitan popup). Rewrites the managed state
+   * classes on the matching .jiten-word spans in the parse container, then
+   * redraws — so a now-"known" word (mature/mastered/blacklisted) loses its
+   * highlight and a changed state recolors. Mirrors the Jiten Reader widget's
+   * Registry.updateCard, which reapplies classes to [wordId][readingIndex] spans.
+   *
+   * @param {number|string} wordId
+   * @param {number|string} readingIndex
+   * @param {string[]|string} stateClasses one or more of JITEN_STATE_CLASSES
+   */
+  function applyCardState(wordId, readingIndex, stateClasses) {
+    if (!parseContainer) return;
+    if (wordId === undefined || wordId === null || readingIndex === undefined || readingIndex === null) return;
+    const classes = (Array.isArray(stateClasses) ? stateClasses : [stateClasses])
+      .filter((c) => typeof c === 'string' && c.length > 0);
+
+    // Attribute names are case-insensitive in HTML; ajb.js writes wordId/readingIndex.
+    const selector = `.jiten-word[wordId="${wordId}"][readingIndex="${readingIndex}"]`;
+    let spans;
+    try {
+      spans = parseContainer.querySelectorAll(selector);
+    } catch (_) {
+      return;
+    }
+    if (!spans || spans.length === 0) return;
+
+    for (const span of spans) {
+      const keep = Array.from(span.classList).filter((c) => !JITEN_STATE_CLASSES.includes(c));
+      span.className = keep.concat(classes).join(' ');
+    }
+
+    // Force a redraw even though the underlying text is unchanged.
+    lastParsedSignature = null;
+    mirrorHighlights();
+  }
+
   const api = {
     init,
     requestParse,
@@ -513,6 +551,7 @@
     clearJitenHighlighting: clearAllHighlights,
     setEnabled,
     refresh,
+    applyCardState,
   };
 
   if (typeof module !== 'undefined' && module.exports) {

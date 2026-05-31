@@ -159,6 +159,10 @@ background: rgba(202, 12, 12, 0.692);
      (known) words are subtle; i+1 is the most prominent (blue) signal. */
   :root {
     --gsm-jiten-highlight-opacity: 0.7;
+    /* Nudge the whole highlight box (and thus its bottom underline) down a few
+       pixels by default so the underline clears the glyph descenders. User
+       adjustable via the "Highlight Vertical Offset" setting. */
+    --gsm-jiten-highlight-offset-y: 3px;
     --gsm-jiten-color-new: 165, 102, 239;
     --gsm-jiten-color-young: 208, 135, 0;
     --gsm-jiten-color-mature: 112, 192, 0;
@@ -187,6 +191,7 @@ background: rgba(202, 12, 12, 0.692);
     pointer-events: none;
     box-sizing: border-box;
     border-radius: 3px;
+    transform: translateY(var(--gsm-jiten-highlight-offset-y, 0px));
   }
   .gsm-jiten-hl--new {
     border-bottom: 3px solid rgba(var(--gsm-jiten-color-new), var(--gsm-jiten-highlight-opacity));
@@ -1310,6 +1315,11 @@ background: rgba(202, 12, 12, 0.692);
       yomitanShowing = true;
       ipcRenderer.send('yomitan-event', true);
     }
+
+    // Refresh the Jiten grading bar config for the (possibly new) popup frame.
+    requestJitenReaderGradingSettings();
+    pushJitenGradingConfig();
+    setTimeout(() => pushJitenGradingConfig(), 250);
   });
 
   // When popup is hidden, tell main process to ignore mouse events again
@@ -1506,6 +1516,16 @@ background: rgba(202, 12, 12, 0.692);
   const furiganaLineCache = new Map();
   // Jiten SRS Highlighting state (mirror approach)
   let jitenHighlightingEnabled = true;
+  // Most recent on-screen OCR lines, tracked even while highlighting is off so
+  // toggling it on can re-parse the current text instead of waiting for new OCR.
+  let lastJitenHighlightLines = null;
+  // The line_id we last kicked a Jiten parse for. OCR sends several payloads per
+  // line as it stabilizes; to stay API-friendly we parse at most twice per line —
+  // once on the first payload (fast highlight) and once on the final/stable payload
+  // (marked is_final by get_overlay_coords.py). Intermediate jittering payloads only
+  // reposition the existing highlights instead of re-parsing. null tracks the
+  // periodic/no-line_id case (single-shot scans, which arrive flagged final).
+  let jitenHighlightParsedLineId = false; // sentinel distinct from any real id (incl. null)
 
   function setJitenHighlightOpacity(value) {
     const n = Number(value);
@@ -1514,12 +1534,19 @@ background: rgba(202, 12, 12, 0.692);
     document.documentElement.style.setProperty('--gsm-jiten-highlight-opacity', String(clamped));
   }
 
+  function setJitenHighlightOffsetY(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return;
+    const clamped = Math.max(-48, Math.min(48, n));
+    document.documentElement.style.setProperty('--gsm-jiten-highlight-offset-y', `${clamped}px`);
+  }
+
   /**
    * Request Jiten Reader to parse the current lines and mirror SRS highlights.
    * This replaces the old API-payload approach. Now we let the extension's own
    * content script do the parsing (which has access to SRS state from storage).
    */
-  function applyJitenHighlightingForLines(lines) {
+  function applyJitenHighlightingForLines(lines, meta) {
     if (!jitenHighlightingEnabled) return;
     const api = window.GsmJitenHighlight;
     if (!api || typeof api.requestParse !== 'function') {
@@ -1527,9 +1554,35 @@ background: rgba(202, 12, 12, 0.692);
       return;
     }
     if (!Array.isArray(lines) || lines.length === 0) return;
-    api.requestParse(lines).catch((err) => {
-      console.warn('[JitenHighlight] Parse request failed:', err);
-    });
+
+    // No meta (e.g. a manual toggle-on re-parse) → always parse.
+    const forced = !meta;
+    const lineId = (meta && meta.lineId != null) ? String(meta.lineId) : null;
+    const isFinal = !!(meta && meta.isFinal);
+
+    let shouldParse;
+    if (forced || isFinal) {
+      // Final/authoritative pass: parse (requestParse dedups identical text, so an
+      // unchanged final pass costs nothing).
+      shouldParse = true;
+      jitenHighlightParsedLineId = lineId;
+    } else if (lineId !== jitenHighlightParsedLineId) {
+      // First (preliminary) payload for a new line: parse once for a fast highlight.
+      shouldParse = true;
+      jitenHighlightParsedLineId = lineId;
+    } else {
+      // A subsequent jittering intermediate payload for the same line: don't re-parse,
+      // just keep the existing highlights aligned to the re-rendered text boxes.
+      shouldParse = false;
+    }
+
+    if (shouldParse) {
+      api.requestParse(lines).catch((err) => {
+        console.warn('[JitenHighlight] Parse request failed:', err);
+      });
+    } else if (typeof api.reposition === 'function') {
+      api.reposition();
+    }
   }
 
   // Initialize highlight module on page load
@@ -1540,6 +1593,212 @@ background: rgba(202, 12, 12, 0.692);
   } else {
     if (window.GsmJitenHighlight) window.GsmJitenHighlight.init();
   }
+
+  // ==================== Jiten grading bar bridge (Yomitan popup) ====================
+  // Proxies the Yomitan popup's grading bar to the Jiten SRS API. The bar only
+  // shows when Jiten Reader is enabled and the "Show Jiten Grader Buttons"
+  // overlay setting is on. All API specifics (key, wordId resolution, network)
+  // stay here so the popup module is a thin UI shell and no host permission is
+  // needed in the Yomitan extension.
+  let jitenReaderEnabled = true;
+  let showJitenGradingButtons = true;
+  let jitenGradingReaderSettings = { showGradingActions: true, twoGrades: false, disableReviews: false };
+  let jitenGradingSettingsRequestPending = false;
+  const JITEN_GRADING_PARSE_URL = 'https://api.jiten.moe/api/reader/parse';
+  // Numeric SRS state -> highlight class (mirrors Jiten Reader's CARD_STATE_MAP).
+  const JITEN_CARD_STATE_CLASS_MAP = {
+    0: 'new', 1: 'young', 2: 'mature', 3: 'blacklisted', 4: 'due', 5: 'mastered',
+  };
+  // Session memo of term/reading -> {wordId, readingIndex}. wordIds are stable, so
+  // once a word is resolved we never need to re-parse it just to grade it again.
+  // This is the first half of trimming the per-grade API calls (resolve + action +
+  // lookup) down: repeat grades of the same word skip the resolve parse entirely,
+  // falling back to a parse only on a miss.
+  const jitenWordRefMemo = new Map();
+  const jitenWordRefMemoKey = (term, reading) => `${String(term || '')}${String(reading || '')}`;
+
+  function getJitenGradingApiKey() {
+    try {
+      return (typeof gamepadSettings !== 'undefined' && gamepadSettings && gamepadSettings.jitenApiKey)
+        ? String(gamepadSettings.jitenApiKey).trim()
+        : '';
+    } catch (_) { return ''; }
+  }
+
+  function computeJitenGradingEnabled() {
+    return !!(jitenReaderEnabled && showJitenGradingButtons);
+  }
+
+  function getYomitanGradingTargetFrames() {
+    return Array.from(document.querySelectorAll('iframe.yomitan-popup'));
+  }
+
+  function buildJitenGradingConfigMessage() {
+    const showGrading = jitenGradingReaderSettings.showGradingActions !== false &&
+      jitenGradingReaderSettings.disableReviews !== true;
+    return {
+      type: 'gsm-jiten-grading-config',
+      enabled: computeJitenGradingEnabled(),
+      showGrading: showGrading,
+      twoGrades: jitenGradingReaderSettings.twoGrades === true,
+      hasApiKey: !!getJitenGradingApiKey(),
+    };
+  }
+
+  function pushJitenGradingConfig(targetWindow) {
+    const msg = buildJitenGradingConfigMessage();
+    if (targetWindow && typeof targetWindow.postMessage === 'function') {
+      try { targetWindow.postMessage(msg, '*'); } catch (_) { /* ignore */ }
+      return;
+    }
+    for (const frame of getYomitanGradingTargetFrames()) {
+      try { if (frame.contentWindow) frame.contentWindow.postMessage(msg, '*'); } catch (_) { /* ignore */ }
+    }
+  }
+
+  // Pull the user's grading-related Jiten Reader settings via the content-script
+  // bridge (gsm-settings-bridge.js), so the bar mirrors their two-grade / review
+  // preferences. Falls back to defaults (full grade set) if unavailable.
+  function requestJitenReaderGradingSettings() {
+    if (jitenGradingSettingsRequestPending) return;
+    jitenGradingSettingsRequestPending = true;
+    const requestId = `gsm-grading-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const truthy = (v) => v === true || v === 'true';
+    const falsy = (v) => v === false || v === 'false';
+    const onResponse = (event) => {
+      const data = event && event.data;
+      if (!data || data.type !== 'gsm-jiten-settings-response' || data.requestId !== requestId) return;
+      window.removeEventListener('message', onResponse);
+      jitenGradingSettingsRequestPending = false;
+      const d = (data.data && typeof data.data === 'object') ? data.data : {};
+      jitenGradingReaderSettings = {
+        showGradingActions: !falsy(d.showGradingActions),
+        twoGrades: truthy(d.jitenUseTwoGrades),
+        disableReviews: truthy(d.jitenDisableReviews),
+      };
+      pushJitenGradingConfig();
+    };
+    window.addEventListener('message', onResponse);
+    try { window.postMessage({ type: 'gsm-jiten-settings-request', requestId }, '*'); } catch (_) { /* ignore */ }
+    setTimeout(() => {
+      if (!jitenGradingSettingsRequestPending) return;
+      window.removeEventListener('message', onResponse);
+      jitenGradingSettingsRequestPending = false;
+      pushJitenGradingConfig();
+    }, 2000);
+  }
+
+  // Resolve a term to a Jiten wordId/readingIndex by parsing it (cached IPC).
+  async function resolveJitenWordRef(term, reading) {
+    const text = String(term || '').trim();
+    if (!text) return null;
+    // Check session memo first — wordIds are stable, so a repeated grade of the
+    // same headword never needs to re-parse.
+    const memoK = jitenWordRefMemoKey(text, reading);
+    const cached = jitenWordRefMemo.get(memoK);
+    if (cached) return cached;
+
+    const apiKey = getJitenGradingApiKey();
+    if (!apiKey) return null;
+    let payload;
+    try {
+      payload = await ipcRenderer.invoke('gsm-jiten-parse', {
+        text, apiKey, endpoint: JITEN_GRADING_PARSE_URL, timeout: 4000,
+      });
+    } catch (_) { return null; }
+    const groups = payload && Array.isArray(payload.tokens) ? payload.tokens : [];
+    const row = Array.isArray(groups[0]) ? groups[0] : [];
+    let best = null;
+    for (const tok of row) {
+      if (!tok || typeof tok !== 'object') continue;
+      const wordId = Number(tok.wordId);
+      if (!Number.isFinite(wordId)) continue;
+      const readingIndex = Number.isFinite(Number(tok.readingIndex)) ? Number(tok.readingIndex) : 0;
+      const span = (Number(tok.end) || 0) - (Number(tok.start) || 0);
+      if (!best || span > best.span) best = { wordId, readingIndex, span };
+    }
+    const result = best ? { wordId: best.wordId, readingIndex: best.readingIndex } : null;
+    if (result) jitenWordRefMemo.set(memoK, result);
+    return result;
+  }
+
+  // After a grade, optimistically recolor the overlay highlight based on what the
+  // grade *should* produce, instead of making an extra lookup-vocabulary API call.
+  // rating 1 (Again) → due, rating 2-4 → young/mature (we pick 'young' as safe),
+  // blacklist → blacklisted, neverForget → mastered.
+  function applyOptimisticHighlightState(wordId, readingIndex, gradeKind, rating, deck) {
+    const api = window.GsmJitenHighlight;
+    if (!api || typeof api.applyCardState !== 'function') return;
+    let classes;
+    if (gradeKind === 'state') {
+      if (deck === 'blacklist') {
+        classes = ['blacklisted'];
+      } else if (deck === 'neverForget') {
+        classes = ['mastered'];
+      } else {
+        classes = ['new'];
+      }
+    } else {
+      // review
+      if (rating === 1) {
+        classes = ['due'];
+      } else {
+        classes = ['young'];
+      }
+    }
+    try { api.applyCardState(wordId, readingIndex, classes); } catch (_) { /* ignore */ }
+  }
+
+  async function handleJitenGradeRequest(data, source) {
+    const requestId = data.requestId;
+    const reply = (payload) => {
+      if (!source || typeof source.postMessage !== 'function') return;
+      try { source.postMessage(Object.assign({ type: 'gsm-jiten-grade-result', requestId }, payload), '*'); } catch (_) { /* ignore */ }
+    };
+    try {
+      const apiKey = getJitenGradingApiKey();
+      if (!apiKey) { reply({ ok: false, error: 'JitenAPI key is not set' }); return; }
+      const ref = await resolveJitenWordRef(data.term, data.reading);
+      if (!ref) { reply({ ok: false, error: 'Could not resolve word in Jiten' }); return; }
+      const endpoint = JITEN_GRADING_PARSE_URL;
+      if (data.kind === 'review') {
+        await ipcRenderer.invoke('gsm-jiten-review', {
+          wordId: ref.wordId, readingIndex: ref.readingIndex, rating: Number(data.rating),
+          apiKey, endpoint, timeout: 5000,
+        });
+      } else if (data.kind === 'state') {
+        const deck = String(data.deck || '');
+        const action = String(data.action || 'add');
+        if (!deck) { reply({ ok: false, error: 'Missing deck' }); return; }
+        await ipcRenderer.invoke('gsm-jiten-set-vocabulary-state', {
+          wordId: ref.wordId, readingIndex: ref.readingIndex, state: `${deck}-${action}`,
+          apiKey, endpoint, timeout: 5000,
+        });
+      } else {
+        reply({ ok: false, error: 'Unknown grade kind' }); return;
+      }
+      reply({ ok: true, wordId: ref.wordId, readingIndex: ref.readingIndex });
+      // Optimistic highlight update — no extra API call needed. We know the target
+      // state from the grade action itself.
+      applyOptimisticHighlightState(ref.wordId, ref.readingIndex, data.kind, Number(data.rating), data.deck);
+    } catch (e) {
+      reply({ ok: false, error: String((e && e.message) || e) });
+    }
+  }
+
+  window.addEventListener('message', (event) => {
+    const data = event && event.data;
+    if (!data || typeof data !== 'object') return;
+    if (data.type === 'gsm-jiten-grading-config-request') {
+      requestJitenReaderGradingSettings();
+      pushJitenGradingConfig(event.source || undefined);
+      return;
+    }
+    if (data.type === 'gsm-jiten-grade') {
+      void handleJitenGradeRequest(data, event.source);
+    }
+  });
+
   const pendingSentenceRecycledStates = new Map();
   let display = null;
   let width = 2560;
@@ -2454,7 +2713,10 @@ background: rgba(202, 12, 12, 0.692);
           
           // Skip furigana rendering for supplemental results (background text)
           if (!isSupplemental) {
-            renderFuriganaForFrame(data.data, renderGeneration).catch((err) => {
+            renderFuriganaForFrame(data.data, renderGeneration, {
+              lineId: data.line_id != null ? data.line_id : null,
+              isFinal: data.is_final === true,
+            }).catch((err) => {
               console.warn('[Furigana] Async render failed:', err);
             });
           }
@@ -2899,13 +3161,16 @@ background: rgba(202, 12, 12, 0.692);
     return boxes;
   }
 
-  async function renderFuriganaForFrame(lines, renderGeneration) {
+  async function renderFuriganaForFrame(lines, renderGeneration, jitenMeta) {
+    // Remember the current lines even when highlighting is off, so flipping the
+    // toggle on can immediately highlight what's already on screen.
+    lastJitenHighlightLines = lines;
     // Jiten highlighting works independently via the extension's content script.
     // Trigger it regardless of furigana readiness.
     if (jitenHighlightingEnabled) {
       Promise.resolve().then(() => {
         if (renderGeneration !== overlayRenderGeneration) return;
-        applyJitenHighlightingForLines(lines);
+        applyJitenHighlightingForLines(lines, jitenMeta);
       });
     }
 
@@ -3223,8 +3488,18 @@ background: rgba(202, 12, 12, 0.692);
       jitenHighlightingEnabled = newsettings.jitenHighlightingEnabled !== false;
       if (window.GsmJitenHighlight) window.GsmJitenHighlight.setEnabled(jitenHighlightingEnabled);
     }
+    if (Object.prototype.hasOwnProperty.call(newsettings, "enableJitenReader")) {
+      jitenReaderEnabled = newsettings.enableJitenReader !== false;
+    }
+    if (Object.prototype.hasOwnProperty.call(newsettings, "showJitenGradingButtons")) {
+      showJitenGradingButtons = newsettings.showJitenGradingButtons !== false;
+    }
+    pushJitenGradingConfig();
     if (Object.prototype.hasOwnProperty.call(newsettings, "jitenHighlightOpacity")) {
       setJitenHighlightOpacity(newsettings.jitenHighlightOpacity);
+    }
+    if (Object.prototype.hasOwnProperty.call(newsettings, "jitenHighlightOffsetY")) {
+      setJitenHighlightOffsetY(newsettings.jitenHighlightOffsetY);
     }
     applyFuriganaStyleSettings({
       furiganaScale: newsettings.furiganaScale,
@@ -3437,14 +3712,33 @@ background: rgba(202, 12, 12, 0.692);
         case "showReadyIndicator":
           shouldShowReadyIndicator = value !== false;
           break;
-        case "jitenHighlightingEnabled":
+        case "jitenHighlightingEnabled": {
+          const wasEnabled = jitenHighlightingEnabled;
           jitenHighlightingEnabled = value !== false;
           if (window.GsmJitenHighlight) {
             window.GsmJitenHighlight.setEnabled(jitenHighlightingEnabled);
+            // Toggling on should feel instant: re-parse and highlight the text
+            // already on screen instead of waiting for the next OCR update.
+            if (jitenHighlightingEnabled && !wasEnabled) {
+              applyJitenHighlightingForLines(lastJitenHighlightLines);
+            }
           }
+          pushJitenGradingConfig();
+          break;
+        }
+        case "enableJitenReader":
+          jitenReaderEnabled = value !== false;
+          pushJitenGradingConfig();
+          break;
+        case "showJitenGradingButtons":
+          showJitenGradingButtons = value !== false;
+          pushJitenGradingConfig();
           break;
         case "jitenHighlightOpacity":
           setJitenHighlightOpacity(value);
+          break;
+        case "jitenHighlightOffsetY":
+          setJitenHighlightOffsetY(value);
           break;
         case "showFurigana":
           showFurigana = value;

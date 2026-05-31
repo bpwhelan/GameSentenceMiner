@@ -5125,6 +5125,17 @@ class GamepadHandler {
       return { x, y, block: null, blockIndex: -1, constrained: false };
     }
 
+    // Only physically contain the cursor when there is a single block. With
+    // multiple blocks the cursor must roam freely across the whole layout;
+    // clamping to the nearest block here would otherwise snap every analog
+    // step back onto the current block and prevent crossing into neighbors.
+    if (rects.length > 1) {
+      const containingRect = rects.find(rect => this.isPointInRect(x, y, rect));
+      return containingRect
+        ? { x, y, block: containingRect.block, blockIndex: containingRect.index, constrained: false }
+        : { x, y, block: null, blockIndex: -1, constrained: false };
+    }
+
     const currentRect = rects.find(rect => rect.index === this.currentBlockIndex && this.isPointInRect(x, y, rect));
     if (currentRect) {
       return { x, y, block: currentRect.block, blockIndex: currentRect.index, constrained: false };
