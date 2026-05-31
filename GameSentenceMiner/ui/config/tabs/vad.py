@@ -42,6 +42,10 @@ def build_vad_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "vad", "use_vad_filter_for_whisper"),
         window.use_vad_filter_for_whisper_check,
     )
+    models_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "vad", "preload_vad_model"),
+        window.vad_preload_model_check,
+    )
     models_group.setLayout(models_layout)
     layout.addRow(models_group)
 

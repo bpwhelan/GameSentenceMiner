@@ -150,8 +150,19 @@ class VADSystem:
                 self.initialized = False
                 logger.exception("Error initializing VAD processors, will not use them." + str(e))
 
+    def _preload_models(self):
+        try:
+            if get_config().vad.is_whisper() and self.whisper:
+                self.whisper._ensure_model()
+            if get_config().vad.is_silero() and self.silero:
+                self.silero._ensure_model()
+        except Exception as e:
+            logger.exception("Error pre-loading VAD models: " + str(e))
+
     def init(self):
         self.ensure_initialized()
+        if get_config().vad.preload_vad_model:
+            run_new_thread(self._preload_models)
         # if get_config().vad.is_vosk():
         #     if not self.vosk:
         #         self.vosk = VoskVADProcessor()

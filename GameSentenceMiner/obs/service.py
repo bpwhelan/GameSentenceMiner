@@ -584,6 +584,16 @@ class OBSService:
         if output_active is None:
             return
 
+        # Only the process that manages OBS outputs (the main GSM process, which
+        # connects with check_output=True) should react to replay-buffer state
+        # changes. Helper processes such as the OCR process connect with
+        # check_output=False purely for screenshots; they must not log
+        # "stopped outside GSM" or touch auto-start state they never use.
+        if not self.check_output:
+            with self._state_lock:
+                self.state.replay_buffer_active = bool(output_active)
+            return
+
         now = time.monotonic()
         expected = self._replay_buffer_action_pending
         recent_internal_action = (

@@ -29,7 +29,12 @@
 (function (root) {
   'use strict';
 
+  // All SRS states Jiten can assign to a word.
   const JITEN_STATE_CLASSES = ['new', 'young', 'mature', 'mastered', 'blacklisted', 'due'];
+
+  // States that mean the user already knows (or has chosen to ignore) the word.
+  // These get NO highlight — only words worth studying are surfaced.
+  const KNOWN_STATE_CLASSES = ['mature', 'mastered', 'blacklisted'];
 
   const LAYER_ID = 'jiten-highlight-layer';
   const SEGMENT_CLASS = 'gsm-jiten-hl';
@@ -341,6 +346,11 @@
   function getSegmentClassesForSpan(span) {
     const cl = span.classList;
     if (cl.contains('unparsed') || cl.contains('misparsed')) return null;
+
+    // Known/ignored words get no highlight at all, regardless of other flags.
+    for (const s of KNOWN_STATE_CLASSES) {
+      if (cl.contains(s)) return null;
+    }
 
     let state = null;
     for (const s of JITEN_STATE_CLASSES) {

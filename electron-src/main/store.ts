@@ -64,7 +64,7 @@ interface OCRConfig {
     send_to_clipboard_auto?: boolean | null;
     send_to_clipboard_menu?: boolean | null;
     send_to_clipboard_area_select?: boolean | null;
-    send_to_websocket?: boolean;
+
     keep_newline: boolean;
     keep_newline_auto?: boolean | null;
     keep_newline_menu?: boolean | null;
@@ -241,7 +241,7 @@ export const store = new Store<StoreConfig>({
             send_to_clipboard_auto: null,
             send_to_clipboard_menu: null,
             send_to_clipboard_area_select: null,
-            send_to_websocket: false,
+
             scanRate: 0.5,
             keep_newline: false,
             keep_newline_auto: null,

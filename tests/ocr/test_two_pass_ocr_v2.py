@@ -424,7 +424,9 @@ def test_v2_line_wrap_dropped_prefix_does_not_flush_early():
     ctrl = _make_queued_controller(queued)
     line1 = "ヒルコ『僕の願いが叶えば、みんな、幸せになれるんだ。僕は"
 
-    ctrl.handle_ocr_result("ヒルコ『僕", ["ヒルコ『僕"], _make_time(0), _image_with_text("x"), crop_coords=(10, 10, 120, 40))
+    ctrl.handle_ocr_result(
+        "ヒルコ『僕", ["ヒルコ『僕"], _make_time(0), _image_with_text("x"), crop_coords=(10, 10, 120, 40)
+    )
     ctrl.handle_ocr_result(line1, [line1], _make_time(1), _image_with_text("x"), crop_coords=(10, 10, 560, 40))
     # Wrap frame: OCR dropped line 1, only the lower line is read (disjoint).
     drop = "はもう絶対、失敗な"

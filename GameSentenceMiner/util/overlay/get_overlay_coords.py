@@ -474,6 +474,77 @@ class OverlayProcessor:
         """Checks if a line was used before based on the backlog."""
         return is_recycled_line_detection_enabled() and is_line_recycled(line_text)
 
+    # Stabilization tuning. The sentence-convergence check is fuzzy rather than
+    # exact-substring so a single OCR misread (CJK variant glyphs like 粛 vs 肃,
+    # look-alike kana, etc.) doesn't force extra retries. The guards below keep
+    # it from firing on unrelated or partial text (i.e. avoid false positives).
+    _STABILIZE_MIN_FUZZY_LEN = 6  # shorter sentences require exact containment
+    _STABILIZE_MISREADS_PER_CHARS = 12  # tolerate ~1 misread per N sentence chars
+
+    def _is_overlay_text_stabilized(
+        self,
+        text_str: str,
+        last_result_flattened: str,
+        normalized_sentence_to_check: Optional[str],
+    ) -> bool:
+        """Decide whether an OCR pass has settled enough to stop retrying.
+
+        Two independent signals each count as stable:
+
+        1. Consecutive agreement: this pass is byte-for-byte identical to the
+           previous pass, so OCR is no longer changing.
+        2. Sentence convergence: the known texthook sentence is present in this
+           pass. This is matched fuzzily so a handful of variant-character
+           misreads don't reject an otherwise-correct read, while a
+           length-aware similarity floor (plus a minimum length and a length
+           guard) prevents short/partial fragments from matching spuriously.
+        """
+        if not text_str:
+            return False
+
+        # 1. Two consecutive passes agree exactly.
+        if last_result_flattened and text_str == last_result_flattened:
+            return True
+
+        # 2. Convergence on the known sentence.
+        if not normalized_sentence_to_check:
+            return False
+
+        normalized_text = normalize_text_for_comparison(text_str)
+        if not normalized_text:
+            return False
+
+        # Exact containment is unambiguously stable.
+        if normalized_sentence_to_check in normalized_text:
+            return True
+
+        sentence_len = len(normalized_sentence_to_check)
+        # Too short to fuzzy-match without risking false positives.
+        if sentence_len < self._STABILIZE_MIN_FUZZY_LEN:
+            return False
+
+        # Tolerate ~1 misread per N chars, at least one.
+        allowed_misreads = max(1, sentence_len // self._STABILIZE_MISREADS_PER_CHARS)
+
+        # The OCR text must be long enough to actually contain the sentence
+        # (minus tolerated misreads); a much shorter fragment hasn't converged
+        # even though partial matching would otherwise score it highly.
+        if len(normalized_text) < sentence_len - allowed_misreads:
+            return False
+
+        # partial_ratio finds the best-aligned window of the sentence within the
+        # OCR text. Each misread is a substitution, costing 2 Indel ops, so its
+        # normalized score over a full-length window is 1 - misreads/sentence_len.
+        # Derive the threshold from the tolerance, with a small epsilon so the
+        # exactly-at-threshold case isn't lost to float rounding.
+        threshold = (1 - allowed_misreads / sentence_len) * 100 - 1e-6
+        score = fuzz.partial_ratio(
+            normalized_sentence_to_check,
+            normalized_text,
+            score_cutoff=threshold,
+        )
+        return score >= threshold
+
     def _build_overlay_word_coordinates_payload(
         self,
         overlay_data: List[Dict[str, Any]],
@@ -1800,18 +1871,13 @@ class OverlayProcessor:
                 op_start = time.time()
                 text_str = "".join([t for t in text if self._matches_overlay_language_filter(t, self.regex)])
                 self._log_timing(op_start, "Text filtering with regex")
-                stabilized = False
-                if (
-                    text_str
-                    and last_result_flattened
-                    and text_str == last_result_flattened
-                    or (
-                        normalized_sentence_to_check
-                        and normalized_sentence_to_check in normalize_text_for_comparison(text_str)
+                stabilized = self._is_overlay_text_stabilized(
+                    text_str, last_result_flattened, normalized_sentence_to_check
+                )
+                if not stabilized:
+                    logger.background(
+                        f"Text not stabilized on try {i + 1}: '{text_str}' (sentence_to_check: '{normalized_sentence_to_check}')"
                     )
-                ):
-                    # logger.background(f"Text stabilized after {i+1} tries: {text_str}")
-                    stabilized = True
                 last_result_flattened = text_str
                 # logger.display(f"Local OCR found text: {text_str}")
 

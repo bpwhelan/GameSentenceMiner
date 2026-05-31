@@ -232,6 +232,22 @@ if is_windows():
             ("dwFlags", wintypes.DWORD),
         ]
 
+    # Cursor visibility (used to detect games that hide the OS cursor)
+    class CURSORINFO(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", wintypes.DWORD),
+            ("flags", wintypes.DWORD),
+            ("hCursor", wintypes.HANDLE),
+            ("ptScreenPos", POINT),
+        ]
+
+    user32.GetCursorInfo.argtypes = [ctypes.POINTER(CURSORINFO)]
+    user32.GetCursorInfo.restype = wintypes.BOOL
+
+    # CURSORINFO.flags values
+    CURSOR_SHOWING = 0x00000001  # cursor is visible
+    CURSOR_SUPPRESSED = 0x00000002  # hidden due to touch input (not a game hide)
+
 
 def get_window_client_physical_geometry(
     hwnd: int,
@@ -1125,6 +1141,11 @@ class WindowStateMonitor:
         self.max_poll_interval = 1.0
         self.last_obs_check_time = 0
         self.last_is_fullscreen: bool = False
+        # Cursor-hidden detection (games that capture the mouse). Debounced so a
+        # brief hide during a menu/scene transition doesn't trigger the nudge.
+        self.last_cursor_hidden: bool = False
+        self.cursor_hidden_since: Optional[float] = None
+        self.cursor_hidden_confirm_seconds: float = 3.0
         self.last_scene_name = None
         self.last_target_scene_name = None
         self.last_obs_dimensions_time = 0
@@ -1949,6 +1970,46 @@ class WindowStateMonitor:
         if websocket_manager.has_clients(ID_OVERLAY):
             await websocket_manager.send(ID_OVERLAY, json.dumps(payload))
 
+    def _is_cursor_hidden(self) -> bool:
+        """Return True if the OS mouse cursor is currently hidden globally.
+
+        Games that capture the mouse (mouse-look, etc.) hide it via
+        ``ShowCursor(FALSE)``, which clears the ``CURSOR_SHOWING`` flag returned
+        by ``GetCursorInfo``. This is a global/desktop state with no per-window
+        query, so callers must gate on the game being focused to avoid false
+        positives (e.g. another app auto-hiding the cursor while typing).
+
+        Games that instead swap in a fully transparent cursor bitmap keep the
+        ``CURSOR_SHOWING`` flag set and are not detected here.
+        """
+        if not is_windows() or not user32:
+            return False
+        try:
+            info = CURSORINFO()
+            info.cbSize = ctypes.sizeof(CURSORINFO)
+            if not user32.GetCursorInfo(ctypes.byref(info)):
+                return False
+            # flags: 0 = hidden, CURSOR_SHOWING = visible, CURSOR_SUPPRESSED = touch.
+            return not bool(info.flags & CURSOR_SHOWING)
+        except Exception:
+            return False
+
+    def _update_cursor_hidden_state(self, raw_hidden: bool, now: float) -> bool:
+        """Debounce raw cursor-hidden samples into a confirmed state.
+
+        Requires the cursor to stay hidden continuously for
+        ``cursor_hidden_confirm_seconds`` (sampled across multiple polls) before
+        reporting True, so transient hides during transitions don't fire the nudge.
+        Once confirmed it stays True until the cursor reappears.
+        """
+        if not raw_hidden:
+            self.cursor_hidden_since = None
+            return False
+        if self.cursor_hidden_since is None:
+            self.cursor_hidden_since = now
+            return False
+        return (now - self.cursor_hidden_since) >= self.cursor_hidden_confirm_seconds
+
     async def check_and_send(self):
         """Checks window state and broadcasts if changed."""
         if not is_windows():
@@ -2088,20 +2149,32 @@ class WindowStateMonitor:
 
         fullscreen_changed = is_fullscreen != self.last_is_fullscreen
 
-        if current_state != self.last_state or magpie_changed or fullscreen_changed or window_moved_or_resized:
+        # Detect the game hiding the OS cursor (mouse-look games, etc). Only
+        # meaningful while the game is focused; debounced over a few seconds so
+        # brief hides during transitions don't trigger the nudge.
+        raw_cursor_hidden = current_state == "active" and self._is_cursor_hidden()
+        cursor_hidden = self._update_cursor_hidden_state(raw_cursor_hidden, now)
+        cursor_hidden_changed = cursor_hidden != self.last_cursor_hidden
+
+        if (
+            current_state != self.last_state
+            or magpie_changed
+            or fullscreen_changed
+            or window_moved_or_resized
+            or cursor_hidden_changed
+        ):
             logger.debug(
-                f"Window state changed: {self.last_state} -> {current_state} (game: {game_name_ref}, fullscreen: {is_fullscreen})"
+                f"Window state changed: {self.last_state} -> {current_state} "
+                f"(game: {game_name_ref}, fullscreen: {is_fullscreen}, cursor_hidden: {cursor_hidden})"
             )
             self.last_state = current_state
             self.last_is_fullscreen = is_fullscreen
+            self.last_cursor_hidden = cursor_hidden
 
-            # Determine if we should recommend manual mode
-            # Recommend when: fullscreen detected AND overlay config shows manual mode is OFF
-            overlay_cfg = get_overlay_config()
-            recommend_manual = is_fullscreen and current_state in [
-                "active",
-                "background",
-            ]
+            # Recommend manual mode only when the game has hidden the OS cursor,
+            # which makes the automatic overlay hard to use. (cursor_hidden is
+            # already gated on the game being focused/active.)
+            recommend_manual = cursor_hidden
 
             payload = {
                 "type": "window_state",
@@ -2109,6 +2182,7 @@ class WindowStateMonitor:
                 "game": game_name_ref,
                 "magpie_info": self.magpie_info,
                 "is_fullscreen": is_fullscreen,
+                "cursor_hidden": cursor_hidden,
                 "recommend_manual_mode": recommend_manual,
                 "target_window_rect": self._build_window_rect_payload(current_rect),
                 "target_client_rect": self._build_client_rect_payload(),

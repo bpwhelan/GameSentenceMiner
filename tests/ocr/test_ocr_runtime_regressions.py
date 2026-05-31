@@ -493,53 +493,6 @@ def test_obs_screenshot_thread_capture_original_size_falls_back_when_source_dime
     assert thread.get_capture_original_size(2560, 1440) == {"width": 2560, "height": 1440}
 
 
-def test_websocket_server_buffers_until_first_client_connects():
-    server = gsm_ocr.WebsocketServerThread(read=True)
-    message = json.dumps({"sentence": "hello"})
-
-    class FakeClient:
-        def __init__(self):
-            self.messages = []
-
-        async def send(self, payload):
-            self.messages.append(json.loads(payload))
-
-    asyncio.run(server._queue_or_send_message(message))
-    assert list(server._pending_messages) == [message]
-
-    client = FakeClient()
-    asyncio.run(server._register_client(client))
-
-    assert client.messages == [{"sentence": "hello"}]
-    assert list(server._pending_messages) == []
-
-    server.clients.clear()
-    asyncio.run(server._queue_or_send_message(json.dumps({"sentence": "later"})))
-    assert list(server._pending_messages) == []
-
-
-def test_send_result_closed_websocket_loop_does_not_leak_coroutine_warning(monkeypatch, recwarn):
-    server = gsm_ocr.WebsocketServerThread(read=True)
-    loop = asyncio.new_event_loop()
-    server._loop = loop
-    server._event.set()
-    loop.close()
-
-    monkeypatch.setattr(gsm_ocr, "websocket_server_thread", server)
-    monkeypatch.setattr(gsm_ocr, "get_ocr_send_to_clipboard", lambda _source: False)
-    monkeypatch.setattr(gsm_ocr, "is_windows", lambda: False)
-
-    asyncio.run(gsm_ocr.send_result("hello", datetime.now()))
-    gc.collect()
-
-    leaked_coroutine_warnings = [
-        warning
-        for warning in recwarn
-        if warning.category is RuntimeWarning and "_queue_or_send_message" in str(warning.message)
-    ]
-    assert leaked_coroutine_warnings == []
-
-
 def test_apply_ipc_config_reload_refreshes_hotkeys_and_clipboard_toggle(monkeypatch):
     events = []
 

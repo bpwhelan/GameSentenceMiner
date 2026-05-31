@@ -186,6 +186,16 @@ def is_line_recycled(line_text: str) -> bool:
     return normalized_line in game_log.previous_lines
 
 
+CONTAINMENT_MIN_RATIO = 0.3
+CONTAINMENT_MIN_CHARS = 5
+
+
+def _is_contained(needle: str, haystack: str) -> bool:
+    if needle not in haystack:
+        return False
+    return len(needle) >= CONTAINMENT_MIN_CHARS or len(needle) >= CONTAINMENT_MIN_RATIO * len(haystack)
+
+
 # Do not use partial_ratio here, ever
 def lines_match(texthooker_sentence, anki_sentence, similarity_threshold=80) -> bool:
     raw_texthooker_sentence = "" if texthooker_sentence is None else str(texthooker_sentence)
@@ -205,13 +215,9 @@ def lines_match(texthooker_sentence, anki_sentence, similarity_threshold=80) -> 
 
     similarity = rapidfuzz.fuzz.ratio(texthooker_sentence, anki_sentence)
     # logger.debug(f"Comparing sentences: '{texthooker_sentence}' and '{anki_sentence}' - Similarity: {similarity}")
-    # if texthooker_sentence in anki_sentence:
-    #     logger.debug(f"One contains the other: {texthooker_sentence} in {anki_sentence} - Similarity: {similarity}")
-    # elif anki_sentence in texthooker_sentence:
-    #     logger.debug(f"One contains the other: {anki_sentence} in {texthooker_sentence} - Similarity: {similarity}")
     return (
-        (anki_sentence in texthooker_sentence and len(anki_sentence) >= 0.3 * len(texthooker_sentence))
-        or (texthooker_sentence in anki_sentence and len(texthooker_sentence) >= 0.3 * len(anki_sentence))
+        _is_contained(anki_sentence, texthooker_sentence)
+        or _is_contained(texthooker_sentence, anki_sentence)
         or (similarity >= similarity_threshold)
     )
 

@@ -184,16 +184,20 @@
 						line.text += '\n';
 					}
 					$lineData$[line.index] = line;
-					tick().then(() => {
-						const behavior = $enableLineAnimation$ ? 'smooth' : 'auto';
-						paragraph?.scrollIntoView({
-							behavior,
-							block: $reverseLineOrder$ ? 'start' : 'end',
-							inline: isVerticalDisplay ? 'end' : 'nearest',
+					// Only scroll if this line is still the last one when the translation
+					// comes back - translating an earlier line shouldn't yank the view.
+					if (isLast) {
+						tick().then(() => {
+							const behavior = $enableLineAnimation$ ? 'smooth' : 'auto';
+							paragraph?.scrollIntoView({
+								behavior,
+								block: $reverseLineOrder$ ? 'start' : 'end',
+								inline: isVerticalDisplay ? 'end' : 'nearest',
+							});
+							// Scroll a bit more down
+							(pipWindow || window).scrollBy(0, 50);
 						});
-						// Scroll a bit more down
-						(pipWindow || window).scrollBy(0, 50);
-					});
+					}
 				}
 			})
 			.catch((error) => {

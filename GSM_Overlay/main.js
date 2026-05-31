@@ -325,8 +325,8 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "showTextIndicators": true,
   "fadeTextIndicators": false,
   "showLiveStats": true,
-  "liveStatsDisplayMode": "new-line",
-  "liveStatsLayout": "stacked",
+  "liveStatsDisplayModeV2": "always",
+  "liveStatsLayoutV2": "one-line",
   "liveStatsAutoHideSeconds": 5,
   "liveStatsPositionMode": "active-window",
   "liveStatsFields": {
@@ -355,10 +355,9 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "texthookerUrl": DEFAULT_TEXTHOOKER_URL,
   "enableJitenReader": true,
   // Jiten Reader style SRS highlighting on the overlay text
-  "jitenHighlightingEnabled": true,
+  "jitenHighlightingEnabled": false,
   "jitenHighlightOpacity": 0.7,
   // Gamepad navigation settings
-  // TODO CHANGE THIS TO FALSE BEFORE RELEASE
   "gamepadEnabled": true,
   "gamepadActivationMode": "modifier", // "modifier" or "toggle"
   "gamepadModifierButton": 4, // LB
@@ -712,12 +711,12 @@ function normalizeTrackedGameWindowState(value) {
 
 function normalizeLiveStatsDisplayMode(value) {
   const normalized = String(value || "").trim().toLowerCase();
-  return VALID_LIVE_STATS_DISPLAY_MODES.has(normalized) ? normalized : "new-line";
+  return VALID_LIVE_STATS_DISPLAY_MODES.has(normalized) ? normalized : "always";
 }
 
 function normalizeLiveStatsLayout(value) {
   const normalized = String(value || "").trim().toLowerCase();
-  return VALID_LIVE_STATS_LAYOUTS.has(normalized) ? normalized : "stacked";
+  return VALID_LIVE_STATS_LAYOUTS.has(normalized) ? normalized : "one-line";
 }
 
 function normalizeLiveStatsPositionMode(value) {
@@ -779,15 +778,15 @@ function normalizeLiveStatsSettings(settings) {
     changed = true;
   }
 
-  const normalizedDisplayMode = normalizeLiveStatsDisplayMode(settings.liveStatsDisplayMode);
-  if (settings.liveStatsDisplayMode !== normalizedDisplayMode) {
-    settings.liveStatsDisplayMode = normalizedDisplayMode;
+  const normalizedDisplayMode = normalizeLiveStatsDisplayMode(settings.liveStatsDisplayModeV2);
+  if (settings.liveStatsDisplayModeV2 !== normalizedDisplayMode) {
+    settings.liveStatsDisplayModeV2 = normalizedDisplayMode;
     changed = true;
   }
 
-  const normalizedLayout = normalizeLiveStatsLayout(settings.liveStatsLayout);
-  if (settings.liveStatsLayout !== normalizedLayout) {
-    settings.liveStatsLayout = normalizedLayout;
+  const normalizedLayout = normalizeLiveStatsLayout(settings.liveStatsLayoutV2);
+  if (settings.liveStatsLayoutV2 !== normalizedLayout) {
+    settings.liveStatsLayoutV2 = normalizedLayout;
     changed = true;
   }
 
@@ -944,6 +943,9 @@ function publishManualHotkeyRuntimeStatus() {
   }
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.webContents.send("settings-updated", status);
+  }
+  if (manualModeRecommendationWindow && !manualModeRecommendationWindow.isDestroyed()) {
+    manualModeRecommendationWindow.webContents.send("settings-updated", status);
   }
 }
 
@@ -2219,6 +2221,142 @@ function isManualMode() {
     return true;
   }
   return userSettings.manualMode;
+}
+
+// --- Manual-mode recommendation (custom window) ---
+// When a game may be hiding the OS cursor the automatic overlay is awkward to use,
+// so we surface a small custom window reusing the shared Manual Mode settings card
+// (manual-mode-recommendation.html). Shown at most once per game per session, and
+// permanently silenced per game once the user opts out.
+const manualModeRecommendationPromptedGames = new Set();
+let manualModeRecommendationWindow = null;
+
+function getDismissedManualModeRecommendations() {
+  return Array.isArray(userSettings.dismissedFullscreenRecommendations)
+    ? userSettings.dismissedFullscreenRecommendations
+    : [];
+}
+
+function rememberDismissedManualModeRecommendation(game) {
+  const dismissed = getDismissedManualModeRecommendations();
+  if (game && !dismissed.includes(game)) {
+    setOverlaySettingValue("dismissedFullscreenRecommendations", [...dismissed, game]);
+    saveSettings();
+  }
+}
+
+function buildManualModeRecommendationPayload(game) {
+  const runtime = getManualHotkeyRuntimeStatus();
+  return {
+    game: game || "",
+    initial: {
+      manualMode: userSettings.manualMode,
+      manualModeType: userSettings.manualModeType,
+      manualModeInactiveBehavior: userSettings.manualModeInactiveBehavior,
+      manualModeRescanOnShow: userSettings.manualModeRescanOnShow,
+      showHotkey: userSettings.showHotkey,
+    },
+    runtimeState: {
+      backend: runtime.manualHotkeyBackend,
+      backendReason: runtime.manualHotkeyBackendReason,
+      keyboardAvailable: runtime.manualHotkeyKeyboardAvailable,
+      keyboardError: runtime.manualHotkeyKeyboardError,
+    },
+  };
+}
+
+// Center on the same display as the overlay so the prompt appears where the user is.
+function getOverlayDisplayWorkArea() {
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      return screen.getDisplayMatching(mainWindow.getBounds()).workArea;
+    }
+  } catch (err) {
+    console.error("Failed to resolve overlay display for recommendation window:", err);
+  }
+  return screen.getPrimaryDisplay().workArea;
+}
+
+// Plays the standard Windows "Exclamation" system sound (locale-independent).
+function playSystemWarningSound() {
+  if (!isWindows()) return;
+  try {
+    const { execFile } = require("child_process");
+    execFile(
+      "powershell",
+      ["-NoProfile", "-NonInteractive", "-Command", "[System.Media.SystemSounds]::Exclamation.Play()"],
+      { windowsHide: true },
+      (err) => {
+        if (err) console.error("Failed to play system warning sound:", err);
+      }
+    );
+  } catch (err) {
+    console.error("Failed to play system warning sound:", err);
+  }
+}
+
+function maybeShowManualModeRecommendation(game) {
+  if (!isWindows()) return;
+  if (isManualMode()) return;
+
+  const gameKey = game || "";
+  if (getDismissedManualModeRecommendations().includes(gameKey)) return;
+
+  // Already showing — just refocus it (and retarget the game it's about).
+  if (manualModeRecommendationWindow && !manualModeRecommendationWindow.isDestroyed()) {
+    manualModeRecommendationWindow.focus();
+    return;
+  }
+
+  if (manualModeRecommendationPromptedGames.has(gameKey)) return;
+  manualModeRecommendationPromptedGames.add(gameKey);
+
+  const workArea = getOverlayDisplayWorkArea();
+  const winWidth = 600;
+  const winHeight = 800;
+
+  manualModeRecommendationWindow = new BrowserWindow({
+    width: winWidth,
+    height: winHeight,
+    x: Math.round(workArea.x + (workArea.width - winWidth) / 2),
+    y: Math.round(workArea.y + (workArea.height - winHeight) / 2),
+    icon: getOverlayAppIconPath(),
+    resizable: true,
+    alwaysOnTop: true,
+    show: false, // shown on did-finish-load to avoid a blank flash
+    title: "Manual Mode Recommended",
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+  manualModeRecommendationWindow.removeMenu();
+  // Sit above even fullscreen games and grab attention aggressively.
+  manualModeRecommendationWindow.setAlwaysOnTop(true, "screen-saver");
+
+  const payload = buildManualModeRecommendationPayload(gameKey);
+  loadOverlayPage(manualModeRecommendationWindow, "manual-mode-recommendation.html");
+  manualModeRecommendationWindow.webContents.once("did-finish-load", () => {
+    if (!manualModeRecommendationWindow || manualModeRecommendationWindow.isDestroyed()) return;
+    playSystemWarningSound();
+    manualModeRecommendationWindow.webContents.send("preload-manual-mode-recommendation", payload);
+    manualModeRecommendationWindow.show();
+    manualModeRecommendationWindow.moveTop();
+    manualModeRecommendationWindow.focus();
+    // Nudge the OS into actually handing over foreground/focus to the window.
+    manualModeRecommendationWindow.flashFrame(true);
+    manualModeRecommendationWindow.webContents.focus();
+  });
+
+  manualModeRecommendationWindow.once("focus", () => {
+    if (manualModeRecommendationWindow && !manualModeRecommendationWindow.isDestroyed()) {
+      manualModeRecommendationWindow.flashFrame(false);
+    }
+  });
+
+  manualModeRecommendationWindow.on("closed", () => {
+    manualModeRecommendationWindow = null;
+  });
 }
 
 function shouldKeepOverlayVisibleWhenManualInactive() {
@@ -5124,7 +5262,20 @@ app.whenReady().then(async () => {
     // TODO: Implement TTS functionality
   });
 
-  ipcMain.on("window-state-changed", (event, { state, game, magpieActive, magpieInfo, isFullscreen, recommendManualMode }) => {
+  ipcMain.on("manual-mode-recommendation-dismiss", (event, { game } = {}) => {
+    rememberDismissedManualModeRecommendation(game || "");
+    if (manualModeRecommendationWindow && !manualModeRecommendationWindow.isDestroyed()) {
+      manualModeRecommendationWindow.close();
+    }
+  });
+
+  ipcMain.on("manual-mode-recommendation-close", () => {
+    if (manualModeRecommendationWindow && !manualModeRecommendationWindow.isDestroyed()) {
+      manualModeRecommendationWindow.close();
+    }
+  });
+
+  ipcMain.on("window-state-changed", (event, { state, game, magpieActive, magpieInfo, isFullscreen, cursorHidden, recommendManualMode }) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
     if (isTexthookerMode) return;
@@ -5143,11 +5294,11 @@ app.whenReady().then(async () => {
     // Send game state to renderer to control action panel visibility
     mainWindow.webContents.send("game-state", normalizedWindowState);
 
-    // Forward fullscreen recommendation to renderer if applicable
-    // if (recommendManualMode && !isManualMode()) {
-    //   console.log("Fullscreen detected - recommending manual mode");
-    //   mainWindow.webContents.send("recommend-manual-mode", { game });
-    // }
+    // When the game may be hiding the OS cursor the automatic overlay is awkward to
+    // use, so nudge toward manual mode via the custom recommendation window.
+    if (recommendManualMode && !isManualMode()) {
+      maybeShowManualModeRecommendation(game);
+    }
 
     switch (normalizedWindowState) {
       case "active":
@@ -5383,9 +5534,9 @@ app.whenReady().then(async () => {
       value = normalizeManualModeType(value);
     } else if (key === "manualModeInactiveBehavior") {
       value = normalizeManualModeInactiveBehavior(value);
-    } else if (key === "liveStatsDisplayMode") {
+    } else if (key === "liveStatsDisplayModeV2") {
       value = normalizeLiveStatsDisplayMode(value);
-    } else if (key === "liveStatsLayout") {
+    } else if (key === "liveStatsLayoutV2") {
       value = normalizeLiveStatsLayout(value);
     } else if (key === "liveStatsAutoHideSeconds") {
       value = normalizeLiveStatsAutoHideSeconds(value);
