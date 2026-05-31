@@ -7,14 +7,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-and-publish-python:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    outputs:
-      package_name: ${{ steps.package_meta.outputs.package_name }}
-      package_version: ${{ steps.package_meta.outputs.package_version }}
-      should_publish: ${{ steps.check_version.outputs.should_publish }}
 
     steps:
       - name: Checkout repository
@@ -87,53 +83,25 @@ jobs:
               out.write(f"should_publish={should_publish}\n")
           PY
 
-      - name: Install build dependencies
+      - name: Install build and publish dependencies
         if: steps.check_version.outputs.should_publish == 'true'
         run: |
-          python -m pip install --upgrade setuptools wheel build
+          python -m pip install --upgrade setuptools wheel twine build
 
       - name: Build the package
         if: steps.check_version.outputs.should_publish == 'true'
         run: |
           python -m build
 
-      - name: Upload build artifacts
-        if: steps.check_version.outputs.should_publish == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-          if-no-files-found: error
-
-      - name: Report skipped publish
-        if: steps.check_version.outputs.should_publish == 'false'
-        run: |
-          echo "Publish skipped because version ${{ steps.package_meta.outputs.package_version }} already exists on PyPI."
-
-  publish-pypi:
-    needs: build
-    if: needs.build.outputs.should_publish == 'true'
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/project/${{ needs.build.outputs.package_name }}/${{ needs.build.outputs.package_version }}/
-    permissions:
-      contents: read
-
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-      - name: Install publish dependencies
-        run: |
-          python -m pip install --upgrade twine
-
       - name: Publish package to PyPI
+        if: steps.check_version.outputs.should_publish == 'true'
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           twine upload dist/*
+
+      - name: Report skipped publish
+        if: steps.check_version.outputs.should_publish == 'false'
+        run: |
+          echo "Publish skipped because version ${{ steps.package_meta.outputs.package_version }} already exists on PyPI."
