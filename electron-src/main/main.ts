@@ -1243,6 +1243,16 @@ function runGSM(command: string, args: string[]): Promise<void> {
             if (msg.function === 'install_progress') {
                 handleBackendInstallProgressMessage(msg.data);
             }
+            if (msg.function === 'start_obs') {
+                // The backend asks us to launch OBS once its runtime is in place.
+                // On a fresh install OBS doesn't exist yet when Electron first tries
+                // to launch it at startup, so this is how the launch actually happens.
+                void launchOBSFromElectron({ reason: 'backend start_obs request' }).catch(
+                    (launchError) => {
+                        console.warn('Failed to launch OBS on backend request:', launchError);
+                    }
+                );
+            }
             if (msg.function === 'initialized') {
                 markPythonIPCConnected();
                 updateInstallStage(

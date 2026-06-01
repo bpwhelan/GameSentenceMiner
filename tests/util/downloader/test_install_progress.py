@@ -1,3 +1,4 @@
+import os
 import zipfile
 
 import pytest
@@ -83,6 +84,31 @@ def test_download_obs_if_needed_returns_skipped_for_existing_install(monkeypatch
     monkeypatch.setattr(download_tools, "get_obs_path", lambda: str(obs_exe))
 
     assert download_tools.download_obs_if_needed(stage_id="obs") == "skipped"
+
+
+def test_install_scene_switcher_remaps_release_layout_to_obs_portable(tmp_path):
+    # The release zip ships <root>/bin/64bit/* and <root>/data/*; OBS portable needs
+    # the plugin under obs-plugins/64bit and its data under data/obs-plugins/<name>.
+    extract_dir = tmp_path / "extracted"
+    plugin_root = extract_dir / "advanced-scene-switcher"
+    bin_64bit = plugin_root / "bin" / "64bit"
+    data_dir = plugin_root / "data" / "locale"
+    bin_64bit.mkdir(parents=True)
+    data_dir.mkdir(parents=True)
+    (bin_64bit / "advanced-scene-switcher.dll").write_bytes(b"dll")
+    (bin_64bit / "advanced-scene-switcher-plugins").mkdir()
+    (bin_64bit / "advanced-scene-switcher-plugins" / "base.dll").write_bytes(b"base")
+    (data_dir / "en-US.ini").write_bytes(b"locale")
+
+    obs_path = tmp_path / "obs-studio"
+
+    download_tools.install_scene_switcher_from_extracted(str(extract_dir), str(obs_path))
+
+    assert (obs_path / "obs-plugins" / "64bit" / "advanced-scene-switcher.dll").exists()
+    assert (obs_path / "obs-plugins" / "64bit" / "advanced-scene-switcher-plugins" / "base.dll").exists()
+    assert (obs_path / "data" / "obs-plugins" / "advanced-scene-switcher" / "locale" / "en-US.ini").exists()
+    # The detection path used to skip future downloads must now resolve.
+    assert os.path.exists(download_tools.get_scene_switcher_dll_path(str(obs_path)))
 
 
 def test_ffmpeg_download_spec_uses_full_shared_build_for_windows_x64(monkeypatch):

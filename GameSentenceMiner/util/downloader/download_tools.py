@@ -218,14 +218,57 @@ def copy_obs_settings(src, dest):
     return False
 
 
+def get_scene_switcher_dll_path(obs_path):
+    """Return the path where the Advanced Scene Switcher plugin DLL lives once installed."""
+    return os.path.join(obs_path, "obs-plugins", "64bit", "advanced-scene-switcher.dll")
+
+
+def _find_scene_switcher_plugin_root(extract_dir):
+    """Locate the extracted plugin root (the directory holding ``bin`` and ``data``).
+
+    The release zip ships a top-level ``advanced-scene-switcher/`` folder containing
+    ``bin/64bit/`` and ``data/``. We search rather than hard-code the folder name in
+    case the release layout changes.
+    """
+    for root, dirs, _files in os.walk(extract_dir):
+        dir_names = {name.lower() for name in dirs}
+        if "bin" in dir_names and "data" in dir_names:
+            return root
+    return None
+
+
+def install_scene_switcher_from_extracted(extract_dir, obs_path):
+    """Copy an extracted Advanced Scene Switcher tree into the OBS portable layout.
+
+    The plugin ships as ``<root>/bin/64bit/*`` and ``<root>/data/*`` but OBS portable
+    expects plugins under ``obs-plugins/64bit/`` and plugin data under
+    ``data/obs-plugins/advanced-scene-switcher/``. Dumping the raw tree at the OBS root
+    (the previous behaviour) meant OBS never loaded the plugin.
+    """
+    plugin_root = _find_scene_switcher_plugin_root(extract_dir)
+    if plugin_root is None:
+        raise RuntimeError("Extracted Advanced Scene Switcher archive did not contain bin/ and data/ directories.")
+
+    bin_64bit = os.path.join(plugin_root, "bin", "64bit")
+    data_dir = os.path.join(plugin_root, "data")
+    if not os.path.isdir(bin_64bit):
+        raise RuntimeError("Extracted Advanced Scene Switcher archive is missing bin/64bit.")
+
+    obs_plugins_64bit = os.path.join(obs_path, "obs-plugins", "64bit")
+    plugin_data_dir = os.path.join(obs_path, "data", "obs-plugins", "advanced-scene-switcher")
+    os.makedirs(obs_plugins_64bit, exist_ok=True)
+    shutil.copytree(bin_64bit, obs_plugins_64bit, dirs_exist_ok=True)
+    if os.path.isdir(data_dir):
+        os.makedirs(plugin_data_dir, exist_ok=True)
+        shutil.copytree(data_dir, plugin_data_dir, dirs_exist_ok=True)
+
+
 def download_scene_switcher_plugin(obs_path, stage_id: Optional[str] = None):
     """Download and install Advanced Scene Switcher plugin for OBS."""
     download_dir = os.path.join(get_app_directory(), "downloads")
     os.makedirs(download_dir, exist_ok=True)
 
-    # Check if plugin is already installed
-    plugin_dll_path = os.path.join(obs_path, "obs-plugins", "64bit", "advanced-scene-switcher.dll")
-    if os.path.exists(plugin_dll_path):
+    if os.path.exists(get_scene_switcher_dll_path(obs_path)):
         logger.debug("Advanced Scene Switcher plugin already installed.")
         return "skipped"
 
@@ -235,33 +278,45 @@ def download_scene_switcher_plugin(obs_path, stage_id: Optional[str] = None):
     scene_switcher_release = get_json_from_url(scene_switcher_url)
 
     if scene_switcher_release:
-        # Find the Windows x64 asset
+        # Find the Windows x64 asset. Skip the "-legacy" and installer variants.
         plugin_url = None
         for asset in scene_switcher_release.get("assets", []):
-            if "windows-x64.zip" in asset["name"]:
+            name = asset["name"]
+            if name.endswith("windows-x64.zip"):
                 plugin_url = asset["browser_download_url"]
                 break
 
         if plugin_url:
             scene_switcher_zip = os.path.join(download_dir, "advanced-scene-switcher.zip")
+            extract_dir = os.path.join(download_dir, "advanced-scene-switcher-extracted")
             if download_file(
                 plugin_url,
                 scene_switcher_zip,
                 stage_id=stage_id,
                 message="Downloading OBS Scene Switcher plugin...",
             ):
-                logger.info(f"Extracting Advanced Scene Switcher to {obs_path}...")
+                logger.info(f"Installing Advanced Scene Switcher into {obs_path}...")
                 try:
+                    if os.path.exists(extract_dir):
+                        shutil.rmtree(extract_dir)
                     with zipfile.ZipFile(scene_switcher_zip, "r") as zip_ref:
-                        zip_ref.extractall(obs_path)
+                        zip_ref.extractall(extract_dir)
+                    install_scene_switcher_from_extracted(extract_dir, obs_path)
+                    # Remove any stale copy from the old (broken) extraction layout that
+                    # dumped the raw "advanced-scene-switcher/" tree at the OBS root.
+                    stale_dir = os.path.join(obs_path, "advanced-scene-switcher")
+                    if os.path.isdir(stale_dir):
+                        shutil.rmtree(stale_dir, ignore_errors=True)
                     logger.success("Advanced Scene Switcher plugin installed successfully.")
                     return "completed"
                 except Exception as e:
-                    logger.error(f"Failed to extract Advanced Scene Switcher: {e}")
-                    raise RuntimeError(f"Failed to extract Advanced Scene Switcher: {e}") from e
+                    logger.error(f"Failed to install Advanced Scene Switcher: {e}")
+                    raise RuntimeError(f"Failed to install Advanced Scene Switcher: {e}") from e
                 finally:
                     if os.path.exists(scene_switcher_zip):
                         os.unlink(scene_switcher_zip)
+                    if os.path.exists(extract_dir):
+                        shutil.rmtree(extract_dir, ignore_errors=True)
         else:
             raise RuntimeError("Could not find Windows x64 version of Advanced Scene Switcher.")
     raise RuntimeError("Failed to install Advanced Scene Switcher plugin.")
@@ -333,7 +388,7 @@ def download_obs_if_needed(stage_id: Optional[str] = "obs"):
                 logger.success(f"OBS extracted to {obs_path}.")
 
                 # Download and install Advanced Scene Switcher plugin
-                download_scene_switcher_plugin(obs_path, stage_id=stage_id)
+                # download_scene_switcher_plugin(obs_path, stage_id=stage_id)
                 return "completed"
             except Exception as e:
                 logger.error(f"Failed to extract OBS: {e}")

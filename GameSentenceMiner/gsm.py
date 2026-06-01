@@ -954,6 +954,7 @@ class GSMApplication:
                     1,
                     "OneOCR bootstrap is only available on Windows.",
                 )
+            send_message(FunctionName.START_OBS.value)
             if is_mac():
                 if shutil.which("ffmpeg") is None:
                     os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin"
