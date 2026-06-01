@@ -73,6 +73,7 @@ try:
     from GameSentenceMiner.owocr.owocr.ocr import (
         OneOCR,
         normalize_japanese_ocr_dashes,
+        normalize_japanese_ocr_fullwidth,
         normalize_japanese_ocr_text_and_segments,
         BoundingBox,
         Word,
@@ -89,6 +90,9 @@ except ImportError:
     ocr_result_to_oneocr_tuple = None
 
     def normalize_japanese_ocr_dashes(text):
+        return text
+
+    def normalize_japanese_ocr_fullwidth(text):
         return text
 
     def normalize_japanese_ocr_text_and_segments(text, segments=None):
@@ -545,6 +549,28 @@ class OverlayProcessor:
         )
         return score >= threshold
 
+    def _normalize_overlay_data_fullwidth(self, overlay_data: List[Dict[str, Any]]) -> None:
+        """Fold half-width ascii/digits in OCR text to full-width, in place.
+
+        OCR engines often return half-width numbers (``2``) where the game renders
+        them full-width (``２``). Lookups (Yomitan/Jiten) and highlight matching expect
+        the full-width form that appears in the source sentence, so normalize the
+        overlay line/word text the same way the main OCR pipeline does via
+        ``post_process``. Only applies to CJK languages where full-width is the norm.
+        """
+        if self.ocr_language not in ("ja", "zh"):
+            return
+        if not isinstance(overlay_data, list):
+            return
+        for line in overlay_data:
+            if not isinstance(line, dict):
+                continue
+            if isinstance(line.get("text"), str):
+                line["text"] = normalize_japanese_ocr_fullwidth(line["text"])
+            for word in line.get("words", []) or []:
+                if isinstance(word, dict) and isinstance(word.get("text"), str):
+                    word["text"] = normalize_japanese_ocr_fullwidth(word["text"])
+
     def _build_overlay_word_coordinates_payload(
         self,
         overlay_data: List[Dict[str, Any]],
@@ -553,6 +579,7 @@ class OverlayProcessor:
         supplemental: bool = False,
         is_final: bool = False,
     ) -> Dict[str, Any]:
+        self._normalize_overlay_data_fullwidth(overlay_data)
         payload = {
             "type": "word_coordinates",
             "data": overlay_data,

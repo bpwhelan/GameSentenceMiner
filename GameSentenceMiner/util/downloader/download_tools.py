@@ -328,7 +328,8 @@ def download_obs_if_needed(stage_id: Optional[str] = "obs"):
     if os.path.exists(obs_path) and os.path.exists(obs_exe_path):
         logger.debug(f"OBS already installed at {obs_path}.")
         # Check and install plugin even if OBS is already installed
-        plugin_status = download_scene_switcher_plugin(obs_path, stage_id=stage_id)
+        # plugin_status = download_scene_switcher_plugin(obs_path, stage_id=stage_id)
+        plugin_status = "skipped"
         return "skipped" if plugin_status == "skipped" else "completed"
 
     if os.path.exists(obs_path) and not os.path.exists(obs_exe_path):

@@ -478,6 +478,20 @@ def normalize_japanese_ocr_text_and_segments(text, segments=None):
     return normalized_text, normalized_segments
 
 
+def normalize_japanese_ocr_fullwidth(text):
+    """Convert half-width ascii/digits/kana to full-width.
+
+    OCR engines frequently return half-width numbers/letters (``2``) even when the
+    game renders them full-width (``２``). The main OCR pipeline already folds these
+    to full-width via :func:`post_process` (``jaconv.h2z``); applying the same here
+    keeps overlay text consistent with the source sentence so dictionary lookups on
+    those tokens succeed. This matches ``post_process``'s ``ascii``/``digit`` flags.
+    """
+    if not isinstance(text, str) or not text:
+        return text
+    return jaconv.h2z(text, ascii=True, digit=True)
+
+
 def normalize_japanese_ocr_ellipses(text):
     if not isinstance(text, str) or not text:
         return text
