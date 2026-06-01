@@ -62,6 +62,8 @@ export interface GameSettings {
   launchAgentMinimized: boolean;
   launchTextractorMinimized: boolean;
   launchLunaTranslatorMinimized: boolean;
+  forceManualOcrAllProfiles: boolean;
+  ignoreActiveSceneForOcr: boolean;
   sceneProfiles: SceneLaunchProfile[];
 }
 

@@ -721,6 +721,31 @@ def get_current_game(sanitize=False, update=True):
     return gsm_state.current_game
 
 
+def is_game_capture_active(stale_after_seconds: float = 30.0) -> bool:
+    """Best-effort check of whether the current OBS scene is actively capturing output.
+
+    Reads the cached screenshot-probe result (``state.source_output_active``) that the
+    OBS service maintains via its periodic output probe -- no extra screenshots here.
+    Returns ``False`` only on a recent, confirmed "empty" reading; ``True`` (has output)
+    and ``None`` (undetermined / probe hasn't run yet) both mean "assume active" so text
+    intake is never gated on a missing or stale probe.
+    """
+    import GameSentenceMiner.obs as _obs_pkg
+
+    svc = _obs_pkg.obs_service
+    if not svc:
+        return True
+
+    state = svc.state
+    if state.source_output_active is not False:
+        return True
+
+    checked_at = state.source_output_checked_at
+    if not checked_at or (time.time() - checked_at) > stale_after_seconds:
+        return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Fit to screen
 # ---------------------------------------------------------------------------

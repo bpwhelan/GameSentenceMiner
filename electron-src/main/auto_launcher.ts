@@ -10,6 +10,8 @@ import { getOverlayRuntimeState, runOverlayWithSource, stopOverlay } from './ui/
 import {
     getAgentPath,
     getAgentScriptsPath,
+    getForceManualOcrAllProfiles,
+    getIgnoreActiveSceneForOcr,
     getLaunchAgentMinimized,
     getLaunchLunaTranslatorMinimized,
     getLaunchTextractorMinimized,
@@ -421,6 +423,16 @@ export class AutoLauncher {
             }
             this.lastObservedAutoLauncherOcrRunning = wasAutoLauncherRunning;
 
+            const ignoreActiveScene = getIgnoreActiveSceneForOcr();
+
+            // "Ignore active OBS scene for OCR": once OCR is running under
+            // auto-launcher control, leave it running regardless of scene
+            // changes (don't stop/restart it just because the active scene
+            // switched). It keeps the area config of the scene it started with.
+            if (ignoreActiveScene && wasAutoLauncherRunning) {
+                return;
+            }
+
             this.stopOcrIfSceneChanged(currentScene);
 
             const sceneProfile = getSceneLaunchProfileForScene(currentScene);
@@ -434,6 +446,17 @@ export class AutoLauncher {
                 }
             }
 
+            // "Turn on manual OCR for all profiles": any scene not already set to auto
+            // OCR falls back to manual OCR so background OCR utilities (screen cropper,
+            // manual capture hotkeys, etc.) stay available even when not actively gaming.
+            // Only scenes we promote from "none" should bypass the session-active gate;
+            // scenes a user explicitly set to manual keep their existing gated behavior.
+            const forcedManualOcr =
+                getForceManualOcrAllProfiles() && ocrMode === "none";
+            if (forcedManualOcr) {
+                ocrMode = "manual";
+            }
+
             if (ocrMode === "none") {
                 if (this.isAutoOcrSuppressedForScene(currentScene.id)) {
                     this.clearOcrSuppression("scene-not-configured");
@@ -443,7 +466,7 @@ export class AutoLauncher {
             }
 
             const isSceneActive = await this.isSceneSessionActive(currentScene);
-            if (!isSceneActive) {
+            if (!isSceneActive && !forcedManualOcr && !ignoreActiveScene) {
                 if (this.isAutoOcrSuppressedForScene(currentScene.id)) {
                     this.clearOcrSuppression("scene-inactive");
                 }

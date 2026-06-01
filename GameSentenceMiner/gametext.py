@@ -681,6 +681,19 @@ async def add_line_to_text_log(
         )
         return
 
+    # When the current game isn't actually being captured by OBS (e.g. manual OCR
+    # left running for the screen cropper while not gaming), don't mine the line:
+    # the clipboard copy above already ran, so just relay it to the texthooker/output
+    # websocket clients and stop before stats/DB/overlay/persistence.
+    if not obs.is_game_capture_active():
+        logger.info(
+            f"Game not being captured by OBS; relaying line from [{source_label}] to texthooker/output only."
+        )
+        await _add_event_to_texthooker(
+            _build_transient_output_line(current_line_after_regex, current_line_time, source=source)
+        )
+        return
+
     live_stats_tracker.add_line(current_line_after_regex, current_line_time.timestamp())
     gsm_status.last_line_received = current_line_time.strftime("%Y-%m-%d %H:%M:%S")
 

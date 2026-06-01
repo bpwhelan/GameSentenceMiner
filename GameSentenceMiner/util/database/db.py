@@ -175,14 +175,14 @@ class SQLiteDB:
             raise RuntimeError("Cannot commit changes in read-only mode.")
         with self._lock:
             conn = self._get_connection()
-            if is_dev:
-                if isinstance(params, dict):
-                    truncated_params = {
-                        key: str(value)[:50] if value is not None else None for key, value in params.items()
-                    }
-                else:
-                    truncated_params = tuple(str(p)[:50] if p is not None else None for p in params)
-                logger.debug(f"Executed query: {query} with params: {truncated_params}")
+            # if is_dev:
+            #     if isinstance(params, dict):
+            #         truncated_params = {
+            #             key: str(value)[:50] if value is not None else None for key, value in params.items()
+            #         }
+            #     else:
+            #         truncated_params = tuple(str(p)[:50] if p is not None else None for p in params)
+            #     logger.debug(f"Executed query: {query} with params: {truncated_params}")
             cur = conn.cursor()
             cur.execute(query, params)
             if commit and not self._in_transaction():

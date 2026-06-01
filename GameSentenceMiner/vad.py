@@ -614,3 +614,10 @@ class WhisperVADProcessor(VADProcessor):
 
 
 vad_processor = VADSystem()
+
+
+if __name__ == "__main__":
+    whisper_processor = WhisperVADProcessor()
+    has_excessive = whisper_processor._has_excessive_repetition("うううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううううう")
+    print("Has excessive repetition:", has_excessive)
+    

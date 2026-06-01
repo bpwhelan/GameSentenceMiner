@@ -325,6 +325,10 @@
         <option value="disable-interaction">Keep overlay visible, disable interaction</option>
       </select>
     </label>
+    <label class="sub-option" id="manualModeDisableInteractionFocusOverlayLabel">
+      <span class="label-text">Focus Overlay on Activate</span>
+      <input type="checkbox" id="manualModeDisableInteractionFocusOverlay" />
+    </label>
     <div class="hotkey-info">Standard hotkeys use Electron when possible. Modifier-only hotkeys like Shift use the input server.</div>
     <div id="manualHotkeyBackendStatus" class="hotkey-info">Backend: Electron</div>
     <div id="manual-hotkey-platform-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;"></div>
@@ -369,6 +373,8 @@
     const manualMode = get("manualMode");
     const manualModeType = get("manualModeType");
     const inactiveBehavior = get("manualModeInactiveBehavior");
+    const focusOverlayLabel = get("manualModeDisableInteractionFocusOverlayLabel");
+    const focusOverlayCheckbox = get("manualModeDisableInteractionFocusOverlay");
     const rescanOnShow = get("manualModeRescanOnShow");
     const showHotkey = get("showHotkey");
     const statusEl = get("manualHotkeyBackendStatus");
@@ -377,6 +383,12 @@
     const ctrlWarn = get("ctrl-warning");
 
     let runtime = { ...runtimeState };
+
+    function syncFocusOverlayVisibility() {
+      if (!focusOverlayLabel) return;
+      const isDisableInteraction = inactiveBehavior && inactiveBehavior.value === "disable-interaction";
+      focusOverlayLabel.style.display = isDisableInteraction ? "" : "none";
+    }
 
     function applyStatus() {
       const { statusText, platformWarning, runtimeWarning } = computeManualHotkeyStatus({
@@ -400,11 +412,13 @@
     if (manualMode) manualMode.checked = !!initial.manualMode;
     if (manualModeType) manualModeType.value = normalizeManualModeType(initial.manualModeType);
     if (inactiveBehavior) inactiveBehavior.value = normalizeManualModeInactiveBehavior(initial.manualModeInactiveBehavior);
+    if (focusOverlayCheckbox) focusOverlayCheckbox.checked = !!initial.manualModeDisableInteractionFocusOverlay;
     if (rescanOnShow) rescanOnShow.checked = !!initial.manualModeRescanOnShow;
     if (showHotkey && typeof initial.showHotkey === "string" && initial.showHotkey) {
       showHotkey.value = initial.showHotkey;
     }
     updateCtrlWarning(showHotkey ? showHotkey.value : "", ctrlWarn);
+    syncFocusOverlayVisibility();
     applyStatus();
 
     if (manualMode) {
@@ -422,8 +436,14 @@
       inactiveBehavior.addEventListener("change", () => {
         const value = normalizeManualModeInactiveBehavior(inactiveBehavior.value);
         inactiveBehavior.value = value;
+        syncFocusOverlayVisibility();
         onChange("manualModeInactiveBehavior", value);
       });
+    }
+    if (focusOverlayCheckbox) {
+      focusOverlayCheckbox.addEventListener("change", () =>
+        onChange("manualModeDisableInteractionFocusOverlay", focusOverlayCheckbox.checked)
+      );
     }
     if (rescanOnShow) {
       rescanOnShow.addEventListener("change", () => onChange("manualModeRescanOnShow", rescanOnShow.checked));
@@ -449,6 +469,10 @@
         }
         if ("manualModeInactiveBehavior" in partial && inactiveBehavior) {
           inactiveBehavior.value = normalizeManualModeInactiveBehavior(partial.manualModeInactiveBehavior);
+          syncFocusOverlayVisibility();
+        }
+        if ("manualModeDisableInteractionFocusOverlay" in partial && focusOverlayCheckbox) {
+          focusOverlayCheckbox.checked = !!partial.manualModeDisableInteractionFocusOverlay;
         }
         if ("manualModeRescanOnShow" in partial && rescanOnShow) {
           rescanOnShow.checked = !!partial.manualModeRescanOnShow;

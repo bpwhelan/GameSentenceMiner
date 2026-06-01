@@ -15,6 +15,8 @@ import {
     getAgentScriptsPath,
     getConsoleMode,
     getCustomPythonPackage,
+    getForceManualOcrAllProfiles,
+    getIgnoreActiveSceneForOcr,
     getHasCompletedSetup,
     getLaunchLunaTranslatorMinimized,
     getLunaTranslatorPath,
@@ -45,6 +47,8 @@ import {
     setPullPreReleases,
     setConsoleMode,
     setCustomPythonPackage,
+    setForceManualOcrAllProfiles,
+    setIgnoreActiveSceneForOcr,
     setHasCompletedSetup,
     setIconStyle,
     setLocale,
@@ -1172,6 +1176,8 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
             launchAgentMinimized: getLaunchAgentMinimized(),
             launchTextractorMinimized: getLaunchTextractorMinimized(),
             launchLunaTranslatorMinimized: getLaunchLunaTranslatorMinimized(),
+            forceManualOcrAllProfiles: getForceManualOcrAllProfiles(),
+            ignoreActiveSceneForOcr: getIgnoreActiveSceneForOcr(),
             sceneProfiles: getSceneLaunchProfiles(),
         };
     });
@@ -1201,6 +1207,12 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
             }
             if (typeof settings.launchLunaTranslatorMinimized === 'boolean') {
                 setLaunchLunaTranslatorMinimized(settings.launchLunaTranslatorMinimized);
+            }
+            if (typeof settings.forceManualOcrAllProfiles === 'boolean') {
+                setForceManualOcrAllProfiles(settings.forceManualOcrAllProfiles);
+            }
+            if (typeof settings.ignoreActiveSceneForOcr === 'boolean') {
+                setIgnoreActiveSceneForOcr(settings.ignoreActiveSceneForOcr);
             }
             if (Array.isArray(settings.sceneProfiles)) {
                 setSceneLaunchProfiles(normalizeSceneProfiles(settings.sceneProfiles));

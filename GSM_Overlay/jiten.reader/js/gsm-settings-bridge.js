@@ -83,6 +83,32 @@
               out[shortKey] = all[key];
             }
           }
+
+          // Availability signals so the overlay can verify the extension can
+          // actually parse before doing highlight work (and recover on its own
+          // once the user fixes things) instead of guessing from failures.
+          //
+          // The API key is profile-scoped under `profile:<activeProfileId>:jitenApiKey`
+          // (active profile lives in the `__profiles__` state JSON), with a
+          // legacy top-level fallback. We only report whether a key EXISTS — the
+          // raw key never leaves the extension.
+          var activeProfileId = 'default';
+          try {
+            var profilesRaw = all['__profiles__'];
+            if (profilesRaw) {
+              var profilesState = (typeof profilesRaw === 'string') ? JSON.parse(profilesRaw) : profilesRaw;
+              if (profilesState && profilesState.activeProfileId) {
+                activeProfileId = profilesState.activeProfileId;
+              }
+            }
+          } catch (_) { /* fall back to 'default' */ }
+          var apiKeyValue = all['profile:' + activeProfileId + ':jitenApiKey'];
+          if (typeof apiKeyValue !== 'string' || !apiKeyValue.length) {
+            apiKeyValue = all['jitenApiKey'];
+          }
+          out.hasApiKey = typeof apiKeyValue === 'string' && apiKeyValue.trim().length > 0;
+          out.parsingPaused = all['parsingPaused'] === true || all['parsingPaused'] === 'true';
+
           resolve(out);
         });
       } catch (e) {

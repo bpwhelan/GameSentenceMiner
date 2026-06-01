@@ -93,7 +93,9 @@ const DEFAULT_SHARED_SETTINGS: SharedGameSettings = {
   lunaTranslatorPath: "",
   launchAgentMinimized: false,
   launchTextractorMinimized: false,
-  launchLunaTranslatorMinimized: false
+  launchLunaTranslatorMinimized: false,
+  forceManualOcrAllProfiles: false,
+  ignoreActiveSceneForOcr: false
 };
 
 const SHARED_TOOL_SETTINGS_EXPANDED_KEY = "launcher.sharedToolSettingsExpanded";
@@ -109,6 +111,8 @@ const TOOLTIPS = {
   textractor32: "launcher.tooltips.textractor32",
   lunaPath: "launcher.tooltips.lunaPath",
   launchAgentMinimized: "launcher.tooltips.launchAgentMinimized",
+  forceManualOcrAllProfiles: "launcher.tooltips.forceManualOcrAllProfiles",
+  ignoreActiveSceneForOcr: "launcher.tooltips.ignoreActiveSceneForOcr",
   launchTextractorMinimized: "launcher.tooltips.launchTextractorMinimized",
   launchLunaTranslatorMinimized: "launcher.tooltips.launchLunaTranslatorMinimized",
   activeScene: "launcher.tooltips.activeScene",
@@ -219,7 +223,9 @@ function normalizeSharedSettings(
       typeof value?.lunaTranslatorPath === "string" ? value.lunaTranslatorPath : "",
     launchAgentMinimized: Boolean(value?.launchAgentMinimized),
     launchTextractorMinimized: Boolean(value?.launchTextractorMinimized),
-    launchLunaTranslatorMinimized: Boolean(value?.launchLunaTranslatorMinimized)
+    launchLunaTranslatorMinimized: Boolean(value?.launchLunaTranslatorMinimized),
+    forceManualOcrAllProfiles: Boolean(value?.forceManualOcrAllProfiles),
+    ignoreActiveSceneForOcr: Boolean(value?.ignoreActiveSceneForOcr)
   };
 }
 
@@ -570,7 +576,9 @@ export function LauncherTab({ active }: LauncherTabProps) {
       field:
         | "launchAgentMinimized"
         | "launchTextractorMinimized"
-        | "launchLunaTranslatorMinimized",
+        | "launchLunaTranslatorMinimized"
+        | "forceManualOcrAllProfiles"
+        | "ignoreActiveSceneForOcr",
       value: boolean
     ) => {
       setSharedSettings((current) => ({
@@ -1183,6 +1191,42 @@ export function LauncherTab({ active }: LauncherTabProps) {
                   checked={sharedSettings.launchAgentMinimized}
                   onChange={(event) => {
                     void saveSharedToggle("launchAgentMinimized", event.target.checked);
+                  }}
+                />
+              </div>
+
+              <div className="input-group">
+                <label
+                  htmlFor="force-manual-ocr-all-profiles"
+                  title={t(TOOLTIPS.forceManualOcrAllProfiles)}
+                >
+                  {t("launcher.shared.forceManualOcrAllProfiles")}
+                </label>
+                <input
+                  id="force-manual-ocr-all-profiles"
+                  type="checkbox"
+                  title={t(TOOLTIPS.forceManualOcrAllProfiles)}
+                  checked={sharedSettings.forceManualOcrAllProfiles}
+                  onChange={(event) => {
+                    void saveSharedToggle("forceManualOcrAllProfiles", event.target.checked);
+                  }}
+                />
+              </div>
+
+              <div className="input-group">
+                <label
+                  htmlFor="ignore-active-scene-for-ocr"
+                  title={t(TOOLTIPS.ignoreActiveSceneForOcr)}
+                >
+                  {t("launcher.shared.ignoreActiveSceneForOcr")}
+                </label>
+                <input
+                  id="ignore-active-scene-for-ocr"
+                  type="checkbox"
+                  title={t(TOOLTIPS.ignoreActiveSceneForOcr)}
+                  checked={sharedSettings.ignoreActiveSceneForOcr}
+                  onChange={(event) => {
+                    void saveSharedToggle("ignoreActiveSceneForOcr", event.target.checked);
                   }}
                 />
               </div>

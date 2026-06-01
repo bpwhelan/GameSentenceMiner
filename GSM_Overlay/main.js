@@ -118,6 +118,23 @@ function relaunchOverlayApp() {
   }
 }
 
+
+function promptJitenReaderRestart() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  dialog.showMessageBox(mainWindow, {
+    type: 'info',
+    buttons: ['Understood'],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Jiten Reader',
+    message: 'Restart the overlay to finish enabling Jiten Reader',
+    detail: 'Jiten Reader highlighting can only attach after the overlay reloads. ' +
+      'Restart now, or later. Highlighting will not work until you do.',
+  }).then((result) => {
+    if (!result || result.response !== 0) return;
+  }).catch(() => { /* dialog dismissed/destroyed */ });
+}
+
 function traceSharedRuntimeOverlay(message) {
   const tracePath = process.env.GSM_OVERLAY_BOOTSTRAP_TRACE;
   if (!tracePath) {
@@ -359,6 +376,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "manualMode": false,
   "manualModeType": "hold",
   "manualModeInactiveBehavior": MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY,
+  "manualModeDisableInteractionFocusOverlay": false,
   "manualModeRescanOnShow": false,
   "showHotkey": DEFAULT_MANUAL_HOTKEY,
   "toggleFuriganaHotkey": "Alt+F",
@@ -387,6 +405,15 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "showTextBackground": false, // Legacy key; migrated to showTextIndicators/fadeTextIndicators.
   "afkTimer": 5, // in minutes
   "showFurigana": false,
+  // Reading system rendered above the text: "japanese" (furigana) or "chinese" (pinyin).
+  "readingLanguage": "japanese",
+  // Color-code each pinyin syllable by tone (Chinese only) for legibility at small sizes.
+  "pinyinToneColors": true,
+  "pinyinTone1Color": "#ff5252", // high level
+  "pinyinTone2Color": "#ffb300", // rising
+  "pinyinTone3Color": "#4caf50", // dipping
+  "pinyinTone4Color": "#42a5f5", // falling
+  "pinyinTone5Color": "#e0e0e0", // neutral
   "hideFuriganaOnStartup": false,
   "furiganaScale": 0.55,
   "furiganaYOffset": -2,
@@ -3495,7 +3522,12 @@ function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
   }
 
   if (keepManualActivationFocusNeutral) {
-    showOverlayWithoutFocusForManualVisibleMode(`manual-show:${triggerSource}`);
+    if (userSettings.manualModeDisableInteractionFocusOverlay) {
+      aggressivelyShowOverlayAndReturnFocus();
+      try { mainWindow.webContents.focus(); } catch (e) {}
+    } else {
+      showOverlayWithoutFocusForManualVisibleMode(`manual-show:${triggerSource}`);
+    }
     return true;
   }
 
@@ -5686,12 +5718,7 @@ app.whenReady().then(async () => {
       case "enableJitenReader":
         if (value) {
             // Enable
-            if (!jitenReaderExt) {
-                loadExtension('jiten.reader').then(ext => {
-                    jitenReaderExt = ext;
-                    console.log("Jiten Reader enabled and loaded.");
-                });
-            }
+            promptJitenReaderRestart();
         } else {
             // Disable
             if (jitenReaderExt) {

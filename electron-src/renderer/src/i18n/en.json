@@ -602,6 +602,8 @@
       "downloading": "Downloading...",
       "downloadingPercent": "Downloading {percent}%",
       "launchAgentMinimized": "Launch Agent Minimized:",
+      "forceManualOcrAllProfiles": "Turn On Manual OCR For All Profiles:",
+      "ignoreActiveSceneForOcr": "Ignore Active OBS Scene For OCR:",
       "disclaimer": "Downloads come from official upstream GitHub releases. Please review each project's license and terms before use."
     },
     "scene": {
@@ -666,6 +668,8 @@
       "textractor32": "Path to 32-bit Textractor executable. Used for 32-bit game targets when available.",
       "lunaPath": "Path to LunaTranslator executable. Used when game launcher is set to LunaTranslator.",
       "launchAgentMinimized": "Launch Agent minimized/hidden on Windows.",
+      "forceManualOcrAllProfiles": "When on, any game/scene not already set to Auto OCR starts Manual OCR instead, keeping the screen cropper and other background OCR utilities available even when not actively gaming. Text captured while the game isn't being captured by OBS is only relayed to the texthooker/clipboard, not mined.",
+      "ignoreActiveSceneForOcr": "When on, auto-launched OCR ignores the active OBS scene: it won't stop or restart when you switch scenes, and it can start even when the configured game/session isn't detected as active. Useful if you switch OBS scenes during a session but want OCR to keep running.",
       "activeScene": "Currently active OBS game. Configuration changes apply to the selected Configure Game value.",
       "configureScene": "Choose which OBS game you are editing in this tab.",
       "refreshScenes": "Refresh OBS game list from current OBS connection.",

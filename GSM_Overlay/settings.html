@@ -1128,6 +1128,16 @@
     <div class="setting-group" data-tab="furigana">
       <h4>Furigana Display</h4>
       <label>
+        <span class="label-text">
+          Reading Language
+          <div class="hotkey-info">Choose which reading is drawn above the text: Japanese furigana (uses the tokenizer backend below) or Chinese pinyin (computed locally, no backend needed).</div>
+        </span>
+        <select id="readingLanguage">
+          <option value="japanese">Japanese (Furigana)</option>
+          <option value="chinese">Chinese (Pinyin)</option>
+        </select>
+      </label>
+      <label>
         <span class="label-text">Enable Furigana</span>
         <input type="checkbox" id="showFurigana" />
       </label>
@@ -1138,6 +1148,37 @@
       <label class="sub-option">
         <span class="label-text">Hide Furigana After (seconds, 0 = disabled)</span>
         <input type="number" id="hideFuriganaAfterSeconds" value="0" min="0" max="60" step="1" />
+      </label>
+    </div>
+
+    <div class="setting-group" data-tab="furigana" id="pinyinToneColorsGroup">
+      <h4>Pinyin Tone Colors</h4>
+      <label>
+        <span class="label-text">
+          Color-code pinyin by tone
+          <div class="hotkey-info">Color each pinyin syllable by its tone (Chinese only) so tones stay readable when the font is small.</div>
+        </span>
+        <input type="checkbox" id="pinyinToneColors" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Tone 1 (high level) Color</span>
+        <input type="color" id="pinyinTone1Color" value="#ff5252" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Tone 2 (rising) Color</span>
+        <input type="color" id="pinyinTone2Color" value="#ffb300" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Tone 3 (dipping) Color</span>
+        <input type="color" id="pinyinTone3Color" value="#4caf50" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Tone 4 (falling) Color</span>
+        <input type="color" id="pinyinTone4Color" value="#42a5f5" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Tone 5 (neutral) Color</span>
+        <input type="color" id="pinyinTone5Color" value="#e0e0e0" />
       </label>
     </div>
 
@@ -1375,9 +1416,7 @@
     <div class="setting-group" data-tab="jiten">
       <h4>Overlay Integration <span style="color: #ff6b6b; font-size: 13px; font-weight: normal;">⚠️ WIP</span></h4>
       <div class="hotkey-info" style="color: #ffcc66; margin-bottom: 10px;">
-        Work in progress. To avoid unnecessary API calls, some operations are intentionally deferred — for example,
-        SRS state lookups and text parsing are delayed until the overlay is actually visible or a word is hovered,
-        rather than running on every new line of game text.
+        Work in progress. To avoid unnecessary API calls, some operations are intentionally delayed in order to play nice with Jiten's API.
       </div>
       <label>
         <span class="label-text">
@@ -2611,6 +2650,20 @@
       });
     }
 
+    function syncDisableInteractionSubOptionsUi() {
+      const select = document.getElementById("manualModeInactiveBehavior");
+      const isDisableInteraction = select && select.value === "disable-interaction";
+      const label = document.getElementById("manualModeDisableInteractionFocusOverlayLabel");
+      if (label) label.style.display = isDisableInteraction ? "" : "none";
+    }
+
+    function syncReadingLanguageUi() {
+      const select = document.getElementById("readingLanguage");
+      const group = document.getElementById("pinyinToneColorsGroup");
+      if (!select || !group) return;
+      group.style.display = select.value === "chinese" ? "" : "none";
+    }
+
     function syncGamepadSettingsEnabledUi() {
       const enabled = document.getElementById("gamepadEnabled")?.checked !== false;
       updateGamepadSettingsVisibility(enabled);
@@ -2847,6 +2900,10 @@
         integer: true,
         blurEvent: true,
       }),
+      createSelectBinding("readingLanguage", "#readingLanguage", {
+        normalize: (value) => (String(value || "japanese").trim().toLowerCase() === "chinese" ? "chinese" : "japanese"),
+        afterApply: () => syncReadingLanguageUi(),
+      }),
       createCheckboxBinding("showFurigana", "#showFurigana"),
       createCheckboxBinding("hideFuriganaOnStartup", "#hideFuriganaOnStartup"),
       createNumberBinding("hideFuriganaAfterSeconds", "#hideFuriganaAfterSeconds", {
@@ -2875,6 +2932,27 @@
         event: "input",
         normalize: (value) => normalizeTrimmedString(value, "#ffffff").toLowerCase(),
       }),
+      createCheckboxBinding("pinyinToneColors", "#pinyinToneColors"),
+      createTextBinding("pinyinTone1Color", "#pinyinTone1Color", {
+        event: "input",
+        normalize: (value) => normalizeTrimmedString(value, "#ff5252").toLowerCase(),
+      }),
+      createTextBinding("pinyinTone2Color", "#pinyinTone2Color", {
+        event: "input",
+        normalize: (value) => normalizeTrimmedString(value, "#ffb300").toLowerCase(),
+      }),
+      createTextBinding("pinyinTone3Color", "#pinyinTone3Color", {
+        event: "input",
+        normalize: (value) => normalizeTrimmedString(value, "#4caf50").toLowerCase(),
+      }),
+      createTextBinding("pinyinTone4Color", "#pinyinTone4Color", {
+        event: "input",
+        normalize: (value) => normalizeTrimmedString(value, "#42a5f5").toLowerCase(),
+      }),
+      createTextBinding("pinyinTone5Color", "#pinyinTone5Color", {
+        event: "input",
+        normalize: (value) => normalizeTrimmedString(value, "#e0e0e0").toLowerCase(),
+      }),
       createTextBinding("furiganaOutlineColor", "#furiganaOutlineColor", {
         event: "input",
         normalize: (value) => normalizeTrimmedString(value, "#222222").toLowerCase(),
@@ -2897,7 +2975,9 @@
       }),
       createSelectBinding("manualModeInactiveBehavior", "#manualModeInactiveBehavior", {
         normalize: normalizeManualModeInactiveBehaviorValue,
+        afterApply: () => syncDisableInteractionSubOptionsUi(),
       }),
+      createCheckboxBinding("manualModeDisableInteractionFocusOverlay", "#manualModeDisableInteractionFocusOverlay"),
       createCheckboxBinding("manualModeRescanOnShow", "#manualModeRescanOnShow"),
       createHotkeyBinding("showHotkey", "#showHotkey", {
         afterApply: () => syncManualHotkeyStatusUi(),
@@ -3791,6 +3871,8 @@
 
       syncShowMainBoxStartupUi();
       syncJitenReaderUi(resolvedSettings.enableJitenReader !== false);
+      syncDisableInteractionSubOptionsUi();
+      syncReadingLanguageUi();
       setGamepadDeviceBlacklist(resolvedSettings.gamepadDeviceBlacklist, { persist: false, send: false });
       updateControllerActivationFieldState();
       updateTokenizerBackendFieldState();
@@ -4052,6 +4134,7 @@
     }
     
     initializeSettingBindings();
+    syncDisableInteractionSubOptionsUi();
     updateControllerActivationFieldState();
     updateTokenizerBackendFieldState();
     initializeSettingsTabs();

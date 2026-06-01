@@ -106,6 +106,7 @@ from GameSentenceMiner.obs.actions import (  # noqa: E402, F401
     get_screenshot_PIL_from_source,
     get_source_from_scene,
     get_window_info_from_source,
+    is_game_capture_active,
     register_scene_change_callback,
     save_replay_buffer,
     set_fit_to_screen_for_scene_items,

@@ -44,6 +44,12 @@
     --gsm-furigana-font-weight: 600;
     --gsm-furigana-outline-color: #222222;
     --gsm-furigana-outline-width: 1.5px;
+    /* Pinyin tone colors (1=high, 2=rising, 3=dipping, 4=falling, 5=neutral). */
+    --gsm-pinyin-tone1-color: #ff5252;
+    --gsm-pinyin-tone2-color: #ffb300;
+    --gsm-pinyin-tone3-color: #4caf50;
+    --gsm-pinyin-tone4-color: #42a5f5;
+    --gsm-pinyin-tone5-color: #e0e0e0;
     height: 100%;
     margin: 0;
     padding: 0;
@@ -141,6 +147,12 @@ background: rgba(202, 12, 12, 0.692);
     paint-order: stroke fill;
     text-shadow: 0 0 1px var(--gsm-furigana-outline-color);
   }
+
+  .pinyin-tone-1 { color: var(--gsm-pinyin-tone1-color); }
+  .pinyin-tone-2 { color: var(--gsm-pinyin-tone2-color); }
+  .pinyin-tone-3 { color: var(--gsm-pinyin-tone3-color); }
+  .pinyin-tone-4 { color: var(--gsm-pinyin-tone4-color); }
+  .pinyin-tone-5 { color: var(--gsm-pinyin-tone5-color); }
 
   #furigana-layer {
     position: fixed;
@@ -1421,6 +1433,13 @@ background: rgba(202, 12, 12, 0.692);
   } catch (e) {
     console.warn("Could not require furigana_utils.js:", e);
   }
+  let ReadingOverlay;
+  try {
+    ReadingOverlay = require("./reading_overlay_utils.js");
+    window.GSMReadingOverlay = ReadingOverlay;
+  } catch (e) {
+    console.warn("Could not require reading_overlay_utils.js:", e);
+  }
   if (!BlockDetection) {
     try {
       BlockDetection = require("./block_detection.js");
@@ -1472,6 +1491,17 @@ background: rgba(202, 12, 12, 0.692);
   });
   const furiganaStyleSettings = { ...DEFAULT_FURIGANA_STYLE };
 
+  // Default pinyin tone colors (1=high, 2=rising, 3=dipping, 4=falling, 5=neutral).
+  // Mirrors the CSS variables in the :root block.
+  const DEFAULT_PINYIN_TONE_COLORS = Object.freeze({
+    pinyinTone1Color: '#ff5252',
+    pinyinTone2Color: '#ffb300',
+    pinyinTone3Color: '#4caf50',
+    pinyinTone4Color: '#42a5f5',
+    pinyinTone5Color: '#e0e0e0',
+  });
+  const pinyinToneColorSettings = { ...DEFAULT_PINYIN_TONE_COLORS };
+
   let isDragging = false;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
@@ -1506,6 +1536,11 @@ background: rgba(202, 12, 12, 0.692);
   let showTextIndicators = true;
   let fadeTextIndicators = false;
   let showFurigana = false;
+  // Which reading system the overlay renders above the text: 'japanese'
+  // (furigana via the tokenizer backend) or 'chinese' (pinyin via pinyin-pro).
+  let readingLanguage = 'japanese';
+  // Color-code each pinyin syllable by its tone (Chinese only).
+  let pinyinToneColorsEnabled = true;
   let showRecycledIndicator = true;
   let immediateSentenceRecycled = false;
   let overlayRenderGeneration = 0;
@@ -1516,15 +1551,19 @@ background: rgba(202, 12, 12, 0.692);
   const furiganaLineCache = new Map();
   // Jiten SRS Highlighting state (mirror approach)
   let jitenHighlightingEnabled = true;
-  // Most recent on-screen OCR lines, tracked even while highlighting is off so
-  // toggling it on can re-parse the current text instead of waiting for new OCR.
+  // Most recent OCR lines, kept even while highlighting is off so toggling on can
+  // re-parse current text instead of waiting for new OCR.
   let lastJitenHighlightLines = null;
-  // The line_id we last kicked a Jiten parse for. OCR sends several payloads per
-  // line as it stabilizes; to stay API-friendly we parse at most twice per line —
-  // once on the first payload (fast highlight) and once on the final/stable payload
-  // (marked is_final by get_overlay_coords.py). Intermediate jittering payloads only
-  // reposition the existing highlights instead of re-parsing. null tracks the
-  // periodic/no-line_id case (single-shot scans, which arrive flagged final).
+  // Whether Jiten can parse right now (extension enabled + API key + not paused),
+  // verified via the settings bridge. Optimistic until first verification; self-heals
+  // on toggles, bridge-ready, and throttled re-checks, so no restart is needed.
+  let jitenHighlightAvailable = true;
+  let jitenSettingsSyncPending = false;
+  let lastJitenSettingsSyncAt = 0;
+  const JITEN_SETTINGS_RESYNC_THROTTLE_MS = 8000;
+  // The line_id we last parsed for. OCR sends several payloads per line as it
+  // stabilizes; to stay API-friendly we parse at most twice (first payload + final),
+  // and just reposition for intermediate jitter. null = single-shot scans (final).
   let jitenHighlightParsedLineId = false; // sentinel distinct from any real id (incl. null)
 
   function setJitenHighlightOpacity(value) {
@@ -1541,13 +1580,18 @@ background: rgba(202, 12, 12, 0.692);
     document.documentElement.style.setProperty('--gsm-jiten-highlight-offset-y', `${clamped}px`);
   }
 
-  /**
-   * Request Jiten Reader to parse the current lines and mirror SRS highlights.
-   * This replaces the old API-payload approach. Now we let the extension's own
-   * content script do the parsing (which has access to SRS state from storage).
-   */
+  // Ask the Jiten Reader extension to parse the current lines and mirror SRS
+  // highlights (the extension's content script does the parsing).
   function applyJitenHighlightingForLines(lines, meta) {
-    if (!jitenHighlightingEnabled) return;
+    if (!jitenHighlightingEnabled || !jitenReaderEnabled) return;
+    // Not verified parseable yet → kick a throttled re-check so a freshly-added
+    // key / unpause resumes on its own, then bail.
+    if (!jitenHighlightAvailable) {
+      if (Date.now() - lastJitenSettingsSyncAt > JITEN_SETTINGS_RESYNC_THROTTLE_MS) {
+        syncJitenSettings('lines-while-unavailable');
+      }
+      return;
+    }
     const api = window.GsmJitenHighlight;
     if (!api || typeof api.requestParse !== 'function') {
       console.log('[JitenHighlight] Skipped: jiten_highlight.js not loaded');
@@ -1562,17 +1606,15 @@ background: rgba(202, 12, 12, 0.692);
 
     let shouldParse;
     if (forced || isFinal) {
-      // Final/authoritative pass: parse (requestParse dedups identical text, so an
-      // unchanged final pass costs nothing).
+      // Final pass: parse (requestParse dedups identical text, so it's free if unchanged).
       shouldParse = true;
       jitenHighlightParsedLineId = lineId;
     } else if (lineId !== jitenHighlightParsedLineId) {
-      // First (preliminary) payload for a new line: parse once for a fast highlight.
+      // First payload for a new line: parse once for a fast highlight.
       shouldParse = true;
       jitenHighlightParsedLineId = lineId;
     } else {
-      // A subsequent jittering intermediate payload for the same line: don't re-parse,
-      // just keep the existing highlights aligned to the re-rendered text boxes.
+      // Intermediate jitter for the same line: just reposition existing highlights.
       shouldParse = false;
     }
 
@@ -1594,12 +1636,138 @@ background: rgba(202, 12, 12, 0.692);
     if (window.GsmJitenHighlight) window.GsmJitenHighlight.init();
   }
 
+  // Mark Jiten highlighting unavailable when a toggle is turned off. Resetting the
+  // flag here is what lets a later off->on transition re-highlight: applyVerified
+  // only refreshes when availability actually flips, so a stale `true` would
+  // suppress the refresh until an overlay restart.
+  function markJitenUnavailable() {
+    jitenHighlightAvailable = false;
+    const api = window.GsmJitenHighlight;
+    if (!api) return;
+    if (typeof api.setAvailable === 'function') api.setAvailable(false);
+    if (typeof api.clearJitenHighlighting === 'function') api.clearJitenHighlighting();
+  }
+
+  // "Show Jiten Style Text Highlighting" toggle. On enable, re-verify and
+  // re-highlight current text; on disable, clear and mark unavailable.
+  function setJitenHighlightingEnabled(value) {
+    const was = jitenHighlightingEnabled;
+    jitenHighlightingEnabled = value !== false;
+    if (window.GsmJitenHighlight) window.GsmJitenHighlight.setEnabled(jitenHighlightingEnabled);
+    if (jitenHighlightingEnabled && !was) syncJitenSettings('enable-highlighting');
+    else if (!jitenHighlightingEnabled && was) markJitenUnavailable();
+  }
+
+  // Enabling the reader re-loads the extension in the main process (async, can
+  // take a while), and its settings-bridge content script only goes live once
+  // that finishes. So an immediate verify races the load and gets stuck
+  // "unavailable". Wait a beat as a fallback; the authoritative trigger is the
+  // "jitenReaderLoaded" signal main sends once the extension is actually ready.
+  const JITEN_ENABLE_VERIFY_DELAY_MS = 1500;
+  let jitenEnableVerifyTimer = null;
+
+  // "Enable Jiten Reader" master switch. Same off->on / on->off handling.
+  function setJitenReaderEnabled(value) {
+    const was = jitenReaderEnabled;
+    jitenReaderEnabled = value !== false;
+    if (jitenReaderEnabled && !was) {
+      clearTimeout(jitenEnableVerifyTimer);
+      jitenEnableVerifyTimer = setTimeout(() => syncJitenSettings('enable-reader'), JITEN_ENABLE_VERIFY_DELAY_MS);
+    } else if (!jitenReaderEnabled && was) {
+      clearTimeout(jitenEnableVerifyTimer);
+      markJitenUnavailable();
+    }
+  }
+
+  // Apply a freshly-verified availability state (from the settings bridge):
+  // available means highlighting + the reader are on, an API key is present, and
+  // parsing isn't paused. When it flips on, re-highlight what's already on screen.
+  function applyVerifiedJitenAvailability(hasApiKey, parsingPaused) {
+    const wasAvailable = jitenHighlightAvailable;
+    const nowAvailable = jitenReaderEnabled && jitenHighlightingEnabled && !!hasApiKey && !parsingPaused;
+    jitenHighlightAvailable = nowAvailable;
+    if (window.GsmJitenHighlight && typeof window.GsmJitenHighlight.setAvailable === 'function') {
+      window.GsmJitenHighlight.setAvailable(nowAvailable);
+    }
+    if (nowAvailable && !wasAvailable) {
+      // Became usable — highlight what's already on screen instead of waiting
+      // for the next OCR update.
+      if (window.GsmJitenHighlight && typeof window.GsmJitenHighlight.refresh === 'function') {
+        window.GsmJitenHighlight.refresh(lastJitenHighlightLines);
+      } else {
+        applyJitenHighlightingForLines(lastJitenHighlightLines);
+      }
+    }
+    if (!nowAvailable) {
+      const reason = !jitenReaderEnabled ? 'Jiten Reader disabled'
+        : !jitenHighlightingEnabled ? 'highlighting disabled'
+        : parsingPaused ? 'parsing paused in Jiten Reader'
+        : !hasApiKey ? 'no Jiten API key set'
+        : 'unknown';
+      console.log(`[JitenHighlight] Highlighting unavailable (${reason}); will re-check automatically.`);
+    }
+  }
+
+  // Cleanup for the in-flight verify (removes its listener + timeout) so a newer,
+  // authoritative trigger can supersede a stale one instead of being dropped by
+  // the pending guard. Set while a verify is in flight, null otherwise.
+  let jitenSyncCleanup = null;
+
+  // Verify via the gsm-settings-bridge content script whether Jiten can parse
+  // right now (API key present, not paused). Called on toggles, bridge-ready, and
+  // throttled re-checks. No bridge response → extension absent → mark unavailable.
+  // `force` cancels any in-flight verify first — used after the extension (re)loads,
+  // when a verify posted before the bridge was live would otherwise never resolve.
+  function syncJitenSettings(reason = 'manual', force = false) {
+    if (jitenSettingsSyncPending) {
+      if (!force) return;
+      if (jitenSyncCleanup) jitenSyncCleanup();
+    }
+    jitenSettingsSyncPending = true;
+    lastJitenSettingsSyncAt = Date.now();
+    const requestId = `gsm-sync-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let timeoutId = null;
+    const cleanup = () => {
+      window.removeEventListener('message', onResponse);
+      clearTimeout(timeoutId);
+      jitenSettingsSyncPending = false;
+      jitenSyncCleanup = null;
+    };
+    const onResponse = (event) => {
+      const data = event && event.data;
+      if (!data || data.type !== 'gsm-jiten-settings-response' || data.requestId !== requestId) return;
+      cleanup();
+      const d = (data.data && typeof data.data === 'object') ? data.data : {};
+      applyVerifiedJitenAvailability(d.hasApiKey === true, d.parsingPaused === true);
+    };
+    jitenSyncCleanup = cleanup;
+    window.addEventListener('message', onResponse);
+    try { window.postMessage({ type: 'gsm-jiten-settings-request', requestId }, '*'); } catch (_) { /* ignore */ }
+    timeoutId = setTimeout(() => {
+      if (!jitenSettingsSyncPending) return;
+      cleanup();
+      // No bridge response → Jiten Reader extension not present/loaded.
+      applyVerifiedJitenAvailability(false, false);
+    }, 2000);
+  }
+
+  // The bridge announces itself once its content script is live; verify then.
+  window.addEventListener('message', (event) => {
+    const data = event && event.data;
+    if (data && data.type === 'gsm-jiten-settings-ready') {
+      // Bridge just came live (e.g. extension finished loading) — supersede any
+      // stale verify that was posted before it could answer.
+      syncJitenSettings('bridge-ready', true);
+    }
+  });
+  // Also verify shortly after load in case the bridge announced before this
+  // listener was attached.
+  setTimeout(() => syncJitenSettings('startup'), 1500);
+
   // ==================== Jiten grading bar bridge (Yomitan popup) ====================
-  // Proxies the Yomitan popup's grading bar to the Jiten SRS API. The bar only
-  // shows when Jiten Reader is enabled and the "Show Jiten Grader Buttons"
-  // overlay setting is on. All API specifics (key, wordId resolution, network)
-  // stay here so the popup module is a thin UI shell and no host permission is
-  // needed in the Yomitan extension.
+  // Proxies the Yomitan popup's grading bar to the Jiten SRS API. Shown only when
+  // the reader is enabled and "Show Jiten Grader Buttons" is on. All API specifics
+  // stay here so the popup stays a thin UI shell needing no host permission.
   let jitenReaderEnabled = true;
   let showJitenGradingButtons = true;
   let jitenGradingReaderSettings = { showGradingActions: true, twoGrades: false, disableReviews: false };
@@ -1610,10 +1778,7 @@ background: rgba(202, 12, 12, 0.692);
     0: 'new', 1: 'young', 2: 'mature', 3: 'blacklisted', 4: 'due', 5: 'mastered',
   };
   // Session memo of term/reading -> {wordId, readingIndex}. wordIds are stable, so
-  // once a word is resolved we never need to re-parse it just to grade it again.
-  // This is the first half of trimming the per-grade API calls (resolve + action +
-  // lookup) down: repeat grades of the same word skip the resolve parse entirely,
-  // falling back to a parse only on a miss.
+  // repeat grades of the same word skip the resolve parse, falling back only on a miss.
   const jitenWordRefMemo = new Map();
   const jitenWordRefMemoKey = (term, reading) => `${String(term || '')}${String(reading || '')}`;
 
@@ -1677,6 +1842,9 @@ background: rgba(202, 12, 12, 0.692);
         disableReviews: truthy(d.jitenDisableReviews),
       };
       pushJitenGradingConfig();
+      // This round-trip carries the same availability signals — use them to keep
+      // highlight availability fresh for free (e.g. when a Yomitan popup opens).
+      applyVerifiedJitenAvailability(d.hasApiKey === true, d.parsingPaused === true);
     };
     window.addEventListener('message', onResponse);
     try { window.postMessage({ type: 'gsm-jiten-settings-request', requestId }, '*'); } catch (_) { /* ignore */ }
@@ -1951,6 +2119,17 @@ background: rgba(202, 12, 12, 0.692);
     document.documentElement.style.setProperty('--gsm-furigana-outline-width', `${furiganaStyleSettings.furiganaOutlineWidth}px`);
   }
 
+  function applyPinyinToneColorSettings(newSettings = {}) {
+    for (let tone = 1; tone <= 5; tone++) {
+      const key = `pinyinTone${tone}Color`;
+      pinyinToneColorSettings[key] = sanitizeFuriganaColor(
+        newSettings[key] ?? pinyinToneColorSettings[key],
+        DEFAULT_PINYIN_TONE_COLORS[key]
+      );
+      document.documentElement.style.setProperty(`--gsm-pinyin-tone${tone}-color`, pinyinToneColorSettings[key]);
+    }
+  }
+
   function shouldShowFuriganaLayer() {
     return showFurigana &&
       furiganaVisible &&
@@ -2006,11 +2185,16 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function getFuriganaBackendCacheSignature() {
+    const langPrefix = `${readingLanguage}:${(ReadingOverlay && ReadingOverlay.PINYIN_GROUPING_MODE) || 'character'}`;
+    if (readingLanguage === 'chinese') {
+      // Pinyin is computed locally and is independent of the tokenizer backend.
+      return langPrefix;
+    }
     const backend = String(gamepadSettings?.tokenizerBackend || 'sudachi').toLowerCase();
     if (backend === 'yomitan-bridge' || backend === 'yomitan-api') {
-      return `${backend}|${String(gamepadSettings?.yomitanApiUrl || '').trim()}|${Number.parseInt(gamepadSettings?.yomitanScanLength, 10) || 10}`;
+      return `${langPrefix}|${backend}|${String(gamepadSettings?.yomitanApiUrl || '').trim()}|${Number.parseInt(gamepadSettings?.yomitanScanLength, 10) || 10}`;
     }
-    return backend;
+    return `${langPrefix}|${backend}`;
   }
 
   function getFuriganaLineCacheKey(text) {
@@ -2053,6 +2237,7 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   applyFuriganaStyleSettings();
+  applyPinyinToneColorSettings();
 
   // Loading indicator functions
   let loadingStartTime = null;
@@ -2711,14 +2896,36 @@ background: rgba(202, 12, 12, 0.692);
             }
           }
           
-          // Skip furigana rendering for supplemental results (background text)
+          // Skip furigana rendering for supplemental results (background text).
+          //
+          // The .text-box spans created above already carry the lookupable text
+          // and are in the DOM, so Yomitan can scan/look them up right now. All
+          // enrichment (furigana, pinyin, AND jiten highlighting, which is kicked
+          // from inside renderFuriganaForFrame) must NOT run on the main thread
+          // until the text has actually painted — otherwise it executes in the
+          // same frame (microtasks/awaited box-building drain before paint) and
+          // delays the text becoming visible. requestAnimationFrame fires just
+          // *before* the next paint, so hop through a 0ms timeout to land right
+          // *after* it. The generation guard drops the work if a newer frame has
+          // since arrived.
           if (!isSupplemental) {
-            renderFuriganaForFrame(data.data, renderGeneration, {
-              lineId: data.line_id != null ? data.line_id : null,
-              isFinal: data.is_final === true,
-            }).catch((err) => {
-              console.warn('[Furigana] Async render failed:', err);
-            });
+            const enrichmentGeneration = renderGeneration;
+            const scheduleEnrichment = () => {
+              if (enrichmentGeneration !== overlayRenderGeneration) {
+                return;
+              }
+              renderFuriganaForFrame(data.data, enrichmentGeneration, {
+                lineId: data.line_id != null ? data.line_id : null,
+                isFinal: data.is_final === true,
+              }).catch((err) => {
+                console.warn('[Furigana] Async render failed:', err);
+              });
+            };
+            if (typeof requestAnimationFrame === 'function') {
+              requestAnimationFrame(() => setTimeout(scheduleEnrichment, 0));
+            } else {
+              setTimeout(scheduleEnrichment, 0);
+            }
           }
           lastOverlayTextRenderSignature = isSupplemental
             ? null
@@ -3054,6 +3261,10 @@ background: rgba(202, 12, 12, 0.692);
 
   function getFuriganaAnnotationsForLine(line, segments) {
     const lineText = line && typeof line.text === 'string' ? line.text : '';
+    if (ReadingOverlay && typeof ReadingOverlay.getAnnotationsForLine === 'function') {
+      return ReadingOverlay.getAnnotationsForLine(readingLanguage, lineText, segments);
+    }
+    // Fallback (module unavailable): Japanese furigana via FuriganaUtils only.
     const normalizedSegments = (FuriganaUtils && typeof FuriganaUtils.normalizeBackendSegments === 'function')
       ? FuriganaUtils.normalizeBackendSegments(lineText, segments || [], { source: 'overlay-renderer' })
       : (Array.isArray(segments) ? segments : []);
@@ -3142,17 +3353,35 @@ background: rgba(202, 12, 12, 0.692);
       furiganaBox.style.top = `${top}%`;
       furiganaBox.style.width = `${segmentWidth}%`;
       furiganaBox.style.setProperty('--gsm-furigana-base-font-size', `${baseFontSize}px`);
+      const toneColored = readingLanguage === 'chinese'
+        && pinyinToneColorsEnabled
+        && Array.isArray(annotation.parts)
+        && annotation.parts.length > 0;
       furiganaBox._gsmRenderSignature = [
         roundFuriganaSignatureValue(left),
         roundFuriganaSignatureValue(top),
         roundFuriganaSignatureValue(segmentWidth),
         String(Math.round(baseFontSize)),
         reading,
+        toneColored ? `t:${annotation.parts.map((p) => p.tone).join(',')}` : '',
       ].join('|');
 
       const furiganaText = document.createElement('span');
       furiganaText.className = 'furigana-reading';
-      furiganaText.textContent = reading;
+      if (toneColored) {
+        // Color each syllable by its tone so tones are legible even at small sizes.
+        annotation.parts.forEach((part, partIdx) => {
+          if (partIdx > 0) {
+            furiganaText.appendChild(document.createTextNode(' '));
+          }
+          const toneSpan = document.createElement('span');
+          toneSpan.className = `pinyin-tone-${part.tone || 5}`;
+          toneSpan.textContent = part.text;
+          furiganaText.appendChild(toneSpan);
+        });
+      } else {
+        furiganaText.textContent = reading;
+      }
       furiganaBox.appendChild(furiganaText);
 
       boxes.push(furiganaBox);
@@ -3174,27 +3403,41 @@ background: rgba(202, 12, 12, 0.692);
       });
     }
 
-    if (showFurigana && !gamepadHandler && typeof syncGamepadHandlerLifecycle === 'function') {
-      await syncGamepadHandlerLifecycle();
-    }
-
-    const furiganaReady = gamepadHandler && (
-      typeof gamepadHandler.canRequestFurigana === 'function'
-        ? gamepadHandler.canRequestFurigana()
-        : gamepadHandler.isServerConnected()
-    );
     if (!showFurigana) {
       resetFuriganaRenderState();
       return;
     }
-    if (!furiganaReady) {
-      resetFuriganaRenderState();
-      return;
+
+    // Chinese pinyin is produced locally by pinyin-pro and needs no tokenizer
+    // backend, so skip the gamepad/server readiness checks and round-trip.
+    const usesLocalReadings = !!(ReadingOverlay && !ReadingOverlay.requiresBackend(readingLanguage));
+    if (usesLocalReadings) {
+      if (!ReadingOverlay.isReady(readingLanguage)) {
+        resetFuriganaRenderState();
+        return;
+      }
+    } else {
+      if (!gamepadHandler && typeof syncGamepadHandlerLifecycle === 'function') {
+        await syncGamepadHandlerLifecycle();
+      }
+      const furiganaReady = gamepadHandler && (
+        typeof gamepadHandler.canRequestFurigana === 'function'
+          ? gamepadHandler.canRequestFurigana()
+          : gamepadHandler.isServerConnected()
+      );
+      if (!furiganaReady) {
+        resetFuriganaRenderState();
+        return;
+      }
     }
 
     const furiganaRequests = lines.map((line, lineIdx) => {
       if (!line || !line.text || !/[^\u0000-\u007F]/.test(line.text)) {
         return Promise.resolve(null);
+      }
+      if (usesLocalReadings) {
+        // Annotations are derived from line.text directly; segments unused.
+        return Promise.resolve({ line, lineIdx, segments: [] });
       }
       const cachedLine = getCachedFuriganaLine(line.text);
       if (cachedLine) {
@@ -3221,7 +3464,13 @@ background: rgba(202, 12, 12, 0.692);
     let renderedCount = 0;
     const renderSignatureParts = [];
     for (const item of resolved) {
-      if (!item || !item.segments || item.segments.length === 0) {
+      if (!item) {
+        continue;
+      }
+      // For backend (Japanese) readings, an empty segment list means no reading
+      // was produced. Local readings (Chinese pinyin) derive annotations from the
+      // line text directly, so don't skip them on empty segments.
+      if (!usesLocalReadings && (!item.segments || item.segments.length === 0)) {
         continue;
       }
       const boxes = createFuriganaBoxesForLine(item.line, item.segments);
@@ -3482,14 +3731,28 @@ background: rgba(202, 12, 12, 0.692);
     }
     shouldShowReadyIndicator = newsettings.showReadyIndicator !== false;
     showFurigana = newsettings.showFurigana;
+    if (Object.prototype.hasOwnProperty.call(newsettings, "readingLanguage")) {
+      readingLanguage = (ReadingOverlay && typeof ReadingOverlay.normalizeLanguage === 'function')
+        ? ReadingOverlay.normalizeLanguage(newsettings.readingLanguage)
+        : (String(newsettings.readingLanguage || 'japanese').toLowerCase() === 'chinese' ? 'chinese' : 'japanese');
+    }
+    if (Object.prototype.hasOwnProperty.call(newsettings, "pinyinToneColors")) {
+      pinyinToneColorsEnabled = newsettings.pinyinToneColors !== false;
+    }
+    applyPinyinToneColorSettings({
+      pinyinTone1Color: newsettings.pinyinTone1Color,
+      pinyinTone2Color: newsettings.pinyinTone2Color,
+      pinyinTone3Color: newsettings.pinyinTone3Color,
+      pinyinTone4Color: newsettings.pinyinTone4Color,
+      pinyinTone5Color: newsettings.pinyinTone5Color,
+    });
     hideFuriganaOnStartup = newsettings.hideFuriganaOnStartup === true;
     hideFuriganaAfterSeconds = clampNumber(newsettings.hideFuriganaAfterSeconds, 0, 0, 60);
     if (Object.prototype.hasOwnProperty.call(newsettings, "jitenHighlightingEnabled")) {
-      jitenHighlightingEnabled = newsettings.jitenHighlightingEnabled !== false;
-      if (window.GsmJitenHighlight) window.GsmJitenHighlight.setEnabled(jitenHighlightingEnabled);
+      setJitenHighlightingEnabled(newsettings.jitenHighlightingEnabled);
     }
     if (Object.prototype.hasOwnProperty.call(newsettings, "enableJitenReader")) {
-      jitenReaderEnabled = newsettings.enableJitenReader !== false;
+      setJitenReaderEnabled(newsettings.enableJitenReader);
     }
     if (Object.prototype.hasOwnProperty.call(newsettings, "showJitenGradingButtons")) {
       showJitenGradingButtons = newsettings.showJitenGradingButtons !== false;
@@ -3712,23 +3975,19 @@ background: rgba(202, 12, 12, 0.692);
         case "showReadyIndicator":
           shouldShowReadyIndicator = value !== false;
           break;
-        case "jitenHighlightingEnabled": {
-          const wasEnabled = jitenHighlightingEnabled;
-          jitenHighlightingEnabled = value !== false;
-          if (window.GsmJitenHighlight) {
-            window.GsmJitenHighlight.setEnabled(jitenHighlightingEnabled);
-            // Toggling on should feel instant: re-parse and highlight the text
-            // already on screen instead of waiting for the next OCR update.
-            if (jitenHighlightingEnabled && !wasEnabled) {
-              applyJitenHighlightingForLines(lastJitenHighlightLines);
-            }
-          }
+        case "jitenHighlightingEnabled":
+          setJitenHighlightingEnabled(value);
           pushJitenGradingConfig();
           break;
-        }
         case "enableJitenReader":
-          jitenReaderEnabled = value !== false;
+          setJitenReaderEnabled(value);
           pushJitenGradingConfig();
+          break;
+        case "jitenReaderLoaded":
+          // Main finished (re)loading the extension, so the settings-bridge is
+          // now live — verify availability now instead of waiting out the delay.
+          clearTimeout(jitenEnableVerifyTimer);
+          syncJitenSettings('reader-loaded', true);
           break;
         case "showJitenGradingButtons":
           showJitenGradingButtons = value !== false;
@@ -3747,6 +4006,32 @@ background: rgba(202, 12, 12, 0.692);
             furiganaAutoHidden = false;
           }
           updateFuriganaVisibilityState();
+          break;
+        case "readingLanguage": {
+          readingLanguage = (ReadingOverlay && typeof ReadingOverlay.normalizeLanguage === 'function')
+            ? ReadingOverlay.normalizeLanguage(value)
+            : (String(value || 'japanese').toLowerCase() === 'chinese' ? 'chinese' : 'japanese');
+          // Re-render readings for the text already on screen so the switch is instant.
+          resetFuriganaRenderState();
+          if (Array.isArray(lastJitenHighlightLines) && lastJitenHighlightLines.length > 0) {
+            renderFuriganaForFrame(lastJitenHighlightLines, overlayRenderGeneration, null);
+          }
+          break;
+        }
+        case "pinyinToneColors": {
+          pinyinToneColorsEnabled = value !== false;
+          resetFuriganaRenderState();
+          if (Array.isArray(lastJitenHighlightLines) && lastJitenHighlightLines.length > 0) {
+            renderFuriganaForFrame(lastJitenHighlightLines, overlayRenderGeneration, null);
+          }
+          break;
+        }
+        case "pinyinTone1Color":
+        case "pinyinTone2Color":
+        case "pinyinTone3Color":
+        case "pinyinTone4Color":
+        case "pinyinTone5Color":
+          applyPinyinToneColorSettings({ [key]: value });
           break;
         case "hideFuriganaOnStartup":
           hideFuriganaOnStartup = value;

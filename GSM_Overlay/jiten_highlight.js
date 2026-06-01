@@ -1,29 +1,10 @@
 /**
  * GSM Overlay - Jiten Reader SRS Highlighting (Mirror Approach)
  *
- * Leverages the Jiten Reader extension's own parsing to get SRS states.
- * The extension's content script (ajb.js) runs on the overlay page via
- * the TriggerParser (matches <all_urls>). We:
- *
- *   1. Insert text into a visible parse container (hidden overlay elements)
- *   2. Trigger Jiten Reader to parse via synthetic Alt+P keypress
- *   3. Observe the container for .jiten-word spans Jiten creates
- *   4. Draw one overlay highlight box per token spanning its character boxes
- *
- * During parse, overlay text elements are temporarily set to display:none
- * so Jiten's ParagraphReader only processes our parse container.
- *
- * Highlighting model (mirrors gamepad.js token highlights):
- *   Rather than adding CSS classes to each per-character .text-box (which makes
- *   every glyph look individually highlighted), we draw absolutely-positioned
- *   overlay <div>s over the union bounding rect of each token's character
- *   boxes. One token -> one continuous highlight, just like the gamepad's
- *   cursor/segment highlights. See renderOverlaySegments / getTokenRunRects.
- *
- * Jiten Reader classes:
- *   new, young, mature, mastered, blacklisted, due  (SRS states)
- *   i-plus-one  (sentence with exactly one unknown)
- *   frequent    (high-frequency word)
+ * We mirror the Jiten Reader extension's own parsing to get SRS states: insert
+ * text into an off-screen parse container, trigger a parse via synthetic Alt+P,
+ * observe the .jiten-word spans it creates, then draw one overlay highlight box
+ * per token over the union rect of its character boxes (like gamepad.js).
  */
 
 (function (root) {
@@ -43,13 +24,17 @@
   let parseObserver = null;
   let currentLines = null;
   let parseGeneration = 0;
-  let pendingParseResolve = null;
   let parseTimeoutId = null;
   let enabled = true;
   let lastParsedSignature = null;
 
-  // Overlay highlight layer + pooled segment elements (reused across renders,
-  // hidden when not needed) so we don't thrash the DOM every frame.
+  // Whether Jiten can parse right now. The overlay verifies this via the settings
+  // bridge and pushes it in through setAvailable(); optimistic by default so the
+  // first lines highlight immediately.
+  let available = true;
+
+  // Overlay highlight layer + pooled segment elements, reused across renders so we
+  // don't thrash the DOM.
   let overlayLayer = null;
   let overlaySegments = [];
   let repositionRaf = 0;
@@ -74,9 +59,8 @@
       attributeFilter: ['class', 'ajb'],
     });
 
-    // Overlay rects are computed in viewport space, so they go stale whenever
-    // the page reflows. Re-mirror (cheaply) on resize using the spans we
-    // already parsed. Live text changes re-enter through requestParse.
+    // Overlay rects are viewport-space, so they go stale on reflow. Re-mirror on
+    // resize from the spans we already parsed; text changes re-enter via requestParse.
     if (typeof window !== 'undefined') {
       window.addEventListener('resize', scheduleReposition);
     }
@@ -116,19 +100,11 @@
   }
 
   function onParseComplete() {
-    // Restore overlay elements visibility
-    restoreOverlayElements();
-    // Draw the token highlights
+    restoreOverlayElements(); // defensive; requestParse normally restores synchronously
     mirrorHighlights();
-    if (pendingParseResolve) {
-      pendingParseResolve();
-      pendingParseResolve = null;
-    }
   }
 
-  /**
-   * Temporarily hide overlay text elements so Jiten only parses our container.
-   */
+  // Temporarily hide overlay text elements so Jiten only parses our container.
   function hideOverlayElements() {
     const containers = document.querySelectorAll('.text-block-container, #boxes, #main-box');
     containers.forEach(el => {
@@ -145,11 +121,12 @@
     });
   }
 
-  /**
-   * Request Jiten Reader to parse the current lines.
-   */
+  // Request Jiten to parse the current lines. Never hides/delays the visible OCR
+  // text — it only draws SRS highlights on top, asynchronously. The real text
+  // boxes are hidden ONLY across the synchronous parse trigger (no paint happens
+  // in between) so Jiten's whole-page Alt+P parse excludes them.
   function requestParse(lines) {
-    if (!enabled) return Promise.resolve();
+    if (!enabled || !available) return Promise.resolve();
     if (!parseContainer) init();
     if (!Array.isArray(lines) || lines.length === 0) return Promise.resolve();
 
@@ -160,6 +137,8 @@
       mirrorHighlights();
       return Promise.resolve();
     }
+
+    console.log('[JitenHighlight] Requesting parse for', lines.length, 'lines');
 
     currentLines = lines;
     parseGeneration++;
@@ -176,32 +155,23 @@
       parseContainer.appendChild(p);
     }
 
-    // Make parse container visible (move on-screen temporarily for Jiten)
+    // Make parse container renderable (move on-screen temporarily for Jiten).
     parseContainer.style.left = '0';
     parseContainer.style.top = '0';
     parseContainer.style.width = 'auto';
     parseContainer.style.height = 'auto';
     parseContainer.style.opacity = '0.01'; // near-invisible but renderable
 
-    // Hide overlay text so Jiten only parses our container
     hideOverlayElements();
+    try {
+      triggerJitenParse();
+    } finally {
+      restoreOverlayElements();
+      resetParseContainerPosition();
+    }
 
-    // Trigger Jiten Reader parse
-    triggerJitenParse();
-
-    return new Promise((resolve) => {
-      pendingParseResolve = resolve;
-      // Safety timeout
-      setTimeout(() => {
-        if (parseGeneration === gen && pendingParseResolve === resolve) {
-          pendingParseResolve = null;
-          restoreOverlayElements();
-          resetParseContainerPosition();
-          mirrorHighlights();
-          resolve();
-        }
-      }, 4000);
-    });
+    // Highlights are drawn later by the mutation observer (onParseComplete).
+    return Promise.resolve();
   }
 
   function resetParseContainerPosition() {
@@ -229,10 +199,8 @@
     }, 50);
   }
 
-  /**
-   * Read Jiten-parsed spans and draw one overlay highlight box per token,
-   * positioned over the union bounding rect of the token's .text-box glyphs.
-   */
+  // Read Jiten-parsed spans and draw one overlay box per token over the union
+  // rect of its .text-box glyphs.
   function mirrorHighlights() {
     if (!parseContainer || !currentLines) {
       hideAllSegments();
@@ -257,12 +225,7 @@
       const lineIdx = parseInt(p.dataset.lineIndex, 10);
       if (!Number.isFinite(lineIdx)) continue;
 
-      // Map each .jiten-word span to its character range within the line.
-      // Offsets are counted over EVERY base-text character in document order —
-      // including punctuation/whitespace that Jiten leaves outside any
-      // .jiten-word span — so ranges stay aligned with the per-character text
-      // boxes (which include those characters). Counting only span lengths
-      // would drift left by one position per skipped punctuation mark.
+      // Map each .jiten-word span to its char range within the line.
       const spanRanges = computeJitenSpanRanges(p);
       if (spanRanges.size === 0) continue;
 
@@ -287,15 +250,9 @@
     }
   }
 
-  /**
-   * Walk a paragraph's base text (excluding <rt> furigana readings) in document
-   * order and return a Map of each .jiten-word span -> {start, len} giving its
-   * character range within the line.
-   *
-   * Characters that are NOT wrapped in a .jiten-word (punctuation like 、「」,
-   * spaces, etc. that Jiten skips) still advance the running offset, keeping the
-   * ranges aligned with the per-character overlay text boxes.
-   */
+  // Walk a paragraph's base text (skipping <rt> furigana) and return a Map of each
+  // .jiten-word span -> {start, len}. Characters Jiten leaves unwrapped (punctuation,
+  // spaces) still advance the offset, keeping ranges aligned with the text boxes.
   function computeJitenSpanRanges(p) {
     const ranges = new Map();
     const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT, {
@@ -339,10 +296,8 @@
     return ranges;
   }
 
-  /**
-   * Build the CSS class list for a token's overlay highlight from a Jiten span,
-   * or null if the span carries no highlightable state.
-   */
+  // Build the CSS class list for a token's overlay highlight, or null if the span
+  // carries no highlightable state.
   function getSegmentClassesForSpan(span) {
     const cl = span.classList;
     if (cl.contains('unparsed') || cl.contains('misparsed')) return null;
@@ -381,8 +336,7 @@
       boxes = document.querySelectorAll(`.text-box[data-line-index="${lineIndex}"]`);
     }
 
-    // Filter to only visible-text boxes (skip synthetic \n separators and empty boxes)
-    // so character offsets from Jiten's parse of line.text align with DOM order.
+    // Keep only visible-text boxes (skip \n separators/empties) so offsets align.
     const visibleBoxes = Array.from(boxes).filter(box => {
       const text = (box.textContent || '').replace(/\s/g, '');
       return text.length > 0;
@@ -391,12 +345,9 @@
     return visibleBoxes.slice(start, end);
   }
 
-  /**
-   * Group a token's character boxes into one union rect per visual run (row for
-   * horizontal text, column for vertical text). Almost always a single rect;
-   * splitting only kicks in if a token wraps across lines. Mirrors the
-   * per-line union logic in gamepad.js getTokenLineRects.
-   */
+  // Group a token's character boxes into one union rect per visual run (row for
+  // horizontal text, column for vertical). Almost always a single rect; splits only
+  // when a token wraps. Mirrors gamepad.js getTokenLineRects.
   function getTokenRunRects(boxes) {
     const rects = [];
     for (const box of boxes) {
@@ -498,25 +449,25 @@
     }
   }
 
-  function refresh() {
+  // Set whether Jiten can parse right now (driven by the overlay's settings-bridge
+  // verification). False stops triggering parses; true resumes on the next line/refresh.
+  function setAvailable(value) {
+    available = !!value;
+    // Drop the dedup signature so resuming forces a fresh parse, not stale spans.
+    if (!available) lastParsedSignature = null;
+  }
+
+  function refresh(lines) {
     lastParsedSignature = null;
-    if (currentLines && enabled) {
-      requestParse(currentLines);
+    const target = (Array.isArray(lines) && lines.length) ? lines : currentLines;
+    if (target && enabled && available) {
+      requestParse(target);
     }
   }
 
-  /**
-   * Optimistically reflect a word's new SRS state on the existing highlights
-   * (e.g. after grading it from the Yomitan popup). Rewrites the managed state
-   * classes on the matching .jiten-word spans in the parse container, then
-   * redraws — so a now-"known" word (mature/mastered/blacklisted) loses its
-   * highlight and a changed state recolors. Mirrors the Jiten Reader widget's
-   * Registry.updateCard, which reapplies classes to [wordId][readingIndex] spans.
-   *
-   * @param {number|string} wordId
-   * @param {number|string} readingIndex
-   * @param {string[]|string} stateClasses one or more of JITEN_STATE_CLASSES
-   */
+  // Reflect a word's new SRS state on existing highlights (e.g. after grading from
+  // the Yomitan popup): rewrite the state classes on matching .jiten-word spans and
+  // redraw, so a now-known word loses its highlight and a changed state recolors.
   function applyCardState(wordId, readingIndex, stateClasses) {
     if (!parseContainer) return;
     if (wordId === undefined || wordId === null || readingIndex === undefined || readingIndex === null) return;
@@ -550,6 +501,7 @@
     reposition: mirrorHighlights,
     clearJitenHighlighting: clearAllHighlights,
     setEnabled,
+    setAvailable,
     refresh,
     applyCardState,
   };

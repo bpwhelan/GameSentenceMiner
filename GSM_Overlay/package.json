@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "electron-squirrel-startup": "1.0.1",
+    "pinyin-pro": "^3.28.1",
     "ws": "^8.20.0"
   },
   "overrides": {

@@ -163,6 +163,8 @@ interface StoreConfig {
     pullPreReleases: boolean;
     preReleaseMetadataAutoEnableApplied: boolean;
     runManualOCROnStartup: boolean;
+    forceManualOcrAllProfiles: boolean; // Turn on manual OCR for every scene/profile not already set to auto OCR
+    ignoreActiveSceneForOcr: boolean; // Keep auto-launched OCR running regardless of the active OBS scene
     visibleTabs: string[]; // Array of visible tab IDs
     statsEndpoint: string; // Stats tab endpoint
     locale: string; // UI language code (e.g. "en", "ukr")
@@ -284,6 +286,8 @@ export const store = new Store<StoreConfig>({
         pullPreReleases: false,
         preReleaseMetadataAutoEnableApplied: false,
         runManualOCROnStartup: false,
+        forceManualOcrAllProfiles: false,
+        ignoreActiveSceneForOcr: false,
         visibleTabs: ['launcher', 'stats', 'console'], // Default all tabs visible
         statsEndpoint: 'overview', // Default stats endpoint
         locale: 'en', // UI language code
@@ -785,6 +789,22 @@ export function getRunManualOCROnStartup(): boolean {
 
 export function setRunManualOCROnStartup(run: boolean): void {
     store.set("runManualOCROnStartup", run);
+}
+
+export function getForceManualOcrAllProfiles(): boolean {
+    return store.get("forceManualOcrAllProfiles", false);
+}
+
+export function setForceManualOcrAllProfiles(force: boolean): void {
+    store.set("forceManualOcrAllProfiles", force);
+}
+
+export function getIgnoreActiveSceneForOcr(): boolean {
+    return store.get("ignoreActiveSceneForOcr", false);
+}
+
+export function setIgnoreActiveSceneForOcr(ignore: boolean): void {
+    store.set("ignoreActiveSceneForOcr", ignore);
 }
 
 export function getSceneLaunchProfiles(): SceneLaunchProfile[] {
