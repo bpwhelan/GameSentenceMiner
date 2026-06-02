@@ -66,7 +66,7 @@ importers:
         specifier: ^7.5.13
         version: 7.5.15
       ws:
-        specifier: ^8.20.0
+        specifier: ^8.21.0
         version: 8.21.0
     devDependencies:
       '@types/archiver':
