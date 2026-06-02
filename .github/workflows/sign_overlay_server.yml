@@ -1,0 +1,129 @@
+name: Sign Overlay Server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 1
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
+
+      - name: Build gamepad server (Windows)
+        run: cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+
+      - name: Upload unsigned binary
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: gsm-overlay-server-unsigned-windows
+          path: GSM_Overlay/input_server/target/release/gsm_overlay_server.exe
+          if-no-files-found: error
+
+      - name: Submit signing request
+        id: sign
+        continue-on-error: true
+        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd
+        with:
+          api-token: ${{ secrets.SIGNPATH_APITOKEN }}
+          organization-id: c677c167-9f3e-4577-b967-5d7730bf742d
+          project-slug: GameSentenceMiner
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: gsm_overlay_server
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed_output
+
+      - name: Upload signed binary
+        if: steps.sign.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gsm-overlay-server-signed-windows
+          path: signed_output
+          if-no-files-found: warn
+
+  build-linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 1
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
+
+      - name: Install Linux native build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libudev-dev \
+            libx11-dev \
+            libxtst-dev
+
+      - name: Build gamepad server (Linux)
+        run: cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: gsm-overlay-server-linux
+          path: GSM_Overlay/input_server/target/release/gsm_overlay_server
+          if-no-files-found: error
+
+  build-mac-arm64:
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 1
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
+
+      - name: Build gamepad server (macOS)
+        run: cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: gsm-overlay-server-mac-arm64
+          path: GSM_Overlay/input_server/target/release/gsm_overlay_server
+          if-no-files-found: error

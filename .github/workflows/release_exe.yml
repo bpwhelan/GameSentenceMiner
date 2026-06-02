@@ -243,6 +243,7 @@ jobs:
     needs:
       - prepare-release
       - build-windows-unsigned
+    if: always() && needs.build-windows-unsigned.result == 'success'
     permissions:
       contents: read
       id-token: write
@@ -271,6 +272,7 @@ jobs:
     needs:
       - prepare-release
       - build-windows-unsigned
+    if: always() && needs.build-windows-unsigned.result == 'success'
     permissions:
       contents: read
       id-token: write
@@ -329,6 +331,7 @@ jobs:
       - prepare-release
       - sign-windows-installer
       - sign-windows-unpacked
+    if: always() && needs.sign-windows-installer.result == 'success' && needs.sign-windows-unpacked.result == 'success'
     permissions:
       contents: write
       actions: read
