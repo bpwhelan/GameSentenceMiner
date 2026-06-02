@@ -400,6 +400,33 @@ export class AutoLauncher {
         }
     }
 
+    private resolveDesiredOcrMode(
+        currentScene: ObsScene
+    ): { mode: SceneOcrMode; forcedManual: boolean } {
+        const sceneProfile = getSceneLaunchProfileForScene(currentScene);
+        let ocrMode: SceneOcrMode = sceneProfile?.ocrMode ?? "none";
+
+        // Legacy fallback for users who had OCR scenes configured before scene profiles existed.
+        if (!sceneProfile && ocrMode === "none") {
+            const legacyScenes = getObsOcrScenes();
+            if (legacyScenes.includes(currentScene.name)) {
+                ocrMode = "auto";
+            }
+        }
+
+        // "Turn on manual OCR for all profiles": any scene not already set to auto
+        // OCR falls back to manual OCR so background OCR utilities (screen cropper,
+        // manual capture hotkeys, etc.) stay available even when not actively gaming.
+        // Only scenes we promote from "none" should bypass the session-active gate;
+        // scenes a user explicitly set to manual keep their existing gated behavior.
+        const forcedManual = getForceManualOcrAllProfiles() && ocrMode === "none";
+        if (forcedManual) {
+            ocrMode = "manual";
+        }
+
+        return { mode: ocrMode, forcedManual };
+    }
+
     private async runOcrAutomation(currentScene: ObsScene) {
         try {
             const runtimeBefore = getOCRRuntimeState();
@@ -424,38 +451,29 @@ export class AutoLauncher {
             this.lastObservedAutoLauncherOcrRunning = wasAutoLauncherRunning;
 
             const ignoreActiveScene = getIgnoreActiveSceneForOcr();
+            const { mode: ocrMode, forcedManual: forcedManualOcr } =
+                this.resolveDesiredOcrMode(currentScene);
 
             // "Ignore active OBS scene for OCR": once OCR is running under
             // auto-launcher control, leave it running regardless of scene
             // changes (don't stop/restart it just because the active scene
             // switched). It keeps the area config of the scene it started with.
+            //
+            // Exception: a forced-manual fallback session ("Turn on manual OCR
+            // for all profiles") must still defer to a scene whose Game
+            // Automation profile actually wants auto OCR. Without this, manual
+            // OCR started on a menu/idle scene gets pinned and never upgrades to
+            // auto when we land on the game scene.
             if (ignoreActiveScene && wasAutoLauncherRunning) {
-                return;
-            }
-
-            this.stopOcrIfSceneChanged(currentScene);
-
-            const sceneProfile = getSceneLaunchProfileForScene(currentScene);
-            let ocrMode: SceneOcrMode = sceneProfile?.ocrMode ?? "none";
-
-            // Legacy fallback for users who had OCR scenes configured before scene profiles existed.
-            if (!sceneProfile && ocrMode === "none") {
-                const legacyScenes = getObsOcrScenes();
-                if (legacyScenes.includes(currentScene.name)) {
-                    ocrMode = "auto";
+                const desiredRunMode = ocrMode === "manual" ? "manual" : "auto";
+                const needsManualToAutoUpgrade =
+                    runtimeBefore.mode === "manual" && desiredRunMode === "auto";
+                if (!needsManualToAutoUpgrade) {
+                    return;
                 }
             }
 
-            // "Turn on manual OCR for all profiles": any scene not already set to auto
-            // OCR falls back to manual OCR so background OCR utilities (screen cropper,
-            // manual capture hotkeys, etc.) stay available even when not actively gaming.
-            // Only scenes we promote from "none" should bypass the session-active gate;
-            // scenes a user explicitly set to manual keep their existing gated behavior.
-            const forcedManualOcr =
-                getForceManualOcrAllProfiles() && ocrMode === "none";
-            if (forcedManualOcr) {
-                ocrMode = "manual";
-            }
+            this.stopOcrIfSceneChanged(currentScene);
 
             if (ocrMode === "none") {
                 if (this.isAutoOcrSuppressedForScene(currentScene.id)) {
@@ -650,7 +668,9 @@ export class AutoLauncher {
         return null;
     }
 
-    private async getPreferredTextractorPath(gamePid: number): Promise<string | null> {
+    private async getPreferredTextractorPath(
+        gamePid: number,
+    ): Promise<string | null> {
         const configured64 = getTextractorPath64().trim();
         const configured32 = getTextractorPath32().trim();
 
@@ -713,7 +733,7 @@ export class AutoLauncher {
 
     private async handleTextractorAutomation(
         exeName: string | null | undefined,
-        launchDelaySeconds: number = 0
+        launchDelaySeconds: number = 0,
     ): Promise<void> {
         if (!exeName) {
             return;
@@ -1294,7 +1314,10 @@ export class AutoLauncher {
         this.resetAgentTracking();
 
         if (textHookMode === "textractor") {
-            await this.handleTextractorAutomation(exeName, launchDelaySeconds);
+            await this.handleTextractorAutomation(
+                exeName,
+                launchDelaySeconds,
+            );
             return false;
         }
 

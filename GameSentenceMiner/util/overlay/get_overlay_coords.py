@@ -1896,11 +1896,6 @@ class OverlayProcessor:
                 #     logger.debug("Retry returned no text, aborting further attempts")
                 #     break
 
-                if sentence_to_check:
-                    op_start = time.time()
-                    oneocr_results = self._correct_ocr_with_backlog(oneocr_results, sentence_to_check)
-                    self._log_timing(op_start, "OCR correction with backlog")
-
                 if asyncio.current_task().cancelled():
                     raise asyncio.CancelledError()
 
@@ -1951,6 +1946,14 @@ class OverlayProcessor:
                         oneocr_results = filtered
                         self.last_raw_results = copy.deepcopy(oneocr_results)
                     self._log_timing(op_start, "TextFiltering (reorder + furigana filter)")
+
+                # Apply corrections after TextFiltering so they are not discarded when
+                # TextFiltering rebuilds results from the raw (uncorrected) response_dict.
+                if sentence_to_check:
+                    op_start = time.time()
+                    oneocr_results = self._correct_ocr_with_backlog(oneocr_results, sentence_to_check)
+                    self.last_raw_results = copy.deepcopy(oneocr_results)
+                    self._log_timing(op_start, "OCR correction with backlog")
 
                 op_start = time.time()
                 oneocr_final = self._convert_oneocr_results_to_percentages(

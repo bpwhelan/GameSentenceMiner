@@ -63,13 +63,13 @@ jobs:
         with:
           python-version: 3.11
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22.12.0
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            GSM_Overlay/package-lock.json
+          cache: pnpm
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -86,12 +86,12 @@ jobs:
           path: |
             ~\AppData\Local\electron\Cache
             ~\AppData\Local\electron-builder\Cache
-          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('pnpm-lock.yaml', 'GSM_Overlay/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-electron-cache-
 
       - name: Stamp version into package.json
-        run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
+        run: node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ needs.compute-version.outputs.PACKAGE_VERSION }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
 
       - name: Build gamepad server (Windows)
         run: |
@@ -113,14 +113,14 @@ jobs:
       - name: Build Overlay
         working-directory: GSM_Overlay
         run: |
-          npm ci --prefer-offline --no-audit --fund=false
-          npm run package
+          pnpm install --frozen-lockfile
+          pnpm run package
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --fund=false
+        run: pnpm install --frozen-lockfile
 
       - name: Build Electron app
-        run: npm run app:dist
+        run: pnpm run app:dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -276,13 +276,13 @@ jobs:
         with:
           python-version: 3.11
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22.12.0
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            GSM_Overlay/package-lock.json
+          cache: pnpm
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -299,12 +299,12 @@ jobs:
           path: |
             ~/.cache/electron
             ~/.cache/electron-builder
-          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('pnpm-lock.yaml', 'GSM_Overlay/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-electron-cache-
 
       - name: Stamp version into package.json
-        run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
+        run: node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ needs.compute-version.outputs.PACKAGE_VERSION }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
 
       - name: Install Linux native build deps
         run: |
@@ -329,14 +329,14 @@ jobs:
       - name: Build Overlay
         working-directory: GSM_Overlay
         run: |
-          npm ci --prefer-offline --no-audit --fund=false
-          npm run package
+          pnpm install --frozen-lockfile
+          pnpm run package
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --fund=false
+        run: pnpm install --frozen-lockfile
 
       - name: Build Electron app (Linux)
-        run: npm run app:dist
+        run: pnpm run app:dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -370,13 +370,13 @@ jobs:
         with:
           python-version: 3.11
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22.12.0
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            GSM_Overlay/package-lock.json
+          cache: pnpm
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -393,12 +393,12 @@ jobs:
           path: |
             ~/.cache/electron
             ~/.cache/electron-builder
-          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('pnpm-lock.yaml', 'GSM_Overlay/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-electron-cache-
 
       - name: Stamp version into package.json
-        run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
+        run: node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='${{ needs.compute-version.outputs.PACKAGE_VERSION }}';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
 
       - name: Build gamepad server (macOS)
         run: |
@@ -414,14 +414,14 @@ jobs:
       - name: Build Overlay
         working-directory: GSM_Overlay
         run: |
-          npm ci --prefer-offline --no-audit --fund=false
-          npm run package
+          pnpm install --frozen-lockfile
+          pnpm run package
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --fund=false
+        run: pnpm install --frozen-lockfile
 
       - name: Build Electron app (macOS arm64)
-        run: npm run app:dist -- --mac --arm64 -c.mac.artifactName='${productName}-${version}-${arch}.${ext}'
+        run: pnpm run app:dist -- --mac --arm64 -c.mac.artifactName='${productName}-${version}-${arch}.${ext}'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

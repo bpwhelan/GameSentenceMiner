@@ -6,11 +6,11 @@ This guide is **very clearly** AI Written, and lightly edited by me. If you find
 
 ## Quick Start
 
-Getting GSM up and running for development is straightforward:
+Getting GSM up and running for development is straightforward ([PNPM](https://pnpm.io/installation) required).
 
 ```bash
-npm install
-npm run start
+pnpm install
+pnpm run start
 ```
 
 That's it! This will build the TypeScript files and launch the Electron application.
@@ -19,7 +19,7 @@ That's it! This will build the TypeScript files and launch the Electron applicat
 
 ### Node.js Version Management with NVM
 
-**Important**: GSM loosely requires Node.js version 21 (I had 21 installed when I built it). I strongly recommend using Node Version Manager (NVM) to manage your Node.js installation. All I know is that 24 DOES NOT work.
+**Important**: GSM loosely requires Node.js version 22 (I had 22 installed when I built it). I strongly recommend using Node Version Manager (NVM) to manage your Node.js installation. All I know is that 24 DOES NOT work.
 
 #### Installing NVM
 
@@ -32,13 +32,13 @@ That's it! This will build the TypeScript files and launch the Electron applicat
 
 https://github.com/nvm-sh/nvm
 
-#### Setting up Node.js 21
+#### Setting up Node.js 22
 
 Once NVM is installed, set up the correct Node.js version:
 
 ```bash
-nvm install 21
-nvm use 21
+nvm install 22
+nvm use 22
 ```
 
 You can verify your Node.js version with:
@@ -50,8 +50,8 @@ node --version
 
 ### Available Scripts
 
-- `npm run start` - Build and run the application
-- `npm run app:dist` - Create distribution build
+- `pnpm run start` - Build and run the application
+- `pnpm run app:dist` - Create distribution build
 
 ### Recommended Development Flow
 
@@ -64,8 +64,8 @@ node --version
 
 2. **Setup Environment**
    ```bash
-   nvm use 21
-   npm install
+   nvm use 22
+   pnpm install
    ```
 
 3. **Install Python Dev Tooling**
@@ -78,7 +78,7 @@ node --version
 4. **Make Changes**
    - Edit TypeScript files in `electron-src/`
    - Edit Python files in `GameSentenceMiner/` as needed
-   - Use `npm run start` to build and test your changes
+   - Use `pnpm run start` to build and test your changes
    - Use `Restart Python App` from app menus to reload Python changes
 
 ## 🏗️ Project Structure
@@ -158,8 +158,8 @@ Before implementing new features:
 ### Common Issues
 
 **Build Failures:**
-- Ensure you're using Node.js 21: `node --version`
-- Clear node_modules and reinstall: `rm -rf node_modules && npm install`
+- Ensure you're using Node.js 22: `node --version`
+- Clear node_modules and reinstall: `rm -rf node_modules && pnpm install`
 
 **Electron Not Starting:**
 - Check if TypeScript compilation succeeded

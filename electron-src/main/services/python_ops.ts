@@ -6,15 +6,9 @@ import {
     execFileAsync,
     getResourcesDir,
     getSanitizedPythonEnv,
-    BASE_DIR,
 } from '../util.js';
 
 const PINNED_UV_VERSION = '0.9.22';
-
-const MAIN_BRANCH_RAW_BASE =
-    'https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/refs/heads/main';
-const UV_LOCK_URL = `${MAIN_BRANCH_RAW_BASE}/uv.lock`;
-const PYPROJECT_URL = `${MAIN_BRANCH_RAW_BASE}/pyproject.toml`;
 
 // ---------------------------------------------------------------------------
 // General helpers
@@ -366,46 +360,22 @@ export async function cleanUvCache(pythonPath: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
- * In production the bundled uv.lock + pyproject.toml are inside the
- * resources directory.  In dev mode they are at the repo root.
+ * The bundled uv.lock + pyproject.toml + GameSentenceMiner source live inside
+ * the resources directory in production, and at the repo root in dev mode.
+ * The Python backend is always installed from this bundled copy so it stays
+ * locked to the shipped Electron app version (no separate PyPI/branch source).
  */
 export function getProjectPath(): string {
     return path.resolve(getResourcesDir());
 }
 
 /**
- * Try to download the latest uv.lock from the main branch and stage it in a
- * writable cache directory alongside a copy of pyproject.toml.  Returns the
- * cache directory path on success, or the bundled resources path as fallback.
+ * Package specifier for installing the GSM backend from the bundled source
+ * tree. `uv pip install <dir>` builds the package from the resources copy,
+ * giving it the same version as the Electron app.
  */
-async function downloadText(url: string): Promise<string> {
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status} for ${url}`);
-    }
-    return response.text();
-}
-
-async function resolveUvLockProjectPath(): Promise<string> {
-    const bundledPath = getProjectPath();
-    const cacheDir = path.join(BASE_DIR, 'uv-project');
-
-    try {
-        // Download both files together so the lockfile and pyproject stay a
-        // consistent pair – `uv sync --frozen` rejects a mismatched pair.
-        const [lockContent, pyprojectContent] = await Promise.all([
-            downloadText(UV_LOCK_URL),
-            downloadText(PYPROJECT_URL),
-        ]);
-        fs.mkdirSync(cacheDir, { recursive: true });
-        fs.writeFileSync(path.join(cacheDir, 'uv.lock'), lockContent, 'utf8');
-        fs.writeFileSync(path.join(cacheDir, 'pyproject.toml'), pyprojectContent, 'utf8');
-        console.log('Downloaded latest uv.lock + pyproject.toml from main.');
-        return cacheDir;
-    } catch (err) {
-        console.warn(`Failed to download latest uv.lock (${err}). Falling back to bundled lockfile.`);
-        return bundledPath;
-    }
+export function getBundledBackendSpecifier(): string {
+    return getProjectPath();
 }
 
 // ---------------------------------------------------------------------------
@@ -507,7 +477,7 @@ export async function syncLockedEnvironment(
     checkOnly: boolean = false,
     onProgress?: (event: UvCommandProgressEvent) => void
 ): Promise<void> {
-    const projectPath = await resolveUvLockProjectPath();
+    const projectPath = getProjectPath();
     const normalizedExtras = normalizeExtras(extras);
     const args = [
         '-m',

@@ -1,7 +1,9 @@
 import { execFileSync } from "child_process";
-import axios from "axios";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import log from "electron-log";
-import {getPythonPath} from "./store.js";
+import { getPythonPath } from "./store.js";
+import { getProjectPath } from "./services/python_ops.js";
 
 const PACKAGE_NAME = "GameSentenceMiner";
 
@@ -23,41 +25,45 @@ function getCurrentVersion(): string | null {
     }
 }
 
-// Fetch latest version from PyPI
-async function getLatestVersion(): Promise<string | null> {
+// The "latest" backend version is whatever ships in the bundled resources –
+// the backend is locked to the Electron app, so this is read offline from the
+// bundled pyproject.toml rather than from PyPI.
+function getLatestVersion(): string | null {
     try {
-        const response = await axios.get(`https://pypi.org/pypi/${PACKAGE_NAME}/json`);
-        return response.data.info.version;
+        const pyprojectPath = path.join(getProjectPath(), 'pyproject.toml');
+        const pyproject = fs.readFileSync(pyprojectPath, 'utf8');
+        const match = pyproject.match(/\[project\][\s\S]*?\nversion\s*=\s*"([^"]+)"/);
+        return match ? match[1].trim() : null;
     } catch (error) {
-        log.error(`Error fetching latest version from PyPI: ${error}`);
+        log.error(`Error reading bundled backend version: ${error}`);
         return null;
     }
 }
 
-// Check for updates
+// Check whether the installed backend differs from the bundled one.
 async function checkForUpdates(force: boolean = false): Promise<{ updateAvailable: boolean; latestVersion: string | null }> {
     try {
         const installedVersion = getCurrentVersion();
-        const latestVersion = await getLatestVersion();
+        const latestVersion = getLatestVersion();
 
-        console.log(`Installed version: ${installedVersion}`);
-        console.log(`Latest version: ${latestVersion}`);
+        console.log(`Installed backend version: ${installedVersion}`);
+        console.log(`Bundled backend version: ${latestVersion}`);
 
         if (!latestVersion) {
-            log.error("Could not determine latest version.");
+            log.error("Could not determine bundled backend version.");
             return { updateAvailable: false, latestVersion: null };
         }
 
         if (!installedVersion) {
-            log.info(`No installed ${PACKAGE_NAME} version found. Treating ${latestVersion} as update target.`);
+            log.info(`No installed ${PACKAGE_NAME} version found. Treating bundled ${latestVersion} as install target.`);
             return { updateAvailable: true, latestVersion };
         }
 
         if (installedVersion !== latestVersion || force) {
-            log.info(`Update available: ${installedVersion} -> ${latestVersion}`);
+            log.info(`Backend version differs: ${installedVersion} -> ${latestVersion}`);
             return { updateAvailable: true, latestVersion };
         } else {
-            log.info("You are already using the latest version.");
+            log.info("Backend already matches the bundled version.");
             return { updateAvailable: false, latestVersion };
         }
     } catch (error) {

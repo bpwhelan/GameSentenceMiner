@@ -1591,7 +1591,7 @@ class ProfileConfig:
 @dataclass_json
 @dataclass
 class StatsConfig:
-    session_gap_seconds: int = 3600
+    session_gap_seconds: int = 1800 
     streak_requirement_hours: float = 0.01  # 1 second required per day to keep your streak by default
     reading_hours_target: int = 1500  # Target reading hours based on TMW N1 achievement data
     character_count_target: int = 25000000  # Target character count (25M) inspired by Discord server milestones
@@ -1939,7 +1939,9 @@ class Config:
                         # Whisper basically uses Silero's VAD internally, so no need for backup
                         if profile.vad.selected_vad_model == WHISPER and profile.vad.backup_vad_model == SILERO:
                             profile.vad.backup_vad_model = OFF
-
+                if version.parse(self.version) < version.parse("2026.6.5"):
+                    if self.stats.session_gap_seconds == 3600:
+                        self.stats.session_gap_seconds = 1800
                 self.version = current_version
                 self.save()
 

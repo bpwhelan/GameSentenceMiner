@@ -111,8 +111,6 @@ export interface UpdateTargetStatus {
   checkedAt: string | null;
   error: string | null;
   checking: boolean;
-  source?: "pypi" | "prerelease-branch";
-  branch?: string | null;
   channel?: "latest" | "beta";
 }
 

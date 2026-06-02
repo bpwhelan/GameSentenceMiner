@@ -24,10 +24,14 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '21'
+          cache: pnpm
 
       - name: Check Version vs Latest Release and Determine Build/Release
         id: version_check
@@ -67,18 +71,18 @@ jobs:
         if: steps.version_check.outputs.should_build == 'true'
         working-directory: ./GSM_Overlay
         run: |
-          npm install
-          npm run package
+          pnpm install --frozen-lockfile
+          pnpm run package
 
       - name: Install dependencies
         if: steps.version_check.outputs.should_build == 'true'
         run: |
-          npm install
+          pnpm install --frozen-lockfile
 
       - name: Build Electron app
         if: steps.version_check.outputs.should_build == 'true'
         run: |
-          npm run app:dist
+          pnpm run app:dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -5,12 +5,12 @@
   "description": "GameSentenceMiner",
   "main": "dist/main/bootstrap.js",
   "scripts": {
-    "start": "npm run build && electron .",
-    "build": "npm run sync:legacy && npm run build:main && npm run build:renderer",
+    "start": "pnpm run build && electron .",
+    "build": "pnpm run sync:legacy && pnpm run build:main && pnpm run build:renderer",
     "build:main": "tsc -p tsconfig.electron.json",
     "build:renderer": "vite build --config electron-src/renderer/vite.config.ts",
-    "dev": "npm run sync:legacy && concurrently -k \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
-    "dev:chaos-update": "npm run build:main && node scripts/run-update-chaos.cjs",
+    "dev": "pnpm run sync:legacy && concurrently -k \"pnpm:dev:renderer\" \"pnpm:dev:main\" \"pnpm:dev:electron\"",
+    "dev:chaos-update": "pnpm run build:main && node scripts/run-update-chaos.cjs",
     "dev:main": "tsc -p tsconfig.electron.json --watch --preserveWatchOutput",
     "dev:renderer": "vite --config electron-src/renderer/vite.config.ts",
     "dev:electron": "wait-on tcp:5173 dist/main/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 nodemon --exitcrash --watch dist/main --watch dist/preload --ext js,mjs,cjs --exec \"node scripts/electron-dev-once.cjs\"",
@@ -18,10 +18,14 @@
     "test:ts": "vitest run --config vitest.config.ts",
     "test:ts:watch": "vitest --config vitest.config.ts",
     "app:dir": "electron-builder --dir",
-    "app:dist": "npm run build && electron-builder --publish=never",
+    "app:dist": "pnpm run build && electron-builder --publish=never",
     "app:deploy": "electron-builder --publish=always"
   },
   "type": "module",
+  "packageManager": "pnpm@10.22.0",
+  "pnpm": {
+    "onlyBuiltDependencies": ["electron", "electron-winstaller", "esbuild", "extract-file-icon", "frida", "node-window-manager", "sharp"]
+  },
   "engines": {
     "node": ">=18"
   },

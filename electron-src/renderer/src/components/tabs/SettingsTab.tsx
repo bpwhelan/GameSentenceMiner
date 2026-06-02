@@ -80,9 +80,7 @@ const DEFAULT_UPDATE_STATUS: UpdateStatusSnapshot = {
     updateAvailable: false,
     checkedAt: null,
     error: null,
-    checking: false,
-    source: "pypi",
-    branch: null
+    checking: false
   },
   app: {
     currentVersion: "",
@@ -181,13 +179,9 @@ function getDisplayCurrentVersion(status: UpdateTargetStatus): string {
 }
 
 function getDisplayLatestVersion(
-  label: "backend" | "app",
+  _label: "backend" | "app",
   status: UpdateTargetStatus
 ): string {
-  if (label === "backend" && status.source === "prerelease-branch") {
-    return status.branch ? `Branch ${status.branch}` : "Beta branch";
-  }
-
   if (status.latestVersion && status.latestVersion.trim().length > 0) {
     return status.latestVersion;
   }
@@ -821,15 +815,9 @@ export function SettingsTab({ active }: SettingsTabProps) {
                     <div className="update-version-meta">
                       {t("settings.updates.current", { version: getDisplayCurrentVersion(updateStatus.backend) })}
                     </div>
-                    {updateStatus.backend.source === "prerelease-branch" ? (
-                      <div className="update-version-meta">
-                        {t("settings.updates.channel", { channel: getDisplayLatestVersion("backend", updateStatus.backend) })}
-                      </div>
-                    ) : (
-                      <div className="update-version-meta">
-                        {t("settings.updates.latest", { version: getDisplayLatestVersion("backend", updateStatus.backend) })}
-                      </div>
-                    )}
+                    <div className="update-version-meta">
+                      {t("settings.updates.latest", { version: getDisplayLatestVersion("backend", updateStatus.backend) })}
+                    </div>
                   </div>
                   <div className="update-version-state">
                     {updateStatus.backend.updateAvailable &&
@@ -845,9 +833,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
                       </div>
                     ) : (
                       <span className="update-version-stable">
-                        {updateStatus.backend.source === "prerelease-branch"
-                          ? t("settings.updates.manualBranch")
-                          : t("settings.updates.upToDate")}
+                        {t("settings.updates.upToDate")}
                       </span>
                     )}
                   </div>

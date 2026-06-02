@@ -4,9 +4,9 @@ import { ChildProcess, spawn } from 'child_process';
 import { getOrInstallPython, reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall, closeAllPythonProcesses, restartGSM, checkAndInstallUV, pyProc } from '../main.js';
 import { FeatureFlags } from '../main.js';
-import { BASE_DIR, execFileAsync, PACKAGE_NAME, getSanitizedPythonEnv, getGSMBaseDir } from '../util.js';
+import { BASE_DIR, execFileAsync, getSanitizedPythonEnv, getGSMBaseDir } from '../util.js';
 import {
-    getInstalledPackageVersion,
+    getBundledBackendSpecifier,
     resolveRequestedExtras,
     syncLockedEnvironment,
     installPackageNoDeps,
@@ -285,10 +285,7 @@ export function registerPythonIPC() {
                 updateInstallStage('lock_sync', 'running', 'estimated', event.progress, event.message);
             });
             updateInstallStage('lock_sync', 'completed', 'estimated', 1, 'Dependencies synced from the lockfile.');
-            const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
-            const packageSpecifier = installedVersion
-                ? `${PACKAGE_NAME}==${installedVersion}`
-                : PACKAGE_NAME;
+            const packageSpecifier = getBundledBackendSpecifier();
             updateInstallStage('gsm_package', 'running', 'estimated', 0.1, `Reinstalling ${packageSpecifier}...`);
             await installPackageNoDeps(pythonPath, packageSpecifier, true, (event) => {
                 updateInstallStage('gsm_package', 'running', 'estimated', event.progress, event.message);

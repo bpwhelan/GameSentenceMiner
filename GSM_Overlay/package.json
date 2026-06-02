@@ -4,7 +4,7 @@
   "description": "On-screen overlay for GameSentenceMiner",
   "main": "main.js",
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev": "concurrently -k \"pnpm:dev:renderer\" \"pnpm:dev:electron\"",
     "dev:renderer": "vite --host 127.0.0.1 --port 5174 --strictPort",
     "dev:electron": "wait-on tcp:5174 && cross-env GSM_OVERLAY_DEV_SERVER_URL=http://127.0.0.1:5174 nodemon --exitcrash --watch main.js --watch preload.js --watch background.js --watch backend_connector.js --watch magpie.js --watch window.js --watch gamepad.js --ext js,cjs,mjs --exec \"node scripts/electron-dev-once.cjs\"",
     "start": "electron-forge start",
@@ -14,6 +14,10 @@
   },
   "author": "Beangate",
   "license": "LGPL-3.0-only",
+  "packageManager": "pnpm@10.22.0",
+  "pnpm": {
+    "onlyBuiltDependencies": ["electron", "electron-winstaller", "@electron/rebuild"]
+  },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.1",
     "@electron-forge/maker-deb": "^7.11.1",

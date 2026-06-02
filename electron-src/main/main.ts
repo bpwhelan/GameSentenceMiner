@@ -4,7 +4,6 @@ import {
     dialog,
     Menu,
     MenuItem,
-    Notification,
     nativeImage,
     shell,
     Tray,
@@ -32,7 +31,6 @@ import {
     isWindows,
     isRunningAsAdmin,
     restartAsAdmin,
-    PACKAGE_NAME,
 } from './util.js';
 import { fileURLToPath } from 'node:url';
 
@@ -56,7 +54,6 @@ import {
     setPullPreReleases,
     setPreReleaseMetadataAutoEnableApplied,
 } from './store.js';
-import { checkForUpdates } from './update_checker.js';
 import { launchSteamGameID } from './ui/steam.js';
 import { GSMStdoutManager } from './communication/pythonIPC.js';
 import {
@@ -95,6 +92,7 @@ import {
     checkAndInstallUV,
     checkAndEnsurePip,
     cleanUvCache,
+    getBundledBackendSpecifier,
     installPackageNoDeps,
     isPackageInstalled,
     resolveRequestedExtras,
@@ -167,13 +165,6 @@ function getPreReleaseBranch(): string | null {
     return cachedPreReleaseBranch;
 }
 
-function getConfiguredPreReleaseBranch(): string | null {
-    if (!getPullPreReleases()) {
-        return null;
-    }
-    return getPreReleaseBranch();
-}
-
 function bootstrapPreReleaseSettingsFromMetadata(): void {
     if (getPreReleaseMetadataAutoEnableApplied()) {
         return;
@@ -192,14 +183,6 @@ function bootstrapPreReleaseSettingsFromMetadata(): void {
     }
 
     setPreReleaseMetadataAutoEnableApplied(true);
-}
-
-function getPreReleasePackageSpecifier(): string | null {
-    const preReleaseBranch = getConfiguredPreReleaseBranch();
-    if (!preReleaseBranch) {
-        return null;
-    }
-    return `https://github.com/bpwhelan/GameSentenceMiner/archive/refs/heads/${preReleaseBranch}.zip`;
 }
 
 // Global error handling setup - catches all unhandled errors to prevent crashes
@@ -729,8 +712,7 @@ async function runUpdateChecks(
     await updateManager.runUpdateChecks(
         shouldRestart,
         force,
-        forceDev,
-        getConfiguredPreReleaseBranch()
+        forceDev
     );
 }
 
@@ -738,22 +720,19 @@ async function updateGSM(
     shouldRestart: boolean = false,
     force: boolean = false
 ): Promise<void> {
-    await updateManager.updateGSM(shouldRestart, force, getConfiguredPreReleaseBranch());
+    await updateManager.updateGSM(shouldRestart, force);
 }
 
 async function getUpdateStatus(): Promise<UpdateStatusSnapshot> {
-    return await updateManager.getUpdateStatus(getConfiguredPreReleaseBranch());
+    return await updateManager.getUpdateStatus();
 }
 
 async function checkForAvailableUpdates(): Promise<UpdateStatusSnapshot> {
-    return await updateManager.checkForAvailableUpdates(getConfiguredPreReleaseBranch());
+    return await updateManager.checkForAvailableUpdates();
 }
 
 async function updateAvailableTargets(): Promise<UpdateStatusSnapshot> {
-    return await updateManager.updateAvailableTargets(
-        true,
-        getConfiguredPreReleaseBranch()
-    );
+    return await updateManager.updateAvailableTargets(true);
 }
 
 function getGSMModulePath(): string {
@@ -1832,8 +1811,6 @@ async function ensureAndRunGSM(
     devFaultInjector.maybeFail('startup.ensure_and_run_enter');
 
     let runtimePythonPath = pythonPath;
-    const preReleasePackageSpecifier = getPreReleasePackageSpecifier();
-    const preReleaseEnabled = preReleasePackageSpecifier !== null;
     let isInstalled = await isPackageInstalled(runtimePythonPath, APP_NAME);
 
     try {
@@ -1897,70 +1874,58 @@ async function ensureAndRunGSM(
     }
 
     // Sync environment from the bundled uv.lock.
-    if (!preReleaseEnabled) {
-        try {
-            devFaultInjector.maybeFail('startup.sync_lock_check');
-            updateInstallStage(
-                'lock_sync',
-                'running',
-                'estimated',
-                0.1,
-                'Checking whether the Python environment matches the lockfile...'
-            );
-            await syncLockedEnvironment(runtimePythonPath, selectedExtras, true);
-            console.log('Python environment already matches lockfile.');
-            updateInstallStage(
-                'lock_sync',
-                'skipped',
-                'estimated',
-                1,
-                'Python environment already matches the lockfile.'
-            );
-        } catch {
-            console.log(
-                `Syncing Python environment with lockfile, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
-                }`
-            );
-            devFaultInjector.maybeFail('startup.sync_lock_apply');
-            updateInstallStage(
-                'lock_sync',
-                'running',
-                'estimated',
-                0.15,
-                'Syncing Python environment with the bundled lockfile...'
-            );
-            await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
-                updateInstallStage(
-                    'lock_sync',
-                    'running',
-                    'estimated',
-                    event.progress,
-                    event.message
-                );
-            });
-            updateInstallStage(
-                'lock_sync',
-                'completed',
-                'estimated',
-                1,
-                'Python environment synced to the lockfile.'
-            );
-        }
-    } else {
+    try {
+        devFaultInjector.maybeFail('startup.sync_lock_check');
+        updateInstallStage(
+            'lock_sync',
+            'running',
+            'estimated',
+            0.1,
+            'Checking whether the Python environment matches the lockfile...'
+        );
+        await syncLockedEnvironment(runtimePythonPath, selectedExtras, true);
+        console.log('Python environment already matches lockfile.');
         updateInstallStage(
             'lock_sync',
             'skipped',
             'estimated',
             1,
-            'Skipped lockfile sync because pre-release backend mode is enabled.'
+            'Python environment already matches the lockfile.'
+        );
+    } catch {
+        console.log(
+            `Syncing Python environment with lockfile, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
+            }`
+        );
+        devFaultInjector.maybeFail('startup.sync_lock_apply');
+        updateInstallStage(
+            'lock_sync',
+            'running',
+            'estimated',
+            0.15,
+            'Syncing Python environment with the bundled lockfile...'
+        );
+        await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
+            updateInstallStage(
+                'lock_sync',
+                'running',
+                'estimated',
+                event.progress,
+                event.message
+            );
+        });
+        updateInstallStage(
+            'lock_sync',
+            'completed',
+            'estimated',
+            1,
+            'Python environment synced to the lockfile.'
         );
     }
 
     // Install the package itself if not present.
     if (!isInstalled) {
-        const packageSpecifier = isDev
-            ? '.'
-            : (preReleasePackageSpecifier ?? PACKAGE_NAME);
+        const packageSpecifier = getBundledBackendSpecifier();
         console.log(`${APP_NAME} is not installed. Installing ${packageSpecifier}...`);
         updateInstallStage(
             'gsm_package',
@@ -2022,17 +1987,15 @@ async function ensureAndRunGSM(
         console.log(`[Startup] Failed to start GameSentenceMiner: ${formatConsoleArg(err)}`);
         const backendRuntimeMs = Date.now() - backendLaunchStartedAt;
         const failedSoonAfterLaunch = backendRuntimeMs <= STARTUP_REPAIR_WINDOW_MS;
-        const startupFailureDetails = `[Startup] Backend launch failure details: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, withinRepairWindow=${failedSoonAfterLaunch}, thresholdMs=${STARTUP_REPAIR_WINDOW_MS}, preRelease=${preReleaseEnabled}, pythonPath=${runtimePythonPath}`;
+        const startupFailureDetails = `[Startup] Backend launch failure details: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, withinRepairWindow=${failedSoonAfterLaunch}, thresholdMs=${STARTUP_REPAIR_WINDOW_MS}, pythonPath=${runtimePythonPath}`;
         console.error(startupFailureDetails);
         console.log(startupFailureDetails);
         if (retry > 0 && failedSoonAfterLaunch) {
             const repairStartedAt = Date.now();
-            const repairSpecifier = isDev
-                ? '.'
-                : (preReleasePackageSpecifier ?? PACKAGE_NAME);
+            const repairSpecifier = getBundledBackendSpecifier();
             console.log(
                 `[Startup Repair] Starting repair flow: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, specifier=${repairSpecifier}, extras=${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
-                }, preRelease=${preReleaseEnabled}`
+                }`
             );
             try {
                 console.log('[Startup Repair] Step 1/4: Closing running backend-related processes.');
@@ -2049,35 +2012,31 @@ async function ensureAndRunGSM(
                 devFaultInjector.maybeFail('startup.repair.clean_uv_cache');
                 await cleanUvCache(runtimePythonPath);
 
-                if (!preReleaseEnabled) {
-                    console.log('[Startup Repair] Step 3/4: Re-syncing lockfile dependencies.');
-                    devFaultInjector.maybeFail('startup.repair.sync_lock');
+                console.log('[Startup Repair] Step 3/4: Re-syncing lockfile dependencies.');
+                devFaultInjector.maybeFail('startup.repair.sync_lock');
+                updateInstallStage(
+                    'lock_sync',
+                    'running',
+                    'estimated',
+                    0.2,
+                    'Re-syncing the lockfile after launch failure...'
+                );
+                await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
                     updateInstallStage(
                         'lock_sync',
                         'running',
                         'estimated',
-                        0.2,
-                        'Re-syncing the lockfile after launch failure...'
+                        event.progress,
+                        event.message
                     );
-                    await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
-                        updateInstallStage(
-                            'lock_sync',
-                            'running',
-                            'estimated',
-                            event.progress,
-                            event.message
-                        );
-                    });
-                    updateInstallStage(
-                        'lock_sync',
-                        'completed',
-                        'estimated',
-                        1,
-                        'Lockfile dependencies refreshed after launch failure.'
-                    );
-                } else {
-                    console.log('[Startup Repair] Step 3/4: Skipped lockfile sync (pre-release mode).');
-                }
+                });
+                updateInstallStage(
+                    'lock_sync',
+                    'completed',
+                    'estimated',
+                    1,
+                    'Lockfile dependencies refreshed after launch failure.'
+                );
 
                 console.log('[Startup Repair] Step 4/4: Reinstalling GSM backend package.');
                 devFaultInjector.maybeFail('startup.repair.install_package');
@@ -2237,29 +2196,6 @@ if (!app.requestSingleInstanceLock()) {
                 // setTimeout(async () => {
                 //     await checkAndRunWizard(true);
                 // }, 1000);
-                if (!getConfiguredPreReleaseBranch()) {
-                    checkForUpdates().then(({ updateAvailable, latestVersion }) => {
-                        if (updateAvailable) {
-                            const notification = new Notification({
-                                title: 'Update Available',
-                                body: `A new version of ${APP_NAME} python package is available: ${latestVersion}. Click here to update.`,
-                                timeoutType: 'default',
-                            });
-
-                            notification.on('click', async () => {
-                                console.log('Notification Clicked, Updating GSM...');
-                                await runUpdateChecks(true, false);
-                            });
-
-                            notification.show();
-                            setTimeout(() => notification.close(), 5000); // Close after 5 seconds
-                        }
-                    });
-                } else {
-                    log.info(
-                        'Skipping PyPI backend update notification check because pre-release backend mode is enabled.'
-                    );
-                }
             });
 
             const pyPath = await getOrInstallPython();
@@ -2280,11 +2216,7 @@ if (!app.requestSingleInstanceLock()) {
                     console.log('[Chaos] Starting dev update chaos harness...');
                     const summary = await runUpdateChaosHarness({
                         updateGSM: async (shouldRestart = false, force = false) => {
-                            await updateManager.updateGSM(
-                                shouldRestart,
-                                force,
-                                getConfiguredPreReleaseBranch()
-                            );
+                            await updateManager.updateGSM(shouldRestart, force);
                         },
                         ensureAndRunGSM: async (py) => ensureAndRunGSM(py),
                         closeAllPythonProcesses: async () => closeAllPythonProcesses(),
@@ -2326,8 +2258,6 @@ if (!app.requestSingleInstanceLock()) {
             const currentVersion = app.getVersion();
             const storedVersion = getElectronAppVersion();
             const appVersionChanged = storedVersion !== '' && storedVersion !== currentVersion;
-            const preReleaseBranch = getConfiguredPreReleaseBranch();
-            let backendUpdatedDuringStartup = false;
             const updateFlagPath = path.join(BASE_DIR, 'update_python.flag');
             if (appVersionChanged) {
                 log.info(
@@ -2336,7 +2266,6 @@ if (!app.requestSingleInstanceLock()) {
             }
             if (fs.existsSync(updateFlagPath)) {
                 await updateGSM(false, true);
-                backendUpdatedDuringStartup = true;
                 if (updateManager.lastBackendUpdateWasSuccessful) {
                     try {
                         if (fs.existsSync(updateFlagPath)) {
@@ -2357,27 +2286,11 @@ if (!app.requestSingleInstanceLock()) {
                 }
             } else if (appVersionChanged) {
                 await updateGSM(false, true);
-                backendUpdatedDuringStartup = true;
-            } else if (!preReleaseBranch && getAutoUpdateGSMApp()) {
+            } else if (getAutoUpdateGSMApp()) {
                 await updateGSM(false, false);
-                backendUpdatedDuringStartup = true;
             }
             if (isDev && FeatureFlags.ALWAYS_UPDATE_IN_DEV) {
                 await updateGSM(false, true);
-                backendUpdatedDuringStartup = true;
-            }
-            if (preReleaseBranch) {
-                if (!backendUpdatedDuringStartup) {
-                    console.log(
-                        `Pre-release backend enabled (branch: ${preReleaseBranch}), forcing backend update...`
-                    );
-                    await updateGSM(false, true);
-                    backendUpdatedDuringStartup = true;
-                } else {
-                    log.info(
-                        `Pre-release backend update already ran during startup (branch: ${preReleaseBranch}). Skipping duplicate run.`
-                    );
-                }
             }
             if (storedVersion !== currentVersion) {
                 setElectronAppVersion(currentVersion);
