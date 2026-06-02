@@ -1,4 +1,4 @@
-name: Sign Overlay Server
+name: Build Overlay Server
 
 on:
   workflow_dispatch:
