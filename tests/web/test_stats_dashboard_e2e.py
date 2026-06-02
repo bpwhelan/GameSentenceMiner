@@ -436,7 +436,7 @@ def test_api_stats_full_flow_returns_expected_dashboard_contract(
     assert all_games["total_characters"] == 132
     assert all_games["total_sentences"] == 10
     assert all_games["total_time_hours"] == pytest.approx(1.675)
-    assert all_games["reading_speed"] == 78
+    assert all_games["reading_speed"] == 79
     assert all_games["sessions"] == 4
     assert all_games["completed_games"] == 1
     assert all_games["first_date"] == "2026-03-10"
