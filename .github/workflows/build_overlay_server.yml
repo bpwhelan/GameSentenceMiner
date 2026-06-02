@@ -46,7 +46,7 @@ jobs:
           organization-id: c677c167-9f3e-4577-b967-5d7730bf742d
           project-slug: GameSentenceMiner
           signing-policy-slug: release-signing
-          artifact-configuration-slug: gsm_overlay_server
+          artifact-configuration-slug: gsm_overlay_server_2
           github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
           wait-for-completion: true
           output-artifact-directory: signed_output
