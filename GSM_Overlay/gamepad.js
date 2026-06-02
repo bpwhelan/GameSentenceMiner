@@ -885,7 +885,10 @@ class GamepadHandler {
     
     // Request current state
     this.ws.send(JSON.stringify({ type: 'get_state' }));
-    
+
+    // Tell the server which keys we react to, so it only broadcasts those.
+    this.sendKeyboardCaptureAllowlist();
+
     // Dispatch event
     window.dispatchEvent(new CustomEvent('gsm-gamepad-server-connected'));
     
@@ -1357,6 +1360,43 @@ class GamepadHandler {
       navigateRight: normalizeKeyboardBindingValue(this.config.keyboardNavigateRight, 'ArrowRight'),
       mineButton: normalizeKeyboardBindingValue(this.config.keyboardMineButton),
     };
+    this.sendKeyboardCaptureAllowlist();
+  }
+
+  /**
+   * Build the set of key identifiers the overlay actually reacts to. The server
+   * only broadcasts these keys (plus the modifier keys, needed so combos can be
+   * tracked) — every other key the user types is never transmitted. This is the
+   * allowlist that keeps the input server from behaving like a keylogger.
+   */
+  buildKeyboardCaptureAllowlist() {
+    // Modifier keys are always needed so the client can track modifier state for
+    // combos and modifier-only hotkeys. They reveal no typed content.
+    const keys = new Set([
+      'ShiftLeft', 'ShiftRight',
+      'ControlLeft', 'ControlRight',
+      'AltLeft', 'AltRight',
+      'MetaLeft', 'MetaRight',
+    ]);
+    const bindings = this.keyboardBindings || {};
+    for (const binding of Object.values(bindings)) {
+      if (binding && !binding.disabled && binding.key) {
+        keys.add(binding.key);
+      }
+    }
+    return Array.from(keys);
+  }
+
+  sendKeyboardCaptureAllowlist() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    try {
+      this.ws.send(JSON.stringify({
+        type: 'configure_keyboard_capture',
+        keys: this.buildKeyboardCaptureAllowlist(),
+      }));
+    } catch (error) {
+      console.warn('[GamepadHandler] Failed to send keyboard capture allowlist:', error);
+    }
   }
 
   syncButtonStatesFromSnapshot(device, buttons) {

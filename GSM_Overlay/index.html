@@ -2342,6 +2342,47 @@ background: rgba(202, 12, 12, 0.692);
     window.dispatchEvent(new CustomEvent(eventName, { detail: payload }));
   }
 
+  // Decide whether an OCR line is laid out vertically (CJK top-to-bottom
+  // columns) or horizontally. OneOCR doesn't tag orientation, so infer it from
+  // geometry: multiple word boxes that spread further down the screen than
+  // across it form a vertical column, and a lone multi-glyph word box that is
+  // taller than it is wide is likewise vertical. Bounding rects are fractions of
+  // the image, so convert spreads to pixels before comparing. Defaults to
+  // horizontal when ambiguous (single glyph, no boxes).
+  function isOverlayLineVertical(line) {
+    const words = Array.isArray(line.words)
+      ? line.words.filter((w) => w && w.bounding_rect && typeof w.text === 'string' && w.text.length)
+      : [];
+    if (words.length === 0) return false;
+
+    const viewportWidth = window.innerWidth || 1;
+    const viewportHeight = window.innerHeight || 1;
+
+    if (words.length === 1) {
+      // A single glyph is ambiguous; only treat a multi-glyph box as vertical.
+      if (Array.from(words[0].text).length <= 1) return false;
+      const r = words[0].bounding_rect;
+      const widthPx = (r.x3 - r.x1) * viewportWidth;
+      const heightPx = (r.y3 - r.y1) * viewportHeight;
+      return heightPx > widthPx;
+    }
+
+    let minCenterX = Infinity, maxCenterX = -Infinity;
+    let minCenterY = Infinity, maxCenterY = -Infinity;
+    for (const word of words) {
+      const r = word.bounding_rect;
+      const centerX = (r.x1 + r.x3) / 2;
+      const centerY = (r.y1 + r.y3) / 2;
+      minCenterX = Math.min(minCenterX, centerX);
+      maxCenterX = Math.max(maxCenterX, centerX);
+      minCenterY = Math.min(minCenterY, centerY);
+      maxCenterY = Math.max(maxCenterY, centerY);
+    }
+    const xSpreadPx = (maxCenterX - minCenterX) * viewportWidth;
+    const ySpreadPx = (maxCenterY - minCenterY) * viewportHeight;
+    return ySpreadPx > xSpreadPx;
+  }
+
   function buildOverlayLineRenderUnits(line, lineIdx, lineBlocks, blockBoundaries, blockCount) {
     const blockId = lineBlocks.get(lineIdx);
     const boundaries = blockBoundaries.get(blockId) || { start: lineIdx, end: lineIdx };
@@ -2349,6 +2390,8 @@ background: rgba(202, 12, 12, 0.692);
     const isBlockEnd = lineIdx === boundaries.end;
     const wordList = [];
     const useLexicalWordBoxes = shouldPreserveLexicalWordBoxes(line.text);
+    // Lexical (non-CJK) lines are always horizontal; only CJK lines can be vertical.
+    const isVertical = !useLexicalWordBoxes && isOverlayLineVertical(line);
 
     if (useLexicalWordBoxes) {
       wordList.push(...buildLexicalWordRenderUnits(line.words, line.text, !isBlockEnd));
@@ -2377,17 +2420,33 @@ background: rgba(202, 12, 12, 0.692);
         }
         // Slice the word box by per-glyph advance weight rather than evenly, so
         // mixed full/half-width runs stay aligned with the underlying glyphs.
-        const edges = distributeGlyphWidths(glyphs, w.bounding_rect.x1, w.bounding_rect.x3);
-        for (let k = 0; k < len; k++) {
-          wordList.push({
-            text: glyphs[k],
-            bounding_rect: {
-              x1: edges[k],
-              y1: w.bounding_rect.y1,
-              x3: k + 1 < len ? edges[k + 1] : w.bounding_rect.x3,
-              y3: w.bounding_rect.y3
-            }
-          });
+        // Vertical lines stack glyphs top-to-bottom, so slice along Y instead of X.
+        if (isVertical) {
+          const edges = distributeGlyphWidths(glyphs, w.bounding_rect.y1, w.bounding_rect.y3);
+          for (let k = 0; k < len; k++) {
+            wordList.push({
+              text: glyphs[k],
+              bounding_rect: {
+                x1: w.bounding_rect.x1,
+                y1: edges[k],
+                x3: w.bounding_rect.x3,
+                y3: k + 1 < len ? edges[k + 1] : w.bounding_rect.y3
+              }
+            });
+          }
+        } else {
+          const edges = distributeGlyphWidths(glyphs, w.bounding_rect.x1, w.bounding_rect.x3);
+          for (let k = 0; k < len; k++) {
+            wordList.push({
+              text: glyphs[k],
+              bounding_rect: {
+                x1: edges[k],
+                y1: w.bounding_rect.y1,
+                x3: k + 1 < len ? edges[k + 1] : w.bounding_rect.x3,
+                y3: w.bounding_rect.y3
+              }
+            });
+          }
         }
       }
 
@@ -2414,6 +2473,7 @@ background: rgba(202, 12, 12, 0.692);
       isBlockEnd,
       wordList,
       blockCount,
+      isVertical,
     };
   }
 
@@ -2641,7 +2701,7 @@ background: rgba(202, 12, 12, 0.692);
             
             // Check if this is the start or end of a block
             const linePlan = buildOverlayLineRenderUnits(line, lineIdx, lineBlocks, blockBoundaries, currentBlockId);
-            const { blockId, boundaries, isBlockStart, isBlockEnd, wordList } = linePlan;
+            const { blockId, boundaries, isBlockStart, isBlockEnd, wordList, isVertical } = linePlan;
             
             // Create a container paragraph for this block if it's the start
             if (isBlockStart) {
@@ -2740,6 +2800,7 @@ background: rgba(202, 12, 12, 0.692);
                 text: word.text,
                 widthPercent: x3 - x1,
                 heightPercent: y3 - y1,
+                x1,
                 y1,
                 y3,
                 boundBox,
@@ -2755,7 +2816,8 @@ background: rgba(202, 12, 12, 0.692);
                 lineWordBox.text,
                 lineWordBox.widthPercent,
                 lineWordBox.heightPercent,
-                lineWordBox.boundBox
+                lineWordBox.boundBox,
+                isVertical
               );
               lineWordBox.estimatedFontSize = fontSize;
             }
@@ -2778,20 +2840,27 @@ background: rgba(202, 12, 12, 0.692);
             const fontReferenceBoxes = surroundingBoxes.length > 0 ? surroundingBoxes : visibleBoxes;
             const lineFontSize = getMedianValue(fontReferenceBoxes.map((lineWordBox) => lineWordBox.estimatedFontSize));
 
-            // Clamp every character box on the line to a single uniform height
-            // (the max across reference glyphs) anchored at a shared top, so the
-            // boxes line up evenly instead of each tracking its own ink-tight
-            // height (which makes punctuation/kana boxes shorter than kanji).
-            // Horizontal position and width stay per-character.
-            const heightReferenceBoxes = fontReferenceBoxes.length > 0 ? fontReferenceBoxes : visibleBoxes;
-            let uniformTopPercent = null;
-            let uniformHeightPercent = null;
-            if (heightReferenceBoxes.length > 0) {
-              uniformTopPercent = Math.min(...heightReferenceBoxes.map((lineWordBox) => lineWordBox.y1));
-              uniformHeightPercent = Math.max(...heightReferenceBoxes.map((lineWordBox) => lineWordBox.heightPercent));
+            // Clamp every character box on the line to a single uniform size on
+            // the cross-axis (the max across reference glyphs) anchored at a
+            // shared edge, so the boxes line up evenly instead of each tracking
+            // its own ink-tight extent (which makes punctuation/kana boxes
+            // shorter than kanji). The along-text axis stays per-character.
+            //   - Horizontal lines: unify top + height, vary left per-character.
+            //   - Vertical lines:   unify left + width, vary top per-character.
+            const sizeReferenceBoxes = fontReferenceBoxes.length > 0 ? fontReferenceBoxes : visibleBoxes;
+            let uniformStartPercent = null;
+            let uniformExtentPercent = null;
+            if (sizeReferenceBoxes.length > 0) {
+              if (isVertical) {
+                uniformStartPercent = Math.min(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.x1));
+                uniformExtentPercent = Math.max(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.widthPercent));
+              } else {
+                uniformStartPercent = Math.min(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.y1));
+                uniformExtentPercent = Math.max(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.heightPercent));
+              }
             }
 
-            // Apply consistent font-size and uniform height to all characters on the line
+            // Apply consistent font-size and uniform cross-axis size to all characters on the line
             for (const lineWordBox of lineWordBoxes) {
               if (lineWordBox.hiddenByMainBox) {
                 continue;
@@ -2799,10 +2868,15 @@ background: rgba(202, 12, 12, 0.692);
               const effectiveFontSize = lineFontSize > 0 ? Math.round(lineFontSize) : lineWordBox.estimatedFontSize;
               lineWordBox.box.style.fontSize = `${effectiveFontSize}px`;
 
-              if (uniformHeightPercent > 0) {
-                const clampedTop = Math.max(0, Math.min(100 - uniformHeightPercent, uniformTopPercent));
-                lineWordBox.box.style.top = `${clampedTop + offsetY}%`;
-                lineWordBox.box.style.height = `${uniformHeightPercent}%`;
+              if (uniformExtentPercent > 0) {
+                const clampedStart = Math.max(0, Math.min(100 - uniformExtentPercent, uniformStartPercent));
+                if (isVertical) {
+                  lineWordBox.box.style.left = `${clampedStart + offsetX}%`;
+                  lineWordBox.box.style.width = `${uniformExtentPercent}%`;
+                } else {
+                  lineWordBox.box.style.top = `${clampedStart + offsetY}%`;
+                  lineWordBox.box.style.height = `${uniformExtentPercent}%`;
+                }
               }
             }
 
@@ -3148,7 +3222,7 @@ background: rgba(202, 12, 12, 0.692);
     };
   }
 
-  function estimateFontSize(word, widthPercent, heightPercent, rect) {
+  function estimateFontSize(word, widthPercent, heightPercent, rect, isVerticalOverride = null) {
     const text = typeof word === 'string' ? word : '';
     const charCount = Math.max(1, text.length);
 
@@ -3167,9 +3241,14 @@ background: rgba(202, 12, 12, 0.692);
     const isCJK = CJK_LEXICAL_REGEX.test(text);
     const aspectRatio = pixelWidth / pixelHeight;
 
-    // Detect vertical text: for vertical CJK, width ≈ single char width,
-    // height ≈ charCount * char_height, giving a narrow aspect ratio.
-    const isLikelyVertical = isCJK && charCount > 1 && aspectRatio < 0.8;
+    // Prefer the line-level orientation when the caller has detected it (per-line
+    // geometry is far more reliable than a single glyph's aspect ratio). Fall
+    // back to the per-box heuristic for standalone estimates: for vertical CJK,
+    // width ≈ single char width and height ≈ charCount * char_height, giving a
+    // narrow aspect ratio.
+    const isLikelyVertical = isVerticalOverride !== null
+      ? isVerticalOverride
+      : (isCJK && charCount > 1 && aspectRatio < 0.8);
 
     if (isCJK) {
       let fontSize;

@@ -30,7 +30,7 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{broadcast, Mutex};
 use tokio::time;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
-use tracing::{debug, error, info, warn, Level};
+use tracing::{debug, error, info, warn};
 use zip::ZipArchive;
 
 /// GSM Overlay Gamepad Server (Rust)
@@ -187,26 +187,6 @@ fn digital_pressed(value: f32) -> bool {
     value >= 0.5
 }
 
-fn is_stick_axis(axis: &str) -> bool {
-    matches!(axis, "left_x" | "left_y" | "right_x" | "right_y")
-}
-
-fn gsm_dev_environment_enabled() -> bool {
-    matches!(
-        std::env::var("GSM_DEV_ENVIRONMENT"),
-        Ok(v) if v.trim() == "1"
-    )
-}
-
-fn init_tracing(dev_environment: bool) {
-    let max_level = if dev_environment {
-        Level::DEBUG
-    } else {
-        Level::INFO
-    };
-    tracing_subscriber::fmt().with_max_level(max_level).init();
-}
-
 // ------------------------------ Server state --------------------------------
 
 #[derive(Debug, Clone)]
@@ -270,56 +250,6 @@ impl Default for Config {
             axis_min_interval: Duration::from_secs_f64(1.0 / 120.0),
             axis_hold_repeat_interval: Duration::from_secs_f64(1.0 / 60.0),
         }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct StickLogSample {
-    value: f32,
-    time: Instant,
-}
-
-#[derive(Debug)]
-struct DevInputLogger {
-    enabled: bool,
-    stick_min_interval: Duration,
-    stick_delta_epsilon: f32,
-    last_stick_sample: HashMap<(GamepadId, &'static str), StickLogSample>,
-}
-
-impl DevInputLogger {
-    fn new(enabled: bool) -> Self {
-        Self {
-            enabled,
-            stick_min_interval: Duration::from_millis(180),
-            stick_delta_epsilon: 0.08,
-            last_stick_sample: HashMap::new(),
-        }
-    }
-
-    fn should_log_stick(
-        &mut self,
-        id: GamepadId,
-        axis: &'static str,
-        value: f32,
-        now: Instant,
-    ) -> bool {
-        if !self.enabled {
-            return false;
-        }
-
-        let key = (id, axis);
-        if let Some(prev) = self.last_stick_sample.get(&key) {
-            let dv = (value - prev.value).abs();
-            let dt = now.duration_since(prev.time);
-            if dv < self.stick_delta_epsilon && dt < self.stick_min_interval {
-                return false;
-            }
-        }
-
-        self.last_stick_sample
-            .insert(key, StickLogSample { value, time: now });
-        true
     }
 }
 
@@ -413,6 +343,22 @@ struct ManualHotkeyState {
     binding_label: Option<String>,
     active: bool,
     status: ManualHotkeyStatus,
+    /// Allowlist of key identifiers the connected overlay actually reacts to.
+    /// Only these keys are broadcast as `keyboard_event`; everything else the
+    /// user types is seen by the hook for hotkey evaluation but never leaves the
+    /// process. This is what keeps the server from behaving like a keylogger.
+    capture_keys: HashSet<String>,
+    /// When true, broadcast *every* key transition regardless of the allowlist.
+    /// Only used transiently while the settings UI is recording a new binding
+    /// ("press a key..."), and reset to false as soon as capture ends.
+    capture_all: bool,
+}
+
+/// Decide whether a key transition should be broadcast to clients as a
+/// `keyboard_event`. Default-deny: nothing is broadcast unless the key is on the
+/// client-supplied allowlist or an explicit capture-all recording session is active.
+fn should_broadcast_key(state: &ManualHotkeyState, key_name: &str) -> bool {
+    state.capture_all || state.capture_keys.contains(key_name)
 }
 
 struct SudachiService {
@@ -932,34 +878,6 @@ fn preferred_server_tokenizer_backend_from_env() -> ServerTokenizerBackend {
 
 fn sudachi_dictionary_kind_from_env() -> SudachiDictionaryKind {
     SudachiDictionaryKind::from_value(std::env::var("GSM_SUDACHI_DICT_KIND").ok().as_deref())
-}
-
-fn default_overlay_data_dir() -> PathBuf {
-    if cfg!(windows) {
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            let trimmed = appdata.trim();
-            if !trimmed.is_empty() {
-                return PathBuf::from(trimmed).join("gsm_overlay");
-            }
-        }
-    } else {
-        if let Ok(config_home) = std::env::var("XDG_CONFIG_HOME") {
-            let trimmed = config_home.trim();
-            if !trimmed.is_empty() {
-                return PathBuf::from(trimmed).join("gsm_overlay");
-            }
-        }
-        if let Ok(home) = std::env::var("HOME") {
-            let trimmed = home.trim();
-            if !trimmed.is_empty() {
-                return PathBuf::from(trimmed).join(".config").join("gsm_overlay");
-            }
-        }
-    }
-
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("gsm_overlay")
 }
 
 fn resolve_sudachi_data_dir() -> PathBuf {
@@ -1588,6 +1506,19 @@ enum ClientMsg {
         devices: Vec<String>,
     },
 
+    /// Configure which keys are broadcast as `keyboard_event`. `keys`, when
+    /// present, replaces the allowlist of keys the overlay reacts to. `captureAll`,
+    /// when present, toggles transient "broadcast everything" mode used only while
+    /// the settings UI records a new binding. Either field may be omitted so a
+    /// client can update one without clobbering the other.
+    #[serde(rename = "configure_keyboard_capture")]
+    ConfigureKeyboardCapture {
+        #[serde(default)]
+        keys: Option<Vec<String>>,
+        #[serde(default, rename = "captureAll")]
+        capture_all: Option<bool>,
+    },
+
     #[serde(rename = "tokenize")]
     Tokenize {
         #[serde(default)]
@@ -1870,23 +1801,33 @@ fn handle_manual_keyboard_event(
         pressed_keys.remove(&key)
     };
 
-    // ── Broadcast raw keyboard_event for every state transition ──
+    // ── Broadcast keyboard_event only for allowlisted keys ──
+    // The global hook necessarily sees every key (so modifier-only hotkeys can
+    // work), but we only transmit the keys the overlay actually reacts to — never
+    // arbitrary text the user types. This keeps the server from being, or looking
+    // like, a network keylogger.
     if is_transition {
         if let Some(key_name) = rdev_key_to_string(&key) {
-            let mods = pressed_modifiers(pressed_keys);
-            let payload = json!({
-                "type": "keyboard_event",
-                "key": key_name,
-                "pressed": pressed,
-                "modifiers": {
-                    "ctrl": mods.ctrl,
-                    "alt": mods.alt,
-                    "shift": mods.shift,
-                    "meta": mods.cmd,
-                },
-            })
-            .to_string();
-            send_broadcast(tx, payload, "keyboard_event");
+            let should_emit = {
+                let guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+                should_broadcast_key(&guard, key_name)
+            };
+            if should_emit {
+                let mods = pressed_modifiers(pressed_keys);
+                let payload = json!({
+                    "type": "keyboard_event",
+                    "key": key_name,
+                    "pressed": pressed,
+                    "modifiers": {
+                        "ctrl": mods.ctrl,
+                        "alt": mods.alt,
+                        "shift": mods.shift,
+                        "meta": mods.cmd,
+                    },
+                })
+                .to_string();
+                send_broadcast(tx, payload, "keyboard_event");
+            }
         }
     }
 
@@ -2107,6 +2048,12 @@ async fn handle_socket(
         return;
     }
 
+    // Tracks whether this connection turned on capture-all (settings recording a
+    // binding) so we can force it back off if the client disconnects mid-capture
+    // and never sends the "off" message — otherwise the server could be left
+    // broadcasting every keystroke.
+    let mut enabled_capture_all = false;
+
     loop {
         tokio::select! {
             // Server broadcast to this client
@@ -2175,6 +2122,17 @@ async fn handle_socket(
                                     {
                                         break;
                                     }
+                                }
+                            }
+                            Ok(ClientMsg::ConfigureKeyboardCapture { keys, capture_all }) => {
+                                let mut guard =
+                                    manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+                                if let Some(keys) = keys {
+                                    guard.capture_keys = keys.into_iter().collect();
+                                }
+                                if let Some(capture_all) = capture_all {
+                                    guard.capture_all = capture_all;
+                                    enabled_capture_all = capture_all;
                                 }
                             }
                             Ok(ClientMsg::Tokenize {
@@ -2277,6 +2235,13 @@ async fn handle_socket(
         }
     }
 
+    // Fail safe: if this connection left capture-all on, turn it back off so a
+    // crashed/closed settings window can't leave the server broadcasting all keys.
+    if enabled_capture_all {
+        let mut guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+        guard.capture_all = false;
+    }
+
     info!("client disconnected: {peer}");
 }
 
@@ -2327,7 +2292,6 @@ fn gilrs_input_thread(
     states: &'static SharedStates,
     device_blacklist: SharedDeviceBlacklist,
     cfg: Config,
-    dev_environment: bool,
 ) {
     let mut gilrs = match Gilrs::new() {
         Ok(g) => g,
@@ -2336,14 +2300,8 @@ fn gilrs_input_thread(
             return;
         }
     };
-    let mut dev_logger = DevInputLogger::new(dev_environment);
 
     info!("gilrs initialized; waiting for gamepad input...");
-    if dev_environment {
-        info!(
-            "dev gamepad logging enabled (GSM_DEV_ENVIRONMENT=1): raw events on, stick-axis logs sampled"
-        );
-    }
 
     // Pre-populate any already-connected pads.
     // IMPORTANT: don't hold a non-Send iterator across async awaits (we're on a thread anyway).
@@ -2398,55 +2356,6 @@ fn gilrs_input_thread(
                     );
                 }
                 continue;
-            }
-
-            if dev_logger.enabled {
-                match &event {
-                    EventType::ButtonPressed(btn, _) => {
-                        debug!("dev input raw: device={device_name} event=ButtonPressed button={btn:?}");
-                    }
-                    EventType::ButtonReleased(btn, _) => {
-                        debug!("dev input raw: device={device_name} event=ButtonReleased button={btn:?}");
-                    }
-                    EventType::ButtonChanged(btn, value, _) => {
-                        debug!(
-                            "dev input raw: device={device_name} event=ButtonChanged button={btn:?} value={:.3}",
-                            *value
-                        );
-                    }
-                    EventType::AxisChanged(ax, raw, _) => {
-                        if let Some(name) = axis_name(*ax) {
-                            let normalized = if matches!(name, "lt" | "rt") {
-                                normalize_trigger(*raw)
-                            } else {
-                                normalize_stick(*raw, cfg.deadzone)
-                            };
-                            if !is_stick_axis(name)
-                                || dev_logger.should_log_stick(id, name, normalized, now)
-                            {
-                                debug!(
-                                    "dev input raw: device={device_name} event=AxisChanged axis={name} raw={:.3} normalized={:.3}",
-                                    *raw,
-                                    normalized
-                                );
-                            }
-                        } else {
-                            debug!(
-                                "dev input raw: device={device_name} event=AxisChanged axis={ax:?} raw={:.3}",
-                                *raw
-                            );
-                        }
-                    }
-                    EventType::Connected => {
-                        debug!("dev input raw: device={device_name} event=Connected");
-                    }
-                    EventType::Disconnected => {
-                        debug!("dev input raw: device={device_name} event=Disconnected");
-                    }
-                    other => {
-                        debug!("dev input raw: device={device_name} event={other:?}");
-                    }
-                }
             }
 
             // Ensure state exists
@@ -2778,15 +2687,7 @@ fn keyboard_input_thread(tx: broadcast::Sender<String>, manual_hotkey: SharedMan
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
-    let dev_environment = gsm_dev_environment_enabled();
-    init_tracing(dev_environment);
     let args = Args::parse();
-    if dev_environment {
-        info!(
-            "GSM_DEV_ENVIRONMENT=1 detected; enabling verbose gamepad logging with sampled stick-axis logs"
-        );
-    }
-
     let bind: SocketAddr = format!("{}:{}", args.host, args.port)
         .parse()
         .expect("invalid bind addr");
@@ -2856,7 +2757,7 @@ async fn main() {
         let device_blacklist2 = device_blacklist.clone();
         let cfg2 = cfg.clone();
         thread::spawn(move || {
-            gilrs_input_thread(tx2, states, device_blacklist2, cfg2, dev_environment)
+            gilrs_input_thread(tx2, states, device_blacklist2, cfg2)
         });
     }
     {
@@ -2973,5 +2874,25 @@ mod tests {
             &modifier_with_key,
             &pressed_keys
         ));
+    }
+
+    #[test]
+    fn keyboard_broadcast_respects_allowlist_and_capture_all() {
+        let mut state = ManualHotkeyState::default();
+
+        // Default-deny: with no allowlist and no capture session, nothing leaks.
+        assert!(!should_broadcast_key(&state, "KeyA"));
+        assert!(!should_broadcast_key(&state, "Enter"));
+
+        // Only allowlisted control keys are broadcast; typed text stays private.
+        state.capture_keys.insert("Enter".to_string());
+        state.capture_keys.insert("ShiftLeft".to_string());
+        assert!(should_broadcast_key(&state, "Enter"));
+        assert!(should_broadcast_key(&state, "ShiftLeft"));
+        assert!(!should_broadcast_key(&state, "KeyA"));
+
+        // capture-all (settings recording a binding) overrides the allowlist.
+        state.capture_all = true;
+        assert!(should_broadcast_key(&state, "KeyA"));
     }
 }

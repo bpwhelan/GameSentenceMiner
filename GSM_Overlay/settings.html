@@ -3644,6 +3644,7 @@
       input.value = "Press a key...";
       input.classList.add("capturing-keyboard");
       setOverlayGamepadBindingCaptureSuppression(true);
+      setServerKeyboardCaptureAll(true);
 
       activeKeyboardBindingCapture = {
         inputId,
@@ -3740,6 +3741,7 @@
 
       capture.input.classList.remove("capturing-keyboard");
       setOverlayGamepadBindingCaptureSuppression(false);
+      setServerKeyboardCaptureAll(false);
 
       if (nextValue !== null) {
         capture.input.value = nextValue;
@@ -4225,6 +4227,24 @@
         gamepadStatusSocket.send(JSON.stringify({
           type: "configure_device_blacklist",
           devices: getSortedGamepadDeviceBlacklist(),
+        }));
+      } catch (e) {
+        // Ignore send errors and rely on reconnect.
+      }
+    }
+
+    // While recording a keyboard binding we need every key, so ask the server to
+    // broadcast all keys ("press a key..."). The rest of the time the server only
+    // broadcasts the overlay's allowlisted control keys, so this MUST be turned
+    // back off as soon as capture ends.
+    function setServerKeyboardCaptureAll(active) {
+      if (!gamepadStatusSocket || gamepadStatusSocket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      try {
+        gamepadStatusSocket.send(JSON.stringify({
+          type: "configure_keyboard_capture",
+          captureAll: !!active,
         }));
       } catch (e) {
         // Ignore send errors and rely on reconnect.
