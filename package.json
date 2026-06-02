@@ -5,12 +5,12 @@
   "description": "GameSentenceMiner",
   "main": "dist/main/bootstrap.js",
   "scripts": {
-    "start": "pnpm run build && electron .",
-    "build": "pnpm run sync:version && pnpm run sync:legacy && pnpm run build:main && pnpm run build:renderer",
+    "start": "npm run build && electron .",
+    "build": "npm run sync:version && npm run sync:legacy && npm run build:main && npm run build:renderer",
     "build:main": "tsc -p tsconfig.electron.json",
     "build:renderer": "vite build --config electron-src/renderer/vite.config.ts",
-    "dev": "pnpm run sync:legacy && concurrently -k \"pnpm:dev:renderer\" \"pnpm:dev:main\" \"pnpm:dev:electron\"",
-    "dev:chaos-update": "pnpm run build:main && node scripts/run-update-chaos.cjs",
+    "dev": "npm run sync:legacy && concurrently -k \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
+    "dev:chaos-update": "npm run build:main && node scripts/run-update-chaos.cjs",
     "dev:main": "tsc -p tsconfig.electron.json --watch --preserveWatchOutput",
     "dev:renderer": "vite --config electron-src/renderer/vite.config.ts",
     "dev:electron": "wait-on tcp:5173 dist/main/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 nodemon --exitcrash --watch dist/main --watch dist/preload --ext js,mjs,cjs --exec \"node scripts/electron-dev-once.cjs\"",
@@ -19,14 +19,10 @@
     "test:ts:watch": "vitest --config vitest.config.ts",
     "app:dir": "electron-builder --dir",
     "sync:version": "node scripts/sync-version.mjs",
-    "app:dist": "pnpm run build && electron-builder --publish=never",
+    "app:dist": "npm run build && electron-builder --publish=never",
     "app:deploy": "electron-builder --publish=always"
   },
   "type": "module",
-  "packageManager": "pnpm@10.22.0",
-  "pnpm": {
-    "onlyBuiltDependencies": ["electron", "electron-winstaller", "esbuild", "extract-file-icon", "frida", "node-window-manager", "sharp"]
-  },
   "engines": {
     "node": ">=18"
   },
@@ -111,7 +107,7 @@
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^9.2.1",
     "cross-env": "^10.0.0",
-    "electron": "^41.5.0",
+    "electron": "^42.3.2",
     "electron-builder": "^26.8.1",
     "jsdom": "^29.1.1",
     "nodemon": "^3.1.14",

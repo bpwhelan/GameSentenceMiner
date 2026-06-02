@@ -167,14 +167,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22.12.0
-          cache: pnpm
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            GSM_Overlay/package-lock.json
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -191,7 +191,7 @@ jobs:
           path: |
             ~\AppData\Local\electron\Cache
             ~\AppData\Local\electron-builder\Cache
-          key: ${{ runner.os }}-electron-cache-${{ hashFiles('pnpm-lock.yaml', 'GSM_Overlay/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-electron-cache-
 
@@ -211,14 +211,14 @@ jobs:
       - name: Build Overlay
         working-directory: ./GSM_Overlay
         run: |
-          pnpm install --frozen-lockfile
-          pnpm run package
+          npm ci --prefer-offline --no-audit --fund=false
+          npm run package
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci --prefer-offline --no-audit --fund=false
 
       - name: Build Electron app
-        run: pnpm run app:dist
+        run: npm run app:dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -341,17 +341,15 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22.12.0
-          cache: pnpm
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies for release metadata
-        run: pnpm install --frozen-lockfile
+        run: npm ci --prefer-offline --no-audit --fund=false
 
       - name: Download signed Windows installer
         uses: actions/download-artifact@v4
@@ -459,14 +457,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22.12.0
-          cache: pnpm
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            GSM_Overlay/package-lock.json
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -483,7 +481,7 @@ jobs:
           path: |
             ~/.cache/electron
             ~/.cache/electron-builder
-          key: ${{ runner.os }}-electron-cache-${{ hashFiles('pnpm-lock.yaml', 'GSM_Overlay/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-electron-cache-
 
@@ -506,14 +504,14 @@ jobs:
       - name: Build Overlay
         working-directory: ./GSM_Overlay
         run: |
-          pnpm install --frozen-lockfile
-          pnpm run package
+          npm ci --prefer-offline --no-audit --fund=false
+          npm run package
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci --prefer-offline --no-audit --fund=false
 
       - name: Build Electron app for Linux
-        run: pnpm run app:dist
+        run: npm run app:dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -554,14 +552,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22.12.0
-          cache: pnpm
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            GSM_Overlay/package-lock.json
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -578,7 +576,7 @@ jobs:
           path: |
             ~/.cache/electron
             ~/.cache/electron-builder
-          key: ${{ runner.os }}-electron-cache-${{ hashFiles('pnpm-lock.yaml', 'GSM_Overlay/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-electron-cache-${{ hashFiles('package-lock.json', 'GSM_Overlay/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-electron-cache-
 
@@ -592,14 +590,14 @@ jobs:
       - name: Build Overlay
         working-directory: ./GSM_Overlay
         run: |
-          pnpm install --frozen-lockfile
-          pnpm run package
+          npm ci --prefer-offline --no-audit --fund=false
+          npm run package
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci --prefer-offline --no-audit --fund=false
 
       - name: Build Electron app for macOS arm64
-        run: pnpm run app:dist -- --mac --arm64 -c.mac.artifactName='${productName}-${version}-${arch}.${ext}'
+        run: npm run app:dist -- --mac --arm64 -c.mac.artifactName='${productName}-${version}-${arch}.${ext}'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

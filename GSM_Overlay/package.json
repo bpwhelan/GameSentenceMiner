@@ -4,7 +4,7 @@
   "description": "On-screen overlay for GameSentenceMiner",
   "main": "main.js",
   "scripts": {
-    "dev": "concurrently -k \"pnpm:dev:renderer\" \"pnpm:dev:electron\"",
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
     "dev:renderer": "vite --host 127.0.0.1 --port 5174 --strictPort",
     "dev:electron": "wait-on tcp:5174 && cross-env GSM_OVERLAY_DEV_SERVER_URL=http://127.0.0.1:5174 nodemon --exitcrash --watch main.js --watch preload.js --watch background.js --watch backend_connector.js --watch magpie.js --watch window.js --watch gamepad.js --ext js,cjs,mjs --exec \"node scripts/electron-dev-once.cjs\"",
     "start": "electron-forge start",
@@ -14,30 +14,26 @@
   },
   "author": "Beangate",
   "license": "LGPL-3.0-only",
-  "packageManager": "pnpm@10.22.0",
-  "pnpm": {
-    "onlyBuiltDependencies": ["electron", "electron-winstaller", "@electron/rebuild"]
-  },
   "devDependencies": {
-    "@electron-forge/cli": "^7.11.1",
-    "@electron-forge/maker-deb": "^7.11.1",
-    "@electron-forge/maker-rpm": "^7.11.1",
-    "@electron-forge/maker-squirrel": "^7.11.1",
-    "@electron-forge/maker-zip": "^7.11.1",
-    "@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
-    "@electron-forge/plugin-fuses": "^7.11.1",
-    "@electron/fuses": "^2.1.1",
-    "concurrently": "^9.2.1",
-    "cross-env": "^10.0.0",
-    "electron": "^41.5.0",
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-deb": "^7.11.2",
+    "@electron-forge/maker-rpm": "^7.11.2",
+    "@electron-forge/maker-squirrel": "^7.11.2",
+    "@electron-forge/maker-zip": "^7.11.2",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.11.2",
+    "@electron-forge/plugin-fuses": "^7.11.2",
+    "@electron/fuses": "^1.8.0",
+    "concurrently": "^10.0.3",
+    "cross-env": "^10.1.0",
+    "electron": "^42.3.2",
     "nodemon": "^3.1.14",
-    "vite": "^8.0.10",
-    "wait-on": "^9.0.5"
+    "vite": "^8.0.16",
+    "wait-on": "^9.0.10"
   },
   "dependencies": {
     "electron-squirrel-startup": "1.0.1",
     "pinyin-pro": "^3.28.1",
-    "ws": "^8.20.0"
+    "ws": "^8.21.0"
   },
   "overrides": {
     "@electron/rebuild": "^4.0.4",

@@ -6,11 +6,11 @@ This guide is **very clearly** AI Written, and lightly edited by me. If you find
 
 ## Quick Start
 
-Getting GSM up and running for development is straightforward ([PNPM](https://pnpm.io/installation) required).
+Getting GSM up and running for development is straightforward:
 
 ```bash
-pnpm install
-pnpm run start
+npm install
+npm run start
 ```
 
 That's it! This will build the TypeScript files and launch the Electron application.
@@ -50,8 +50,8 @@ node --version
 
 ### Available Scripts
 
-- `pnpm run start` - Build and run the application
-- `pnpm run app:dist` - Create distribution build
+- `npm run start` - Build and run the application
+- `npm run app:dist` - Create distribution build
 
 ### Recommended Development Flow
 
@@ -65,7 +65,7 @@ node --version
 2. **Setup Environment**
    ```bash
    nvm use 22
-   pnpm install
+   npm install
    ```
 
 3. **Install Python Dev Tooling**
@@ -78,7 +78,7 @@ node --version
 4. **Make Changes**
    - Edit TypeScript files in `electron-src/`
    - Edit Python files in `GameSentenceMiner/` as needed
-   - Use `pnpm run start` to build and test your changes
+   - Use `npm run start` to build and test your changes
    - Use `Restart Python App` from app menus to reload Python changes
 
 ## 🏗️ Project Structure
@@ -159,7 +159,7 @@ Before implementing new features:
 
 **Build Failures:**
 - Ensure you're using Node.js 22: `node --version`
-- Clear node_modules and reinstall: `rm -rf node_modules && pnpm install`
+- Clear node_modules and reinstall: `rm -rf node_modules && npm install`
 
 **Electron Not Starting:**
 - Check if TypeScript compilation succeeded
