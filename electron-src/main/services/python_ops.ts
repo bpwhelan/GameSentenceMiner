@@ -6,7 +6,8 @@ import {
     execFileAsync,
     getResourcesDir,
     getSanitizedPythonEnv,
-    BASE_DIR,
+    isDev,
+    PACKAGE_NAME,
 } from '../util.js';
 
 const PINNED_UV_VERSION = '0.9.22';
@@ -371,51 +372,52 @@ export function getProjectPath(): string {
 }
 
 /**
- * Package specifier for installing the GSM backend from the bundled source
- * tree. `uv pip install <dir>` builds the package from the resources copy,
- * giving it the same version as the Electron app.
+ * Read the GSM backend version pinned in the bundled pyproject.toml. This is the
+ * version shipped with this Electron release; the backend stays locked to it.
  */
-export function getBundledBackendSpecifier(): string {
-    return getProjectPath();
+export function getBundledBackendVersion(): string | null {
+    try {
+        const pyprojectPath = path.join(getProjectPath(), 'pyproject.toml');
+        const pyproject = fs.readFileSync(pyprojectPath, 'utf8');
+        const match = pyproject.match(/\[project\][\s\S]*?\nversion\s*=\s*"([^"]+)"/);
+        return match ? match[1].trim() : null;
+    } catch (err) {
+        console.warn(`Failed to read bundled backend version: ${toErrorMessage(err)}`);
+        return null;
+    }
 }
 
 /**
- * `uv sync` needs a *writable* project directory: it acquires a lock and may
- * write scratch state inside the `--project` dir while resolving the lockfile.
- * The bundled uv.lock + pyproject.toml live in the read-only resources dir on
- * Linux (AppImage squashfs mount) and macOS (.app bundle), so syncing directly
- * against them hangs and eventually fails (see issue #479). Stage a copy of the
- * bundled, version-locked pair into a writable cache dir and sync against that.
- * No network download – the files are the ones shipped with this release.
+ * Specifier for installing the GSM backend package.
  *
- * Falls back to the bundled path if staging fails (e.g. writable on Windows).
+ * In production we install the published wheel from PyPI, pinned to the exact
+ * version bundled with this Electron release (`GameSentenceMiner==<version>`).
+ * The dependency set is still locked by the bundled uv.lock (see
+ * {@link syncLockedEnvironment}), so the backend stays version-locked to the app
+ * without building from the bundled source tree. Building from that source fails
+ * on Linux (AppImage squashfs mount) and macOS (.app bundle) because they are
+ * read-only and setuptools needs to write `GameSentenceMiner.egg-info/` into the
+ * source dir ("could not create 'GameSentenceMiner.egg-info': Read-only file
+ * system", issue #479).
+ *
+ * In dev we install from the local working tree (writable, picks up local
+ * changes, and the dev version usually isn't published to PyPI). We also fall
+ * back to the bundled source path if the version can't be read.
  */
-function getWritableProjectPath(): string {
-    const bundledPath = getProjectPath();
-    const cacheDir = path.join(BASE_DIR, 'uv-project');
-
-    try {
-        fs.mkdirSync(cacheDir, { recursive: true });
-        // uv sync --frozen --no-install-project only reads uv.lock (for the
-        // resolution) and pyproject.toml (for the dependency list); it does not
-        // build the root project, so the source tree is not needed here.
-        fs.copyFileSync(
-            path.join(bundledPath, 'uv.lock'),
-            path.join(cacheDir, 'uv.lock')
-        );
-        fs.copyFileSync(
-            path.join(bundledPath, 'pyproject.toml'),
-            path.join(cacheDir, 'pyproject.toml')
-        );
-        return cacheDir;
-    } catch (err) {
-        console.warn(
-            `Failed to stage writable uv project dir (${toErrorMessage(
-                err
-            )}). Falling back to bundled resources path.`
-        );
-        return bundledPath;
+export function getBundledBackendSpecifier(): string {
+    if (isDev) {
+        return getProjectPath();
     }
+
+    const version = getBundledBackendVersion();
+    if (version) {
+        return `${PACKAGE_NAME}==${version}`;
+    }
+
+    console.warn(
+        'Could not determine bundled backend version; falling back to bundled source path.'
+    );
+    return getProjectPath();
 }
 
 // ---------------------------------------------------------------------------
@@ -517,7 +519,7 @@ export async function syncLockedEnvironment(
     checkOnly: boolean = false,
     onProgress?: (event: UvCommandProgressEvent) => void
 ): Promise<void> {
-    const projectPath = getWritableProjectPath();
+    const projectPath = getProjectPath();
     const normalizedExtras = normalizeExtras(extras);
     const args = [
         '-m',
