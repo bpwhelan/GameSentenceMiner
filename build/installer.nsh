@@ -10,17 +10,18 @@
   ; Keep all Start Menu entries grouped under GameSentenceMiner.
   CreateDirectory "${GSM_START_MENU_DIR}"
 
-  ; Write a small CMD launcher that always elevates via UAC.
-  FileOpen $0 "$INSTDIR\Run GSM as Admin.cmd" w
-  FileWrite $0 "@echo off$\r$\n"
-  FileWrite $0 "setlocal$\r$\n"
-  FileWrite $0 "set $\"GSM_DIR=%~dp0$\"$\r$\n"
-  FileWrite $0 "set $\"GSM_EXE=%~dp0${APP_EXECUTABLE_FILENAME}$\"$\r$\n"
-  FileWrite $0 "powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command $\"Start-Process -FilePath $$env:GSM_EXE -WorkingDirectory $$env:GSM_DIR -Verb RunAs$\"$\r$\n"
+  ; Write a VBScript launcher that always elevates via UAC.
+  ; VBScript's ShellExecute with "runas" verb handles UAC elevation silently
+  ; without triggering AV heuristics from hidden PowerShell + ExecutionPolicy Bypass patterns.
+  FileOpen $0 "$INSTDIR\Run GSM as Admin.vbs" w
+  FileWrite $0 "Set fso = CreateObject($\"Scripting.FileSystemObject$\")$\r$\n"
+  FileWrite $0 "dir = fso.GetParentFolderName(WScript.ScriptFullName)$\r$\n"
+  FileWrite $0 "exe = dir & $\"\${APP_EXECUTABLE_FILENAME}$\"$\r$\n"
+  FileWrite $0 "CreateObject($\"Shell.Application$\").ShellExecute exe, $\"$\", dir, $\"runas$\", 1$\r$\n"
   FileClose $0
 
   ; Create an admin Start Menu shortcut that targets the launcher.
-  CreateShortCut "${GSM_ADMIN_START_MENU_LINK}" "$INSTDIR\Run GSM as Admin.cmd" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0
+  CreateShortCut "${GSM_ADMIN_START_MENU_LINK}" "$INSTDIR\Run GSM as Admin.vbs" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0
   WinShell::SetLnkAUMI "${GSM_ADMIN_START_MENU_LINK}" "${GSM_ADMIN_APP_ID}"
 
   ; Provide an explicit uninstall entry in the Start Menu folder.
@@ -28,7 +29,7 @@
 !macroend
 
 !macro customUnInstall
-  Delete "$INSTDIR\Run GSM as Admin.cmd"
+  Delete "$INSTDIR\Run GSM as Admin.vbs"
   Delete "${GSM_ADMIN_START_MENU_LINK}"
   Delete "${GSM_UNINSTALL_START_MENU_LINK}"
   RMDir "${GSM_START_MENU_DIR}"
