@@ -6,6 +6,7 @@ import {
     execFileAsync,
     getResourcesDir,
     getSanitizedPythonEnv,
+    BASE_DIR,
 } from '../util.js';
 
 const PINNED_UV_VERSION = '0.9.22';
@@ -378,6 +379,45 @@ export function getBundledBackendSpecifier(): string {
     return getProjectPath();
 }
 
+/**
+ * `uv sync` needs a *writable* project directory: it acquires a lock and may
+ * write scratch state inside the `--project` dir while resolving the lockfile.
+ * The bundled uv.lock + pyproject.toml live in the read-only resources dir on
+ * Linux (AppImage squashfs mount) and macOS (.app bundle), so syncing directly
+ * against them hangs and eventually fails (see issue #479). Stage a copy of the
+ * bundled, version-locked pair into a writable cache dir and sync against that.
+ * No network download – the files are the ones shipped with this release.
+ *
+ * Falls back to the bundled path if staging fails (e.g. writable on Windows).
+ */
+function getWritableProjectPath(): string {
+    const bundledPath = getProjectPath();
+    const cacheDir = path.join(BASE_DIR, 'uv-project');
+
+    try {
+        fs.mkdirSync(cacheDir, { recursive: true });
+        // uv sync --frozen --no-install-project only reads uv.lock (for the
+        // resolution) and pyproject.toml (for the dependency list); it does not
+        // build the root project, so the source tree is not needed here.
+        fs.copyFileSync(
+            path.join(bundledPath, 'uv.lock'),
+            path.join(cacheDir, 'uv.lock')
+        );
+        fs.copyFileSync(
+            path.join(bundledPath, 'pyproject.toml'),
+            path.join(cacheDir, 'pyproject.toml')
+        );
+        return cacheDir;
+    } catch (err) {
+        console.warn(
+            `Failed to stage writable uv project dir (${toErrorMessage(
+                err
+            )}). Falling back to bundled resources path.`
+        );
+        return bundledPath;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Extras resolution
 // ---------------------------------------------------------------------------
@@ -477,7 +517,7 @@ export async function syncLockedEnvironment(
     checkOnly: boolean = false,
     onProgress?: (event: UvCommandProgressEvent) => void
 ): Promise<void> {
-    const projectPath = getProjectPath();
+    const projectPath = getWritableProjectPath();
     const normalizedExtras = normalizeExtras(extras);
     const args = [
         '-m',

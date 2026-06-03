@@ -1,6 +1,6 @@
 {
   "name": "gsm_overlay",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "On-screen overlay for GameSentenceMiner",
   "main": "main.js",
   "scripts": {
