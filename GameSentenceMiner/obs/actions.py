@@ -1102,6 +1102,34 @@ def get_window_info_from_source(client, scene_name: str = None):
     return None
 
 
+def _parse_capture_window_item(client, item) -> dict | None:
+    """Extract X11 window info from a single OBS scene item, or None to skip it."""
+    if not item.get("sceneItemEnabled", True):
+        return None
+    source_name = item.get("sourceName")
+    if not source_name:
+        return None
+    try:
+        response = client.get_input_settings(name=source_name)
+    except Exception as e:
+        logger.debug(f"Error getting input settings for source {source_name}: {e}")
+        return None
+    if not response:
+        return None
+    capture_window = (response.input_settings or {}).get("capture_window")
+    if not capture_window:
+        return None
+    # Format is "<winid>\r\n<title>\r\n<class>" with positional fields.
+    # Do NOT filter empty lines before positional assignment — an empty title
+    # (common for borderless/SDL/Proton windows) would shift the class into
+    # the title slot and break class-based window re-matching.
+    parts = [p.strip().strip("\r") for p in str(capture_window).split("\n")]
+    winid = int(parts[0]) if parts and parts[0].isdigit() else None
+    title = parts[1] if len(parts) >= 2 else ""
+    wm_class = parts[2] if len(parts) >= 3 else ""
+    return {"winid": winid, "title": title, "wm_class": wm_class}
+
+
 @with_obs_client(default=None, error_msg="Error reading Linux capture window info")
 def get_linux_capture_window_info(client, scene_name: str = None):
     """Return the X11 window targeted by a Linux window-capture source.
@@ -1120,41 +1148,13 @@ def get_linux_capture_window_info(client, scene_name: str = None):
     scene_items_response = client.get_scene_item_list(name=scene_name)
     if not scene_items_response or not scene_items_response.scene_items:
         return None
-
     # Linux window-capture inputs are xcomposite_input / xshm_input, which the
     # Windows-oriented get_video_scene_items() filter does not recognise, so it
-    # would always return []. Match by the presence of capture_window instead and
-    # scan every scene item.
+    # would always return []. Match by the presence of capture_window instead.
     for item in scene_items_response.scene_items:
-        if not item.get("sceneItemEnabled", True):
-            continue
-        source_name = item.get("sourceName")
-        if not source_name:
-            continue
-        try:
-            response = client.get_input_settings(name=source_name)
-        except Exception as e:
-            logger.debug(f"Error getting input settings for source {source_name}: {e}")
-            continue
-        if not response:
-            continue
-        settings = response.input_settings or {}
-        capture_window = settings.get("capture_window")
-        if not capture_window:
-            continue
-
-        # Format is "<winid>\r\n<title>\r\n<class>" with positional fields.
-        # Do NOT filter empty lines before positional assignment — an empty title
-        # (common for borderless/SDL/Proton windows) would shift the class into
-        # the title slot and break class-based window re-matching.
-        parts = [p.strip().strip("\r") for p in str(capture_window).split("\n")]
-        winid = None
-        if parts and parts[0].isdigit():
-            winid = int(parts[0])
-        title = parts[1] if len(parts) >= 2 else ""
-        wm_class = parts[2] if len(parts) >= 3 else ""
-        return {"winid": winid, "title": title, "wm_class": wm_class}
-
+        result = _parse_capture_window_item(client, item)
+        if result is not None:
+            return result
     return None
 
 
