@@ -368,30 +368,79 @@ else:
 # so all existing serialised configs get the protection automatically.
 _CRITICAL_DENYLIST: List[str] = [
     # Windows
-    "explorer.exe", "dwm.exe", "csrss.exe", "services.exe", "svchost.exe",
-    "smss.exe", "wininit.exe", "winlogon.exe", "lsass.exe", "audiodg.exe",
+    "explorer.exe",
+    "dwm.exe",
+    "csrss.exe",
+    "services.exe",
+    "svchost.exe",
+    "smss.exe",
+    "wininit.exe",
+    "winlogon.exe",
+    "lsass.exe",
+    "audiodg.exe",
     # Linux display servers / compositors / window managers
-    "Xorg", "Xwayland", "gamescope",
-    "gnome-shell", "kwin_x11", "kwin_wayland", "mutter", "plasmashell",
-    "sway", "hyprland", "weston", "wayfire", "river", "labwc",
+    "Xorg",
+    "Xwayland",
+    "gamescope",
+    "gnome-shell",
+    "kwin_x11",
+    "kwin_wayland",
+    "mutter",
+    "plasmashell",
+    "sway",
+    "hyprland",
+    "weston",
+    "wayfire",
+    "river",
+    "labwc",
     # Linux display / login managers
-    "sddm", "gdm", "gdm3", "lightdm",
+    "sddm",
+    "gdm",
+    "gdm3",
+    "lightdm",
     # Linux session bus
-    "dbus-daemon", "dbus-broker",
+    "dbus-daemon",
+    "dbus-broker",
     # Input methods — never pause these (critical for Japanese text entry)
-    "ibus-daemon", "ibus-x11", "ibus-engine-simple", "ibus-engine-mozc",
-    "mozc_server", "fcitx", "fcitx5", "kkc", "uim", "uim-xim",
+    "ibus-daemon",
+    "ibus-x11",
+    "ibus-engine-simple",
+    "ibus-engine-mozc",
+    "mozc_server",
+    "fcitx",
+    "fcitx5",
+    "kkc",
+    "uim",
+    "uim-xim",
     # Linux audio
-    "pipewire", "pipewire-pulse", "pipewire-media-session", "wireplumber",
-    "pulseaudio", "systemd", "rtkit-daemon",
+    "pipewire",
+    "pipewire-pulse",
+    "pipewire-media-session",
+    "wireplumber",
+    "pulseaudio",
+    "systemd",
+    "rtkit-daemon",
     # Shells
-    "bash", "zsh", "sh", "fish",
+    "bash",
+    "zsh",
+    "sh",
+    "fish",
     # OBS / Steam helpers — never suspend the capture source itself
-    "obs", "obs64.exe", "obs.exe",
-    "steam", "steam.exe", "steamwebhelper", "reaper", "srt-bwrap",
-    "pressure-vessel", "gameoverlayui",
+    "obs",
+    "obs64.exe",
+    "obs.exe",
+    "steam",
+    "steam.exe",
+    "steamwebhelper",
+    "reaper",
+    "srt-bwrap",
+    "pressure-vessel",
+    "gameoverlayui",
     # GSM itself
-    "gamesentenceminer", "gamesentenceminer.exe", "gsm_overlay", "gsm_overlay.exe",
+    "gamesentenceminer",
+    "gamesentenceminer.exe",
+    "gsm_overlay",
+    "gsm_overlay.exe",
 ]
 
 # Emit the Wayland auto-detection warning at most once per session.
@@ -672,9 +721,7 @@ def _match_process_by_names(target_names: Set[str], context: str) -> int:
         if name_variants & deny_set:
             continue
 
-        if name_variants and (
-            (name_variants & target_names) or (name_variants & truncated_targets)
-        ):
+        if name_variants and ((name_variants & target_names) or (name_variants & truncated_targets)):
             return pid
 
         if not cmdline_fallback:
@@ -770,12 +817,22 @@ def _x11_window_matches(disp, window_id: int, wm_class: str, title: str) -> bool
 # game itself. When the captured window's _NET_WM_PID is one of these, _refine_proton_pid
 # locates the real game process via RSS heuristic instead.
 _PROTON_LAUNCHER_COMMS = {
-    "pv-bwrap", "pv-adverb", "pressure-vessel-wrap",
-    "wine", "wine64", "wineserver",
-    "wine-preloader", "wine64-preloader",   # 32-bit and 64-bit Proton loaders
+    "pv-bwrap",
+    "pv-adverb",
+    "pressure-vessel-wrap",
+    "wine",
+    "wine64",
+    "wineserver",
+    "wine-preloader",
+    "wine64-preloader",  # 32-bit and 64-bit Proton loaders
     "winedevice.exe",
-    "start.exe", "conhost.exe", "rpcss.exe", "plugplay.exe",
-    "proton", "python3", "python",
+    "start.exe",
+    "conhost.exe",
+    "rpcss.exe",
+    "plugplay.exe",
+    "proton",
+    "python3",
+    "python",
 }
 
 
@@ -964,9 +1021,7 @@ def _resolve_linux_target_pid(context: str, log_on_missing: bool = True) -> Tupl
     return 0, "none"
 
 
-def _resolve_pause_target_pid(
-    hwnd: Optional[int], context: str, log_on_missing: bool = True
-) -> Tuple[int, str]:
+def _resolve_pause_target_pid(hwnd: Optional[int], context: str, log_on_missing: bool = True) -> Tuple[int, str]:
     """Resolve the PID to suspend/resume and return (pid, source).
 
     Source values match those of _resolve_linux_target_pid on Linux, or
@@ -1430,9 +1485,7 @@ def _is_pid_allowed_to_suspend(
                 if not detected_linux_exe:
                     return True
                 if not _pid_name_matches_target(pid, detected_linux_exe):
-                    logger.warning(
-                        f"Pause: PID {pid} does not match detected game exe '{detected_linux_exe}'."
-                    )
+                    logger.warning(f"Pause: PID {pid} does not match detected game exe '{detected_linux_exe}'.")
                     return False
                 return True
 

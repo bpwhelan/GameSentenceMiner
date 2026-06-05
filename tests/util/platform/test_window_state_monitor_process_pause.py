@@ -208,9 +208,7 @@ def test_pid_allowed_to_suspend_windows_skips_posix_ownership_guard(monkeypatch)
     monkeypatch.setattr(
         window_state_monitor,
         "get_config",
-        lambda: SimpleNamespace(
-            process_pausing=SimpleNamespace(denylist=[], require_game_exe_match=True)
-        ),
+        lambda: SimpleNamespace(process_pausing=SimpleNamespace(denylist=[], require_game_exe_match=True)),
     )
 
     assert window_state_monitor._is_pid_allowed_to_suspend(4242, source="windows_hwnd") is True
@@ -274,7 +272,7 @@ def _proc_state(pid):
         data = f.read()
     # Comm is the only field wrapped in parentheses; split after the last ')' so
     # a comm name containing ') ' does not truncate the field incorrectly.
-    return data[data.rindex(")") + 2:].split(" ", 1)[0]
+    return data[data.rindex(")") + 2 :].split(" ", 1)[0]
 
 
 @pytest.fixture
@@ -325,9 +323,7 @@ def test_resolve_linux_target_pid_matches_configured_name(monkeypatch, sleeper):
     monkeypatch.setattr(
         window_state_monitor,
         "get_config",
-        lambda: SimpleNamespace(
-            process_pausing=SimpleNamespace(linux_target_process="sleep", denylist=[])
-        ),
+        lambda: SimpleNamespace(process_pausing=SimpleNamespace(linux_target_process="sleep", denylist=[])),
     )
 
     pid, source = window_state_monitor._resolve_linux_target_pid("test")
@@ -419,9 +415,7 @@ def test_is_pid_allowed_to_suspend_linux_obs_x11_source_allowed(monkeypatch):
         window_state_monitor,
         "get_config",
         lambda: SimpleNamespace(
-            process_pausing=SimpleNamespace(
-                linux_target_process="", denylist=[], require_game_exe_match=True
-            )
+            process_pausing=SimpleNamespace(linux_target_process="", denylist=[], require_game_exe_match=True)
         ),
     )
     assert window_state_monitor._is_pid_allowed_to_suspend(4242, source="obs_x11") is True
@@ -439,9 +433,7 @@ def test_is_pid_allowed_to_suspend_linux_no_anchor_refused(monkeypatch):
         window_state_monitor,
         "get_config",
         lambda: SimpleNamespace(
-            process_pausing=SimpleNamespace(
-                linux_target_process="", denylist=[], require_game_exe_match=True
-            )
+            process_pausing=SimpleNamespace(linux_target_process="", denylist=[], require_game_exe_match=True)
         ),
     )
     # source="none" → no anchor → should refuse
@@ -464,9 +456,7 @@ def test_is_pid_allowed_to_suspend_linux_detected_name_empty_anchor_passes(monke
         window_state_monitor,
         "get_config",
         lambda: SimpleNamespace(
-            process_pausing=SimpleNamespace(
-                linux_target_process="", denylist=[], require_game_exe_match=True
-            )
+            process_pausing=SimpleNamespace(linux_target_process="", denylist=[], require_game_exe_match=True)
         ),
     )
     assert window_state_monitor._is_pid_allowed_to_suspend(4242, source="detected_name") is True
@@ -484,9 +474,7 @@ def test_is_pid_allowed_to_suspend_linux_detected_name_validates_when_exe_presen
         window_state_monitor,
         "get_config",
         lambda: SimpleNamespace(
-            process_pausing=SimpleNamespace(
-                linux_target_process="", denylist=[], require_game_exe_match=True
-            )
+            process_pausing=SimpleNamespace(linux_target_process="", denylist=[], require_game_exe_match=True)
         ),
     )
     # PID name doesn't match detected exe → should refuse.
@@ -524,9 +512,7 @@ def test_is_pid_allowed_to_suspend_linux_ownership_check_blocks_foreign_uid(monk
         window_state_monitor,
         "get_config",
         lambda: SimpleNamespace(
-            process_pausing=SimpleNamespace(
-                linux_target_process="narcissu", denylist=[], require_game_exe_match=True
-            )
+            process_pausing=SimpleNamespace(linux_target_process="narcissu", denylist=[], require_game_exe_match=True)
         ),
     )
     assert window_state_monitor._is_pid_allowed_to_suspend(4242) is False
@@ -551,6 +537,7 @@ def test_resolve_pause_target_pid_uses_linux_resolver_on_non_windows(monkeypatch
 
 # --- capture_window parser (I7) ---
 
+
 def test_capture_window_parser_normal_case():
     """All three fields present: winid, title, wm_class."""
     from types import SimpleNamespace as _SNS
@@ -570,6 +557,7 @@ def test_capture_window_parser_normal_case():
 
     import GameSentenceMiner.obs as _obs_pkg
     import importlib
+
     obs_service = importlib.import_module("GameSentenceMiner.obs.service")
     old_pool = _obs_pkg.connection_pool
     try:
@@ -599,6 +587,7 @@ def test_capture_window_parser_empty_title():
             return op(client)
 
     import GameSentenceMiner.obs as _obs_pkg
+
     old_pool = _obs_pkg.connection_pool
     try:
         _obs_pkg.connection_pool = _FakePool()
@@ -623,13 +612,12 @@ def test_capture_window_parser_non_numeric_winid():
                 get_scene_item_list=lambda name: _SNS(
                     scene_items=[{"sourceName": "XCap", "inputKind": "xcomposite_input"}]
                 ),
-                get_input_settings=lambda name: _SNS(
-                    input_settings={"capture_window": "NOTANUMBER\r\nTitle\r\nClass"}
-                ),
+                get_input_settings=lambda name: _SNS(input_settings={"capture_window": "NOTANUMBER\r\nTitle\r\nClass"}),
             )
             return op(client)
 
     import GameSentenceMiner.obs as _obs_pkg
+
     old_pool = _obs_pkg.connection_pool
     try:
         _obs_pkg.connection_pool = _FakePool()
@@ -661,9 +649,7 @@ def test_capture_window_parser_skips_disabled_items():
                 get_input_settings=lambda name: _SNS(
                     input_settings={
                         "capture_window": (
-                            "99999\r\nWrong\r\nWrongClass"
-                            if name == "Disabled"
-                            else "12345\r\nGame Title\r\nGameClass"
+                            "99999\r\nWrong\r\nWrongClass" if name == "Disabled" else "12345\r\nGame Title\r\nGameClass"
                         )
                     }
                 ),
@@ -687,6 +673,7 @@ def test_capture_window_parser_skips_disabled_items():
 
 # --- _process_matches_record exe-mismatch branch ---
 
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX process metadata")
 def test_process_matches_record_exe_mismatch(monkeypatch, sleeper):
     monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
@@ -699,6 +686,7 @@ def test_process_matches_record_exe_mismatch(monkeypatch, sleeper):
 
 
 # --- _resolve_linux_pid_from_obs self-PID guard and no-xlib path ---
+
 
 def test_resolve_linux_pid_from_obs_no_xlib_returns_zero(monkeypatch):
     monkeypatch.setattr(window_state_monitor, "_HAS_XLIB", False)
@@ -713,8 +701,11 @@ def test_resolve_linux_pid_from_obs_wayland_short_circuits(monkeypatch):
     monkeypatch.setattr(window_state_monitor, "is_linux", lambda: True)
     monkeypatch.setattr(window_state_monitor, "is_wayland", lambda: True)
     # If the guard is missing, this would be called and fail the test setup.
-    monkeypatch.setattr(window_state_monitor, "get_linux_capture_window_info",
-                        lambda **kw: (_ for _ in ()).throw(AssertionError("should not reach OBS lookup on Wayland")))
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_linux_capture_window_info",
+        lambda **kw: (_ for _ in ()).throw(AssertionError("should not reach OBS lookup on Wayland")),
+    )
     assert window_state_monitor._resolve_linux_pid_from_obs("test") == 0
 
 
@@ -723,9 +714,7 @@ def test_resolve_linux_pid_from_obs_self_pid_rejected(monkeypatch):
     monkeypatch.setattr(window_state_monitor, "_HAS_XLIB", True)
     monkeypatch.setattr(window_state_monitor, "is_linux", lambda: True)
     monkeypatch.setattr(window_state_monitor, "is_wayland", lambda: False)
-    monkeypatch.setattr(
-        window_state_monitor, "get_current_scene", lambda: "Scene", raising=False
-    )
+    monkeypatch.setattr(window_state_monitor, "get_current_scene", lambda: "Scene", raising=False)
     monkeypatch.setattr(
         window_state_monitor,
         "get_linux_capture_window_info",
@@ -741,6 +730,7 @@ def test_resolve_linux_pid_from_obs_self_pid_rejected(monkeypatch):
 
         def get_full_property(self, *a):
             from types import SimpleNamespace
+
             return SimpleNamespace(value=[os.getpid()])
 
         def get_wm_class(self):
@@ -770,6 +760,7 @@ def test_resolve_linux_pid_from_obs_self_pid_rejected(monkeypatch):
 
 
 # --- _match_process_by_names: comm-truncation and cmdline fallback ---
+
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX process scan")
 def test_match_process_by_names_comm_truncation(monkeypatch, sleeper):
@@ -801,6 +792,7 @@ def test_match_process_by_names_cmdline_fallback(monkeypatch):
     and the result must come from the cmdline fallback.
     """
     import subprocess, sys
+
     unique_arg = f"gsm-cmdline-test-{os.getpid()}"
     # Python accepts arbitrary extra argv so the unique marker ends up in the cmdline.
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)", unique_arg])
@@ -822,6 +814,7 @@ def test_match_process_by_names_cmdline_fallback(monkeypatch):
 
 # --- denylist critical floor applied to existing configs ---
 
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX gate")
 def test_effective_denylist_includes_critical_floor(monkeypatch):
     """Even with an empty stored denylist the critical floor blocks critical processes."""
@@ -835,9 +828,7 @@ def test_effective_denylist_includes_critical_floor(monkeypatch):
         window_state_monitor,
         "get_config",
         lambda: SimpleNamespace(
-            process_pausing=SimpleNamespace(
-                linux_target_process="", denylist=[], require_game_exe_match=True
-            )
+            process_pausing=SimpleNamespace(linux_target_process="", denylist=[], require_game_exe_match=True)
         ),
     )
     # plasmashell is in _CRITICAL_DENYLIST so it must be refused regardless of source.
@@ -845,6 +836,7 @@ def test_effective_denylist_includes_critical_floor(monkeypatch):
 
 
 # --- truncation-aware denylist + expanded critical floor ---
+
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX gate")
 def test_effective_denylist_truncated_comm_blocked(monkeypatch):
@@ -862,9 +854,7 @@ def test_effective_denylist_truncated_comm_blocked(monkeypatch):
         window_state_monitor,
         "get_config",
         lambda: SimpleNamespace(
-            process_pausing=SimpleNamespace(
-                linux_target_process="", denylist=[], require_game_exe_match=True
-            )
+            process_pausing=SimpleNamespace(linux_target_process="", denylist=[], require_game_exe_match=True)
         ),
     )
     # obs_x11 would otherwise be authoritative; the denylist must still block it.
@@ -883,9 +873,7 @@ def test_critical_floor_blocks_input_method(monkeypatch):
         window_state_monitor,
         "get_config",
         lambda: SimpleNamespace(
-            process_pausing=SimpleNamespace(
-                linux_target_process="", denylist=[], require_game_exe_match=True
-            )
+            process_pausing=SimpleNamespace(linux_target_process="", denylist=[], require_game_exe_match=True)
         ),
     )
     assert window_state_monitor._is_pid_allowed_to_suspend(4242, source="obs_x11") is False
@@ -898,6 +886,7 @@ def test_x11_window_matches_empty_identity_refuses():
 
 
 # --- config migration leaves the user denylist untouched ---
+
 
 def test_migrate_process_pausing_data_preserves_user_denylist():
     """Migration drops the legacy allowlist but must not mutate the user's denylist.
@@ -932,10 +921,7 @@ def test_steam_game_dir_from_cmdline_extracts_install_dir():
         "c:\\windows\\system32\\steam.exe",
         "/mnt/Core/SteamLibrary/steamapps/common/FINAL FANTASY VII REBIRTH/ff7rebirth.exe",
     ]
-    assert (
-        window_state_monitor._steam_game_dir_from_cmdline(steam_stub)
-        == "steamapps/common/final fantasy vii rebirth"
-    )
+    assert window_state_monitor._steam_game_dir_from_cmdline(steam_stub) == "steamapps/common/final fantasy vii rebirth"
     # Wine Z: path form.
     wine_path = ["Z:\\mnt\\games\\steamapps\\common\\ELDEN RING\\Game\\eldenring.exe"]
     assert window_state_monitor._steam_game_dir_from_cmdline(wine_path) == "steamapps/common/elden ring"
@@ -951,9 +937,9 @@ def test_steam_game_dir_from_cmdline_extracts_install_dir():
     ]
     assert window_state_monitor._steam_game_dir_from_cmdline(slr_cmdline) == "steamapps/common/elden ring"
     # Only a SteamLinuxRuntime path and no game -> empty.
-    assert window_state_monitor._steam_game_dir_from_cmdline(
-        ["/x/steamapps/common/SteamLinuxRuntime_soldier/run"]
-    ) == ""
+    assert (
+        window_state_monitor._steam_game_dir_from_cmdline(["/x/steamapps/common/SteamLinuxRuntime_soldier/run"]) == ""
+    )
 
 
 def _fake_proc(name, cmdline):

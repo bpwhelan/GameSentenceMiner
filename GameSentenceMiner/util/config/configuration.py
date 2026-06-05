@@ -1600,7 +1600,7 @@ class ProfileConfig:
 @dataclass_json
 @dataclass
 class StatsConfig:
-    session_gap_seconds: int = 1800 
+    session_gap_seconds: int = 1800
     streak_requirement_hours: float = 0.01  # 1 second required per day to keep your streak by default
     reading_hours_target: int = 1500  # Target reading hours based on TMW N1 achievement data
     character_count_target: int = 25000000  # Target character count (25M) inspired by Discord server milestones
