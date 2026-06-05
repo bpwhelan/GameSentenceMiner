@@ -751,6 +751,7 @@ class ConfigWindow(QWidget):
                 overlay_manual_hotkey_requests_pause=self.process_pausing_overlay_manual_hotkey_requests_pause_check.isChecked(),
                 overlay_texthooker_hotkey_requests_pause=self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.isChecked(),
                 overlay_gamepad_navigation_requests_pause=self.process_pausing_overlay_gamepad_navigation_requests_pause_check.isChecked(),
+                linux_target_process=self.process_pausing_linux_target_process_edit.text().strip(),
                 denylist=[
                     item.strip().lower()
                     for item in self.process_pausing_denylist_edit.text().split(",")
@@ -1633,6 +1634,10 @@ class ConfigWindow(QWidget):
         self.process_pausing_overlay_texthooker_hotkey_requests_pause_check = QCheckBox()
         self.process_pausing_overlay_gamepad_navigation_requests_pause_check = QCheckBox()
         self.process_pausing_denylist_edit = QLineEdit()
+        self.process_pausing_linux_target_process_edit = QLineEdit()
+        self.process_pausing_linux_target_process_edit.setPlaceholderText(
+            "eldenring.exe  (Proton) or native binary name"
+        )
         self.process_pausing_auto_resume_seconds_edit = QSpinBox()
         self.process_pausing_auto_resume_seconds_edit.setRange(5, 300)
         self.process_pausing_auto_resume_seconds_edit.setToolTip(
@@ -3134,6 +3139,10 @@ class ConfigWindow(QWidget):
             bool(getattr(process_cfg, "overlay_gamepad_navigation_requests_pause", False))
         )
         self._set_text_value(self.process_pausing_denylist_edit, ", ".join(process_cfg.denylist))
+        self._set_text_value(
+            self.process_pausing_linux_target_process_edit,
+            getattr(process_cfg, "linux_target_process", ""),
+        )
         self.process_pause_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.process_pause or ""))
 
         # Advanced

@@ -973,9 +973,9 @@ class ProcessPausing:
     overlay_manual_hotkey_requests_pause: bool = False
     overlay_texthooker_hotkey_requests_pause: bool = False
     overlay_gamepad_navigation_requests_pause: bool = False
-    # Linux/macOS only: process name of the game to suspend (e.g. "eldenring.exe"
+    # Linux only: process name of the game to suspend (e.g. "eldenring.exe"
     # under Proton, or a native binary name). There is no window handle to resolve
-    # a PID from on these platforms, so the target is matched by process name.
+    # a PID from on Linux, so the target is matched by process name.
     linux_target_process: str = ""
     denylist: List[str] = field(
         default_factory=lambda: [
@@ -998,13 +998,24 @@ class ProcessPausing:
             "gamesentenceminer.exe",
             "gsm_overlay.exe",
             "gsm_overlay",
-            # Linux/macOS critical processes — never suspend these.
+            # Linux critical processes — never suspend these.
             "systemd",
-            "init",
             "Xorg",
             "gnome-shell",
             "kwin_x11",
             "kwin_wayland",
+            "mutter",
+            "plasmashell",
+            "sway",
+            "hyprland",
+            "weston",
+            "wayfire",
+            "river",
+            "labwc",
+            "sddm",
+            "gdm",
+            "gdm3",
+            "lightdm",
             "pipewire",
             "wireplumber",
             "pulseaudio",
@@ -1013,6 +1024,11 @@ class ProcessPausing:
             "sh",
             "obs",
             "steam",
+            "steamwebhelper",
+            "reaper",
+            "srt-bwrap",
+            "pressure-vessel",
+            "gameoverlayui",
             "gamesentenceminer",
         ]
     )
@@ -1835,6 +1851,12 @@ class Config:
         process_pausing = profile_data.get("process_pausing")
         if isinstance(process_pausing, dict):
             process_pausing.pop("allowlist", None)
+            # Union any new default denylist entries into an existing stored list
+            # so upgrading users gain new Linux critical-process protections.
+            existing = process_pausing.get("denylist")
+            if isinstance(existing, list):
+                defaults = ProcessPausing().denylist
+                process_pausing["denylist"] = list(dict.fromkeys([*existing, *defaults]))
 
     @staticmethod
     def _normalize_port(value: Any, fallback: int) -> int:

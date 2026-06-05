@@ -1141,8 +1141,11 @@ def get_linux_capture_window_info(client, scene_name: str = None):
         if not capture_window:
             continue
 
-        parts = [p.strip() for p in str(capture_window).split("\n")]
-        parts = [p.strip("\r") for p in parts if p.strip()]
+        # Format is "<winid>\r\n<title>\r\n<class>" with positional fields.
+        # Do NOT filter empty lines before positional assignment — an empty title
+        # (common for borderless/SDL/Proton windows) would shift the class into
+        # the title slot and break class-based window re-matching.
+        parts = [p.strip().strip("\r") for p in str(capture_window).split("\n")]
         winid = None
         if parts and parts[0].isdigit():
             winid = int(parts[0])
