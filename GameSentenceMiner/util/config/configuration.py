@@ -998,38 +998,10 @@ class ProcessPausing:
             "gamesentenceminer.exe",
             "gsm_overlay.exe",
             "gsm_overlay",
-            # Linux critical processes — never suspend these.
-            "systemd",
-            "Xorg",
-            "gnome-shell",
-            "kwin_x11",
-            "kwin_wayland",
-            "mutter",
-            "plasmashell",
-            "sway",
-            "hyprland",
-            "weston",
-            "wayfire",
-            "river",
-            "labwc",
-            "sddm",
-            "gdm",
-            "gdm3",
-            "lightdm",
-            "pipewire",
-            "wireplumber",
-            "pulseaudio",
-            "bash",
-            "zsh",
-            "sh",
-            "obs",
-            "steam",
-            "steamwebhelper",
-            "reaper",
-            "srt-bwrap",
-            "pressure-vessel",
-            "gameoverlayui",
-            "gamesentenceminer",
+            # Linux/macOS critical processes (compositors, audio, shells, OBS/Steam
+            # helpers, GSM itself) are enforced unconditionally by the hardcoded
+            # _CRITICAL_DENYLIST floor in window_state_monitor, so they are not
+            # duplicated here.
         ]
     )
 
@@ -1851,12 +1823,6 @@ class Config:
         process_pausing = profile_data.get("process_pausing")
         if isinstance(process_pausing, dict):
             process_pausing.pop("allowlist", None)
-            # Union any new default denylist entries into an existing stored list
-            # so upgrading users gain new Linux critical-process protections.
-            existing = process_pausing.get("denylist")
-            if isinstance(existing, list):
-                defaults = ProcessPausing().denylist
-                process_pausing["denylist"] = list(dict.fromkeys([*existing, *defaults]))
 
     @staticmethod
     def _normalize_port(value: Any, fallback: int) -> int:

@@ -715,19 +715,106 @@ def test_effective_denylist_includes_critical_floor(monkeypatch):
     assert window_state_monitor._is_pid_allowed_to_suspend(4242, source="obs_x11") is False
 
 
-# --- config migration unions new defaults ---
+# --- config migration leaves the user denylist untouched ---
 
-def test_migrate_process_pausing_data_unions_new_defaults():
-    from GameSentenceMiner.util.config.configuration import Config, ProcessPausing
-    # Simulate an old config that only has the Windows entries (no Linux names).
-    old_denylist = ["explorer.exe", "steam.exe"]
-    data = {"process_pausing": {"denylist": list(old_denylist)}}
+def test_migrate_process_pausing_data_preserves_user_denylist():
+    """Migration drops the legacy allowlist but must not mutate the user's denylist.
+
+    Critical-process protection comes from the hardcoded _CRITICAL_DENYLIST floor in
+    window_state_monitor, not from force-merging defaults, so a user removal of a
+    default entry must survive a reload.
+    """
+    from GameSentenceMiner.util.config.configuration import Config
+
+    # User has trimmed the denylist (removed defaults) and a legacy allowlist exists.
+    user_denylist = ["explorer.exe"]
+    data = {
+        "process_pausing": {
+            "denylist": list(user_denylist),
+            "allowlist": ["something.exe"],
+        }
+    }
     Config._migrate_process_pausing_data(data)
-    merged = data["process_pausing"]["denylist"]
-    # All old entries must be preserved.
-    for entry in old_denylist:
-        assert entry in merged, f"{entry!r} missing from merged denylist"
-    # New Linux defaults must be present.
-    defaults = ProcessPausing().denylist
-    for entry in defaults:
-        assert entry in merged, f"new default {entry!r} missing after migration"
+
+    # Legacy allowlist is dropped; denylist is left exactly as the user had it.
+    assert "allowlist" not in data["process_pausing"]
+    assert data["process_pausing"]["denylist"] == user_denylist
+
+
+# ---------------------------------------------------------------------------
+# Proton / Steam launcher PID refinement
+# ---------------------------------------------------------------------------
+def test_steam_game_dir_from_cmdline_extracts_install_dir():
+    # In-prefix steam.exe stub: native path argument.
+    steam_stub = [
+        "c:\\windows\\system32\\steam.exe",
+        "/mnt/Core/SteamLibrary/steamapps/common/FINAL FANTASY VII REBIRTH/ff7rebirth.exe",
+    ]
+    assert (
+        window_state_monitor._steam_game_dir_from_cmdline(steam_stub)
+        == "steamapps/common/final fantasy vii rebirth"
+    )
+    # Wine Z: path form.
+    wine_path = ["Z:\\mnt\\games\\steamapps\\common\\ELDEN RING\\Game\\eldenring.exe"]
+    assert window_state_monitor._steam_game_dir_from_cmdline(wine_path) == "steamapps/common/elden ring"
+    # No steam path -> empty.
+    assert window_state_monitor._steam_game_dir_from_cmdline(["/usr/bin/foo", "--bar"]) == ""
+    assert window_state_monitor._steam_game_dir_from_cmdline([]) == ""
+
+
+def _fake_proc(name, cmdline):
+    return SimpleNamespace(name=lambda: name, cmdline=lambda: list(cmdline))
+
+
+def test_refine_proton_pid_maps_launcher_to_real_game(monkeypatch):
+    # Window PID is the denylisted in-prefix steam.exe launcher.
+    monkeypatch.setattr(
+        window_state_monitor.psutil,
+        "Process",
+        lambda pid: _fake_proc("steam.exe", ["c:/windows/system32/steam.exe", "/x/steamapps/common/game/g.exe"]),
+    )
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(process_pausing=SimpleNamespace(denylist=["steam.exe"])),
+    )
+    captured = {}
+
+    def fake_largest(game_dir, deny):
+        captured["dir"] = game_dir
+        return 4242
+
+    monkeypatch.setattr(window_state_monitor, "_largest_process_in_dir", fake_largest)
+    assert window_state_monitor._refine_proton_pid(999) == 4242
+    assert captured["dir"] == "steamapps/common/game"
+
+
+def test_refine_proton_pid_passes_through_native_game(monkeypatch):
+    # A non-launcher window PID (native game) is returned unchanged.
+    monkeypatch.setattr(
+        window_state_monitor.psutil,
+        "Process",
+        lambda pid: _fake_proc("narcissu", ["/x/steamapps/common/narcissu2/narcissu"]),
+    )
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(process_pausing=SimpleNamespace(denylist=[])),
+    )
+    assert window_state_monitor._refine_proton_pid(1234) == 1234
+
+
+def test_refine_proton_pid_returns_zero_when_launcher_unresolved(monkeypatch):
+    # Launcher window PID but no real game found -> 0 (never suspend the launcher).
+    monkeypatch.setattr(
+        window_state_monitor.psutil,
+        "Process",
+        lambda pid: _fake_proc("steam.exe", ["c:/windows/system32/steam.exe"]),
+    )
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(process_pausing=SimpleNamespace(denylist=["steam.exe"])),
+    )
+    monkeypatch.setattr(window_state_monitor, "_largest_process_in_dir", lambda game_dir, deny: 0)
+    assert window_state_monitor._refine_proton_pid(999) == 0

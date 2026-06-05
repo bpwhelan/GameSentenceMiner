@@ -694,6 +694,23 @@ def _x11_window_pid(disp, window_id: int) -> int:
     return 0
 
 
+def _x11_window_identity(disp, window_id: int) -> Tuple[Set[str], str]:
+    """Return ((lowercased WM_CLASS names), lowercased WM_NAME title) for a window.
+
+    Centralises the WM_CLASS/title extraction so the lookup and validation paths
+    apply identical matching rules. Returns (set(), "") if the window is gone.
+    """
+    try:
+        win = disp.create_resource_object("window", window_id)
+        cls = win.get_wm_class()  # (instance, class) or None
+        names = {c.lower() for c in (cls or ()) if c}
+        nm = win.get_wm_name()
+        title = nm.lower() if nm else ""
+        return names, title
+    except Exception:
+        return set(), ""
+
+
 def _x11_find_window_by_class_or_title(disp, wm_class: str, title: str) -> int:
     """Locate a live top-level window by WM_CLASS (preferred) or exact title.
 
@@ -716,18 +733,12 @@ def _x11_find_window_by_class_or_title(disp, wm_class: str, title: str) -> int:
             return 0
         title_match = 0
         for wid in prop.value:
-            try:
-                win = disp.create_resource_object("window", int(wid))
-                cls = win.get_wm_class()  # (instance, class) or None
-                names = {c.lower() for c in (cls or ()) if c}
-                if wm_class_l and wm_class_l in names:
-                    return int(wid)
-                if use_title_fallback and not title_match:
-                    nm = win.get_wm_name()
-                    if nm and nm.lower() == title_l:
-                        title_match = int(wid)
-            except Exception:
-                continue
+            wid = int(wid)
+            names, win_title = _x11_window_identity(disp, wid)
+            if wm_class_l and wm_class_l in names:
+                return wid
+            if use_title_fallback and not title_match and win_title == title_l:
+                title_match = wid
         return title_match
     except Exception:
         return 0
@@ -739,18 +750,91 @@ def _x11_window_matches(disp, window_id: int, wm_class: str, title: str) -> bool
     title_l = (title or "").lower()
     if not wm_class_l and not title_l:
         return True  # nothing to verify; trust the winid
+    names, win_title = _x11_window_identity(disp, window_id)
+    if wm_class_l:
+        return wm_class_l in names
+    return bool(win_title) and win_title == title_l
+
+
+# Proton/Steam launcher processes that can own a game's X11 window but are not the
+# game itself. Under Proton the captured window's _NET_WM_PID points at the in-prefix
+# steam.exe stub (or the pressure-vessel/reaper chain), not the running game, so when
+# we land on one of these we locate the real game process instead.
+_PROTON_LAUNCHER_COMMS = {
+    "steam.exe", "reaper", "srt-bwrap", "pv-bwrap", "pv-adverb",
+    "pressure-vessel-wrap", "wine", "wine64", "wineserver", "wine-preloader",
+    "winedevice.exe", "services.exe", "explorer.exe", "start.exe", "conhost.exe",
+    "rpcss.exe", "plugplay.exe", "svchost.exe", "proton", "python3", "python", "sh",
+}
+
+
+def _steam_game_dir_from_cmdline(cmdline: List[str]) -> str:
+    """Return the lowercased 'steamapps/common/<GameDir>' referenced in a launcher's
+    cmdline, or '' if none. Proton launchers carry the game path as an argument."""
+    for arg in cmdline or []:
+        path = (arg or "").replace("\\", "/").lower()
+        idx = path.find("steamapps/common/")
+        if idx == -1:
+            continue
+        parts = path[idx:].split("/")
+        if len(parts) >= 3:
+            return "/".join(parts[:3])
+    return ""
+
+
+def _largest_process_in_dir(game_dir: str, deny_set: Set[str]) -> int:
+    """The highest-memory non-denylisted process running from game_dir. The game
+    engine process dwarfs the launcher/wrapper processes (multi-GB vs tens of MB),
+    so resident set size reliably identifies the real game."""
+    if not game_dir:
+        return 0
+    self_pid = os.getpid()
+    best_rss, best_pid = 0, 0
+    for proc in psutil.process_iter(["pid", "name", "exe", "cmdline", "memory_info"]):
+        try:
+            info = proc.info
+            pid = info["pid"]
+            if not pid or pid == self_pid:
+                continue
+            if _normalize_exe_entry(info["name"] or "") & deny_set:
+                continue
+            haystack = ((info.get("exe") or "") + " " + " ".join(info.get("cmdline") or [])).replace("\\", "/").lower()
+            if game_dir not in haystack:
+                continue
+            mem = info.get("memory_info")
+            rss = mem.rss if mem else 0
+            if rss > best_rss:
+                best_rss, best_pid = rss, pid
+        except (psutil.Error, KeyError):
+            continue
+    return best_pid
+
+
+def _refine_proton_pid(window_pid: int) -> int:
+    """Map a captured-window PID to the real game PID for Proton/Steam titles.
+
+    Returns the game PID if window_pid is a launcher we can resolve, 0 if it is a
+    launcher we cannot resolve (never suspend the launcher), or window_pid unchanged
+    for a native game whose window PID is already the game.
+    """
     try:
-        win = disp.create_resource_object("window", window_id)
-        if wm_class_l:
-            cls = win.get_wm_class()
-            names = {c.lower() for c in (cls or ()) if c}
-            return wm_class_l in names
-        if title_l:
-            nm = win.get_wm_name()
-            return bool(nm) and nm.lower() == title_l
-    except Exception:
-        pass
-    return False
+        proc = psutil.Process(window_pid)
+        comm = (proc.name() or "").lower()
+        cmdline = proc.cmdline()
+    except psutil.Error:
+        return window_pid
+
+    process_cfg = getattr(get_config(), "process_pausing", None)
+    deny_set = _build_exe_name_set(list(getattr(process_cfg, "denylist", []) or [])) if process_cfg else set()
+    is_launcher = comm in _PROTON_LAUNCHER_COMMS or bool(_normalize_exe_entry(comm) & deny_set)
+    if not is_launcher:
+        return window_pid
+
+    real = _largest_process_in_dir(_steam_game_dir_from_cmdline(cmdline), deny_set)
+    if real and real != window_pid:
+        logger.info(f"Proton title: window owned by launcher '{comm}' (PID {window_pid}); using game PID {real}.")
+        return real
+    return 0
 
 
 def _resolve_linux_pid_from_obs(context: str) -> int:
@@ -774,16 +858,19 @@ def _resolve_linux_pid_from_obs(context: str) -> int:
         pid = 0
         winid = info.get("winid")
         if winid:
+            winid = int(winid)
             # Validate the stored winid still belongs to the recorded window before
             # trusting its _NET_WM_PID — X11 XIDs are reused across restarts.
-            if _x11_window_matches(disp, int(winid), wm_class, title):
-                pid = _x11_window_pid(disp, int(winid))
+            if _x11_window_matches(disp, winid, wm_class, title):
+                pid = _x11_window_pid(disp, winid)
         if pid <= 0:
             found = _x11_find_window_by_class_or_title(disp, wm_class, title)
             if found:
                 pid = _x11_window_pid(disp, found)
         if pid > 0 and pid != os.getpid():
-            return pid
+            # Proton/Steam titles: the window PID is an in-prefix launcher (steam.exe,
+            # reaper, …), not the game. Map it to the real game process.
+            return _refine_proton_pid(pid)
     except Exception as e:
         logger.debug(f"{context}: X11 PID resolution failed: {e}")
     finally:
