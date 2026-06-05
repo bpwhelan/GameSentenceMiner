@@ -883,6 +883,52 @@ def test_x11_window_matches_empty_identity_refuses():
     assert window_state_monitor._x11_window_matches(None, 123, "", "") is False
 
 
+def test_x11_window_matches_class_and_title_both_required_when_both_stored():
+    """When OBS stores both wm_class and title, both must match.
+
+    Many Proton/Steam windows share the same wm_class (e.g. steam_app_2909400).
+    An overlay like Xalia can reuse a stale XID and have the same wm_class but a
+    different title — class-only matching would return Xalia's PID instead of the
+    game's. Requiring both prevents this false positive.
+    """
+    from types import SimpleNamespace
+
+    class _FakeWin:
+        def get_wm_class(self):
+            return ("steam_app_2909400", "steam_app_2909400")
+
+        def get_wm_name(self):
+            # This window (e.g. Xalia) has the same class but a different title.
+            return "xalia overlay"
+
+        def get_full_property(self, *_):
+            return None
+
+    class _FakeDisp:
+        def create_resource_object(self, kind, wid):
+            return _FakeWin()
+
+    disp = _FakeDisp()
+    # Class matches but title does not → must refuse (Xalia scenario).
+    assert window_state_monitor._x11_window_matches(disp, 201326595, "steam_app_2909400", "FINAL FANTASY VII REBIRTH") is False
+    # Both match → accept (actual game window).
+    class _FakeGameWin:
+        def get_wm_class(self):
+            return ("steam_app_2909400", "steam_app_2909400")
+
+        def get_wm_name(self):
+            return "FINAL FANTASY VII REBIRTH"
+
+        def get_full_property(self, *_):
+            return None
+
+    class _FakeDispGame:
+        def create_resource_object(self, kind, wid):
+            return _FakeGameWin()
+
+    assert window_state_monitor._x11_window_matches(_FakeDispGame(), 226492419, "steam_app_2909400", "FINAL FANTASY VII REBIRTH") is True
+
+
 # --- config migration leaves the user denylist untouched ---
 
 

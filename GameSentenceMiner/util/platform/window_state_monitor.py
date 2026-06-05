@@ -811,6 +811,11 @@ def _x11_window_matches(disp, window_id: int, wm_class: str, title: str) -> bool
         # fall back to a name-based search rather than trusting a stale XID.
         return False
     names, win_title = _x11_window_identity(disp, window_id)
+    if wm_class_l and title_l:
+        # Require both to match when both are available: many Proton/Steam windows share
+        # the same wm_class (steam_app_<id>), so class alone can't distinguish between
+        # the game window and co-process overlays (e.g. Xalia) that reuse a stale XID.
+        return wm_class_l in names and bool(win_title) and win_title == title_l
     if wm_class_l:
         return wm_class_l in names
     return bool(win_title) and win_title == title_l
