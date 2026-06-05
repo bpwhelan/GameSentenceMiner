@@ -825,7 +825,7 @@ def _refine_proton_pid(window_pid: int) -> int:
         return window_pid
 
     process_cfg = getattr(get_config(), "process_pausing", None)
-    deny_set = _build_exe_name_set(list(getattr(process_cfg, "denylist", []) or [])) if process_cfg else set()
+    deny_set = _effective_denylist(process_cfg)
     is_launcher = comm in _PROTON_LAUNCHER_COMMS or bool(_normalize_exe_entry(comm) & deny_set)
     if not is_launcher:
         return window_pid
@@ -1375,18 +1375,20 @@ def _is_pid_allowed_to_suspend(pid: int, source: str = "none") -> bool:
         logger.warning(f"Pause: comm '{comm_name}' (PID {pid}) is denylisted.")
         return False
 
-    # Ownership guard: refuse to signal a process owned by a different user so a
-    # mis-resolved PID cannot freeze another user's session or a root daemon.
-    target_uid = _get_process_uid(pid)
-    if target_uid is None:
-        logger.warning(f"Pause: could not verify ownership of PID {pid}; refusing to suspend.")
-        return False
-    if target_uid != os.geteuid():
-        logger.warning(
-            f"Pause: PID {pid} is owned by uid {target_uid}, not the "
-            f"current user (uid {os.geteuid()}); refusing to suspend."
-        )
-        return False
+    # Ownership guard (POSIX only): refuse to signal a process owned by a different
+    # user so a mis-resolved PID cannot freeze another user's session or a root
+    # daemon. uids()/geteuid() are Unix-only, so this is skipped on Windows.
+    if is_linux():
+        target_uid = _get_process_uid(pid)
+        if target_uid is None:
+            logger.warning(f"Pause: could not verify ownership of PID {pid}; refusing to suspend.")
+            return False
+        if target_uid != os.geteuid():
+            logger.warning(
+                f"Pause: PID {pid} is owned by uid {target_uid}, not the "
+                f"current user (uid {os.geteuid()}); refusing to suspend."
+            )
+            return False
 
     if not exe_name and not comm_name:
         logger.warning(f"Pause: could not resolve process name for PID {pid}; refusing to suspend.")

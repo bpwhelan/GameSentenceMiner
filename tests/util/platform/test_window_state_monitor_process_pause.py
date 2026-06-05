@@ -191,6 +191,31 @@ def test_pid_allowed_to_suspend_ignores_legacy_allowlist_when_game_exe_does_not_
     assert window_state_monitor._is_pid_allowed_to_suspend(1234) is False
 
 
+def test_pid_allowed_to_suspend_windows_skips_posix_ownership_guard(monkeypatch):
+    """Regression: the POSIX uid ownership guard must not run on Windows.
+
+    psutil.Process.uids() is Unix-only, so _get_process_uid returns None on
+    Windows. The guard must be skipped there — otherwise every suspend is
+    refused and Windows process pausing breaks entirely.
+    """
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+    monkeypatch.setattr(window_state_monitor, "is_linux", lambda: False)
+    monkeypatch.setattr(window_state_monitor, "_get_process_exe_name", lambda _pid: "game.exe")
+    monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "game.exe")
+    # Simulate the Windows case: uids() unavailable -> None. If the ownership
+    # guard ran, this would force a refusal.
+    monkeypatch.setattr(window_state_monitor, "_get_process_uid", lambda _pid: None)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(
+            process_pausing=SimpleNamespace(denylist=[], require_game_exe_match=True)
+        ),
+    )
+
+    assert window_state_monitor._is_pid_allowed_to_suspend(4242, source="windows_hwnd") is True
+
+
 def test_overlay_pause_request_uses_profile_gate_without_global_experimental_toggle(monkeypatch):
     profile = SimpleNamespace(process_pausing=SimpleNamespace(enabled=True))
     master = SimpleNamespace(
