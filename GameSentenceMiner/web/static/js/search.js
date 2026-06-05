@@ -281,8 +281,13 @@ class SentenceSearchApp {
             if (response.ok && data.games) {
                 const gameSelect = this.gameFilter;
                 gameSelect.innerHTML = '<option value="">All Games</option>';
-                
-                data.games.forEach(game => {
+
+                // Sort games by most recent line received first
+                const games = [...data.games].sort(
+                    (a, b) => (b.last_entry_timestamp || 0) - (a.last_entry_timestamp || 0)
+                );
+
+                games.forEach(game => {
                     const option = document.createElement('option');
                     option.value = game.name;
                     option.textContent = game.name;

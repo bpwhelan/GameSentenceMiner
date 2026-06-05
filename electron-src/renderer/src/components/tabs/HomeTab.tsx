@@ -1277,6 +1277,13 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
             >
               {t("home.support.kofi")}
             </a>
+            <a
+              href="#"
+              className="home-support__link"
+              onClick={(e) => { e.preventDefault(); openExternal("https://github.com/bpwhelan/GameSentenceMiner"); }}
+            >
+              {t("home.support.githubStar")}
+            </a>
           </footer>
         </div>
 

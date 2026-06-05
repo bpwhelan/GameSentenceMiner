@@ -162,6 +162,67 @@ def _window_target_exists(target: str) -> bool:
     return False
 
 
+# OBS window_capture/game_capture "Window Match Priority" enum.
+WINDOW_PRIORITY_TITLE = 0  # title must match — no fallback
+WINDOW_PRIORITY_CLASS = 1  # match title, else any window of same type (class)
+WINDOW_PRIORITY_EXE = 2  # match title, else any window of same executable
+# Default fallback when a source omits "priority": OBS behaves as class-match.
+DEFAULT_WINDOW_PRIORITY = WINDOW_PRIORITY_CLASS
+
+
+def compute_effective_window_target(
+    configured: str,
+    property_items: List[dict],
+    priority: Optional[int] = None,
+) -> Optional[str]:
+    """Resolve which window OBS *actually* captures when its configured target is gone.
+
+    OBS WebSocket doesn't report the live HWND, so we replicate OBS's match-priority
+    fallback over the source's enumerated ``window`` property items (each carries an
+    ``itemEnabled`` = currently-available flag). Returns the ``Title:Class:Exe`` value
+    OBS would fall back to, or ``None`` when the configured target is still present (no
+    reconciliation needed) or no valid fallback exists.
+    """
+    cfg = parse_obs_window_target(configured)
+    if not cfg:
+        return None
+
+    available = [it for it in property_items if it.get("itemEnabled") and it.get("itemValue")]
+    if any(it.get("itemValue") == configured for it in available):
+        return None  # exact target running — OBS is capturing the right window
+
+    if priority is None:
+        priority = DEFAULT_WINDOW_PRIORITY
+    if priority == WINDOW_PRIORITY_TITLE:
+        return None  # title-only: OBS won't fall back to a different window
+
+    cfg_exe = cfg["exe"].lower()
+    cfg_title_words = set(cfg["title"].lower().split())
+
+    candidates = []
+    for it in available:
+        parsed = parse_obs_window_target(it.get("itemValue"))
+        if not parsed:
+            continue
+        if priority == WINDOW_PRIORITY_CLASS and parsed["window_class"] != cfg["window_class"]:
+            continue
+        if priority == WINDOW_PRIORITY_EXE and parsed["exe"].lower() != cfg_exe:
+            continue
+        score = 0
+        if parsed["exe"].lower() == cfg_exe:
+            score += 100
+        if parsed["window_class"] == cfg["window_class"]:
+            score += 10
+        score += len(cfg_title_words & set(parsed["title"].lower().split()))
+        candidates.append((score, it.get("itemValue")))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    best = candidates[0][1]
+    return best if best != configured else None
+
+
 # ---------------------------------------------------------------------------
 # OBS process management
 # ---------------------------------------------------------------------------

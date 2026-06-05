@@ -237,6 +237,14 @@
     return formatInteger(value);
   }
 
+  // Render text as CSS generated content (data-text -> ::after) instead of a
+  // DOM text node. Yomitan finds text via caretRangeFromPoint, which ignores
+  // user-select/pointer-events but only returns real text nodes — so generated
+  // content keeps the stats out of Yomitan scans/sentence extraction.
+  function setText(element, text) {
+    element.dataset.text = text;
+  }
+
   function ensureRoot() {
     if (state.root) {
       return state.root;
@@ -250,7 +258,7 @@
     header.className = "gsm-live-stats-header";
 
     const title = document.createElement("span");
-    title.textContent = "Session";
+    setText(title, "Session");
     header.appendChild(title);
 
     const status = document.createElement("span");
@@ -282,7 +290,7 @@
     if (!payload) {
       const empty = document.createElement("div");
       empty.className = "gsm-live-stats-empty";
-      empty.textContent = "Waiting for stats";
+      setText(empty, "Waiting for stats");
       state.grid.appendChild(empty);
       updateVisibility();
       return;
@@ -293,7 +301,7 @@
     if (visibleFields.length === 0) {
       const empty = document.createElement("div");
       empty.className = "gsm-live-stats-empty";
-      empty.textContent = "No fields selected";
+      setText(empty, "No fields selected");
       state.grid.appendChild(empty);
       updateVisibility();
       return;
@@ -305,11 +313,11 @@
 
       const label = document.createElement("span");
       label.className = "gsm-live-stats-label";
-      label.textContent = field.label;
+      setText(label, field.label);
 
       const value = document.createElement("span");
       value.className = "gsm-live-stats-value";
-      value.textContent = formatValue(values[field.key], field.format);
+      setText(value, formatValue(values[field.key], field.format));
 
       row.appendChild(label);
       row.appendChild(value);
