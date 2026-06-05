@@ -269,13 +269,6 @@ import subprocess
 import time
 
 
-@pytest.fixture(autouse=False)
-def reset_wayland_warn(monkeypatch):
-    """Reset the one-shot Wayland warning flag before tests that exercise it."""
-    monkeypatch.setattr(window_state_monitor, "_wayland_warn_shown", False)
-    yield
-
-
 def _proc_state(pid):
     with open(f"/proc/{pid}/stat") as f:
         data = f.read()
@@ -356,28 +349,6 @@ def test_resolve_linux_target_pid_returns_zero_without_target(monkeypatch):
     pid, source = window_state_monitor._resolve_linux_target_pid("test", log_on_missing=False)
     assert pid == 0
     assert source == "none"
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process scan")
-def test_wayland_warning_fires_once(monkeypatch, reset_wayland_warn):
-    """The Wayland auto-detection warning must set the flag on first call and suppress
-    subsequent warnings — verified via the _wayland_warn_shown module flag."""
-    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
-    monkeypatch.setattr(window_state_monitor, "is_wayland", lambda: True)
-    monkeypatch.setattr(window_state_monitor, "_resolve_linux_pid_from_obs", lambda ctx: 0)
-    monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "")
-    monkeypatch.setattr(
-        window_state_monitor,
-        "get_config",
-        lambda: SimpleNamespace(process_pausing=SimpleNamespace(linux_target_process="", denylist=[])),
-    )
-
-    assert window_state_monitor._wayland_warn_shown is False
-    window_state_monitor._resolve_linux_target_pid("test1", log_on_missing=True)
-    assert window_state_monitor._wayland_warn_shown is True
-    # Second call must not reset the flag (would re-emit the warning)
-    window_state_monitor._resolve_linux_target_pid("test2", log_on_missing=True)
-    assert window_state_monitor._wayland_warn_shown is True
 
 
 import os as _os

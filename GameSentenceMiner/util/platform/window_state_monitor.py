@@ -373,34 +373,19 @@ _CRITICAL_DENYLIST: List[str] = [
     # Linux display servers / compositors / window managers
     "Xorg", "Xwayland", "gamescope",
     "gnome-shell", "kwin_x11", "kwin_wayland", "mutter", "plasmashell",
-    "sway", "hyprland", "weston", "wayfire", "river", "labwc", "cosmic-comp",
-    "cinnamon", "muffin", "xfwm4", "marco", "openbox", "icewm", "fluxbox",
-    "i3", "bspwm", "awesome", "qtile", "xmonad", "picom", "compton", "compiz",
-    # Linux display / session / login managers
-    "sddm", "gdm", "gdm3", "lightdm", "lxdm", "slim", "greetd", "ly",
-    "gnome-session-binary", "plasma_session", "xfce4-session", "mate-session",
-    "cinnamon-session", "lxqt-session",
-    # Linux session bus / policy / portals
-    "dbus-daemon", "dbus-broker", "systemd-logind", "polkitd",
-    "xdg-desktop-portal", "xdg-document-portal", "xdg-permission-store",
-    # Input methods (critical for Japanese text entry — never pause these)
+    "sway", "hyprland", "weston", "wayfire", "river", "labwc",
+    # Linux display / login managers
+    "sddm", "gdm", "gdm3", "lightdm",
+    # Linux session bus
+    "dbus-daemon", "dbus-broker",
+    # Input methods — never pause these (critical for Japanese text entry)
     "ibus-daemon", "ibus-x11", "ibus-engine-simple", "ibus-engine-mozc",
     "mozc_server", "fcitx", "fcitx5", "kkc", "uim", "uim-xim",
-    # Network / accessibility
-    "NetworkManager", "orca", "at-spi2-registryd", "at-spi-bus-launcher",
-    # Linux audio / real-time scheduling — never pause audio infra
+    # Linux audio
     "pipewire", "pipewire-pulse", "pipewire-media-session", "wireplumber",
     "pulseaudio", "systemd", "rtkit-daemon",
     # Shells
     "bash", "zsh", "sh", "fish",
-    # Flatpak / sandbox daemons — suspending stalls all Flatpak apps
-    "flatpak-portal", "xdg-dbus-proxy", "bwrap",
-    # Snap — suspending breaks snap-packaged apps
-    "snapd",
-    # GVFS daemons — suspending can freeze GNOME file choosers
-    "gvfsd", "gvfs-fuse-daemon",
-    # KDE session daemon — manages network, power, and D-Bus services
-    "kded5", "kded6",
     # OBS / Steam helpers — never suspend the capture source itself
     "obs", "obs64.exe", "obs.exe",
     "steam", "steam.exe", "steamwebhelper", "reaper", "srt-bwrap",
@@ -772,9 +757,8 @@ def _x11_window_matches(disp, window_id: int, wm_class: str, title: str) -> bool
     wm_class_l = (wm_class or "").lower()
     title_l = (title or "").lower()
     if not wm_class_l and not title_l:
-        # No recorded identity to verify against — an X11 XID is reused across
-        # restarts, so trusting it blindly risks reading the _NET_WM_PID of an
-        # unrelated window. Refuse and let the caller fall back to a name match.
+        # XIDs are reused across restarts; without an identity to verify against,
+        # fall back to a name-based search rather than trusting a stale XID.
         return False
     names, win_title = _x11_window_identity(disp, window_id)
     if wm_class_l:
@@ -783,13 +767,8 @@ def _x11_window_matches(disp, window_id: int, wm_class: str, title: str) -> bool
 
 
 # Proton/Steam launcher processes that can own a game's X11 window but are not the
-# game itself. Under Proton the captured window's _NET_WM_PID points at the in-prefix
-# steam.exe stub (or the pressure-vessel/reaper chain), not the running game, so when
-# we land on one of these we locate the real game process instead.
-#
-# Only the Wine/Proton-specific, non-critical launchers belong here; the critical
-# ones (steam.exe, reaper, srt-bwrap, services.exe, explorer.exe, svchost.exe, sh)
-# are already caught via the effective denylist floor in _refine_proton_pid.
+# game itself. When the captured window's _NET_WM_PID is one of these, _refine_proton_pid
+# locates the real game process via RSS heuristic instead.
 _PROTON_LAUNCHER_COMMS = {
     "pv-bwrap", "pv-adverb", "pressure-vessel-wrap",
     "wine", "wine64", "wineserver",
@@ -1045,8 +1024,6 @@ def _get_process_creation_time(pid: int) -> Optional[int]:
         # constant for the life of the PID and changes if the PID is recycled, which
         # is exactly the PID-reuse guard semantics the Windows path relies on.
         try:
-            # epoch * 1e6 — stable process identity token, not a true µs timestamp
-            # (/proc/stat start time has ~10 ms precision).
             return int(psutil.Process(pid).create_time() * 1_000_000)
         except (psutil.Error, ValueError, OSError):
             return None
@@ -1121,23 +1098,13 @@ def _build_exe_name_set(entries: List[str]) -> Set[str]:
 
 
 def _name_variants(entry: str) -> Set[str]:
-    """Exe-name variants of `entry` plus their 15-char-truncated forms.
-
-    /proc/<pid>/comm (psutil's name()) is truncated to 15 chars by the kernel, so
-    the truncated forms let a long name still match a process by its truncated comm
-    (e.g. 'xdg-desktop-portal' runs as comm 'xdg-desktop-por').
-    """
+    """Exe-name variants of `entry` plus 15-char-truncated forms (/proc/comm limit)."""
     variants = _normalize_exe_entry(entry)
     return variants | {v[:15] for v in variants}
 
 
 def _effective_denylist(process_cfg=None) -> Set[str]:
-    """User denylist ∪ the hardcoded critical-process floor, comm-truncation aware.
-
-    Fetches the config itself when `process_cfg` is omitted. Truncated forms are
-    included so a critical process with a >15-char name (e.g. 'xdg-desktop-portal')
-    is still blocked when matched against its kernel-truncated comm.
-    """
+    """User denylist unioned with the hardcoded critical-process floor."""
     if process_cfg is None:
         process_cfg = getattr(get_config(), "process_pausing", None)
     stored: List[str] = list(getattr(process_cfg, "denylist", []) or []) if process_cfg else []
