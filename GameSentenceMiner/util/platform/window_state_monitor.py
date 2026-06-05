@@ -19,7 +19,7 @@ try:
     from Xlib import display as _xdisplay
 
     _HAS_XLIB = True
-except (ImportError, ModuleNotFoundError):  # pragma: no cover - exercised only without python-xlib
+except ImportError:  # pragma: no cover - exercised only without python-xlib
     _X = None
     _xdisplay = None
     _HAS_XLIB = False
@@ -689,14 +689,21 @@ def _get_configured_linux_target() -> str:
     return (getattr(process_cfg, "linux_target_process", "") or "") if process_cfg else ""
 
 
+def _cmdline_matches_target(cmdline: List[str], target_names: Set[str], deny_set: Set[str]) -> bool:
+    """Return True if any cmdline arg matches target_names and is not denylisted."""
+    cmd_variants: Set[str] = set()
+    for arg in cmdline:
+        cmd_variants |= _normalize_exe_entry(arg)
+    return bool(cmd_variants & target_names) and not bool(cmd_variants & deny_set)
+
+
 def _match_process_by_names(target_names: Set[str], context: str) -> int:
     """Find the PID of a running process whose name matches one of target_names."""
     if not target_names:
         return 0
 
     self_pid = os.getpid()
-    process_cfg = getattr(get_config(), "process_pausing", None)
-    deny_set = _effective_denylist(process_cfg)
+    deny_set = _effective_denylist()
 
     # /proc/<pid>/comm (psutil name) is truncated to 15 chars, so precompute the
     # truncated forms of each target to still match long exe names by process name.
@@ -724,12 +731,8 @@ def _match_process_by_names(target_names: Set[str], context: str) -> int:
         if name_variants and ((name_variants & target_names) or (name_variants & truncated_targets)):
             return pid
 
-        if not cmdline_fallback:
-            cmd_variants: Set[str] = set()
-            for arg in cmdline:
-                cmd_variants |= _normalize_exe_entry(arg)
-            if cmd_variants & target_names and not (cmd_variants & deny_set):
-                cmdline_fallback = pid
+        if not cmdline_fallback and _cmdline_matches_target(cmdline, target_names, deny_set):
+            cmdline_fallback = pid
 
     if cmdline_fallback:
         logger.debug(f"{context}: matched target via cmdline fallback (PID {cmdline_fallback}).")
@@ -863,6 +866,20 @@ def _steam_game_dir_from_cmdline(cmdline: List[str]) -> str:
     return result
 
 
+def _proc_rss_if_in_dir(info: dict, game_dir: str, deny_set: Set[str], self_pid: int) -> Tuple[int, int]:
+    """Return (pid, rss) if `info` describes a non-denylisted process running from game_dir, else (0, 0)."""
+    pid = info.get("pid") or 0
+    if not pid or pid == self_pid:
+        return 0, 0
+    if _normalize_exe_entry(info.get("name") or "") & deny_set:
+        return 0, 0
+    haystack = ((info.get("exe") or "") + " " + " ".join(info.get("cmdline") or [])).replace("\\", "/").lower()
+    if game_dir not in haystack:
+        return 0, 0
+    mem = info.get("memory_info")
+    return pid, (mem.rss if mem else 0)
+
+
 def _largest_process_in_dir(game_dir: str, deny_set: Set[str]) -> int:
     """The highest-memory non-denylisted process running from game_dir. The game
     engine process dwarfs the launcher/wrapper processes (multi-GB vs tens of MB),
@@ -878,17 +895,7 @@ def _largest_process_in_dir(game_dir: str, deny_set: Set[str]) -> int:
     best_rss, best_pid = 0, 0
     for proc in psutil.process_iter(["pid", "name", "exe", "cmdline", "memory_info"]):
         try:
-            info = proc.info
-            pid = info["pid"]
-            if not pid or pid == self_pid:
-                continue
-            if _normalize_exe_entry(info["name"] or "") & deny_set:
-                continue
-            haystack = ((info.get("exe") or "") + " " + " ".join(info.get("cmdline") or [])).replace("\\", "/").lower()
-            if game_dir not in haystack:
-                continue
-            mem = info.get("memory_info")
-            rss = mem.rss if mem else 0
+            pid, rss = _proc_rss_if_in_dir(proc.info, game_dir, deny_set, self_pid)
             if rss > best_rss:
                 best_rss, best_pid = rss, pid
         except (psutil.Error, KeyError):
@@ -929,6 +936,28 @@ def _refine_proton_pid(window_pid: int) -> int:
     return 0
 
 
+def _x11_window_to_pid(disp, info: dict) -> int:
+    """Resolve the PID for the window described by `info` using the live X11 state.
+
+    Validates the stored XID against the recorded wm_class/title before reading
+    _NET_WM_PID, then falls back to searching _NET_CLIENT_LIST by class or title.
+    Returns the raw window PID (not yet Proton-refined), or 0 if unresolvable.
+    """
+    wm_class = info.get("wm_class", "")
+    title = info.get("title", "")
+    pid = 0
+    winid = info.get("winid")
+    if winid:
+        # Validate the stored XID still belongs to the recorded window — XIDs are reused.
+        if _x11_window_matches(disp, int(winid), wm_class, title):
+            pid = _x11_window_pid(disp, int(winid))
+    if pid <= 0:
+        found = _x11_find_window_by_class_or_title(disp, wm_class, title)
+        if found:
+            pid = _x11_window_pid(disp, found)
+    return pid
+
+
 def _resolve_linux_pid_from_obs(context: str) -> int:
     """Automatic target: the PID of the window OBS is capturing (X11 only)."""
     if not _HAS_XLIB or not is_linux() or is_wayland():
@@ -941,29 +970,16 @@ def _resolve_linux_pid_from_obs(context: str) -> int:
     if not info:
         return 0
 
-    wm_class = info.get("wm_class", "")
-    title = info.get("title", "")
-
     disp = None
     try:
         disp = _xdisplay.Display()
-        pid = 0
-        winid = info.get("winid")
-        if winid:
-            winid = int(winid)
-            # Validate the stored winid still belongs to the recorded window before
-            # trusting its _NET_WM_PID — X11 XIDs are reused across restarts.
-            if _x11_window_matches(disp, winid, wm_class, title):
-                pid = _x11_window_pid(disp, winid)
-        if pid <= 0:
-            found = _x11_find_window_by_class_or_title(disp, wm_class, title)
-            if found:
-                pid = _x11_window_pid(disp, found)
+        pid = _x11_window_to_pid(disp, info)
         if pid > 0 and pid != os.getpid():
             # Proton/Steam titles: the window PID is an in-prefix launcher (steam.exe,
             # reaper, …), not the game. Map it to the real game process.
             refined = _refine_proton_pid(pid)
-            return refined if refined != os.getpid() else 0
+            if refined > 0 and refined != os.getpid():
+                return refined
     except Exception as e:
         logger.debug(f"{context}: X11 PID resolution failed: {e}")
     finally:
@@ -1456,46 +1472,7 @@ def _is_pid_allowed_to_suspend(
 
     if getattr(process_cfg, "require_game_exe_match", True):
         if is_linux():
-            # Anchor preference (provenance-aware):
-            #  1) config_name  -> PID must match the configured target (exe OR comm).
-            #  2) obs_x11      -> PID is the window OBS is capturing; authoritative.
-            #  3) detected_name -> PID must match the detected exe captured at resolve time.
-            #  4) none / unknown -> refuse (no anchor available).
-            configured = _get_configured_linux_target()
-            if configured:
-                if not _pid_name_matches_target(pid, configured):
-                    logger.warning(
-                        f"Pause: PID {pid} (exe='{exe_name}', comm='{comm_name}') does not "
-                        f"match configured target '{configured}'."
-                    )
-                    return False
-                return True
-
-            if source == "obs_x11":
-                # PID came directly from the OBS-captured window's _NET_WM_PID;
-                # the denylist and ownership checks above are the only guards needed.
-                return True
-
-            if source == "detected_name":
-                # PID was found via the OBS-detected exe name at resolve time.
-                # Re-fetch to validate, but if OBS returns empty now (e.g. a scene
-                # switch happened between resolve and gate), pass — the anchor was
-                # valid when the PID was resolved.
-                detected_linux_exe = _get_detected_game_exe()
-                if not detected_linux_exe:
-                    return True
-                if not _pid_name_matches_target(pid, detected_linux_exe):
-                    logger.warning(f"Pause: PID {pid} does not match detected game exe '{detected_linux_exe}'.")
-                    return False
-                return True
-
-            # No anchor available; refuse rather than allow any non-denylisted PID.
-            logger.warning(
-                f"Pause: could not establish a game-exe anchor for PID {pid} "
-                f"(source={source!r}); refusing to suspend. "
-                f"Set process_pausing.linux_target_process to enable deterministic matching."
-            )
-            return False
+            return _linux_pid_source_allowed(pid, source, exe_name, comm_name)
 
         detected_game_exe = _get_detected_game_exe()
         if not detected_game_exe:
@@ -1506,6 +1483,47 @@ def _is_pid_allowed_to_suspend(
             return False
 
     return True
+
+
+def _linux_pid_source_allowed(pid: int, source: str, exe_name: str, comm_name: str) -> bool:
+    """Provenance-aware allow-gate for Linux PIDs.
+
+    Anchor preference:
+      1) config_name   — PID must match the configured target (exe OR comm).
+      2) obs_x11       — PID is the window OBS is capturing; authoritative.
+      3) detected_name — PID must match the OBS-detected exe (re-validated at gate time).
+      4) none/unknown  — refuse; no anchor available.
+    """
+    configured = _get_configured_linux_target()
+    if configured:
+        if not _pid_name_matches_target(pid, configured):
+            logger.warning(
+                f"Pause: PID {pid} (exe='{exe_name}', comm='{comm_name}') does not "
+                f"match configured target '{configured}'."
+            )
+            return False
+        return True
+
+    if source == "obs_x11":
+        return True
+
+    if source == "detected_name":
+        # Re-fetch to validate, but pass if OBS returns empty (e.g. scene switch) —
+        # the anchor was valid when the PID was resolved.
+        detected_linux_exe = _get_detected_game_exe()
+        if not detected_linux_exe:
+            return True
+        if not _pid_name_matches_target(pid, detected_linux_exe):
+            logger.warning(f"Pause: PID {pid} does not match detected game exe '{detected_linux_exe}'.")
+            return False
+        return True
+
+    logger.warning(
+        f"Pause: could not establish a game-exe anchor for PID {pid} "
+        f"(source={source!r}); refusing to suspend. "
+        f"Set process_pausing.linux_target_process to enable deterministic matching."
+    )
+    return False
 
 
 def _auto_resume_monitor():
@@ -1715,6 +1733,9 @@ def request_overlay_process_pause(action: str, source: str = "overlay", hwnd: Op
     return _handle_overlay_resume_request(normalized_source, hwnd)
 
 
+_PAUSE_HOTKEY_CTX = "Pause hotkey"
+
+
 @process_pausing_feature(default_return=False)
 def toggle_active_game_pause(hwnd: Optional[int] = None) -> bool:
     if is_windows() and not user32:
@@ -1724,7 +1745,7 @@ def toggle_active_game_pause(hwnd: Optional[int] = None) -> bool:
         logger.info("Pause hotkey is supported on Windows and Linux only.")
         return False
 
-    pid, pid_source = _resolve_pause_target_pid(hwnd, "Pause hotkey")
+    pid, pid_source = _resolve_pause_target_pid(hwnd, _PAUSE_HOTKEY_CTX)
     if pid <= 0:
         return False
 
@@ -1732,7 +1753,7 @@ def toggle_active_game_pause(hwnd: Optional[int] = None) -> bool:
         record = _suspended_pids.get(pid)
 
     if record:
-        if _resume_tracked_process(pid, "Pause hotkey"):
+        if _resume_tracked_process(pid, _PAUSE_HOTKEY_CTX):
             _clear_overlay_pause_request_state()
             return True
 
@@ -1741,7 +1762,7 @@ def toggle_active_game_pause(hwnd: Optional[int] = None) -> bool:
             if pid in _suspended_pids:
                 return False
 
-    if _suspend_process_with_tracking(pid, "Pause hotkey", source=pid_source):
+    if _suspend_process_with_tracking(pid, _PAUSE_HOTKEY_CTX, source=pid_source):
         _clear_overlay_pause_request_state()
         return True
 

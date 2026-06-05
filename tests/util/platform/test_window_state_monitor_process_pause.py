@@ -556,9 +556,7 @@ def test_capture_window_parser_normal_case():
             return op(client)
 
     import GameSentenceMiner.obs as _obs_pkg
-    import importlib
 
-    obs_service = importlib.import_module("GameSentenceMiner.obs.service")
     old_pool = _obs_pkg.connection_pool
     try:
         _obs_pkg.connection_pool = _FakePool()
@@ -700,12 +698,12 @@ def test_resolve_linux_pid_from_obs_wayland_short_circuits(monkeypatch):
     monkeypatch.setattr(window_state_monitor, "_HAS_XLIB", True)
     monkeypatch.setattr(window_state_monitor, "is_linux", lambda: True)
     monkeypatch.setattr(window_state_monitor, "is_wayland", lambda: True)
-    # If the guard is missing, this would be called and fail the test setup.
-    monkeypatch.setattr(
-        window_state_monitor,
-        "get_linux_capture_window_info",
-        lambda **kw: (_ for _ in ()).throw(AssertionError("should not reach OBS lookup on Wayland")),
-    )
+
+    # If the Wayland guard is missing this would be called and the test would fail.
+    def _should_not_be_called(**kw):
+        raise AssertionError("should not reach OBS lookup on Wayland")
+
+    monkeypatch.setattr(window_state_monitor, "get_linux_capture_window_info", _should_not_be_called)
     assert window_state_monitor._resolve_linux_pid_from_obs("test") == 0
 
 
@@ -747,7 +745,7 @@ def test_resolve_linux_pid_from_obs_self_pid_rejected(monkeypatch):
             return self
 
         def close(self):
-            pass
+            pass  # no-op in test double
 
     monkeypatch.setattr(
         window_state_monitor,
