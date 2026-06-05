@@ -1121,11 +1121,11 @@ def get_linux_capture_window_info(client, scene_name: str = None):
     if not scene_items_response or not scene_items_response.scene_items:
         return None
 
-    candidate_items = get_video_scene_items(scene_items_response.scene_items)
-    if not candidate_items:
-        candidate_items = list(scene_items_response.scene_items)
-
-    for item in candidate_items:
+    # Linux window-capture inputs are xcomposite_input / xshm_input, which the
+    # Windows-oriented get_video_scene_items() filter does not recognise, so it
+    # would always return []. Match by the presence of capture_window instead and
+    # scan every scene item.
+    for item in scene_items_response.scene_items:
         source_name = item.get("sourceName")
         if not source_name:
             continue

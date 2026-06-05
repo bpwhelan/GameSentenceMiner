@@ -740,6 +740,59 @@ def test_effective_denylist_includes_critical_floor(monkeypatch):
     assert window_state_monitor._is_pid_allowed_to_suspend(4242, source="obs_x11") is False
 
 
+# --- truncation-aware denylist + expanded critical floor ---
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX gate")
+def test_effective_denylist_truncated_comm_blocked(monkeypatch):
+    """A critical process whose /proc/comm is kernel-truncated to 15 chars is still denied.
+
+    'xdg-desktop-portal' (18 chars) runs with comm 'xdg-desktop-por'. The floor must
+    match the truncated comm, otherwise a >15-char critical process slips through.
+    """
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
+    monkeypatch.setattr(window_state_monitor, "is_linux", lambda: True)
+    monkeypatch.setattr(window_state_monitor, "_get_process_exe_name", lambda _pid: "")
+    monkeypatch.setattr(window_state_monitor, "_get_process_comm_name", lambda _pid: "xdg-desktop-por")
+    monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "")
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(
+            process_pausing=SimpleNamespace(
+                linux_target_process="", denylist=[], require_game_exe_match=True
+            )
+        ),
+    )
+    # obs_x11 would otherwise be authoritative; the denylist must still block it.
+    assert window_state_monitor._is_pid_allowed_to_suspend(4242, source="obs_x11") is False
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX gate")
+def test_critical_floor_blocks_input_method(monkeypatch):
+    """Input methods (ibus/fcitx/mozc) must be in the floor — freezing them kills Japanese input."""
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
+    monkeypatch.setattr(window_state_monitor, "is_linux", lambda: True)
+    monkeypatch.setattr(window_state_monitor, "_get_process_exe_name", lambda _pid: "ibus-daemon")
+    monkeypatch.setattr(window_state_monitor, "_get_process_comm_name", lambda _pid: "ibus-daemon")
+    monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "")
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(
+            process_pausing=SimpleNamespace(
+                linux_target_process="", denylist=[], require_game_exe_match=True
+            )
+        ),
+    )
+    assert window_state_monitor._is_pid_allowed_to_suspend(4242, source="obs_x11") is False
+
+
+def test_x11_window_matches_empty_identity_refuses():
+    """No recorded wm_class/title -> cannot validate a recycled XID -> must refuse."""
+    # Both empty: returns before touching the display, so disp can be None.
+    assert window_state_monitor._x11_window_matches(None, 123, "", "") is False
+
+
 # --- config migration leaves the user denylist untouched ---
 
 def test_migrate_process_pausing_data_preserves_user_denylist():
@@ -785,6 +838,8 @@ def test_steam_game_dir_from_cmdline_extracts_install_dir():
     # No steam path -> empty.
     assert window_state_monitor._steam_game_dir_from_cmdline(["/usr/bin/foo", "--bar"]) == ""
     assert window_state_monitor._steam_game_dir_from_cmdline([]) == ""
+    # Bare 'steamapps/common/' with no game dir -> empty (must not library-wide match).
+    assert window_state_monitor._steam_game_dir_from_cmdline(["/x/steamapps/common/"]) == ""
 
 
 def _fake_proc(name, cmdline):

@@ -370,12 +370,27 @@ _CRITICAL_DENYLIST: List[str] = [
     # Windows
     "explorer.exe", "dwm.exe", "csrss.exe", "services.exe", "svchost.exe",
     "smss.exe", "wininit.exe", "winlogon.exe", "lsass.exe", "audiodg.exe",
-    # Linux compositors / display managers
-    "Xorg", "gnome-shell", "kwin_x11", "kwin_wayland", "mutter", "plasmashell",
-    "sway", "hyprland", "weston", "wayfire", "river", "labwc",
-    "sddm", "gdm", "gdm3", "lightdm",
-    # Linux audio / session
-    "pipewire", "wireplumber", "pulseaudio", "systemd",
+    # Linux display servers / compositors / window managers
+    "Xorg", "Xwayland", "gamescope",
+    "gnome-shell", "kwin_x11", "kwin_wayland", "mutter", "plasmashell",
+    "sway", "hyprland", "weston", "wayfire", "river", "labwc", "cosmic-comp",
+    "cinnamon", "muffin", "xfwm4", "marco", "openbox", "icewm", "fluxbox",
+    "i3", "bspwm", "awesome", "qtile", "xmonad", "picom", "compton", "compiz",
+    # Linux display / session / login managers
+    "sddm", "gdm", "gdm3", "lightdm", "lxdm", "slim", "greetd", "ly",
+    "gnome-session-binary", "plasma_session", "xfce4-session", "mate-session",
+    "cinnamon-session", "lxqt-session",
+    # Linux session bus / policy / portals
+    "dbus-daemon", "dbus-broker", "systemd-logind", "polkitd",
+    "xdg-desktop-portal", "xdg-document-portal", "xdg-permission-store",
+    # Input methods (critical for Japanese text entry — never pause these)
+    "ibus-daemon", "ibus-x11", "ibus-engine-simple", "ibus-engine-mozc",
+    "mozc_server", "fcitx", "fcitx5", "kkc", "uim", "uim-xim",
+    # Network / accessibility
+    "NetworkManager", "orca", "at-spi2-registryd", "at-spi-bus-launcher",
+    # Linux audio / init
+    "pipewire", "pipewire-pulse", "pipewire-media-session", "wireplumber",
+    "pulseaudio", "systemd",
     # Shells
     "bash", "zsh", "sh",
     # OBS / Steam helpers — never suspend the capture source itself
@@ -749,7 +764,10 @@ def _x11_window_matches(disp, window_id: int, wm_class: str, title: str) -> bool
     wm_class_l = (wm_class or "").lower()
     title_l = (title or "").lower()
     if not wm_class_l and not title_l:
-        return True  # nothing to verify; trust the winid
+        # No recorded identity to verify against — an X11 XID is reused across
+        # restarts, so trusting it blindly risks reading the _NET_WM_PID of an
+        # unrelated window. Refuse and let the caller fall back to a name match.
+        return False
     names, win_title = _x11_window_identity(disp, window_id)
     if wm_class_l:
         return wm_class_l in names
@@ -760,11 +778,15 @@ def _x11_window_matches(disp, window_id: int, wm_class: str, title: str) -> bool
 # game itself. Under Proton the captured window's _NET_WM_PID points at the in-prefix
 # steam.exe stub (or the pressure-vessel/reaper chain), not the running game, so when
 # we land on one of these we locate the real game process instead.
+#
+# Only the Wine/Proton-specific, non-critical launchers belong here; the critical
+# ones (steam.exe, reaper, srt-bwrap, services.exe, explorer.exe, svchost.exe, sh)
+# are already caught via the effective denylist floor in _refine_proton_pid.
 _PROTON_LAUNCHER_COMMS = {
-    "steam.exe", "reaper", "srt-bwrap", "pv-bwrap", "pv-adverb",
-    "pressure-vessel-wrap", "wine", "wine64", "wineserver", "wine-preloader",
-    "winedevice.exe", "services.exe", "explorer.exe", "start.exe", "conhost.exe",
-    "rpcss.exe", "plugplay.exe", "svchost.exe", "proton", "python3", "python", "sh",
+    "pv-bwrap", "pv-adverb", "pressure-vessel-wrap",
+    "wine", "wine64", "wineserver", "wine-preloader", "winedevice.exe",
+    "start.exe", "conhost.exe", "rpcss.exe", "plugplay.exe",
+    "proton", "python3", "python",
 }
 
 
@@ -777,7 +799,9 @@ def _steam_game_dir_from_cmdline(cmdline: List[str]) -> str:
         if idx == -1:
             continue
         parts = path[idx:].split("/")
-        if len(parts) >= 3:
+        # Require a non-empty game-dir component; a bare 'steamapps/common/' would
+        # otherwise substring-match every installed game (library-wide false match).
+        if len(parts) >= 3 and parts[2]:
             return "/".join(parts[:3])
     return ""
 
@@ -1060,10 +1084,29 @@ def _build_exe_name_set(entries: List[str]) -> Set[str]:
     return exe_names
 
 
+def _name_variants(entry: str) -> Set[str]:
+    """Exe-name variants of `entry` plus their 15-char-truncated forms.
+
+    /proc/<pid>/comm (psutil's name()) is truncated to 15 chars by the kernel, so
+    the truncated forms let a long name still match a process by its truncated comm
+    (e.g. 'xdg-desktop-portal' runs as comm 'xdg-desktop-por').
+    """
+    variants = _normalize_exe_entry(entry)
+    return variants | {v[:15] for v in variants}
+
+
 def _effective_denylist(process_cfg=None) -> Set[str]:
-    """User denylist unioned with the hardcoded critical-process floor."""
+    """User denylist ∪ the hardcoded critical-process floor, comm-truncation aware.
+
+    Fetches the config itself when `process_cfg` is omitted. Truncated forms are
+    included so a critical process with a >15-char name (e.g. 'xdg-desktop-portal')
+    is still blocked when matched against its kernel-truncated comm.
+    """
+    if process_cfg is None:
+        process_cfg = getattr(get_config(), "process_pausing", None)
     stored: List[str] = list(getattr(process_cfg, "denylist", []) or []) if process_cfg else []
-    return _build_exe_name_set([*stored, *_CRITICAL_DENYLIST])
+    names = _build_exe_name_set([*stored, *_CRITICAL_DENYLIST])
+    return names | {n[:15] for n in names}
 
 
 def _get_process_comm_name(pid: int) -> str:
@@ -1095,20 +1138,15 @@ def _pid_name_matches_target(pid: int, target: str) -> bool:
     """
     if not target:
         return False
-    target_variants = _normalize_exe_entry(target)
-    truncated_variants = {t[:15] for t in target_variants}
+    target_set = _name_variants(target)
 
     exe_name = _get_process_exe_name(pid)
-    if exe_name:
-        exe_variants = _normalize_exe_entry(exe_name)
-        if exe_variants & target_variants:
-            return True
+    if exe_name and (_normalize_exe_entry(exe_name) & target_set):
+        return True
 
     comm_name = _get_process_comm_name(pid)
-    if comm_name:
-        comm_variants = _normalize_exe_entry(comm_name)
-        if (comm_variants & target_variants) or (comm_variants & truncated_variants):
-            return True
+    if comm_name and (_normalize_exe_entry(comm_name) & target_set):
+        return True
 
     return False
 
@@ -1168,52 +1206,15 @@ def _posix_signal_process(pid: int, sig: int) -> bool:
         return False
 
 
-def _posix_signal_tree(pid: int, sig: int, deny_set: Set[str]) -> bool:
-    """Send `sig` to the process and all its descendants on Linux.
-
-    Order: children-first on SIGSTOP (so the parent cannot fork new children
-    mid-stop), parent-first on SIGCONT (so the parent can un-block its children).
-    Each process is filtered through the effective denylist before signalling.
-    Returns True if the root process itself was signalled successfully.
-    """
-    try:
-        root_proc = psutil.Process(pid)
-        children = root_proc.children(recursive=True)
-    except (psutil.Error, OSError):
-        children = []
-
-    if sig == signal.SIGSTOP:
-        # Children first — stop them before the parent so they cannot receive
-        # new fork()s and so audio helpers are silenced alongside the game.
-        for child in children:
-            try:
-                child_name = child.name() or ""
-                if _normalize_exe_entry(child_name) & deny_set:
-                    logger.debug(f"Skipping denylisted child PID {child.pid} ({child_name}).")
-                    continue
-                _posix_signal_process(child.pid, sig)
-            except (psutil.Error, OSError):
-                pass
-        return _posix_signal_process(pid, sig)
-    else:
-        # SIGCONT: parent first so the parent can wake children.
-        result = _posix_signal_process(pid, sig)
-        for child in children:
-            try:
-                child_name = child.name() or ""
-                if _normalize_exe_entry(child_name) & deny_set:
-                    continue
-                _posix_signal_process(child.pid, sig)
-            except (psutil.Error, OSError):
-                pass
-        return result
-
-
 def _suspend_process(pid: int) -> bool:
     if is_linux():
-        process_cfg = getattr(get_config(), "process_pausing", None)
-        deny_set = _effective_denylist(process_cfg)
-        return _posix_signal_tree(pid, signal.SIGSTOP, deny_set)
+        # Single-PID suspend, matching the Windows model. The game's render and
+        # audio run in-process (verified on a real Proton title — the game engine
+        # is a leaf process and the PipeWire stream is owned by the game PID), so
+        # SIGSTOP on the one resolved PID freezes both. Helper/wine processes are
+        # siblings under the Proton launcher, not descendants, and stay idle while
+        # the game is stopped, so there is nothing to gain from walking a tree.
+        return _posix_signal_process(pid, signal.SIGSTOP)
     if not is_windows():
         return False
     if not kernel32 or not ntdll:
@@ -1230,9 +1231,7 @@ def _suspend_process(pid: int) -> bool:
 
 def _resume_process(pid: int) -> bool:
     if is_linux():
-        process_cfg = getattr(get_config(), "process_pausing", None)
-        deny_set = _effective_denylist(process_cfg)
-        return _posix_signal_tree(pid, signal.SIGCONT, deny_set)
+        return _posix_signal_process(pid, signal.SIGCONT)
     if not is_windows():
         return False
     if not kernel32 or not ntdll:
