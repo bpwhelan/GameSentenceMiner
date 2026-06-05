@@ -1202,7 +1202,14 @@ background: rgba(202, 12, 12, 0.692);
     }
   }
 
+  // Auto-updating the GSM character dictionary caused more problems than it
+  // solved, so it's disabled. Leave the plumbing in place but never schedule.
+  const GSM_CHARACTER_DICTIONARY_AUTO_UPDATE_ENABLED = false;
+
   function scheduleGsmCharacterDictionaryEnsure(reason = 'startup', options = {}) {
+    if (!GSM_CHARACTER_DICTIONARY_AUTO_UPDATE_ENABLED) {
+      return;
+    }
     const force = options.force === true;
     if (gsmCharacterDictionaryEnsureStarted && !force) {
       return;

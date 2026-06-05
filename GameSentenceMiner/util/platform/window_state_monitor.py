@@ -1805,6 +1805,14 @@ class WindowStateMonitor:
         self.last_cursor_hidden: bool = False
         self.cursor_hidden_since: Optional[float] = None
         self.cursor_hidden_confirm_seconds: float = 3.0
+        # Require OBS to report no output continuously for this long before hiding the
+        # overlay, so a brief empty frame (scene switch, loading screen) doesn't minimize.
+        self.obs_no_output_confirm_seconds: float = 180.0
+        # Set when the overlay was minimized specifically because OBS had no output (no
+        # target window to drive normal recovery). Lets us restore it once output returns.
+        self.hidden_due_to_no_output: bool = False
+        self.state_before_no_output_hide: Optional[str] = None
+        self.is_fullscreen_before_no_output_hide: bool = False
         self.last_scene_name = None
         self.last_target_scene_name = None
         self.last_obs_dimensions_time = 0
@@ -2576,8 +2584,12 @@ class WindowStateMonitor:
         (see ``OBSService._is_output_active_from_screenshot``) and caches the result
         on ``state.source_output_active``. We just read that cache here - no extra
         screenshots - and only treat it as authoritative when it's a recent,
-        confirmed "empty" result (``False``). ``True`` (has output) and ``None``
+        confirmed "empty" result (``False``) that has *persisted* for at least
+        ``obs_no_output_confirm_seconds``. ``True`` (has output) and ``None``
         (undetermined / probe hasn't run) both mean "leave the overlay alone".
+
+        Gating on a sustained no-output streak (``state.source_output_empty_since``)
+        avoids minimizing on a brief empty frame from a scene switch or loading screen.
         """
         import GameSentenceMiner.obs as _obs_pkg
 
@@ -2592,26 +2604,37 @@ class WindowStateMonitor:
         checked_at = state.source_output_checked_at
         if not checked_at or (time.time() - checked_at) > 30.0:
             return False
+
+        empty_since = state.source_output_empty_since
+        if not empty_since or (time.time() - empty_since) < self.obs_no_output_confirm_seconds:
+            return False
         return True
 
     async def _hide_overlay_if_obs_has_no_output(self):
         """Hide the overlay (as if minimized) when the game window can't be found
-        and OBS reports no output.
+        and OBS reports no output - and restore it once output returns.
 
         ``check_and_send`` returns early when no target window is found, so no
         window-state event would otherwise fire in cases like the game closing or
         switching to a scene with no live capture. Reading the OBS service's
         existing output probe here lets the overlay get out of the way in those
         cases without doing any extra work.
+
+        Because there's no target window to drive normal recovery, we also restore
+        the overlay here when output comes back, so it doesn't stay stuck minimized.
         """
-        # Already hidden via a prior minimized/closed broadcast.
+        if not self._obs_reports_no_output():
+            await self._restore_overlay_after_no_output()
+            return
+
+        # Already hidden (by us, or via a prior minimized/closed broadcast).
         if self.last_state in ("minimized", "closed"):
             return
 
-        if not self._obs_reports_no_output():
-            return
-
         logger.info("Target window not found and OBS reports no output - hiding overlay (minimized).")
+        self.state_before_no_output_hide = self.last_state
+        self.is_fullscreen_before_no_output_hide = self.last_is_fullscreen
+        self.hidden_due_to_no_output = True
         self.last_state = "minimized"
         self.last_is_fullscreen = False
 
@@ -2621,6 +2644,46 @@ class WindowStateMonitor:
             "game": self.last_target_info.get("title", self.last_game_name),
             "magpie_info": None,
             "is_fullscreen": False,
+            "recommend_manual_mode": False,
+            "target_window_rect": None,
+            "target_client_rect": None,
+        }
+
+        if websocket_manager.has_clients(ID_OVERLAY):
+            await websocket_manager.send(ID_OVERLAY, json.dumps(payload))
+
+    async def _restore_overlay_after_no_output(self):
+        """Undo a no-output minimize once OBS output returns.
+
+        Only fires when *we* minimized the overlay for no-output. Forces a fresh
+        window/state detection on the next poll so the main loop re-broadcasts the
+        real state; if no window is found yet we still send a non-minimized state so
+        the overlay reappears instead of staying hidden.
+        """
+        if not self.hidden_due_to_no_output:
+            return
+
+        self.hidden_due_to_no_output = False
+        logger.info("OBS output returned - restoring overlay after no-output minimize.")
+
+        restored_state = self.state_before_no_output_hide or "background"
+        if restored_state in ("minimized", "closed"):
+            restored_state = "background"
+        restored_fullscreen = self.is_fullscreen_before_no_output_hide
+
+        # Force re-detection so the main loop recomputes geometry/state next poll.
+        self.target_hwnd = None
+        self.retry_find_count = 0
+        self.last_state = restored_state
+        self.last_is_fullscreen = restored_fullscreen
+        self.poll_interval = self.fast_poll_interval
+
+        payload = {
+            "type": "window_state",
+            "data": restored_state,
+            "game": self.last_target_info.get("title", self.last_game_name),
+            "magpie_info": self.magpie_info,
+            "is_fullscreen": restored_fullscreen,
             "recommend_manual_mode": False,
             "target_window_rect": None,
             "target_client_rect": None,
@@ -2736,6 +2799,10 @@ class WindowStateMonitor:
             self.retry_find_count += 1
             await self._hide_overlay_if_obs_has_no_output()
             return
+
+        # Found a window: normal state flow owns recovery now, so drop any pending
+        # no-output restore so it can't fire spuriously later.
+        self.hidden_due_to_no_output = False
 
         current_state = "unknown"
         current_rect = None

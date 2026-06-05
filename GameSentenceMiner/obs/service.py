@@ -247,6 +247,9 @@ class OBSState:
     # True = capture producing output, False = capture empty, None = undetermined.
     source_output_active: Optional[bool] = None
     source_output_checked_at: float = 0.0
+    # Timestamp output first became (and has stayed) empty; None once it has output
+    # again. Lets consumers require a sustained no-output streak, not a single probe.
+    source_output_empty_since: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +327,9 @@ class OBSService:
         self.tick_intervals = OBSTickIntervals()
         self._tick_last_run_by_operation: Dict[str, float] = {}
         self._tick_running = False
+
+        # Window-source retarget reconciliation cooldown
+        self._reconcile_window_target_cooldown = 10.0
 
         # Scene-item refresh debounce
         self._pending_scene_item_refresh: Optional[str] = None
@@ -865,9 +871,38 @@ class OBSService:
         img = get_screenshot_PIL(compression=50, img_format="jpg", width=8, height=8, force_obs=True)
         result = None if not img else not is_image_empty(img)
         with self._state_lock:
+            now = time.time()
             self.state.source_output_active = result
-            self.state.source_output_checked_at = time.time()
+            self.state.source_output_checked_at = now
+            if result is True:
+                # Has output: streak broken.
+                self.state.source_output_empty_since = None
+            elif result is False and self.state.source_output_empty_since is None:
+                # First confirmed-empty probe; start the streak. None (undetermined)
+                # leaves the streak untouched so transient probe failures don't reset it.
+                self.state.source_output_empty_since = now
         return result
+
+    def _reconcile_window_source_target(self, scene_name: str):
+        """Rewrite a window/game-capture source when OBS is capturing a fallback window.
+
+        Cheap-gated by a cooldown; the action itself short-circuits (via a psutil
+        check) before doing any window enumeration when the configured target is
+        still running. Only the main process (check_output=True) mutates OBS config.
+        """
+        if not scene_name:
+            return
+        now = time.time()
+        last = self._tick_last_run_by_operation.get("reconcile_window_target", 0.0)
+        if now - last < self._reconcile_window_target_cooldown:
+            return
+        self._tick_last_run_by_operation["reconcile_window_target"] = now
+        try:
+            from GameSentenceMiner.obs.actions import reconcile_window_source_target
+
+            reconcile_window_source_target(scene_name=scene_name, _suppress_obs_errors=True)
+        except Exception as e:
+            logger.debug(f"Window source reconciliation failed: {e}")
 
     # -- fit-to-screen -------------------------------------------------------
 
@@ -1064,6 +1099,8 @@ class OBSService:
         if resolved.output_probe and current_scene:
             source_active = self._is_output_active_from_screenshot()
             self._tick_last_run_by_operation["output_probe"] = now
+            if self.check_output:
+                self._reconcile_window_source_target(current_scene)
 
         if not self.check_output or not resolved.manage_replay_buffer:
             return

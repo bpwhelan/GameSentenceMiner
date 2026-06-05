@@ -788,6 +788,7 @@ def register_database_api_routes(app):
                         "sentence_count": sentence_count,
                         "first_entry_date": min_date.strftime("%Y-%m-%d"),
                         "last_entry_date": max_date.strftime("%Y-%m-%d"),
+                        "last_entry_timestamp": float(last_timestamp),
                         "total_characters": total_chars,
                         "date_range": f"{min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}"
                         if min_date != max_date
