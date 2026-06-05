@@ -477,6 +477,51 @@ def test_is_pid_allowed_to_suspend_linux_no_anchor_refused(monkeypatch):
     assert window_state_monitor._is_pid_allowed_to_suspend(4242, source="none") is False
 
 
+def test_is_pid_allowed_to_suspend_linux_detected_name_empty_anchor_passes(monkeypatch):
+    """Regression (N3/C2): when source='detected_name' and _get_detected_game_exe() returns
+    '' at gate time (e.g. scene switch), the gate must pass — not fall through to 'no anchor'
+    refusal. The anchor was valid when the PID was resolved.
+    """
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
+    monkeypatch.setattr(window_state_monitor, "is_linux", lambda: True)
+    monkeypatch.setattr(window_state_monitor, "_get_process_exe_name", lambda _pid: "narcissu")
+    monkeypatch.setattr(window_state_monitor, "_get_process_comm_name", lambda _pid: "narcissu")
+    # Simulate scene switch: OBS returns empty at gate time.
+    monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "")
+    _mock_ownership(monkeypatch)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(
+            process_pausing=SimpleNamespace(
+                linux_target_process="", denylist=[], require_game_exe_match=True
+            )
+        ),
+    )
+    assert window_state_monitor._is_pid_allowed_to_suspend(4242, source="detected_name") is True
+
+
+def test_is_pid_allowed_to_suspend_linux_detected_name_validates_when_exe_present(monkeypatch):
+    """When source='detected_name' and the exe is still available, it must validate the PID."""
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
+    monkeypatch.setattr(window_state_monitor, "is_linux", lambda: True)
+    monkeypatch.setattr(window_state_monitor, "_get_process_exe_name", lambda _pid: "wrong.exe")
+    monkeypatch.setattr(window_state_monitor, "_get_process_comm_name", lambda _pid: "wrong.exe")
+    monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "narcissu")
+    _mock_ownership(monkeypatch)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(
+            process_pausing=SimpleNamespace(
+                linux_target_process="", denylist=[], require_game_exe_match=True
+            )
+        ),
+    )
+    # PID name doesn't match detected exe → should refuse.
+    assert window_state_monitor._is_pid_allowed_to_suspend(4242, source="detected_name") is False
+
+
 def test_is_pid_allowed_to_suspend_linux_denylist_blocks_in_auto_mode(monkeypatch):
     monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
     monkeypatch.setattr(window_state_monitor, "is_linux", lambda: True)
@@ -627,6 +672,48 @@ def test_capture_window_parser_non_numeric_winid():
     assert result["wm_class"] == "Class"
 
 
+def test_capture_window_parser_skips_disabled_items():
+    """Regression (N5/C3): a disabled source (sceneItemEnabled=False) must be skipped
+    even if it appears before the active source."""
+    from types import SimpleNamespace as _SNS
+    from GameSentenceMiner.obs import actions as _actions
+
+    class _FakePool:
+        def call(self, op, retries=0, retryable=True):
+            client = _SNS(
+                get_scene_item_list=lambda name: _SNS(
+                    scene_items=[
+                        {"sourceName": "Disabled", "sceneItemEnabled": False},
+                        {"sourceName": "Active", "sceneItemEnabled": True},
+                    ]
+                ),
+                get_input_settings=lambda name: _SNS(
+                    input_settings={
+                        "capture_window": (
+                            "99999\r\nWrong\r\nWrongClass"
+                            if name == "Disabled"
+                            else "12345\r\nGame Title\r\nGameClass"
+                        )
+                    }
+                ),
+            )
+            return op(client)
+
+    import GameSentenceMiner.obs as _obs_pkg
+
+    old_pool = _obs_pkg.connection_pool
+    try:
+        _obs_pkg.connection_pool = _FakePool()
+        result = _actions.get_linux_capture_window_info(scene_name="Scene")
+    finally:
+        _obs_pkg.connection_pool = old_pool
+
+    assert result is not None
+    assert result["winid"] == 12345
+    assert result["title"] == "Game Title"
+    assert result["wm_class"] == "GameClass"
+
+
 # --- _process_matches_record exe-mismatch branch ---
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX process metadata")
@@ -645,6 +732,18 @@ def test_process_matches_record_exe_mismatch(monkeypatch, sleeper):
 def test_resolve_linux_pid_from_obs_no_xlib_returns_zero(monkeypatch):
     monkeypatch.setattr(window_state_monitor, "_HAS_XLIB", False)
     monkeypatch.setattr(window_state_monitor, "is_linux", lambda: True)
+    monkeypatch.setattr(window_state_monitor, "is_wayland", lambda: False)
+    assert window_state_monitor._resolve_linux_pid_from_obs("test") == 0
+
+
+def test_resolve_linux_pid_from_obs_wayland_short_circuits(monkeypatch):
+    """On Wayland the function must return 0 immediately, even when _HAS_XLIB is True."""
+    monkeypatch.setattr(window_state_monitor, "_HAS_XLIB", True)
+    monkeypatch.setattr(window_state_monitor, "is_linux", lambda: True)
+    monkeypatch.setattr(window_state_monitor, "is_wayland", lambda: True)
+    # If the guard is missing, this would be called and fail the test setup.
+    monkeypatch.setattr(window_state_monitor, "get_linux_capture_window_info",
+                        lambda **kw: (_ for _ in ()).throw(AssertionError("should not reach OBS lookup on Wayland")))
     assert window_state_monitor._resolve_linux_pid_from_obs("test") == 0
 
 
@@ -652,6 +751,7 @@ def test_resolve_linux_pid_from_obs_self_pid_rejected(monkeypatch):
     """A resolved PID matching os.getpid() must be rejected."""
     monkeypatch.setattr(window_state_monitor, "_HAS_XLIB", True)
     monkeypatch.setattr(window_state_monitor, "is_linux", lambda: True)
+    monkeypatch.setattr(window_state_monitor, "is_wayland", lambda: False)
     monkeypatch.setattr(
         window_state_monitor, "get_current_scene", lambda: "Scene", raising=False
     )

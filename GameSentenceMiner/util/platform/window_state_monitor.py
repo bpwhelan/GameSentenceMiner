@@ -792,7 +792,9 @@ def _x11_window_matches(disp, window_id: int, wm_class: str, title: str) -> bool
 # are already caught via the effective denylist floor in _refine_proton_pid.
 _PROTON_LAUNCHER_COMMS = {
     "pv-bwrap", "pv-adverb", "pressure-vessel-wrap",
-    "wine", "wine64", "wineserver", "wine-preloader", "winedevice.exe",
+    "wine", "wine64", "wineserver",
+    "wine-preloader", "wine64-preloader",   # 32-bit and 64-bit Proton loaders
+    "winedevice.exe",
     "start.exe", "conhost.exe", "rpcss.exe", "plugplay.exe",
     "proton", "python3", "python",
 }
@@ -871,9 +873,11 @@ def _refine_proton_pid(window_pid: int) -> int:
         proc = psutil.Process(window_pid)
         comm = (proc.name() or "").lower()
         cmdline = proc.cmdline()
-    except psutil.Error:
-        # Cannot inspect the process — treat as unresolvable rather than returning
-        # window_pid unchanged, which could cause a Wine helper to be suspended.
+    except psutil.Error as e:
+        # Cannot inspect the process (e.g. AccessDenied) — treat as unresolvable rather
+        # than returning window_pid unchanged, which could cause a Wine helper to be
+        # suspended. Log at debug so users can diagnose silent detection failures.
+        logger.debug(f"_refine_proton_pid: cannot inspect PID {window_pid}: {e}; treating as unresolvable.")
         return 0
 
     process_cfg = getattr(get_config(), "process_pausing", None)
@@ -968,7 +972,8 @@ def _resolve_linux_target_pid(context: str, log_on_missing: bool = True) -> Tupl
             _wayland_warn_shown = True
             logger.warning(
                 f"{context}: automatic game detection relies on X11 window enumeration "
-                f"and is unavailable on this Wayland session. "
+                f"and is unavailable on this Wayland session "
+                f"(this includes XWayland games — the session type, not the game, determines availability). "
                 f"Set process_pausing.linux_target_process to the game's process name "
                 f"(e.g. 'eldenring.exe' for a Proton title) to enable pausing."
             )
