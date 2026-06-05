@@ -234,3 +234,134 @@ def test_hotkey_pause_uses_profile_gate_without_global_experimental_toggle(monke
 
     assert window_state_monitor.toggle_active_game_pause(hwnd=123) is True
     assert calls == [(4242, "Pause hotkey")]
+
+
+# ---------------------------------------------------------------------------
+# Linux / POSIX process pausing
+# ---------------------------------------------------------------------------
+import os
+import subprocess
+import time
+
+
+def _proc_state(pid):
+    with open(f"/proc/{pid}/stat") as f:
+        # state is the field after the (comm) parenthesised name
+        return f.read().split(") ", 1)[1].split(" ", 1)[0]
+
+
+@pytest.fixture
+def sleeper():
+    proc = subprocess.Popen(["sleep", "600"])
+    time.sleep(0.2)
+    try:
+        yield proc
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            proc.wait()
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc state inspection")
+def test_posix_suspend_and_resume_roundtrip(monkeypatch, sleeper):
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
+    pid = sleeper.pid
+
+    assert window_state_monitor._suspend_process(pid) is True
+    time.sleep(0.1)
+    assert _proc_state(pid) == "T"  # stopped
+
+    assert window_state_monitor._resume_process(pid) is True
+    time.sleep(0.1)
+    assert _proc_state(pid) in ("S", "R", "D")  # running again
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process metadata via psutil")
+def test_posix_creation_time_is_stable_and_matches_record(monkeypatch, sleeper):
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
+    pid = sleeper.pid
+
+    created = window_state_monitor._get_process_creation_time(pid)
+    assert created is not None
+    assert created == window_state_monitor._get_process_creation_time(pid)
+
+    record = {"created": created, "exe": window_state_monitor._get_process_exe_name(pid)}
+    assert window_state_monitor._process_matches_record(pid, record) is True
+    # A PID that does not exist must not match.
+    assert window_state_monitor._process_matches_record(2**31 - 1, record) is False
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process scan")
+def test_resolve_linux_target_pid_matches_configured_name(monkeypatch, sleeper):
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
+    monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "")
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(
+            process_pausing=SimpleNamespace(linux_target_process="sleep", denylist=[])
+        ),
+    )
+
+    resolved = window_state_monitor._resolve_linux_target_pid("test")
+    assert resolved > 0
+    assert _proc_state(resolved) in ("S", "R", "D", "T")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process scan")
+def test_resolve_linux_target_pid_returns_zero_without_target(monkeypatch):
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
+    monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "")
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(process_pausing=SimpleNamespace(linux_target_process="", denylist=[])),
+    )
+
+    assert window_state_monitor._resolve_linux_target_pid("test", log_on_missing=False) == 0
+
+
+def test_is_pid_allowed_to_suspend_linux_requires_target_match(monkeypatch):
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
+    monkeypatch.setattr(window_state_monitor, "_get_process_exe_name", lambda _pid: "eldenring.exe")
+    monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "")
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(
+            process_pausing=SimpleNamespace(
+                linux_target_process="eldenring.exe", denylist=[], require_game_exe_match=True
+            )
+        ),
+    )
+    assert window_state_monitor._is_pid_allowed_to_suspend(4242) is True
+
+    # A mismatching exe must be refused.
+    monkeypatch.setattr(window_state_monitor, "_get_process_exe_name", lambda _pid: "konsole")
+    assert window_state_monitor._is_pid_allowed_to_suspend(4242) is False
+
+
+def test_is_pid_allowed_to_suspend_linux_refuses_without_target(monkeypatch):
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
+    monkeypatch.setattr(window_state_monitor, "_get_process_exe_name", lambda _pid: "eldenring.exe")
+    monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "")
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(
+            process_pausing=SimpleNamespace(
+                linux_target_process="", denylist=[], require_game_exe_match=True
+            )
+        ),
+    )
+    assert window_state_monitor._is_pid_allowed_to_suspend(4242) is False
+
+
+def test_resolve_pause_target_pid_uses_linux_resolver_on_non_windows(monkeypatch):
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
+    monkeypatch.setattr(
+        window_state_monitor,
+        "_resolve_linux_target_pid",
+        lambda context, log_on_missing=True: 7777,
+    )
+    assert window_state_monitor._resolve_pause_target_pid(None, "ctx") == 7777

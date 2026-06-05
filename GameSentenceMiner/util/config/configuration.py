@@ -973,6 +973,10 @@ class ProcessPausing:
     overlay_manual_hotkey_requests_pause: bool = False
     overlay_texthooker_hotkey_requests_pause: bool = False
     overlay_gamepad_navigation_requests_pause: bool = False
+    # Linux/macOS only: process name of the game to suspend (e.g. "eldenring.exe"
+    # under Proton, or a native binary name). There is no window handle to resolve
+    # a PID from on these platforms, so the target is matched by process name.
+    linux_target_process: str = ""
     denylist: List[str] = field(
         default_factory=lambda: [
             "explorer.exe",
@@ -994,6 +998,22 @@ class ProcessPausing:
             "gamesentenceminer.exe",
             "gsm_overlay.exe",
             "gsm_overlay",
+            # Linux/macOS critical processes — never suspend these.
+            "systemd",
+            "init",
+            "Xorg",
+            "gnome-shell",
+            "kwin_x11",
+            "kwin_wayland",
+            "pipewire",
+            "wireplumber",
+            "pulseaudio",
+            "bash",
+            "zsh",
+            "sh",
+            "obs",
+            "steam",
+            "gamesentenceminer",
         ]
     )
 

@@ -3,11 +3,14 @@ import copy
 import ctypes
 import json
 import os
+import signal
 import threading
 import time
 from ctypes import wintypes
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional, Set
+
+import psutil
 
 from GameSentenceMiner.obs import (
     get_window_info_from_source,
@@ -20,6 +23,7 @@ from GameSentenceMiner.util.config.configuration import (
     get_overlay_config,
     get_master_config,
     is_windows,
+    is_linux,
     logger,
 )
 from GameSentenceMiner.util.config.feature_flags import (
@@ -583,7 +587,88 @@ def _resolve_pause_target_hwnd(hwnd: Optional[int]) -> Optional[int]:
     return user32.GetForegroundWindow()
 
 
+def _get_linux_pause_target_names() -> Set[str]:
+    """Exe-name variants identifying the game to pause on Linux/macOS.
+
+    There is no window-handle concept here, so the target is identified by process
+    name instead. Names come from the explicit ``process_pausing.linux_target_process``
+    config (preferred, deterministic) and from the OBS-detected game exe when available
+    (often empty on Linux, where OBS window capture does not expose an exe).
+    """
+    names: Set[str] = set()
+    process_cfg = getattr(get_config(), "process_pausing", None)
+    if process_cfg:
+        configured = getattr(process_cfg, "linux_target_process", "") or ""
+        if configured:
+            names.update(_normalize_exe_entry(configured))
+    detected = _get_detected_game_exe()
+    if detected:
+        names.update(_normalize_exe_entry(detected))
+    return names
+
+
+def _resolve_linux_target_pid(context: str, log_on_missing: bool = True) -> int:
+    target_names = _get_linux_pause_target_names()
+    if not target_names:
+        if log_on_missing:
+            logger.warning(
+                f"{context}: no pause target on this platform. Set "
+                f"process_pausing.linux_target_process to the game's process name."
+            )
+        return 0
+
+    self_pid = os.getpid()
+    process_cfg = getattr(get_config(), "process_pausing", None)
+    deny_set = _build_exe_name_set(list(getattr(process_cfg, "denylist", []) or [])) if process_cfg else set()
+
+    # /proc/<pid>/comm (psutil name) is truncated to 15 chars, so precompute the
+    # truncated forms of each target to still match long exe names by process name.
+    truncated_targets = {t[:15] for t in target_names}
+
+    # The game process is the one whose *name* (comm) is the exe basename; Proton
+    # wrappers (reaper, pv-bwrap, wineserver) merely carry the exe in their cmdline
+    # and often have lower PIDs. Prefer a name match; fall back to cmdline only if
+    # no process matches by name.
+    cmdline_fallback = 0
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            pid = proc.info["pid"]
+            name = proc.info["name"] or ""
+            cmdline = proc.info["cmdline"] or []
+        except (psutil.Error, KeyError):
+            continue
+        if not pid or pid <= 0 or pid == self_pid:
+            continue
+
+        name_variants = _normalize_exe_entry(name)
+        if name_variants & deny_set:
+            continue
+
+        if name_variants and (
+            (name_variants & target_names) or (name_variants & truncated_targets)
+        ):
+            return pid
+
+        if not cmdline_fallback:
+            cmd_variants: Set[str] = set()
+            for arg in cmdline:
+                cmd_variants |= _normalize_exe_entry(arg)
+            if cmd_variants & target_names and not (cmd_variants & deny_set):
+                cmdline_fallback = pid
+
+    if cmdline_fallback:
+        logger.debug(f"{context}: matched target via cmdline fallback (PID {cmdline_fallback}).")
+        return cmdline_fallback
+
+    if log_on_missing:
+        logger.warning(f"{context}: no running process matched target {sorted(target_names)}.")
+    return 0
+
+
 def _resolve_pause_target_pid(hwnd: Optional[int], context: str, log_on_missing: bool = True) -> int:
+    if not is_windows():
+        return _resolve_linux_target_pid(context, log_on_missing=log_on_missing)
+
     resolved_hwnd = _resolve_pause_target_hwnd(hwnd)
     if not resolved_hwnd:
         if log_on_missing:
@@ -625,7 +710,15 @@ def _is_tracked_suspended_pid(pid: int) -> bool:
 
 
 def _get_process_creation_time(pid: int) -> Optional[int]:
-    if not is_windows() or not kernel32:
+    if not is_windows():
+        # psutil create_time() is the process start time in epoch seconds; it stays
+        # constant for the life of the PID and changes if the PID is recycled, which
+        # is exactly the PID-reuse guard semantics the Windows path relies on.
+        try:
+            return int(psutil.Process(pid).create_time() * 1_000_000)
+        except (psutil.Error, ValueError, OSError):
+            return None
+    if not kernel32:
         return None
     h_process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not h_process:
@@ -649,7 +742,15 @@ def _get_process_creation_time(pid: int) -> Optional[int]:
 
 
 def _get_process_exe_path(pid: int) -> str:
-    if not is_windows() or not kernel32 or not psapi:
+    if not is_windows():
+        try:
+            proc = psutil.Process(pid)
+            # Prefer the real executable path; fall back to the process name (Proton
+            # games report the Windows .exe basename here, e.g. "Game.exe").
+            return proc.exe() or proc.name() or ""
+        except (psutil.Error, OSError):
+            return ""
+    if not kernel32 or not psapi:
         return ""
     h_process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, False, pid)
     if not h_process:
@@ -719,8 +820,25 @@ def _process_matches_record(pid: int, record: Dict[str, Any]) -> bool:
     return True
 
 
+def _posix_signal_process(pid: int, sig: int) -> bool:
+    """Send a signal to a single PID on POSIX platforms (Linux/macOS).
+
+    Mirrors the Windows single-process semantics of NtSuspendProcess/NtResumeProcess:
+    only the target process is signalled, not its children. SIGSTOP/SIGCONT freeze
+    and thaw every thread of the process, which is what we want for a game process.
+    """
+    try:
+        os.kill(pid, sig)
+        return True
+    except (ProcessLookupError, PermissionError, OSError) as e:
+        logger.debug(f"POSIX signal {sig} to PID {pid} failed: {e}")
+        return False
+
+
 def _suspend_process(pid: int) -> bool:
-    if not is_windows() or not kernel32 or not ntdll:
+    if not is_windows():
+        return _posix_signal_process(pid, signal.SIGSTOP)
+    if not kernel32 or not ntdll:
         return False
     h_process = kernel32.OpenProcess(PROCESS_SUSPEND_RESUME | PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not h_process:
@@ -733,7 +851,9 @@ def _suspend_process(pid: int) -> bool:
 
 
 def _resume_process(pid: int) -> bool:
-    if not is_windows() or not kernel32 or not ntdll:
+    if not is_windows():
+        return _posix_signal_process(pid, signal.SIGCONT)
+    if not kernel32 or not ntdll:
         return False
     h_process = kernel32.OpenProcess(PROCESS_SUSPEND_RESUME | PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not h_process:
@@ -870,6 +990,21 @@ def _is_pid_allowed_to_suspend(pid: int) -> bool:
         return False
 
     if getattr(process_cfg, "require_game_exe_match", True):
+        if not is_windows():
+            # On Linux/macOS there is no OBS-provided exe to anchor against, so the
+            # target is the configured linux_target_process (plus any detected exe).
+            target_names = _get_linux_pause_target_names()
+            if not target_names:
+                logger.warning(
+                    "Pause request: no pause target configured; "
+                    "set process_pausing.linux_target_process. Refusing to suspend."
+                )
+                return False
+            if not (_normalize_exe_entry(exe_name) & target_names):
+                logger.warning(f"Pause request: exe '{exe_name}' does not match target {sorted(target_names)}.")
+                return False
+            return True
+
         detected_game_exe = _get_detected_game_exe()
         if not detected_game_exe:
             logger.warning("Pause hotkey: could not determine current game exe; refusing to suspend.")
@@ -1070,8 +1205,11 @@ def _handle_overlay_resume_request(source: str, hwnd: Optional[int]) -> bool:
 
 @process_pausing_feature(default_return=False)
 def request_overlay_process_pause(action: str, source: str = "overlay", hwnd: Optional[int] = None) -> bool:
-    if not is_windows() or not user32:
-        logger.info("Overlay pause requests are only supported on Windows.")
+    if is_windows() and not user32:
+        logger.info("Overlay pause requests require Win32 APIs that are unavailable.")
+        return False
+    if not is_windows() and not is_linux():
+        logger.info("Overlay pause requests are supported on Windows and Linux only.")
         return False
 
     normalized_action = str(action or "").strip().lower()
@@ -1087,8 +1225,11 @@ def request_overlay_process_pause(action: str, source: str = "overlay", hwnd: Op
 
 @process_pausing_feature(default_return=False)
 def toggle_active_game_pause(hwnd: Optional[int] = None) -> bool:
-    if not is_windows() or not user32:
-        logger.info("Pause hotkey is only supported on Windows.")
+    if is_windows() and not user32:
+        logger.info("Pause hotkey requires Win32 APIs that are unavailable.")
+        return False
+    if not is_windows() and not is_linux():
+        logger.info("Pause hotkey is supported on Windows and Linux only.")
         return False
 
     pid = _resolve_pause_target_pid(hwnd, "Pause hotkey")
