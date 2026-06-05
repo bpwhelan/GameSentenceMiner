@@ -973,9 +973,10 @@ class ProcessPausing:
     overlay_manual_hotkey_requests_pause: bool = False
     overlay_texthooker_hotkey_requests_pause: bool = False
     overlay_gamepad_navigation_requests_pause: bool = False
-    # Linux only: process name of the game to suspend (e.g. "eldenring.exe"
-    # under Proton, or a native binary name). There is no window handle to resolve
-    # a PID from on Linux, so the target is matched by process name.
+    # Linux only: process name of the game to suspend (e.g. "eldenring.exe" under
+    # Proton, or a native binary name). Linux has no window handle to resolve a PID
+    # from, so the game is matched by process name. Mainly for Wayland users — leave
+    # blank to auto-detect the game from the OBS-captured X11 window (the default).
     linux_target_process: str = ""
     denylist: List[str] = field(
         default_factory=lambda: [
