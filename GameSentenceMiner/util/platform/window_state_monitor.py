@@ -12,8 +12,21 @@ from typing import Dict, Any, List, Tuple, Optional, Set
 
 import psutil
 
+# python-xlib is present on Linux (locked transitive dep) but import defensively so
+# the module still loads if it is ever unavailable; callers fall back to name match.
+try:
+    from Xlib import X as _X
+    from Xlib import display as _xdisplay
+
+    _HAS_XLIB = True
+except Exception:  # pragma: no cover - exercised only without python-xlib
+    _X = None
+    _xdisplay = None
+    _HAS_XLIB = False
+
 from GameSentenceMiner.obs import (
     get_window_info_from_source,
+    get_linux_capture_window_info,
     get_current_scene,
     get_current_game,
 )
@@ -587,34 +600,14 @@ def _resolve_pause_target_hwnd(hwnd: Optional[int]) -> Optional[int]:
     return user32.GetForegroundWindow()
 
 
-def _get_linux_pause_target_names() -> Set[str]:
-    """Exe-name variants identifying the game to pause on Linux/macOS.
-
-    There is no window-handle concept here, so the target is identified by process
-    name instead. Names come from the explicit ``process_pausing.linux_target_process``
-    config (preferred, deterministic) and from the OBS-detected game exe when available
-    (often empty on Linux, where OBS window capture does not expose an exe).
-    """
-    names: Set[str] = set()
+def _get_configured_linux_target() -> str:
     process_cfg = getattr(get_config(), "process_pausing", None)
-    if process_cfg:
-        configured = getattr(process_cfg, "linux_target_process", "") or ""
-        if configured:
-            names.update(_normalize_exe_entry(configured))
-    detected = _get_detected_game_exe()
-    if detected:
-        names.update(_normalize_exe_entry(detected))
-    return names
+    return (getattr(process_cfg, "linux_target_process", "") or "") if process_cfg else ""
 
 
-def _resolve_linux_target_pid(context: str, log_on_missing: bool = True) -> int:
-    target_names = _get_linux_pause_target_names()
+def _match_process_by_names(target_names: Set[str], context: str) -> int:
+    """Find the PID of a running process whose name matches one of target_names."""
     if not target_names:
-        if log_on_missing:
-            logger.warning(
-                f"{context}: no pause target on this platform. Set "
-                f"process_pausing.linux_target_process to the game's process name."
-            )
         return 0
 
     self_pid = os.getpid()
@@ -658,10 +651,118 @@ def _resolve_linux_target_pid(context: str, log_on_missing: bool = True) -> int:
 
     if cmdline_fallback:
         logger.debug(f"{context}: matched target via cmdline fallback (PID {cmdline_fallback}).")
-        return cmdline_fallback
+    return cmdline_fallback
+
+
+def _x11_window_pid(disp, window_id: int) -> int:
+    """_NET_WM_PID of an X11 window, or 0 if unavailable/stale (BadWindow)."""
+    try:
+        win = disp.create_resource_object("window", window_id)
+        atom = disp.intern_atom("_NET_WM_PID")
+        prop = win.get_full_property(atom, _X.AnyPropertyType)
+        if prop and prop.value:
+            return int(prop.value[0])
+    except Exception:
+        return 0
+    return 0
+
+
+def _x11_find_window_by_class_or_title(disp, wm_class: str, title: str) -> int:
+    """Locate a live top-level window by WM_CLASS (preferred) or exact title.
+
+    The window id OBS stores can go stale across game restarts, so we re-find the
+    window from _NET_CLIENT_LIST and match on WM_CLASS / title instead.
+    """
+    wm_class_l = (wm_class or "").lower()
+    title_l = (title or "").lower()
+    if not wm_class_l and not title_l:
+        return 0
+    try:
+        root = disp.screen().root
+        atom = disp.intern_atom("_NET_CLIENT_LIST")
+        prop = root.get_full_property(atom, _X.AnyPropertyType)
+        if not prop:
+            return 0
+        title_match = 0
+        for wid in prop.value:
+            try:
+                win = disp.create_resource_object("window", int(wid))
+                cls = win.get_wm_class()  # (instance, class) or None
+                names = {c.lower() for c in (cls or ()) if c}
+                if wm_class_l and wm_class_l in names:
+                    return int(wid)
+                if title_l and not title_match:
+                    nm = win.get_wm_name()
+                    if nm and nm.lower() == title_l:
+                        title_match = int(wid)
+            except Exception:
+                continue
+        return title_match
+    except Exception:
+        return 0
+
+
+def _resolve_linux_pid_from_obs(context: str) -> int:
+    """Automatic target: the PID of the window OBS is capturing (X11 only)."""
+    if not _HAS_XLIB or not is_linux():
+        return 0
+    try:
+        info = get_linux_capture_window_info(scene_name=get_current_scene())
+    except Exception as e:
+        logger.debug(f"{context}: OBS capture window lookup failed: {e}")
+        return 0
+    if not info:
+        return 0
+
+    disp = None
+    try:
+        disp = _xdisplay.Display()
+        pid = 0
+        winid = info.get("winid")
+        if winid:
+            pid = _x11_window_pid(disp, int(winid))
+        if pid <= 0:
+            found = _x11_find_window_by_class_or_title(disp, info.get("wm_class", ""), info.get("title", ""))
+            if found:
+                pid = _x11_window_pid(disp, found)
+        if pid > 0 and pid != os.getpid():
+            return pid
+    except Exception as e:
+        logger.debug(f"{context}: X11 PID resolution failed: {e}")
+    finally:
+        if disp is not None:
+            try:
+                disp.close()
+            except Exception:
+                pass
+    return 0
+
+
+def _resolve_linux_target_pid(context: str, log_on_missing: bool = True) -> int:
+    # 1) Explicit configured process name wins (deterministic override).
+    configured = _get_configured_linux_target()
+    if configured:
+        pid = _match_process_by_names(_normalize_exe_entry(configured), context)
+        if pid > 0:
+            return pid
+
+    # 2) Automatic: resolve the window OBS is capturing to its PID (X11).
+    pid = _resolve_linux_pid_from_obs(context)
+    if pid > 0:
+        return pid
+
+    # 3) Fallback: an OBS-detected exe name (rarely populated on Linux).
+    detected = _get_detected_game_exe()
+    if detected:
+        pid = _match_process_by_names(_normalize_exe_entry(detected), context)
+        if pid > 0:
+            return pid
 
     if log_on_missing:
-        logger.warning(f"{context}: no running process matched target {sorted(target_names)}.")
+        logger.warning(
+            f"{context}: could not resolve a game process. No OBS capture window found "
+            f"and no process_pausing.linux_target_process configured."
+        )
     return 0
 
 
@@ -991,18 +1092,29 @@ def _is_pid_allowed_to_suspend(pid: int) -> bool:
 
     if getattr(process_cfg, "require_game_exe_match", True):
         if not is_windows():
-            # On Linux/macOS there is no OBS-provided exe to anchor against, so the
-            # target is the configured linux_target_process (plus any detected exe).
-            target_names = _get_linux_pause_target_names()
-            if not target_names:
-                logger.warning(
-                    "Pause request: no pause target configured; "
-                    "set process_pausing.linux_target_process. Refusing to suspend."
-                )
-                return False
-            if not (_normalize_exe_entry(exe_name) & target_names):
-                logger.warning(f"Pause request: exe '{exe_name}' does not match target {sorted(target_names)}.")
-                return False
+            # The denylist check above always applies. Anchor preference:
+            #  1) explicit linux_target_process -> must match it,
+            #  2) an OBS-detected exe (rare on Linux) -> must match it,
+            #  3) neither -> auto mode: the PID came from the window OBS is capturing,
+            #     which is authoritative, so no exe-name anchor is required.
+            configured = _get_configured_linux_target()
+            if configured:
+                if not (_normalize_exe_entry(exe_name) & _normalize_exe_entry(configured)):
+                    logger.warning(
+                        f"Pause request: exe '{exe_name}' does not match "
+                        f"configured target '{configured}'."
+                    )
+                    return False
+                return True
+
+            detected_linux_exe = _get_detected_game_exe()
+            if detected_linux_exe:
+                if not (_normalize_exe_entry(exe_name) & _normalize_exe_entry(detected_linux_exe)):
+                    logger.warning(
+                        f"Pause request: exe '{exe_name}' does not match "
+                        f"detected game exe '{detected_linux_exe}'."
+                    )
+                    return False
             return True
 
         detected_game_exe = _get_detected_game_exe()

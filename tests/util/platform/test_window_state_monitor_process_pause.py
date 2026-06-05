@@ -341,9 +341,12 @@ def test_is_pid_allowed_to_suspend_linux_requires_target_match(monkeypatch):
     assert window_state_monitor._is_pid_allowed_to_suspend(4242) is False
 
 
-def test_is_pid_allowed_to_suspend_linux_refuses_without_target(monkeypatch):
+def test_is_pid_allowed_to_suspend_linux_auto_mode_allows_non_denylisted(monkeypatch):
+    # No explicit target and no OBS-detected exe: auto mode. The PID is assumed to
+    # come from the authoritative OBS-capture resolver, so a non-denylisted PID is
+    # allowed (the denylist is the only guard).
     monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
-    monkeypatch.setattr(window_state_monitor, "_get_process_exe_name", lambda _pid: "eldenring.exe")
+    monkeypatch.setattr(window_state_monitor, "_get_process_exe_name", lambda _pid: "narcissu")
     monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "")
     monkeypatch.setattr(
         window_state_monitor,
@@ -351,6 +354,22 @@ def test_is_pid_allowed_to_suspend_linux_refuses_without_target(monkeypatch):
         lambda: SimpleNamespace(
             process_pausing=SimpleNamespace(
                 linux_target_process="", denylist=[], require_game_exe_match=True
+            )
+        ),
+    )
+    assert window_state_monitor._is_pid_allowed_to_suspend(4242) is True
+
+
+def test_is_pid_allowed_to_suspend_linux_denylist_blocks_in_auto_mode(monkeypatch):
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
+    monkeypatch.setattr(window_state_monitor, "_get_process_exe_name", lambda _pid: "gnome-shell")
+    monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "")
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(
+            process_pausing=SimpleNamespace(
+                linux_target_process="", denylist=["gnome-shell"], require_game_exe_match=True
             )
         ),
     )
