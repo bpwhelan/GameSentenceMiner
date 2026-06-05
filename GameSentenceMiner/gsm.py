@@ -562,7 +562,7 @@ class GSMApplication:
             lambda: get_config().hotkeys.pause_text_intake, _get_gametext_module().toggle_text_intake_paused
         )
 
-        if is_windows():
+        if is_windows() or is_linux():
             hotkey_manager.register(
                 lambda: get_config().hotkeys.process_pause,
                 _get_window_state_monitor_module().toggle_active_game_pause,

@@ -28,6 +28,7 @@ dependencies = [
   "soundfile~=0.13.1",
   "toml~=0.10.2",
   "psutil~=7.1.0",
+  "python-xlib ; sys_platform == 'linux'",
   "rapidfuzz~=3.10.0",
   "plyer~=2.1.0",
   "keyboard~=0.13.5",
