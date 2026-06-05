@@ -1126,6 +1126,8 @@ def get_linux_capture_window_info(client, scene_name: str = None):
     # would always return []. Match by the presence of capture_window instead and
     # scan every scene item.
     for item in scene_items_response.scene_items:
+        if not item.get("sceneItemEnabled", True):
+            continue
         source_name = item.get("sourceName")
         if not source_name:
             continue

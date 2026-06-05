@@ -8,7 +8,7 @@ import threading
 import time
 from ctypes import wintypes
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional, Set
+from typing import Dict, Any, List, Literal, Tuple, Optional, Set
 
 import psutil
 
@@ -19,7 +19,7 @@ try:
     from Xlib import display as _xdisplay
 
     _HAS_XLIB = True
-except Exception:  # pragma: no cover - exercised only without python-xlib
+except (ImportError, ModuleNotFoundError):  # pragma: no cover - exercised only without python-xlib
     _X = None
     _xdisplay = None
     _HAS_XLIB = False
@@ -388,11 +388,19 @@ _CRITICAL_DENYLIST: List[str] = [
     "mozc_server", "fcitx", "fcitx5", "kkc", "uim", "uim-xim",
     # Network / accessibility
     "NetworkManager", "orca", "at-spi2-registryd", "at-spi-bus-launcher",
-    # Linux audio / init
+    # Linux audio / real-time scheduling — never pause audio infra
     "pipewire", "pipewire-pulse", "pipewire-media-session", "wireplumber",
-    "pulseaudio", "systemd",
+    "pulseaudio", "systemd", "rtkit-daemon",
     # Shells
-    "bash", "zsh", "sh",
+    "bash", "zsh", "sh", "fish",
+    # Flatpak / sandbox daemons — suspending stalls all Flatpak apps
+    "flatpak-portal", "xdg-dbus-proxy", "bwrap",
+    # Snap — suspending breaks snap-packaged apps
+    "snapd",
+    # GVFS daemons — suspending can freeze GNOME file choosers
+    "gvfsd", "gvfs-fuse-daemon",
+    # KDE session daemon — manages network, power, and D-Bus services
+    "kded5", "kded6",
     # OBS / Steam helpers — never suspend the capture source itself
     "obs", "obs64.exe", "obs.exe",
     "steam", "steam.exe", "steamwebhelper", "reaper", "srt-bwrap",
@@ -792,7 +800,13 @@ _PROTON_LAUNCHER_COMMS = {
 
 def _steam_game_dir_from_cmdline(cmdline: List[str]) -> str:
     """Return the lowercased 'steamapps/common/<GameDir>' referenced in a launcher's
-    cmdline, or '' if none. Proton launchers carry the game path as an argument."""
+    cmdline, or '' if none. Proton launchers carry the game path as an argument.
+
+    Paths under SteamLinuxRuntime_* are skipped — they point at the runtime container
+    rather than the game, and the last non-runtime match is returned so that the game
+    directory takes precedence over any runtime prefix that appears earlier in the args.
+    """
+    result = ""
     for arg in cmdline or []:
         path = (arg or "").replace("\\", "/").lower()
         idx = path.find("steamapps/common/")
@@ -801,15 +815,25 @@ def _steam_game_dir_from_cmdline(cmdline: List[str]) -> str:
         parts = path[idx:].split("/")
         # Require a non-empty game-dir component; a bare 'steamapps/common/' would
         # otherwise substring-match every installed game (library-wide false match).
-        if len(parts) >= 3 and parts[2]:
-            return "/".join(parts[:3])
-    return ""
+        if len(parts) < 3 or not parts[2]:
+            continue
+        # Skip Steam Linux Runtime container directories — they appear before the game
+        # path in the cmdline for SLR titles and would otherwise be returned first.
+        if parts[2].startswith("steamlinuxruntime"):
+            continue
+        result = "/".join(parts[:3])
+    return result
 
 
 def _largest_process_in_dir(game_dir: str, deny_set: Set[str]) -> int:
     """The highest-memory non-denylisted process running from game_dir. The game
     engine process dwarfs the launcher/wrapper processes (multi-GB vs tens of MB),
-    so resident set size reliably identifies the real game."""
+    so resident set size reliably identifies the real game.
+
+    Note: the RSS heuristic may select the wrong process during early startup (before
+    assets are loaded into memory). If pausing immediately after launch produces
+    unexpected results, wait a few seconds for the game to finish loading.
+    """
     if not game_dir:
         return 0
     self_pid = os.getpid()
@@ -831,6 +855,8 @@ def _largest_process_in_dir(game_dir: str, deny_set: Set[str]) -> int:
                 best_rss, best_pid = rss, pid
         except (psutil.Error, KeyError):
             continue
+    if best_pid:
+        logger.debug(f"Proton game dir '{game_dir}': selected PID {best_pid} (RSS {best_rss // 1024 // 1024} MB).")
     return best_pid
 
 
@@ -846,7 +872,9 @@ def _refine_proton_pid(window_pid: int) -> int:
         comm = (proc.name() or "").lower()
         cmdline = proc.cmdline()
     except psutil.Error:
-        return window_pid
+        # Cannot inspect the process — treat as unresolvable rather than returning
+        # window_pid unchanged, which could cause a Wine helper to be suspended.
+        return 0
 
     process_cfg = getattr(get_config(), "process_pausing", None)
     deny_set = _effective_denylist(process_cfg)
@@ -856,14 +884,14 @@ def _refine_proton_pid(window_pid: int) -> int:
 
     real = _largest_process_in_dir(_steam_game_dir_from_cmdline(cmdline), deny_set)
     if real and real != window_pid:
-        logger.info(f"Proton title: window owned by launcher '{comm}' (PID {window_pid}); using game PID {real}.")
+        logger.debug(f"Proton title: window owned by launcher '{comm}' (PID {window_pid}); using game PID {real}.")
         return real
     return 0
 
 
 def _resolve_linux_pid_from_obs(context: str) -> int:
     """Automatic target: the PID of the window OBS is capturing (X11 only)."""
-    if not _HAS_XLIB or not is_linux():
+    if not _HAS_XLIB or not is_linux() or is_wayland():
         return 0
     try:
         info = get_linux_capture_window_info(scene_name=get_current_scene())
@@ -894,7 +922,8 @@ def _resolve_linux_pid_from_obs(context: str) -> int:
         if pid > 0 and pid != os.getpid():
             # Proton/Steam titles: the window PID is an in-prefix launcher (steam.exe,
             # reaper, …), not the game. Map it to the real game process.
-            return _refine_proton_pid(pid)
+            refined = _refine_proton_pid(pid)
+            return refined if refined != os.getpid() else 0
     except Exception as e:
         logger.debug(f"{context}: X11 PID resolution failed: {e}")
     finally:
@@ -1011,6 +1040,8 @@ def _get_process_creation_time(pid: int) -> Optional[int]:
         # constant for the life of the PID and changes if the PID is recycled, which
         # is exactly the PID-reuse guard semantics the Windows path relies on.
         try:
+            # epoch * 1e6 — stable process identity token, not a true µs timestamp
+            # (/proc/stat start time has ~10 ms precision).
             return int(psutil.Process(pid).create_time() * 1_000_000)
         except (psutil.Error, ValueError, OSError):
             return None
@@ -1354,7 +1385,10 @@ def _get_detected_game_exe() -> str:
     return ""
 
 
-def _is_pid_allowed_to_suspend(pid: int, source: str = "none") -> bool:
+def _is_pid_allowed_to_suspend(
+    pid: int,
+    source: Literal["config_name", "obs_x11", "detected_name", "windows_hwnd", "none"] = "none",
+) -> bool:
     process_cfg = getattr(get_config(), "process_pausing", None)
     if not process_cfg:
         logger.warning("Process pausing config missing; refusing to suspend.")
@@ -1416,16 +1450,19 @@ def _is_pid_allowed_to_suspend(pid: int, source: str = "none") -> bool:
                 return True
 
             if source == "detected_name":
-                # PID was found via OBS-detected exe name; the detection string was
-                # captured at resolve time so there is no TOCTOU.
+                # PID was found via the OBS-detected exe name at resolve time.
+                # Re-fetch to validate, but if OBS returns empty now (e.g. a scene
+                # switch happened between resolve and gate), pass — the anchor was
+                # valid when the PID was resolved.
                 detected_linux_exe = _get_detected_game_exe()
-                if detected_linux_exe:
-                    if not _pid_name_matches_target(pid, detected_linux_exe):
-                        logger.warning(
-                            f"Pause: PID {pid} does not match detected game exe '{detected_linux_exe}'."
-                        )
-                        return False
+                if not detected_linux_exe:
                     return True
+                if not _pid_name_matches_target(pid, detected_linux_exe):
+                    logger.warning(
+                        f"Pause: PID {pid} does not match detected game exe '{detected_linux_exe}'."
+                    )
+                    return False
+                return True
 
             # No anchor available; refuse rather than allow any non-denylisted PID.
             logger.warning(

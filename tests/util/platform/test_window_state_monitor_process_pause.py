@@ -269,6 +269,13 @@ import subprocess
 import time
 
 
+@pytest.fixture(autouse=False)
+def reset_wayland_warn(monkeypatch):
+    """Reset the one-shot Wayland warning flag before tests that exercise it."""
+    monkeypatch.setattr(window_state_monitor, "_wayland_warn_shown", False)
+    yield
+
+
 def _proc_state(pid):
     with open(f"/proc/{pid}/stat") as f:
         data = f.read()
@@ -349,6 +356,28 @@ def test_resolve_linux_target_pid_returns_zero_without_target(monkeypatch):
     pid, source = window_state_monitor._resolve_linux_target_pid("test", log_on_missing=False)
     assert pid == 0
     assert source == "none"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process scan")
+def test_wayland_warning_fires_once(monkeypatch, reset_wayland_warn):
+    """The Wayland auto-detection warning must set the flag on first call and suppress
+    subsequent warnings — verified via the _wayland_warn_shown module flag."""
+    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
+    monkeypatch.setattr(window_state_monitor, "is_wayland", lambda: True)
+    monkeypatch.setattr(window_state_monitor, "_resolve_linux_pid_from_obs", lambda ctx: 0)
+    monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "")
+    monkeypatch.setattr(
+        window_state_monitor,
+        "get_config",
+        lambda: SimpleNamespace(process_pausing=SimpleNamespace(linux_target_process="", denylist=[])),
+    )
+
+    assert window_state_monitor._wayland_warn_shown is False
+    window_state_monitor._resolve_linux_target_pid("test1", log_on_missing=True)
+    assert window_state_monitor._wayland_warn_shown is True
+    # Second call must not reset the flag (would re-emit the warning)
+    window_state_monitor._resolve_linux_target_pid("test2", log_on_missing=True)
+    assert window_state_monitor._wayland_warn_shown is True
 
 
 import os as _os
@@ -694,10 +723,16 @@ def test_match_process_by_names_comm_truncation(monkeypatch, sleeper):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX process scan")
 def test_match_process_by_names_cmdline_fallback(monkeypatch):
-    """A process matched by cmdline (not comm) is returned as fallback."""
-    import subprocess
-    # Launch a process whose comm won't match the target but whose cmdline contains it.
-    proc = subprocess.Popen(["bash", "-c", "sleep 600 & wait"])
+    """The cmdline fallback returns a PID when comm doesn't match but cmdline does.
+
+    We pass a unique marker as an extra argument to sleep so only our process has it.
+    The marker does not match any process's comm, so the name-match branch never fires
+    and the result must come from the cmdline fallback.
+    """
+    import subprocess, sys
+    unique_arg = f"gsm-cmdline-test-{os.getpid()}"
+    # Python accepts arbitrary extra argv so the unique marker ends up in the cmdline.
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)", unique_arg])
     time.sleep(0.2)
     try:
         monkeypatch.setattr(
@@ -705,12 +740,10 @@ def test_match_process_by_names_cmdline_fallback(monkeypatch):
             "get_config",
             lambda: SimpleNamespace(process_pausing=SimpleNamespace(denylist=[])),
         )
-        # Target "bash" — comm of the bash process matches by name, so cmdline
-        # fallback may not fire.  Instead, target something that only appears in argv.
-        # Actually let's just assert cmdline_fallback is returned for "sleep":
-        target_variants = window_state_monitor._normalize_exe_entry("sleep")
+        # No process has comm == unique_arg; it only appears in sleep's cmdline.
+        target_variants = window_state_monitor._normalize_exe_entry(unique_arg)
         pid = window_state_monitor._match_process_by_names(target_variants, "test")
-        assert pid > 0  # either comm-match or cmdline-match finds the sleep
+        assert pid == proc.pid
     finally:
         proc.terminate()
         proc.wait()
@@ -840,6 +873,16 @@ def test_steam_game_dir_from_cmdline_extracts_install_dir():
     assert window_state_monitor._steam_game_dir_from_cmdline([]) == ""
     # Bare 'steamapps/common/' with no game dir -> empty (must not library-wide match).
     assert window_state_monitor._steam_game_dir_from_cmdline(["/x/steamapps/common/"]) == ""
+    # SteamLinuxRuntime path before game path -> runtime dir is skipped, game dir returned.
+    slr_cmdline = [
+        "/x/steamapps/common/SteamLinuxRuntime_sniper/run",
+        "/x/steamapps/common/ELDEN RING/Game/eldenring.exe",
+    ]
+    assert window_state_monitor._steam_game_dir_from_cmdline(slr_cmdline) == "steamapps/common/elden ring"
+    # Only a SteamLinuxRuntime path and no game -> empty.
+    assert window_state_monitor._steam_game_dir_from_cmdline(
+        ["/x/steamapps/common/SteamLinuxRuntime_soldier/run"]
+    ) == ""
 
 
 def _fake_proc(name, cmdline):
@@ -897,4 +940,19 @@ def test_refine_proton_pid_returns_zero_when_launcher_unresolved(monkeypatch):
         lambda: SimpleNamespace(process_pausing=SimpleNamespace(denylist=["steam.exe"])),
     )
     monkeypatch.setattr(window_state_monitor, "_largest_process_in_dir", lambda game_dir, deny: 0)
+    assert window_state_monitor._refine_proton_pid(999) == 0
+
+
+def test_refine_proton_pid_returns_zero_on_psutil_error(monkeypatch):
+    """Regression (C1): psutil.AccessDenied on .cmdline() must return 0, not window_pid.
+
+    Returning window_pid unchanged would cause a Wine helper to pass the obs_x11
+    fast-path in the allow-gate and get SIGSTOPped.
+    """
+    import psutil as _psutil
+
+    def _raise(_pid):
+        raise _psutil.AccessDenied(pid=_pid)
+
+    monkeypatch.setattr(window_state_monitor.psutil, "Process", _raise)
     assert window_state_monitor._refine_proton_pid(999) == 0
