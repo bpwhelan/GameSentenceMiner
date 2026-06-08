@@ -2514,7 +2514,7 @@ class ScreenshotThread(threading.Thread):
                 "ocr_area_rectangles": [],
             }
 
-            if last_image and are_images_identical(img, last_image):
+            if last_image and are_images_identical(img, last_image, last_image_np):
                 logger.debug("Captured screenshot is identical to the last one, sleeping.")
                 time.sleep(max(0.5, get_ocr_scan_rate()))
             else:

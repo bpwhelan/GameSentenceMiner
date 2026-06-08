@@ -562,11 +562,32 @@ class GSMApplication:
             lambda: get_config().hotkeys.pause_text_intake, _get_gametext_module().toggle_text_intake_paused
         )
 
+        # Area-select (screen-crop) ad-hoc OCR runs in the main process so it works
+        # whether or not the continuous OCR subprocess is running. Hotkey value still
+        # comes from the OCR tab config (get_ocr_area_select_ocr_hotkey).
+        from GameSentenceMiner.util.config.electron_config import get_ocr_area_select_ocr_hotkey
+
+        # hotkey_manager.register(
+        #     lambda: get_ocr_area_select_ocr_hotkey() or "ctrl+shift+o",
+        #     self._trigger_area_select_ocr,
+        # )
+
         if is_windows() or is_linux():
             hotkey_manager.register(
                 lambda: get_config().hotkeys.process_pause,
                 _get_window_state_monitor_module().toggle_active_game_pause,
             )
+
+    def _trigger_area_select_ocr(self) -> None:
+        # Runs on a worker thread: launch_screen_cropper blocks until the user
+        # selects/cancels, and the hotkey callback holds a lock, so we must not
+        # block it. The OCR result is scheduled onto the text async loop.
+        def _worker() -> None:
+            from GameSentenceMiner.ocr import adhoc_ocr
+
+            adhoc_ocr.run_area_select_ocr(self.state.text_async_runner.submit)
+
+        threading.Thread(target=_worker, name="adhoc-area-select-ocr", daemon=True).start()
 
     def create_image(self) -> Image.Image:
         image_path = os.path.join(os.path.dirname(__file__), "assets", "pickaxe.png")

@@ -43,6 +43,8 @@ const execFileAsync = promisify(execFile);
 
 export type TextHookEngine = 'textractor' | 'luna' | 'agent';
 export type TextHookArchitecture = 'x86' | 'x64';
+/** Who started the session: a manual user action or the auto-launcher. */
+export type TextHookStartSource = 'user' | 'auto-launcher';
 type DetectedTextHookArchitecture = TextHookArchitecture | 'unknown';
 
 export interface TextHookProfile {
@@ -81,6 +83,7 @@ interface ActiveSession {
     recoveringArchitectureMismatch: boolean;
     pid: number;
     exeName: string;
+    source: TextHookStartSource;
     selectedHookId: string | null;
     hooks: Map<string, HookEntry>;
     /** Hook id we will auto-select when it shows up (loaded from a profile). */
@@ -1045,6 +1048,8 @@ export interface StartHookOptions {
     flushDelayMs?: number;
     agentScriptPath?: string | null;
     copyToClipboard?: boolean;
+    /** Who is starting the session; defaults to a manual user action. */
+    source?: TextHookStartSource;
     /** Override the auto-detected PID (mainly for tests). */
     pidOverride?: number;
     /** Internal recovery path: force a specific hook engine architecture. */
@@ -1071,6 +1076,8 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
 
     const engine: TextHookEngine =
         options.engine === 'textractor' || options.engine === 'agent' ? options.engine : 'luna';
+    const source: TextHookStartSource =
+        options.source === 'auto-launcher' ? 'auto-launcher' : 'user';
     let exeName = (options.exeName ?? '').trim();
     if (!exeName) {
         const capture = await getActiveCapture();
@@ -1116,6 +1123,7 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
             arch: target.arch,
             scriptPath,
             flushDelayMs,
+            source,
         });
     }
 
@@ -1149,6 +1157,7 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         recoveringArchitectureMismatch: false,
         pid: target.pid,
         exeName,
+        source,
         selectedHookId: null,
         hooks: new Map(),
         autoSelectHookId: profile && profile.engine === engine && profile.autoHook ? profile.hookId ?? null : null,
@@ -1247,7 +1256,7 @@ async function restartSessionWithArchitecture(
     failedSession: ActiveSession,
     arch: TextHookArchitecture,
 ): Promise<void> {
-    const { engine, exeName, pid, flushDelayMs } = failedSession;
+    const { engine, exeName, pid, flushDelayMs, source } = failedSession;
     if (session !== failedSession) return;
 
     teardownSession();
@@ -1256,6 +1265,7 @@ async function restartSessionWithArchitecture(
         exeName,
         pidOverride: pid,
         flushDelayMs,
+        source,
         archOverride: arch,
         architectureFallbackAttempted: true,
     });
@@ -1371,6 +1381,7 @@ export function getRuntimeStatus() {
         arch: session.arch,
         pid: session.pid,
         exeName: session.exeName,
+        source: session.source,
         selectedHookId: session.selectedHookId,
         hookCount: session.hooks.size,
         flushDelayMs: session.flushDelayMs,

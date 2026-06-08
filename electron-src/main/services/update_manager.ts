@@ -510,6 +510,10 @@ export class UpdateManager {
                         );
                     }
 
+                    // Reclaim disk: drop any uv package cache (e.g. left by older
+                    // releases) now that the venv is synced. Best-effort.
+                    await cleanUvCache(pythonPath);
+
                     const updatedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
                     log.info(
                         `Backend version after update attempt: ${

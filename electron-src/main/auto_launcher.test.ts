@@ -26,6 +26,8 @@ const getLaunchLunaTranslatorMinimizedMock = vi.fn();
 const getLaunchTextractorMinimizedMock = vi.fn();
 const getLunaTranslatorPathMock = vi.fn();
 const getObsOcrScenesMock = vi.fn();
+const getIgnoreActiveSceneForOcrMock = vi.fn();
+const getForceManualOcrAllProfilesMock = vi.fn();
 const getSceneLaunchProfileForSceneMock = vi.fn();
 const getSteamGamesMock = vi.fn();
 const getTextractorPath32Mock = vi.fn();
@@ -73,6 +75,8 @@ vi.mock('./store.js', () => ({
     getLaunchTextractorMinimized: getLaunchTextractorMinimizedMock,
     getLunaTranslatorPath: getLunaTranslatorPathMock,
     getObsOcrScenes: getObsOcrScenesMock,
+    getIgnoreActiveSceneForOcr: getIgnoreActiveSceneForOcrMock,
+    getForceManualOcrAllProfiles: getForceManualOcrAllProfilesMock,
     getSceneLaunchProfileForScene: getSceneLaunchProfileForSceneMock,
     getSteamGames: getSteamGamesMock,
     getTextractorPath32: getTextractorPath32Mock,
@@ -126,6 +130,8 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         getLaunchTextractorMinimizedMock.mockReset();
         getLunaTranslatorPathMock.mockReset();
         getObsOcrScenesMock.mockReset();
+        getIgnoreActiveSceneForOcrMock.mockReset();
+        getForceManualOcrAllProfilesMock.mockReset();
         getSceneLaunchProfileForSceneMock.mockReset();
         getSteamGamesMock.mockReset();
         getTextractorPath32Mock.mockReset();
@@ -154,6 +160,8 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         getRuntimeStatusMock.mockReturnValue({ running: false });
         startHookSessionMock.mockResolvedValue({ success: true });
         getObsOcrScenesMock.mockReturnValue([]);
+        getIgnoreActiveSceneForOcrMock.mockReturnValue(false);
+        getForceManualOcrAllProfilesMock.mockReturnValue(false);
         getSceneLaunchProfileForSceneMock.mockReturnValue(null);
         getSteamGamesMock.mockReturnValue([]);
         getYuzuGamesConfigMock.mockReturnValue([]);
@@ -486,6 +494,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             engine: 'luna',
             exeName: 'nine_sorairo.exe',
             pidOverride: 108800,
+            source: 'auto-launcher',
         });
     });
 
@@ -522,6 +531,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             engine: 'textractor',
             exeName: 'nine_sorairo.exe',
             pidOverride: 108800,
+            source: 'auto-launcher',
         });
         expect(launcher.handleLunaAutomation).toHaveBeenCalledWith(
             'nine_sorairo.exe',
@@ -563,6 +573,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             engine: 'agent',
             exeName: 'agent_game.exe',
             pidOverride: 108800,
+            source: 'auto-launcher',
         });
         expect(launcher.handleAgentAutomation).toHaveBeenCalled();
     });
@@ -632,6 +643,48 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             engine: 'luna',
             exeName: 'nine_sorairo.exe',
             pidOverride: 108800,
+            source: 'auto-launcher',
         });
+    });
+
+    it('does not override a user-started session of a different engine', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        const scene = { id: 'scene-1', name: 'Nine Episode 2' };
+
+        getSceneLaunchProfileForSceneMock.mockReturnValue({
+            sceneId: scene.id,
+            sceneName: scene.name,
+            textHookMode: 'none',
+            ocrMode: 'none',
+            launchOverlay: false,
+            agentScriptPath: '',
+            launchDelaySeconds: 0,
+        });
+        getExecutableNameFromSourceMock.mockResolvedValue('nine_sorairo.exe');
+        // Saved profile wants Textractor...
+        getProfileForMock.mockReturnValue({
+            exeName: 'nine_sorairo.exe',
+            engine: 'textractor',
+            autoHook: true,
+            hookId: '4',
+            hookFunction: 'ScenarioText',
+            manualHookCode: null,
+            lastUsed: Date.now(),
+        });
+        // ...but the user manually attached Luna to the same game.
+        getRuntimeStatusMock.mockReturnValue({
+            running: true,
+            engine: 'luna',
+            exeName: 'nine_sorairo.exe',
+            pid: 108800,
+            source: 'user',
+        });
+        launcher.getPidByProcessName = vi.fn().mockResolvedValue(108800);
+
+        await launcher.runTextHookAutomation(scene);
+
+        expect(stopHookSessionMock).not.toHaveBeenCalled();
+        expect(startHookSessionMock).not.toHaveBeenCalled();
     });
 });

@@ -886,6 +886,14 @@ export class AutoLauncher {
                 return;
             }
 
+            // Same rule as OCR auto-start: never tear down a session the user
+            // started manually. If a user attaches a different engine (e.g.
+            // Luna while a Textractor profile is saved), leave it alone instead
+            // of repeatedly killing it to re-attach the saved profile.
+            if (currentStatus.source !== "auto-launcher") {
+                return;
+            }
+
             this.logInternal(
                 `AutoLauncher: Stopping active text hook for ${currentStatus.exeName} before attaching ${engine} to ${exeName}.`
             );
@@ -911,6 +919,7 @@ export class AutoLauncher {
             engine,
             exeName,
             pidOverride: gamePid,
+            source: "auto-launcher",
         });
         const failureKey = `${engine}:${exeName}:${gamePid}:${result.error ?? "unknown"}`;
 
