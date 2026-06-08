@@ -373,7 +373,7 @@ name = "brotlicffi"
 version = "1.2.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi" },
+    { name = "cffi", marker = "platform_machine != 'aarch64' or platform_python_implementation != 'CPython' or sys_platform != 'linux'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/8a/b6/017dc5f852ed9b8735af77774509271acbf1de02d238377667145fcee01d/brotlicffi-1.2.0.1.tar.gz", hash = "sha256:c20d5c596278307ad06414a6d95a892377ea274a5c6b790c2548c009385d621c", size = 478156, upload-time = "2026-03-05T19:54:11.547Z" }
 wheels = [
@@ -1195,7 +1195,7 @@ wheels = [
 
 [[package]]
 name = "gamesentenceminer"
-version = "2026.6.9"
+version = "2026.6.10"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
