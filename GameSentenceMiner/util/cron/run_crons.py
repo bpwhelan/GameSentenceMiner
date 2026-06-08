@@ -17,7 +17,6 @@ from typing import Optional
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.cron_table import CronTable
-from GameSentenceMiner.util.database.write_queue import db_write_queue
 
 
 MAX_QUEUE_WAIT_SECONDS = 0.5
@@ -181,21 +180,14 @@ class CronScheduler:
             logger.debug("CronScheduler thread exited")
 
     def _execute_safe(self, force_task: Optional[Crons]):
-        """Helper to acquire lock and run logic.
-
-        All cron task DB writes are routed through the shared db_write_queue
-        thread so they never compete with text-intake SQLite writes for the
-        write lock.  We use submit_sync() to block the cron-scheduler thread
-        until the task completes (crons are serial anyway).
-        """
+        """Helper to acquire lock and run logic"""
         acquired = self._lock.acquire(blocking=False)
         if not acquired:
             logger.background("Cron task is already running, skipping/queuing...")
             return
 
         try:
-            future = db_write_queue.submit_sync(run_due_crons, force_task)
-            future.result(timeout=300)  # 5-minute safety cap per cron batch
+            run_due_crons(force_task)
         except Exception as e:
             logger.exception(f"Cron batch execution failed: {e}")
         finally:

@@ -98,7 +98,6 @@ try:
     from GameSentenceMiner.util.gsm_cloud_auth_cache import gsm_cloud_auth_cache_service
     from GameSentenceMiner.util.cloud_sync import cloud_sync_service
     from GameSentenceMiner.util.database import db
-    from GameSentenceMiner.util.database.write_queue import db_write_queue
     from GameSentenceMiner.util.downloader.download_tools import (
         download_ffmpeg_if_needed,
         download_obs_if_needed,
@@ -808,7 +807,6 @@ class GSMApplication:
             self.state.overlay_async_runner.stop()
             self.state.text_async_runner.stop()
             self.state.async_runner.stop()
-            db_write_queue.stop()
 
             # Release the single-instance lock before notifying Electron so that
             # when Electron immediately spawns a new Python process it can acquire
@@ -1441,7 +1439,6 @@ class GSMApplication:
         self.state.settings_window = _get_qt_main_module().get_config_window()
         gsm_state.config_app = self.state.settings_window
 
-        db_write_queue.start()
         self.start_background_threads()
         self.register_hotkeys()
         self.state.settings_window.add_save_hook(self.register_hotkeys)
