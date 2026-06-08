@@ -9,7 +9,7 @@ import pytest
 from GameSentenceMiner.util.config import feature_flags
 
 
-window_state_monitor = importlib.import_module("GameSentenceMiner.util.platform.window_state_monitor")
+window_state_monitor = importlib.import_module("GameSentenceMiner.util.platform.base_window_monitor")
 
 
 class _FakeKernel32:
@@ -356,6 +356,7 @@ def _mock_ownership(monkeypatch, uid=None):
     monkeypatch.setattr(window_state_monitor, "_get_process_uid", lambda _pid: effective)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only (os.geteuid)")
 def test_is_pid_allowed_to_suspend_linux_requires_target_match(monkeypatch):
     monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
     monkeypatch.setattr(window_state_monitor, "is_linux", lambda: True)
@@ -380,6 +381,7 @@ def test_is_pid_allowed_to_suspend_linux_requires_target_match(monkeypatch):
     assert window_state_monitor._is_pid_allowed_to_suspend(4242) is False
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only (os.geteuid)")
 def test_is_pid_allowed_to_suspend_linux_proton_comm_matches_configured_target(monkeypatch):
     """Proton games: proc.exe() is the wine loader but comm is the Windows .exe — allow it."""
     monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
@@ -403,6 +405,7 @@ def test_is_pid_allowed_to_suspend_linux_proton_comm_matches_configured_target(m
     assert window_state_monitor._is_pid_allowed_to_suspend(4242) is True
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only (os.geteuid)")
 def test_is_pid_allowed_to_suspend_linux_obs_x11_source_allowed(monkeypatch):
     """PIDs sourced from OBS X11 window are authoritative — allowed without an exe anchor."""
     monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
@@ -421,6 +424,7 @@ def test_is_pid_allowed_to_suspend_linux_obs_x11_source_allowed(monkeypatch):
     assert window_state_monitor._is_pid_allowed_to_suspend(4242, source="obs_x11") is True
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only (os.geteuid)")
 def test_is_pid_allowed_to_suspend_linux_no_anchor_refused(monkeypatch):
     """Auto mode without OBS-window source and no configured target must refuse."""
     monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
@@ -440,6 +444,7 @@ def test_is_pid_allowed_to_suspend_linux_no_anchor_refused(monkeypatch):
     assert window_state_monitor._is_pid_allowed_to_suspend(4242, source="none") is False
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only (os.geteuid)")
 def test_is_pid_allowed_to_suspend_linux_detected_name_empty_anchor_passes(monkeypatch):
     """Regression (N3/C2): when source='detected_name' and _get_detected_game_exe() returns
     '' at gate time (e.g. scene switch), the gate must pass — not fall through to 'no anchor'
@@ -462,6 +467,7 @@ def test_is_pid_allowed_to_suspend_linux_detected_name_empty_anchor_passes(monke
     assert window_state_monitor._is_pid_allowed_to_suspend(4242, source="detected_name") is True
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only (os.geteuid)")
 def test_is_pid_allowed_to_suspend_linux_detected_name_validates_when_exe_present(monkeypatch):
     """When source='detected_name' and the exe is still available, it must validate the PID."""
     monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
@@ -500,6 +506,7 @@ def test_is_pid_allowed_to_suspend_linux_denylist_blocks_in_auto_mode(monkeypatc
     assert window_state_monitor._is_pid_allowed_to_suspend(4242) is False
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only (os.geteuid)")
 def test_is_pid_allowed_to_suspend_linux_ownership_check_blocks_foreign_uid(monkeypatch):
     monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
     monkeypatch.setattr(window_state_monitor, "is_linux", lambda: True)

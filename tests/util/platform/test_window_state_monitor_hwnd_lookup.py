@@ -1,7 +1,15 @@
 import importlib
+import sys
+
+import pytest
 
 
 window_state_monitor = importlib.import_module("GameSentenceMiner.util.platform.window_state_monitor")
+
+if sys.platform == "win32":
+    _wwm = importlib.import_module("GameSentenceMiner.util.platform.windows_window_monitor")
+else:
+    _wwm = None
 
 
 class _FakeUser32ForFind:
@@ -43,6 +51,7 @@ class _FakeUser32ForFind:
         return len(value)
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only window enumeration APIs")
 def test_find_target_hwnd_requires_exe_match_for_same_class_candidates(monkeypatch):
     fake_user32 = _FakeUser32ForFind()
     exe_by_hwnd = {
@@ -51,12 +60,12 @@ def test_find_target_hwnd_requires_exe_match_for_same_class_candidates(monkeypat
     }
     exe_lookups = []
 
-    monkeypatch.setattr(window_state_monitor, "user32", fake_user32)
-    monkeypatch.setattr(window_state_monitor.ctypes, "WINFUNCTYPE", lambda *_args: lambda fn: fn, raising=False)
-    monkeypatch.setattr(window_state_monitor, "get_current_scene", lambda: "Game Scene")
-    monkeypatch.setattr(window_state_monitor, "get_current_game", lambda: "Tales of Arise")
+    monkeypatch.setattr(_wwm, "user32", fake_user32)
+    monkeypatch.setattr(_wwm.ctypes, "WINFUNCTYPE", lambda *_args: lambda fn: fn, raising=False)
+    monkeypatch.setattr(_wwm, "get_current_scene", lambda: "Game Scene")
+    monkeypatch.setattr(_wwm, "get_current_game", lambda: "Tales of Arise")
     monkeypatch.setattr(
-        window_state_monitor,
+        _wwm,
         "get_window_info_from_source",
         lambda scene_name=None: {
             "title": "Tales of Arise",
