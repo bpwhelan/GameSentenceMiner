@@ -20,7 +20,6 @@ from GameSentenceMiner.util.config.configuration import (
 )
 from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.database.games_table import GamesTable
-from GameSentenceMiner.util.database.write_queue import db_write_queue
 from GameSentenceMiner.util.text_processing import apply_text_processing
 from GameSentenceMiner.util.gsm_utils import SleepManager
 from GameSentenceMiner.util.overlay.get_overlay_coords import get_overlay_processor
@@ -614,6 +613,7 @@ async def handle_new_text_event(
     source=None,
     source_display_name=None,
     copy_to_clipboard=False,
+    exclude_from_stats=False,
 ):
     """Single entry point for every text source (clipboard, websocket, IPC)."""
     global current_line
@@ -641,6 +641,7 @@ async def handle_new_text_event(
             source=source,
             source_display_name=source_display_name,
             copy_to_clipboard=copy_to_clipboard,
+            exclude_from_stats=exclude_from_stats,
         )
 
 
@@ -652,6 +653,7 @@ async def add_line_to_text_log(
     skip_overlay=False,
     source_display_name=None,
     copy_to_clipboard=False,
+    exclude_from_stats=False,
 ):
     global current_line_time
 
@@ -700,12 +702,17 @@ async def add_line_to_text_log(
     #         clipboard_copy(current_line_after_regex)
     #     return
 
-    live_stats_tracker.add_line(current_line_after_regex, current_line_time.timestamp())
+    if not exclude_from_stats:
+        live_stats_tracker.add_line(current_line_after_regex, current_line_time.timestamp())
     gsm_status.last_line_received = current_line_time.strftime("%Y-%m-%d %H:%M:%S")
 
     new_line = add_line(current_line_after_regex, current_line_time, source=source)
     if not new_line:
         return
+    if exclude_from_stats:
+        # e.g. ad-hoc area-select OCR while OBS isn't capturing a game: relay/show
+        # the line but don't attribute it to the current game's stats or persist it.
+        new_line.excluded_from_stats = True
 
     await _add_event_to_texthooker(new_line)
     id_overlay, websocket_manager = _get_overlay_websocket()
@@ -724,27 +731,16 @@ async def add_line_to_text_log(
             )
     obs.add_longplay_srt_line(current_line_time, new_line)
 
-    # Persist the line to SQLite asynchronously via the dedicated DB writer thread
-    # so a slow/locked DB never stalls the text-intake pipeline.
-    if "nostatspls" not in new_line.scene.lower():
+    # Link the new_line to the games table, but skip if 'nostatspls' in scene
+    if not exclude_from_stats and "nostatspls" not in new_line.scene.lower():
         if new_line.scene:
-            db_write_queue.submit(_persist_line_with_scene, new_line)
+            # Get or create the game record
+            game = GamesTable.get_or_create_by_name(new_line.scene)
+            # Add the line with the game_id
+            GameLinesTable.add_line(new_line, game_id=game.id)
         else:
-            db_write_queue.submit(GameLinesTable.add_line, new_line)
-
-
-def _persist_line_with_scene(new_line: GameLine) -> None:
-    """Look up/create the game record for the line's scene, then insert the line.
-
-    Runs on the DB writer thread (never on the text-intake loop).
-    """
-    try:
-        game = GamesTable.get_or_create_by_name(new_line.scene)
-        GameLinesTable.add_line(new_line, game_id=game.id)
-    except Exception:
-        # Fall back to scene-less insert so we don't lose the line entirely.
-        logger.exception(f"Failed to associate line with game '{new_line.scene}'; inserting without game_id.")
-        GameLinesTable.add_line(new_line)
+            # Fallback if no scene is set
+            GameLinesTable.add_line(new_line)
 
 
 def _build_transient_output_line(text: str, line_time: datetime, source: str | None = None) -> GameLine:

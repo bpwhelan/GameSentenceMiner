@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from typing import TYPE_CHECKING
 
 from GameSentenceMiner.ui.config.safety import safe_config_call, safe_config_callback
-from GameSentenceMiner.util.config.configuration import logger
+from GameSentenceMiner.util.config.configuration import is_linux, logger
 from GameSentenceMiner.util.docs import DOCS_URLS
 
 if TYPE_CHECKING:
@@ -301,6 +301,21 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         _create_process_list_row(window, window.process_pausing_denylist_edit, "denylist"),
     )
+
+    if is_linux():
+        process_layout.addRow(
+            window._create_labeled_widget(
+                tabs_i18n,
+                "game_pausing",
+                "linux_target_process",
+                default_tooltip=(
+                    "Process name to pause on Linux (e.g. 'eldenring.exe' under Proton or a "
+                    "native binary name). Required when OBS/X11 auto-detection is unavailable "
+                    "(e.g. Wayland sessions). Leave blank to use automatic X11 detection."
+                ),
+            ),
+            window.process_pausing_linux_target_process_edit,
+        )
 
     force_resume_button = QPushButton("Force Resume Suspended Processes")
     force_resume_button.setToolTip("Force resume any tracked suspended game processes and clear pause tracking.")

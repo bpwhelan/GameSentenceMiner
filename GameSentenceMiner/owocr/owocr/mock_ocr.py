@@ -64,7 +64,7 @@ from .ocr import (
     OCRSpace,
     GeminiOCR,
     GroqOCR,
-    localLLMOCR,
+    OpenAICompatibleOCR,
     draw_detections,
 )
 
@@ -280,7 +280,7 @@ _OCR_ENGINE_CLASSES = [
     OCRSpace,
     GeminiOCR,
     GroqOCR,
-    localLLMOCR,
+    OpenAICompatibleOCR,
 ]
 
 _TEXT_DETECTOR_CLASSES = [

@@ -973,6 +973,11 @@ class ProcessPausing:
     overlay_manual_hotkey_requests_pause: bool = False
     overlay_texthooker_hotkey_requests_pause: bool = False
     overlay_gamepad_navigation_requests_pause: bool = False
+    # Linux only: process name of the game to suspend (e.g. "eldenring.exe" under
+    # Proton, or a native binary name). Linux has no window handle to resolve a PID
+    # from, so the game is matched by process name. Mainly for Wayland users — leave
+    # blank to auto-detect the game from the OBS-captured X11 window (the default).
+    linux_target_process: str = ""
     denylist: List[str] = field(
         default_factory=lambda: [
             "explorer.exe",
@@ -994,6 +999,10 @@ class ProcessPausing:
             "gamesentenceminer.exe",
             "gsm_overlay.exe",
             "gsm_overlay",
+            # Linux/macOS critical processes (compositors, audio, shells, OBS/Steam
+            # helpers, GSM itself) are enforced unconditionally by the hardcoded
+            # _CRITICAL_DENYLIST floor in window_state_monitor, so they are not
+            # duplicated here.
         ]
     )
 
@@ -1591,7 +1600,7 @@ class ProfileConfig:
 @dataclass_json
 @dataclass
 class StatsConfig:
-    session_gap_seconds: int = 1800 
+    session_gap_seconds: int = 1800
     streak_requirement_hours: float = 0.01  # 1 second required per day to keep your streak by default
     reading_hours_target: int = 1500  # Target reading hours based on TMW N1 achievement data
     character_count_target: int = 25000000  # Target character count (25M) inspired by Discord server milestones

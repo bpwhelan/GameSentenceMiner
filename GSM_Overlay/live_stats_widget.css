@@ -1,3 +1,9 @@
+/* Text is rendered via generated content so Yomitan's caretRangeFromPoint
+   (which ignores user-select/pointer-events) finds no text node to scan. */
+#gsm-live-stats [data-text]::after {
+  content: attr(data-text);
+}
+
 #gsm-live-stats {
   --gsm-live-stats-x: auto;
   --gsm-live-stats-y: 16px;

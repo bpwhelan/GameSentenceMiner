@@ -3623,10 +3623,12 @@ def add_ss_hotkey():
 
     hotkey_manager.clear()
 
+    # Area-select (screen-crop) OCR is owned by this OCR subprocess.
     if area_select_ocr_hotkey:
         hotkey_manager.register(lambda: area_select_ocr_hotkey, capture_screen_crop)
-    elif manual:
-        logger.info("Manual OCR screen-crop hotkey is disabled.")
+        logger.info(f"Press {area_select_ocr_hotkey} to run Area-Select OCR.")
+    else:
+        logger.info("Area-select OCR hotkey is disabled.")
 
     if not manual:
         if manual_menu_ocr_hotkey:
@@ -3634,9 +3636,6 @@ def add_ss_hotkey():
             logger.info(f"Press {manual_menu_ocr_hotkey} to run OCR for Menu Rectangles.")
         else:
             logger.info("Menu rectangle OCR hotkey is disabled.")
-    else:
-        if area_select_ocr_hotkey:
-            logger.info(f"Press {area_select_ocr_hotkey} to run Manual OCR Screen Crop.")
 
     if whole_window_ocr_hotkey:
         hotkey_manager.register(lambda: whole_window_ocr_hotkey, capture_whole_window)

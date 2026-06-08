@@ -98,7 +98,6 @@ try:
     from GameSentenceMiner.util.gsm_cloud_auth_cache import gsm_cloud_auth_cache_service
     from GameSentenceMiner.util.cloud_sync import cloud_sync_service
     from GameSentenceMiner.util.database import db
-    from GameSentenceMiner.util.database.write_queue import db_write_queue
     from GameSentenceMiner.util.downloader.download_tools import (
         download_ffmpeg_if_needed,
         download_obs_if_needed,
@@ -562,11 +561,32 @@ class GSMApplication:
             lambda: get_config().hotkeys.pause_text_intake, _get_gametext_module().toggle_text_intake_paused
         )
 
-        if is_windows():
+        # Area-select (screen-crop) ad-hoc OCR runs in the main process so it works
+        # whether or not the continuous OCR subprocess is running. Hotkey value still
+        # comes from the OCR tab config (get_ocr_area_select_ocr_hotkey).
+        from GameSentenceMiner.util.config.electron_config import get_ocr_area_select_ocr_hotkey
+
+        # hotkey_manager.register(
+        #     lambda: get_ocr_area_select_ocr_hotkey() or "ctrl+shift+o",
+        #     self._trigger_area_select_ocr,
+        # )
+
+        if is_windows() or is_linux():
             hotkey_manager.register(
                 lambda: get_config().hotkeys.process_pause,
                 _get_window_state_monitor_module().toggle_active_game_pause,
             )
+
+    def _trigger_area_select_ocr(self) -> None:
+        # Runs on a worker thread: launch_screen_cropper blocks until the user
+        # selects/cancels, and the hotkey callback holds a lock, so we must not
+        # block it. The OCR result is scheduled onto the text async loop.
+        def _worker() -> None:
+            from GameSentenceMiner.ocr import adhoc_ocr
+
+            adhoc_ocr.run_area_select_ocr(self.state.text_async_runner.submit)
+
+        threading.Thread(target=_worker, name="adhoc-area-select-ocr", daemon=True).start()
 
     def create_image(self) -> Image.Image:
         image_path = os.path.join(os.path.dirname(__file__), "assets", "pickaxe.png")
@@ -787,7 +807,6 @@ class GSMApplication:
             self.state.overlay_async_runner.stop()
             self.state.text_async_runner.stop()
             self.state.async_runner.stop()
-            db_write_queue.stop()
 
             # Release the single-instance lock before notifying Electron so that
             # when Electron immediately spawns a new Python process it can acquire
@@ -1420,7 +1439,6 @@ class GSMApplication:
         self.state.settings_window = _get_qt_main_module().get_config_window()
         gsm_state.config_app = self.state.settings_window
 
-        db_write_queue.start()
         self.start_background_threads()
         self.register_hotkeys()
         self.state.settings_window.add_save_hook(self.register_hotkeys)

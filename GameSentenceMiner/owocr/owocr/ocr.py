@@ -4863,7 +4863,9 @@ class GeminiOCR:
                 self.model = config["model"]
                 self.generation_config = types.GenerateContentConfig(
                     temperature=0.0,
-                    max_output_tokens=300,
+                    # High cap so thinking models (e.g. gemma-*-it) can finish reasoning
+                    # and still emit the answer; non-thinking models stop early at STOP.
+                    max_output_tokens=2000,
                     safety_settings=[
                         types.SafetySetting(
                             category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
@@ -4925,6 +4927,15 @@ class GeminiOCR:
             response = self.client.models.generate_content(
                 model=self.model, contents=contents, config=self.generation_config
             )
+            # response.text is None when no text part was returned (e.g. thinking model
+            # truncated by MAX_TOKENS, or response blocked). Surface a useful reason.
+            if response.text is None:
+                finish = None
+                if response.candidates:
+                    finish = response.candidates[0].finish_reason
+                if finish and str(finish).endswith("MAX_TOKENS"):
+                    return (False, "Gemini returned no text (hit max_output_tokens). Try a non-thinking model.")
+                return (True, "", None, None, None, None)
             text_output = response.text.strip()
 
             # Mimic OneOCR result for text-only response
@@ -5020,61 +5031,98 @@ class GroqOCR:
 
 
 # OpenAI-Compatible Endpoint OCR using LM Studio
-class localLLMOCR:
+class OpenAICompatibleOCR:
+    # `name`/`key` are kept stable ("local_llm_ocr") so existing user configs and the
+    # frontend engine selection keep working. This now talks to any OpenAI-compatible
+    # /chat/completions endpoint (OpenAI, OpenRouter, LM Studio, Ollama, vLLM, ...).
     name = "local_llm_ocr"
-    readable_name = "Local LLM OCR"
+    readable_name = "OpenAI-Compatible OCR"
     key = "a"
     available = False
     last_ocr_time = time.time() - 5
 
+    DEFAULT_BASE_URL = "https://api.openai.com/v1"
+
     def __init__(self, config={}, lang="ja"):
         self.keep_llm_hot_thread = None
-        # All three config values are required: url, model, api_key
-        if not config or not (config.get("url") and config.get("model") and config.get("api_key")):
-            logger.warning("Local LLM OCR requires url, model, and api_key in config, Local LLM OCR will not work!")
-            return
+        self.available = False
 
         try:
             import openai
         except ImportError:
-            logger.warning("openai module not available, Local LLM OCR will not work!")
+            logger.warning("openai module not available, OpenAI-Compatible OCR will not work!")
             return
-        import openai
-        import threading
+
+        config = config or {}
+        ai_config = getattr(get_config(), "ai", None)
+
+        # Engine config (owocr ini) takes priority; fall back to the GSM AI `open_ai_*` settings.
+        api_url = config.get("url") or config.get("api_url") or getattr(ai_config, "open_ai_url", "")
+        self.model = config.get("model") or getattr(ai_config, "open_ai_model", "")
+        api_key = config.get("api_key") or getattr(ai_config, "open_ai_api_key", "")
+
+        if not self.model:
+            logger.warning("OpenAI-Compatible OCR requires a model (open_ai_model), it will not work!")
+            return
+
+        # Some local endpoints don't check the key; send a placeholder so the client still works.
+        self.api_key = api_key or "sk-no-key-required"
+        self.base_url = self._normalize_base_url(api_url)
+        self.custom_prompt = config.get("prompt", None)
+        self.temperature = config.get("temperature", getattr(ai_config, "temperature", 0.1))
+        self.max_tokens = config.get("max_tokens", getattr(ai_config, "max_output_tokens", 4096))
+        self.keep_warm = config.get("keep_warm", False)  # only useful for local models
+        timeout = config.get("timeout", 30)
 
         try:
-            self.api_url = config.get("url", "http://localhost:1234/v1/chat/completions")
-            self.model = config.get("model", "qwen2.5-vl-3b-instruct")
-            self.api_key = config.get("api_key", "lm-studio")
-            self.keep_warm = config.get("keep_warm", True)
-            self.custom_prompt = config.get("prompt", None)
-            self.available = True
-            if not self.check_url_for_connectivity(self.api_url):
-                self.available = False
-                logger.warning(f"Local LLM OCR API URL not reachable: {self.api_url}")
-                return
             self.client = openai.OpenAI(
-                base_url=self.api_url.replace("/v1/chat/completions", "/v1"),
+                base_url=self.base_url,
                 api_key=self.api_key,
-                timeout=1,
+                timeout=timeout,
             )
-            if self.client.models.retrieve(self.model):
-                self.model = self.model
-            logger.info(f"Local LLM OCR (OpenAI-compatible) ready with model {self.model}")
-            if self.keep_warm:
-                self.keep_llm_hot_thread = threading.Thread(target=self.keep_llm_warm, daemon=True)
-                self.keep_llm_hot_thread.start()
-        except Exception:
-            logger.warning("Error initializing Local LLM OCR, Local LLM OCR will not work!")
+        except Exception as e:
+            logger.warning(f"Error initializing OpenAI-Compatible OCR: {e}")
+            return
 
-    def check_url_for_connectivity(self, url):
-        import requests
+        self.available = True
+        logger.info(f"OpenAI-Compatible OCR ready with model '{self.model}' at {self.base_url}")
+        if self.keep_warm:
+            import threading
 
-        try:
-            response = requests.get(url, timeout=0.5)
-            return response.status_code == 200
-        except Exception:
-            return False
+            self.keep_llm_hot_thread = threading.Thread(target=self.keep_llm_warm, daemon=True)
+            self.keep_llm_hot_thread.start()
+
+    def _normalize_base_url(self, url):
+        # Accept a bare host, a base URL, or a full chat/completions endpoint and reduce
+        # it to the base the OpenAI client expects.
+        url = (url or "").strip().rstrip("/")
+        if not url:
+            return self.DEFAULT_BASE_URL
+        if url.endswith("/chat/completions"):
+            url = url[: -len("/chat/completions")]
+        return url
+
+    def _create_completion(self, messages):
+        # Newer models (gpt-5 / o-series) reject `max_tokens` (want `max_completion_tokens`)
+        # and a non-default `temperature`. Adapt on the fly so we stay endpoint-agnostic.
+        params = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+        }
+        for _ in range(3):
+            try:
+                return self.client.chat.completions.create(**params)
+            except Exception as e:
+                msg = str(e).lower()
+                if "max_tokens" in params and "max_tokens" in msg and "max_completion_tokens" in msg:
+                    params["max_completion_tokens"] = params.pop("max_tokens")
+                    continue
+                if "temperature" in params and "temperature" in msg and "unsupported" in msg:
+                    params.pop("temperature")
+                    continue
+                raise
 
     def keep_llm_warm(self):
         def ocr_blank_black_image():
@@ -5085,7 +5133,7 @@ class localLLMOCR:
 
             # Create a blank black image
             blank_image = Image.fromarray(np.zeros((100, 100, 3), dtype=np.uint8))
-            logger.info("Keeping local LLM OCR warm with a blank black image")
+            logger.info("Keeping OpenAI-Compatible OCR warm with a blank black image")
             self(blank_image)
 
         while True:
@@ -5103,26 +5151,22 @@ class localLLMOCR:
                 prompt = self.custom_prompt.strip()
             else:
                 prompt = f"""
-                Extract all {CommonLanguages.from_code(get_ocr_language()).name} Text from Image. Ignore all Furigana. Do not return any commentary, just the text in the image. Do not Translate. If there is no text in the image, return "" (Empty String). 
+                Extract all {CommonLanguages.from_code(get_ocr_language()).name} Text from Image. Ignore all Furigana. Do not return any commentary, just the text in the image. Do not Translate. If there is no text in the image, return "" (Empty String).
                 """
 
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/png;base64,{img_base64}"},
-                            },
-                        ],
-                    }
-                ],
-                max_tokens=4096,
-                temperature=0.1,
-            )
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{img_base64}"},
+                        },
+                    ],
+                }
+            ]
+            response = self._create_completion(messages)
             self.last_ocr_time = time.time()
             if response.choices and response.choices[0].message.content:
                 text_output = response.choices[0].message.content.strip()
@@ -5130,7 +5174,7 @@ class localLLMOCR:
             else:
                 return (True, "", None, None, None, None)
         except Exception as e:
-            return (False, f"Local LLM OCR request failed: {e}")
+            return (False, f"OpenAI-Compatible OCR request failed: {e}")
 
 
 # import os
@@ -6056,7 +6100,7 @@ if __name__ == "__main__":
 # QWENOCR.initialize()
 # qwenocr = QWENOCR()
 
-# localOCR = localLLMOCR(config={'api_url': 'http://localhost:1234/v1/chat/completions', 'model': 'qwen2.5-vl-3b-instruct'})
+# localOCR = OpenAICompatibleOCR(config={'api_url': 'http://localhost:1234/v1/chat/completions', 'model': 'qwen2.5-vl-3b-instruct'})
 
 # for i in range(10):
 #     start_time = time.time()

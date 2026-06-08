@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { exec } from 'node:child_process';
 import { BASE_DIR, isWindows } from '../util.js';
 import { mainWindow, sendTextHookLine } from '../main.js';
-import type { StartHookResult, TextHookArchitecture } from './texthook.js';
+import type { StartHookResult, TextHookArchitecture, TextHookStartSource } from './texthook.js';
 
 interface AgentHookEntry {
     id: string;
@@ -21,6 +21,7 @@ interface StartAgentHookOptions {
     arch: TextHookArchitecture;
     scriptPath: string;
     flushDelayMs: number;
+    source: TextHookStartSource;
 }
 
 interface AgentTextPayload {
@@ -37,6 +38,7 @@ interface AgentHookSession {
     pid: number;
     exeName: string;
     arch: TextHookArchitecture;
+    source: TextHookStartSource;
     scriptPath: string;
     loaderPath: string;
     hook: AgentHookEntry;
@@ -652,6 +654,7 @@ export async function startAgentHookSession(options: StartAgentHookOptions): Pro
             pid: options.pid,
             exeName: options.exeName,
             arch: options.arch,
+            source: options.source,
             scriptPath,
             loaderPath,
             hook: {
@@ -726,6 +729,7 @@ export function getAgentHookRuntimeStatus() {
         arch: agentSession.arch,
         pid: agentSession.pid,
         exeName: agentSession.exeName,
+        source: agentSession.source,
         selectedHookId: agentSession.hook.id,
         hookCount: 1,
         flushDelayMs: agentSession.flushDelayMs,

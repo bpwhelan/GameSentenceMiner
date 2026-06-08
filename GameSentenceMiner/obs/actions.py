@@ -21,9 +21,12 @@ from GameSentenceMiner.util.gsm_utils import (
 from GameSentenceMiner.obs.launch import (
     VIDEO_SOURCE_KINDS,
     _should_skip_image_validation,
+    _window_target_exists,
+    compute_effective_window_target,
     get_preferred_video_source,
     get_video_scene_items,
     is_image_empty,
+    parse_obs_window_target,
     sort_video_sources_by_preference,
 )
 
@@ -1100,6 +1103,120 @@ def get_window_info_from_source(client, scene_name: str = None):
                     }
 
     return None
+
+
+def _parse_capture_window_item(client, item) -> dict | None:
+    """Extract X11 window info from a single OBS scene item, or None to skip it."""
+    if not item.get("sceneItemEnabled", True):
+        return None
+    source_name = item.get("sourceName")
+    if not source_name:
+        return None
+    try:
+        response = client.get_input_settings(name=source_name)
+    except Exception as e:
+        logger.debug(f"Error getting input settings for source {source_name}: {e}")
+        return None
+    if not response:
+        return None
+    capture_window = (response.input_settings or {}).get("capture_window")
+    if not capture_window:
+        return None
+    # Format is "<winid>\r\n<title>\r\n<class>" with positional fields.
+    # Do NOT filter empty lines before positional assignment — an empty title
+    # (common for borderless/SDL/Proton windows) would shift the class into
+    # the title slot and break class-based window re-matching.
+    parts = [p.strip().strip("\r") for p in str(capture_window).split("\n")]
+    winid = int(parts[0]) if parts and parts[0].isdigit() else None
+    title = parts[1] if len(parts) >= 2 else ""
+    wm_class = parts[2] if len(parts) >= 3 else ""
+    return {"winid": winid, "title": title, "wm_class": wm_class}
+
+
+@with_obs_client(default=None, error_msg="Error reading Linux capture window info")
+def get_linux_capture_window_info(client, scene_name: str = None):
+    """Return the X11 window targeted by a Linux window-capture source.
+
+    Linux OBS window capture (XComposite ``xcomposite_input`` and XSHM) stores its
+    target in ``capture_window`` as ``"<window_id_decimal>\\r\\n<title>\\r\\n<class>"``
+    instead of the Windows ``title:class:exe`` format. The stored window id can go
+    stale across game restarts (OBS re-matches live by title/class), so all three
+    fields are returned and the caller resolves the live window.
+
+    Sources are matched by the presence of ``capture_window`` (i.e. by kind, not by
+    the user-facing source name), so renaming the capture source does not break this.
+    """
+    if not scene_name:
+        return None
+    scene_items_response = client.get_scene_item_list(name=scene_name)
+    if not scene_items_response or not scene_items_response.scene_items:
+        return None
+    # Linux window-capture inputs are xcomposite_input / xshm_input, which the
+    # Windows-oriented get_video_scene_items() filter does not recognise, so it
+    # would always return []. Match by the presence of capture_window instead.
+    for item in scene_items_response.scene_items:
+        result = _parse_capture_window_item(client, item)
+        if result is not None:
+            return result
+    return None
+@with_obs_client(default=None, error_msg="Error reconciling window source target")
+def reconcile_window_source_target(client, scene_name: str = None):
+    """Retarget a window/game-capture source when OBS is capturing a fallback window.
+
+    When the configured ``Title:Class:Exe`` target isn't running but OBS still has
+    output (its match-priority picked a different window of the same class/exe), the
+    source's settings keep pointing at the dead window — so everything downstream that
+    reads ``get_window_info_from_source`` (overlay HWND, OCR, game name) targets a
+    window that no longer exists. We resolve what OBS actually captures from the
+    enumerated ``window`` property and rewrite the source so consumers self-heal.
+
+    Returns the new window string if a rewrite happened, else None.
+    """
+    if not scene_name:
+        return None
+
+    scene_items_response = client.get_scene_item_list(name=scene_name)
+    if not scene_items_response or not scene_items_response.scene_items:
+        return None
+
+    preferred = get_preferred_video_source(scene_items_response.scene_items)
+    if not preferred:
+        return None
+    source_name = preferred.get("sourceName")
+    if not source_name or preferred.get("inputKind") not in VIDEO_SOURCE_KINDS:
+        return None
+
+    settings_response = client.get_input_settings(name=source_name)
+    settings = settings_response.input_settings if settings_response else None
+    if not settings:
+        return None
+    configured = settings.get("window")
+    if not configured or not parse_obs_window_target(configured):
+        return None
+
+    # Configured target still running → nothing to fix (cheap check, no enumeration).
+    if _window_target_exists(configured):
+        return None
+
+    items_response = client.get_input_properties_list_property_items(source_name, "window")
+    property_items = items_response.property_items if items_response else []
+    if not property_items:
+        return None
+
+    new_target = compute_effective_window_target(
+        configured, property_items, priority=settings.get("priority")
+    )
+    if not new_target or new_target == configured:
+        return None
+
+    new_settings = dict(settings)
+    new_settings["window"] = new_target
+    client.set_input_settings(source_name, new_settings, True)
+    logger.info(
+        f"Retargeted OBS source '{source_name}' from '{configured}' to '{new_target}' "
+        f"(configured window not running; OBS was capturing a fallback)."
+    )
+    return new_target
 
 
 # ---------------------------------------------------------------------------

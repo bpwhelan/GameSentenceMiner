@@ -1874,6 +1874,7 @@ async function ensureAndRunGSM(
     }
 
     // Sync environment from the bundled uv.lock.
+    let didModifyEnv = false;
     try {
         devFaultInjector.maybeFail('startup.sync_lock_check');
         updateInstallStage(
@@ -1897,6 +1898,7 @@ async function ensureAndRunGSM(
             `Syncing Python environment with lockfile, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
             }`
         );
+        didModifyEnv = true;
         devFaultInjector.maybeFail('startup.sync_lock_apply');
         updateInstallStage(
             'lock_sync',
@@ -1925,6 +1927,7 @@ async function ensureAndRunGSM(
 
     // Install the package itself if not present.
     if (!isInstalled) {
+        didModifyEnv = true;
         const packageSpecifier = getBundledBackendSpecifier();
         console.log(`${APP_NAME} is not installed. Installing ${packageSpecifier}...`);
         updateInstallStage(
@@ -1960,6 +1963,12 @@ async function ensureAndRunGSM(
             1,
             `${APP_NAME} backend package is already installed.`
         );
+    }
+
+    // If we touched the env this launch, reclaim any uv package cache left on
+    // disk (e.g. from older releases). Best-effort; skipped when nothing changed.
+    if (didModifyEnv) {
+        await cleanUvCache(runtimePythonPath);
     }
 
     console.log('Starting GameSentenceMiner...');

@@ -28,6 +28,7 @@ dependencies = [
   "soundfile~=0.13.1",
   "toml~=0.10.2",
   "psutil~=7.1.0",
+  "python-xlib ; sys_platform == 'linux'",
   "rapidfuzz~=3.10.0",
   "plyer~=2.1.0",
   "keyboard~=0.13.5",
@@ -116,8 +117,18 @@ packages = { find = { include = ["GameSentenceMiner*"] } }
 "GameSentenceMiner" = ["assets/*", "locales/*"]
 "GameSentenceMiner.mecab" = ["**/*"]
 
+[[tool.uv.index]]
+# CPU-only torch on Linux: PyPI's Linux torch wheel is the CUDA build and hard-
+# depends on ~3GB of nvidia-*-cu12 packages even without a GPU. Windows/macOS
+# PyPI wheels are already CPU-only, so they keep using the default index.
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [tool.uv.sources]
 pypresence = { url = "https://github.com/qwertyquerty/pypresence/archive/168c0fc3c00d8b974017cfcd18a4e801b6b78dae.zip" }
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchaudio = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
 
 [tool.ruff]
 target-version = "py310"

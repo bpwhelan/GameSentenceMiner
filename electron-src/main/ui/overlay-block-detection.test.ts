@@ -51,8 +51,34 @@ function makeLine(
 
 const { detectTextBlocks } = loadBlockDetectionModule();
 
-describe("legacy overlay block detection", () => {
-  it("splits multi-line columns separated by a persistent empty strip", () => {
+describe("overlay block detection", () => {
+  it("merges stacked lines that are vertically close into one block", () => {
+    const lines: OverlayLine[] = [
+      makeLine("line-1", 0.04, 0.08, 0.52, 0.16),
+      makeLine("line-2", 0.04, 0.18, 0.50, 0.26),
+      makeLine("line-3", 0.04, 0.28, 0.53, 0.36),
+    ];
+
+    const result = detectTextBlocks(lines);
+
+    expect(result.blockCount).toBe(1);
+    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
+    expect(result.lineBlocks.get(1)).toBe(result.lineBlocks.get(2));
+  });
+
+  it("merges text that is close on the same row into one block", () => {
+    const lines: OverlayLine[] = [
+      makeLine("Name",     0.02, 0.75, 0.15, 0.83),
+      makeLine("Dialogue", 0.20, 0.75, 0.98, 0.83),
+    ];
+
+    const result = detectTextBlocks(lines);
+
+    expect(result.blockCount).toBe(1);
+    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
+  });
+
+  it("splits two columns separated by a wide empty strip", () => {
     const lines: OverlayLine[] = [
       makeLine("left-1", 0.04, 0.08, 0.52, 0.16),
       makeLine("left-2", 0.04, 0.18, 0.50, 0.26),
@@ -72,7 +98,7 @@ describe("legacy overlay block detection", () => {
     expect(result.lineBlocks.get(0)).not.toBe(result.lineBlocks.get(3));
   });
 
-  it("does not split a single-row pair with a wide gap and no repeated support", () => {
+  it("splits a single-row pair separated by a wide horizontal gap", () => {
     const lines: OverlayLine[] = [
       makeLine("left", 0.08, 0.10, 0.50, 0.18),
       makeLine("right", 0.64, 0.10, 0.82, 0.18)
@@ -80,32 +106,8 @@ describe("legacy overlay block detection", () => {
 
     const result = detectTextBlocks(lines);
 
-    expect(result.blockCount).toBe(1);
-    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
-  });
-
-  it("splits a character name from multi-line dialogue even with no column separator confirmed", () => {
-    // Name occupies only the first row; dialogue spans three rows.
-    // The gap between name and dialogue-1 appears in only one row, so the
-    // column-separator rule alone would not split them — the vertical-neighbor
-    // asymmetry check must do it.
-    const lines: OverlayLine[] = [
-      makeLine("Name",        0.02, 0.75, 0.15, 0.83), // row 0, left
-      makeLine("Dialogue 1",  0.20, 0.75, 0.98, 0.83), // row 0, right
-      makeLine("Dialogue 2",  0.20, 0.85, 0.98, 0.93), // row 1
-      makeLine("Dialogue 3",  0.20, 0.95, 0.98, 1.00), // row 2
-    ];
-
-    const result = detectTextBlocks(lines);
-
     expect(result.blockCount).toBe(2);
-    // Name is its own block
-    const nameBlock = result.lineBlocks.get(0);
-    const dialogueBlock = result.lineBlocks.get(1);
-    expect(nameBlock).not.toBe(dialogueBlock);
-    // All dialogue lines share the same block
-    expect(result.lineBlocks.get(1)).toBe(result.lineBlocks.get(2));
-    expect(result.lineBlocks.get(2)).toBe(result.lineBlocks.get(3));
+    expect(result.lineBlocks.get(0)).not.toBe(result.lineBlocks.get(1));
   });
 
   it("does not merge unrelated same-row UI areas across most of the screen", () => {

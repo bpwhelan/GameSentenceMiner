@@ -276,12 +276,6 @@ class CronTable(SQLiteDBTable):
             cron.next_run = next_run_dt.timestamp()
             logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         elif cron.schedule == "daily":
-            # Schedule for 3am tomorrow
-            # If we schedule at + 24 hours
-            # imagine if user opens gsm at like 6pm first time, does some mining
-            # tomorrow they open gsm again but at 9am, but the cron is set to run at 6pm
-            # so they will have stats from yesterday not rolled up, as stats rollup did not run
-            # setting it to 3am means the user always has the full previous day rolled up when they open gsm
             next_run_dt = (now_dt + timedelta(days=1)).replace(hour=0, minute=1, second=0, microsecond=0)
             cron.next_run = next_run_dt.timestamp()
             logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")

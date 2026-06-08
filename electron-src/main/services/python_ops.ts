@@ -3,11 +3,13 @@ import * as path from 'node:path';
 import { spawn } from 'child_process';
 
 import {
+    BACKEND_GITHUB_REPO_URL,
     execFileAsync,
     getResourcesDir,
     getSanitizedPythonEnv,
     isDev,
     PACKAGE_NAME,
+    resolvePreReleaseBranch,
 } from '../util.js';
 
 const PINNED_UV_VERSION = '0.9.22';
@@ -351,10 +353,19 @@ export async function checkAndInstallPython311(pythonPath: string): Promise<void
     }
 }
 
+/**
+ * Purge uv's global package cache. Best-effort: cache cleanup should never fail
+ * an install/update, so errors are logged and swallowed. Useful for reclaiming
+ * any legacy cache left by older releases (current syncs use --no-cache).
+ */
 export async function cleanUvCache(pythonPath: string): Promise<void> {
-    await runCommand(pythonPath, ['-m', 'uv', 'cache', 'clean'], true, true, '', {
-        suppressOutput: true,
-    });
+    try {
+        await runCommand(pythonPath, ['-m', 'uv', 'cache', 'clean'], true, true, '', {
+            suppressOutput: true,
+        });
+    } catch (err) {
+        console.warn(`Failed to clean uv cache (non-fatal): ${toErrorMessage(err)}`);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -390,15 +401,20 @@ export function getBundledBackendVersion(): string | null {
 /**
  * Specifier for installing the GSM backend package.
  *
- * In production we install the published wheel from PyPI, pinned to the exact
- * version bundled with this Electron release (`GameSentenceMiner==<version>`).
- * The dependency set is still locked by the bundled uv.lock (see
- * {@link syncLockedEnvironment}), so the backend stays version-locked to the app
- * without building from the bundled source tree. Building from that source fails
- * on Linux (AppImage squashfs mount) and macOS (.app bundle) because they are
- * read-only and setuptools needs to write `GameSentenceMiner.egg-info/` into the
- * source dir ("could not create 'GameSentenceMiner.egg-info': Read-only file
- * system", issue #479).
+ * Pre-release (beta) builds are cut from a branch whose backend code is not
+ * published to PyPI, so we install from that branch's GitHub source archive
+ * (`<repo>/archive/refs/heads/<branch>.zip`), read from the bundled
+ * prerelease.json. This makes beta testers actually run the branch's backend
+ * instead of a stale (or nonexistent) PyPI wheel for the bundled version. The zip
+ * archive (rather than a `git+` specifier) keeps git from being a hard runtime
+ * requirement on the user's machine. uv downloads + builds it in a temp dir, which
+ * also sidesteps the read-only egg-info build failure that bundled-source installs
+ * hit on AppImage squashfs mounts and macOS .app bundles (issue #479).
+ *
+ * For stable production releases we install the published wheel from PyPI, pinned
+ * to the exact version bundled with this Electron release
+ * (`GameSentenceMiner==<version>`). Either way the dependency set is locked by the
+ * bundled uv.lock (see {@link syncLockedEnvironment}).
  *
  * In dev we install from the local working tree (writable, picks up local
  * changes, and the dev version usually isn't published to PyPI). We also fall
@@ -407,6 +423,11 @@ export function getBundledBackendVersion(): string | null {
 export function getBundledBackendSpecifier(): string {
     if (isDev) {
         return getProjectPath();
+    }
+
+    const preReleaseBranch = resolvePreReleaseBranch();
+    if (preReleaseBranch) {
+        return `${BACKEND_GITHUB_REPO_URL}/archive/refs/heads/${preReleaseBranch}.zip`;
     }
 
     const version = getBundledBackendVersion();
@@ -533,6 +554,11 @@ export async function syncLockedEnvironment(
         '--no-editable',
         '--no-install-project',
         '--inexact',
+        // Don't persist a global package cache on the user's machine. uv uses a
+        // temporary dir for the operation and discards it, so deps don't end up
+        // stored twice (cache + venv). Syncs are rare (install/update only), so
+        // the extra re-download cost is acceptable for the smaller footprint.
+        '--no-cache',
     ];
 
     if (checkOnly) {
@@ -562,7 +588,8 @@ export async function installPackageNoDeps(
     forceReinstall: boolean = false,
     onProgress?: (event: UvCommandProgressEvent) => void
 ): Promise<void> {
-    const args = ['-m', 'uv', 'pip', 'install', '--no-deps', '--upgrade'];
+    // --no-cache: don't persist a global package cache (see syncLockedEnvironment).
+    const args = ['-m', 'uv', 'pip', 'install', '--no-deps', '--upgrade', '--no-cache'];
     if (forceReinstall) {
         args.push('--force-reinstall');
     }

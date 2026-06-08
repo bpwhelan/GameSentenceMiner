@@ -606,22 +606,28 @@ async function ensureUvInstalled(): Promise<void> {
 
 // --- Homebrew Installation (macOS only) ---
 
-/**
- * Checks if Homebrew is installed on macOS.
- */
-async function isHomebrewInstalled(): Promise<boolean> {
-    if (!isMacOS()) return false;
-    
-    try {
-        await execFileAsync('which', ['brew']);
-        return true;
-    } catch {
-        return false;
+// GUI apps (launched from Finder) don't inherit the shell PATH, so `which brew`/bare
+// `brew` fail even when Homebrew is installed. Resolve brew by its canonical absolute path.
+function getBrewExecutablePath(): string | null {
+    const candidates = [
+        '/opt/homebrew/bin/brew', // Apple Silicon
+        '/usr/local/bin/brew', // Intel
+    ];
+    return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+}
+
+// Put Homebrew's bin + standard system dirs on PATH so brew can find its own tools (git, curl).
+function getBrewEnv(brewPath: string): NodeJS.ProcessEnv {
+    const pathParts = [path.dirname(brewPath), '/usr/bin', '/bin', '/usr/sbin', '/sbin'];
+    if (process.env.PATH) {
+        pathParts.push(...process.env.PATH.split(':'));
     }
+    const dedupedPath = [...new Set(pathParts.filter(Boolean))].join(':');
+    return { ...process.env, PATH: dedupedPath };
 }
 
 async function showHomebrewRequiredDialog(): Promise<void> {
-    const response = await dialog.showMessageBox(mainWindow!, {
+    await dialog.showMessageBox(mainWindow!, {
         type: 'warning',
         title: 'Homebrew Required',
         message: 'Homebrew is required to install Python on macOS.',
@@ -630,88 +636,32 @@ async function showHomebrewRequiredDialog(): Promise<void> {
     });
 }
 
-/**
- * Installs Homebrew on macOS with user confirmation.
- */
-async function installHomebrew(): Promise<void> {
-    if (!isMacOS()) {
-        throw new Error('Homebrew installation is only supported on macOS');
-    }
-
-    const response = await dialog.showMessageBox(mainWindow!, {
-        type: 'question',
-        buttons: ['Yes', 'No'],
-        defaultId: 0,
-        title: 'Install Homebrew',
-        message: 'Homebrew is required to install Python on macOS. Would you like to install it now?',
-        detail: 'This will run the official Homebrew installation script.',
-    });
-
-    if (response.response !== 0) {
-        throw new Error('User declined Homebrew installation');
-    }
-
-    console.log('Installing Homebrew...');
-    mainWindow?.webContents.send('notification', {
-        title: 'Installing Homebrew',
-        message: 'Installing Homebrew package manager. This may take a few minutes and may require your password...',
-    });
-
-    try {
-        // Run the official Homebrew installation script
-        // The script will handle prompting for password if needed
-        const installScript = '$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
-        
-        // Use spawn instead of execFile for interactive scripts
-        await new Promise<void>((resolve, reject) => {
-            const brewInstall = spawn(installScript, {
-                stdio: 'inherit', // This allows the script to interact with the terminal
-            });
-            
-            brewInstall.on('close', (code: number) => {
-                if (code === 0) {
-                    resolve();
-                } else {
-                    reject(new Error(`Homebrew installation exited with code ${code}`));
-                }
-            });
-            
-            brewInstall.on('error', (err: Error) => {
-                reject(err);
-            });
-        });
-        
-        console.log('Homebrew installed successfully');
-    } catch (error: any) {
-        console.error(`Failed to install Homebrew: ${error.message || error}`);
-        throw new Error(`Homebrew installation failed: ${error.message || error}`);
-    }
-}
-
-/**
- * Ensures Homebrew is installed on macOS.
- */
-async function ensureHomebrewInstalled(): Promise<boolean> {
-    if (!isMacOS()) return false;
-
-    if (await isHomebrewInstalled()) {
-        console.log('Homebrew is already installed');
-        return true;
+// Returns brew's absolute path, or aborts: we can't reliably run the interactive
+// Homebrew installer (TTY/sudo/Xcode CLT) from a GUI process, so guide the user instead.
+async function ensureHomebrewInstalled(): Promise<string> {
+    const brewPath = getBrewExecutablePath();
+    if (brewPath) {
+        console.log(`Homebrew found at: ${brewPath}`);
+        return brewPath;
     }
 
     await showHomebrewRequiredDialog();
-    return false;
+    throw new Error(
+        'Homebrew is required to install Python on macOS but was not found. ' +
+            'Please install it from https://brew.sh/ and restart GameSentenceMiner.'
+    );
 }
 
 /**
  * Installs Python 3.13 using Homebrew on macOS.
  */
-async function installPythonWithHomebrew(): Promise<void> {
+async function installPythonWithHomebrew(brewPath: string): Promise<void> {
     console.log('Installing Python 3.13 with Homebrew...');
-    
+
     try {
-        // Install Python 3.13
-        await execFileAsync('brew', ['install', 'python@3.13']);
+        // Install Python 3.13 using the resolved absolute brew path so it works even
+        // when the GUI process has no Homebrew on PATH.
+        await execFileAsync(brewPath, ['install', 'python@3.13'], { env: getBrewEnv(brewPath) });
         console.log('Python 3.13 installed successfully via Homebrew');
     } catch (error: any) {
         console.error(`Failed to install Python with Homebrew: ${error.message || error}`);
@@ -719,32 +669,45 @@ async function installPythonWithHomebrew(): Promise<void> {
     }
 }
 
+// Locate brew's python3.13 via `brew --prefix` (robust across Intel/ARM), falling back
+// to the canonical symlink locations.
+async function resolveHomebrewPython(brewPath: string): Promise<string> {
+    try {
+        const { stdout } = await execFileAsync(brewPath, ['--prefix', 'python@3.13'], {
+            env: getBrewEnv(brewPath),
+        });
+        const candidate = path.join(stdout.trim(), 'bin', 'python3.13');
+        if (stdout.trim() && fs.existsSync(candidate)) {
+            return candidate;
+        }
+    } catch (error: any) {
+        console.warn(`Could not resolve python@3.13 via 'brew --prefix': ${error.message || error}`);
+    }
+
+    const fallbacks = [
+        '/opt/homebrew/bin/python3.13', // Apple Silicon
+        '/usr/local/bin/python3.13', // Intel
+    ];
+    const found = fallbacks.find((candidate) => fs.existsSync(candidate));
+    if (!found) {
+        throw new Error('Could not find the Homebrew-installed Python 3.13 executable.');
+    }
+    return found;
+}
+
 /**
  * Creates a virtual environment using the Homebrew-installed Python.
  */
-async function createVenvWithHomebrewPython(): Promise<void> {
+async function createVenvWithHomebrewPython(brewPath: string): Promise<void> {
     console.log(`Creating virtual environment at ${VENV_DIR}...`);
-    
+
     try {
         fs.mkdirSync(path.dirname(VENV_DIR), { recursive: true });
-        
-        // Use the Homebrew Python 3.13 to create venv
-        const homebrewPython = '/opt/homebrew/bin/python3.13'; // ARM Mac
-        const homebrewPythonIntel = '/usr/local/bin/python3.13'; // Intel Mac
-        
-        // Try ARM path first, fall back to Intel
-        let pythonBin = homebrewPython;
-        if (!fs.existsSync(homebrewPython)) {
-            if (fs.existsSync(homebrewPythonIntel)) {
-                pythonBin = homebrewPythonIntel;
-            } else {
-                throw new Error('Could not find Homebrew Python 3.13 installation');
-            }
-        }
-        
+
+        const pythonBin = await resolveHomebrewPython(brewPath);
         await execFileAsync(pythonBin, ['-m', 'venv', VENV_DIR]);
         console.log(`Virtual environment created successfully at ${VENV_DIR}`);
-        
+
         // Ensure pip is installed in the venv
         console.log('Ensuring pip is installed in the virtual environment...');
         const venvPython = getPythonExecutablePath();
@@ -896,14 +859,14 @@ async function uninstallHomebrewPythonGlobally(): Promise<void> {
  * Performs the installation of Python using Homebrew (macOS only).
  */
 async function _performHomebrewInstallation(): Promise<void> {
-    // Ensure Homebrew is installed
-    await ensureHomebrewInstalled();
+    // Ensure Homebrew is installed and resolve its absolute path (throws if missing).
+    const brewPath = await ensureHomebrewInstalled();
 
     // Install Python 3.13 using Homebrew
-    await installPythonWithHomebrew();
+    await installPythonWithHomebrew(brewPath);
 
     // Create virtual environment
-    await createVenvWithHomebrewPython();
+    await createVenvWithHomebrewPython(brewPath);
 
     // Verify venv works
     console.log('Verifying virtual environment installation...');

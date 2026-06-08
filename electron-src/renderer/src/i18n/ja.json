@@ -104,7 +104,8 @@
     "support": {
       "text": "GSMを支援する",
       "githubSponsors": "GitHub Sponsors",
-      "kofi": "Ko-fi"
+      "kofi": "Ko-fi",
+      "githubStar": "GitHubでスターを付ける（無料）"
     },
     "ankiBeacon": {
       "statusMissing": "AnkiBeacon ⚠️",

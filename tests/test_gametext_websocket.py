@@ -393,14 +393,6 @@ def test_add_line_to_text_log_schedules_overlay_without_waiting_for_remaining_li
         "add_line",
         lambda *_args, **_kwargs: ordered_steps.append("persist_line"),
     )
-    # The text path now offloads DB writes to a background thread via
-    # db_write_queue.submit(). Run them inline in the test so we can assert
-    # ordering deterministically.
-    monkeypatch.setattr(
-        gametext.db_write_queue,
-        "submit",
-        lambda func, *args, **kwargs: (func(*args, **kwargs), True)[-1],
-    )
     monkeypatch.setattr(gametext.gsm_state, "text_input_paused", False, raising=False)
 
     asyncio.run(gametext.add_line_to_text_log("Hello, World!", source="secondary"))

@@ -104,7 +104,8 @@
     "support": {
       "text": "Підтримати GSM",
       "githubSponsors": "GitHub Sponsors",
-      "kofi": "Ko-fi"
+      "kofi": "Ko-fi",
+      "githubStar": "Зірка на GitHub (безкоштовно)"
     },
     "ankiBeacon": {
       "statusMissing": "AnkiBeacon ⚠️",
