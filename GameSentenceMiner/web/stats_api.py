@@ -866,9 +866,9 @@ def _build_all_games_stats(
         "total_sentences": combined_stats.get("total_lines", 0),
         "total_time_hours": combined_stats.get("total_reading_time_seconds", 0) / 3600,
         "total_time_formatted": format_time_human_readable(combined_stats.get("total_reading_time_seconds", 0) / 3600),
-        "reading_speed": int(combined_stats.get("average_reading_speed_chars_per_hour", 0)),
+        "reading_speed": round(combined_stats.get("average_reading_speed_chars_per_hour", 0)),
         "reading_speed_formatted": format_large_number(
-            int(combined_stats.get("average_reading_speed_chars_per_hour", 0))
+            round(combined_stats.get("average_reading_speed_chars_per_hour", 0))
         ),
         "sessions": combined_stats.get("total_sessions", 0),
         "completed_games": completed_games_count,

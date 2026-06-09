@@ -440,6 +440,7 @@ def test_obs_service_tick_applies_fit_before_screenshot_probe(monkeypatch):
     service._pending_scene_item_refresh = None
     service._scene_item_refresh_deadline = 0.0
     service._scene_item_debounce_seconds = 2.0
+    service._reconcile_window_target_cooldown = 10.0
 
     fit_calls = []
     monkeypatch.setattr(
