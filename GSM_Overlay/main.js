@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, screen, globalShortcut, dialog, Tray, Menu, nativeImage, protocol } = require('electron');
+const { app, BrowserWindow, session, screen, globalShortcut, dialog, Tray, Menu, nativeImage, protocol, Notification } = require('electron');
 const { ipcMain } = require("electron");
 const fs = require("fs");
 const path = require('path');
@@ -57,7 +57,7 @@ const VALID_TRACKED_GAME_WINDOW_STATES = new Set(["active", "background", "obscu
 const VALID_LIVE_STATS_DISPLAY_MODES = new Set(["always", "new-line"]);
 const VALID_LIVE_STATS_LAYOUTS = new Set(["stacked", "one-line"]);
 const VALID_LIVE_STATS_POSITION_MODES = new Set(["active-window", "overlay"]);
-const LIVE_STATS_FIELD_KEYS = ["chars_per_hour", "total_characters", "active_reading_time", "cards_mined"];
+const LIVE_STATS_FIELD_KEYS = ["chars_per_hour", "total_characters", "active_reading_time", "raw_reading_time", "cards_mined"];
 const GAMEPAD_SERVER_BASE_PORT = 7276;
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
 const OVERLAY_WS_COMMAND_OPEN_SETTINGS = "open-overlay-settings";
@@ -392,6 +392,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "showTextIndicators": true,
   "fadeTextIndicators": false,
   "showLiveStats": true,
+  "showLiveGoals": true,
   "liveStatsDisplayModeV2": "always",
   "liveStatsLayoutV2": "one-line",
   "liveStatsAutoHideSeconds": 5,
@@ -400,8 +401,13 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
     "chars_per_hour": true,
     "total_characters": true,
     "active_reading_time": true,
+    "raw_reading_time": true,
     "cards_mined": true,
   },
+  "pomodoroEnabled": false,
+  "pomodoroWorkMinutes": 25,
+  "pomodoroBreakMinutes": 5,
+  "pomodoroAutoStart": false,
   "showTextBackground": false, // Legacy key; migrated to showTextIndicators/fadeTextIndicators.
   "afkTimer": 5, // in minutes
   "showFurigana": false,
@@ -857,6 +863,12 @@ function normalizeLiveStatsSettings(settings) {
     changed = true;
   }
 
+  const normalizedShowGoals = settings.showLiveGoals !== false;
+  if (settings.showLiveGoals !== normalizedShowGoals) {
+    settings.showLiveGoals = normalizedShowGoals;
+    changed = true;
+  }
+
   const normalizedDisplayMode = normalizeLiveStatsDisplayMode(settings.liveStatsDisplayModeV2);
   if (settings.liveStatsDisplayModeV2 !== normalizedDisplayMode) {
     settings.liveStatsDisplayModeV2 = normalizedDisplayMode;
@@ -884,6 +896,44 @@ function normalizeLiveStatsSettings(settings) {
   const normalizedFields = normalizeLiveStatsFields(settings.liveStatsFields);
   if (!hasAllLiveStatsFieldKeys(settings.liveStatsFields) || !areLiveStatsFieldsEqual(settings.liveStatsFields, normalizedFields)) {
     settings.liveStatsFields = normalizedFields;
+    changed = true;
+  }
+
+  return changed;
+}
+
+function normalizePomodoroMinutes(value, fallback) {
+  const numeric = Math.round(Number(value));
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.max(1, Math.min(180, numeric));
+}
+
+function normalizePomodoroSettings(settings) {
+  let changed = false;
+
+  const normalizedEnabled = settings.pomodoroEnabled === true;
+  if (settings.pomodoroEnabled !== normalizedEnabled) {
+    settings.pomodoroEnabled = normalizedEnabled;
+    changed = true;
+  }
+
+  const normalizedAutoStart = settings.pomodoroAutoStart === true;
+  if (settings.pomodoroAutoStart !== normalizedAutoStart) {
+    settings.pomodoroAutoStart = normalizedAutoStart;
+    changed = true;
+  }
+
+  const normalizedWork = normalizePomodoroMinutes(settings.pomodoroWorkMinutes, 25);
+  if (settings.pomodoroWorkMinutes !== normalizedWork) {
+    settings.pomodoroWorkMinutes = normalizedWork;
+    changed = true;
+  }
+
+  const normalizedBreak = normalizePomodoroMinutes(settings.pomodoroBreakMinutes, 5);
+  if (settings.pomodoroBreakMinutes !== normalizedBreak) {
+    settings.pomodoroBreakMinutes = normalizedBreak;
     changed = true;
   }
 
@@ -1474,6 +1524,11 @@ function handleOverlayWebSocketControlMessage(type, data) {
 
   if (!message || typeof message !== "object") {
     return false;
+  }
+
+  if (message.type === "live_stats_update") {
+    maybePomodoroAutoStart(message.session_active);
+    return false; // still forward to renderer
   }
 
   if (message.type === OVERLAY_WS_COMMAND_OPEN_SETTINGS) {
@@ -2916,6 +2971,7 @@ if (gamepadDeviceBlacklistNormalized) {
   userSettings.gamepadDeviceBlacklist = normalizedGamepadDeviceBlacklist;
 }
 const liveStatsSettingsNormalized = normalizeLiveStatsSettings(userSettings);
+const pomodoroSettingsNormalized = normalizePomodoroSettings(userSettings);
 const overlayProfilesNormalized = normalizeOverlaySettingsProfiles("settings-load");
 const overlayProfileAppliedOnLoad = syncOverlayProfileFromGSM("settings-load", {
   force: true,
@@ -2931,6 +2987,7 @@ if (
   gamepadTokenizerSettingsNormalized ||
   gamepadDeviceBlacklistNormalized ||
   liveStatsSettingsNormalized ||
+  pomodoroSettingsNormalized ||
   overlayProfilesNormalized ||
   overlayProfileAppliedOnLoad ||
   hotkeyConflictResolvedOnLoad ||
@@ -4363,6 +4420,168 @@ function openOffsetHelper() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Pomodoro timer (overlay-only). State lives here; the widget renders it and
+// ticks the countdown locally from `endTimestamp` (no per-second IPC).
+// ---------------------------------------------------------------------------
+const POMODORO_PHASE_WORK = "work";
+const POMODORO_PHASE_BREAK = "break";
+
+const pomodoroState = {
+  phase: POMODORO_PHASE_WORK,
+  running: false,
+  endTimestamp: null,   // ms epoch when current phase ends (when running)
+  remainingMs: null,    // frozen remainder (when paused/idle)
+};
+let pomodoroTicker = null;
+let pomodoroLastSessionActive = false;
+
+function pomodoroPhaseDurationMs(phase) {
+  const minutes = phase === POMODORO_PHASE_BREAK
+    ? userSettings.pomodoroBreakMinutes
+    : userSettings.pomodoroWorkMinutes;
+  return normalizePomodoroMinutes(minutes, phase === POMODORO_PHASE_BREAK ? 5 : 25) * 60 * 1000;
+}
+
+function pomodoroRemainingMs() {
+  if (pomodoroState.running && pomodoroState.endTimestamp != null) {
+    return Math.max(0, pomodoroState.endTimestamp - Date.now());
+  }
+  if (pomodoroState.remainingMs != null) {
+    return pomodoroState.remainingMs;
+  }
+  return pomodoroPhaseDurationMs(pomodoroState.phase);
+}
+
+function broadcastPomodoroState() {
+  const payload = {
+    enabled: userSettings.pomodoroEnabled === true,
+    phase: pomodoroState.phase,
+    running: pomodoroState.running,
+    endTimestamp: pomodoroState.endTimestamp,
+    remainingMs: pomodoroRemainingMs(),
+    workMinutes: normalizePomodoroMinutes(userSettings.pomodoroWorkMinutes, 25),
+    breakMinutes: normalizePomodoroMinutes(userSettings.pomodoroBreakMinutes, 5),
+  };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("pomodoro-update", payload);
+  }
+}
+
+function ensurePomodoroTicker() {
+  if (pomodoroTicker === null) {
+    pomodoroTicker = setInterval(pomodoroTick, 1000);
+  }
+}
+
+function clearPomodoroTicker() {
+  if (pomodoroTicker !== null) {
+    clearInterval(pomodoroTicker);
+    pomodoroTicker = null;
+  }
+}
+
+function pomodoroTick() {
+  if (!pomodoroState.running || pomodoroState.endTimestamp == null) {
+    return;
+  }
+  if (Date.now() >= pomodoroState.endTimestamp) {
+    handlePomodoroPhaseComplete();
+  }
+}
+
+function showPomodoroNotification(finishedPhase, nextPhase) {
+  try {
+    if (!Notification.isSupported()) return;
+    const title = finishedPhase === POMODORO_PHASE_WORK ? "Pomodoro: break time" : "Pomodoro: back to it";
+    const body = nextPhase === POMODORO_PHASE_BREAK
+      ? `Work block done — take a ${normalizePomodoroMinutes(userSettings.pomodoroBreakMinutes, 5)} min break.`
+      : `Break over — starting a ${normalizePomodoroMinutes(userSettings.pomodoroWorkMinutes, 25)} min work block.`;
+    new Notification({ title, body, silent: false }).show();
+  } catch (error) {
+    console.warn("[Pomodoro] Failed to show notification:", error.message);
+  }
+}
+
+function handlePomodoroPhaseComplete() {
+  const finishedPhase = pomodoroState.phase;
+  const nextPhase = finishedPhase === POMODORO_PHASE_WORK ? POMODORO_PHASE_BREAK : POMODORO_PHASE_WORK;
+  pomodoroState.phase = nextPhase;
+
+  showPomodoroNotification(finishedPhase, nextPhase);
+
+  if (userSettings.pomodoroAutoStart === true) {
+    pomodoroState.remainingMs = null;
+    pomodoroState.endTimestamp = Date.now() + pomodoroPhaseDurationMs(nextPhase);
+    pomodoroState.running = true;
+    ensurePomodoroTicker();
+  } else {
+    pomodoroState.remainingMs = pomodoroPhaseDurationMs(nextPhase);
+    pomodoroState.endTimestamp = null;
+    pomodoroState.running = false;
+    clearPomodoroTicker();
+  }
+  broadcastPomodoroState();
+  updateTrayMenu();
+}
+
+function pomodoroStart() {
+  if (pomodoroState.running) return;
+  pomodoroState.endTimestamp = Date.now() + pomodoroRemainingMs();
+  pomodoroState.remainingMs = null;
+  pomodoroState.running = true;
+  ensurePomodoroTicker();
+  broadcastPomodoroState();
+  updateTrayMenu();
+}
+
+function pomodoroPause() {
+  if (!pomodoroState.running) return;
+  pomodoroState.remainingMs = pomodoroRemainingMs();
+  pomodoroState.endTimestamp = null;
+  pomodoroState.running = false;
+  clearPomodoroTicker();
+  broadcastPomodoroState();
+  updateTrayMenu();
+}
+
+function pomodoroReset() {
+  pomodoroState.phase = POMODORO_PHASE_WORK;
+  pomodoroState.running = false;
+  pomodoroState.endTimestamp = null;
+  pomodoroState.remainingMs = pomodoroPhaseDurationMs(POMODORO_PHASE_WORK);
+  clearPomodoroTicker();
+  broadcastPomodoroState();
+  updateTrayMenu();
+}
+
+// Rising-edge auto-start: when a reading session becomes active and auto-start
+// is enabled, kick off a work block if the timer is idle.
+function maybePomodoroAutoStart(sessionActive) {
+  const active = sessionActive === true;
+  const wasActive = pomodoroLastSessionActive;
+  pomodoroLastSessionActive = active;
+  if (!active || wasActive) return;
+  if (userSettings.pomodoroEnabled !== true || userSettings.pomodoroAutoStart !== true) return;
+  if (pomodoroState.running) return;
+  pomodoroStart();
+}
+
+// Called when pomodoro settings change so the widget reflects enable/disable and
+// duration edits to an idle timer immediately.
+function handlePomodoroSettingsChanged() {
+  if (!pomodoroState.running) {
+    pomodoroState.remainingMs = pomodoroPhaseDurationMs(pomodoroState.phase);
+    pomodoroState.endTimestamp = null;
+  }
+  if (userSettings.pomodoroEnabled !== true) {
+    pomodoroState.running = false;
+    clearPomodoroTicker();
+  }
+  broadcastPomodoroState();
+  updateTrayMenu();
+}
+
 function createTray() {
   const iconPath = getOverlayTrayIconPath();
   const trayIcon = nativeImage.createFromPath(iconPath);
@@ -4468,6 +4687,51 @@ function updateTrayMenu() {
         saveSettings();
         updateTrayMenu();
       }
+    },
+    { type: 'separator' },
+    {
+      label: 'Pomodoro',
+      submenu: [
+        {
+          label: 'Enabled',
+          type: 'checkbox',
+          checked: userSettings.pomodoroEnabled === true,
+          click: (menuItem) => {
+            setOverlaySettingValue("pomodoroEnabled", menuItem.checked);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send("settings-updated", { pomodoroEnabled: menuItem.checked });
+            }
+            saveSettings();
+            handlePomodoroSettingsChanged();
+          }
+        },
+        { type: 'separator' },
+        {
+          label: pomodoroState.running ? 'Pause' : (pomodoroRemainingMs() < pomodoroPhaseDurationMs(pomodoroState.phase) ? 'Resume' : 'Start'),
+          enabled: userSettings.pomodoroEnabled === true,
+          click: () => (pomodoroState.running ? pomodoroPause() : pomodoroStart()),
+        },
+        {
+          label: 'Reset',
+          enabled: userSettings.pomodoroEnabled === true,
+          click: () => pomodoroReset(),
+        },
+        { type: 'separator' },
+        {
+          label: 'Auto-start with reading session',
+          type: 'checkbox',
+          checked: userSettings.pomodoroAutoStart === true,
+          enabled: userSettings.pomodoroEnabled === true,
+          click: (menuItem) => {
+            setOverlaySettingValue("pomodoroAutoStart", menuItem.checked);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send("settings-updated", { pomodoroAutoStart: menuItem.checked });
+            }
+            saveSettings();
+            updateTrayMenu();
+          }
+        },
+      ],
     },
     { type: 'separator' },
     {
@@ -5288,6 +5552,7 @@ app.whenReady().then(async () => {
       // mainWindow.openDevTools({ mode: 'detach' });
     }
     mainWindow.webContents.send("load-settings", userSettings);
+    broadcastPomodoroState();
     mainWindow.webContents.send("display-info", buildOverlayDisplayInfo(display));
     mainWindow.webContents.send("gamepad-input-test-active", { active: gamepadInputTestActive });
     mainWindow.setAlwaysOnTop(true, 'screen-saver');
@@ -5628,6 +5893,12 @@ app.whenReady().then(async () => {
       value = normalizeLiveStatsPositionMode(value);
     } else if (key === "liveStatsFields") {
       value = normalizeLiveStatsFields(value);
+    } else if (key === "pomodoroEnabled" || key === "pomodoroAutoStart") {
+      value = value === true;
+    } else if (key === "pomodoroWorkMinutes") {
+      value = normalizePomodoroMinutes(value, 25);
+    } else if (key === "pomodoroBreakMinutes") {
+      value = normalizePomodoroMinutes(value, 5);
     }
     const oldValue = userSettings[key];
     setOverlaySettingValue(key, value);
@@ -5672,6 +5943,12 @@ app.whenReady().then(async () => {
         break;
       case "afkTimer":
         resetActivityTimer();
+        break;
+      case "pomodoroEnabled":
+      case "pomodoroAutoStart":
+      case "pomodoroWorkMinutes":
+      case "pomodoroBreakMinutes":
+        handlePomodoroSettingsChanged();
         break;
       case "toggleFuriganaHotkey":
         registerToggleFuriganaHotkey(oldValue);

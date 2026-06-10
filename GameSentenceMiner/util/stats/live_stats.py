@@ -31,6 +31,12 @@ LIVE_STATS_FIELDS = (
         "default_visible": True,
     },
     {
+        "key": "raw_reading_time",
+        "label": "Raw time",
+        "format": "duration",
+        "default_visible": True,
+    },
+    {
         "key": "cards_mined",
         "label": "Cards mined",
         "format": "integer",
@@ -64,6 +70,7 @@ def build_live_stats_payload(
             "chars_per_hour": tracker.get_chars_per_hour(),
             "total_characters": tracker.get_total_chars(),
             "active_reading_time": round(tracker.get_active_reading_time(), 1),
+            "raw_reading_time": round(tracker.get_raw_reading_time(), 1),
             "cards_mined": tracker.get_cards_mined(),
         },
     }
@@ -123,6 +130,8 @@ class LiveSessionTracker:
             # If the gap between lines exceeds the session gap, reset stats.
             if gap > get_stats_config().session_gap_seconds:
                 self.reset()
+                # This line starts a fresh session; raw time counts from here.
+                self.session_start_time = timestamp
             else:
                 # Adaptive cap based on the previous line's character count.
                 prev_char_count = len(self.last_line_text) if self.last_line_text else 0
@@ -170,10 +179,26 @@ class LiveSessionTracker:
         """Returns the active reading time in seconds for this session."""
         return self.total_reading_seconds
 
+    def get_raw_reading_time(self) -> float:
+        """Returns raw wall-clock session length (first to last line) in seconds.
+
+        Unlike active reading time, this is not AFK-capped. The widget ticks
+        this forward live from session_start_time while a session is active.
+        """
+        if self.session_start_time is None or self.last_line_time is None:
+            return 0.0
+        return max(0.0, self.last_line_time - self.session_start_time)
+
     def add_mined_line(self):
         """Increments the count of lines mined in this session."""
         self.times_mined += 1
         publish_live_stats_update(self, reason="mined")
+        try:
+            from GameSentenceMiner.web.live_goals import publish_live_goals_update
+
+            publish_live_goals_update()
+        except Exception:
+            pass
 
 
 # Singleton instance to be used across the application

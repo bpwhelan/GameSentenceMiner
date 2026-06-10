@@ -34,7 +34,24 @@ FFMPEG_WINDOWS_X64_URL = (
 )
 FFMPEG_WINDOWS_ARM64_VERSION = "8.0"
 FFMPEG_WINDOWS_ARM64_BUILD = "essentials_shared"
-FFMPEG_WINDOWS_ARM64_URL = "https://gsm.beangate.us/ffmpeg-8.0-essentials-shared-win-arm64.zip"
+FFMPEG_WINDOWS_ARM64_URL = "https://r2.gamesentenceminer.com/ffmpeg-8.0-essentials-shared-win-arm64.zip"
+
+# obs-browser ships a full CEF runtime in obs-plugins/64bit (libcef.dll alone is ~200MB).
+# GSM never uses browser sources, so the plugin + CEF is pure dead weight.
+OBS_BROWSER_CEF_FILES = {
+    "obs-browser.dll",
+    "obs-browser-page.exe",
+    "libcef.dll",
+    "chrome_elf.dll",
+    "libegl.dll",
+    "libglesv2.dll",
+    "icudtl.dat",
+    "resources.pak",
+    "chrome_100_percent.pak",
+    "chrome_200_percent.pak",
+    "v8_context_snapshot.bin",
+    "snapshot_blob.bin",
+}
 
 
 def report_install_progress(
@@ -322,11 +339,60 @@ def download_scene_switcher_plugin(obs_path, stage_id: Optional[str] = None):
     raise RuntimeError("Failed to install Advanced Scene Switcher plugin.")
 
 
+def prune_obs_directory(obs_path):
+    """Trim a downloaded OBS install down to what GSM uses.
+
+    Drops all debug symbols (*.pdb) and the obs-browser source's bundled CEF
+    runtime (~275MB), neither of which GSM ever loads.
+    """
+    removed_bytes = 0
+
+    def _rm_file(path):
+        nonlocal removed_bytes
+        try:
+            removed_bytes += os.path.getsize(path)
+            os.remove(path)
+        except OSError:
+            pass
+
+    def _rm_tree(path):
+        nonlocal removed_bytes
+        if not os.path.isdir(path):
+            return
+        for root, _dirs, files in os.walk(path):
+            for file in files:
+                try:
+                    removed_bytes += os.path.getsize(os.path.join(root, file))
+                except OSError:
+                    pass
+        shutil.rmtree(path, ignore_errors=True)
+
+    # Debug symbols, everywhere.
+    for root, _dirs, files in os.walk(obs_path):
+        for file in files:
+            if file.lower().endswith(".pdb"):
+                _rm_file(os.path.join(root, file))
+
+    # obs-browser plugin + its CEF runtime.
+    plugins_64bit = os.path.join(obs_path, "obs-plugins", "64bit")
+    if os.path.isdir(plugins_64bit):
+        for name in os.listdir(plugins_64bit):
+            if name.lower() in OBS_BROWSER_CEF_FILES:
+                _rm_file(os.path.join(plugins_64bit, name))
+    _rm_tree(os.path.join(plugins_64bit, "locales"))  # CEF localized resources
+    _rm_tree(os.path.join(obs_path, "data", "obs-plugins", "obs-browser"))
+
+    if removed_bytes:
+        logger.info(f"Pruned OBS install, freed {removed_bytes / (1024 * 1024):.0f} MB.")
+    return removed_bytes
+
+
 def download_obs_if_needed(stage_id: Optional[str] = "obs"):
     obs_path = os.path.join(get_app_directory(), "obs-studio")
     obs_exe_path = get_obs_path()
     if os.path.exists(obs_path) and os.path.exists(obs_exe_path):
         logger.debug(f"OBS already installed at {obs_path}.")
+        prune_obs_directory(obs_path)  # trim existing installs too
         # Check and install plugin even if OBS is already installed
         # plugin_status = download_scene_switcher_plugin(obs_path, stage_id=stage_id)
         plugin_status = "skipped"
@@ -386,6 +452,7 @@ def download_obs_if_needed(stage_id: Optional[str] = "obs"):
                     zip_ref.extractall(obs_path)
                 open(os.path.join(obs_path, "portable_mode"), "a").close()
                 write_obs_configs(obs_path)
+                prune_obs_directory(obs_path)
                 logger.success(f"OBS extracted to {obs_path}.")
 
                 # Download and install Advanced Scene Switcher plugin

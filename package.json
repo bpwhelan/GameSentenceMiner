@@ -40,7 +40,8 @@
     "extraFiles": [
       {
         "from": "electron-src/assets",
-        "to": "resources/assets"
+        "to": "resources/assets",
+        "filter": ["**/*", "!texthook/**"]
       },
       {
         "from": "GameSentenceMiner",
@@ -71,8 +72,7 @@
     },
     "nsis": {
       "menuCategory": "GameSentenceMiner",
-      "oneClick": true,
-      "allowToChangeInstallationDirectory": false
+      "oneClick": true
     },
     "mac": {
       "target": "dmg",

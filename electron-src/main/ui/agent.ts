@@ -21,6 +21,7 @@ interface StartAgentHookOptions {
     arch: TextHookArchitecture;
     scriptPath: string;
     flushDelayMs: number;
+    copyToClipboard: boolean;
     source: TextHookStartSource;
 }
 
@@ -30,6 +31,7 @@ interface AgentTextPayload {
     hookFunction: string;
     engine: 'agent';
     exeName: string;
+    copyToClipboard: boolean;
 }
 
 interface AgentHookSession {
@@ -43,6 +45,7 @@ interface AgentHookSession {
     loaderPath: string;
     hook: AgentHookEntry;
     flushDelayMs: number;
+    copyToClipboard: boolean;
     outputCollector: AgentTextPayload[];
     outputFlushTimer: NodeJS.Timeout | null;
     pidWatcher?: NodeJS.Timeout;
@@ -462,6 +465,7 @@ function queueAgentText(text: string): void {
         hookFunction: agentSession.hook.function,
         engine: 'agent',
         exeName: agentSession.exeName,
+        copyToClipboard: agentSession.copyToClipboard,
     };
     const delayMs = Math.max(0, Math.round(agentSession.flushDelayMs));
     if (delayMs <= 0) {
@@ -664,6 +668,7 @@ export async function startAgentHookSession(options: StartAgentHookOptions): Pro
                 samples: [],
             },
             flushDelayMs: options.flushDelayMs,
+            copyToClipboard: options.copyToClipboard,
             outputCollector: [],
             outputFlushTimer: null,
             localStorage: loadLocalStorage(scriptPath),
@@ -733,6 +738,7 @@ export function getAgentHookRuntimeStatus() {
         selectedHookId: agentSession.hook.id,
         hookCount: 1,
         flushDelayMs: agentSession.flushDelayMs,
+        copyToClipboard: agentSession.copyToClipboard,
         agentScriptPath: agentSession.scriptPath,
         agentHasUi: agentSession.uiHtml !== null,
     };
@@ -820,4 +826,12 @@ export function setAgentFlushDelayMs(value: number): { success: boolean; flushDe
     }
     emitStatus();
     return { success: true, flushDelayMs: next };
+}
+
+export function setAgentCopyToClipboard(value: boolean): { success: boolean; copyToClipboard?: boolean; error?: string } {
+    if (!agentSession) return { success: false, error: 'No active Agent hook session.' };
+    const next = Boolean(value);
+    agentSession.copyToClipboard = next;
+    emitStatus();
+    return { success: true, copyToClipboard: next };
 }

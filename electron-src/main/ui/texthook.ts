@@ -24,6 +24,13 @@ import {
 } from '../util.js';
 import { mainWindow, sendTextHookLine } from '../main.js';
 import {
+    TEXTHOOK_DOWNLOAD_DIR,
+    FORCE_TEXTHOOK_DOWNLOAD,
+    downloadTexthookEngines,
+    getEngineStatus,
+    checkForTexthookUpdates,
+} from './texthook_downloader.js';
+import {
     getCurrentScene,
     getExecutableNameFromSource,
 } from './obs.js';
@@ -33,6 +40,7 @@ import {
     isAgentHookRunning,
     listAgentHooks,
     sendAgentUiRpc,
+    setAgentCopyToClipboard,
     setAgentFlushDelayMs,
     showAgentScriptUi,
     startAgentHookSession,
@@ -188,16 +196,17 @@ function emitHooks(): void {
 // ---------------------------------------------------------------------------
 
 function getEngineCliPath(engine: TextHookEngine, arch: TextHookArchitecture): string {
-    const base = path.join(getAssetsDir(), 'texthook');
-    if (engine === 'luna') {
-        return path.join(base, 'luna_builds', arch === 'x86' ? 'LunaHostCLI32.exe' : 'LunaHostCLI64.exe');
-    }
-    return path.join(
-        base,
-        'textractor_builds',
-        arch === 'x86' ? '_x86' : '_x64',
-        'TextractorCLI.exe',
-    );
+    const rel =
+        engine === 'luna'
+            ? path.join('luna_builds', arch === 'x86' ? 'LunaHostCLI32.exe' : 'LunaHostCLI64.exe')
+            : path.join('textractor_builds', arch === 'x86' ? '_x86' : '_x64', 'TextractorCLI.exe');
+
+    const downloaded = path.join(TEXTHOOK_DOWNLOAD_DIR, rel);
+    if (fs.existsSync(downloaded)) return downloaded;
+    // When forced, skip the bundled-assets fallback so startHookSession
+    // triggers the real download even in dev (GSM_FORCE_TEXTHOOK_DOWNLOAD=1).
+    if (FORCE_TEXTHOOK_DOWNLOAD) return downloaded;
+    return path.join(getAssetsDir(), 'texthook', rel);
 }
 
 // ---------------------------------------------------------------------------
@@ -740,9 +749,42 @@ function handleArchitectureMismatchMessage(
 }
 
 function parseLunaContext(hookNumber: string, context: string): { id: string; function: string } {
+    // Luna context layout:
+    //   handle:pid:address:ctx:ctx2:name:hookcode[:module[:function]]
+    // Two hooks can share the same name, hook code and module while differing
+    // only in their ctx/ctx2 address (e.g. "Pal" at 6BF80:0 vs 6C1C5:0). The
+    // hook number (#1/#3) is reassigned per attach, so neither the number nor
+    // the bare name uniquely identify a hook across sessions. Fold ctx:ctx2 into
+    // the label so duplicates stay distinguishable in the UI and so the saved
+    // profile's hookFunction matches the exact hook on the next run.
     const parts = context.split(':');
-    const functionName = parts.length > 5 ? parts[5] : parts[parts.length - 2] || 'Unknown';
+    if (parts.length >= 6) {
+        const ctx = parts[3] || '';
+        const ctx2 = parts[4] || '';
+        const name = parts[5] || 'Unknown';
+        const contextSig = ctx2 ? `${ctx}:${ctx2}` : ctx;
+        const label = contextSig ? `${name} (${contextSig})` : name;
+        return { id: hookNumber, function: label || 'Unknown' };
+    }
+    const functionName = parts.length > 1 ? parts[parts.length - 2] : parts[0];
     return { id: hookNumber, function: functionName || 'Unknown' };
+}
+
+// Strip the " (ctx:ctx2)" suffix that parseLunaContext now appends so we can
+// compare against older profiles that were saved with only the bare hook name.
+function hookFunctionBaseName(label: string): string {
+    const match = /^(.*?)\s*\([^()]*\)\s*$/.exec(label);
+    return (match ? match[1] : label).trim();
+}
+
+// True when a saved profile's hookFunction identifies this hook entry. New
+// profiles store the full "name (ctx:ctx2)" label and match exactly. Profiles
+// saved before that change stored only the bare name, so fall back to comparing
+// against the entry's base name for backward compatibility (no re-select needed).
+function hookFunctionMatches(saved: string | null | undefined, entryFunction: string): boolean {
+    if (!saved) return false;
+    if (saved === entryFunction) return true;
+    return saved === hookFunctionBaseName(entryFunction);
 }
 
 function eraseTextHookNoise(text: string): string {
@@ -944,11 +986,12 @@ function recordHookEvent(hookId: string, fn: string, text: string): void {
 
     if (!session.selectedHookId) {
         const functionMatches =
-            !session.autoSelectHookFunction || entry.function === session.autoSelectHookFunction;
+            !session.autoSelectHookFunction ||
+            hookFunctionMatches(session.autoSelectHookFunction, entry.function);
         const idMatches = Boolean(session.autoSelectHookId && hookId === session.autoSelectHookId);
         const functionFallbackMatches = Boolean(
             session.autoSelectHookFunction &&
-                entry.function === session.autoSelectHookFunction &&
+                hookFunctionMatches(session.autoSelectHookFunction, entry.function) &&
                 (!session.autoSelectHookId || !idMatches),
         );
 
@@ -1123,13 +1166,28 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
             arch: target.arch,
             scriptPath,
             flushDelayMs,
+            copyToClipboard: options.copyToClipboard ?? profile?.copyToClipboard ?? false,
             source,
         });
     }
 
-    const cliPath = getEngineCliPath(engine, target.arch);
+    let cliPath = getEngineCliPath(engine, target.arch);
     if (!fs.existsSync(cliPath)) {
-        return { success: false, error: `Hook engine binary missing: ${cliPath}` };
+        mainWindow?.webContents.send('texthook.engineDownloadStarted', {});
+        try {
+            await downloadTexthookEngines((progress) => {
+                mainWindow?.webContents.send('texthook.engineDownloadProgress', progress);
+            });
+            mainWindow?.webContents.send('texthook.engineDownloadComplete', { success: true });
+        } catch (err) {
+            const error = (err as Error).message;
+            mainWindow?.webContents.send('texthook.engineDownloadComplete', { success: false, error });
+            return { success: false, error: `Hook engine download failed: ${error}` };
+        }
+        cliPath = getEngineCliPath(engine, target.arch);
+        if (!fs.existsSync(cliPath)) {
+            return { success: false, error: 'Hook engine binary still missing after download.' };
+        }
     }
 
     const cliDir = path.dirname(cliPath);
@@ -1422,6 +1480,9 @@ export function setFlushDelayMs(value: number): { success: boolean; flushDelayMs
 }
 
 export function setCopyToClipboard(value: boolean): { success: boolean; copyToClipboard?: boolean; error?: string } {
+    if (isAgentHookRunning()) {
+        return setAgentCopyToClipboard(value);
+    }
     if (!session) return { success: false, error: 'No active text hook session.' };
     session.copyToClipboard = value;
     emitStatus();
@@ -1574,7 +1635,26 @@ export function registerTextHookIPC(): void {
     });
 
     ipcMain.handle('texthook.getAllProfiles', async () => loadAllProfiles());
+
+    ipcMain.handle('texthook.getEngineStatus', async () => getEngineStatus());
+
+    ipcMain.handle('texthook.downloadEngines', async () => {
+        mainWindow?.webContents.send('texthook.engineDownloadStarted', {});
+        try {
+            await downloadTexthookEngines((progress) => {
+                mainWindow?.webContents.send('texthook.engineDownloadProgress', progress);
+            });
+            mainWindow?.webContents.send('texthook.engineDownloadComplete', { success: true });
+            return { success: true };
+        } catch (err) {
+            const error = (err as Error).message;
+            mainWindow?.webContents.send('texthook.engineDownloadComplete', { success: false, error });
+            return { success: false, error };
+        }
+    });
 }
+
+export { checkForTexthookUpdates };
 
 // Used by main.ts on app shutdown to make sure the CLI process is killed.
 export function shutdownTextHook(): void {
@@ -1592,6 +1672,8 @@ export const __test = {
     eraseTextHookNoise,
     normalizeFlushDelayMs,
     mergeTextHookOutput,
+    parseLunaContext,
+    hookFunctionMatches,
     selectGameProcess,
     collectDescendants,
     processBaseName,

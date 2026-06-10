@@ -1225,6 +1225,27 @@ class ConfigWindow(QWidget):
         self.save_settings(show_indicator=False)
         self.refresh_obs_scenes(force_reload=True)
 
+    def _on_dont_collect_stats_clicked(self, checked: bool) -> None:
+        """Gate enabling 'don't collect stats' behind a hard-to-miss warning."""
+        if not checked:
+            return
+        reply = QMessageBox.warning(
+            self,
+            "Completely Disable Stats Collection?",
+            "<b>This completely stops ALL stats collection.</b><br><br>"
+            "Your stats and game lines are <b>only ever stored locally on this PC</b> — "
+            "GSM never sends them anywhere, to anyone. There is no server, no cloud, no telemetry.<br><br>"
+            "If you enable this, GSM will <b>stop recording lines to its local database</b>, which "
+            "permanently disables features that rely on it: per-game stats, reading heatmaps, "
+            "line history/search, streaks, and any future stats-based features.<br><br>"
+            "Lines that are not recorded while this is on <b>cannot be recovered later.</b><br><br>"
+            "Are you sure you want to turn this off?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            self.dont_collect_stats_check.setChecked(False)
+
     @staticmethod
     def _normalize_scene_selection(scene_names):
         normalized = []
@@ -1594,6 +1615,7 @@ class ConfigWindow(QWidget):
         self.localhost_bind_address_edit = QLineEdit()
         self.longest_sleep_time_edit = QLineEdit()
         self.dont_collect_stats_check = QCheckBox()
+        self.dont_collect_stats_check.clicked.connect(self._on_dont_collect_stats_clicked)
         self.mute_game_on_minimize_check = QCheckBox()
         self.current_version_label = QLabel()
         self.latest_version_label = QLabel()

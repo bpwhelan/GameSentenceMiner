@@ -116,6 +116,12 @@ def _load_manga_ocr_module():
     return _MANGA_OCR_MODULE
 
 
+def _gaussian_window(M, std):
+    # Replaces scipy.signal.windows.gaussian so we don't pull in scipy/scikit-image.
+    n = np.arange(0, M) - (M - 1) / 2
+    return np.exp(-0.5 * (n / std) ** 2)
+
+
 def _load_manga_ocr_segmented_dependencies():
     global _MANGA_OCR_SEGMENTED_DEPS
     if _MANGA_OCR_SEGMENTED_DEPS is _UNINITIALIZED:
@@ -126,12 +132,11 @@ def _load_manga_ocr_segmented_dependencies():
         else:
             try:
                 text_detector_module = importlib.import_module("comic_text_detector.inference")
-                gaussian_module = importlib.import_module("scipy.signal.windows")
                 torch_module = importlib.import_module("torch")
                 _MANGA_OCR_SEGMENTED_DEPS = {
                     **base,
                     "TextDetector": text_detector_module.TextDetector,
-                    "gaussian": gaussian_module.gaussian,
+                    "gaussian": _gaussian_window,
                     "torch": torch_module,
                     "cv2": cv2_module,
                 }

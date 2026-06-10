@@ -6,9 +6,15 @@ Provides safe, non-blocking audio playback functionality with switchable backend
 import io
 import numpy as np
 import os
-import sounddevice as sd
 import soundfile as sf
 import threading
+
+try:
+    import sounddevice as sd
+    sd_available = True
+except Exception:
+    sd = None
+    sd_available = False
 from abc import ABC, abstractmethod
 from typing import Optional, Callable
 
@@ -61,7 +67,9 @@ class SoundDeviceAudioPlayer(AudioPlayerInterface):
     """
 
     def __init__(self, finished_callback: Optional[Callable] = None):
-        self.current_audio_stream: Optional[sd.OutputStream] = None
+        if not sd_available:
+            raise ImportError("sounddevice is not available on this platform")
+        self.current_audio_stream = None
         self.current_audio_data: Optional[np.ndarray] = None
         self.current_audio_samplerate: Optional[int] = None
         self._is_playing: bool = False
@@ -291,6 +299,34 @@ class QtAudioPlayer(AudioPlayerInterface):
         self.stop_audio()
 
 
+class NullAudioPlayer(AudioPlayerInterface):
+    """
+    No-op audio player used when no backend is available.
+    """
+
+    def __init__(self, finished_callback: Optional[Callable] = None):
+        pass
+
+    @property
+    def is_playing(self) -> bool:
+        return False
+
+    def play_audio_file(self, audio_path: str) -> bool:
+        return False
+
+    def play_audio_data(self, data: np.ndarray, samplerate: int) -> bool:
+        return False
+
+    def stop_audio(self):
+        pass
+
+    def cleanup(self):
+        pass
+
+    def get_current_time(self) -> float:
+        return 0.0
+
+
 class AudioPlayer(AudioPlayerInterface):
     """
     Proxy class that delegates to the configured implementation.
@@ -303,8 +339,18 @@ class AudioPlayer(AudioPlayerInterface):
         self.impl: AudioPlayerInterface
         if backend == "qt6" and QMediaPlayer is not None:
             self.impl = QtAudioPlayer(finished_callback)
-        else:
+        elif sd_available:
             self.impl = SoundDeviceAudioPlayer(finished_callback)
+        elif QMediaPlayer is not None:
+            logger.warning("sounddevice not available, falling back to Qt audio backend")
+            self.impl = QtAudioPlayer(finished_callback)
+        else:
+            logger.warning("No audio backend available: sounddevice and PyQt6.QtMultimedia are both unavailable")
+            self.impl = NullAudioPlayer(finished_callback)
+
+    @property
+    def audio_available(self) -> bool:
+        return not isinstance(self.impl, NullAudioPlayer)
 
     def play_audio_file(self, audio_path: str) -> bool:
         return self.impl.play_audio_file(audio_path)

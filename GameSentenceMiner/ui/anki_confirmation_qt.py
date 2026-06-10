@@ -944,6 +944,22 @@ class AnkiConfirmationDialog(QDialog):
         self.dialogue_tools_status.setText(status_text)
 
     def _refresh_audio_controls(self, sentence_text):
+        if not self.audio_player.audio_available:
+            self.audio_status_label.setText("⚠ No audio player available on this platform.")
+            self.audio_status_label.setStyleSheet("color: #856404; font-weight: bold;")
+            self.codec_info_label.setVisible(False)
+            self.waveform_widget.setVisible(False)
+            self.audio_button.setVisible(False)
+            self.play_original_button.setVisible(False)
+            self.reset_audio_button.setVisible(False)
+            self._update_audio_expand_buttons(allow_buttons=False)
+            self.tts_button.setVisible(False)
+            self.tts_status_label.setVisible(False)
+            self.voice_button.setVisible(False)
+            self.no_voice_button.setVisible(False)
+            self.confirm_button.setVisible(True)
+            return
+
         if self.reusing_audio:
             self.audio_status_label.setText("Reusing audio from the previous mining operation.")
             self.audio_status_label.setStyleSheet("color: green; font-weight: bold;")

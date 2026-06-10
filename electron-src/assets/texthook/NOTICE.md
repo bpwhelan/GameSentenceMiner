@@ -28,3 +28,5 @@ The GameSentenceMiner application as a whole is distributed under the
 LGPL-3.0-only license. The binaries and integration concepts above are
 included on a per-component basis in compliance with the upstream
 licenses.
+
+These files are not checked in, but are built and copied into the distribution during the build process.

@@ -2220,15 +2220,9 @@ def is_cuda_available():
 
             if cuda_found and cudnn_found:
                 return True
-        elif is_linux():
-            try:
-                import torch
-
-                if torch.cuda.is_available():
-                    logger.info("CUDA support found via PyTorch")
-                    return True
-            except ImportError:
-                pass
+        # Linux/macOS run faster-whisper on CPU (CTranslate2); torch is no longer a dependency,
+        # so there is no GPU path to probe here. GPU support on Linux can be added later via the
+        # `gpu` extra + Linux nvidia-* libs, mirroring the Windows nvidia.cublas/cudnn check above.
     except Exception:
         pass
     return False

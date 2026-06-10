@@ -2568,6 +2568,11 @@ background: rgba(202, 12, 12, 0.692);
           return;
         }
 
+        if (data.type === "live_goals_update") {
+          dispatchOverlayPayloadEvent("gsm-live-goals-update", data);
+          return;
+        }
+
         if (data.type === "yomitan_character_dictionary_changed") {
           console.log("[Yomitan] Character dictionary change event received:", data);
           scheduleGsmCharacterDictionaryEnsure(
@@ -2783,8 +2788,8 @@ background: rgba(202, 12, 12, 0.692);
               maxx = Math.max(maxx, x3);
               maxy = Math.max(maxy, y3);
               const box = isRecalibration
-                ? applyTextBoxLayout(reusableTextBoxes[reusableTextBoxIndex++], word.text, x1, y1, x3, y3, true, false)
-                : createTextBox(word.text, x1, y1, x3, y3, 0, true, true, false);
+                ? applyTextBoxLayout(reusableTextBoxes[reusableTextBoxIndex++], word.text, x1, y1, x3, y3, true, isVertical)
+                : createTextBox(word.text, x1, y1, x3, y3, 0, true, true, isVertical);
               box.dataset.lineIndex = lineIdx;
               const blockContainer = blockContainers.get(blockId);
               if (blockContainer && box.parentNode !== blockContainer) {
@@ -2867,15 +2872,20 @@ background: rgba(202, 12, 12, 0.692);
               }
             }
 
-            // Apply consistent font-size and uniform cross-axis size to all characters on the line
+            // Apply consistent font-size and uniform cross-axis size to all characters on the line.
+            // Actual punctuation keeps its natural OCR-tight box and size instead of being clamped
+            // up to the line's uniform glyph extent, so it stays a small, hard-to-hover lookup target.
             for (const lineWordBox of lineWordBoxes) {
               if (lineWordBox.hiddenByMainBox) {
                 continue;
               }
-              const effectiveFontSize = lineFontSize > 0 ? Math.round(lineFontSize) : lineWordBox.estimatedFontSize;
+              const keepNaturalSize = isStandalonePunctuation(lineWordBox.text);
+              const effectiveFontSize = (!keepNaturalSize && lineFontSize > 0)
+                ? Math.round(lineFontSize)
+                : lineWordBox.estimatedFontSize;
               lineWordBox.box.style.fontSize = `${effectiveFontSize}px`;
 
-              if (uniformExtentPercent > 0) {
+              if (!keepNaturalSize && uniformExtentPercent > 0) {
                 const clampedStart = Math.max(0, Math.min(100 - uniformExtentPercent, uniformStartPercent));
                 if (isVertical) {
                   lineWordBox.box.style.left = `${clampedStart + offsetX}%`;
@@ -3302,6 +3312,29 @@ background: rgba(202, 12, 12, 0.692);
       return false;
     }
     // Visible punctuation/symbol-like markers inherit surrounding text sizing.
+    return true;
+  }
+
+  // "Actual" punctuation: visible non-lexical marks (。、！？「」（）… ) EXCLUDING the
+  // dash/long-vowel family, which read as part of a word and should stay line-sized.
+  // These keep their natural OCR-tight box (not clamped to the line's uniform glyph
+  // extent) so they remain small, low-priority hover targets that are harder to look up.
+  function isStandalonePunctuation(text) {
+    if (typeof text !== 'string') {
+      return false;
+    }
+    const compact = text.replace(/\s+/g, '');
+    if (!compact || compact === '\n') {
+      return false;
+    }
+    // Dash-like markers belong to the word/reading; don't treat them as punctuation.
+    if (/^[\-‐‑‒–—―ーｰ－〜～]+$/.test(compact)) {
+      return false;
+    }
+    // Lexical characters are real lookup targets.
+    if (LATIN_NUMERIC_REGEX.test(compact) || CJK_LEXICAL_REGEX.test(compact)) {
+      return false;
+    }
     return true;
   }
 

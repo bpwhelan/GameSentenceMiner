@@ -379,6 +379,13 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
         except Exception as error:
             logger.debug(f"[{self.server_name}] Failed to send initial overlay state: {error}")
 
+        try:
+            from GameSentenceMiner.web.live_goals import build_live_goals_payload
+
+            await websocket.send(json.dumps(build_live_goals_payload()))
+        except Exception as error:
+            logger.debug(f"[{self.server_name}] Failed to send initial overlay goals: {error}")
+
     async def _handler(self, websocket, path=None):
         server_id = self._resolve_target_server_id(websocket, path)
         if not server_id:

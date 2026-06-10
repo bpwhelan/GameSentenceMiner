@@ -4,13 +4,13 @@
 
 @font-face {
   font-family: 'Ackaisyo';
-  src: local(''), url('https://gsm.beangate.us/ackaisyo.ttf') format('truetype');
+  src: local(''), url('https://r2.gamesentenceminer.com/ackaisyo.ttf') format('truetype');
   font-display: swap;
 }
 
 @font-face {
 	font-family: 'CineCaption226';
-	src: local(''), url('https://gsm.beangate.us/cinecaption226.ttf') format('truetype');
+	src: local(''), url('https://r2.gamesentenceminer.com/cinecaption226.ttf') format('truetype');
 	font-display: swap;
 }
 

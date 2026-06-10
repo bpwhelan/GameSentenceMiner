@@ -1,0 +1,65 @@
+{
+  "version": "1.0.0",
+  "files": [
+    {
+      "path": "NOTICE.md",
+      "sha256": "90dbd0e962b98a8da59f928946692d10a826b7f9c566655f7fed2ecf0da2bff8"
+    },
+    {
+      "path": "luna_builds/LunaHook32.dll",
+      "sha256": "9db9a871f4e4c0bd4ab181474254416ac275e35644d8e9827e01033305104667"
+    },
+    {
+      "path": "luna_builds/LunaHook64.dll",
+      "sha256": "f6c66cdc4263ec5e298e8c2a149358a2477aecc8ba3ca15d60c4dbbe7ae434bc"
+    },
+    {
+      "path": "luna_builds/LunaHost32.dll",
+      "sha256": "bb4498ba67161d448f02f934db5dd657c61c797e2e1bf8f3f71571076b46d293"
+    },
+    {
+      "path": "luna_builds/LunaHost64.dll",
+      "sha256": "c6ee08cdbf109ea8a8c59f29542c33b86b8bd87173408bcf94001b7b5453193f"
+    },
+    {
+      "path": "luna_builds/LunaHostCLI32.exe",
+      "sha256": "5a2a9ccbe904bb52c3d1053189c82b87d71060df9c31e028f172a6459fc7a5b7"
+    },
+    {
+      "path": "luna_builds/LunaHostCLI64.exe",
+      "sha256": "d95f1d25c1dbd25966974647ce25f587d517d7302e1268e0b0c750b263563d77"
+    },
+    {
+      "path": "textractor_builds/_x64/LoaderDll.dll",
+      "sha256": "7679f09fab25e25faf0cb76a6f704bab62893edc3f2771b7571887b8f99a904b"
+    },
+    {
+      "path": "textractor_builds/_x64/LocaleEmulator.dll",
+      "sha256": "6e2ffbceb6b1e904e138046298e7ece0206074c5e38d15e1c452c139e71a84e1"
+    },
+    {
+      "path": "textractor_builds/_x64/texthook.dll",
+      "sha256": "1995ff5f431c19ea4148e5e7a69b90f8dafc091230804cd6fe795881d190869b"
+    },
+    {
+      "path": "textractor_builds/_x64/TextractorCLI.exe",
+      "sha256": "f03c70b7b4514205508004323005b2e98d46becf2e3cbce46990060b780ee433"
+    },
+    {
+      "path": "textractor_builds/_x86/LoaderDll.dll",
+      "sha256": "7679f09fab25e25faf0cb76a6f704bab62893edc3f2771b7571887b8f99a904b"
+    },
+    {
+      "path": "textractor_builds/_x86/LocaleEmulator.dll",
+      "sha256": "6e2ffbceb6b1e904e138046298e7ece0206074c5e38d15e1c452c139e71a84e1"
+    },
+    {
+      "path": "textractor_builds/_x86/texthook.dll",
+      "sha256": "2557df54e0209f5f9ebb2743854291cb20e9f2ab614fd36ee146d2ff296d0fcc"
+    },
+    {
+      "path": "textractor_builds/_x86/TextractorCLI.exe",
+      "sha256": "6d8f9f4b871ef34c4bd2cd8762681d8f557078bacd598faf91eafa96b30ac946"
+    }
+  ]
+}

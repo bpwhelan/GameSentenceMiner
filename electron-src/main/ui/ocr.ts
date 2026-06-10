@@ -27,10 +27,10 @@ import {
     isQuitting,
     mainWindow,
     restartGSM,
-    sendOCRResultLine,
 } from '../main.js';
 import { getCurrentScene, ObsScene } from './obs.js';
-import { OCRStdoutManager } from '../communication/ocrIPC.js';
+import { bus } from '../runtime/bus_client.js';
+import { getProcessManager } from '../runtime/process_supervisor.js';
 import {
     BASE_DIR,
     getAssetsDir,
@@ -44,15 +44,19 @@ import path, { resolve } from 'path';
 import * as fs from 'node:fs';
 import * as os from 'os';
 
-let ocrProcess: any = null;
-let ocrStdoutManager: OCRStdoutManager | null = null;
+// OCR is now a bus-managed process: the ProcessManager owns its lifecycle and
+// the message bus carries events (ocr.event) and commands (ocr.command). See
+// runtime/process_supervisor.ts and util/communication/ocr_ipc.py.
+const OCR_CLIENT_ID = 'ocr';
+let pendingOcrLaunch: { command: string; args: string[]; windowsHide: boolean } | null = null;
+let ocrSupervisorWired = false;
+let ocrStopRequested = false;
 export type OCRStartSource = 'user' | 'auto-launcher';
 type OCRRunMode = 'auto' | 'manual';
 type OCRProcessPriority = 'low' | 'below_normal' | 'normal' | 'above_normal' | 'high';
 type OCRConfigChanges = Record<string, [unknown, unknown]>;
 let activeOcrSource: OCRStartSource | null = null;
 let activeOcrRunMode: OCRRunMode | null = null;
-let gracefulStopTimer: NodeJS.Timeout | null = null;
 const OCR_GRACEFUL_STOP_TIMEOUT_MS = 2000;
 const OCR_PROCESS_PRIORITIES: OCRProcessPriority[] = ['low', 'below_normal', 'normal', 'above_normal', 'high'];
 
@@ -89,13 +93,6 @@ function clearActiveOcrSession() {
     activeOcrRunMode = null;
 }
 
-function clearGracefulStopTimer() {
-    if (gracefulStopTimer) {
-        clearTimeout(gracefulStopTimer);
-        gracefulStopTimer = null;
-    }
-}
-
 function normalizeOcrProcessPriority(value: unknown): OCRProcessPriority {
     if (typeof value !== 'string') {
         return 'normal';
@@ -125,8 +122,8 @@ function getWindowsPriorityValue(priority: OCRProcessPriority): number {
     }
 }
 
-function applyWindowsOcrProcessPriority(targetProcess: any) {
-    if (!isWindows() || typeof targetProcess?.pid !== 'number' || targetProcess.pid <= 0) {
+function applyWindowsOcrProcessPriority(pid: number | undefined) {
+    if (!isWindows() || typeof pid !== 'number' || pid <= 0) {
         return;
     }
 
@@ -134,11 +131,11 @@ function applyWindowsOcrProcessPriority(targetProcess: any) {
     const priorityValue = getWindowsPriorityValue(configuredPriority);
 
     try {
-        os.setPriority(targetProcess.pid, priorityValue);
-        console.log(`[OCR] Applied Windows process priority "${configuredPriority}" to PID=${targetProcess.pid}`);
+        os.setPriority(pid, priorityValue);
+        console.log(`[OCR] Applied Windows process priority "${configuredPriority}" to PID=${pid}`);
     } catch (error) {
         console.warn(
-            `[OCR] Failed to apply process priority "${configuredPriority}" to PID=${targetProcess.pid}:`,
+            `[OCR] Failed to apply process priority "${configuredPriority}" to PID=${pid}:`,
             error
         );
     }
@@ -146,7 +143,7 @@ function applyWindowsOcrProcessPriority(targetProcess: any) {
 
 export function getOCRRuntimeState() {
     return {
-        isRunning: ocrProcess !== null,
+        isRunning: getProcessManager().isRunning(OCR_CLIENT_ID),
         source: activeOcrSource,
         mode: activeOcrRunMode,
     };
@@ -196,7 +193,7 @@ function shouldEnableLegacyKeepNewlineFlag(ocr_config: ReturnType<typeof getOCRC
 }
 
 function requestOcrConfigReload(reason: string, options?: { reloadArea?: boolean; reloadElectron?: boolean; changes?: Record<string, any> }) {
-    if (!ocrStdoutManager) {
+    if (!getProcessManager().isRunning(OCR_CLIENT_ID)) {
         console.warn(`[OCR] Skipping reload config (${reason}) - no active OCR process`);
         return;
     }
@@ -211,7 +208,7 @@ function requestOcrConfigReload(reason: string, options?: { reloadArea?: boolean
         payload.changes = options.changes;
     }
 
-    ocrStdoutManager.reloadConfig(payload);
+    sendOcrCommand('reload_config', payload);
     console.log(`[OCR] Sent reload config (${reason})`);
 }
 
@@ -232,7 +229,7 @@ function getOcrConfigRestartReason(changes: OCRConfigChanges): string | null {
 }
 
 async function restartActiveOcrSessionForConfigChange(reason: string) {
-    if (!ocrProcess || !activeOcrRunMode) {
+    if (!getProcessManager().isRunning(OCR_CLIENT_ID) || !activeOcrRunMode) {
         return;
     }
 
@@ -262,58 +259,154 @@ function shouldHideOcrConsole(options?: { source?: OCRStartSource; mode?: OCRRun
     return getStartConsoleMinimized();
 }
 
-function terminateOcrProcess(targetProcess: any, reason: string) {
-    if (!targetProcess) {
+/** Send a control command to the OCR process over the bus. */
+function sendOcrCommand(command: string, data?: Record<string, any>): void {
+    if (!getProcessManager().isRunning(OCR_CLIENT_ID)) {
+        console.warn(`[OCR] Cannot send "${command}" - no active OCR process`);
         return;
     }
-
-    const pid = typeof targetProcess.pid === 'number' ? targetProcess.pid : -1;
-
-    try {
-        targetProcess.kill('SIGTERM');
-    } catch (error) {
-        console.error(`[OCR] Failed to signal process termination (${reason}):`, error);
+    const payload: Record<string, any> = { command };
+    if (data && Object.keys(data).length > 0) {
+        payload.data = data;
     }
+    bus.publish(OCR_CLIENT_ID, 'ocr.command', payload, 'command');
+}
 
-    if (isWindows() && pid > 0) {
-        setTimeout(() => {
-            if (targetProcess.exitCode !== null) {
-                return;
-            }
-
-            exec(`taskkill /PID ${pid} /T /F`, { windowsHide: true }, (error) => {
-                if (!error) {
-                    console.log(`[OCR] Force-terminated lingering OCR process tree (${reason}) PID=${pid}`);
-                }
-            });
-        }, 1500);
+/** Forward an OCR bus event to the renderer, mirroring the old stdout manager. */
+function handleOcrEvent(event: string, data: any): void {
+    sendToMainWindowFrames('ocr-ipc-message', { event, data });
+    switch (event) {
+        case 'started':
+            sendToMainWindowFrames('ocr-ipc-started');
+            break;
+        case 'stopped':
+            sendToMainWindowFrames('ocr-ipc-stopped');
+            break;
+        case 'paused':
+            sendToMainWindowFrames('ocr-ipc-paused', data);
+            break;
+        case 'unpaused':
+            sendToMainWindowFrames('ocr-ipc-unpaused', data);
+            break;
+        case 'status':
+            sendToMainWindowFrames('ocr-ipc-status', data);
+            break;
+        case 'ocr_result':
+            // Backend receives the result directly via the ocr.event broadcast;
+            // main only forwards it to the renderer (ocr-ipc-message above).
+            break;
+        case 'error':
+            sendToMainWindowFrames('ocr-ipc-error', data?.error ?? 'Unknown error');
+            break;
+        case 'config_reloaded':
+            sendToMainWindowFrames('ocr-ipc-config-reloaded');
+            break;
+        case 'force_stable_changed':
+            sendToMainWindowFrames('ocr-ipc-force-stable-changed', data);
+            break;
     }
 }
 
-function requestGracefulOcrStop(targetProcess: any, reason: string) {
-    if (!targetProcess) {
+/** Forward OCR stdout/stderr to the renderer, filtering noisy native banners. */
+function forwardOcrLog(stream: string, rawMessage: string): void {
+    const message = (rawMessage || '').toString();
+    const lowerMessage = message.toLowerCase();
+    const trimmedMessage = message.trim();
+    const isNativeInfoLog = /^I\d{4}\s/.test(trimmedMessage) || /^W\d{4}\s/.test(trimmedMessage);
+    const isIgnorableScreenAIWarning =
+        lowerMessage.includes('standard_text_reorderer.cc:401') ||
+        lowerMessage.includes('invalid alignment between pre-joined atoms and icu symbols');
+    const isIgnorableScreenAIInfo =
+        isNativeInfoLog &&
+        (
+            lowerMessage.includes('group_rpn_detector_utils') ||
+            lowerMessage.includes('tflite_model_pooled') ||
+            lowerMessage.includes('multi_pass_line_recognition_mutator') ||
+            lowerMessage.includes('mobile_langid') ||
+            lowerMessage.includes('scheduler.cc:692') ||
+            lowerMessage.includes('coarse_classifier_calculator')
+        );
+    const isIgnorableTfLiteBanner = lowerMessage.includes('created tensorflow lite xnnpack delegate for cpu');
+    if (isIgnorableScreenAIWarning || isIgnorableScreenAIInfo || isIgnorableTfLiteBanner) {
         return;
     }
 
-    if (!ocrStdoutManager) {
-        terminateOcrProcess(targetProcess, `${reason}-no-ipc`);
+    if (stream === 'stderr') {
+        console.error(`[OCR STDERR]: ${message}`);
+    } else {
+        console.log(`[OCR STDOUT]: ${message}`);
+    }
+    sendToMainWindowFrames('ocr-log', message);
+}
+
+/** Register the OCR process spec and wire its lifecycle/bus listeners once. */
+function ensureOcrSupervisorWired(): void {
+    if (ocrSupervisorWired) {
         return;
     }
+    ocrSupervisorWired = true;
+    const pm = getProcessManager();
 
-    try {
-        ocrStdoutManager.stop();
-    } catch (error) {
-        console.warn(`[OCR] Failed sending graceful stop command (${reason}), falling back to terminate.`, error);
-        terminateOcrProcess(targetProcess, `${reason}-stop-command-failed`);
-        return;
-    }
+    pm.register({
+        id: OCR_CLIENT_ID,
+        buildCommand: () => {
+            if (!pendingOcrLaunch) {
+                throw new Error('OCR launch requested with no pending command');
+            }
+            return { command: pendingOcrLaunch.command, args: pendingOcrLaunch.args };
+        },
+        windowsHide: () => pendingOcrLaunch?.windowsHide ?? false,
+        namedExecutableLabel: 'OCR',
+        priority: () => normalizeOcrProcessPriority(getOCRConfig().processPriority),
+        gracefulStop: {
+            topic: 'ocr.command',
+            data: { command: 'stop' },
+            timeoutMs: OCR_GRACEFUL_STOP_TIMEOUT_MS,
+        },
+        matchTokens: ['gsm_ocr'],
+    });
 
-    clearGracefulStopTimer();
-    gracefulStopTimer = setTimeout(() => {
-        if (ocrProcess === targetProcess && targetProcess.exitCode === null) {
-            terminateOcrProcess(targetProcess, `${reason}-graceful-timeout`);
+    pm.on('state-changed', (id: string, state: string) => {
+        if (id !== OCR_CLIENT_ID) {
+            return;
         }
-    }, OCR_GRACEFUL_STOP_TIMEOUT_MS);
+        if (state === 'starting') {
+            sendToMainWindowFrames('ocr-started');
+        } else if (state === 'stopped') {
+            // Quiet during a restart's intermediate stop; only report a real stop.
+            if (ocrStopRequested) {
+                sendToMainWindowFrames('ocr-stopped');
+                clearActiveOcrSession();
+                ocrStopRequested = false;
+            }
+        } else if (state === 'crashed') {
+            console.log('[OCR] Process exited unexpectedly');
+            sendToMainWindowFrames('ocr-stopped');
+            clearActiveOcrSession();
+            ocrStopRequested = false;
+        }
+    });
+
+    pm.on('ready', (id: string) => {
+        if (id !== OCR_CLIENT_ID) {
+            return;
+        }
+        console.log('[OCR] Process connected to bus');
+        applyWindowsOcrProcessPriority(pm.getPid(OCR_CLIENT_ID));
+    });
+
+    pm.on('log', (id: string, log: { stream: string; message: string }) => {
+        if (id === OCR_CLIENT_ID) {
+            forwardOcrLog(log.stream, log.message);
+        }
+    });
+
+    bus.subscribe('ocr.event', (msg) => {
+        const payload = (msg.data ?? {}) as { event?: string; data?: unknown };
+        if (typeof payload.event === 'string') {
+            handleOcrEvent(payload.event, payload.data);
+        }
+    });
 }
 
 async function runScreenSelector() {
@@ -378,160 +471,34 @@ function runOCR(command: string[], options?: { source?: OCRStartSource; mode?: O
         return;
     }
 
-    // 1. If an OCR process is already running, terminate it gracefully.
-    if (ocrProcess) {
-        console.log('An OCR process is already running. Terminating the old one...');
-        // Sending SIGTERM. The 'close' handler of the old process will eventually fire.
-        // The new logic in the 'close' handler prevents it from interfering with a new process.
-        terminateOcrProcess(ocrProcess, 'restart-before-new-session');
-    }
-
-    // 2. Separate the executable from its arguments.
     const [executable, ...args] = command;
-
     if (!executable) {
         console.error('Error: Command is empty. Cannot start OCR process.');
         return;
     }
 
-    const taskManagerExecutable = getWindowsNamedPythonExecutable(
-        executable,
-        'OCR'
-    );
-
     const startSource = options?.source ?? 'user';
     const runMode = options?.mode ?? 'auto';
-    const windowsHide = shouldHideOcrConsole({ source: startSource, mode: runMode });
 
-    console.log(
-        `Starting OCR process (source=${startSource}, mode=${runMode}, windowsHide=${windowsHide}) with command: ${taskManagerExecutable} ${args.join(' ')}`
-    );
-    sendToMainWindowFrames('ocr-started');
-
-    // 3. Spawn the new process and store it in a local variable.
-    const newOcrProcess = spawn(taskManagerExecutable, args, {
-        env: getSanitizedPythonEnv(),
-        windowsHide,
-    });
-    applyWindowsOcrProcessPriority(newOcrProcess);
-    ocrProcess = newOcrProcess; // Assign to the global variable.
+    // The ProcessManager owns spawn/kill/restart; we just stage the launch and
+    // let restart() gracefully replace any existing OCR process. Lifecycle and
+    // event/log forwarding are wired once in ensureOcrSupervisorWired().
+    pendingOcrLaunch = {
+        command: executable,
+        args,
+        windowsHide: shouldHideOcrConsole({ source: startSource, mode: runMode }),
+    };
+    ocrStopRequested = false;
     setActiveOcrSession(startSource, runMode);
+    ensureOcrSupervisorWired();
 
-    // Attach OCRStdoutManager for IPC communication
-    ocrStdoutManager = new OCRStdoutManager(newOcrProcess);
-
-    // Forward structured OCR events to renderer
-    ocrStdoutManager.on('message', (msg) => {
-        sendToMainWindowFrames('ocr-ipc-message', msg);
-    });
-
-    // Forward specific events for convenience
-    ocrStdoutManager.on('started', () => {
-        console.log('[OCR] Process started');
-        sendToMainWindowFrames('ocr-ipc-started');
-    });
-
-    ocrStdoutManager.on('stopped', () => {
-        console.log('[OCR] Process stopped');
-        sendToMainWindowFrames('ocr-ipc-stopped');
-    });
-
-    ocrStdoutManager.on('paused', (data) => {
-        console.log('[OCR] Paused:', data);
-        sendToMainWindowFrames('ocr-ipc-paused', data);
-    });
-
-    ocrStdoutManager.on('unpaused', (data) => {
-        console.log('[OCR] Unpaused:', data);
-        sendToMainWindowFrames('ocr-ipc-unpaused', data);
-    });
-
-    ocrStdoutManager.on('status', (status) => {
-        sendToMainWindowFrames('ocr-ipc-status', status);
-    });
-
-    ocrStdoutManager.on('ocr_result', (result) => {
-        console.log('[OCR] Result:', result);
-        sendOCRResultLine(result ?? {});
-    });
-
-    ocrStdoutManager.on('error', (error) => {
-        console.error('[OCR] Error:', error);
-        sendToMainWindowFrames('ocr-ipc-error', error);
-    });
-
-    ocrStdoutManager.on('config_reloaded', () => {
-        console.log('[OCR] Config reloaded');
-        sendToMainWindowFrames('ocr-ipc-config-reloaded');
-    });
-
-    ocrStdoutManager.on('force_stable_changed', (data) => {
-        console.log('[OCR] Force stable changed:', data);
-        sendToMainWindowFrames('ocr-ipc-force-stable-changed', data);
-    });
-
-    // 4. Capture and log standard output from the process.
-    ocrStdoutManager.on('log', (log) => {
-        const message = (log.message || '').toString();
-        const lowerMessage = message.toLowerCase();
-        const trimmedMessage = message.trim();
-        const isNativeInfoLog = /^I\d{4}\s/.test(trimmedMessage) || /^W\d{4}\s/.test(trimmedMessage);
-        const isIgnorableScreenAIWarning =
-            lowerMessage.includes('standard_text_reorderer.cc:401') ||
-            lowerMessage.includes('invalid alignment between pre-joined atoms and icu symbols');
-        const isIgnorableScreenAIInfo =
-            isNativeInfoLog &&
-            (
-                lowerMessage.includes('group_rpn_detector_utils') ||
-                lowerMessage.includes('tflite_model_pooled') ||
-                lowerMessage.includes('multi_pass_line_recognition_mutator') ||
-                lowerMessage.includes('mobile_langid') ||
-                lowerMessage.includes('scheduler.cc:692') ||
-                lowerMessage.includes('coarse_classifier_calculator')
-            );
-        const isIgnorableTfLiteBanner = lowerMessage.includes('created tensorflow lite xnnpack delegate for cpu');
-        if (isIgnorableScreenAIWarning || isIgnorableScreenAIInfo || isIgnorableTfLiteBanner) {
-            return;
-        }
-
-        if (log.type === 'stdout') {
-            console.log(`[OCR STDOUT]: ${message}`);
-            sendToMainWindowFrames('ocr-log', message);
-        } else if (log.type === 'stderr') {
-            console.error(`[OCR STDERR]: ${message}`);
-            sendToMainWindowFrames('ocr-log', message);
-        } else if (log.type === 'parse-error') {
-            console.error(`[OCR Parse Error]: ${message}`);
-            sendToMainWindowFrames('ocr-log', '[Parse Error] ' + message);
-        }
-    });
-
-    // 6. Handle the process exiting.
-    newOcrProcess.on('close', (code: number) => {
-        console.log(`OCR process exited with code: ${code}`);
-        sendToMainWindowFrames('ocr-stopped');
-        clearGracefulStopTimer();
-        // Clear the global reference only if it's this specific process instance.
-        // This prevents a race condition where an old process's close event
-        // nullifies the reference to a newer, active process.
-        if (ocrProcess === newOcrProcess) {
-            ocrProcess = null;
-            ocrStdoutManager = null;
-            clearActiveOcrSession();
-        }
-    });
-
-    // 7. Handle errors during process spawning (e.g., command not found).
-    newOcrProcess.on('error', (err: Error) => {
-        console.error(`Failed to start OCR process: ${err.message}`);
-        sendToMainWindowFrames('ocr-stopped');
-        clearGracefulStopTimer();
-        if (ocrProcess === newOcrProcess) {
-            ocrProcess = null;
-            ocrStdoutManager = null;
-            clearActiveOcrSession();
-        }
-    });
+    console.log(`Starting OCR process (source=${startSource}, mode=${runMode}).`);
+    void getProcessManager()
+        .restart(OCR_CLIENT_ID)
+        .catch((err) => {
+            console.error('[OCR] Failed to (re)start process:', err);
+            sendToMainWindowFrames('ocr-stopped');
+        });
 }
 
 async function runCommandAndLog(command: string[]): Promise<void> {
@@ -587,14 +554,8 @@ export async function startOCR(
         return;
     }
 
-    // This should never happen, but just in case
-    if (ocrProcess) {
-        terminateOcrProcess(ocrProcess, 'startOCR-preflight');
-        ocrProcess = null;
-        ocrStdoutManager = null;
-        clearActiveOcrSession();
-    }
-    if (!ocrProcess) {
+    // The ProcessManager replaces any running OCR process when we (re)start below.
+    {
         const promptForAreaSelection = options?.promptForAreaSelection ?? true;
         const ocr_config = getOCRConfig();
         const config = await getActiveOCRConfig(options?.scene);
@@ -654,8 +615,9 @@ export function stopOCR(options?: { onlyIfSource?: OCRStartSource }): boolean {
         return false;
     }
 
-    if (ocrProcess) {
-        requestGracefulOcrStop(ocrProcess, 'explicit-stop');
+    if (getProcessManager().isRunning(OCR_CLIENT_ID)) {
+        ocrStopRequested = true;
+        void getProcessManager().stop(OCR_CLIENT_ID);
         return true;
     }
 
@@ -667,14 +629,8 @@ export function startManualOCR(options?: { source?: OCRStartSource }) {
         return;
     }
 
-    if (ocrProcess) {
-        terminateOcrProcess(ocrProcess, 'startManualOCR-preflight');
-        ocrProcess = null;
-        ocrStdoutManager = null;
-        clearActiveOcrSession();
-    }
-
-    if (!ocrProcess) {
+    // The ProcessManager replaces any running OCR process when we (re)start below.
+    {
         const ocr_config = getOCRConfig();
         const command = [
             `${getPythonPath()}`,
@@ -955,7 +911,7 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.on('ocr.start-ocr-ss-only', () => {
-        if (!ocrProcess) {
+        {
             const ocr_config = getOCRConfig();
             const ocr1 = ocr_config.twoPassOCR ? `${ocr_config.ocr1}` : `${ocr_config.ocr2}`;
             const command = [
@@ -985,25 +941,21 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.on('ocr.kill-ocr', () => {
-        if (ocrProcess) {
+        if (getProcessManager().isRunning(OCR_CLIENT_ID)) {
             sendToMainWindowFrames('ocr-log', 'Stopping OCR process...');
             stopOCR();
         }
     });
 
-    ipcMain.on('ocr.stdin', (_, data) => {
-        if (ocrProcess) {
-            console.log('Sending to OCR stdin:', data);
-            ocrProcess.stdin.write(data);
-        }
+    ipcMain.on('ocr.stdin', () => {
+        // OCR control now travels over the message bus, not the child's stdin.
+        console.warn('[OCR] ocr.stdin is deprecated; use bus commands instead.');
     });
 
     ipcMain.on('ocr.restart-ocr', () => {
-        if (ocrProcess) {
-            sendToMainWindowFrames('ocr-log', `Restarting OCR Process...`);
-            stopOCR();
-        }
-        ipcMain.emit('ocr.start-ocr'); // Start a new OCR process
+        // runOCR()/ProcessManager.restart() replaces any running instance.
+        sendToMainWindowFrames('ocr-log', `Restarting OCR Process...`);
+        ipcMain.emit('ocr.start-ocr');
     });
 
     ipcMain.on('ocr.save-ocr-config', async (_, config: any) => {
@@ -1020,11 +972,13 @@ export function registerOCRUtilsIPC() {
         } catch (err: any) {
             console.warn(`[OCR] Failed to write scene settings: ${err.message}`);
         }
-        if ('processPriority' in changes && ocrProcess) {
-            applyWindowsOcrProcessPriority(ocrProcess);
+        if ('processPriority' in changes && getProcessManager().isRunning(OCR_CLIENT_ID)) {
+            applyWindowsOcrProcessPriority(getProcessManager().getPid(OCR_CLIENT_ID));
         }
 
-        const restartReason = ocrProcess ? getOcrConfigRestartReason(changes) : null;
+        const restartReason = getProcessManager().isRunning(OCR_CLIENT_ID)
+            ? getOcrConfigRestartReason(changes)
+            : null;
         if (restartReason) {
             await restartActiveOcrSessionForConfigChange(restartReason);
             return;
@@ -1073,7 +1027,7 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.handle('ocr.get-running-state', () => {
         return {
-            isRunning: ocrProcess !== null,
+            isRunning: getProcessManager().isRunning(OCR_CLIENT_ID),
             source: activeOcrSource,
             mode: activeOcrRunMode,
         };
@@ -1205,69 +1159,37 @@ export function registerOCRUtilsIPC() {
         }
     });
 
-    // OCR IPC Command Handlers
+    // OCR IPC Command Handlers — all routed over the message bus.
     ipcMain.on('ocr.pause', () => {
-        if (ocrStdoutManager) {
-            ocrStdoutManager.pause();
-            console.log('[OCR] Sent pause command');
-        } else {
-            console.warn('[OCR] Cannot pause - no active OCR process');
-        }
+        sendOcrCommand('pause');
     });
 
     ipcMain.on('ocr.unpause', () => {
-        if (ocrStdoutManager) {
-            ocrStdoutManager.unpause();
-            console.log('[OCR] Sent unpause command');
-        } else {
-            console.warn('[OCR] Cannot unpause - no active OCR process');
-        }
+        sendOcrCommand('unpause');
     });
 
     ipcMain.on('ocr.toggle-pause', () => {
-        if (ocrStdoutManager) {
-            ocrStdoutManager.togglePause();
-            console.log('[OCR] Sent toggle pause command');
-        } else {
-            console.warn('[OCR] Cannot toggle pause - no active OCR process');
-        }
+        sendOcrCommand('toggle_pause');
     });
 
     ipcMain.on('ocr.get-status', () => {
-        if (ocrStdoutManager) {
-            ocrStdoutManager.getStatus();
-            console.log('[OCR] Requested status');
-        } else {
-            console.warn('[OCR] Cannot get status - no active OCR process');
+        if (!getProcessManager().isRunning(OCR_CLIENT_ID)) {
             sendToMainWindowFrames('ocr-ipc-error', 'No active OCR process');
+            return;
         }
+        sendOcrCommand('get_status');
     });
 
     ipcMain.on('ocr.reload-config', (_, data?: Record<string, any>) => {
-        if (ocrStdoutManager) {
-            ocrStdoutManager.reloadConfig(data);
-            console.log('[OCR] Sent reload config command');
-        } else {
-            console.warn('[OCR] Cannot reload config - no active OCR process');
-        }
+        sendOcrCommand('reload_config', data);
     });
 
     ipcMain.on('ocr.toggle-force-stable', () => {
-        if (ocrStdoutManager) {
-            ocrStdoutManager.toggleForceStable();
-            console.log('[OCR] Sent toggle force stable command');
-        } else {
-            console.warn('[OCR] Cannot toggle force stable - no active OCR process');
-        }
+        sendOcrCommand('toggle_force_stable');
     });
 
     ipcMain.on('ocr.set-force-stable', (_, enabled: boolean) => {
-        if (ocrStdoutManager) {
-            ocrStdoutManager.setForceStable(enabled);
-            console.log(`[OCR] Sent set force stable command: ${enabled}`);
-        } else {
-            console.warn('[OCR] Cannot set force stable - no active OCR process');
-        }
+        sendOcrCommand('set_force_stable', { enabled });
     });
 }
 

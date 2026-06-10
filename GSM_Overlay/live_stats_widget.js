@@ -3,11 +3,13 @@
     { key: "chars_per_hour", label: "Chars/hour", format: "integer", default_visible: true },
     { key: "total_characters", label: "Characters", format: "integer", default_visible: true },
     { key: "active_reading_time", label: "Active time", format: "duration", default_visible: true },
+    { key: "raw_reading_time", label: "Raw time", format: "duration", default_visible: true },
     { key: "cards_mined", label: "Cards mined", format: "integer", default_visible: true },
   ]);
 
   const DEFAULT_SETTINGS = Object.freeze({
     showLiveStats: true,
+    showLiveGoals: true,
     liveStatsDisplayModeV2: "always",
     liveStatsLayoutV2: "one-line",
     liveStatsAutoHideSeconds: 5,
@@ -16,6 +18,7 @@
       chars_per_hour: true,
       total_characters: true,
       active_reading_time: true,
+      raw_reading_time: true,
       cards_mined: true,
     },
   });
@@ -39,11 +42,16 @@
     settings: { ...DEFAULT_SETTINGS, liveStatsFields: { ...DEFAULT_SETTINGS.liveStatsFields } },
     fieldDefinitions: DEFAULT_FIELD_DEFINITIONS.map((field) => ({ ...field })),
     payload: null,
+    pomodoro: null,
+    pomodoroEl: null,
+    goals: [],
+    goalsEl: null,
     displayInfo: null,
     targetWindowRect: null,
     targetClientRect: null,
     magpieInfo: null,
     hideTimer: null,
+    tickTimer: null,
     temporarilyVisible: false,
   };
 
@@ -89,6 +97,7 @@
   function normalizeSettings(settings = {}) {
     return {
       showLiveStats: normalizeBoolean(settings.showLiveStats, state.settings.showLiveStats),
+      showLiveGoals: normalizeBoolean(settings.showLiveGoals ?? state.settings.showLiveGoals, true),
       liveStatsDisplayModeV2: normalizeDisplayMode(settings.liveStatsDisplayModeV2 ?? state.settings.liveStatsDisplayModeV2),
       liveStatsLayoutV2: normalizeLayout(settings.liveStatsLayoutV2 ?? state.settings.liveStatsLayoutV2),
       liveStatsAutoHideSeconds: clampNumber(
@@ -237,6 +246,138 @@
     return formatInteger(value);
   }
 
+  // Raw time is wall-clock elapsed since the session's first line. The payload
+  // only refreshes on new lines, so extrapolate it forward from session_start_time
+  // while a session is active; everything else uses the payload value verbatim.
+  function liveFieldValue(key, payloadValue) {
+    if (key === "raw_reading_time") {
+      const payload = state.payload;
+      if (payload?.session_active && Number.isFinite(Number(payload.session_start_time))) {
+        return Math.max(0, Date.now() / 1000 - Number(payload.session_start_time));
+      }
+    }
+    return payloadValue;
+  }
+
+  // Re-render only the value cells that advance on their own (raw time), plus
+  // the Pomodoro countdown.
+  function updateLiveTimes() {
+    if (state.grid && state.payload?.session_active) {
+      const values = state.payload.values || {};
+      state.grid.querySelectorAll('[data-field-key="raw_reading_time"]').forEach((cell) => {
+        setText(cell, formatValue(liveFieldValue("raw_reading_time", values.raw_reading_time), cell.dataset.fieldFormat));
+      });
+    }
+    renderPomodoro();
+  }
+
+  function pomodoroRemainingSeconds(pomodoro) {
+    if (pomodoro.running && Number.isFinite(Number(pomodoro.endTimestamp))) {
+      return Math.max(0, (Number(pomodoro.endTimestamp) - Date.now()) / 1000);
+    }
+    return Math.max(0, Number(pomodoro.remainingMs || 0) / 1000);
+  }
+
+  function renderPomodoro() {
+    const el = state.pomodoroEl;
+    if (!el) {
+      return;
+    }
+    const pomodoro = state.pomodoro;
+    if (!pomodoro || !pomodoro.enabled) {
+      el.classList.remove("visible");
+      return;
+    }
+
+    const isBreak = pomodoro.phase === "break";
+    const remaining = pomodoroRemainingSeconds(pomodoro);
+    const icon = isBreak ? "☕" : "🍅";
+    let text = `${icon} ${formatDuration(remaining)}`;
+    if (!pomodoro.running) {
+      text += " ⏸";
+    }
+    setText(el, text);
+    el.classList.add("visible");
+    el.classList.toggle("break", isBreak);
+    el.classList.toggle("paused", !pomodoro.running);
+  }
+
+  function renderGoals() {
+    const el = state.goalsEl;
+    if (!el) {
+      return;
+    }
+    const goals = Array.isArray(state.goals) ? state.goals : [];
+    if (state.settings.showLiveGoals === false || goals.length === 0) {
+      el.replaceChildren();
+      el.classList.remove("visible");
+      return;
+    }
+
+    el.replaceChildren();
+    goals.forEach((goal) => {
+      const row = document.createElement("div");
+      row.className = "gsm-live-goal";
+
+      const label = document.createElement("span");
+      label.className = "gsm-live-goal-label";
+      setText(label, `${goal.icon || "🎯"} ${goal.name || "Goal"}`);
+      row.appendChild(label);
+
+      if (goal.view === "overall") {
+        const percent = Math.max(0, Math.min(100, Number(goal.overall?.percent) || 0));
+        const bar = document.createElement("span");
+        bar.className = "gsm-live-goal-bar";
+        const fill = document.createElement("span");
+        fill.className = "gsm-live-goal-bar-fill";
+        fill.style.width = `${percent}%`;
+        bar.appendChild(fill);
+        row.appendChild(bar);
+
+        const value = document.createElement("span");
+        value.className = "gsm-live-goal-value";
+        setText(value, `${percent}%`);
+        row.appendChild(value);
+      } else {
+        const value = document.createElement("span");
+        value.className = "gsm-live-goal-value";
+        const progress = formatInteger(goal.today?.progress);
+        const required = formatInteger(goal.today?.required);
+        const met = Number(goal.today?.progress) >= Number(goal.today?.required) && Number(goal.today?.required) > 0;
+        setText(value, met ? `${progress} / ${required} ✓` : `${progress} / ${required}`);
+        row.classList.toggle("met", met);
+        row.appendChild(value);
+      }
+
+      el.appendChild(row);
+    });
+    el.classList.add("visible");
+  }
+
+  function handleGoalsUpdate(payload) {
+    if (!payload || typeof payload !== "object" || !Array.isArray(payload.goals)) {
+      return;
+    }
+    state.goals = payload.goals;
+    renderGoals();
+    updateVisibility();
+  }
+
+  function handlePomodoroUpdate(payload) {
+    if (!payload || typeof payload !== "object") {
+      return;
+    }
+    state.pomodoro = {
+      enabled: payload.enabled === true,
+      phase: payload.phase === "break" ? "break" : "work",
+      running: payload.running === true,
+      endTimestamp: payload.endTimestamp,
+      remainingMs: payload.remainingMs,
+    };
+    renderPomodoro();
+    updateVisibility();
+  }
+
   // Render text as CSS generated content (data-text -> ::after) instead of a
   // DOM text node. Yomitan finds text via caretRangeFromPoint, which ignores
   // user-select/pointer-events but only returns real text nodes — so generated
@@ -266,22 +407,34 @@
     status.setAttribute("aria-hidden", "true");
     header.appendChild(status);
 
+    const pomodoro = document.createElement("div");
+    pomodoro.className = "gsm-live-stats-pomodoro";
+
     const grid = document.createElement("div");
     grid.className = "gsm-live-stats-grid";
 
+    const goals = document.createElement("div");
+    goals.className = "gsm-live-stats-goals";
+
     root.appendChild(header);
+    root.appendChild(pomodoro);
     root.appendChild(grid);
+    root.appendChild(goals);
     document.body.appendChild(root);
 
     state.root = root;
     state.grid = grid;
     state.status = status;
+    state.pomodoroEl = pomodoro;
+    state.goalsEl = goals;
     updatePosition();
     return root;
   }
 
   function render() {
     ensureRoot();
+    renderPomodoro();
+    renderGoals();
     state.root.classList.toggle("gsm-live-stats-one-line", state.settings.liveStatsLayoutV2 === "one-line");
     const payload = state.payload;
     state.status.classList.toggle("active", !!payload?.session_active);
@@ -317,7 +470,9 @@
 
       const value = document.createElement("span");
       value.className = "gsm-live-stats-value";
-      setText(value, formatValue(values[field.key], field.format));
+      value.dataset.fieldKey = field.key;
+      value.dataset.fieldFormat = field.format;
+      setText(value, formatValue(liveFieldValue(field.key, values[field.key]), field.format));
 
       row.appendChild(label);
       row.appendChild(value);
@@ -426,13 +581,17 @@
   }
 
   function updateVisibility() {
-    const enabled = state.settings.showLiveStats === true && state.payload !== null;
+    const pomodoroActive = !!(state.pomodoro && state.pomodoro.enabled);
+    const goalsActive = state.settings.showLiveGoals !== false && Array.isArray(state.goals) && state.goals.length > 0;
+    const enabled = state.settings.showLiveStats === true && (state.payload !== null || pomodoroActive || goalsActive);
     if (!enabled) {
       setVisible(false);
       return;
     }
 
-    if (state.settings.liveStatsDisplayModeV2 === "always") {
+    // Keep the widget pinned while a Pomodoro is enabled so the countdown stays
+    // on screen even in auto-hide / new-line display modes.
+    if (state.settings.liveStatsDisplayModeV2 === "always" || pomodoroActive || goalsActive) {
       setVisible(true);
       return;
     }
@@ -497,14 +656,23 @@
   function init() {
     ensureRoot();
     render();
+    if (state.tickTimer === null) {
+      state.tickTimer = setInterval(updateLiveTimes, 1000);
+    }
   }
 
   window.GSMLiveStatsWidget = {
     applySettings,
     handleStatsUpdate,
     handleWindowState,
+    handlePomodoroUpdate,
+    handleGoalsUpdate,
     setDisplayInfo,
   };
+
+  window.addEventListener("gsm-live-goals-update", (event) => {
+    handleGoalsUpdate(event.detail);
+  });
 
   window.addEventListener("gsm-live-stats-update", (event) => {
     handleStatsUpdate(event.detail);
@@ -527,6 +695,9 @@
     });
     ipcRenderer.on("display-info", (_event, displayInfo) => {
       setDisplayInfo(displayInfo);
+    });
+    ipcRenderer.on("pomodoro-update", (_event, payload) => {
+      handlePomodoroUpdate(payload);
     });
   }
 

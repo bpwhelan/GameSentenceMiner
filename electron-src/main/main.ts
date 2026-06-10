@@ -21,8 +21,8 @@ import {
     BASE_DIR,
     execFileAsync,
     getAssetsDir,
-    getResourcesDir,
     getRendererEntryPath,
+    resolvePreReleaseBranch,
     getSecureWebPreferences,
     getSanitizedPythonEnv,
     getWindowsNamedPythonExecutable,
@@ -55,7 +55,7 @@ import {
     setPreReleaseMetadataAutoEnableApplied,
 } from './store.js';
 import { launchSteamGameID } from './ui/steam.js';
-import { GSMStdoutManager } from './communication/pythonIPC.js';
+import { bus, getBusConnectInfo, startBus, stopBus } from './runtime/bus_client.js';
 import {
     closeOBSFromElectron,
     launchOBSFromElectron,
@@ -126,43 +126,16 @@ export class FeatureFlags {
 const APP_USER_MODEL_ID = 'com.beangate.gamesentenceminer';
 let cachedPreReleaseBranch: string | null | undefined = undefined;
 
-function resolvePreReleaseBranchFromMetadata(): string | null {
-    const candidates = [
-        path.join(getResourcesDir(), 'prerelease.json'),
-        path.join(getAssetsDir(), 'prerelease.json'),
-        path.join(getResourcesDir(), 'assets', 'prerelease.json'),
-    ];
-    const seen = new Set<string>();
-    for (const candidate of candidates) {
-        if (!candidate || seen.has(candidate)) {
-            continue;
-        }
-        seen.add(candidate);
-        if (!fs.existsSync(candidate)) {
-            continue;
-        }
-        try {
-            const parsed = JSON.parse(fs.readFileSync(candidate, 'utf8')) as { branch?: unknown };
-            if (typeof parsed.branch !== 'string' || parsed.branch.trim().length === 0) {
-                console.warn(`Ignoring prerelease metadata without a valid "branch" field: ${candidate}`);
-                continue;
-            }
-            const branch = parsed.branch.trim();
-            console.log(`Detected prerelease metadata at ${candidate} (branch: ${branch})`);
-            return branch;
-        } catch (error) {
-            console.warn(`Failed to parse prerelease metadata at ${candidate}:`, error);
-        }
-    }
-    return null;
-}
-
 function getPreReleaseBranch(): string | null {
     if (cachedPreReleaseBranch !== undefined) {
         return cachedPreReleaseBranch;
     }
-    cachedPreReleaseBranch = resolvePreReleaseBranchFromMetadata();
-    return cachedPreReleaseBranch;
+    const branch = resolvePreReleaseBranch();
+    cachedPreReleaseBranch = branch;
+    if (branch) {
+        console.log(`Detected prerelease metadata (branch: ${branch})`);
+    }
+    return branch;
 }
 
 function bootstrapPreReleaseSettingsFromMetadata(): void {
@@ -241,7 +214,6 @@ app.on('child-process-gone', (event, details) => {
 export let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 export let pyProc: ChildProcessWithoutNullStreams;
-let gsmStdoutManager: GSMStdoutManager | null = null;
 export let isQuitting = false;
 let restartingGSM: boolean = false;
 let reopenSettingsAfterBackendRestart: boolean = false;
@@ -1172,6 +1144,136 @@ async function cleanupStaleManagedGSMProcess(): Promise<void> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Backend message bus bridge
+//
+// The backend (gsm.py) is a bus client 'backend'. It sends structured messages
+// on topic 'backend.event' ({function, data}) and receives commands on topic
+// 'backend.command'. main.ts subscribes once (wireBackendBus) and dispatches the
+// same handlers that previously lived on GSMStdoutManager's stdout 'message'.
+// ---------------------------------------------------------------------------
+
+interface BackendMessage {
+    function?: string;
+    data?: any;
+}
+
+let backendBusWired = false;
+
+/** Send a command to the backend over the bus. Returns whether it's connected
+ *  now (the broker buffers to a not-yet-connected backend regardless). */
+function sendBackendCommand(fn: string, data?: Record<string, unknown>): boolean {
+    bus.publish('backend', 'backend.command', data ? { function: fn, data } : { function: fn }, 'command');
+    return bus.isConnected('backend');
+}
+
+function handleBackendMessage(msg: BackendMessage): void {
+    if (msg.function === 'notification' && msg.data) {
+        try {
+            sendNotificationFromPython(msg.data);
+        } catch (e) {
+            console.error('Failed to route notification from Python:', e);
+        }
+    }
+    if (msg.function === 'text_intake_state') {
+        setTextIntakePausedState(Boolean(msg.data?.paused));
+    }
+    if (msg.function === 'text_received') {
+        const latestText = recordLatestTextProcessingInput(msg.data);
+        if (latestText) {
+            safeSendToMainWindow('textprocess-latest-text', latestText);
+        }
+    }
+    if (msg.function === 'on_connect') {
+        markPythonIPCConnected();
+    }
+    if (msg.function === 'install_progress') {
+        handleBackendInstallProgressMessage(msg.data);
+    }
+    if (msg.function === 'start_obs') {
+        // The backend asks us to launch OBS once its runtime is in place.
+        // On a fresh install OBS doesn't exist yet when Electron first tries
+        // to launch it at startup, so this is how the launch actually happens.
+        void launchOBSFromElectron({ reason: 'backend start_obs request' }).catch((launchError) => {
+            console.warn('Failed to launch OBS on backend request:', launchError);
+        });
+    }
+    if (msg.function === 'initialized') {
+        markPythonIPCConnected();
+        updateInstallStage('backend_boot', 'completed', 'estimated', 1, 'GSM backend is running.');
+        const activeInstallSession = installSessionManager.getActiveSnapshot();
+        if (activeInstallSession) {
+            const finalizeStage = activeInstallSession.stages.find((stage) => stage.id === 'finalize');
+            if (finalizeStage && finalizeStage.status === 'pending') {
+                updateInstallStage('finalize', 'completed', 'estimated', 1, 'Setup complete.');
+            }
+            finishInstallSession('completed', 'Setup complete.');
+        }
+        safeSendToMainWindow('gsm-initialized', msg.data ?? {});
+        updateTrayMenu();
+        refreshTrayPresentation();
+        if (reopenSettingsAfterBackendRestart) {
+            reopenSettingsAfterBackendRestart = false;
+            setTimeout(() => {
+                sendBackendCommand('open_settings');
+            }, 200);
+        }
+    }
+    if (msg.function === 'cleanup_complete') {
+        console.log('Received cleanup_complete message from Python.');
+        cleanupComplete = true;
+    }
+    if (msg.function === 'python_exit_requested') {
+        const source = String(msg.data?.source ?? '');
+        backendExitRequestedFromPython = source === 'pickaxe_icon';
+        if (backendExitRequestedFromPython) {
+            console.log('Python requested full app shutdown via pickaxe icon.');
+        }
+    }
+    if (msg.function === 'restart_python_app') {
+        console.log('Received restart request from Python IPC. Restarting GSM backend...');
+        const openSettings = msg.data?.open_settings !== false;
+        if (openSettings) {
+            reopenSettingsAfterBackendRestart = true;
+        }
+        void restartGSM();
+    }
+}
+
+/** Forward the backend child's stdout/stderr to the renderer terminal as logs. */
+function attachBackendLogForwarding(proc: ChildProcessWithoutNullStreams): void {
+    let stdoutBuffer = '';
+    proc.stdout.on('data', (data: Buffer) => {
+        stdoutBuffer += data.toString();
+        const lines = stdoutBuffer.split(/\r?\n/);
+        stdoutBuffer = lines.pop() ?? '';
+        for (const line of lines) {
+            sendTerminalLog({
+                message: line + '\r\n',
+                stream: 'stdout',
+                source: 'python',
+                level: parsePythonLogLevel(line) ?? undefined,
+            });
+        }
+    });
+    proc.stderr.on('data', (data: Buffer) => {
+        sendTerminalLog({
+            message: data.toString() + '\r\n',
+            stream: 'stderr',
+            source: 'python',
+        });
+    });
+}
+
+/** Subscribe to backend bus events once (persists across backend restarts). */
+function wireBackendBus(): void {
+    if (backendBusWired) {
+        return;
+    }
+    backendBusWired = true;
+    bus.subscribe('backend.event', (m) => handleBackendMessage((m.data ?? {}) as BackendMessage));
+}
+
 /**
  * Runs a command and returns a promise that resolves when the command exits.
  * @param command The command to run.
@@ -1181,11 +1283,19 @@ function runGSM(command: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
         const activeInstallSessionId = installSessionManager.getActiveSnapshot()?.id ?? '';
         const taskManagerCommand = getWindowsNamedPythonExecutable(command, APP_NAME);
+        const busConnectInfo = getBusConnectInfo();
         const proc = spawn(taskManagerCommand, args, {
             env: {
                 ...getSanitizedPythonEnv(),
                 GSM_ELECTRON: '1',
                 GSM_INSTALL_SESSION_ID: activeInstallSessionId,
+                ...(busConnectInfo
+                    ? {
+                        GSM_BROKER_PORT: String(busConnectInfo.port),
+                        GSM_BROKER_TOKEN: busConnectInfo.token,
+                        GSM_CLIENT_ID: 'backend',
+                    }
+                    : {}),
             }
         });
 
@@ -1195,123 +1305,8 @@ function runGSM(command: string, args: string[]): Promise<void> {
         setTextIntakePausedState(false);
         startBackendStatusPolling();
 
-        // Attach GSMStdoutManager
-        gsmStdoutManager = new GSMStdoutManager(proc);
-        gsmStdoutManager.on('message', (msg) => {
-            // Handle structured GSM messages here
-            // console.log('GSMMSG:', msg);
-            if (msg.function === 'notification' && msg.data) {
-                try {
-                    sendNotificationFromPython(msg.data);
-                } catch (e) {
-                    console.error('Failed to route notification from Python:', e);
-                }
-            }
-            if (msg.function === 'text_intake_state') {
-                setTextIntakePausedState(Boolean(msg.data?.paused));
-            }
-            if (msg.function === 'text_received') {
-                const latestText = recordLatestTextProcessingInput(msg.data);
-                if (latestText) {
-                    safeSendToMainWindow('textprocess-latest-text', latestText);
-                }
-            }
-            if (msg.function === 'on_connect') {
-                markPythonIPCConnected();
-            }
-            if (msg.function === 'install_progress') {
-                handleBackendInstallProgressMessage(msg.data);
-            }
-            if (msg.function === 'start_obs') {
-                // The backend asks us to launch OBS once its runtime is in place.
-                // On a fresh install OBS doesn't exist yet when Electron first tries
-                // to launch it at startup, so this is how the launch actually happens.
-                void launchOBSFromElectron({ reason: 'backend start_obs request' }).catch(
-                    (launchError) => {
-                        console.warn('Failed to launch OBS on backend request:', launchError);
-                    }
-                );
-            }
-            if (msg.function === 'initialized') {
-                markPythonIPCConnected();
-                updateInstallStage(
-                    'backend_boot',
-                    'completed',
-                    'estimated',
-                    1,
-                    'GSM backend is running.'
-                );
-                const activeInstallSession = installSessionManager.getActiveSnapshot();
-                if (activeInstallSession) {
-                    const finalizeStage = activeInstallSession.stages.find(
-                        (stage) => stage.id === 'finalize'
-                    );
-                    if (finalizeStage && finalizeStage.status === 'pending') {
-                        updateInstallStage(
-                            'finalize',
-                            'completed',
-                            'estimated',
-                            1,
-                            'Setup complete.'
-                        );
-                    }
-                    finishInstallSession('completed', 'Setup complete.');
-                }
-                safeSendToMainWindow('gsm-initialized', msg.data ?? {});
-                updateTrayMenu();
-                refreshTrayPresentation();
-                if (reopenSettingsAfterBackendRestart) {
-                    reopenSettingsAfterBackendRestart = false;
-                    setTimeout(() => {
-                        gsmStdoutManager?.sendOpenSettings();
-                    }, 200);
-                }
-            }
-            if (msg.function === 'cleanup_complete') {
-                console.log('Received cleanup_complete message from Python.');
-                cleanupComplete = true;
-            }
-            if (msg.function === 'python_exit_requested') {
-                const source = String(msg.data?.source ?? '');
-                backendExitRequestedFromPython = source === 'pickaxe_icon';
-                if (backendExitRequestedFromPython) {
-                    console.log('Python requested full app shutdown via pickaxe icon.');
-                }
-            }
-            if (msg.function === 'restart_python_app') {
-                console.log('Received restart request from Python IPC. Restarting GSM backend...');
-                const openSettings = msg.data?.open_settings !== false;
-                if (openSettings) {
-                    reopenSettingsAfterBackendRestart = true;
-                }
-                void restartGSM();
-            }
-            // mainWindow?.webContents.send('gsm-message', msg);
-        });
-        gsmStdoutManager.on('log', (log) => {
-            // Forward logs to renderer or handle as needed
-            if (log.type === 'stdout') {
-                sendTerminalLog({
-                    message: log.message + '\r\n',
-                    stream: 'stdout',
-                    source: 'python',
-                    level: parsePythonLogLevel(log.message) ?? undefined,
-                });
-            } else if (log.type === 'stderr') {
-                sendTerminalLog({
-                    message: log.message + '\r\n',
-                    stream: 'stderr',
-                    source: 'python',
-                });
-            } else if (log.type === 'parse-error') {
-                sendTerminalLog({
-                    message: '[GSMMSG parse error] ' + log.message + '\r\n',
-                    stream: 'stderr',
-                    source: 'python',
-                    level: 'ERROR',
-                });
-            }
-        });
+        // Backend stdout/stderr are pure logs now — control travels over the bus.
+        attachBackendLogForwarding(proc);
 
         proc.on('close', (code) => {
             clearManagedGSMProcessState();
@@ -1601,13 +1596,12 @@ function loadGSMTrayProfileState(): GSMTrayProfileState {
     }
 }
 
-function sendTrayCommand(description: string, callback: (manager: GSMStdoutManager) => void): boolean {
-    if (!gsmStdoutManager) {
-        console.warn(`Cannot ${description}: Python IPC is not ready.`);
+function sendTrayCommand(description: string, fn: string, data?: Record<string, unknown>): boolean {
+    if (!bus.isConnected('backend')) {
+        console.warn(`Cannot ${description}: backend is not ready.`);
         return false;
     }
-
-    callback(gsmStdoutManager);
+    sendBackendCommand(fn, data);
     return true;
 }
 
@@ -1633,9 +1627,9 @@ function buildProfileTraySubmenu(): Electron.MenuItemConstructorOptions[] {
             }
 
             if (
-                sendTrayCommand(`switch profile to ${profileName}`, (manager) =>
-                    manager.sendSwitchProfile(profileName)
-                )
+                sendTrayCommand(`switch profile to ${profileName}`, 'switch_profile', {
+                    profile_name: profileName,
+                })
             ) {
                 refreshTrayMenuSoon();
             }
@@ -1648,41 +1642,31 @@ function buildDevTraySubmenu(): Electron.MenuItemConstructorOptions[] {
         {
             label: 'Anki Confirmation Dialog',
             click: () => {
-                sendTrayCommand('open Anki confirmation test window', (manager) =>
-                    manager.sendTestAnkiConfirmation()
-                );
+                sendTrayCommand('open Anki confirmation test window', 'test_anki_confirmation');
             },
         },
         {
             label: 'Screenshot Selector',
             click: () => {
-                sendTrayCommand('open screenshot selector test window', (manager) =>
-                    manager.sendTestScreenshotSelector()
-                );
+                sendTrayCommand('open screenshot selector test window', 'test_screenshot_selector');
             },
         },
         {
             label: 'Furigana Filter Preview',
             click: () => {
-                sendTrayCommand('open furigana filter test window', (manager) =>
-                    manager.sendTestFuriganaFilter()
-                );
+                sendTrayCommand('open furigana filter test window', 'test_furigana_filter');
             },
         },
         {
             label: 'Area Selector',
             click: () => {
-                sendTrayCommand('open area selector test window', (manager) =>
-                    manager.sendTestAreaSelector()
-                );
+                sendTrayCommand('open area selector test window', 'test_area_selector');
             },
         },
         {
             label: 'Screen Cropper',
             click: () => {
-                sendTrayCommand('open screen cropper test window', (manager) =>
-                    manager.sendTestScreenCropper()
-                );
+                sendTrayCommand('open screen cropper test window', 'test_screen_cropper');
             },
         },
     ];
@@ -1693,7 +1677,7 @@ function buildTrayMenuTemplate(): Electron.MenuItemConstructorOptions[] {
         {
             label: 'Open Settings',
             click: () => {
-                if (!sendTrayCommand('open settings', (manager) => manager.sendOpenSettings())) {
+                if (!sendTrayCommand('open settings', 'open_settings')) {
                     showWindow();
                 }
             },
@@ -1701,7 +1685,7 @@ function buildTrayMenuTemplate(): Electron.MenuItemConstructorOptions[] {
         {
             label: 'Open Text Feed',
             click: () => {
-                sendTrayCommand('open texthooker', (manager) => manager.sendOpenTexthooker());
+                sendTrayCommand('open texthooker', 'open_texthooker');
             },
         },
         { type: 'separator' },
@@ -2192,6 +2176,14 @@ if (!app.requestSingleInstanceLock()) {
     app.whenReady().then(async () => {
         try {
             bootstrapPreReleaseSettingsFromMetadata();
+            try {
+                await startBus();
+                wireBackendBus();
+                const { setLaunchBlockedCheck } = await import('./runtime/process_supervisor.js');
+                setLaunchBlockedCheck(() => isPythonLaunchBlockedByUpdate());
+            } catch (busErr) {
+                console.error('Failed to start message bus broker:', busErr);
+            }
             void launchOBSFromElectron({ reason: 'startup' }).catch((error) => {
                 console.warn('Electron-managed OBS startup launch failed:', error);
             });
@@ -2205,6 +2197,8 @@ if (!app.requestSingleInstanceLock()) {
                 // setTimeout(async () => {
                 //     await checkAndRunWizard(true);
                 // }, 1000);
+                const { checkForTexthookUpdates } = await import('./ui/texthook.js');
+                void checkForTexthookUpdates();
             });
 
             const pyPath = await getOrInstallPython();
@@ -2410,25 +2404,14 @@ async function closeGSM(): Promise<void> {
     }
     restartingGSM = true;
     stopScripts();
-    // Prefer graceful quit via IPC command; fall back to kill.
-    if (gsmStdoutManager) {
-        gsmStdoutManager.sendQuitMessage();
+    // Prefer graceful quit via the bus 'quit' command; fall back to kill.
+    // `cleanupComplete` is flipped by the persistent backend.event subscription
+    // (handleBackendMessage) when the backend reports cleanup_complete.
+    if (bus.isConnected('backend')) {
         cleanupComplete = false;
-        console.log('Sent quit command to GSM via stdout IPC.');
-        gsmStdoutManager.once('message', (msg) => {
-            if (msg.function === 'cleanup_complete') {
-                cleanupComplete = true;
-                console.log('Received cleanup_complete message from Python.');
-            }
-        });
-        // Wait up to 5 seconds for cleanup_complete, checking every 100ms, then force kill if needed
-        const timeoutMs = 5000;
-        const intervalMs = 100;
-        let waited = 0;
-        while (!cleanupComplete && waited < timeoutMs) {
-            await new Promise((resolve) => setTimeout(resolve, intervalMs));
-            waited += intervalMs;
-        }
+        sendBackendCommand('quit');
+        console.log('Sent quit command to GSM over the bus.');
+        await waitForBackendCleanup();
         if (pyProc && !pyProc.killed && !cleanupComplete) {
             pyProc.kill();
             console.log('Force killed GSM after timeout.');
@@ -2436,9 +2419,20 @@ async function closeGSM(): Promise<void> {
             console.log('GSM closed gracefully.');
         }
     } else {
-        console.log('No IPC manager, killing process directly.');
+        console.log('Backend not on the bus, killing process directly.');
         pyProc?.kill();
     }
+}
+
+/** Wait up to `timeoutMs` for the backend to report cleanup_complete. */
+async function waitForBackendCleanup(timeoutMs: number = 5000): Promise<boolean> {
+    const intervalMs = 100;
+    let waited = 0;
+    while (!cleanupComplete && waited < timeoutMs) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        waited += intervalMs;
+    }
+    return cleanupComplete;
 }
 
 async function restartGSM(): Promise<void> {
@@ -2446,24 +2440,22 @@ async function restartGSM(): Promise<void> {
         console.log('GSM restart already in progress. Ignoring duplicate request.');
         return;
     }
-    if (pyProc.killed) {
-        ensureAndRunGSM(pythonPath).then(() => {
-            console.log('GSM Successfully Restarted!');
-        });
+    if (!pyProc || pyProc.killed) {
+        await ensureAndRunGSM(pythonPath);
+        console.log('GSM Successfully Restarted!');
         return;
     }
     restartingGSM = true;
-    if (gsmStdoutManager) {
-        gsmStdoutManager.sendQuitMessage();
+    cleanupComplete = false;
+    if (bus.isConnected('backend')) {
+        sendBackendCommand('quit');
+        await waitForBackendCleanup();
     }
-    gsmStdoutManager?.once('message', (msg) => {
-        if (msg.function === 'cleanup_complete') {
-            console.log('Received cleanup_complete message from Python, restarting GSM...');
-            ensureAndRunGSM(pythonPath).then(() => {
-                console.log('GSM Successfully Restarted!');
-            });
-        }
-    });
+    if (pyProc && !pyProc.killed && !cleanupComplete) {
+        pyProc.kill();
+    }
+    await ensureAndRunGSM(pythonPath);
+    console.log('GSM Successfully Restarted!');
 }
 
 export { closeGSM, restartGSM, closeAllPythonProcesses, ensureAndRunGSM };
@@ -2487,6 +2479,7 @@ async function quit(): Promise<void> {
         await closeAllPythonProcesses();
     }
     await closeOBSFromElectron({ reason: 'app quit' });
+    await stopBus().catch((err) => console.warn('Failed to stop message bus:', err));
     app.quit();
 }
 
@@ -2496,29 +2489,25 @@ async function restart(): Promise<void> {
     app.quit();
 }
 
-// Helper command wrappers replacing previous WebSocket-based ones
-export function sendStartOBS() { gsmStdoutManager?.sendStartOBS(); }
-export function sendQuitOBS() { gsmStdoutManager?.sendQuitOBS(); }
+// Helper command wrappers — all routed to the backend over the message bus.
+export function sendStartOBS() { sendBackendCommand('start_obs'); }
+export function sendQuitOBS() { sendBackendCommand('quit_obs'); }
 export function sendOpenSettings(data?: Record<string, unknown>) {
-    gsmStdoutManager?.sendOpenSettings(data);
+    sendBackendCommand('open_settings', data);
 }
 export function sendReloadSettings() {
-    gsmStdoutManager?.sendReloadSettings();
+    sendBackendCommand('reload_settings');
 }
 export function sendOpenOverlaySettings() {
-    if (!gsmStdoutManager) {
-        return false;
-    }
-    gsmStdoutManager.sendOpenOverlaySettings();
-    return true;
+    return sendBackendCommand('open_overlay_settings');
 }
-export function sendOpenTexthooker() { gsmStdoutManager?.sendOpenTexthooker(); }
+export function sendOpenTexthooker() { sendBackendCommand('open_texthooker'); }
 export function sendRelateSceneToProfile(scene: string, profileName: string, createNew = false) {
-    if (!gsmStdoutManager) {
-        return false;
-    }
-    gsmStdoutManager.sendRelateSceneToProfile(scene, profileName, createNew);
-    return true;
+    return sendBackendCommand('relate_scene_to_profile', {
+        scene,
+        profile_name: profileName,
+        create_new: createNew,
+    });
 }
 
 export interface TextHookLinePayload {
@@ -2531,18 +2520,5 @@ export interface TextHookLinePayload {
 }
 
 export function sendTextHookLine(payload: TextHookLinePayload): void {
-    if (!gsmStdoutManager) {
-        return;
-    }
-    gsmStdoutManager.sendCommand({
-        function: 'texthook_text',
-        data: { ...payload },
-    });
-}
-
-export function sendOCRResultLine(payload: Record<string, unknown>): void {
-    if (!gsmStdoutManager) {
-        return;
-    }
-    gsmStdoutManager.sendOCRResult({ ...payload });
+    sendBackendCommand('texthook_text', { ...payload });
 }

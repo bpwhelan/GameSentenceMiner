@@ -126,11 +126,18 @@ export function TextHookTab({ active }: TextHookTabProps) {
   const [copyToClipboard, setCopyToClipboard] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [downloadState, setDownloadState] = useState<{
+    file: string;
+    fileIndex: number;
+    totalFiles: number;
+    percent: number | null;
+  } | null>(null);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textScrollRef = useRef<HTMLDivElement | null>(null);
   const logScrollRef = useRef<HTMLDivElement | null>(null);
   const statusRunningRef = useRef(false);
   const flushDelayInputFocusedRef = useRef(false);
+  const lastAppliedProfileExeRef = useRef<string | null>(null);
 
   useEffect(() => {
     statusRunningRef.current = status.running;
@@ -182,7 +189,8 @@ export function TextHookTab({ active }: TextHookTabProps) {
         info.exeName
       );
       setSavedProfile(profile ?? null);
-      if (profile && !statusRunningRef.current) {
+      if (profile && !statusRunningRef.current && info.exeName !== lastAppliedProfileExeRef.current) {
+        lastAppliedProfileExeRef.current = info.exeName;
         setEngine(profile.engine);
         setAutoHook(profile.autoHook);
         syncFlushDelayState(profile.flushDelayMs);
@@ -196,6 +204,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
       }
     } else {
       setSavedProfile(null);
+      lastAppliedProfileExeRef.current = null;
       if (!statusRunningRef.current) {
         syncFlushDelayState(DEFAULT_FLUSH_DELAY_MS);
       }
@@ -269,11 +278,33 @@ export function TextHookTab({ active }: TextHookTabProps) {
         return next;
       });
     });
+    const offDownloadStarted = onIpc("texthook.engineDownloadStarted", () => {
+      setDownloadState({ file: "", fileIndex: 0, totalFiles: 0, percent: null });
+    });
+    const offDownloadProgress = onIpc("texthook.engineDownloadProgress", (_e, payload: any) => {
+      if (!payload) return;
+      const percent =
+        typeof payload.bytesTotal === "number" && payload.bytesTotal > 0
+          ? Math.round((payload.bytesDownloaded / payload.bytesTotal) * 100)
+          : null;
+      setDownloadState({
+        file: payload.file ?? "",
+        fileIndex: payload.fileIndex ?? 0,
+        totalFiles: payload.totalFiles ?? 0,
+        percent,
+      });
+    });
+    const offDownloadComplete = onIpc("texthook.engineDownloadComplete", () => {
+      setDownloadState(null);
+    });
     return () => {
       offStatus();
       offHooks();
       offText();
       offLog();
+      offDownloadStarted();
+      offDownloadProgress();
+      offDownloadComplete();
     };
   }, [refreshStatus]);
 
@@ -532,6 +563,11 @@ export function TextHookTab({ active }: TextHookTabProps) {
           <div>
             <h2 id="texthook-experimental-title">{t("texthook.experimental.title")}</h2>
             <p>{t("texthook.experimental.description")}</p>
+            <p style={{ marginTop: "6px", fontSize: "0.82rem", color: "var(--gsm-text-secondary)" }}>
+              Hook engine support (Luna Hook &amp; Textractor) is downloaded automatically the first time
+              you start texthooking. Antivirus software may flag these files as suspicious due to the
+              DLL-injection technique used to extract text from games — this is a known false positive.
+            </p>
           </div>
         </section>
 
@@ -951,6 +987,19 @@ export function TextHookTab({ active }: TextHookTabProps) {
               </p>
             </div>
           </div>
+          {downloadState ? (
+            <div className="texthook-engine-download">
+              <div className="texthook-engine-download__label">
+                Downloading hook engines ({downloadState.fileIndex + 1}/{downloadState.totalFiles || "…"}): {downloadState.file || "…"}
+              </div>
+              <div className="texthook-engine-download__track">
+                <div
+                  className={`texthook-engine-download__fill${downloadState.percent == null ? " texthook-engine-download__fill--indeterminate" : ""}`}
+                  style={{ width: downloadState.percent != null ? `${downloadState.percent}%` : "40%" }}
+                />
+              </div>
+            </div>
+          ) : null}
           <div className="ocr-sticky-footer-actions">
             {status.running ? (
               <button

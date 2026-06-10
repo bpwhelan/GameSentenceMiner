@@ -75,6 +75,11 @@ rate_limit_active = defaultdict(bool)
 _DEDUP_WINDOW_SECONDS = 2.0
 _recent_text_events = deque(maxlen=20)  # entries of (text, arrival_datetime)
 
+# When stats collection is disabled in advanced config, remind the user on the
+# first few received lines each startup so it's obvious nothing is being stored.
+_dont_collect_stats_notice_count = 0
+_DONT_COLLECT_STATS_NOTICE_LIMIT = 10
+
 
 # ---------------------------------------------------------------------------
 # Small helpers
@@ -655,12 +660,16 @@ async def add_line_to_text_log(
     copy_to_clipboard=False,
     exclude_from_stats=False,
 ):
-    global current_line_time
+    global current_line_time, _dont_collect_stats_notice_count
 
     current_line_after_regex = apply_text_processing(line, get_config().text_processing)
     source_label = source_display_name or source or "Unknown"
     _log_info(f"<cyan>Line Received from [{source_label}]: {current_line_after_regex}</cyan>", colors=True)
     current_line_time = line_time if line_time else datetime.now()
+
+    if get_config().advanced.dont_collect_stats and _dont_collect_stats_notice_count < _DONT_COLLECT_STATS_NOTICE_LIMIT:
+        _dont_collect_stats_notice_count += 1
+        logger.info("stats is disabled in advanced config, skipping DB")
 
     if copy_to_clipboard and current_line_after_regex:
         from GameSentenceMiner.util.clipboard import copy as clipboard_copy

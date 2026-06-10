@@ -7,7 +7,7 @@ import threading
 import wave
 import warnings
 from abc import abstractmethod, ABC
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from functools import partial
 from typing import Optional
 
@@ -382,26 +382,40 @@ class SileroVADProcessor(VADProcessor):
         self.vad_system_name = SILERO
 
     def _ensure_model(self):
+        # faster-whisper bundles the Silero VAD as ONNX and lru_caches it internally;
+        # warm it up here so preloading (VADSystem._preload_models) actually loads the model.
         if self.vad_model:
             return
         with self._load_lock:
             if self.vad_model:
                 return
-            from silero_vad import load_silero_vad
+            from faster_whisper.vad import get_vad_model
 
-            self.vad_model = load_silero_vad()
+            self.vad_model = get_vad_model()
 
     def _detect_voice_activity(self, input_audio, text_mined) -> DetectionResult:
-        from silero_vad import read_audio, get_speech_timestamps
+        from faster_whisper.vad import get_speech_timestamps, VadOptions
 
         self._ensure_model()
         with TempWav(input_audio) as temp_wav:
+            audio = _load_whisper_audio_from_wav(temp_wav)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                wav = read_audio(temp_wav)
-            speech_timestamps = get_speech_timestamps(wav, self.vad_model, return_seconds=True)
-        logger.debug(speech_timestamps)
-        segments = [Segment(start=item["start"], end=item["end"]) for item in speech_timestamps]
+                # Match the standalone silero-vad package defaults (tuned for trimming a short
+                # clip), not faster-whisper's long-audio chunking defaults (400ms pad / 2s silence).
+                speech_timestamps = get_speech_timestamps(
+                    audio,
+                    VadOptions(
+                        threshold=0.5,
+                        min_speech_duration_ms=250,
+                        min_silence_duration_ms=100,
+                        speech_pad_ms=30,
+                    ),
+                    sampling_rate=16000,
+                )
+        # faster-whisper returns sample indices; convert to seconds.
+        segments = [Segment(start=item["start"] / 16000, end=item["end"] / 16000) for item in speech_timestamps]
+        logger.debug(segments)
         return DetectionResult(segments=segments)
 
 
@@ -412,7 +426,7 @@ class WhisperVADProcessor(VADProcessor):
         self.vad_system_name = WHISPER
 
     def load_whisper_model(self):
-        import stable_whisper as whisper
+        from faster_whisper import WhisperModel
         import warnings
 
         if not self.vad_model:
@@ -431,7 +445,7 @@ class WhisperVADProcessor(VADProcessor):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 try:
-                    self.vad_model = whisper.load_faster_whisper(
+                    self.vad_model = WhisperModel(
                         model_name,
                         device=device,
                         compute_type=compute_type,
@@ -443,7 +457,7 @@ class WhisperVADProcessor(VADProcessor):
                     logger.warning(f"GPU loading failed ({str(e)}), falling back to CPU with int8 quantization...")
                     device = "cpu"
                     compute_type = "int8"  # Fastest/lowest memory on CPU
-                    self.vad_model = whisper.load_faster_whisper(
+                    self.vad_model = WhisperModel(
                         model_name,
                         device=device,
                         compute_type=compute_type,
@@ -493,8 +507,6 @@ class WhisperVADProcessor(VADProcessor):
             self.vad_model = self.load_whisper_model()
 
     def _detect_voice_activity(self, input_audio, text_mined) -> DetectionResult:
-        from stable_whisper import WhisperResult
-
         self._ensure_model()
 
         logger.info("Transcribing audio...")
@@ -504,29 +516,24 @@ class WhisperVADProcessor(VADProcessor):
             whisper_audio = _load_whisper_audio_from_wav(temp_wav)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                transcribe_kwargs = {
-                    "vad": True,
-                    "language": get_config().general.target_language,
-                    "vad_filter": get_config().vad.use_vad_filter_for_whisper,
-                    "temperature": 0.0,
-                    "chunk_length": 30,
-                }
-                try:
-                    import inspect
+                segments_iter, _info = self.vad_model.transcribe(
+                    whisper_audio,
+                    language=get_config().general.target_language,
+                    vad_filter=get_config().vad.use_vad_filter_for_whisper,
+                    temperature=0.0,
+                    chunk_length=30,
+                    condition_on_previous_text=False,
+                    word_timestamps=True,  # populates segment.words (used by the unique-words filter below)
+                )
+                # faster-whisper yields segments lazily; materialize now to force transcription
+                # before the similarity gate, which needs the full transcript.
+                result_segments = list(segments_iter)
 
-                    transcribe_params = inspect.signature(self.vad_model.transcribe).parameters
-                    if "condition_on_previous_text" in transcribe_params:
-                        transcribe_kwargs["condition_on_previous_text"] = False
-                except Exception:
-                    # If we can't introspect, stick with safe defaults.
-                    pass
-
-                result: WhisperResult = self.vad_model.transcribe(whisper_audio, **transcribe_kwargs)
         segments = []
 
-        logger.debug(json.dumps(result.to_dict()))
+        logger.debug(json.dumps([asdict(s) for s in result_segments], ensure_ascii=False, default=str))
 
-        transcript = result.text.strip()
+        transcript = "".join(s.text for s in result_segments).strip()
         text_similarity = 100.0
 
         # If both mined text and Whisper transcription are available, compare their similarity
@@ -544,15 +551,15 @@ class WhisperVADProcessor(VADProcessor):
                 return DetectionResult(segments=[], text_similarity=text_similarity, transcript=transcript)
 
         # Process the segments to extract tokens, timestamps, and confidence
-        for i, segment in enumerate(result.segments):
+        for i, segment in enumerate(result_segments):
             isolated_gap = _get_vad_config_value("whisper_isolated_gap_seconds", WHISPER_ISOLATED_GAP_SECONDS_DEFAULT)
             short_len = _get_vad_config_value(
                 "whisper_single_token_max_length",
                 WHISPER_SINGLE_TOKEN_MAX_LENGTH_DEFAULT,
             )
             if len(segment.text) <= short_len and (
-                (i > 1 and segment.start - result.segments[i - 1].end > isolated_gap)
-                or (i < len(result.segments) - 1 and result.segments[i + 1].start - segment.end > isolated_gap)
+                (i > 1 and segment.start - result_segments[i - 1].end > isolated_gap)
+                or (i < len(result_segments) - 1 and result_segments[i + 1].start - segment.end > isolated_gap)
             ):
                 if segment.text in WHISPER_FILLER_SEGMENTS:
                     logger.debug(f"Skipping filler segment: {segment.text} at {segment.start}-{segment.end}")
@@ -600,7 +607,7 @@ class WhisperVADProcessor(VADProcessor):
                 )
                 continue
 
-            logger.debug(segment.to_dict())
+            logger.debug(asdict(segment))
             segments.append(
                 Segment(
                     text=segment.text,

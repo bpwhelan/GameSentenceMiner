@@ -73,6 +73,43 @@ describe('text hook flush delay helpers', () => {
         expect(__test.eraseTextHookNoise('before%D$vl456;after')).toBe('beforeafter');
     });
 
+    it('distinguishes Luna hooks that share a name by their ctx address', async () => {
+        const { __test } = await import('./texthook.js');
+
+        // Two hooks with the same name/hook code/module differing only in ctx.
+        const a = __test.parseLunaContext('3', '2:49D4:F0AB70:6BF80:0:Pal:ENHSX-C@6AB70:totsulover.exe');
+        const b = __test.parseLunaContext('1', '0:49D4:F0AB70:6C1C5:0:Pal:ENHSX-C@6AB70:totsulover.exe');
+
+        expect(a.function).toBe('Pal (6BF80:0)');
+        expect(b.function).toBe('Pal (6C1C5:0)');
+        expect(a.function).not.toBe(b.function);
+
+        // A richer context with a trailing module function still labels by name + ctx.
+        const c = __test.parseLunaContext(
+            '2',
+            '1:49D4:100AB8C0:6B653:0:PalFontDrawText:HS8@0:Pal.dll:PalFontDrawText',
+        );
+        expect(c.function).toBe('PalFontDrawText (6B653:0)');
+
+        // Malformed/short contexts fall back without throwing.
+        expect(__test.parseLunaContext('5', 'Unknown').function).toBe('Unknown');
+    });
+
+    it('matches old profiles saved with the bare hook name', async () => {
+        const { __test } = await import('./texthook.js');
+
+        // New profile: exact full-label match.
+        expect(__test.hookFunctionMatches('Pal (6BF80:0)', 'Pal (6BF80:0)')).toBe(true);
+        // Legacy profile saved only the bare name -> still matches via base name.
+        expect(__test.hookFunctionMatches('Pal', 'Pal (6BF80:0)')).toBe(true);
+        expect(__test.hookFunctionMatches('Pal', 'Pal (6C1C5:0)')).toBe(true);
+        // Different name must not match.
+        expect(__test.hookFunctionMatches('PalFontDrawText', 'Pal (6BF80:0)')).toBe(false);
+        // Empty/undefined saved value never matches.
+        expect(__test.hookFunctionMatches(null, 'Pal (6BF80:0)')).toBe(false);
+        expect(__test.hookFunctionMatches('', 'Pal (6BF80:0)')).toBe(false);
+    });
+
     it('suppresses hook engine selection status lines', async () => {
         const { __test } = await import('./texthook.js');
 

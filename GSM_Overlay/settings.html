@@ -891,6 +891,135 @@
       word-break: break-word;
     }
 
+    /* Full-width groups span every grid column (presets + manual mode). */
+    .setting-group.full-width {
+      grid-column: 1 / -1;
+    }
+
+    /* Recommended Setups (presets) */
+    .presets-intro {
+      margin: 0 0 12px 0;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #b8c4b8;
+    }
+
+    .preset-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+    }
+
+    .preset-card {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      text-align: left;
+      padding: 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      color: #e8e8e8;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .preset-card:hover:not(:disabled) {
+      border-color: rgba(76, 175, 80, 0.5);
+      background: rgba(76, 175, 80, 0.12);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+    }
+
+    .preset-card.active {
+      border-color: rgba(76, 175, 80, 0.7);
+      background: linear-gradient(135deg, rgba(76, 175, 80, 0.2) 0%, rgba(255, 255, 255, 0.05) 100%);
+      box-shadow: inset 0 0 0 1px rgba(76, 175, 80, 0.35), 0 4px 12px rgba(76, 175, 80, 0.18);
+    }
+
+    .preset-card:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .preset-card-name {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .preset-card-badge {
+      display: none;
+      flex-shrink: 0;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: #bff0c2;
+      border: 1px solid rgba(76, 175, 80, 0.55);
+      border-radius: 999px;
+      padding: 2px 8px;
+    }
+
+    .preset-card.active .preset-card-badge {
+      display: inline-block;
+    }
+
+    .preset-card-blurb {
+      font-size: 11.5px;
+      line-height: 1.45;
+      color: #c4c4c4;
+    }
+
+    /* Collapsible sections (native <details>, styled to match the dark theme) */
+    details.setting-section {
+      padding: 0;
+    }
+
+    details.setting-section > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 12px;
+      margin: 0;
+      font-size: 13px;
+      font-weight: 500;
+      color: #cccccc;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      user-select: none;
+      transition: color 0.2s ease;
+    }
+
+    details.setting-section > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    details.setting-section > summary::before {
+      content: "\25B8";
+      font-size: 11px;
+      color: #8aa98a;
+      transition: transform 0.2s ease;
+    }
+
+    details.setting-section[open] > summary::before {
+      transform: rotate(90deg);
+    }
+
+    details.setting-section > summary:hover {
+      color: #ffffff;
+    }
+
+    details.setting-section .setting-section-body {
+      padding: 0 12px 12px 12px;
+    }
+
     @media (max-width: 1024px) {
       .settings-grid {
         grid-template-columns: 1fr;
@@ -970,6 +1099,24 @@
     </div>
 
     <div class="settings-grid">
+    <div class="setting-group full-width" data-tab="general" id="overlayPresetsGroup">
+      <h4>★ Recommended Setups</h4>
+      <p class="presets-intro">
+        One click to apply a known-good combo. Pick the one that matches how you play — you can
+        still fine-tune anything below afterwards.
+      </p>
+      <div class="preset-cards" id="overlayPresetCards"></div>
+      <p class="presets-intro" style="margin: 12px 0 0 0;">
+        Tip: if <strong>Shift</strong> clashes with a game key, open Manual Mode below and change the
+        hotkey to <strong>Shift+Space</strong>.
+      </p>
+    </div>
+
+    <!-- Manual Mode card markup is injected from components/manual-mode-card.js (shared
+         with the manual-mode recommendation window). IDs match the bindings below.
+         Promoted to the top of General as the highest-impact interaction setting. -->
+    <div class="setting-group full-width" data-tab="general" id="manualModeCardMount"></div>
+
     <div class="setting-group" data-tab="general">
       <h4>Visibility</h4>
       <label>
@@ -977,7 +1124,7 @@
         <input type="checkbox" id="showReadyIndicator" />
       </label>
       <label>
-        <span class="label-text">Show Text Indicators</span>
+        <span class="label-text">Show Text Indicators (Red Border)</span>
         <input type="checkbox" id="showTextIndicators" />
       </label>
       <label class="sub-option">
@@ -999,6 +1146,13 @@
           <div class="hotkey-info">Shows the current live reading session stats in the overlay.</div>
         </span>
         <input type="checkbox" id="showLiveStats" />
+      </label>
+      <label>
+        <span class="label-text">
+          Show Goals
+          <div class="hotkey-info">Shows goals you've enabled for the overlay (configured on the Goals page) in the live stats widget.</div>
+        </span>
+        <input type="checkbox" id="showLiveGoals" />
       </label>
       <label>
         <span class="label-text">
@@ -1051,36 +1205,35 @@
         <input type="checkbox" id="liveStatsFieldActiveReadingTime" />
       </label>
       <label>
+        <span class="label-text">Raw Time</span>
+        <input type="checkbox" id="liveStatsFieldRawReadingTime" />
+      </label>
+      <label>
         <span class="label-text">Cards Mined</span>
         <input type="checkbox" id="liveStatsFieldCardsMined" />
       </label>
-    </div>
-
-    <div class="setting-group" id="text-offset-group" data-tab="general">
-      <h4>Text Offset</h4>
+      <h4>Pomodoro</h4>
       <label>
         <span class="label-text">
-          X Offset
-          <div class="hotkey-info">Not typically needed on Windows</div>
+          Enable Pomodoro
+          <div class="hotkey-info">Shows a work/break countdown in the live stats widget. Control it from the tray (Pomodoro menu).</div>
         </span>
-        <input type="number" id="offsetX" value="0" step="0.1" /><span style="margin-left: 5px;">%</span>
+        <input type="checkbox" id="pomodoroEnabled" />
       </label>
-      <label>
-        <span class="label-text">
-          Y Offset
-          <div class="hotkey-info">Not typically needed on Windows</div>
-        </span>
-        <input type="number" id="offsetY" value="0" step="0.1" /><span style="margin-left: 5px;">%</span>
+      <label class="sub-option">
+        <span class="label-text">Work Minutes</span>
+        <input type="number" id="pomodoroWorkMinutes" value="25" min="1" max="180" step="1" />
       </label>
-      <label>
+      <label class="sub-option">
+        <span class="label-text">Break Minutes</span>
+        <input type="number" id="pomodoroBreakMinutes" value="5" min="1" max="180" step="1" />
+      </label>
+      <label class="sub-option">
         <span class="label-text">
-          Calibrate/Reset Offset
-          <div class="hotkey-info">Opens a full-screen helper that shows the latest OCR text, supports 1px arrow-key nudging, and saves the new offset back here. Reset sets both offsets to 0.</div>
+          Auto-start with reading session
+          <div class="hotkey-info">Starts a work block automatically when a reading session begins.</div>
         </span>
-        <div class="input-container">
-          <button type="button" id="openOffsetHelper" class="guide-button">Calibrate</button>
-          <button type="button" id="resetOffset" class="guide-button">Reset</button>
-        </div>
+        <input type="checkbox" id="pomodoroAutoStart" />
       </label>
     </div>
 
@@ -1329,72 +1482,6 @@
       </label>
     </div>
 
-    <!-- Manual Mode card markup is injected from components/manual-mode-card.js (shared
-         with the manual-mode recommendation window). IDs match the bindings below. -->
-    <div class="setting-group" data-tab="general" id="manualModeCardMount"></div>
-
-    <div class="setting-group" data-tab="general">
-      <h4>Translation (Experimental)</h4>
-      <label>
-        <span class="label-text">
-          Auto-Request Translation
-          <div class="hotkey-info" style="color: #ff6b6b;">⚠️ WIP Feature - Not Recommended</div>
-          <div class="hotkey-info">Automatically requests translation when OCR text is received</div>
-        </span>
-        <div class="input-container">
-          <input type="checkbox" id="autoRequestTranslation" />
-          <button type="button" class="guide-button"
-            onclick="window.open('https://docs.gamesentenceminer.com/docs/guides/ai-features', '_blank')">
-            AI Guide
-          </button>
-        </div>
-      </label>
-      <label>
-        <span class="label-text">
-          Translation Hotkey
-          <div class="hotkey-info">Press to request/toggle translation visibility</div>
-          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
-          <div id="translate-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
-        </span>
-        <div class="input-container">
-          <input type="text" id="translateHotkey" value="Alt+T"
-            title="Enter a valid hotkey (e.g., Alt+T)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
-          <button type="button" class="guide-button"
-            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
-            Guide
-          </button>
-        </div>
-      </label>
-    </div>
-
-    <div class="setting-group" data-tab="general">
-      <h4>Texthooker</h4>
-      <label>
-        <span class="label-text">
-          Texthooker URL
-          <div class="hotkey-info">Automatically synced from GSM's single-port texthooker setting.</div>
-        </span>
-        <input type="text" id="texthookerUrl" value="http://localhost:7275/texthooker" readonly />
-      </label>
-      <label>
-        <span class="label-text">
-          Texthooker Hotkey
-          <div class="hotkey-info">Toggle the texthooker window.</div>
-          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
-          <div id="texthooker-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
-        </span>
-        <div class="input-container">
-          <input type="text" id="texthookerHotkey" value="Alt+Shift+R"
-            title="Enter a valid hotkey (e.g., Alt+Shift+R)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
-          <button type="button" class="guide-button"
-            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
-            Guide
-          </button>
-        </div>
-      </label>
-    </div>
-
-    
     <div class="setting-group" data-tab="jiten">
       <h4>Jiten Reader</h4>
       <label class="master-toggle">
@@ -1442,8 +1529,9 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="general">
-      <h4>Hotkeys</h4>
+    <details class="setting-group setting-section full-width" data-tab="general">
+      <summary>Hotkeys</summary>
+      <div class="setting-section-body">
       <label>
         <span class="label-text">
           Toggle Window Hotkey
@@ -1508,7 +1596,96 @@
           </button>
         </div>
       </label>
-    </div>
+      </div>
+    </details>
+
+    <details class="setting-group setting-section full-width" data-tab="general">
+      <summary>Advanced</summary>
+      <div class="setting-section-body">
+        <div id="text-offset-group">
+          <h4>Text Offset</h4>
+          <label>
+            <span class="label-text">
+              X Offset
+              <div class="hotkey-info">Not typically needed on Windows</div>
+            </span>
+            <input type="number" id="offsetX" value="0" step="0.1" /><span style="margin-left: 5px;">%</span>
+          </label>
+          <label>
+            <span class="label-text">
+              Y Offset
+              <div class="hotkey-info">Not typically needed on Windows</div>
+            </span>
+            <input type="number" id="offsetY" value="0" step="0.1" /><span style="margin-left: 5px;">%</span>
+          </label>
+          <label>
+            <span class="label-text">
+              Calibrate/Reset Offset
+              <div class="hotkey-info">Opens a full-screen helper that shows the latest OCR text, supports 1px arrow-key nudging, and saves the new offset back here. Reset sets both offsets to 0.</div>
+            </span>
+            <div class="input-container">
+              <button type="button" id="openOffsetHelper" class="guide-button">Calibrate</button>
+              <button type="button" id="resetOffset" class="guide-button">Reset</button>
+            </div>
+          </label>
+        </div>
+        <h4>Translation (Experimental)</h4>
+        <label>
+          <span class="label-text">
+            Auto-Request Translation
+            <div class="hotkey-info" style="color: #ff6b6b;">⚠️ WIP Feature - Not Recommended</div>
+            <div class="hotkey-info">Automatically requests translation when OCR text is received</div>
+          </span>
+          <div class="input-container">
+            <input type="checkbox" id="autoRequestTranslation" />
+            <button type="button" class="guide-button"
+              onclick="window.open('https://docs.gamesentenceminer.com/docs/guides/ai-features', '_blank')">
+              AI Guide
+            </button>
+          </div>
+        </label>
+        <label>
+          <span class="label-text">
+            Translation Hotkey
+            <div class="hotkey-info">Press to request/toggle translation visibility</div>
+            <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+            <div id="translate-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
+          </span>
+          <div class="input-container">
+            <input type="text" id="translateHotkey" value="Alt+T"
+              title="Enter a valid hotkey (e.g., Alt+T)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+            <button type="button" class="guide-button"
+              onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+              Guide
+            </button>
+          </div>
+        </label>
+        <h4>TextFeed</h4>
+        <label>
+          <span class="label-text">
+            TextFeed URL
+            <div class="hotkey-info">Automatically synced from GSM's single-port texthooker setting.</div>
+          </span>
+          <input type="text" id="texthookerUrl" value="http://localhost:7275/texthooker" readonly />
+        </label>
+        <label>
+          <span class="label-text">
+            TextFeed Hotkey
+            <div class="hotkey-info">Toggle the TextFeed window.</div>
+            <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+            <div id="texthooker-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
+          </span>
+          <div class="input-container">
+            <input type="text" id="texthookerHotkey" value="Alt+Shift+R"
+              title="Enter a valid hotkey (e.g., Alt+Shift+R)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+            <button type="button" class="guide-button"
+              onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+              Guide
+            </button>
+          </div>
+        </label>
+      </div>
+    </details>
 
     <div class="setting-group" data-tab="controller">
       <h4>🎮 Gamepad Navigation (Experimental)</h4>
@@ -2226,6 +2403,7 @@
       }
       syncManualHotkeyStatusUi();
       refreshAllResetButtons();
+      refreshActivePresetHighlight();
     }
 
     // Unified settings change handler
@@ -2269,6 +2447,7 @@
       { key: "chars_per_hour", controlId: "liveStatsFieldCharsPerHour" },
       { key: "total_characters", controlId: "liveStatsFieldTotalCharacters" },
       { key: "active_reading_time", controlId: "liveStatsFieldActiveReadingTime" },
+      { key: "raw_reading_time", controlId: "liveStatsFieldRawReadingTime" },
       { key: "cards_mined", controlId: "liveStatsFieldCardsMined" },
     ];
     let overlaySettingDefaults = {};
@@ -2595,6 +2774,7 @@
 
       const normalizedValue = applyBindingValue(binding, value, { sourceControl, source: "user" });
       await persistBindingValue(binding, normalizedValue, sourceControl);
+      refreshActivePresetHighlight();
       return normalizedValue;
     }
 
@@ -2844,6 +3024,7 @@
       createCheckboxBinding("fadeTextIndicators", "#fadeTextIndicators"),
       createCheckboxBinding("showRecycledIndicator", "#showRecycledIndicator"),
       createCheckboxBinding("showLiveStats", "#showLiveStats"),
+      createCheckboxBinding("showLiveGoals", "#showLiveGoals"),
       createSelectBinding("liveStatsDisplayModeV2", "#liveStatsDisplayModeV2", {
         normalize: normalizeLiveStatsDisplayModeValue,
       }),
@@ -2860,6 +3041,20 @@
         normalize: normalizeLiveStatsPositionModeValue,
       }),
       createLiveStatsFieldsBinding(),
+      createCheckboxBinding("pomodoroEnabled", "#pomodoroEnabled"),
+      createNumberBinding("pomodoroWorkMinutes", "#pomodoroWorkMinutes", {
+        fallback: 25,
+        min: 1,
+        max: 180,
+        integer: true,
+      }),
+      createNumberBinding("pomodoroBreakMinutes", "#pomodoroBreakMinutes", {
+        fallback: 5,
+        min: 1,
+        max: 180,
+        integer: true,
+      }),
+      createCheckboxBinding("pomodoroAutoStart", "#pomodoroAutoStart"),
       createCheckboxBinding("overlaySettingsProfilesEnabled", "#overlaySettingsProfilesEnabled", {
         afterApply: (value) => {
           overlayProfileState.enabled = value === true;
@@ -3814,11 +4009,16 @@
           : (userSettings.showTextBackground === true),
         showRecycledIndicator: userSettings.showRecycledIndicator !== false,
         showLiveStats: userSettings.showLiveStats !== false,
+        showLiveGoals: userSettings.showLiveGoals !== false,
         liveStatsDisplayModeV2: normalizeLiveStatsDisplayModeValue(userSettings.liveStatsDisplayModeV2),
         liveStatsLayoutV2: normalizeLiveStatsLayoutValue(userSettings.liveStatsLayoutV2),
         liveStatsAutoHideSeconds: clampNumericValue(userSettings.liveStatsAutoHideSeconds, 5, 0, 60, true),
         liveStatsPositionMode: normalizeLiveStatsPositionModeValue(userSettings.liveStatsPositionMode),
         liveStatsFields: normalizeLiveStatsFieldsValue(userSettings.liveStatsFields),
+        pomodoroEnabled: userSettings.pomodoroEnabled === true,
+        pomodoroWorkMinutes: clampNumericValue(userSettings.pomodoroWorkMinutes, 25, 1, 180, true),
+        pomodoroBreakMinutes: clampNumericValue(userSettings.pomodoroBreakMinutes, 5, 1, 180, true),
+        pomodoroAutoStart: userSettings.pomodoroAutoStart === true,
         manualModeInactiveBehavior: normalizeManualModeInactiveBehaviorValue(userSettings.manualModeInactiveBehavior),
         enableJitenReader: userSettings.enableJitenReader !== false,
         jitenHighlightingEnabled: userSettings.jitenHighlightingEnabled === true,
@@ -3928,6 +4128,7 @@
 
       syncManualHotkeyStatusUi();
       refreshAllResetButtons();
+      refreshActivePresetHighlight();
     });
 
     // Handle websocket status updates
@@ -4135,11 +4336,132 @@
       refreshAllResetButtons();
     }
     
+    // ==================== Recommended Setups (presets) ====================
+    // A preset is just a curated bundle of setting key->value pairs. Applying one
+    // reuses the normal commitSettingValue() path (normalize + UI sync + persist),
+    // so no new persistence logic is needed.
+    const OVERLAY_PRESETS = [
+      {
+        id: "automatic",
+        name: "Automatic",
+        blurb: "Overlay shows the text whenever the game is showing. Best for games/vns with little interaction and a visible mouse cursor.",
+        values: { manualMode: false },
+      },
+      {
+        id: "manual-hold",
+        name: "Manual · Hold",
+        blurb: "For a more \"Yomitan\" style experience. Hold Shift to reveal the overlay, release to hide. Manual mode is recommended for most games that hide the mouse cursor, or require a lot of interaction. Vertical Text, and Magpie compatibility also become more stable.",
+        values: {
+          manualMode: true,
+          manualModeType: "hold",
+          showHotkey: "Shift",
+          manualModeInactiveBehavior: "hide-overlay",
+        },
+      },
+      {
+        id: "manual-toggle",
+        name: "Manual · Toggle",
+        blurb: "Press Shift+Space once to show, again to hide. For a sticky overlay instead of hold-to-show.",
+        values: {
+          manualMode: true,
+          manualModeType: "toggle",
+          showHotkey: "Shift+Space",
+          manualModeInactiveBehavior: "hide-overlay",
+        },
+      },
+    ];
+
+    function getOverlayPresetCardsContainer() {
+      return document.getElementById("overlayPresetCards");
+    }
+
+    // Manual mode is forced on (and its checkbox disabled) on Linux/macOS, so the
+    // Automatic preset can't apply there.
+    function isManualModeLocked() {
+      const checkbox = document.getElementById("manualMode");
+      return Boolean(checkbox && checkbox.disabled);
+    }
+
+    function isOverlayPresetUnavailable(preset) {
+      return preset.values.manualMode === false && isManualModeLocked();
+    }
+
+    function presetValueMatchesCurrent(key, value) {
+      const current = settingBindingState.get(key);
+      if (key === "showHotkey") {
+        return normalizeHotkeyForComparison(current) === normalizeHotkeyForComparison(value);
+      }
+      const binding = settingBindingMap.get(key);
+      if (binding) {
+        return areBindingValuesEqual(binding, current, value);
+      }
+      return current === value;
+    }
+
+    function isOverlayPresetActive(preset) {
+      return Object.entries(preset.values).every(([key, value]) => presetValueMatchesCurrent(key, value));
+    }
+
+    async function applyOverlayPreset(presetId) {
+      const preset = OVERLAY_PRESETS.find((entry) => entry.id === presetId);
+      if (!preset || isOverlayPresetUnavailable(preset)) return;
+      for (const [key, value] of Object.entries(preset.values)) {
+        // eslint-disable-next-line no-await-in-loop
+        await commitSettingValue(key, value, null);
+      }
+      refreshActivePresetHighlight();
+    }
+
+    function renderOverlayPresetCards() {
+      const container = getOverlayPresetCardsContainer();
+      if (!container) return;
+      container.replaceChildren(...OVERLAY_PRESETS.map((preset) => {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "preset-card";
+        card.dataset.presetId = preset.id;
+
+        const name = document.createElement("div");
+        name.className = "preset-card-name";
+        const nameText = document.createElement("span");
+        nameText.textContent = preset.name;
+        const badge = document.createElement("span");
+        badge.className = "preset-card-badge";
+        badge.textContent = "Active";
+        name.append(nameText, badge);
+
+        const blurb = document.createElement("div");
+        blurb.className = "preset-card-blurb";
+        blurb.textContent = preset.blurb;
+
+        card.append(name, blurb);
+        card.addEventListener("click", () => {
+          void applyOverlayPreset(preset.id);
+        });
+        return card;
+      }));
+      refreshActivePresetHighlight();
+    }
+
+    function refreshActivePresetHighlight() {
+      const container = getOverlayPresetCardsContainer();
+      if (!container) return;
+      OVERLAY_PRESETS.forEach((preset) => {
+        const card = container.querySelector(`[data-preset-id="${preset.id}"]`);
+        if (!card) return;
+        const unavailable = isOverlayPresetUnavailable(preset);
+        card.disabled = unavailable;
+        card.classList.toggle("active", !unavailable && isOverlayPresetActive(preset));
+        card.title = unavailable ? "Manual mode is required on Linux and macOS." : "";
+      });
+    }
+
     initializeSettingBindings();
     syncDisableInteractionSubOptionsUi();
     updateControllerActivationFieldState();
     updateTokenizerBackendFieldState();
     initializeSettingsTabs();
+    renderOverlayPresetCards();
     void applyPlatformSpecifics();
 
     function addGamepadInputConsoleLine(message) {

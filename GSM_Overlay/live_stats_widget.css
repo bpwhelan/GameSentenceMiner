@@ -78,9 +78,44 @@
   box-shadow: 0 0 9px rgba(51, 209, 122, 0.75);
 }
 
+.gsm-live-stats-pomodoro {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(229, 84, 75, 0.18);
+  color: #ffd9d4;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.gsm-live-stats-pomodoro.visible {
+  display: flex;
+}
+
+.gsm-live-stats-pomodoro.break {
+  background: rgba(51, 209, 122, 0.16);
+  color: #cdf5dd;
+}
+
+.gsm-live-stats-pomodoro.paused {
+  opacity: 0.6;
+}
+
 .gsm-live-stats-grid {
   display: grid;
   gap: 6px;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-stats-pomodoro {
+  margin-bottom: 0;
+  margin-right: 9px;
+  padding: 2px 7px;
+  font-size: 11px;
 }
 
 #gsm-live-stats.gsm-live-stats-one-line .gsm-live-stats-header {
@@ -132,4 +167,67 @@
 .gsm-live-stats-empty {
   color: #aeb8c7;
   font-size: 11px;
+}
+
+.gsm-live-stats-goals {
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.gsm-live-stats-goals.visible {
+  display: flex;
+}
+
+.gsm-live-goal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.gsm-live-goal-label {
+  color: #dce5f3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gsm-live-goal-value {
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.gsm-live-goal.met .gsm-live-goal-value {
+  color: #33d17a;
+}
+
+.gsm-live-goal-bar {
+  position: relative;
+  flex: 0 0 56px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+}
+
+.gsm-live-goal-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+  background: #4f9dff;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-stats-goals {
+  display: none !important;
 }

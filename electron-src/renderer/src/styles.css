@@ -5913,6 +5913,46 @@ button.danger:hover:not(:disabled) {
   background: var(--gsm-accent-soft);
 }
 
+.texthook-engine-download {
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  background: var(--gsm-surface-1);
+  border: 1px solid var(--gsm-accent-border);
+  border-radius: var(--gsm-radius-sm);
+}
+
+.texthook-engine-download__label {
+  font-size: 0.8rem;
+  color: var(--gsm-text-secondary);
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.texthook-engine-download__track {
+  height: 4px;
+  background: var(--gsm-surface-2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.texthook-engine-download__fill {
+  height: 100%;
+  background: var(--gsm-accent);
+  border-radius: 2px;
+  transition: width 0.15s ease;
+}
+
+.texthook-engine-download__fill--indeterminate {
+  animation: texthook-dl-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes texthook-dl-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
 @media (max-width: 980px) {
   .texthook-workspace .ocr-dashboard {
     grid-template-columns: 1fr;
