@@ -48,6 +48,8 @@ interface ActiveCapture {
   sceneName: string;
   sceneId: string;
   exeName: string | null;
+  pid?: number | null;
+  arch?: "x86" | "x64" | null;
   error?: string;
 }
 
@@ -612,6 +614,14 @@ export function TextHookTab({ active }: TextHookTabProps) {
                           <label>{t("texthook.capture.pid")}</label>
                           <span>
                             {status.pid} ({status.arch})
+                          </span>
+                        </div>
+                      ) : capture?.pid ? (
+                        <div className="input-group">
+                          <label>{t("texthook.capture.pid")}</label>
+                          <span>
+                            {capture.pid}
+                            {capture.arch ? ` (${capture.arch})` : ""}
                           </span>
                         </div>
                       ) : null}

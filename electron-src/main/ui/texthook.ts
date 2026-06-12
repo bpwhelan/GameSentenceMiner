@@ -23,7 +23,7 @@ import {
     isLinux,
     sanitizeFilename,
 } from '../util.js';
-import { resolveWineLaunch, type WineLaunchContext } from './linux_wine.js';
+import { resolveWineLaunch, findLinuxGamePid, type WineLaunchContext } from './linux_wine.js';
 import { getConfiguredSinglePort } from '../gsm_config.js';
 import {
     getGameExePathForScene,
@@ -559,6 +559,9 @@ export interface ActiveCaptureInfo {
     sceneName: string;
     sceneId: string;
     exeName: string | null;
+    // Linux only: the running game process resolved from the per-scene exe, for pre-start display.
+    pid?: number | null;
+    arch?: 'x86' | 'x64' | null;
 }
 
 export async function getActiveCapture(): Promise<ActiveCaptureInfo> {
@@ -574,10 +577,29 @@ export async function getActiveCapture(): Promise<ActiveCaptureInfo> {
             emitLog(`Could not infer executable from active scene: ${(err as Error).message}`, 'warn');
         }
     }
+    // OBS window capture yields no executable on Linux, so fall back to the per-scene
+    // game executable the user configured (Home tab → Game executable), and resolve the
+    // running process so the UI can show the exe + PID before attaching.
+    let pid: number | null = null;
+    let arch: 'x86' | 'x64' | null = null;
+    if (isLinux() && scene?.name) {
+        const exePath = getGameExePathForScene(scene.name).trim();
+        if (exePath) {
+            if (!exeName) exeName = path.basename(exePath.replace(/\\/g, '/'));
+            const linuxPid = findLinuxGamePid(exePath);
+            if (linuxPid > 0) {
+                pid = linuxPid;
+                const bitness = readPortableExecutableBitness(exePath);
+                arch = bitness === 'x86' ? 'x86' : bitness === 'x64' ? 'x64' : null;
+            }
+        }
+    }
     return {
         sceneName: scene?.name ?? '',
         sceneId: scene?.id ?? '',
         exeName,
+        pid,
+        arch,
     };
 }
 
