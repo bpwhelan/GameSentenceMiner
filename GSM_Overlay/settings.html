@@ -1861,6 +1861,30 @@
       </label>
       <label>
         <span class="label-text">
+          Forward Space Button
+          <div class="hotkey-info">Send Space to the current GSM target window (advance text)</div>
+        </span>
+        <input type="text" id="gamepadForwardSpaceButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardForwardSpaceKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Forward Ctrl Button
+          <div class="hotkey-info">Send Ctrl to the current GSM target window (skip in many VNs)</div>
+        </span>
+        <input type="text" id="gamepadForwardCtrlButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardForwardCtrlKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Forward Escape Button
+          <div class="hotkey-info">Send Escape to the current GSM target window (menu/back)</div>
+        </span>
+        <input type="text" id="gamepadForwardEscapeButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardForwardEscapeKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
           Manual Overlay Scan Button
           <div class="hotkey-info">Trigger the same scan as GSM's Manual Overlay Scan hotkey</div>
         </span>
@@ -2267,6 +2291,9 @@
       gamepadConfirmButton: { settingKey: "gamepadConfirmButton", label: "Confirm Button", fallbackValue: 0 },
       gamepadCancelButton: { settingKey: "gamepadCancelButton", label: "Cancel Button", fallbackValue: 1 },
       gamepadForwardEnterButton: { settingKey: "gamepadForwardEnterButton", label: "Forward Enter Button", fallbackValue: -1 },
+      gamepadForwardSpaceButton: { settingKey: "gamepadForwardSpaceButton", label: "Forward Space Button", fallbackValue: -1 },
+      gamepadForwardCtrlButton: { settingKey: "gamepadForwardCtrlButton", label: "Forward Ctrl Button", fallbackValue: -1 },
+      gamepadForwardEscapeButton: { settingKey: "gamepadForwardEscapeButton", label: "Forward Escape Button", fallbackValue: -1 },
       gamepadManualOverlayScanButton: { settingKey: "gamepadManualOverlayScanButton", label: "Manual Overlay Scan Button", fallbackValue: -1 },
       gamepadTokenModeToggleButton: { settingKey: "gamepadTokenModeToggleButton", label: "Token Mode Toggle Button", fallbackValue: 3 },
       gamepadMineButton: { settingKey: "gamepadMineButton", label: "Mine Button", fallbackValue: 0 },
@@ -2280,6 +2307,9 @@
       keyboardConfirmKey: { settingKey: "keyboardConfirmKey", label: "Keyboard Confirm Key", fallbackValue: "Enter" },
       keyboardCancelKey: { settingKey: "keyboardCancelKey", label: "Keyboard Cancel Key", fallbackValue: "Escape" },
       keyboardForwardEnterKey: { settingKey: "keyboardForwardEnterKey", label: "Keyboard Forward Enter Key", fallbackValue: null },
+      keyboardForwardSpaceKey: { settingKey: "keyboardForwardSpaceKey", label: "Keyboard Forward Space Key", fallbackValue: null },
+      keyboardForwardCtrlKey: { settingKey: "keyboardForwardCtrlKey", label: "Keyboard Forward Ctrl Key", fallbackValue: null },
+      keyboardForwardEscapeKey: { settingKey: "keyboardForwardEscapeKey", label: "Keyboard Forward Escape Key", fallbackValue: null },
       keyboardManualOverlayScanKey: { settingKey: "keyboardManualOverlayScanKey", label: "Keyboard Manual Overlay Scan Key", fallbackValue: null },
       keyboardTokenModeToggleKey: { settingKey: "keyboardTokenModeToggleKey", label: "Keyboard Token Toggle Key", fallbackValue: null },
       keyboardNextEntryKey: { settingKey: "keyboardNextEntryKey", label: "Keyboard Next Entry Key", fallbackValue: null },
@@ -2959,6 +2989,9 @@
         "gamepadConfirmButton",
         "gamepadCancelButton",
         "gamepadForwardEnterButton",
+        "gamepadForwardSpaceButton",
+        "gamepadForwardCtrlButton",
+        "gamepadForwardEscapeButton",
         "gamepadManualOverlayScanButton",
         "gamepadTokenModeToggleButton",
         "gamepadMineButton",
@@ -3308,6 +3341,9 @@
       createGamepadBindingSetting("gamepadConfirmButton"),
       createGamepadBindingSetting("gamepadCancelButton"),
       createGamepadBindingSetting("gamepadForwardEnterButton"),
+      createGamepadBindingSetting("gamepadForwardSpaceButton"),
+      createGamepadBindingSetting("gamepadForwardCtrlButton"),
+      createGamepadBindingSetting("gamepadForwardEscapeButton"),
       createGamepadBindingSetting("gamepadManualOverlayScanButton"),
       createGamepadBindingSetting("gamepadTokenModeToggleButton"),
       createGamepadBindingSetting("gamepadMineButton"),
@@ -3318,6 +3354,9 @@
       createKeyboardBindingSetting("keyboardConfirmKey"),
       createKeyboardBindingSetting("keyboardCancelKey"),
       createKeyboardBindingSetting("keyboardForwardEnterKey"),
+      createKeyboardBindingSetting("keyboardForwardSpaceKey"),
+      createKeyboardBindingSetting("keyboardForwardCtrlKey"),
+      createKeyboardBindingSetting("keyboardForwardEscapeKey"),
       createKeyboardBindingSetting("keyboardManualOverlayScanKey"),
       createKeyboardBindingSetting("keyboardTokenModeToggleKey"),
       createKeyboardBindingSetting("keyboardNextEntryKey"),

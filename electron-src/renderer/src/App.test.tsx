@@ -248,11 +248,11 @@ describe('App install-session integration', () => {
         );
     });
 
-    it('hides the Texthook / Agent tab outside Windows', async () => {
+    it('hides the Texthook / Agent tab on platforms without hooking (macOS)', async () => {
         Object.defineProperty(window, 'gsmEnv', {
             configurable: true,
             value: {
-                platform: 'linux',
+                platform: 'darwin',
             },
         });
         invokeMock.mockImplementation(async (channel: string) => {

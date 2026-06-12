@@ -486,6 +486,9 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadConfirmButton": 0, // A
   "gamepadCancelButton": 1, // B
   "gamepadForwardEnterButton": -1, // Disabled by default; forwards Enter to target game window
+  "gamepadForwardSpaceButton": -1, // Disabled by default; forwards Space to target game window
+  "gamepadForwardCtrlButton": -1, // Disabled by default; forwards Ctrl (skip) to target game window
+  "gamepadForwardEscapeButton": -1, // Disabled by default; forwards Escape to target game window
   "gamepadManualOverlayScanButton": -1, // Disabled by default; triggers manual overlay scan
   "gamepadTokenModeToggleButton": 3, // Y button - toggles token/character navigation
   "gamepadMineButton": 0, // A button - mines the current Yomitan entry
@@ -6084,6 +6087,9 @@ app.whenReady().then(async () => {
       case "gamepadConfirmButton":
       case "gamepadCancelButton":
       case "gamepadForwardEnterButton":
+      case "gamepadForwardSpaceButton":
+      case "gamepadForwardCtrlButton":
+      case "gamepadForwardEscapeButton":
       case "gamepadManualOverlayScanButton":
       case "gamepadTokenModeToggleButton":
       case "gamepadMineButton":
@@ -6344,18 +6350,35 @@ app.whenReady().then(async () => {
     }
   });
 
-  ipcMain.on("gamepad-forward-enter", () => {
+  // Curated keys the overlay may forward to the target game window. Mirrors the
+  // Python allowlist (overlay_handler.ALLOWED_FORWARD_KEYS); arbitrary keys are rejected.
+  const FORWARDABLE_KEYS = new Set(["enter", "space", "ctrl", "escape", "tab"]);
+
+  const forwardKeyToTargetWindow = (key) => {
+    const normalizedKey = String(key || "").trim().toLowerCase();
+    if (!FORWARDABLE_KEYS.has(normalizedKey)) {
+      console.warn(`[Gamepad] Refusing to forward unsupported key: ${key}`);
+      return;
+    }
     if (!backend || !backend.connected) {
-      console.warn("[Gamepad] Cannot forward Enter: backend is not connected");
+      console.warn(`[Gamepad] Cannot forward ${normalizedKey}: backend is not connected`);
       return;
     }
 
     backend.send({
       type: "send-key-request",
-      key: "enter",
+      key: normalizedKey,
       source: "gamepad",
       activateWindow: true,
     });
+  };
+
+  ipcMain.on("gamepad-forward-enter", () => {
+    forwardKeyToTargetWindow("enter");
+  });
+
+  ipcMain.on("gamepad-forward-key", (_event, key) => {
+    forwardKeyToTargetWindow(key);
   });
 
   ipcMain.on("gamepad-manual-overlay-scan", () => {

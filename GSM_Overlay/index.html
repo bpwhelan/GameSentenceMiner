@@ -3939,6 +3939,15 @@ background: rgba(202, 12, 12, 0.692);
     if (newsettings.gamepadForwardEnterButton !== undefined) {
       gamepadSettings.forwardEnterButton = newsettings.gamepadForwardEnterButton;
     }
+    if (newsettings.gamepadForwardSpaceButton !== undefined) {
+      gamepadSettings.forwardSpaceButton = newsettings.gamepadForwardSpaceButton;
+    }
+    if (newsettings.gamepadForwardCtrlButton !== undefined) {
+      gamepadSettings.forwardCtrlButton = newsettings.gamepadForwardCtrlButton;
+    }
+    if (newsettings.gamepadForwardEscapeButton !== undefined) {
+      gamepadSettings.forwardEscapeButton = newsettings.gamepadForwardEscapeButton;
+    }
     if (newsettings.gamepadManualOverlayScanButton !== undefined) {
       gamepadSettings.manualOverlayScanButton = newsettings.gamepadManualOverlayScanButton;
     }
@@ -4624,6 +4633,9 @@ background: rgba(202, 12, 12, 0.692);
     confirmButton: 0, // A
     cancelButton: 1, // B
     forwardEnterButton: -1, // Disabled
+    forwardSpaceButton: -1, // Disabled
+    forwardCtrlButton: -1, // Disabled
+    forwardEscapeButton: -1, // Disabled
     manualOverlayScanButton: -1, // Disabled
     tokenModeToggleButton: 3, // Y
     mineButton: 0, // A
@@ -4649,6 +4661,9 @@ background: rgba(202, 12, 12, 0.692);
     keyboardConfirmKey: 'Enter',
     keyboardCancelKey: 'Escape',
     keyboardForwardEnterKey: null,
+    keyboardForwardSpaceKey: null,
+    keyboardForwardCtrlKey: null,
+    keyboardForwardEscapeKey: null,
     keyboardManualOverlayScanKey: null,
     keyboardTokenModeToggleKey: null,
     keyboardNextEntryKey: null,
@@ -4663,7 +4678,8 @@ background: rgba(202, 12, 12, 0.692);
   // Keyboard setting keys that map directly (settingKey in settings.html -> gamepadSettings key)
   const KEYBOARD_SETTING_KEYS = [
     'keyboardModifierKey', 'keyboardToggleKey', 'keyboardConfirmKey', 'keyboardCancelKey',
-    'keyboardForwardEnterKey', 'keyboardManualOverlayScanKey', 'keyboardTokenModeToggleKey',
+    'keyboardForwardEnterKey', 'keyboardForwardSpaceKey', 'keyboardForwardCtrlKey', 'keyboardForwardEscapeKey',
+    'keyboardManualOverlayScanKey', 'keyboardTokenModeToggleKey',
     'keyboardNextEntryKey', 'keyboardPrevEntryKey',
     'keyboardNavigateUp', 'keyboardNavigateDown', 'keyboardNavigateLeft', 'keyboardNavigateRight',
     'keyboardMineButton',
@@ -4711,6 +4727,9 @@ background: rgba(202, 12, 12, 0.692);
       confirmButton: gamepadSettings.confirmButton,
       cancelButton: gamepadSettings.cancelButton,
       forwardEnterButton: gamepadSettings.forwardEnterButton,
+      forwardSpaceButton: gamepadSettings.forwardSpaceButton,
+      forwardCtrlButton: gamepadSettings.forwardCtrlButton,
+      forwardEscapeButton: gamepadSettings.forwardEscapeButton,
       manualOverlayScanButton: gamepadSettings.manualOverlayScanButton,
       tokenModeToggleButton: gamepadSettings.tokenModeToggleButton,
       mineButton: gamepadSettings.mineButton,
@@ -4737,6 +4756,9 @@ background: rgba(202, 12, 12, 0.692);
       keyboardConfirmKey: gamepadSettings.keyboardConfirmKey,
       keyboardCancelKey: gamepadSettings.keyboardCancelKey,
       keyboardForwardEnterKey: gamepadSettings.keyboardForwardEnterKey,
+      keyboardForwardSpaceKey: gamepadSettings.keyboardForwardSpaceKey,
+      keyboardForwardCtrlKey: gamepadSettings.keyboardForwardCtrlKey,
+      keyboardForwardEscapeKey: gamepadSettings.keyboardForwardEscapeKey,
       keyboardManualOverlayScanKey: gamepadSettings.keyboardManualOverlayScanKey,
       keyboardTokenModeToggleKey: gamepadSettings.keyboardTokenModeToggleKey,
       keyboardNextEntryKey: gamepadSettings.keyboardNextEntryKey,
@@ -5092,6 +5114,18 @@ background: rgba(202, 12, 12, 0.692);
     }
     if (updatedSettings.gamepadForwardEnterButton !== undefined) {
       gamepadSettings.forwardEnterButton = updatedSettings.gamepadForwardEnterButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadForwardSpaceButton !== undefined) {
+      gamepadSettings.forwardSpaceButton = updatedSettings.gamepadForwardSpaceButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadForwardCtrlButton !== undefined) {
+      gamepadSettings.forwardCtrlButton = updatedSettings.gamepadForwardCtrlButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadForwardEscapeButton !== undefined) {
+      gamepadSettings.forwardEscapeButton = updatedSettings.gamepadForwardEscapeButton;
       needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadManualOverlayScanButton !== undefined) {

@@ -110,10 +110,7 @@ def test_set_foreground_aggressive_uses_topmost_and_alt_fallbacks(monkeypatch):
     assert fake_user32.foreground_hwnd == 20
     assert fake_user32.allow_calls == [_wwm.ASFW_ANY]
     assert fake_user32.keybd_event_calls
-    assert any(
-        insert_after == _wwm.HWND_TOPMOST
-        for _hwnd, insert_after, _flags in fake_user32.window_pos_calls
-    )
+    assert any(insert_after == _wwm.HWND_TOPMOST for _hwnd, insert_after, _flags in fake_user32.window_pos_calls)
     assert any(attach is False for _a, _b, attach in fake_user32.attach_calls)
 
 
@@ -386,6 +383,40 @@ def test_send_enter_to_target_window_falls_back_to_sendinput(monkeypatch):
     assert asyncio.run(monitor.send_enter_to_target_window(activate_window=True)) is True
     assert keybd_calls == [True]
     assert sendinput_calls == [True]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_send_key_to_target_window_injects_curated_key(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
+
+    async def fake_activate():
+        return True
+
+    injected = []
+
+    monkeypatch.setattr(monitor, "activate_target_window", fake_activate)
+    monkeypatch.setattr(
+        monitor,
+        "_send_key_with_keybd_event",
+        lambda vk, scan, extended=False: injected.append((vk, scan, extended)) or True,
+    )
+
+    # "space" alias resolves to VK_SPACE (0x20) / scan 0x39.
+    assert asyncio.run(monitor.send_key_to_target_window("space", activate_window=True)) is True
+    assert injected == [(0x20, 0x39, False)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_send_key_to_target_window_rejects_unknown_key(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
+
+    assert asyncio.run(monitor.send_key_to_target_window("f13", activate_window=True)) is False
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")

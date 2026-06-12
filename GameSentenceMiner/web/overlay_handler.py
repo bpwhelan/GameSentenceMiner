@@ -188,10 +188,14 @@ class OverlayRequestHandler:
         except Exception as e:
             logger.exception(f"Failed to restore focus to target window: {e}")
 
+    # Curated keys the overlay is allowed to forward to the target game window.
+    ALLOWED_FORWARD_KEYS = {"enter", "return", "space", "ctrl", "control", "escape", "esc", "tab"}
+
     async def handle_send_key_request(self, message: Optional[dict] = None):
         """
         Handle a key-forward request from the overlay.
-        Currently supports forwarding Enter to the target game window.
+        Supports forwarding a curated set of keys (see ALLOWED_FORWARD_KEYS) to the
+        target game window. The overlay never forwards arbitrary user-typed keys.
         """
         try:
             payload = message if isinstance(message, dict) else {}
@@ -203,7 +207,7 @@ class OverlayRequestHandler:
             except (TypeError, ValueError):
                 target_pid = 0
 
-            if key_name not in {"enter", "return"}:
+            if key_name not in self.ALLOWED_FORWARD_KEYS:
                 logger.warning(f"Unsupported overlay key request from {source}: {key_name}")
                 return
 
@@ -213,12 +217,13 @@ class OverlayRequestHandler:
                 logger.debug(f"No target window available for overlay key request from {source}")
                 return
 
-            sent = await monitor.send_enter_to_target_window(
+            sent = await monitor.send_key_to_target_window(
+                key_name,
                 target_pid=target_pid if target_pid > 0 else None,
                 activate_window=activate_window,
             )
             if not sent:
-                logger.warning(f"Failed to send Enter key to target window (source={source})")
+                logger.warning(f"Failed to send '{key_name}' key to target window (source={source})")
         except Exception as e:
             logger.exception(f"Failed handling overlay key request: {e}")
 

@@ -301,6 +301,7 @@ else:
 
 # --- Window geometry helpers (Windows-only, no-op on other platforms) ---
 
+
 def get_window_client_physical_geometry(
     hwnd: int,
 ) -> Optional[Tuple[int, int, int, int]]:
@@ -438,6 +439,7 @@ _last_process_pausing_activity_ts: float = 0.0
 
 
 # --- Persistence ---
+
 
 def _get_suspended_pids_file_path() -> Path:
     global _suspended_pids_file
@@ -613,6 +615,7 @@ def force_resume_suspended_processes() -> Dict[str, int]:
 
 # --- Monitor registry ---
 
+
 def set_window_state_monitor(monitor: Optional["BaseWindowStateMonitor"]) -> None:
     global _window_state_monitor
     _window_state_monitor = monitor
@@ -629,6 +632,7 @@ def cleanup_minimized_audio_mutes() -> None:
 
 
 # --- Process pausing state helpers ---
+
 
 def _clear_overlay_pause_request_state() -> None:
     global _overlay_pause_request_pid
@@ -670,6 +674,7 @@ def _resolve_pause_target_hwnd(hwnd: Optional[int]) -> Optional[int]:
 
 
 # --- Linux process resolution ---
+
 
 def _get_configured_linux_target() -> str:
     process_cfg = getattr(get_config(), "process_pausing", None)
@@ -1453,6 +1458,7 @@ def _linux_pid_source_allowed(pid: int, source: str, exe_name: str, comm_name: s
 
 # --- Auto-resume monitor ---
 
+
 def _auto_resume_monitor():
     """Monitors suspended processes and auto-resumes after timeout."""
     while True:
@@ -1695,6 +1701,7 @@ def toggle_active_game_pause(hwnd: Optional[int] = None) -> bool:
 
 
 # --- Base window state monitor ---
+
 
 class BaseWindowStateMonitor:
     """Shared interface for platform-specific window state monitors.

@@ -35,6 +35,25 @@ WINEVENT_OUTOFCONTEXT = 0x0000
 WINEVENT_SKIPOWNPROCESS = 0x0002
 WM_QUIT = 0x0012
 
+# Curated set of keys the overlay is allowed to forward to the target game window.
+# name -> (virtual-key code, scan code, is_extended). Literal VK codes are used so this
+# table is safe to build at import time on non-Windows. Kept small/explicit on purpose:
+# the overlay never forwards arbitrary user-typed keys.
+_FORWARDABLE_KEYS: Dict[str, Tuple[int, int, bool]] = {
+    "enter": (0x0D, 0x1C, False),  # VK_RETURN
+    "space": (0x20, 0x39, False),  # VK_SPACE
+    "ctrl": (0xA2, 0x1D, False),  # VK_LCONTROL
+    "escape": (0x1B, 0x01, False),  # VK_ESCAPE
+    "tab": (0x09, 0x0F, False),  # VK_TAB
+}
+
+_FORWARD_KEY_ALIASES: Dict[str, str] = {
+    "return": "enter",
+    "control": "ctrl",
+    "lctrl": "ctrl",
+    "esc": "escape",
+}
+
 WinEventProcType = ctypes.WINFUNCTYPE(
     None,
     wintypes.HANDLE,
@@ -194,6 +213,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         Must live on its own thread because WINEVENT_OUTOFCONTEXT callbacks are
         delivered to the thread that called SetWinEventHook via its message queue.
         """
+
         def _on_event(hook, event, hwnd, id_object, id_child, id_event_thread, dwms_event_time):
             try:
                 target = self.target_hwnd
@@ -513,8 +533,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                         "nvidia share.exe",
                         "nvcontainer.exe",
                         "lunatranslator.exe",
-                        "jl.exe"
-                        "sharex.exe",
+                        "jl.exesharex.exe",
                     ]
                 ):
                     return True
@@ -1142,7 +1161,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                     is_obscured = self._is_window_obscured(self.target_hwnd)
                     self._zorder_dirty = False
                 else:
-                    is_obscured = (self.last_state == "obscured")
+                    is_obscured = self.last_state == "obscured"
 
                 current_state = "obscured" if is_obscured else "background"
 
@@ -1303,22 +1322,26 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
 
         return max(matching_hwnds, key=_score)
 
-    def _post_enter_to_hwnd(self, hwnd: int) -> bool:
+    def _post_key_to_hwnd(self, hwnd: int, vk: int, scan: int, extended: bool = False) -> bool:
         if not is_windows() or not hwnd:
             return False
 
-        lparam_down = 0x001C0001
-        lparam_up = 0xC01C0001
-        down_ok = bool(user32.PostMessageW(hwnd, WM_KEYDOWN, VK_RETURN, lparam_down))
-        up_ok = bool(user32.PostMessageW(hwnd, WM_KEYUP, VK_RETURN, lparam_up))
+        ext_bit = 0x01000000 if extended else 0
+        lparam_down = 0x00000001 | (scan << 16) | ext_bit
+        lparam_up = 0xC0000001 | (scan << 16) | ext_bit
+        down_ok = bool(user32.PostMessageW(hwnd, WM_KEYDOWN, vk, lparam_down))
+        up_ok = bool(user32.PostMessageW(hwnd, WM_KEYUP, vk, lparam_up))
         return down_ok and up_ok
 
-    def _send_enter_with_sendinput(self) -> bool:
+    def _post_enter_to_hwnd(self, hwnd: int) -> bool:
+        return self._post_key_to_hwnd(hwnd, VK_RETURN, 0x1C, False)
+
+    def _send_key_with_sendinput(self, scan: int, extended: bool = False) -> bool:
         if not is_windows():
             return False
 
-        enter_scan_code = 0x1C
         ULONG_PTR = wintypes.WPARAM
+        flags = KEYEVENTF_SCANCODE | (KEYEVENTF_EXTENDEDKEY if extended else 0)
 
         class KEYBDINPUT(ctypes.Structure):
             _fields_ = [
@@ -1340,24 +1363,38 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
 
         inputs = (INPUT * 2)()
         inputs[0].type = INPUT_KEYBOARD
-        inputs[0].union.ki = KEYBDINPUT(0, enter_scan_code, KEYEVENTF_SCANCODE, 0, 0)
+        inputs[0].union.ki = KEYBDINPUT(0, scan, flags, 0, 0)
         inputs[1].type = INPUT_KEYBOARD
-        inputs[1].union.ki = KEYBDINPUT(0, enter_scan_code, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0, 0)
+        inputs[1].union.ki = KEYBDINPUT(0, scan, flags | KEYEVENTF_KEYUP, 0, 0)
 
         sent = int(user32.SendInput(2, inputs, ctypes.sizeof(INPUT)))
         return sent == 2
 
-    def _send_enter_with_keybd_event(self) -> bool:
+    def _send_enter_with_sendinput(self) -> bool:
+        return self._send_key_with_sendinput(0x1C, False)
+
+    def _send_key_with_keybd_event(self, vk: int, scan: int, extended: bool = False) -> bool:
         if not is_windows():
             return False
 
+        flags = KEYEVENTF_EXTENDEDKEY if extended else 0
         try:
-            user32.keybd_event(VK_RETURN, 0x1C, 0, 0)
+            user32.keybd_event(vk, scan, flags, 0)
             time.sleep(0.01)
-            user32.keybd_event(VK_RETURN, 0x1C, KEYEVENTF_KEYUP, 0)
+            user32.keybd_event(vk, scan, flags | KEYEVENTF_KEYUP, 0)
             return True
         except Exception:
             return False
+
+    def _send_enter_with_keybd_event(self) -> bool:
+        return self._send_key_with_keybd_event(VK_RETURN, 0x1C, False)
+
+    def _send_key_with_fallbacks(self, vk: int, scan: int, extended: bool = False) -> bool:
+        if self._send_key_with_keybd_event(vk, scan, extended):
+            return True
+
+        logger.debug("keybd_event key injection failed, retrying with SendInput")
+        return self._send_key_with_sendinput(scan, extended)
 
     def _send_enter_with_fallbacks(self) -> bool:
         if self._send_enter_with_keybd_event():
@@ -1365,6 +1402,12 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
 
         logger.debug("keybd_event Enter injection failed, retrying with SendInput")
         return self._send_enter_with_sendinput()
+
+    @staticmethod
+    def _resolve_forward_key(key_name: Optional[str]) -> Tuple[str, Optional[Tuple[int, int, bool]]]:
+        name = str(key_name or "").strip().lower()
+        name = _FORWARD_KEY_ALIASES.get(name, name)
+        return name, _FORWARDABLE_KEYS.get(name)
 
     def _resolve_target_hwnd(self, target_pid: Optional[int] = None) -> Optional[int]:
         hwnd = self.target_hwnd
@@ -1532,6 +1575,38 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         if foreground_hwnd == target_hwnd:
             return self._send_enter_with_fallbacks()
         return self._post_enter_to_hwnd(target_hwnd)
+
+    async def send_key_to_target_window(
+        self, key_name: str, target_pid: Optional[int] = None, activate_window: bool = True
+    ) -> bool:
+        """Forward one of the curated keys (see _FORWARDABLE_KEYS) to the target game window."""
+        if not is_windows():
+            return False
+
+        _, spec = self._resolve_forward_key(key_name)
+        if not spec:
+            logger.warning(f"Unsupported forward key request: {key_name!r}")
+            return False
+        vk, scan, extended = spec
+
+        requested_pid = int(target_pid or 0)
+        target_hwnd = self._resolve_target_hwnd(requested_pid)
+        if not target_hwnd:
+            return False
+
+        self.target_hwnd = target_hwnd
+
+        if activate_window:
+            focused = await self.activate_target_window()
+            if not focused:
+                return False
+            await asyncio.sleep(0.03)
+            return self._send_key_with_fallbacks(vk, scan, extended)
+
+        foreground_hwnd = user32.GetForegroundWindow()
+        if foreground_hwnd == target_hwnd:
+            return self._send_key_with_fallbacks(vk, scan, extended)
+        return self._post_key_to_hwnd(target_hwnd, vk, scan, extended)
 
     def post_enter_to_target_window(self, target_pid: Optional[int] = None) -> bool:
         """Backward-compatible direct PostMessage path."""

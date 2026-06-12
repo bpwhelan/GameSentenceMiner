@@ -525,6 +525,9 @@ class GamepadHandler {
       confirmButton: options.confirmButton ?? 0, // A button (optional - auto-confirm enabled)
       cancelButton: options.cancelButton ?? 1, // B button
       forwardEnterButton: options.forwardEnterButton ?? -1, // Disabled by default; forwards Enter to target game window
+      forwardSpaceButton: options.forwardSpaceButton ?? -1, // Disabled by default; forwards Space to target game window
+      forwardCtrlButton: options.forwardCtrlButton ?? -1, // Disabled by default; forwards Ctrl (skip) to target game window
+      forwardEscapeButton: options.forwardEscapeButton ?? -1, // Disabled by default; forwards Escape to target game window
       manualOverlayScanButton: options.manualOverlayScanButton ?? -1, // Disabled by default; triggers manual overlay scan
       tokenModeToggleButton: options.tokenModeToggleButton ?? 3, // Y button to toggle token/char mode
       mineButton: options.mineButton ?? 0, // A button to mine the current Yomitan entry
@@ -589,6 +592,9 @@ class GamepadHandler {
       keyboardConfirmKey: options.keyboardConfirmKey || 'Enter',
       keyboardCancelKey: options.keyboardCancelKey || 'Escape',
       keyboardForwardEnterKey: options.keyboardForwardEnterKey || null,
+      keyboardForwardSpaceKey: options.keyboardForwardSpaceKey || null,
+      keyboardForwardCtrlKey: options.keyboardForwardCtrlKey || null,
+      keyboardForwardEscapeKey: options.keyboardForwardEscapeKey || null,
       keyboardManualOverlayScanKey: options.keyboardManualOverlayScanKey || null,
       keyboardTokenModeToggleKey: options.keyboardTokenModeToggleKey || null,
       keyboardNextEntryKey: options.keyboardNextEntryKey || null,
@@ -1335,6 +1341,9 @@ class GamepadHandler {
       confirmButton: normalizeGamepadBindingValue(this.config.confirmButton, 0),
       cancelButton: normalizeGamepadBindingValue(this.config.cancelButton, 1),
       forwardEnterButton: normalizeGamepadBindingValue(this.config.forwardEnterButton, -1),
+      forwardSpaceButton: normalizeGamepadBindingValue(this.config.forwardSpaceButton, -1),
+      forwardCtrlButton: normalizeGamepadBindingValue(this.config.forwardCtrlButton, -1),
+      forwardEscapeButton: normalizeGamepadBindingValue(this.config.forwardEscapeButton, -1),
       manualOverlayScanButton: normalizeGamepadBindingValue(this.config.manualOverlayScanButton, -1),
       tokenModeToggleButton: normalizeGamepadBindingValue(this.config.tokenModeToggleButton, 3),
       mineButton: normalizeGamepadBindingValue(this.config.mineButton, 0),
@@ -1350,6 +1359,9 @@ class GamepadHandler {
       confirmKey: normalizeKeyboardBindingValue(this.config.keyboardConfirmKey, 'Enter'),
       cancelKey: normalizeKeyboardBindingValue(this.config.keyboardCancelKey, 'Escape'),
       forwardEnterKey: normalizeKeyboardBindingValue(this.config.keyboardForwardEnterKey),
+      forwardSpaceKey: normalizeKeyboardBindingValue(this.config.keyboardForwardSpaceKey),
+      forwardCtrlKey: normalizeKeyboardBindingValue(this.config.keyboardForwardCtrlKey),
+      forwardEscapeKey: normalizeKeyboardBindingValue(this.config.keyboardForwardEscapeKey),
       manualOverlayScanKey: normalizeKeyboardBindingValue(this.config.keyboardManualOverlayScanKey),
       tokenModeToggleKey: normalizeKeyboardBindingValue(this.config.keyboardTokenModeToggleKey),
       nextEntryKey: normalizeKeyboardBindingValue(this.config.keyboardNextEntryKey),
@@ -2659,6 +2671,14 @@ class GamepadHandler {
       return;
     }
 
+    // Forward other curated keys (space/ctrl/escape) to the target game window
+    for (const { binding, key } of this.getForwardKeyKeyboardBindings()) {
+      if (keyboardEventMatchesBinding(binding, keyName, keys, mods)) {
+        this.forwardKeyToTargetWindow(key);
+        return;
+      }
+    }
+
     // Manual overlay scan
     if (keyboardEventMatchesBinding(kb.manualOverlayScanKey, keyName, keys, mods)) {
       this.requestManualOverlayScan();
@@ -2829,6 +2849,13 @@ class GamepadHandler {
       return;
     }
 
+    for (const { binding, key } of this.getForwardKeyButtonBindings()) {
+      if (this.matchesButtonBindingDown(binding, device, buttonIndex)) {
+        this.forwardKeyToTargetWindow(key);
+        return;
+      }
+    }
+
     if (this.matchesButtonBindingDown(manualOverlayScanBinding, device, buttonIndex)) {
       this.requestManualOverlayScan();
       return;
@@ -2883,6 +2910,32 @@ class GamepadHandler {
     }
 
     ipc.send('gamepad-forward-enter');
+  }
+
+  // Curated keys (besides Enter) that can be forwarded to the target game window.
+  getForwardKeyButtonBindings() {
+    return [
+      { binding: this.buttonBindings.forwardSpaceButton, key: 'space' },
+      { binding: this.buttonBindings.forwardCtrlButton, key: 'ctrl' },
+      { binding: this.buttonBindings.forwardEscapeButton, key: 'escape' },
+    ];
+  }
+
+  getForwardKeyKeyboardBindings() {
+    return [
+      { binding: this.keyboardBindings.forwardSpaceKey, key: 'space' },
+      { binding: this.keyboardBindings.forwardCtrlKey, key: 'ctrl' },
+      { binding: this.keyboardBindings.forwardEscapeKey, key: 'escape' },
+    ];
+  }
+
+  forwardKeyToTargetWindow(key) {
+    const ipc = this.getIpcRenderer();
+    if (!ipc) {
+      return;
+    }
+
+    ipc.send('gamepad-forward-key', key);
   }
 
   requestManualOverlayScan() {
@@ -6331,6 +6384,9 @@ class GamepadHandler {
       safeConfig.confirmButton = this.describeButtonBinding(this.buttonBindings.confirmButton);
       safeConfig.cancelButton = this.describeButtonBinding(this.buttonBindings.cancelButton);
       safeConfig.forwardEnterButton = this.describeButtonBinding(this.buttonBindings.forwardEnterButton);
+      safeConfig.forwardSpaceButton = this.describeButtonBinding(this.buttonBindings.forwardSpaceButton);
+      safeConfig.forwardCtrlButton = this.describeButtonBinding(this.buttonBindings.forwardCtrlButton);
+      safeConfig.forwardEscapeButton = this.describeButtonBinding(this.buttonBindings.forwardEscapeButton);
       safeConfig.manualOverlayScanButton = this.describeButtonBinding(this.buttonBindings.manualOverlayScanButton);
       safeConfig.tokenModeToggleButton = this.describeButtonBinding(this.buttonBindings.tokenModeToggleButton);
       safeConfig.mineButton = this.describeButtonBinding(this.buttonBindings.mineButton);
