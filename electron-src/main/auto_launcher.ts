@@ -1055,21 +1055,41 @@ export class AutoLauncher {
             const launchDelaySeconds = this.normalizeLaunchDelaySeconds(
                 sceneProfile.launchDelaySeconds
             );
-            const validateContext =
-                this.isSwitchEmulatorExecutable(exeName)
-                    ? this.createSwitchContextValidator(
-                        currentScene,
-                        exeName,
-                        currentScene.name
-                    )
-                    : undefined;
+
+            // Nintendo Switch emulators (yuzu, ryujinx, ...) keep a single
+            // process alive across games; the active game is identified by the
+            // live window title, not the executable. While the emulator is
+            // open, poll fast so the agent attaches as soon as a game's title
+            // appears and detaches as soon as the title goes away (back to the
+            // emulator menu). The validator re-checks the title every poll.
+            if (this.isSwitchEmulatorExecutable(exeName)) {
+                let keepFastPolling = false;
+                const emuPid = await this.getPidByProcessName(exeName.trim());
+                if (emuPid > 0) {
+                    keepFastPolling = true;
+                    this.currentPollingInterval = this.fastPollingInterval;
+                }
+
+                const validateContext = this.createSwitchContextValidator(
+                    currentScene,
+                    exeName,
+                    currentScene.name
+                );
+                await this.handleGame(
+                    exeName,
+                    scriptPath,
+                    profileKey,
+                    launchDelaySeconds,
+                    validateContext
+                );
+                return keepFastPolling;
+            }
 
             await this.handleGame(
                 exeName,
                 scriptPath,
                 profileKey,
-                launchDelaySeconds,
-                validateContext
+                launchDelaySeconds
             );
             return false;
         }
@@ -1508,6 +1528,19 @@ export class AutoLauncher {
                 this.logInternal(`AutoLauncher: Agent for ${processName} (PID: ${pid}) not running. Relaunching...`);
                 this.launchAgent(pid, scriptPath);
                 this.currentPollingInterval = this.defaultPollingInterval;
+            } else if (validateContext) {
+                // Agent is already running for this PID/game. Switch emulators
+                // keep the same process across games, so re-check the live
+                // window title each poll and tear the agent down when the user
+                // exits to the emulator menu or swaps games (title stops
+                // matching). It re-attaches once a matching title reappears.
+                const stillValid = await validateContext(pid);
+                if (!stillValid) {
+                    this.logInternal(
+                        `AutoLauncher: Game ID ${gameId} no longer active (window title changed). Stopping agent.`
+                    );
+                    this.resetAgentTracking();
+                }
             }
             return;
         }

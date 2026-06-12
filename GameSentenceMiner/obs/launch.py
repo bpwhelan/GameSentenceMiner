@@ -455,11 +455,21 @@ def get_obs_websocket_config_values():
             with open(config_path, "w", encoding="utf-8") as file:
                 json.dump(config, file, indent=4)
 
-        if get_config().obs.password == "your_password":
-            logger.info("OBS WebSocket password is not set. Setting it now...")
-            full_config = get_master_config()
-            full_config.get_config().obs.port = server_port
-            full_config.get_config().obs.password = server_password
+        # OBS's own websocket config.json is the source of truth for the port:
+        # Electron may pick a dynamic (ephemeral) port at launch when 7274 is
+        # taken, so always adopt whatever OBS is actually serving. The password
+        # is only adopted while the user hasn't set their own.
+        full_config = get_master_config()
+        obs_cfg = full_config.get_config().obs
+        changed = False
+        if server_port and obs_cfg.port != server_port:
+            obs_cfg.port = server_port
+            changed = True
+        if obs_cfg.password == "your_password" and server_password:
+            obs_cfg.password = server_password
+            changed = True
+        if changed:
+            logger.info(f"Syncing OBS WebSocket connection settings (port {server_port}).")
             full_config.sync_shared_fields()
             full_config.save()
             reload_config()

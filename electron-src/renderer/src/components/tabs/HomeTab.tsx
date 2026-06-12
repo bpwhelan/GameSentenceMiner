@@ -386,6 +386,11 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   const [captureWizardOpen, setCaptureWizardOpen] = useState(false);
   const [captureWizardScene, setCaptureWizardScene] = useState<ObsScene | null>(null);
 
+  /* ---- Game executable (Linux Wine/Proton target, per-scene) ----- */
+  const [gameExePath, setGameExePath] = useState("");
+  const [windowsDetectedExe, setWindowsDetectedExe] = useState("");
+  const [gameExeDetecting, setGameExeDetecting] = useState(false);
+
   /* ---- GSM profiles ---------------------------------------------- */
   const [gsmProfiles, setGsmProfiles] = useState<string[]>([]);
   const [profileScenes, setProfileScenes] = useState<Record<string, string[]>>({});
@@ -458,7 +463,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
     setSelectedWindowValue(value);
     const win = windows.find((candidate) => candidate.value === value);
     setSelectedCaptureMode(getDefaultCaptureMode(win));
-    setOverrideSceneName(win?.title ?? "");
+    setOverrideSceneName(win?.suggestedSceneName || win?.title || "");
   }, [windows]);
 
   // Initial fetch + polling
@@ -539,6 +544,64 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
 
     return () => { cancelled = true; };
   }, [active, selectedSceneId]);
+
+  // Load the per-scene game executable path (Linux) when the selected scene changes.
+  useEffect(() => {
+    const name = selectedScene?.name;
+    if (!active || !isLinux || !name || isHelperScene) {
+      setGameExePath("");
+      return;
+    }
+    let cancelled = false;
+    invokeIpc<string>("texthook.getGameExePath", name)
+      .then((p) => { if (!cancelled) setGameExePath(typeof p === "string" ? p : ""); })
+      .catch(() => { if (!cancelled) setGameExePath(""); });
+    return () => { cancelled = true; };
+  }, [active, selectedSceneId, isHelperScene, selectedScene?.name]);
+
+  // On Windows the executable is informational only — read it from the OBS capture.
+  useEffect(() => {
+    if (!active || !isWindows) {
+      setWindowsDetectedExe("");
+      return;
+    }
+    let cancelled = false;
+    invokeIpc<{ exeName?: string | null }>("texthook.getActiveCapture")
+      .then((c) => { if (!cancelled) setWindowsDetectedExe(c?.exeName ?? ""); })
+      .catch(() => { if (!cancelled) setWindowsDetectedExe(""); });
+    return () => { cancelled = true; };
+  }, [active, selectedSceneId]);
+
+  const persistGameExePath = useCallback(async (value: string) => {
+    const name = selectedScene?.name;
+    if (!name) return;
+    try {
+      await invokeIpc("texthook.setGameExePath", { sceneName: name, path: value });
+    } catch { /* swallow */ }
+  }, [selectedScene?.name]);
+
+  const handleBrowseGameExe = useCallback(async () => {
+    try {
+      const res = await invokeIpc<{ canceled: boolean; path: string }>("texthook.browseGameExe");
+      if (res && !res.canceled && res.path) {
+        setGameExePath(res.path);
+        await persistGameExePath(res.path);
+      }
+    } catch { /* swallow */ }
+  }, [persistGameExePath]);
+
+  const handleAutoDetectGameExe = useCallback(async () => {
+    setGameExeDetecting(true);
+    try {
+      const res = await invokeIpc<{ path: string; error?: string }>("texthook.autoDetectGameExe");
+      if (res?.path) {
+        setGameExePath(res.path);
+        await persistGameExePath(res.path);
+      }
+    } catch { /* swallow */ } finally {
+      setGameExeDetecting(false);
+    }
+  }, [persistGameExePath]);
 
   const handleSceneChange = useCallback((id: string) => {
     setSelectedSceneId(id);
@@ -968,6 +1031,59 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                    */}
                 </div>
               </div>
+
+              {/* Game executable — Linux Wine/Proton hook target (read-only on Windows) */}
+              {selectedScene && !isHelperScene && (
+                <div className="home-row">
+                  <label className="home-row__label" htmlFor="home-game-exe">
+                    {t("home.obs.gameExeLabel")}
+                  </label>
+                  <div className="home-row__controls">
+                    {isWindows ? (
+                      <input
+                        id="home-game-exe"
+                        className="home-input"
+                        type="text"
+                        value={windowsDetectedExe}
+                        readOnly
+                        disabled
+                        title={t("home.obs.gameExeWindowsTooltip")}
+                        autoComplete="off"
+                      />
+                    ) : (
+                      <>
+                        <input
+                          id="home-game-exe"
+                          className="home-input"
+                          type="text"
+                          value={gameExePath}
+                          placeholder={t("home.obs.gameExePlaceholder")}
+                          autoComplete="off"
+                          onChange={(e) => setGameExePath(e.target.value)}
+                          onBlur={(e) => void persistGameExePath(e.target.value.trim())}
+                        />
+                        <button
+                          type="button"
+                          className="home-text-btn"
+                          onClick={() => void handleBrowseGameExe()}
+                        >
+                          {t("home.obs.gameExeBrowse")}
+                        </button>
+                        <button
+                          type="button"
+                          className="home-text-btn"
+                          disabled={gameExeDetecting}
+                          onClick={() => void handleAutoDetectGameExe()}
+                        >
+                          {gameExeDetecting
+                            ? t("home.obs.gameExeDetecting")
+                            : t("home.obs.gameExeAutoDetect")}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </section>}
 

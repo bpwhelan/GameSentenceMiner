@@ -15,9 +15,24 @@ import { spawn, type ChildProcess } from 'child_process';
 import OBSWebSocket from 'obs-websocket-js';
 import Store from 'electron-store';
 import * as fs from 'node:fs';
+import * as net from 'node:net';
+import { homedir } from 'node:os';
 import { inflateSync } from 'node:zlib';
 import { sendStartOBS } from '../main.js';
 import axios from 'axios';
+import extract from 'extract-zip';
+import { installSessionManager } from '../services/install_session_state.js';
+import type {
+    InstallProgressKind,
+    InstallStageStatus,
+} from '../../shared/install_session.js';
+import {
+    OBS_BROWSER_CEF_FILES,
+    OBS_DEFAULT_SCENE_JSON,
+    buildObsGlobalIni,
+    buildObsReplayBufferProfileIni,
+    packObsVersion,
+} from './obs_default_config.js';
 import {
     OBS_DSHOW_INPUT_KIND,
     OBS_WASAPI_INPUT_CAPTURE_KIND,
@@ -283,7 +298,6 @@ function getGameInfoFromWindow(rawTitle: string): { sceneName: string; switcherR
             try {
                 const cleanName = matcher.getName(match);
                 if (cleanName) {
-                    console.log(`[OBS] Title Match Found (${matcher.name}): "${cleanName}"`);
                     return {
                         sceneName: cleanName,
                         switcherRegex: matcher.getSwitcherPattern(cleanName)
@@ -301,7 +315,6 @@ function getGameInfoFromWindow(rawTitle: string): { sceneName: string; switcherR
         .split(' - ')[0]
         .trim() || rawTitle.trim();
 
-    console.log(`[OBS] No matcher found for: "${rawTitle}". Using generic base title: "${genericBaseTitle}".`);
     return {
         sceneName: rawTitle,
         switcherRegex: `.*${escapeRegexCharacters(genericBaseTitle)}.*`
@@ -320,7 +333,7 @@ try {
 
 let obsConfig: ObsConfig = (pythonConfig?.get('configs.Default.obs') as ObsConfig) || {
     host: 'localhost',
-    port: 7274,
+    port: 7274, // OBS_DEFAULT_WEBSOCKET_PORT (declared below); overlaid at connect time.
     password: '',
 };
 
@@ -672,11 +685,27 @@ function logObsError(...args: unknown[]): void {
 }
 
 function refreshObsConfig(): void {
-    obsConfig = (pythonConfig?.get('configs.Default.obs') as ObsConfig) || {
+    const base = (pythonConfig?.get('configs.Default.obs') as ObsConfig) || {
         host: 'localhost',
-        port: 7274,
+        port: OBS_DEFAULT_WEBSOCKET_PORT,
         password: '',
     };
+    obsConfig = { ...base, host: base.host || 'localhost' };
+
+    // When GSM manages the bundled portable OBS (Windows-only), its
+    // websocket config.json holds the port we chose for this launch (7274 or
+    // an ephemeral fallback). Trust it over the stored config so a dynamic port
+    // is picked up automatically. System OBS on macOS/Linux reads its own
+    // config dir, so leave its configured port alone there.
+    if (isWindows() && getElectronOBSStartupConfig().openObs) {
+        const server = readObsWebSocketServerConfig();
+        if (server) {
+            obsConfig.port = server.port;
+            if (!base.password || base.password === 'your_password') {
+                obsConfig.password = server.password;
+            }
+        }
+    }
 }
 
 function wait(ms: number): Promise<void> {
@@ -719,6 +748,67 @@ function coercePort(value: unknown, fallback: number): number {
     return Number.isFinite(port) && port > 0 ? port : fallback;
 }
 
+// Preferred OBS websocket port. Kept as the default so existing setups are
+// unaffected, but we fall back into the ephemeral range when it is taken.
+const OBS_DEFAULT_WEBSOCKET_PORT = 7274;
+const OBS_EPHEMERAL_PORT_MIN = 49152;
+const OBS_EPHEMERAL_PORT_MAX = 65535;
+
+// True if nothing is currently bound to the port on loopback (i.e. OBS can take
+// it). A failure to bind (EADDRINUSE/EACCES) means the port is unavailable.
+function isPortAvailable(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+        const tester = net.createServer();
+        tester.once('error', () => resolve(false));
+        tester.once('listening', () => {
+            tester.close(() => resolve(true));
+        });
+        tester.listen(port, '127.0.0.1');
+    });
+}
+
+// Ask the OS for a free ephemeral port by binding to 0 and reading it back.
+function getOSAssignedPort(): Promise<number | null> {
+    return new Promise((resolve) => {
+        const tester = net.createServer();
+        tester.once('error', () => resolve(null));
+        tester.listen(0, '127.0.0.1', () => {
+            const address = tester.address();
+            const port =
+                address && typeof address === 'object' ? address.port : null;
+            tester.close(() => resolve(port));
+        });
+    });
+}
+
+/**
+ * Resolve the OBS websocket port to bind this launch: prefer the configured
+ * port (7274 by default), and only when it is already taken fall back to a
+ * free port in the ephemeral range. The chosen port is written into OBS's own
+ * websocket config.json before launch, which both Electron (refreshObsConfig)
+ * and the Python backend (get_obs_websocket_config_values) read back, so the
+ * whole stack stays in sync without a hard-coded port.
+ */
+async function resolveObsWebSocketPort(preferredPort: number): Promise<number> {
+    if (await isPortAvailable(preferredPort)) {
+        return preferredPort;
+    }
+
+    for (let attempt = 0; attempt < 20; attempt++) {
+        const candidate =
+            OBS_EPHEMERAL_PORT_MIN +
+            Math.floor(
+                Math.random() * (OBS_EPHEMERAL_PORT_MAX - OBS_EPHEMERAL_PORT_MIN + 1)
+            );
+        if (await isPortAvailable(candidate)) {
+            return candidate;
+        }
+    }
+
+    const osPort = await getOSAssignedPort();
+    return osPort ?? preferredPort;
+}
+
 export function getElectronOBSStartupConfig(): ElectronOBSStartupConfig {
     const fallbackObsPath = getDefaultOBSExecutablePath();
     const configPath = path.join(BASE_DIR, 'config.json');
@@ -748,7 +838,7 @@ export function getElectronOBSStartupConfig(): ElectronOBSStartupConfig {
         allowAutomaticUpdates: obsConfigFromDisk.allow_automatic_updates === true,
         disableRecording: obsConfigFromDisk.disable_recording === true,
         obsPath: configuredObsPath,
-        port: coercePort(obsConfigFromDisk.port, 7274),
+        port: coercePort(obsConfigFromDisk.port, OBS_DEFAULT_WEBSOCKET_PORT),
         password:
             typeof obsConfigFromDisk.password === 'string'
                 ? obsConfigFromDisk.password
@@ -837,16 +927,44 @@ function cleanupOBSStartupArtifacts(): void {
     );
 }
 
-function writeElectronOBSWebSocketConfig(config: ElectronOBSStartupConfig): void {
-    const websocketConfigDir = path.join(
+function getObsWebSocketConfigPath(): string {
+    return path.join(
         BASE_DIR,
         'obs-studio',
         'config',
         'obs-studio',
         'plugin_config',
-        'obs-websocket'
+        'obs-websocket',
+        'config.json'
     );
-    const websocketConfigPath = path.join(websocketConfigDir, 'config.json');
+}
+
+// Read the port/password OBS is actually configured to serve. This is the
+// source of truth once we've written a (possibly dynamic) port for this launch.
+function readObsWebSocketServerConfig(): { port: number; password: string } | null {
+    const websocketConfigPath = getObsWebSocketConfigPath();
+    try {
+        if (!fs.existsSync(websocketConfigPath)) {
+            return null;
+        }
+        const raw = JSON.parse(fs.readFileSync(websocketConfigPath, 'utf-8'));
+        const port = coercePort(raw?.server_port, 0);
+        if (!port) {
+            return null;
+        }
+        return {
+            port,
+            password:
+                typeof raw?.server_password === 'string' ? raw.server_password : '',
+        };
+    } catch {
+        return null;
+    }
+}
+
+function writeElectronOBSWebSocketConfig(config: ElectronOBSStartupConfig): void {
+    const websocketConfigPath = getObsWebSocketConfigPath();
+    const websocketConfigDir = path.dirname(websocketConfigPath);
 
     try {
         fs.mkdirSync(websocketConfigDir, { recursive: true });
@@ -876,6 +994,378 @@ function writeElectronOBSWebSocketConfig(config: ElectronOBSStartupConfig): void
         fs.writeFileSync(websocketConfigPath, JSON.stringify(nextConfig, null, 4), 'utf-8');
     } catch (error) {
         logObsError('Failed to write OBS websocket startup config:', error);
+    }
+}
+
+// -------------------------------------------------------------------------
+// ELECTRON-MANAGED OBS DOWNLOAD
+// -------------------------------------------------------------------------
+// Electron owns downloading + seeding the bundled portable OBS so that the
+// process that fetches OBS is also the one that launches it — no cross-process
+// "OBS is ready" handshake with the Python backend. The Python downloader
+// remains as a fallback for standalone (non-Electron) runs.
+
+const OBS_LATEST_RELEASE_API =
+    'https://api.github.com/repos/obsproject/obs-studio/releases/latest';
+const OBS_DOWNLOAD_ARCHIVE_PATH = path.join(BASE_DIR, 'downloads', 'OBS.zip');
+
+type ObsEnsureStatus = 'already-installed' | 'installed' | 'unsupported' | 'failed';
+
+interface ObsGithubAsset {
+    name?: string;
+    browser_download_url?: string;
+}
+
+interface ObsGithubRelease {
+    tag_name?: string;
+    assets?: ObsGithubAsset[];
+}
+
+let obsEnsurePromise: Promise<ObsEnsureStatus> | null = null;
+
+function reportObsInstallStage(
+    status: InstallStageStatus,
+    progressKind: InstallProgressKind,
+    progress: number | null,
+    message: string,
+    extras?: {
+        downloadedBytes?: number | null;
+        totalBytes?: number | null;
+        error?: string | null;
+    }
+): void {
+    // No-ops when there is no active install session, so this is safe to call
+    // on every launch (e.g. a normal startup where OBS is already present).
+    installSessionManager.updateStage({
+        stageId: 'obs',
+        status,
+        progressKind,
+        progress,
+        message,
+        downloadedBytes: extras?.downloadedBytes,
+        totalBytes: extras?.totalBytes,
+        error: extras?.error,
+    });
+}
+
+function isObsInstalled(): boolean {
+    return fs.existsSync(getDefaultOBSExecutablePath());
+}
+
+async function fetchLatestObsRelease(): Promise<ObsGithubRelease | null> {
+    try {
+        const response = await axios.get<ObsGithubRelease>(OBS_LATEST_RELEASE_API, {
+            headers: {
+                Accept: 'application/vnd.github+json',
+                'User-Agent': 'GameSentenceMiner',
+            },
+            timeout: 20000,
+        });
+        return response.data ?? null;
+    } catch (error) {
+        console.warn('Failed to fetch latest OBS release info:', error);
+        return null;
+    }
+}
+
+function pickWindowsObsAssetUrl(release: ObsGithubRelease): string | null {
+    const suffix = process.arch === 'arm64' ? 'Windows-arm64.zip' : 'Windows-x64.zip';
+    const match = (release.assets ?? []).find((asset) =>
+        asset.name?.endsWith(suffix)
+    );
+    return match?.browser_download_url ?? null;
+}
+
+async function downloadObsArchive(url: string, destPath: string): Promise<void> {
+    const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    }
+
+    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+    const tempPath = `${destPath}.download`;
+    if (fs.existsSync(tempPath)) {
+        fs.rmSync(tempPath, { force: true });
+    }
+
+    const totalHeader = response.headers.get('content-length');
+    const totalBytes = totalHeader ? Number.parseInt(totalHeader, 10) : null;
+    const body = response.body as ReadableStream<Uint8Array> | null;
+
+    if (body && typeof body.getReader === 'function') {
+        const reader = body.getReader();
+        const chunks: Buffer[] = [];
+        let downloaded = 0;
+        let lastReportMs = 0;
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) {
+                break;
+            }
+            const chunk = Buffer.from(value);
+            chunks.push(chunk);
+            downloaded += chunk.length;
+            const now = Date.now();
+            if (now - lastReportMs > 250) {
+                lastReportMs = now;
+                reportObsInstallStage(
+                    'running',
+                    'bytes',
+                    totalBytes ? downloaded / totalBytes : null,
+                    'Downloading OBS Studio...',
+                    { downloadedBytes: downloaded, totalBytes }
+                );
+            }
+        }
+        fs.writeFileSync(tempPath, Buffer.concat(chunks));
+    } else {
+        fs.writeFileSync(tempPath, Buffer.from(await response.arrayBuffer()));
+    }
+
+    if (fs.existsSync(destPath)) {
+        fs.rmSync(destPath, { force: true });
+    }
+    fs.renameSync(tempPath, destPath);
+}
+
+/**
+ * Seed the bundled portable OBS config (websocket server, GSM profile, default
+ * scene collection, first-run-skip global/user.ini). Mirrors write_obs_configs
+ * in download_tools.py. Every writer is guarded by skip-if-exists so an existing
+ * user-configured OBS is never overwritten.
+ */
+function writeObsSeedConfigs(packedVersion: number | null): void {
+    const obsStudioConfigDir = path.join(OBS_CONFIG_PATH, 'config', 'obs-studio');
+    fs.mkdirSync(obsStudioConfigDir, { recursive: true });
+
+    // global.ini / user.ini — skips the first-run wizard and boots into GSM profile.
+    const globalIni = buildObsGlobalIni(packedVersion);
+    for (const fileName of ['user.ini', 'global.ini']) {
+        const target = path.join(obsStudioConfigDir, fileName);
+        if (!fs.existsSync(target)) {
+            fs.writeFileSync(target, globalIni, 'utf-8');
+        }
+    }
+
+    // Replay-buffer profiles (GSM + Untitled).
+    const profileIni = buildObsReplayBufferProfileIni(
+        `${homedir()}/Videos/GSM`
+    );
+    for (const profileName of ['GSM', 'Untitled']) {
+        const profileDir = path.join(
+            obsStudioConfigDir,
+            'basic',
+            'profiles',
+            profileName
+        );
+        const target = path.join(profileDir, 'basic.ini');
+        if (!fs.existsSync(target)) {
+            fs.mkdirSync(profileDir, { recursive: true });
+            fs.writeFileSync(target, profileIni, 'utf-8');
+        }
+    }
+
+    // Default "Untitled" scene collection with GSM helper + capture probes.
+    fs.mkdirSync(SCENE_CONFIG_PATH, { recursive: true });
+    const sceneTarget = path.join(SCENE_CONFIG_PATH, 'Untitled.json');
+    if (!fs.existsSync(sceneTarget)) {
+        fs.writeFileSync(sceneTarget, OBS_DEFAULT_SCENE_JSON, 'utf-8');
+    }
+
+    // WebSocket server config (reuses the existing writer).
+    writeElectronOBSWebSocketConfig(getElectronOBSStartupConfig());
+}
+
+/**
+ * Trim a downloaded OBS install down to what GSM uses: drop all *.pdb debug
+ * symbols and the obs-browser CEF runtime (~275MB). Mirrors prune_obs_directory
+ * in download_tools.py.
+ */
+function pruneObsDirectory(): void {
+    let removedBytes = 0;
+
+    const rmFile = (target: string): void => {
+        try {
+            removedBytes += fs.statSync(target).size;
+            fs.rmSync(target, { force: true });
+        } catch {
+            // Best-effort cleanup only.
+        }
+    };
+
+    const rmTree = (target: string): void => {
+        try {
+            if (!fs.statSync(target).isDirectory()) {
+                return;
+            }
+        } catch {
+            return;
+        }
+        fs.rmSync(target, { recursive: true, force: true });
+    };
+
+    const walkFiles = (dir: string, onFile: (file: string) => void): void => {
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+            return;
+        }
+        for (const entry of entries) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                walkFiles(full, onFile);
+            } else {
+                onFile(full);
+            }
+        }
+    };
+
+    // Debug symbols, everywhere.
+    walkFiles(OBS_CONFIG_PATH, (file) => {
+        if (file.toLowerCase().endsWith('.pdb')) {
+            rmFile(file);
+        }
+    });
+
+    // obs-browser plugin + its CEF runtime.
+    const plugins64bit = path.join(OBS_CONFIG_PATH, 'obs-plugins', '64bit');
+    try {
+        for (const name of fs.readdirSync(plugins64bit)) {
+            if (OBS_BROWSER_CEF_FILES.has(name.toLowerCase())) {
+                rmFile(path.join(plugins64bit, name));
+            }
+        }
+    } catch {
+        // No plugins dir; nothing to prune.
+    }
+    rmTree(path.join(plugins64bit, 'locales'));
+    rmTree(path.join(OBS_CONFIG_PATH, 'data', 'obs-plugins', 'obs-browser'));
+
+    if (removedBytes > 0) {
+        console.log(
+            `Pruned OBS install, freed ${Math.round(removedBytes / (1024 * 1024))} MB.`
+        );
+    }
+}
+
+async function ensureObsInstalledInternal(): Promise<ObsEnsureStatus> {
+    // Electron-managed OBS download is Windows-only; macOS/Linux use system OBS.
+    if (!isWindows()) {
+        return 'unsupported';
+    }
+
+    if (isObsInstalled()) {
+        // Existing install: keep configs seeded and trim dead weight, but never
+        // re-download.
+        try {
+            writeObsSeedConfigs(packObsVersion(null));
+            pruneObsDirectory();
+        } catch (error) {
+            console.warn('Failed to refresh existing OBS install:', error);
+        }
+        return 'already-installed';
+    }
+
+    reportObsInstallStage(
+        'running',
+        'indeterminate',
+        0.05,
+        'Checking OBS runtime files...'
+    );
+
+    const release = await fetchLatestObsRelease();
+    const downloadUrl = release ? pickWindowsObsAssetUrl(release) : null;
+    if (!downloadUrl) {
+        const message = 'Could not find an OBS download for this platform.';
+        reportObsInstallStage('failed', 'indeterminate', null, message, {
+            error: message,
+        });
+        console.warn(message);
+        return 'failed';
+    }
+
+    try {
+        reportObsInstallStage('running', 'bytes', 0, 'Downloading OBS Studio...');
+        await downloadObsArchive(downloadUrl, OBS_DOWNLOAD_ARCHIVE_PATH);
+
+        reportObsInstallStage(
+            'running',
+            'estimated',
+            0.9,
+            'Extracting OBS Studio...'
+        );
+        fs.mkdirSync(OBS_CONFIG_PATH, { recursive: true });
+        await extract(OBS_DOWNLOAD_ARCHIVE_PATH, {
+            dir: path.resolve(OBS_CONFIG_PATH),
+        });
+
+        // portable_mode marker so OBS uses the bundled config dir.
+        fs.writeFileSync(path.join(OBS_CONFIG_PATH, 'portable_mode'), '', 'utf-8');
+
+        reportObsInstallStage('running', 'estimated', 0.96, 'Configuring OBS...');
+        writeObsSeedConfigs(packObsVersion(release?.tag_name));
+        pruneObsDirectory();
+
+        reportObsInstallStage(
+            'completed',
+            'estimated',
+            1,
+            'OBS runtime is ready.'
+        );
+        console.log('Electron installed OBS Studio.');
+        return 'installed';
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        reportObsInstallStage('failed', 'estimated', null, 'Failed to install OBS.', {
+            error: message,
+        });
+        console.warn('Failed to download/extract OBS:', error);
+        return 'failed';
+    } finally {
+        try {
+            if (fs.existsSync(OBS_DOWNLOAD_ARCHIVE_PATH)) {
+                fs.rmSync(OBS_DOWNLOAD_ARCHIVE_PATH, { force: true });
+            }
+        } catch {
+            // Best-effort cleanup only.
+        }
+    }
+}
+
+/**
+ * Ensure the bundled portable OBS is downloaded + configured. Deduplicated so
+ * concurrent callers share one download. Idempotent: a no-op (beyond config
+ * refresh) when OBS is already installed.
+ */
+export function ensureObsInstalled(): Promise<ObsEnsureStatus> {
+    if (obsEnsurePromise) {
+        return obsEnsurePromise;
+    }
+    obsEnsurePromise = ensureObsInstalledInternal().finally(() => {
+        obsEnsurePromise = null;
+    });
+    return obsEnsurePromise;
+}
+
+/**
+ * Download/seed OBS if needed, then launch it. This is the authoritative startup
+ * path: because the same process downloads and launches, there is no dependency
+ * on a backend "OBS is ready" signal.
+ */
+export async function ensureObsInstalledAndLaunch(
+    options: ElectronOBSProcessOptions = {}
+): Promise<void> {
+    const status = await ensureObsInstalled();
+    if (status === 'failed') {
+        // Don't attempt to launch a missing OBS; the failed stage already
+        // surfaced the error.
+        return;
+    }
+    try {
+        await launchOBSFromElectron(options);
+    } catch (error) {
+        console.warn('launchOBSFromElectron failed after ensure:', error);
     }
 }
 
@@ -1052,6 +1542,13 @@ async function launchOBSFromElectronInternal(
 
     try {
         cleanupOBSStartupArtifacts();
+        // For the bundled portable OBS (Windows), pick the websocket port for
+        // this launch (prefer 7274, fall back into the ephemeral range if it's
+        // taken) and write it before OBS binds it. System OBS elsewhere keeps
+        // its user-configured port.
+        if (isWindows()) {
+            config.port = await resolveObsWebSocketPort(config.port);
+        }
         writeElectronOBSWebSocketConfig(config);
         const obsProcess = spawn(
             launchCommand.command,
@@ -2527,6 +3024,19 @@ export async function registerOBSIPC() {
         }
     }
 
+    // Annotate window options with the cleaned game name so the renderer can
+    // default the "override scene name" field to the parsed title instead of the
+    // raw window title (e.g. "Eden | v0.2.0 | ... | ファミコン探偵倶楽部 ... (64-bit) | ...").
+    function withSuggestedSceneNames(options: ObsWindowOption[]): ObsWindowOption[] {
+        return options.map((option) => {
+            if (option.targetKind !== 'window') {
+                return option;
+            }
+            const suggestedSceneName = getGameInfoFromWindow(option.title).sceneName;
+            return { ...option, suggestedSceneName };
+        });
+    }
+
     ipcMain.handle('obs.getWindows', async (_, options?: { quick?: boolean }) => {
         try {
             if (!isWindows() && !isLinux()) {
@@ -2544,7 +3054,7 @@ export async function registerOBSIPC() {
                 }
                 await getOBSConnection();
                 await syncCaptureCardProbeInputsToStateOnce();
-                const result = await getWindowListFast();
+                const result = withSuggestedSceneNames(await getWindowListFast());
                 windowListFastCache = { data: result, timestamp: Date.now() };
                 return result;
             }
@@ -2559,7 +3069,7 @@ export async function registerOBSIPC() {
 
             await getOBSConnection();
             await syncCaptureCardProbeInputsToStateOnce();
-            const result = await getWindowListFull();
+            const result = withSuggestedSceneNames(await getWindowListFull());
             windowListFullCache = { data: result, timestamp: Date.now() };
             // Also refresh the fast cache so the next quick poll is instant.
             windowListFastCache = { data: result, timestamp: Date.now() };

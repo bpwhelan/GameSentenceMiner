@@ -5,6 +5,7 @@ import {promisify} from "util";
 import {execFile, spawn, execSync} from "child_process";
 import { app, type WebPreferences } from "electron";
 import {__dirname} from "./main.js";
+import { getBaseDir } from "./data_dir.js";
 
 export type SupportedPlatform = 'linux' | 'darwin' | 'win32';
 export const isMac = process.platform === 'darwin';
@@ -19,9 +20,9 @@ export const execFileAsync = promisify(execFile);
 
 export const isDev = !app.isPackaged;
 
-export const BASE_DIR = process.env.APPDATA
-    ? path.join(process.env.APPDATA, APP_NAME) // Windows
-    : path.join(os.homedir(), '.config', APP_NAME); // macOS/Linux
+// Resolved once at import via the data_dir pointer (or the default %APPDATA%/GameSentenceMiner).
+// Fixed for the process lifetime; relocating the data dir forces a relaunch.
+export const BASE_DIR = getBaseDir();
 
 export const DOWNLOAD_DIR = path.join(BASE_DIR, 'downloads');
 

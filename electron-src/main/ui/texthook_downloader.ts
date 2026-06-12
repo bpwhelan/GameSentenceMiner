@@ -11,6 +11,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import { once } from 'node:events';
 import { BASE_DIR } from '../util.js';
 import { mainWindow } from '../main.js';
 
@@ -103,17 +104,20 @@ export function isTexthookInstalled(): boolean {
     return SENTINEL_FILES.every((f) => fs.existsSync(path.join(TEXTHOOK_DOWNLOAD_DIR, f)));
 }
 
-function sha256File(filePath: string): string {
-    const data = fs.readFileSync(filePath);
-    return crypto.createHash('sha256').update(data).digest('hex');
-}
-
+/**
+ * Streams a single file to disk, hashing chunks as they arrive so we never hold
+ * the whole file in memory and never do a synchronous full-file write or a
+ * second full-file read to verify. Keeping every step async + chunked is what
+ * stops the download from blocking the Electron main-process event loop (and
+ * thus freezing the UI). The verified SHA-256 is returned to the caller.
+ */
 async function downloadSingleFile(
     url: string,
     destPath: string,
+    expectedSha256: string,
     onProgress?: (downloaded: number, total: number | undefined) => void,
 ): Promise<void> {
-    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+    await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
     const tempPath = `${destPath}.download`;
 
     const resp = await fetch(url);
@@ -122,31 +126,55 @@ async function downloadSingleFile(
         ? Number(resp.headers.get('content-length'))
         : undefined;
 
-    const chunks: Buffer[] = [];
+    await fs.promises.rm(tempPath, { force: true });
+    const hash = crypto.createHash('sha256');
+    const fileStream = fs.createWriteStream(tempPath);
     let downloaded = 0;
 
-    if (resp.body) {
-        const reader = resp.body.getReader();
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = Buffer.from(value);
-            chunks.push(chunk);
-            downloaded += chunk.length;
+    try {
+        if (resp.body) {
+            const reader = resp.body.getReader();
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                const chunk = Buffer.from(value);
+                hash.update(chunk);
+                downloaded += chunk.length;
+                // Respect backpressure so a slow disk can't blow up memory.
+                if (!fileStream.write(chunk)) {
+                    await once(fileStream, 'drain');
+                }
+                onProgress?.(downloaded, totalBytes);
+            }
+        } else {
+            const buf = Buffer.from(await resp.arrayBuffer());
+            hash.update(buf);
+            downloaded = buf.length;
+            if (!fileStream.write(buf)) {
+                await once(fileStream, 'drain');
+            }
             onProgress?.(downloaded, totalBytes);
         }
-    } else {
-        const buf = Buffer.from(await resp.arrayBuffer());
-        chunks.push(buf);
-        downloaded = buf.length;
-        onProgress?.(downloaded, totalBytes);
+        await new Promise<void>((resolve, reject) => {
+            fileStream.once('error', reject);
+            fileStream.end(() => resolve());
+        });
+    } catch (err) {
+        fileStream.destroy();
+        await fs.promises.rm(tempPath, { force: true });
+        throw err;
     }
 
-    const data = Buffer.concat(chunks);
-    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-    fs.writeFileSync(tempPath, data);
-    if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
-    fs.renameSync(tempPath, destPath);
+    const actualHash = hash.digest('hex');
+    if (actualHash !== expectedSha256) {
+        await fs.promises.rm(tempPath, { force: true });
+        throw new Error(
+            `Integrity check failed for ${path.basename(destPath)} (hash mismatch). The file may be corrupted.`,
+        );
+    }
+
+    await fs.promises.rm(destPath, { force: true });
+    await fs.promises.rename(tempPath, destPath);
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +216,7 @@ export async function downloadTexthookEngines(
         const url = `${FILES_BASE_URL}/${entry.path}`;
 
         console.log(`[texthook] (${i + 1}/${files.length}) ${entry.path}`);
-        await downloadSingleFile(url, destPath, (bytesDownloaded, bytesTotal) => {
+        await downloadSingleFile(url, destPath, entry.sha256, (bytesDownloaded, bytesTotal) => {
             onProgress?.({
                 file: path.basename(entry.path),
                 fileIndex: i,
@@ -197,12 +225,6 @@ export async function downloadTexthookEngines(
                 bytesTotal: bytesTotal ?? null,
             });
         });
-
-        const actualHash = sha256File(destPath);
-        if (actualHash !== entry.sha256) {
-            fs.unlinkSync(destPath);
-            throw new Error(`Integrity check failed for ${entry.path} (hash mismatch). The file may be corrupted.`);
-        }
         console.log(`[texthook] verified ${entry.path}`);
     }
 

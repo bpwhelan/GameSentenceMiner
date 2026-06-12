@@ -9,6 +9,8 @@ export type ObsSetupTargetKind = "window" | "capture_card";
 export interface ObsWindow {
   title: string;
   value: string;
+  /** Cleaned game name parsed from the raw window title, used as the default scene name. */
+  suggestedSceneName?: string;
   targetKind?: ObsSetupTargetKind;
   captureValues?: Partial<Record<ObsCaptureMode, string>>;
   captureMode?: ObsCaptureMode;

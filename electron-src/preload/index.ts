@@ -57,6 +57,7 @@ const onExactChannels = new Set<string>([
 
 const invokePrefixes = [
   "docs.",
+  "data.",
   "state.",
   "settings.",
   "ankiBeacon.",
@@ -89,6 +90,7 @@ const sendPrefixes = [
 ];
 
 const onPrefixes = [
+  "data.",
   "terminal-",
   "ocr-",
   "state-",

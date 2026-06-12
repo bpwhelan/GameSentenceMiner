@@ -21,6 +21,9 @@
       raw_reading_time: true,
       cards_mined: true,
     },
+    // Per-goal overlay selection, configured in the overlay settings window:
+    //   { [goalId]: { enabled: boolean, view: "today" | "overall" } }
+    overlayGoals: {},
   });
 
   const VALID_DISPLAY_MODES = new Set(["always", "new-line"]);
@@ -94,10 +97,27 @@
     return normalized;
   }
 
+  function normalizeOverlayGoals(value) {
+    const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const normalized = {};
+    Object.keys(source).forEach((goalId) => {
+      const cfg = source[goalId];
+      if (!cfg || typeof cfg !== "object") {
+        return;
+      }
+      normalized[goalId] = {
+        enabled: cfg.enabled === true,
+        view: cfg.view === "overall" ? "overall" : "today",
+      };
+    });
+    return normalized;
+  }
+
   function normalizeSettings(settings = {}) {
     return {
       showLiveStats: normalizeBoolean(settings.showLiveStats, state.settings.showLiveStats),
       showLiveGoals: normalizeBoolean(settings.showLiveGoals ?? state.settings.showLiveGoals, true),
+      overlayGoals: normalizeOverlayGoals(settings.overlayGoals ?? state.settings.overlayGoals),
       liveStatsDisplayModeV2: normalizeDisplayMode(settings.liveStatsDisplayModeV2 ?? state.settings.liveStatsDisplayModeV2),
       liveStatsLayoutV2: normalizeLayout(settings.liveStatsLayoutV2 ?? state.settings.liveStatsLayoutV2),
       liveStatsAutoHideSeconds: clampNumber(
@@ -302,13 +322,42 @@
     el.classList.toggle("paused", !pomodoro.running);
   }
 
+  // Hours-based goals carry their progress/target in hours; show them in minutes
+  // so the today view reads e.g. 31 / 120 instead of a rounded 0 / 2.
+  function formatGoalTodayValue(value, metricType) {
+    const base = String(metricType || "").replace(/_static$/, "");
+    if (base === "hours") {
+      return formatInteger((Number(value) || 0) * 60);
+    }
+    return formatInteger(value);
+  }
+
+  // The server feeds every active goal; the overlay decides which to show (and in
+  // which view) via the overlayGoals setting configured in the settings window.
+  function getVisibleGoals() {
+    if (state.settings.showLiveGoals === false) {
+      return [];
+    }
+    const goals = Array.isArray(state.goals) ? state.goals : [];
+    const overlayGoals = state.settings.overlayGoals || {};
+    return goals
+      .map((goal) => {
+        const cfg = overlayGoals[goal.id];
+        if (!cfg || cfg.enabled !== true) {
+          return null;
+        }
+        return { ...goal, view: cfg.view === "overall" ? "overall" : "today" };
+      })
+      .filter(Boolean);
+  }
+
   function renderGoals() {
     const el = state.goalsEl;
     if (!el) {
       return;
     }
-    const goals = Array.isArray(state.goals) ? state.goals : [];
-    if (state.settings.showLiveGoals === false || goals.length === 0) {
+    const goals = getVisibleGoals();
+    if (goals.length === 0) {
       el.replaceChildren();
       el.classList.remove("visible");
       return;
@@ -341,8 +390,8 @@
       } else {
         const value = document.createElement("span");
         value.className = "gsm-live-goal-value";
-        const progress = formatInteger(goal.today?.progress);
-        const required = formatInteger(goal.today?.required);
+        const progress = formatGoalTodayValue(goal.today?.progress, goal.metric_type);
+        const required = formatGoalTodayValue(goal.today?.required, goal.metric_type);
         const met = Number(goal.today?.progress) >= Number(goal.today?.required) && Number(goal.today?.required) > 0;
         setText(value, met ? `${progress} / ${required} ✓` : `${progress} / ${required}`);
         row.classList.toggle("met", met);
@@ -582,7 +631,7 @@
 
   function updateVisibility() {
     const pomodoroActive = !!(state.pomodoro && state.pomodoro.enabled);
-    const goalsActive = state.settings.showLiveGoals !== false && Array.isArray(state.goals) && state.goals.length > 0;
+    const goalsActive = getVisibleGoals().length > 0;
     const enabled = state.settings.showLiveStats === true && (state.payload !== null || pomodoroActive || goalsActive);
     if (!enabled) {
       setVisible(false);

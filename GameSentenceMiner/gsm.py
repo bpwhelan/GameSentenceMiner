@@ -872,7 +872,11 @@ class GSMApplication:
 
         if not reloading:
             get_temporary_directory(delete=True)
-            if is_windows():
+            # Under Electron, the desktop shell owns downloading + seeding OBS so
+            # the process that fetches OBS is the one that launches it (no
+            # cross-process "OBS is ready" handshake). Standalone Python runs
+            # still bootstrap OBS here.
+            if is_windows() and not _is_running_under_electron():
                 _emit_install_stage(
                     "obs",
                     "running",

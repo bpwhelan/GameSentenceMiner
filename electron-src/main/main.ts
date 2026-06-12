@@ -2,9 +2,11 @@ import {
     app,
     BrowserWindow,
     dialog,
+    ipcMain,
     Menu,
     MenuItem,
     nativeImage,
+    screen,
     shell,
     Tray,
 } from 'electron';
@@ -32,6 +34,8 @@ import {
     isRunningAsAdmin,
     restartAsAdmin,
 } from './util.js';
+import { writeDataDirRegistry } from './data_dir.js';
+import { performDataMove, validateTargetDir, type RelocateProgress } from './services/data_relocate.js';
 import { fileURLToPath } from 'node:url';
 
 import log from 'electron-log/main.js';
@@ -58,6 +62,7 @@ import { launchSteamGameID } from './ui/steam.js';
 import { bus, getBusConnectInfo, startBus, stopBus } from './runtime/bus_client.js';
 import {
     closeOBSFromElectron,
+    ensureObsInstalledAndLaunch,
     launchOBSFromElectron,
     setOBSScene,
     shouldRetryElectronManagedOBSLaunch,
@@ -380,14 +385,6 @@ function handleBackendInstallProgressMessage(data: Record<string, unknown> | und
     if (!data) {
         return;
     }
-    const activeSession = installSessionManager.getActiveSnapshot();
-    if (!activeSession) {
-        return;
-    }
-    const sessionId = typeof data.session_id === 'string' ? data.session_id : '';
-    if (sessionId && sessionId !== activeSession.id) {
-        return;
-    }
     const stageId = data.stage_id;
     if (!isInstallStageId(stageId)) {
         return;
@@ -400,6 +397,31 @@ function handleBackendInstallProgressMessage(data: Record<string, unknown> | und
         data.status === 'failed'
             ? data.status
             : undefined;
+
+    // The OBS launch retry is independent of any install session: the backend
+    // reports OBS is ready whether or not a startup install session is active
+    // (a session only exists when Python itself still needs installing). If OBS
+    // was downloaded fresh while Python was already installed, there is no active
+    // session, so this must run before the session guard below — otherwise the
+    // download completes but the managed launch never fires.
+    if (
+        stageId === 'obs' &&
+        (status === 'completed' || status === 'skipped') &&
+        shouldRetryElectronManagedOBSLaunch()
+    ) {
+        void launchOBSFromElectron({ reason: `backend obs ${status}` }).catch((launchError) => {
+            console.warn('Failed to launch OBS after backend dependency check:', launchError);
+        });
+    }
+
+    const activeSession = installSessionManager.getActiveSnapshot();
+    if (!activeSession) {
+        return;
+    }
+    const sessionId = typeof data.session_id === 'string' ? data.session_id : '';
+    if (sessionId && sessionId !== activeSession.id) {
+        return;
+    }
     const progressKind = isInstallProgressKind(data.progress_kind)
         ? data.progress_kind
         : undefined;
@@ -422,16 +444,6 @@ function handleBackendInstallProgressMessage(data: Record<string, unknown> | und
         totalBytes,
         error,
     });
-
-    if (
-        stageId === 'obs' &&
-        (status === 'completed' || status === 'skipped') &&
-        shouldRetryElectronManagedOBSLaunch()
-    ) {
-        void launchOBSFromElectron({ reason: `backend obs ${status}` }).catch((launchError) => {
-            console.warn('Failed to launch OBS after backend dependency check:', launchError);
-        });
-    }
 }
 
 function formatBackendExitCode(code: number | null): string {
@@ -1288,6 +1300,7 @@ function runGSM(command: string, args: string[]): Promise<void> {
             env: {
                 ...getSanitizedPythonEnv(),
                 GSM_ELECTRON: '1',
+                GSM_DATA_DIR: BASE_DIR,
                 GSM_INSTALL_SESSION_ID: activeInstallSessionId,
                 ...(busConnectInfo
                     ? {
@@ -1347,9 +1360,15 @@ async function createWindow() {
     const adminSuffix = isRunningAsAdmin() ? ' (Admin)' : '';
     const windowTitle = `${APP_NAME} v${app.getVersion()}${adminSuffix}`;
 
+    // Clamp the initial size to the work area so the window never opens taller
+    // than the screen (e.g. Steam Deck at 1280x800), which would push the OCR
+    // sticky footer / start buttons off-screen until the window is maximized.
+    const { width: workWidth, height: workHeight } =
+        screen.getPrimaryDisplay().workAreaSize;
+
     mainWindow = new BrowserWindow({
-        width: 1280,
-        height: 1000,
+        width: Math.min(1280, workWidth),
+        height: Math.min(1000, workHeight),
         icon: getIconPath(),
         // Start hidden; show when ready for consistent taskbar icon
         show: false,
@@ -1386,6 +1405,7 @@ async function createWindow() {
         getActiveInstallSession: () => installSessionManager.getActiveSnapshot(),
         retryInstallSession: async () => await installSessionManager.retryLastFailedSession(),
     });
+    registerDataRelocateIPC();
 
     // Reveal window only after renderer signals it's ready
     mainWindow.once('ready-to-show', () => {
@@ -2152,6 +2172,10 @@ async function processArgsAndStartSettings() {
 }
 
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
+// Expose the resolved data dir to every spawned child (overlay binary, python) via inherited env.
+process.env.GSM_DATA_DIR = BASE_DIR;
+// Keep the uninstaller's view of the data dir current (best-effort, Windows-only).
+writeDataDirRegistry(BASE_DIR);
 if (isWindows()) {
     app.setAppUserModelId(APP_USER_MODEL_ID);
 }
@@ -2184,13 +2208,17 @@ if (!app.requestSingleInstanceLock()) {
             } catch (busErr) {
                 console.error('Failed to start message bus broker:', busErr);
             }
-            void launchOBSFromElectron({ reason: 'startup' }).catch((error) => {
-                console.warn('Electron-managed OBS startup launch failed:', error);
-            });
             let trackStartupInstallSession = shouldTrackStartupInstallSession();
             if (trackStartupInstallSession) {
                 startStartupInstallSession();
             }
+            // Start the install session first so OBS download progress (if a
+            // download is needed) renders in the install-progress UI. Electron
+            // owns the OBS download here, then launches it directly — no
+            // dependency on a backend "OBS is ready" signal.
+            void ensureObsInstalledAndLaunch({ reason: 'startup' }).catch((error) => {
+                console.warn('Electron-managed OBS startup ensure/launch failed:', error);
+            });
             createWindow().then(async () => {
                 createTray();
                 autoLauncher.startPolling();
@@ -2481,6 +2509,78 @@ async function quit(): Promise<void> {
     await closeOBSFromElectron({ reason: 'app quit' });
     await stopBus().catch((err) => console.warn('Failed to stop message bus:', err));
     app.quit();
+}
+
+// Stop everything that holds handles in the data dir, without quitting the app (used before a
+// data-folder relocation). Mirrors quit() minus app.quit().
+async function stopAllChildrenForRelocation(): Promise<void> {
+    autoLauncher.stopPolling();
+    stopOverlay();
+    await stopScripts();
+    if (pyProc != null && !pyProc.killed) {
+        await closeAllPythonProcesses();
+    }
+    await closeOBSFromElectron({ reason: 'data relocation' });
+    await stopBus().catch((err) => console.warn('Failed to stop message bus during relocation:', err));
+}
+
+let dataRelocateRegistered = false;
+
+function registerDataRelocateIPC(): void {
+    if (dataRelocateRegistered) {
+        return;
+    }
+    dataRelocateRegistered = true;
+
+    ipcMain.handle('data.getCurrentDir', () => BASE_DIR);
+
+    ipcMain.handle('data.relocate', async () => {
+        const win = mainWindow ?? undefined;
+
+        const picked = await dialog.showOpenDialog(win as BrowserWindow, {
+            title: 'Choose a new GSM data folder',
+            properties: ['openDirectory', 'createDirectory'],
+        });
+        if (picked.canceled || picked.filePaths.length === 0) {
+            return { success: false, canceled: true };
+        }
+        const newDir = picked.filePaths[0];
+
+        const validation = await validateTargetDir(BASE_DIR, newDir);
+        if (!validation.ok) {
+            return { success: false, error: validation.error };
+        }
+
+        const confirm = await dialog.showMessageBox(win as BrowserWindow, {
+            type: 'warning',
+            buttons: ['Move and Restart', 'Cancel'],
+            defaultId: 0,
+            cancelId: 1,
+            title: 'Move GSM Data',
+            message: `Move GSM data to:\n${newDir}`,
+            detail: 'GSM will stop, move your files, rebuild its Python environment, and restart. This can take a few minutes.',
+        });
+        if (confirm.response !== 0) {
+            return { success: false, canceled: true };
+        }
+
+        const sendProgress = (p: RelocateProgress) => {
+            mainWindow?.webContents.send('data.relocate.progress', p);
+        };
+
+        try {
+            sendProgress({ phase: 'validating', message: 'Stopping GSM…' });
+            await stopAllChildrenForRelocation();
+            await performDataMove(BASE_DIR, newDir, sendProgress);
+        } catch (err: any) {
+            return { success: false, error: err?.message ?? String(err) };
+        }
+
+        // New location is committed; relaunch so every path resolves to it and the venv rebuilds.
+        app.relaunch();
+        app.exit(0);
+        return { success: true };
+    });
 }
 
 async function restart(): Promise<void> {

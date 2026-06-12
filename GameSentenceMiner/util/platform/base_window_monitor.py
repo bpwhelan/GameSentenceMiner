@@ -895,6 +895,46 @@ def _x11_window_to_pid(disp, info: dict) -> int:
     return pid
 
 
+def _exe_path_from_cmdline(cmdline: List[str]) -> str:
+    """Return the most game-like '*.exe' argument from a launcher cmdline, or ''."""
+    best = ""
+    for arg in cmdline or []:
+        norm = (arg or "").replace("\\", "/")
+        if not norm.lower().endswith(".exe"):
+            continue
+        if os.path.basename(norm).lower() in _PROTON_LAUNCHER_COMMS:
+            continue
+        # Prefer the exe under steamapps/common (the actual game) over launcher shims.
+        if "steamapps/common/" in norm.lower():
+            return arg
+        if not best:
+            best = arg
+    return best
+
+
+def detect_linux_game_executable(context: str = "detect game exe") -> str:
+    """Resolve the game's executable path/name from the OBS-captured X11 window.
+
+    Reuses the X11/XComposite resolution that drives process pausing. Prefers the Windows
+    '*.exe' path from the process cmdline (so the Wine/Proton prefix can be derived), falling
+    back to the resolved Linux exe path/name. Returns '' when the game cannot be resolved
+    (e.g. Wayland sessions — the user should then set the path manually).
+    """
+    if not is_linux():
+        return ""
+    pid = _resolve_linux_pid_from_obs(context)
+    if pid <= 0:
+        return ""
+    try:
+        cmdline = psutil.Process(pid).cmdline() or []
+    except (psutil.Error, OSError):
+        cmdline = []
+    exe_arg = _exe_path_from_cmdline(cmdline)
+    if exe_arg:
+        return exe_arg
+    return _get_process_exe_path(pid) or _get_process_exe_name(pid)
+
+
 def _resolve_linux_pid_from_obs(context: str) -> int:
     """Automatic target: the PID of the window OBS is capturing (X11 only)."""
     if not _HAS_XLIB or not is_linux() or is_wayland():

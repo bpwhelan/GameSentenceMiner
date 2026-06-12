@@ -1213,6 +1213,7 @@ class Advanced:
     slowest_polling_rate: int = 5000  # in ms
     longest_sleep_time: float = 5.0
     screenshot_capture_backend: str = SCREENSHOT_CAPTURE_BACKEND_OBS
+    screenshot_capture_backend_v2: str = SCREENSHOT_CAPTURE_BACKEND_AUTO
     mute_game_on_minimize: bool = False
     cloud_sync_enabled: bool = False
     cloud_sync_auto_sync: bool = False
@@ -1231,6 +1232,7 @@ class Advanced:
         if self.plaintext_websocket_port == -1:
             self.plaintext_websocket_port = self.texthooker_communication_websocket_port + 1
         self.screenshot_capture_backend = normalize_screenshot_capture_backend(self.screenshot_capture_backend)
+        self.screenshot_capture_backend_v2 = normalize_screenshot_capture_backend(self.screenshot_capture_backend_v2)
         self.cloud_sync_api_url = str(self.cloud_sync_api_url or "").strip().rstrip("/")
         self.cloud_sync_email = str(self.cloud_sync_email or "").strip()
         self.cloud_sync_api_token = str(self.cloud_sync_api_token or "").strip()
@@ -2228,12 +2230,29 @@ def is_cuda_available():
     return False
 
 
-def get_app_directory():
+def get_default_app_directory():
+    """The default %APPDATA%/GameSentenceMiner (Windows) or ~/.config/GameSentenceMiner (mac/Linux)."""
     if platform == "win32":  # Windows
         appdata_dir = os.getenv("APPDATA")
     else:  # macOS and Linux
         appdata_dir = sanitize_and_resolve_path("~/.config")
-    config_dir = os.path.join(appdata_dir, "GameSentenceMiner")
+    return os.path.join(appdata_dir, "GameSentenceMiner")
+
+
+def get_app_directory():
+    # Resolution order: GSM_DATA_DIR env (set by Electron) -> pointer file at the default
+    # location -> the default. The pointer file lets a standalone (pip) backend find a
+    # relocated data dir even when Electron isn't around to set the env var.
+    default_dir = get_default_app_directory()
+    config_dir = os.getenv("GSM_DATA_DIR", "").strip()
+    if not config_dir:
+        try:
+            with open(os.path.join(default_dir, "data_dir.json"), "r", encoding="utf-8") as f:
+                config_dir = str(json.load(f).get("dataDir", "")).strip()
+        except (OSError, ValueError):
+            config_dir = ""
+    if not config_dir:
+        config_dir = default_dir
     # Create the directory if it doesn't exist
     os.makedirs(config_dir, exist_ok=True)
     return config_dir

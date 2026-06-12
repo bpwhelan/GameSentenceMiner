@@ -66,6 +66,36 @@ describe("overlay block detection", () => {
     expect(result.lineBlocks.get(1)).toBe(result.lineBlocks.get(2));
   });
 
+  it("keeps an indented first line in the same block as the body below it", () => {
+    const lines: OverlayLine[] = [
+      makeLine("indented-line-1", 0.12, 0.78, 0.90, 0.86),
+      makeLine("body-line-2",     0.10, 0.88, 0.78, 0.96),
+    ];
+
+    const result = detectTextBlocks(lines);
+
+    expect(result.blockCount).toBe(1);
+    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
+  });
+
+  it("merges tall dialogue lines even when small UI text shrinks the median height", () => {
+    // The two tall dialogue lines belong together. The surrounding small UI
+    // labels must not drag the height unit down and split them apart.
+    const lines: OverlayLine[] = [
+      makeLine("dialogue-1", 0.12, 0.78, 0.90, 0.86),
+      makeLine("dialogue-2", 0.10, 0.88, 0.78, 0.96),
+      makeLine("ui-a", 0.02, 0.02, 0.10, 0.04),
+      makeLine("ui-b", 0.20, 0.02, 0.30, 0.04),
+      makeLine("ui-c", 0.85, 0.02, 0.95, 0.04),
+      makeLine("ui-d", 0.02, 0.95, 0.09, 0.97),
+      makeLine("ui-e", 0.40, 0.50, 0.46, 0.52),
+    ];
+
+    const result = detectTextBlocks(lines);
+
+    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
+  });
+
   it("merges text that is close on the same row into one block", () => {
     const lines: OverlayLine[] = [
       makeLine("Name",     0.02, 0.75, 0.15, 0.83),

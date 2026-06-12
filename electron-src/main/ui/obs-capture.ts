@@ -33,6 +33,8 @@ export interface ObsDevicePropertyItem {
 export interface ObsSceneSetupOption {
     title: string;
     value: string;
+    /** Cleaned game name parsed from the raw window title, used as the default scene name. */
+    suggestedSceneName?: string;
     targetKind: ObsSetupTargetKind;
     captureValues?: ObsWindowCaptureValues;
     videoDeviceId?: string;

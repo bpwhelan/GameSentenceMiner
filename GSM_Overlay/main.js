@@ -35,9 +35,19 @@ protocol.registerSchemesAsPrivileged([
   }
 ]);
 
-let dataPath = process.env.APPDATA
+// Legacy overlay data location (a sibling of the default GSM data dir).
+const legacyOverlayDir = process.env.APPDATA
   ? path.join(process.env.APPDATA, "gsm_overlay") // Windows
   : path.join(os.homedir(), '.config', "gsm_overlay"); // macOS/Linux
+// Only relocate our data when GSM's data dir has actually been moved off the default location;
+// at the default location we keep reading the legacy path so existing settings are preserved.
+const defaultGsmDataDir = process.env.APPDATA
+  ? path.join(process.env.APPDATA, "GameSentenceMiner")
+  : path.join(os.homedir(), '.config', "GameSentenceMiner");
+const gsmDataDir = (process.env.GSM_DATA_DIR || '').trim();
+let dataPath = gsmDataDir && path.resolve(gsmDataDir) !== path.resolve(defaultGsmDataDir)
+  ? path.join(gsmDataDir, "gsm_overlay")
+  : legacyOverlayDir;
 
 fs.mkdirSync(dataPath, { recursive: true });
 app.setPath('userData', dataPath);
@@ -366,6 +376,29 @@ ipcMain.handle('gsm-jiten-lookup-vocabulary', async (_event, args = {}) => {
   });
 });
 
+// Fetch the list of active goals (with progress) from the GSM web server for the
+// overlay settings picker. Done in the main process to bypass the renderer's CORS
+// restrictions against the file:// settings window origin.
+ipcMain.handle('overlay-get-active-goals', async () => {
+  const port = getGSMTransportBasePort();
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(`http://127.0.0.1:${port}/api/goals/active`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!response.ok) {
+      return { goals: [], error: `HTTP ${response.status}` };
+    }
+    const data = await response.json();
+    return { goals: Array.isArray(data.goals) ? data.goals : [] };
+  } catch (error) {
+    console.error('[Overlay] Failed to fetch active goals:', error);
+    return { goals: [], error: String(error && error.message ? error.message : error) };
+  }
+});
+
 const DEFAULT_USER_SETTINGS = Object.freeze({
   "fontSize": 42,
   "weburl1": DEFAULT_ENFORCED_PLAINTEXT_WS_URL,
@@ -393,6 +426,9 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "fadeTextIndicators": false,
   "showLiveStats": true,
   "showLiveGoals": true,
+  // Per-goal overlay selection chosen in the settings window:
+  //   { [goalId]: { enabled: boolean, view: "today" | "overall" } }
+  "overlayGoals": {},
   "liveStatsDisplayModeV2": "always",
   "liveStatsLayoutV2": "one-line",
   "liveStatsAutoHideSeconds": 5,
@@ -825,6 +861,22 @@ function normalizeLiveStatsFields(value) {
     normalized[key] = Object.prototype.hasOwnProperty.call(source, key)
       ? source[key] !== false
       : defaults[key] !== false;
+  }
+  return normalized;
+}
+
+function normalizeOverlayGoals(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const normalized = {};
+  for (const goalId of Object.keys(source)) {
+    const cfg = source[goalId];
+    if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) {
+      continue;
+    }
+    normalized[goalId] = {
+      enabled: cfg.enabled === true,
+      view: cfg.view === "overall" ? "overall" : "today",
+    };
   }
   return normalized;
 }
@@ -5893,6 +5945,8 @@ app.whenReady().then(async () => {
       value = normalizeLiveStatsPositionMode(value);
     } else if (key === "liveStatsFields") {
       value = normalizeLiveStatsFields(value);
+    } else if (key === "overlayGoals") {
+      value = normalizeOverlayGoals(value);
     } else if (key === "pomodoroEnabled" || key === "pomodoroAutoStart") {
       value = value === true;
     } else if (key === "pomodoroWorkMinutes") {

@@ -1020,6 +1020,96 @@
       padding: 0 12px 12px 12px;
     }
 
+    .overlay-goals-picker {
+      margin: 8px 0 4px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .overlay-goals-picker-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .overlay-goals-picker-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      color: #9fb09f;
+    }
+
+    .overlay-goals-refresh {
+      width: 26px;
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      color: #d0d0d0;
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .overlay-goals-refresh:hover {
+      color: #ffffff;
+      border-color: rgba(76, 175, 80, 0.55);
+      background: rgba(76, 175, 80, 0.18);
+    }
+
+    .overlay-goals-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .overlay-goal-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .overlay-goal-row .overlay-goal-checkbox {
+      flex: 0 0 auto;
+    }
+
+    .overlay-goal-row .overlay-goal-name {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      color: #e0e0e0;
+    }
+
+    .overlay-goal-row select.overlay-goal-view {
+      flex: 0 0 auto;
+      min-width: 0;
+      width: auto;
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+
+    .overlay-goals-empty {
+      font-size: 12px;
+      color: #8a8a8a;
+      font-style: italic;
+      padding: 4px 2px;
+    }
+
     @media (max-width: 1024px) {
       .settings-grid {
         grid-template-columns: 1fr;
@@ -1150,10 +1240,19 @@
       <label>
         <span class="label-text">
           Show Goals
-          <div class="hotkey-info">Shows goals you've enabled for the overlay (configured on the Goals page) in the live stats widget.</div>
+          <div class="hotkey-info">Shows the goals you pick below in the live stats widget.</div>
         </span>
         <input type="checkbox" id="showLiveGoals" />
       </label>
+      <div class="overlay-goals-picker" id="overlayGoalsPicker">
+        <div class="overlay-goals-picker-header">
+          <span class="overlay-goals-picker-title">Goals to show</span>
+          <button type="button" class="overlay-goals-refresh" id="overlayGoalsRefresh" title="Refresh goals">↻</button>
+        </div>
+        <div class="overlay-goals-list" id="overlayGoalsList">
+          <div class="overlay-goals-empty">Loading goals…</div>
+        </div>
+      </div>
       <label>
         <span class="label-text">
           Display Mode
@@ -1490,6 +1589,13 @@
           <div class="hotkey-info">Master switch for the Jiten Reader dictionary extension and its overlay integrations.</div>
         </span>
         <input type="checkbox" id="enableJitenReader" />
+      </label>
+      <label>
+        <span class="label-text">
+          JitenAPI Key
+          <div class="hotkey-info">Required for Jiten requests. Shared with the JitenAPI tokenizer/furigana backend — set it here once. Stored locally in overlay settings.</div>
+        </span>
+        <input type="password" id="jitenReaderApiKey" value="" placeholder="Paste your X-Api-Key" />
       </label>
       <label>
         <span class="label-text">
@@ -3246,7 +3352,7 @@
         integer: true,
         blurEvent: true,
       }),
-      createTextBinding("gamepadJitenApiKey", ["#gamepadJitenApiKey", "#furiganaJitenApiKey"], {
+      createTextBinding("gamepadJitenApiKey", ["#gamepadJitenApiKey", "#furiganaJitenApiKey", "#jitenReaderApiKey"], {
         normalize: (value) => normalizeTrimmedString(value),
       }),
       createTextBinding("gamepadJpdbApiKey", ["#gamepadJpdbApiKey", "#furiganaJpdbApiKey"], {
@@ -4081,6 +4187,9 @@
       syncManualHotkeyStatusUi();
       refreshAllResetButtons();
 
+      setOverlayGoalsSelection(resolvedSettings.overlayGoals);
+      loadOverlayGoalsPicker();
+
       const configuredPort = Number.parseInt(resolvedSettings.gamepadServerPort, 10) || 7276;
       checkGamepadServerStatus(configuredPort);
       connectGamepadStatusSocket(configuredPort);
@@ -4120,6 +4229,11 @@
           setGamepadDeviceBlacklist(value, { persist: false, send: true });
           return;
         }
+        if (key === "overlayGoals") {
+          setOverlayGoalsSelection(value);
+          renderOverlayGoalsPicker();
+          return;
+        }
 
         if (settingBindingMap.has(key)) {
           setSettingValueWithoutPersist(key, value);
@@ -4130,6 +4244,130 @@
       refreshAllResetButtons();
       refreshActivePresetHighlight();
     });
+
+    // ---- Overlay goals picker (Stats tab) ----
+    // The goals page only defines goals; here the user picks which active goals the
+    // live-stats widget shows (and in which view). Selection persists as the
+    // overlayGoals overlay setting; the widget filters the server feed by it.
+    let overlayGoalsSelection = {};
+    let overlayGoalsActive = [];
+    let overlayGoalsRefreshBound = false;
+
+    function normalizeOverlayGoalsValue(value) {
+      const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      const normalized = {};
+      Object.keys(source).forEach((goalId) => {
+        const cfg = source[goalId];
+        if (!cfg || typeof cfg !== "object") return;
+        normalized[goalId] = {
+          enabled: cfg.enabled === true,
+          view: cfg.view === "overall" ? "overall" : "today",
+        };
+      });
+      return normalized;
+    }
+
+    function setOverlayGoalsSelection(value) {
+      overlayGoalsSelection = normalizeOverlayGoalsValue(value);
+    }
+
+    function persistOverlayGoalsSelection() {
+      ipcRenderer.send("setting-changed", { key: "overlayGoals", value: overlayGoalsSelection });
+    }
+
+    function handleOverlayGoalToggle(goalId, enabled) {
+      const existing = overlayGoalsSelection[goalId] || { enabled: false, view: "today" };
+      overlayGoalsSelection[goalId] = { ...existing, enabled: enabled === true };
+      persistOverlayGoalsSelection();
+    }
+
+    function handleOverlayGoalViewChange(goalId, view) {
+      const existing = overlayGoalsSelection[goalId] || { enabled: false, view: "today" };
+      overlayGoalsSelection[goalId] = { ...existing, view: view === "overall" ? "overall" : "today" };
+      persistOverlayGoalsSelection();
+    }
+
+    function renderOverlayGoalsPicker() {
+      const list = document.getElementById("overlayGoalsList");
+      if (!list) return;
+      list.replaceChildren();
+
+      if (!Array.isArray(overlayGoalsActive) || overlayGoalsActive.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "overlay-goals-empty";
+        empty.textContent = "No active goals. Create goals on the Goals page, then refresh.";
+        list.appendChild(empty);
+        return;
+      }
+
+      overlayGoalsActive.forEach((goal) => {
+        const cfg = overlayGoalsSelection[goal.id] || { enabled: false, view: "today" };
+
+        const row = document.createElement("div");
+        row.className = "overlay-goal-row";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "overlay-goal-checkbox";
+        checkbox.checked = cfg.enabled === true;
+        checkbox.addEventListener("change", () => handleOverlayGoalToggle(goal.id, checkbox.checked));
+        row.appendChild(checkbox);
+
+        const name = document.createElement("span");
+        name.className = "overlay-goal-name";
+        name.textContent = `${goal.icon || "🎯"} ${goal.name || "Goal"}`;
+        name.title = name.textContent;
+        row.appendChild(name);
+
+        const view = document.createElement("select");
+        view.className = "overlay-goal-view";
+        const todayOpt = document.createElement("option");
+        todayOpt.value = "today";
+        todayOpt.textContent = "Today";
+        const overallOpt = document.createElement("option");
+        overallOpt.value = "overall";
+        overallOpt.textContent = "Overall";
+        view.appendChild(todayOpt);
+        view.appendChild(overallOpt);
+        view.value = cfg.view === "overall" ? "overall" : "today";
+        view.addEventListener("change", () => handleOverlayGoalViewChange(goal.id, view.value));
+        row.appendChild(view);
+
+        list.appendChild(row);
+      });
+    }
+
+    async function loadOverlayGoalsPicker() {
+      const list = document.getElementById("overlayGoalsList");
+      if (!overlayGoalsRefreshBound) {
+        const refreshBtn = document.getElementById("overlayGoalsRefresh");
+        if (refreshBtn) {
+          refreshBtn.addEventListener("click", () => loadOverlayGoalsPicker());
+          overlayGoalsRefreshBound = true;
+        }
+      }
+      if (list) {
+        list.replaceChildren();
+        const loading = document.createElement("div");
+        loading.className = "overlay-goals-empty";
+        loading.textContent = "Loading goals…";
+        list.appendChild(loading);
+      }
+      try {
+        const result = await ipcRenderer.invoke("overlay-get-active-goals");
+        overlayGoalsActive = Array.isArray(result?.goals) ? result.goals : [];
+        renderOverlayGoalsPicker();
+      } catch (error) {
+        console.error("Failed to load overlay goals:", error);
+        if (list) {
+          list.replaceChildren();
+          const err = document.createElement("div");
+          err.className = "overlay-goals-empty";
+          err.textContent = "Could not load goals (is GSM running?).";
+          list.appendChild(err);
+        }
+      }
+    }
 
     // Handle websocket status updates
     function updateWebSocketStatus(type, isConnected) {

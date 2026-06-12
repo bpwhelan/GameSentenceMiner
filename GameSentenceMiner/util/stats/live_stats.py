@@ -155,6 +155,13 @@ class LiveSessionTracker:
 
         self.total_characters += len(line_text) if line_text else 0
         publish_live_stats_update(self, reason="line")
+        # Keep overlay goals advancing while reading (throttled inside the publisher).
+        try:
+            from GameSentenceMiner.web.live_goals import publish_live_goals_update
+
+            publish_live_goals_update()
+        except Exception:
+            pass
 
     def get_chars_per_hour(self) -> int:
         """
@@ -196,7 +203,8 @@ class LiveSessionTracker:
         try:
             from GameSentenceMiner.web.live_goals import publish_live_goals_update
 
-            publish_live_goals_update()
+            # Force past the throttle so a mined-cards goal updates immediately.
+            publish_live_goals_update(force=True)
         except Exception:
             pass
 

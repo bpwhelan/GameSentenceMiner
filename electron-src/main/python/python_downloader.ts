@@ -23,6 +23,14 @@ const PYTHON_VERSION = '3.13.2';
 const UV_VERSION = '0.9.22';
 const VENV_DIR = path.join(BASE_DIR, 'python_venv');
 const UV_DIR = path.join(BASE_DIR, 'uv');
+
+// Bump this whenever dependencies are *removed* from the lockfile. `uv sync` runs
+// with `--inexact` (so it never prunes packages it didn't install — see
+// python_ops.syncLockedEnvironment), which means dropped deps linger in the venv.
+// Flipping this forces a one-time full venv rebuild so orphans are dropped. The
+// last-applied value is stamped inside the venv; a mismatch triggers the rebuild.
+const VENV_GENERATION = 1;
+const VENV_GENERATION_FILE = path.join(VENV_DIR, '.gsm_venv_generation');
 const VENV_CREATION_ATTEMPTS = 4;
 const VENV_CREATION_RETRY_DELAY_MS = 1_500;
 const RETRYABLE_VENV_CREATION_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'ETXTBSY']);
@@ -240,6 +248,34 @@ function isPythonInstalled(): boolean {
 
 export function hasManagedPythonInstall(): boolean {
     return isPythonInstalled();
+}
+
+/**
+ * Read the dependency-generation value stamped into the current venv. Returns 0
+ * when the marker is missing or unreadable (e.g. a venv built before this marker
+ * existed), which forces a rebuild against the current {@link VENV_GENERATION}.
+ */
+function readVenvGeneration(): number {
+    try {
+        const raw = fs.readFileSync(VENV_GENERATION_FILE, 'utf8').trim();
+        const parsed = Number.parseInt(raw, 10);
+        return Number.isFinite(parsed) ? parsed : 0;
+    } catch {
+        return 0;
+    }
+}
+
+function isVenvGenerationCurrent(): boolean {
+    return readVenvGeneration() >= VENV_GENERATION;
+}
+
+/** Stamp the current generation into the venv after a successful (re)build. */
+function stampVenvGeneration(): void {
+    try {
+        fs.writeFileSync(VENV_GENERATION_FILE, `${VENV_GENERATION}\n`, 'utf8');
+    } catch (err) {
+        console.warn(`Failed to stamp venv generation marker (non-fatal): ${toErrorMessage(err)}`);
+    }
 }
 
 /**
@@ -887,6 +923,7 @@ async function performManagedPythonInstall(): Promise<string> {
     if (isPythonInstalled()) {
         const pythonPath = getPythonExecutablePath();
         console.log(`Python is already installed at: ${pythonPath}`);
+        stampVenvGeneration();
         markBootstrapStagesSkipped('Managed uv runtime already available.');
         return pythonPath;
     }
@@ -910,6 +947,7 @@ async function performManagedPythonInstall(): Promise<string> {
     }
 
     console.log(`Python successfully installed at: ${pythonExecutablePath}`);
+    stampVenvGeneration();
     return pythonExecutablePath;
 }
 
@@ -983,11 +1021,22 @@ export async function getOrInstallPython(): Promise<string> {
         return await activePythonOperationPromise;
     }
 
-    if (isPythonInstalled()) {
+    if (isPythonInstalled() && isVenvGenerationCurrent()) {
         const pythonPath = getPythonExecutablePath();
         console.log(`Python is already installed at: ${pythonPath}`);
         markBootstrapStagesSkipped('Managed uv runtime already available.');
         return pythonPath;
+    }
+
+    if (isPythonInstalled()) {
+        console.log(
+            `Venv dependency generation is outdated (have ${readVenvGeneration()}, want ${VENV_GENERATION}). ` +
+                'Rebuilding the virtual environment to drop removed dependencies...'
+        );
+        return await schedulePythonOperation(async () => {
+            await resetManagedVenv('Venv dependency generation outdated; rebuilding to remove stale dependencies.');
+            return await performManagedPythonInstall();
+        });
     }
 
     return await schedulePythonOperation(async () => await performManagedPythonInstall());

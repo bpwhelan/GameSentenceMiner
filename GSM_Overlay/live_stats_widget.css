@@ -229,5 +229,19 @@
 }
 
 #gsm-live-stats.gsm-live-stats-one-line .gsm-live-stats-goals {
-  display: none !important;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  margin-top: 6px;
+  padding-top: 6px;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-goal {
+  flex: 0 0 auto;
+  gap: 5px;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-goal-label {
+  flex: 0 0 auto;
 }

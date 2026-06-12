@@ -947,7 +947,7 @@ class ConfigWindow(QWidget):
                     plaintext_websocket_port=self.settings.advanced.plaintext_websocket_port,
                     localhost_bind_address=self.localhost_bind_address_edit.text(),
                     longest_sleep_time=float(self.longest_sleep_time_edit.text() or 5.0),
-                    screenshot_capture_backend=self.screenshot_capture_backend_combo.currentText(),
+                    screenshot_capture_backend_v2=self.screenshot_capture_backend_combo.currentText(),
                     dont_collect_stats=self.dont_collect_stats_check.isChecked(),
                     mute_game_on_minimize=self.mute_game_on_minimize_check.isChecked(),
                 ),
@@ -2930,7 +2930,7 @@ class ConfigWindow(QWidget):
         self.screenshot_extension_combo.setCurrentText(s.screenshot.extension)
         self.screenshot_capture_backend_combo.clear()
         self.screenshot_capture_backend_combo.addItems(list(SCREENSHOT_CAPTURE_BACKENDS))
-        self.screenshot_capture_backend_combo.setCurrentText(s.advanced.screenshot_capture_backend)
+        self.screenshot_capture_backend_combo.setCurrentText(s.advanced.screenshot_capture_backend_v2)
         self.animated_screenshot_check.setChecked(s.screenshot.animated)
         self._set_text_value(self.screenshot_custom_ffmpeg_settings_edit, s.screenshot.custom_ffmpeg_settings)
         self.screenshot_timing_combo.clear()

@@ -2,13 +2,11 @@ import Store from "electron-store";
 import { SteamGame } from "./ui/steam.js";
 import {ObsScene} from "./ui/obs.js";
 import { BrowserWindow } from "electron";
-import * as os from "os";
 import path from "path";
 import { findAgentScriptById } from "./agent_script_resolver.js";
+import { getBaseDir } from "./data_dir.js";
 
-const APP_BASE_DIR = process.env.APPDATA
-    ? path.join(process.env.APPDATA, "GameSentenceMiner")
-    : path.join(os.homedir(), ".config", "GameSentenceMiner");
+const APP_BASE_DIR = getBaseDir();
 const DEFAULT_AGENT_SCRIPTS_PATH = path.join(APP_BASE_DIR, "agent-scripts", "scripts");
 
 interface YuzuConfig {
@@ -114,6 +112,8 @@ export interface SceneLaunchProfile {
     launchOverlay: boolean;
     agentScriptPath: string;
     launchDelaySeconds: number;
+    /** Linux: path to the game executable, used to locate the Wine/Proton prefix for hooking. */
+    gameExecutablePath?: string;
 }
 
 export interface LaunchableGame {
@@ -296,9 +296,7 @@ export const store = new Store<StoreConfig>({
         setupWizardVersion: 0,
         uiMode: 'basic',
     },
-    cwd: process.env.APPDATA
-        ? path.join(process.env.APPDATA, 'GameSentenceMiner', 'electron')
-        : path.join(os.homedir(), '.config', 'GameSentenceMiner', 'electron')
+    cwd: path.join(APP_BASE_DIR, 'electron')
 });
 
 const DEFAULT_SCENE_TEXT_HOOK_MODE: SceneTextHookMode = "none";
@@ -356,6 +354,10 @@ function normalizeSceneLaunchProfile(value: unknown): SceneLaunchProfile | null 
                 ? profile.agentScriptPath.trim()
                 : "",
         launchDelaySeconds: normalizeLaunchDelaySeconds(profile.launchDelaySeconds),
+        gameExecutablePath:
+            typeof profile.gameExecutablePath === "string" && profile.gameExecutablePath.trim().length > 0
+                ? profile.gameExecutablePath.trim()
+                : undefined,
     };
 }
 
@@ -406,7 +408,7 @@ function mergeSceneLaunchProfile(
     patch: Partial<
         Pick<
             SceneLaunchProfile,
-            "textHookMode" | "ocrMode" | "launchOverlay" | "agentScriptPath" | "launchDelaySeconds"
+            "textHookMode" | "ocrMode" | "launchOverlay" | "agentScriptPath" | "launchDelaySeconds" | "gameExecutablePath"
         >
     >
 ): void {
@@ -433,6 +435,7 @@ function mergeSceneLaunchProfile(
                   launchOverlay: DEFAULT_SCENE_LAUNCH_OVERLAY,
                   agentScriptPath: "",
                 launchDelaySeconds: DEFAULT_SCENE_LAUNCH_DELAY_SECONDS,
+                gameExecutablePath: undefined,
               };
 
     const next: SceneLaunchProfile = {
@@ -452,6 +455,10 @@ function mergeSceneLaunchProfile(
             typeof patch.launchDelaySeconds === "number"
                 ? normalizeLaunchDelaySeconds(patch.launchDelaySeconds)
                 : existing.launchDelaySeconds,
+        gameExecutablePath:
+            typeof patch.gameExecutablePath === "string"
+                ? (patch.gameExecutablePath.trim() || undefined)
+                : existing.gameExecutablePath,
     };
 
     if (existingIndex >= 0) {
@@ -867,6 +874,26 @@ export function upsertSceneLaunchProfile(profile: SceneLaunchProfile): void {
             launchDelaySeconds: normalized.launchDelaySeconds,
         }
     );
+    setSceneLaunchProfiles(profiles);
+}
+
+export function getGameExePathForScene(sceneName: string): string {
+    const name = (sceneName ?? "").trim();
+    if (!name) {
+        return "";
+    }
+    const profiles = getSceneLaunchProfiles();
+    const match = profiles.find((profile) => profile.sceneName === name);
+    return match?.gameExecutablePath ?? "";
+}
+
+export function setGameExePathForScene(sceneName: string, exePath: string): void {
+    const name = (sceneName ?? "").trim();
+    if (!name) {
+        return;
+    }
+    const profiles = getSceneLaunchProfiles();
+    mergeSceneLaunchProfile(profiles, { name }, { gameExecutablePath: exePath ?? "" });
     setSceneLaunchProfiles(profiles);
 }
 

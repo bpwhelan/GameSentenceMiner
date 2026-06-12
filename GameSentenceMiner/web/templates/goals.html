@@ -190,7 +190,7 @@
                             </select>
                         </div>
 
-                        <div style="margin-bottom: 15px;">
+                        <div id="goalMediaTypeContainer" style="margin-bottom: 15px;">
                             <label for="goalMediaType" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
                                 Media Type
                                 <span style="color: var(--text-tertiary); font-weight: 400; font-size: 0.9em;">(filter progress by media type)</span>
@@ -211,6 +211,19 @@
                             </small>
                         </div>
 
+                        <!-- Optional: tie a regular/static goal to a single game.
+                             Hidden for finish_game (always game-scoped) and for
+                             metrics that can't be game-scoped (games/custom). -->
+                        <div id="goalScopeToGameContainer" class="goal-form-field" style="display: none; margin-bottom: 15px;">
+                            <label style="display: flex; align-items: center; gap: 10px; font-weight: 600; color: var(--text-primary); cursor: pointer;">
+                                <input type="checkbox" id="goalScopeToGame" style="width: auto; margin: 0;" />
+                                <span>Track only a specific game</span>
+                            </label>
+                            <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                                Count progress from one game only — e.g. "read 30 minutes of this game every day" or "mine 10 cards from this game daily".
+                            </small>
+                        </div>
+
                         <!-- Game selector: shown for game-scoped goals and "finish a game by date" -->
                         <div id="goalGameContainer" class="goal-form-field" style="display: none; margin-bottom: 15px;">
                             <label for="goalGameType" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">
@@ -222,7 +235,7 @@
                                 <option value="">Loading games…</option>
                             </select>
                             <small id="goalGameHelp" style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-                                Games are sorted by most recently read. For "finish a game by date", set the target to the game's total length in characters.
+                                Games are sorted by most recently read. Only this game's progress counts toward the goal. For "finish a game by date", set the target to the game's total length in characters.
                             </small>
                         </div>
 

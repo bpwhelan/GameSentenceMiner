@@ -16,6 +16,10 @@
     fallbackHeightPercent: 1.8,   // text-height unit when nothing is measurable
     horizontalGapMultiplier: 1.2, // max horizontal gap to merge, in text heights
     verticalGapMultiplier: 0.9,   // max vertical gap to merge, in text heights
+    // Stacked lines that share a horizontal column (consecutive lines of one
+    // paragraph, even with an indented first line) tolerate a looser vertical
+    // gap, since line spacing varies.
+    alignedVerticalGapMultiplier: 1.6,
   });
 
   // Empty space between two intervals on one axis (0 if they overlap).
@@ -61,11 +65,24 @@
     });
   }
 
-  // Two boxes are "close" when both the horizontal and vertical gaps between
-  // them fit within thresholds derived from the text height.
-  function areBoxesClose(a, b, unit, tuning) {
+  // Two boxes are "close" when the gaps between them fit within thresholds
+  // derived from the text height. Thresholds scale by THIS pair's own height
+  // (floored by `floorUnit`) rather than the global median, so a screen full of
+  // small UI text can't shrink the unit and split apart the taller dialogue.
+  function areBoxesClose(a, b, floorUnit, tuning) {
     const gapX = getAxisGap(a.x1, a.x3, b.x1, b.x3);
     const gapY = getAxisGap(a.y1, a.y3, b.y1, b.y3);
+    const overlapX = getAxisOverlap(a.x1, a.x3, b.x1, b.x3);
+    const unit = Math.max(floorUnit, (a.height + b.height) / 2);
+
+    // Vertically-stacked lines that share a horizontal column are consecutive
+    // lines of one paragraph (an indented first line still overlaps the body),
+    // so judge them on the vertical gap alone with a looser allowance. Boxes
+    // that don't share a column stay subject to both gap checks, which keeps
+    // separate columns and far-apart UI in different blocks.
+    if (overlapX > 0) {
+      return gapY <= unit * tuning.alignedVerticalGapMultiplier;
+    }
     return gapX <= unit * tuning.horizontalGapMultiplier
       && gapY <= unit * tuning.verticalGapMultiplier;
   }
@@ -79,6 +96,8 @@
     }
 
     const metrics = buildLineMetrics(lines);
+    // Floor for the per-pair text-height unit used by areBoxesClose, so a pair
+    // of zero/near-zero height boxes still gets a sane threshold.
     const unit = Math.max(
       tuning.minHeightPercent,
       getMedianValue(metrics.map((m) => m.height).filter((h) => h > 0)) || tuning.fallbackHeightPercent

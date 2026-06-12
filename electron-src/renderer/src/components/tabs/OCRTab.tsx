@@ -995,7 +995,7 @@ export function OCRTab({ active }: OcrTabProps) {
       : t("ocr.footer.running")
     : hasConfiguredAreas
       ? t("ocr.footer.ready")
-      : t("ocr.footer.needsAreas");
+      : t("ocr.footer.areasRecommendedLabel");
 
   const footerSummary = runningState.isRunning
     ? runtimeMessage
@@ -2758,11 +2758,10 @@ export function OCRTab({ active }: OcrTabProps) {
               <>
                 <button
                   type="button"
-                  disabled={!hasConfiguredAreas}
                   title={
                     hasConfiguredAreas
                       ? ocrTooltips.startAuto
-                      : t("ocr.footer.needAreasFirst", {
+                      : t("ocr.footer.areasRecommended", {
                           mode: t("ocr.footer.modeAuto")
                         })
                   }
@@ -2773,11 +2772,10 @@ export function OCRTab({ active }: OcrTabProps) {
                 <button
                   type="button"
                   className="secondary"
-                  disabled={!hasConfiguredAreas}
                   title={
                     hasConfiguredAreas
                       ? ocrTooltips.startManual
-                      : t("ocr.footer.needAreasFirst", {
+                      : t("ocr.footer.areasRecommended", {
                           mode: t("ocr.footer.modeManual")
                         })
                   }

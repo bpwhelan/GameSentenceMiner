@@ -82,7 +82,7 @@ def test_capture_configured_obs_backend_skips_winapi(monkeypatch):
     monkeypatch.setattr(
         screenshot_capture_module,
         "get_config",
-        lambda: SimpleNamespace(advanced=SimpleNamespace(screenshot_capture_backend=SCREENSHOT_CAPTURE_BACKEND_OBS)),
+        lambda: SimpleNamespace(advanced=SimpleNamespace(screenshot_capture_backend_v2=SCREENSHOT_CAPTURE_BACKEND_OBS)),
     )
     monkeypatch.setattr(
         capture,

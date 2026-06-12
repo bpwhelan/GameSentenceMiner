@@ -1879,6 +1879,7 @@ button:disabled {
 }
 
 .agent-script-search-option {
+  display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
   gap: 12px;

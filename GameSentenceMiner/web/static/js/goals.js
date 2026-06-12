@@ -18,6 +18,18 @@ const ALLOWED_METRIC_TYPES = [
     'custom'
 ];
 
+// Metric types that can optionally be tied to a single game (via the
+// "Track only a specific game" toggle). finish_game is always game-scoped and
+// is handled separately; games/mature_cards/custom can't be game-scoped.
+const GAME_SCOPEABLE_METRIC_TYPES = [
+    'hours',
+    'characters',
+    'cards',
+    'hours_static',
+    'characters_static',
+    'cards_static'
+];
+
 const MEDIA_TYPES = [
     { value: 'ALL', label: 'All Media Types' },
     { value: 'Anime', label: 'Anime' },
@@ -290,16 +302,22 @@ const GoalsUtils = {
         };
     },
 
-    // Load games for the goal game-selector, sorted by most recent line received
-    // (mirrors search.js so the game you're currently reading is at the top).
+    // Load games for the goal game-selector, sorted by most recently played.
+    // Uses /api/games-management because it returns the real game `id` (matching
+    // the game_id column that game-scoped goals filter on) and per-game character
+    // counts used to auto-fill the "finish a game by date" target.
     async loadGamesSortedByLastLine() {
         try {
-            const response = await fetch('/api/games-list');
+            const response = await fetch('/api/games-management?sort=last_played');
             const data = await response.json();
             if (!response.ok || !data.games) return [];
-            return [...data.games].sort(
-                (a, b) => (b.last_entry_timestamp || 0) - (a.last_entry_timestamp || 0)
-            );
+            return data.games.map(g => ({
+                id: g.id,
+                name: g.title_original || g.title_romaji || g.title_english || '(unnamed)',
+                // Total game length (jiten.moe) is the ideal "finish" target; fall
+                // back to characters mined so far when no jiten length is linked.
+                charCount: g.jiten_character_count || g.mined_character_count || 0
+            }));
         } catch (error) {
             console.error('Failed to load games list for goals:', error);
             return [];
@@ -862,51 +880,9 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    // Read the per-goal overlay config (enabled / name override / view) from cache.
-    function getOverlayGoalConfig(goalId) {
-        const cached = GoalsDataManager.getCached();
-        const all = cached?.goals_settings?.overlayGoals || {};
-        return all[goalId] || { enabled: false, nameOverride: '', view: 'today' };
-    }
-
-    // Renders the "Show in overlay" controls embedded in each goal card.
-    function renderOverlayConfig(goal) {
-        const cfg = getOverlayGoalConfig(goal.id);
-        const checked = cfg.enabled === true ? 'checked' : '';
-        const nameVal = (cfg.nameOverride || '').replace(/"/g, '&quot;');
-        const todaySel = cfg.view !== 'overall' ? 'selected' : '';
-        const overallSel = cfg.view === 'overall' ? 'selected' : '';
-        return `
-            <div class="overlay-goal-config" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border-color); display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 0.85em;">
-                <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                    <input type="checkbox" ${checked} onchange="window.handleOverlayGoalToggle('${goal.id}', this.checked)">
-                    <span>📺 Show in overlay</span>
-                </label>
-                <input type="text" placeholder="Name override" value="${nameVal}"
-                    onchange="window.handleOverlayGoalName('${goal.id}', this.value)"
-                    style="flex: 1 1 120px; min-width: 100px; padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 0.95em;">
-                <select onchange="window.handleOverlayGoalView('${goal.id}', this.value)"
-                    style="padding: 4px 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-tertiary); color: var(--text-primary); font-size: 0.95em;">
-                    <option value="today" ${todaySel}>Today</option>
-                    <option value="overall" ${overallSel}>Overall</option>
-                </select>
-            </div>
-        `;
-    }
-
-    async function persistOverlayGoalConfig(goalId, patch) {
-        const current = getOverlayGoalConfig(goalId);
-        const next = { ...current, ...patch };
-        try {
-            await GoalsDataManager.updatePartialSettings({ overlayGoals: { [goalId]: next } });
-        } catch (error) {
-            console.error('Failed to save overlay goal config:', error);
-        }
-    }
-
-    window.handleOverlayGoalToggle = (goalId, enabled) => persistOverlayGoalConfig(goalId, { enabled: enabled === true });
-    window.handleOverlayGoalName = (goalId, name) => persistOverlayGoalConfig(goalId, { nameOverride: String(name || '').trim() });
-    window.handleOverlayGoalView = (goalId, view) => persistOverlayGoalConfig(goalId, { view: view === 'overall' ? 'overall' : 'today' });
+    // Choosing which goals appear in the overlay (and in which view) is configured
+    // overlay-side in the GSM Overlay settings window, not here — the goals page just
+    // defines the goals and the overlay reads them from /api/goals/active.
 
     // Helper function to render a custom goal card
     function renderCustomGoalCard(goal, currentProgress) {
@@ -928,7 +904,6 @@ document.addEventListener('DOMContentLoaded', function () {
                         </div>
                     </div>
                     ${mediaTypeBadge}
-                    ${renderOverlayConfig(goal)}
                     ${GoalsUtils.renderActionButtons(goal.id)}
                 </div>
             `;
@@ -968,7 +943,6 @@ document.addEventListener('DOMContentLoaded', function () {
                         <span style="opacity: 0.8;">♾️</span>
                         <strong style="margin-left: 4px;">Daily Target: ${formattedTarget}</strong>
                     </div>
-                    ${renderOverlayConfig(goal)}
                     ${GoalsUtils.renderActionButtons(goal.id)}
                 </div>
             `;
@@ -1645,10 +1619,32 @@ document.addEventListener('DOMContentLoaded', function () {
             games.map(g => {
                 const id = g.id != null ? String(g.id) : '';
                 const name = g.name || '(unnamed)';
-                return `<option value="${id}" data-name="${escapeHtmlAttr(name)}">${escapeHtmlAttr(name)}</option>`;
+                const charCount = g.charCount || 0;
+                return `<option value="${id}" data-name="${escapeHtmlAttr(name)}" data-char-count="${charCount}">${escapeHtmlAttr(name)}</option>`;
             }).join('');
         if (selectedId) {
             select.value = String(selectedId);
+        }
+    }
+
+    // Auto-fill the target with the selected game's character count for
+    // "finish a game by date" goals. Only overwrites an empty field or a value
+    // we previously auto-filled, so a manually typed target is preserved.
+    let _lastAutoFilledCharCount = '';
+    function applyGameCharCountToTarget() {
+        // Only "finish a game by date" wants the target prefilled with the game's
+        // total length; a "30 min daily" goal keeps the user-entered target.
+        if (document.getElementById('goalMetricType')?.value !== 'finish_game') return;
+        const select = document.getElementById('goalGameType');
+        const targetInput = document.getElementById('goalTargetValue');
+        if (!select || !targetInput) return;
+        const opt = select.selectedOptions[0];
+        const charCount = opt ? parseInt(opt.dataset.charCount, 10) || 0 : 0;
+        if (!charCount) return;
+        const current = targetInput.value.trim();
+        if (current === '' || current === _lastAutoFilledCharCount) {
+            targetInput.value = String(charCount);
+            _lastAutoFilledCharCount = String(charCount);
         }
     }
 
@@ -1661,12 +1657,37 @@ document.addEventListener('DOMContentLoaded', function () {
     function updateFormFieldsVisibility() {
         const metricType = document.getElementById('goalMetricType').value;
         const gameContainer = document.getElementById('goalGameContainer');
-        const isGameScoped = metricType === 'finish_game';
+        const scopeContainer = document.getElementById('goalScopeToGameContainer');
+        const scopeToggle = document.getElementById('goalScopeToGame');
+        const isFinishGame = metricType === 'finish_game';
+        const canScopeToGame = GAME_SCOPEABLE_METRIC_TYPES.includes(metricType);
+
+        // Offer the "track only a specific game" toggle for scopeable metrics.
+        // finish_game is always game-scoped, so the toggle isn't shown for it.
+        if (scopeContainer) {
+            scopeContainer.style.display = canScopeToGame ? 'block' : 'none';
+        }
+        if (!canScopeToGame && scopeToggle && !isFinishGame) {
+            scopeToggle.checked = false;
+        }
+
+        const isGameScoped = isFinishGame || (canScopeToGame && scopeToggle && scopeToggle.checked);
         if (gameContainer) {
             gameContainer.style.display = isGameScoped ? 'block' : 'none';
-            if (isGameScoped) {
-                populateGoalGameSelect(document.getElementById('goalGameType')?.value || '');
+            // Populate only when the list hasn't been built yet (>1 means real
+            // game options exist). Re-running on every date keystroke would reset
+            // the user's current selection.
+            const gameSelect = document.getElementById('goalGameType');
+            if (isGameScoped && gameSelect && gameSelect.options.length <= 1) {
+                populateGoalGameSelect(gameSelect.value || '');
             }
+        }
+
+        // Media-type filter is meaningless when scoped to one game (the backend
+        // reads that game's lines directly and ignores media_type), so hide it.
+        const mediaTypeContainer = document.getElementById('goalMediaTypeContainer');
+        if (mediaTypeContainer) {
+            mediaTypeContainer.style.display = isGameScoped ? 'none' : 'block';
         }
         const targetValueContainer = document.getElementById('goalTargetValueContainer');
         const timeValueContainer = document.getElementById('goalTimeValueContainer');
@@ -1892,6 +1913,14 @@ document.addEventListener('DOMContentLoaded', function () {
     if (goalMetricTypeSelect) {
         goalMetricTypeSelect.addEventListener('change', updateFormFieldsVisibility);
     }
+    const goalGameTypeSelect = document.getElementById('goalGameType');
+    if (goalGameTypeSelect) {
+        goalGameTypeSelect.addEventListener('change', applyGameCharCountToTarget);
+    }
+    const goalScopeToGameToggle = document.getElementById('goalScopeToGame');
+    if (goalScopeToGameToggle) {
+        goalScopeToGameToggle.addEventListener('change', updateFormFieldsVisibility);
+    }
     if (startDateInput) {
         startDateInput.addEventListener('change', updateFormFieldsVisibility);
         startDateInput.addEventListener('input', updateFormFieldsVisibility);
@@ -1916,6 +1945,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (addCustomGoalBtn) {
         addCustomGoalBtn.addEventListener('click', function () {
             editingGoalId = null;
+            _lastAutoFilledCharCount = '';
             customGoalModalTitle.textContent = 'Add Custom Goal';
             customGoalForm.reset();
             customGoalModal.style.display = 'flex';
@@ -1994,10 +2024,17 @@ document.addEventListener('DOMContentLoaded', function () {
             }
             
             const gameSelect = document.getElementById('goalGameType');
-            const isGameScoped = metricType === 'finish_game';
+            const scopeToggle = document.getElementById('goalScopeToGame');
+            const isGameScoped = metricType === 'finish_game'
+                || (GAME_SCOPEABLE_METRIC_TYPES.includes(metricType) && scopeToggle && scopeToggle.checked);
             const gameId = isGameScoped && gameSelect ? gameSelect.value : '';
             const gameName = isGameScoped && gameSelect && gameSelect.selectedOptions[0]
                 ? (gameSelect.selectedOptions[0].dataset.name || '') : '';
+
+            if (isGameScoped && !gameId) {
+                showCustomGoalError('Select a game for this goal, or turn off "Track only a specific game".');
+                return;
+            }
 
             const goalData = {
                 name: document.getElementById('goalName').value.trim(),
@@ -2086,6 +2123,13 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('goalIconSelector').value = goal.icon;
         document.getElementById('customGoalIcon').value = goal.icon;
         document.getElementById('goalMediaType').value = goal.mediaType || 'ALL';
+
+        // Restore the "track only a specific game" toggle for game-scoped goals
+        // (finish_game is always scoped and has no toggle).
+        const scopeToggle = document.getElementById('goalScopeToGame');
+        if (scopeToggle) {
+            scopeToggle.checked = !!goal.gameId && goal.metricType !== 'finish_game';
+        }
 
         // Game-scoped goals: load the game list and preselect the goal's game.
         if (goal.gameId) {

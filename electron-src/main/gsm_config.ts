@@ -1,12 +1,9 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
+import { getBaseDir } from './data_dir.js';
 
 export const DEFAULT_GSM_SINGLE_PORT = 7275;
-const APP_NAME = 'GameSentenceMiner';
-const DEFAULT_GSM_BASE_DIR = process.env.APPDATA
-    ? path.join(process.env.APPDATA, APP_NAME)
-    : path.join(os.homedir(), '.config', APP_NAME);
+const DEFAULT_GSM_BASE_DIR = getBaseDir();
 
 type JsonObject = Record<string, unknown>;
 

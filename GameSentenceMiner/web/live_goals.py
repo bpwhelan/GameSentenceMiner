@@ -1,30 +1,44 @@
 """Overlay live-goals feed.
 
-Pushes a compact snapshot of the user's goals (the ones flagged for overlay
-display in goals_settings.overlayGoals) to overlay websocket clients, so the
-live-stats widget can render them next to the session stats.
+Pushes a compact snapshot of every *active* goal (with the same progress numbers
+shown on the goals page) to overlay websocket clients. Which goals actually
+render, and in which view, is chosen overlay-side (see GSM_Overlay settings) — the
+backend just keeps the overlay supplied with up-to-date numbers.
 
 Progress is computed by reusing the goals dashboard builder, so the overlay and
 the goals page stay consistent. Goal progress hits the DB, so publishing is
 throttled (see MIN_PUBLISH_INTERVAL_SECONDS).
 """
 
+import datetime
 import time
-
-import pytz
 
 LIVE_GOALS_UPDATE_TYPE = "live_goals_update"
 MIN_PUBLISH_INTERVAL_SECONDS = 30.0
 
+_STATIC_METRIC_TYPES = ("hours_static", "characters_static", "cards_static")
+
+
+def _local_timezone():
+    """Resolve the machine's local timezone for overlay goal math.
+
+    Overlay publishing has no browser X-Timezone header (unlike the goals page),
+    so use the local system timezone. GSM runs on the same machine as the browser,
+    so its current UTC offset matches the browser's tz — meaning the "today"
+    boundary (and the daily target) line up with what the goals page computes.
+    """
+    return datetime.datetime.now().astimezone().tzinfo or datetime.timezone.utc
+
 _last_publish_time = 0.0
 
 
-def _overlay_goal_config(goals_settings, goal_id):
-    overlay_goals = goals_settings.get("overlayGoals") if isinstance(goals_settings, dict) else None
-    if not isinstance(overlay_goals, dict):
-        return None
-    config = overlay_goals.get(goal_id)
-    return config if isinstance(config, dict) else None
+def _goal_is_active(goal, today_str, get_goal_value):
+    """Match the goals page's "active" semantics: custom/static always, else not expired."""
+    metric_type = get_goal_value(goal, "metric_type", "metricType")
+    if metric_type == "custom" or metric_type in _STATIC_METRIC_TYPES:
+        return True
+    end_date = get_goal_value(goal, "end_date", "endDate")
+    return bool(end_date) and end_date >= today_str
 
 
 def _percent(progress, target):
@@ -38,36 +52,36 @@ def _percent(progress, target):
 
 
 def build_live_goals_payload(now: float | None = None) -> dict:
-    """Build the overlay live-goals snapshot for goals enabled for overlay display."""
+    """Build the overlay live-goals snapshot of every active goal with its progress."""
     from GameSentenceMiner.web.goals_api import (
         _get_current_goals_payload,
         _build_goals_dashboard_payload,
         _get_goal_value,
+        get_today_in_timezone,
     )
 
     updated_at = time.time() if now is None else float(now)
+    user_tz = _local_timezone()
 
     _, current_goals, goals_settings, last_updated = _get_current_goals_payload()
     dashboard = _build_goals_dashboard_payload(
-        current_goals, goals_settings, last_updated, user_tz=pytz.UTC
+        current_goals, goals_settings, last_updated, user_tz=user_tz
     )
     goal_progress = dashboard.get("goal_progress", {}) or {}
     today_progress = dashboard.get("today_progress", {}) or {}
+    today_str = dashboard.get("today_date") or get_today_in_timezone(user_tz).isoformat()
 
     goals = []
     for goal in current_goals:
         goal_id = _get_goal_value(goal, "goal_id", "id")
         if not goal_id:
             continue
-        config = _overlay_goal_config(goals_settings, goal_id)
-        if not config or config.get("enabled") is not True:
+        if not _goal_is_active(goal, today_str, _get_goal_value):
             continue
 
         metric_type = _get_goal_value(goal, "metric_type", "metricType")
         target_value = _get_goal_value(goal, "target_value", "targetValue")
-        default_name = _get_goal_value(goal, "name", default="Goal")
-        name_override = config.get("nameOverride")
-        view = config.get("view") if config.get("view") in ("today", "overall") else "today"
+        name = _get_goal_value(goal, "name", default="Goal")
 
         overall = goal_progress.get(goal_id, {}) or {}
         today = today_progress.get(goal_id, {}) or {}
@@ -76,10 +90,9 @@ def build_live_goals_payload(now: float | None = None) -> dict:
         goals.append(
             {
                 "id": goal_id,
-                "name": (name_override or "").strip() or default_name,
+                "name": name,
                 "icon": _get_goal_value(goal, "icon", default="🎯"),
                 "metric_type": metric_type,
-                "view": view,
                 "today": {
                     "progress": today.get("progress", 0),
                     "required": today.get("required", 0),

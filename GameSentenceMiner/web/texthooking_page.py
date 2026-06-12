@@ -1118,6 +1118,43 @@ def get_status():
     return jsonify(gsm_status.to_dict()), 200
 
 
+@app.route("/linux/detect_game_exe", methods=["GET"])
+def linux_detect_game_exe():
+    """Auto-detect the game executable from the OBS-captured X11 window (Linux only)."""
+    from GameSentenceMiner.util.config.configuration import is_linux
+
+    if not is_linux():
+        return jsonify({"path": "", "supported": False}), 200
+    path = ""
+    try:
+        from GameSentenceMiner.util.platform.base_window_monitor import (
+            detect_linux_game_executable,
+        )
+
+        path = detect_linux_game_executable() or ""
+    except Exception:
+        logger.debug("Linux game-exe auto-detect failed.", exc_info=True)
+    return jsonify({"path": path, "supported": True}), 200
+
+
+@app.route("/linux/set_target_process", methods=["POST"])
+def linux_set_target_process():
+    """Write the game-exe basename through to process_pausing.linux_target_process."""
+    data = request.get_json(silent=True) or {}
+    target = str(data.get("target") or "").strip()
+    basename = os.path.basename(target.replace("\\", "/")) if target else ""
+    try:
+        from GameSentenceMiner.util.config.configuration import save_current_config
+
+        cfg = get_config()
+        cfg.process_pausing.linux_target_process = basename
+        save_current_config(cfg)
+        return jsonify({"success": True, "linux_target_process": basename}), 200
+    except Exception as e:
+        logger.error(f"Failed to set linux_target_process: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.template_filter("datetimeformat")
 def datetimeformat(value, format="%Y-%m-%d %H:%M:%S"):
     """Formats a timestamp into a human-readable string."""

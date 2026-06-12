@@ -15,13 +15,20 @@ import { spawn, ChildProcessWithoutNullStreams, execFile, exec } from 'child_pro
 import { promisify } from 'util';
 import * as path from 'path';
 import * as fs from 'node:fs';
-import { ipcMain } from 'electron';
+import { ipcMain, dialog, BrowserWindow } from 'electron';
 import {
     BASE_DIR,
     getAssetsDir,
     isWindows,
+    isLinux,
     sanitizeFilename,
 } from '../util.js';
+import { resolveWineLaunch, type WineLaunchContext } from './linux_wine.js';
+import { getConfiguredSinglePort } from '../gsm_config.js';
+import {
+    getGameExePathForScene,
+    setGameExePathForScene,
+} from '../store.js';
 import { mainWindow, sendTextHookLine } from '../main.js';
 import {
     TEXTHOOK_DOWNLOAD_DIR,
@@ -1113,37 +1120,73 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
     if (session || isAgentHookRunning()) {
         return { success: false, error: 'A text hook session is already running.' };
     }
-    if (!isWindows()) {
-        return { success: false, error: 'Text hooking is currently only available on Windows.' };
+    const onLinux = isLinux();
+    if (!isWindows() && !onLinux) {
+        return { success: false, error: 'Text hooking is only available on Windows and Linux.' };
     }
 
     const engine: TextHookEngine =
         options.engine === 'textractor' || options.engine === 'agent' ? options.engine : 'luna';
     const source: TextHookStartSource =
         options.source === 'auto-launcher' ? 'auto-launcher' : 'user';
-    let exeName = (options.exeName ?? '').trim();
-    if (!exeName) {
-        const capture = await getActiveCapture();
-        if (!capture.exeName) {
-            return {
-                success: false,
-                error: 'Could not determine the active capture executable. Set up an OBS capture first.',
-            };
-        }
-        exeName = capture.exeName;
-    }
-
     const archOverride =
         options.archOverride === 'x86' || options.archOverride === 'x64' ? options.archOverride : null;
-    const foundTarget =
-        typeof options.pidOverride === 'number' && options.pidOverride > 0
-            ? {
-                  pid: options.pidOverride,
-                  exeName,
-                  arch: archOverride ?? (await detectProcessArch(options.pidOverride)),
-              }
-            : await findProcessByExeName(exeName);
-    const target = foundTarget && archOverride ? { ...foundTarget, arch: archOverride } : foundTarget;
+
+    let exeName = (options.exeName ?? '').trim();
+    // The Wine/Proton launch context the hooker must spawn inside (Linux only).
+    let wineLaunch: WineLaunchContext | null = null;
+    let target: { pid: number; exeName: string; arch: TextHookArchitecture } | null;
+
+    if (onLinux) {
+        // OBS window capture yields no executable on Linux, so use the per-scene game
+        // executable the user pointed GSM at (Home tab → Game executable).
+        const capture = await getActiveCapture();
+        const exePath = getGameExePathForScene(capture.sceneName).trim();
+        if (!exePath) {
+            return {
+                success: false,
+                error: 'Set the game executable for this scene first (Home tab → Game executable).',
+            };
+        }
+        if (!exeName) {
+            exeName = path.basename(exePath.replace(/\\/g, '/'));
+        }
+        wineLaunch = resolveWineLaunch(exePath);
+        if (wineLaunch.linuxPid <= 0) {
+            return {
+                success: false,
+                error: `Could not find a running process for "${exeName}". Is the game running?`,
+            };
+        }
+        const arch: TextHookArchitecture =
+            archOverride ?? (readPortableExecutableBitness(exePath) === 'x86' ? 'x86' : 'x64');
+        target = { pid: wineLaunch.linuxPid, exeName, arch };
+        emitLog(
+            `Linux Wine target: PID ${wineLaunch.linuxPid}, prefix=${wineLaunch.winePrefix || '(unknown)'}, ` +
+                `wine=${wineLaunch.wineBinary || 'wine (system)'} for ${exeName} (${arch}).`,
+        );
+    } else {
+        if (!exeName) {
+            const capture = await getActiveCapture();
+            if (!capture.exeName) {
+                return {
+                    success: false,
+                    error: 'Could not determine the active capture executable. Set up an OBS capture first.',
+                };
+            }
+            exeName = capture.exeName;
+        }
+        const foundTarget =
+            typeof options.pidOverride === 'number' && options.pidOverride > 0
+                ? {
+                      pid: options.pidOverride,
+                      exeName,
+                      arch: archOverride ?? (await detectProcessArch(options.pidOverride)),
+                  }
+                : await findProcessByExeName(exeName);
+        target = foundTarget && archOverride ? { ...foundTarget, arch: archOverride } : foundTarget;
+    }
+
     if (!target) {
         return {
             success: false,
@@ -1193,12 +1236,22 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
     const cliDir = path.dirname(cliPath);
     let proc: ChildProcessWithoutNullStreams;
     try {
-        proc = spawn(cliPath, [], {
-            cwd: cliDir,
-            stdio: ['pipe', 'pipe', 'pipe'],
-            windowsHide: true,
-            env: { ...process.env, PATH: `${cliDir};${process.env.PATH ?? ''}` },
-        });
+        if (onLinux && wineLaunch) {
+            // Launch the Windows hooker CLI inside the game's Wine/Proton prefix.
+            const wineBin = wineLaunch.wineBinary || 'wine';
+            proc = spawn(wineBin, [cliPath], {
+                cwd: cliDir,
+                stdio: ['pipe', 'pipe', 'pipe'],
+                env: { ...process.env, ...wineLaunch.env },
+            });
+        } else {
+            proc = spawn(cliPath, [], {
+                cwd: cliDir,
+                stdio: ['pipe', 'pipe', 'pipe'],
+                windowsHide: true,
+                env: { ...process.env, PATH: `${cliDir};${process.env.PATH ?? ''}` },
+            });
+        }
     } catch (err) {
         return { success: false, error: `Failed to spawn hook engine: ${(err as Error).message}` };
     }
@@ -1257,6 +1310,16 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
 
     // Attach to the target PID. These CLI builds read stdin as UTF-16LE wide
     // text, matching Sugoi Hook's subprocess encoding.
+    if (onLinux) {
+        // NOTE: `attach -P` expects the Windows PID as seen inside Wine, which differs from the
+        // Linux PID. We pass the Linux PID as a starting point; if attach fails, this mapping is
+        // the thing to tune (resolve the Windows PID via the engine's process list / attach-by-name).
+        emitLog(
+            `Sending attach for Linux PID ${target.pid}; if the engine cannot attach, the Wine ` +
+                `Windows PID likely differs — check the engine's process list.`,
+            'warn',
+        );
+    }
     const attachErr = await writeEngineCommand(proc, `attach -P${target.pid}\n`);
     if (attachErr) {
         teardownSession();
@@ -1517,6 +1580,11 @@ function notifyTextHookUserStop(status: TextHookRuntimeStatus): void {
 // IPC registration
 // ---------------------------------------------------------------------------
 
+/** Build a URL to the local Python backend (single-port mode). */
+function gsmBackendUrl(routePath: string): string {
+    return `http://localhost:${getConfiguredSinglePort()}${routePath}`;
+}
+
 export function registerTextHookIPC(): void {
     ipcMain.handle('texthook.getStatus', async () => getRuntimeStatus());
 
@@ -1635,6 +1703,69 @@ export function registerTextHookIPC(): void {
     });
 
     ipcMain.handle('texthook.getAllProfiles', async () => loadAllProfiles());
+
+    ipcMain.handle('texthook.getGameExePath', async (_event, sceneName: string) =>
+        getGameExePathForScene(String(sceneName ?? '')),
+    );
+
+    ipcMain.handle(
+        'texthook.setGameExePath',
+        async (_event, payload: { sceneName?: string; path?: string } | undefined) => {
+            const sceneName = String(payload?.sceneName ?? '').trim();
+            const exePath = String(payload?.path ?? '').trim();
+            if (!sceneName) {
+                return { success: false, error: 'sceneName is required' };
+            }
+            setGameExePathForScene(sceneName, exePath);
+            // Write the exe basename through to the Python process-pausing target so the
+            // "Wayland override" (process_pausing.linux_target_process) stays in sync.
+            try {
+                await fetch(gsmBackendUrl('/linux/set_target_process'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target: exePath }),
+                });
+            } catch (err) {
+                emitLog(
+                    `Could not sync game executable to process-pausing target: ${(err as Error).message}`,
+                    'warn',
+                );
+            }
+            return { success: true };
+        },
+    );
+
+    ipcMain.handle('texthook.browseGameExe', async () => {
+        const options: Electron.OpenDialogOptions = {
+            title: 'Select the game executable',
+            properties: ['openFile'],
+            filters: [
+                { name: 'Executables', extensions: ['exe'] },
+                { name: 'All Files', extensions: ['*'] },
+            ],
+        };
+        const result =
+            mainWindow instanceof BrowserWindow
+                ? await dialog.showOpenDialog(mainWindow, options)
+                : await dialog.showOpenDialog(options);
+        if (result.canceled || result.filePaths.length === 0) {
+            return { canceled: true, path: '' };
+        }
+        return { canceled: false, path: result.filePaths[0] };
+    });
+
+    ipcMain.handle('texthook.autoDetectGameExe', async () => {
+        try {
+            const resp = await fetch(gsmBackendUrl('/linux/detect_game_exe'));
+            if (!resp.ok) {
+                return { path: '', error: `HTTP ${resp.status}` };
+            }
+            const data = (await resp.json()) as { path?: string };
+            return { path: typeof data?.path === 'string' ? data.path : '' };
+        } catch (err) {
+            return { path: '', error: (err as Error).message };
+        }
+    });
 
     ipcMain.handle('texthook.getEngineStatus', async () => getEngineStatus());
 

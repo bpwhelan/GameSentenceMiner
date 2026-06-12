@@ -284,10 +284,20 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         isSwitchEmulatorTargetMock.mockReturnValue(true);
         launcher.resolveSceneAgentScript = vi.fn().mockResolvedValue(sceneProfile.agentScriptPath);
         launcher.createSwitchContextValidator = vi.fn().mockReturnValue(validateContext);
+        launcher.getPidByProcessName = vi.fn().mockResolvedValue(4242);
         launcher.handleGame = vi.fn().mockResolvedValue(undefined);
 
-        await launcher.handleAgentAutomation(scene, 'Ryujinx.exe', sceneProfile, false);
+        const keepFastPolling = await launcher.handleAgentAutomation(
+            scene,
+            'Ryujinx.exe',
+            sceneProfile,
+            false
+        );
 
+        // Emulator process is running, so we keep polling fast to react to
+        // game launches/exits via the window title.
+        expect(keepFastPolling).toBe(true);
+        expect(launcher.getPidByProcessName).toHaveBeenCalledWith('Ryujinx.exe');
         expect(getYuzuGamesConfigMock).not.toHaveBeenCalled();
         expect(isSwitchEmulatorTargetMock).toHaveBeenCalledWith('Ryujinx.exe', null);
         expect(launcher.createSwitchContextValidator).toHaveBeenCalledWith(
@@ -302,6 +312,61 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             1.5,
             validateContext
         );
+    });
+
+    it('stops the running agent when the Switch window title no longer matches the active game', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        const validateContext = vi.fn().mockResolvedValue(false);
+
+        launcher.getPidByProcessName = vi.fn().mockResolvedValue(1234);
+        launcher.isAgentAlreadyRunning = vi.fn().mockResolvedValue(true);
+        launcher.launchAgent = vi.fn();
+        const killSpy = vi.fn();
+        launcher.agentProcess = { kill: killSpy };
+        launcher.lastHookedPid = 1234;
+        launcher.lastHookedGameId = 'switch:game-a';
+
+        await launcher.handleGame(
+            'yuzu.exe',
+            'C:\\scripts\\NS_A.js',
+            'switch:game-a',
+            0,
+            validateContext
+        );
+
+        expect(validateContext).toHaveBeenCalledWith(1234);
+        expect(killSpy).toHaveBeenCalled();
+        expect(launcher.agentProcess).toBeNull();
+        expect(launcher.lastHookedPid).toBe(-1);
+        expect(launcher.launchAgent).not.toHaveBeenCalled();
+    });
+
+    it('leaves the running agent alone while the Switch window title still matches', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        const validateContext = vi.fn().mockResolvedValue(true);
+
+        launcher.getPidByProcessName = vi.fn().mockResolvedValue(1234);
+        launcher.launchAgent = vi.fn();
+        const killSpy = vi.fn();
+        launcher.agentProcess = { kill: killSpy };
+        launcher.lastHookedPid = 1234;
+        launcher.lastHookedGameId = 'switch:game-a';
+
+        await launcher.handleGame(
+            'yuzu.exe',
+            'C:\\scripts\\NS_A.js',
+            'switch:game-a',
+            0,
+            validateContext
+        );
+
+        expect(validateContext).toHaveBeenCalledWith(1234);
+        expect(killSpy).not.toHaveBeenCalled();
+        expect(launcher.agentProcess).not.toBeNull();
+        expect(launcher.lastHookedPid).toBe(1234);
+        expect(launcher.launchAgent).not.toHaveBeenCalled();
     });
 
     it('resolves legacy Switch Agent scripts from the emulator executable without yuzu scene config', async () => {

@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { getResourcesDir, isDev } from '../util.js';
+import { getBaseDir, getDefaultBaseDir } from '../data_dir.js';
 import { fileURLToPath } from 'url';
 
 // ES module equivalent of __dirname
@@ -48,7 +49,11 @@ let websocketStates = {
 };
 
 // Paths and settings
-const dataPath = path.join(process.env.APPDATA || path.join(os.homedir(), '.config'), 'gsm_overlay');
+// Consolidate the overlay's data under the active GSM data dir so it relocates with everything
+// else. When the data dir is the default location, keep the legacy %APPDATA%/gsm_overlay path.
+const dataPath = path.resolve(getBaseDir()) === path.resolve(getDefaultBaseDir())
+    ? path.join(process.env.APPDATA || path.join(os.homedir(), '.config'), 'gsm_overlay')
+    : path.join(getBaseDir(), 'gsm_overlay');
 fs.mkdirSync(dataPath, { recursive: true });
 
 const settingsPath = path.join(dataPath, 'settings.json');

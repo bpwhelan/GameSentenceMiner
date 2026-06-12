@@ -451,7 +451,7 @@ def download_obs_if_needed(stage_id: Optional[str] = "obs"):
                 with zipfile.ZipFile(obs_installer, "r") as zip_ref:
                     zip_ref.extractall(obs_path)
                 open(os.path.join(obs_path, "portable_mode"), "a").close()
-                write_obs_configs(obs_path)
+                write_obs_configs(obs_path, latest_release.get("tag_name"))
                 prune_obs_directory(obs_path)
                 logger.success(f"OBS extracted to {obs_path}.")
 
@@ -560,7 +560,69 @@ def write_default_scene_configs(obs_path):
             logger.debug(f"Created default scene config: {scene_name}")
 
 
-def write_obs_configs(obs_path):
+def _pack_obs_version(version_str):
+    """Pack an OBS version string (e.g. '31.0.2') into OBS's LastVersion integer.
+
+    OBS stores LastVersion using MAKE_SEMANTIC_VERSION(major, minor, patch) =
+    (major << 24) | (minor << 16) | patch. Setting it to the bundled version stops
+    the "What's New" / migration dialog from firing on first launch.
+    """
+    if not version_str:
+        return None
+    match = re.match(r"\s*v?(\d+)\.(\d+)(?:\.(\d+))?", version_str)
+    if not match:
+        return None
+    major, minor, patch = int(match.group(1)), int(match.group(2)), int(match.group(3) or 0)
+    return (major << 24) | (minor << 16) | patch
+
+
+def write_global_configs(obs_path, obs_version=None):
+    """Seed user.ini/global.ini so a fresh portable OBS skips its first-run prompts.
+
+    Without this file OBS treats the freshly-extracted portable install as brand new:
+    the EULA/"What's New" dialog and the Auto-Configuration Wizard (stream vs record,
+    resolution, FPS) both appear. FirstRun=true skips the wizard; LastVersion skips
+    the migration dialog; Profile/SceneCollection boot straight into the GSM profile
+    and scene collection we already seed. OBS 30.2+ uses user.ini (older builds use
+    global.ini) so we write both — whichever the bundled build reads lands ready.
+    """
+    config_dir = os.path.join(obs_path, "config", "obs-studio")
+    os.makedirs(config_dir, exist_ok=True)
+
+    packed_version = _pack_obs_version(obs_version)
+    last_version_line = f"LastVersion={packed_version}\n" if packed_version else ""
+
+    global_ini = (
+        "[General]\n"
+        "FirstRun=true\n"
+        f"{last_version_line}"
+        "Pre19Defaults=false\n"
+        "Pre21Defaults=false\n"
+        "Pre23Defaults=false\n"
+        "Pre24.1Defaults=false\n"
+        "\n"
+        "[Basic]\n"
+        "Profile=GSM\n"
+        "ProfileDir=GSM\n"
+        "SceneCollection=Untitled\n"
+        "SceneCollectionFile=Untitled\n"
+        "\n"
+        "[BasicWindow]\n"
+        "SysTrayEnabled=true\n"
+        "SysTrayWhenStarted=true\n"
+    )
+
+    for filename in ("user.ini", "global.ini"):
+        target = os.path.join(config_dir, filename)
+        if os.path.exists(target):
+            continue
+        with open(target, "w", encoding="utf-8") as global_ini_file:
+            global_ini_file.write(global_ini)
+        logger.debug(f"Wrote OBS {filename} to skip first-run prompts.")
+
+
+def write_obs_configs(obs_path, obs_version=None):
+    write_global_configs(obs_path, obs_version)
     write_websocket_configs(obs_path)
     write_replay_buffer_configs(obs_path)
     write_default_scene_configs(obs_path)

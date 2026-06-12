@@ -505,7 +505,7 @@ class ScreenshotCapture:
         try:
             advanced_config = getattr(get_config(), "advanced", None)
             return normalize_screenshot_capture_backend(
-                getattr(advanced_config, "screenshot_capture_backend", SCREENSHOT_CAPTURE_BACKEND_AUTO)
+                getattr(advanced_config, "screenshot_capture_backend_v2", SCREENSHOT_CAPTURE_BACKEND_AUTO)
             )
         except Exception as e:
             logger.debug(f"ScreenshotCapture: failed to read capture backend config: {e}")
