@@ -355,8 +355,8 @@ export async function checkAndInstallPython311(pythonPath: string): Promise<void
 
 /**
  * Purge uv's global package cache. Best-effort: cache cleanup should never fail
- * an install/update, so errors are logged and swallowed. Useful for reclaiming
- * any legacy cache left by older releases (current syncs use --no-cache).
+ * an install/update, so errors are logged and swallowed. Used by the retry/repair
+ * paths to recover from a corrupt cache before re-syncing.
  */
 export async function cleanUvCache(pythonPath: string): Promise<void> {
     try {
@@ -554,11 +554,6 @@ export async function syncLockedEnvironment(
         '--no-editable',
         '--no-install-project',
         '--inexact',
-        // Don't persist a global package cache on the user's machine. uv uses a
-        // temporary dir for the operation and discards it, so deps don't end up
-        // stored twice (cache + venv). Syncs are rare (install/update only), so
-        // the extra re-download cost is acceptable for the smaller footprint.
-        '--no-cache',
     ];
 
     if (checkOnly) {
@@ -588,8 +583,7 @@ export async function installPackageNoDeps(
     forceReinstall: boolean = false,
     onProgress?: (event: UvCommandProgressEvent) => void
 ): Promise<void> {
-    // --no-cache: don't persist a global package cache (see syncLockedEnvironment).
-    const args = ['-m', 'uv', 'pip', 'install', '--no-deps', '--upgrade', '--no-cache'];
+    const args = ['-m', 'uv', 'pip', 'install', '--no-deps', '--upgrade'];
     if (forceReinstall) {
         args.push('--force-reinstall');
     }

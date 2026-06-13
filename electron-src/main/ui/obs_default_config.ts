@@ -123,37 +123,6 @@ export const OBS_DEFAULT_SCENE_JSON = `{
         "monitoring_type": 0,
         "private_settings": {}
     },
-    "AuxAudioDevice1": {
-        "prev_ver": 536870915,
-        "name": "Mic/Aux",
-        "uuid": "cbadac0a-b67a-46c9-9ff5-e649bff42549",
-        "id": "wasapi_input_capture",
-        "versioned_id": "wasapi_input_capture",
-        "settings": {
-            "device_id": "default"
-        },
-        "mixers": 255,
-        "sync": 0,
-        "flags": 0,
-        "volume": 1.0,
-        "balance": 0.5,
-        "enabled": true,
-        "muted": true,
-        "push-to-mute": false,
-        "push-to-mute-delay": 0,
-        "push-to-talk": false,
-        "push-to-talk-delay": 0,
-        "hotkeys": {
-            "libobs.mute": [],
-            "libobs.unmute": [],
-            "libobs.push-to-mute": [],
-            "libobs.push-to-talk": []
-        },
-        "deinterlace_mode": 0,
-        "deinterlace_field_order": 0,
-        "monitoring_type": 0,
-        "private_settings": {}
-    },
     "current_scene": "GSM Helper - DONT TOUCH",
     "current_program_scene": "GSM Helper - DONT TOUCH",
     "scene_order": [

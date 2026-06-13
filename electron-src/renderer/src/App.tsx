@@ -856,7 +856,7 @@ export default function App() {
   const platform = window.gsmEnv?.platform ?? "win32";
   const isWindows = platform === "win32";
   const isLinux = platform === "linux";
-  const canTextHook = isWindows || isLinux;
+  const canTextHook = isWindows;
   const [activeTab, setActiveTab] = useState<TabId>("obs");
   const [showWizard, setShowWizard] = useState(false);
   const [wizardChecked, setWizardChecked] = useState(false);
