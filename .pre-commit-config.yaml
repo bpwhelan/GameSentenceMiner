@@ -4,3 +4,11 @@ repos:
     hooks:
       - id: ruff-format
         files: ^(GameSentenceMiner|tests|scripts)/.*\.py$|^concat_proj\.py$
+  - repo: local
+    hooks:
+      - id: sync-version
+        name: sync pyproject.toml version from package.json
+        entry: node scripts/sync-version.mjs --stage
+        language: system
+        files: ^(package\.json|pyproject\.toml)$
+        pass_filenames: false

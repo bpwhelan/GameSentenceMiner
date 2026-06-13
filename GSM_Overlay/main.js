@@ -35,19 +35,9 @@ protocol.registerSchemesAsPrivileged([
   }
 ]);
 
-// Legacy overlay data location (a sibling of the default GSM data dir).
-const legacyOverlayDir = process.env.APPDATA
+let dataPath = process.env.APPDATA
   ? path.join(process.env.APPDATA, "gsm_overlay") // Windows
   : path.join(os.homedir(), '.config', "gsm_overlay"); // macOS/Linux
-// Only relocate our data when GSM's data dir has actually been moved off the default location;
-// at the default location we keep reading the legacy path so existing settings are preserved.
-const defaultGsmDataDir = process.env.APPDATA
-  ? path.join(process.env.APPDATA, "GameSentenceMiner")
-  : path.join(os.homedir(), '.config', "GameSentenceMiner");
-const gsmDataDir = (process.env.GSM_DATA_DIR || '').trim();
-let dataPath = gsmDataDir && path.resolve(gsmDataDir) !== path.resolve(defaultGsmDataDir)
-  ? path.join(gsmDataDir, "gsm_overlay")
-  : legacyOverlayDir;
 
 fs.mkdirSync(dataPath, { recursive: true });
 app.setPath('userData', dataPath);

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 // Single source of truth: package.json `version`. This script copies it into
 // pyproject.toml's [project] version so the bundled Python backend always
@@ -29,6 +30,10 @@ const updated = pyproject.replace(projectVersionRe, `$1"${appVersion}"`);
 if (updated !== pyproject) {
   fs.writeFileSync(pyprojectPath, updated, "utf8");
   console.log(`[sync-version] pyproject.toml version set to ${appVersion}`);
+  // `--stage` re-adds the file so a pre-commit run produces a single, in-sync commit.
+  if (process.argv.includes("--stage")) {
+    spawnSync("git", ["add", pyprojectPath], { stdio: "inherit" });
+  }
 } else {
   console.log(`[sync-version] pyproject.toml already at ${appVersion}`);
 }
