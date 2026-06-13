@@ -71,15 +71,6 @@ jobs:
             package-lock.json
             GSM_Overlay/package-lock.json
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
-
       - name: Cache Electron binaries
         uses: actions/cache@v4
         with:
@@ -93,11 +84,13 @@ jobs:
       - name: Stamp version into package.json
         run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
 
-      - name: Build gamepad server (Windows)
+      - name: Fetch prebuilt overlay server (Windows)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
           New-Item -ItemType Directory -Force -Path GSM_Overlay/input_server/bin/win32 | Out-Null
-          Copy-Item GSM_Overlay/input_server/target/release/gsm_overlay_server.exe GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe -Force
+          gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-win32.exe --output GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe --clobber
 
       - name: Write prerelease metadata
         run: |
@@ -306,15 +299,6 @@ jobs:
             package-lock.json
             GSM_Overlay/package-lock.json
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
-
       - name: Cache Electron binaries
         uses: actions/cache@v4
         with:
@@ -328,20 +312,12 @@ jobs:
       - name: Stamp version into package.json
         run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
 
-      - name: Install Linux native build deps
+      - name: Fetch prebuilt overlay server (Linux)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libudev-dev \
-            libx11-dev \
-            libxtst-dev
-
-      - name: Build gamepad server (Linux)
-        run: |
-          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
           mkdir -p GSM_Overlay/input_server/bin/linux
-          cp GSM_Overlay/input_server/target/release/gsm_overlay_server GSM_Overlay/input_server/bin/linux/gsm_overlay_server
+          gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-linux --output GSM_Overlay/input_server/bin/linux/gsm_overlay_server --clobber
           chmod +x GSM_Overlay/input_server/bin/linux/gsm_overlay_server
 
       - name: Write prerelease metadata
@@ -400,15 +376,6 @@ jobs:
             package-lock.json
             GSM_Overlay/package-lock.json
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
-
       - name: Cache Electron binaries
         uses: actions/cache@v4
         with:
@@ -422,11 +389,12 @@ jobs:
       - name: Stamp version into package.json
         run: npm version ${{ needs.compute-version.outputs.PACKAGE_VERSION }} --no-git-tag-version --allow-same-version
 
-      - name: Build gamepad server (macOS)
+      - name: Fetch prebuilt overlay server (macOS)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
           mkdir -p GSM_Overlay/input_server/bin/darwin
-          cp GSM_Overlay/input_server/target/release/gsm_overlay_server GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
+          gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-darwin --output GSM_Overlay/input_server/bin/darwin/gsm_overlay_server --clobber
           chmod +x GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
 
       - name: Write prerelease metadata

@@ -1,7 +1,19 @@
 name: Build Overlay Server
 
+# Builds the Rust gsm_overlay_server binaries and publishes them to a single
+# rolling "overlay-server" release that the app release workflows pull from,
+# so they don't have to set up Rust and rebuild it every run.
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - GSM_Overlay/input_server/**
   workflow_dispatch:
+
+concurrency:
+  group: build-overlay-server-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-windows:
@@ -51,13 +63,25 @@ jobs:
           wait-for-completion: true
           output-artifact-directory: signed_output
 
-      - name: Upload signed binary
-        if: steps.sign.outcome == 'success'
+      - name: Stage binary for release (prefer signed)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          $signed = Get-ChildItem -Path signed_output -Recurse -File -Filter gsm_overlay_server.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($signed) {
+            Write-Host "Using signed binary: $($signed.FullName)"
+            Copy-Item $signed.FullName staging/gsm_overlay_server-win32.exe -Force
+          } else {
+            Write-Warning "Signed binary not available; falling back to unsigned."
+            Copy-Item GSM_Overlay/input_server/target/release/gsm_overlay_server.exe staging/gsm_overlay_server-win32.exe -Force
+          }
+
+      - name: Upload windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gsm-overlay-server-signed-windows
-          path: signed_output
-          if-no-files-found: warn
+          name: overlay-server-win32
+          path: staging/gsm_overlay_server-win32.exe
+          if-no-files-found: error
 
   build-linux:
     runs-on: ubuntu-latest
@@ -91,11 +115,16 @@ jobs:
       - name: Build gamepad server (Linux)
         run: cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
 
-      - name: Upload binary
+      - name: Stage binary for release
+        run: |
+          mkdir -p staging
+          cp GSM_Overlay/input_server/target/release/gsm_overlay_server staging/gsm_overlay_server-linux
+
+      - name: Upload linux artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gsm-overlay-server-linux
-          path: GSM_Overlay/input_server/target/release/gsm_overlay_server
+          name: overlay-server-linux
+          path: staging/gsm_overlay_server-linux
           if-no-files-found: error
 
   build-mac-arm64:
@@ -121,9 +150,50 @@ jobs:
       - name: Build gamepad server (macOS)
         run: cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
 
-      - name: Upload binary
+      - name: Stage binary for release
+        run: |
+          mkdir -p staging
+          cp GSM_Overlay/input_server/target/release/gsm_overlay_server staging/gsm_overlay_server-darwin
+
+      - name: Upload mac artifact
         uses: actions/upload-artifact@v4
         with:
-          name: gsm-overlay-server-mac-arm64
-          path: GSM_Overlay/input_server/target/release/gsm_overlay_server
+          name: overlay-server-darwin
+          path: staging/gsm_overlay_server-darwin
           if-no-files-found: error
+
+  publish:
+    runs-on: ubuntu-latest
+    needs:
+      - build-windows
+      - build-linux
+      - build-mac-arm64
+    permissions:
+      contents: write
+    steps:
+      - name: Download platform binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: overlay-server-*
+          path: staging
+          merge-multiple: true
+
+      - name: Publish to rolling overlay-server release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: overlay-server
+          name: Overlay Server Binaries
+          body: |
+            Prebuilt `gsm_overlay_server` binaries consumed by the app release
+            workflows. Auto-updated whenever `GSM_Overlay/input_server` changes.
+            Not a user-facing release.
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          files: |
+            staging/gsm_overlay_server-win32.exe
+            staging/gsm_overlay_server-linux
+            staging/gsm_overlay_server-darwin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
