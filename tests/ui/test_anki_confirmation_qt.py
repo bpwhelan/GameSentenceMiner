@@ -165,6 +165,7 @@ def test_refresh_audio_controls_shows_reused_audio_without_waveform():
     calls = []
     probe = SimpleNamespace(
         reusing_audio=True,
+        audio_player=SimpleNamespace(audio_available=True),
         audio_status_label=_WidgetProbe(),
         codec_info_label=_WidgetProbe(),
         waveform_widget=_WidgetProbe(),

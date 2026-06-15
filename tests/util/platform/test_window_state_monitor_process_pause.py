@@ -301,7 +301,7 @@ def test_posix_suspend_and_resume_roundtrip(monkeypatch, sleeper):
     assert _proc_state(pid) in ("S", "R", "D")  # running again
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process metadata via psutil")
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc + psutil process metadata")
 def test_posix_creation_time_is_stable_and_matches_record(monkeypatch, sleeper):
     monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
     pid = sleeper.pid
@@ -316,7 +316,7 @@ def test_posix_creation_time_is_stable_and_matches_record(monkeypatch, sleeper):
     assert window_state_monitor._process_matches_record(2**31 - 1, record) is False
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX process scan")
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc process scan")
 def test_resolve_linux_target_pid_matches_configured_name(monkeypatch, sleeper):
     monkeypatch.setattr(window_state_monitor, "is_windows", lambda: False)
     monkeypatch.setattr(window_state_monitor, "_get_detected_game_exe", lambda: "")
@@ -917,7 +917,11 @@ def test_x11_window_matches_class_and_title_both_required_when_both_stored():
 
     disp = _FakeDisp()
     # Class matches but title does not → must refuse (Xalia scenario).
-    assert window_state_monitor._x11_window_matches(disp, 201326595, "steam_app_2909400", "FINAL FANTASY VII REBIRTH") is False
+    assert (
+        window_state_monitor._x11_window_matches(disp, 201326595, "steam_app_2909400", "FINAL FANTASY VII REBIRTH")
+        is False
+    )
+
     # Both match → accept (actual game window).
     class _FakeGameWin:
         def get_wm_class(self):
@@ -933,7 +937,12 @@ def test_x11_window_matches_class_and_title_both_required_when_both_stored():
         def create_resource_object(self, kind, wid):
             return _FakeGameWin()
 
-    assert window_state_monitor._x11_window_matches(_FakeDispGame(), 226492419, "steam_app_2909400", "FINAL FANTASY VII REBIRTH") is True
+    assert (
+        window_state_monitor._x11_window_matches(
+            _FakeDispGame(), 226492419, "steam_app_2909400", "FINAL FANTASY VII REBIRTH"
+        )
+        is True
+    )
 
 
 # --- config migration leaves the user denylist untouched ---

@@ -478,7 +478,6 @@ class ScreenshotCapture:
         # Try WinAPI first on Windows (much faster) unless the profile is configured for OBS.
         if capture_backend != SCREENSHOT_CAPTURE_BACKEND_OBS and self._should_use_winapi(source_name):
             img = self._capture_windows(width=width, height=height)
-            img = None
             if img is not None:
                 self._winapi_failed_count = 0
                 return img

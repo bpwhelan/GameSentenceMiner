@@ -132,7 +132,14 @@ def test_add_line_to_text_log_uses_display_source_name_for_logging(monkeypatch):
             logged_messages.append(message)
 
     monkeypatch.setattr(gametext, "logger", DummyLogger())
-    monkeypatch.setattr(gametext, "get_config", lambda: SimpleNamespace(text_processing=SimpleNamespace()))
+    monkeypatch.setattr(
+        gametext,
+        "get_config",
+        lambda: SimpleNamespace(
+            text_processing=SimpleNamespace(),
+            advanced=SimpleNamespace(dont_collect_stats=False),
+        ),
+    )
     monkeypatch.setattr(gametext, "apply_text_processing", lambda line, _config: line)
     monkeypatch.setattr(gametext, "live_stats_tracker", SimpleNamespace(add_line=lambda *_args, **_kwargs: None))
     monkeypatch.setattr(gametext, "gsm_status", SimpleNamespace(last_line_received=""))
@@ -288,6 +295,7 @@ def test_add_line_to_text_log_relays_only_to_outputs_when_text_intake_paused(mon
         lambda: SimpleNamespace(
             text_processing=SimpleNamespace(),
             hotkeys=SimpleNamespace(relay_outputs_when_text_intake_paused=True),
+            advanced=SimpleNamespace(dont_collect_stats=False),
         ),
     )
     monkeypatch.setattr(gametext, "apply_text_processing", lambda line, _config: f"processed:{line}")
@@ -345,6 +353,7 @@ def test_add_line_to_text_log_schedules_overlay_without_waiting_for_remaining_li
         lambda: SimpleNamespace(
             text_processing=SimpleNamespace(),
             overlay=SimpleNamespace(check_previous_lines_for_recycled_indicator=True),
+            advanced=SimpleNamespace(dont_collect_stats=False),
         ),
     )
     monkeypatch.setattr(gametext, "apply_text_processing", lambda line, _config: line)
