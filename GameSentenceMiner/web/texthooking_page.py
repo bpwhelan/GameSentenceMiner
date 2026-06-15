@@ -1319,9 +1319,10 @@ class _LegacyMovedPageHandler(BaseHTTPRequestHandler):
 
     def _send_moved_page(self, include_body: bool = True):
         current_port = _get_single_port()
-        requested_host = (self.headers.get("Host") or "localhost").split(":", 1)[0] or "localhost"
-        requested_path = self.path if self.path else "/"
-        new_url = f"http://{requested_host}:{current_port}{requested_path}"
+        # Pin host to localhost and strip CR/LF + leading slashes so the Host header / request
+        # path can't be reflected into the Location header (open redirect / header injection).
+        requested_path = "/" + (self.path or "/").replace("\r", "").replace("\n", "").lstrip("/")
+        new_url = f"http://localhost:{current_port}{requested_path}"
 
         message = textwrap.dedent(f"""
             <!DOCTYPE html>

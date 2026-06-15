@@ -574,7 +574,7 @@ DEFAULT_WEBSOCKET_SOURCES: List[Dict[str, Any]] = [
 @dataclass
 class General:
     use_websocket: bool = True
-    use_clipboard: bool = True
+    use_clipboard: bool = False
     use_both_clipboard_and_websocket: bool = False
     merge_matching_sequential_text: bool = False
     websocket_uri: str = "localhost:6677,localhost:9001,localhost:2333"

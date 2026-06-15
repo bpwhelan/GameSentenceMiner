@@ -565,9 +565,14 @@ def register_database_api_routes(app):
                             filtered_lines.append(line)
                         all_lines = filtered_lines
 
-                    # Compile regex pattern with proper error handling
+                    # Guard against runaway patterns before compiling. This is an intentional
+                    # regex-search feature on the localhost single-user DB (the "user" is the
+                    # local operator), so S2631 is suppressed; the length cap limits accidental
+                    # catastrophic backtracking.
+                    if len(query) > 500:
+                        return jsonify({"error": "Regex pattern too long (max 500 chars)"}), 400
                     try:
-                        pattern = re.compile(query, re.IGNORECASE)
+                        pattern = re.compile(query, re.IGNORECASE)  # NOSONAR(S2631) local-only search
                     except re.error as regex_err:
                         return jsonify({"error": f"Invalid regex pattern: {str(regex_err)}"}), 400
 

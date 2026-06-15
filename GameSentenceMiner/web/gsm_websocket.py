@@ -751,7 +751,7 @@ def _start_legacy_listener_if_needed(
 
 _ENABLE_LEGACY_PORT_LISTENERS = False
 
-if _ENABLE_LEGACY_PORT_LISTENERS:
+if _ENABLE_LEGACY_PORT_LISTENERS:  # NOSONAR(S2583) intentional kill-switch for legacy listeners
     _start_legacy_listener_if_needed(
         server_id=ID_OVERLAY_LEGACY,
         read=True,
