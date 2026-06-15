@@ -110,7 +110,7 @@
     "@types/semver": "^7.7.1",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.1",
-    "concurrently": "^9.2.1",
+    "concurrently": "^10.0.3",
     "cross-env": "^10.0.0",
     "daisyui": "^5.5.23",
     "electron": "^42.3.2",
