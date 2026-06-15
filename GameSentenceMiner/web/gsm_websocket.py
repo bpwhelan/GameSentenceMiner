@@ -174,6 +174,7 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
 
         self.clients: Set[Any] = set()
         self.backedup_text = []
+        self._callback_tasks: Set[Any] = set()  # strong refs so fire-and-forget tasks aren't GC'd
 
     @property
     def loop(self):
@@ -206,7 +207,9 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
                     try:
                         callback_result = self.message_callback(message)
                         if asyncio.iscoroutine(callback_result):
-                            asyncio.create_task(callback_result)
+                            task = asyncio.create_task(callback_result)
+                            self._callback_tasks.add(task)
+                            task.add_done_callback(self._callback_tasks.discard)
                         await websocket.send("True")
                     except Exception as callback_error:
                         logger.error(f"[{self.server_name}] Error in message callback: {callback_error}")
@@ -331,6 +334,7 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
 
         self.clients_by_server_id: Dict[str, Set[Any]] = {}
         self.backup_by_server_id: Dict[str, list] = {}
+        self._callback_tasks: Set[Any] = set()  # strong refs so fire-and-forget tasks aren't GC'd
 
     @property
     def loop(self):
@@ -357,7 +361,9 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
             try:
                 callback_result = endpoint_spec.message_callback(message)
                 if asyncio.iscoroutine(callback_result):
-                    asyncio.create_task(callback_result)
+                    task = asyncio.create_task(callback_result)
+                    self._callback_tasks.add(task)
+                    task.add_done_callback(self._callback_tasks.discard)
                 await websocket.send("True")
             except Exception as callback_error:
                 logger.error(f"[{self.server_name}] Error in {server_id} callback: {callback_error}")

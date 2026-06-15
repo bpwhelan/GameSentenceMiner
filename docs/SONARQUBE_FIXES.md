@@ -29,6 +29,53 @@ smells**, 6.4% duplication, ~239k LOC. Issues by severity: 34 BLOCKER / 881 CRIT
 
 ---
 
+## Pass 2 (branch `sonarcube_fixes`, 2026-06-15) — risk-ranked bug batch
+
+Pulled fresh via REST API: 306 bugs / 15 vulns / 142 hotspots / 3433 smells. Worked Python
+first-party only, ranked by *real* risk rather than Sonar severity.
+
+**Genuine bugs fixed**
+- **[x] Real data bug (`python:S1226`, filed only MINOR)** — `util/database/db.py`
+  `set_gemini_models` / `set_groq_models` did `models = cls.all()` on the first line, shadowing the
+  `models` param so the caller's list was silently discarded. Renamed the local to `existing`; added
+  regression test `tests/util/database/test_db.py::test_set_gemini_groq_models_persist_their_input`.
+- **[x] Fire-and-forget tasks GC'd (`python:S7502`, 5)** — bare `asyncio.create_task(...)` kept no
+  strong ref. Added an instance-level task `set()` + `add_done_callback(discard)` in
+  `web/gsm_websocket.py` (2), `util/communication/bus_client.py`, and
+  `util/platform/windows_window_monitor.py` (via new `_spawn_reprocess_last_results`).
+- **[x] CancelledError swallowed (`python:S7497`, 1 real)** — `gsm.py` `background_tasks_async`:
+  dropped the `except CancelledError: pass`, kept `try/finally` so cancellation propagates. The two
+  overlay sites in `get_overlay_coords.py` are intentional (cancel-previous / replace-task) →
+  `# NOSONAR(S7497)`.
+- **[x] Sync `open()` in async (`python:S7493`, 3)** — `gsm.py` pid-file read/write wrapped in
+  `asyncio.to_thread`. The overlay `oneocr_results.json` dump is dev-only (`is_beangate`) →
+  `# NOSONAR(S7493)`.
+
+**Test-suite bugs fixed (low risk, better CI signal)**
+- **[x] `pythonbugs:S6466` possible `IndexError` (8)** — added non-empty `assert` guards before the
+  flagged subscripts in `tests/util/media/test_ffmpeg_screenshots.py`,
+  `tests/util/communication/test_*_ipc.py`, `tests/util/shared/test_base_api_client.py`.
+- **[x] `python:S3827` use-before-def (1)** — `tests/test_obs_source_selection.py:739` init
+  `first_client_id = None` up front.
+- **[x] `python:S1763` unreachable (2)** & **`python:S930` wrong args (1)** — false positives:
+  the `yield` after `raise` is required for `@contextmanager` to stay a generator; the
+  `trigger(False, "extra")` call exercises the decorator that absorbs extra Qt signal args. Both
+  `# NOSONAR` with a why.
+
+**Cheap cleanups / confirmed FPs**
+- **[x] `python:S1764` (1)** — `config/configuration.py` `1 / 1` → `1.0` (intentional 1:1 ratio).
+- **[x] `python:S1226` (1)** — `configuration.py:1582` folded the bare `previous: ProfileConfig`
+  annotation into the signature. (`obs_old.py:2131` left alone — dead module.)
+- **[x] `python:S1045` (1)** — `util/port_diagnostics.py` false positive (outer `except` vs nested
+  `kill()` handler are separate scopes) → `# NOSONAR(S1045)`.
+- **[x] `pythonbugs:S2583` (2)** — benchmark scripts' `if fraction >= 1:` is a real upper-bound
+  guard; Sonar misreads it as constant → `# NOSONAR(S2583)`.
+
+**Verification:** touched-file tests green (89 passed); full suite 1829 passed / 1 pre-existing
+failure (`test_stats_dashboard_e2e` session count, unrelated, fails identically on clean HEAD).
+
+---
+
 ## Remaining
 
 ### "Invariant return" methods (BLOCKER, `python:S3516`) — review, first-party only
@@ -43,14 +90,11 @@ quick fixes, some are intentional and can be marked won't-fix:
 
 ### Lower priority
 
-- **Test-suite bugs** (real, low-risk, improve CI signal):
-  - `python:S3827` undefined name — `tests/test_obs_source_selection.py:739`
-  - `python:S930` wrong args — `tests/ui/test_config_safety.py:64`
-  - `pythonbugs:S6466` possible `IndexError` — 8 hits across
-    `tests/util/media/test_ffmpeg_screenshots.py`, `tests/util/communication/test_*_ipc.py`,
-    `tests/util/shared/test_base_api_client.py`
-- **`python:S1244` float equality (127)** — comparing floats with `==`. Mostly mechanical
-  (`math.isclose`), but high count — do *after* scope-narrowing so you only touch first-party hits.
+- **`python:S1244` float equality (125)** — comparing floats with `==`. **All 125 are in test
+  files** (`assert x == 0.5` on exact literals): low real risk, high churn. Convert to
+  `math.isclose` as a separate mechanical pass if pursued at all.
+- **`python:S3776` cognitive complexity (308)**, `S125` commented code (62), `S116/S117/S100`
+  naming (119), `S1192` duplicate strings (52) — large mechanical/refactor efforts; separate batches.
 - **150 security hotspots** — review pass (these are "review", not confirmed vulns); the MCP
   `search_security_hotspots` / `show_security_hotspot` tools or the SonarCloud UI are best for this.
 

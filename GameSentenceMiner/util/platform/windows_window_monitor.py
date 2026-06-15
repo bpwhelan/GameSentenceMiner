@@ -145,6 +145,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         self.last_monitor_layout_signature: Optional[Tuple[Tuple[int, int, int, int], ...]] = None
         self.last_monitor_validation_time = 0.0
         self.minimized_audio_mutes: Dict[int, Tuple[Set[str], bool]] = {}
+        self._reprocess_tasks: set = set()  # strong refs so fire-and-forget reprocess tasks aren't GC'd
 
         self.BROWSER_CLASSES = {
             "Chrome_WidgetWin_1",
@@ -1199,7 +1200,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                     if not set_overlay_monitor_identity_from_index(overlay_cfg, monitor_bounds, best_monitor):
                         overlay_cfg.monitor_to_capture = best_monitor
                     get_master_config().save()
-                    asyncio.create_task(self.overlay_processor.reprocess_and_send_last_results())
+                    self._spawn_reprocess_last_results()
 
         self.update_magpie_info()
         magpie_changed = self.magpie_info != self.last_magpie_info
@@ -1258,12 +1259,17 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 logger.background(
                     "Window geometry, monitor topology, Magpie, or scene changed - reprocessing last OCR result"
                 )
-                asyncio.create_task(self.overlay_processor.reprocess_and_send_last_results())
+                self._spawn_reprocess_last_results()
             self.poll_interval = self.base_poll_interval
         else:
             self.poll_interval = min(self.max_poll_interval, self.poll_interval + 0.05)
 
         self.last_window_rect = current_rect
+
+    def _spawn_reprocess_last_results(self) -> None:
+        task = asyncio.create_task(self.overlay_processor.reprocess_and_send_last_results())
+        self._reprocess_tasks.add(task)
+        task.add_done_callback(self._reprocess_tasks.discard)
 
     async def activate_target_window(self) -> bool:
         if not is_windows():

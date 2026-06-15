@@ -61,7 +61,7 @@ def test_safe_config_methods_ignore_extra_signal_args() -> None:
         def trigger(self) -> None:
             calls.append("ran")
 
-    DemoConfigGui().trigger(False, "extra")
+    DemoConfigGui().trigger(False, "extra")  # NOSONAR(S930) decorator wraps trigger to absorb extra Qt signal args
 
     assert calls == ["ran"]
 

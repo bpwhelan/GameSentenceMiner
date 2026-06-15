@@ -72,6 +72,7 @@ def test_convenience_announce_helpers(monkeypatch):
     ocr_ipc.announce_config_reloaded()
     ocr_ipc.announce_force_stable_changed(True)
 
+    assert calls, "no IPC messages were sent"
     assert calls[0][0] == (ocr_ipc.OCREvent.STARTED.value,)
     assert calls[1][0] == (ocr_ipc.OCREvent.STOPPED.value,)
     assert calls[2][0] == (ocr_ipc.OCREvent.PAUSED.value, {"paused": True})

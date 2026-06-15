@@ -761,24 +761,24 @@ class AIModelsTable(SQLiteDBTable):
 
     @classmethod
     def set_gemini_models(cls, models: List[str]):
-        models = cls.all()
-        if not models:
+        existing = cls.all()  # don't shadow the `models` param with the row list
+        if not existing:
             new_model = cls(gemini_models=models, groq_models=[], last_updated=time.time())
             new_model.save()
             return
-        for model in models:
+        for model in existing:
             model.gemini_models = models
             model.last_updated = time.time()
             model.save()
 
     @classmethod
     def set_groq_models(cls, models: List[str]):
-        models = cls.all()
-        if not models:
+        existing = cls.all()  # don't shadow the `models` param with the row list
+        if not existing:
             new_model = cls(gemini_models=[], groq_models=models, last_updated=time.time())
             new_model.save()
             return
-        for model in models:
+        for model in existing:
             model.groq_models = models
             model.last_updated = time.time()
             model.save()

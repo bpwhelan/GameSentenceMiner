@@ -165,7 +165,7 @@ KNOWN_ASPECT_RATIOS = [
     # --- Vertical / Mobile ---
     {"name": "9:16 (Portrait Mode)", "ratio": 9 / 16},
     {"name": "3:4 (Portrait 4:3)", "ratio": 3 / 4},
-    {"name": "1:1 (Square / UI Capture)", "ratio": 1 / 1},
+    {"name": "1:1 (Square / UI Capture)", "ratio": 1.0},
 ]
 
 KNOWN_ASPECT_RATIOS_DICT = {item["name"]: item["ratio"] for item in KNOWN_ASPECT_RATIOS}
@@ -1579,8 +1579,7 @@ class ProfileConfig:
 
         return self
 
-    def restart_required(self, previous):
-        previous: ProfileConfig
+    def restart_required(self, previous: "ProfileConfig"):
         if any(
             [
                 previous.paths.folder_to_watch != self.paths.folder_to_watch,

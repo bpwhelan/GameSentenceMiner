@@ -868,7 +868,7 @@ class OverlayProcessor:
             self.current_task.cancel()
             try:
                 await self.current_task
-            except asyncio.CancelledError:
+            except asyncio.CancelledError:  # NOSONAR(S7497) we cancelled it on purpose; swallow is intended
                 logger.debug("Previous OCR task was cancelled")
 
         has_precomputed_payload = self._should_use_precomputed_overlay_payload(dict_from_ocr)
@@ -907,7 +907,7 @@ class OverlayProcessor:
         )
         try:
             await self.current_task
-        except asyncio.CancelledError:
+        except asyncio.CancelledError:  # NOSONAR(S7497) task gets replaced by a newer request; swallow is intended
             logger.debug("OCR task was cancelled")
 
     async def find_box_for_sentence(
@@ -2001,7 +2001,7 @@ class OverlayProcessor:
 
                 if is_beangate and LOG_RESULTS_TO_JSON:
                     op_start = time.time()
-                    with open("oneocr_results.json", "w", encoding="utf-8") as f:
+                    with open("oneocr_results.json", "w", encoding="utf-8") as f:  # NOSONAR(S7493) dev-only debug dump
                         f.write(json.dumps(self.last_raw_results, ensure_ascii=False, indent=2))
                     self._log_timing(op_start, "Write OCR results to JSON file")
 

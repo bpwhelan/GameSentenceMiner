@@ -560,7 +560,7 @@ def test_get_active_video_sources_can_suppress_connection_errors(monkeypatch):
         @contextlib.contextmanager
         def get_client(self):
             raise ConnectionError("OBS Client unavailable")
-            yield
+            yield  # NOSONAR(S1763) required so @contextmanager treats this as a generator
 
         def call(self, operation, retries=0, retryable=True):
             with self.get_client() as client:
@@ -728,6 +728,7 @@ def test_obs_connection_pool_recreates_client_after_failed_use(monkeypatch):
     pool = obs_module.OBSConnectionPool(host="localhost", port=4455, password="", timeout=1)
     pool.min_reconnect_interval = 0  # Allow immediate reconnect in tests
 
+    first_client_id = None  # defined up front in case get_client() raises before yielding
     with pytest.raises(RuntimeError):
         with pool.get_client() as client:
             first_client_id = client.client_id
@@ -946,7 +947,7 @@ def test_toggle_replay_buffer_does_not_retry_non_idempotent_calls(monkeypatch):
         def get_client(self):
             attempts.append("get_client")
             raise ConnectionError("socket is already closed")
-            yield
+            yield  # NOSONAR(S1763) required so @contextmanager treats this as a generator
 
         def call(self, operation, retries=0, retryable=True):
             with self.get_client() as client:

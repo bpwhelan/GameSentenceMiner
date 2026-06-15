@@ -10,11 +10,40 @@ from datetime import datetime
 
 from GameSentenceMiner.util.database import db as db_module
 from GameSentenceMiner.util.database.db import (
+    AIModelsTable,
     SQLiteDB,
     backup_db,
     schedule_database_backup,
     sync_tokenization_schema_state,
 )
+
+
+def test_set_gemini_groq_models_persist_their_input():
+    # Regression: set_gemini_models/set_groq_models used to overwrite the `models`
+    # param with cls.all(), silently discarding the caller's list.
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    original_db = AIModelsTable._db
+    db = SQLiteDB(path)
+    try:
+        AIModelsTable.set_db(db)
+
+        # create path (no existing row)
+        AIModelsTable.set_gemini_models(["gemini-a", "gemini-b"])
+        assert AIModelsTable.get_gemini_models() == ["gemini-a", "gemini-b"]
+
+        # update path (existing row) — previously kept the stale/empty list
+        AIModelsTable.set_gemini_models(["gemini-c"])
+        assert AIModelsTable.get_gemini_models() == ["gemini-c"]
+
+        # groq stored independently and also preserves its input
+        AIModelsTable.set_groq_models(["groq-x"])
+        assert AIModelsTable.get_groq_models() == ["groq-x"]
+        assert AIModelsTable.get_gemini_models() == ["gemini-c"]
+    finally:
+        db.close()
+        AIModelsTable._db = original_db
+        os.unlink(path)
 
 
 def test_read_only_connection_can_query_without_setting_wal():

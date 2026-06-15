@@ -71,6 +71,7 @@ def test_convenience_announce_helpers(monkeypatch):
     electron_ipc.announce_connected()
     electron_ipc.announce_status({"ready": True})
 
+    assert calls, "no IPC messages were sent"
     assert calls[0][0] == (electron_ipc.FunctionName.START.value,)
     assert calls[1][0] == (electron_ipc.FunctionName.STOP.value,)
     assert calls[2][0] == (

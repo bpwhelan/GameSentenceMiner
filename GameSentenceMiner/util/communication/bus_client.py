@@ -69,6 +69,7 @@ class BusClient:
         self._subscribers: Dict[str, List[EventHandler]] = {}
         self._request_handlers: Dict[str, RequestHandler] = {}
         self._pending: Dict[str, "asyncio.Future[Any]"] = {}
+        self._handler_tasks: set = set()  # strong refs so fire-and-forget handler tasks aren't GC'd
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -250,7 +251,9 @@ class BusClient:
             try:
                 result = handler(msg)
                 if asyncio.iscoroutine(result):
-                    asyncio.create_task(result)
+                    task = asyncio.create_task(result)
+                    self._handler_tasks.add(task)
+                    task.add_done_callback(self._handler_tasks.discard)
             except Exception as e:
                 logger.warning(f"BusClient handler for '{msg.get('topic')}' raised: {e}")
 

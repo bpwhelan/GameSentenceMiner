@@ -57,6 +57,7 @@ def test_video_to_anim_uses_configured_av1_encoder(monkeypatch, tmp_path):
     )
 
     assert result == str(output)
+    assert commands, "ffmpeg command was not invoked"
     assert commands[0][commands[0].index("-c:v") + 1] == "libsvtav1"
     assert "-preset" in commands[0]
 
@@ -102,6 +103,7 @@ def test_video_to_anim_uses_configured_avif_width_and_faststart(monkeypatch, tmp
         audio=False,
     )
 
+    assert commands, "ffmpeg command was not invoked"
     assert commands[0][commands[0].index("-vf") + 1] == "fps=12,scale=480:-1,pad=ceil(iw/2)*2:ceil(ih/2)*2"
     assert commands[0][commands[0].index("-movflags") + 1] == "+faststart"
 
@@ -136,6 +138,7 @@ def test_video_to_anim_adaptive_avif_compacts_long_clips(monkeypatch, tmp_path):
         audio=False,
     )
 
+    assert commands, "ffmpeg command was not invoked"
     assert commands[0][commands[0].index("-vf") + 1] == "fps=15,scale=720:-1,pad=ceil(iw/2)*2:ceil(ih/2)*2"
     assert commands[0][commands[0].index("-crf") + 1] == "33"
 
@@ -170,6 +173,7 @@ def test_video_to_anim_adaptive_avif_uses_config_as_short_clip_target(monkeypatc
         audio=False,
     )
 
+    assert commands, "ffmpeg command was not invoked"
     assert commands[0][commands[0].index("-vf") + 1] == "fps=30,scale=960:-1,pad=ceil(iw/2)*2:ceil(ih/2)*2"
     assert commands[0][commands[0].index("-crf") + 1] == "28"
 
@@ -216,6 +220,7 @@ def test_trim_animation_maps_animated_avif_stream(monkeypatch, tmp_path):
         fps=30,
     )
 
+    assert commands, "ffmpeg command was not invoked"
     command = commands[0]
     assert command[command.index("-map") + 1] == "0:1"
     assert command.index("-map") > command.index(str(source))

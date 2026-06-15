@@ -76,7 +76,7 @@ def percentile(values: list[float], fraction: float) -> float:
         raise ValueError("percentile() requires at least one value")
     if fraction <= 0:
         return min(values)
-    if fraction >= 1:
+    if fraction >= 1:  # NOSONAR(S2583) real upper-bound guard; Sonar misreads it as constant
         return max(values)
     s = sorted(values)
     idx = (len(s) - 1) * fraction
