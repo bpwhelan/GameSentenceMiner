@@ -728,16 +728,15 @@ def test_obs_connection_pool_recreates_client_after_failed_use(monkeypatch):
     pool = obs_module.OBSConnectionPool(host="localhost", port=4455, password="", timeout=1)
     pool.min_reconnect_interval = 0  # Allow immediate reconnect in tests
 
-    first_client_id = None  # defined up front in case get_client() raises before yielding
     with pytest.raises(RuntimeError):
-        with pool.get_client() as client:
-            first_client_id = client.client_id
+        with pool.get_client():
             raise RuntimeError("boom")
 
     with pool.get_client() as client:
         second_client_id = client.client_id
 
-    assert first_client_id == 0
+    # assert via created_clients (always populated) so the ids are definitely-defined
+    assert created_clients[0].client_id == 0
     assert second_client_id == 1
     assert created_clients[0].disconnected is True
 

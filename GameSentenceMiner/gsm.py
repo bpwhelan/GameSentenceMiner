@@ -309,6 +309,18 @@ def _get_run_text_hooker_page():
     return run_text_hooker_page
 
 
+# Module-level sync file helpers so async callers can offload them via asyncio.to_thread
+# (keeping open() out of the async function body).
+def _read_text_file(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def _write_text_file(path: str, content: str) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
 class AsyncBackgroundRunner:
     def __init__(self, name: str = "gsm-async"):
         self._name = name
@@ -1414,7 +1426,7 @@ class GSMApplication:
         pid_path = os.path.join(get_app_directory(), "current_pid.txt")
         current_pid = os.getpid()
         if os.path.exists(pid_path):
-            raw = await asyncio.to_thread(lambda: open(pid_path, "r").read())
+            raw = await asyncio.to_thread(_read_text_file, pid_path)
             pid = int(raw.strip())
             if pid != current_pid:
                 if psutil.pid_exists(pid) and "python" in psutil.Process(pid).name().lower():
@@ -1433,7 +1445,7 @@ class GSMApplication:
         current_pid = os.getpid()
         logger.info(f"Current process ID: {current_pid}")
         pid_path = os.path.join(get_app_directory(), "current_pid.txt")
-        await asyncio.to_thread(lambda: open(pid_path, "w").write(str(current_pid)))
+        await asyncio.to_thread(_write_text_file, pid_path, str(current_pid))
 
     def run(self, reloading: bool = False) -> None:
         self.initialize(reloading)
