@@ -14,7 +14,6 @@ smells**, 6.4% duplication, ~239k LOC. Issues by severity: 34 BLOCKER / 881 CRIT
 
 - **[x] Scope config** — added `.sonarcloud.properties` excluding vendored trees (owocr, mecab,
   yomitan, texthooker, node_modules, .venv, dist/build, minified assets). This is also the
-  **Google-API-key exception**: the `secrets:S6334` hits in owocr disappear because owocr is excluded.
 - **[x] Open redirect / header injection** — `web/texthooking_page.py` `_send_moved_page`: pin host
   to `localhost`, strip CR/LF + collapse leading slashes on the path. Clears `S5146`/`S6839`.
 - **[x] Wrong argument count** — `web` `ui/qt_main.py:302`: pass `for_overlay=False` to
@@ -23,9 +22,6 @@ smells**, 6.4% duplication, ~239k LOC. Issues by severity: 34 BLOCKER / 881 CRIT
   (intentional regex-search feature on the localhost single-user DB).
 - **[x] Intentional kill-switch** — `web/gsm_websocket.py:754` `# NOSONAR(S2583)` (deliberate
   `_ENABLE_LEGACY_PORT_LISTENERS = False` toggle, not a bug).
-
-**Still manual:** rotate the SonarCloud user token that was exposed in chat while wiring up the MCP
-(My Account → Security → revoke + regenerate; update the MCP `env`).
 
 ---
 
@@ -95,6 +91,14 @@ quick fixes, some are intentional and can be marked won't-fix:
   `math.isclose` as a separate mechanical pass if pursued at all.
 - **`python:S3776` cognitive complexity (308)**, `S125` commented code (62), `S116/S117/S100`
   naming (119), `S1192` duplicate strings (52) — large mechanical/refactor efforts; separate batches.
+- **Test-suite bugs** (real, low-risk, improve CI signal):
+  - `python:S3827` undefined name — `tests/test_obs_source_selection.py:739`
+  - `python:S930` wrong args — `tests/ui/test_config_safety.py:64`
+  - `pythonbugs:S6466` possible `IndexError` — 8 hits across
+    `tests/util/media/test_ffmpeg_screenshots.py`, `tests/util/communication/test_*_ipc.py`,
+    `tests/util/shared/test_base_api_client.py`
+- **`python:S1244` float equality (127)** — comparing floats with `==`. Mostly mechanical
+  (`math.isclose`), but high count — do *after* scope-narrowing so you only touch first-party hits.
 - **150 security hotspots** — review pass (these are "review", not confirmed vulns); the MCP
   `search_security_hotspots` / `show_security_hotspot` tools or the SonarCloud UI are best for this.
 
