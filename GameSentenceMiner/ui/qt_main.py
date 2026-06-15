@@ -299,7 +299,7 @@ class DialogManager(QObject):
         )
 
     async def minimum_char_size_async(self, current_size):
-        return await self._run_async(lambda cb: self._logic_minimum_char_size(current_size, cb))
+        return await self._run_async(lambda cb: self._logic_minimum_char_size(current_size, False, cb))
 
     def minimum_char_size_sync(self, current_size, for_overlay=False):
         return self._run_sync(lambda cb: self._logic_minimum_char_size(current_size, for_overlay, cb))
