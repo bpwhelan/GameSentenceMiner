@@ -2307,18 +2307,44 @@ class ScreenshotThread(threading.Thread):
     def windows_window_tracker(self):
         if _load_win32_capture_dependencies() is None:
             return
-        found = True
+        # Browsers (Chrome, etc.) spawn and destroy transient top-level windows, so a
+        # handle we latched onto can go invalid while the real window is still open.
+        # Don't tear OCR down on the first miss: try to re-acquire by title and only
+        # give up after the window has been gone for a sustained stretch.
+        WINDOW_LOST_GRACE_SECONDS = 10.0
+        lost_since = None
         while not terminated:
-            found = win32gui.IsWindow(self.window_handle)
-            if not found:
+            if win32gui.IsWindow(self.window_handle):
+                lost_since = None
+                if get_ocr_requires_open_window():
+                    self.screencapture_window_active = self.window_handle == win32gui.GetForegroundWindow()
+                else:
+                    self.screencapture_window_visible = not win32gui.IsIconic(self.window_handle)
+                time.sleep(0.2)
+                continue
+
+            # Handle went invalid — attempt to re-resolve it by the original title.
+            handle = None
+            if self.screen_capture_window:
+                handle, _ = self.get_windows_window_handle(self.screen_capture_window)
+            if handle:
+                logger.info("Re-acquired capture window handle after it went invalid.")
+                self.window_handle = handle
+                lost_since = None
+                continue
+
+            now = time.time()
+            if lost_since is None:
+                lost_since = now
+                logger.debug("Capture window handle invalid; will retry before giving up.")
+            elif now - lost_since >= WINDOW_LOST_GRACE_SECONDS:
                 break
-            if get_ocr_requires_open_window():
-                self.screencapture_window_active = self.window_handle == win32gui.GetForegroundWindow()
-            else:
-                self.screencapture_window_visible = not win32gui.IsIconic(self.window_handle)
             time.sleep(0.2)
-        if not found:
-            on_window_closed(False)
+
+        if terminated:
+            return
+        logger.info("Capture window gone for a sustained period; stopping OCR.")
+        on_window_closed(False)
 
     def capture_macos_window_screenshot(self, window_id):
         if _load_macos_capture_dependencies() is None:

@@ -23,6 +23,7 @@ import {
 } from "./settingsCatalog";
 import { SUPPORTED_LOCALES, useLocale, useTranslation } from "../../i18n";
 import type { SettingsCatalogOwner } from "../../types/settings";
+import { applyTheme, DEFAULT_THEME, THEME_GROUPS } from "../../lib/theme";
 
 const CATALOG_I18N_KEYS: Record<string, string> = {
   "desktop-appearance-startup": "desktopAppearance",
@@ -70,7 +71,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   visibleTabs: ["launcher", "stats", "python", "console"],
   statsEndpoint: "overview",
   singlePort: 7275,
-  locale: "en"
+  locale: "en",
+  theme: DEFAULT_THEME
 };
 
 const DEFAULT_UPDATE_STATUS: UpdateStatusSnapshot = {
@@ -145,7 +147,8 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
     customPythonPackage:
       value.customPythonPackage || DEFAULT_SETTINGS.customPythonPackage,
     statsEndpoint: value.statsEndpoint || DEFAULT_SETTINGS.statsEndpoint,
-    locale: value.locale || DEFAULT_SETTINGS.locale
+    locale: value.locale || DEFAULT_SETTINGS.locale,
+    theme: value.theme || DEFAULT_SETTINGS.theme
   };
 }
 
@@ -592,6 +595,29 @@ export function SettingsTab({ active }: SettingsTabProps) {
                     <option key={loc.code} value={loc.code}>
                       {loc.label}
                     </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="input-group">
+                <label htmlFor="theme-select">{t("settings.desktop.theme")}</label>
+                <select
+                  id="theme-select"
+                  value={settings.theme}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    applyTheme(next);
+                    patchSettings({ theme: next });
+                  }}
+                >
+                  {THEME_GROUPS.map((group) => (
+                    <optgroup key={group.category} label={t(group.labelKey)}>
+                      {group.themes.map((theme) => (
+                        <option key={theme.id} value={theme.id}>
+                          {theme.labelKey ? t(theme.labelKey) : theme.label}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </div>

@@ -612,6 +612,7 @@ export class OptionsUtil {
             this._updateVersion73,
             this._updateVersion74,
             this._updateVersion75,
+            this._updateVersion76_GSM,
         ];
         /* eslint-enable @typescript-eslint/unbound-method */
         if (typeof targetVersion === 'number' && targetVersion < result.length) {
@@ -1859,6 +1860,7 @@ export class OptionsUtil {
 
     /**
      *  - Forced security popup options to disabled for all profiles.
+     *  - Forced popup Body/Shadow themes to dark (required by GSM's glass overlay CSS).
      *  @type {import('options-util').UpdateFunction}
      */
     async _updateVersion76_GSM(options) {
@@ -1866,6 +1868,8 @@ export class OptionsUtil {
             const {general} = profile.options;
             general.useSecurePopupFrameUrl = false;
             general.usePopupShadowDom = false;
+            general.popupTheme = 'dark';
+            general.popupOuterTheme = 'dark';
         }
     }
 

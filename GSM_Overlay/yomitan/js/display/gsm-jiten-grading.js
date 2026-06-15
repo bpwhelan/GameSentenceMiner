@@ -7,8 +7,8 @@
  * (resolve the term to a wordId and call srs/review or srs/set-vocabulary-state),
  * so no API key or host permission lives in the Yomitan extension.
  *
- * It only appears when the overlay reports that "Jiten Reader" and the "Show
- * Jiten Grader Buttons" overlay setting are enabled. Kept as its own module so the fork stays mergeable
+ * It only appears when the overlay reports that BOTH "Jiten Reader" and "Jiten
+ * highlighting" are enabled. Kept as its own module so the fork stays mergeable
  * with upstream — wired in from popup-main.js with two lines and nothing else.
  *
  * Messaging (mirrors the existing gsm-yomitan-control bridge):
@@ -105,6 +105,9 @@ export class GsmJitenGrading {
             return;
         }
         this._renderButtons();
+        // Config can arrive after content already rendered (e.g. right after the
+        // popup opens), so make sure the bar is in the DOM, not just built.
+        this._ensureBarAttached();
         this._updateVisibility();
     }
 

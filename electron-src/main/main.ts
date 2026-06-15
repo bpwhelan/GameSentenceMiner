@@ -98,6 +98,8 @@ import {
     checkAndEnsurePip,
     cleanUvCache,
     getBundledBackendSpecifier,
+    getBundledBackendVersion,
+    getInstalledPackageVersion,
     installPackageNoDeps,
     isPackageInstalled,
     resolveRequestedExtras,
@@ -1815,7 +1817,8 @@ async function ensureAndRunGSM(
     devFaultInjector.maybeFail('startup.ensure_and_run_enter');
 
     let runtimePythonPath = pythonPath;
-    let isInstalled = await isPackageInstalled(runtimePythonPath, APP_NAME);
+    let installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
+    let isInstalled = installedVersion !== null;
 
     try {
         updateInstallStage(
@@ -1855,7 +1858,8 @@ async function ensureAndRunGSM(
         setPythonPath(runtimePythonPath);
         await checkAndEnsurePip(runtimePythonPath);
         await checkAndInstallUV(runtimePythonPath);
-        isInstalled = await isPackageInstalled(runtimePythonPath, APP_NAME);
+        installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
+        isInstalled = installedVersion !== null;
         updateInstallStage(
             'verify_runtime',
             'completed',
@@ -1927,10 +1931,27 @@ async function ensureAndRunGSM(
         );
     }
 
-    // Install the package itself if not present.
-    if (!isInstalled) {
+    // The backend is version-locked to this client. Reinstall when it's missing or
+    // when the installed version doesn't match the version bundled with this client
+    // (e.g. after the user installs an older/newer client) — a cheap offline check
+    // that only touches the network on an actual mismatch. Prerelease builds track a
+    // moving branch rather than a pinned version, so skip the version comparison there.
+    const bundledVersion = getBundledBackendVersion();
+    const isPreRelease = resolvePreReleaseBranch() !== null;
+    const versionMismatch =
+        isInstalled &&
+        !isPreRelease &&
+        bundledVersion !== null &&
+        installedVersion !== bundledVersion;
+    if (!isInstalled || versionMismatch) {
         const packageSpecifier = getBundledBackendSpecifier();
-        console.log(`${APP_NAME} is not installed. Installing ${packageSpecifier}...`);
+        if (versionMismatch) {
+            console.log(
+                `${APP_NAME} backend ${installedVersion} does not match bundled ${bundledVersion}. Installing ${packageSpecifier}...`
+            );
+        } else {
+            console.log(`${APP_NAME} is not installed. Installing ${packageSpecifier}...`);
+        }
         updateInstallStage(
             'gsm_package',
             'running',

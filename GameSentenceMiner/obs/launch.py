@@ -169,6 +169,17 @@ WINDOW_PRIORITY_EXE = 2  # match title, else any window of same executable
 # Default fallback when a source omits "priority": OBS behaves as class-match.
 DEFAULT_WINDOW_PRIORITY = WINDOW_PRIORITY_CLASS
 
+# Window classes shared by every Chromium/Electron app (Chrome, Edge, Brave,
+# Discord, VS Code, GSM itself, …). Class-priority fallback on these is meaningless
+# — it would happily retarget to a *different application* (e.g. Chrome → Edge) — so
+# we never fall back across executables when the configured class is one of these.
+_AMBIGUOUS_WINDOW_CLASSES = frozenset(
+    {
+        "chrome_widgetwin_0",
+        "chrome_widgetwin_1",
+    }
+)
+
 
 def compute_effective_window_target(
     configured: str,
@@ -198,6 +209,9 @@ def compute_effective_window_target(
 
     cfg_exe = cfg["exe"].lower()
     cfg_title_words = set(cfg["title"].lower().split())
+    # Chrome_WidgetWin_* and friends are shared across unrelated apps, so a class
+    # match tells us nothing — only ever fall back to the same executable.
+    cfg_class_ambiguous = cfg["window_class"].lower() in _AMBIGUOUS_WINDOW_CLASSES
 
     candidates = []
     for it in available:
@@ -207,6 +221,8 @@ def compute_effective_window_target(
         if priority == WINDOW_PRIORITY_CLASS and parsed["window_class"] != cfg["window_class"]:
             continue
         if priority == WINDOW_PRIORITY_EXE and parsed["exe"].lower() != cfg_exe:
+            continue
+        if cfg_class_ambiguous and parsed["exe"].lower() != cfg_exe:
             continue
         score = 0
         if parsed["exe"].lower() == cfg_exe:

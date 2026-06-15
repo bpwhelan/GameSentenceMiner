@@ -906,7 +906,7 @@ export function LauncherTab({ active }: LauncherTabProps) {
       }
       const progressPercent = Math.round(progress * 100);
       return {
-        backgroundImage: `linear-gradient(90deg, #2f8f49 ${progressPercent}%, #4a4a4a ${progressPercent}%)`
+        backgroundImage: `linear-gradient(90deg, var(--gsm-success) ${progressPercent}%, var(--gsm-surface-2) ${progressPercent}%)`
       };
     },
     [downloadingTool, downloadUiByTool]

@@ -1,7 +1,7 @@
 {
   "name": "gamesentenceminer",
   "productName": "GameSentenceMiner",
-  "version": "2026.6.12",
+  "version": "2026.6.13",
   "description": "GameSentenceMiner",
   "main": "dist/main/bootstrap.js",
   "scripts": {
@@ -41,7 +41,10 @@
       {
         "from": "electron-src/assets",
         "to": "resources/assets",
-        "filter": ["**/*", "!texthook/**"]
+        "filter": [
+          "**/*",
+          "!texthook/**"
+        ]
       },
       {
         "from": "GameSentenceMiner",
@@ -98,6 +101,7 @@
   "author": "Beangate",
   "license": "LGPL-3.0-only",
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.1",
     "@types/archiver": "^7.0.0",
     "@types/extract-zip": "^2.0.1",
     "@types/node": "^25.6.0",
@@ -108,12 +112,14 @@
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^9.2.1",
     "cross-env": "^10.0.0",
+    "daisyui": "^5.5.23",
     "electron": "^42.3.2",
     "electron-builder": "^26.8.1",
     "jsdom": "^29.1.1",
     "nodemon": "^3.1.14",
     "png-to-ico": "^3.0.1",
     "sharp": "^0.34.5",
+    "tailwindcss": "^4.3.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.10",
     "vitest": "^4.1.5",

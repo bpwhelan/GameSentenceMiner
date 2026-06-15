@@ -11,6 +11,7 @@ import { TextHookTab } from "./components/tabs/TextHookTab";
 import { TextProcessingTab } from "./components/tabs/TextProcessingTab";
 import { HomeTab } from "./components/tabs/HomeTab";
 import { useTranslation } from "./i18n";
+import { getTerminalColors, THEME_CHANGED_EVENT } from "./lib/theme";
 import type { InstallSessionSnapshot } from "../../shared/install_session";
 
 type TabId =
@@ -277,8 +278,7 @@ function ConsolePanel({
       cursorBlink: false,
       allowProposedApi: true,
       theme: {
-        foreground: "#EEEEEE",
-        background: "#1a1a1a",
+        ...getTerminalColors(),
         cursor: "#CFF5DB"
       }
     });
@@ -541,13 +541,19 @@ function ConsolePanel({
       fitAddon.fit();
     };
 
+    const handleThemeChange = () => {
+      term.options.theme = { ...getTerminalColors(), cursor: "#CFF5DB" };
+    };
+
     terminalRef.current.addEventListener("contextmenu", handleContextMenu);
     window.addEventListener("resize", handleResize);
+    window.addEventListener(THEME_CHANGED_EVENT, handleThemeChange);
 
     return () => {
       offStdout();
       offStderr();
       window.removeEventListener("resize", handleResize);
+      window.removeEventListener(THEME_CHANGED_EVENT, handleThemeChange);
       terminalRef.current?.removeEventListener("contextmenu", handleContextMenu);
       if (resizeTimerRef.current) {
         clearTimeout(resizeTimerRef.current);

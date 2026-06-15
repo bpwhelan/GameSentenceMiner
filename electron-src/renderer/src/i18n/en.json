@@ -460,6 +460,18 @@
       "iconCursedTray": "Cursed (Tray Icon Also)",
       "iconRandom": "Random",
       "iconRandomTray": "Random (Tray Icon Also)",
+      "theme": "Theme:",
+      "themeGroupDark": "Dark",
+      "themeGroupLight": "Light",
+      "themeGroupHighContrast": "High Contrast",
+      "themeGsmDark": "GSM Dark (Default)",
+      "themeLight": "Light",
+      "themeDracula": "Dracula",
+      "themeNord": "Nord",
+      "themeCatppuccin": "Catppuccin Mocha",
+      "themeSolarizedDark": "Solarized Dark",
+      "themeSolarizedLight": "Solarized Light",
+      "themeHighContrast": "High Contrast",
       "language": "Display Language (AI):",
       "startMinimized": "Start Console Minimized:",
       "showYuzuLauncher": "Show Yuzu Launcher:",
@@ -968,7 +980,7 @@
   "texthook": {
     "experimental": {
       "title": "Experimental",
-      "description": "This tab is still experimental. Hooks can be noisy or change between games, so verify the selected hook before saving a profile."
+      "description": "This tab is still experimental. Hooks can be noisy or change between games, so verify the selected hook before saving a profile. Text hooking is intended mostly for visual novels — for most other games OCR is the more reliable option."
     },
     "credits": {
       "text": "Credits",

@@ -5,6 +5,7 @@ import { DOCS_URLS } from "../../../../shared/docs";
 import { invokeIpc, onIpc, platformFromEnv, sendIpc } from "../../lib/ipc";
 import type { ObsScene } from "../../types/models";
 import { useTranslation } from "../../i18n";
+import { getTerminalColors, THEME_CHANGED_EVENT } from "../../lib/theme";
 
 type OcrPlatform = "win32" | "darwin" | "linux" | string;
 type ProcessPriority =
@@ -1059,8 +1060,7 @@ export function OCRTab({ active }: OcrTabProps) {
       cursorBlink: false,
       cursorInactiveStyle: "none",
       theme: {
-        foreground: "#eeeeee",
-        background: "#11151c",
+        ...getTerminalColors(),
         cursor: "transparent",
         cursorAccent: "transparent"
       }
@@ -1095,12 +1095,21 @@ export function OCRTab({ active }: OcrTabProps) {
         terminal.clearSelection();
       }
     };
+    const handleThemeChange = () => {
+      terminal.options.theme = {
+        ...getTerminalColors(),
+        cursor: "transparent",
+        cursorAccent: "transparent"
+      };
+    };
 
     terminalElementRef.current.addEventListener("contextmenu", handleContextMenu);
     window.addEventListener("resize", handleResize);
+    window.addEventListener(THEME_CHANGED_EVENT, handleThemeChange);
 
     return () => {
       window.removeEventListener("resize", handleResize);
+      window.removeEventListener(THEME_CHANGED_EVENT, handleThemeChange);
       terminalElementRef.current?.removeEventListener(
         "contextmenu",
         handleContextMenu

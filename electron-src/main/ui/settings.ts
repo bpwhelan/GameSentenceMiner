@@ -33,6 +33,8 @@ import {
     getStatsEndpoint,
     getTextCaptureWizardEnabled,
     getLocale,
+    getTheme,
+    setTheme,
     getTextractorPath32,
     getTextractorPath64,
     getUiMode,
@@ -905,6 +907,7 @@ function getSettingsSnapshot() {
         singlePort: getConfiguredSinglePort(),
         iconStyle: store.get('iconStyle') || 'gsm',
         locale: getLocale(),
+        theme: getTheme(),
         consoleMode: getConsoleMode(),
         setupWizardVersion: getSetupWizardVersion(),
         uiMode: getUiMode(),
@@ -1064,6 +1067,9 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         }
         if (typeof payload.iconStyle === 'string') {
             setIconStyle(payload.iconStyle || 'gsm');
+        }
+        if (typeof payload.theme === 'string') {
+            setTheme(payload.theme || 'gsm-dark');
         }
         if (typeof payload.locale === 'string') {
             const nextLocale = payload.locale || 'en';

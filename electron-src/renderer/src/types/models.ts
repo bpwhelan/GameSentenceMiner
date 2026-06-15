@@ -87,6 +87,7 @@ export interface AppSettings {
   statsEndpoint: string;
   singlePort: number;
   locale: string;
+  theme: string;
 }
 
 export interface GsmStatus {

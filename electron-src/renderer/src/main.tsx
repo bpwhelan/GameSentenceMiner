@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { I18nProvider } from "./i18n";
+import { applyTheme } from "./lib/theme";
 import "./styles.css";
 import "@xterm/xterm/css/xterm.css";
 
@@ -23,23 +24,26 @@ const suppressReactDevtoolsBanner = (original: (...args: unknown[]) => void) => 
 console.info = suppressReactDevtoolsBanner(originalConsoleInfo);
 console.log = suppressReactDevtoolsBanner(originalConsoleLog);
 
-async function getInitialLocale(): Promise<string> {
+async function getInitialSettings(): Promise<{ locale: string; theme?: string }> {
   try {
-    const settings = await window.ipcRenderer.invoke<{ locale?: string }>(
-      "settings.getSettings"
-    );
-    return settings?.locale || "en";
+    const settings = await window.ipcRenderer.invoke<{
+      locale?: string;
+      theme?: string;
+    }>("settings.getSettings");
+    return { locale: settings?.locale || "en", theme: settings?.theme };
   } catch (error) {
-    console.error("Failed to load initial locale:", error);
-    return "en";
+    console.error("Failed to load initial settings:", error);
+    return { locale: "en" };
   }
 }
 
 const root = createRoot(document.getElementById("root")!);
 
-void getInitialLocale().then((initialLocale) => {
+void getInitialSettings().then(({ locale, theme }) => {
+  // Apply the persisted theme before first paint to avoid a flash.
+  applyTheme(theme);
   root.render(
-    <I18nProvider initialLocale={initialLocale}>
+    <I18nProvider initialLocale={locale}>
       <App />
     </I18nProvider>
   );

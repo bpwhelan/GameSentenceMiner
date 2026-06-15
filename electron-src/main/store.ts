@@ -168,6 +168,7 @@ interface StoreConfig {
     visibleTabs: string[]; // Array of visible tab IDs
     statsEndpoint: string; // Stats tab endpoint
     locale: string; // UI language code (e.g. "en", "ukr")
+    theme: string; // Renderer UI theme id (daisyUI theme name)
     pythonPath: string;
     electronAppVersion: string;
     VN: VNConfig;
@@ -291,6 +292,7 @@ export const store = new Store<StoreConfig>({
         visibleTabs: ['launcher', 'stats', 'console'], // Default all tabs visible
         statsEndpoint: 'overview', // Default stats endpoint
         locale: 'en', // UI language code
+        theme: 'gsm-dark', // Default renderer UI theme
         hasCompletedSetup: false,
         consoleMode: 'simple', // 'simple' = need-to-know only, 'advanced' = full log
         setupWizardVersion: 0,
@@ -927,6 +929,14 @@ export function getLocale(): string {
 
 export function setLocale(locale: string): void {
     store.set("locale", locale);
+}
+
+export function getTheme(): string {
+    return store.get("theme") || "gsm-dark";
+}
+
+export function setTheme(theme: string): void {
+    store.set("theme", theme || "gsm-dark");
 }
 
 export function getHasCompletedSetup(): boolean {
