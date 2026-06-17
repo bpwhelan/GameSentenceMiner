@@ -144,9 +144,7 @@ def _run_ocr_pass(img, engine_obj, engine_name: str) -> tuple[Optional[str], Opt
     filtering = TextFiltering(lang=get_ocr_language())
     filtered_text, _orig_text = filtering(text, None, engine=engine_name, is_second_ocr=True)
     if get_ocr_language() in ("ja", "zh"):
-        filtered_text = post_process(
-            filtered_text, keep_blank_lines=get_ocr_keep_newline(TextSource.SCREEN_CROPPER)
-        )
+        filtered_text = post_process(filtered_text, keep_blank_lines=get_ocr_keep_newline(TextSource.SCREEN_CROPPER))
     return filtered_text, None
 
 

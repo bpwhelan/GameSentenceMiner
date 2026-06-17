@@ -264,6 +264,16 @@ function getGSMRecycledIndicatorSetting(gsmSettings = getGSMSettings()) {
   return DEFAULT_USER_SETTINGS.showRecycledIndicator === true;
 }
 
+// Manual-mode desktop background strategy from GSM config: "off" | "on_demand".
+function getManualModeBackgroundMode(gsmSettings = getGSMSettings()) {
+  const profileSettings = getCurrentGSMProfileSettings(gsmSettings);
+  const overlaySettings = profileSettings && typeof profileSettings.overlay === "object"
+    ? profileSettings.overlay
+    : {};
+  const mode = String(overlaySettings.manual_mode_desktop_background || "off").trim();
+  return mode || "off";
+}
+
 function syncGsmOwnedOverlaySettingsFromGSM(reason = "unknown") {
   const updates = {};
   const showRecycledIndicator = getGSMRecycledIndicatorSetting();
@@ -2604,8 +2614,13 @@ function blurAndRestoreFocus(options = {}) {
 
 function hideAndRestoreFocus(options = {}) {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.hide();
-    requestBackendFocusRestore("hide", options);
+    if (options.focusFirst) {
+      requestBackendFocusRestore("hide", options);
+      mainWindow.hide();
+    } else {
+      mainWindow.hide();
+      requestBackendFocusRestore("hide", options);
+    }
   }
 }
 
@@ -3593,6 +3608,20 @@ function requestManualOverlayScan(source = "overlay") {
   return true;
 }
 
+// Ask main (gsm.py) to capture + send the manual-mode desktop background. Must be called
+// BEFORE the overlay steals focus so the mss grab happens while the game still owns the
+// screen (exclusive-fullscreen games drop their frame once focus is lost).
+function requestManualModeBackground(source = "overlay") {
+  if (getManualModeBackgroundMode() === "off") return false;
+  if (!backend || !backend.connected) {
+    console.warn(`[ManualBackground] Cannot request background: backend not connected (source=${source})`);
+    return false;
+  }
+  backend.send({ type: "manual-mode-background-request", source: String(source || "overlay") });
+  console.log(`[ManualBackground] Desktop background requested (source=${source})`);
+  return true;
+}
+
 function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY) {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
 
@@ -3613,6 +3642,11 @@ function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
     console.log("[OverlayActivation] Blocked: Overlay is already visible.");
     return false;
   }
+
+  // Request the desktop background BEFORE we touch focus, so the grab happens while the
+  // game still owns the screen (see requestManualModeBackground).
+  const manualBackgroundMode = getManualModeBackgroundMode();
+  requestManualModeBackground(triggerSource);
 
   isOverlayVisible = true;
   mainWindow.webContents.send('show-overlay-hotkey', true);
@@ -3635,16 +3669,69 @@ function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
 
   // Mirror manual-mode behavior: bring overlay forward when manual flow is active.
   if (currentMagpieState.active || isManualMode()) {
-    mainWindow.show();
+    if (manualBackgroundMode === "on_demand") {
+      // Make the overlay visible WITHOUT focus first so the renderer actually composites
+      // the snapshot on-screen (hidden/occluded windows skip painting, so a deferred
+      // focus alone isn't enough). Only steal focus once the snapshot has genuinely
+      // painted — otherwise focus loss drops the exclusive-fullscreen frame and the
+      // desktop flashes through before the snapshot covers it.
+      mainWindow.showInactive();
+      waitForManualBackgroundThenFocus(triggerSource);
+    } else {
+      mainWindow.show();
+    }
   }
 
   return true;
+}
+
+let manualBackgroundShowTimer = null;
+let manualBackgroundPaintedHandler = null;
+
+// Steal focus for the overlay once the renderer confirms the manual-mode snapshot has
+// painted, with a fallback timeout so a missing/slow snapshot never wedges activation.
+// The window is already shown (inactive) by the caller, so this only restacks + focuses.
+function waitForManualBackgroundThenFocus(triggerSource) {
+  cancelManualBackgroundShowWait();
+
+  const doFocus = (reason) => {
+    cancelManualBackgroundShowWait();
+    try {
+      if (isOverlayVisible && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setAlwaysOnTop(true, "screen-saver");
+        if (typeof mainWindow.moveTop === "function") {
+          try { mainWindow.moveTop(); } catch (e) { /* moveTop unavailable on some platforms */ }
+        }
+        mainWindow.focus();
+        console.log(`[ManualBackground] Overlay focused after ${reason} (source=${triggerSource}).`);
+      }
+    } catch (e) { /* show/focus may be unavailable during rapid transitions */ }
+  };
+
+  manualBackgroundPaintedHandler = () => doFocus("snapshot painted");
+  ipcMain.once("manual-mode-background-painted", manualBackgroundPaintedHandler);
+  manualBackgroundShowTimer = setTimeout(() => doFocus("timeout fallback"), 600);
+}
+
+function cancelManualBackgroundShowWait() {
+  if (manualBackgroundShowTimer) {
+    clearTimeout(manualBackgroundShowTimer);
+    manualBackgroundShowTimer = null;
+  }
+  if (manualBackgroundPaintedHandler) {
+    ipcMain.removeListener("manual-mode-background-painted", manualBackgroundPaintedHandler);
+    manualBackgroundPaintedHandler = null;
+  }
 }
 
 function hideOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY) {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
 
   console.log(`[OverlayActivation] Attempting HIDE (${triggerSource})... Current State: ${isOverlayVisible ? "Visible" : "Hidden"}`);
+
+  // Drop any pending "show after snapshot painted" wait so a quick release can't trigger
+  // a stale show() after we've already hidden.
+  cancelManualBackgroundShowWait();
 
   // Always release the pause source even if overlay visibility is already false.
   requestOverlayResumeForSource(pauseSource);
@@ -3669,7 +3756,10 @@ function hideOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
     if (shouldKeepOverlayVisibleWhenManualInactive()) {
       showOverlayWithoutFocusForManualVisibleMode("manual-inactive-visible");
     } else {
-      hideAndRestoreFocus();
+      // When a desktop background snapshot is being shown, restore focus to the game
+      // before hiding the overlay so the game's frame is already active when the
+      // overlay disappears — this prevents a brief flash of the raw desktop.
+      hideAndRestoreFocus({ focusFirst: getManualModeBackgroundMode() !== "off" });
     }
   } else {
     console.log(

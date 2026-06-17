@@ -9,4 +9,5 @@ class LinuxWindowStateMonitor(BaseWindowStateMonitor):
     Process pausing, which is handled entirely by module-level functions in
     base_window_monitor, works independently of this class.
     """
+
     pass

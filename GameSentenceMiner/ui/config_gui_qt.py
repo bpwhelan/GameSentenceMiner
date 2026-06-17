@@ -105,6 +105,7 @@ from GameSentenceMiner.util.config.configuration import (
     Ai,
     Advanced,
     OverlayEngine,
+    OverlayManualBackgroundMode,
     get_app_directory,
     get_config,
     WHISPER_LARGE,
@@ -1029,6 +1030,11 @@ class ConfigWindow(QWidget):
                     ocr_area_config_use_exclusion_zones=self.ocr_area_config_use_exclusion_zones_check.isChecked(),
                     use_ocr_result_v2=self.use_ocr_result_check.isChecked(),
                     supplement_ocr_result_with_overlay=self.supplement_ocr_result_with_overlay_check.isChecked(),
+                    manual_mode_desktop_background=(
+                        OverlayManualBackgroundMode.ON_DEMAND.value
+                        if self.manual_mode_desktop_background_check.isChecked()
+                        else OverlayManualBackgroundMode.OFF.value
+                    ),
                     check_previous_lines_for_recycled_indicator=bool(
                         getattr(self.settings.overlay, "check_previous_lines_for_recycled_indicator", False)
                     ),
@@ -1599,6 +1605,7 @@ class ConfigWindow(QWidget):
         self.ocr_area_config_use_exclusion_zones_check = QCheckBox()
         self.use_ocr_result_check = QCheckBox()
         self.supplement_ocr_result_with_overlay_check = QCheckBox()
+        self.manual_mode_desktop_background_check = QCheckBox()
         self.check_previous_lines_for_recycled_indicator_check = QCheckBox()
         self.pause_text_intake_hotkey_edit = ClearableKeySequenceEdit()
         self.relay_outputs_when_text_intake_paused_check = QCheckBox()
@@ -3126,6 +3133,10 @@ class ConfigWindow(QWidget):
         self.use_ocr_result_check.setChecked(s.overlay.use_ocr_result_v2)
         self.supplement_ocr_result_with_overlay_check.setChecked(
             bool(getattr(s.overlay, "supplement_ocr_result_with_overlay", False))
+        )
+        self.manual_mode_desktop_background_check.setChecked(
+            getattr(s.overlay, "manual_mode_desktop_background", OverlayManualBackgroundMode.OFF.value)
+            == OverlayManualBackgroundMode.ON_DEMAND.value
         )
         self.check_previous_lines_for_recycled_indicator_check.setChecked(
             bool(getattr(s.overlay, "check_previous_lines_for_recycled_indicator", True))

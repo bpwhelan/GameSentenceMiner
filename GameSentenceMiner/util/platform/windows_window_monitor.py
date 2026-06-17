@@ -35,6 +35,14 @@ WINEVENT_OUTOFCONTEXT = 0x0000
 WINEVENT_SKIPOWNPROCESS = 0x0002
 WM_QUIT = 0x0012
 
+# UWP / Microsoft Store (Game Pass) titles render into an ApplicationFrameWindow owned by
+# ApplicationFrameHost.exe; the game's own Windows.UI.Core.CoreWindow is a child owned by the
+# game process — or absent entirely in exclusive fullscreen (e.g. RE7 Game Pass). OBS stores
+# either class in its window target, so both signal a UWP title that must be matched via the
+# frame, not by the game exe/class (which never match the top-level frame).
+_UWP_TARGET_CLASSES = {"Windows.UI.Core.CoreWindow", "ApplicationFrameWindow"}
+_UWP_HOST_CLASS = "ApplicationFrameWindow"
+
 # Curated set of keys the overlay is allowed to forward to the target game window.
 # name -> (virtual-key code, scan code, is_extended). Literal VK codes are used so this
 # table is safe to build at import time on non-Windows. Kept small/explicit on purpose:
@@ -124,6 +132,9 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         self.last_window_rect: Optional[Tuple[int, int, int, int]] = None
         self.base_poll_interval = 0.3
         self.fast_poll_interval = 0.1
+        # Periodic full-EnumWindows revalidation of a *held* target. Destroy/minimize/foreground
+        # are caught instantly by the Win32 event hooks, so this is just a slow safety net.
+        self.hwnd_revalidate_interval = 30.0
         self.backoff_steps = [0.1, 0.2, 0.3, 0.4, 0.5]
         self.max_poll_interval = 1.0
         self.last_obs_check_time = 0
@@ -136,6 +147,10 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         # Gates the lenient no-output wait: only honor it before we've ever seen the
         # window; once we've had it and lost it, the game is gone — hide immediately.
         self.ever_had_target_hwnd: bool = False
+        # Last hwnd we positively identified as the game, kept even after target_hwnd is
+        # cleared (e.g. an exclusive-fullscreen game going non-visible while minimized) so
+        # focus restore can still re-activate it. See activate_target_window.
+        self.last_known_target_hwnd: Optional[int] = None
         self.hidden_due_to_no_output: bool = False
         self.state_before_no_output_hide: Optional[str] = None
         self.is_fullscreen_before_no_output_hide: bool = False
@@ -653,11 +668,91 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             logger.debug(f"Error checking exclusive fullscreen: {e}")
             return False
 
+    def _target_is_uwp(self) -> bool:
+        """True when the OBS source targets a UWP/Store title (matched via the host frame)."""
+        return (self.last_target_info or {}).get("window_class", "") in _UWP_TARGET_CLASSES
+
+    def _uwp_app_exe_from_frame(self, frame_hwnd: int) -> str:
+        """Exe of the UWP app hosted by an ApplicationFrameWindow, or '' if unresolvable.
+
+        The app's CoreWindow is a child owned by a different process than the
+        ApplicationFrameHost frame. Exclusive-fullscreen UWP titles (RE7 Game Pass) expose
+        no such child, so this returns '' and callers fall back to a title match.
+        """
+        host_pid = _get_pid_for_hwnd(frame_hwnd)
+        found = {"exe": ""}
+
+        def _child_cb(child_hwnd, _extra):
+            child_pid = _get_pid_for_hwnd(child_hwnd)
+            if child_pid and child_pid != host_pid:
+                exe = self._get_window_exe_name(child_hwnd)
+                if exe:
+                    found["exe"] = exe
+                    return False
+            return True
+
+        cmp_func = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, ctypes.c_void_p)
+        user32.EnumChildWindows(frame_hwnd, cmp_func(_child_cb), 0)
+        return found["exe"]
+
+    def _find_uwp_target_hwnd(self) -> Optional[int]:
+        """Resolve a UWP/Store title's ApplicationFrameWindow via the desktop child list.
+
+        EnumWindows does not return these immersive frames (confirmed for Game Pass RE7),
+        so walk them with FindWindowExW, which traverses the desktop's child list directly.
+        """
+        if not user32:
+            return None
+
+        matches: List[int] = []
+        prev = 0
+        while True:
+            frame = user32.FindWindowExW(0, prev, _UWP_HOST_CLASS, None)
+            if not frame:
+                break
+            prev = frame
+            if user32.IsWindowVisible(frame) and self._uwp_frame_matches_target(frame):
+                matches.append(frame)
+
+        if not matches:
+            return None
+
+        fg = user32.GetForegroundWindow()
+        if fg in matches:
+            return fg
+        return matches[0]
+
+    def _uwp_frame_matches_target(self, frame_hwnd: int) -> bool:
+        tgt_exe = (self.last_target_info or {}).get("exe", "")
+        tgt_title = (self.last_target_info or {}).get("title", "")
+
+        # A resolvable hosted exe is authoritative (windowed UWP): match it directly.
+        app_exe = self._uwp_app_exe_from_frame(frame_hwnd)
+        if app_exe and tgt_exe:
+            return _exe_names_match(app_exe, tgt_exe)
+
+        # No CoreWindow child (exclusive fullscreen) — the OBS source title equals the
+        # frame title, so use it as the anchor.
+        if tgt_title:
+            frame_title = self._get_window_title(frame_hwnd)
+            if frame_title:
+                live = frame_title.strip().casefold()
+                target = tgt_title.strip().casefold()
+                return live == target or (len(target) > 3 and (target in live or live in target))
+        return False
+
     def _find_window_callback(self, hwnd, extra):
         if not user32.IsWindowVisible(hwnd):
             return True
 
         if self._is_browser_window(hwnd):
+            return True
+
+        # UWP/Store titles never match by exe/class on the top-level frame; resolve them
+        # through the ApplicationFrameWindow host instead and skip the normal logic.
+        if self._target_is_uwp():
+            if self._get_window_class(hwnd) == _UWP_HOST_CLASS and self._uwp_frame_matches_target(hwnd):
+                self.found_hwnds.append(hwnd)
             return True
 
         if self.last_target_info and not self._is_browser_class(hwnd):
@@ -753,6 +848,13 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         self.last_target_scene_name = get_current_scene()
         self.last_game_name = current_game if current_game else ""
         self.found_hwnds = []
+
+        # UWP/Store titles host their window in an ApplicationFrameWindow that EnumWindows does
+        # not return; resolve it via the desktop child list before the normal enumeration.
+        if self._target_is_uwp():
+            uwp_hwnd = self._find_uwp_target_hwnd()
+            if uwp_hwnd:
+                return uwp_hwnd
 
         cmp_func = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, ctypes.c_void_p)
         user32.EnumWindows(cmp_func(self._find_window_callback), 0)
@@ -1118,7 +1220,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         should_refresh_hwnd = False
         if not self.target_hwnd or self.retry_find_count > 10:
             should_refresh_hwnd = True
-        elif now - self.last_hwnd_refresh_time > 10.0:
+        elif now - self.last_hwnd_refresh_time > self.hwnd_revalidate_interval:
             should_refresh_hwnd = True
 
         if should_refresh_hwnd:
@@ -1139,6 +1241,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             return
 
         self.ever_had_target_hwnd = True
+        self.last_known_target_hwnd = self.target_hwnd
         self.hidden_due_to_no_output = False
 
         current_state = "unknown"
@@ -1276,7 +1379,16 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             logger.debug("Window activation only supported on Windows")
             return False
 
-        if not self.target_hwnd:
+        # Prefer the live target, but fall back to the last hwnd we positively identified.
+        # Exclusive-fullscreen games (e.g. RE7) go non-visible while minimized, which clears
+        # target_hwnd and makes find_target_hwnd skip them — but the hwnd is still valid and
+        # SW_RESTORE will bring it back.
+        hwnd = self.target_hwnd
+        if not hwnd and self.last_known_target_hwnd and user32.IsWindow(self.last_known_target_hwnd):
+            hwnd = self.last_known_target_hwnd
+            logger.debug(f"Activating last-known target hwnd {hwnd} (current target_hwnd is unset).")
+
+        if not hwnd:
             logger.debug("No target window to activate")
             return False
 
@@ -1284,7 +1396,9 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         for attempt_number, delay in enumerate(attempt_delays, start=1):
             if delay > 0:
                 await asyncio.sleep(delay)
-            if self._set_foreground_aggressive(self.target_hwnd, attempt_number=attempt_number):
+            if self._set_foreground_aggressive(hwnd, attempt_number=attempt_number):
+                # Restoring may have made the window valid/visible again — re-adopt it.
+                self.target_hwnd = hwnd
                 return True
 
         logger.debug(f"Failed to activate target window after {len(attempt_delays)} aggressive attempts")

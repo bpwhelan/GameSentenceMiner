@@ -30,6 +30,7 @@ from GameSentenceMiner.ocr.image_scaling import (
 from GameSentenceMiner.owocr.owocr.ocr_runtime import apply_ocr_config_to_image, TextFiltering
 from GameSentenceMiner.util.config.configuration import (
     OverlayEngine,
+    OverlayManualBackgroundMode,
     get_config,
     get_overlay_config,
     get_temporary_directory,
@@ -55,7 +56,10 @@ from GameSentenceMiner.util.text_log import (
     normalize_text_for_comparison,
 )
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
-from GameSentenceMiner.web.texthooking_page import send_word_coordinates_to_overlay
+from GameSentenceMiner.web.texthooking_page import (
+    send_manual_background_to_overlay,
+    send_word_coordinates_to_overlay,
+)
 
 # --- Configuration ---
 # Set to True only when debugging image issues to save CPU/Disk usage
@@ -1197,6 +1201,68 @@ class OverlayProcessor:
         if monitor_id or monitor_bounds:
             return self.get_monitor_workarea(monitor_index, monitor_id, monitor_bounds)
         return self.get_monitor_workarea(monitor_index)
+
+    @staticmethod
+    def _get_manual_background_mode() -> str:
+        """Returns the configured manual-mode desktop-background strategy."""
+        try:
+            return getattr(
+                get_overlay_config(),
+                "manual_mode_desktop_background",
+                OverlayManualBackgroundMode.OFF.value,
+            )
+        except Exception:
+            return OverlayManualBackgroundMode.OFF.value
+
+    @staticmethod
+    def _encode_pil_to_data_url(img: Image.Image, quality: int = 70) -> Optional[str]:
+        """JPEG-encode a PIL image into a base64 data URL for the overlay background."""
+        if img is None:
+            return None
+        try:
+            import base64
+            import io
+
+            buffer = io.BytesIO()
+            img.convert("RGB").save(buffer, format="JPEG", quality=quality)
+            encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+            return f"data:image/jpeg;base64,{encoded}"
+        except Exception as e:
+            logger.debug(f"Failed to encode manual-mode background image: {e}")
+            return None
+
+    def _capture_full_monitor_mss(self) -> Optional[Image.Image]:
+        """Grab a fresh full-monitor frame via mss for the on-demand background."""
+        if not mss or is_wayland():
+            return None
+        try:
+            monitor = self.get_configured_monitor_workarea()
+            with mss.mss() as sct:
+                sct_img = sct.grab(monitor)
+                return Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+        except Exception as e:
+            logger.debug(f"On-demand mss background capture failed: {e}")
+            return None
+
+    async def capture_and_send_manual_background(self) -> None:
+        """Paint a desktop snapshot behind the overlay for exclusive-fullscreen manual mode.
+
+        Triggered by the overlay app the instant manual mode activates (before it steals
+        focus from the game), so the fresh mss grab captures the game's last frame.
+        """
+        if self._get_manual_background_mode() == OverlayManualBackgroundMode.OFF.value:
+            return
+
+        img = self._capture_full_monitor_mss()
+        data_url = self._encode_pil_to_data_url(img)
+        if not data_url:
+            logger.debug("Manual-mode background: no image to send.")
+            return
+        logger.info("Sending manual-mode desktop background to overlay.")
+        try:
+            await send_manual_background_to_overlay(data_url)
+        except Exception as e:
+            logger.debug(f"Failed to send manual-mode background to overlay: {e}")
 
     def _get_screenshot_and_offset(
         self,

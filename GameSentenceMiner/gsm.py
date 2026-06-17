@@ -1339,8 +1339,9 @@ class GSMApplication:
         try:
             await asyncio.Event().wait()
         finally:
-            # let CancelledError propagate so the task is properly marked cancelled
-            cron_scheduler.stop()
+            # Daemon thread: signal it to wind down without blocking/warning, and let
+            # CancelledError propagate so the task is properly marked cancelled.
+            cron_scheduler.shutdown()
 
     async def start_text_monitor_async(self) -> None:
         await _get_gametext_module().start_text_monitor()

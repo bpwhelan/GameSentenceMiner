@@ -746,6 +746,11 @@ background: rgba(202, 12, 12, 0.692);
 
 
 <body style="margin:0px;">
+  <!-- Manual-mode desktop background: opaque snapshot painted behind the overlay for
+       exclusive-fullscreen games whose frame is dropped when manual mode steals focus. -->
+  <img id="manual-desktop-background" alt=""
+       style="display:none; position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:0; pointer-events:none;" />
+
   <!-- Hidden container for Jiten Reader to parse text -->
   <div id="jiten-parse-container"></div>
 
@@ -2573,6 +2578,11 @@ background: rgba(202, 12, 12, 0.692);
           return;
         }
 
+        if (data.type === "manual_mode_background") {
+          showManualDesktopBackground(data.image);
+          return;
+        }
+
         if (data.type === "yomitan_character_dictionary_changed") {
           console.log("[Yomitan] Character dictionary change event received:", data);
           scheduleGsmCharacterDictionaryEnsure(
@@ -3735,6 +3745,52 @@ background: rgba(202, 12, 12, 0.692);
     if (trans) trans.style.display = 'none';
   }
 
+  // Manual-mode desktop background: only shown while manual mode is active, cleared
+  // on release so the captured desktop snapshot never lingers over the live game.
+  function showManualDesktopBackground(imageDataUrl) {
+    const bg = document.getElementById('manual-desktop-background');
+    if (!bg || !imageDataUrl) return;
+    if (!manualHotkeyPressed) {
+      console.log('[ManualBackground] image received but manual mode not active; ignoring.');
+      return;
+    }
+    console.log('[ManualBackground] decoding desktop background (' + imageDataUrl.length + ' bytes).');
+
+    // Tell main the snapshot is on-screen so it can steal focus only now — otherwise an
+    // exclusive-fullscreen game drops its frame before the snapshot paints (flicker).
+    const signalPainted = () => {
+      // Two frames so the snapshot has actually been presented, not just laid out.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        ipcRenderer.send('manual-mode-background-painted');
+      }));
+    };
+    const reveal = () => {
+      bg.style.display = 'block';
+      signalPainted();
+    };
+    const unblock = () => {
+      // Never leave main waiting on a snapshot that failed to load.
+      console.warn('[ManualBackground] image failed to load; showing overlay anyway.');
+      ipcRenderer.send('manual-mode-background-painted');
+    };
+
+    bg.style.display = 'none';
+    bg.src = imageDataUrl;
+    if (typeof bg.decode === 'function') {
+      bg.decode().then(reveal).catch(() => { bg.onload = reveal; bg.onerror = unblock; });
+    } else {
+      bg.onload = reveal;
+      bg.onerror = unblock;
+    }
+  }
+
+  function clearManualDesktopBackground() {
+    const bg = document.getElementById('manual-desktop-background');
+    if (!bg) return;
+    bg.style.display = 'none';
+    bg.removeAttribute('src');
+  }
+
   function showTextBoxes() {
     const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.recycled-indicator', '.text-block-container'];
     selectors.forEach(sel => {
@@ -4315,6 +4371,7 @@ background: rgba(202, 12, 12, 0.692);
       showTextBoxes();
       ipcRenderer.send('set-ignore-mouse-events', false);
     } else {
+      clearManualDesktopBackground();
       const finishManualHotkeyRelease = () => {
         applyManualInactivePresentation('manual-hotkey-release');
       };
@@ -4344,6 +4401,7 @@ background: rgba(202, 12, 12, 0.692);
     if (shouldHide) {
       // Mirror the hotkey release behavior but mark it as AFK-driven
       manualHotkeyPressed = false;
+      clearManualDesktopBackground();
       if (!pinned) {
         document.body.classList.remove('force-visible');
       }

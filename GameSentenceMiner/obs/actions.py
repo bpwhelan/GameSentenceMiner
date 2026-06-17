@@ -21,12 +21,9 @@ from GameSentenceMiner.util.gsm_utils import (
 from GameSentenceMiner.obs.launch import (
     VIDEO_SOURCE_KINDS,
     _should_skip_image_validation,
-    _window_target_exists,
-    compute_effective_window_target,
     get_preferred_video_source,
     get_video_scene_items,
     is_image_empty,
-    parse_obs_window_target,
     sort_video_sources_by_preference,
 )
 
@@ -1159,64 +1156,6 @@ def get_linux_capture_window_info(client, scene_name: str = None):
         if result is not None:
             return result
     return None
-@with_obs_client(default=None, error_msg="Error reconciling window source target")
-def reconcile_window_source_target(client, scene_name: str = None):
-    """Retarget a window/game-capture source when OBS is capturing a fallback window.
-
-    When the configured ``Title:Class:Exe`` target isn't running but OBS still has
-    output (its match-priority picked a different window of the same class/exe), the
-    source's settings keep pointing at the dead window — so everything downstream that
-    reads ``get_window_info_from_source`` (overlay HWND, OCR, game name) targets a
-    window that no longer exists. We resolve what OBS actually captures from the
-    enumerated ``window`` property and rewrite the source so consumers self-heal.
-
-    Returns the new window string if a rewrite happened, else None.
-    """
-    if not scene_name:
-        return None
-
-    scene_items_response = client.get_scene_item_list(name=scene_name)
-    if not scene_items_response or not scene_items_response.scene_items:
-        return None
-
-    preferred = get_preferred_video_source(scene_items_response.scene_items)
-    if not preferred:
-        return None
-    source_name = preferred.get("sourceName")
-    if not source_name or preferred.get("inputKind") not in VIDEO_SOURCE_KINDS:
-        return None
-
-    settings_response = client.get_input_settings(name=source_name)
-    settings = settings_response.input_settings if settings_response else None
-    if not settings:
-        return None
-    configured = settings.get("window")
-    if not configured or not parse_obs_window_target(configured):
-        return None
-
-    # Configured target still running → nothing to fix (cheap check, no enumeration).
-    if _window_target_exists(configured):
-        return None
-
-    items_response = client.get_input_properties_list_property_items(source_name, "window")
-    property_items = items_response.property_items if items_response else []
-    if not property_items:
-        return None
-
-    new_target = compute_effective_window_target(
-        configured, property_items, priority=settings.get("priority")
-    )
-    if not new_target or new_target == configured:
-        return None
-
-    new_settings = dict(settings)
-    new_settings["window"] = new_target
-    client.set_input_settings(source_name, new_settings, True)
-    logger.info(
-        f"Retargeted OBS source '{source_name}' from '{configured}' to '{new_target}' "
-        f"(configured window not running; OBS was capturing a fallback)."
-    )
-    return new_target
 
 
 # ---------------------------------------------------------------------------

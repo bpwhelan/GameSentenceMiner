@@ -2220,7 +2220,7 @@ def check_and_run_migrations():
                     update_all_jiten_games,
                 )
 
-                result = update_all_jiten_games()
+                result = update_all_jiten_games(force=True)
                 logger.success(
                     f"✅ Jiten update completed: {result['updated_games']} games updated with genres and tags"
                 )

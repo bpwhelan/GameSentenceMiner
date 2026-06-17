@@ -29,6 +29,7 @@ def _local_timezone():
     """
     return datetime.datetime.now().astimezone().tzinfo or datetime.timezone.utc
 
+
 _last_publish_time = 0.0
 
 
@@ -64,9 +65,7 @@ def build_live_goals_payload(now: float | None = None) -> dict:
     user_tz = _local_timezone()
 
     _, current_goals, goals_settings, last_updated = _get_current_goals_payload()
-    dashboard = _build_goals_dashboard_payload(
-        current_goals, goals_settings, last_updated, user_tz=user_tz
-    )
+    dashboard = _build_goals_dashboard_payload(current_goals, goals_settings, last_updated, user_tz=user_tz)
     goal_progress = dashboard.get("goal_progress", {}) or {}
     today_progress = dashboard.get("today_progress", {}) or {}
     today_str = dashboard.get("today_date") or get_today_in_timezone(user_tz).isoformat()

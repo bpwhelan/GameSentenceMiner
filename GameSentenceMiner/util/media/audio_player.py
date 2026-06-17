@@ -11,6 +11,7 @@ import threading
 
 try:
     import sounddevice as sd
+
     sd_available = True
 except Exception:
     sd = None

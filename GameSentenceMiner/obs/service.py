@@ -328,9 +328,6 @@ class OBSService:
         self._tick_last_run_by_operation: Dict[str, float] = {}
         self._tick_running = False
 
-        # Window-source retarget reconciliation cooldown
-        self._reconcile_window_target_cooldown = 10.0
-
         # Scene-item refresh debounce
         self._pending_scene_item_refresh: Optional[str] = None
         self._scene_item_refresh_deadline = 0.0
@@ -883,27 +880,6 @@ class OBSService:
                 self.state.source_output_empty_since = now
         return result
 
-    def _reconcile_window_source_target(self, scene_name: str):
-        """Rewrite a window/game-capture source when OBS is capturing a fallback window.
-
-        Cheap-gated by a cooldown; the action itself short-circuits (via a psutil
-        check) before doing any window enumeration when the configured target is
-        still running. Only the main process (check_output=True) mutates OBS config.
-        """
-        if not scene_name:
-            return
-        now = time.time()
-        last = self._tick_last_run_by_operation.get("reconcile_window_target", 0.0)
-        if now - last < self._reconcile_window_target_cooldown:
-            return
-        self._tick_last_run_by_operation["reconcile_window_target"] = now
-        try:
-            from GameSentenceMiner.obs.actions import reconcile_window_source_target
-
-            reconcile_window_source_target(scene_name=scene_name, _suppress_obs_errors=True)
-        except Exception as e:
-            logger.debug(f"Window source reconciliation failed: {e}")
-
     # -- fit-to-screen -------------------------------------------------------
 
     def _schedule_fit_to_screen(self, scene_name: str, delay: float = 2.0):
@@ -1099,8 +1075,6 @@ class OBSService:
         if resolved.output_probe and current_scene:
             source_active = self._is_output_active_from_screenshot()
             self._tick_last_run_by_operation["output_probe"] = now
-            if self.check_output:
-                self._reconcile_window_source_target(current_scene)
 
         if not self.check_output or not resolved.manage_replay_buffer:
             return

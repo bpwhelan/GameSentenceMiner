@@ -127,6 +127,15 @@ def build_overlay_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.supplement_ocr_result_with_overlay_check,
     )
+    main_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "overlay",
+            "manual_mode_desktop_background",
+            color=LabelColor.ADVANCED,
+        ),
+        window.manual_mode_desktop_background_check,
+    )
 
     # Mutual exclusion: "use OCR result only" and "supplement with overlay" are exclusive
     @safe_config_call(name="overlay.sync_ocr_result_mutual_exclusion_use")

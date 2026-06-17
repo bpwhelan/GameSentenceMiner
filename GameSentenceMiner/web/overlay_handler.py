@@ -38,6 +38,8 @@ class OverlayRequestHandler:
                 await self.handle_translation_request()
             elif message_type == "manual-overlay-scan-request":
                 await self.handle_manual_overlay_scan_request(message)
+            elif message_type == "manual-mode-background-request":
+                await self.handle_manual_mode_background_request(message)
             elif message_type == "restore-focus-request":
                 await self.handle_restore_focus_request(message)
             elif message_type == "send-key-request":
@@ -161,6 +163,26 @@ class OverlayRequestHandler:
         except Exception as e:
             logger.exception(f"Failed handling manual overlay scan request: {e}")
 
+    async def handle_manual_mode_background_request(self, message: Optional[dict] = None):
+        """
+        Capture and send a desktop snapshot for the manual-mode overlay background.
+
+        Sent by the overlay app the moment manual mode activates, *before* it focuses the
+        overlay, so the grab happens while the game still owns the screen.
+        """
+        try:
+            overlay_processor = get_overlay_processor()
+            loop = getattr(overlay_processor, "processing_loop", None)
+            if not loop or not loop.is_running():
+                logger.warning("Overlay loop not ready yet; ignoring manual-mode background request.")
+                return
+            asyncio.run_coroutine_threadsafe(
+                overlay_processor.capture_and_send_manual_background(),
+                loop,
+            )
+        except Exception as e:
+            logger.exception(f"Failed handling manual-mode background request: {e}")
+
     async def handle_restore_focus_request(self, message: Optional[dict] = None):
         """
         Handle a focus restoration request from the overlay.
@@ -178,12 +200,25 @@ class OverlayRequestHandler:
                 await asyncio.sleep(delay_ms / 1000.0)
 
             overlay_processor = get_overlay_processor()
+            monitor = overlay_processor.window_monitor
+            if not monitor:
+                logger.debug("No window monitor available to restore focus.")
+                return
 
-            # Check if we have a window monitor with a target window
-            if overlay_processor.window_monitor and overlay_processor.window_monitor.target_hwnd:
-                await overlay_processor.window_monitor.activate_target_window()
-            else:
-                logger.debug("No target window to restore focus to")
+            # The cached hwnd can be cleared after the game was minimized — try to re-resolve,
+            # but activate_target_window also falls back to the last-known hwnd on its own.
+            if not monitor.target_hwnd:
+                try:
+                    monitor.target_hwnd = monitor.find_target_hwnd()
+                except Exception as e:
+                    logger.debug(f"find_target_hwnd during focus restore failed: {e}")
+
+            activated = await monitor.activate_target_window()
+            if not activated:
+                logger.warning(
+                    f"Focus restore failed (target_hwnd={monitor.target_hwnd}, "
+                    f"last_known={monitor.last_known_target_hwnd})."
+                )
 
         except Exception as e:
             logger.exception(f"Failed to restore focus to target window: {e}")

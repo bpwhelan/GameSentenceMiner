@@ -1089,15 +1089,15 @@ def _build_goals_dashboard_payload(
             else:
                 days_remaining = (end_date - today).days + 1
                 if metric_type == "finish_game":
-                    daily_required = calculate_finish_game_required_today(
-                        target_value, total_progress, end_date, today
-                    )
+                    daily_required = calculate_finish_game_required_today(target_value, total_progress, end_date, today)
                     easy_day_percentage = 100
                 else:
                     easy_day_multiplier = calculate_balanced_easy_day_multiplier(today, goals_settings)
                     easy_day_percentage = int(easy_day_multiplier * 100)
                     remaining_work = max(0, target_value - total_progress)
-                    daily_required = (remaining_work / days_remaining if days_remaining > 0 else 0) * easy_day_multiplier
+                    daily_required = (
+                        remaining_work / days_remaining if days_remaining > 0 else 0
+                    ) * easy_day_multiplier
                 today_progress[goal_id] = {
                     "required": format_metric_value(daily_required, base_metric),
                     "progress": format_metric_value(today_progress_value, base_metric),
@@ -1594,7 +1594,8 @@ def register_goals_api_routes(app):
                 overall_end = today if today <= end_date else end_date
                 progress = (
                     extract_game_metric_value(game_id, base_metric, start_date, overall_end)
-                    if today >= start_date else 0
+                    if today >= start_date
+                    else 0
                 )
                 days_in_range = (end_date - start_date).days + 1
                 return jsonify(
@@ -1748,15 +1749,15 @@ def register_goals_api_routes(app):
                 today_progress = extract_game_metric_value(game_id, base_metric, today, today)
                 days_remaining = (end_date - today).days + 1
                 if metric_type == "finish_game":
-                    daily_required = calculate_finish_game_required_today(
-                        target_value, total_progress, end_date, today
-                    )
+                    daily_required = calculate_finish_game_required_today(target_value, total_progress, end_date, today)
                     easy_day_percentage = 100
                 else:
                     easy_day_multiplier = calculate_balanced_easy_day_multiplier(today, goals_settings)
                     easy_day_percentage = int(easy_day_multiplier * 100)
                     remaining_work = max(0, target_value - total_progress)
-                    daily_required = (remaining_work / days_remaining if days_remaining > 0 else 0) * easy_day_multiplier
+                    daily_required = (
+                        remaining_work / days_remaining if days_remaining > 0 else 0
+                    ) * easy_day_multiplier
                 return jsonify(
                     {
                         "required": format_metric_value(daily_required, base_metric),
@@ -2886,7 +2887,9 @@ def register_goals_api_routes(app):
                     if game_id or metric_type == "finish_game":
                         if not target_value or target_value <= 0:
                             continue
-                        base_metric = "characters" if metric_type == "finish_game" else metric_type.replace("_static", "")
+                        base_metric = (
+                            "characters" if metric_type == "finish_game" else metric_type.replace("_static", "")
+                        )
 
                         if metric_type.endswith("_static"):
                             today_progress = extract_game_metric_value(game_id, base_metric, today, today)

@@ -49,6 +49,7 @@ _GOOGLE_VISION_DEPS = _UNINITIALIZED
 _AZURE_VISION_DEPS = _UNINITIALIZED
 _EASYOCR_MODULE = _UNINITIALIZED
 _RAPIDOCR_DEPS = _UNINITIALIZED
+_PADDLEOCR_MODULE = _UNINITIALIZED
 _WINOCR_MODULE = _UNINITIALIZED
 _ONEOCR_MODULE = _UNINITIALIZED
 _LENS_PROTO_DEPS = _UNINITIALIZED
@@ -220,6 +221,16 @@ def _load_rapidocr_dependencies():
         except ImportError:
             _RAPIDOCR_DEPS = None
     return _RAPIDOCR_DEPS
+
+
+def _load_paddleocr_module():
+    global _PADDLEOCR_MODULE
+    if _PADDLEOCR_MODULE is _UNINITIALIZED:
+        try:
+            _PADDLEOCR_MODULE = importlib.import_module("paddleocr")
+        except ImportError:
+            _PADDLEOCR_MODULE = None
+    return _PADDLEOCR_MODULE
 
 
 def _load_winocr_module():
@@ -4706,6 +4717,115 @@ class RapidOCR:
         return pil_image_to_numpy_array(img)
 
 
+def _paddle_model_name(ocr_version, size, kind):
+    # Builds e.g. "PP-OCRv6_tiny_det"; size tokens (tiny/small/medium) are PP-OCRv6's.
+    return f"{ocr_version}_{size}_{kind}"
+
+
+class PaddleOCR:
+    name = "paddleocr"
+    readable_name = "PaddleOCR"
+    key = "p"
+    config_entry = "paddleocr"
+    available = False
+    local = True
+    manual_language = True
+    coordinate_support = True
+    threading_support = True
+    capabilities = EngineCapabilities(
+        words=False,
+        word_bounding_boxes=False,
+        lines=True,
+        line_bounding_boxes=True,
+        paragraphs=False,
+        paragraph_bounding_boxes=False,
+    )
+
+    def __init__(self, config={}, lang="ja"):
+        paddleocr_module = _load_paddleocr_module()
+        if paddleocr_module is None:
+            logger.warning("paddleocr not available, PaddleOCR will not work!")
+            return
+
+        ocr_version = config.get("ocr_version", "PP-OCRv6")
+        det_size = config.get("det_model", "tiny")
+        rec_size = config.get("rec_model", "medium")
+        logger.info(f"Loading PaddleOCR model (det={det_size}, rec={rec_size})")
+        # Document-oriented stages slow things down and hurt game text; off by default.
+        # mkldnn (oneDNN) crashes some PP-OCR models on CPU, so it's off unless opted in.
+        self.model = paddleocr_module.PaddleOCR(
+            lang=self.language_to_model_language(lang),
+            ocr_version=ocr_version,
+            text_detection_model_name=_paddle_model_name(ocr_version, det_size, "det"),
+            text_recognition_model_name=_paddle_model_name(ocr_version, rec_size, "rec"),
+            device=config.get("device", "gpu" if config.get("gpu", False) else "cpu"),
+            enable_mkldnn=config.get("enable_mkldnn", False),
+            use_doc_orientation_classify=config.get("use_doc_orientation_classify", False),
+            use_doc_unwarping=config.get("use_doc_unwarping", False),
+            use_textline_orientation=config.get("use_textline_orientation", False),
+        )
+        self.available = True
+        logger.info("PaddleOCR ready")
+
+    def language_to_model_language(self, language):
+        return {
+            "ja": "japan",
+            "zh": "ch",
+            "ko": "korean",
+            "en": "en",
+            "es": "es",
+            "fr": "fr",
+            "de": "german",
+            "ru": "ru",
+            "ar": "ar",
+            "hi": "hi",
+        }.get(language, "en")
+
+    def _convert_bbox(self, poly, img_width, img_height):
+        (x1, y1), (x2, y2), (x3, y3), (x4, y4) = [(float(x), float(y)) for x, y in poly]
+        return quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height)
+
+    def _to_generic_result(self, response, img_width, img_height):
+        lines = []
+
+        for res in response or []:
+            texts = res["rec_texts"]
+            polys = res["rec_polys"]
+            for text, poly in zip(texts, polys):
+                bbox = self._convert_bbox(poly, img_width, img_height)
+                word = Word(text=text, bounding_box=bbox)
+                line = Line(bounding_box=bbox, words=[word], text=text)
+                lines.append(line)
+
+        if lines:
+            p_bbox = merge_bounding_boxes(lines)
+            paragraphs = [Paragraph(bounding_box=p_bbox, lines=lines)]
+        else:
+            paragraphs = []
+
+        return OcrResult(
+            image_properties=ImageProperties(width=img_width, height=img_height),
+            paragraphs=paragraphs,
+            engine_capabilities=self.capabilities,
+        )
+
+    def __call__(self, img, furigana_filter_sensitivity=0):
+        img, is_path = input_to_pil_image(img)
+        if not img:
+            return (False, "Invalid image provided")
+
+        read_results = self.model.predict(self._preprocess(img))
+        ocr_result = self._to_generic_result(read_results, img.width, img.height)
+        x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity)
+
+        if is_path:
+            img.close()
+        return x
+
+    def _preprocess(self, img):
+        return pil_image_to_numpy_array(img)
+
+
 class OCRSpace:
     name = "ocrspace"
     readable_name = "OCRSpace"
@@ -5643,6 +5763,91 @@ class OpenCvEastTextDetector(BaseTextDetector):
         finally:
             if is_path:
                 img_pil.close()
+
+
+class PaddleTextDetector(BaseTextDetector):
+    """Detection-only engine backed by PaddleOCR's standalone text detector."""
+
+    name = "paddle_text_detector"
+    readable_name = "PaddleOCR Text Detector"
+    key = "t"
+    config_entry = "paddle_text_detector"
+    local = True
+    manual_language = False
+    coordinate_support = True
+    threading_support = True
+    capabilities = EngineCapabilities(
+        words=False,
+        word_bounding_boxes=False,
+        lines=False,
+        line_bounding_boxes=False,
+        paragraphs=False,
+        paragraph_bounding_boxes=False,
+    )
+
+    def __init__(self, config=None, lang="ja"):
+        config = config or {}
+        self.default_confidence_threshold = float(config.get("confidence_threshold", 0.4))
+        self.crop_padding = int(config.get("crop_padding", 5))
+        self.model = None
+
+        paddleocr_module = _load_paddleocr_module()
+        if paddleocr_module is None:
+            logger.warning("paddleocr not available, PaddleTextDetector will not work!")
+            return
+
+        ocr_version = config.get("ocr_version", "PP-OCRv6")
+        det_size = config.get("det_model", "tiny")
+        logger.info(f"Loading PaddleTextDetector model (det={det_size})")
+        # mkldnn (oneDNN) crashes some PP-OCR models on CPU, so it's off unless opted in.
+        self.model = paddleocr_module.TextDetection(
+            model_name=_paddle_model_name(ocr_version, det_size, "det"),
+            device=config.get("device", "gpu" if config.get("gpu", False) else "cpu"),
+            enable_mkldnn=config.get("enable_mkldnn", False),
+        )
+        self.available = True
+        logger.info("PaddleTextDetector ready")
+
+    def __call__(
+        self,
+        img,
+        furigana_filter_sensitivity=0,
+        confidence_threshold: float = None,
+        **kwargs,
+    ):
+        if not self.available or self.model is None:
+            return (False, "PaddleTextDetector is not available.")
+
+        threshold = self._resolve_confidence_threshold(confidence_threshold)
+        img_pil, is_path = input_to_pil_image(img)
+        if not img_pil:
+            return (False, "Invalid image provided")
+
+        try:
+            input_image = np.array(img_pil.convert("RGB"))
+            detections = []
+            for res in self.model.predict(input_image):
+                polys = res.get("dt_polys")
+                scores = res.get("dt_scores")
+                for poly, score in zip(polys, scores):
+                    try:
+                        score = float(score)
+                    except (TypeError, ValueError):
+                        score = 1.0
+                    if score < threshold:
+                        continue
+                    xs = [float(p[0]) for p in poly]
+                    ys = [float(p[1]) for p in poly]
+                    detections.append({"box": [min(xs), min(ys), max(xs), max(ys)], "score": score})
+            result = self._as_detection_result(detections, input_image.shape[1], input_image.shape[0])
+        except Exception as e:
+            logger.error(f"PaddleTextDetector error: {e}")
+            result = (False, f"PaddleTextDetector error: {e}")
+        finally:
+            if is_path:
+                img_pil.close()
+
+        return result
 
 
 # --- EXAMPLE USAGE ---

@@ -104,6 +104,21 @@ if is_windows():
         ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, ctypes.c_void_p),
         ctypes.c_void_p,
     ]
+    # FindWindowExW walks the desktop's child list directly, which (unlike EnumWindows)
+    # returns immersive/UWP ApplicationFrameWindow top-levels (e.g. Game Pass RE7).
+    user32.FindWindowExW.argtypes = [
+        wintypes.HWND,
+        wintypes.HWND,
+        wintypes.LPCWSTR,
+        wintypes.LPCWSTR,
+    ]
+    user32.FindWindowExW.restype = wintypes.HWND
+    user32.EnumChildWindows.argtypes = [
+        wintypes.HWND,
+        ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, ctypes.c_void_p),
+        ctypes.c_void_p,
+    ]
+    user32.EnumChildWindows.restype = wintypes.BOOL
     user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
     user32.GetClassNameW.restype = ctypes.c_int
     user32.GetWindowThreadProcessId.argtypes = [

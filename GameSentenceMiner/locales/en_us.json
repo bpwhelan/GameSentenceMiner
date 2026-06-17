@@ -782,6 +782,10 @@
             "label": "Supplement OCR Result with Overlay Scan:",
             "tooltip": "When enabled, the overlay immediately shows pre-computed OCR results, then performs a supplemental overlay scan to make the rest of the screen lookupable too. The supplemental results are added without clearing the primary text."
           },
+          "manual_mode_desktop_background": {
+            "label": "Freeze Game Frame Behind Overlay (Exclusive Fullscreen):",
+            "tooltip": "For exclusive-fullscreen games (e.g. Resident Evil 7) whose frame disappears when manual mode steals focus: the instant manual mode activates, GSM grabs a fresh full-monitor snapshot and paints it behind the overlay, so lookups sit over the last game frame instead of your desktop. There may be some flicker, this is unavoidable."
+          },
           "check_previous_lines_for_recycled_indicator": {
             "label": "Check Previous Lines:",
             "tooltip": "Compare each incoming line against previously seen lines for the current game and mark recycled lines in the overlay. Warning: this loads a normalized cache of prior lines into RAM and can substantially increase memory usage depending on how many lines you have."

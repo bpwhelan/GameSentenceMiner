@@ -6,6 +6,7 @@ All module-level functions (process pausing, window geometry helpers, etc.) and
 constants defined in base_window_monitor are accessible via this module so that
 existing import sites need no changes.
 """
+
 from .base_window_monitor import *  # noqa: F401, F403
 from .base_window_monitor import (  # noqa: F401
     _load_suspended_pids,

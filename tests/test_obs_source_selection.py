@@ -100,44 +100,6 @@ def test_parse_obs_window_target_preserves_colons_in_title():
     }
 
 
-def test_compute_effective_window_target_does_not_jump_across_browsers():
-    """Chrome_WidgetWin_1 is shared by all Chromium apps — a dead Chrome source must
-    not be retargeted to an Edge (or any other-exe) window via class-match fallback."""
-    configured = "いけちゃん - YouTube - Google Chrome:Chrome_WidgetWin_1:chrome.exe"
-    property_items = [
-        {"itemValue": "YouTube - Youtube:Chrome_WidgetWin_1:msedge.exe", "itemEnabled": True},
-    ]
-
-    result = obs_launch_module.compute_effective_window_target(configured, property_items)
-
-    assert result is None
-
-
-def test_compute_effective_window_target_allows_same_browser_relaunch():
-    """A new Chrome window (same chrome.exe) is still a valid fallback."""
-    configured = "Old Page - Google Chrome:Chrome_WidgetWin_1:chrome.exe"
-    property_items = [
-        {"itemValue": "YouTube - Youtube:Chrome_WidgetWin_1:msedge.exe", "itemEnabled": True},
-        {"itemValue": "New Page - Google Chrome:Chrome_WidgetWin_1:chrome.exe", "itemEnabled": True},
-    ]
-
-    result = obs_launch_module.compute_effective_window_target(configured, property_items)
-
-    assert result == "New Page - Google Chrome:Chrome_WidgetWin_1:chrome.exe"
-
-
-def test_compute_effective_window_target_class_fallback_for_non_ambiguous_class():
-    """Real games keep the normal class-match fallback even across executables."""
-    configured = "Chapter 1:UnrealWindow:game.exe"
-    property_items = [
-        {"itemValue": "Chapter 2:UnrealWindow:game_dx12.exe", "itemEnabled": True},
-    ]
-
-    result = obs_launch_module.compute_effective_window_target(configured, property_items)
-
-    assert result == "Chapter 2:UnrealWindow:game_dx12.exe"
-
-
 def test_build_scheduled_tick_options_respects_intervals():
     service = obs.OBSService.__new__(obs.OBSService)
     service.tick_intervals = obs.OBSTickIntervals(
@@ -478,7 +440,6 @@ def test_obs_service_tick_applies_fit_before_screenshot_probe(monkeypatch):
     service._pending_scene_item_refresh = None
     service._scene_item_refresh_deadline = 0.0
     service._scene_item_debounce_seconds = 2.0
-    service._reconcile_window_target_cooldown = 10.0
 
     fit_calls = []
     monkeypatch.setattr(
