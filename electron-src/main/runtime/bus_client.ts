@@ -55,7 +55,8 @@ export const bus = {
         return getBroker().handle(topic, handler);
     },
     publish(dst: string, topic: string, data?: unknown, kind: 'event' | 'command' = 'event'): void {
-        getBroker().publish(dst, topic, data, kind);
+        // No-op once the bus is stopped (e.g. late child-process exits during quit).
+        broker?.publish(dst, topic, data, kind);
     },
     request<T = unknown>(dst: string, topic: string, data?: unknown, timeoutMs?: number): Promise<T> {
         return getBroker().request<T>(dst, topic, data, timeoutMs);

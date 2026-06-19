@@ -1,6 +1,6 @@
 """Lightweight stats helpers for GameSentenceMiner."""
 
-from typing import Iterable
+from typing import Iterable, Sequence
 
 
 # Adaptive reading time constants
@@ -11,6 +11,50 @@ FLOOR_SECONDS = 15.0  # Minimum time allowed for any line (even empty)
 ABSOLUTE_CEILING = 300.0  # Hard upper bound (5 min) on any single line's time
 MIN_CHARS_FOR_SPEED = 5  # Minimum chars for a line to be included in IQR analysis
 MIN_SAMPLES_FOR_IQR = 10  # Minimum lines needed before applying IQR filtering
+
+# --- v2 adaptive reading time constants ---
+# v2 caps each line at what it *should* take at the session's own median
+# reading speed, instead of a fixed seconds-per-char. Shared by the live
+# tracker (live_stats.py) and the historical calc (web/stats.py) so both agree.
+ADAPTIVE_FLOOR_SECONDS = 2.0  # Minimum time credited for any line in v2
+ADAPTIVE_TOLERANCE = 2.5  # Slack factor over the expected per-line time
+MIN_LINES_FOR_CPH = 5  # Lines required before live cph is shown (anti-spike guard)
+
+
+def _median(values: Sequence[float]) -> float:
+    """Median of a sequence; 0.0 when empty."""
+    if not values:
+        return 0.0
+    s = sorted(values)
+    n = len(s)
+    mid = n // 2
+    if n % 2:
+        return s[mid]
+    return (s[mid - 1] + s[mid]) / 2.0
+
+
+def session_median_cps(gaps: Iterable[tuple[float, int]]) -> float:
+    """Median chars/second from (gap_seconds, char_count) pairs.
+
+    Tiny lines and zero gaps are ignored so the reference speed reflects real
+    reading. Median is robust to the occasional AFK outlier.
+    """
+    speeds = [c / g for g, c in gaps if c >= MIN_CHARS_FOR_SPEED and g > 0]
+    return _median(speeds)
+
+
+def adaptive_cap_seconds(char_count: int, median_cps: float) -> float:
+    """Max plausible reading seconds for one line at the session's pace.
+
+    cap = char_count / median_cps * ADAPTIVE_TOLERANCE, with a small floor and
+    the shared absolute ceiling. Falls back to the fixed per-char cap until a
+    median speed is available (start of session).
+    """
+    if median_cps and median_cps > 0:
+        cap = max(ADAPTIVE_FLOOR_SECONDS, (char_count / median_cps) * ADAPTIVE_TOLERANCE)
+    else:
+        cap = max(ADAPTIVE_FLOOR_SECONDS, char_count * MAX_SEC_PER_CHAR)
+    return min(cap, ABSOLUTE_CEILING)
 
 
 def count_cards_from_line(line) -> int:

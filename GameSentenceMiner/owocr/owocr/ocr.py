@@ -3472,12 +3472,15 @@ class ScreenAIOCR:
                                 "words": line_words,
                             }
                         )
+                        # Use all four corners; x1/x3 alone aren't the AABB when rotated.
+                        xs = (line_rect["x1"], line_rect["x2"], line_rect["x3"], line_rect["x4"])
+                        ys = (line_rect["y1"], line_rect["y2"], line_rect["y3"], line_rect["y4"])
                         crop_coords_list.append(
                             (
-                                line_rect["x1"] - 5,
-                                line_rect["y1"] - 5,
-                                line_rect["x3"] + 5,
-                                line_rect["y3"] + 5,
+                                min(xs) - 5,
+                                min(ys) - 5,
+                                max(xs) + 5,
+                                max(ys) + 5,
                                 line_text,
                             )
                         )

@@ -27,6 +27,7 @@ import {
     isQuitting,
     mainWindow,
     restartGSM,
+    sendOcrStatus,
 } from '../main.js';
 import { getCurrentScene, ObsScene } from './obs.js';
 import { bus } from '../runtime/bus_client.js';
@@ -372,16 +373,20 @@ function ensureOcrSupervisorWired(): void {
         }
         if (state === 'starting') {
             sendToMainWindowFrames('ocr-started');
+            sendOcrStatus(true);
         } else if (state === 'stopped') {
             // Quiet during a restart's intermediate stop; only report a real stop.
             if (ocrStopRequested) {
                 sendToMainWindowFrames('ocr-stopped');
+                sendOcrStatus(false);
                 clearActiveOcrSession();
                 ocrStopRequested = false;
             }
         } else if (state === 'crashed') {
             console.log('[OCR] Process exited unexpectedly');
             sendToMainWindowFrames('ocr-stopped');
+            // Crash-safe: resume clipboard polling even though Python never sent a stop.
+            sendOcrStatus(false);
             clearActiveOcrSession();
             ocrStopRequested = false;
         }

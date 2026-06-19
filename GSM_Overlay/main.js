@@ -3626,6 +3626,10 @@ function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
   if (!mainWindow || mainWindow.isDestroyed()) return false;
 
   console.log(`[OverlayActivation] Attempting SHOW (${triggerSource})... Current State: ${isOverlayVisible ? "Visible" : "Hidden"}`);
+
+  // Re-activated before the previous release's hide delay elapsed — keep the overlay up.
+  cancelManualBackgroundRelease();
+
   ensureMainWindowIsOnConnectedDisplay(`manual-show:${triggerSource}`);
   const keepManualActivationFocusNeutral =
     shouldKeepOverlayVisibleWhenManualInactive() &&
@@ -3742,12 +3746,32 @@ function hideOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
   }
 
   isOverlayVisible = false;
-  mainWindow.webContents.send('show-overlay-hotkey', false);
 
   const preserveYomitanDuringManualHold =
     pauseSource === OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY &&
     normalizeManualModeType(userSettings.manualModeType) === "hold" &&
     yomitanShown;
+
+  // With a desktop-background snapshot up, hiding the overlay the instant focus is handed
+  // back flashes the raw desktop because the game hasn't re-taken the display yet. Keep the
+  // snapshot covering the screen, restore focus, then hide after the game has had a moment
+  // to redraw. (Mirror of the activation fix — there's no "game painted" signal to wait on.)
+  const deferReleaseForBackground =
+    getManualModeBackgroundMode() !== "off" &&
+    !preserveYomitanDuringManualHold &&
+    !resizeMode &&
+    !shouldKeepOverlayVisibleWhenManualInactive();
+
+  if (deferReleaseForBackground) {
+    if (!isLinux()) {
+      mainWindow.setIgnoreMouseEvents(true, { forward: true });
+    }
+    requestBackendFocusRestore("manual-release-background", { force: true });
+    scheduleManualBackgroundRelease(triggerSource);
+    return true;
+  }
+
+  mainWindow.webContents.send('show-overlay-hotkey', false);
 
   if (!preserveYomitanDuringManualHold && !resizeMode) {
     if (!isLinux()) {
@@ -3756,10 +3780,7 @@ function hideOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
     if (shouldKeepOverlayVisibleWhenManualInactive()) {
       showOverlayWithoutFocusForManualVisibleMode("manual-inactive-visible");
     } else {
-      // When a desktop background snapshot is being shown, restore focus to the game
-      // before hiding the overlay so the game's frame is already active when the
-      // overlay disappears — this prevents a brief flash of the raw desktop.
-      hideAndRestoreFocus({ focusFirst: getManualModeBackgroundMode() !== "off" });
+      hideAndRestoreFocus({ focusFirst: false });
     }
   } else {
     console.log(
@@ -3769,6 +3790,30 @@ function hideOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
   }
 
   return true;
+}
+
+// Delay between handing focus back to the game and hiding the snapshot-bearing overlay, so
+// the game can re-take the display and render a frame before the snapshot is removed.
+const MANUAL_BACKGROUND_RELEASE_DELAY_MS = 250;
+let manualBackgroundReleaseTimer = null;
+
+function scheduleManualBackgroundRelease(triggerSource) {
+  cancelManualBackgroundRelease();
+  manualBackgroundReleaseTimer = setTimeout(() => {
+    manualBackgroundReleaseTimer = null;
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (isOverlayVisible) return; // re-activated during the delay; keep the overlay up.
+    mainWindow.hide();
+    mainWindow.webContents.send('show-overlay-hotkey', false);
+    console.log(`[ManualBackground] Overlay hidden after game-refocus delay (source=${triggerSource}).`);
+  }, MANUAL_BACKGROUND_RELEASE_DELAY_MS);
+}
+
+function cancelManualBackgroundRelease() {
+  if (manualBackgroundReleaseTimer) {
+    clearTimeout(manualBackgroundReleaseTimer);
+    manualBackgroundReleaseTimer = null;
+  }
 }
 
 function saveSettings() {

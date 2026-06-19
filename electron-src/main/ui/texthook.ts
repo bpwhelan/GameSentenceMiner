@@ -29,7 +29,7 @@ import {
     getGameExePathForScene,
     setGameExePathForScene,
 } from '../store.js';
-import { mainWindow, sendTextHookLine } from '../main.js';
+import { mainWindow, sendTextHookLine, sendTextHookStatus } from '../main.js';
 import {
     TEXTHOOK_DOWNLOAD_DIR,
     FORCE_TEXTHOOK_DOWNLOAD,
@@ -174,8 +174,22 @@ function emitToRenderer(channel: string, payload: unknown): void {
     }
 }
 
+let lastBackendRunning: boolean | null = null;
+
 function emitStatus(): void {
-    emitToRenderer('texthook.status', getRuntimeStatus());
+    const status = getRuntimeStatus();
+    emitToRenderer('texthook.status', status);
+    // Notify the backend only when the running state actually changes, so it can
+    // pause/resume clipboard polling like a connected websocket source.
+    const running = Boolean(status.running);
+    if (running !== lastBackendRunning) {
+        lastBackendRunning = running;
+        try {
+            sendTextHookStatus(running);
+        } catch (err) {
+            console.warn('[TextHook] Failed to notify backend of hook status:', err);
+        }
+    }
 }
 
 function emitLog(message: string, level: 'info' | 'error' | 'warn' = 'info'): void {

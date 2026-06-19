@@ -63,6 +63,9 @@ class FunctionName(Enum):
     RESTART_PYTHON_APP = "restart_python_app"
     TEXTHOOK_TEXT = "texthook_text"
     OCR_RESULT = "ocr_result"
+    # In-house text source lifecycle (pauses clipboard while active, like a websocket).
+    OCR_STATUS = "ocr_status"
+    TEXTHOOK_STATUS = "texthook_status"
 
 
 CommandHandler = Callable[[Dict[str, Any]], None]
@@ -175,7 +178,12 @@ def _on_backend_command(busmsg: Dict[str, Any]) -> None:
 
 
 def _on_ocr_event(busmsg: Dict[str, Any]) -> None:
-    """Bridge an OCR broadcast result into the backend command handler."""
+    """Bridge an OCR broadcast result into the backend command handler.
+
+    OCR start/stop is signalled separately by Electron via the ocr_status
+    backend command (driven off the process lifecycle so a crash still resumes
+    clipboard polling), not from these Python-side broadcasts.
+    """
     data = busmsg.get("data") or {}
     if isinstance(data, dict) and data.get("event") == FunctionName.OCR_RESULT.value:
         _dispatch_command({"function": FunctionName.OCR_RESULT.value, "data": data.get("data")})

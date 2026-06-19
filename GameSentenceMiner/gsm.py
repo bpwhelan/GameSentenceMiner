@@ -327,6 +327,12 @@ class AsyncBackgroundRunner:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
         self._ready = threading.Event()
+        # asyncio only weakly references its tasks, and run_coroutine_threadsafe's
+        # returned future is the only strong ref to the scheduled task. Callers that
+        # discard it (fire-and-forget) let the GC collect a still-pending task, which
+        # closes the coroutine and runs its `finally` early. Hold the futures here so
+        # long-lived background tasks survive until they actually finish.
+        self._futures: set = set()
 
     def start(self) -> None:
         if self._thread:
@@ -359,7 +365,10 @@ class AsyncBackgroundRunner:
     def submit(self, coro: Coroutine[Any, Any, Any]):
         if not self._loop:
             raise RuntimeError("Async background loop is not running.")
-        return asyncio.run_coroutine_threadsafe(coro, self._loop)
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        self._futures.add(future)
+        future.add_done_callback(self._futures.discard)
+        return future
 
     def stop(self, timeout: float = 2) -> None:
         if not self._loop:
@@ -1116,10 +1125,24 @@ class GSMApplication:
                 self._handle_texthook_line(cmd.get("data") if isinstance(cmd, dict) else None)
             elif function == FunctionName.OCR_RESULT.value:
                 self._handle_ocr_result(cmd.get("data") if isinstance(cmd, dict) else None)
+            elif function == FunctionName.OCR_STATUS.value:
+                self._handle_inhouse_source_status("ocr", cmd.get("data") if isinstance(cmd, dict) else None)
+            elif function == FunctionName.TEXTHOOK_STATUS.value:
+                self._handle_inhouse_source_status("texthook", cmd.get("data") if isinstance(cmd, dict) else None)
             else:
                 logger.background(f"Unknown IPC command: {cmd}")
         except Exception as e:
             logger.background(f"Error handling IPC command: {e}")
+
+    def _handle_inhouse_source_status(self, source: str, data: Optional[dict]) -> None:
+        """Pause/resume clipboard polling when an in-house source (OCR/texthook) starts/stops."""
+        active = bool(data.get("active")) if isinstance(data, dict) else False
+        try:
+            from GameSentenceMiner import gametext as gametext_module
+
+            gametext_module.set_inhouse_source_active(source, active)
+        except Exception as e:
+            logger.background(f"Failed to set in-house source status for {source}: {e}")
 
     def _handle_ocr_result(self, data: Optional[dict]) -> None:
         """Forward OCR subprocess IPC results into the normal text-intake pipeline."""

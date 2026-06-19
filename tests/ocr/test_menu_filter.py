@@ -238,6 +238,40 @@ def test_check_text_is_in_black_hole_matches_box_overlap(monkeypatch):
     )
 
 
+def test_check_text_is_in_black_hole_skips_out_of_bounds_box(monkeypatch):
+    # A near-edge / out-of-frame box (e.g. a reconstructed ScreenAI line) must not
+    # abort the whole-frame check; a later in-frame line in the black hole still hits.
+    rectangles = [
+        SimpleNamespace(
+            is_secondary=False,
+            is_excluded=False,
+            is_exclusive=False,
+            is_black_hole=True,
+            coordinates=(0, 0, 100, 100),
+        ),
+    ]
+    fake_config = SimpleNamespace(rectangles=rectangles)
+
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_config)
+
+    crop_coords_list = [
+        (5, 5, 405, 95, "out of bounds"),  # box_right > width
+        (5, 5, 95, 95, "void"),  # inside the black hole
+    ]
+
+    assert run_module.check_text_is_in_black_hole(
+        (5, 5, 405, 95),
+        crop_coords_list,
+        crop_offset=(0, 0),
+    )
+
+
 def test_process_and_write_results_skips_black_hole_before_exclusive_filter(monkeypatch):
     rectangles = [
         SimpleNamespace(

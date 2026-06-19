@@ -3359,8 +3359,10 @@ def check_text_is_in_black_hole(
             return False
 
         box_left, box_top, box_right, box_bottom = original_box
+        # Reconstructed boxes (e.g. ScreenAI) can land a few px out of frame; skip
+        # just that box instead of aborting the whole-frame check.
         if box_left < 0 or box_top < 0 or box_right > original_width or box_bottom > original_height:
-            return False
+            continue
 
         if _box_overlaps_any_rectangle(original_box, black_hole_rectangles):
             return True

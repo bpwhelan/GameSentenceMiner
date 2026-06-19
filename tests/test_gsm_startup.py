@@ -1,4 +1,8 @@
+import asyncio
+import gc
 import sys
+import threading
+import time
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -274,6 +278,39 @@ def test_get_previous_lines_for_game_clears_cache_when_disabled(monkeypatch):
     app.get_previous_lines_for_game()
 
     assert text_log.game_log.previous_lines == set()
+
+
+def test_async_runner_keeps_fire_and_forget_task_alive_through_gc():
+    """A submitted task whose future the caller discards must not be GC-collected.
+
+    Regression for the cron scheduler dying right after startup: discarding the
+    future let the GC close the still-pending coroutine, running its `finally`
+    (cron_scheduler.shutdown) early. The runner must retain a strong reference.
+    """
+    runner = gsm_module.AsyncBackgroundRunner("gsm-test-async")
+    runner.start()
+
+    finally_ran = threading.Event()
+
+    async def long_lived():
+        try:
+            await asyncio.Event().wait()
+        finally:
+            finally_ran.set()
+
+    try:
+        # Fire-and-forget: deliberately drop the returned future.
+        runner.submit(long_lived())
+
+        # Force aggressive collection of any orphaned cycle.
+        for _ in range(3):
+            gc.collect()
+        time.sleep(0.2)
+
+        assert not finally_ran.is_set(), "task was collected mid-flight and ran its finally early"
+        assert len(runner._futures) == 1
+    finally:
+        runner.stop()
 
 
 def test_main_exits_when_single_instance_lock_is_unavailable(monkeypatch):

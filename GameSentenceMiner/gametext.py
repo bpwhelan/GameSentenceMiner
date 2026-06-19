@@ -64,6 +64,10 @@ current_websocket_uris = set()  # URIs we currently have listeners for
 _config_monitor_task = None  # Long-lived task watching config for URI changes
 text_monitor_initialized = False
 
+# In-house text sources (OCR, texthook). Like a connected websocket, an active
+# in-house source pauses clipboard polling so the same line isn't ingested twice.
+inhouse_sources_active = {}
+
 # Rate-based spam detection: keep the last 60 message timestamps per source.
 message_timestamps = defaultdict(lambda: deque(maxlen=60))
 rate_limit_active = defaultdict(bool)
@@ -263,6 +267,57 @@ def is_message_rate_limited(source="clipboard"):
 
 
 # ---------------------------------------------------------------------------
+# In-house text sources (OCR / texthook)
+# ---------------------------------------------------------------------------
+
+
+def set_inhouse_source_active(source: str, active: bool) -> None:
+    """Mark an in-house text source (e.g. "ocr", "texthook") active or inactive.
+
+    Mirrors websocket connect/disconnect: while any in-house source is active,
+    clipboard polling pauses (unless use_both_clipboard_and_websocket is set), so
+    the same line isn't ingested from both the bus and the clipboard.
+    """
+    key = (source or "").strip().lower()
+    if not key:
+        return
+    inhouse_sources_active[key] = bool(active)
+    logger.info(f"In-house text source '{key}' {'started' if active else 'stopped'}.")
+
+    # Report the actual clipboard outcome, not just this source's state: a still
+    # connected websocket or another active source keeps the clipboard paused even
+    # when this one stops, and use_both_clipboard_and_websocket disables pausing.
+    if get_config().general.use_both_clipboard_and_websocket:
+        logger.info("Clipboard stays active (use_both_clipboard_and_websocket is enabled).")
+        return
+    blockers = _clipboard_pause_blockers()
+    if blockers:
+        logger.info(f"Clipboard monitoring remains paused; still active: {', '.join(blockers)}.")
+    else:
+        logger.info("No other text sources active; clipboard monitoring will resume shortly.")
+
+
+def is_inhouse_source_active() -> bool:
+    return any(inhouse_sources_active.values())
+
+
+def _clipboard_pause_blockers() -> list[str]:
+    """Human-readable list of sources currently keeping clipboard polling paused."""
+    blockers = []
+    connected_ws = [resolve_websocket_source_name(uri) for uri, ok in websocket_connected.items() if ok]
+    blockers.extend(f"websocket: {name}" for name in connected_ws)
+    blockers.extend(source for source, ok in inhouse_sources_active.items() if ok)
+    return blockers
+
+
+def should_pause_clipboard_for_other_source() -> bool:
+    """True when a connected websocket or active in-house source should pause clipboard."""
+    if get_config().general.use_both_clipboard_and_websocket:
+        return False
+    return any(websocket_connected.values()) or is_inhouse_source_active()
+
+
+# ---------------------------------------------------------------------------
 # Clipboard monitoring
 # ---------------------------------------------------------------------------
 
@@ -286,13 +341,13 @@ async def monitor_clipboard():
             gsm_status.clipboard_enabled = False
             await asyncio.sleep(5)
             continue
-        if not get_config().general.use_both_clipboard_and_websocket and any(websocket_connected.values()):
+        if should_pause_clipboard_for_other_source():
             gsm_status.clipboard_enabled = False
             await asyncio.sleep(5)
             send_message_on_resume = True
             continue
         elif send_message_on_resume:
-            logger.info("No Websocket Connections, resuming Clipboard Monitoring.")
+            logger.info("No other text source active; Clipboard Monitoring resumed.")
             send_message_on_resume = False
         gsm_status.clipboard_enabled = True
         time_received = datetime.now()
@@ -458,7 +513,11 @@ async def listen_on_websocket(uri, stop_event=None):
     """Listen to a single websocket connection."""
     try_other = False
     websocket_source_name = resolve_websocket_source_name(uri)
-    reconnect_sleep_manager = SleepManager(initial_delay=0.5, name=f"WebSocket_{uri}")
+    # External websocket sources are niche now that OCR/texthook run in-house, so
+    # reconnect passively: start slow and back off to a long idle poll.
+    reconnect_sleep_manager = SleepManager(
+        initial_delay=2.0, backoff_factor=2.0, name=f"WebSocket_{uri}", max_delay=5.0
+    )
 
     while True:
         # Stop if this URI was removed from config.

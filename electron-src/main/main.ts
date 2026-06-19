@@ -2634,3 +2634,15 @@ export interface TextHookLinePayload {
 export function sendTextHookLine(payload: TextHookLinePayload): void {
     sendBackendCommand('texthook_text', { ...payload });
 }
+
+// Tell the backend when text hooking starts/stops so it can pause clipboard
+// polling while active (mirrors a connected websocket source).
+export function sendTextHookStatus(active: boolean): void {
+    sendBackendCommand('texthook_status', { active });
+}
+
+// Same as above for the OCR process. Driven from the OCR lifecycle so a crash
+// (not just a graceful stop) still resumes clipboard polling.
+export function sendOcrStatus(active: boolean): void {
+    sendBackendCommand('ocr_status', { active });
+}

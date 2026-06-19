@@ -75,8 +75,80 @@ def test_raw_reading_time_resets_on_session_gap():
     assert tracker.get_raw_reading_time() == 30.0
 
 
+def test_characters_credited_one_line_late():
+    # A line's characters are not counted until the next line arrives, so a
+    # huge line can't spike read speed the instant it appears.
+    tracker = LiveSessionTracker()
+    tracker.add_line("あ" * 10, 1000.0)
+    assert tracker.total_characters == 0  # nothing credited yet
+
+    tracker.add_line("あ" * 500, 1005.0)  # huge line, but first is now credited
+    assert tracker.total_characters == 10
+
+    tracker.add_line("あ" * 3, 1010.0)  # now the huge line gets credited
+    assert tracker.total_characters == 10 + 500
+
+
 def test_live_stats_field_options_are_copied():
     fields = get_live_stats_field_options()
     fields[0]["label"] = "Changed"
 
     assert get_live_stats_field_options()[0]["label"] == "Chars/hour"
+
+
+def _enable_v2(monkeypatch):
+    from types import SimpleNamespace
+    import GameSentenceMiner.util.stats.live_stats as live_mod
+
+    monkeypatch.setattr(
+        live_mod,
+        "get_stats_config",
+        lambda: SimpleNamespace(
+            reading_time_adaptive_v2=True,
+            session_gap_seconds=1800,
+            regex_out_repetitions=False,
+            extra_punctuation_regex="",
+        ),
+    )
+
+
+def test_v2_short_line_after_afk_costs_floor_not_15s(monkeypatch):
+    _enable_v2(monkeypatch)
+
+    tracker = LiveSessionTracker()
+    # Establish a ~2 cps reading pace across several 20-char lines.
+    for i in range(5):
+        tracker.add_line("あ" * 20, 1000.0 + i * 10)
+    # A 1-char line, then a long (but sub-gap) AFK before the next line.
+    tracker.add_line("x", 1050.0)
+    before = tracker.total_reading_seconds
+    tracker.add_line("next", 1350.0)  # 300s gap after the 1-char line
+
+    # The AFK gap is credited against the 1-char line → adaptive floor (2s),
+    # not v1's 15s floor.
+    assert tracker.total_reading_seconds - before == 2.0
+
+
+def test_v2_cph_guard_blocks_spike_until_enough_lines(monkeypatch):
+    _enable_v2(monkeypatch)
+
+    tracker = LiveSessionTracker()
+    # A couple of lines with a tiny denominator would otherwise read as a huge cph.
+    tracker.add_line("あ" * 20, 1000.0)
+    tracker.add_line("あ" * 20, 1006.0)
+    assert tracker.lines_count < 5
+    assert tracker.total_reading_seconds > 5  # would normally produce a cph
+    assert tracker.get_chars_per_hour() == 0  # ...but the guard suppresses the spike
+
+    # Once enough lines accrue, cph reports normally.
+    for i in range(2, 6):
+        tracker.add_line("あ" * 20, 1000.0 + i * 6)
+    assert tracker.get_chars_per_hour() > 0
+
+
+def test_v1_default_unchanged_floor(monkeypatch):
+    # With v2 off (default), a short line still uses the v1 15s floor.
+    tracker = LiveSessionTracker()
+    tracker.add_line("ab", 1000.0)
+    tracker.add_line("next", 1060.0)
+    assert tracker.total_reading_seconds == 15.0

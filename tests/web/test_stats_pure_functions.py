@@ -26,6 +26,9 @@ from GameSentenceMiner.util.stats.stats_util import (
     MAX_SEC_PER_CHAR as _MAX_SEC_PER_CHAR,
     FLOOR_SECONDS as _FLOOR_SECONDS,
     ABSOLUTE_CEILING as _ABSOLUTE_CEILING,
+    ADAPTIVE_FLOOR_SECONDS,
+    adaptive_cap_seconds,
+    session_median_cps,
 )
 
 
@@ -327,6 +330,70 @@ class TestAdaptiveIQRFiltering:
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
         # 12 gaps of 10s each = 120s, no outliers
         assert result == 120.0
+
+
+# ---------------------------------------------------------------------------
+# v2 adaptive reading time (shared helpers + calculate_actual_reading_time)
+# ---------------------------------------------------------------------------
+
+
+class TestAdaptiveCapHelpers:
+    """Pure shared helpers used by both the live tracker and the batch calc."""
+
+    def test_session_median_cps(self):
+        # 20 chars / 10s = 2 cps for the three reading lines; AFK line is the outlier.
+        gaps = [(10.0, 20), (10.0, 20), (10.0, 20), (600.0, 20)]
+        assert session_median_cps(gaps) == 2.0
+
+    def test_session_median_cps_ignores_tiny_lines(self):
+        assert session_median_cps([(10.0, 2), (10.0, 3)]) == 0.0
+
+    def test_session_median_cps_ignores_zero_gaps(self):
+        assert session_median_cps([(0.0, 20)]) == 0.0
+
+    def test_adaptive_cap_scales_with_median_speed(self):
+        # 20 chars at 2 cps → expected 10s, × 2.5 tolerance = 25s.
+        assert adaptive_cap_seconds(20, 2.0) == 25.0
+
+    def test_adaptive_cap_floor_for_short_line(self):
+        # 1 char at 2 cps → 1.25s, below the floor.
+        assert adaptive_cap_seconds(1, 2.0) == ADAPTIVE_FLOOR_SECONDS
+
+    def test_adaptive_cap_absolute_ceiling(self):
+        assert adaptive_cap_seconds(100000, 2.0) == _ABSOLUTE_CEILING
+
+    def test_adaptive_cap_fallback_without_median(self):
+        # No median yet → fixed per-char cap with the adaptive floor.
+        assert adaptive_cap_seconds(10, 0.0) == max(ADAPTIVE_FLOOR_SECONDS, 10 * _MAX_SEC_PER_CHAR)
+
+
+class TestCalculateActualReadingTimeV2:
+    """calculate_actual_reading_time with stats.reading_time_adaptive_v2 enabled."""
+
+    @pytest.fixture(autouse=True)
+    def _enable_v2(self, monkeypatch):
+        from types import SimpleNamespace
+        import GameSentenceMiner.web.stats as stats_mod
+
+        monkeypatch.setattr(
+            stats_mod,
+            "get_stats_config",
+            lambda: SimpleNamespace(reading_time_adaptive_v2=True),
+        )
+
+    def test_afk_line_trimmed_to_session_pace(self):
+        # 2 cps median; the 600s AFK gap (20-char line) caps at 25s, not v1's 60s.
+        timestamps = [0.0, 10.0, 20.0, 30.0, 630.0]
+        line_texts = ["あ" * 20, "あ" * 20, "あ" * 20, "あ" * 20, "end"]
+        result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
+        assert result == 10.0 + 10.0 + 10.0 + 25.0
+
+    def test_short_line_costs_floor_without_median(self):
+        # Single short gap → no median established → fallback fixed cap.
+        timestamps = [100.0, 160.0]
+        line_texts = ["ab", "end"]
+        result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
+        assert result == max(ADAPTIVE_FLOOR_SECONDS, 2 * _MAX_SEC_PER_CHAR)
 
 
 # ---------------------------------------------------------------------------

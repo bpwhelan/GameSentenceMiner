@@ -2805,7 +2805,12 @@ class OCRProcessor:
                 source=source,
             )
 
-            if ctrl.last_ocr2_result and orig_text:
+            # Area-select / ad-hoc OCR (screen cropper, whole-window, secondary)
+            # passes ignore_previous_result: the user explicitly chose this region,
+            # so always return text and never dedup against the last result.
+            if ignore_previous_result:
+                is_duplicate = False
+            elif ctrl.last_ocr2_result and orig_text:
                 is_duplicate = compare_ocr_results(
                     ctrl.last_ocr2_result,
                     orig_text,

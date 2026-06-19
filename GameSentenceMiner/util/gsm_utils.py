@@ -712,13 +712,17 @@ def preserve_html_tags(original_text, new_text):
 
 
 class SleepManager:
-    def __init__(self, initial_delay=1.0, backoff_factor=1.5, name="Generic"):
+    def __init__(self, initial_delay=1.0, backoff_factor=1.5, name="Generic", max_delay=None):
         self.initial_delay = initial_delay
         self.current_delay = initial_delay
         self.backoff_factor = backoff_factor
         self.name = name
+        # When set, caps backoff independently of config.advanced.longest_sleep_time.
+        self.max_delay = max_delay
 
     def _get_max_delay(self):
+        if self.max_delay is not None:
+            return self.max_delay
         # Always fetch latest config
         return get_config().advanced.longest_sleep_time
 

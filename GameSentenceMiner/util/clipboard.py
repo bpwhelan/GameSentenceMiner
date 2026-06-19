@@ -13,6 +13,7 @@ from GameSentenceMiner.util.logging_config import logger
 # ─── Configuration ───────────────────────────────────────────────────────────
 # Set to True to skip Qt6 clipboard and use pyperclipfix exclusively.
 USE_PYPERCLIP_ONLY = False
+TRY_PYPERCLIP_FIRST = True
 # ─────────────────────────────────────────────a────────────────────────────────
 
 _pyperclipfix = None
@@ -130,6 +131,13 @@ def copy(text: str) -> bool:
             return True
         # Qt failed, try pyperclipfix as fallback
         logger.background("Qt copy failed, falling back to pyperclipfix.")
+    elif TRY_PYPERCLIP_FIRST:
+        logger.background("Attempting to copy to clipboard via pyperclipfix first.")
+        if _pyperclip_copy(text):
+            return True
+        logger.background("pyperclipfix copy failed, trying Qt if available.")
+        if not USE_PYPERCLIP_ONLY and _qt_clipboard_available():
+            return _qt_copy(text)
 
     return _pyperclip_copy(text)
 
@@ -144,6 +152,13 @@ def paste() -> str | None:
         if result is not None:
             return result
         logger.debug("Qt paste failed, falling back to pyperclipfix.")
+    elif TRY_PYPERCLIP_FIRST:
+        result = _pyperclip_paste()
+        if result is not None:
+            return result
+        logger.debug("pyperclipfix paste failed, trying Qt if available.")
+        if not USE_PYPERCLIP_ONLY and _qt_clipboard_available():
+            return _qt_paste()
 
     return _pyperclip_paste()
 
