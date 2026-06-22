@@ -476,8 +476,8 @@
             "tooltip": "Path of the Anki Media Collection, used for external Trimming tool. NO TRAILING SLASH"
           },
           "external_tool": {
-            "label": "External Audio Editing Tool:",
-            "tooltip": "Path to External tool that opens the audio up for manual trimming. I recommend OcenAudio for in-place Editing."
+            "label": "External Audio Editing Tool: (Deprecated)",
+            "tooltip": "Deprecated: The Anki confirmation dialog now includes built-in manual trimming, so an external editor is no longer needed. Path to External tool that opens the audio up for manual trimming."
           },
           "external_tool_enabled": {
             "label": "Enabled:",

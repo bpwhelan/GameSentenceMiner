@@ -490,6 +490,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadForwardCtrlButton": -1, // Disabled by default; forwards Ctrl (skip) to target game window
   "gamepadForwardEscapeButton": -1, // Disabled by default; forwards Escape to target game window
   "gamepadManualOverlayScanButton": -1, // Disabled by default; triggers manual overlay scan
+  "gamepadPauseToggleButton": -1, // Disabled by default; pauses/resumes the text source while navigating
   "gamepadTokenModeToggleButton": 3, // Y button - toggles token/character navigation
   "gamepadMineButton": 0, // A button - mines the current Yomitan entry
   "gamepadNextEntryButton": 7, // RT trigger - navigate to next Yomitan entry
@@ -2198,10 +2199,14 @@ function syncManualHotkeyInputServerConnection(reason = "unknown") {
 const OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY = "manual_hotkey";
 const OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY = "texthooker_hotkey";
 const OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION = "gamepad_navigation";
+// Explicit on-demand pause toggled with the gamepad pause button. Independent of
+// navigation activation: activating navigation never sets this; only the button does.
+const OVERLAY_PAUSE_SOURCE_GAMEPAD_MANUAL = "gamepad_manual_pause";
 const overlayPauseSourceActive = {
   [OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY]: false,
   [OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY]: false,
   [OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION]: false,
+  [OVERLAY_PAUSE_SOURCE_GAMEPAD_MANUAL]: false,
 };
 const overlayDevServerUrl = process.env.GSM_OVERLAY_DEV_SERVER_URL || '';
 
@@ -2882,6 +2887,9 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown", optio
     return;
   }
 
+  // Leaving navigation always clears any on-demand pause toggled while navigating.
+  clearGamepadManualPause("gamepad-navigation-deactivate");
+
   const manualActivationStillActive = !!(manualHotkeyPressed || manualModeToggleState);
   if (manualActivationStillActive) {
     requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
@@ -3540,6 +3548,9 @@ function shouldOverlayHotkeyRequestPause(source) {
       }
       // Backward compatibility for configs created before dedicated gamepad flag.
       return !!processPausing.overlay_manual_hotkey_requests_pause;
+    case OVERLAY_PAUSE_SOURCE_GAMEPAD_MANUAL:
+      // Explicit user action: honor it whenever process pausing is enabled at all.
+      return true;
     default:
       return false;
   }
@@ -3591,6 +3602,23 @@ function releaseAllOverlayPauseRequests() {
   requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
   requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_TEXTHOOKER_HOTKEY);
   requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
+  requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_GAMEPAD_MANUAL);
+}
+
+// Resume the on-demand gamepad pause (if active) and tell the renderer to clear its indicator.
+function clearGamepadManualPause(reason = "unknown") {
+  if (!overlayPauseSourceActive[OVERLAY_PAUSE_SOURCE_GAMEPAD_MANUAL]) {
+    return;
+  }
+  console.log(`[ProcessPause] Clearing gamepad manual pause (reason=${reason})`);
+  requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_GAMEPAD_MANUAL);
+  sendGamepadManualPauseStateToRenderer(false);
+}
+
+function sendGamepadManualPauseStateToRenderer(paused) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("gamepad-pause-state", { paused: !!paused });
+  }
 }
 
 function requestManualOverlayScan(source = "overlay") {
@@ -6216,6 +6244,7 @@ app.whenReady().then(async () => {
       case "gamepadForwardCtrlButton":
       case "gamepadForwardEscapeButton":
       case "gamepadManualOverlayScanButton":
+      case "gamepadPauseToggleButton":
       case "gamepadTokenModeToggleButton":
       case "gamepadMineButton":
       case "gamepadNextEntryButton":
@@ -6508,6 +6537,23 @@ app.whenReady().then(async () => {
 
   ipcMain.on("gamepad-manual-overlay-scan", () => {
     requestManualOverlayScan("gamepad");
+  });
+
+  // On-demand pause/resume of the text source, toggled by the gamepad pause button.
+  // Only valid while navigation is active; does not affect navigation activation itself.
+  ipcMain.on("gamepad-toggle-pause", () => {
+    if (!gamepadNavigationActive) {
+      console.log("[Gamepad] Ignoring manual pause toggle: navigation not active");
+      return;
+    }
+    if (overlayPauseSourceActive[OVERLAY_PAUSE_SOURCE_GAMEPAD_MANUAL]) {
+      requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_GAMEPAD_MANUAL);
+    } else {
+      requestOverlayPauseForSource(OVERLAY_PAUSE_SOURCE_GAMEPAD_MANUAL);
+    }
+    const paused = !!overlayPauseSourceActive[OVERLAY_PAUSE_SOURCE_GAMEPAD_MANUAL];
+    console.log(`[Gamepad] Manual pause toggled -> ${paused ? "paused" : "resumed"}`);
+    sendGamepadManualPauseStateToRenderer(paused);
   });
 
   // Handler to manually send navigation commands (can be triggered from other sources)

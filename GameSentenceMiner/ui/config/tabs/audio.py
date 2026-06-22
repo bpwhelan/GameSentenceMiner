@@ -58,7 +58,7 @@ def build_audio_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     ext_tool_layout.addWidget(window._create_labeled_widget(tabs_i18n, "audio", "external_tool_enabled"))
     ext_tool_layout.addStretch()
     layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "audio", "external_tool", color=LabelColor.RECOMMENDED),
+        window._create_labeled_widget(tabs_i18n, "audio", "external_tool", color=LabelColor.DEPRECATED),
         ext_tool_widget,
     )
 

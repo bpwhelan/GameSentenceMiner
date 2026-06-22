@@ -2803,6 +2803,9 @@ class OCRProcessor:
                 image_metadata=working_image_metadata,
                 return_payload=True,
                 source=source,
+                # Menu/black-hole skips only for automatic OCR; manual & secondary
+                # (menu-OCR hotkey) explicitly want that region's text.
+                apply_area_filters=(source == TextSource.OCR),
             )
 
             # Area-select / ad-hoc OCR (screen cropper, whole-window, secondary)
@@ -3034,6 +3037,7 @@ def _run_second_ocr_callback(img, last_result, filtering, engine, **kw):
         furigana_filter_sensitivity=furigana_filter_sensitivity,
         return_payload=True,
         source=kw.get("source", TextSource.OCR),
+        apply_area_filters=(kw.get("source", TextSource.OCR) == TextSource.OCR),
     )
     return SecondPassResult(
         text=text or "",
@@ -3238,14 +3242,34 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
 
     if reload_area:
         try:
-            ocr_config_changed = ocr_config is None or has_config_changed(ocr_config)
+            from GameSentenceMiner.ocr.gsm_ocr_config import get_scene_ocr_config
+
+            # Live edits should always re-apply, even if the gate can't see a
+            # diff (e.g. the global config read a divergent path).
+            force = bool(payload.get("force"))
+            ocr_config_changed = force or ocr_config is None or has_config_changed(ocr_config)
             if ocr_config_changed:
                 logger.info("IPC: OCR area config changed, reloading...")
+                # Stale cached scaled configs would otherwise shadow the new areas.
+                ocr_runtime.clear_scaled_ocr_config_cache()
                 ocr_config = get_ocr_config(use_window_for_config=True, window=obs.get_current_game())
                 if hasattr(ocr_runtime, "screenshot_thread") and ocr_runtime.screenshot_thread:
                     ocr_runtime.screenshot_thread.ocr_config = ocr_config
-                if hasattr(ocr_runtime, "obs_screenshot_thread") and ocr_runtime.obs_screenshot_thread:
-                    ocr_runtime.obs_screenshot_thread.init_config()
+                obs_thread = getattr(ocr_runtime, "obs_screenshot_thread", None)
+                if obs_thread:
+                    # Swap the running config directly instead of init_config(),
+                    # which re-runs OBS source detection. That detection can race
+                    # the capture thread, fail, and return early WITHOUT updating
+                    # ocr_config -- leaving the old (whole-window) crop in place.
+                    new_scene_config = get_scene_ocr_config(refresh=True)
+                    width = getattr(obs_thread, "width", None)
+                    height = getattr(obs_thread, "height", None)
+                    if new_scene_config and width and height:
+                        new_scene_config.scale_to_custom_size(width, height)
+                        obs_thread.ocr_config = new_scene_config
+                    else:
+                        # Dimensions not known yet -> fall back to full init.
+                        obs_thread.init_config()
                 reset_callback_vars()
         except Exception as e:
             logger.debug(f"IPC: Error reloading OCR area config: {e}")

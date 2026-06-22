@@ -63,6 +63,103 @@ def test_check_text_is_all_menu_accepts_four_value_crop_coords(monkeypatch):
     )
 
 
+def test_check_text_is_all_menu_clamps_box_past_frame_edge(monkeypatch):
+    # A menu rectangle flush to the bottom/edges of the frame. A reconstructed
+    # ScreenAI box gets +5 padding that pushes it a few px past the frame; it must
+    # be clamped (not abort the whole check) so the in-menu text is still skipped.
+    menu_rectangles = [SimpleNamespace(is_secondary=True, coordinates=(0, 50, 100, 50))]
+    fake_config = SimpleNamespace(rectangles=menu_rectangles)
+
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=100, height=100),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_config)
+
+    # After -/+5 padding removal this maps to (10, 60, 95, 105); y2=105 is past the
+    # 100px frame and previously aborted the check with a hard return False.
+    crop_coords_list = [(5, 55, 100, 110, "menu line")]
+
+    assert run_module.check_text_is_all_menu(
+        (5, 55, 100, 110),
+        crop_coords_list,
+        crop_offset=(0, 0),
+    )
+
+
+def test_process_and_write_results_applies_menu_filter_on_second_pass(monkeypatch):
+    # Second OCR pass calls with write_to=None; the menu skip must still run when
+    # apply_area_filters is set (automatic OCR), not only when write_to is set.
+    menu_rectangles = [
+        SimpleNamespace(is_secondary=True, coordinates=(0, 0, 100, 100)),
+        SimpleNamespace(is_secondary=True, coordinates=(200, 0, 100, 100)),
+    ]
+    fake_area_config = SimpleNamespace(rectangles=menu_rectangles)
+
+    class FakeOCR:
+        name = "screenai"
+        readable_name = "ScreenAI"
+
+        def __call__(self, img, furigana_filter_sensitivity=0):
+            return (
+                True,
+                "menu\nitems",
+                [],
+                [(5, 5, 95, 95, "menu"), (205, 5, 295, 95, "items")],
+                (5, 5, 295, 95),
+                None,
+            )
+
+    callback_calls = []
+
+    monkeypatch.setattr(
+        run_module,
+        "config",
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+    )
+    monkeypatch.setattr(
+        run_module,
+        "logger",
+        SimpleNamespace(opt=lambda **kwargs: SimpleNamespace(info=lambda *args, **kwargs: None)),
+    )
+    monkeypatch.setattr(run_module, "engine_instances", [FakeOCR()], raising=False)
+    monkeypatch.setattr(run_module, "engine_index", 0, raising=False)
+    monkeypatch.setattr(run_module, "auto_pause_handler", None, raising=False)
+    monkeypatch.setattr(
+        run_module,
+        "txt_callback",
+        lambda *args, **kwargs: callback_calls.append({"args": args, "kwargs": kwargs}),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_area_config)
+
+    # write_to=None mimics do_second_ocr; apply_area_filters=True is what the OCR2
+    # caller now passes for automatic OCR.
+    orig_text, text, payload = run_module.process_and_write_results(
+        Image.new("RGB", (400, 300), color=0),
+        None,
+        None,
+        None,
+        None,
+        engine="screenai",
+        return_payload=True,
+        apply_area_filters=True,
+    )
+
+    assert text == ""
+    assert payload is None
+    assert not orig_text
+    assert callback_calls == []
+
+
 def test_exclusive_ocr_area_filter_keeps_only_lines_inside_exclusive_rectangles(monkeypatch):
     rectangles = [
         SimpleNamespace(is_secondary=False, is_excluded=False, is_exclusive=False, coordinates=(0, 0, 100, 100)),

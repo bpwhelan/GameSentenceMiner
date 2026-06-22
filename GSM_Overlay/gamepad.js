@@ -529,6 +529,7 @@ class GamepadHandler {
       forwardCtrlButton: options.forwardCtrlButton ?? -1, // Disabled by default; forwards Ctrl (skip) to target game window
       forwardEscapeButton: options.forwardEscapeButton ?? -1, // Disabled by default; forwards Escape to target game window
       manualOverlayScanButton: options.manualOverlayScanButton ?? -1, // Disabled by default; triggers manual overlay scan
+      pauseToggleButton: options.pauseToggleButton ?? -1, // Disabled by default; pauses/resumes the text source while navigation is active
       tokenModeToggleButton: options.tokenModeToggleButton ?? 3, // Y button to toggle token/char mode
       mineButton: options.mineButton ?? 0, // A button to mine the current Yomitan entry
       nextEntryButton: options.nextEntryButton ?? 7, // RT trigger - navigate to next Yomitan entry
@@ -596,6 +597,7 @@ class GamepadHandler {
       keyboardForwardCtrlKey: options.keyboardForwardCtrlKey || null,
       keyboardForwardEscapeKey: options.keyboardForwardEscapeKey || null,
       keyboardManualOverlayScanKey: options.keyboardManualOverlayScanKey || null,
+      keyboardPauseToggleKey: options.keyboardPauseToggleKey || null,
       keyboardTokenModeToggleKey: options.keyboardTokenModeToggleKey || null,
       keyboardNextEntryKey: options.keyboardNextEntryKey || null,
       keyboardPrevEntryKey: options.keyboardPrevEntryKey || null,
@@ -628,6 +630,7 @@ class GamepadHandler {
     this.gamepads = new Map(); // Connected gamepads from server
     this.isActive = false; // Whether controller navigation is active
     this.toggleModeActive = false; // For toggle activation mode
+    this.navigationPauseActive = false; // Manual pause-the-source toggle (only meaningful while navigation is active)
     this.currentBlockIndex = -1; // Currently selected text block
     this.currentCursorIndex = 0; // Cursor position within block (now token index)
     this.currentLineIndex = 0; // Line within the current block
@@ -1345,6 +1348,7 @@ class GamepadHandler {
       forwardCtrlButton: normalizeGamepadBindingValue(this.config.forwardCtrlButton, -1),
       forwardEscapeButton: normalizeGamepadBindingValue(this.config.forwardEscapeButton, -1),
       manualOverlayScanButton: normalizeGamepadBindingValue(this.config.manualOverlayScanButton, -1),
+      pauseToggleButton: normalizeGamepadBindingValue(this.config.pauseToggleButton, -1),
       tokenModeToggleButton: normalizeGamepadBindingValue(this.config.tokenModeToggleButton, 3),
       mineButton: normalizeGamepadBindingValue(this.config.mineButton, 0),
       nextEntryButton: normalizeGamepadBindingValue(this.config.nextEntryButton, 7),
@@ -1363,6 +1367,7 @@ class GamepadHandler {
       forwardCtrlKey: normalizeKeyboardBindingValue(this.config.keyboardForwardCtrlKey),
       forwardEscapeKey: normalizeKeyboardBindingValue(this.config.keyboardForwardEscapeKey),
       manualOverlayScanKey: normalizeKeyboardBindingValue(this.config.keyboardManualOverlayScanKey),
+      pauseToggleKey: normalizeKeyboardBindingValue(this.config.keyboardPauseToggleKey),
       tokenModeToggleKey: normalizeKeyboardBindingValue(this.config.keyboardTokenModeToggleKey),
       nextEntryKey: normalizeKeyboardBindingValue(this.config.keyboardNextEntryKey),
       prevEntryKey: normalizeKeyboardBindingValue(this.config.keyboardPrevEntryKey),
@@ -2711,6 +2716,10 @@ class GamepadHandler {
         this.toggleTokenMode();
         return;
       }
+      if (keyboardEventMatchesBinding(kb.pauseToggleKey, keyName, keys, mods)) {
+        this.toggleNavigationPause();
+        return;
+      }
       if (keyboardEventMatchesBinding(kb.mineButton, keyName, keys, mods)) {
         this.triggerMining();
         return;
@@ -2832,6 +2841,7 @@ class GamepadHandler {
     const confirmBinding = this.buttonBindings.confirmButton;
     const cancelBinding = this.buttonBindings.cancelButton;
     const tokenModeToggleBinding = this.buttonBindings.tokenModeToggleButton;
+    const pauseToggleBinding = this.buttonBindings.pauseToggleButton;
     const mineBinding = this.buttonBindings.mineButton;
     const nextEntryBinding = this.buttonBindings.nextEntryButton;
     const prevEntryBinding = this.buttonBindings.prevEntryButton;
@@ -2895,8 +2905,13 @@ class GamepadHandler {
         this.toggleTokenMode();
         return;
       }
+      // Pause/resume the text source on demand (only while navigating)
+      if (this.matchesButtonBindingDown(pauseToggleBinding, device, buttonIndex)) {
+        this.toggleNavigationPause();
+        return;
+      }
     }
-    
+
     // Handle D-Pad navigation
     if (this.shouldProcessNavigation(device)) {
       this.handleDPadNavigation(buttonIndex, device);
@@ -2946,7 +2961,30 @@ class GamepadHandler {
 
     ipc.send('gamepad-manual-overlay-scan');
   }
-  
+
+  // Ask main to pause/resume the text source. Main owns the authoritative state
+  // (it only acts while navigation is active) and echoes it back via setNavigationPauseActive().
+  toggleNavigationPause() {
+    if (!this.isNavigationActive()) {
+      return;
+    }
+    const ipc = this.getIpcRenderer();
+    if (!ipc) {
+      return;
+    }
+    ipc.send('gamepad-toggle-pause');
+  }
+
+  // Apply the authoritative pause state reported by main (or local reset on deactivate).
+  setNavigationPauseActive(active) {
+    const nextActive = active === true;
+    if (this.navigationPauseActive === nextActive) {
+      return;
+    }
+    this.navigationPauseActive = nextActive;
+    this.updateModeIndicatorText();
+  }
+
   onButtonUp(buttonIndex, device) {
     // Clear repeat timer for this button
     const timerKey = `${device}-${buttonIndex}`;
@@ -3424,6 +3462,7 @@ class GamepadHandler {
     this.scanHiddenCharacterToHideYomitan();
     this.isActive = false;
     this.publishNavigationActiveState(false);
+    this.navigationPauseActive = false;
     this.clearPendingMineCandidate();
     this.virtualMouse.movedByAnalog = false;
     this.virtualMouse.lastMoveTime = 0;
@@ -6256,8 +6295,9 @@ class GamepadHandler {
   
   updateModeIndicatorText() {
     if (this.modeIndicator) {
+      const pausedSuffix = this.navigationPauseActive ? ' · ⏸ Paused' : '';
       if (!this.currentBlockSupportsTokenization()) {
-        this.modeIndicator.innerHTML = 'Character Mode';
+        this.modeIndicator.innerHTML = `Character Mode${pausedSuffix}`;
         return;
       }
       let tokenBackendReady = (this.mecabAvailable && this.wsConnected) || this.tokens.length > 0;
@@ -6273,7 +6313,7 @@ class GamepadHandler {
         tokenBackendReady = this.jpdbApiReachable || this.tokens.length > 0;
       }
       const modeText = this.tokenMode && tokenBackendReady ? 'Token Mode' : 'Character Mode';
-      this.modeIndicator.innerHTML = modeText;
+      this.modeIndicator.innerHTML = `${modeText}${pausedSuffix}`;
     }
   }
 
@@ -6388,6 +6428,7 @@ class GamepadHandler {
       safeConfig.forwardCtrlButton = this.describeButtonBinding(this.buttonBindings.forwardCtrlButton);
       safeConfig.forwardEscapeButton = this.describeButtonBinding(this.buttonBindings.forwardEscapeButton);
       safeConfig.manualOverlayScanButton = this.describeButtonBinding(this.buttonBindings.manualOverlayScanButton);
+      safeConfig.pauseToggleButton = this.describeButtonBinding(this.buttonBindings.pauseToggleButton);
       safeConfig.tokenModeToggleButton = this.describeButtonBinding(this.buttonBindings.tokenModeToggleButton);
       safeConfig.mineButton = this.describeButtonBinding(this.buttonBindings.mineButton);
       safeConfig.nextEntryButton = this.describeButtonBinding(this.buttonBindings.nextEntryButton);

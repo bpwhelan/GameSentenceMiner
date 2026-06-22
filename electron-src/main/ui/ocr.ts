@@ -193,7 +193,7 @@ function shouldEnableLegacyKeepNewlineFlag(ocr_config: ReturnType<typeof getOCRC
     return Boolean(ocr_config.keep_newline);
 }
 
-function requestOcrConfigReload(reason: string, options?: { reloadArea?: boolean; reloadElectron?: boolean; changes?: Record<string, any> }) {
+function requestOcrConfigReload(reason: string, options?: { reloadArea?: boolean; reloadElectron?: boolean; changes?: Record<string, any>; force?: boolean }) {
     if (!getProcessManager().isRunning(OCR_CLIENT_ID)) {
         console.warn(`[OCR] Skipping reload config (${reason}) - no active OCR process`);
         return;
@@ -204,6 +204,10 @@ function requestOcrConfigReload(reason: string, options?: { reloadArea?: boolean
         reload_area: options?.reloadArea ?? true,
         reload_electron: options?.reloadElectron ?? true,
     };
+
+    if (options?.force) {
+        payload.force = true;
+    }
 
     if (options?.changes && Object.keys(options.changes).length > 0) {
         payload.changes = options.changes;
@@ -414,7 +418,11 @@ function ensureOcrSupervisorWired(): void {
     });
 }
 
-async function runScreenSelector() {
+// Marker the live area selector prints after each debounced config write so we
+// can hot-reload the running OCR's areas without the selector closing.
+const LIVE_AREA_SAVED_MARKER = 'GSM_AREA_SAVED';
+
+async function runScreenSelector(options?: { live?: boolean }) {
     if (blockOcrStartDuringUpdate('OCR screen selector')) {
         sendToMainWindowFrames('ocr-log', 'COMMAND_FINISHED');
         return;
@@ -422,6 +430,7 @@ async function runScreenSelector() {
     const ocr_config = getOCRConfig();
     await new Promise((resolve, reject) => {
         let args = ['-m', 'GameSentenceMiner.ocr.owocr_area_selector_qt', '--obs'];
+        if (options?.live) args.push('--live');
         const pythonExecutable = getWindowsNamedPythonExecutable(
             getPythonPath(),
             'OCR'
@@ -435,9 +444,22 @@ async function runScreenSelector() {
         });
 
         process.stdout?.on('data', (data: Buffer) => {
-            const log = data.toString().trim();
-            console.log(`[Screen Selector STDOUT]: ${log}`);
-            sendToMainWindowFrames('ocr-log', log);
+            for (const rawLine of data.toString().split(/\r?\n/)) {
+                const line = rawLine.trim();
+                if (!line) continue;
+                if (line === LIVE_AREA_SAVED_MARKER) {
+                    // Selector applied a change live; force a hot-reload of OCR
+                    // areas only (force bypasses the change-detection gate).
+                    requestOcrConfigReload('live-area-select', {
+                        reloadArea: true,
+                        reloadElectron: false,
+                        force: true,
+                    });
+                    continue;
+                }
+                console.log(`[Screen Selector STDOUT]: ${line}`);
+                sendToMainWindowFrames('ocr-log', line);
+            }
         });
 
         process.on('close', (code) => {
@@ -862,7 +884,8 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.on('ocr.run-screen-selector', async () => {
         try {
-            await runScreenSelector();
+            // Explicit selector launch supports live tuning while OCR runs.
+            await runScreenSelector({ live: true });
         } catch (error) {
             console.error('Failed to run screen selector:', error);
         }

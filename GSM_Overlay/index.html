@@ -4007,6 +4007,9 @@ background: rgba(202, 12, 12, 0.692);
     if (newsettings.gamepadManualOverlayScanButton !== undefined) {
       gamepadSettings.manualOverlayScanButton = newsettings.gamepadManualOverlayScanButton;
     }
+    if (newsettings.gamepadPauseToggleButton !== undefined) {
+      gamepadSettings.pauseToggleButton = newsettings.gamepadPauseToggleButton;
+    }
     if (newsettings.gamepadTokenModeToggleButton !== undefined) {
       gamepadSettings.tokenModeToggleButton = newsettings.gamepadTokenModeToggleButton;
     }
@@ -4695,6 +4698,7 @@ background: rgba(202, 12, 12, 0.692);
     forwardCtrlButton: -1, // Disabled
     forwardEscapeButton: -1, // Disabled
     manualOverlayScanButton: -1, // Disabled
+    pauseToggleButton: -1, // Disabled - pauses/resumes the text source while navigating
     tokenModeToggleButton: 3, // Y
     mineButton: 0, // A
     nextEntryButton: 7, // RT trigger - navigate to next Yomitan entry
@@ -4723,6 +4727,7 @@ background: rgba(202, 12, 12, 0.692);
     keyboardForwardCtrlKey: null,
     keyboardForwardEscapeKey: null,
     keyboardManualOverlayScanKey: null,
+    keyboardPauseToggleKey: null,
     keyboardTokenModeToggleKey: null,
     keyboardNextEntryKey: null,
     keyboardPrevEntryKey: null,
@@ -4737,7 +4742,7 @@ background: rgba(202, 12, 12, 0.692);
   const KEYBOARD_SETTING_KEYS = [
     'keyboardModifierKey', 'keyboardToggleKey', 'keyboardConfirmKey', 'keyboardCancelKey',
     'keyboardForwardEnterKey', 'keyboardForwardSpaceKey', 'keyboardForwardCtrlKey', 'keyboardForwardEscapeKey',
-    'keyboardManualOverlayScanKey', 'keyboardTokenModeToggleKey',
+    'keyboardManualOverlayScanKey', 'keyboardPauseToggleKey', 'keyboardTokenModeToggleKey',
     'keyboardNextEntryKey', 'keyboardPrevEntryKey',
     'keyboardNavigateUp', 'keyboardNavigateDown', 'keyboardNavigateLeft', 'keyboardNavigateRight',
     'keyboardMineButton',
@@ -4789,6 +4794,7 @@ background: rgba(202, 12, 12, 0.692);
       forwardCtrlButton: gamepadSettings.forwardCtrlButton,
       forwardEscapeButton: gamepadSettings.forwardEscapeButton,
       manualOverlayScanButton: gamepadSettings.manualOverlayScanButton,
+      pauseToggleButton: gamepadSettings.pauseToggleButton,
       tokenModeToggleButton: gamepadSettings.tokenModeToggleButton,
       mineButton: gamepadSettings.mineButton,
       nextEntryButton: gamepadSettings.nextEntryButton,
@@ -4818,6 +4824,7 @@ background: rgba(202, 12, 12, 0.692);
       keyboardForwardCtrlKey: gamepadSettings.keyboardForwardCtrlKey,
       keyboardForwardEscapeKey: gamepadSettings.keyboardForwardEscapeKey,
       keyboardManualOverlayScanKey: gamepadSettings.keyboardManualOverlayScanKey,
+      keyboardPauseToggleKey: gamepadSettings.keyboardPauseToggleKey,
       keyboardTokenModeToggleKey: gamepadSettings.keyboardTokenModeToggleKey,
       keyboardNextEntryKey: gamepadSettings.keyboardNextEntryKey,
       keyboardPrevEntryKey: gamepadSettings.keyboardPrevEntryKey,
@@ -5075,6 +5082,13 @@ background: rgba(202, 12, 12, 0.692);
     }
   });
 
+  // IPC: Authoritative on-demand pause state from main (so the indicator stays in sync).
+  ipcRenderer.on('gamepad-pause-state', (event, payload) => {
+    if (gamepadHandler && typeof gamepadHandler.setNavigationPauseActive === 'function') {
+      gamepadHandler.setNavigationPauseActive(!!(payload && payload.paused));
+    }
+  });
+
   // IPC: Temporarily suppress gamepad handling while settings input test runs.
   ipcRenderer.on('gamepad-input-test-active', (event, payload) => {
     const active = !!(payload && payload.active);
@@ -5188,6 +5202,10 @@ background: rgba(202, 12, 12, 0.692);
     }
     if (updatedSettings.gamepadManualOverlayScanButton !== undefined) {
       gamepadSettings.manualOverlayScanButton = updatedSettings.gamepadManualOverlayScanButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadPauseToggleButton !== undefined) {
+      gamepadSettings.pauseToggleButton = updatedSettings.gamepadPauseToggleButton;
       needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadTokenModeToggleButton !== undefined) {

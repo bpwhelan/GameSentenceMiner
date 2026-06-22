@@ -3562,8 +3562,14 @@ def process_and_write_results(
     image_metadata=None,
     return_payload=False,
     source="ocr",
+    apply_area_filters=None,
 ):
     global engine_index
+    # Black-hole / menu skips must run whenever we emit a result, not only when
+    # write_to is set. The second OCR pass returns via return value (write_to=None),
+    # so callers pass apply_area_filters explicitly for automatic OCR.
+    if apply_area_filters is None:
+        apply_area_filters = write_to is not None
     # TODO Replace this at a later date
     is_second_ocr = bool(engine)
     if auto_pause_handler:
@@ -3643,7 +3649,7 @@ def process_and_write_results(
                 _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
             )
             original_size = pipeline_metadata["capture"]["scaled_size"]
-            if write_to is not None and check_text_is_in_black_hole(
+            if apply_area_filters and check_text_is_in_black_hole(
                 detection_payload.get("crop_coords", None),
                 detection_payload.get("crop_coords_list", []),
                 crop_offset=current_crop_offset,
@@ -3660,7 +3666,7 @@ def process_and_write_results(
                     original_width=original_size.get("width"),
                     original_height=original_size.get("height"),
                 )
-            if write_to is not None and check_text_is_all_menu(
+            if apply_area_filters and check_text_is_all_menu(
                 detection_payload.get("crop_coords", None),
                 detection_payload.get("crop_coords_list", []),
                 crop_offset=current_crop_offset,
@@ -3729,7 +3735,7 @@ def process_and_write_results(
             _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
         )
         original_size = pipeline_metadata["capture"]["scaled_size"]
-        if write_to is not None and check_text_is_in_black_hole(
+        if apply_area_filters and check_text_is_in_black_hole(
             crop_coords,
             crop_coords_list,
             crop_offset=current_crop_offset,
@@ -3773,9 +3779,11 @@ def process_and_write_results(
             "line_count": len(coords) if isinstance(coords, list) else 0,
         }
 
-        if write_to is not None:
+        if apply_area_filters:
             if check_text_is_all_menu(crop_coords, crop_coords_list, crop_offset=current_crop_offset):
                 logger.opt(ansi=True).info("Text is identified as all menu items, skipping further processing.")
+                if return_payload:
+                    return orig_text, "", None
                 return orig_text, ""
 
         logger.opt(ansi=True).info(
@@ -3906,10 +3914,13 @@ def check_text_is_all_menu(
         crop_y += offset_y
         crop_x2 += offset_x
         crop_y2 += offset_y
-        # Validate that crop coordinates are within bounds
-        if crop_x < 0 or crop_y < 0 or crop_x2 > original_width or crop_y2 > original_height:
-            # logger.info(f"Crop coordinates ({crop_x}, {crop_y}, {crop_x2}, {crop_y2}) are out of bounds.")
-            return False
+        # Reconstructed boxes (e.g. ScreenAI) can land a few px out of frame from
+        # rotation/padding rounding; clamp to the frame instead of aborting the
+        # whole-frame menu check (which would silently leak menu text through).
+        crop_x = max(0, min(crop_x, original_width))
+        crop_y = max(0, min(crop_y, original_height))
+        crop_x2 = max(0, min(crop_x2, original_width))
+        crop_y2 = max(0, min(crop_y2, original_height))
 
         # Check if this specific crop area falls within ANY menu rectangle
         found_in_menu = False

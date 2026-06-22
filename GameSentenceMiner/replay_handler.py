@@ -211,7 +211,12 @@ class ReplayAudioExtractor:
         context = ReplayProcessingContext(video_path=video_path)
         gsm_state.current_replay = video_path
         gsm_state.current_replay_context = context
-        if gsm_state.line_for_audio or gsm_state.line_for_screenshot or gsm_state.line_for_video_trim:
+        if (
+            gsm_state.line_for_audio
+            or gsm_state.line_for_screenshot
+            or gsm_state.line_for_video_trim
+            or gsm_state.lines_for_media_creation
+        ):
             _handle_texthooker_button(video_path)
             return
         try:

@@ -1893,6 +1893,14 @@
       </label>
       <label>
         <span class="label-text">
+          Pause Button
+          <div class="hotkey-info">While navigating, pause the text source so you can take your time with lookups. Press again to resume. Activating navigation is unaffected.</div>
+        </span>
+        <input type="text" id="gamepadPauseToggleButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardPauseToggleKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
           Next Yomitan Entry Button
           <div class="hotkey-info">While the Yomitan popup is open, move to the next entry in the list</div>
         </span>
@@ -2295,6 +2303,7 @@
       gamepadForwardCtrlButton: { settingKey: "gamepadForwardCtrlButton", label: "Forward Ctrl Button", fallbackValue: -1 },
       gamepadForwardEscapeButton: { settingKey: "gamepadForwardEscapeButton", label: "Forward Escape Button", fallbackValue: -1 },
       gamepadManualOverlayScanButton: { settingKey: "gamepadManualOverlayScanButton", label: "Manual Overlay Scan Button", fallbackValue: -1 },
+      gamepadPauseToggleButton: { settingKey: "gamepadPauseToggleButton", label: "Pause Button", fallbackValue: -1 },
       gamepadTokenModeToggleButton: { settingKey: "gamepadTokenModeToggleButton", label: "Token Mode Toggle Button", fallbackValue: 3 },
       gamepadMineButton: { settingKey: "gamepadMineButton", label: "Mine Button", fallbackValue: 0 },
       gamepadNextEntryButton: { settingKey: "gamepadNextEntryButton", label: "Next Yomitan Entry Button", fallbackValue: 7 },
@@ -2311,6 +2320,7 @@
       keyboardForwardCtrlKey: { settingKey: "keyboardForwardCtrlKey", label: "Keyboard Forward Ctrl Key", fallbackValue: null },
       keyboardForwardEscapeKey: { settingKey: "keyboardForwardEscapeKey", label: "Keyboard Forward Escape Key", fallbackValue: null },
       keyboardManualOverlayScanKey: { settingKey: "keyboardManualOverlayScanKey", label: "Keyboard Manual Overlay Scan Key", fallbackValue: null },
+      keyboardPauseToggleKey: { settingKey: "keyboardPauseToggleKey", label: "Keyboard Pause Key", fallbackValue: null },
       keyboardTokenModeToggleKey: { settingKey: "keyboardTokenModeToggleKey", label: "Keyboard Token Toggle Key", fallbackValue: null },
       keyboardNextEntryKey: { settingKey: "keyboardNextEntryKey", label: "Keyboard Next Entry Key", fallbackValue: null },
       keyboardPrevEntryKey: { settingKey: "keyboardPrevEntryKey", label: "Keyboard Prev Entry Key", fallbackValue: null },
@@ -2993,6 +3003,7 @@
         "gamepadForwardCtrlButton",
         "gamepadForwardEscapeButton",
         "gamepadManualOverlayScanButton",
+        "gamepadPauseToggleButton",
         "gamepadTokenModeToggleButton",
         "gamepadMineButton",
         "gamepadNextEntryButton",
@@ -3345,6 +3356,7 @@
       createGamepadBindingSetting("gamepadForwardCtrlButton"),
       createGamepadBindingSetting("gamepadForwardEscapeButton"),
       createGamepadBindingSetting("gamepadManualOverlayScanButton"),
+      createGamepadBindingSetting("gamepadPauseToggleButton"),
       createGamepadBindingSetting("gamepadTokenModeToggleButton"),
       createGamepadBindingSetting("gamepadMineButton"),
       createGamepadBindingSetting("gamepadNextEntryButton"),
@@ -3358,6 +3370,7 @@
       createKeyboardBindingSetting("keyboardForwardCtrlKey"),
       createKeyboardBindingSetting("keyboardForwardEscapeKey"),
       createKeyboardBindingSetting("keyboardManualOverlayScanKey"),
+      createKeyboardBindingSetting("keyboardPauseToggleKey"),
       createKeyboardBindingSetting("keyboardTokenModeToggleKey"),
       createKeyboardBindingSetting("keyboardNextEntryKey"),
       createKeyboardBindingSetting("keyboardPrevEntryKey"),

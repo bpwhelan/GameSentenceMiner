@@ -2523,6 +2523,10 @@ class GsmAppState:
         self.texthooker_audio_token = None
         self.texthooker_audio_line_id = None
         self.texthooker_video_trim_request = {}
+        # Non-Anki / Migaku helper: generate media into the output folder without making a card.
+        self.lines_for_media_creation = None
+        self.previous_lines_for_media_creation = None
+        self.media_creation_request = {}
         self.videos_with_pending_operations = set()  # Track videos that shouldn't be deleted yet
         self.disable_anki_confirmation_session = False
         self.replay_buffer_stopped_timestamp = None

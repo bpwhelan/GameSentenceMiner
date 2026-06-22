@@ -15,13 +15,15 @@ from PyQt6.QtGui import (
     QBrush,
     QAction,
     QGuiApplication,
+    QIcon,
 )
 from PyQt6.QtWidgets import (
     QApplication,
     QWidget,
     QPushButton,
-    QVBoxLayout,
-    QLabel,
+    QHBoxLayout,
+    QButtonGroup,
+    QFrame,
     QMenu,
     QProgressDialog,
     QMessageBox,
@@ -43,12 +45,17 @@ from GameSentenceMiner.ocr.image_scaling import (
 )
 
 # Assuming get_config is available here based on your request
+from GameSentenceMiner.util.config.configuration import get_pickaxe_png_path
 from GameSentenceMiner.util.logging_config import logger
 from GameSentenceMiner.util.gsm_utils import sanitize_filename
 
 MIN_RECT_WIDTH = 25
 MIN_RECT_HEIGHT = 25
 COORD_SYSTEM_PERCENTAGE = "percentage"
+# Live mode: debounce config writes and signal Electron via this stdout marker
+# so the running OCR hot-reloads its areas without the selector closing.
+LIVE_SAVE_DEBOUNCE_MS = 300
+LIVE_AREA_SAVED_MARKER = "GSM_AREA_SAVED"
 OBS_SELECTOR_CAPTURE_RETRY_COUNT = 1
 OBS_SELECTOR_SCREENSHOT_RETRY_COUNT = 3
 OBS_SELECTOR_SCREENSHOT_RETRY_DELAY_SECONDS = 1.0
@@ -67,103 +74,110 @@ def describe_obs_source_selection(sources, best_source):
     return "Multiple active video sources found, but no valid source has output yet. Retrying screenshot capture."
 
 
-class ControlPanelWidget(QWidget):
-    """Separate control panel window with buttons for all actions."""
+class SelectorToolbar(QWidget):
+    """Top toolbar embedded in the selector, replacing the floating control panel.
+
+    Every keyboard shortcut is mirrored as a button so the selector is fully
+    mouse-drivable. Drawing modes are an exclusive button group, and the "Live"
+    toggle drives the dynamic OCR-area hot-reload (see selector.set_live_mode).
+    """
 
     def __init__(self, parent_selector):
-        super().__init__()
+        super().__init__(parent_selector)
         self.parent_selector = parent_selector
-        self.init_ui()
+        self.mode_buttons = {}
+        self._init_ui()
 
-    def init_ui(self):
-        """Initialize the control panel UI."""
-        self.setWindowTitle("Controls")
-        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+    def _init_ui(self):
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(
+            "SelectorToolbar { background-color: rgba(15, 15, 15, 215); }"
+            "QPushButton { color: white; background-color: rgba(60,60,60,225);"
+            " border: 1px solid #555; padding: 4px 8px; border-radius: 4px; }"
+            "QPushButton:hover { background-color: rgba(95,95,95,235); }"
+            "QPushButton:checked { background-color: #2e7d32; border-color: #81c784; }"
+            "QPushButton#liveBtn:checked { background-color: #b71c1c; border-color: #ef9a9a; }"
+        )
 
-        # Disable resizing
-        self.setFixedSize(self.sizeHint())
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(4)
 
-        # Create layout
-        layout = QVBoxLayout()
-        layout.setSpacing(5)
-        layout.setContentsMargins(10, 10, 10, 10)
+        sel = self.parent_selector
 
-        # Instructions label
-        if self.parent_selector._primary_only_mode():
-            # Simplified instructions for monitor selection mode
-            instr_text = (
-                "Primary Area Selection Mode:\n"
-                "• Left Click + Drag: Create selection area.\n"
-                "• Ctrl + A: Select entire screen.\n"
-                "• Right-Click on a box: Delete it.\n"
-                "• Modifiers (Shift/Ctrl) are disabled."
-            )
-        else:
-            # Original instructions
-            instr_text = (
-                "How to Use:\n"
-                "• Left Click + Drag: Create a capture area (green).\n"
-                "• Shift + Left Click + Drag: Create an exclusion area (orange).\n"
-                "• Ctrl + Left Click + Drag: Create a secondary (menu) area (purple).\n"
-                "• Alt + Left Click + Drag: Create an exclusive auto OCR area (cyan).\n"
-                "• Ctrl + Alt + Left Click + Drag: Create a black hole area (black).\n"
-                "• Ctrl + A: Select entire screen (green).\n"
-                "• Right-Click on a box: Delete it."
-            )
+        # --- Drawing-mode group (exclusive radio buttons) ---
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.setExclusive(True)
 
-        instructions = QLabel(instr_text)
-        instructions.setWordWrap(True)
-        layout.addWidget(instructions)
+        def add_mode(label, mode):
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.clicked.connect(lambda _=False, m=mode: sel.set_draw_mode(m))
+            self.mode_group.addButton(btn)
+            layout.addWidget(btn)
+            self.mode_buttons[mode] = btn
+            return btn
 
-        # Buttons
-        save_btn = QPushButton("Save and Quit (Ctrl+S)")
-        save_btn.clicked.connect(self.parent_selector.save_and_quit)
-        layout.addWidget(save_btn)
+        normal_btn = add_mode("🟢 Normal", "normal")
+        normal_btn.setChecked(True)
+        if not sel._primary_only_mode():
+            add_mode("🟠 Exclusion", "exclusion")
+            add_mode("🟣 Secondary", "secondary")
+            add_mode("🔷 Exclusive", "exclusive")
+            add_mode("⬛ Black Hole", "black_hole")
 
-        undo_btn = QPushButton("Undo (Ctrl+Z)")
-        undo_btn.clicked.connect(self.parent_selector.undo)
-        layout.addWidget(undo_btn)
+        layout.addWidget(self._separator())
 
-        redo_btn = QPushButton("Redo (Ctrl+Y)")
-        redo_btn.clicked.connect(self.parent_selector.redo)
-        layout.addWidget(redo_btn)
+        # --- Actions ---
+        self._add_action(layout, "↶ Undo", sel.undo)
+        self._add_action(layout, "↷ Redo", sel.redo)
+        self._add_action(layout, "▣ All", sel.create_fullscreen_box)
+        if sel.use_obs_screenshot:
+            self._add_action(layout, "⟳ Refresh", sel.refresh_screenshot)
+        self._add_action(layout, "ℹ Help", sel.toggle_instructions)
 
-        # Add refresh button only if using OBS screenshot
-        if self.parent_selector.use_obs_screenshot:
-            refresh_btn = QPushButton("Refresh Screenshot (R)")
-            refresh_btn.clicked.connect(self.parent_selector.refresh_screenshot)
-            layout.addWidget(refresh_btn)
+        layout.addWidget(self._separator())
 
-        toggle_instructions_btn = QPushButton("Toggle Instructions (I)")
-        toggle_instructions_btn.clicked.connect(self.toggle_instructions)
-        layout.addWidget(toggle_instructions_btn)
+        # --- Live OCR controls ---
+        # Auto-send: write areas + hot-reload the running OCR on every change.
+        self.auto_send_btn = QPushButton("🔴 Auto-Send")
+        self.auto_send_btn.setObjectName("liveBtn")
+        self.auto_send_btn.setCheckable(True)
+        self.auto_send_btn.setChecked(sel.live_mode)
+        self.auto_send_btn.setToolTip("Apply each box change to the running OCR without closing this window")
+        self.auto_send_btn.toggled.connect(sel.set_live_mode)
+        layout.addWidget(self.auto_send_btn)
 
-        quit_btn = QPushButton("Quit without Saving (Esc)")
-        quit_btn.clicked.connect(self.parent_selector.close)
-        layout.addWidget(quit_btn)
+        # Auto-refresh: re-grab the OBS screenshot every second (OBS mode only).
+        if sel.use_obs_screenshot:
+            self.auto_refresh_btn = QPushButton("🔄 Auto-Refresh")
+            self.auto_refresh_btn.setObjectName("liveBtn")
+            self.auto_refresh_btn.setCheckable(True)
+            self.auto_refresh_btn.setToolTip("Refresh the background screenshot from OBS every second")
+            self.auto_refresh_btn.toggled.connect(sel.set_auto_refresh)
+            layout.addWidget(self.auto_refresh_btn)
 
-        self.setLayout(layout)
+        layout.addStretch(1)
 
-        # Position at top-left of screen
-        screen = QApplication.primaryScreen()
-        if screen:
-            screen_geometry = screen.geometry()
-            self.move(screen_geometry.x() + 10, screen_geometry.y() + 10)
-        else:
-            self.move(10, 10)
+        # --- Save --- (minimize/close come from the window title bar)
+        self._add_action(layout, "💾 Save & Quit", sel.save_and_quit)
 
-        self.setFixedWidth(350)
+    def _add_action(self, layout, label, slot):
+        btn = QPushButton(label)
+        btn.clicked.connect(lambda _=False, s=slot: s())
+        layout.addWidget(btn)
+        return btn
 
-    def toggle_instructions(self):
-        """Toggle instructions visibility on main selector."""
-        self.parent_selector.instructions_visible = not self.parent_selector.instructions_visible
-        self.parent_selector.update()
+    def _separator(self):
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.VLine)
+        line.setStyleSheet("color: #555;")
+        return line
 
-    def closeEvent(self, event):
-        """When control panel closes, also close the main selector."""
-        if self.parent_selector:
-            self.parent_selector.close()
-        event.accept()
+    def reposition(self):
+        """Pin the toolbar across the top edge of the selector."""
+        width = self.parent_selector.width()
+        self.setGeometry(0, 0, width, self.sizeHint().height())
 
 
 class OWOCRAreaSelectorWidget(QWidget):
@@ -176,6 +190,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         select_monitor_area=False,
         monitor_index=None,
         overlay_config_mode=False,
+        live_mode=False,
     ):
         super().__init__()
         logger.debug("Initializing OWOCRAreaSelectorWidget...")
@@ -195,6 +210,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.select_monitor_area = select_monitor_area
         self.target_monitor_index = monitor_index
         self.overlay_config_mode = overlay_config_mode
+        self.live_mode = live_mode
         self.quit_app_on_close = False
 
         self.scale_factor_w = 1.0
@@ -204,6 +220,9 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.scene = None
         self.screenshot_img = None
         self.pixmap = None
+        self.base_width = 0
+        self.base_height = 0
+        self._resizing_guard = False  # reentrancy guard for aspect-locked resize
         self.target_window_geometry = {}
         self.bounding_box = {}
         self.bounding_box_original = None
@@ -223,11 +242,21 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.undo_stack = []
         self.redo_stack = []
 
-        self.instructions_visible = True
+        self.instructions_visible = self._load_selector_ui_state().get("instructions_visible", True)
         self.instructions_dimmed = False
-        self.instructions_rect = QRect(20, 20, 400, 340)
+        # Sits below the top toolbar so the two don't overlap.
+        self.instructions_rect = QRect(20, 60, 400, 340)
 
-        self.control_panel = None
+        self.toolbar = None
+
+        # Debounced writer for live mode; rebuilds the config + signals Electron.
+        self.live_save_timer = QTimer()
+        self.live_save_timer.setSingleShot(True)
+        self.live_save_timer.timeout.connect(self._do_live_save)
+
+        # Periodic OBS screenshot refresh so the background tracks the game.
+        self.auto_refresh_timer = QTimer()
+        self.auto_refresh_timer.timeout.connect(self.refresh_screenshot)
 
         self.long_press_timer = QTimer()
         self.long_press_timer.timeout.connect(self._show_save_menu)
@@ -899,31 +928,59 @@ class OWOCRAreaSelectorWidget(QWidget):
             logger.error(f"Error loading overlay config: {e}")
 
     def init_ui(self):
+        # Base (screenshot) dimensions; rectangles are stored in this space and
+        # mapped to the current widget size so the window can be resized freely.
+        self.base_width = self.bounding_box["width"]
+        self.base_height = self.bounding_box["height"]
+
         # Set window properties
-        self.setWindowFlags(
-            Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool | Qt.WindowType.BypassWindowManagerHint
-        )
+        if self._primary_only_mode():
+            # Monitor/overlay selection stays a borderless, precisely-placed tool.
+            self.setWindowFlags(
+                Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool | Qt.WindowType.BypassWindowManagerHint
+            )
+        else:
+            # Standard selector: a plain framed window so the OS handles
+            # edge-resize, minimize and — crucially — maximize to the work area
+            # (a topmost window instead maximizes under the taskbar).
+            self.setWindowFlags(Qt.WindowType.Window)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
 
         # Set window title
         self.setWindowTitle("OCR Area Selector")
+        self.setWindowIcon(QIcon(get_pickaxe_png_path()))
 
-        # Disable resizing
-        self.setFixedSize(self.bounding_box["width"], self.bounding_box["height"])
+        # Create the toolbar first so we know how tall a strip to reserve for it;
+        # the image is then sized/drawn below that strip rather than under it.
+        self.toolbar = SelectorToolbar(self)
+        self.toolbar.reposition()
+        toolbar_h = self._content_offset_y()
+
+        # Window = image area + toolbar strip, so the image keeps its full size.
+        win_w = self.bounding_box["width"]
+        win_h = self.bounding_box["height"] + toolbar_h
+
+        if self._primary_only_mode():
+            # Disable resizing for the precise monitor/overlay placement modes.
+            self.setFixedSize(win_w, win_h)
+        else:
+            # Keep the minimum proportional so aspect-locked resize can't fight it.
+            aspect = self.base_width / self.base_height if self.base_height else (4 / 3)
+            min_w = 320
+            self.setMinimumSize(min_w, toolbar_h + max(1, round(min_w / aspect)))
+            self.resize(win_w, win_h)
 
         # Positioning logic
         if self.select_monitor_area and self.monitor_geometry:
             # Center the selector on the target monitor
             monitor_width = self.monitor_geometry["width"]
             monitor_height = self.monitor_geometry["height"]
-            window_width = self.bounding_box["width"]
-            window_height = self.bounding_box["height"]
 
-            x = self.monitor_geometry["left"] + (monitor_width - window_width) // 2
-            y = self.monitor_geometry["top"] + (monitor_height - window_height) // 2
+            x = self.monitor_geometry["left"] + (monitor_width - win_w) // 2
+            y = self.monitor_geometry["top"] + (monitor_height - win_h) // 2
 
             self.move(x, y)
-            self.resize(window_width, window_height)
+            self.resize(win_w, win_h)
 
         elif self.use_obs_screenshot:
             # Center on reference screen
@@ -931,10 +988,10 @@ class OWOCRAreaSelectorWidget(QWidget):
                 QApplication.primaryScreen().geometry() if QApplication.primaryScreen() else None
             )
             if screen_geometry:
-                x = screen_geometry.x() + (screen_geometry.width() - self.bounding_box["width"]) // 2
-                y = screen_geometry.y() + (screen_geometry.height() - self.bounding_box["height"]) // 2
+                x = screen_geometry.x() + (screen_geometry.width() - win_w) // 2
+                y = screen_geometry.y() + (screen_geometry.height() - win_h) // 2
                 self.move(x, y)
-                self.resize(self.bounding_box["width"], self.bounding_box["height"])
+                self.resize(win_w, win_h)
 
         else:
             # Center on reference screen to avoid oversized/multi-monitor offsets
@@ -942,10 +999,10 @@ class OWOCRAreaSelectorWidget(QWidget):
                 QApplication.primaryScreen().geometry() if QApplication.primaryScreen() else None
             )
             if screen_geometry:
-                x = screen_geometry.x() + (screen_geometry.width() - self.bounding_box["width"]) // 2
-                y = screen_geometry.y() + (screen_geometry.height() - self.bounding_box["height"]) // 2
+                x = screen_geometry.x() + (screen_geometry.width() - win_w) // 2
+                y = screen_geometry.y() + (screen_geometry.height() - win_h) // 2
                 self.move(x, y)
-            self.resize(self.bounding_box["width"], self.bounding_box["height"])
+            self.resize(win_w, win_h)
 
         # Set cursor
         self.setCursor(Qt.CursorShape.CrossCursor)
@@ -958,23 +1015,100 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.activateWindow()
         self.raise_()
 
-        # Create and show control panel
-        self.control_panel = ControlPanelWidget(self)
-        self.control_panel.show()
+        # Re-pin and raise the toolbar now that the window is shown/sized.
+        self.toolbar.reposition()
+        self.toolbar.show()
+        self.toolbar.raise_()
+
+    def _content_offset_y(self):
+        """Vertical space reserved for the top toolbar so it never covers the image."""
+        if self.toolbar is None:
+            return 0
+        return self.toolbar.height() or self.toolbar.sizeHint().height()
+
+    def _image_rect(self):
+        """Rect where the screenshot is drawn: aspect-fit within the area below
+        the toolbar, centered. Letterboxes (rather than stretches) so any window
+        size — including maximized — shows the whole image without cropping."""
+        offset = self._content_offset_y()
+        avail_w = max(1, self.width())
+        avail_h = max(1, self.height() - offset)
+        if not self.base_width or not self.base_height:
+            return QRect(0, offset, avail_w, avail_h)
+        scale = min(avail_w / self.base_width, avail_h / self.base_height)
+        img_w = max(1, int(self.base_width * scale))
+        img_h = max(1, int(self.base_height * scale))
+        x = (avail_w - img_w) // 2
+        y = offset + (avail_h - img_h) // 2
+        return QRect(x, y, img_w, img_h)
+
+    def _scale_xy(self):
+        """Display scale: widget pixels per base (screenshot) pixel."""
+        img_rect = self._image_rect()
+        sx = img_rect.width() / self.base_width if self.base_width else 1.0
+        sy = img_rect.height() / self.base_height if self.base_height else 1.0
+        return sx, sy
+
+    def _to_base_point(self, pos):
+        """Map a widget-space point to base (screenshot) coordinates."""
+        img_rect = self._image_rect()
+        sx, sy = self._scale_xy()
+        return QPoint(int((pos.x() - img_rect.x()) / sx), int((pos.y() - img_rect.y()) / sy))
+
+    def resizeEvent(self, event):
+        # Rectangles live in base coords, so a resize only needs to re-pin the
+        # toolbar and repaint at the new display scale.
+        if not self._primary_only_mode():
+            self._enforce_aspect_ratio()
+        if self.toolbar:
+            self.toolbar.reposition()
+        super().resizeEvent(event)
+        self.update()
+
+    def _enforce_aspect_ratio(self):
+        """Lock resizing to the screenshot's aspect ratio (diagonal only).
+
+        Width drives height, so dragging any edge keeps proportions rather than
+        squeezing/stretching the capture.
+        """
+        if self._resizing_guard or not self.base_width or not self.base_height:
+            return
+        # Don't fight the OS when maximized/fullscreen — letterboxing keeps the
+        # whole image visible there instead.
+        if self.isMaximized() or self.isFullScreen():
+            return
+        aspect = self.base_width / self.base_height
+        # Lock the image area (not the whole window) to the screenshot aspect so
+        # the reserved toolbar strip doesn't squish the background.
+        offset = self._content_offset_y()
+        target_h = offset + max(1, round(self.width() / aspect))
+        if target_h != self.height():
+            self._resizing_guard = True
+            self.resize(self.width(), target_h)
+            self._resizing_guard = False
 
     def paintEvent(self, event):
         painter = QPainter(self)
 
-        # Draw the screenshot
-        painter.drawPixmap(0, 0, self.pixmap)
+        # Fill the area below the toolbar (letterbox bars show through when the
+        # window aspect doesn't match the image), then draw the aspect-fit image.
+        offset = self._content_offset_y()
+        painter.fillRect(QRect(0, offset, self.width(), self.height() - offset), QColor(0, 0, 0))
+        img_rect = self._image_rect()
+        painter.drawPixmap(img_rect, self.pixmap)
 
-        # Draw a bright border around the entire window
+        # Draw a bright border around the image area
         border_color = QColor(0, 255, 255)  # Cyan
         border_pen = QPen(border_color, 2)  # 2 pixels thick
         painter.setPen(border_pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         # Draw rectangle slightly inset so the border is fully visible
-        painter.drawRect(1, 1, self.width() - 2, self.height() - 2)
+        painter.drawRect(
+            img_rect.x() + 1,
+            img_rect.y() + 1,
+            img_rect.width() - 2,
+            img_rect.height() - 2,
+        )
 
         # Draw existing rectangles
         for rect in self.rectangles:
@@ -1022,13 +1156,19 @@ class OWOCRAreaSelectorWidget(QWidget):
         pen = QPen(color, 3)
         painter.setPen(pen)
 
+        # Rectangles are stored in base coords; map to the aspect-fit image rect.
+        sx, sy = self._scale_xy()
+        img_rect = self._image_rect()
+        wx, wy = img_rect.x() + int(rect["x"] * sx), img_rect.y() + int(rect["y"] * sy)
+        ww, wh = int(rect["w"] * sx), int(rect["h"] * sy)
+
         # Draw border
-        painter.drawRect(rect["x"], rect["y"], rect["w"], rect["h"])
+        painter.drawRect(wx, wy, ww, wh)
 
         # Draw semi-transparent fill
         brush = QBrush(QColor(color.red(), color.green(), color.blue(), 50))
         painter.setBrush(brush)
-        painter.drawRect(rect["x"], rect["y"], rect["w"], rect["h"])
+        painter.drawRect(wx, wy, ww, wh)
 
         # Restore painter state
         painter.restore()
@@ -1039,7 +1179,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         painter.save()
 
         panel_x = 20
-        panel_y = 20
+        panel_y = 60
         panel_width = 400
         panel_height = 340
 
@@ -1103,10 +1243,10 @@ class OWOCRAreaSelectorWidget(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            # Clamp position to window bounds
-            clamped_pos = self._clamp_position(event.pos())
-            self.start_pos = clamped_pos
-            self.current_pos = clamped_pos
+            # Clamp to window, then store in base coords (window may be resized).
+            base_pos = self._to_base_point(self._clamp_position(event.pos()))
+            self.start_pos = base_pos
+            self.current_pos = base_pos
             self.is_drawing = True
 
             if self._primary_only_mode():
@@ -1143,18 +1283,19 @@ class OWOCRAreaSelectorWidget(QWidget):
             logger.info("Middle mouse button pressed - saving")
             self.save_and_quit()
         elif event.button() == Qt.MouseButton.RightButton:
-            # Check if clicking on a rectangle first
+            # Hit-test in base coords (rectangles are stored in base space).
+            base_pos = self._to_base_point(event.pos())
             rect_clicked = False
             for i, rect in enumerate(self.rectangles):
                 if (
-                    rect["x"] <= event.pos().x() <= rect["x"] + rect["w"]
-                    and rect["y"] <= event.pos().y() <= rect["y"] + rect["h"]
+                    rect["x"] <= base_pos.x() <= rect["x"] + rect["w"]
+                    and rect["y"] <= base_pos.y() <= rect["y"] + rect["h"]
                 ):
-                    self._delete_rectangle_at(event.pos())
+                    self._delete_rectangle_at(base_pos)
                     rect_clicked = True
                     break
 
-            # If not on a rectangle, show context menu
+            # If not on a rectangle, show context menu (widget pos for mapToGlobal)
             if not rect_clicked:
                 self._show_context_menu(event.pos())
 
@@ -1177,9 +1318,9 @@ class OWOCRAreaSelectorWidget(QWidget):
                 self.long_press_timer.stop()
                 self.long_press_active = False
 
-        # Handle drawing
+        # Handle drawing (store in base coords)
         if self.is_drawing:
-            self.current_pos = clamped_pos
+            self.current_pos = self._to_base_point(clamped_pos)
             self.update()
 
     def mouseReleaseEvent(self, event):
@@ -1189,7 +1330,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             self.long_press_active = False
 
             self.is_drawing = False
-            self.current_pos = self._clamp_position(event.pos())
+            self.current_pos = self._to_base_point(self._clamp_position(event.pos()))
 
             x1 = min(self.start_pos.x(), self.current_pos.x())
             y1 = min(self.start_pos.y(), self.current_pos.y())
@@ -1227,6 +1368,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                 self.redo_stack.clear()
 
                 logger.info(f"Added rectangle: {new_rect}")
+                self._schedule_live_save()
             else:
                 logger.warning(f"Rectangle too small: {w}x{h}")
 
@@ -1247,6 +1389,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                 del self.rectangles[i]
                 self.redo_stack.clear()
                 logger.info(f"Deleted rectangle at index {i}")
+                self._schedule_live_save()
                 self.update()
                 break
 
@@ -1254,8 +1397,9 @@ class OWOCRAreaSelectorWidget(QWidget):
         """Clamp a position to stay within the window bounds."""
         from PyQt6.QtCore import QPoint
 
-        x = max(0, min(pos.x(), self.width() - 1))
-        y = max(0, min(pos.y(), self.height() - 1))
+        img_rect = self._image_rect()
+        x = max(img_rect.x(), min(pos.x(), img_rect.x() + img_rect.width() - 1))
+        y = max(img_rect.y(), min(pos.y(), img_rect.y() + img_rect.height() - 1))
         return QPoint(x, y)
 
     def _show_context_menu(self, pos):
@@ -1322,9 +1466,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         menu.addSeparator()
 
         toggle_instructions_action = QAction("Toggle Instructions", self)
-        toggle_instructions_action.triggered.connect(
-            lambda: setattr(self, "instructions_visible", not self.instructions_visible) or self.update()
-        )
+        toggle_instructions_action.triggered.connect(self.toggle_instructions)
         menu.addAction(toggle_instructions_action)
 
         menu.addSeparator()
@@ -1383,11 +1525,12 @@ class OWOCRAreaSelectorWidget(QWidget):
         """Handle double-click to save."""
         if event.button() == Qt.MouseButton.LeftButton:
             # Check if double-clicking on empty space (not on a rectangle)
+            base_pos = self._to_base_point(event.pos())
             on_rectangle = False
             for rect in self.rectangles:
                 if (
-                    rect["x"] <= event.pos().x() <= rect["x"] + rect["w"]
-                    and rect["y"] <= event.pos().y() <= rect["y"] + rect["h"]
+                    rect["x"] <= base_pos.x() <= rect["x"] + rect["w"]
+                    and rect["y"] <= base_pos.y() <= rect["y"] + rect["h"]
                 ):
                     on_rectangle = True
                     break
@@ -1411,8 +1554,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         elif event.key() == Qt.Key.Key_R:
             self.refresh_screenshot()
         elif event.key() == Qt.Key.Key_I:
-            self.instructions_visible = not self.instructions_visible
-            self.update()
+            self.toggle_instructions()
 
     def undo(self):
         """Undo last action."""
@@ -1431,6 +1573,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             self.redo_stack.append(("delete", action[1]))
 
         logger.info(f"Undid action: {action[0]}")
+        self._schedule_live_save()
         self.update()
 
     def redo(self):
@@ -1450,6 +1593,7 @@ class OWOCRAreaSelectorWidget(QWidget):
             self.undo_stack.append(("delete", action[1], rect))
 
         logger.info(f"Redid action: {action[0]}")
+        self._schedule_live_save()
         self.update()
 
     def create_fullscreen_box(self):
@@ -1487,12 +1631,12 @@ class OWOCRAreaSelectorWidget(QWidget):
         if self.monitors:
             monitor_index = self.monitors[0]["index"]
 
-        # Create a green (normal) rectangle covering the entire visible area
+        # Create a green (normal) rectangle covering the entire base image
         new_rect = {
             "x": 0,
             "y": 0,
-            "w": self.width(),
-            "h": self.height(),
+            "w": self.base_width,
+            "h": self.base_height,
             "monitor_index": monitor_index,
             "is_excluded": False,
             "is_secondary": False,
@@ -1505,6 +1649,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.redo_stack.clear()
 
         logger.info(f"Created fullscreen rectangle: {new_rect}")
+        self._schedule_live_save()
         self.update()
 
     def refresh_screenshot(self):
@@ -1570,7 +1715,15 @@ class OWOCRAreaSelectorWidget(QWidget):
     def save_and_quit(self):
         """Save rectangles and quit."""
         logger.info("Saving rectangles...")
+        self._write_config_to_disk()
+        self.close()
 
+    def _write_config_to_disk(self) -> bool:
+        """Serialize the current rectangles to the active config file.
+
+        Returns True on success. Does NOT close the window, so it can be reused
+        both by save-and-quit and by the live debounced writer.
+        """
         # =========================================================
         # SPECIAL BRANCH: Monitor Area Selection
         # =========================================================
@@ -1617,9 +1770,9 @@ class OWOCRAreaSelectorWidget(QWidget):
                 )
             except Exception as e:
                 logger.error(f"Failed to save monitor selection: {e}")
+                return False
 
-            self.close()
-            return
+            return True
         # =========================================================
 
         win_geom = self.target_window_geometry
@@ -1682,14 +1835,105 @@ class OWOCRAreaSelectorWidget(QWidget):
             logger.success(f"Saved {len(output_rectangles)} rectangles to {config_path}")
         except Exception as e:
             logger.error(f"Failed to save config: {e}")
+            return False
 
-        self.close()
+        return True
+
+    def set_draw_mode(self, mode: str):
+        """Set the persistent drawing mode from the toolbar.
+
+        Makes the toolbar authoritative over modifier keys for subsequent drags
+        (menu_drawing_mode), so a chosen mode persists box-to-box.
+        """
+        if self._primary_only_mode():
+            self.drawing_excluded = False
+            self.drawing_secondary = False
+            self.drawing_exclusive = False
+            self.drawing_black_hole = False
+            self.menu_drawing_mode = False
+            return
+
+        self.drawing_black_hole = mode == "black_hole"
+        self.drawing_exclusive = mode == "exclusive"
+        self.drawing_excluded = mode == "exclusion"
+        self.drawing_secondary = mode == "secondary"
+        self.menu_drawing_mode = True
+        logger.info(f"Draw mode set to '{mode}'")
+
+    def toggle_instructions(self):
+        """Toggle the on-canvas instructions panel and remember the choice."""
+        self.instructions_visible = not self.instructions_visible
+        self._save_selector_ui_state()
+        self.update()
+
+    def _selector_ui_state_path(self):
+        return os.path.join(get_ocr_config_path(), "selector_ui_state.json")
+
+    def _load_selector_ui_state(self) -> dict:
+        """Read persisted selector UI prefs (e.g. info box visibility)."""
+        try:
+            with open(self._selector_ui_state_path(), "r", encoding="utf-8") as f:
+                state = json.load(f)
+                return state if isinstance(state, dict) else {}
+        except (FileNotFoundError, ValueError, OSError):
+            return {}
+
+    def _save_selector_ui_state(self):
+        """Persist selector UI prefs so they survive across runs."""
+        try:
+            state = self._load_selector_ui_state()
+            state["instructions_visible"] = self.instructions_visible
+            with open(self._selector_ui_state_path(), "w", encoding="utf-8") as f:
+                json.dump(state, f)
+        except OSError as e:
+            logger.debug(f"Could not save selector UI state: {e}")
+
+    def set_live_mode(self, enabled: bool):
+        """Enable/disable live OCR auto-send. Applies current areas at once."""
+        self.live_mode = bool(enabled)
+        logger.info(f"Live OCR auto-send: {self.live_mode}")
+        if self.toolbar and self.toolbar.auto_send_btn.isChecked() != self.live_mode:
+            self.toolbar.auto_send_btn.setChecked(self.live_mode)
+        if self.live_mode:
+            self._do_live_save()
+
+    def set_auto_refresh(self, enabled: bool):
+        """Enable/disable periodic OBS screenshot refresh (1s)."""
+        enabled = bool(enabled)
+        if enabled and not self.use_obs_screenshot:
+            logger.info("Auto-refresh is only available in OBS screenshot mode")
+            return
+        if enabled:
+            self.auto_refresh_timer.start(1000)
+            logger.info("Auto-refresh screenshot: ON (every 1s)")
+        else:
+            self.auto_refresh_timer.stop()
+            logger.info("Auto-refresh screenshot: OFF")
+
+    def _schedule_live_save(self):
+        """Debounce a config write + reload signal after a rectangle change."""
+        if self.live_mode:
+            self.live_save_timer.start(LIVE_SAVE_DEBOUNCE_MS)
+
+    def _do_live_save(self):
+        """Write the config and tell Electron to hot-reload the running OCR."""
+        if not self.live_mode:
+            return
+        if self._write_config_to_disk():
+            # Electron's screen-selector stdout handler watches for this marker
+            # and publishes an ocr.command/reload_config (reload_area) on the bus.
+            print(LIVE_AREA_SAVED_MARKER, flush=True)
+            logger.info("Live update: wrote config and signaled OCR reload")
 
     def closeEvent(self, event):
-        # Close control panel if it exists
-        if self.control_panel:
-            self.control_panel.close()
-            self.control_panel = None
+        self.live_save_timer.stop()
+        self.auto_refresh_timer.stop()
+        # Flush a final write so any pending edits are applied before exit.
+        if self.live_mode:
+            self._do_live_save()
+        if self.toolbar:
+            self.toolbar.close()
+            self.toolbar = None
 
         if self.on_complete:
             # Return the rectangles in the expected format
@@ -1767,6 +2011,7 @@ def show_area_selector(
     use_obs_screenshot=False,
     on_complete=None,
     overlay_config_mode=False,
+    live_mode=False,
 ):
     """
     Displays a Qt-based area selector for OCR configuration.
@@ -1802,6 +2047,7 @@ def show_area_selector(
             use_obs_screenshot,
             on_complete,
             overlay_config_mode=overlay_config_mode,
+            live_mode=live_mode,
         )
         _selector.quit_app_on_close = created_app
         logger.info("OWOCRAreaSelectorWidget created successfully")
@@ -1896,6 +2142,11 @@ if __name__ == "__main__":
             action="store_true",
             help="Save/load the dedicated overlay area config instead of the OCR area config",
         )
+        parser.add_argument(
+            "--live",
+            action="store_true",
+            help="Start in live mode: apply each change to the running OCR without closing",
+        )
 
         logger.info("Parsing command line arguments...")
         args = parser.parse_args()
@@ -1930,6 +2181,7 @@ if __name__ == "__main__":
                 args.obs,
                 on_complete,
                 overlay_config_mode=args.overlay_config,
+                live_mode=args.live,
             )
 
         logger.success("OCR Area Selector completed successfully")
