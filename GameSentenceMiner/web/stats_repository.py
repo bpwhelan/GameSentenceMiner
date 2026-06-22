@@ -12,6 +12,7 @@ from GameSentenceMiner.util.database.db import (
 )
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+from GameSentenceMiner.web.rollup_stats import get_first_date_combined
 
 
 class StatsLineRecord:
@@ -275,7 +276,7 @@ def get_date_range_params(
         start_date_str = datetime.date.fromtimestamp(start_timestamp).strftime("%Y-%m-%d")
         end_date_str = datetime.date.fromtimestamp(end_timestamp).strftime("%Y-%m-%d")
     else:
-        first_rollup_date = StatsRollupTable.get_first_date()
+        first_rollup_date = get_first_date_combined()
         start_date_str = first_rollup_date if first_rollup_date else today_str
         end_date_str = today_str
 

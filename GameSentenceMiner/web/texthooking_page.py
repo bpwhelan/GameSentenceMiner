@@ -1192,10 +1192,10 @@ def stats():
         get_master_config,
         get_stats_config,
     )
-    from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+    from GameSentenceMiner.web.rollup_stats import get_first_date_combined
 
-    # Get first date from rollup table to avoid extra API call on page load
-    first_rollup_date = StatsRollupTable.get_first_date()
+    # Get first date from rollup/third-party stats to avoid extra API call on page load
+    first_rollup_date = get_first_date_combined()
 
     return render_template(
         "stats.html",
