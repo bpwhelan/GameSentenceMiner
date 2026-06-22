@@ -64,7 +64,7 @@ dependencies = [
   "tokenizers==0.22.1",
   "curl-cffi~=0.13.0",
   "protobuf>=6.33.2",
-  "py7zr~=1.0.0",
+  "py7zr>=1.0,<1.2",
   "waitress==3.0.2",
   "flasgger~=0.9.7",
   "pynput~=1.8.1 ; sys_platform == 'win32'",
