@@ -87,7 +87,7 @@ def test_all_lines_data_skips_full_combined_stats_builder(client, monkeypatch):
     assert data[0]["reading_time_seconds"] == 45.0
 
 
-def test_all_lines_data_aggregates_live_dates_with_adaptive_reading_time(
+def test_all_lines_data_aggregates_live_dates_with_v2_adaptive_reading_time(
     client,
     monkeypatch,
 ):
@@ -121,6 +121,6 @@ def test_all_lines_data_aggregates_live_dates_with_adaptive_reading_time(
             "timestamp": datetime.datetime.combine(datetime.date.today(), datetime.time.min).timestamp(),
             "date": today,
             "characters": 6,
-            "reading_time_seconds": 30.0,
+            "reading_time_seconds": 15.0,
         }
     ]

@@ -768,7 +768,7 @@ describe("legacy gamepad block redraw recovery", () => {
     expect(inside.block).toBe(block);
   });
 
-  it("snaps virtual mouse points to the nearest selectable block", () => {
+  it("allows virtual mouse points to roam between selectable blocks", () => {
     const blocks = [{ isConnected: true }, { isConnected: true }];
     const rects = new Map([
       [blocks[0], { left: 0, top: 0, right: 100, bottom: 60, width: 100, height: 60 }],
@@ -800,13 +800,17 @@ describe("legacy gamepad block redraw recovery", () => {
     handler.blockHasSelectableCharacters = () => true;
     handler.getBlockBoundingRect = (block) => rects.get(block)!;
 
-    const clampedToSecond = handler.constrainVirtualMousePointToBlocks(170, 30);
-    expect(clampedToSecond).toMatchObject({ x: 220, y: 30, blockIndex: 1, constrained: true });
-    expect(clampedToSecond.block).toBe(blocks[1]);
+    const betweenBlocks = handler.constrainVirtualMousePointToBlocks(170, 30);
+    expect(betweenBlocks).toMatchObject({ x: 170, y: 30, blockIndex: -1, constrained: false });
+    expect(betweenBlocks.block).toBe(null);
 
-    const clampedToFirst = handler.constrainVirtualMousePointToBlocks(-30, 30);
-    expect(clampedToFirst).toMatchObject({ x: 0, y: 30, blockIndex: 0, constrained: true });
-    expect(clampedToFirst.block).toBe(blocks[0]);
+    const outsideBlocks = handler.constrainVirtualMousePointToBlocks(-30, 30);
+    expect(outsideBlocks).toMatchObject({ x: -30, y: 30, blockIndex: -1, constrained: false });
+    expect(outsideBlocks.block).toBe(null);
+
+    const insideSecond = handler.constrainVirtualMousePointToBlocks(240, 30);
+    expect(insideSecond).toMatchObject({ x: 240, y: 30, blockIndex: 1, constrained: false });
+    expect(insideSecond.block).toBe(blocks[1]);
   });
 });
 

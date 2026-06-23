@@ -32,6 +32,16 @@ from GameSentenceMiner.util.stats.stats_util import (
 )
 
 
+def _set_reading_time_adaptive_v2(monkeypatch, enabled: bool) -> None:
+    import GameSentenceMiner.web.stats as stats_mod
+
+    monkeypatch.setattr(
+        stats_mod,
+        "get_stats_config",
+        lambda: SimpleNamespace(reading_time_adaptive_v2=enabled),
+    )
+
+
 # ---------------------------------------------------------------------------
 # is_kanji
 # ---------------------------------------------------------------------------
@@ -190,6 +200,10 @@ class TestCalculateKanjiFrequency:
 
 
 class TestCalculateActualReadingTime:
+    @pytest.fixture(autouse=True)
+    def _disable_v2(self, monkeypatch):
+        _set_reading_time_adaptive_v2(monkeypatch, False)
+
     def test_empty_timestamps(self):
         assert calculate_actual_reading_time([], line_texts=[]) == 0.0
 
@@ -276,6 +290,10 @@ class TestCalculateActualReadingTime:
 
 class TestAdaptiveIQRFiltering:
     """Tests for the Stage 2 IQR-based outlier filtering."""
+
+    @pytest.fixture(autouse=True)
+    def _disable_v2(self, monkeypatch):
+        _set_reading_time_adaptive_v2(monkeypatch, False)
 
     def test_iqr_replaces_outlier_slow_lines(self):
         # Build a session with 12 lines: 10 normal, 2 outlier-slow.
@@ -372,14 +390,7 @@ class TestCalculateActualReadingTimeV2:
 
     @pytest.fixture(autouse=True)
     def _enable_v2(self, monkeypatch):
-        from types import SimpleNamespace
-        import GameSentenceMiner.web.stats as stats_mod
-
-        monkeypatch.setattr(
-            stats_mod,
-            "get_stats_config",
-            lambda: SimpleNamespace(reading_time_adaptive_v2=True),
-        )
+        _set_reading_time_adaptive_v2(monkeypatch, True)
 
     def test_afk_line_trimmed_to_session_pace(self):
         # 2 cps median; the 600s AFK gap (20-char line) caps at 25s, not v1's 60s.
