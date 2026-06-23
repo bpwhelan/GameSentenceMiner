@@ -16,9 +16,17 @@ function nextTick(delay = 0) {
   return new Promise((resolve) => setTimeout(resolve, delay));
 }
 
-function loadOverlaySettingsPage() {
+function loadOverlaySettingsPage(options: {
+  gamepads?: Array<any>;
+  setIntervalImpl?: (callback: () => void, delay?: number) => number;
+  clearIntervalImpl?: (id: number) => void;
+} = {}) {
   const html = fs.readFileSync(
     path.resolve(process.cwd(), "GSM_Overlay/settings.html"),
+    "utf8"
+  );
+  const manualModeCardSource = fs.readFileSync(
+    path.resolve(process.cwd(), "GSM_Overlay/components/manual-mode-card.js"),
     "utf8"
   );
   const sent: Array<{ channel: string; payload: IpcPayload }> = [];
@@ -67,10 +75,11 @@ function loadOverlaySettingsPage() {
       };
       window.process = { platform: "win32" };
       window.WebSocket = FakeWebSocket;
-      window.setInterval = () => 0;
-      window.clearInterval = () => {};
+      window.eval(manualModeCardSource);
+      window.setInterval = options.setIntervalImpl ?? (() => 0);
+      window.clearInterval = options.clearIntervalImpl ?? (() => {});
       window.console = { ...window.console, log: () => {} };
-      window.navigator.getGamepads = () => [];
+      window.navigator.getGamepads = () => options.gamepads ?? [];
       window.open = () => null;
     }
   });
@@ -121,6 +130,59 @@ describe("overlay settings keyboard binding capture", () => {
       const settingChangesAfter = page.sent.filter((entry) => entry.channel === "setting-changed").length;
       expect(input.value).toBe("Disabled");
       expect(settingChangesAfter).toBe(settingChangesBefore);
+    } finally {
+      page.dom.window.close();
+    }
+  });
+
+  it("persists a mouse-click gamepad binding through the setting-changed channel", async () => {
+    const intervals: Array<() => void> = [];
+    const gamepads = [
+      {
+        index: 0,
+        id: "Test Controller",
+        buttons: [{ pressed: false, value: 0 }]
+      }
+    ];
+    const page = loadOverlaySettingsPage({
+      gamepads,
+      setIntervalImpl: (callback: () => void) => {
+        intervals.push(callback);
+        return intervals.length;
+      },
+      clearIntervalImpl: () => {}
+    });
+
+    try {
+      await nextTick(20);
+      const input = page.dom.window.document.getElementById("gamepadForwardMouseClickButton") as HTMLInputElement;
+
+      input.focus();
+      await nextTick();
+      expect(intervals.length).toBeGreaterThan(0);
+      const captureInterval = intervals.at(-1)!;
+
+      gamepads[0] = {
+        index: 0,
+        id: "Test Controller",
+        buttons: [{ pressed: true, value: 1 }]
+      };
+      captureInterval();
+      await nextTick();
+      expect(input.value).toBe("A");
+
+      gamepads[0] = {
+        index: 0,
+        id: "Test Controller",
+        buttons: [{ pressed: false, value: 0 }]
+      };
+      captureInterval();
+      await nextTick();
+
+      expect(page.sent.findLast((entry) => entry.channel === "setting-changed")?.payload).toEqual({
+        key: "gamepadForwardMouseClickButton",
+        value: "A"
+      });
     } finally {
       page.dom.window.close();
     }

@@ -3995,6 +3995,9 @@ background: rgba(202, 12, 12, 0.692);
     if (newsettings.gamepadForwardEnterButton !== undefined) {
       gamepadSettings.forwardEnterButton = newsettings.gamepadForwardEnterButton;
     }
+    if (newsettings.gamepadForwardMouseClickButton !== undefined) {
+      gamepadSettings.forwardMouseClickButton = newsettings.gamepadForwardMouseClickButton;
+    }
     if (newsettings.gamepadForwardSpaceButton !== undefined) {
       gamepadSettings.forwardSpaceButton = newsettings.gamepadForwardSpaceButton;
     }
@@ -4691,6 +4694,7 @@ background: rgba(202, 12, 12, 0.692);
     confirmButton: 0, // A
     cancelButton: 1, // B
     forwardEnterButton: -1, // Disabled
+    forwardMouseClickButton: -1, // Disabled
     forwardSpaceButton: -1, // Disabled
     forwardCtrlButton: -1, // Disabled
     forwardEscapeButton: -1, // Disabled
@@ -4719,6 +4723,7 @@ background: rgba(202, 12, 12, 0.692);
     keyboardConfirmKey: 'Enter',
     keyboardCancelKey: 'Escape',
     keyboardForwardEnterKey: null,
+    keyboardForwardMouseClickKey: null,
     keyboardForwardSpaceKey: null,
     keyboardForwardCtrlKey: null,
     keyboardForwardEscapeKey: null,
@@ -4736,7 +4741,7 @@ background: rgba(202, 12, 12, 0.692);
   // Keyboard setting keys that map directly (settingKey in settings.html -> gamepadSettings key)
   const KEYBOARD_SETTING_KEYS = [
     'keyboardModifierKey', 'keyboardToggleKey', 'keyboardConfirmKey', 'keyboardCancelKey',
-    'keyboardForwardEnterKey', 'keyboardForwardSpaceKey', 'keyboardForwardCtrlKey', 'keyboardForwardEscapeKey',
+    'keyboardForwardEnterKey', 'keyboardForwardMouseClickKey', 'keyboardForwardSpaceKey', 'keyboardForwardCtrlKey', 'keyboardForwardEscapeKey',
     'keyboardManualOverlayScanKey', 'keyboardTokenModeToggleKey',
     'keyboardNextEntryKey', 'keyboardPrevEntryKey',
     'keyboardNavigateUp', 'keyboardNavigateDown', 'keyboardNavigateLeft', 'keyboardNavigateRight',
@@ -4785,6 +4790,7 @@ background: rgba(202, 12, 12, 0.692);
       confirmButton: gamepadSettings.confirmButton,
       cancelButton: gamepadSettings.cancelButton,
       forwardEnterButton: gamepadSettings.forwardEnterButton,
+      forwardMouseClickButton: gamepadSettings.forwardMouseClickButton,
       forwardSpaceButton: gamepadSettings.forwardSpaceButton,
       forwardCtrlButton: gamepadSettings.forwardCtrlButton,
       forwardEscapeButton: gamepadSettings.forwardEscapeButton,
@@ -4814,6 +4820,7 @@ background: rgba(202, 12, 12, 0.692);
       keyboardConfirmKey: gamepadSettings.keyboardConfirmKey,
       keyboardCancelKey: gamepadSettings.keyboardCancelKey,
       keyboardForwardEnterKey: gamepadSettings.keyboardForwardEnterKey,
+      keyboardForwardMouseClickKey: gamepadSettings.keyboardForwardMouseClickKey,
       keyboardForwardSpaceKey: gamepadSettings.keyboardForwardSpaceKey,
       keyboardForwardCtrlKey: gamepadSettings.keyboardForwardCtrlKey,
       keyboardForwardEscapeKey: gamepadSettings.keyboardForwardEscapeKey,
@@ -5172,6 +5179,10 @@ background: rgba(202, 12, 12, 0.692);
     }
     if (updatedSettings.gamepadForwardEnterButton !== undefined) {
       gamepadSettings.forwardEnterButton = updatedSettings.gamepadForwardEnterButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadForwardMouseClickButton !== undefined) {
+      gamepadSettings.forwardMouseClickButton = updatedSettings.gamepadForwardMouseClickButton;
       needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadForwardSpaceButton !== undefined) {
