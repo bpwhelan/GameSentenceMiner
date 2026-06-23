@@ -23,7 +23,9 @@ function loadLegacyGamepadHandler() {
       querySelectorAll: () => [],
       querySelector: () => null
     },
-    window: {},
+    window: {
+      dispatchEvent: () => true
+    },
     CustomEvent: class CustomEvent {
       type: string;
       detail: unknown;
@@ -312,6 +314,177 @@ describe("legacy gamepad button bindings", () => {
     handler.onButtonDown(0, "pad-1");
 
     expect(calls).toEqual(["confirm"]);
+  });
+});
+
+describe("legacy gamepad forwarded game keys", () => {
+  it("handles held keyboard forward keys once until release", () => {
+    const disabled = GamepadHandler.normalizeKeyboardBindingValue(null);
+    const handler = Object.create(GamepadHandler.prototype) as {
+      config: { keyboardEnabled: boolean };
+      pressedKeys: Set<string>;
+      keyboardModifiers: Record<string, boolean>;
+      keyboardBindings: Record<string, any>;
+      repeatTimers: Map<string, ReturnType<typeof setTimeout>>;
+      isInputSuppressed: () => boolean;
+      isNavigationActive: () => boolean;
+      shouldProcessKeyboardNavigation: () => boolean;
+      onKeyboardEvent: (data: { key: string; pressed: boolean; modifiers?: Record<string, boolean> }) => void;
+      onKeyboardKeyDown: (keyName: string) => void;
+      onKeyboardKeyUp: (keyName: string) => void;
+      forwardEnterToTargetWindow: () => void;
+      forwardKeyToTargetWindow: (key: string) => void;
+    };
+
+    const calls: string[] = [];
+    handler.config = { keyboardEnabled: true };
+    handler.pressedKeys = new Set();
+    handler.keyboardModifiers = { ctrl: false, alt: false, shift: false, meta: false };
+    handler.repeatTimers = new Map();
+    handler.keyboardBindings = {
+      modifierKey: disabled,
+      toggleKey: disabled,
+      confirmKey: disabled,
+      cancelKey: disabled,
+      forwardEnterKey: GamepadHandler.normalizeKeyboardBindingValue("Space"),
+      forwardSpaceKey: GamepadHandler.normalizeKeyboardBindingValue("Enter"),
+      forwardCtrlKey: disabled,
+      forwardEscapeKey: disabled,
+      manualOverlayScanKey: disabled,
+      tokenModeToggleKey: disabled,
+      nextEntryKey: disabled,
+      prevEntryKey: disabled,
+      navigateUp: disabled,
+      navigateDown: disabled,
+      navigateLeft: disabled,
+      navigateRight: disabled,
+      mineButton: disabled
+    };
+    handler.isInputSuppressed = () => false;
+    handler.isNavigationActive = () => false;
+    handler.shouldProcessKeyboardNavigation = () => false;
+    handler.onKeyboardEvent = GamepadHandler.prototype.onKeyboardEvent;
+    handler.onKeyboardKeyDown = GamepadHandler.prototype.onKeyboardKeyDown;
+    handler.onKeyboardKeyUp = GamepadHandler.prototype.onKeyboardKeyUp;
+    handler.forwardEnterToTargetWindow = () => calls.push("enter");
+    handler.forwardKeyToTargetWindow = (key) => calls.push(key);
+
+    handler.onKeyboardEvent({ key: "Space", pressed: true, modifiers: {} });
+    handler.onKeyboardEvent({ key: "Space", pressed: true, modifiers: {} });
+    handler.onKeyboardEvent({ key: "Space", pressed: false, modifiers: {} });
+    handler.onKeyboardEvent({ key: "Space", pressed: true, modifiers: {} });
+    handler.onKeyboardEvent({ key: "Enter", pressed: true, modifiers: {} });
+    handler.onKeyboardEvent({ key: "Enter", pressed: true, modifiers: {} });
+
+    expect(calls).toEqual(["enter", "enter", "space"]);
+  });
+
+  it("handles held controller forward buttons once until release", () => {
+    const disabled = GamepadHandler.normalizeButtonBindingValue(-1);
+    const handler = Object.create(GamepadHandler.prototype) as {
+      config: {
+        controllerEnabled: boolean;
+        activationMode: string;
+        onButtonPress: null;
+      };
+      gamepads: Map<string, { buttons: Record<number, boolean> }>;
+      buttonStates: Map<string, Record<number, boolean>>;
+      buttonBindings: Record<string, any>;
+      repeatTimers: Map<string, ReturnType<typeof setTimeout>>;
+      isActive: boolean;
+      isInputSuppressed: () => boolean;
+      bindingContainsButton: (binding: any, buttonIndex: number) => boolean;
+      isButtonBindingHeld: (binding: any, device: string) => boolean;
+      matchesButtonBindingDown: (binding: any, device: string, buttonIndex: number) => boolean;
+      getForwardKeyButtonBindings: () => Array<{ binding: any; key: string }>;
+      onButtonEvent: (data: { device: string; button: number; pressed: boolean; name?: string }) => void;
+      onButtonDown: (buttonIndex: number, device: string) => void;
+      onButtonUp: (buttonIndex: number, device: string) => void;
+      forwardEnterToTargetWindow: () => void;
+      forwardKeyToTargetWindow: (key: string) => void;
+      requestManualOverlayScan: () => void;
+      isNavigationActive: () => boolean;
+      shouldProcessNavigation: () => boolean;
+      deactivateNavigation: () => void;
+    };
+
+    const calls: string[] = [];
+    handler.config = { controllerEnabled: true, activationMode: "modifier", onButtonPress: null };
+    handler.gamepads = new Map();
+    handler.buttonStates = new Map();
+    handler.repeatTimers = new Map();
+    handler.isActive = false;
+    handler.buttonBindings = {
+      modifierButton: disabled,
+      toggleButton: disabled,
+      confirmButton: disabled,
+      cancelButton: disabled,
+      forwardEnterButton: GamepadHandler.normalizeButtonBindingValue(0),
+      forwardSpaceButton: GamepadHandler.normalizeButtonBindingValue(1),
+      forwardCtrlButton: disabled,
+      forwardEscapeButton: disabled,
+      manualOverlayScanButton: disabled,
+      tokenModeToggleButton: disabled,
+      mineButton: disabled,
+      nextEntryButton: disabled,
+      prevEntryButton: disabled
+    };
+    handler.isInputSuppressed = () => false;
+    handler.bindingContainsButton = GamepadHandler.prototype.bindingContainsButton;
+    handler.isButtonBindingHeld = GamepadHandler.prototype.isButtonBindingHeld;
+    handler.matchesButtonBindingDown = GamepadHandler.prototype.matchesButtonBindingDown;
+    handler.getForwardKeyButtonBindings = GamepadHandler.prototype.getForwardKeyButtonBindings;
+    handler.onButtonEvent = GamepadHandler.prototype.onButtonEvent;
+    handler.onButtonDown = GamepadHandler.prototype.onButtonDown;
+    handler.onButtonUp = GamepadHandler.prototype.onButtonUp;
+    handler.forwardEnterToTargetWindow = () => calls.push("enter");
+    handler.forwardKeyToTargetWindow = (key) => calls.push(key);
+    handler.requestManualOverlayScan = () => calls.push("scan");
+    handler.isNavigationActive = () => false;
+    handler.shouldProcessNavigation = () => false;
+    handler.deactivateNavigation = () => calls.push("deactivate");
+
+    handler.onButtonEvent({ device: "pad-1", button: 0, pressed: true });
+    handler.onButtonEvent({ device: "pad-1", button: 0, pressed: true });
+    handler.onButtonEvent({ device: "pad-1", button: 0, pressed: false });
+    handler.onButtonEvent({ device: "pad-1", button: 0, pressed: true });
+    handler.onButtonEvent({ device: "pad-1", button: 1, pressed: true });
+    handler.onButtonEvent({ device: "pad-1", button: 1, pressed: true });
+
+    expect(calls).toEqual(["enter", "enter", "space"]);
+  });
+
+  it("debounces repeated forwarded key IPC requests per key", () => {
+    const sent: Array<{ channel: string; payload?: string }> = [];
+    const handler = Object.create(GamepadHandler.prototype) as {
+      config: { forwardKeyCooldownMs: number };
+      lastForwardedKeyTimes: Map<string, number>;
+      getIpcRenderer: () => { send: (channel: string, payload?: string) => void };
+      normalizeForwardedKeyName: (key: string) => string;
+      shouldForwardKeyToTargetWindow: (key: string) => boolean;
+      forwardEnterToTargetWindow: () => void;
+      forwardKeyToTargetWindow: (key: string) => void;
+    };
+
+    handler.config = { forwardKeyCooldownMs: 250 };
+    handler.lastForwardedKeyTimes = new Map();
+    handler.getIpcRenderer = () => ({
+      send: (channel, payload) => sent.push({ channel, payload })
+    });
+    handler.normalizeForwardedKeyName = GamepadHandler.prototype.normalizeForwardedKeyName;
+    handler.shouldForwardKeyToTargetWindow = GamepadHandler.prototype.shouldForwardKeyToTargetWindow;
+    handler.forwardEnterToTargetWindow = GamepadHandler.prototype.forwardEnterToTargetWindow;
+    handler.forwardKeyToTargetWindow = GamepadHandler.prototype.forwardKeyToTargetWindow;
+
+    handler.forwardKeyToTargetWindow("space");
+    handler.forwardKeyToTargetWindow("space");
+    handler.forwardEnterToTargetWindow();
+    handler.forwardEnterToTargetWindow();
+
+    expect(sent).toEqual([
+      { channel: "gamepad-forward-key", payload: "space" },
+      { channel: "gamepad-forward-enter", payload: undefined }
+    ]);
   });
 });
 

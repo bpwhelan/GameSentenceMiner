@@ -6478,6 +6478,8 @@ app.whenReady().then(async () => {
   // Curated keys the overlay may forward to the target game window. Mirrors the
   // Python allowlist (overlay_handler.ALLOWED_FORWARD_KEYS); arbitrary keys are rejected.
   const FORWARDABLE_KEYS = new Set(["enter", "space", "ctrl", "escape", "tab"]);
+  const FORWARD_KEY_COOLDOWN_MS = 250;
+  const lastForwardedKeyTimes = new Map();
 
   const forwardKeyToTargetWindow = (key) => {
     const normalizedKey = String(key || "").trim().toLowerCase();
@@ -6489,6 +6491,13 @@ app.whenReady().then(async () => {
       console.warn(`[Gamepad] Cannot forward ${normalizedKey}: backend is not connected`);
       return;
     }
+
+    const now = Date.now();
+    const lastForwardedAt = lastForwardedKeyTimes.get(normalizedKey) || 0;
+    if (lastForwardedAt > 0 && now - lastForwardedAt < FORWARD_KEY_COOLDOWN_MS) {
+      return;
+    }
+    lastForwardedKeyTimes.set(normalizedKey, now);
 
     backend.send({
       type: "send-key-request",

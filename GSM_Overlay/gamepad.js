@@ -543,6 +543,7 @@ class GamepadHandler {
       // Navigation settings
       repeatDelay: options.repeatDelay || 400, // Initial delay before repeat
       repeatRate: options.repeatRate || 150, // Repeat rate in ms
+      forwardKeyCooldownMs: Number.isFinite(options.forwardKeyCooldownMs) ? options.forwardKeyCooldownMs : 250,
       thumbstickNavigationThreshold: options.thumbstickNavigationThreshold || 0.7,
       navigationHideDelay: Number.isFinite(options.navigationHideDelay) ? options.navigationHideDelay : 200,
       autoConfirmSelection: options.autoConfirmSelection !== false,
@@ -659,6 +660,7 @@ class GamepadHandler {
     // Repeat handling
     this.repeatTimers = new Map();
     this.lastNavigationTime = 0;
+    this.lastForwardedKeyTimes = new Map();
     
     // Confirm-to-mine gating state
     this.pendingMineCandidate = null; // Set after lookup confirm; consumed by second confirm
@@ -2557,23 +2559,26 @@ class GamepadHandler {
   
   onButtonEvent(data) {
     const { device, button, pressed, name } = data;
+    const isPressed = pressed === true;
     
     // Update button state
     if (!this.buttonStates.has(device)) {
       this.buttonStates.set(device, {});
     }
-    this.buttonStates.get(device)[button] = pressed;
+    const buttonStates = this.buttonStates.get(device);
+    const wasPressed = buttonStates[button] === true;
+    buttonStates[button] = isPressed;
     
     // Update gamepad state
     if (this.gamepads.has(device)) {
-      this.gamepads.get(device).buttons[button] = pressed;
+      this.gamepads.get(device).buttons[button] = isPressed;
     }
 
     if (this.isInputSuppressed()) {
       return;
     }
     
-    console.log(`[GamepadHandler] Button ${name || button}: ${pressed ? 'pressed' : 'released'}`);
+    console.log(`[GamepadHandler] Button ${name || button}: ${isPressed ? 'pressed' : 'released'}`);
     
     // Fire callback for any button press
     if (this.config.onButtonPress) {
@@ -2581,11 +2586,15 @@ class GamepadHandler {
         button,
         name,
         device,
-        pressed,
+        pressed: isPressed,
       });
     }
+
+    if (isPressed === wasPressed) {
+      return;
+    }
     
-    if (pressed) {
+    if (isPressed) {
       this.onButtonDown(button, device);
     } else {
       this.onButtonUp(button, device);
@@ -2622,7 +2631,9 @@ class GamepadHandler {
     if (!this.config.keyboardEnabled) return;
 
     // Track key state
-    if (pressed) {
+    const isPressed = pressed === true;
+    const wasPressed = this.pressedKeys.has(keyName);
+    if (isPressed) {
       this.pressedKeys.add(keyName);
     } else {
       this.pressedKeys.delete(keyName);
@@ -2637,18 +2648,20 @@ class GamepadHandler {
     if (this.isInputSuppressed()) {
       // Dispatch raw event for settings capture even when suppressed
       window.dispatchEvent(new CustomEvent('gsm-keyboard-event', {
-        detail: { key: keyName, pressed, modifiers: this.keyboardModifiers }
+        detail: { key: keyName, pressed: isPressed, modifiers: this.keyboardModifiers }
       }));
       return;
     }
 
     // Dispatch raw event
     window.dispatchEvent(new CustomEvent('gsm-keyboard-event', {
-      detail: { key: keyName, pressed, modifiers: this.keyboardModifiers }
+      detail: { key: keyName, pressed: isPressed, modifiers: this.keyboardModifiers }
     }));
 
-    if (pressed) {
-      this.onKeyboardKeyDown(keyName);
+    if (isPressed) {
+      if (!wasPressed) {
+        this.onKeyboardKeyDown(keyName);
+      }
     } else {
       this.onKeyboardKeyUp(keyName);
     }
@@ -2909,6 +2922,10 @@ class GamepadHandler {
       return;
     }
 
+    if (!this.shouldForwardKeyToTargetWindow('enter')) {
+      return;
+    }
+
     ipc.send('gamepad-forward-enter');
   }
 
@@ -2935,7 +2952,39 @@ class GamepadHandler {
       return;
     }
 
-    ipc.send('gamepad-forward-key', key);
+    const normalizedKey = this.normalizeForwardedKeyName(key);
+    if (!this.shouldForwardKeyToTargetWindow(normalizedKey)) {
+      return;
+    }
+
+    ipc.send('gamepad-forward-key', normalizedKey);
+  }
+
+  normalizeForwardedKeyName(key) {
+    const normalized = String(key || '').trim().toLowerCase();
+    if (normalized === 'return') return 'enter';
+    if (normalized === 'control' || normalized === 'lctrl') return 'ctrl';
+    if (normalized === 'esc') return 'escape';
+    return normalized;
+  }
+
+  shouldForwardKeyToTargetWindow(key) {
+    const normalizedKey = this.normalizeForwardedKeyName(key);
+    if (!normalizedKey) {
+      return false;
+    }
+
+    const cooldownMs = Math.max(0, Number(this.config.forwardKeyCooldownMs) || 0);
+    const now = Date.now();
+    if (cooldownMs > 0) {
+      const lastForwardedAt = this.lastForwardedKeyTimes.get(normalizedKey) || 0;
+      if (lastForwardedAt > 0 && now - lastForwardedAt < cooldownMs) {
+        return false;
+      }
+    }
+
+    this.lastForwardedKeyTimes.set(normalizedKey, now);
+    return true;
   }
 
   requestManualOverlayScan() {
