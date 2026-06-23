@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import json
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import flask
 import pytest
 
 from GameSentenceMiner.util.config.configuration import (
+    StatsConfig,
     get_config,
     get_master_config,
     get_stats_config,
@@ -63,6 +65,25 @@ def _freeze_stats_today(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(stats_service.datetime, "date", _FrozenDate)
     monkeypatch.setattr(rollup_stats.datetime, "date", _FrozenDate)
     monkeypatch.setattr(stats_module.datetime, "date", _FrozenDate)
+
+
+def _freeze_stats_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    import GameSentenceMiner.util.cron.daily_rollup as daily_rollup
+    import GameSentenceMiner.web.stats as stats_module
+    import GameSentenceMiner.web.stats_api as stats_api
+
+    fixed_stats_config = StatsConfig(
+        session_gap_seconds=1800,
+        reading_time_adaptive_v2=True,
+    )
+
+    def get_fixed_stats_config() -> StatsConfig:
+        return fixed_stats_config
+
+    monkeypatch.setattr(sys.modules[__name__], "get_stats_config", get_fixed_stats_config)
+    monkeypatch.setattr(daily_rollup, "get_stats_config", get_fixed_stats_config)
+    monkeypatch.setattr(stats_api, "get_stats_config", get_fixed_stats_config)
+    monkeypatch.setattr(stats_module, "get_stats_config", get_fixed_stats_config)
 
 
 def _seed_games() -> None:
@@ -314,6 +335,7 @@ def _build_env(
     seed_data: bool,
 ) -> _DashboardTestEnv:
     _freeze_stats_today(monkeypatch)
+    _freeze_stats_config(monkeypatch)
 
     db = SQLiteDB(str(tmp_path / "stats_dashboard_e2e.db"))
     GamesTable.set_db(db)
@@ -436,8 +458,8 @@ def test_api_stats_full_flow_returns_expected_dashboard_contract(
     assert all_games["total_characters"] == 132
     assert all_games["total_sentences"] == 10
     assert all_games["total_time_hours"] == pytest.approx(1.6833333333333333)
-    assert all_games["reading_speed"] == 78
-    assert all_games["sessions"] == 4
+    assert all_games["reading_speed"] == 79
+    assert all_games["sessions"] == 5
     assert all_games["completed_games"] == 1
     assert all_games["first_date"] == "2026-03-10"
     assert all_games["last_date"] == "2026-03-12"
