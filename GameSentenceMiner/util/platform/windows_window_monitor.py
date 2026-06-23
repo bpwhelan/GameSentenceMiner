@@ -62,6 +62,12 @@ _FORWARD_KEY_ALIASES: Dict[str, str] = {
     "esc": "escape",
 }
 
+_FORWARD_MOUSE_CLICK_ALIASES = {"mouseclick", "left-click"}
+
+WM_LBUTTONDOWN = 0x0201
+WM_LBUTTONUP = 0x0202
+MK_LBUTTON = 0x0001
+
 WinEventProcType = ctypes.WINFUNCTYPE(
     None,
     wintypes.HANDLE,
@@ -1529,6 +1535,61 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         name = _FORWARD_KEY_ALIASES.get(name, name)
         return name, _FORWARDABLE_KEYS.get(name)
 
+    @staticmethod
+    def _resolve_forward_mouse_click(key_name: Optional[str]) -> bool:
+        name = str(key_name or "").strip().lower()
+        return name in _FORWARD_MOUSE_CLICK_ALIASES
+
+    @staticmethod
+    def _pack_mouse_lparam(x: int, y: int) -> int:
+        return ((int(y) & 0xFFFF) << 16) | (int(x) & 0xFFFF)
+
+    def _resolve_left_click_client_point(self, hwnd: int) -> Optional[Tuple[int, int]]:
+        geometry = get_window_client_physical_geometry(hwnd)
+        if not geometry:
+            return None
+
+        left, top, width, height = geometry
+        if width <= 0 or height <= 0:
+            return None
+
+        click_x = width // 2
+        click_y = height // 2
+
+        try:
+            cursor_info = CURSORINFO()
+            cursor_info.cbSize = ctypes.sizeof(CURSORINFO)
+            if user32.GetCursorInfo(ctypes.byref(cursor_info)):
+                relative_x = int(cursor_info.ptScreenPos.x) - int(left)
+                relative_y = int(cursor_info.ptScreenPos.y) - int(top)
+                if 0 <= relative_x < width and 0 <= relative_y < height:
+                    click_x = relative_x
+                    click_y = relative_y
+        except Exception:
+            # If the cursor position cannot be resolved, keep the safe center fallback.
+            pass
+
+        return click_x, click_y
+
+    def _post_left_click_to_hwnd(self, hwnd: int) -> bool:
+        point = self._resolve_left_click_client_point(hwnd)
+        if not point:
+            return False
+
+        click_x, click_y = point
+        lparam = self._pack_mouse_lparam(click_x, click_y)
+
+        try:
+            logger.debug(f"Posting left click to HWND {hwnd} at client coordinates ({click_x}, {click_y})")
+            if not user32.PostMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lparam):
+                return False
+            if not user32.PostMessageW(hwnd, WM_LBUTTONUP, 0, lparam):
+                return False
+            return True
+        except Exception as e:
+            logger.exception(f"Error posting left click to HWND {hwnd}: {e}")
+            return False
+
     def _resolve_target_hwnd(self, target_pid: Optional[int] = None) -> Optional[int]:
         hwnd = self.target_hwnd
         requested_pid = int(target_pid or 0)
@@ -1699,9 +1760,12 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
     async def send_key_to_target_window(
         self, key_name: str, target_pid: Optional[int] = None, activate_window: bool = True
     ) -> bool:
-        """Forward one of the curated keys (see _FORWARDABLE_KEYS) to the target game window."""
+        """Forward one of the curated keys/actions (see _FORWARDABLE_KEYS) to the target game window."""
         if not is_windows():
             return False
+
+        if self._resolve_forward_mouse_click(key_name):
+            return await self.send_mouse_click_to_target_window(target_pid, activate_window)
 
         _, spec = self._resolve_forward_key(key_name)
         if not spec:
@@ -1728,6 +1792,28 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             return self._send_key_with_fallbacks(vk, scan, extended)
         return self._post_key_to_hwnd(target_hwnd, vk, scan, extended)
 
+    async def send_mouse_click_to_target_window(
+        self, target_pid: Optional[int] = None, activate_window: bool = True
+    ) -> bool:
+        """Forward a single left mouse click to the target game window."""
+        if not is_windows():
+            return False
+
+        requested_pid = int(target_pid or 0)
+        target_hwnd = self._resolve_target_hwnd(requested_pid)
+        if not target_hwnd:
+            return False
+
+        self.target_hwnd = target_hwnd
+
+        if activate_window:
+            focused = await self.activate_target_window()
+            if not focused:
+                return False
+            await asyncio.sleep(0.03)
+
+        return self._post_left_click_to_hwnd(target_hwnd)
+
     def post_enter_to_target_window(self, target_pid: Optional[int] = None) -> bool:
         """Backward-compatible direct PostMessage path."""
         if not is_windows():
@@ -1739,3 +1825,14 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             return False
 
         return self._post_enter_to_hwnd(hwnd)
+
+    def post_left_click_to_target_window(self, target_pid: Optional[int] = None) -> bool:
+        """Backward-compatible direct PostMessage path for a left click."""
+        if not is_windows():
+            return False
+
+        hwnd = self._resolve_target_hwnd(target_pid)
+        if not hwnd:
+            return False
+
+        return self._post_left_click_to_hwnd(hwnd)

@@ -410,6 +410,27 @@ def test_send_key_to_target_window_injects_curated_key(monkeypatch):
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_send_key_to_target_window_injects_mouse_click_via_postmessage(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
+
+    async def fake_activate():
+        return True
+
+    activation_calls = []
+    click_calls = []
+
+    monkeypatch.setattr(monitor, "activate_target_window", lambda: activation_calls.append(True) or fake_activate())
+    monkeypatch.setattr(monitor, "_post_left_click_to_hwnd", lambda hwnd: click_calls.append(hwnd) or True)
+
+    assert asyncio.run(monitor.send_key_to_target_window("mouseclick", activate_window=True)) is True
+    assert activation_calls == [True]
+    assert click_calls == [20]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
 def test_send_key_to_target_window_rejects_unknown_key(monkeypatch):
     monitor = window_state_monitor.WindowStateMonitor()
     monitor.target_hwnd = 20

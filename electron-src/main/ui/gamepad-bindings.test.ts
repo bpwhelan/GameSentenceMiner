@@ -252,6 +252,57 @@ describe("legacy gamepad button bindings", () => {
     expect(calls).toEqual(["token-toggle", "mine"]);
   });
 
+  it("forwards the mouse click binding through the same IPC channel as curated keys", () => {
+    const handler = Object.create(GamepadHandler.prototype) as {
+      config: {
+        activationMode: string;
+        controllerEnabled: boolean;
+        forwardMouseClickButton: string;
+      };
+      buttonStates: Map<string, Record<number, boolean>>;
+      buttonBindings: Record<string, any>;
+      bindingContainsButton: (binding: any, buttonIndex: number) => boolean;
+      isButtonBindingHeld: (binding: any, device: string) => boolean;
+      matchesButtonBindingDown: (binding: any, device: string, buttonIndex: number) => boolean;
+      refreshButtonBindings: () => void;
+      onButtonDown: (buttonIndex: number, device: string) => void;
+      getIpcRenderer: () => { send: (...args: any[]) => void } | null;
+      forwardMouseClickToTargetWindow: () => void;
+    };
+
+    handler.config = {
+      activationMode: "modifier",
+      controllerEnabled: true,
+      forwardMouseClickButton: "Back/Select/View"
+    };
+    handler.buttonStates = new Map([["pad-1", { 8: true }]]);
+    handler.bindingContainsButton = GamepadHandler.prototype.bindingContainsButton;
+    handler.isButtonBindingHeld = GamepadHandler.prototype.isButtonBindingHeld;
+    handler.matchesButtonBindingDown = GamepadHandler.prototype.matchesButtonBindingDown;
+    handler.refreshButtonBindings = GamepadHandler.prototype.refreshButtonBindings;
+    handler.onButtonDown = GamepadHandler.prototype.onButtonDown;
+    handler.forwardMouseClickToTargetWindow = GamepadHandler.prototype.forwardMouseClickToTargetWindow;
+
+    const calls: Array<[string, ...any[]]> = [];
+    handler.getIpcRenderer = () => ({
+      send: (...args: any[]) => {
+        calls.push(args as [string, ...any[]]);
+      }
+    });
+
+    handler.refreshButtonBindings();
+
+    expect(handler.buttonBindings.forwardMouseClickButton).toMatchObject({
+      buttons: [8],
+      disabled: false,
+      label: "Back"
+    });
+
+    handler.onButtonDown(8, "pad-1");
+
+    expect(calls).toEqual([["gamepad-forward-key", "mouseclick"]]);
+  });
+
   it("preserves confirm behavior when mine and confirm share the default A button", () => {
     const handler = Object.create(GamepadHandler.prototype) as {
       config: {

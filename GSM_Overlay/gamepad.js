@@ -525,6 +525,7 @@ class GamepadHandler {
       confirmButton: options.confirmButton ?? 0, // A button (optional - auto-confirm enabled)
       cancelButton: options.cancelButton ?? 1, // B button
       forwardEnterButton: options.forwardEnterButton ?? -1, // Disabled by default; forwards Enter to target game window
+      forwardMouseClickButton: options.forwardMouseClickButton ?? -1, // Disabled by default; forwards a left mouse click to the target game window
       forwardSpaceButton: options.forwardSpaceButton ?? -1, // Disabled by default; forwards Space to target game window
       forwardCtrlButton: options.forwardCtrlButton ?? -1, // Disabled by default; forwards Ctrl (skip) to target game window
       forwardEscapeButton: options.forwardEscapeButton ?? -1, // Disabled by default; forwards Escape to target game window
@@ -592,6 +593,7 @@ class GamepadHandler {
       keyboardConfirmKey: options.keyboardConfirmKey || 'Enter',
       keyboardCancelKey: options.keyboardCancelKey || 'Escape',
       keyboardForwardEnterKey: options.keyboardForwardEnterKey || null,
+      keyboardForwardMouseClickKey: options.keyboardForwardMouseClickKey || null,
       keyboardForwardSpaceKey: options.keyboardForwardSpaceKey || null,
       keyboardForwardCtrlKey: options.keyboardForwardCtrlKey || null,
       keyboardForwardEscapeKey: options.keyboardForwardEscapeKey || null,
@@ -1341,6 +1343,7 @@ class GamepadHandler {
       confirmButton: normalizeGamepadBindingValue(this.config.confirmButton, 0),
       cancelButton: normalizeGamepadBindingValue(this.config.cancelButton, 1),
       forwardEnterButton: normalizeGamepadBindingValue(this.config.forwardEnterButton, -1),
+      forwardMouseClickButton: normalizeGamepadBindingValue(this.config.forwardMouseClickButton, -1),
       forwardSpaceButton: normalizeGamepadBindingValue(this.config.forwardSpaceButton, -1),
       forwardCtrlButton: normalizeGamepadBindingValue(this.config.forwardCtrlButton, -1),
       forwardEscapeButton: normalizeGamepadBindingValue(this.config.forwardEscapeButton, -1),
@@ -1359,6 +1362,7 @@ class GamepadHandler {
       confirmKey: normalizeKeyboardBindingValue(this.config.keyboardConfirmKey, 'Enter'),
       cancelKey: normalizeKeyboardBindingValue(this.config.keyboardCancelKey, 'Escape'),
       forwardEnterKey: normalizeKeyboardBindingValue(this.config.keyboardForwardEnterKey),
+      forwardMouseClickKey: normalizeKeyboardBindingValue(this.config.keyboardForwardMouseClickKey),
       forwardSpaceKey: normalizeKeyboardBindingValue(this.config.keyboardForwardSpaceKey),
       forwardCtrlKey: normalizeKeyboardBindingValue(this.config.keyboardForwardCtrlKey),
       forwardEscapeKey: normalizeKeyboardBindingValue(this.config.keyboardForwardEscapeKey),
@@ -2671,6 +2675,12 @@ class GamepadHandler {
       return;
     }
 
+    // Forward mouse click
+    if (keyboardEventMatchesBinding(kb.forwardMouseClickKey, keyName, keys, mods)) {
+      this.forwardMouseClickToTargetWindow();
+      return;
+    }
+
     // Forward other curated keys (space/ctrl/escape) to the target game window
     for (const { binding, key } of this.getForwardKeyKeyboardBindings()) {
       if (keyboardEventMatchesBinding(binding, keyName, keys, mods)) {
@@ -2849,6 +2859,11 @@ class GamepadHandler {
       return;
     }
 
+    if (this.matchesButtonBindingDown(this.buttonBindings.forwardMouseClickButton, device, buttonIndex)) {
+      this.forwardMouseClickToTargetWindow();
+      return;
+    }
+
     for (const { binding, key } of this.getForwardKeyButtonBindings()) {
       if (this.matchesButtonBindingDown(binding, device, buttonIndex)) {
         this.forwardKeyToTargetWindow(key);
@@ -2910,6 +2925,15 @@ class GamepadHandler {
     }
 
     ipc.send('gamepad-forward-enter');
+  }
+
+  forwardMouseClickToTargetWindow() {
+    const ipc = this.getIpcRenderer();
+    if (!ipc) {
+      return;
+    }
+
+    ipc.send('gamepad-forward-key', 'mouseclick');
   }
 
   // Curated keys (besides Enter) that can be forwarded to the target game window.
@@ -6384,6 +6408,7 @@ class GamepadHandler {
       safeConfig.confirmButton = this.describeButtonBinding(this.buttonBindings.confirmButton);
       safeConfig.cancelButton = this.describeButtonBinding(this.buttonBindings.cancelButton);
       safeConfig.forwardEnterButton = this.describeButtonBinding(this.buttonBindings.forwardEnterButton);
+      safeConfig.forwardMouseClickButton = this.describeButtonBinding(this.buttonBindings.forwardMouseClickButton);
       safeConfig.forwardSpaceButton = this.describeButtonBinding(this.buttonBindings.forwardSpaceButton);
       safeConfig.forwardCtrlButton = this.describeButtonBinding(this.buttonBindings.forwardCtrlButton);
       safeConfig.forwardEscapeButton = this.describeButtonBinding(this.buttonBindings.forwardEscapeButton);

@@ -486,6 +486,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadConfirmButton": 0, // A
   "gamepadCancelButton": 1, // B
   "gamepadForwardEnterButton": -1, // Disabled by default; forwards Enter to target game window
+  "gamepadForwardMouseClickButton": -1, // Disabled by default; forwards a left mouse click to target game window
   "gamepadForwardSpaceButton": -1, // Disabled by default; forwards Space to target game window
   "gamepadForwardCtrlButton": -1, // Disabled by default; forwards Ctrl (skip) to target game window
   "gamepadForwardEscapeButton": -1, // Disabled by default; forwards Escape to target game window
@@ -6212,6 +6213,7 @@ app.whenReady().then(async () => {
       case "gamepadConfirmButton":
       case "gamepadCancelButton":
       case "gamepadForwardEnterButton":
+      case "gamepadForwardMouseClickButton":
       case "gamepadForwardSpaceButton":
       case "gamepadForwardCtrlButton":
       case "gamepadForwardEscapeButton":
@@ -6475,14 +6477,14 @@ app.whenReady().then(async () => {
     }
   });
 
-  // Curated keys the overlay may forward to the target game window. Mirrors the
-  // Python allowlist (overlay_handler.ALLOWED_FORWARD_KEYS); arbitrary keys are rejected.
-  const FORWARDABLE_KEYS = new Set(["enter", "space", "ctrl", "escape", "tab"]);
+  // Curated keys/actions the overlay may forward to the target game window. Mirrors the
+  // Python allowlist (overlay_handler.ALLOWED_FORWARD_KEYS); arbitrary values are rejected.
+  const FORWARDABLE_KEYS = new Set(["enter", "space", "ctrl", "escape", "tab", "mouseclick", "left-click"]);
 
   const forwardKeyToTargetWindow = (key) => {
     const normalizedKey = String(key || "").trim().toLowerCase();
     if (!FORWARDABLE_KEYS.has(normalizedKey)) {
-      console.warn(`[Gamepad] Refusing to forward unsupported key: ${key}`);
+      console.warn(`[Gamepad] Refusing to forward unsupported action: ${key}`);
       return;
     }
     if (!backend || !backend.connected) {

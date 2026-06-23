@@ -223,13 +223,24 @@ class OverlayRequestHandler:
         except Exception as e:
             logger.exception(f"Failed to restore focus to target window: {e}")
 
-    # Curated keys the overlay is allowed to forward to the target game window.
-    ALLOWED_FORWARD_KEYS = {"enter", "return", "space", "ctrl", "control", "escape", "esc", "tab"}
+    # Curated keys/actions the overlay is allowed to forward to the target game window.
+    ALLOWED_FORWARD_KEYS = {
+        "enter",
+        "return",
+        "space",
+        "ctrl",
+        "control",
+        "escape",
+        "esc",
+        "tab",
+        "mouseclick",
+        "left-click",
+    }
 
     async def handle_send_key_request(self, message: Optional[dict] = None):
         """
         Handle a key-forward request from the overlay.
-        Supports forwarding a curated set of keys (see ALLOWED_FORWARD_KEYS) to the
+        Supports forwarding a curated set of keys/actions (see ALLOWED_FORWARD_KEYS) to the
         target game window. The overlay never forwards arbitrary user-typed keys.
         """
         try:
@@ -243,13 +254,13 @@ class OverlayRequestHandler:
                 target_pid = 0
 
             if key_name not in self.ALLOWED_FORWARD_KEYS:
-                logger.warning(f"Unsupported overlay key request from {source}: {key_name}")
+                logger.warning(f"Unsupported overlay forward request from {source}: {key_name}")
                 return
 
             overlay_processor = get_overlay_processor()
             monitor = overlay_processor.window_monitor if overlay_processor else None
             if not monitor or not monitor.target_hwnd:
-                logger.debug(f"No target window available for overlay key request from {source}")
+                logger.debug(f"No target window available for overlay forward request from {source}")
                 return
 
             sent = await monitor.send_key_to_target_window(
@@ -258,7 +269,7 @@ class OverlayRequestHandler:
                 activate_window=activate_window,
             )
             if not sent:
-                logger.warning(f"Failed to send '{key_name}' key to target window (source={source})")
+                logger.warning(f"Failed to send '{key_name}' forward request to target window (source={source})")
         except Exception as e:
             logger.exception(f"Failed handling overlay key request: {e}")
 
