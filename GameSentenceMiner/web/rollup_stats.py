@@ -42,6 +42,16 @@ def get_third_party_stats_by_date(start_date: str, end_date: str) -> Dict[str, D
     return ThirdPartyStatsTable.aggregate_by_date(start_date, end_date)
 
 
+def get_first_date_combined() -> Optional[str]:
+    """Get the earliest date across both rollup and third-party stats."""
+    from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+    from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable
+
+    candidates = [d for d in (StatsRollupTable.get_first_date(), ThirdPartyStatsTable.get_first_date()) if d]
+    result = min(candidates) if candidates else None
+    return result
+
+
 def enrich_aggregated_stats(stats: Dict, third_party_by_date: Optional[Dict] = None) -> Dict:
     """
     Add third-party characters and time into an aggregated stats dict.
