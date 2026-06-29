@@ -26,6 +26,7 @@ import flask
 import pytest
 
 from GameSentenceMiner.util.database.db import SQLiteDB, GameLinesTable
+from GameSentenceMiner.util.database.game_daily_rollup_table import GameDailyRollupTable
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 
@@ -45,15 +46,18 @@ def _in_memory_db():
     orig_games = GamesTable._db
     orig_lines = GameLinesTable._db
     orig_stats = StatsRollupTable._db
+    orig_game_daily = GameDailyRollupTable._db
     db = SQLiteDB(":memory:")
     GamesTable.set_db(db)
     GameLinesTable.set_db(db)
     StatsRollupTable.set_db(db)
+    GameDailyRollupTable.set_db(db)
     yield db
     db.close()
     GamesTable._db = orig_games
     GameLinesTable._db = orig_lines
     StatsRollupTable._db = orig_stats
+    GameDailyRollupTable._db = orig_game_daily
 
 
 @pytest.fixture()
@@ -560,6 +564,41 @@ class TestDeleteGame:
         assert data["success"] is True
         # Game record should also be deleted
         assert GamesTable.get(game_id) is None
+
+    def test_delete_lines_removes_stale_historical_rollups(self, client):
+        game = _create_game("Clipboard Accident")
+        timestamp = datetime.datetime(2024, 6, 1, 12, 0, 0).timestamp()
+        _create_line(game, text="あ" * 185000, timestamp=timestamp)
+
+        StatsRollupTable(
+            date="2024-06-01",
+            total_lines=1,
+            total_characters=185000,
+            unique_games_played=1,
+            peak_reading_speed_chars_per_hour=999999.0,
+            game_activity_data=json.dumps(
+                {
+                    game.id: {
+                        "title": game.title_original,
+                        "chars": 185000,
+                        "lines": 1,
+                    }
+                }
+            ),
+            games_played_ids=json.dumps([game.id]),
+        ).save()
+        GameDailyRollupTable(
+            date="2024-06-01",
+            game_id=game.id,
+            total_characters=185000,
+            total_lines=1,
+        ).save()
+
+        resp = client.delete(f"/api/games/{game.id}/delete-lines")
+
+        assert resp.status_code == 200
+        assert StatsRollupTable.get_by_date("2024-06-01") is None
+        assert GameDailyRollupTable.get_date_range_for_game(game.id, "2024-06-01", "2024-06-01") == []
 
 
 class TestOrphanedGames:

@@ -142,7 +142,7 @@ class Downloader:
             logger.info(f"Download from official source failed: {stringfyerror(e)}")
             logger.info("Attempting to download from fallback URL...")
             try:
-                fallback_url = "https://gsm.beangate.us/oneocr.zip"
+                fallback_url = "https://r2.gamesentenceminer.com/oneocr.zip"
                 self.downloadx(fallback_url, stage_id=stage_id)
                 logger.success("Download and extraction from fallback URL successful.")
                 return "completed"
@@ -397,7 +397,7 @@ class Downloader:
 if __name__ == "__main__":
     downloader = Downloader()
     # downloader.download_and_extract()
-    downloader.downloadx("https://gsm.beangate.us/oneocr.zip")
+    downloader.downloadx("https://r2.gamesentenceminer.com/oneocr.zip")
     # if downloader.download_and_extract():
     #     logger.info("SnippingTool files are ready.")
     #     logger.info("Press Ctrl+C or X on window to exit.")

@@ -565,9 +565,14 @@ def register_database_api_routes(app):
                             filtered_lines.append(line)
                         all_lines = filtered_lines
 
-                    # Compile regex pattern with proper error handling
+                    # Guard against runaway patterns before compiling. This is an intentional
+                    # regex-search feature on the localhost single-user DB (the "user" is the
+                    # local operator), so S2631 is suppressed; the length cap limits accidental
+                    # catastrophic backtracking.
+                    if len(query) > 500:
+                        return jsonify({"error": "Regex pattern too long (max 500 chars)"}), 400
                     try:
-                        pattern = re.compile(query, re.IGNORECASE)
+                        pattern = re.compile(query, re.IGNORECASE)  # NOSONAR(S2631) local-only search
                     except re.error as regex_err:
                         return jsonify({"error": f"Invalid regex pattern: {str(regex_err)}"}), 400
 
@@ -788,6 +793,7 @@ def register_database_api_routes(app):
                         "sentence_count": sentence_count,
                         "first_entry_date": min_date.strftime("%Y-%m-%d"),
                         "last_entry_date": max_date.strftime("%Y-%m-%d"),
+                        "last_entry_timestamp": float(last_timestamp),
                         "total_characters": total_chars,
                         "date_range": f"{min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}"
                         if min_date != max_date
@@ -1110,6 +1116,7 @@ def register_database_api_routes(app):
                     "cards_mined_daily_target": getattr(config, "cards_mined_daily_target", 10),
                     "regex_out_punctuation": config.regex_out_punctuation,
                     "regex_out_repetitions": config.regex_out_repetitions,
+                    "reading_time_adaptive_v2": getattr(config, "reading_time_adaptive_v2", False),
                     "extra_punctuation_regex": getattr(config, "extra_punctuation_regex", ""),
                     "easy_days_monday": getattr(config, "easy_days_settings", {}).get("monday", 100),
                     "easy_days_tuesday": getattr(config, "easy_days_settings", {}).get("tuesday", 100),
@@ -1202,6 +1209,7 @@ def register_database_api_routes(app):
             cards_mined_daily_target = data.get("cards_mined_daily_target")
             regex_out_punctuation = data.get("regex_out_punctuation")
             regex_out_repetitions = data.get("regex_out_repetitions")
+            reading_time_adaptive_v2 = data.get("reading_time_adaptive_v2")
             extra_punctuation_regex = data.get("extra_punctuation_regex")
 
             # Easy days settings
@@ -1312,6 +1320,11 @@ def register_database_api_routes(app):
                     return jsonify({"error": "regex_out_repetitions must be a boolean value"}), 400
                 settings_to_update["regex_out_repetitions"] = regex_out_repetitions
 
+            if reading_time_adaptive_v2 is not None:
+                if not isinstance(reading_time_adaptive_v2, bool):
+                    return jsonify({"error": "reading_time_adaptive_v2 must be a boolean value"}), 400
+                settings_to_update["reading_time_adaptive_v2"] = reading_time_adaptive_v2
+
             if extra_punctuation_regex is not None:
                 if not isinstance(extra_punctuation_regex, str):
                     return jsonify({"error": "extra_punctuation_regex must be a string value"}), 400
@@ -1418,6 +1431,8 @@ def register_database_api_routes(app):
                 config.regex_out_punctuation = settings_to_update["regex_out_punctuation"]
             if "regex_out_repetitions" in settings_to_update:
                 config.regex_out_repetitions = settings_to_update["regex_out_repetitions"]
+            if "reading_time_adaptive_v2" in settings_to_update:
+                config.reading_time_adaptive_v2 = settings_to_update["reading_time_adaptive_v2"]
             if "extra_punctuation_regex" in settings_to_update:
                 config.extra_punctuation_regex = settings_to_update["extra_punctuation_regex"]
 

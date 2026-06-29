@@ -102,6 +102,7 @@ def test_log_request_and_response_use_expected_levels(monkeypatch):
     DummyClient.log_response("/search", success=True, details="ok")
     DummyClient.log_response("/search", success=False, details="bad")
 
+    assert calls, "no log calls were recorded"
     assert calls[0][0] == "debug"
     assert "/search" in calls[0][1]
     assert calls[1][0] == "info"

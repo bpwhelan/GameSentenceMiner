@@ -3,6 +3,8 @@ from __future__ import annotations
 from PyQt6.QtWidgets import QFileDialog, QFormLayout, QHBoxLayout, QLabel, QWidget
 from typing import TYPE_CHECKING
 
+from GameSentenceMiner.util.config.configuration import is_windows
+
 from ..labels import LabelColor
 
 if TYPE_CHECKING:
@@ -40,6 +42,15 @@ def build_advanced_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.localhost_bind_address_edit,
     )
     layout.addRow(QLabel("Longest Sleep Time (s)"), window.longest_sleep_time_edit)
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "screenshot", "capture_backend", color=LabelColor.ADVANCED),
+        window.screenshot_capture_backend_combo,
+    )
+    if is_windows():
+        layout.addRow(
+            window._create_labeled_widget(tabs_i18n, "advanced", "mute_game_on_minimize"),
+            window.mute_game_on_minimize_check,
+        )
 
     dont_collect_stats_label = window._create_labeled_widget(
         tabs_i18n, "advanced", "dont_collect_stats", color=LabelColor.ADVANCED

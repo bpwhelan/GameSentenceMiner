@@ -106,6 +106,8 @@ from GameSentenceMiner.obs.actions import (  # noqa: E402, F401
     get_screenshot_PIL_from_source,
     get_source_from_scene,
     get_window_info_from_source,
+    get_linux_capture_window_info,
+    is_game_capture_active,
     register_scene_change_callback,
     save_replay_buffer,
     set_fit_to_screen_for_scene_items,
@@ -118,6 +120,8 @@ from GameSentenceMiner.obs.actions import (  # noqa: E402, F401
     update_current_game,
     with_obs_client,
 )
+
+from GameSentenceMiner.obs.screenshot_capture import screenshot_capture  # noqa: E402, F401
 
 import GameSentenceMiner.obs.service as _svc_mod  # noqa: E402
 import GameSentenceMiner.obs.actions as _act_mod  # noqa: E402

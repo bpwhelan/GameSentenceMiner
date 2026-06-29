@@ -1,5 +1,7 @@
 import sys
 
+from GameSentenceMiner.util.clipboard import test_qt6_copy
+
 
 def handle_error_in_initialization(exc: Exception) -> None:
     boot_logger = globals().get("logger")
@@ -66,6 +68,7 @@ try:
 
     from GameSentenceMiner import obs
     from GameSentenceMiner.obs import check_obs_folder_is_correct
+    from GameSentenceMiner.profile_switcher import ProfileSwitcher, get_profile_switcher
     from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
     from GameSentenceMiner.util.communication.electron_ipc import (
         FunctionName,
@@ -91,7 +94,6 @@ try:
         is_mac,
         is_windows,
         logger,
-        switch_profile_and_save,
     )
     from GameSentenceMiner.util.gsm_cloud_auth_cache import gsm_cloud_auth_cache_service
     from GameSentenceMiner.util.cloud_sync import cloud_sync_service
@@ -134,6 +136,10 @@ if os.name == "nt":
 
 
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+ASYNC_LOOP_STRESS_SECONDS = 0
+ASYNC_LOOP_STRESS_DELAY_SECONDS = 10.0
+ASYNC_LOOP_STRESS_REPEAT = 1
+ASYNC_LOOP_STRESS_MODE = "block"
 _instance_lock_handle = None
 
 
@@ -303,12 +309,30 @@ def _get_run_text_hooker_page():
     return run_text_hooker_page
 
 
+# Module-level sync file helpers so async callers can offload them via asyncio.to_thread
+# (keeping open() out of the async function body).
+def _read_text_file(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def _write_text_file(path: str, content: str) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
 class AsyncBackgroundRunner:
     def __init__(self, name: str = "gsm-async"):
         self._name = name
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
         self._ready = threading.Event()
+        # asyncio only weakly references its tasks, and run_coroutine_threadsafe's
+        # returned future is the only strong ref to the scheduled task. Callers that
+        # discard it (fire-and-forget) let the GC collect a still-pending task, which
+        # closes the coroutine and runs its `finally` early. Hold the futures here so
+        # long-lived background tasks survive until they actually finish.
+        self._futures: set = set()
 
     def start(self) -> None:
         if self._thread:
@@ -341,7 +365,10 @@ class AsyncBackgroundRunner:
     def submit(self, coro: Coroutine[Any, Any, Any]):
         if not self._loop:
             raise RuntimeError("Async background loop is not running.")
-        return asyncio.run_coroutine_threadsafe(coro, self._loop)
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        self._futures.add(future)
+        future.add_done_callback(self._futures.discard)
+        return future
 
     def stop(self, timeout: float = 2) -> None:
         if not self._loop:
@@ -358,6 +385,10 @@ class AppState:
     file_watcher_observer: Optional[Observer] = None
     file_watcher_path: Optional[str] = None
     async_runner: AsyncBackgroundRunner = field(default_factory=AsyncBackgroundRunner)
+    text_async_runner: AsyncBackgroundRunner = field(default_factory=lambda: AsyncBackgroundRunner("gsm-text-async"))
+    overlay_async_runner: AsyncBackgroundRunner = field(
+        default_factory=lambda: AsyncBackgroundRunner("gsm-overlay-async")
+    )
 
 
 class GSMTray(threading.Thread):
@@ -491,6 +522,14 @@ class GSMApplication:
         self._threads: list[threading.Thread] = []
         self._obs_connect_task: Optional[asyncio.Task] = None
         self._obs_launch_thread: Optional[threading.Thread] = None
+        self.profile_switcher = get_profile_switcher()
+
+    def _get_profile_switcher(self) -> ProfileSwitcher:
+        profile_switcher = getattr(self, "profile_switcher", None)
+        if profile_switcher is None:
+            profile_switcher = get_profile_switcher()
+            self.profile_switcher = profile_switcher
+        return profile_switcher
 
     def _start_thread(self, target, name: str) -> threading.Thread:
         thread = threading.Thread(target=target, name=name, daemon=True)
@@ -507,6 +546,9 @@ class GSMApplication:
             raise
 
     def _launch_obs_early(self) -> None:
+        if _is_running_under_electron():
+            logger.info("Skipping Python-managed OBS launch because GSM is running under Electron.")
+            return
         if self._obs_launch_thread and self._obs_launch_thread.is_alive():
             return
 
@@ -540,11 +582,32 @@ class GSMApplication:
             lambda: get_config().hotkeys.pause_text_intake, _get_gametext_module().toggle_text_intake_paused
         )
 
-        if is_windows():
+        # Area-select (screen-crop) ad-hoc OCR runs in the main process so it works
+        # whether or not the continuous OCR subprocess is running. Hotkey value still
+        # comes from the OCR tab config (get_ocr_area_select_ocr_hotkey).
+        from GameSentenceMiner.util.config.electron_config import get_ocr_area_select_ocr_hotkey
+
+        # hotkey_manager.register(
+        #     lambda: get_ocr_area_select_ocr_hotkey() or "ctrl+shift+o",
+        #     self._trigger_area_select_ocr,
+        # )
+
+        if is_windows() or is_linux():
             hotkey_manager.register(
                 lambda: get_config().hotkeys.process_pause,
                 _get_window_state_monitor_module().toggle_active_game_pause,
             )
+
+    def _trigger_area_select_ocr(self) -> None:
+        # Runs on a worker thread: launch_screen_cropper blocks until the user
+        # selects/cancels, and the hotkey callback holds a lock, so we must not
+        # block it. The OCR result is scheduled onto the text async loop.
+        def _worker() -> None:
+            from GameSentenceMiner.ocr import adhoc_ocr
+
+            adhoc_ocr.run_area_select_ocr(self.state.text_async_runner.submit)
+
+        threading.Thread(target=_worker, name="adhoc-area-select-ocr", daemon=True).start()
 
     def create_image(self) -> Image.Image:
         image_path = os.path.join(os.path.dirname(__file__), "assets", "pickaxe.png")
@@ -594,11 +657,22 @@ class GSMApplication:
         _get_texthooking_page_module().open_texthooker()
 
     def switch_profile(self, profile_name: str) -> None:
-        logger.info(f"Switching to profile: {profile_name}")
-        get_master_config().current_profile = profile_name
-        switch_profile_and_save(profile_name)
+        self._get_profile_switcher().switch_profile(profile_name, settings_window=self.state.settings_window)
+
+    def relate_scene_to_profile(self, scene: str, profile_name: str, create_new: bool = False) -> None:
+        scene = str(scene or "").strip()
+        profile_name = str(profile_name or "").strip()
+        if not profile_name:
+            return
+        switcher = self._get_profile_switcher()
+        if create_new:
+            switcher.create_profile(profile_name)
+        switcher.associate_scene_with_profile(scene, profile_name, exclusive=True)
         if self.state.settings_window:
-            self.state.settings_window.reload_settings()
+            try:
+                self.state.settings_window.reload_settings()
+            except Exception as e:
+                logger.debug(f"Failed to reload settings window after relating scene: {e}")
 
     def test_anki_confirmation(self, *args) -> None:
         from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
@@ -699,7 +773,7 @@ class GSMApplication:
             obs.stop_replay_buffer()
             obs.disconnect_from_obs()
 
-            if get_config().obs.close_obs:
+            if get_config().obs.close_obs and not _is_running_under_electron():
                 self.close_obs()
 
             _get_websocket_manager().stop_all()
@@ -747,10 +821,18 @@ class GSMApplication:
                 except Exception as e:
                     logger.error(f"Error removing temporary video file {video}: {e}")
 
-            _get_window_state_monitor_module().cleanup_suspended_processes()
+            window_state_monitor_module = _get_window_state_monitor_module()
+            getattr(window_state_monitor_module, "cleanup_minimized_audio_mutes", lambda: None)()
+            window_state_monitor_module.cleanup_suspended_processes()
             _get_qt_main_module().shutdown_qt_app()
+            self.state.overlay_async_runner.stop()
+            self.state.text_async_runner.stop()
             self.state.async_runner.stop()
 
+            # Release the single-instance lock before notifying Electron so that
+            # when Electron immediately spawns a new Python process it can acquire
+            # the lock without seeing a "GSM is already running" false-positive.
+            _release_single_instance_lock()
             send_message("cleanup_complete")
         except Exception as e:
             logger.exception(f"Error during cleanup: {e}")
@@ -811,7 +893,11 @@ class GSMApplication:
 
         if not reloading:
             get_temporary_directory(delete=True)
-            if is_windows():
+            # Under Electron, the desktop shell owns downloading + seeding OBS so
+            # the process that fetches OBS is the one that launches it (no
+            # cross-process "OBS is ready" handshake). Standalone Python runs
+            # still bootstrap OBS here.
+            if is_windows() and not _is_running_under_electron():
                 _emit_install_stage(
                     "obs",
                     "running",
@@ -912,6 +998,7 @@ class GSMApplication:
                     1,
                     "OneOCR bootstrap is only available on Windows.",
                 )
+            send_message(FunctionName.START_OBS.value)
             if is_mac():
                 if shutil.which("ffmpeg") is None:
                     os.environ["PATH"] += os.pathsep + "/opt/homebrew/bin"
@@ -966,7 +1053,7 @@ class GSMApplication:
         self._start_thread(_get_run_text_hooker_page(), "texthooker-page")
 
     def handle_ipc_command(self, cmd: dict) -> None:
-        logger.background(f"IPC Command Received: {cmd}")
+        logger.debug(f"IPC Command Received: {cmd}")
         try:
             function = cmd.get("function")
             if function == FunctionName.QUIT.value:
@@ -984,6 +1071,11 @@ class GSMApplication:
                     root_tab_key=str(data.get("root_tab_key") or ""),
                     subtab_key=str(data.get("subtab_key") or ""),
                 )
+            elif function == FunctionName.RELOAD_SETTINGS.value:
+                configuration.reload_config()
+                if self.state.settings_window:
+                    self.state.settings_window.reload_settings()
+                self.on_config_changed()
             elif function == FunctionName.OPEN_OVERLAY_SETTINGS.value:
                 from GameSentenceMiner.web.gsm_websocket import (
                     request_overlay_settings_open,
@@ -999,6 +1091,15 @@ class GSMApplication:
                 profile_name = str(data.get("profile_name") or "").strip()
                 if profile_name:
                     self.switch_profile(profile_name)
+            elif function == FunctionName.RELATE_SCENE_TO_PROFILE.value:
+                data = cmd.get("data") if isinstance(cmd, dict) else {}
+                if not isinstance(data, dict):
+                    data = {}
+                scene = str(data.get("scene") or "").strip()
+                profile_name = str(data.get("profile_name") or "").strip()
+                create_new = bool(data.get("create_new"))
+                if profile_name:
+                    self.relate_scene_to_profile(scene, profile_name, create_new=create_new)
             elif function == FunctionName.OPEN_LOG.value:
                 self.open_log()
             elif function == FunctionName.TOGGLE_REPLAY_BUFFER.value:
@@ -1020,10 +1121,118 @@ class GSMApplication:
                 sys.exit(0)
             elif function == FunctionName.CONNECT.value:
                 logger.debug("Electron reported connect")
+            elif function == FunctionName.TEXTHOOK_TEXT.value:
+                self._handle_texthook_line(cmd.get("data") if isinstance(cmd, dict) else None)
+            elif function == FunctionName.OCR_RESULT.value:
+                self._handle_ocr_result(cmd.get("data") if isinstance(cmd, dict) else None)
+            elif function == FunctionName.OCR_STATUS.value:
+                self._handle_inhouse_source_status("ocr", cmd.get("data") if isinstance(cmd, dict) else None)
+            elif function == FunctionName.TEXTHOOK_STATUS.value:
+                self._handle_inhouse_source_status("texthook", cmd.get("data") if isinstance(cmd, dict) else None)
             else:
                 logger.background(f"Unknown IPC command: {cmd}")
         except Exception as e:
             logger.background(f"Error handling IPC command: {e}")
+
+    def _handle_inhouse_source_status(self, source: str, data: Optional[dict]) -> None:
+        """Pause/resume clipboard polling when an in-house source (OCR/texthook) starts/stops."""
+        active = bool(data.get("active")) if isinstance(data, dict) else False
+        try:
+            from GameSentenceMiner import gametext as gametext_module
+
+            gametext_module.set_inhouse_source_active(source, active)
+        except Exception as e:
+            logger.background(f"Failed to set in-house source status for {source}: {e}")
+
+    def _handle_ocr_result(self, data: Optional[dict]) -> None:
+        """Forward OCR subprocess IPC results into the normal text-intake pipeline."""
+        if not isinstance(data, dict):
+            return
+
+        text = data.get("text") or data.get("sentence")
+        if not isinstance(text, str) or not text.strip():
+            return
+
+        line_time = None
+        raw_time = data.get("time")
+        if isinstance(raw_time, str) and raw_time.strip():
+            try:
+                from datetime import datetime as _dt
+
+                line_time = _dt.fromisoformat(raw_time)
+            except ValueError:
+                line_time = None
+
+        dict_from_ocr = data.get("dict_from_ocr")
+        source = str(data.get("source") or TextSource.OCR)
+        source_display_name = str(data.get("source_display_name") or "GSM OCR")
+        copy_to_clipboard = bool(data.get("copyToClipboard", False))
+
+        try:
+            from GameSentenceMiner import gametext as gametext_module
+        except Exception as e:
+            logger.background(f"Failed to import gametext for OCR intake: {e}")
+            return
+
+        coro = gametext_module.handle_new_text_event(
+            text,
+            line_time,
+            dict_from_ocr=dict_from_ocr,
+            source=source,
+            source_display_name=source_display_name,
+            copy_to_clipboard=copy_to_clipboard,
+        )
+        try:
+            # De-duplication against other sources is handled centrally in
+            # gametext.handle_new_text_event.
+            self.state.text_async_runner.submit(coro)
+        except Exception as e:
+            try:
+                coro.close()
+            except Exception:
+                pass
+            logger.background(f"Failed to schedule OCR result: {e}")
+
+    def _handle_texthook_line(self, data: Optional[dict]) -> None:
+        """Forward a line received from the Electron-side text hook engine into the
+        normal text-intake pipeline."""
+        if not isinstance(data, dict):
+            return
+        text = data.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return
+        engine = str(data.get("engine") or "").strip().lower()
+        exe_name = str(data.get("exeName") or "").strip()
+        hook_id = data.get("hookId")
+        copy_to_clipboard = bool(data.get("copyToClipboard", False))
+        source = "Texthook"
+        display_parts = []
+        if engine:
+            display_parts.append(engine.capitalize())
+        if exe_name:
+            display_parts.append(exe_name)
+        if hook_id is not None and str(hook_id):
+            display_parts.append(f"#{hook_id}")
+        display_name = " · ".join(display_parts) if display_parts else None
+
+        try:
+            from GameSentenceMiner.gametext import handle_new_text_event
+            from datetime import datetime as _dt
+        except Exception as e:
+            logger.background(f"Failed to import gametext for texthook intake: {e}")
+            return
+
+        coro = handle_new_text_event(
+            text,
+            line_time=_dt.now(),
+            source=source,
+            source_display_name=display_name,
+            copy_to_clipboard=copy_to_clipboard,
+        )
+        try:
+            self.state.text_async_runner.submit(coro)
+        except Exception as e:
+            logger.background(f"Failed to schedule texthook line: {e}")
 
     def get_previous_lines_for_game(self) -> None:
         if not _is_overlay_previous_line_check_enabled():
@@ -1044,61 +1253,13 @@ class GSMApplication:
         except Exception as e:
             logger.debug(f"Error getting previous lines for game: {e}")
 
-    @staticmethod
-    def _get_matching_profiles_for_scene(scene: str) -> list[str]:
-        normalized_scene = str(scene or "").strip()
-        if not normalized_scene:
-            return []
-
-        matching_profiles = []
-        for name, config in get_master_config().configs.items():
-            configured_scenes = {
-                str(configured_scene or "").strip() for configured_scene in getattr(config, "scenes", [])
-            }
-            configured_scenes.discard("")
-            if normalized_scene in configured_scenes:
-                matching_profiles.append(str(name).strip())
-        return matching_profiles
-
-    def _resolve_profile_for_scene(self, scene: str, *, interactive: bool) -> str | None:
-        matching_profiles = self._get_matching_profiles_for_scene(scene)
-        current_profile = get_master_config().current_profile
-
-        if len(matching_profiles) > 1:
-            if current_profile in matching_profiles:
-                return current_profile
-            if not interactive:
-                logger.info(f"Skipping ambiguous profile switch for scene '{scene}': {matching_profiles}")
-                return None
-
-            from GameSentenceMiner.ui.qt_main import launch_scene_selection
-
-            return launch_scene_selection(matching_profiles) or None
-
-        if matching_profiles:
-            return matching_profiles[0]
-        if get_master_config().switch_to_default_if_not_found:
-            return configuration.DEFAULT_CONFIG
-        return None
-
-    def _sync_profile_for_scene(
-        self, scene: str, *, interactive: bool, refresh_previous_lines_on_switch: bool = True
-    ) -> str | None:
-        switch_to = self._resolve_profile_for_scene(scene, interactive=interactive)
-        if not switch_to or switch_to == get_master_config().current_profile:
-            return switch_to
-
-        logger.info(f"Switching to profile: {switch_to}")
-        get_master_config().current_profile = switch_to
-        switch_profile_and_save(switch_to)
-        if refresh_previous_lines_on_switch:
-            self.get_previous_lines_for_game()
-        if self.state.settings_window:
-            self.state.settings_window.reload_settings()
-        return switch_to
-
     def _check_profile_for_scene_tick(self, scene: str) -> None:
-        self._sync_profile_for_scene(scene, interactive=False)
+        self._get_profile_switcher().sync_profile_for_scene(
+            scene,
+            interactive=False,
+            settings_window=self.state.settings_window,
+            on_profile_switched=self.get_previous_lines_for_game,
+        )
 
     def _register_scene_observed_profile_check(self) -> None:
         service = getattr(obs, "obs_service", None)
@@ -1127,7 +1288,11 @@ class GSMApplication:
                 logger.debug(f"Failed to queue Sudachi user dictionary export from scene callback for '{scene}': {exc}")
             gsm_state.current_game = obs.get_current_game()
             self.get_previous_lines_for_game()
-            self._sync_profile_for_scene(scene, interactive=True, refresh_previous_lines_on_switch=False)
+            self._get_profile_switcher().sync_profile_for_scene(
+                scene,
+                interactive=True,
+                settings_window=self.state.settings_window,
+            )
 
         await obs.register_scene_change_callback(scene_switcher_callback)
 
@@ -1144,7 +1309,11 @@ class GSMApplication:
             self.on_config_changed()
 
         self.start_file_watcher()
-        await _get_overlay_coords_module().init_overlay_processor()
+
+        if not gsm_status.obs_connected and (not self._obs_connect_task or self._obs_connect_task.done()):
+            self._obs_connect_task = asyncio.create_task(self._connect_obs_when_available())
+
+        await self.init_overlay_processor_async()
         _get_window_state_monitor_module().cleanup_suspended_processes()
         _get_vad_processor().init()
 
@@ -1161,14 +1330,11 @@ class GSMApplication:
         except Exception as exc:
             logger.debug(f"Failed to queue Sudachi user dictionary startup export: {exc}")
 
-        if not self._obs_connect_task or self._obs_connect_task.done():
-            self._obs_connect_task = asyncio.create_task(self._connect_obs_when_available())
-
     async def _connect_obs_when_available(self) -> None:
         if gsm_status.obs_connected:
             return
 
-        await obs.wait_for_obs_ready()
+        await obs.wait_for_obs_ready(interval=0.5 if get_config().obs.open_obs else 2.0)
         if not gsm_state.keep_running:
             return
 
@@ -1177,6 +1343,7 @@ class GSMApplication:
             check_output=True,
             healthcheck_enabled=True,
             start_manager=True,
+            initial_connect_delay=2.0,
         )
         if not gsm_status.obs_connected:
             return
@@ -1191,14 +1358,68 @@ class GSMApplication:
         from GameSentenceMiner.util.cron import cron_scheduler
 
         self.get_previous_lines_for_game()
-        await cron_scheduler.start()
+        cron_scheduler.start()
         try:
             await asyncio.Event().wait()
-        except asyncio.CancelledError:
-            pass
+        finally:
+            # Daemon thread: signal it to wind down without blocking/warning, and let
+            # CancelledError propagate so the task is properly marked cancelled.
+            cron_scheduler.shutdown()
 
     async def start_text_monitor_async(self) -> None:
         await _get_gametext_module().start_text_monitor()
+
+    async def init_overlay_processor_async(self) -> None:
+        overlay_coords = _get_overlay_coords_module()
+        overlay_runner = getattr(getattr(self, "state", None), "overlay_async_runner", None)
+        if overlay_runner is None:
+            await overlay_coords.init_overlay_processor()
+            return
+
+        await asyncio.wrap_future(overlay_runner.submit(overlay_coords.init_overlay_processor()))
+
+    async def async_loop_stress_test_task(self) -> None:
+        stress_seconds = max(0.0, float(ASYNC_LOOP_STRESS_SECONDS))
+        if stress_seconds <= 0:
+            return
+
+        delay_seconds = max(0.0, float(ASYNC_LOOP_STRESS_DELAY_SECONDS))
+        repeat_count = max(1, int(ASYNC_LOOP_STRESS_REPEAT))
+        mode = str(ASYNC_LOOP_STRESS_MODE).strip().lower()
+        if mode not in {"block", "yield"}:
+            logger.warning(f"Unknown ASYNC_LOOP_STRESS_MODE {mode!r}; using 'block'.")
+            mode = "block"
+
+        if delay_seconds:
+            await asyncio.sleep(delay_seconds)
+
+        for run_index in range(repeat_count):
+            started = time.monotonic()
+            deadline = started + stress_seconds
+            iterations = 0
+            logger.warning(
+                "Starting async loop stress test "
+                f"{run_index + 1}/{repeat_count}: mode={mode}, seconds={stress_seconds:g}"
+            )
+
+            if mode == "yield":
+                while time.monotonic() < deadline:
+                    chunk_deadline = min(deadline, time.monotonic() + 0.05)
+                    while time.monotonic() < chunk_deadline:
+                        iterations += 1
+                    await asyncio.sleep(0)
+            else:
+                while time.monotonic() < deadline:
+                    iterations += 1
+
+            elapsed = time.monotonic() - started
+            logger.warning(
+                "Finished async loop stress test "
+                f"{run_index + 1}/{repeat_count}: elapsed={elapsed:.3f}s, iterations={iterations}"
+            )
+
+            if run_index < repeat_count - 1 and delay_seconds:
+                await asyncio.sleep(delay_seconds)
 
     def _wait_for_startup_ready(self, timeout: float = 20.0, interval: float = 0.1) -> None:
         wait_for_obs = bool(get_config().obs.open_obs)
@@ -1229,10 +1450,9 @@ class GSMApplication:
         pid_path = os.path.join(get_app_directory(), "current_pid.txt")
         current_pid = os.getpid()
         if os.path.exists(pid_path):
-            with open(pid_path, "r") as f:
-                pid = int(f.read().strip())
-                if pid == current_pid:
-                    return False
+            raw = await asyncio.to_thread(_read_text_file, pid_path)
+            pid = int(raw.strip())
+            if pid != current_pid:
                 if psutil.pid_exists(pid) and "python" in psutil.Process(pid).name().lower():
                     logger.info(f"Script is already running with PID: {pid}")
                     psutil.Process(pid).terminate()
@@ -1248,8 +1468,8 @@ class GSMApplication:
     async def log_current_pid(self) -> None:
         current_pid = os.getpid()
         logger.info(f"Current process ID: {current_pid}")
-        with open(os.path.join(get_app_directory(), "current_pid.txt"), "w") as f:
-            f.write(str(current_pid))
+        pid_path = os.path.join(get_app_directory(), "current_pid.txt")
+        await asyncio.to_thread(_write_text_file, pid_path, str(current_pid))
 
     def run(self, reloading: bool = False) -> None:
         self.initialize(reloading)
@@ -1261,12 +1481,19 @@ class GSMApplication:
         self.register_hotkeys()
         self.state.settings_window.add_save_hook(self.register_hotkeys)
         self.state.settings_window.add_save_hook(self.on_config_changed)
+        if hasattr(self.state.settings_window, "add_profile_change_hook"):
+            self.state.settings_window.add_profile_change_hook(
+                self._get_profile_switcher().record_manual_profile_switch
+            )
 
         self.state.async_runner.start()
+        self.state.text_async_runner.start()
+        self.state.overlay_async_runner.start()
         post_init = self.state.async_runner.submit(self.post_init_async())
         post_init.result()
         self.state.async_runner.submit(self.background_tasks_async())
-        self.state.async_runner.submit(self.start_text_monitor_async())
+        self.state.text_async_runner.submit(self.start_text_monitor_async())
+        self.state.async_runner.submit(self.async_loop_stress_test_task())
 
         signal.signal(signal.SIGTERM, self.handle_exit())
         signal.signal(signal.SIGINT, self.handle_exit())

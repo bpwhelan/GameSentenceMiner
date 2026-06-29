@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from PIL import Image
 
 from GameSentenceMiner.owocr.owocr import ocr as ocr_module
-from GameSentenceMiner.owocr.owocr import run as run_module
+from GameSentenceMiner.owocr.owocr import ocr_runtime as run_module
 from GameSentenceMiner.owocr.owocr.ocr import (
     BoundingBox,
     Line,

@@ -6,8 +6,9 @@ from typing import List, Optional
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.db import SQLiteDB, SQLiteDBTable
 from GameSentenceMiner.util.database.global_frequency_tables import (
+    create_global_frequency_tables,
     get_active_global_frequency_source,
-    setup_global_frequency_sources,
+    start_global_frequency_source_sync,
     teardown_global_frequency_sources,
 )
 
@@ -444,7 +445,7 @@ def create_tokenization_indexes(db: SQLiteDB):
 
     create_word_stats_cache_table(db)
     create_word_stats_cache_indexes(db)
-    setup_global_frequency_sources(db)
+    create_global_frequency_tables(db, create_indexes=False)
 
 
 def _migrate_kanji_unique_index(db: SQLiteDB):
@@ -727,6 +728,7 @@ def setup_tokenization(db: SQLiteDB):
         logger.info("Fresh tokenization setup: reset all lines to untokenized for initial backfill")
 
     logger.info("Tokenization setup complete: tables, indexes, trigger, and cron created")
+    start_global_frequency_source_sync(db)
 
 
 def teardown_tokenization(db: SQLiteDB):

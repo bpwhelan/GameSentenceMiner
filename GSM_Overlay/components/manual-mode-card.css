@@ -1,0 +1,167 @@
+/*
+ * Styling for the shared Manual Mode card when used OUTSIDE settings.html
+ * (e.g. the manual-mode recommendation window). Values mirror settings.html so
+ * the card is visually identical. Inside settings.html the card inherits the
+ * global settings styles, so this file is only linked by standalone hosts.
+ */
+
+.setting-group {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.setting-group h4 {
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: #cccccc;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.setting-group label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #e0e0e0;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  transition: all 0.2s ease;
+}
+
+.setting-group label:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.setting-group label:last-child {
+  margin-bottom: 0;
+}
+
+.label-text {
+  flex: 1;
+  margin-right: 12px;
+}
+
+.input-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hotkey-info {
+  font-size: 11px;
+  color: #888;
+  margin-top: 2px;
+  font-style: italic;
+}
+
+.shared-setting-note {
+  margin: 0 0 12px 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(90, 163, 255, 0.18);
+  background: rgba(90, 163, 255, 0.08);
+  color: #d6e6ff;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+input[type="text"],
+select {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: #ffffff;
+  font-size: 13px;
+  min-width: 180px;
+  transition: all 0.2s ease;
+}
+
+select {
+  cursor: pointer;
+}
+
+select option {
+  background: #2c2c2c;
+  color: #ffffff;
+  padding: 6px 10px;
+}
+
+input[type="text"]:focus,
+select:focus {
+  outline: none;
+  border-color: #4CAF50;
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+}
+
+input[type="checkbox"] {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+input[type="checkbox"]:checked {
+  background: #4CAF50;
+  border-color: #4CAF50;
+}
+
+input[type="checkbox"]:checked::after {
+  content: "✓";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: white;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+input:focus.capturing-hotkey {
+  background: rgba(76, 175, 80, 0.2) !important;
+  border-color: #4CAF50 !important;
+  box-shadow: 0 0 8px rgba(76, 175, 80, 0.3) !important;
+}
+
+input.capturing-hotkey::placeholder {
+  color: #4CAF50 !important;
+  font-style: italic;
+}
+
+.guide-button {
+  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+  display: inline-block;
+  margin-left: 6px;
+}
+
+.guide-button:hover {
+  background: linear-gradient(135deg, #45a049 0%, #3d8b40 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+}

@@ -9,6 +9,8 @@ export type ObsSetupTargetKind = "window" | "capture_card";
 export interface ObsWindow {
   title: string;
   value: string;
+  /** Cleaned game name parsed from the raw window title, used as the default scene name. */
+  suggestedSceneName?: string;
   targetKind?: ObsSetupTargetKind;
   captureValues?: Partial<Record<ObsCaptureMode, string>>;
   captureMode?: ObsCaptureMode;
@@ -62,6 +64,8 @@ export interface GameSettings {
   launchAgentMinimized: boolean;
   launchTextractorMinimized: boolean;
   launchLunaTranslatorMinimized: boolean;
+  forceManualOcrAllProfiles: boolean;
+  ignoreActiveSceneForOcr: boolean;
   sceneProfiles: SceneLaunchProfile[];
 }
 
@@ -78,9 +82,12 @@ export interface AppSettings {
   windowTransparencyTarget: string;
   runWindowTransparencyToolOnStartup: boolean;
   runOverlayOnStartup: boolean;
+  textCaptureWizardEnabled: boolean;
   visibleTabs: ControlledTab[];
   statsEndpoint: string;
+  singlePort: number;
   locale: string;
+  theme: string;
 }
 
 export interface GsmStatus {
@@ -107,8 +114,6 @@ export interface UpdateTargetStatus {
   checkedAt: string | null;
   error: string | null;
   checking: boolean;
-  source?: "pypi" | "prerelease-branch";
-  branch?: string | null;
   channel?: "latest" | "beta";
 }
 

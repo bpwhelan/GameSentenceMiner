@@ -1,8 +1,6 @@
 """OBS action functions — the public API that consumers call."""
 
-import base64
 import functools
-import io
 import os
 import time
 from typing import Optional
@@ -484,35 +482,19 @@ def get_screenshot_base64(client, compression=75, width=None, height=None):
     return None
 
 
-def get_screenshot_PIL_from_source(source_name, compression=75, img_format="png", width=None, height=None, retry=3):
-    from PIL import Image
+def get_screenshot_PIL_from_source(
+    source_name, compression=75, img_format="png", width=None, height=None, retry=3, force_obs=False
+):
+    from GameSentenceMiner.obs.screenshot_capture import screenshot_capture
 
-    if not source_name:
-        logger.error("No source name provided.")
-        return None
-
-    def _capture(client):
-        response = client.get_source_screenshot(
-            name=source_name,
-            img_format=img_format,
-            quality=compression,
-            width=width,
-            height=height,
-        )
-        if not response or not hasattr(response, "image_data") or not response.image_data:
-            raise AttributeError("Invalid screenshot response")
-        image_data = response.image_data.split(",", 1)[-1]
-        image_data = base64.b64decode(image_data)
-        img = Image.open(io.BytesIO(image_data))
-        img.load()
-        return img
-
-    return _call_with_obs_client(
-        _capture,
-        default=None,
-        error_msg=f"Error getting screenshot from source '{source_name}'",
-        retryable=True,
-        retries=max(0, retry - 1),
+    return screenshot_capture.capture(
+        source_name=source_name,
+        compression=compression,
+        img_format=img_format,
+        width=width,
+        height=height,
+        retry=retry,
+        force_obs=force_obs,
     )
 
 
@@ -577,6 +559,7 @@ def get_screenshot_PIL(
     preprocess_mode=None,
     log_missing_source=True,
     suppress_errors=False,
+    force_obs=False,
 ):
     import GameSentenceMiner.obs as _obs_pkg
 
@@ -592,7 +575,9 @@ def get_screenshot_PIL(
                         return src
             return None
 
-        img = get_screenshot_PIL_from_source(source_name, compression, img_format, width, height, retry)
+        img = get_screenshot_PIL_from_source(
+            source_name, compression, img_format, width, height, retry, force_obs=force_obs
+        )
         img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
         return img
 
@@ -638,6 +623,7 @@ def get_screenshot_PIL(
                 width,
                 height,
                 retry,
+                force_obs=force_obs,
             )
             if not img:
                 return None
@@ -658,6 +644,7 @@ def get_screenshot_PIL(
             width,
             height,
             retry,
+            force_obs=force_obs,
         )
         img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
         return img
@@ -667,7 +654,9 @@ def get_screenshot_PIL(
         if not found_source_name:
             continue
 
-        img = get_screenshot_PIL_from_source(found_source_name, compression, img_format, width, height, retry)
+        img = get_screenshot_PIL_from_source(
+            found_source_name, compression, img_format, width, height, retry, force_obs=force_obs
+        )
 
         if not img:
             continue
@@ -694,12 +683,22 @@ def update_current_game():
 
     previous_game = gsm_state.current_game
     svc = _obs_pkg.obs_service
+    # Read from the cached OBS state only — never fall through to a synchronous
+    # OBS websocket call here. This function is on the hot path for every
+    # incoming text line, and a blocking websocket round-trip can stall the
+    # entire text-intake pipeline. The obs_service background poller keeps
+    # state.current_scene fresh.
     if svc and svc.state.current_scene:
         gsm_state.current_game = svc.state.current_scene
-    else:
-        gsm_state.current_game = get_current_scene()
+    # else: leave gsm_state.current_game at its previous value
 
     if gsm_state.current_game and gsm_state.current_game != previous_game:
+        try:
+            from GameSentenceMiner.obs.screenshot_capture import screenshot_capture
+
+            screenshot_capture.invalidate_hwnd()
+        except Exception:
+            pass
         try:
             from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
                 queue_ensure_scene_dictionary,
@@ -720,6 +719,16 @@ def get_current_game(sanitize=False, update=True):
     if sanitize:
         return sanitize_filename(gsm_state.current_game)
     return gsm_state.current_game
+
+
+def is_game_capture_active() -> bool:
+    import GameSentenceMiner.obs as _obs_pkg
+
+    svc = _obs_pkg.obs_service
+    if not svc:
+        return True
+
+    return svc.state.replay_buffer_active is not False
 
 
 # ---------------------------------------------------------------------------
@@ -1090,6 +1099,62 @@ def get_window_info_from_source(client, scene_name: str = None):
                         "exe": parts[2].strip(),
                     }
 
+    return None
+
+
+def _parse_capture_window_item(client, item) -> dict | None:
+    """Extract X11 window info from a single OBS scene item, or None to skip it."""
+    if not item.get("sceneItemEnabled", True):
+        return None
+    source_name = item.get("sourceName")
+    if not source_name:
+        return None
+    try:
+        response = client.get_input_settings(name=source_name)
+    except Exception as e:
+        logger.debug(f"Error getting input settings for source {source_name}: {e}")
+        return None
+    if not response:
+        return None
+    capture_window = (response.input_settings or {}).get("capture_window")
+    if not capture_window:
+        return None
+    # Format is "<winid>\r\n<title>\r\n<class>" with positional fields.
+    # Do NOT filter empty lines before positional assignment — an empty title
+    # (common for borderless/SDL/Proton windows) would shift the class into
+    # the title slot and break class-based window re-matching.
+    parts = [p.strip().strip("\r") for p in str(capture_window).split("\n")]
+    winid = int(parts[0]) if parts and parts[0].isdigit() else None
+    title = parts[1] if len(parts) >= 2 else ""
+    wm_class = parts[2] if len(parts) >= 3 else ""
+    return {"winid": winid, "title": title, "wm_class": wm_class}
+
+
+@with_obs_client(default=None, error_msg="Error reading Linux capture window info")
+def get_linux_capture_window_info(client, scene_name: str = None):
+    """Return the X11 window targeted by a Linux window-capture source.
+
+    Linux OBS window capture (XComposite ``xcomposite_input`` and XSHM) stores its
+    target in ``capture_window`` as ``"<window_id_decimal>\\r\\n<title>\\r\\n<class>"``
+    instead of the Windows ``title:class:exe`` format. The stored window id can go
+    stale across game restarts (OBS re-matches live by title/class), so all three
+    fields are returned and the caller resolves the live window.
+
+    Sources are matched by the presence of ``capture_window`` (i.e. by kind, not by
+    the user-facing source name), so renaming the capture source does not break this.
+    """
+    if not scene_name:
+        return None
+    scene_items_response = client.get_scene_item_list(name=scene_name)
+    if not scene_items_response or not scene_items_response.scene_items:
+        return None
+    # Linux window-capture inputs are xcomposite_input / xshm_input, which the
+    # Windows-oriented get_video_scene_items() filter does not recognise, so it
+    # would always return []. Match by the presence of capture_window instead.
+    for item in scene_items_response.scene_items:
+        result = _parse_capture_window_item(client, item)
+        if result is not None:
+            return result
     return None
 
 

@@ -1,8 +1,24 @@
 from __future__ import annotations
 
+import textwrap
+
 from PyQt6.QtCore import QEvent, QObject, QTimer
 from PyQt6.QtGui import QCursor, QFont
 from PyQt6.QtWidgets import QApplication, QToolTip, QWidget
+
+# Max characters per line before a plain-text tooltip is wrapped.
+TOOLTIP_WRAP_WIDTH = 80
+
+
+def wrap_tooltip_text(tip: str, width: int = TOOLTIP_WRAP_WIDTH) -> str:
+    """Word-wrap a long plain-text tooltip so it reads as a paragraph block.
+
+    Leaves rich-text (HTML) tooltips untouched — Qt wraps those itself — and
+    preserves any author-supplied line breaks by wrapping each line on its own.
+    """
+    if not tip or "<" in tip:  # rich text: let Qt handle layout
+        return tip
+    return "\n".join(textwrap.fill(line, width=width) if line else line for line in tip.splitlines())
 
 
 class FastTooltipEventFilter(QObject):
@@ -30,7 +46,7 @@ class FastTooltipEventFilter(QObject):
         if widget is not None and widget.underMouse():
             tip = widget.toolTip()
             if tip:
-                QToolTip.showText(QCursor.pos(), tip, widget)
+                QToolTip.showText(QCursor.pos(), wrap_tooltip_text(tip), widget)
 
     # ------------------------------------------------------------------
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802

@@ -163,6 +163,26 @@
       box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
     }
 
+    .yomitan-settings-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border-color: rgba(90, 163, 255, 0.4);
+      background: rgba(20, 38, 64, 0.6);
+      color: #ecf3ff;
+    }
+
+    .yomitan-settings-chip:hover {
+      border-color: rgba(90, 163, 255, 0.65);
+      background: rgba(33, 60, 100, 0.85);
+    }
+
+    .yomitan-settings-chip img {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+
     .settings-tabs {
       display: flex;
       gap: 8px;
@@ -244,6 +264,29 @@
 
     label:last-child {
       margin-bottom: 0;
+    }
+
+    label.master-toggle {
+      padding: 14px 16px;
+      margin-bottom: 14px;
+      background: linear-gradient(135deg, rgba(76, 175, 80, 0.16) 0%, rgba(255, 255, 255, 0.04) 100%);
+      border: 1px solid rgba(76, 175, 80, 0.4);
+      border-radius: 8px;
+    }
+
+    label.master-toggle:hover {
+      background: linear-gradient(135deg, rgba(76, 175, 80, 0.22) 0%, rgba(255, 255, 255, 0.06) 100%);
+      border-color: rgba(76, 175, 80, 0.6);
+    }
+
+    label.master-toggle .label-text {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    label.master-toggle input[type="checkbox"] {
+      width: 22px;
+      height: 22px;
     }
 
     label.sub-option {
@@ -552,6 +595,84 @@
       font-style: italic;
     }
 
+    .gamepad-device-lists {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 10px;
+      margin: 10px 0;
+    }
+
+    .gamepad-device-panel {
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.18);
+      padding: 8px;
+      min-width: 0;
+    }
+
+    .gamepad-device-panel-title {
+      margin-bottom: 6px;
+      color: #b8b8b8;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .gamepad-device-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .gamepad-device-empty {
+      color: #7f7f7f;
+      font-size: 11px;
+      font-style: italic;
+      padding: 6px 0;
+    }
+
+    .gamepad-device-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .gamepad-device-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #dddddd;
+      font-size: 12px;
+    }
+
+    .gamepad-device-action {
+      width: 26px;
+      height: 26px;
+      flex: 0 0 26px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      color: #d8d8d8;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .gamepad-device-action:hover {
+      border-color: rgba(76, 175, 80, 0.55);
+      background: rgba(76, 175, 80, 0.18);
+      color: #ffffff;
+    }
+
     /* Sudachi download progress bar */
     .sudachi-progress-container {
       display: none;
@@ -683,6 +804,516 @@
       line-height: 1.45;
     }
 
+    .profile-status-panel {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .profile-status-item {
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .profile-status-label {
+      display: block;
+      color: #8f9aaa;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .profile-status-value {
+      color: #f4f8ff;
+      font-size: 13px;
+      font-weight: 600;
+      word-break: break-word;
+    }
+
+    .profile-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .profile-card {
+      padding: 11px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .profile-card.active {
+      border-color: rgba(76, 175, 80, 0.55);
+      background: rgba(76, 175, 80, 0.11);
+    }
+
+    .profile-card.current {
+      box-shadow: inset 0 0 0 1px rgba(90, 163, 255, 0.22);
+    }
+
+    .profile-card-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .profile-card-name {
+      color: #ffffff;
+      font-size: 13px;
+      font-weight: 700;
+      word-break: break-word;
+    }
+
+    .profile-card-badge {
+      flex-shrink: 0;
+      padding: 3px 6px;
+      border-radius: 999px;
+      background: rgba(76, 175, 80, 0.2);
+      color: #c8e6c9;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .profile-card-scenes {
+      color: #b8c0cc;
+      font-size: 11px;
+      line-height: 1.45;
+      word-break: break-word;
+    }
+
+    /* Full-width groups span every grid column (presets + manual mode). */
+    .setting-group.full-width {
+      grid-column: 1 / -1;
+    }
+
+    /* Recommended Setups (presets) */
+    .presets-intro {
+      margin: 0 0 12px 0;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #b8c4b8;
+    }
+
+    .preset-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+    }
+
+    .preset-card {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      text-align: left;
+      padding: 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      color: #e8e8e8;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .preset-card:hover:not(:disabled) {
+      border-color: rgba(76, 175, 80, 0.5);
+      background: rgba(76, 175, 80, 0.12);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+    }
+
+    .preset-card.active {
+      border-color: rgba(76, 175, 80, 0.7);
+      background: linear-gradient(135deg, rgba(76, 175, 80, 0.2) 0%, rgba(255, 255, 255, 0.05) 100%);
+      box-shadow: inset 0 0 0 1px rgba(76, 175, 80, 0.35), 0 4px 12px rgba(76, 175, 80, 0.18);
+    }
+
+    .preset-card:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .preset-card-name {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .preset-card-badge {
+      display: none;
+      flex-shrink: 0;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: #bff0c2;
+      border: 1px solid rgba(76, 175, 80, 0.55);
+      border-radius: 999px;
+      padding: 2px 8px;
+    }
+
+    .preset-card.active .preset-card-badge {
+      display: inline-block;
+    }
+
+    .preset-card-blurb {
+      font-size: 11.5px;
+      line-height: 1.45;
+      color: #c4c4c4;
+    }
+
+    /* Collapsible sections (native <details>, styled to match the dark theme) */
+    details.setting-section {
+      padding: 0;
+    }
+
+    details.setting-section > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 12px;
+      margin: 0;
+      font-size: 13px;
+      font-weight: 500;
+      color: #cccccc;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      user-select: none;
+      transition: color 0.2s ease;
+    }
+
+    details.setting-section > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    details.setting-section > summary::before {
+      content: "\25B8";
+      font-size: 11px;
+      color: #8aa98a;
+      transition: transform 0.2s ease;
+    }
+
+    details.setting-section[open] > summary::before {
+      transform: rotate(90deg);
+    }
+
+    details.setting-section > summary:hover {
+      color: #ffffff;
+    }
+
+    details.setting-section .setting-section-body {
+      padding: 0 12px 12px 12px;
+    }
+
+    .overlay-goals-picker {
+      margin: 8px 0 4px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .overlay-goals-picker-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .overlay-goals-picker-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      color: #9fb09f;
+    }
+
+    .overlay-goals-refresh {
+      width: 26px;
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      color: #d0d0d0;
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .overlay-goals-refresh:hover {
+      color: #ffffff;
+      border-color: rgba(76, 175, 80, 0.55);
+      background: rgba(76, 175, 80, 0.18);
+    }
+
+    .overlay-goals-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .overlay-goal-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .overlay-goal-row .overlay-goal-checkbox {
+      flex: 0 0 auto;
+    }
+
+    .overlay-goal-row .overlay-goal-name {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      color: #e0e0e0;
+    }
+
+    .overlay-goal-row select.overlay-goal-view {
+      flex: 0 0 auto;
+      min-width: 0;
+      width: auto;
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+
+    .overlay-goals-empty {
+      font-size: 12px;
+      color: #8a8a8a;
+      font-style: italic;
+      padding: 4px 2px;
+    }
+
+    /* Injected one-line description under settings (mirrors .hotkey-info). */
+    .setting-desc {
+      font-size: 11px;
+      color: #8a8a8a;
+      margin-top: 3px;
+      line-height: 1.4;
+      font-style: normal;
+    }
+
+    /* Cross-tab search bar */
+    .settings-search {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.22);
+    }
+
+    .settings-search-icon {
+      font-size: 14px;
+      opacity: 0.7;
+    }
+
+    .settings-search input {
+      flex: 1;
+      min-width: 0;
+      border: none;
+      background: transparent;
+      color: #ffffff;
+      font-size: 14px;
+      padding: 4px 2px;
+    }
+
+    .settings-search input:focus {
+      outline: none;
+      box-shadow: none;
+      background: transparent;
+    }
+
+    .settings-search-count {
+      font-size: 11px;
+      color: #9fb09f;
+      white-space: nowrap;
+    }
+
+    .settings-search-clear {
+      width: 24px;
+      height: 24px;
+      flex: 0 0 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      color: #d0d0d0;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .settings-search-clear:hover {
+      color: #ffffff;
+      border-color: rgba(76, 175, 80, 0.55);
+      background: rgba(76, 175, 80, 0.18);
+    }
+
+    .settings-search-noresults {
+      margin: 4px 0 14px;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px dashed rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.03);
+      color: #9a9a9a;
+      font-size: 13px;
+      text-align: center;
+    }
+
+    /* While searching, the tab bar is irrelevant (results span all tabs). */
+    body.search-active .settings-tabs {
+      opacity: 0.45;
+      pointer-events: none;
+    }
+
+    /* Capability cards (Overview tab) — modeled on .preset-card. */
+    .capability-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+    }
+
+    .capability-card {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      text-align: left;
+      padding: 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      color: #e8e8e8;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .capability-card:hover {
+      border-color: rgba(90, 163, 255, 0.5);
+      background: rgba(38, 71, 116, 0.28);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+    }
+
+    .capability-card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .capability-card-blurb {
+      font-size: 12px;
+      line-height: 1.5;
+      color: #c4c4c4;
+      flex: 1;
+    }
+
+    .capability-card-cta {
+      font-size: 11px;
+      font-weight: 600;
+      color: #9cc3ff;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    /* Highlighted "quick answer" callout (e.g. the red-boxes FAQ). */
+    /* Hide the red-boxes FAQ when the indicators are already turned off.
+       !important so it wins over the tab/search inline-display juggling. */
+    .red-callout-hidden {
+      display: none !important;
+    }
+
+    .overview-callout {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 193, 7, 0.32);
+      background: linear-gradient(135deg, rgba(255, 193, 7, 0.14) 0%, rgba(255, 255, 255, 0.04) 100%);
+    }
+
+    .overview-callout-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .overview-callout-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #ffe9b0;
+    }
+
+    .overview-callout-text {
+      font-size: 12px;
+      color: #e6dcc2;
+      line-height: 1.45;
+    }
+
+    .overview-callout-button {
+      flex-shrink: 0;
+      border: 1px solid rgba(255, 193, 7, 0.5);
+      background: rgba(60, 48, 12, 0.55);
+      color: #fff3d6;
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .overview-callout-button:hover {
+      border-color: rgba(255, 193, 7, 0.75);
+      background: rgba(92, 73, 18, 0.85);
+      transform: translateY(-1px);
+    }
+
+    /* Brief highlight when a card/callout jumps to a specific setting. */
+    @keyframes setting-flash-anim {
+      0% { background: rgba(76, 175, 80, 0.0); box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.0); }
+      25% { background: rgba(76, 175, 80, 0.28); box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.45); }
+      100% { background: rgba(76, 175, 80, 0.0); box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.0); }
+    }
+
+    .setting-flash {
+      animation: setting-flash-anim 1.6s ease-out 1;
+    }
+
     @media (max-width: 1024px) {
       .settings-grid {
         grid-template-columns: 1fr;
@@ -729,6 +1360,11 @@
         <span class="docs-banner-subtitle">Open the overlay guides without leaving GSM.</span>
       </div>
       <div class="docs-banner-links">
+        <button type="button" class="docs-link-chip yomitan-settings-chip" id="openYomitanSettings"
+          title="Open Yomitan dictionary settings">
+          <img src="yomitan/images/icon19.png" alt="">
+          Yomitan Settings
+        </button>
         <button type="button" class="docs-link-chip" data-doc-key="overlay">
           Overlay Guide
         </button>
@@ -746,22 +1382,95 @@
       </div>
     </div> -->
 
+    <div class="settings-search">
+      <span class="settings-search-icon" aria-hidden="true">🔍</span>
+      <input type="text" id="settingsSearchInput" autocomplete="off" spellcheck="false"
+        placeholder="Search all settings… (e.g. red boxes, pomodoro, controller, furigana)"
+        aria-label="Search all overlay settings" />
+      <span id="settingsSearchCount" class="settings-search-count"></span>
+      <button type="button" id="settingsSearchClear" class="settings-search-clear" title="Clear search" aria-label="Clear search">✕</button>
+    </div>
+    <div id="settingsSearchNoResults" class="settings-search-noresults" style="display: none;">
+      No settings match your search.
+    </div>
+
     <div class="settings-tabs" role="tablist" aria-label="Settings Categories">
-      <button type="button" class="settings-tab-button active" data-settings-tab="general" role="tab" aria-selected="true">General</button>
-      <button type="button" class="settings-tab-button" data-settings-tab="furigana" role="tab" aria-selected="false">Furigana</button>
-      <button type="button" class="settings-tab-button" data-settings-tab="controller" role="tab" aria-selected="false">Controller</button>
+      <button type="button" class="settings-tab-button active" data-settings-tab="overview" role="tab" aria-selected="true">Overview</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="reading" role="tab" aria-selected="false">Reading</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="interaction" role="tab" aria-selected="false">Interaction</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="gamepad" role="tab" aria-selected="false">Gamepad</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="stats" role="tab" aria-selected="false">Stats &amp; Goals</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="dictionary" role="tab" aria-selected="false">Jiten Reader</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="profiles" role="tab" aria-selected="false">Profiles</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="capture" role="tab" aria-selected="false">Capture</button>
       <button type="button" class="settings-tab-button" data-settings-tab="advanced" role="tab" aria-selected="false">Advanced</button>
     </div>
 
     <div class="settings-grid">
-    <div class="setting-group" data-tab="general">
+    <div class="setting-group full-width" data-tab="overview">
+      <h4>What the overlay can do</h4>
+      <p class="presets-intro">
+        The overlay is far more than on-screen text. Pick a capability to jump straight to its
+        settings — or use the search box up top to find anything by name.
+      </p>
+      <div class="capability-cards" id="capabilityCards"></div>
+    </div>
+
+    <!-- High-frequency FAQ: "how do I remove the red boxes?". Surfaced on Overview so the
+         answer is one click away; the default stays ON so new users see it's working.
+         Hidden by the enhancer when Show Text Indicators is already off. -->
+    <div class="setting-group full-width" data-tab="overview" id="redBoxesCallout">
+      <div class="overview-callout">
+        <div class="overview-callout-copy">
+          <span class="overview-callout-title">Seeing red boxes around the text?</span>
+          <span class="overview-callout-text">
+            Those borders mean the overlay is capturing text correctly. If you'd rather hide them,
+            turn off the "Show Text Indicators" setting.
+          </span>
+        </div>
+        <button type="button" class="overview-callout-button" data-jump-setting="showTextIndicators" data-jump-tab="reading">
+          Remove the boxes →
+        </button>
+      </div>
+    </div>
+
+    <div class="setting-group full-width" data-tab="overview" id="overlayPresetsGroup">
+      <h4>★ Recommended Setups</h4>
+      <p class="presets-intro">
+        One click to apply a known-good combo. Pick the one that matches how you play — you can
+        still fine-tune anything afterwards.
+      </p>
+      <div class="preset-cards" id="overlayPresetCards"></div>
+      <p class="presets-intro" style="margin: 12px 0 0 0;">
+        Tip: if <strong>Shift</strong> clashes with a game key, open the Interaction tab's Push to Show
+        card and change the hotkey to <strong>Shift+Space</strong>.
+      </p>
+    </div>
+
+    <!-- Push to Show card markup is injected from components/manual-mode-card.js (shared
+         with the recommendation window). IDs match the bindings below.
+         Lives on the Interaction tab as the highest-impact interaction setting. -->
+    <div class="setting-group full-width" data-tab="interaction" id="manualModeCardMount"></div>
+
+    <div class="setting-group" data-tab="interaction">
+      <h4>Push to Show &mdash; Advanced</h4>
+      <label>
+        <span class="label-text">
+          Freeze Game Frame Behind Overlay (Exclusive Fullscreen)
+          <div class="hotkey-info">For exclusive-fullscreen games (e.g. Resident Evil 7) whose frame disappears when the overlay steals focus: grab a fresh full-monitor snapshot and paint it behind the overlay so lookups sit over the last game frame. May flicker.</div>
+        </span>
+        <input type="checkbox" id="manual_mode_desktop_background" />
+      </label>
+    </div>
+
+    <div class="setting-group" data-tab="reading">
       <h4>Visibility</h4>
       <label>
         <span class="label-text">Show "Ready" Indicator</span>
         <input type="checkbox" id="showReadyIndicator" />
       </label>
       <label>
-        <span class="label-text">Show Text Indicators</span>
+        <span class="label-text">Show Text Indicators (Red Border)</span>
         <input type="checkbox" id="showTextIndicators" />
       </label>
       <label class="sub-option">
@@ -775,31 +1484,111 @@
       
     </div>
 
-    <div class="setting-group" id="text-offset-group" data-tab="general">
-      <h4>Text Offset</h4>
+    <div class="setting-group" data-tab="stats">
+      <h4>Live Stats</h4>
       <label>
         <span class="label-text">
-          X Offset
-          <div class="hotkey-info">Not typically needed on Windows</div>
+          Enable Live Stats
+          <div class="hotkey-info">Shows the current live reading session stats in the overlay.</div>
         </span>
-        <input type="number" id="offsetX" value="0" step="0.1" /><span style="margin-left: 5px;">%</span>
+        <input type="checkbox" id="showLiveStats" />
       </label>
       <label>
         <span class="label-text">
-          Y Offset
-          <div class="hotkey-info">Not typically needed on Windows</div>
+          Show Goals
+          <div class="hotkey-info">Shows the goals you pick below in the live stats widget.</div>
         </span>
-        <input type="number" id="offsetY" value="0" step="0.1" /><span style="margin-left: 5px;">%</span>
+        <input type="checkbox" id="showLiveGoals" />
       </label>
-      <label>
-        <span class="label-text">
-          Calibrate/Reset Offset
-          <div class="hotkey-info">Opens a full-screen helper that shows the latest OCR text, supports 1px arrow-key nudging, and saves the new offset back here. Reset sets both offsets to 0.</div>
-        </span>
-        <div class="input-container">
-          <button type="button" id="openOffsetHelper" class="guide-button">Calibrate</button>
-          <button type="button" id="resetOffset" class="guide-button">Reset</button>
+      <div class="overlay-goals-picker" id="overlayGoalsPicker">
+        <div class="overlay-goals-picker-header">
+          <span class="overlay-goals-picker-title">Goals to show</span>
+          <button type="button" class="overlay-goals-refresh" id="overlayGoalsRefresh" title="Refresh goals">↻</button>
         </div>
+        <div class="overlay-goals-list" id="overlayGoalsList">
+          <div class="overlay-goals-empty">Loading goals…</div>
+        </div>
+      </div>
+      <label>
+        <span class="label-text">
+          Display Mode
+          <div class="hotkey-info">Choose whether stats stay visible or appear briefly after new stats arrive.</div>
+        </span>
+        <select id="liveStatsDisplayModeV2">
+          <option value="new-line">Show briefly after updates</option>
+          <option value="always">Always show</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">
+          Layout
+          <div class="hotkey-info">One-line mode keeps selected stats in a compact horizontal strip.</div>
+        </span>
+        <select id="liveStatsLayoutV2">
+          <option value="stacked">Stacked</option>
+          <option value="one-line">One line</option>
+        </select>
+      </label>
+      <label class="sub-option">
+        <span class="label-text">
+          Hide After Seconds
+          <div class="hotkey-info">Only used by brief display mode. Set 0 to keep visible after the first update.</div>
+        </span>
+        <input type="number" id="liveStatsAutoHideSeconds" value="5" min="0" max="60" step="1" />
+      </label>
+      <label>
+        <span class="label-text">
+          Position
+          <div class="hotkey-info">Active window uses the detected game window when bounds are available.</div>
+        </span>
+        <select id="liveStatsPositionMode">
+          <option value="active-window">Top right of active game window</option>
+          <option value="overlay">Top right of overlay monitor</option>
+        </select>
+      </label>
+      <h4>Fields</h4>
+      <label>
+        <span class="label-text">Characters per Hour</span>
+        <input type="checkbox" id="liveStatsFieldCharsPerHour" />
+      </label>
+      <label>
+        <span class="label-text">Total Characters</span>
+        <input type="checkbox" id="liveStatsFieldTotalCharacters" />
+      </label>
+      <label>
+        <span class="label-text">Active Reading Time</span>
+        <input type="checkbox" id="liveStatsFieldActiveReadingTime" />
+      </label>
+      <label>
+        <span class="label-text">Raw Time</span>
+        <input type="checkbox" id="liveStatsFieldRawReadingTime" />
+      </label>
+      <label>
+        <span class="label-text">Cards Mined</span>
+        <input type="checkbox" id="liveStatsFieldCardsMined" />
+      </label>
+      <h4>Pomodoro</h4>
+      <label>
+        <span class="label-text">
+          Enable Pomodoro
+          <div class="hotkey-info">Shows a work/break countdown in the live stats widget. Control it from the tray (Pomodoro menu).</div>
+        </span>
+        <input type="checkbox" id="pomodoroEnabled" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Work Minutes</span>
+        <input type="number" id="pomodoroWorkMinutes" value="25" min="1" max="180" step="1" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Break Minutes</span>
+        <input type="number" id="pomodoroBreakMinutes" value="5" min="1" max="180" step="1" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">
+          Auto-start with reading session
+          <div class="hotkey-info">Starts a work block automatically when a reading session begins.</div>
+        </span>
+        <input type="checkbox" id="pomodoroAutoStart" />
       </label>
     </div>
 
@@ -821,7 +1610,7 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="general">
+    <div class="setting-group" data-tab="interaction">
       <h4>Behavior</h4>
       <label>
         <span class="label-text">Open Settings on Startup</span>
@@ -844,8 +1633,133 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="furigana">
+    <div class="setting-group full-width" data-tab="capture">
+      <h4>OCR / Capture</h4>
+      <p class="hotkey-info">These OCR-capture settings are stored with your active GSM profile. This window is their home — edit them here.</p>
+      <label>
+        <span class="label-text">OCR Engine</span>
+        <select id="engine_v2">
+          <option value="oneocr">OneOCR</option>
+          <option value="lens">Google Lens</option>
+          <option value="meikiocr">MeikiOCR</option>
+          <option value="screenai">ScreenAI</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">Monitor to Capture</span>
+        <select id="monitor_to_capture">
+          <option value="0">Monitor 1</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">OCR Capture Area</span>
+        <button type="button" id="selectOcrAreaButton" class="secondary">Select OCR Area...</button>
+      </label>
+      <label>
+        <span class="label-text">Use OCR Area Config</span>
+        <input type="checkbox" id="use_ocr_area_config_v2" />
+      </label>
+      <label>
+        <span class="label-text">Minimum Character Size (0 = disabled)</span>
+        <input type="number" id="minimum_character_size" value="0" min="0" max="500" />
+      </label>
+    </div>
+
+    <div class="setting-group" data-tab="capture">
+      <h4>Periodic Scanning</h4>
+      <label>
+        <span class="label-text">Enable Periodic Scanning</span>
+        <input type="checkbox" id="periodic" />
+      </label>
+      <label>
+        <span class="label-text">Scan Interval (seconds)</span>
+        <input type="number" id="periodic_interval" value="1" min="0.1" max="60" step="0.1" />
+      </label>
+      <label>
+        <span class="label-text">Only Scan When the Cursor Moves Over the Game</span>
+        <input type="checkbox" id="scan_on_mouse_move" />
+      </label>
+      <label>
+        <span class="label-text">Add Scanned Lines to the Text Log (mining/stats)</span>
+        <input type="checkbox" id="inject_scanned_lines" />
+      </label>
+    </div>
+
+    <div class="setting-group" data-tab="capture">
+      <h4>OCR Results</h4>
+      <label>
+        <span class="label-text">
+          Use OCR Result V2
+          <div class="hotkey-info">Use only the dedicated OCR-result pipeline for overlay text. Mutually exclusive with "Supplement With Overlay".</div>
+        </span>
+        <input type="checkbox" id="use_ocr_result_v2" />
+      </label>
+      <label>
+        <span class="label-text">
+          Supplement OCR Result With Overlay
+          <div class="hotkey-info">Merge overlay-scanned text into the OCR result for more complete lines. Mutually exclusive with "Use OCR Result V2".</div>
+        </span>
+        <input type="checkbox" id="supplement_ocr_result_with_overlay" />
+      </label>
+      <label>
+        <span class="label-text">Apply Text Filtering</span>
+        <input type="checkbox" id="use_text_filtering" />
+      </label>
+    </div>
+
+    <div class="setting-group" data-tab="capture">
+      <details class="setting-section">
+        <summary>Legacy / Advanced &mdash; don't change unless you know why</summary>
+        <label>
+          <span class="label-text">
+            Periodic Scan Ratio
+            <div class="hotkey-info">Advanced periodic-scan tuning. Leave at the default (0.9) unless instructed otherwise.</div>
+          </span>
+          <input type="number" id="periodic_ratio" value="0.9" min="0" max="1" step="0.05" />
+        </label>
+        <label class="sub-option">
+          <span class="label-text">
+            Include Primary OCR Areas
+            <div class="hotkey-info">When OCR Area Config is on, include primary (main) areas in the overlay.</div>
+          </span>
+          <input type="checkbox" id="ocr_area_config_include_primary_areas" />
+        </label>
+        <label class="sub-option">
+          <span class="label-text">
+            Include Secondary OCR Areas
+            <div class="hotkey-info">When OCR Area Config is on, include secondary areas in the overlay.</div>
+          </span>
+          <input type="checkbox" id="ocr_area_config_include_secondary_areas" />
+        </label>
+        <label class="sub-option">
+          <span class="label-text">
+            Apply Exclusion Zones
+            <div class="hotkey-info">When OCR Area Config is on, drop text inside exclusion zones.</div>
+          </span>
+          <input type="checkbox" id="ocr_area_config_use_exclusion_zones" />
+        </label>
+        <label>
+          <span class="label-text" style="color:#ff6b6b;">
+            OCR Full Screen Instead of OBS
+            <div class="hotkey-info">Legacy/debug capture method: captures the full screen instead of the OBS game window.</div>
+          </span>
+          <input type="checkbox" id="ocr_full_screen_instead_of_obs" />
+        </label>
+      </details>
+    </div>
+
+    <div class="setting-group" data-tab="reading">
       <h4>Furigana Display</h4>
+      <label>
+        <span class="label-text">
+          Reading Language
+          <div class="hotkey-info">Choose which reading is drawn above the text: Japanese furigana (uses the tokenizer backend below) or Chinese pinyin (computed locally, no backend needed).</div>
+        </span>
+        <select id="readingLanguage">
+          <option value="japanese">Japanese (Furigana)</option>
+          <option value="chinese">Chinese (Pinyin)</option>
+        </select>
+      </label>
       <label>
         <span class="label-text">Enable Furigana</span>
         <input type="checkbox" id="showFurigana" />
@@ -860,7 +1774,38 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="furigana">
+    <div class="setting-group" data-tab="reading" id="pinyinToneColorsGroup">
+      <h4>Pinyin Tone Colors</h4>
+      <label>
+        <span class="label-text">
+          Color-code pinyin by tone
+          <div class="hotkey-info">Color each pinyin syllable by its tone (Chinese only) so tones stay readable when the font is small.</div>
+        </span>
+        <input type="checkbox" id="pinyinToneColors" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Tone 1 (high level) Color</span>
+        <input type="color" id="pinyinTone1Color" value="#ff5252" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Tone 2 (rising) Color</span>
+        <input type="color" id="pinyinTone2Color" value="#ffb300" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Tone 3 (dipping) Color</span>
+        <input type="color" id="pinyinTone3Color" value="#4caf50" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Tone 4 (falling) Color</span>
+        <input type="color" id="pinyinTone4Color" value="#42a5f5" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">Tone 5 (neutral) Color</span>
+        <input type="color" id="pinyinTone5Color" value="#e0e0e0" />
+      </label>
+    </div>
+
+    <div class="setting-group" data-tab="reading">
       <h4>Furigana Style</h4>
       <label>
         <span class="label-text">
@@ -907,10 +1852,10 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="furigana">
+    <div class="setting-group" data-tab="reading">
       <h4>Furigana Tokenizer</h4>
       <div class="shared-setting-note">
-        These tokenizer settings are shared with controller navigation. Changing them here updates the controller tab too.
+        These tokenizer settings are shared with controller navigation. Changing them here updates the Gamepad tab too.
       </div>
       <label>
         <span class="label-text">
@@ -987,7 +1932,7 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="furigana">
+    <div class="setting-group" data-tab="reading">
       <h4>Furigana Hotkeys</h4>
       <label>
         <span class="label-text">
@@ -1007,107 +1952,68 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="general">
-      <h4>Manual Mode</h4>
-      <label>
-        <span class="label-text">Only Show Overlay on Hotkey (Enabled)</span>
-        <input type="checkbox" id="manualMode" />
-      </label>
-      <label>
-        <span class="label-text">Manual Mode Type</span>
-        <select id="manualModeType">
-          <option value="hold">Hold (press and hold to show)</option>
-          <option value="toggle">Toggle (press once to show, press again to hide)</option>
-        </select>
+    <div class="setting-group" data-tab="dictionary">
+      <h4>Jiten Reader</h4>
+      <label class="master-toggle">
+        <span class="label-text">
+          Enable Jiten Reader
+          <div class="hotkey-info">Master switch for the Jiten Reader dictionary extension and its overlay integrations.</div>
+        </span>
+        <input type="checkbox" id="enableJitenReader" />
       </label>
       <label>
         <span class="label-text">
-          Inactive Behavior
-          <div class="hotkey-info">Choose what happens before the manual hotkey activates text interaction</div>
+          JitenAPI Key
+          <div class="hotkey-info">Required for Jiten requests. Shared with the JitenAPI tokenizer/furigana backend — set it here once. Stored locally in overlay settings.</div>
         </span>
-        <select id="manualModeInactiveBehavior">
-          <option value="hide-overlay">Hide overlay until hotkey</option>
-          <option value="disable-interaction">Keep overlay visible, disable interaction</option>
-        </select>
-      </label>
-      <div class="hotkey-info">Standard hotkeys use Electron when possible. Modifier-only hotkeys like Shift use the input server.</div>
-      <div id="manualHotkeyBackendStatus" class="hotkey-info">Backend: Electron</div>
-      <div id="manual-hotkey-platform-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;"></div>
-      <div id="manual-hotkey-runtime-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;"></div>
-      <label>
-        <span class="label-text">
-          Re-Scan When Entering Manual Mode
-          <div class="hotkey-info">Trigger the same backend scan used by GSM's manual overlay scan actions</div>
-        </span>
-        <input type="checkbox" id="manualModeRescanOnShow" />
+        <input type="password" id="jitenReaderApiKey" value="" placeholder="Paste your X-Api-Key" />
       </label>
       <label>
         <span class="label-text">
-          Hotkey
-          <div class="hotkey-info">Used for the selected manual mode type above</div>
-          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key
-            (modifiers optional)</div>
-          <div id="ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning:
-            Ctrl key may interfere with game controls (text skipping)</div>
+            Jiten Reader Settings
+            <div class="hotkey-info">Configure Jiten Reader popup settings (decks, parsing, grading, and more).</div>
         </span>
-        <div class="input-container">
-          <input type="text" id="showHotkey" value="Shift + Space"
-            title="Enter a valid hotkey (e.g., Shift + Space)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
-          <button type="button" class="guide-button"
-            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
-            Guide
-          </button>
-        </div>
+        <button type="button" id="openJitenReaderSettings" class="guide-button">Open Settings</button>
       </label>
     </div>
 
-    <div class="setting-group" data-tab="general">
-      <h4>Translation (Experimental)</h4>
+    <div class="setting-group" data-tab="dictionary">
+      <h4>Overlay Integration <span style="color: #ff6b6b; font-size: 13px; font-weight: normal;">⚠️ WIP</span></h4>
+      <div class="hotkey-info" style="color: #ffcc66; margin-bottom: 10px;">
+        Work in progress. To avoid unnecessary API calls, some operations are intentionally delayed in order to play nice with Jiten's API.
+      </div>
       <label>
         <span class="label-text">
-          Auto-Request Translation
-          <div class="hotkey-info" style="color: #ff6b6b;">⚠️ WIP Feature - Not Recommended</div>
-          <div class="hotkey-info">Automatically requests translation when OCR text is received</div>
+          Show Jiten Style Text Highlighting
+          <div class="hotkey-info" style="color: #ff6b6b;">⚠️ WIP Feature</div>
+          <div class="hotkey-info">Highlights overlay text by SRS state, Jiten Reader style. Some options are configured in Jiten Reader itself.</div>
         </span>
-        <div class="input-container">
-          <input type="checkbox" id="autoRequestTranslation" />
-          <button type="button" class="guide-button"
-            onclick="window.open('https://docs.gamesentenceminer.com/docs/guides/ai-features', '_blank')">
-            AI Guide
-          </button>
-        </div>
+        <input type="checkbox" id="jitenHighlightingEnabled" />
+      </label>
+      <label class="sub-option">
+        <span class="label-text">
+          Highlight Vertical Offset (px)
+          <div class="hotkey-info">Move the SRS highlight underline up or down relative to the word.</div>
+        </span>
+        <input type="number" id="jitenHighlightOffsetY" value="3" min="-48" max="48" step="0.5" />
       </label>
       <label>
         <span class="label-text">
-          Translation Hotkey
-          <div class="hotkey-info">Press to request/toggle translation visibility</div>
-          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
-          <div id="translate-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
+          Show Jiten Grader Buttons Above Yomitan Popup
+          <div class="hotkey-info">Adds Blacklist / Never Forget / review-grade buttons to the top of the Yomitan popup.</div>
         </span>
-        <div class="input-container">
-          <input type="text" id="translateHotkey" value="Alt+T"
-            title="Enter a valid hotkey (e.g., Alt+T)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
-          <button type="button" class="guide-button"
-            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
-            Guide
-          </button>
-        </div>
+        <input type="checkbox" id="showJitenGradingButtons" />
       </label>
     </div>
 
-    <div class="setting-group" data-tab="general">
-      <h4>Texthooker</h4>
+    <!-- TextFeed promoted to its own card (separate from Translation); the hotkey is
+         the headline since it's the high-value, frequently-used control. -->
+    <div class="setting-group full-width" data-tab="interaction">
+      <h4>TextFeed</h4>
       <label>
         <span class="label-text">
-          Texthooker URL
-          <div class="hotkey-info">Automatically synced from GSM's single-port texthooker setting.</div>
-        </span>
-        <input type="text" id="texthookerUrl" value="http://localhost:7275/texthooker" readonly />
-      </label>
-      <label>
-        <span class="label-text">
-          Texthooker Hotkey
-          <div class="hotkey-info">Toggle the texthooker window.</div>
+          TextFeed Hotkey
+          <div class="hotkey-info">Toggle the TextFeed window — a scrollable feed of recent lines, great for re-reading or copying text. One of the overlay's most useful shortcuts.</div>
           <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
           <div id="texthooker-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
         </span>
@@ -1120,26 +2026,24 @@
           </button>
         </div>
       </label>
-    </div>
-
-    
-    <div class="setting-group" data-tab="general">
-      <h4>Dictionary Extensions</h4>
-      <label>
-        <span class="label-text">Enable Jiten Reader</span>
-        <input type="checkbox" id="enableJitenReader" />
-      </label>
       <label>
         <span class="label-text">
-            Jiten Reader Settings
-            <div class="hotkey-info">Configure Jiten Reader popup settings</div>
+          TextFeed URL
+          <div class="hotkey-info">Automatically synced from GSM's single-port texthooker setting.</div>
         </span>
-        <button type="button" id="openJitenReaderSettings" class="guide-button">Open Settings</button>
+        <input type="text" id="texthookerUrl" value="http://localhost:7275/texthooker" readonly />
       </label>
     </div>
 
-    <div class="setting-group" data-tab="general">
+    <div class="setting-group full-width" data-tab="interaction">
       <h4>Hotkeys</h4>
+      <label>
+        <span class="label-text">
+          Route all hotkeys through input server
+          <div class="hotkey-info">For games (e.g. Skyrim) where normal global hotkeys don't fire. Uses GSM's low-level keyboard hook for every hotkey. Also enables F13–F24 bindings.</div>
+        </span>
+        <input type="checkbox" id="routeAllHotkeysThroughInputServer" />
+      </label>
       <label>
         <span class="label-text">
           Toggle Window Hotkey
@@ -1206,7 +2110,68 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="controller">
+    <div class="setting-group full-width" data-tab="interaction">
+        <div id="text-offset-group">
+          <h4>Text Offset</h4>
+          <label>
+            <span class="label-text">
+              X Offset
+              <div class="hotkey-info">Not typically needed on Windows</div>
+            </span>
+            <input type="number" id="offsetX" value="0" step="0.1" /><span style="margin-left: 5px;">%</span>
+          </label>
+          <label>
+            <span class="label-text">
+              Y Offset
+              <div class="hotkey-info">Not typically needed on Windows</div>
+            </span>
+            <input type="number" id="offsetY" value="0" step="0.1" /><span style="margin-left: 5px;">%</span>
+          </label>
+          <label>
+            <span class="label-text">
+              Calibrate/Reset Offset
+              <div class="hotkey-info">Opens a full-screen helper that shows the latest OCR text, supports 1px arrow-key nudging, and saves the new offset back here. Reset sets both offsets to 0.</div>
+            </span>
+            <div class="input-container">
+              <button type="button" id="openOffsetHelper" class="guide-button">Calibrate</button>
+              <button type="button" id="resetOffset" class="guide-button">Reset</button>
+            </div>
+          </label>
+        </div>
+        <h4>Translation (Experimental)</h4>
+        <label>
+          <span class="label-text">
+            Auto-Request Translation
+            <div class="hotkey-info" style="color: #ff6b6b;">⚠️ WIP Feature - Not Recommended</div>
+            <div class="hotkey-info">Automatically requests translation when OCR text is received</div>
+          </span>
+          <div class="input-container">
+            <input type="checkbox" id="autoRequestTranslation" />
+            <button type="button" class="guide-button"
+              onclick="window.open('https://docs.gamesentenceminer.com/docs/guides/ai-features', '_blank')">
+              AI Guide
+            </button>
+          </div>
+        </label>
+        <label>
+          <span class="label-text">
+            Translation Hotkey
+            <div class="hotkey-info">Press to request/toggle translation visibility</div>
+            <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+            <div id="translate-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
+          </span>
+          <div class="input-container">
+            <input type="text" id="translateHotkey" value="Alt+T"
+              title="Enter a valid hotkey (e.g., Alt+T)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+            <button type="button" class="guide-button"
+              onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+              Guide
+            </button>
+          </div>
+        </label>
+    </div>
+
+    <div class="setting-group" data-tab="gamepad">
       <h4>🎮 Gamepad Navigation (Experimental)</h4>
       <label>
         <span class="label-text">
@@ -1230,7 +2195,7 @@
         Click a controller binding field, press one or more controller buttons, then release to save. Analog stick movement is ignored. Press Backspace/Delete to disable a binding, or Esc to cancel capture.
       </div>
       <div class="gamepad-binding-hint">
-        Click a keyboard binding field, then press a key (with optional modifiers) to save. The key is captured from the Input Server so it works when the game is focused.
+        Click a keyboard binding field, then press a key (with optional modifiers) to save. Press Backspace/Delete to disable a binding, or Esc to cancel capture. The key is captured from the Input Server so it works when the game is focused.
       </div>
       <label>
         <span class="label-text">
@@ -1274,11 +2239,51 @@
       </label>
       <label>
         <span class="label-text">
+          Forward Space Button
+          <div class="hotkey-info">Send Space to the current GSM target window (advance text)</div>
+        </span>
+        <input type="text" id="gamepadForwardSpaceButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardForwardSpaceKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Forward Ctrl Button
+          <div class="hotkey-info">Send Ctrl to the current GSM target window (skip in many VNs)</div>
+        </span>
+        <input type="text" id="gamepadForwardCtrlButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardForwardCtrlKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Forward Escape Button
+          <div class="hotkey-info">Send Escape to the current GSM target window (menu/back)</div>
+        </span>
+        <input type="text" id="gamepadForwardEscapeButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardForwardEscapeKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Forward Click Button
+          <div class="hotkey-info">Left-click the center of the current GSM target window</div>
+        </span>
+        <input type="text" id="gamepadForwardClickButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardForwardClickKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
           Manual Overlay Scan Button
           <div class="hotkey-info">Trigger the same scan as GSM's Manual Overlay Scan hotkey</div>
         </span>
         <input type="text" id="gamepadManualOverlayScanButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardManualOverlayScanKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Pause Button
+          <div class="hotkey-info">While navigating, pause the text source so you can take your time with lookups. Press again to resume. Activating navigation is unaffected.</div>
+        </span>
+        <input type="text" id="gamepadPauseToggleButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardPauseToggleKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
@@ -1301,6 +2306,7 @@
           Token Mode Toggle
           <div class="hotkey-info">Press to switch between character and token navigation</div>
         </span>
+        <input type="text" id="gamepadTokenModeToggleButton" class="gamepad-binding-input" value="Y" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardTokenModeToggleKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
       </label>
       <label>
@@ -1308,6 +2314,7 @@
           Mine Button
           <div class="hotkey-info">Press to mine the current Yomitan entry</div>
         </span>
+        <input type="text" id="gamepadMineButton" class="gamepad-binding-input" value="A" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardMineButton" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
       </label>
       <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Keyboard Navigation</h5>
@@ -1342,7 +2349,7 @@
       <label>
         <span class="label-text">
           Token Navigation Mode
-          <div class="hotkey-info">Navigate by MeCab tokens (words) instead of individual characters. Press Y during navigation to toggle.</div>
+          <div class="hotkey-info">Navigate by tokenizer word units instead of individual characters. Use the Token Mode Toggle binding during navigation to switch modes.</div>
         </span>
         <input type="checkbox" id="gamepadTokenMode" />
       </label>
@@ -1480,6 +2487,16 @@
         </span>
         <span id="gamepadStatusText" style="color: #888;">Checking...</span>
       </label>
+      <div class="gamepad-device-lists">
+        <div class="gamepad-device-panel">
+          <div class="gamepad-device-panel-title">Detected Devices</div>
+          <div id="gamepadDetectedDeviceList" class="gamepad-device-list"></div>
+        </div>
+        <div class="gamepad-device-panel">
+          <div class="gamepad-device-panel-title">Ignored Devices</div>
+          <div id="gamepadIgnoredDeviceList" class="gamepad-device-list"></div>
+        </div>
+      </div>
       <label>
         <span class="label-text">
           Input Test
@@ -1498,6 +2515,37 @@
         <div id="gamepadInputConsole" class="mini-console-output empty" aria-live="polite">No input events yet.</div>
       </div>
       </div>
+    </div>
+    </div>
+
+    <div class="settings-grid single-column">
+    <div class="setting-group" data-tab="profiles">
+      <h4>Overlay Profiles</h4>
+      <label>
+        <span class="label-text">
+          Enable Profile-Specific Overlay Settings
+          <div class="hotkey-info">Uses GSM profile names and scene assignments from the main Profiles settings.</div>
+        </span>
+        <input type="checkbox" id="overlaySettingsProfilesEnabled" />
+      </label>
+      <div class="profile-status-panel">
+        <div class="profile-status-item">
+          <span class="profile-status-label">Overlay Profile</span>
+          <span class="profile-status-value" id="overlayActiveProfileName">Default</span>
+        </div>
+        <div class="profile-status-item">
+          <span class="profile-status-label">GSM Profile</span>
+          <span class="profile-status-value" id="overlayCurrentGsmProfileName">Default</span>
+        </div>
+      </div>
+      <div class="label-row">
+        <span class="label-text">
+          Main Profile Settings
+          <div class="hotkey-info">Opens the GSM Profiles tab to edit profile names and scene assignments.</div>
+        </span>
+        <button type="button" id="openGSMProfileSettings" class="guide-button">Open Profiles</button>
+      </div>
+      <div id="overlayProfilesList" class="profile-list"></div>
     </div>
     </div>
 
@@ -1539,8 +2587,13 @@
     </div>
   </div>
 
+  <script src="./components/manual-mode-card.js"></script>
   <script>
     const { ipcRenderer } = require("electron");
+
+    // Inject the shared Manual Mode card markup before the binding system runs so
+    // its element IDs (manualMode, showHotkey, etc.) are present for the bindings.
+    GSMManualModeCard.renderInto(document.getElementById("manualModeCardMount"));
     const ELECTRON_DOCS_QUERY = "?docusaurus-data-navbar=false&docusaurus-data-sidebar=false&docusaurus-data-footer=false";
     const DOCS_URLS = Object.freeze({
       overlay: `https://docs.gamesentenceminer.com/docs/features/overlay${ELECTRON_DOCS_QUERY}`,
@@ -1570,7 +2623,13 @@
     });
 
     let mainBoxStartupWarningAcknowledged = false;
-    let activeSettingsTab = "general";
+    let activeSettingsTab = "overview";
+    let overlayProfileState = {
+      enabled: false,
+      activeProfileName: "Default",
+      currentGSMProfileName: "Default",
+      profiles: [],
+    };
     const GAMEPAD_INPUT_CONSOLE_MAX_LINES = 120;
     const gamepadInputConsoleLines = [];
     const GAMEPAD_BUTTON_LABELS = {
@@ -1619,13 +2678,21 @@
     };
     const GAMEPAD_BINDING_CAPTURE_POLL_MS = 50;
     const GAMEPAD_BUTTON_ALIAS_LOOKUP = buildGamepadButtonAliasLookup();
+    const gamepadDeviceBlacklist = new Set();
     const GAMEPAD_BINDING_INPUT_CONFIG = {
       gamepadModifierButton: { settingKey: "gamepadModifierButton", label: "Modifier Button", fallbackValue: 4 },
       gamepadToggleButton: { settingKey: "gamepadToggleButton", label: "Toggle Button", fallbackValue: 8 },
       gamepadConfirmButton: { settingKey: "gamepadConfirmButton", label: "Confirm Button", fallbackValue: 0 },
       gamepadCancelButton: { settingKey: "gamepadCancelButton", label: "Cancel Button", fallbackValue: 1 },
       gamepadForwardEnterButton: { settingKey: "gamepadForwardEnterButton", label: "Forward Enter Button", fallbackValue: -1 },
+      gamepadForwardSpaceButton: { settingKey: "gamepadForwardSpaceButton", label: "Forward Space Button", fallbackValue: -1 },
+      gamepadForwardCtrlButton: { settingKey: "gamepadForwardCtrlButton", label: "Forward Ctrl Button", fallbackValue: -1 },
+      gamepadForwardEscapeButton: { settingKey: "gamepadForwardEscapeButton", label: "Forward Escape Button", fallbackValue: -1 },
+      gamepadForwardClickButton: { settingKey: "gamepadForwardClickButton", label: "Forward Click Button", fallbackValue: -1 },
       gamepadManualOverlayScanButton: { settingKey: "gamepadManualOverlayScanButton", label: "Manual Overlay Scan Button", fallbackValue: -1 },
+      gamepadPauseToggleButton: { settingKey: "gamepadPauseToggleButton", label: "Pause Button", fallbackValue: -1 },
+      gamepadTokenModeToggleButton: { settingKey: "gamepadTokenModeToggleButton", label: "Token Mode Toggle Button", fallbackValue: 3 },
+      gamepadMineButton: { settingKey: "gamepadMineButton", label: "Mine Button", fallbackValue: 0 },
       gamepadNextEntryButton: { settingKey: "gamepadNextEntryButton", label: "Next Yomitan Entry Button", fallbackValue: 7 },
       gamepadPrevEntryButton: { settingKey: "gamepadPrevEntryButton", label: "Previous Yomitan Entry Button", fallbackValue: 6 },
     };
@@ -1636,7 +2703,12 @@
       keyboardConfirmKey: { settingKey: "keyboardConfirmKey", label: "Keyboard Confirm Key", fallbackValue: "Enter" },
       keyboardCancelKey: { settingKey: "keyboardCancelKey", label: "Keyboard Cancel Key", fallbackValue: "Escape" },
       keyboardForwardEnterKey: { settingKey: "keyboardForwardEnterKey", label: "Keyboard Forward Enter Key", fallbackValue: null },
+      keyboardForwardSpaceKey: { settingKey: "keyboardForwardSpaceKey", label: "Keyboard Forward Space Key", fallbackValue: null },
+      keyboardForwardCtrlKey: { settingKey: "keyboardForwardCtrlKey", label: "Keyboard Forward Ctrl Key", fallbackValue: null },
+      keyboardForwardEscapeKey: { settingKey: "keyboardForwardEscapeKey", label: "Keyboard Forward Escape Key", fallbackValue: null },
+      keyboardForwardClickKey: { settingKey: "keyboardForwardClickKey", label: "Keyboard Forward Click Key", fallbackValue: null },
       keyboardManualOverlayScanKey: { settingKey: "keyboardManualOverlayScanKey", label: "Keyboard Manual Overlay Scan Key", fallbackValue: null },
+      keyboardPauseToggleKey: { settingKey: "keyboardPauseToggleKey", label: "Keyboard Pause Key", fallbackValue: null },
       keyboardTokenModeToggleKey: { settingKey: "keyboardTokenModeToggleKey", label: "Keyboard Token Toggle Key", fallbackValue: null },
       keyboardNextEntryKey: { settingKey: "keyboardNextEntryKey", label: "Keyboard Next Entry Key", fallbackValue: null },
       keyboardPrevEntryKey: { settingKey: "keyboardPrevEntryKey", label: "Keyboard Prev Entry Key", fallbackValue: null },
@@ -1648,7 +2720,7 @@
     };
 
     function updateSettingsTabVisibility(tabName) {
-      const nextTab = tabName || "general";
+      const nextTab = tabName || "overview";
       activeSettingsTab = nextTab;
 
       const tabButtons = document.querySelectorAll(".settings-tab-button[data-settings-tab]");
@@ -1670,7 +2742,7 @@
         grid.style.display = hasVisibleGroup ? "grid" : "none";
       });
 
-      if (nextTab === "controller") {
+      if (nextTab === "gamepad") {
         renderGamepadInputConsole();
       }
     }
@@ -1687,6 +2759,88 @@
 
       document.body.classList.add("tabs-initialized");
       updateSettingsTabVisibility(activeSettingsTab);
+    }
+
+    function normalizeProfileState(profileState = {}) {
+      const profiles = Array.isArray(profileState.profiles) ? profileState.profiles : [];
+      return {
+        enabled: profileState.enabled === true,
+        activeProfileName: String(profileState.activeProfileName || "Default"),
+        currentGSMProfileName: String(profileState.currentGSMProfileName || "Default"),
+        profiles: profiles
+          .filter((profile) => profile && typeof profile === "object" && typeof profile.name === "string")
+          .map((profile) => ({
+            name: profile.name,
+            scenes: Array.isArray(profile.scenes) ? profile.scenes.filter((scene) => typeof scene === "string" && scene.trim()) : [],
+            active: profile.active === true,
+            current: profile.current === true,
+            hasOverlaySettings: profile.hasOverlaySettings === true,
+          })),
+      };
+    }
+
+    function renderOverlayProfileState() {
+      const activeName = document.getElementById("overlayActiveProfileName");
+      const currentName = document.getElementById("overlayCurrentGsmProfileName");
+      const list = document.getElementById("overlayProfilesList");
+
+      if (activeName) {
+        activeName.textContent = overlayProfileState.enabled ? overlayProfileState.activeProfileName : "Disabled";
+      }
+      if (currentName) {
+        currentName.textContent = overlayProfileState.currentGSMProfileName;
+      }
+      if (!list) return;
+
+      if (overlayProfileState.profiles.length === 0) {
+        list.innerHTML = '<div class="profile-card"><div class="profile-card-scenes">No GSM profiles found.</div></div>';
+        return;
+      }
+
+      list.replaceChildren(...overlayProfileState.profiles.map((profile) => {
+        const card = document.createElement("div");
+        card.className = "profile-card";
+        card.classList.toggle("active", overlayProfileState.enabled && profile.name === overlayProfileState.activeProfileName);
+        card.classList.toggle("current", profile.current);
+
+        const header = document.createElement("div");
+        header.className = "profile-card-header";
+
+        const name = document.createElement("div");
+        name.className = "profile-card-name";
+        name.textContent = profile.name;
+        header.appendChild(name);
+
+        if (overlayProfileState.enabled && profile.name === overlayProfileState.activeProfileName) {
+          const badge = document.createElement("span");
+          badge.className = "profile-card-badge";
+          badge.textContent = "Active";
+          header.appendChild(badge);
+        } else if (profile.current) {
+          const badge = document.createElement("span");
+          badge.className = "profile-card-badge";
+          badge.textContent = "GSM";
+          header.appendChild(badge);
+        }
+
+        const scenes = document.createElement("div");
+        scenes.className = "profile-card-scenes";
+        scenes.textContent = profile.scenes.length > 0
+          ? `Scenes: ${profile.scenes.join(", ")}`
+          : "No scenes assigned";
+
+        card.appendChild(header);
+        card.appendChild(scenes);
+        return card;
+      }));
+    }
+
+    function updateOverlayProfileState(profileState = {}) {
+      overlayProfileState = normalizeProfileState(profileState);
+      if (settingBindingMap.has("overlaySettingsProfilesEnabled")) {
+        setSettingValueWithoutPersist("overlaySettingsProfilesEnabled", overlayProfileState.enabled);
+      }
+      renderOverlayProfileState();
     }
 
     function updateFadeTextIndicatorsState() {
@@ -1758,7 +2912,7 @@
           manualModeCheckbox.disabled = true;
           const manualModeLabel = manualModeCheckbox.closest('label');
           if (manualModeLabel) {
-            manualModeLabel.title = 'Manual mode is required on Linux and macOS.';
+            manualModeLabel.title = 'Push to Show is required on Linux and macOS.';
           }
         }
 
@@ -1783,6 +2937,7 @@
       }
       syncManualHotkeyStatusUi();
       refreshAllResetButtons();
+      refreshActivePresetHighlight();
     }
 
     // Unified settings change handler
@@ -1819,6 +2974,16 @@
     const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
     const VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS = new Set(["mecab", "sudachi"]);
     const VALID_SUDACHI_DICTIONARIES = new Set(["small", "core", "full"]);
+    const VALID_LIVE_STATS_DISPLAY_MODES = new Set(["always", "new-line"]);
+    const VALID_LIVE_STATS_LAYOUTS = new Set(["stacked", "one-line"]);
+    const VALID_LIVE_STATS_POSITION_MODES = new Set(["active-window", "overlay"]);
+    const LIVE_STATS_FIELD_DEFINITIONS = [
+      { key: "chars_per_hour", controlId: "liveStatsFieldCharsPerHour" },
+      { key: "total_characters", controlId: "liveStatsFieldTotalCharacters" },
+      { key: "active_reading_time", controlId: "liveStatsFieldActiveReadingTime" },
+      { key: "raw_reading_time", controlId: "liveStatsFieldRawReadingTime" },
+      { key: "cards_mined", controlId: "liveStatsFieldCardsMined" },
+    ];
     let overlaySettingDefaults = {};
     const settingBindingMap = new Map();
     const settingBindingState = new Map();
@@ -1865,7 +3030,7 @@
 
     function normalizeLocalTokenizerFallbackBackendValue(value) {
       const normalized = String(value || "").trim().toLowerCase();
-      return VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS.has(normalized) ? normalized : "mecab";
+      return VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS.has(normalized) ? normalized : "sudachi";
     }
 
     function normalizeYomitanApiUrlValue(value) {
@@ -1894,6 +3059,36 @@
     function normalizeGamepadActivationModeValue(value) {
       const normalized = String(value || "").trim();
       return VALID_GAMEPAD_ACTIVATION_MODES.has(normalized) ? normalized : "modifier";
+    }
+
+    function normalizeLiveStatsDisplayModeValue(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      return VALID_LIVE_STATS_DISPLAY_MODES.has(normalized) ? normalized : "always";
+    }
+
+    function normalizeLiveStatsLayoutValue(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      return VALID_LIVE_STATS_LAYOUTS.has(normalized) ? normalized : "one-line";
+    }
+
+    function normalizeLiveStatsPositionModeValue(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      return VALID_LIVE_STATS_POSITION_MODES.has(normalized) ? normalized : "active-window";
+    }
+
+    function normalizeLiveStatsFieldsValue(value = {}) {
+      const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      const normalized = {};
+      LIVE_STATS_FIELD_DEFINITIONS.forEach((field) => {
+        normalized[field.key] = source[field.key] !== false;
+      });
+      return normalized;
+    }
+
+    function areLiveStatsFieldsEqual(left, right) {
+      const normalizedLeft = normalizeLiveStatsFieldsValue(left);
+      const normalizedRight = normalizeLiveStatsFieldsValue(right);
+      return LIVE_STATS_FIELD_DEFINITIONS.every((field) => normalizedLeft[field.key] === normalizedRight[field.key]);
     }
 
     function normalizeBooleanValue(value) {
@@ -2031,21 +3226,17 @@
       return normalizedValue;
     }
 
+    // Delegated to the shared Manual Mode card component (single source of truth).
     function splitHotkeyParts(hotkey) {
-      return String(hotkey || "")
-        .split("+")
-        .map((part) => part.trim())
-        .filter((part) => part.length > 0);
+      return GSMManualModeCard.splitHotkeyParts(hotkey);
     }
 
     function isModifierOnlyHotkey(hotkey) {
-      const modifierTokens = new Set(["ctrl", "cmd", "alt", "shift"]);
-      const parts = splitHotkeyParts(hotkey).map((part) => part.toLowerCase());
-      return parts.length > 0 && parts.every((part) => modifierTokens.has(part));
+      return GSMManualModeCard.isModifierOnlyHotkey(hotkey);
     }
 
     function predictManualHotkeyBackend(hotkey) {
-      return isModifierOnlyHotkey(hotkey) ? "input_server" : "electron";
+      return GSMManualModeCard.predictManualHotkeyBackend(hotkey);
     }
 
     function syncManualHotkeyStatusUi() {
@@ -2117,6 +3308,7 @@
 
       const normalizedValue = applyBindingValue(binding, value, { sourceControl, source: "user" });
       await persistBindingValue(binding, normalizedValue, sourceControl);
+      refreshActivePresetHighlight();
       return normalizedValue;
     }
 
@@ -2157,10 +3349,42 @@
     }
 
     function syncJitenReaderUi(enabled) {
-      const openSettingsButton = document.getElementById("openJitenReaderSettings");
-      if (openSettingsButton) {
-        openSettingsButton.disabled = !enabled;
-      }
+      const checkbox = document.getElementById("enableJitenReader");
+      const isEnabled = enabled !== undefined ? enabled : (checkbox?.checked !== false);
+      [
+        "openJitenReaderSettings",
+        "jitenHighlightingEnabled",
+        "jitenHighlightOffsetY",
+        "showJitenGradingButtons",
+      ].forEach((id) => {
+        const control = document.getElementById(id);
+        if (control) {
+          control.disabled = !isEnabled;
+        }
+      });
+    }
+
+    function syncDisableInteractionSubOptionsUi() {
+      const select = document.getElementById("manualModeInactiveBehavior");
+      const isDisableInteraction = select && select.value === "disable-interaction";
+      const label = document.getElementById("manualModeDisableInteractionFocusOverlayLabel");
+      if (label) label.style.display = isDisableInteraction ? "" : "none";
+    }
+
+    function syncReadingLanguageUi() {
+      const select = document.getElementById("readingLanguage");
+      const group = document.getElementById("pinyinToneColorsGroup");
+      if (!select || !group) return;
+      group.style.display = select.value === "chinese" ? "" : "none";
+    }
+
+    // The OCR-area subset toggles only apply when OCR Area Config is enabled.
+    function syncOcrAreaSubsetUi() {
+      const enabled = document.getElementById("use_ocr_area_config_v2")?.checked === true;
+      ["ocr_area_config_include_primary_areas", "ocr_area_config_include_secondary_areas", "ocr_area_config_use_exclusion_zones"].forEach((id) => {
+        const control = document.getElementById(id);
+        if (control) control.disabled = !enabled;
+      });
     }
 
     function syncGamepadSettingsEnabledUi() {
@@ -2172,7 +3396,14 @@
         "gamepadConfirmButton",
         "gamepadCancelButton",
         "gamepadForwardEnterButton",
+        "gamepadForwardSpaceButton",
+        "gamepadForwardCtrlButton",
+        "gamepadForwardEscapeButton",
+        "gamepadForwardClickButton",
         "gamepadManualOverlayScanButton",
+        "gamepadPauseToggleButton",
+        "gamepadTokenModeToggleButton",
+        "gamepadMineButton",
         "gamepadNextEntryButton",
         "gamepadPrevEntryButton",
         "gamepadTokenMode",
@@ -2307,6 +3538,34 @@
       };
     }
 
+    function createLiveStatsFieldsBinding() {
+      return {
+        key: "liveStatsFields",
+        selectors: LIVE_STATS_FIELD_DEFINITIONS.map((field) => `#${field.controlId}`),
+        event: "change",
+        read: () => {
+          const value = {};
+          LIVE_STATS_FIELD_DEFINITIONS.forEach((field) => {
+            value[field.key] = document.getElementById(field.controlId)?.checked !== false;
+          });
+          return value;
+        },
+        write: (_control, value) => {
+          const normalizedValue = normalizeLiveStatsFieldsValue(value);
+          LIVE_STATS_FIELD_DEFINITIONS.forEach((field) => {
+            const checkbox = document.getElementById(field.controlId);
+            if (checkbox) {
+              checkbox.checked = normalizedValue[field.key] !== false;
+            }
+          });
+        },
+        normalize: normalizeLiveStatsFieldsValue,
+        equals: areLiveStatsFieldsEqual,
+      };
+    }
+
+    // Latest GSM-owned monitor index; used to restore selection once the dropdown is populated.
+    let desiredMonitorToCapture = 0;
     const SETTING_BINDING_DEFINITIONS = [
       createCheckboxBinding("showReadyIndicator", "#showReadyIndicator"),
       createCheckboxBinding("showTextIndicators", "#showTextIndicators", {
@@ -2314,6 +3573,118 @@
       }),
       createCheckboxBinding("fadeTextIndicators", "#fadeTextIndicators"),
       createCheckboxBinding("showRecycledIndicator", "#showRecycledIndicator"),
+      // GSM-owned OCR/Capture settings (persisted by the backend per GSM profile).
+      createSelectBinding("engine_v2", "#engine_v2"),
+      {
+        key: "monitor_to_capture",
+        selectors: ["#monitor_to_capture"],
+        event: "change",
+        read: (control) => {
+          const numeric = Number.parseInt(control.value, 10);
+          return Number.isFinite(numeric) ? numeric : 0;
+        },
+        write: (control, value) => {
+          const idx = Number.isFinite(Number(value)) ? Number(value) : 0;
+          desiredMonitorToCapture = idx;
+          if (control.querySelector(`option[value="${idx}"]`)) {
+            control.value = String(idx);
+          }
+        },
+        normalize: (value) => {
+          const numeric = Number.parseInt(value, 10);
+          return Number.isFinite(numeric) ? numeric : 0;
+        },
+      },
+      createCheckboxBinding("use_ocr_area_config_v2", "#use_ocr_area_config_v2", {
+        afterApply: () => syncOcrAreaSubsetUi(),
+      }),
+      createNumberBinding("minimum_character_size", "#minimum_character_size", {
+        fallback: 0,
+        min: 0,
+        max: 500,
+        integer: true,
+      }),
+      createCheckboxBinding("periodic", "#periodic"),
+      createNumberBinding("periodic_interval", "#periodic_interval", {
+        fallback: 1,
+        min: 0.1,
+        max: 60,
+      }),
+      createCheckboxBinding("scan_on_mouse_move", "#scan_on_mouse_move"),
+      createCheckboxBinding("inject_scanned_lines", "#inject_scanned_lines"),
+      createCheckboxBinding("use_ocr_result_v2", "#use_ocr_result_v2", {
+        afterApply: (value, options) => {
+          if (value === true && options.source === "user") {
+            void commitSettingValue("supplement_ocr_result_with_overlay", false, null);
+          }
+        },
+      }),
+      createCheckboxBinding("supplement_ocr_result_with_overlay", "#supplement_ocr_result_with_overlay", {
+        afterApply: (value, options) => {
+          if (value === true && options.source === "user") {
+            void commitSettingValue("use_ocr_result_v2", false, null);
+          }
+        },
+      }),
+      createCheckboxBinding("use_text_filtering", "#use_text_filtering"),
+      // Legacy / advanced OCR-capture settings (collapsed in the Capture tab).
+      createNumberBinding("periodic_ratio", "#periodic_ratio", {
+        fallback: 0.9,
+        min: 0,
+        max: 1,
+      }),
+      createCheckboxBinding("ocr_area_config_include_primary_areas", "#ocr_area_config_include_primary_areas"),
+      createCheckboxBinding("ocr_area_config_include_secondary_areas", "#ocr_area_config_include_secondary_areas"),
+      createCheckboxBinding("ocr_area_config_use_exclusion_zones", "#ocr_area_config_use_exclusion_zones"),
+      createCheckboxBinding("ocr_full_screen_instead_of_obs", "#ocr_full_screen_instead_of_obs"),
+      {
+        key: "manual_mode_desktop_background",
+        selectors: ["#manual_mode_desktop_background"],
+        event: "change",
+        read: (control) => (control.checked === true ? "on_demand" : "off"),
+        write: (control, value) => {
+          control.checked = String(value || "off").trim().toLowerCase() === "on_demand";
+        },
+        normalize: (value) => (String(value || "off").trim().toLowerCase() === "on_demand" ? "on_demand" : "off"),
+      },
+      createCheckboxBinding("showLiveStats", "#showLiveStats"),
+      createCheckboxBinding("showLiveGoals", "#showLiveGoals"),
+      createSelectBinding("liveStatsDisplayModeV2", "#liveStatsDisplayModeV2", {
+        normalize: normalizeLiveStatsDisplayModeValue,
+      }),
+      createSelectBinding("liveStatsLayoutV2", "#liveStatsLayoutV2", {
+        normalize: normalizeLiveStatsLayoutValue,
+      }),
+      createNumberBinding("liveStatsAutoHideSeconds", "#liveStatsAutoHideSeconds", {
+        fallback: 5,
+        min: 0,
+        max: 60,
+        integer: true,
+      }),
+      createSelectBinding("liveStatsPositionMode", "#liveStatsPositionMode", {
+        normalize: normalizeLiveStatsPositionModeValue,
+      }),
+      createLiveStatsFieldsBinding(),
+      createCheckboxBinding("pomodoroEnabled", "#pomodoroEnabled"),
+      createNumberBinding("pomodoroWorkMinutes", "#pomodoroWorkMinutes", {
+        fallback: 25,
+        min: 1,
+        max: 180,
+        integer: true,
+      }),
+      createNumberBinding("pomodoroBreakMinutes", "#pomodoroBreakMinutes", {
+        fallback: 5,
+        min: 1,
+        max: 180,
+        integer: true,
+      }),
+      createCheckboxBinding("pomodoroAutoStart", "#pomodoroAutoStart"),
+      createCheckboxBinding("overlaySettingsProfilesEnabled", "#overlaySettingsProfilesEnabled", {
+        afterApply: (value) => {
+          overlayProfileState.enabled = value === true;
+          renderOverlayProfileState();
+        },
+      }),
       createNumberBinding("offsetX", "#offsetX", {
         fallback: 0,
         normalize: (value) => {
@@ -2341,12 +3712,17 @@
       },
       createCheckboxBinding("openSettingsOnStartup", "#openSettingsOnStartup"),
       createCheckboxBinding("focusOverlayOnYomitanLookup", "#focusOverlayOnYomitanLookup"),
+      createCheckboxBinding("routeAllHotkeysThroughInputServer", "#routeAllHotkeysThroughInputServer"),
       createNumberBinding("afkTimer", "#afkTimer", {
         fallback: 5,
         min: 0,
         max: 60,
         integer: true,
         blurEvent: true,
+      }),
+      createSelectBinding("readingLanguage", "#readingLanguage", {
+        normalize: (value) => (String(value || "japanese").trim().toLowerCase() === "chinese" ? "chinese" : "japanese"),
+        afterApply: () => syncReadingLanguageUi(),
       }),
       createCheckboxBinding("showFurigana", "#showFurigana"),
       createCheckboxBinding("hideFuriganaOnStartup", "#hideFuriganaOnStartup"),
@@ -2367,9 +3743,35 @@
         min: -48,
         max: 48,
       }),
+      createNumberBinding("jitenHighlightOffsetY", "#jitenHighlightOffsetY", {
+        fallback: 3,
+        min: -48,
+        max: 48,
+      }),
       createTextBinding("furiganaColor", "#furiganaColor", {
         event: "input",
         normalize: (value) => normalizeTrimmedString(value, "#ffffff").toLowerCase(),
+      }),
+      createCheckboxBinding("pinyinToneColors", "#pinyinToneColors"),
+      createTextBinding("pinyinTone1Color", "#pinyinTone1Color", {
+        event: "input",
+        normalize: (value) => normalizeTrimmedString(value, "#ff5252").toLowerCase(),
+      }),
+      createTextBinding("pinyinTone2Color", "#pinyinTone2Color", {
+        event: "input",
+        normalize: (value) => normalizeTrimmedString(value, "#ffb300").toLowerCase(),
+      }),
+      createTextBinding("pinyinTone3Color", "#pinyinTone3Color", {
+        event: "input",
+        normalize: (value) => normalizeTrimmedString(value, "#4caf50").toLowerCase(),
+      }),
+      createTextBinding("pinyinTone4Color", "#pinyinTone4Color", {
+        event: "input",
+        normalize: (value) => normalizeTrimmedString(value, "#42a5f5").toLowerCase(),
+      }),
+      createTextBinding("pinyinTone5Color", "#pinyinTone5Color", {
+        event: "input",
+        normalize: (value) => normalizeTrimmedString(value, "#e0e0e0").toLowerCase(),
       }),
       createTextBinding("furiganaOutlineColor", "#furiganaOutlineColor", {
         event: "input",
@@ -2393,7 +3795,9 @@
       }),
       createSelectBinding("manualModeInactiveBehavior", "#manualModeInactiveBehavior", {
         normalize: normalizeManualModeInactiveBehaviorValue,
+        afterApply: () => syncDisableInteractionSubOptionsUi(),
       }),
+      createCheckboxBinding("manualModeDisableInteractionFocusOverlay", "#manualModeDisableInteractionFocusOverlay"),
       createCheckboxBinding("manualModeRescanOnShow", "#manualModeRescanOnShow"),
       createHotkeyBinding("showHotkey", "#showHotkey", {
         afterApply: () => syncManualHotkeyStatusUi(),
@@ -2401,8 +3805,10 @@
       createCheckboxBinding("autoRequestTranslation", "#autoRequestTranslation"),
       createHotkeyBinding("translateHotkey", "#translateHotkey"),
       createCheckboxBinding("enableJitenReader", "#enableJitenReader", {
-        afterApply: (value) => syncJitenReaderUi(value),
+        afterApply: () => syncJitenReaderUi(),
       }),
+      createCheckboxBinding("jitenHighlightingEnabled", "#jitenHighlightingEnabled"),
+      createCheckboxBinding("showJitenGradingButtons", "#showJitenGradingButtons"),
       createHotkeyBinding("toggleFuriganaHotkey", "#toggleFuriganaHotkey"),
       createHotkeyBinding("toggleWindowHotkey", "#toggleWindowHotkey"),
       createHotkeyBinding("minimizeHotkey", "#minimizeHotkey"),
@@ -2421,7 +3827,14 @@
       createGamepadBindingSetting("gamepadConfirmButton"),
       createGamepadBindingSetting("gamepadCancelButton"),
       createGamepadBindingSetting("gamepadForwardEnterButton"),
+      createGamepadBindingSetting("gamepadForwardSpaceButton"),
+      createGamepadBindingSetting("gamepadForwardCtrlButton"),
+      createGamepadBindingSetting("gamepadForwardEscapeButton"),
+      createGamepadBindingSetting("gamepadForwardClickButton"),
       createGamepadBindingSetting("gamepadManualOverlayScanButton"),
+      createGamepadBindingSetting("gamepadPauseToggleButton"),
+      createGamepadBindingSetting("gamepadTokenModeToggleButton"),
+      createGamepadBindingSetting("gamepadMineButton"),
       createGamepadBindingSetting("gamepadNextEntryButton"),
       createGamepadBindingSetting("gamepadPrevEntryButton"),
       createKeyboardBindingSetting("keyboardModifierKey"),
@@ -2429,7 +3842,12 @@
       createKeyboardBindingSetting("keyboardConfirmKey"),
       createKeyboardBindingSetting("keyboardCancelKey"),
       createKeyboardBindingSetting("keyboardForwardEnterKey"),
+      createKeyboardBindingSetting("keyboardForwardSpaceKey"),
+      createKeyboardBindingSetting("keyboardForwardCtrlKey"),
+      createKeyboardBindingSetting("keyboardForwardEscapeKey"),
+      createKeyboardBindingSetting("keyboardForwardClickKey"),
       createKeyboardBindingSetting("keyboardManualOverlayScanKey"),
+      createKeyboardBindingSetting("keyboardPauseToggleKey"),
       createKeyboardBindingSetting("keyboardTokenModeToggleKey"),
       createKeyboardBindingSetting("keyboardNextEntryKey"),
       createKeyboardBindingSetting("keyboardPrevEntryKey"),
@@ -2446,7 +3864,7 @@
       }),
       createSelectBinding("gamepadLocalTokenizerFallbackBackend", "#furiganaLocalTokenizerFallbackBackend", {
         normalize: normalizeLocalTokenizerFallbackBackendValue,
-        getDefault: () => "mecab",
+        getDefault: () => "sudachi",
       }),
       createSelectBinding("gamepadSudachiDictionary", ["#gamepadSudachiDictionary", "#furiganaSudachiDictionary"], {
         normalize: normalizeSudachiDictionaryValue,
@@ -2463,7 +3881,7 @@
         integer: true,
         blurEvent: true,
       }),
-      createTextBinding("gamepadJitenApiKey", ["#gamepadJitenApiKey", "#furiganaJitenApiKey"], {
+      createTextBinding("gamepadJitenApiKey", ["#gamepadJitenApiKey", "#furiganaJitenApiKey", "#jitenReaderApiKey"], {
         normalize: (value) => normalizeTrimmedString(value),
       }),
       createTextBinding("gamepadJpdbApiKey", ["#gamepadJpdbApiKey", "#furiganaJpdbApiKey"], {
@@ -2585,6 +4003,37 @@
       ipcRenderer.send("open-offset-helper");
     });
 
+    const selectOcrAreaButton = document.getElementById("selectOcrAreaButton");
+    if (selectOcrAreaButton) {
+      selectOcrAreaButton.addEventListener("click", () => {
+        ipcRenderer.send("overlay-select-ocr-area");
+      });
+    }
+
+    // Populate the monitor dropdown from the backend-provided monitor list, preserving selection.
+    function populateMonitorOptions(monitors) {
+      const select = document.getElementById("monitor_to_capture");
+      if (!select || !Array.isArray(monitors) || monitors.length === 0) {
+        return;
+      }
+      select.innerHTML = "";
+      monitors.forEach((label, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = typeof label === "string" && label.trim() ? label : `Monitor ${index + 1}`;
+        select.appendChild(option);
+      });
+      // Restore the active monitor index (tracked even when options weren't populated yet).
+      const current = String(desiredMonitorToCapture);
+      if (select.querySelector(`option[value="${current}"]`)) {
+        select.value = current;
+      }
+    }
+
+    ipcRenderer.on("gsm-overlay-monitors", (event, monitors) => {
+      populateMonitorOptions(monitors);
+    });
+
     document.getElementById("resetOffset").addEventListener("click", () => {
       void commitSettingValue("offsetX", 0, document.getElementById("offsetX"));
       void commitSettingValue("offsetY", 0, document.getElementById("offsetY"));
@@ -2597,6 +4046,17 @@
     document.getElementById("openJitenReaderSettings").addEventListener("click", () => {
       ipcRenderer.send("open-jiten-reader-settings");
     });
+
+    document.getElementById("openYomitanSettings").addEventListener("click", () => {
+      ipcRenderer.send("open-yomitan-settings");
+    });
+
+    const openGSMProfileSettingsButton = document.getElementById("openGSMProfileSettings");
+    if (openGSMProfileSettingsButton) {
+      openGSMProfileSettingsButton.addEventListener("click", () => {
+        ipcRenderer.send("open-gsm-profile-settings");
+      });
+    }
 
     // Reusable hotkey input initialization function
     function initializeHotkeyInput(inputId, options = {}) {
@@ -2945,12 +4405,17 @@
     }
 
     function formatKeyboardBindingDisplayValue(settingValue, fallbackValue) {
-      if (!settingValue || /^(disabled|none|off)$/i.test(String(settingValue).trim())) {
+      if (settingValue === null || settingValue === undefined) {
         if (fallbackValue !== null && fallbackValue !== undefined) {
           return formatKeyboardBindingDisplayFromSettingValue(fallbackValue);
         }
         return "Disabled";
       }
+
+      if (/^(disabled|none|off)?$/i.test(String(settingValue).trim())) {
+        return "Disabled";
+      }
+
       return formatKeyboardBindingDisplayFromSettingValue(settingValue);
     }
 
@@ -3002,16 +4467,29 @@
         event.stopPropagation();
         // We DON'T capture browser keyboard events — we wait for server events instead.
         // But we handle Escape, Backspace, Delete for UX.
-        if (event.key === "Escape") {
-          stopKeyboardBindingCapture({ restorePrevious: true });
-          input.blur();
+        if (handleKeyboardBindingControlKey(inputId, event.key)) {
           return;
         }
-        if (event.key === "Backspace" || event.key === "Delete") {
-          clearKeyboardBindingInput(inputId);
-          input.blur();
-        }
       });
+    }
+
+    function handleKeyboardBindingControlKey(inputId, key) {
+      const input = document.getElementById(inputId);
+      if (!input) return false;
+
+      if (key === "Escape") {
+        stopKeyboardBindingCapture({ restorePrevious: true });
+        input.blur();
+        return true;
+      }
+
+      if (key === "Backspace" || key === "Delete") {
+        clearKeyboardBindingInput(inputId);
+        input.blur();
+        return true;
+      }
+
+      return false;
     }
 
     function startKeyboardBindingCapture(inputId) {
@@ -3027,6 +4505,7 @@
       input.value = "Press a key...";
       input.classList.add("capturing-keyboard");
       setOverlayGamepadBindingCaptureSuppression(true);
+      setServerKeyboardCaptureAll(true);
 
       activeKeyboardBindingCapture = {
         inputId,
@@ -3042,6 +4521,7 @@
       const handler = (event) => {
         const { key, pressed, modifiers } = event.detail;
         if (!activeKeyboardBindingCapture || activeKeyboardBindingCapture.inputId !== inputId) return;
+        if (pressed && handleKeyboardBindingControlKey(inputId, key)) return;
         if (!pressed) {
           // Key released — if we captured something, commit it
           if (activeKeyboardBindingCapture.capturedKey !== null || activeKeyboardBindingCapture.capturedModifiers !== null) {
@@ -3122,6 +4602,7 @@
 
       capture.input.classList.remove("capturing-keyboard");
       setOverlayGamepadBindingCaptureSuppression(false);
+      setServerKeyboardCaptureAll(false);
 
       if (nextValue !== null) {
         capture.input.value = nextValue;
@@ -3161,80 +4642,9 @@
     }
 
     // Capture keyboard event and convert to accelerator format
+    // Delegated to the shared Manual Mode card component (single source of truth).
     function captureKeyboardEvent(event) {
-      const modifiers = [];
-
-      // Capture modifiers in the correct order for Electron
-      if (event.ctrlKey || event.metaKey) modifiers.push(event.metaKey ? 'Cmd' : 'Ctrl');
-      if (event.altKey) modifiers.push('Alt');
-      if (event.shiftKey) modifiers.push('Shift');
-
-      // Map special keys to Electron accelerator format
-      const keyMap = {
-        ' ': 'Space',
-        'Enter': 'Return',
-        'Escape': 'Escape',
-        'Backspace': 'Backspace',
-        'Delete': 'Delete',
-        'Tab': 'Tab',
-        'ArrowUp': 'Up',
-        'ArrowDown': 'Down',
-        'ArrowLeft': 'Left',
-        'ArrowRight': 'Right',
-        'Home': 'Home',
-        'End': 'End',
-        'PageUp': 'PageUp',
-        'PageDown': 'PageDown',
-        'Insert': 'Insert',
-        'F1': 'F1', 'F2': 'F2', 'F3': 'F3', 'F4': 'F4',
-        'F5': 'F5', 'F6': 'F6', 'F7': 'F7', 'F8': 'F8',
-        'F9': 'F9', 'F10': 'F10', 'F11': 'F11', 'F12': 'F12',
-        'F13': 'F13', 'F14': 'F14', 'F15': 'F15', 'F16': 'F16',
-        'F17': 'F17', 'F18': 'F18', 'F19': 'F19', 'F20': 'F20',
-        'F21': 'F21', 'F22': 'F22', 'F23': 'F23', 'F24': 'F24'
-      };
-
-      // Get the main key
-      let mainKey = '';
-      if (keyMap[event.key]) {
-        mainKey = keyMap[event.key];
-      } else if (event.key.length === 1) {
-        // Single character keys (letters, numbers, symbols)
-        mainKey = event.key.toUpperCase();
-      } else if (event.key.startsWith('Digit')) {
-        // Number keys
-        mainKey = event.key.replace('Digit', '');
-      } else if (event.key.startsWith('Key')) {
-        // Letter keys  
-        mainKey = event.key.replace('Key', '');
-      } else {
-        // Use the key as-is for other cases
-        mainKey = event.key;
-      }
-
-      if (!mainKey) {
-        return null;
-      }
-
-      const modifierOnlyTokens = [];
-      if (modifiers.includes('Ctrl')) modifierOnlyTokens.push('Ctrl');
-      if (modifiers.includes('Cmd')) modifierOnlyTokens.push('Cmd');
-      if (modifiers.includes('Alt')) modifierOnlyTokens.push('Alt');
-      if (modifiers.includes('Shift')) modifierOnlyTokens.push('Shift');
-
-      if (['Control', 'Alt', 'Shift', 'Meta', 'Cmd'].includes(mainKey)) {
-        return modifierOnlyTokens.length > 0 ? modifierOnlyTokens.join('+') : null;
-      }
-
-      // Build the accelerator string
-      let accelerator;
-      if (modifiers.length > 0) {
-        accelerator = [...modifiers, mainKey].join('+');
-      } else {
-        accelerator = mainKey;
-      }
-
-      return accelerator;
+      return GSMManualModeCard.captureKeyboardEvent(event);
     }
 
     // Update Ctrl warning visibility
@@ -3249,58 +4659,9 @@
       }
     }
 
+    // Delegated to the shared Manual Mode card component (single source of truth).
     function validateHotkey(hotkey) {
-      if (!hotkey || hotkey.trim() === "" || hotkey === "Press keys..." || hotkey === "Add a modifier key (Ctrl, Alt, Shift)") {
-        return false;
-      }
-
-      // Valid modifiers for Electron accelerators
-      const validModifiers = ['Ctrl', 'Cmd', 'Alt', 'Shift'];
-      const validKeys = [
-        // Letters
-        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
-        'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-        // Numbers
-        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
-        // Function keys
-        'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
-        'F13', 'F14', 'F15', 'F16', 'F17', 'F18', 'F19', 'F20', 'F21', 'F22', 'F23', 'F24',
-        // Special keys
-        'Space', 'Return', 'Escape', 'Backspace', 'Delete', 'Tab',
-        'Up', 'Down', 'Left', 'Right', 'Home', 'End', 'PageUp', 'PageDown', 'Insert',
-        // Symbols (common ones)
-        '+', '-', '=', '[', ']', '\\', ';', "'", ',', '.', '/', '`',
-        '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_'
-      ];
-
-      const parts = hotkey.split('+').map(part => part.trim());
-
-      if (parts.every((part) => validModifiers.includes(part))) {
-        return true;
-      }
-
-      // Single key (no modifiers) - just validate the key itself
-      if (parts.length === 1) {
-        return validKeys.includes(parts[0]);
-      }
-
-      // Multiple parts - last part is the main key, others are modifiers
-      const mainKey = parts[parts.length - 1];
-      const modifiers = parts.slice(0, -1);
-
-      // Check if all modifiers are valid
-      for (const modifier of modifiers) {
-        if (!validModifiers.includes(modifier)) {
-          return false;
-        }
-      }
-
-      // Check if main key is valid
-      if (!validKeys.includes(mainKey)) {
-        return false;
-      }
-
-      return true;
+      return GSMManualModeCard.validateHotkey(hotkey);
     }
 
     function buildResolvedUserSettings(userSettings = {}) {
@@ -3313,14 +4674,28 @@
           ? userSettings.fadeTextIndicators === true
           : (userSettings.showTextBackground === true),
         showRecycledIndicator: userSettings.showRecycledIndicator !== false,
+        showLiveStats: userSettings.showLiveStats !== false,
+        showLiveGoals: userSettings.showLiveGoals !== false,
+        liveStatsDisplayModeV2: normalizeLiveStatsDisplayModeValue(userSettings.liveStatsDisplayModeV2),
+        liveStatsLayoutV2: normalizeLiveStatsLayoutValue(userSettings.liveStatsLayoutV2),
+        liveStatsAutoHideSeconds: clampNumericValue(userSettings.liveStatsAutoHideSeconds, 5, 0, 60, true),
+        liveStatsPositionMode: normalizeLiveStatsPositionModeValue(userSettings.liveStatsPositionMode),
+        liveStatsFields: normalizeLiveStatsFieldsValue(userSettings.liveStatsFields),
+        pomodoroEnabled: userSettings.pomodoroEnabled === true,
+        pomodoroWorkMinutes: clampNumericValue(userSettings.pomodoroWorkMinutes, 25, 1, 180, true),
+        pomodoroBreakMinutes: clampNumericValue(userSettings.pomodoroBreakMinutes, 5, 1, 180, true),
+        pomodoroAutoStart: userSettings.pomodoroAutoStart === true,
         manualModeInactiveBehavior: normalizeManualModeInactiveBehaviorValue(userSettings.manualModeInactiveBehavior),
         enableJitenReader: userSettings.enableJitenReader !== false,
+        jitenHighlightingEnabled: userSettings.jitenHighlightingEnabled === true,
+        showJitenGradingButtons: userSettings.showJitenGradingButtons !== false,
         gamepadEnabled: userSettings.gamepadEnabled !== false,
         gamepadTokenMode: userSettings.gamepadTokenMode !== false,
         gamepadAutoConfirmSelection: userSettings.gamepadAutoConfirmSelection !== false,
         gamepadFocusOverlayOnEntry: userSettings.gamepadFocusOverlayOnEntry !== false,
         gamepadControllerEnabled: userSettings.gamepadControllerEnabled !== false,
         gamepadKeyboardEnabled: userSettings.gamepadKeyboardEnabled !== false,
+        gamepadDeviceBlacklist: normalizeGamepadDeviceBlacklistValue(userSettings.gamepadDeviceBlacklist),
       };
     }
 
@@ -3364,10 +4739,16 @@
 
       syncShowMainBoxStartupUi();
       syncJitenReaderUi(resolvedSettings.enableJitenReader !== false);
+      syncDisableInteractionSubOptionsUi();
+      syncReadingLanguageUi();
+      setGamepadDeviceBlacklist(resolvedSettings.gamepadDeviceBlacklist, { persist: false, send: false });
       updateControllerActivationFieldState();
       updateTokenizerBackendFieldState();
       syncManualHotkeyStatusUi();
       refreshAllResetButtons();
+
+      setOverlayGoalsSelection(resolvedSettings.overlayGoals);
+      loadOverlayGoalsPicker();
 
       const configuredPort = Number.parseInt(resolvedSettings.gamepadServerPort, 10) || 7276;
       checkGamepadServerStatus(configuredPort);
@@ -3375,10 +4756,15 @@
       void applyPlatformSpecifics();
     }
 
-    ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates, defaultSettings, runtimeSettings }) => {
+    ipcRenderer.on("preload-settings", (event, { userSettings, websocketStates, defaultSettings, runtimeSettings, profileState }) => {
       applyPreloadedSettings(userSettings, defaultSettings, runtimeSettings);
+      updateOverlayProfileState(profileState);
       updateWebSocketStatus("ws1", websocketStates.ws1);
       updateWebSocketStatus("ws2", websocketStates.ws2);
+    });
+
+    ipcRenderer.on("overlay-profile-state-updated", (event, profileState = {}) => {
+      updateOverlayProfileState(profileState);
     });
 
     ipcRenderer.on("settings-updated", (event, updatedSettings = {}) => {
@@ -3399,6 +4785,15 @@
           manualHotkeyRuntimeState.keyboardError = value || null;
           return;
         }
+        if (key === "gamepadDeviceBlacklist") {
+          setGamepadDeviceBlacklist(value, { persist: false, send: true });
+          return;
+        }
+        if (key === "overlayGoals") {
+          setOverlayGoalsSelection(value);
+          renderOverlayGoalsPicker();
+          return;
+        }
 
         if (settingBindingMap.has(key)) {
           setSettingValueWithoutPersist(key, value);
@@ -3407,7 +4802,132 @@
 
       syncManualHotkeyStatusUi();
       refreshAllResetButtons();
+      refreshActivePresetHighlight();
     });
+
+    // ---- Overlay goals picker (Stats tab) ----
+    // The goals page only defines goals; here the user picks which active goals the
+    // live-stats widget shows (and in which view). Selection persists as the
+    // overlayGoals overlay setting; the widget filters the server feed by it.
+    let overlayGoalsSelection = {};
+    let overlayGoalsActive = [];
+    let overlayGoalsRefreshBound = false;
+
+    function normalizeOverlayGoalsValue(value) {
+      const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      const normalized = {};
+      Object.keys(source).forEach((goalId) => {
+        const cfg = source[goalId];
+        if (!cfg || typeof cfg !== "object") return;
+        normalized[goalId] = {
+          enabled: cfg.enabled === true,
+          view: cfg.view === "overall" ? "overall" : "today",
+        };
+      });
+      return normalized;
+    }
+
+    function setOverlayGoalsSelection(value) {
+      overlayGoalsSelection = normalizeOverlayGoalsValue(value);
+    }
+
+    function persistOverlayGoalsSelection() {
+      ipcRenderer.send("setting-changed", { key: "overlayGoals", value: overlayGoalsSelection });
+    }
+
+    function handleOverlayGoalToggle(goalId, enabled) {
+      const existing = overlayGoalsSelection[goalId] || { enabled: false, view: "today" };
+      overlayGoalsSelection[goalId] = { ...existing, enabled: enabled === true };
+      persistOverlayGoalsSelection();
+    }
+
+    function handleOverlayGoalViewChange(goalId, view) {
+      const existing = overlayGoalsSelection[goalId] || { enabled: false, view: "today" };
+      overlayGoalsSelection[goalId] = { ...existing, view: view === "overall" ? "overall" : "today" };
+      persistOverlayGoalsSelection();
+    }
+
+    function renderOverlayGoalsPicker() {
+      const list = document.getElementById("overlayGoalsList");
+      if (!list) return;
+      list.replaceChildren();
+
+      if (!Array.isArray(overlayGoalsActive) || overlayGoalsActive.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "overlay-goals-empty";
+        empty.textContent = "No active goals. Create goals on the Goals page, then refresh.";
+        list.appendChild(empty);
+        return;
+      }
+
+      overlayGoalsActive.forEach((goal) => {
+        const cfg = overlayGoalsSelection[goal.id] || { enabled: false, view: "today" };
+
+        const row = document.createElement("div");
+        row.className = "overlay-goal-row";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "overlay-goal-checkbox";
+        checkbox.checked = cfg.enabled === true;
+        checkbox.addEventListener("change", () => handleOverlayGoalToggle(goal.id, checkbox.checked));
+        row.appendChild(checkbox);
+
+        const name = document.createElement("span");
+        name.className = "overlay-goal-name";
+        name.textContent = `${goal.icon || "🎯"} ${goal.name || "Goal"}`;
+        name.title = name.textContent;
+        row.appendChild(name);
+
+        const view = document.createElement("select");
+        view.className = "overlay-goal-view";
+        const todayOpt = document.createElement("option");
+        todayOpt.value = "today";
+        todayOpt.textContent = "Today";
+        const overallOpt = document.createElement("option");
+        overallOpt.value = "overall";
+        overallOpt.textContent = "Overall";
+        view.appendChild(todayOpt);
+        view.appendChild(overallOpt);
+        view.value = cfg.view === "overall" ? "overall" : "today";
+        view.addEventListener("change", () => handleOverlayGoalViewChange(goal.id, view.value));
+        row.appendChild(view);
+
+        list.appendChild(row);
+      });
+    }
+
+    async function loadOverlayGoalsPicker() {
+      const list = document.getElementById("overlayGoalsList");
+      if (!overlayGoalsRefreshBound) {
+        const refreshBtn = document.getElementById("overlayGoalsRefresh");
+        if (refreshBtn) {
+          refreshBtn.addEventListener("click", () => loadOverlayGoalsPicker());
+          overlayGoalsRefreshBound = true;
+        }
+      }
+      if (list) {
+        list.replaceChildren();
+        const loading = document.createElement("div");
+        loading.className = "overlay-goals-empty";
+        loading.textContent = "Loading goals…";
+        list.appendChild(loading);
+      }
+      try {
+        const result = await ipcRenderer.invoke("overlay-get-active-goals");
+        overlayGoalsActive = Array.isArray(result?.goals) ? result.goals : [];
+        renderOverlayGoalsPicker();
+      } catch (error) {
+        console.error("Failed to load overlay goals:", error);
+        if (list) {
+          list.replaceChildren();
+          const err = document.createElement("div");
+          err.className = "overlay-goals-empty";
+          err.textContent = "Could not load goals (is GSM running?).";
+          list.appendChild(err);
+        }
+      }
+    }
 
     // Handle websocket status updates
     function updateWebSocketStatus(type, isConnected) {
@@ -3524,6 +5044,7 @@
     let gamepadStatusSocketPort = null;
     let gamepadStatusSocketReconnectTimer = null;
     let activeGamepadBindingCapture = null;
+    let renderingGamepadDeviceLists = false;
     let overlayInputSuppressed = false;
     const activeGamepadSuppressionReasons = new Set();
     const serverReportedGamepads = new Set();
@@ -3613,10 +5134,132 @@
       refreshAllResetButtons();
     }
     
+    // ==================== Recommended Setups (presets) ====================
+    // A preset is just a curated bundle of setting key->value pairs. Applying one
+    // reuses the normal commitSettingValue() path (normalize + UI sync + persist),
+    // so no new persistence logic is needed.
+    const OVERLAY_PRESETS = [
+      {
+        id: "automatic",
+        name: "Automatic",
+        blurb: "Overlay shows the text whenever the game is showing. Best for games/vns with little interaction and a visible mouse cursor.",
+        values: { manualMode: false },
+      },
+      {
+        id: "manual-hold",
+        name: "Push to Show · Hold",
+        blurb: "For a more \"Yomitan\" style experience. Hold Shift to reveal the overlay, release to hide. Push to Show is recommended for most games that hide the mouse cursor, or require a lot of interaction. Vertical Text, and Magpie compatibility also become more stable.",
+        values: {
+          manualMode: true,
+          manualModeType: "hold",
+          showHotkey: "Shift",
+          manualModeInactiveBehavior: "hide-overlay",
+        },
+      },
+      {
+        id: "manual-toggle",
+        name: "Push to Show · Toggle",
+        blurb: "Press Shift+Space once to show, again to hide. For a sticky overlay instead of hold-to-show.",
+        values: {
+          manualMode: true,
+          manualModeType: "toggle",
+          showHotkey: "Shift+Space",
+          manualModeInactiveBehavior: "hide-overlay",
+        },
+      },
+    ];
+
+    function getOverlayPresetCardsContainer() {
+      return document.getElementById("overlayPresetCards");
+    }
+
+    // Manual mode is forced on (and its checkbox disabled) on Linux/macOS, so the
+    // Automatic preset can't apply there.
+    function isManualModeLocked() {
+      const checkbox = document.getElementById("manualMode");
+      return Boolean(checkbox && checkbox.disabled);
+    }
+
+    function isOverlayPresetUnavailable(preset) {
+      return preset.values.manualMode === false && isManualModeLocked();
+    }
+
+    function presetValueMatchesCurrent(key, value) {
+      const current = settingBindingState.get(key);
+      if (key === "showHotkey") {
+        return normalizeHotkeyForComparison(current) === normalizeHotkeyForComparison(value);
+      }
+      const binding = settingBindingMap.get(key);
+      if (binding) {
+        return areBindingValuesEqual(binding, current, value);
+      }
+      return current === value;
+    }
+
+    function isOverlayPresetActive(preset) {
+      return Object.entries(preset.values).every(([key, value]) => presetValueMatchesCurrent(key, value));
+    }
+
+    async function applyOverlayPreset(presetId) {
+      const preset = OVERLAY_PRESETS.find((entry) => entry.id === presetId);
+      if (!preset || isOverlayPresetUnavailable(preset)) return;
+      for (const [key, value] of Object.entries(preset.values)) {
+        // eslint-disable-next-line no-await-in-loop
+        await commitSettingValue(key, value, null);
+      }
+      refreshActivePresetHighlight();
+    }
+
+    function renderOverlayPresetCards() {
+      const container = getOverlayPresetCardsContainer();
+      if (!container) return;
+      container.replaceChildren(...OVERLAY_PRESETS.map((preset) => {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "preset-card";
+        card.dataset.presetId = preset.id;
+
+        const name = document.createElement("div");
+        name.className = "preset-card-name";
+        const nameText = document.createElement("span");
+        nameText.textContent = preset.name;
+        const badge = document.createElement("span");
+        badge.className = "preset-card-badge";
+        badge.textContent = "Active";
+        name.append(nameText, badge);
+
+        const blurb = document.createElement("div");
+        blurb.className = "preset-card-blurb";
+        blurb.textContent = preset.blurb;
+
+        card.append(name, blurb);
+        card.addEventListener("click", () => {
+          void applyOverlayPreset(preset.id);
+        });
+        return card;
+      }));
+      refreshActivePresetHighlight();
+    }
+
+    function refreshActivePresetHighlight() {
+      const container = getOverlayPresetCardsContainer();
+      if (!container) return;
+      OVERLAY_PRESETS.forEach((preset) => {
+        const card = container.querySelector(`[data-preset-id="${preset.id}"]`);
+        if (!card) return;
+        const unavailable = isOverlayPresetUnavailable(preset);
+        card.disabled = unavailable;
+        card.classList.toggle("active", !unavailable && isOverlayPresetActive(preset));
+        card.title = unavailable ? "Push to Show is required on Linux and macOS." : "";
+      });
+    }
+
     initializeSettingBindings();
+    syncDisableInteractionSubOptionsUi();
     updateControllerActivationFieldState();
     updateTokenizerBackendFieldState();
     initializeSettingsTabs();
+    renderOverlayPresetCards();
     void applyPlatformSpecifics();
 
     function addGamepadInputConsoleLine(message) {
@@ -3626,7 +5269,7 @@
         gamepadInputConsoleLines.shift();
       }
 
-      if (activeSettingsTab === "controller") {
+      if (activeSettingsTab === "gamepad") {
         renderGamepadInputConsole();
       }
     }
@@ -3655,6 +5298,189 @@
       if (typeof name !== "string" || !name.trim()) return "Unknown controller";
       const trimmed = name.trim();
       return trimmed.length > 40 ? `${trimmed.slice(0, 40)}...` : trimmed;
+    }
+
+    function normalizeGamepadDeviceName(name) {
+      const normalized = String(name || "").trim();
+      return normalized || null;
+    }
+
+    function normalizeGamepadDeviceBlacklistValue(value) {
+      if (!Array.isArray(value)) {
+        return [];
+      }
+      return Array.from(new Set(value.map(normalizeGamepadDeviceName).filter(Boolean)))
+        .sort((a, b) => a.localeCompare(b));
+    }
+
+    function getSortedGamepadDeviceBlacklist() {
+      return Array.from(gamepadDeviceBlacklist.values()).sort((a, b) => a.localeCompare(b));
+    }
+
+    function isGamepadDeviceBlacklisted(name) {
+      const normalized = normalizeGamepadDeviceName(name);
+      return Boolean(normalized && gamepadDeviceBlacklist.has(normalized));
+    }
+
+    function setGamepadDeviceBlacklist(devices, options = {}) {
+      gamepadDeviceBlacklist.clear();
+      normalizeGamepadDeviceBlacklistValue(devices).forEach((deviceName) => {
+        gamepadDeviceBlacklist.add(deviceName);
+      });
+
+      renderGamepadDeviceLists();
+      updateGamepadStatus();
+
+      if (options.persist) {
+        handleSettingChange("gamepadDeviceBlacklist", getSortedGamepadDeviceBlacklist());
+      }
+      if (options.send !== false) {
+        sendGamepadDeviceBlacklistToServer();
+      }
+    }
+
+    function sendGamepadDeviceBlacklistToServer() {
+      if (!gamepadStatusSocket || gamepadStatusSocket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      try {
+        gamepadStatusSocket.send(JSON.stringify({
+          type: "configure_device_blacklist",
+          devices: getSortedGamepadDeviceBlacklist(),
+        }));
+      } catch (e) {
+        // Ignore send errors and rely on reconnect.
+      }
+    }
+
+    // While recording a keyboard binding we need every key, so ask the server to
+    // broadcast all keys ("press a key..."). The rest of the time the server only
+    // broadcasts the overlay's allowlisted control keys, so this MUST be turned
+    // back off as soon as capture ends.
+    function setServerKeyboardCaptureAll(active) {
+      if (!gamepadStatusSocket || gamepadStatusSocket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      try {
+        gamepadStatusSocket.send(JSON.stringify({
+          type: "configure_keyboard_capture",
+          captureAll: !!active,
+        }));
+      } catch (e) {
+        // Ignore send errors and rely on reconnect.
+      }
+    }
+
+    function addGamepadDeviceToBlacklist(deviceName) {
+      const normalized = normalizeGamepadDeviceName(deviceName);
+      if (!normalized || gamepadDeviceBlacklist.has(normalized)) {
+        return;
+      }
+      gamepadDeviceBlacklist.add(normalized);
+      serverReportedGamepads.delete(normalized);
+      setGamepadDeviceBlacklist(getSortedGamepadDeviceBlacklist(), { persist: true });
+      addGamepadInputConsoleLine(`Ignored device: ${getDisplayControllerLabel(normalized)}`);
+    }
+
+    function removeGamepadDeviceFromBlacklist(deviceName) {
+      const normalized = normalizeGamepadDeviceName(deviceName);
+      if (!normalized || !gamepadDeviceBlacklist.delete(normalized)) {
+        return;
+      }
+      setGamepadDeviceBlacklist(getSortedGamepadDeviceBlacklist(), { persist: true });
+      addGamepadInputConsoleLine(`Allowed device: ${getDisplayControllerLabel(normalized)}`);
+    }
+
+    function getDetectedGamepadDeviceNames() {
+      const names = new Set();
+      serverReportedGamepads.forEach((name) => {
+        const normalized = normalizeGamepadDeviceName(name);
+        if (normalized && !isGamepadDeviceBlacklisted(normalized)) {
+          names.add(normalized);
+        }
+      });
+
+      getConnectedGamepads().forEach((gamepad) => {
+        const normalized = normalizeGamepadDeviceName(gamepad.id);
+        if (normalized && !isGamepadDeviceBlacklisted(normalized)) {
+          names.add(normalized);
+        }
+      });
+
+      return Array.from(names.values()).sort((a, b) => a.localeCompare(b));
+    }
+
+    function createGamepadDeviceRow(deviceName, actionLabel, actionTitle, onClick) {
+      const row = document.createElement("div");
+      row.className = "gamepad-device-row";
+
+      const name = document.createElement("div");
+      name.className = "gamepad-device-name";
+      name.textContent = getDisplayControllerLabel(deviceName);
+      name.title = deviceName;
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "gamepad-device-action";
+      button.textContent = actionLabel;
+      button.title = actionTitle;
+      button.setAttribute("aria-label", actionTitle);
+      button.addEventListener("click", onClick);
+
+      row.appendChild(name);
+      row.appendChild(button);
+      return row;
+    }
+
+    function renderGamepadDeviceList(container, devices, emptyText, renderRow) {
+      if (!container) return;
+      if (!devices.length) {
+        const empty = document.createElement("div");
+        empty.className = "gamepad-device-empty";
+        empty.textContent = emptyText;
+        container.replaceChildren(empty);
+        return;
+      }
+      container.replaceChildren(...devices.map(renderRow));
+    }
+
+    function renderGamepadDeviceLists() {
+      if (renderingGamepadDeviceLists) {
+        return;
+      }
+      renderingGamepadDeviceLists = true;
+      try {
+        const detectedList = document.getElementById("gamepadDetectedDeviceList");
+        const ignoredList = document.getElementById("gamepadIgnoredDeviceList");
+        const detectedDevices = getDetectedGamepadDeviceNames();
+        const ignoredDevices = getSortedGamepadDeviceBlacklist();
+
+        renderGamepadDeviceList(
+          detectedList,
+          detectedDevices,
+          "No detected devices.",
+          (deviceName) => createGamepadDeviceRow(
+            deviceName,
+            "-",
+            `Ignore ${deviceName}`,
+            () => addGamepadDeviceToBlacklist(deviceName)
+          )
+        );
+
+        renderGamepadDeviceList(
+          ignoredList,
+          ignoredDevices,
+          "No ignored devices.",
+          (deviceName) => createGamepadDeviceRow(
+            deviceName,
+            "+",
+            `Allow ${deviceName}`,
+            () => removeGamepadDeviceFromBlacklist(deviceName)
+          )
+        );
+      } finally {
+        renderingGamepadDeviceLists = false;
+      }
     }
 
     function getGamepadButtonLabel(index) {
@@ -3883,21 +5709,23 @@
     function getConnectedGamepads() {
       if (!navigator.getGamepads) return [];
       const gamepads = navigator.getGamepads();
-      return Array.from(gamepads).filter(g => g !== null);
+      return Array.from(gamepads).filter(g => g !== null && !isGamepadDeviceBlacklisted(g.id));
     }
     
     function updateGamepadStatus() {
       const statusText = document.getElementById("gamepadStatusText");
       if (!statusText) return;
 
-      if (serverReportedGamepads.size > 0) {
-        const serverNames = Array.from(serverReportedGamepads.values());
+      const serverNames = Array.from(serverReportedGamepads.values())
+        .filter((deviceName) => !isGamepadDeviceBlacklisted(deviceName));
+      if (serverNames.length > 0) {
         if (serverNames.length === 1) {
           statusText.textContent = `✓ ${getDisplayControllerLabel(serverNames[0])}`;
         } else {
           statusText.textContent = `✓ ${serverNames.length} controllers connected`;
         }
         statusText.style.color = "#4CAF50";
+        renderGamepadDeviceLists();
         return;
       }
 
@@ -3913,6 +5741,8 @@
         statusText.textContent = `✓ ${connectedGamepads.length} controllers connected`;
         statusText.style.color = "#4CAF50";
       }
+
+      renderGamepadDeviceLists();
     }
 
     function connectGamepadStatusSocket(port) {
@@ -3957,6 +5787,7 @@
       ws.onopen = () => {
         if (gamepadStatusSocket !== ws) return;
         try {
+          sendGamepadDeviceBlacklistToServer();
           ws.send(JSON.stringify({ type: "get_state" }));
         } catch (e) {
           // Ignore send error and rely on reconnect.
@@ -3976,7 +5807,7 @@
         const deviceName = typeof data.device === "string" ? data.device : "";
         switch (data.type) {
           case "gamepad_connected":
-            if (deviceName) serverReportedGamepads.add(deviceName);
+            if (deviceName && !isGamepadDeviceBlacklisted(deviceName)) serverReportedGamepads.add(deviceName);
             updateGamepadStatus();
             break;
           case "gamepad_disconnected":
@@ -3984,8 +5815,11 @@
             updateGamepadStatus();
             break;
           case "gamepad_state":
-            if (deviceName) serverReportedGamepads.add(deviceName);
+            if (deviceName && !isGamepadDeviceBlacklisted(deviceName)) serverReportedGamepads.add(deviceName);
             updateGamepadStatus();
+            break;
+          case "device_blacklist_updated":
+            setGamepadDeviceBlacklist(data.devices, { persist: false, send: false });
             break;
           case "keyboard_event":
             // Forward server keyboard events for keyboard binding capture
@@ -4106,6 +5940,7 @@
     gamepadStatusInterval = setInterval(updateGamepadStatus, 2000);
     updateGamepadStatus();
     setGamepadInputTestUi(false);
+    renderGamepadDeviceLists();
     renderGamepadInputConsole();
     connectGamepadStatusSocket(parseInt(document.getElementById("gamepadServerPort")?.value, 10) || 7276);
 
@@ -4192,6 +6027,10 @@
       }
     }, 5000);
   </script>
+  <!-- Discoverability layer: descriptions, capability cards, cross-tab search.
+       Loaded after the inline script so updateSettingsTabVisibility() exists. -->
+  <script src="./components/settings-metadata.js"></script>
+  <script src="./components/settings-enhancer.js"></script>
 </body>
 
 </html>

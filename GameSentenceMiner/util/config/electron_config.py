@@ -55,6 +55,7 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
     "OCR": {
         "twoPassOCR": True,
         "optimize_second_scan": True,
+        "text_appears_instantly": False,
         "ocr1": "oneocr",
         "ocr2": "glens",
         "scanRate": 0.5,
@@ -117,6 +118,7 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
     "runManualOCROnStartup": False,
     "visibleTabs": ["launcher", "stats", "python", "console"],
     "statsEndpoint": "overview",
+    "locale": "en",
     "hasCompletedSetup": False,
 }
 
@@ -378,6 +380,10 @@ def get_ocr_optimize_second_scan() -> bool:
     return bool(_get_ocr_value("optimize_second_scan", True))
 
 
+def get_ocr_text_appears_instantly() -> bool:
+    return bool(_get_ocr_value("text_appears_instantly", False))
+
+
 def get_ocr_ocr1() -> str:
     ocr_config = _get_ocr_config()
     if not _is_advanced_mode():
@@ -588,6 +594,16 @@ def get_ocr_obs_capture_preprocess_mode() -> str:
 
 def get_ocr_use_obs_as_source() -> bool:
     return bool(_get_ocr_value("useObsAsOCRSource", True))
+
+
+def get_ocr_compact_boxes() -> bool:
+    # Pack OCR crop rectangles together (removing transparent dead space) before
+    # running detection. Opt-in; off by default so behaviour is unchanged.
+    return bool(_get_ocr_value("compactBoxes", False))
+
+
+def get_ocr_compact_boxes_gap() -> int:
+    return _get_ocr_int_value("compactBoxesGap", 12, min_value=0, max_value=512)
 
 
 def get_furigana_filter_sensitivity() -> int:

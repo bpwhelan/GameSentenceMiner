@@ -88,6 +88,14 @@
                     <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
                         Optional regex removed before default punctuation stripping. Example:【.*?】 removes【speaker】.
                     </small>
+
+                    <label for="reading_time_adaptive_v2" style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); margin-top: 16px;">
+                        Adaptive Reading Time (v2)
+                    </label>
+                    <input type="checkbox" id="reading_time_adaptive_v2" name="reading_time_adaptive_v2" {% if reading_time_adaptive_v2 %}checked{% endif %} style="margin-right: 8px;">
+                    <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+                        Caps each line's reading time by your session's own median speed instead of a fixed per-character rate. Short lines and pauses no longer over-count. Affects live and historical reading-speed stats.
+                    </small>
                 </div>
                 {% endif %}
 

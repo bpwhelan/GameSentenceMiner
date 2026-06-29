@@ -1,10 +1,17 @@
 import asyncio
 import importlib
+import sys
+from types import SimpleNamespace
 
 import pytest
 
 
 window_state_monitor = importlib.import_module("GameSentenceMiner.util.platform.window_state_monitor")
+
+if sys.platform == "win32":
+    _wwm = importlib.import_module("GameSentenceMiner.util.platform.windows_window_monitor")
+else:
+    _wwm = None
 
 
 class _FakeKernel32:
@@ -71,53 +78,52 @@ class _FakeUser32:
 
 
 def _set_focus_constants(monkeypatch):
-    monkeypatch.setattr(window_state_monitor, "SW_RESTORE", 9, raising=False)
-    monkeypatch.setattr(window_state_monitor, "SW_SHOW", 5, raising=False)
-    monkeypatch.setattr(window_state_monitor, "SPI_GETFOREGROUNDLOCKTIMEOUT", 0x2000, raising=False)
-    monkeypatch.setattr(window_state_monitor, "SPI_SETFOREGROUNDLOCKTIMEOUT", 0x2001, raising=False)
-    monkeypatch.setattr(window_state_monitor, "SPIF_SENDCHANGE", 2, raising=False)
-    monkeypatch.setattr(window_state_monitor, "HWND_TOPMOST", -1, raising=False)
-    monkeypatch.setattr(window_state_monitor, "HWND_NOTOPMOST", -2, raising=False)
-    monkeypatch.setattr(window_state_monitor, "SWP_NOSIZE", 0x0001, raising=False)
-    monkeypatch.setattr(window_state_monitor, "SWP_NOMOVE", 0x0002, raising=False)
-    monkeypatch.setattr(window_state_monitor, "SWP_SHOWWINDOW", 0x0040, raising=False)
-    monkeypatch.setattr(window_state_monitor, "KEYEVENTF_EXTENDEDKEY", 0x0001, raising=False)
-    monkeypatch.setattr(window_state_monitor, "KEYEVENTF_KEYUP", 0x0002, raising=False)
-    monkeypatch.setattr(window_state_monitor, "VK_MENU", 0x12, raising=False)
-    monkeypatch.setattr(window_state_monitor, "ASFW_ANY", -1, raising=False)
+    monkeypatch.setattr(_wwm, "SW_RESTORE", 9, raising=False)
+    monkeypatch.setattr(_wwm, "SW_SHOW", 5, raising=False)
+    monkeypatch.setattr(_wwm, "SPI_GETFOREGROUNDLOCKTIMEOUT", 0x2000, raising=False)
+    monkeypatch.setattr(_wwm, "SPI_SETFOREGROUNDLOCKTIMEOUT", 0x2001, raising=False)
+    monkeypatch.setattr(_wwm, "SPIF_SENDCHANGE", 2, raising=False)
+    monkeypatch.setattr(_wwm, "HWND_TOPMOST", -1, raising=False)
+    monkeypatch.setattr(_wwm, "HWND_NOTOPMOST", -2, raising=False)
+    monkeypatch.setattr(_wwm, "SWP_NOSIZE", 0x0001, raising=False)
+    monkeypatch.setattr(_wwm, "SWP_NOMOVE", 0x0002, raising=False)
+    monkeypatch.setattr(_wwm, "SWP_SHOWWINDOW", 0x0040, raising=False)
+    monkeypatch.setattr(_wwm, "KEYEVENTF_EXTENDEDKEY", 0x0001, raising=False)
+    monkeypatch.setattr(_wwm, "KEYEVENTF_KEYUP", 0x0002, raising=False)
+    monkeypatch.setattr(_wwm, "VK_MENU", 0x12, raising=False)
+    monkeypatch.setattr(_wwm, "ASFW_ANY", -1, raising=False)
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
 def test_set_foreground_aggressive_uses_topmost_and_alt_fallbacks(monkeypatch):
     _set_focus_constants(monkeypatch)
     fake_user32 = _FakeUser32()
 
-    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
-    monkeypatch.setattr(window_state_monitor, "user32", fake_user32)
-    monkeypatch.setattr(window_state_monitor, "kernel32", _FakeKernel32())
-    monkeypatch.setattr(window_state_monitor.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
+    monkeypatch.setattr(_wwm, "user32", fake_user32)
+    monkeypatch.setattr(_wwm, "kernel32", _FakeKernel32())
+    monkeypatch.setattr(_wwm.time, "sleep", lambda _seconds: None)
 
     monitor = window_state_monitor.WindowStateMonitor()
 
     assert monitor._set_foreground_aggressive(20, attempt_number=1) is True
     assert fake_user32.foreground_hwnd == 20
-    assert fake_user32.allow_calls == [window_state_monitor.ASFW_ANY]
+    assert fake_user32.allow_calls == [_wwm.ASFW_ANY]
     assert fake_user32.keybd_event_calls
-    assert any(
-        insert_after == window_state_monitor.HWND_TOPMOST
-        for _hwnd, insert_after, _flags in fake_user32.window_pos_calls
-    )
+    assert any(insert_after == _wwm.HWND_TOPMOST for _hwnd, insert_after, _flags in fake_user32.window_pos_calls)
     assert any(attach is False for _a, _b, attach in fake_user32.attach_calls)
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
 def test_set_foreground_aggressive_skips_paused_target(monkeypatch):
     _set_focus_constants(monkeypatch)
     fake_user32 = _FakeUser32()
 
-    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
-    monkeypatch.setattr(window_state_monitor, "user32", fake_user32)
-    monkeypatch.setattr(window_state_monitor, "kernel32", _FakeKernel32())
-    monkeypatch.setattr(window_state_monitor, "_get_pid_for_hwnd", lambda hwnd: 222 if hwnd == 20 else 0)
-    monkeypatch.setattr(window_state_monitor, "_is_tracked_suspended_pid", lambda pid: pid == 222)
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
+    monkeypatch.setattr(_wwm, "user32", fake_user32)
+    monkeypatch.setattr(_wwm, "kernel32", _FakeKernel32())
+    monkeypatch.setattr(_wwm, "_get_pid_for_hwnd", lambda hwnd: 222 if hwnd == 20 else 0)
+    monkeypatch.setattr(_wwm, "_is_tracked_suspended_pid", lambda pid: pid == 222)
 
     monitor = window_state_monitor.WindowStateMonitor()
 
@@ -128,11 +134,12 @@ def test_set_foreground_aggressive_skips_paused_target(monkeypatch):
     assert fake_user32.keybd_event_calls == []
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
 def test_activate_target_window_retries_until_helper_succeeds(monkeypatch):
     monitor = window_state_monitor.WindowStateMonitor()
     monitor.target_hwnd = 20
 
-    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
 
     attempt_numbers = []
 
@@ -146,18 +153,198 @@ def test_activate_target_window_retries_until_helper_succeeds(monkeypatch):
         sleep_delays.append(delay)
 
     monkeypatch.setattr(monitor, "_set_foreground_aggressive", fake_focus)
-    monkeypatch.setattr(window_state_monitor.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(_wwm.asyncio, "sleep", fake_sleep)
 
     assert asyncio.run(monitor.activate_target_window()) is True
     assert attempt_numbers == [(20, 1), (20, 2)]
     assert sleep_delays == [0.08]
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_sync_minimized_audio_mute_only_mutes_minimized_windows(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+
+    calls = []
+
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        _wwm,
+        "get_config",
+        lambda: SimpleNamespace(advanced=SimpleNamespace(mute_game_on_minimize=True)),
+    )
+    monkeypatch.setattr(_wwm, "_get_pid_for_hwnd", lambda hwnd: 222 if hwnd == 20 else 0)
+    monkeypatch.setattr(
+        _wwm,
+        "set_process_mute",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or [],
+    )
+
+    monitor._sync_minimized_audio_mute("background")
+
+    assert calls == []
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_sync_minimized_audio_mute_restores_only_sessions_it_changed(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+
+    calls = []
+
+    def fake_set_process_mute(pid, muted, session_instance_ids=None):
+        calls.append((pid, muted, session_instance_ids))
+        return [SimpleNamespace(changed=True, session_instance_id="session-1")]
+
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        _wwm,
+        "get_config",
+        lambda: SimpleNamespace(advanced=SimpleNamespace(mute_game_on_minimize=True)),
+    )
+    monkeypatch.setattr(_wwm, "_get_pid_for_hwnd", lambda hwnd: 222 if hwnd == 20 else 0)
+    monkeypatch.setattr(_wwm, "set_process_mute", fake_set_process_mute)
+
+    monitor._sync_minimized_audio_mute("minimized")
+    monitor._sync_minimized_audio_mute("active")
+
+    assert calls == [
+        (222, True, None),
+        (222, False, {"session-1"}),
+    ]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_sync_minimized_audio_mute_leaves_previous_target_muted_when_target_changes(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+
+    calls = []
+
+    def fake_set_process_mute(pid, muted, session_instance_ids=None):
+        calls.append((pid, muted, session_instance_ids))
+        return [SimpleNamespace(changed=True, session_instance_id=f"session-{pid}")]
+
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        _wwm,
+        "get_config",
+        lambda: SimpleNamespace(advanced=SimpleNamespace(mute_game_on_minimize=True)),
+    )
+    monkeypatch.setattr(_wwm, "_get_pid_for_hwnd", lambda hwnd: {20: 222, 30: 333}.get(hwnd, 0))
+    monkeypatch.setattr(_wwm, "set_process_mute", fake_set_process_mute)
+
+    monitor._sync_minimized_audio_mute("minimized")
+    monitor.target_hwnd = 30
+    monitor._sync_minimized_audio_mute("minimized")
+
+    assert calls == [
+        (222, True, None),
+        (333, True, None),
+    ]
+    assert monitor.minimized_audio_mutes == {
+        222: ({"session-222"}, False),
+        333: ({"session-333"}, False),
+    }
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_sync_minimized_audio_mute_falls_back_when_tracked_session_disappears(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+    monitor.last_state = "minimized"
+    monitor.minimized_audio_mutes[222] = ({"session-1"}, False)
+
+    calls = []
+
+    def fake_set_process_mute(pid, muted, session_instance_ids=None):
+        calls.append((pid, muted, session_instance_ids))
+        if session_instance_ids == {"session-1"}:
+            return []
+        return [SimpleNamespace(changed=True, session_instance_id="session-2")]
+
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        _wwm,
+        "get_config",
+        lambda: SimpleNamespace(advanced=SimpleNamespace(mute_game_on_minimize=True)),
+    )
+    monkeypatch.setattr(_wwm, "_get_pid_for_hwnd", lambda hwnd: 222 if hwnd == 20 else 0)
+    monkeypatch.setattr(_wwm, "set_process_mute", fake_set_process_mute)
+
+    monitor._sync_minimized_audio_mute("active")
+
+    assert calls == [
+        (222, False, None),
+    ]
+    assert monitor.minimized_audio_mutes == {}
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_cleanup_minimized_audio_mutes_restores_all_tracked_targets(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.minimized_audio_mutes = {
+        222: ({"session-1"}, False),
+        333: ({"session-2"}, False),
+    }
+    window_state_monitor.set_window_state_monitor(monitor)
+
+    calls = []
+
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        _wwm,
+        "set_process_mute",
+        lambda pid, muted, session_instance_ids=None: (
+            calls.append((pid, muted, session_instance_ids))
+            or [SimpleNamespace(changed=True, session_instance_id=f"session-{pid}")]
+        ),
+    )
+
+    try:
+        window_state_monitor.cleanup_minimized_audio_mutes()
+    finally:
+        window_state_monitor.set_window_state_monitor(None)
+
+    assert calls == [
+        (222, False, None),
+        (333, False, None),
+    ]
+    assert monitor.minimized_audio_mutes == {}
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_sync_minimized_audio_mute_force_unmutes_active_target_after_untracked_minimized_state(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+    monitor.last_state = "minimized"
+
+    calls = []
+
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
+    monkeypatch.setattr(
+        _wwm,
+        "get_config",
+        lambda: SimpleNamespace(advanced=SimpleNamespace(mute_game_on_minimize=True)),
+    )
+    monkeypatch.setattr(_wwm, "_get_pid_for_hwnd", lambda hwnd: 222 if hwnd == 20 else 0)
+    monkeypatch.setattr(
+        _wwm,
+        "set_process_mute",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or [],
+    )
+
+    monitor._sync_minimized_audio_mute("active")
+
+    assert calls == [((222, False), {})]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
 def test_send_enter_to_target_window_uses_activation_retry_helper(monkeypatch):
     monitor = window_state_monitor.WindowStateMonitor()
     monitor.target_hwnd = 20
 
-    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
     monkeypatch.setattr(monitor, "_set_foreground_aggressive", lambda *_args, **_kwargs: False)
 
     activation_calls = []
@@ -176,11 +363,12 @@ def test_send_enter_to_target_window_uses_activation_retry_helper(monkeypatch):
     assert keybd_calls == [True]
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
 def test_send_enter_to_target_window_falls_back_to_sendinput(monkeypatch):
     monitor = window_state_monitor.WindowStateMonitor()
     monitor.target_hwnd = 20
 
-    monkeypatch.setattr(window_state_monitor, "is_windows", lambda: True)
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
 
     async def fake_activate():
         return True
@@ -197,13 +385,48 @@ def test_send_enter_to_target_window_falls_back_to_sendinput(monkeypatch):
     assert sendinput_calls == [True]
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_send_key_to_target_window_injects_curated_key(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
+
+    async def fake_activate():
+        return True
+
+    injected = []
+
+    monkeypatch.setattr(monitor, "activate_target_window", fake_activate)
+    monkeypatch.setattr(
+        monitor,
+        "_send_key_with_keybd_event",
+        lambda vk, scan, extended=False: injected.append((vk, scan, extended)) or True,
+    )
+
+    # "space" alias resolves to VK_SPACE (0x20) / scan 0x39.
+    assert asyncio.run(monitor.send_key_to_target_window("space", activate_window=True)) is True
+    assert injected == [(0x20, 0x39, False)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
+def test_send_key_to_target_window_rejects_unknown_key(monkeypatch):
+    monitor = window_state_monitor.WindowStateMonitor()
+    monitor.target_hwnd = 20
+
+    monkeypatch.setattr(_wwm, "is_windows", lambda: True)
+
+    assert asyncio.run(monitor.send_key_to_target_window("f13", activate_window=True)) is False
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only")
 def test_is_exclusive_fullscreen_accepts_tuple_window_rects(monkeypatch):
-    if not hasattr(window_state_monitor, "MONITORINFO"):
+    if not hasattr(_wwm, "MONITORINFO"):
         pytest.skip("Windows-only monitor APIs")
 
     class _FakeUser32:
         def GetWindowLongW(self, _hwnd, _index):
-            return window_state_monitor.WS_POPUP
+            return _wwm.WS_POPUP
 
         def MonitorFromWindow(self, _hwnd, _flag):
             return 500
@@ -216,8 +439,8 @@ def test_is_exclusive_fullscreen_accepts_tuple_window_rects(monkeypatch):
             info.rcMonitor.bottom = 1080
             return 1
 
-    monkeypatch.setattr(window_state_monitor, "user32", _FakeUser32())
-    monkeypatch.setattr(window_state_monitor, "get_window_rect_physical", lambda _hwnd: (0, 0, 1920, 1080))
+    monkeypatch.setattr(_wwm, "user32", _FakeUser32())
+    monkeypatch.setattr(_wwm, "get_window_rect_physical", lambda _hwnd: (0, 0, 1920, 1080))
 
     monitor = window_state_monitor.WindowStateMonitor()
 

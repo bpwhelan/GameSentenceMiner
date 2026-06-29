@@ -1,7 +1,7 @@
 import functools
 from typing import Callable, TypeVar, Any, Optional
 
-from GameSentenceMiner.util.config.configuration import get_master_config, logger
+from GameSentenceMiner.util.config.configuration import get_config, get_master_config, logger
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -53,8 +53,14 @@ def process_pausing_feature(default_return: Optional[Any] = None):
     def decorator(func: F) -> F:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            process_cfg = None
             master = get_master_config()
-            process_cfg = getattr(master, "process_pausing", None) if master else None
+            if master and hasattr(master, "get_config"):
+                process_cfg = getattr(master.get_config(), "process_pausing", None)
+            elif master:
+                process_cfg = getattr(master, "process_pausing", None)
+            else:
+                process_cfg = getattr(get_config(), "process_pausing", None)
             if not process_cfg or not getattr(process_cfg, "enabled", False):
                 logger.info("Process pausing disabled; skipping call.")
                 return default_return

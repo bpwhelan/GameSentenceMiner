@@ -16,42 +16,7 @@ def _make_config(*, use_websocket: bool, ocr_websocket_port: int = 9002):
     )
 
 
-def test_listen_on_websocket_keeps_ocr_listener_active_when_general_websocket_disabled(
-    monkeypatch,
-):
-    stop_event = asyncio.Event()
-    attempted_urls = []
-
-    class FailingConnect:
-        def __init__(self, url, ping_interval=None):
-            attempted_urls.append(url)
-            stop_event.set()
-
-        async def __aenter__(self):
-            raise ConnectionError("expected test failure")
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-    async def fake_sleep(_seconds):
-        stop_event.set()
-
-    monkeypatch.setattr(gametext, "get_config", lambda: _make_config(use_websocket=False))
-    monkeypatch.setattr(
-        gametext.websockets,
-        "connect",
-        lambda url, ping_interval=None: FailingConnect(url, ping_interval),
-    )
-    monkeypatch.setattr(gametext.asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(gametext, "gsm_status", SimpleNamespace(websockets_connected=[]))
-    gametext.websocket_connected.clear()
-
-    asyncio.run(gametext.listen_on_websocket("localhost:9002", stop_event=stop_event))
-
-    assert attempted_urls == ["ws://localhost:9002"]
-
-
-def test_listen_on_websocket_keeps_non_ocr_listener_paused_when_general_websocket_disabled(
+def test_listen_on_websocket_pauses_when_general_websocket_disabled(
     monkeypatch,
 ):
     stop_event = asyncio.Event()
@@ -167,7 +132,14 @@ def test_add_line_to_text_log_uses_display_source_name_for_logging(monkeypatch):
             logged_messages.append(message)
 
     monkeypatch.setattr(gametext, "logger", DummyLogger())
-    monkeypatch.setattr(gametext, "get_config", lambda: SimpleNamespace(text_processing=SimpleNamespace()))
+    monkeypatch.setattr(
+        gametext,
+        "get_config",
+        lambda: SimpleNamespace(
+            text_processing=SimpleNamespace(),
+            advanced=SimpleNamespace(dont_collect_stats=False),
+        ),
+    )
     monkeypatch.setattr(gametext, "apply_text_processing", lambda line, _config: line)
     monkeypatch.setattr(gametext, "live_stats_tracker", SimpleNamespace(add_line=lambda *_args, **_kwargs: None))
     monkeypatch.setattr(gametext, "gsm_status", SimpleNamespace(last_line_received=""))
@@ -197,19 +169,6 @@ def test_resolve_websocket_source_name_prefers_configured_name(monkeypatch):
     )
 
     assert gametext.resolve_websocket_source_name("localhost:6677") == "Agent"
-
-
-def test_resolve_websocket_source_name_uses_gsm_ocr_label_for_ocr_socket(monkeypatch):
-    monkeypatch.setattr(
-        gametext,
-        "get_config",
-        lambda: SimpleNamespace(
-            general=SimpleNamespace(websocket_sources=[]),
-            advanced=SimpleNamespace(ocr_websocket_port=9002),
-        ),
-    )
-
-    assert gametext.resolve_websocket_source_name("localhost:9002") == "GSM OCR"
 
 
 def test_handle_new_text_event_is_noop_when_text_intake_paused_and_relay_disabled(monkeypatch):
@@ -244,6 +203,118 @@ def test_handle_new_text_event_is_noop_when_text_intake_paused_and_relay_disable
     assert obs_calls == []
     assert discord_calls == []
     assert add_line_calls == []
+
+
+def test_handle_new_text_event_dedupes_across_sources(monkeypatch):
+    """Identical text is accepted once regardless of which source delivers it.
+
+    This covers IPC-delivered events (OCR/texthook) that never pass through the
+    clipboard or websocket source-level checks: de-dup now lives at the single
+    funnel in handle_new_text_event.
+    """
+    handled_lines = []
+
+    async def fake_add_line_to_text_log(line, *_args, **_kwargs):
+        handled_lines.append(line)
+
+    monkeypatch.setattr(
+        gametext,
+        "get_config",
+        lambda: SimpleNamespace(
+            general=SimpleNamespace(merge_matching_sequential_text=False),
+            hotkeys=SimpleNamespace(relay_outputs_when_text_intake_paused=True),
+        ),
+    )
+    monkeypatch.setattr(gametext.obs, "update_current_game", lambda: None)
+    monkeypatch.setattr(gametext.obs, "get_current_game", lambda *_a, **_k: "")
+    monkeypatch.setattr(gametext.discord_rpc_manager, "update", lambda *_a, **_k: None)
+    monkeypatch.setattr(gametext, "add_line_to_text_log", fake_add_line_to_text_log)
+    monkeypatch.setattr(gametext.gsm_state, "text_input_paused", False, raising=False)
+    gametext._recent_text_events.clear()
+
+    # Same text arriving from two different sources should only be processed once.
+    asyncio.run(gametext.handle_new_text_event("同じ", source_display_name="Clipboard"))
+    asyncio.run(gametext.handle_new_text_event("同じ", source_display_name="GSM OCR"))
+    # A different line is accepted.
+    asyncio.run(gametext.handle_new_text_event("違う", source_display_name="GSM OCR"))
+
+    assert handled_lines == ["同じ", "違う"]
+
+
+def test_handle_new_text_event_drops_ocr_echo_of_hook_line(monkeypatch):
+    """A near-identical OCR line that follows a hook line is discarded.
+
+    With both a hook and OCR connected the hook is authoritative, so an OCR echo
+    differing only by whitespace/minor recognition is dropped while genuinely new
+    OCR lines still pass through.
+    """
+    handled_lines = []
+
+    async def fake_add_line_to_text_log(line, *_args, **_kwargs):
+        handled_lines.append(line)
+
+    monkeypatch.setattr(
+        gametext,
+        "get_config",
+        lambda: SimpleNamespace(
+            general=SimpleNamespace(merge_matching_sequential_text=False),
+            hotkeys=SimpleNamespace(relay_outputs_when_text_intake_paused=True),
+        ),
+    )
+    monkeypatch.setattr(gametext.obs, "update_current_game", lambda: None)
+    monkeypatch.setattr(gametext.obs, "get_current_game", lambda *_a, **_k: "")
+    monkeypatch.setattr(gametext.discord_rpc_manager, "update", lambda *_a, **_k: None)
+    monkeypatch.setattr(gametext, "add_line_to_text_log", fake_add_line_to_text_log)
+    monkeypatch.setattr(gametext.gsm_state, "text_input_paused", False, raising=False)
+    gametext._recent_text_events.clear()
+
+    hook_line = "壁はうねうねと動くと、 ２０ｍ程の長い滑り台にその形を変えた。"
+    ocr_echo = "壁はうねうねと動くと、２０ｍ程の長い滑り台にその形を変えた。"
+
+    asyncio.run(gametext.handle_new_text_event(hook_line, source="Texthook", source_display_name="Luna"))
+    asyncio.run(gametext.handle_new_text_event(ocr_echo, source=gametext.TextSource.OCR, source_display_name="GSM OCR"))
+    # A genuinely different OCR line is still accepted.
+    asyncio.run(gametext.handle_new_text_event("別の行", source=gametext.TextSource.OCR, source_display_name="GSM OCR"))
+
+    assert handled_lines == [hook_line, "別の行"]
+
+
+def test_repeated_ocr_hook_echoes_warn_once(monkeypatch):
+    """Several auto-OCR echoes of hook lines trigger a single redundancy warning."""
+
+    async def fake_add_line_to_text_log(line, *_args, **_kwargs):
+        pass
+
+    monkeypatch.setattr(
+        gametext,
+        "get_config",
+        lambda: SimpleNamespace(
+            general=SimpleNamespace(merge_matching_sequential_text=False),
+            hotkeys=SimpleNamespace(relay_outputs_when_text_intake_paused=True),
+        ),
+    )
+    monkeypatch.setattr(gametext.obs, "update_current_game", lambda: None)
+    monkeypatch.setattr(gametext.obs, "get_current_game", lambda *_a, **_k: "")
+    monkeypatch.setattr(gametext.discord_rpc_manager, "update", lambda *_a, **_k: None)
+    monkeypatch.setattr(gametext, "add_line_to_text_log", fake_add_line_to_text_log)
+    monkeypatch.setattr(gametext.gsm_state, "text_input_paused", False, raising=False)
+    monkeypatch.setenv("GSM_ELECTRON", "1")
+
+    sent = []
+    monkeypatch.setattr(gametext, "send_message", lambda fn, data=None: sent.append((fn, data)))
+
+    gametext._recent_text_events.clear()
+    gametext._ocr_hook_redundancy_count = 0
+    gametext._ocr_hook_redundancy_warned = False
+
+    for i in range(gametext._OCR_HOOK_REDUNDANCY_THRESHOLD + 2):
+        line = f"行number{i}です"
+        asyncio.run(gametext.handle_new_text_event(line, source="Texthook", source_display_name="Luna"))
+        asyncio.run(
+            gametext.handle_new_text_event(line + " ", source=gametext.TextSource.OCR, source_display_name="GSM OCR")
+        )
+
+    assert [fn for fn, _ in sent] == ["ocr_hook_redundant"]
 
 
 def test_set_text_intake_paused_announces_state_and_notifies(monkeypatch):
@@ -300,6 +371,7 @@ def test_add_line_to_text_log_relays_only_to_outputs_when_text_intake_paused(mon
         lambda: SimpleNamespace(
             text_processing=SimpleNamespace(),
             hotkeys=SimpleNamespace(relay_outputs_when_text_intake_paused=True),
+            advanced=SimpleNamespace(dont_collect_stats=False),
         ),
     )
     monkeypatch.setattr(gametext, "apply_text_processing", lambda line, _config: f"processed:{line}")
@@ -357,6 +429,7 @@ def test_add_line_to_text_log_schedules_overlay_without_waiting_for_remaining_li
         lambda: SimpleNamespace(
             text_processing=SimpleNamespace(),
             overlay=SimpleNamespace(check_previous_lines_for_recycled_indicator=True),
+            advanced=SimpleNamespace(dont_collect_stats=False),
         ),
     )
     monkeypatch.setattr(gametext, "apply_text_processing", lambda line, _config: line)

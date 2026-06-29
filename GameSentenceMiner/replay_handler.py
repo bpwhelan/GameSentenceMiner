@@ -83,6 +83,8 @@ class ReplayProcessingContext:
     prefetched_assets: object = None
     prefetched_translation: object = None
     audio_result: ReplayAudioResult | None = None
+    reuse_audio_result_id: str | None = None
+    reuse_screenshot_result_id: str | None = None
 
     @property
     def final_audio_output(self) -> str:
@@ -209,17 +211,27 @@ class ReplayAudioExtractor:
         context = ReplayProcessingContext(video_path=video_path)
         gsm_state.current_replay = video_path
         gsm_state.current_replay_context = context
-        if gsm_state.line_for_audio or gsm_state.line_for_screenshot or gsm_state.line_for_video_trim:
+        if (
+            gsm_state.line_for_audio
+            or gsm_state.line_for_screenshot
+            or gsm_state.line_for_video_trim
+            or gsm_state.lines_for_media_creation
+        ):
             _handle_texthooker_button(video_path)
             return
         try:
             if anki.card_queue and len(anki.card_queue) > 0:
+                queued_card = anki.card_queue.pop(0)
                 (
                     context.last_note,
                     context.anki_card_creation_time,
                     context.selected_lines,
                     context.mined_line,
-                ) = anki.card_queue.pop(0)
+                ) = queued_card[:4]
+                if len(queued_card) > 4:
+                    context.reuse_audio_result_id = queued_card[4]
+                if len(queued_card) > 5:
+                    context.reuse_screenshot_result_id = queued_card[5]
             else:
                 logger.info("Replay buffer initiated externally. Skipping processing.")
                 context.skip_delete = True
@@ -384,6 +396,8 @@ class ReplayAudioExtractor:
                         start_time=context.start_time,
                         end_time=context.end_time,
                         vad_result=context.vad_result,
+                        reuse_audio_result_id=context.reuse_audio_result_id,
+                        reuse_screenshot_result_id=context.reuse_screenshot_result_id,
                         precomputed_assets=context.prefetched_assets,
                         precomputed_translation=context.prefetched_translation,
                     )
@@ -600,7 +614,7 @@ class ReplayFileWatcher(FileSystemEventHandler):
             return
         if "Replay" not in file_name and "GSM" not in file_name:
             return
-        if file_name.endswith(".mkv") or file_name.endswith(".mp4"):
+        if file_name.endswith(".mkv") or file_name.endswith(".mp4") or file_name.endswith(".mov"):
             logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
             wait_for_stable_file(event.src_path)
             self._extractor.process_replay(event.src_path)

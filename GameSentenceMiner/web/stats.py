@@ -23,6 +23,8 @@ from GameSentenceMiner.util.config.configuration import (
 from GameSentenceMiner.util.jiten_difficulty import get_jiten_difficulty_label
 from GameSentenceMiner.util.stats.stats_util import (
     has_cards,
+    adaptive_cap_seconds,
+    session_median_cps,
     MAX_SEC_PER_CHAR as _MAX_SEC_PER_CHAR,
     FLOOR_SECONDS as _FLOOR_SECONDS,
     ABSOLUTE_CEILING as _ABSOLUTE_CEILING,
@@ -346,13 +348,15 @@ def calculate_actual_reading_time(
 ) -> float:
     """Calculate actual reading time with adaptive AFK detection.
 
-    Stage 1 – Adaptive per-line cap
-        Each line gets a maximum plausible reading time proportional to its
-        character count.
+    Two algorithms, selected by ``stats.reading_time_adaptive_v2``:
 
-    Stage 2 – Statistical outlier replacement (IQR)
-        Per-line reading speeds are computed; outliers below the lower whisker
-        are replaced by a median-speed estimate.
+    v1 (legacy, default)
+        Stage 1 caps each line at a fixed seconds-per-char; Stage 2 replaces
+        below-whisker (IQR) slow outliers with a median-speed estimate.
+
+    v2 (adaptive)
+        Caps each line at what it *should* take at the session's own median
+        reading speed (shared with the live tracker), with a small floor.
 
     Returns:
         Actual reading time in seconds.
@@ -360,19 +364,26 @@ def calculate_actual_reading_time(
     if not timestamps or len(timestamps) < 2:
         return 0.0
 
-    # --- Stage 1: Adaptive per-line cap ---
     sorted_pairs = sorted(zip(timestamps, line_texts), key=lambda p: p[0])
-
-    gaps: list[list] = []
+    raw_gaps: list[tuple[float, int]] = []
     for i in range(len(sorted_pairs) - 1):
         raw_gap = sorted_pairs[i + 1][0] - sorted_pairs[i][0]
-        text = sorted_pairs[i][1] or ""
-        char_count = len(text)
+        char_count = len(sorted_pairs[i][1] or "")
+        raw_gaps.append((raw_gap, char_count))
 
+    if get_stats_config().reading_time_adaptive_v2:
+        return _reading_time_adaptive(raw_gaps)
+    return _reading_time_legacy(raw_gaps)
+
+
+def _reading_time_legacy(raw_gaps: Sequence[tuple[float, int]]) -> float:
+    """v1: fixed per-char cap (Stage 1) + IQR slow-outlier replacement (Stage 2)."""
+    # --- Stage 1: per-line cap ---
+    gaps: list[list] = []
+    for raw_gap, char_count in raw_gaps:
         max_time = max(_FLOOR_SECONDS, char_count * _MAX_SEC_PER_CHAR)
         max_time = min(max_time, _ABSOLUTE_CEILING)
-        capped_gap = min(raw_gap, max_time)
-        gaps.append([capped_gap, char_count])
+        gaps.append([min(raw_gap, max_time), char_count])
 
     # --- Stage 2: IQR outlier filtering ---
     speeds: list[float] = []
@@ -398,6 +409,12 @@ def calculate_actual_reading_time(
                     gaps[idx][0] = char_count / median_speed
 
     return sum(gap for gap, _ in gaps)
+
+
+def _reading_time_adaptive(raw_gaps: Sequence[tuple[float, int]]) -> float:
+    """v2: cap each line by the session's own median reading speed."""
+    median_cps = session_median_cps(raw_gaps)
+    return sum(min(raw_gap, adaptive_cap_seconds(char_count, median_cps)) for raw_gap, char_count in raw_gaps)
 
 
 # ---------------------------------------------------------------------------

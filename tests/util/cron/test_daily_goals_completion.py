@@ -1,4 +1,10 @@
-"""Tests for the daily_goals_completion cron module historical backfill behavior."""
+"""Tests for the daily_goals_completion cron module backfill behavior.
+
+Backfill is intentionally narrow: only *today* and the day the cron last ran are
+evaluated. A day can only end un-snapshotted if goals were met after that session's
+final hourly check, which makes it the last-run day; earlier missed days were already
+the last-run day on a prior run and got backfilled then.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +16,8 @@ import pytest
 import pytz
 
 from GameSentenceMiner.util.cron import daily_goals_completion as mod
+from GameSentenceMiner.util.cron.run_crons import Crons
+from GameSentenceMiner.util.database.cron_table import CronTable
 from GameSentenceMiner.util.database.db import GameLinesTable, GoalsTable, SQLiteDB
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable
@@ -22,12 +30,14 @@ def _in_memory_db():
     orig_lines = GameLinesTable._db
     orig_rollup = StatsRollupTable._db
     orig_third_party = ThirdPartyStatsTable._db
+    orig_cron = CronTable._db
 
     db = SQLiteDB(":memory:")
     GoalsTable.set_db(db)
     GameLinesTable.set_db(db)
     StatsRollupTable.set_db(db)
     ThirdPartyStatsTable.set_db(db)
+    CronTable.set_db(db)
 
     yield db
 
@@ -36,6 +46,7 @@ def _in_memory_db():
     GameLinesTable._db = orig_lines
     StatsRollupTable._db = orig_rollup
     ThirdPartyStatsTable._db = orig_third_party
+    CronTable._db = orig_cron
 
 
 def _default_settings() -> dict:
@@ -73,6 +84,20 @@ def _seed_historical_completion(date_str: str):
     )
 
 
+def _set_last_run(date: datetime.date | None):
+    """Seed the cron row so `_get_last_run_date` resolves to `date` (UTC)."""
+    if date is None:
+        return
+    ts = datetime.datetime(date.year, date.month, date.day, 12, 0, tzinfo=pytz.UTC).timestamp()
+    CronTable(
+        name=Crons.DAILY_GOALS_COMPLETION.value,
+        description="daily goals completion",
+        last_run=ts,
+        next_run=time.time(),
+        schedule="hourly",
+    ).save()
+
+
 def _history_dates() -> list[str]:
     return sorted([row.date for row in GoalsTable.all() if row.date != "current"])
 
@@ -83,8 +108,11 @@ def _set_fixed_today(monkeypatch, today: datetime.date):
 
 
 class TestDailyGoalsCompletionBackfill:
-    def test_backfills_missed_completed_dates(self, monkeypatch):
+    def test_backfills_missed_last_run_day(self, monkeypatch):
+        # Goal finished on the last-run day (03-11) after that session's final check;
+        # today (03-12) is not yet complete. Only the missed last-run day is backfilled.
         _set_fixed_today(monkeypatch, datetime.date(2026, 3, 12))
+        _set_last_run(datetime.date(2026, 3, 11))
         _seed_current_goals(
             [
                 {
@@ -101,19 +129,14 @@ class TestDailyGoalsCompletionBackfill:
 
         def fake_get_goals_for_date(target_date, **kwargs):
             day = target_date.strftime("%Y-%m-%d")
-            if day == "2026-03-11":
-                progress = 2
-                required = 1
-            else:
-                progress = 0
-                required = 1
+            progress = 2 if day == "2026-03-11" else 0
             return {
                 "date": day,
                 "goals": [
                     {
                         "goal_name": "Read daily",
                         "progress_today": progress,
-                        "progress_needed": required,
+                        "progress_needed": 1,
                         "metric_type": "hours",
                     }
                 ],
@@ -127,8 +150,11 @@ class TestDailyGoalsCompletionBackfill:
         assert result["completed_dates"] == ["2026-03-11"]
         assert _history_dates() == ["2026-03-10", "2026-03-11"]
 
-    def test_does_not_backfill_outside_goal_window(self, monkeypatch):
+    def test_only_evaluates_today_and_last_run(self, monkeypatch):
+        # Even with an always-valid goal, only today + last_run are checked — never the
+        # span between them.
         _set_fixed_today(monkeypatch, datetime.date(2026, 1, 3))
+        _set_last_run(datetime.date(2026, 1, 2))
         _seed_current_goals(
             [
                 {
@@ -163,12 +189,14 @@ class TestDailyGoalsCompletionBackfill:
 
         result = mod.run_daily_goals_completion()
         assert result["success"] is True
-        assert result["completed_count"] == 3
-        assert min(called_dates) == "2026-01-01"
-        assert all(day >= "2026-01-01" for day in _history_dates())
+        assert result["completed_count"] == 2
+        assert sorted(called_dates) == ["2026-01-02", "2026-01-03"]
+        assert _history_dates() == ["2026-01-02", "2026-01-03"]
 
-    def test_static_goals_start_backfill_from_first_data_date(self, monkeypatch):
+    def test_no_last_run_checks_only_today(self, monkeypatch):
+        # First-ever run (no cron row) evaluates today and nothing else.
         _set_fixed_today(monkeypatch, datetime.date(2026, 1, 12))
+        _set_last_run(None)
         _seed_current_goals(
             [
                 {
@@ -179,9 +207,6 @@ class TestDailyGoalsCompletionBackfill:
                 }
             ]
         )
-
-        # First known data date for static backfill.
-        StatsRollupTable(date="2026-01-10").save()
 
         called_dates = []
 
@@ -204,15 +229,12 @@ class TestDailyGoalsCompletionBackfill:
 
         result = mod.run_daily_goals_completion()
         assert result["success"] is True
-        assert result["completed_dates"] == [
-            "2026-01-10",
-            "2026-01-11",
-            "2026-01-12",
-        ]
-        assert called_dates == ["2026-01-10", "2026-01-11", "2026-01-12"]
+        assert result["completed_dates"] == ["2026-01-12"]
+        assert called_dates == ["2026-01-12"]
 
     def test_zero_requirement_day_is_auto_completed(self, monkeypatch):
         _set_fixed_today(monkeypatch, datetime.date(2026, 2, 2))
+        _set_last_run(datetime.date(2026, 2, 2))
         _seed_current_goals(
             [
                 {
@@ -248,8 +270,50 @@ class TestDailyGoalsCompletionBackfill:
         assert result["completed_dates"] == ["2026-02-02"]
         assert _history_dates() == ["2026-02-02"]
 
+    def test_far_past_last_run_does_not_scan_the_gap(self, monkeypatch):
+        # A last_run far in the past must not expand into a multi-day scan — only the two
+        # endpoints are evaluated (this is the property that replaced the bounded window).
+        today = datetime.date(2026, 6, 1)
+        _set_fixed_today(monkeypatch, today)
+        _set_last_run(datetime.date(2024, 6, 1))
+        _seed_current_goals(
+            [
+                {
+                    "id": "goal_static",
+                    "name": "Static reading",
+                    "metricType": "hours_static",
+                    "targetValue": 1,
+                }
+            ]
+        )
+
+        called_dates = []
+
+        def fake_get_goals_for_date(target_date, **kwargs):
+            day = target_date.strftime("%Y-%m-%d")
+            called_dates.append(day)
+            return {
+                "date": day,
+                "goals": [
+                    {
+                        "goal_name": "Static reading",
+                        "progress_today": 1,
+                        "progress_needed": 1,
+                        "metric_type": "hours_static",
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(goals_api, "get_goals_for_date", fake_get_goals_for_date)
+
+        result = mod.run_daily_goals_completion()
+        assert result["success"] is True
+        assert sorted(called_dates) == ["2024-06-01", "2026-06-01"]
+        assert _history_dates() == ["2024-06-01", "2026-06-01"]
+
     def test_rerun_is_idempotent(self, monkeypatch):
         _set_fixed_today(monkeypatch, datetime.date(2026, 4, 2))
+        _set_last_run(datetime.date(2026, 4, 1))
         _seed_current_goals(
             [
                 {

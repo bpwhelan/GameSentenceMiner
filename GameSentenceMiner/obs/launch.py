@@ -12,12 +12,14 @@ import subprocess
 import time
 from typing import Dict, List, Optional
 
+from GameSentenceMiner.obs.screenshot_capture import is_image_empty  # noqa: F401 — re-exported
 from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.config.configuration import (
     get_app_directory,
     get_config,
     get_master_config,
     gsm_state,
+    gsm_status,
     logger,
     reload_config,
 )
@@ -100,24 +102,6 @@ def get_video_scene_items(scene_items: List[dict]) -> List[dict]:
     return [item for item in scene_items if item.get("inputKind") in VIDEO_SOURCE_KINDS]
 
 
-def is_image_empty(img, tolerance: int = 5) -> bool:
-    """Return True when *img* is uniform (or near-uniform) colour.
-
-    A pure-black frame from an inactive game_capture is the most common case,
-    but JPEG compression artefacts may introduce small channel variations.
-    ``tolerance`` (default 5) allows for that noise.
-    """
-    try:
-        extrema = img.getextrema()
-        if not extrema:
-            return True
-        if isinstance(extrema[0], tuple):
-            return all((channel_max - channel_min) <= tolerance for channel_min, channel_max in extrema)
-        return (extrema[1] - extrema[0]) <= tolerance
-    except Exception:
-        return False
-
-
 HELPER_SCENE_NAMES = {"GSM Helper - DONT TOUCH"}
 HELPER_SOURCE_NAMES = {
     "window_getter",
@@ -161,21 +145,6 @@ def parse_obs_window_target(window_string: str) -> Optional[dict]:
         "window_class": parts[1].strip(),
         "exe": parts[2].strip(),
     }
-
-
-def _window_target_exists(target: str) -> bool:
-    """Return True if the OBS window-capture target appears to be running."""
-    parsed = parse_obs_window_target(target)
-    if not parsed or not parsed.get("exe"):
-        return True  # can't determine — assume it exists
-    exe_lower = parsed["exe"].lower()
-    try:
-        for proc in psutil.process_iter(["name"]):
-            if proc.info["name"] and proc.info["name"].lower() == exe_lower:
-                return True
-    except Exception:
-        return True
-    return False
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +237,10 @@ def is_process_running(pid):
 
 def start_obs(force_restart=False):
     import GameSentenceMiner.obs as _obs_pkg
+
+    if gsm_status.obs_connected and not force_restart:
+        logger.debug("OBS is already connected; skipping launch request.")
+        return _obs_pkg.obs_process_pid
 
     if os.path.exists(_obs_pkg.OBS_PID_FILE):
         with open(_obs_pkg.OBS_PID_FILE, "r") as f:
@@ -391,7 +364,7 @@ def get_obs_websocket_config_values():
         if not os.path.isfile(config_path):
             return
 
-        with open(config_path, "r") as file:
+        with open(config_path, "r", encoding="utf-8-sig") as file:
             config = json.load(file)
 
         server_enabled = config.get("server_enabled", False)
@@ -403,14 +376,24 @@ def get_obs_websocket_config_values():
                 "OBS WebSocket server is not enabled. Enabling it now... Restart OBS for changes to take effect."
             )
             config["server_enabled"] = True
-            with open(config_path, "w") as file:
+            with open(config_path, "w", encoding="utf-8") as file:
                 json.dump(config, file, indent=4)
 
-        if get_config().obs.password == "your_password":
-            logger.info("OBS WebSocket password is not set. Setting it now...")
-            full_config = get_master_config()
-            full_config.get_config().obs.port = server_port
-            full_config.get_config().obs.password = server_password
+        # OBS's own websocket config.json is the source of truth for the port:
+        # Electron may pick a dynamic (ephemeral) port at launch when 7274 is
+        # taken, so always adopt whatever OBS is actually serving. The password
+        # is only adopted while the user hasn't set their own.
+        full_config = get_master_config()
+        obs_cfg = full_config.get_config().obs
+        changed = False
+        if server_port and obs_cfg.port != server_port:
+            obs_cfg.port = server_port
+            changed = True
+        if obs_cfg.password == "your_password" and server_password:
+            obs_cfg.password = server_password
+            changed = True
+        if changed:
+            logger.info(f"Syncing OBS WebSocket connection settings (port {server_port}).")
             full_config.sync_shared_fields()
             full_config.save()
             reload_config()

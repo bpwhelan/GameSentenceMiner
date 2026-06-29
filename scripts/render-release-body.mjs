@@ -39,31 +39,53 @@ function buildDownloadUrl(repo, version, fileName) {
   return `https://github.com/${repo}/releases/download/v${version}/${fileName}`;
 }
 
-export function renderStableReleaseBody({ repo = DEFAULT_REPO, version }) {
-  ensureVersion(version);
-
+function renderDownloadTable({ repo, version }) {
   const windowsFile = `GameSentenceMiner-Setup-${version}.exe`;
+  const windowsUnpackedFile = `GameSentenceMiner-${version}-win-unpacked.zip`;
   const linuxFile = `GameSentenceMiner-${version}.AppImage`;
   const macFile = `GameSentenceMiner-${version}-arm64.dmg`;
 
   return [
-    "## Downloads",
-    "",
     "| OS | Download |",
     "| --- | --- |",
     `| Windows | [${windowsFile}](${buildDownloadUrl(repo, version, windowsFile)}) |`,
+    `| Windows (unpacked) | [${windowsUnpackedFile}](${buildDownloadUrl(repo, version, windowsUnpackedFile)}) |`,
     `| Linux | [${linuxFile}](${buildDownloadUrl(repo, version, linuxFile)}) |`,
     `| macOS (Apple Silicon) | [${macFile}](${buildDownloadUrl(repo, version, macFile)}) |`,
+  ];
+}
+
+export function renderStableReleaseBody({ repo = DEFAULT_REPO, version }) {
+  ensureVersion(version);
+
+  return [
+    "## Downloads",
+    "",
+    ...renderDownloadTable({ repo, version }),
     "",
     "Intel Mac builds are no longer provided. If you need GSM on Intel Mac, run it from source.",
   ].join("\n");
 }
 
-export function renderPrereleaseBody({ repo = DEFAULT_REPO }) {
+export function renderPrereleaseBody({ repo = DEFAULT_REPO, version }) {
+  if (!version) {
+    return [
+      "> **Development prerelease**",
+      "> This is not the latest stable release and should only be downloaded if you know what you are doing.",
+      `> Most users should use the latest stable release: https://github.com/${repo}/releases/latest`,
+    ].join("\n");
+  }
+
+  ensureVersion(version);
+
   return [
     "> **Development prerelease**",
     "> This is not the latest stable release and should only be downloaded if you know what you are doing.",
     `> Most users should use the latest stable release: https://github.com/${repo}/releases/latest`,
+    "",
+    "## Downloads",
+    "",
+    ...renderDownloadTable({ repo, version }),
   ].join("\n");
 }
 

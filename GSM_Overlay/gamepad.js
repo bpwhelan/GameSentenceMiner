@@ -525,8 +525,14 @@ class GamepadHandler {
       confirmButton: options.confirmButton ?? 0, // A button (optional - auto-confirm enabled)
       cancelButton: options.cancelButton ?? 1, // B button
       forwardEnterButton: options.forwardEnterButton ?? -1, // Disabled by default; forwards Enter to target game window
+      forwardSpaceButton: options.forwardSpaceButton ?? -1, // Disabled by default; forwards Space to target game window
+      forwardCtrlButton: options.forwardCtrlButton ?? -1, // Disabled by default; forwards Ctrl (skip) to target game window
+      forwardEscapeButton: options.forwardEscapeButton ?? -1, // Disabled by default; forwards Escape to target game window
+      forwardClickButton: options.forwardClickButton ?? -1, // Disabled by default; left-clicks the center of the target game window
       manualOverlayScanButton: options.manualOverlayScanButton ?? -1, // Disabled by default; triggers manual overlay scan
+      pauseToggleButton: options.pauseToggleButton ?? -1, // Disabled by default; pauses/resumes the text source while navigation is active
       tokenModeToggleButton: options.tokenModeToggleButton ?? 3, // Y button to toggle token/char mode
+      mineButton: options.mineButton ?? 0, // A button to mine the current Yomitan entry
       nextEntryButton: options.nextEntryButton ?? 7, // RT trigger - navigate to next Yomitan entry
       prevEntryButton: options.prevEntryButton ?? 6, // LT trigger - navigate to previous Yomitan entry
       
@@ -551,8 +557,8 @@ class GamepadHandler {
       // "yomitan-api": call Yomitan API /tokenize directly
       // "jiten-api": call JitenReader API /api/reader/parse directly
       // "jpdb-api": call JPDB API /api/v1/parse directly
-      tokenizerBackend: options.tokenizerBackend || 'mecab',
-      localTokenizerFallbackBackend: options.localTokenizerFallbackBackend || 'mecab',
+      tokenizerBackend: options.tokenizerBackend || 'sudachi',
+      localTokenizerFallbackBackend: options.localTokenizerFallbackBackend || 'sudachi',
       yomitanApiUrl: options.yomitanApiUrl || 'http://127.0.0.1:19633',
       yomitanScanLength: Number.isFinite(options.yomitanScanLength) ? options.yomitanScanLength : 10,
       yomitanRequestTimeout: Number.isFinite(options.yomitanRequestTimeout) ? options.yomitanRequestTimeout : 1800,
@@ -588,7 +594,12 @@ class GamepadHandler {
       keyboardConfirmKey: options.keyboardConfirmKey || 'Enter',
       keyboardCancelKey: options.keyboardCancelKey || 'Escape',
       keyboardForwardEnterKey: options.keyboardForwardEnterKey || null,
+      keyboardForwardSpaceKey: options.keyboardForwardSpaceKey || null,
+      keyboardForwardCtrlKey: options.keyboardForwardCtrlKey || null,
+      keyboardForwardEscapeKey: options.keyboardForwardEscapeKey || null,
+      keyboardForwardClickKey: options.keyboardForwardClickKey || null,
       keyboardManualOverlayScanKey: options.keyboardManualOverlayScanKey || null,
+      keyboardPauseToggleKey: options.keyboardPauseToggleKey || null,
       keyboardTokenModeToggleKey: options.keyboardTokenModeToggleKey || null,
       keyboardNextEntryKey: options.keyboardNextEntryKey || null,
       keyboardPrevEntryKey: options.keyboardPrevEntryKey || null,
@@ -621,6 +632,7 @@ class GamepadHandler {
     this.gamepads = new Map(); // Connected gamepads from server
     this.isActive = false; // Whether controller navigation is active
     this.toggleModeActive = false; // For toggle activation mode
+    this.navigationPauseActive = false; // Manual pause-the-source toggle (only meaningful while navigation is active)
     this.currentBlockIndex = -1; // Currently selected text block
     this.currentCursorIndex = 0; // Cursor position within block (now token index)
     this.currentLineIndex = 0; // Line within the current block
@@ -691,6 +703,8 @@ class GamepadHandler {
     // DOM change tracking for live text updates
     this.textMutationObserver = null;
     this.pendingTextRefresh = false;
+    this.skipNextTextRefresh = false;
+    this.preserveSelectionOnNextTextRefresh = false;
     this.lastSelectionSnapshot = null; // Last known block rect + anchor position for redraw recovery
     
     // Bind methods
@@ -840,6 +854,7 @@ class GamepadHandler {
     }
 
     this.wsConnected = false;
+    this.mecabAvailable = false;
     this.sudachiAvailable = false;
     this.pendingTokenizationByBlock.clear();
   }
@@ -870,9 +885,7 @@ class GamepadHandler {
   onWebSocketOpen() {
     console.log('[GamepadHandler] Connected to gamepad server');
     this.wsConnected = true;
-    if (this.isUsingSudachi()) {
-      this.sudachiAvailable = true;
-    }
+    this.primeConfiguredLocalTokenizerAvailability();
     this.pendingTokenizationByBlock.clear();
     
     // Clear any pending reconnect
@@ -883,7 +896,10 @@ class GamepadHandler {
     
     // Request current state
     this.ws.send(JSON.stringify({ type: 'get_state' }));
-    
+
+    // Tell the server which keys we react to, so it only broadcasts those.
+    this.sendKeyboardCaptureAllowlist();
+
     // Dispatch event
     window.dispatchEvent(new CustomEvent('gsm-gamepad-server-connected'));
     
@@ -899,6 +915,7 @@ class GamepadHandler {
   onWebSocketClose() {
     console.log('[GamepadHandler] Disconnected from gamepad server');
     this.wsConnected = false;
+    this.mecabAvailable = false;
     this.sudachiAvailable = false;
     this.ws = null;
     this.pendingTokenizationByBlock.clear();
@@ -1071,7 +1088,9 @@ class GamepadHandler {
 
           if (this.tokens.length > 0 && this.tokenMode && this.isNavigationActive()) {
             const syncedFromMouse = this.syncSelectionFromVirtualMouse();
-            if (!syncedFromMouse) {
+            if (syncedFromMouse) {
+              this.syncVirtualMouseToCurrentSelection();
+            } else {
               const anchorCharIndex = this.getCurrentAnchorCharIndex();
               this.currentCursorIndex = this.charIndexToTokenIndex(anchorCharIndex >= 0 ? anchorCharIndex : 0);
               this.currentLineIndex = this.getLineIndexForCursor();
@@ -1128,7 +1147,7 @@ class GamepadHandler {
     const normalizedSegments = this.normalizeFuriganaSegments(
       segments || [],
       text,
-      String(this.config.tokenizerBackend || 'mecab').toLowerCase()
+      String(this.config.tokenizerBackend || 'sudachi').toLowerCase()
     );
 
     if (requestId !== undefined && this.pendingFuriganaRequests.has(requestId)) {
@@ -1221,16 +1240,16 @@ class GamepadHandler {
   }
 
   normalizeTokenizerBackend(value) {
-    const normalized = String(value || 'mecab').trim().toLowerCase();
-    if (normalized === 'sudachi' || normalized === 'yomitan-bridge' || normalized === 'yomitan-api' || normalized === 'jiten-api' || normalized === 'jpdb-api') {
+    const normalized = String(value || 'sudachi').trim().toLowerCase();
+    if (normalized === 'mecab' || normalized === 'sudachi' || normalized === 'yomitan-bridge' || normalized === 'yomitan-api' || normalized === 'jiten-api' || normalized === 'jpdb-api') {
       return normalized;
     }
-    return 'mecab';
+    return 'sudachi';
   }
 
   normalizeLocalTokenizerFallbackBackend(value) {
-    const normalized = String(value || 'mecab').trim().toLowerCase();
-    return normalized === 'sudachi' ? 'sudachi' : 'mecab';
+    const normalized = String(value || 'sudachi').trim().toLowerCase();
+    return normalized === 'mecab' ? 'mecab' : 'sudachi';
   }
 
   isLocalTokenizerBackend(value) {
@@ -1244,6 +1263,35 @@ class GamepadHandler {
       return false;
     }
     return normalized === 'sudachi' ? this.sudachiAvailable === true : this.mecabAvailable === true;
+  }
+
+  getConfiguredLocalTokenizerBackends(preferredBackend = this.config.tokenizerBackend) {
+    const backends = new Set();
+    const primaryBackend = this.normalizeTokenizerBackend(preferredBackend);
+    if (primaryBackend === 'mecab' || primaryBackend === 'sudachi') {
+      backends.add(primaryBackend);
+    }
+
+    const fallbackBackend = this.getConfiguredLocalTokenizerFallbackBackend();
+    if (fallbackBackend === 'mecab' || fallbackBackend === 'sudachi') {
+      backends.add(fallbackBackend);
+    }
+
+    return backends;
+  }
+
+  primeConfiguredLocalTokenizerAvailability() {
+    if (!this.wsConnected || !this.ws) {
+      return;
+    }
+
+    const localBackends = this.getConfiguredLocalTokenizerBackends();
+    if (localBackends.has('mecab')) {
+      this.mecabAvailable = true;
+    }
+    if (localBackends.has('sudachi')) {
+      this.sudachiAvailable = true;
+    }
   }
 
   getConfiguredLocalTokenizerFallbackBackend() {
@@ -1298,8 +1346,14 @@ class GamepadHandler {
       confirmButton: normalizeGamepadBindingValue(this.config.confirmButton, 0),
       cancelButton: normalizeGamepadBindingValue(this.config.cancelButton, 1),
       forwardEnterButton: normalizeGamepadBindingValue(this.config.forwardEnterButton, -1),
+      forwardSpaceButton: normalizeGamepadBindingValue(this.config.forwardSpaceButton, -1),
+      forwardCtrlButton: normalizeGamepadBindingValue(this.config.forwardCtrlButton, -1),
+      forwardEscapeButton: normalizeGamepadBindingValue(this.config.forwardEscapeButton, -1),
+      forwardClickButton: normalizeGamepadBindingValue(this.config.forwardClickButton, -1),
       manualOverlayScanButton: normalizeGamepadBindingValue(this.config.manualOverlayScanButton, -1),
+      pauseToggleButton: normalizeGamepadBindingValue(this.config.pauseToggleButton, -1),
       tokenModeToggleButton: normalizeGamepadBindingValue(this.config.tokenModeToggleButton, 3),
+      mineButton: normalizeGamepadBindingValue(this.config.mineButton, 0),
       nextEntryButton: normalizeGamepadBindingValue(this.config.nextEntryButton, 7),
       prevEntryButton: normalizeGamepadBindingValue(this.config.prevEntryButton, 6),
     };
@@ -1312,7 +1366,12 @@ class GamepadHandler {
       confirmKey: normalizeKeyboardBindingValue(this.config.keyboardConfirmKey, 'Enter'),
       cancelKey: normalizeKeyboardBindingValue(this.config.keyboardCancelKey, 'Escape'),
       forwardEnterKey: normalizeKeyboardBindingValue(this.config.keyboardForwardEnterKey),
+      forwardSpaceKey: normalizeKeyboardBindingValue(this.config.keyboardForwardSpaceKey),
+      forwardCtrlKey: normalizeKeyboardBindingValue(this.config.keyboardForwardCtrlKey),
+      forwardEscapeKey: normalizeKeyboardBindingValue(this.config.keyboardForwardEscapeKey),
+      forwardClickKey: normalizeKeyboardBindingValue(this.config.keyboardForwardClickKey),
       manualOverlayScanKey: normalizeKeyboardBindingValue(this.config.keyboardManualOverlayScanKey),
+      pauseToggleKey: normalizeKeyboardBindingValue(this.config.keyboardPauseToggleKey),
       tokenModeToggleKey: normalizeKeyboardBindingValue(this.config.keyboardTokenModeToggleKey),
       nextEntryKey: normalizeKeyboardBindingValue(this.config.keyboardNextEntryKey),
       prevEntryKey: normalizeKeyboardBindingValue(this.config.keyboardPrevEntryKey),
@@ -1322,6 +1381,43 @@ class GamepadHandler {
       navigateRight: normalizeKeyboardBindingValue(this.config.keyboardNavigateRight, 'ArrowRight'),
       mineButton: normalizeKeyboardBindingValue(this.config.keyboardMineButton),
     };
+    this.sendKeyboardCaptureAllowlist();
+  }
+
+  /**
+   * Build the set of key identifiers the overlay actually reacts to. The server
+   * only broadcasts these keys (plus the modifier keys, needed so combos can be
+   * tracked) — every other key the user types is never transmitted. This is the
+   * allowlist that keeps the input server from behaving like a keylogger.
+   */
+  buildKeyboardCaptureAllowlist() {
+    // Modifier keys are always needed so the client can track modifier state for
+    // combos and modifier-only hotkeys. They reveal no typed content.
+    const keys = new Set([
+      'ShiftLeft', 'ShiftRight',
+      'ControlLeft', 'ControlRight',
+      'AltLeft', 'AltRight',
+      'MetaLeft', 'MetaRight',
+    ]);
+    const bindings = this.keyboardBindings || {};
+    for (const binding of Object.values(bindings)) {
+      if (binding && !binding.disabled && binding.key) {
+        keys.add(binding.key);
+      }
+    }
+    return Array.from(keys);
+  }
+
+  sendKeyboardCaptureAllowlist() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    try {
+      this.ws.send(JSON.stringify({
+        type: 'configure_keyboard_capture',
+        keys: this.buildKeyboardCaptureAllowlist(),
+      }));
+    } catch (error) {
+      console.warn('[GamepadHandler] Failed to send keyboard capture allowlist:', error);
+    }
   }
 
   syncButtonStatesFromSnapshot(device, buttons) {
@@ -1376,6 +1472,19 @@ class GamepadHandler {
     return this.bindingContainsButton(binding, buttonIndex) && this.isButtonBindingHeld(binding, device);
   }
 
+  areButtonBindingsEquivalent(left, right) {
+    if (!left || !right || left.disabled || right.disabled) {
+      return false;
+    }
+    if (!Array.isArray(left.buttons) || !Array.isArray(right.buttons)) {
+      return false;
+    }
+    if (left.buttons.length !== right.buttons.length) {
+      return false;
+    }
+    return left.buttons.every((buttonIndex, index) => buttonIndex === right.buttons[index]);
+  }
+
   describeButtonBinding(binding) {
     return binding && typeof binding.label === 'string' ? binding.label : 'Disabled';
   }
@@ -1385,23 +1494,23 @@ class GamepadHandler {
   }
 
   isUsingYomitanApi() {
-    return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'yomitan-api';
+    return String(this.config.tokenizerBackend || 'sudachi').toLowerCase() === 'yomitan-api';
   }
 
   isUsingSudachi() {
-    return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'sudachi';
+    return String(this.config.tokenizerBackend || 'sudachi').toLowerCase() === 'sudachi';
   }
 
   isUsingYomitanBridge() {
-    return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'yomitan-bridge';
+    return String(this.config.tokenizerBackend || 'sudachi').toLowerCase() === 'yomitan-bridge';
   }
 
   isUsingJitenApi() {
-    return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'jiten-api';
+    return String(this.config.tokenizerBackend || 'sudachi').toLowerCase() === 'jiten-api';
   }
 
   isUsingJpdbApi() {
-    return String(this.config.tokenizerBackend || 'mecab').toLowerCase() === 'jpdb-api';
+    return String(this.config.tokenizerBackend || 'sudachi').toLowerCase() === 'jpdb-api';
   }
 
   getYomitanApiBaseUrl() {
@@ -1467,7 +1576,7 @@ class GamepadHandler {
       return Array.isArray(segments) ? segments : [];
     }
     return utils.normalizeBackendSegments(text, segments, {
-      source: source || String(this.config.tokenizerBackend || 'mecab').toLowerCase(),
+      source: source || String(this.config.tokenizerBackend || 'sudachi').toLowerCase(),
     });
   }
 
@@ -1488,7 +1597,7 @@ class GamepadHandler {
     return this.requestFuriganaFromServer(text, lineIndex, timeout, normalizedBackend);
   }
 
-  requestFuriganaFromServer(text, lineIndex = 0, timeout = 5000, backend = 'mecab') {
+  requestFuriganaFromServer(text, lineIndex = 0, timeout = 5000, backend = 'sudachi') {
     return new Promise((resolve, reject) => {
       const normalizedBackend = this.normalizeLocalTokenizerFallbackBackend(backend);
       if (!this.wsConnected || !this.ws) {
@@ -1636,6 +1745,7 @@ class GamepadHandler {
         segments,
         mecabAvailable: false,
         jitenApiAvailable: true,
+        jitenPayload: payload,
       };
     } catch (error) {
       throw error;
@@ -1688,6 +1798,25 @@ class GamepadHandler {
     const requestTimeout = Number.isFinite(timeout) ? timeout : this.config.jitenRequestTimeout;
     const safeTimeout = Math.max(400, Math.min(20000, Number(requestTimeout) || 2200));
     const endpoint = this.getJitenApiEndpoint();
+
+    // Prefer the main-process cache (shared with the Jiten Reader extension).
+    // Falls back to a direct fetch if the IPC bridge is unavailable.
+    const ipc = (typeof window !== 'undefined') ? window.ipcRenderer : null;
+    if (ipc && typeof ipc.invoke === 'function') {
+      try {
+        const payload = await ipc.invoke('gsm-jiten-parse', {
+          text,
+          apiKey,
+          endpoint,
+          timeout: safeTimeout,
+        });
+        this.jitenApiReachable = true;
+        return payload;
+      } catch (error) {
+        this.jitenApiReachable = false;
+        throw error;
+      }
+    }
 
     const controller = typeof AbortController === 'function' ? new AbortController() : null;
     let timeoutId = null;
@@ -2551,6 +2680,20 @@ class GamepadHandler {
       return;
     }
 
+    // Forward other curated keys (space/ctrl/escape) to the target game window
+    for (const { binding, key } of this.getForwardKeyKeyboardBindings()) {
+      if (keyboardEventMatchesBinding(binding, keyName, keys, mods)) {
+        this.forwardKeyToTargetWindow(key);
+        return;
+      }
+    }
+
+    // Forward a left click to the center of the target game window
+    if (keyboardEventMatchesBinding(kb.forwardClickKey, keyName, keys, mods)) {
+      this.forwardClickToTargetWindow();
+      return;
+    }
+
     // Manual overlay scan
     if (keyboardEventMatchesBinding(kb.manualOverlayScanKey, keyName, keys, mods)) {
       this.requestManualOverlayScan();
@@ -2581,6 +2724,10 @@ class GamepadHandler {
       }
       if (keyboardEventMatchesBinding(kb.tokenModeToggleKey, keyName, keys, mods)) {
         this.toggleTokenMode();
+        return;
+      }
+      if (keyboardEventMatchesBinding(kb.pauseToggleKey, keyName, keys, mods)) {
+        this.toggleNavigationPause();
         return;
       }
       if (keyboardEventMatchesBinding(kb.mineButton, keyName, keys, mods)) {
@@ -2704,6 +2851,8 @@ class GamepadHandler {
     const confirmBinding = this.buttonBindings.confirmButton;
     const cancelBinding = this.buttonBindings.cancelButton;
     const tokenModeToggleBinding = this.buttonBindings.tokenModeToggleButton;
+    const pauseToggleBinding = this.buttonBindings.pauseToggleButton;
+    const mineBinding = this.buttonBindings.mineButton;
     const nextEntryBinding = this.buttonBindings.nextEntryButton;
     const prevEntryBinding = this.buttonBindings.prevEntryButton;
 
@@ -2717,6 +2866,18 @@ class GamepadHandler {
 
     if (this.matchesButtonBindingDown(forwardEnterBinding, device, buttonIndex)) {
       this.forwardEnterToTargetWindow();
+      return;
+    }
+
+    for (const { binding, key } of this.getForwardKeyButtonBindings()) {
+      if (this.matchesButtonBindingDown(binding, device, buttonIndex)) {
+        this.forwardKeyToTargetWindow(key);
+        return;
+      }
+    }
+
+    if (this.matchesButtonBindingDown(this.buttonBindings.forwardClickButton, device, buttonIndex)) {
+      this.forwardClickToTargetWindow();
       return;
     }
 
@@ -2747,13 +2908,25 @@ class GamepadHandler {
         this.cancelSelection();
         return;
       }
+      if (
+        !this.areButtonBindingsEquivalent(mineBinding, confirmBinding) &&
+        this.matchesButtonBindingDown(mineBinding, device, buttonIndex)
+      ) {
+        this.triggerMining();
+        return;
+      }
       // Handle token mode toggle (Y button by default)
       if (this.matchesButtonBindingDown(tokenModeToggleBinding, device, buttonIndex)) {
         this.toggleTokenMode();
         return;
       }
+      // Pause/resume the text source on demand (only while navigating)
+      if (this.matchesButtonBindingDown(pauseToggleBinding, device, buttonIndex)) {
+        this.toggleNavigationPause();
+        return;
+      }
     }
-    
+
     // Handle D-Pad navigation
     if (this.shouldProcessNavigation(device)) {
       this.handleDPadNavigation(buttonIndex, device);
@@ -2769,6 +2942,41 @@ class GamepadHandler {
     ipc.send('gamepad-forward-enter');
   }
 
+  // Curated keys (besides Enter) that can be forwarded to the target game window.
+  getForwardKeyButtonBindings() {
+    return [
+      { binding: this.buttonBindings.forwardSpaceButton, key: 'space' },
+      { binding: this.buttonBindings.forwardCtrlButton, key: 'ctrl' },
+      { binding: this.buttonBindings.forwardEscapeButton, key: 'escape' },
+    ];
+  }
+
+  getForwardKeyKeyboardBindings() {
+    return [
+      { binding: this.keyboardBindings.forwardSpaceKey, key: 'space' },
+      { binding: this.keyboardBindings.forwardCtrlKey, key: 'ctrl' },
+      { binding: this.keyboardBindings.forwardEscapeKey, key: 'escape' },
+    ];
+  }
+
+  forwardKeyToTargetWindow(key) {
+    const ipc = this.getIpcRenderer();
+    if (!ipc) {
+      return;
+    }
+
+    ipc.send('gamepad-forward-key', key);
+  }
+
+  forwardClickToTargetWindow() {
+    const ipc = this.getIpcRenderer();
+    if (!ipc) {
+      return;
+    }
+
+    ipc.send('gamepad-forward-click');
+  }
+
   requestManualOverlayScan() {
     const ipc = this.getIpcRenderer();
     if (!ipc) {
@@ -2777,7 +2985,30 @@ class GamepadHandler {
 
     ipc.send('gamepad-manual-overlay-scan');
   }
-  
+
+  // Ask main to pause/resume the text source. Main owns the authoritative state
+  // (it only acts while navigation is active) and echoes it back via setNavigationPauseActive().
+  toggleNavigationPause() {
+    if (!this.isNavigationActive()) {
+      return;
+    }
+    const ipc = this.getIpcRenderer();
+    if (!ipc) {
+      return;
+    }
+    ipc.send('gamepad-toggle-pause');
+  }
+
+  // Apply the authoritative pause state reported by main (or local reset on deactivate).
+  setNavigationPauseActive(active) {
+    const nextActive = active === true;
+    if (this.navigationPauseActive === nextActive) {
+      return;
+    }
+    this.navigationPauseActive = nextActive;
+    this.updateModeIndicatorText();
+  }
+
   onButtonUp(buttonIndex, device) {
     // Clear repeat timer for this button
     const timerKey = `${device}-${buttonIndex}`;
@@ -3255,6 +3486,7 @@ class GamepadHandler {
     this.scanHiddenCharacterToHideYomitan();
     this.isActive = false;
     this.publishNavigationActiveState(false);
+    this.navigationPauseActive = false;
     this.clearPendingMineCandidate();
     this.virtualMouse.movedByAnalog = false;
     this.virtualMouse.lastMoveTime = 0;
@@ -3615,23 +3847,91 @@ class GamepadHandler {
     return true;
   }
 
+  prepareForOverlayTextRender() {
+    return this.rememberCurrentSelectionSnapshot();
+  }
+
+  restoreSelectionFromSnapshot(snapshot = this.lastSelectionSnapshot) {
+    if (!snapshot || this.textBlocks.length === 0) {
+      return false;
+    }
+
+    const nearbyBlockIndex = this.findNearbySelectableBlockIndex(snapshot);
+    const currentBlockIsUsable = (
+      this.currentBlockIndex >= 0 &&
+      this.currentBlockIndex < this.textBlocks.length &&
+      this.blockHasSelectableCharacters(this.textBlocks[this.currentBlockIndex])
+    );
+    const targetBlockIndex = nearbyBlockIndex >= 0
+      ? nearbyBlockIndex
+      : (currentBlockIsUsable ? this.currentBlockIndex : this.findFirstSelectableBlockIndex());
+
+    if (targetBlockIndex < 0 || targetBlockIndex >= this.textBlocks.length) {
+      return false;
+    }
+
+    this.currentBlockIndex = targetBlockIndex;
+    this.refreshCharacters();
+    this.currentCursorIndex = this.restoreCursorFromSelectionSnapshot(snapshot);
+    this.currentLineIndex = this.getLineIndexForCursor();
+    this.rememberCurrentSelectionSnapshot();
+    return true;
+  }
+
+  handleOverlayTextRenderComplete(options = {}) {
+    const preserveSelection = options.preserveSelection !== false;
+    const snapshot = options.snapshot || this.lastSelectionSnapshot;
+    const navigationActive = this.isNavigationActive();
+
+    if (snapshot) {
+      this.lastSelectionSnapshot = snapshot;
+    }
+
+    this.skipNextTextRefresh = true;
+    this.preserveSelectionOnNextTextRefresh = preserveSelection;
+    this.virtualMouse.movedByAnalog = false;
+    this.virtualMouse.lastMoveTime = 0;
+    this.updateVirtualMouseCursor();
+
+    this.refreshTextBlocks();
+    if (preserveSelection && snapshot) {
+      this.restoreSelectionFromSnapshot(snapshot);
+    }
+    this.prefetchTokenizationForAllBlocks();
+    this.syncVirtualMouseToCurrentSelection();
+
+    if (navigationActive) {
+      this.updateVisuals();
+    }
+  }
+
   scheduleTextRefresh() {
     if (this.pendingTextRefresh) return;
     this.pendingTextRefresh = true;
 
     requestAnimationFrame(() => {
       this.pendingTextRefresh = false;
+      if (this.skipNextTextRefresh) {
+        this.skipNextTextRefresh = false;
+        this.preserveSelectionOnNextTextRefresh = false;
+        return;
+      }
       this.refreshOnTextChange();
     });
   }
 
   refreshOnTextChange() {
     const navigationActive = this.isNavigationActive();
+    const preserveSelection = this.preserveSelectionOnNextTextRefresh === true;
+    const selectionSnapshot = preserveSelection
+      ? (this.lastSelectionSnapshot || this.rememberCurrentSelectionSnapshot())
+      : null;
+    this.preserveSelectionOnNextTextRefresh = false;
     this.virtualMouse.movedByAnalog = false;
     this.virtualMouse.lastMoveTime = 0;
     this.updateVirtualMouseCursor();
 
-    if (navigationActive) {
+    if (navigationActive && !preserveSelection) {
       this.scanHiddenCharacterToHideYomitan();
     }
 
@@ -3649,18 +3949,24 @@ class GamepadHandler {
     }
 
     // When content collapses to a single block, default selection to its first position.
-    if (this.textBlocks.length === 1 && (previousBlockCount !== 1 || this.currentBlockIndex !== 0 || this.currentCursorIndex !== 0)) {
+    if (!preserveSelection && this.textBlocks.length === 1 && (previousBlockCount !== 1 || this.currentBlockIndex !== 0 || this.currentCursorIndex !== 0)) {
       this.resetSelectionToSingleBlockStart();
     }
 
     // If we were on the last block, follow newly appended text while active.
-    if (navigationActive && wasOnLastBlock && this.textBlocks.length > previousBlockCount) {
+    if (!preserveSelection && navigationActive && wasOnLastBlock && this.textBlocks.length > previousBlockCount) {
       this.currentBlockIndex = this.textBlocks.length - 1;
       this.currentCursorIndex = 0;
       this.currentLineIndex = 0;
       this.lineNavPrefersCharacters = false;
       this.refreshCharacters();
     }
+
+    if (preserveSelection && selectionSnapshot) {
+      this.restoreSelectionFromSnapshot(selectionSnapshot);
+    }
+
+    this.syncVirtualMouseToCurrentSelection();
 
     if (navigationActive) {
       this.updateVisuals();
@@ -4172,7 +4478,7 @@ class GamepadHandler {
     return this.requestTokenizationFromServer(blockIndex, text, normalizedBackend);
   }
 
-  requestTokenizationFromServer(blockIndex, text, backend = 'mecab') {
+  requestTokenizationFromServer(blockIndex, text, backend = 'sudachi') {
     const normalizedBackend = this.normalizeLocalTokenizerFallbackBackend(backend);
     if (!this.wsConnected || !this.ws) {
       throw new Error('Not connected to server');
@@ -4872,8 +5178,35 @@ class GamepadHandler {
     const unitType = this.tokenMode && this.tokens.length > 0 ? 'token' : 'char';
     console.log(`[GamepadHandler] Cursor RIGHT: now at ${unitType} ${this.currentCursorIndex}`);
   }
-  
+
   // ==================== Cursor Positioning for Yomitan ====================
+
+  syncVirtualMouseToCurrentSelection() {
+    if (!this.virtualMouse || !Array.isArray(this.characters) || this.characters.length === 0) {
+      if (this.virtualMouse) {
+        this.virtualMouse.initialized = false;
+        this.virtualMouse.movedByAnalog = false;
+        this.virtualMouse.lastMoveTime = 0;
+        this.virtualMouse.lastUpdateTime = 0;
+      }
+      return false;
+    }
+
+    const lookupTarget = this.getTargetCharForLookup();
+    if (!lookupTarget.targetChar) {
+      this.virtualMouse.initialized = false;
+      this.virtualMouse.movedByAnalog = false;
+      this.virtualMouse.lastMoveTime = 0;
+      this.virtualMouse.lastUpdateTime = 0;
+      return false;
+    }
+
+    this.virtualMouse.movedByAnalog = false;
+    this.virtualMouse.lastMoveTime = 0;
+    this.virtualMouse.lastUpdateTime = 0;
+    this.setVirtualMousePosition(lookupTarget.centerX, lookupTarget.centerY, false);
+    return true;
+  }
 
   initializeVirtualMousePosition(force = false) {
     if (this.virtualMouse.initialized && !force) return;
@@ -4890,11 +5223,125 @@ class GamepadHandler {
     this.setVirtualMousePosition(x, y, false);
   }
 
+  getVirtualMouseConstraintRects() {
+    if ((!Array.isArray(this.textBlocks) || this.textBlocks.length === 0) && typeof this.refreshTextBlocks === 'function') {
+      this.refreshTextBlocks();
+    }
+
+    const rects = [];
+    (Array.isArray(this.textBlocks) ? this.textBlocks : []).forEach((block, index) => {
+      if (!block || !block.isConnected) return;
+      if (typeof this.blockHasSelectableCharacters === 'function' && !this.blockHasSelectableCharacters(block)) return;
+
+      const rawRect = this.getBlockBoundingRect(block);
+      if (!rawRect) return;
+
+      const left = Number.isFinite(rawRect.left) ? rawRect.left : 0;
+      const top = Number.isFinite(rawRect.top) ? rawRect.top : 0;
+      const width = Number.isFinite(rawRect.width)
+        ? Math.max(0, rawRect.width)
+        : Math.max(0, (Number.isFinite(rawRect.right) ? rawRect.right : left) - left);
+      const height = Number.isFinite(rawRect.height)
+        ? Math.max(0, rawRect.height)
+        : Math.max(0, (Number.isFinite(rawRect.bottom) ? rawRect.bottom : top) - top);
+      const right = Number.isFinite(rawRect.right) ? rawRect.right : left + width;
+      const bottom = Number.isFinite(rawRect.bottom) ? rawRect.bottom : top + height;
+
+      if (width <= 0 || height <= 0 || right <= left || bottom <= top) return;
+
+      rects.push({
+        block,
+        index,
+        left,
+        top,
+        right,
+        bottom,
+        width,
+        height,
+      });
+    });
+
+    return rects;
+  }
+
+  isPointInRect(x, y, rect) {
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  }
+
+  clampPointToRect(x, y, rect) {
+    return {
+      x: Math.max(rect.left, Math.min(x, rect.right)),
+      y: Math.max(rect.top, Math.min(y, rect.bottom)),
+    };
+  }
+
+  constrainVirtualMousePointToBlocks(x, y) {
+    const rects = this.getVirtualMouseConstraintRects();
+    if (rects.length === 0) {
+      return { x, y, block: null, blockIndex: -1, constrained: false };
+    }
+
+    // Only physically contain the cursor when there is a single block. With
+    // multiple blocks the cursor must roam freely across the whole layout;
+    // clamping to the nearest block here would otherwise snap every analog
+    // step back onto the current block and prevent crossing into neighbors.
+    if (rects.length > 1) {
+      const containingRect = rects.find(rect => this.isPointInRect(x, y, rect));
+      return containingRect
+        ? { x, y, block: containingRect.block, blockIndex: containingRect.index, constrained: false }
+        : { x, y, block: null, blockIndex: -1, constrained: false };
+    }
+
+    const currentRect = rects.find(rect => rect.index === this.currentBlockIndex && this.isPointInRect(x, y, rect));
+    if (currentRect) {
+      return { x, y, block: currentRect.block, blockIndex: currentRect.index, constrained: false };
+    }
+
+    const containingRect = rects.find(rect => this.isPointInRect(x, y, rect));
+    if (containingRect) {
+      return { x, y, block: containingRect.block, blockIndex: containingRect.index, constrained: false };
+    }
+
+    let best = null;
+    for (const rect of rects) {
+      const point = this.clampPointToRect(x, y, rect);
+      const dx = point.x - x;
+      const dy = point.y - y;
+      const score = (dx * dx) + (dy * dy);
+      const isCurrentBlock = rect.index === this.currentBlockIndex;
+
+      if (
+        !best ||
+        score < best.score ||
+        (score === best.score && isCurrentBlock && best.blockIndex !== this.currentBlockIndex)
+      ) {
+        best = {
+          ...point,
+          block: rect.block,
+          blockIndex: rect.index,
+          score,
+        };
+      }
+    }
+
+    return best
+      ? { x: best.x, y: best.y, block: best.block, blockIndex: best.blockIndex, constrained: true }
+      : { x, y, block: null, blockIndex: -1, constrained: false };
+  }
+
   setVirtualMousePosition(x, y, dispatchMove = false) {
-    const viewportWidth = Math.max(1, window.innerWidth || document.documentElement.clientWidth || 1);
-    const viewportHeight = Math.max(1, window.innerHeight || document.documentElement.clientHeight || 1);
-    const clampedX = Math.min(viewportWidth - 1, Math.max(0, Number(x) || 0));
-    const clampedY = Math.min(viewportHeight - 1, Math.max(0, Number(y) || 0));
+    const viewportWidth = Math.max(1, window.innerWidth || document.documentElement?.clientWidth || 1);
+    const viewportHeight = Math.max(1, window.innerHeight || document.documentElement?.clientHeight || 1);
+    let clampedX = Math.min(viewportWidth - 1, Math.max(0, Number(x) || 0));
+    let clampedY = Math.min(viewportHeight - 1, Math.max(0, Number(y) || 0));
+    const constrainedPoint = dispatchMove
+      ? this.constrainVirtualMousePointToBlocks(clampedX, clampedY)
+      : null;
+
+    if (constrainedPoint) {
+      clampedX = Math.min(viewportWidth - 1, Math.max(0, constrainedPoint.x));
+      clampedY = Math.min(viewportHeight - 1, Math.max(0, constrainedPoint.y));
+    }
 
     this.virtualMouse.x = clampedX;
     this.virtualMouse.y = clampedY;
@@ -4903,10 +5350,17 @@ class GamepadHandler {
 
     if (!dispatchMove) return;
 
-    const targetElement = document.elementFromPoint(clampedX, clampedY);
-    if (targetElement) {
-      this.simulateMousePosition(clampedX, clampedY, targetElement);
-      this.syncSelectionFromVirtualMouse(targetElement);
+    const targetElement = typeof document.elementFromPoint === 'function'
+      ? document.elementFromPoint(clampedX, clampedY)
+      : null;
+    let sourceElement = targetElement;
+    if (constrainedPoint?.block && (!targetElement || this.getBlockIndexForElement(targetElement) < 0)) {
+      sourceElement = constrainedPoint.block;
+    }
+
+    if (sourceElement) {
+      this.simulateMousePosition(clampedX, clampedY, sourceElement);
+      this.syncSelectionFromVirtualMouse(sourceElement);
     }
   }
 
@@ -5865,11 +6319,12 @@ class GamepadHandler {
   
   updateModeIndicatorText() {
     if (this.modeIndicator) {
+      const pausedSuffix = this.navigationPauseActive ? ' · ⏸ Paused' : '';
       if (!this.currentBlockSupportsTokenization()) {
-        this.modeIndicator.innerHTML = 'Character Mode';
+        this.modeIndicator.innerHTML = `Character Mode${pausedSuffix}`;
         return;
       }
-      let tokenBackendReady = this.mecabAvailable;
+      let tokenBackendReady = (this.mecabAvailable && this.wsConnected) || this.tokens.length > 0;
       if (this.isUsingSudachi()) {
         tokenBackendReady = (this.sudachiAvailable && this.wsConnected) || this.tokens.length > 0;
       } else if (this.isUsingYomitanBridge()) {
@@ -5882,7 +6337,7 @@ class GamepadHandler {
         tokenBackendReady = this.jpdbApiReachable || this.tokens.length > 0;
       }
       const modeText = this.tokenMode && tokenBackendReady ? 'Token Mode' : 'Character Mode';
-      this.modeIndicator.innerHTML = modeText;
+      this.modeIndicator.innerHTML = `${modeText}${pausedSuffix}`;
     }
   }
 
@@ -5964,10 +6419,9 @@ class GamepadHandler {
       this.config.jpdbApiKey !== oldJpdbApiKey
     );
     if (backendChanged) {
-      if (!this.wsConnected) {
-        this.mecabAvailable = false;
-        this.sudachiAvailable = false;
-      }
+      this.mecabAvailable = false;
+      this.sudachiAvailable = false;
+      this.primeConfiguredLocalTokenizerAvailability();
       this.yomitanBridgeReachable = false;
       this.yomitanApiReachable = false;
       this.jitenApiReachable = false;
@@ -5994,8 +6448,14 @@ class GamepadHandler {
       safeConfig.confirmButton = this.describeButtonBinding(this.buttonBindings.confirmButton);
       safeConfig.cancelButton = this.describeButtonBinding(this.buttonBindings.cancelButton);
       safeConfig.forwardEnterButton = this.describeButtonBinding(this.buttonBindings.forwardEnterButton);
+      safeConfig.forwardSpaceButton = this.describeButtonBinding(this.buttonBindings.forwardSpaceButton);
+      safeConfig.forwardCtrlButton = this.describeButtonBinding(this.buttonBindings.forwardCtrlButton);
+      safeConfig.forwardEscapeButton = this.describeButtonBinding(this.buttonBindings.forwardEscapeButton);
+      safeConfig.forwardClickButton = this.describeButtonBinding(this.buttonBindings.forwardClickButton);
       safeConfig.manualOverlayScanButton = this.describeButtonBinding(this.buttonBindings.manualOverlayScanButton);
+      safeConfig.pauseToggleButton = this.describeButtonBinding(this.buttonBindings.pauseToggleButton);
       safeConfig.tokenModeToggleButton = this.describeButtonBinding(this.buttonBindings.tokenModeToggleButton);
+      safeConfig.mineButton = this.describeButtonBinding(this.buttonBindings.mineButton);
       safeConfig.nextEntryButton = this.describeButtonBinding(this.buttonBindings.nextEntryButton);
       safeConfig.prevEntryButton = this.describeButtonBinding(this.buttonBindings.prevEntryButton);
     }

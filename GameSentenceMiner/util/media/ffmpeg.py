@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.util.config.configuration import (
+    ANIMATED_SCREENSHOT_CODEC_DEFAULT,
+    ANIMATED_SCREENSHOT_CODECS,
     ffmpeg_base_command_list,
     get_ffprobe_path,
     logger,
@@ -48,6 +50,183 @@ supported_formats = {
 
 # How close the detected ratio needs to be to a known ratio to snap (e.g., 0.05 = 5%)
 RATIO_TOLERANCE = 0.05
+ADAPTIVE_AVIF_BASE_CRF = 40
+ADAPTIVE_AVIF_TIERS = (
+    (10.0, 0.50, 0.75, 5),
+    (5.0, 0.80, 5 / 6, 2),
+    (0.0, 1.00, 1.00, 0),
+)
+
+
+def _normalize_av1_encoder(av1_encoder: str | None) -> str:
+    if av1_encoder in ANIMATED_SCREENSHOT_CODECS:
+        return av1_encoder
+    return ANIMATED_SCREENSHOT_CODEC_DEFAULT
+
+
+def _fallback_av1_encoder(av1_encoder: str | None) -> str:
+    normalized = _normalize_av1_encoder(av1_encoder)
+    for candidate in ANIMATED_SCREENSHOT_CODECS:
+        if candidate != normalized:
+            return candidate
+    return normalized
+
+
+def _av1_encoder_args(av1_encoder: str | None, quality: int | str) -> List[str]:
+    av1_encoder = _normalize_av1_encoder(av1_encoder)
+    if av1_encoder == "libsvtav1":
+        return [
+            "-c:v",
+            "libsvtav1",
+            "-crf",
+            str(quality),
+            "-preset",
+            "8",
+            "-pix_fmt",
+            "yuv420p",
+        ]
+
+    return [
+        "-c:v",
+        "libaom-av1",
+        "-cpu-used",
+        "6",
+        "-crf",
+        str(quality),
+        "-pix_fmt",
+        "yuv420p",
+    ]
+
+
+def _is_webp_output(output_image: str | Path) -> bool:
+    return Path(output_image).suffix.lower() == ".webp"
+
+
+def _jpeg_fallback_output_path(output_image: str | Path) -> str:
+    return make_unique_file_name(str(Path(output_image).with_suffix(".jpeg")))
+
+
+def _jpeg_screenshot_args() -> List[str]:
+    return ["-q:v", str(get_config().screenshot.quality), "-pix_fmt", "yuvj420p"]
+
+
+def _coerce_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _fraction_to_float(value: Any) -> float:
+    if not value:
+        return 0.0
+
+    try:
+        numerator, denominator = str(value).split("/", 1)
+        denominator_value = float(denominator)
+        if denominator_value == 0:
+            return 0.0
+        return float(numerator) / denominator_value
+    except (TypeError, ValueError):
+        return _coerce_float(value, 0.0)
+
+
+def _avif_animation_stream_map_args(input_path: str | Path, codec: str) -> List[str]:
+    if codec != "avif":
+        return []
+
+    info = FFmpegHelper.get_probe_json(
+        str(input_path),
+        "stream=index,nb_frames,duration,avg_frame_rate:stream_tags=handler_name",
+        "v",
+    )
+    streams = info.get("streams", []) if info else []
+    if len(streams) < 2:
+        return []
+
+    def _score(stream: dict) -> tuple[bool, bool, bool, bool, float]:
+        tags = stream.get("tags") or {}
+        frame_count = _coerce_int(stream.get("nb_frames"), 0)
+        duration = _coerce_float(stream.get("duration"), 0.0)
+        frame_rate = _fraction_to_float(stream.get("avg_frame_rate"))
+        return (
+            frame_count > 1,
+            duration > 0,
+            frame_rate > 1,
+            tags.get("handler_name") == "PictureHandler",
+            frame_rate,
+        )
+
+    selected = max(streams, key=_score)
+    if not any(_score(selected)[:-1]):
+        return []
+
+    stream_index = selected.get("index")
+    if stream_index is None:
+        return []
+
+    return ["-map", f"0:{stream_index}"]
+
+
+def _adaptive_avif_encode_settings(
+    duration: float,
+    fps: int | None,
+    max_width: int | None,
+    quality: int | str,
+) -> tuple[int, int, int]:
+    fps_value = _coerce_int(fps, 30)
+    max_width_value = _coerce_int(max_width, 480)
+    quality_value = _coerce_int(quality, ADAPTIVE_AVIF_BASE_CRF)
+
+    fps_multiplier, width_multiplier, crf_offset = ADAPTIVE_AVIF_TIERS[-1][1:]
+    for minimum_duration, tier_fps_multiplier, tier_width_multiplier, tier_crf_offset in ADAPTIVE_AVIF_TIERS:
+        if duration > minimum_duration:
+            fps_multiplier = tier_fps_multiplier
+            width_multiplier = tier_width_multiplier
+            crf_offset = tier_crf_offset
+            break
+
+    effective_fps = max(1, round(fps_value * fps_multiplier)) if fps_value > 0 else max(1, round(30 * fps_multiplier))
+    effective_width = max(2, round(max_width_value * width_multiplier)) if max_width_value > 0 else 0
+    effective_quality = max(0, min(63, quality_value + crf_offset))
+    return effective_fps, effective_width, effective_quality
+
+
+def _run_av1_command_with_fallback(
+    command_base: List[str],
+    av1_encoder: str | None,
+    quality: int | str,
+    output_args: List[str],
+    output_path: str | Path,
+    fallback_enabled: bool,
+) -> subprocess.CompletedProcess:
+    primary_encoder = _normalize_av1_encoder(av1_encoder)
+    primary_command = command_base + _av1_encoder_args(primary_encoder, quality) + output_args + [str(output_path)]
+
+    try:
+        return FFmpegHelper.run(primary_command, check=True)
+    except Exception as primary_error:
+        fallback_encoder = _fallback_av1_encoder(primary_encoder)
+        if not fallback_enabled or fallback_encoder == primary_encoder:
+            raise
+
+        logger.warning(f"AV1 encoding with {primary_encoder} failed; retrying with {fallback_encoder}: {primary_error}")
+        try:
+            Path(output_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+        fallback_command = (
+            command_base + _av1_encoder_args(fallback_encoder, quality) + output_args + [str(output_path)]
+        )
+        return FFmpegHelper.run(fallback_command, check=True)
 
 
 class FFmpegHelper:
@@ -183,6 +362,35 @@ class FFmpegHelper:
         return None
 
 
+def _build_screenshot_video_filters(
+    source_video_path: str | Path | None = None,
+    screenshot_timing: float | None = None,
+    use_negative_two: bool = False,
+) -> List[str]:
+    screenshot_config = get_config().screenshot
+    video_filters = []
+
+    if screenshot_config.trim_black_bars_wip and source_video_path and screenshot_timing is not None:
+        crop_filter = find_black_bars(source_video_path, screenshot_timing)
+        if crop_filter:
+            video_filters.append(crop_filter)
+
+    scale_filter = FFmpegHelper.get_scale_filter(
+        screenshot_config.width,
+        screenshot_config.height,
+        use_negative_two=use_negative_two,
+    )
+    if scale_filter:
+        video_filters.append(scale_filter)
+
+    return video_filters
+
+
+def _extend_video_filters(command: List[str], video_filters: List[str]) -> None:
+    if video_filters:
+        command.extend(["-vf", ",".join(video_filters)])
+
+
 def video_to_anim(
     input_path: str | Path,
     output_path: str | Path = None,
@@ -190,7 +398,7 @@ def video_to_anim(
     start: str = None,  # e.g. "00:00:12.5"
     duration: float = None,  # seconds
     fps: int = 12,
-    max_width: int = 960,
+    max_width: int = None,
     max_height: int = None,
     quality: int = 65,  # 0..100, for avif: 0 (lossless) to 63 (worst), for webm: CRF value
     compression_level: int = 6,  # for webp: 0..6 (ignored for audio)
@@ -199,6 +407,10 @@ def video_to_anim(
     crop: str = None,  # e.g. "1280:720:0:140"
     extra_vf: list[str] = None,
     audio: bool = None,  # whether to include audio, outputs WebM with VP9/Opus
+    av1_encoder: str = ANIMATED_SCREENSHOT_CODEC_DEFAULT,
+    adaptive_avif: bool | None = None,
+    avif_faststart: bool | None = None,
+    av1_encoder_fallback: bool | None = None,
 ) -> Path:
     """Convert video to efficient animated WebP/AVIF or WebM with audio using ffmpeg."""
 
@@ -222,6 +434,21 @@ def video_to_anim(
 
     if output_path.suffix.lower() != target_ext:
         output_path = output_path.with_suffix(target_ext)
+
+    animated_settings = getattr(get_config().screenshot, "animated_settings", None)
+    if max_width is None:
+        max_width = getattr(animated_settings, "max_width", 960)
+    if adaptive_avif is None:
+        adaptive_avif = bool(getattr(animated_settings, "adaptive_avif", False))
+    if avif_faststart is None:
+        avif_faststart = bool(getattr(animated_settings, "faststart", True))
+    if av1_encoder_fallback is None:
+        av1_encoder_fallback = bool(getattr(animated_settings, "encoder_fallback", True))
+
+    if duration is None or duration == 0:
+        duration = 15.0
+    if codec == "avif" and not audio and adaptive_avif:
+        fps, max_width, quality = _adaptive_avif_encode_settings(duration, fps, max_width, quality)
 
     # Build filter chain
     vf_parts = []
@@ -261,8 +488,6 @@ def video_to_anim(
 
     cmd += ["-i", str(input_path)]
 
-    if duration is None or duration == 0:
-        duration = 15.0
     cmd += ["-t", str(duration)]
 
     cmd += ["-vf", ",".join(vf_parts)]
@@ -272,22 +497,8 @@ def video_to_anim(
 
     # Codec settings
     if audio:
-        cmd += [
-            "-c:v",
-            "libaom-av1",
-            "-crf",
-            str(quality),
-            "-pix_fmt",
-            "yuv420p",
-            "-cpu-used",
-            "6",
-            "-c:a",
-            "libopus",
-            "-b:a",
-            "128k",
-            "-f",
-            "webm",
-        ]
+        cmd += _av1_encoder_args(av1_encoder, quality)
+        cmd += ["-c:a", "libopus", "-b:a", "128k", "-f", "webm"]
     elif codec == "webp":
         cmd += [
             "-c:v",
@@ -306,16 +517,16 @@ def video_to_anim(
             "0",
         ]
     elif codec == "avif":
-        cmd += [
-            "-c:v",
-            "libaom-av1",
-            "-cpu-used",
-            "6",
-            "-crf",
-            str(quality),
-            "-pix_fmt",
-            "yuv420p",
-        ]
+        output_args = ["-movflags", "+faststart"] if avif_faststart else []
+        _run_av1_command_with_fallback(
+            cmd,
+            av1_encoder,
+            quality,
+            output_args,
+            output_path,
+            av1_encoder_fallback,
+        )
+        return str(output_path)
 
     cmd.append(str(output_path))
 
@@ -341,6 +552,100 @@ def video_to_animation_with_start_end(video_path: str | Path, start: float, end:
         duration=duration,
         **kwargs,
     )
+
+
+def trim_animation(
+    input_path: str | Path,
+    start_offset: float,
+    duration: float,
+    output_path: str | Path = None,
+    codec: str = None,
+    quality: int = None,
+    fps: int = None,
+    av1_encoder: str = None,
+    avif_faststart: bool | None = None,
+    av1_encoder_fallback: bool | None = None,
+) -> Path:
+    """Trim an existing animated WebP/AVIF by re-encoding only the selected span."""
+    if duration <= 0:
+        raise ValueError("duration must be positive")
+
+    input_path = Path(input_path)
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input not found: {input_path}")
+
+    codec = (codec or input_path.suffix.lstrip(".")).lower()
+    if codec not in {"webp", "avif"}:
+        raise ValueError("codec must be 'webp' or 'avif'")
+
+    if quality is None:
+        quality = get_config().screenshot.animated_settings.scaled_quality
+    if av1_encoder is None:
+        av1_encoder = getattr(
+            get_config().screenshot.animated_settings,
+            "codec",
+            ANIMATED_SCREENSHOT_CODEC_DEFAULT,
+        )
+    animated_settings = getattr(get_config().screenshot, "animated_settings", None)
+    if avif_faststart is None:
+        avif_faststart = bool(getattr(animated_settings, "faststart", True))
+    if av1_encoder_fallback is None:
+        av1_encoder_fallback = bool(getattr(animated_settings, "encoder_fallback", True))
+
+    if output_path:
+        output_path = Path(output_path)
+    else:
+        output_path = Path(get_unique_temp_file_for_game(obs.get_current_game(sanitize=True), codec))
+    target_ext = f".{codec}"
+    if output_path.suffix.lower() != target_ext:
+        output_path = output_path.with_suffix(target_ext)
+
+    command = ffmpeg_base_command_list.copy()
+    if start_offset > 0:
+        command.extend(["-ss", f"{start_offset:.3f}"])
+    command.extend(["-i", str(input_path)])
+    command.extend(_avif_animation_stream_map_args(input_path, codec))
+    command.extend(["-t", f"{duration:.3f}", "-an"])
+
+    video_filters = ["pad=ceil(iw/2)*2:ceil(ih/2)*2"]
+    if fps:
+        video_filters.insert(0, f"fps={fps}")
+    command.extend(["-vf", ",".join(video_filters)])
+
+    if codec == "webp":
+        command.extend(
+            [
+                "-c:v",
+                "libwebp",
+                "-lossless",
+                "0",
+                "-q:v",
+                str(quality),
+                "-compression_level",
+                "6",
+                "-preset",
+                "picture",
+                "-loop",
+                "0",
+                "-threads",
+                "0",
+            ]
+        )
+    else:
+        output_args = ["-movflags", "+faststart"] if avif_faststart else []
+        _run_av1_command_with_fallback(
+            command,
+            av1_encoder,
+            quality,
+            output_args,
+            output_path,
+            av1_encoder_fallback,
+        )
+        return str(output_path)
+
+    command.append(str(output_path))
+    FFmpegHelper.run(command, check=True)
+    return str(output_path)
 
 
 def call_frame_extractor(video_path, timestamp):
@@ -414,27 +719,13 @@ def encode_screenshot(input_image, source_video_path=None, screenshot_timing=Non
     # Parse custom settings
     pre_input_args, post_input_args = FFmpegHelper.parse_custom_settings(get_config().screenshot.custom_ffmpeg_settings)
 
-    ffmpeg_command = ffmpeg_base_command_list + pre_input_args + ["-i", input_image]
+    ffmpeg_command_base = ffmpeg_base_command_list + pre_input_args + ["-i", input_image]
 
-    # Build filters
-    video_filters = []
-    if get_config().screenshot.trim_black_bars_wip:
-        crop_filter = find_black_bars(source_video_path, screenshot_timing)
-        if crop_filter:
-            video_filters.append(crop_filter)
-
-    scale_filter = FFmpegHelper.get_scale_filter(
-        get_config().screenshot.width,
-        get_config().screenshot.height,
-        use_negative_two=True,
-    )
-    if scale_filter:
-        video_filters.append(scale_filter)
-
-    if video_filters:
-        ffmpeg_command.extend(["-vf", ",".join(video_filters)])
+    video_filters = _build_screenshot_video_filters(source_video_path, screenshot_timing, use_negative_two=True)
+    _extend_video_filters(ffmpeg_command_base, video_filters)
 
     # Add post-input args or defaults
+    ffmpeg_command = ffmpeg_command_base.copy()
     if get_config().screenshot.custom_ffmpeg_settings:
         ffmpeg_command.extend(post_input_args)
     else:
@@ -443,8 +734,17 @@ def encode_screenshot(input_image, source_video_path=None, screenshot_timing=Non
     ffmpeg_command.append(output_image)
 
     try:
-        result = FFmpegHelper.run(ffmpeg_command, check=True)
+        FFmpegHelper.run(ffmpeg_command, check=True)
     except Exception as e:
+        if _is_webp_output(output_image):
+            fallback_image = _jpeg_fallback_output_path(output_image)
+            fallback_command = ffmpeg_command_base.copy()
+            fallback_command.extend(_jpeg_screenshot_args())
+            fallback_command.append(fallback_image)
+            logger.warning(f"WebP screenshot encoding failed; falling back to JPEG: {e}")
+            FFmpegHelper.run(fallback_command, check=True)
+            logger.debug(f"JPEG fallback screenshot saved to: {fallback_image}")
+            return fallback_image
         logger.error(f"Error encoding screenshot: {e}")
         raise
 
@@ -456,7 +756,7 @@ def get_screenshot(video_file, screenshot_timing, try_selector=False):
     screenshot_timing = screenshot_timing if screenshot_timing else 1
     if try_selector:
         filepath = call_frame_extractor(video_path=video_file, timestamp=screenshot_timing)
-        output = process_image(filepath)
+        output = process_image(filepath, source_video_path=video_file, screenshot_timing=screenshot_timing)
         if output:
             return output
         else:
@@ -482,19 +782,10 @@ def get_screenshot(video_file, screenshot_timing, try_selector=False):
         + ["-i", f"{video_file}", "-vframes", "1"]
     )
 
-    # Build filters
-    video_filters = []
-    if get_config().screenshot.trim_black_bars_wip:
-        crop_filter = find_black_bars(video_file, screenshot_timing)
-        if crop_filter:
-            video_filters.append(crop_filter)
+    video_filters = _build_screenshot_video_filters(video_file, screenshot_timing)
+    _extend_video_filters(ffmpeg_command, video_filters)
 
-    scale_filter = FFmpegHelper.get_scale_filter(get_config().screenshot.width, get_config().screenshot.height)
-    if scale_filter:
-        video_filters.append(scale_filter)
-
-    if video_filters:
-        ffmpeg_command.extend(["-vf", ",".join(video_filters)])
+    fallback_command_base = ffmpeg_command.copy()
 
     if get_config().screenshot.custom_ffmpeg_settings:
         ffmpeg_command.extend(post_input_args)
@@ -510,20 +801,25 @@ def get_screenshot(video_file, screenshot_timing, try_selector=False):
             raise RuntimeError(f"FFmpeg command failed. Stderr: {result.stderr}")
 
     except Exception as e:
-        logger.error(f"Error running FFmpeg command: {e}. Defaulting to standard PNG.")
+        if _is_webp_output(output_image):
+            fallback_image = _jpeg_fallback_output_path(output_image)
+            fallback_command = fallback_command_base.copy()
+            fallback_command.extend(_jpeg_screenshot_args())
+            fallback_command.append(fallback_image)
+            try:
+                logger.warning(f"WebP screenshot encoding failed; falling back to JPEG: {e}")
+                FFmpegHelper.run(fallback_command, check=True, retries=2)
+                logger.debug(f"Screenshot saved to: {fallback_image}")
+                return fallback_image
+            except Exception as fallback_error:
+                logger.error(f"JPEG fallback failed: {fallback_error}. Defaulting to standard PNG.")
+        else:
+            logger.error(f"Error running FFmpeg command: {e}. Defaulting to standard PNG.")
         output_image = make_unique_file_name(
             os.path.join(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.png")
         )
-        # Fallback command
-        fallback_command = ffmpeg_base_command_list + [
-            "-ss",
-            f"{screenshot_timing}",
-            "-i",
-            video_file,
-            "-vframes",
-            "1",
-            output_image,
-        ]
+        fallback_command = fallback_command_base.copy()
+        fallback_command.append(output_image)
         FFmpegHelper.run(fallback_command, check=False)
 
     logger.debug(f"Screenshot saved to: {output_image}")
@@ -628,7 +924,6 @@ def find_black_bars_with_ratio_snapping(video_file, screenshot_timing):
                 best_match = known
 
         if best_match and min_diff <= RATIO_TOLERANCE:
-            target_name = best_match["name"]
             target_ratio = best_match["ratio"]
 
             crop_width, crop_height, crop_x, crop_y = _calculate_target_crop(orig_width, orig_height, target_ratio)
@@ -805,7 +1100,7 @@ def get_screenshot_time(
     return screenshot_time_from_beginning
 
 
-def process_image(image_file):
+def process_image(image_file, source_video_path: str | Path | None = None, screenshot_timing: float | None = None):
     output_image = make_unique_file_name(
         os.path.join(
             get_temporary_directory(),
@@ -816,27 +1111,46 @@ def process_image(image_file):
     # Parse custom settings
     pre_input_args, post_input_args = FFmpegHelper.parse_custom_settings(get_config().screenshot.custom_ffmpeg_settings)
 
-    ffmpeg_command = ffmpeg_base_command_list + pre_input_args + ["-i", image_file]
+    ffmpeg_command_base = ffmpeg_base_command_list + pre_input_args + ["-i", image_file]
 
+    video_filters = _build_screenshot_video_filters(source_video_path, screenshot_timing)
+    _extend_video_filters(ffmpeg_command_base, video_filters)
+
+    ffmpeg_command = ffmpeg_command_base.copy()
     if get_config().screenshot.custom_ffmpeg_settings:
         ffmpeg_command.extend(post_input_args)
     else:
         ffmpeg_command.extend(["-compression_level", "6", "-q:v", get_config().screenshot.quality])
-
-    scale_filter = FFmpegHelper.get_scale_filter(get_config().screenshot.width, get_config().screenshot.height)
-    if scale_filter:
-        ffmpeg_command.extend(["-vf", scale_filter])
 
     ffmpeg_command.append(output_image)
 
     try:
         FFmpegHelper.run(ffmpeg_command, check=True, retries=2)
     except Exception as e:
-        logger.error(f"Error re-encoding screenshot: {e}. Defaulting to standard PNG.")
+        if _is_webp_output(output_image):
+            fallback_image = _jpeg_fallback_output_path(output_image)
+            fallback_command = ffmpeg_command_base.copy()
+            fallback_command.extend(_jpeg_screenshot_args())
+            fallback_command.append(fallback_image)
+            try:
+                logger.warning(f"WebP screenshot encoding failed; falling back to JPEG: {e}")
+                FFmpegHelper.run(fallback_command, check=True, retries=2)
+                logger.success(f"Processed image saved to: {fallback_image}")
+                return fallback_image
+            except Exception as fallback_error:
+                logger.error(f"JPEG fallback failed: {fallback_error}. Defaulting to standard PNG.")
+        else:
+            logger.error(f"Error re-encoding screenshot: {e}. Defaulting to standard PNG.")
         output_image = make_unique_file_name(
             os.path.join(get_temporary_directory(), f"{obs.get_current_game(sanitize=True)}.png")
         )
-        shutil.move(image_file, output_image)
+        fallback_command = ffmpeg_command_base.copy()
+        fallback_command.append(output_image)
+        try:
+            FFmpegHelper.run(fallback_command, check=True, retries=2)
+        except Exception as png_error:
+            logger.error(f"PNG fallback failed: {png_error}. Using original image.")
+            shutil.move(image_file, output_image)
 
     logger.success(f"Processed image saved to: {output_image}")
     return output_image

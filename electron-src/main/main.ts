@@ -2,24 +2,29 @@ import {
     app,
     BrowserWindow,
     dialog,
+    ipcMain,
     Menu,
     MenuItem,
-    Notification,
     nativeImage,
+    screen,
     shell,
     Tray,
 } from 'electron';
 import { sendNotificationFromPython } from './notifications.js';
 import * as path from 'path';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
-import { getOrInstallPython, reinstallPython } from './python/python_downloader.js';
+import {
+    getOrInstallPython,
+    hasManagedPythonInstall,
+    reinstallPython,
+} from './python/python_downloader.js';
 import {
     APP_NAME,
     BASE_DIR,
     execFileAsync,
     getAssetsDir,
-    getResourcesDir,
     getRendererEntryPath,
+    resolvePreReleaseBranch,
     getSecureWebPreferences,
     getSanitizedPythonEnv,
     getWindowsNamedPythonExecutable,
@@ -28,8 +33,9 @@ import {
     isWindows,
     isRunningAsAdmin,
     restartAsAdmin,
-    PACKAGE_NAME,
 } from './util.js';
+import { writeDataDirRegistry } from './data_dir.js';
+import { performDataMove, validateTargetDir, type RelocateProgress } from './services/data_relocate.js';
 import { fileURLToPath } from 'node:url';
 
 import log from 'electron-log/main.js';
@@ -42,17 +48,25 @@ import {
     getRunWindowTransparencyToolOnStartup,
     getStartConsoleMinimized,
     getElectronAppVersion,
+    getHasCompletedSetup,
     setPythonPath,
     setElectronAppVersion,
+    setHasCompletedSetup,
     getIconStyle,
+    setIconStyle,
     setPythonExtras,
     setPullPreReleases,
     setPreReleaseMetadataAutoEnableApplied,
 } from './store.js';
-import { checkForUpdates } from './update_checker.js';
 import { launchSteamGameID } from './ui/steam.js';
-import { GSMStdoutManager } from './communication/pythonIPC.js';
-import { getOBSConnection, setOBSScene } from './ui/obs.js';
+import { bus, getBusConnectInfo, startBus, stopBus } from './runtime/bus_client.js';
+import {
+    closeOBSFromElectron,
+    ensureObsInstalledAndLaunch,
+    launchOBSFromElectron,
+    setOBSScene,
+    shouldRetryElectronManagedOBSLaunch,
+} from './ui/obs.js';
 import {
     runWindowTransparencyTool,
     stopWindowTransparencyTool,
@@ -60,15 +74,17 @@ import {
 } from './ui/settings.js';
 import { startOCR, stopOCR } from './ui/ocr.js';
 import * as fs from 'node:fs';
-import { runOverlay, runOverlayWithSource } from './ui/front.js';
+import { runOverlay, runOverlayWithSource, stopOverlay } from './ui/front.js';
 import { execFile } from 'node:child_process';
 import { autoLauncher } from './auto_launcher.js';
 import { registerMainIPC } from './services/main_ipc.js';
 import { installSessionManager } from './services/install_session_state.js';
+import { recordLatestTextProcessingInput } from './services/latest_text.js';
 import { UpdateManager } from './services/update_manager.js';
 import type { UpdateStatusSnapshot } from './services/update_manager.js';
 import { devFaultInjector } from './services/dev_fault_injection.js';
 import { runUpdateChaosHarness } from './services/update_chaos_harness.js';
+import { getConfiguredSinglePort } from './gsm_config.js';
 import {
     getStatusTrayIconPath,
     getTrayBaseIconPath,
@@ -81,6 +97,9 @@ import {
     checkAndInstallUV,
     checkAndEnsurePip,
     cleanUvCache,
+    getBundledBackendSpecifier,
+    getBundledBackendVersion,
+    getInstalledPackageVersion,
     installPackageNoDeps,
     isPackageInstalled,
     resolveRequestedExtras,
@@ -111,52 +130,19 @@ export class FeatureFlags {
     static DISABLE_GPU_INSTALLS = false;
 }
 
+const APP_USER_MODEL_ID = 'com.beangate.gamesentenceminer';
 let cachedPreReleaseBranch: string | null | undefined = undefined;
-
-function resolvePreReleaseBranchFromMetadata(): string | null {
-    const candidates = [
-        path.join(getResourcesDir(), 'prerelease.json'),
-        path.join(getAssetsDir(), 'prerelease.json'),
-        path.join(getResourcesDir(), 'assets', 'prerelease.json'),
-    ];
-    const seen = new Set<string>();
-    for (const candidate of candidates) {
-        if (!candidate || seen.has(candidate)) {
-            continue;
-        }
-        seen.add(candidate);
-        if (!fs.existsSync(candidate)) {
-            continue;
-        }
-        try {
-            const parsed = JSON.parse(fs.readFileSync(candidate, 'utf8')) as { branch?: unknown };
-            if (typeof parsed.branch !== 'string' || parsed.branch.trim().length === 0) {
-                console.warn(`Ignoring prerelease metadata without a valid "branch" field: ${candidate}`);
-                continue;
-            }
-            const branch = parsed.branch.trim();
-            console.log(`Detected prerelease metadata at ${candidate} (branch: ${branch})`);
-            return branch;
-        } catch (error) {
-            console.warn(`Failed to parse prerelease metadata at ${candidate}:`, error);
-        }
-    }
-    return null;
-}
 
 function getPreReleaseBranch(): string | null {
     if (cachedPreReleaseBranch !== undefined) {
         return cachedPreReleaseBranch;
     }
-    cachedPreReleaseBranch = resolvePreReleaseBranchFromMetadata();
-    return cachedPreReleaseBranch;
-}
-
-function getConfiguredPreReleaseBranch(): string | null {
-    if (!getPullPreReleases()) {
-        return null;
+    const branch = resolvePreReleaseBranch();
+    cachedPreReleaseBranch = branch;
+    if (branch) {
+        console.log(`Detected prerelease metadata (branch: ${branch})`);
     }
-    return getPreReleaseBranch();
+    return branch;
 }
 
 function bootstrapPreReleaseSettingsFromMetadata(): void {
@@ -177,14 +163,6 @@ function bootstrapPreReleaseSettingsFromMetadata(): void {
     }
 
     setPreReleaseMetadataAutoEnableApplied(true);
-}
-
-function getPreReleasePackageSpecifier(): string | null {
-    const preReleaseBranch = getConfiguredPreReleaseBranch();
-    if (!preReleaseBranch) {
-        return null;
-    }
-    return `https://github.com/bpwhelan/GameSentenceMiner/archive/refs/heads/${preReleaseBranch}.zip`;
 }
 
 // Global error handling setup - catches all unhandled errors to prevent crashes
@@ -243,7 +221,6 @@ app.on('child-process-gone', (event, details) => {
 export let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 export let pyProc: ChildProcessWithoutNullStreams;
-let gsmStdoutManager: GSMStdoutManager | null = null;
 export let isQuitting = false;
 let restartingGSM: boolean = false;
 let reopenSettingsAfterBackendRestart: boolean = false;
@@ -266,7 +243,6 @@ const UPDATE_PROGRESS_PREFIX = 'UpdateProgress:';
 const STARTUP_REPAIR_WINDOW_MS = 15_000;
 const TRAY_READY_INDICATOR_MS = 10_000;
 const BACKEND_STATUS_POLL_MS = 2_000;
-const BACKEND_STATUS_URL = 'http://localhost:7275/get_status';
 const SIMULATED_STARTUP_FAILURE_MESSAGE = 'Simulated failure before starting GSM';
 let simulatedStartupFailureTriggered = false;
 let terminalLogSendDepth = 0;
@@ -309,6 +285,61 @@ function ensureInstallSession(
     return installSessionManager.ensureSession(origin, retryHandler).id;
 }
 
+function markStartupInstallComplete(reason: string): void {
+    if (getHasCompletedSetup()) {
+        return;
+    }
+    setHasCompletedSetup(true);
+    log.info(`Marked first install complete: ${reason}`);
+}
+
+function shouldTrackStartupInstallSession(): boolean {
+    if (getHasCompletedSetup()) {
+        return false;
+    }
+
+    return !hasManagedPythonInstall();
+}
+
+function startStartupInstallSession(): void {
+    ensureInstallSession('startup', async () => {
+        const retryPythonPath = pythonPath || (await getOrInstallPython());
+        pythonPath = retryPythonPath;
+        setPythonPath(retryPythonPath);
+        await ensureAndRunGSM(retryPythonPath, 1, {
+            origin: 'startup',
+            trackInstallSession: true,
+        });
+    });
+    updateInstallStage(
+        'prepare',
+        'running',
+        'estimated',
+        0.05,
+        'Preparing first-run startup workflow...'
+    );
+}
+
+async function resolveStartupInstallSessionAfterPythonReady(
+    runtimePythonPath: string
+): Promise<boolean> {
+    if (getHasCompletedSetup()) {
+        return false;
+    }
+
+    try {
+        if (await isPackageInstalled(runtimePythonPath, APP_NAME)) {
+            markStartupInstallComplete('managed backend package already exists');
+            return false;
+        }
+    } catch (error) {
+        console.warn('Unable to inspect existing backend package before startup:', error);
+    }
+
+    startStartupInstallSession();
+    return true;
+}
+
 function updateInstallStage(
     stageId: InstallStageId,
     status?: 'pending' | 'running' | 'completed' | 'skipped' | 'failed',
@@ -338,7 +369,10 @@ function finishInstallSession(
     message?: string,
     error?: string | null
 ): void {
-    installSessionManager.finishActive(status, message, error);
+    const snapshot = installSessionManager.finishActive(status, message, error);
+    if (snapshot?.origin === 'startup' && status === 'completed') {
+        markStartupInstallComplete(message || 'startup install session completed');
+    }
 }
 
 function isInstallStageId(value: unknown): value is InstallStageId {
@@ -353,14 +387,6 @@ function handleBackendInstallProgressMessage(data: Record<string, unknown> | und
     if (!data) {
         return;
     }
-    const activeSession = installSessionManager.getActiveSnapshot();
-    if (!activeSession) {
-        return;
-    }
-    const sessionId = typeof data.session_id === 'string' ? data.session_id : '';
-    if (sessionId && sessionId !== activeSession.id) {
-        return;
-    }
     const stageId = data.stage_id;
     if (!isInstallStageId(stageId)) {
         return;
@@ -373,6 +399,31 @@ function handleBackendInstallProgressMessage(data: Record<string, unknown> | und
         data.status === 'failed'
             ? data.status
             : undefined;
+
+    // The OBS launch retry is independent of any install session: the backend
+    // reports OBS is ready whether or not a startup install session is active
+    // (a session only exists when Python itself still needs installing). If OBS
+    // was downloaded fresh while Python was already installed, there is no active
+    // session, so this must run before the session guard below — otherwise the
+    // download completes but the managed launch never fires.
+    if (
+        stageId === 'obs' &&
+        (status === 'completed' || status === 'skipped') &&
+        shouldRetryElectronManagedOBSLaunch()
+    ) {
+        void launchOBSFromElectron({ reason: `backend obs ${status}` }).catch((launchError) => {
+            console.warn('Failed to launch OBS after backend dependency check:', launchError);
+        });
+    }
+
+    const activeSession = installSessionManager.getActiveSnapshot();
+    if (!activeSession) {
+        return;
+    }
+    const sessionId = typeof data.session_id === 'string' ? data.session_id : '';
+    if (sessionId && sessionId !== activeSession.id) {
+        return;
+    }
     const progressKind = isInstallProgressKind(data.progress_kind)
         ? data.progress_kind
         : undefined;
@@ -647,8 +698,7 @@ async function runUpdateChecks(
     await updateManager.runUpdateChecks(
         shouldRestart,
         force,
-        forceDev,
-        getConfiguredPreReleaseBranch()
+        forceDev
     );
 }
 
@@ -656,22 +706,19 @@ async function updateGSM(
     shouldRestart: boolean = false,
     force: boolean = false
 ): Promise<void> {
-    await updateManager.updateGSM(shouldRestart, force, getConfiguredPreReleaseBranch());
+    await updateManager.updateGSM(shouldRestart, force);
 }
 
 async function getUpdateStatus(): Promise<UpdateStatusSnapshot> {
-    return await updateManager.getUpdateStatus(getConfiguredPreReleaseBranch());
+    return await updateManager.getUpdateStatus();
 }
 
 async function checkForAvailableUpdates(): Promise<UpdateStatusSnapshot> {
-    return await updateManager.checkForAvailableUpdates(getConfiguredPreReleaseBranch());
+    return await updateManager.checkForAvailableUpdates();
 }
 
 async function updateAvailableTargets(): Promise<UpdateStatusSnapshot> {
-    return await updateManager.updateAvailableTargets(
-        true,
-        getConfiguredPreReleaseBranch()
-    );
+    return await updateManager.updateAvailableTargets(true);
 }
 
 function getGSMModulePath(): string {
@@ -694,19 +741,35 @@ let iconStyle = "";
 
 const availableIcons = ['gsm', 'gsm_cute', 'gsm_jacked', 'gsm_cursed'];
 
-if (getIconStyle().includes('random')) {
+function selectRandomIconStyle(): string {
     const randomIndex = Math.floor(Math.random() * availableIcons.length);
-    const selectedIcon = availableIcons[randomIndex];
-    iconStyle = selectedIcon;
+    return availableIcons[randomIndex];
 }
 
+function refreshResolvedRandomIconStyle(configuredIconStyle: string = getIconStyle()): void {
+    iconStyle = configuredIconStyle.includes('random') ? selectRandomIconStyle() : "";
+}
+
+function getResolvedIconStyle(configuredIconStyle: string = getIconStyle()): string {
+    if (!configuredIconStyle.includes('random')) {
+        return configuredIconStyle;
+    }
+    if (!iconStyle) {
+        refreshResolvedRandomIconStyle(configuredIconStyle);
+    }
+    return iconStyle;
+}
+
+refreshResolvedRandomIconStyle();
+
 export function getIconPath(forTray: boolean = false): string {
-    let style = getIconStyle().includes('random') ? iconStyle : getIconStyle();
+    const configuredIconStyle = getIconStyle();
+    let style = getResolvedIconStyle(configuredIconStyle);
     const extension: 'ico' | 'png' = isWindows() ? 'ico' : 'png';
     if (forTray) {
         return getTrayBaseIconPath({
             assetsDir: getAssetsDir(),
-            configuredIconStyle: getIconStyle(),
+            configuredIconStyle,
             resolvedRandomStyle: iconStyle,
             extension,
         });
@@ -717,6 +780,33 @@ export function getIconPath(forTray: boolean = false): string {
     style = style.replace(/\[.*\]/, ''); // Remove any [.*] suffix if present
     let filename = `${style}.${extension}`;
     return path.join(getAssetsDir(), filename);
+}
+
+export function applyIconStyle(nextIconStyle?: string): void {
+    if (typeof nextIconStyle === 'string') {
+        setIconStyle(nextIconStyle || 'gsm');
+    }
+
+    refreshResolvedRandomIconStyle();
+    const windowIconPath = getIconPath();
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        try {
+            mainWindow.setIcon(windowIconPath);
+        } catch (error) {
+            console.warn('Failed to update main window icon:', error);
+        }
+    }
+
+    if (process.platform === 'darwin') {
+        try {
+            app.dock?.setIcon(windowIconPath);
+        } catch (error) {
+            console.warn('Failed to update dock icon:', error);
+        }
+    }
+
+    refreshTrayPresentation();
 }
 
 function createPausedTrayFallbackIcon(): Electron.NativeImage {
@@ -828,7 +918,9 @@ async function pollBackendStatusOnce(): Promise<void> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 1500);
     try {
-        const response = await fetch(BACKEND_STATUS_URL, { signal: controller.signal });
+        const response = await fetch(`http://localhost:${getConfiguredSinglePort()}/get_status`, {
+            signal: controller.signal,
+        });
         if (!response.ok) {
             return;
         }
@@ -1066,6 +1158,176 @@ async function cleanupStaleManagedGSMProcess(): Promise<void> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Backend message bus bridge
+//
+// The backend (gsm.py) is a bus client 'backend'. It sends structured messages
+// on topic 'backend.event' ({function, data}) and receives commands on topic
+// 'backend.command'. main.ts subscribes once (wireBackendBus) and dispatches the
+// same handlers that previously lived on GSMStdoutManager's stdout 'message'.
+// ---------------------------------------------------------------------------
+
+interface BackendMessage {
+    function?: string;
+    data?: any;
+}
+
+let backendBusWired = false;
+
+/** Send a command to the backend over the bus. Returns whether it's connected
+ *  now (the broker buffers to a not-yet-connected backend regardless). */
+function sendBackendCommand(fn: string, data?: Record<string, unknown>): boolean {
+    bus.publish('backend', 'backend.command', data ? { function: fn, data } : { function: fn }, 'command');
+    return bus.isConnected('backend');
+}
+
+let ocrHookRedundantDialogShown = false;
+
+/** Warn once that running auto OCR alongside a text hook is usually redundant,
+ *  and offer to stop OCR. The backend only emits this after several OCR lines
+ *  are dropped as echoes of hook lines. */
+async function showOcrHookRedundantDialog(): Promise<void> {
+    if (ocrHookRedundantDialogShown) {
+        return;
+    }
+    ocrHookRedundantDialogShown = true;
+    try {
+        const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+        const options: Electron.MessageBoxOptions = {
+            type: 'question',
+            buttons: ['Stop OCR', 'Keep Both Running'],
+            defaultId: 0,
+            cancelId: 1,
+            title: 'OCR and text hook both running',
+            message: "GSM noticed you're using a text hook and also have Auto OCR running.",
+            detail:
+                'Running both is usually unnecessary — the hook already captures the text.\n\n' +
+                'If you only kept OCR on for the overlay: the overlay is triggered by any text ' +
+                'source, so it works from the hook alone without Auto OCR running.\n\n' +
+                'If you want to keep OCR on for Area Select OCR or menu text capture, I recommend using "Manual OCR" instead.\n\n' +
+                'Stop OCR?',
+        };
+        const result = parent
+            ? await dialog.showMessageBox(parent, options)
+            : await dialog.showMessageBox(options);
+        if (result.response === 0) {
+            stopOCR();
+        }
+    } catch (e) {
+        console.error('Failed to show OCR/hook redundancy dialog:', e);
+    }
+}
+
+function handleBackendMessage(msg: BackendMessage): void {
+    if (msg.function === 'notification' && msg.data) {
+        try {
+            sendNotificationFromPython(msg.data);
+        } catch (e) {
+            console.error('Failed to route notification from Python:', e);
+        }
+    }
+    if (msg.function === 'ocr_hook_redundant') {
+        void showOcrHookRedundantDialog();
+    }
+    if (msg.function === 'text_intake_state') {
+        setTextIntakePausedState(Boolean(msg.data?.paused));
+    }
+    if (msg.function === 'text_received') {
+        const latestText = recordLatestTextProcessingInput(msg.data);
+        if (latestText) {
+            safeSendToMainWindow('textprocess-latest-text', latestText);
+        }
+    }
+    if (msg.function === 'on_connect') {
+        markPythonIPCConnected();
+    }
+    if (msg.function === 'install_progress') {
+        handleBackendInstallProgressMessage(msg.data);
+    }
+    if (msg.function === 'start_obs') {
+        // The backend asks us to launch OBS once its runtime is in place.
+        // On a fresh install OBS doesn't exist yet when Electron first tries
+        // to launch it at startup, so this is how the launch actually happens.
+        void launchOBSFromElectron({ reason: 'backend start_obs request' }).catch((launchError) => {
+            console.warn('Failed to launch OBS on backend request:', launchError);
+        });
+    }
+    if (msg.function === 'initialized') {
+        markPythonIPCConnected();
+        updateInstallStage('backend_boot', 'completed', 'estimated', 1, 'GSM backend is running.');
+        const activeInstallSession = installSessionManager.getActiveSnapshot();
+        if (activeInstallSession) {
+            const finalizeStage = activeInstallSession.stages.find((stage) => stage.id === 'finalize');
+            if (finalizeStage && finalizeStage.status === 'pending') {
+                updateInstallStage('finalize', 'completed', 'estimated', 1, 'Setup complete.');
+            }
+            finishInstallSession('completed', 'Setup complete.');
+        }
+        safeSendToMainWindow('gsm-initialized', msg.data ?? {});
+        updateTrayMenu();
+        refreshTrayPresentation();
+        if (reopenSettingsAfterBackendRestart) {
+            reopenSettingsAfterBackendRestart = false;
+            setTimeout(() => {
+                sendBackendCommand('open_settings');
+            }, 200);
+        }
+    }
+    if (msg.function === 'cleanup_complete') {
+        console.log('Received cleanup_complete message from Python.');
+        cleanupComplete = true;
+    }
+    if (msg.function === 'python_exit_requested') {
+        const source = String(msg.data?.source ?? '');
+        backendExitRequestedFromPython = source === 'pickaxe_icon';
+        if (backendExitRequestedFromPython) {
+            console.log('Python requested full app shutdown via pickaxe icon.');
+        }
+    }
+    if (msg.function === 'restart_python_app') {
+        console.log('Received restart request from Python IPC. Restarting GSM backend...');
+        const openSettings = msg.data?.open_settings !== false;
+        if (openSettings) {
+            reopenSettingsAfterBackendRestart = true;
+        }
+        void restartGSM();
+    }
+}
+
+/** Forward the backend child's stdout/stderr to the renderer terminal as logs. */
+function attachBackendLogForwarding(proc: ChildProcessWithoutNullStreams): void {
+    let stdoutBuffer = '';
+    proc.stdout.on('data', (data: Buffer) => {
+        stdoutBuffer += data.toString();
+        const lines = stdoutBuffer.split(/\r?\n/);
+        stdoutBuffer = lines.pop() ?? '';
+        for (const line of lines) {
+            sendTerminalLog({
+                message: line + '\r\n',
+                stream: 'stdout',
+                source: 'python',
+                level: parsePythonLogLevel(line) ?? undefined,
+            });
+        }
+    });
+    proc.stderr.on('data', (data: Buffer) => {
+        sendTerminalLog({
+            message: data.toString() + '\r\n',
+            stream: 'stderr',
+            source: 'python',
+        });
+    });
+}
+
+/** Subscribe to backend bus events once (persists across backend restarts). */
+function wireBackendBus(): void {
+    if (backendBusWired) {
+        return;
+    }
+    backendBusWired = true;
+    bus.subscribe('backend.event', (m) => handleBackendMessage((m.data ?? {}) as BackendMessage));
+}
+
 /**
  * Runs a command and returns a promise that resolves when the command exits.
  * @param command The command to run.
@@ -1075,11 +1337,20 @@ function runGSM(command: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
         const activeInstallSessionId = installSessionManager.getActiveSnapshot()?.id ?? '';
         const taskManagerCommand = getWindowsNamedPythonExecutable(command, APP_NAME);
+        const busConnectInfo = getBusConnectInfo();
         const proc = spawn(taskManagerCommand, args, {
             env: {
                 ...getSanitizedPythonEnv(),
                 GSM_ELECTRON: '1',
+                GSM_DATA_DIR: BASE_DIR,
                 GSM_INSTALL_SESSION_ID: activeInstallSessionId,
+                ...(busConnectInfo
+                    ? {
+                        GSM_BROKER_PORT: String(busConnectInfo.port),
+                        GSM_BROKER_TOKEN: busConnectInfo.token,
+                        GSM_CLIENT_ID: 'backend',
+                    }
+                    : {}),
             }
         });
 
@@ -1089,107 +1360,8 @@ function runGSM(command: string, args: string[]): Promise<void> {
         setTextIntakePausedState(false);
         startBackendStatusPolling();
 
-        // Attach GSMStdoutManager
-        gsmStdoutManager = new GSMStdoutManager(proc);
-        gsmStdoutManager.on('message', (msg) => {
-            // Handle structured GSM messages here
-            // console.log('GSMMSG:', msg);
-            if (msg.function === 'notification' && msg.data) {
-                try {
-                    sendNotificationFromPython(msg.data);
-                } catch (e) {
-                    console.error('Failed to route notification from Python:', e);
-                }
-            }
-            if (msg.function === 'text_intake_state') {
-                setTextIntakePausedState(Boolean(msg.data?.paused));
-            }
-            if (msg.function === 'on_connect') {
-                markPythonIPCConnected();
-            }
-            if (msg.function === 'install_progress') {
-                handleBackendInstallProgressMessage(msg.data);
-            }
-            if (msg.function === 'initialized') {
-                markPythonIPCConnected();
-                updateInstallStage(
-                    'backend_boot',
-                    'completed',
-                    'estimated',
-                    1,
-                    'GSM backend is running.'
-                );
-                const activeInstallSession = installSessionManager.getActiveSnapshot();
-                if (activeInstallSession) {
-                    const finalizeStage = activeInstallSession.stages.find(
-                        (stage) => stage.id === 'finalize'
-                    );
-                    if (finalizeStage && finalizeStage.status === 'pending') {
-                        updateInstallStage(
-                            'finalize',
-                            'completed',
-                            'estimated',
-                            1,
-                            'Setup complete.'
-                        );
-                    }
-                    finishInstallSession('completed', 'Setup complete.');
-                }
-                safeSendToMainWindow('gsm-initialized', msg.data ?? {});
-                updateTrayMenu();
-                refreshTrayPresentation();
-                if (reopenSettingsAfterBackendRestart) {
-                    reopenSettingsAfterBackendRestart = false;
-                    setTimeout(() => {
-                        gsmStdoutManager?.sendOpenSettings();
-                    }, 200);
-                }
-            }
-            if (msg.function === 'cleanup_complete') {
-                console.log('Received cleanup_complete message from Python.');
-                cleanupComplete = true;
-            }
-            if (msg.function === 'python_exit_requested') {
-                const source = String(msg.data?.source ?? '');
-                backendExitRequestedFromPython = source === 'pickaxe_icon';
-                if (backendExitRequestedFromPython) {
-                    console.log('Python requested full app shutdown via pickaxe icon.');
-                }
-            }
-            if (msg.function === 'restart_python_app') {
-                console.log('Received restart request from Python IPC. Restarting GSM backend...');
-                const openSettings = msg.data?.open_settings !== false;
-                if (openSettings) {
-                    reopenSettingsAfterBackendRestart = true;
-                }
-                void restartGSM();
-            }
-            // mainWindow?.webContents.send('gsm-message', msg);
-        });
-        gsmStdoutManager.on('log', (log) => {
-            // Forward logs to renderer or handle as needed
-            if (log.type === 'stdout') {
-                sendTerminalLog({
-                    message: log.message + '\r\n',
-                    stream: 'stdout',
-                    source: 'python',
-                    level: parsePythonLogLevel(log.message) ?? undefined,
-                });
-            } else if (log.type === 'stderr') {
-                sendTerminalLog({
-                    message: log.message + '\r\n',
-                    stream: 'stderr',
-                    source: 'python',
-                });
-            } else if (log.type === 'parse-error') {
-                sendTerminalLog({
-                    message: '[GSMMSG parse error] ' + log.message + '\r\n',
-                    stream: 'stderr',
-                    source: 'python',
-                    level: 'ERROR',
-                });
-            }
-        });
+        // Backend stdout/stderr are pure logs now — control travels over the bus.
+        attachBackendLogForwarding(proc);
 
         proc.on('close', (code) => {
             clearManagedGSMProcessState();
@@ -1230,9 +1402,15 @@ async function createWindow() {
     const adminSuffix = isRunningAsAdmin() ? ' (Admin)' : '';
     const windowTitle = `${APP_NAME} v${app.getVersion()}${adminSuffix}`;
 
+    // Clamp the initial size to the work area so the window never opens taller
+    // than the screen (e.g. Steam Deck at 1280x800), which would push the OCR
+    // sticky footer / start buttons off-screen until the window is maximized.
+    const { width: workWidth, height: workHeight } =
+        screen.getPrimaryDisplay().workAreaSize;
+
     mainWindow = new BrowserWindow({
-        width: 1280,
-        height: 1000,
+        width: Math.min(1280, workWidth),
+        height: Math.min(1000, workHeight),
         icon: getIconPath(),
         // Start hidden; show when ready for consistent taskbar icon
         show: false,
@@ -1262,17 +1440,14 @@ async function createWindow() {
 
     registerMainIPC({
         getMainWindow: () => mainWindow,
-        restartApplication: async () => {
-            await closeAllPythonProcesses();
-            app.relaunch();
-            app.exit(0);
-        },
+        applyIconStyle,
         getUpdateStatus: async () => await getUpdateStatus(),
         checkForUpdates: async () => await checkForAvailableUpdates(),
         updateNow: async () => await updateAvailableTargets(),
         getActiveInstallSession: () => installSessionManager.getActiveSnapshot(),
         retryInstallSession: async () => await installSessionManager.retryLastFailedSession(),
     });
+    registerDataRelocateIPC();
 
     // Reveal window only after renderer signals it's ready
     mainWindow.once('ready-to-show', () => {
@@ -1483,13 +1658,12 @@ function loadGSMTrayProfileState(): GSMTrayProfileState {
     }
 }
 
-function sendTrayCommand(description: string, callback: (manager: GSMStdoutManager) => void): boolean {
-    if (!gsmStdoutManager) {
-        console.warn(`Cannot ${description}: Python IPC is not ready.`);
+function sendTrayCommand(description: string, fn: string, data?: Record<string, unknown>): boolean {
+    if (!bus.isConnected('backend')) {
+        console.warn(`Cannot ${description}: backend is not ready.`);
         return false;
     }
-
-    callback(gsmStdoutManager);
+    sendBackendCommand(fn, data);
     return true;
 }
 
@@ -1515,9 +1689,9 @@ function buildProfileTraySubmenu(): Electron.MenuItemConstructorOptions[] {
             }
 
             if (
-                sendTrayCommand(`switch profile to ${profileName}`, (manager) =>
-                    manager.sendSwitchProfile(profileName)
-                )
+                sendTrayCommand(`switch profile to ${profileName}`, 'switch_profile', {
+                    profile_name: profileName,
+                })
             ) {
                 refreshTrayMenuSoon();
             }
@@ -1530,41 +1704,31 @@ function buildDevTraySubmenu(): Electron.MenuItemConstructorOptions[] {
         {
             label: 'Anki Confirmation Dialog',
             click: () => {
-                sendTrayCommand('open Anki confirmation test window', (manager) =>
-                    manager.sendTestAnkiConfirmation()
-                );
+                sendTrayCommand('open Anki confirmation test window', 'test_anki_confirmation');
             },
         },
         {
             label: 'Screenshot Selector',
             click: () => {
-                sendTrayCommand('open screenshot selector test window', (manager) =>
-                    manager.sendTestScreenshotSelector()
-                );
+                sendTrayCommand('open screenshot selector test window', 'test_screenshot_selector');
             },
         },
         {
             label: 'Furigana Filter Preview',
             click: () => {
-                sendTrayCommand('open furigana filter test window', (manager) =>
-                    manager.sendTestFuriganaFilter()
-                );
+                sendTrayCommand('open furigana filter test window', 'test_furigana_filter');
             },
         },
         {
             label: 'Area Selector',
             click: () => {
-                sendTrayCommand('open area selector test window', (manager) =>
-                    manager.sendTestAreaSelector()
-                );
+                sendTrayCommand('open area selector test window', 'test_area_selector');
             },
         },
         {
             label: 'Screen Cropper',
             click: () => {
-                sendTrayCommand('open screen cropper test window', (manager) =>
-                    manager.sendTestScreenCropper()
-                );
+                sendTrayCommand('open screen cropper test window', 'test_screen_cropper');
             },
         },
     ];
@@ -1575,7 +1739,7 @@ function buildTrayMenuTemplate(): Electron.MenuItemConstructorOptions[] {
         {
             label: 'Open Settings',
             click: () => {
-                if (!sendTrayCommand('open settings', (manager) => manager.sendOpenSettings())) {
+                if (!sendTrayCommand('open settings', 'open_settings')) {
                     showWindow();
                 }
             },
@@ -1583,7 +1747,7 @@ function buildTrayMenuTemplate(): Electron.MenuItemConstructorOptions[] {
         {
             label: 'Open Text Feed',
             click: () => {
-                sendTrayCommand('open texthooker', (manager) => manager.sendOpenTexthooker());
+                sendTrayCommand('open texthooker', 'open_texthooker');
             },
         },
         { type: 'separator' },
@@ -1658,6 +1822,7 @@ function updateTrayMenu(): void {
 interface EnsureAndRunOptions {
     allowDuringUpdate?: boolean;
     origin?: InstallSessionOrigin;
+    trackInstallSession?: boolean;
 }
 
 async function ensureAndRunGSM(
@@ -1666,14 +1831,21 @@ async function ensureAndRunGSM(
     options?: EnsureAndRunOptions
 ): Promise<void> {
     const origin = options?.origin ?? 'startup';
-    ensureInstallSession(origin, async () => {
-        await ensureAndRunGSM(pythonPath, 1, {
-            ...options,
-            allowDuringUpdate: true,
-            origin,
+    const trackInstallSession =
+        options?.trackInstallSession ??
+        (origin !== 'startup' || installSessionManager.getActiveSnapshot()?.origin === 'startup');
+
+    if (trackInstallSession) {
+        ensureInstallSession(origin, async () => {
+            await ensureAndRunGSM(pythonPath, 1, {
+                ...options,
+                allowDuringUpdate: true,
+                origin,
+                trackInstallSession: true,
+            });
         });
-    });
-    updateInstallStage('prepare', 'running', 'estimated', 0.2, 'Preparing install session...');
+        updateInstallStage('prepare', 'running', 'estimated', 0.2, 'Preparing install session...');
+    }
 
     if (!options?.allowDuringUpdate) {
         await waitForPythonLaunchReadiness('GSM backend startup');
@@ -1685,9 +1857,8 @@ async function ensureAndRunGSM(
     devFaultInjector.maybeFail('startup.ensure_and_run_enter');
 
     let runtimePythonPath = pythonPath;
-    const preReleasePackageSpecifier = getPreReleasePackageSpecifier();
-    const preReleaseEnabled = preReleasePackageSpecifier !== null;
-    let isInstalled = await isPackageInstalled(runtimePythonPath, APP_NAME);
+    let installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
+    let isInstalled = installedVersion !== null;
 
     try {
         updateInstallStage(
@@ -1727,7 +1898,8 @@ async function ensureAndRunGSM(
         setPythonPath(runtimePythonPath);
         await checkAndEnsurePip(runtimePythonPath);
         await checkAndInstallUV(runtimePythonPath);
-        isInstalled = await isPackageInstalled(runtimePythonPath, APP_NAME);
+        installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
+        isInstalled = installedVersion !== null;
         updateInstallStage(
             'verify_runtime',
             'completed',
@@ -1750,71 +1922,76 @@ async function ensureAndRunGSM(
     }
 
     // Sync environment from the bundled uv.lock.
-    if (!preReleaseEnabled) {
-        try {
-            devFaultInjector.maybeFail('startup.sync_lock_check');
-            updateInstallStage(
-                'lock_sync',
-                'running',
-                'estimated',
-                0.1,
-                'Checking whether the Python environment matches the lockfile...'
-            );
-            await syncLockedEnvironment(runtimePythonPath, selectedExtras, true);
-            console.log('Python environment already matches lockfile.');
-            updateInstallStage(
-                'lock_sync',
-                'skipped',
-                'estimated',
-                1,
-                'Python environment already matches the lockfile.'
-            );
-        } catch {
-            console.log(
-                `Syncing Python environment with lockfile, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
-                }`
-            );
-            devFaultInjector.maybeFail('startup.sync_lock_apply');
-            updateInstallStage(
-                'lock_sync',
-                'running',
-                'estimated',
-                0.15,
-                'Syncing Python environment with the bundled lockfile...'
-            );
-            await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
-                updateInstallStage(
-                    'lock_sync',
-                    'running',
-                    'estimated',
-                    event.progress,
-                    event.message
-                );
-            });
-            updateInstallStage(
-                'lock_sync',
-                'completed',
-                'estimated',
-                1,
-                'Python environment synced to the lockfile.'
-            );
-        }
-    } else {
+    try {
+        devFaultInjector.maybeFail('startup.sync_lock_check');
+        updateInstallStage(
+            'lock_sync',
+            'running',
+            'estimated',
+            0.1,
+            'Checking whether the Python environment matches the lockfile...'
+        );
+        await syncLockedEnvironment(runtimePythonPath, selectedExtras, true);
+        console.log('Python environment already matches lockfile.');
         updateInstallStage(
             'lock_sync',
             'skipped',
             'estimated',
             1,
-            'Skipped lockfile sync because pre-release backend mode is enabled.'
+            'Python environment already matches the lockfile.'
+        );
+    } catch {
+        console.log(
+            `Syncing Python environment with lockfile, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
+            }`
+        );
+        devFaultInjector.maybeFail('startup.sync_lock_apply');
+        updateInstallStage(
+            'lock_sync',
+            'running',
+            'estimated',
+            0.15,
+            'Syncing Python environment with the bundled lockfile...'
+        );
+        await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
+            updateInstallStage(
+                'lock_sync',
+                'running',
+                'estimated',
+                event.progress,
+                event.message
+            );
+        });
+        updateInstallStage(
+            'lock_sync',
+            'completed',
+            'estimated',
+            1,
+            'Python environment synced to the lockfile.'
         );
     }
 
-    // Install the package itself if not present.
-    if (!isInstalled) {
-        const packageSpecifier = isDev
-            ? '.'
-            : (preReleasePackageSpecifier ?? PACKAGE_NAME);
-        console.log(`${APP_NAME} is not installed. Installing ${packageSpecifier}...`);
+    // The backend is version-locked to this client. Reinstall when it's missing or
+    // when the installed version doesn't match the version bundled with this client
+    // (e.g. after the user installs an older/newer client) — a cheap offline check
+    // that only touches the network on an actual mismatch. Prerelease builds track a
+    // moving branch rather than a pinned version, so skip the version comparison there.
+    const bundledVersion = getBundledBackendVersion();
+    const isPreRelease = resolvePreReleaseBranch() !== null;
+    const versionMismatch =
+        isInstalled &&
+        !isPreRelease &&
+        bundledVersion !== null &&
+        installedVersion !== bundledVersion;
+    if (!isInstalled || versionMismatch) {
+        const packageSpecifier = getBundledBackendSpecifier();
+        if (versionMismatch) {
+            console.log(
+                `${APP_NAME} backend ${installedVersion} does not match bundled ${bundledVersion}. Installing ${packageSpecifier}...`
+            );
+        } else {
+            console.log(`${APP_NAME} is not installed. Installing ${packageSpecifier}...`);
+        }
         updateInstallStage(
             'gsm_package',
             'running',
@@ -1875,17 +2052,15 @@ async function ensureAndRunGSM(
         console.log(`[Startup] Failed to start GameSentenceMiner: ${formatConsoleArg(err)}`);
         const backendRuntimeMs = Date.now() - backendLaunchStartedAt;
         const failedSoonAfterLaunch = backendRuntimeMs <= STARTUP_REPAIR_WINDOW_MS;
-        const startupFailureDetails = `[Startup] Backend launch failure details: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, withinRepairWindow=${failedSoonAfterLaunch}, thresholdMs=${STARTUP_REPAIR_WINDOW_MS}, preRelease=${preReleaseEnabled}, pythonPath=${runtimePythonPath}`;
+        const startupFailureDetails = `[Startup] Backend launch failure details: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, withinRepairWindow=${failedSoonAfterLaunch}, thresholdMs=${STARTUP_REPAIR_WINDOW_MS}, pythonPath=${runtimePythonPath}`;
         console.error(startupFailureDetails);
         console.log(startupFailureDetails);
         if (retry > 0 && failedSoonAfterLaunch) {
             const repairStartedAt = Date.now();
-            const repairSpecifier = isDev
-                ? '.'
-                : (preReleasePackageSpecifier ?? PACKAGE_NAME);
+            const repairSpecifier = getBundledBackendSpecifier();
             console.log(
                 `[Startup Repair] Starting repair flow: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, specifier=${repairSpecifier}, extras=${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
-                }, preRelease=${preReleaseEnabled}`
+                }`
             );
             try {
                 console.log('[Startup Repair] Step 1/4: Closing running backend-related processes.');
@@ -1902,35 +2077,31 @@ async function ensureAndRunGSM(
                 devFaultInjector.maybeFail('startup.repair.clean_uv_cache');
                 await cleanUvCache(runtimePythonPath);
 
-                if (!preReleaseEnabled) {
-                    console.log('[Startup Repair] Step 3/4: Re-syncing lockfile dependencies.');
-                    devFaultInjector.maybeFail('startup.repair.sync_lock');
+                console.log('[Startup Repair] Step 3/4: Re-syncing lockfile dependencies.');
+                devFaultInjector.maybeFail('startup.repair.sync_lock');
+                updateInstallStage(
+                    'lock_sync',
+                    'running',
+                    'estimated',
+                    0.2,
+                    'Re-syncing the lockfile after launch failure...'
+                );
+                await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
                     updateInstallStage(
                         'lock_sync',
                         'running',
                         'estimated',
-                        0.2,
-                        'Re-syncing the lockfile after launch failure...'
+                        event.progress,
+                        event.message
                     );
-                    await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
-                        updateInstallStage(
-                            'lock_sync',
-                            'running',
-                            'estimated',
-                            event.progress,
-                            event.message
-                        );
-                    });
-                    updateInstallStage(
-                        'lock_sync',
-                        'completed',
-                        'estimated',
-                        1,
-                        'Lockfile dependencies refreshed after launch failure.'
-                    );
-                } else {
-                    console.log('[Startup Repair] Step 3/4: Skipped lockfile sync (pre-release mode).');
-                }
+                });
+                updateInstallStage(
+                    'lock_sync',
+                    'completed',
+                    'estimated',
+                    1,
+                    'Lockfile dependencies refreshed after launch failure.'
+                );
 
                 console.log('[Startup Repair] Step 4/4: Reinstalling GSM backend package.');
                 devFaultInjector.maybeFail('startup.repair.install_package');
@@ -2020,8 +2191,6 @@ async function processArgsAndStartSettings() {
     let gameName: string | undefined;
     let runOCR = false;
 
-    await getOBSConnection();
-
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--scene' && args[i + 1]) {
             await setOBSScene(args[i + 1]);
@@ -2055,8 +2224,12 @@ async function processArgsAndStartSettings() {
 }
 
 app.setPath('userData', path.join(BASE_DIR, 'electron'));
+// Expose the resolved data dir to every spawned child (overlay binary, python) via inherited env.
+process.env.GSM_DATA_DIR = BASE_DIR;
+// Keep the uninstaller's view of the data dir current (best-effort, Windows-only).
+writeDataDirRegistry(BASE_DIR);
 if (isWindows()) {
-    app.setAppUserModelId('GameSentenceMiner');
+    app.setAppUserModelId(APP_USER_MODEL_ID);
 }
 
 // Fix for name and icon on macOS
@@ -2079,52 +2252,43 @@ if (!app.requestSingleInstanceLock()) {
     app.whenReady().then(async () => {
         try {
             bootstrapPreReleaseSettingsFromMetadata();
-            ensureInstallSession('startup', async () => {
-                if (pythonPath) {
-                    await ensureAndRunGSM(pythonPath, 1, { origin: 'startup' });
-                }
+            try {
+                await startBus();
+                wireBackendBus();
+                const { setLaunchBlockedCheck } = await import('./runtime/process_supervisor.js');
+                setLaunchBlockedCheck(() => isPythonLaunchBlockedByUpdate());
+            } catch (busErr) {
+                console.error('Failed to start message bus broker:', busErr);
+            }
+            let trackStartupInstallSession = shouldTrackStartupInstallSession();
+            if (trackStartupInstallSession) {
+                startStartupInstallSession();
+            }
+            // Start the install session first so OBS download progress (if a
+            // download is needed) renders in the install-progress UI. Electron
+            // owns the OBS download here, then launches it directly — no
+            // dependency on a backend "OBS is ready" signal.
+            void ensureObsInstalledAndLaunch({ reason: 'startup' }).catch((error) => {
+                console.warn('Electron-managed OBS startup ensure/launch failed:', error);
             });
-            updateInstallStage(
-                'prepare',
-                'running',
-                'estimated',
-                0.05,
-                'Preparing first-run startup workflow...'
-            );
             createWindow().then(async () => {
                 createTray();
                 autoLauncher.startPolling();
                 // setTimeout(async () => {
                 //     await checkAndRunWizard(true);
                 // }, 1000);
-                if (!getConfiguredPreReleaseBranch()) {
-                    checkForUpdates().then(({ updateAvailable, latestVersion }) => {
-                        if (updateAvailable) {
-                            const notification = new Notification({
-                                title: 'Update Available',
-                                body: `A new version of ${APP_NAME} python package is available: ${latestVersion}. Click here to update.`,
-                                timeoutType: 'default',
-                            });
-
-                            notification.on('click', async () => {
-                                console.log('Notification Clicked, Updating GSM...');
-                                await runUpdateChecks(true, false);
-                            });
-
-                            notification.show();
-                            setTimeout(() => notification.close(), 5000); // Close after 5 seconds
-                        }
-                    });
-                } else {
-                    log.info(
-                        'Skipping PyPI backend update notification check because pre-release backend mode is enabled.'
-                    );
-                }
+                const { checkForTexthookUpdates } = await import('./ui/texthook.js');
+                void checkForTexthookUpdates();
             });
 
             const pyPath = await getOrInstallPython();
             pythonPath = pyPath;
             setPythonPath(pythonPath);
+            if (!trackStartupInstallSession) {
+                trackStartupInstallSession = await resolveStartupInstallSessionAfterPythonReady(
+                    pythonPath
+                );
+            }
 
             if (wantsChaosHarnessRun()) {
                 if (!isDev) {
@@ -2135,11 +2299,7 @@ if (!app.requestSingleInstanceLock()) {
                     console.log('[Chaos] Starting dev update chaos harness...');
                     const summary = await runUpdateChaosHarness({
                         updateGSM: async (shouldRestart = false, force = false) => {
-                            await updateManager.updateGSM(
-                                shouldRestart,
-                                force,
-                                getConfiguredPreReleaseBranch()
-                            );
+                            await updateManager.updateGSM(shouldRestart, force);
                         },
                         ensureAndRunGSM: async (py) => ensureAndRunGSM(py),
                         closeAllPythonProcesses: async () => closeAllPythonProcesses(),
@@ -2181,8 +2341,6 @@ if (!app.requestSingleInstanceLock()) {
             const currentVersion = app.getVersion();
             const storedVersion = getElectronAppVersion();
             const appVersionChanged = storedVersion !== '' && storedVersion !== currentVersion;
-            const preReleaseBranch = getConfiguredPreReleaseBranch();
-            let backendUpdatedDuringStartup = false;
             const updateFlagPath = path.join(BASE_DIR, 'update_python.flag');
             if (appVersionChanged) {
                 log.info(
@@ -2191,7 +2349,6 @@ if (!app.requestSingleInstanceLock()) {
             }
             if (fs.existsSync(updateFlagPath)) {
                 await updateGSM(false, true);
-                backendUpdatedDuringStartup = true;
                 if (updateManager.lastBackendUpdateWasSuccessful) {
                     try {
                         if (fs.existsSync(updateFlagPath)) {
@@ -2212,34 +2369,21 @@ if (!app.requestSingleInstanceLock()) {
                 }
             } else if (appVersionChanged) {
                 await updateGSM(false, true);
-                backendUpdatedDuringStartup = true;
-            } else if (!preReleaseBranch && getAutoUpdateGSMApp()) {
+            } else if (getAutoUpdateGSMApp()) {
                 await updateGSM(false, false);
-                backendUpdatedDuringStartup = true;
             }
             if (isDev && FeatureFlags.ALWAYS_UPDATE_IN_DEV) {
                 await updateGSM(false, true);
-                backendUpdatedDuringStartup = true;
-            }
-            if (preReleaseBranch) {
-                if (!backendUpdatedDuringStartup) {
-                    console.log(
-                        `Pre-release backend enabled (branch: ${preReleaseBranch}), forcing backend update...`
-                    );
-                    await updateGSM(false, true);
-                    backendUpdatedDuringStartup = true;
-                } else {
-                    log.info(
-                        `Pre-release backend update already ran during startup (branch: ${preReleaseBranch}). Skipping duplicate run.`
-                    );
-                }
             }
             if (storedVersion !== currentVersion) {
                 setElectronAppVersion(currentVersion);
             }
 
             // Launch backend before UI/module initialization, then continue startup.
-            void ensureAndRunGSM(pythonPath, 1, { origin: 'startup' }).catch(async (err) => {
+            void ensureAndRunGSM(pythonPath, 1, {
+                origin: 'startup',
+                trackInstallSession: trackStartupInstallSession,
+            }).catch(async (err) => {
                 console.log('Failed to run GSM, attempting repair of python package...', err);
                 await updateGSM(true, true);
             });
@@ -2322,8 +2466,15 @@ async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<vo
     if (closeGSMFlag) {
         await closeGSM();
     }
+    stopOverlay();
     await stopOCR();
     await stopWindowTransparencyTool();
+    try {
+        const { shutdownTextHook } = await import('./ui/texthook.js');
+        shutdownTextHook();
+    } catch (err) {
+        console.warn('Failed to shut down text hook session:', err);
+    }
 }
 
 async function closeGSM(): Promise<void> {
@@ -2333,25 +2484,14 @@ async function closeGSM(): Promise<void> {
     }
     restartingGSM = true;
     stopScripts();
-    // Prefer graceful quit via IPC command; fall back to kill.
-    if (gsmStdoutManager) {
-        gsmStdoutManager.sendQuitMessage();
+    // Prefer graceful quit via the bus 'quit' command; fall back to kill.
+    // `cleanupComplete` is flipped by the persistent backend.event subscription
+    // (handleBackendMessage) when the backend reports cleanup_complete.
+    if (bus.isConnected('backend')) {
         cleanupComplete = false;
-        console.log('Sent quit command to GSM via stdout IPC.');
-        gsmStdoutManager.once('message', (msg) => {
-            if (msg.function === 'cleanup_complete') {
-                cleanupComplete = true;
-                console.log('Received cleanup_complete message from Python.');
-            }
-        });
-        // Wait up to 5 seconds for cleanup_complete, checking every 100ms, then force kill if needed
-        const timeoutMs = 5000;
-        const intervalMs = 100;
-        let waited = 0;
-        while (!cleanupComplete && waited < timeoutMs) {
-            await new Promise((resolve) => setTimeout(resolve, intervalMs));
-            waited += intervalMs;
-        }
+        sendBackendCommand('quit');
+        console.log('Sent quit command to GSM over the bus.');
+        await waitForBackendCleanup();
         if (pyProc && !pyProc.killed && !cleanupComplete) {
             pyProc.kill();
             console.log('Force killed GSM after timeout.');
@@ -2359,9 +2499,20 @@ async function closeGSM(): Promise<void> {
             console.log('GSM closed gracefully.');
         }
     } else {
-        console.log('No IPC manager, killing process directly.');
+        console.log('Backend not on the bus, killing process directly.');
         pyProc?.kill();
     }
+}
+
+/** Wait up to `timeoutMs` for the backend to report cleanup_complete. */
+async function waitForBackendCleanup(timeoutMs: number = 5000): Promise<boolean> {
+    const intervalMs = 100;
+    let waited = 0;
+    while (!cleanupComplete && waited < timeoutMs) {
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        waited += intervalMs;
+    }
+    return cleanupComplete;
 }
 
 async function restartGSM(): Promise<void> {
@@ -2369,24 +2520,22 @@ async function restartGSM(): Promise<void> {
         console.log('GSM restart already in progress. Ignoring duplicate request.');
         return;
     }
-    if (pyProc.killed) {
-        ensureAndRunGSM(pythonPath).then(() => {
-            console.log('GSM Successfully Restarted!');
-        });
+    if (!pyProc || pyProc.killed) {
+        await ensureAndRunGSM(pythonPath);
+        console.log('GSM Successfully Restarted!');
         return;
     }
     restartingGSM = true;
-    if (gsmStdoutManager) {
-        gsmStdoutManager.sendQuitMessage();
+    cleanupComplete = false;
+    if (bus.isConnected('backend')) {
+        sendBackendCommand('quit');
+        await waitForBackendCleanup();
     }
-    gsmStdoutManager?.once('message', (msg) => {
-        if (msg.function === 'cleanup_complete') {
-            console.log('Received cleanup_complete message from Python, restarting GSM...');
-            ensureAndRunGSM(pythonPath).then(() => {
-                console.log('GSM Successfully Restarted!');
-            });
-        }
-    });
+    if (pyProc && !pyProc.killed && !cleanupComplete) {
+        pyProc.kill();
+    }
+    await ensureAndRunGSM(pythonPath);
+    console.log('GSM Successfully Restarted!');
 }
 
 export { closeGSM, restartGSM, closeAllPythonProcesses, ensureAndRunGSM };
@@ -2404,13 +2553,86 @@ export async function stopScripts(): Promise<void> {
 
 async function quit(): Promise<void> {
     autoLauncher.stopPolling();
+    stopOverlay();
     await stopScripts();
     if (pyProc != null && !pyProc.killed) {
         await closeAllPythonProcesses();
-        app.quit();
-    } else {
-        app.quit();
     }
+    await closeOBSFromElectron({ reason: 'app quit' });
+    await stopBus().catch((err) => console.warn('Failed to stop message bus:', err));
+    app.quit();
+}
+
+// Stop everything that holds handles in the data dir, without quitting the app (used before a
+// data-folder relocation). Mirrors quit() minus app.quit().
+async function stopAllChildrenForRelocation(): Promise<void> {
+    autoLauncher.stopPolling();
+    stopOverlay();
+    await stopScripts();
+    if (pyProc != null && !pyProc.killed) {
+        await closeAllPythonProcesses();
+    }
+    await closeOBSFromElectron({ reason: 'data relocation' });
+    await stopBus().catch((err) => console.warn('Failed to stop message bus during relocation:', err));
+}
+
+let dataRelocateRegistered = false;
+
+function registerDataRelocateIPC(): void {
+    if (dataRelocateRegistered) {
+        return;
+    }
+    dataRelocateRegistered = true;
+
+    ipcMain.handle('data.getCurrentDir', () => BASE_DIR);
+
+    ipcMain.handle('data.relocate', async () => {
+        const win = mainWindow ?? undefined;
+
+        const picked = await dialog.showOpenDialog(win as BrowserWindow, {
+            title: 'Choose a new GSM data folder',
+            properties: ['openDirectory', 'createDirectory'],
+        });
+        if (picked.canceled || picked.filePaths.length === 0) {
+            return { success: false, canceled: true };
+        }
+        const newDir = picked.filePaths[0];
+
+        const validation = await validateTargetDir(BASE_DIR, newDir);
+        if (!validation.ok) {
+            return { success: false, error: validation.error };
+        }
+
+        const confirm = await dialog.showMessageBox(win as BrowserWindow, {
+            type: 'warning',
+            buttons: ['Move and Restart', 'Cancel'],
+            defaultId: 0,
+            cancelId: 1,
+            title: 'Move GSM Data',
+            message: `Move GSM data to:\n${newDir}`,
+            detail: 'GSM will stop, move your files, rebuild its Python environment, and restart. This can take a few minutes.',
+        });
+        if (confirm.response !== 0) {
+            return { success: false, canceled: true };
+        }
+
+        const sendProgress = (p: RelocateProgress) => {
+            mainWindow?.webContents.send('data.relocate.progress', p);
+        };
+
+        try {
+            sendProgress({ phase: 'validating', message: 'Stopping GSM…' });
+            await stopAllChildrenForRelocation();
+            await performDataMove(BASE_DIR, newDir, sendProgress);
+        } catch (err: any) {
+            return { success: false, error: err?.message ?? String(err) };
+        }
+
+        // New location is committed; relaunch so every path resolves to it and the venv rebuilds.
+        app.relaunch();
+        app.exit(0);
+        return { success: true };
+    });
 }
 
 async function restart(): Promise<void> {
@@ -2419,17 +2641,48 @@ async function restart(): Promise<void> {
     app.quit();
 }
 
-// Helper command wrappers replacing previous WebSocket-based ones
-export function sendStartOBS() { gsmStdoutManager?.sendStartOBS(); }
-export function sendQuitOBS() { gsmStdoutManager?.sendQuitOBS(); }
+// Helper command wrappers — all routed to the backend over the message bus.
+export function sendStartOBS() { sendBackendCommand('start_obs'); }
+export function sendQuitOBS() { sendBackendCommand('quit_obs'); }
 export function sendOpenSettings(data?: Record<string, unknown>) {
-    gsmStdoutManager?.sendOpenSettings(data);
+    sendBackendCommand('open_settings', data);
+}
+export function sendReloadSettings() {
+    sendBackendCommand('reload_settings');
 }
 export function sendOpenOverlaySettings() {
-    if (!gsmStdoutManager) {
-        return false;
-    }
-    gsmStdoutManager.sendOpenOverlaySettings();
-    return true;
+    return sendBackendCommand('open_overlay_settings');
 }
-export function sendOpenTexthooker() { gsmStdoutManager?.sendOpenTexthooker(); }
+export function sendOpenTexthooker() { sendBackendCommand('open_texthooker'); }
+export function sendRelateSceneToProfile(scene: string, profileName: string, createNew = false) {
+    return sendBackendCommand('relate_scene_to_profile', {
+        scene,
+        profile_name: profileName,
+        create_new: createNew,
+    });
+}
+
+export interface TextHookLinePayload {
+    text: string;
+    hookId?: string;
+    hookFunction?: string;
+    engine?: 'textractor' | 'luna' | 'agent';
+    exeName?: string;
+    copyToClipboard?: boolean;
+}
+
+export function sendTextHookLine(payload: TextHookLinePayload): void {
+    sendBackendCommand('texthook_text', { ...payload });
+}
+
+// Tell the backend when text hooking starts/stops so it can pause clipboard
+// polling while active (mirrors a connected websocket source).
+export function sendTextHookStatus(active: boolean): void {
+    sendBackendCommand('texthook_status', { active });
+}
+
+// Same as above for the OCR process. Driven from the OCR lifecycle so a crash
+// (not just a graceful stop) still resumes clipboard polling.
+export function sendOcrStatus(active: boolean): void {
+    sendBackendCommand('ocr_status', { active });
+}

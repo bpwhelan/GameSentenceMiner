@@ -38,6 +38,12 @@
       "title": "当前游戏捕获",
       "required": "必需",
       "gameLabel": "游戏：",
+      "profileLabel": "配置：",
+      "profileTooltip": "配置允许您为不同游戏使用不同设置。\n\n按配置区分：音频（格式、偏移、VAD）、截图（格式、时机、质量）、Anki 笔记类型与标签、AI 与翻译、文本处理、功能设置、覆盖层 OCR。\n\n所有配置共享：OBS 连接设置、输出文件夹路径、Anki 字段名称与 URL、WebSocket 端口。\n\n注意：OCR 区域和游戏自动化是按 OBS 场景保存的，与配置无关。",
+      "profileNewOption": "➕ 新建配置…",
+      "profileNewPlaceholder": "新配置名称",
+      "profileCreate": "创建",
+      "profileCancel": "取消",
       "refreshScenes": "刷新游戏",
       "renameScene": "重命名游戏捕获",
       "removeGame": "移除游戏",
@@ -96,7 +102,8 @@
     "support": {
       "text": "支持 GSM",
       "githubSponsors": "GitHub Sponsors",
-      "kofi": "Ko-fi"
+      "kofi": "Ko-fi",
+      "githubStar": "在 GitHub 上加星（免费）"
     },
     "ankiBeacon": {
       "statusMissing": "AnkiBeacon ⚠️",
@@ -124,8 +131,8 @@
     "tabs": {
       "home": "主页",
       "ocr": "OCR",
-      "stats": "统计",
-      "gameSettings": "游戏设置",
+      "textHook": "Texthook / Agent",      "textProcessing": "文本预处理",      "stats": "统计",
+      "gameSettings": "游戏自动化",
       "settings": "设置",
       "python": "Python",
       "logs": "日志"
@@ -245,7 +252,7 @@
       "title": "准备就绪！🎉",
       "description": "GSM 已准备好。以下是一些入门提示：",
       "tipHome": "打开<strong>主页</strong>标签查看当前游戏文本流",
-      "tipGameSettings": "使用<strong>游戏设置</strong>配置每个游戏的配置文件",
+      "tipGameSettings": "使用<strong>游戏自动化</strong>配置每个游戏的自动化",
       "tipSettings": "查看<strong>设置</strong>标签以配置 Anki、音频和热键",
       "tipConsole": "<strong>控制台</strong>标签显示 GSM 的后台运行情况",
       "guidePre": "如需详细指南和故障排除，请访问",
@@ -322,7 +329,7 @@
     "visibility": {
       "title": "可见性设置",
       "visibleTabs": "可见标签页：",
-      "tabGameSettings": "游戏设置",
+      "tabGameSettings": "游戏自动化",
       "tabStats": "统计",
       "tabPython": "Python",
       "tabConsole": "控制台",
@@ -443,10 +450,10 @@
     }
   },
   "launcher": {
-    "title": "游戏设置",
+    "title": "游戏自动化",
     "docsButton": "自动启动器文档",
     "docsButtonTooltip": "打开自动启动器文档",
-    "infoLabel": "游戏设置概览",
+    "infoLabel": "游戏自动化概览",
     "overviewTooltip": "配置共享的文本钉子工具路径和每游戏自动化。为每个游戏选择一种文本钉子模式（无/Agent/Textractor/Luna）和一种 OCR 模式（无/自动/手动）。",
     "shared": {
       "title": "共享工具设置",
@@ -504,7 +511,7 @@
       "openedReleases": "已打开 {label} 发布页面。",
       "failedOpenReleases": "无法打开发布页面。",
       "failedOpenDocs": "无法打开文档。",
-      "savedShared": "已保存共享游戏设置。",
+      "savedShared": "已保存共享游戏自动化设置。",
       "updatedPath": "已更新共享路径设置。",
       "savedScene": "已保存游戏自动化：{scene}",
       "updatedScript": "已更新游戏的 Agent 脚本：{scene}",
@@ -546,7 +553,7 @@
       "ocrNone": "不为此游戏启动 OCR。",
       "ocrAuto": "当此游戏活动时启动持续自动 OCR。",
       "ocrManual": "为此游戏启动手动 OCR 运行时。OCR 捕获通过控件/快捷键手动操作。",
-      "status": "游戏设置操作的最新保存/检测状态。",
+      "status": "游戏自动化操作的最新保存/检测状态。",
       "candidatePicker": "为此游戏选择最佳匹配的 Agent 脚本候选。",
       "noScene": "未加载游戏配置。请先选择一个游戏。"
     }
@@ -569,7 +576,7 @@
       "title": "OCR 设置",
       "advanced": "高级",
       "scanRate": "扫描频率（秒）：",
-      "textSpeed": "文本速度：",
+      "scanSpeed": "扫描速度：",
       "language": "语言：",
       "scanImageQuality": "扫描图像质量",
       "furiganaFilter": "假名过滤",
@@ -667,7 +674,7 @@
       "exportAreas": "将当前场景的 OCR 矩形以 JSON 复制到剪贴板。",
       "docs": "打开 OCR 指南文档，查看设置帮助、引擎说明和工作流程。",
       "advancedMode": "显示引擎选择和比较调校。基本模式只显示常用设置，并隐藏专家参数。",
-      "basicScanRate": "游戏中文字出现的速度。\n• 即时：适合立即显示的文本，CPU 使用率最高\n• 正常：适合大多数对白的平衡设置\n• 慢速：适合逐渐显示的文本",
+      "basicScanRate": "基础模式下 OCR 扫描的频率。\n• 尽可能快 (0)：无扫描延迟；可能暴露 UTF-8/编码问题，并且 CPU 使用率最高\n• 快速：适合需要快速响应的文本\n• 正常：适合大多数对白的平衡设置\n• 慢速/非常慢：适合逐渐显示的文本",
       "advancedScanRate": "OCR 轮询间隔（秒）。较低值会更频繁扫描、响应更快，但使用更多资源。较高值扫描较少，对较慢文本可能更平稳。",
       "language": "选择 OCR 处理语言。这可确保只捕获包含正确字符的文本块。所有拉丁文字语言（英语、西班牙语、法语、德语等）都通过英语支持。",
       "baseScale": "控制扫描前截图的缩放比例。\n• 较低 = 扫描更快、CPU 更低，但可能漏掉小字\n• 较高 = 对小字体更准确，但使用更多 CPU\n\n50% -> 快速 | 75% -> 平衡 | 100% -> 最慢\n\n提示：如果 OCR 漏掉小汉字或跳过字符，请尝试提高此值。",
@@ -755,7 +762,9 @@
       "hi": "印地语"
     },
     "scanRates": {
-      "instant": "即时",
+      "asFastAsPossible": "尽可能快 (0)",
+      "asFastAsPossibleWarning": "尽可能快 (0) - UTF-8 警告",
+      "fast": "快速",
       "normal": "正常",
       "slow": "慢",
       "verySlow": "非常慢"
@@ -795,6 +804,86 @@
       "importFailed": "导入失败。",
       "areaConfigExported": "OCR 区域配置已复制到剪贴板。",
       "exportFailed": "导出失败。"
+    }
+  },
+  "texthook": {
+    "credits": {
+      "text": "文本挂接工具",
+      "agent": "Agent",
+      "textractor": "Textractor",
+      "luna": "LunaTranslator"
+    },
+    "steps": {
+      "targetDesc": "从 OBS 捕获检测到的游戏进程",
+      "engineConfig": "引擎和配置",
+      "engineDesc": "选择并配置挂接引擎",
+      "options": "选项和配置",
+      "optionsDesc": "微调输出时序并保存设置",
+      "manualHookLabel": "可选 / 高级：手动挂接代码"
+    },
+    "capture": {
+      "title": "活动捕获",
+      "scene": "场景",
+      "executable": "可执行文件",
+      "pid": "PID",
+      "refresh": "刷新",
+      "unknown": "未知",
+      "noScene": "无活动场景"
+    },
+    "engine": {
+      "title": "引擎",
+      "label": "挂接引擎：",
+      "luna": "Luna Hook",
+      "textractor": "Textractor"
+    },
+    "profile": {
+      "title": "已保存配置",
+      "saved": "已保存",
+      "autoHook": "下次启动时自动附加挂接",
+      "flushDelay": "输出刷新延迟（ms）：",
+      "manualHook": "手动挂接代码（H/R-code，可选）：",
+      "manualHookHint": "除非你已有特定的 H-code 或 R-code，否则请留空。大多数用户应先启动引擎，然后选择检测到的挂接。",
+      "attachManual": "附加手动挂接",
+      "save": "保存挂接",
+      "delete": "删除配置"
+    },
+    "hooks": {
+      "title": "检测到的挂接",
+      "count": "{count} 个挂接",
+      "waiting": "等待挂接中。请在游戏中触发文本。",
+      "notRunning": "点击“开始”启动引擎。",
+      "noTextYet": "（尚无文本）"
+    },
+    "output": {
+      "title": "所选挂接输出",
+      "waiting": "等待所选挂接输出文本…",
+      "selectHook": "从列表中选择一个挂接以预览其文本。"
+    },
+    "log": {
+      "title": "引擎日志",
+      "empty": "暂无日志。"
+    },
+    "status": {
+      "attached": "已附加",
+      "ready": "就绪",
+      "noTarget": "无目标"
+    },
+    "actions": {
+      "start": "开始",
+      "stop": "停止"
+    },
+    "notices": {
+      "started": "已附加到 {exe}（PID {pid}）。",
+      "selected": "已选择挂接 #{id}。输出正在转发到 GSM。",
+      "manualAttached": "手动挂接代码已附加。",
+      "profileSaved": "已为该游戏保存挂接配置。",
+      "profileDeleted": "挂接配置已删除。"
+    },
+    "errors": {
+      "startFailed": "无法启动挂接引擎。",
+      "manualFailed": "无法附加手动挂接。",
+      "profileSaveFailed": "无法保存挂接配置。",
+      "noExe": "未检测到活动捕获的可执行文件。"
     }
   }
 }

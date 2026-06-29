@@ -8,13 +8,22 @@ Usage:
     python -m GameSentenceMiner.util.cron.run_crons
 """
 
-import asyncio
 import enum
-from dataclasses import dataclass
-from typing import Optional
+import queue
+import threading
+import time
+from dataclasses import dataclass, field
+from typing import Callable, Optional
 
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.cron_table import CronTable
+
+
+MAX_QUEUE_WAIT_SECONDS = 0.5
+# A single task running longer than this is almost certainly stuck. We can't kill the
+# thread, but we log a warning (and keep re-warning) so it shows up in users' logs. The
+# recurring culprit is a user plugin with a blocking/looping main().
+SLOW_TASK_WARN_SECONDS = 60.0
 
 
 class Crons(enum.Enum):
@@ -38,44 +47,204 @@ class MockCron:
     description: str
 
 
+# --------------------------------------------------------------------------- #
+# Task registry                                                               #
+# --------------------------------------------------------------------------- #
+# Each cron task is declared once here instead of a giant if/elif chain. The
+# runner does the (lazy) import + call and returns the task's result dict; the
+# optional callbacks derive success/log lines from that result.
+
+
+# Lower priority runs first when several tasks are due in the same batch. Plugins go
+# first (users expect their own code to win), then the daily stats rollup; everything
+# else runs at the default priority afterwards in registry order.
+PRIORITY_HIGH = 0
+PRIORITY_ROLLUP = 10
+PRIORITY_DEFAULT = 100
+PRIORITY_LOW = 1000
+
+
+@dataclass(frozen=True)
+class _TaskDef:
+    runner: Callable[[], dict]
+    success: Callable[[dict], bool] = field(default=lambda result: True)
+    summary: Callable[[dict], str] = field(default=lambda result: "")
+    warn: Callable[[dict], Optional[str]] = field(default=lambda result: None)
+    priority: int = PRIORITY_DEFAULT
+
+
+def _run_populate_games() -> dict:
+    from GameSentenceMiner.util.cron.populate_games import populate_games_table
+
+    return populate_games_table()
+
+
+def _run_jiten_sync() -> dict:
+    from GameSentenceMiner.util.cron.jiten_update import update_all_jiten_games
+
+    return update_all_jiten_games()
+
+
+def _run_daily_rollup() -> dict:
+    from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
+
+    return run_daily_rollup()
+
+
+def _run_user_plugins() -> dict:
+    from GameSentenceMiner.util.cron.user_plugins import execute_user_plugins
+
+    return execute_user_plugins()
+
+
+def _run_jiten_upgrader() -> dict:
+    from GameSentenceMiner.util.cron.jiten_upgrader import upgrade_games_to_jiten
+
+    return upgrade_games_to_jiten()
+
+
+def _run_daily_goals_completion() -> dict:
+    from GameSentenceMiner.util.cron.daily_goals_completion import run_daily_goals_completion
+
+    return run_daily_goals_completion()
+
+
+def _run_tokenize_backfill() -> dict:
+    from GameSentenceMiner.util.cron.tokenize_lines import run_tokenize_backfill
+
+    return run_tokenize_backfill()
+
+
+def _run_anki_word_sync_deprecated() -> dict:
+    logger.warning("anki_word_sync is deprecated — use anki_card_sync instead. Skipping.")
+    return {"skipped": True, "reason": "deprecated — use anki_card_sync"}
+
+
+def _run_anki_card_sync() -> dict:
+    from GameSentenceMiner.util.cron.anki_card_sync import run_full_sync
+
+    return run_full_sync()
+
+
+def _skip_or(result: dict, done: str) -> str:
+    if result.get("skipped"):
+        return f"skipped: {result.get('reason', 'unknown')}"
+    return done
+
+
+_TASK_REGISTRY: dict[str, _TaskDef] = {
+    Crons.POPULATE_GAMES.value: _TaskDef(
+        runner=_run_populate_games,
+        summary=lambda r: f"created {r.get('created', 0)} games, linked {r.get('linked_lines', 0)} lines",
+    ),
+    Crons.JITEN_SYNC.value: _TaskDef(
+        runner=_run_jiten_sync,
+        priority=PRIORITY_LOW,
+    ),
+    Crons.DAILY_STATS_ROLLUP.value: _TaskDef(runner=_run_daily_rollup, priority=PRIORITY_ROLLUP),
+    Crons.USER_PLUGINS.value: _TaskDef(
+        runner=_run_user_plugins,
+        success=lambda r: r.get("executed", False),
+        warn=lambda r: f"User plugins completed with warning: {r['error']}" if r.get("error") else None,
+        priority=PRIORITY_HIGH,
+    ),
+    Crons.JITEN_UPGRADER.value: _TaskDef(
+        runner=_run_jiten_upgrader,
+        summary=lambda r: f"upgraded {r.get('upgraded_to_jiten', 0)} games, not found {r.get('not_found_on_jiten', 0)}",
+        priority=PRIORITY_LOW,
+    ),
+    Crons.DAILY_GOALS_COMPLETION.value: _TaskDef(
+        runner=_run_daily_goals_completion,
+        success=lambda r: r.get("success", False),
+        summary=lambda r: (
+            f"✅ daily goals auto-completed, streak {r.get('streak', 0)}"
+            if r.get("action") == "completed"
+            else f"action={r.get('action', 'unknown')}"
+        ),
+        priority=PRIORITY_DEFAULT,
+    ),
+    Crons.TOKENIZE_BACKFILL.value: _TaskDef(
+        runner=_run_tokenize_backfill,
+        success=lambda r: not r.get("skipped", False),
+        summary=lambda r: _skip_or(r, f"{r.get('processed', 0)} lines processed"),
+        priority=PRIORITY_LOW,
+    ),
+    Crons.ANKI_WORD_SYNC.value: _TaskDef(runner=_run_anki_word_sync_deprecated),
+    Crons.ANKI_CARD_SYNC.value: _TaskDef(
+        runner=_run_anki_card_sync,
+        success=lambda r: not r.get("skipped", False),
+        summary=lambda r: _skip_or(
+            r,
+            f"notes={r.get('notes', 0)}, cards={r.get('cards', 0)}, reviews={r.get('reviews', 0)}",
+        ),
+    ),
+}
+
+
+class _SlowTaskWatchdog:
+    """Logs a warning every ``interval`` seconds while a cron task is still running.
+
+    A stuck task can't be interrupted (it owns the scheduler thread), but this makes it
+    impossible to miss in the logs and names the offending task + elapsed time.
+    """
+
+    def __init__(self, name: str, interval: float = SLOW_TASK_WARN_SECONDS):
+        self._name = name
+        self._interval = interval
+        self._timer: Optional[threading.Timer] = None
+        self._started = 0.0
+
+    def __enter__(self) -> "_SlowTaskWatchdog":
+        self._started = time.monotonic()
+        self._arm()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        if self._timer:
+            self._timer.cancel()
+            self._timer = None
+
+    def _arm(self) -> None:
+        self._timer = threading.Timer(self._interval, self._fire)
+        self._timer.daemon = True
+        self._timer.name = f"gsm-cron-watchdog-{self._name}"
+        self._timer.start()
+
+    def _fire(self) -> None:
+        elapsed = time.monotonic() - self._started
+        logger.warning(f"⏳ Scheduled task '{self._name}' still running after {elapsed:.0f}s — it may be stuck")
+        self._arm()
+
+
 class CronScheduler:
     """
-    Async-based cron scheduler that checks for due cron jobs every 15 minutes.
-    It uses an Event Queue to allow immediate execution of forced tasks.
+    Thread-based cron scheduler that checks for due cron jobs every 15 minutes.
+    It uses a Queue to allow immediate execution of forced tasks.
     """
 
     def __init__(self, check_interval: int = 900):
         self.check_interval = check_interval
-        self._task: Optional[asyncio.Task] = None
+        self._thread: Optional[threading.Thread] = None
         self._running = False
 
-        self._lock = asyncio.Lock()
+        self._lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._stop_event = threading.Event()
 
-        self._queue = None
-        self.loop = None
+        self._queue: queue.Queue[Crons] = queue.Queue()
 
-    def _ensure_init(self):
-        """Lazy initialization of loop-dependent objects"""
-        if self._queue is None:
-            self._queue = asyncio.Queue()
-        if self.loop is None:
-            try:
-                self.loop = asyncio.get_running_loop()
-            except RuntimeError:
-                self.loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self.loop)
+        # Currently-running task, for diagnostics (skips / stop-while-busy).
+        self._active_task: Optional[str] = None
+        self._active_since: Optional[float] = None
 
     def add_external_task(self, task: Crons):
         """
         Add an external cron task to be executed IMMEDIATELY.
         Thread-safe: Can be called from UI threads.
         """
-        self._ensure_init()
-        if self.loop.is_running():
-            self.loop.call_soon_threadsafe(self._queue.put_nowait, task)
-        else:
-            logger.warning("CronScheduler loop is not running, task queued but won't run until start()")
-            self._queue.put_nowait(task)
+        if not self.is_running():
+            logger.warning("CronScheduler is not running, task queued but won't run until start()")
+        self._queue.put(task)
 
     def force_daily_rollup(self):
         self.add_external_task(Crons.DAILY_STATS_ROLLUP)
@@ -101,86 +270,192 @@ class CronScheduler:
     def force_anki_card_sync(self):
         self.add_external_task(Crons.ANKI_CARD_SYNC)
 
-    async def start(self):
+    def start(self):
         """Start the cron scheduler in the background."""
-        if self._running:
-            logger.warning("CronScheduler is already running")
-            return
+        with self._state_lock:
+            if self._thread and self._thread.is_alive():
+                logger.warning("CronScheduler is already running")
+                return
 
-        self._ensure_init()
-        self._running = True
-        self._task = asyncio.create_task(self._run_scheduler())
-        logger.debug(f"CronScheduler started with check interval of {self.check_interval}s")
+            self._running = True
+            self._stop_event.clear()
+            self._thread = threading.Thread(
+                target=self._run_scheduler,
+                name="gsm-cron-scheduler",
+                daemon=True,
+            )
+            self._thread.start()
 
-    async def stop(self):
-        """Stop the cron scheduler gracefully."""
-        if not self._running:
-            return
+        logger.background(f"CronScheduler started with check interval of {self.check_interval}s")
 
-        self._running = False
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-        logger.info("CronScheduler stopped")
+    def shutdown(self):
+        """Signal the scheduler to wind down without blocking.
 
-    async def _run_scheduler(self):
+        The scheduler thread is a daemon that will exit after its current task, so on
+        teardown (e.g. the async runner cancelling its tasks at process shutdown) there's
+        no need to block-join and warn — just set the stop event and return.
+        """
+        with self._state_lock:
+            self._running = False
+        self._stop_event.set()
+
+    def stop(self, timeout: float = 2.0):
+        """Stop the cron scheduler gracefully (blocks up to ``timeout`` for the thread)."""
+        with self._state_lock:
+            thread = self._thread
+            if not self._running and not (thread and thread.is_alive()):
+                return
+
+            self._running = False
+            self._stop_event.set()
+
+        if thread and thread.is_alive() and threading.current_thread() is not thread:
+            thread.join(timeout=timeout)
+
+        with self._state_lock:
+            if self._thread is thread and thread and not thread.is_alive():
+                self._thread = None
+
+        if thread and thread.is_alive():
+            active = self._active_task_info()
+            suffix = f" (active task: {active})" if active else ""
+            logger.warning(f"CronScheduler stop requested, but the scheduler thread is still running{suffix}")
+        else:
+            logger.background("CronScheduler stopped")
+
+    def _set_active_task(self, name: Optional[str]):
+        with self._state_lock:
+            self._active_task = name
+            self._active_since = time.monotonic() if name else None
+
+    def _active_task_info(self) -> Optional[str]:
+        """Human-readable description of the in-flight task, or None when idle."""
+        with self._state_lock:
+            if not self._active_task:
+                return None
+            elapsed = time.monotonic() - (self._active_since or time.monotonic())
+            return f"{self._active_task}, running {elapsed:.0f}s"
+
+    def _run_scheduler(self):
         """
         The main loop.
         It waits for 'check_interval' seconds OR for a forced task in the queue.
         """
-        logger.debug("CronScheduler loop started")
+        logger.background("CronScheduler thread started")
 
         try:
-            logger.background("Running initial scheduled task check on startup...")
-            await self._execute_safe(None)
-        except Exception as e:
-            logger.warning(f"Failed to check scheduled tasks on startup: {e}")
-
-        while self._running:
             try:
-                forced_task = await asyncio.wait_for(self._queue.get(), timeout=self.check_interval)
-
-                logger.info(f"Received forced trigger for: {forced_task}")
-                await self._execute_safe(forced_task)
-
-            except asyncio.TimeoutError:
-                if self._running:
-                    await self._execute_safe(None)
-
-            except asyncio.CancelledError:
-                logger.info("CronScheduler task cancelled")
-                break
+                if not self._stop_event.is_set():
+                    logger.background("Running initial scheduled task check on startup...")
+                    self._execute_safe(None)
             except Exception as e:
-                logger.exception(f"Error in CronScheduler loop: {e}")
-                await asyncio.sleep(60)  # Backoff on error
+                logger.warning(f"Failed to check scheduled tasks on startup: {e}")
 
-    async def _execute_safe(self, force_task: Optional[Crons]):
+            next_check_time = time.monotonic() + self.check_interval
+
+            while not self._stop_event.is_set():
+                got_queue_item = False
+                forced_task: Optional[Crons] = None
+                seconds_until_check = max(0.0, next_check_time - time.monotonic())
+                queue_wait_seconds = min(MAX_QUEUE_WAIT_SECONDS, seconds_until_check)
+
+                try:
+                    forced_task = self._queue.get(timeout=queue_wait_seconds)
+                    got_queue_item = True
+
+                    logger.background(f"Received forced trigger for: {forced_task.value}")
+                    self._execute_safe(forced_task)
+                    next_check_time = time.monotonic() + self.check_interval
+                except queue.Empty:
+                    if not self._stop_event.is_set() and time.monotonic() >= next_check_time:
+                        logger.background("Running periodic scheduled task check...")
+                        self._execute_safe(None)
+                        next_check_time = time.monotonic() + self.check_interval
+                except Exception as e:
+                    logger.exception(f"Error in CronScheduler loop: {e}")
+                    self._stop_event.wait(60)  # Backoff on error, but wake promptly on stop.
+                    next_check_time = time.monotonic() + self.check_interval
+                finally:
+                    if got_queue_item:
+                        self._queue.task_done()
+        finally:
+            with self._state_lock:
+                self._running = False
+            logger.background("CronScheduler thread exited")
+
+    def _execute_safe(self, force_task: Optional[Crons]):
         """Helper to acquire lock and run logic"""
-        if self._lock.locked():
-            logger.background("Cron task is already running, skipping/queuing...")
+        acquired = self._lock.acquire(blocking=False)
+        if not acquired:
+            active = self._active_task_info()
+            logger.background(f"Previous cron batch still running ({active or 'unknown'}), skipping this check")
             return
 
-        async with self._lock:
-            await run_due_crons(force_task)
+        try:
+            run_due_crons(force_task, progress=self._set_active_task)
+        except Exception as e:
+            logger.exception(f"Cron batch execution failed: {e}")
+        finally:
+            self._set_active_task(None)
+            self._lock.release()
 
     def is_running(self) -> bool:
-        return self._running
+        with self._state_lock:
+            return self._running
 
 
-async def run_due_crons(force_task: Optional["Crons"] = None) -> dict:
+def _execute_cron(cron, task_def: "_TaskDef", progress: Optional[Callable[[Optional[str]], None]]) -> dict:
+    """Run a single due cron task with timing + watchdog logging.
+
+    Returns its detail dict, augmented with internal ``_executed``/``_failed`` flags.
     """
-    Run cron processing in a worker thread so long-running sync tasks
-    do not block the async event loop (text input/websocket responsiveness).
-    """
-    return await asyncio.to_thread(_run_due_crons_sync, force_task)
+    detail = {"name": cron.name, "description": cron.description, "success": False, "error": None}
+
+    if progress:
+        progress(cron.name)
+
+    started = time.monotonic()
+    logger.background(f"▶ Executing scheduled task: {cron.name}")
+
+    try:
+        with _SlowTaskWatchdog(cron.name):
+            result = task_def.runner()
+
+        duration = time.monotonic() - started
+        if cron.id != -1:
+            CronTable.just_ran(cron.id)
+
+        detail["success"] = task_def.success(result)
+        detail["result"] = result
+        detail["_executed"] = True
+
+        warning = task_def.warn(result)
+        if warning:
+            logger.warning(warning)
+
+        summary = task_def.summary(result)
+        logger.background(f"✔ Finished {cron.name} in {duration:.1f}s" + (f" — {summary}" if summary else ""))
+    except Exception as e:
+        duration = time.monotonic() - started
+        logger.exception(f"✖ Failed to execute {cron.name} after {duration:.1f}s: {e}")
+        detail["error"] = str(e)
+        detail["_failed"] = True
+    finally:
+        if progress:
+            progress(None)
+
+    return detail
 
 
-def _run_due_crons_sync(force_task: Optional["Crons"] = None) -> dict:
+def run_due_crons(
+    force_task: Optional["Crons"] = None,
+    progress: Optional[Callable[[Optional[str]], None]] = None,
+) -> dict:
     """
     Check for and execute all due cron jobs.
+
+    ``progress`` (optional) is called with the task name when each task starts and
+    with ``None`` when it ends, so a caller can surface what's currently running.
     """
 
     if force_task:
@@ -198,196 +473,45 @@ def _run_due_crons_sync(force_task: Optional["Crons"] = None) -> dict:
     if not due_crons:
         return {"total_checked": 0, "executed": 0, "failed": 0, "details": []}
 
+    # Run higher-priority tasks first; stable sort keeps DB order within a priority.
+    # Unknown tasks fall to the default priority and still run (and get logged below).
+    def _priority(cron) -> int:
+        task_def = _TASK_REGISTRY.get(cron.name)
+        return task_def.priority if task_def else PRIORITY_DEFAULT
+
+    due_crons = sorted(due_crons, key=_priority)
+
     logger.background(f"📋 Found {len(due_crons)} scheduled task(s) due to run")
 
+    batch_started = time.monotonic()
     executed_count = 0
     failed_count = 0
     details = []
 
     for cron in due_crons:
-        logger.background(f"Executing scheduled task: {cron.name}")
-
-        detail = {
-            "name": cron.name,
-            "description": cron.description,
-            "success": False,
-            "error": None,
-        }
-
-        try:
-            # Execute populate_games
-            if cron.name == Crons.POPULATE_GAMES.value:
-                from GameSentenceMiner.util.cron.populate_games import (
-                    populate_games_table,
-                )
-
-                result = populate_games_table()
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = True
-                detail["result"] = result
-
-                logger.background(f"Successfully executed {cron.name}")
-                logger.background(
-                    f"Created: {result.get('created', 0)} games, Linked: {result.get('linked_lines', 0)} lines"
-                )
-
-            # Execute Jiten Sync
-            elif cron.name == Crons.JITEN_SYNC.value:
-                from GameSentenceMiner.util.cron.jiten_update import (
-                    update_all_jiten_games,
-                )
-
-                result = update_all_jiten_games()
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = True
-                detail["result"] = result
-
-                logger.background(f"Successfully executed {cron.name}")
-
-            # Execute Daily Rollup
-            elif cron.name == Crons.DAILY_STATS_ROLLUP.value:
-                from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
-
-                result = run_daily_rollup()
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = True
-                detail["result"] = result
-
-                logger.background(f"Successfully executed {cron.name}")
-
-            elif cron.name == Crons.USER_PLUGINS.value:
-                from GameSentenceMiner.util.cron.user_plugins import (
-                    execute_user_plugins,
-                )
-
-                result = execute_user_plugins()
-
-                # Mark as successfully run (even if plugins had errors, the system ran)
-                CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = result.get("executed", False)
-                detail["result"] = result
-
-                if result.get("error"):
-                    logger.warning(f"User plugins completed with warning: {result['error']}")
-                else:
-                    logger.background(f"Successfully executed {cron.name}")
-
-            # Execute Jiten Upgrader (weekly check for new Jiten entries)
-            elif cron.name == Crons.JITEN_UPGRADER.value:
-                from GameSentenceMiner.util.cron.jiten_upgrader import (
-                    upgrade_games_to_jiten,
-                )
-
-                result = upgrade_games_to_jiten()
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = True
-                detail["result"] = result
-
-                logger.background(f"Successfully executed {cron.name}")
-                logger.background(
-                    f"Upgraded: {result.get('upgraded_to_jiten', 0)} games, Not found: {result.get('not_found_on_jiten', 0)}"
-                )
-
-            # Execute Daily Goals Completion (hourly check for auto-completing daily goals)
-            elif cron.name == Crons.DAILY_GOALS_COMPLETION.value:
-                from GameSentenceMiner.util.cron.daily_goals_completion import (
-                    run_daily_goals_completion,
-                )
-
-                result = run_daily_goals_completion()
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = result.get("success", False)
-                detail["result"] = result
-
-                if result.get("action") == "completed":
-                    logger.background(f"✅ Daily goals auto-completed! Streak: {result.get('streak', 0)}")
-                else:
-                    logger.background(f"Executed {cron.name}: {result.get('action', 'unknown')}")
-
-            # Execute Tokenize Backfill (weekly tokenization of game lines)
-            elif cron.name == Crons.TOKENIZE_BACKFILL.value:
-                from GameSentenceMiner.util.cron.tokenize_lines import (
-                    run_tokenize_backfill,
-                )
-
-                result = run_tokenize_backfill()
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = not result.get("skipped", False)
-                detail["result"] = result
-
-                if result.get("skipped"):
-                    logger.background(f"Skipped {cron.name}: {result.get('reason', 'unknown')}")
-                else:
-                    logger.background(
-                        f"Successfully executed {cron.name}: {result.get('processed', 0)} lines processed"
-                    )
-
-            # Deprecated: anki_word_sync replaced by anki_card_sync
-            elif cron.name == Crons.ANKI_WORD_SYNC.value:
-                logger.warning("anki_word_sync is deprecated — use anki_card_sync instead. Skipping.")
-                result = {"skipped": True, "reason": "deprecated — use anki_card_sync"}
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = True
-                detail["result"] = result
-
-            # Execute Anki Card Sync (daily full sync of Anki notes, cards, reviews)
-            elif cron.name == Crons.ANKI_CARD_SYNC.value:
-                from GameSentenceMiner.util.cron.anki_card_sync import (
-                    run_full_sync,
-                )
-
-                result = run_full_sync()
-
-                if cron.id != -1:
-                    CronTable.just_ran(cron.id)
-                executed_count += 1
-                detail["success"] = not result.get("skipped", False)
-                detail["result"] = result
-
-                if result.get("skipped"):
-                    logger.background(f"Skipped {cron.name}: {result.get('reason', 'unknown')}")
-                else:
-                    logger.background(
-                        f"Successfully executed {cron.name}: "
-                        f"notes={result.get('notes', 0)}, cards={result.get('cards', 0)}, "
-                        f"reviews={result.get('reviews', 0)}"
-                    )
-
-            else:
-                logger.error(f"⚠️ Unknown scheduled task: {cron.name}")
-                detail["error"] = f"Unknown scheduled task: {cron.name}"
-                failed_count += 1
-
-        except Exception as e:
-            logger.exception(f"Failed to execute {cron.name}: {e}")
-            detail["error"] = str(e)
+        task_def = _TASK_REGISTRY.get(cron.name)
+        if task_def is None:
+            logger.error(f"⚠️ Unknown scheduled task: {cron.name}")
+            details.append(
+                {
+                    "name": cron.name,
+                    "description": cron.description,
+                    "success": False,
+                    "error": "Unknown scheduled task",
+                }
+            )
             failed_count += 1
+            continue
 
+        detail = _execute_cron(cron, task_def, progress)
+        executed_count += detail.pop("_executed", False)
+        failed_count += detail.pop("_failed", False)
         details.append(detail)
 
-    logger.background("Scheduled task check completed")
+    logger.background(
+        f"Scheduled task check completed in {time.monotonic() - batch_started:.1f}s "
+        f"({executed_count} executed, {failed_count} failed)"
+    )
 
     return {
         "total_checked": len(due_crons),
@@ -403,21 +527,18 @@ cron_scheduler = CronScheduler()
 
 # for me to manually check
 if __name__ == "__main__":
-
-    async def main():
+    try:
         # Start the scheduler
-        await cron_scheduler.start()
+        cron_scheduler.start()
 
         # Simulate a manual trigger
         print("Waiting 2 seconds then forcing task...")
-        await asyncio.sleep(2)
+        time.sleep(2)
         cron_scheduler.force_populate_games()
 
         # Keep alive briefly to let it run
-        await asyncio.sleep(5)
-        await cron_scheduler.stop()
-
-    try:
-        asyncio.run(main())
+        time.sleep(5)
     except KeyboardInterrupt:
         pass
+    finally:
+        cron_scheduler.stop()

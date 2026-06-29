@@ -1,7 +1,10 @@
 use clap::Parser;
 use futures_util::{SinkExt, StreamExt};
 use gilrs::{Axis, Button, Event, EventType, GamepadId, Gilrs};
-use rdev::{listen as listen_global_keyboard, Event as KeyboardEvent, EventType as KeyboardEventType, Key as KeyboardKey};
+use rdev::{
+    listen as listen_global_keyboard, Event as KeyboardEvent, EventType as KeyboardEventType,
+    Key as KeyboardKey,
+};
 use reqwest::Client as HttpClient;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -27,7 +30,7 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{broadcast, Mutex};
 use tokio::time;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
-use tracing::{debug, error, info, warn, Level};
+use tracing::{debug, error, info, warn};
 use zip::ZipArchive;
 
 /// GSM Overlay Gamepad Server (Rust)
@@ -100,8 +103,9 @@ enum ServerTokenizerBackend {
 impl ServerTokenizerBackend {
     fn from_value(value: Option<&str>) -> Self {
         match value.map(|v| v.trim().to_ascii_lowercase()) {
+            Some(v) if v == "mecab" => Self::Mecab,
             Some(v) if v == "sudachi" => Self::Sudachi,
-            _ => Self::Mecab,
+            _ => Self::Sudachi,
         }
     }
 
@@ -183,26 +187,6 @@ fn digital_pressed(value: f32) -> bool {
     value >= 0.5
 }
 
-fn is_stick_axis(axis: &str) -> bool {
-    matches!(axis, "left_x" | "left_y" | "right_x" | "right_y")
-}
-
-fn gsm_dev_environment_enabled() -> bool {
-    matches!(
-        std::env::var("GSM_DEV_ENVIRONMENT"),
-        Ok(v) if v.trim() == "1"
-    )
-}
-
-fn init_tracing(dev_environment: bool) {
-    let max_level = if dev_environment {
-        Level::DEBUG
-    } else {
-        Level::INFO
-    };
-    tracing_subscriber::fmt().with_max_level(max_level).init();
-}
-
 // ------------------------------ Server state --------------------------------
 
 #[derive(Debug, Clone)]
@@ -269,60 +253,62 @@ impl Default for Config {
     }
 }
 
-#[derive(Debug, Clone)]
-struct StickLogSample {
-    value: f32,
-    time: Instant,
-}
-
-#[derive(Debug)]
-struct DevInputLogger {
-    enabled: bool,
-    stick_min_interval: Duration,
-    stick_delta_epsilon: f32,
-    last_stick_sample: HashMap<(GamepadId, &'static str), StickLogSample>,
-}
-
-impl DevInputLogger {
-    fn new(enabled: bool) -> Self {
-        Self {
-            enabled,
-            stick_min_interval: Duration::from_millis(180),
-            stick_delta_epsilon: 0.08,
-            last_stick_sample: HashMap::new(),
-        }
-    }
-
-    fn should_log_stick(
-        &mut self,
-        id: GamepadId,
-        axis: &'static str,
-        value: f32,
-        now: Instant,
-    ) -> bool {
-        if !self.enabled {
-            return false;
-        }
-
-        let key = (id, axis);
-        if let Some(prev) = self.last_stick_sample.get(&key) {
-            let dv = (value - prev.value).abs();
-            let dt = now.duration_since(prev.time);
-            if dv < self.stick_delta_epsilon && dt < self.stick_min_interval {
-                return false;
-            }
-        }
-
-        self.last_stick_sample
-            .insert(key, StickLogSample { value, time: now });
-        true
-    }
-}
-
 type SharedStates = Mutex<HashMap<GamepadId, GamepadState>>;
+type SharedDeviceBlacklist = Arc<StdMutex<HashSet<String>>>;
 type SharedMecab = Mutex<MecabService>;
 type SharedSudachi = Mutex<SudachiService>;
 type SharedManualHotkey = Arc<StdMutex<ManualHotkeyState>>;
+
+fn normalize_device_blacklist_entry(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn normalize_device_blacklist(values: Vec<String>) -> HashSet<String> {
+    values
+        .into_iter()
+        .filter_map(|value| normalize_device_blacklist_entry(&value))
+        .collect()
+}
+
+fn gamepad_device_blacklist_from_env() -> HashSet<String> {
+    let Ok(raw) = std::env::var("GSM_GAMEPAD_DEVICE_BLACKLIST") else {
+        return HashSet::new();
+    };
+
+    let parsed: Result<Vec<String>, _> = serde_json::from_str(&raw);
+    match parsed {
+        Ok(values) => normalize_device_blacklist(values),
+        Err(err) => {
+            warn!("failed to parse GSM_GAMEPAD_DEVICE_BLACKLIST: {err}");
+            HashSet::new()
+        }
+    }
+}
+
+fn is_device_blacklisted(blacklist: &SharedDeviceBlacklist, device_name: &str) -> bool {
+    let Some(normalized) = normalize_device_blacklist_entry(device_name) else {
+        return false;
+    };
+    let guard = blacklist.lock().expect("device blacklist mutex poisoned");
+    guard.contains(&normalized)
+}
+
+fn device_blacklist_payload(blacklist: &SharedDeviceBlacklist) -> Value {
+    let mut devices = {
+        let guard = blacklist.lock().expect("device blacklist mutex poisoned");
+        guard.iter().cloned().collect::<Vec<_>>()
+    };
+    devices.sort();
+    json!({
+        "type": "device_blacklist_updated",
+        "devices": devices,
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 struct ManualHotkeyModifiers {
@@ -344,6 +330,15 @@ struct ManualHotkeyBinding {
     key: Option<KeyboardKey>,
 }
 
+/// An app-level hotkey (toggle window, translate, etc.) routed through the input
+/// server when the user enables "route all hotkeys through input server". Evaluated
+/// server-side like the manual show-hotkey; only edge transitions are broadcast.
+#[derive(Debug, Clone)]
+struct AppHotkeyEntry {
+    binding: ManualHotkeyBinding,
+    active: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 struct ManualHotkeyStatus {
     available: bool,
@@ -357,6 +352,26 @@ struct ManualHotkeyState {
     binding_label: Option<String>,
     active: bool,
     status: ManualHotkeyStatus,
+    /// Allowlist of key identifiers the connected overlay actually reacts to.
+    /// Only these keys are broadcast as `keyboard_event`; everything else the
+    /// user types is seen by the hook for hotkey evaluation but never leaves the
+    /// process. This is what keeps the server from behaving like a keylogger.
+    capture_keys: HashSet<String>,
+    /// When true, broadcast *every* key transition regardless of the allowlist.
+    /// Only used transiently while the settings UI is recording a new binding
+    /// ("press a key..."), and reset to false as soon as capture ends.
+    capture_all: bool,
+    /// App-level hotkeys keyed by a stable action id. Evaluated server-side on
+    /// every key transition; edges are broadcast as `app_hotkey_event`. Like the
+    /// manual show-hotkey this only ever emits configured combos, never raw keys.
+    app_hotkeys: HashMap<String, AppHotkeyEntry>,
+}
+
+/// Decide whether a key transition should be broadcast to clients as a
+/// `keyboard_event`. Default-deny: nothing is broadcast unless the key is on the
+/// client-supplied allowlist or an explicit capture-all recording session is active.
+fn should_broadcast_key(state: &ManualHotkeyState, key_name: &str) -> bool {
+    state.capture_all || state.capture_keys.contains(key_name)
 }
 
 struct SudachiService {
@@ -878,34 +893,6 @@ fn sudachi_dictionary_kind_from_env() -> SudachiDictionaryKind {
     SudachiDictionaryKind::from_value(std::env::var("GSM_SUDACHI_DICT_KIND").ok().as_deref())
 }
 
-fn default_overlay_data_dir() -> PathBuf {
-    if cfg!(windows) {
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            let trimmed = appdata.trim();
-            if !trimmed.is_empty() {
-                return PathBuf::from(trimmed).join("gsm_overlay");
-            }
-        }
-    } else {
-        if let Ok(config_home) = std::env::var("XDG_CONFIG_HOME") {
-            let trimmed = config_home.trim();
-            if !trimmed.is_empty() {
-                return PathBuf::from(trimmed).join("gsm_overlay");
-            }
-        }
-        if let Ok(home) = std::env::var("HOME") {
-            let trimmed = home.trim();
-            if !trimmed.is_empty() {
-                return PathBuf::from(trimmed).join(".config").join("gsm_overlay");
-            }
-        }
-    }
-
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("gsm_overlay")
-}
-
 fn resolve_sudachi_data_dir() -> PathBuf {
     default_gsm_app_data_dir()
 }
@@ -1425,6 +1412,21 @@ fn parse_manual_hotkey_key(token: &str) -> Result<KeyboardKey, String> {
         "F10" => KeyboardKey::F10,
         "F11" => KeyboardKey::F11,
         "F12" => KeyboardKey::F12,
+        // rdev 0.5.3 has no F13-F24 variants; on Windows they surface as
+        // Key::Unknown(vk) with virtual-key codes 124-135 (matches the listener's
+        // pressed_keys set, so manual_hotkey_binding_active works unchanged).
+        "F13" => KeyboardKey::Unknown(124),
+        "F14" => KeyboardKey::Unknown(125),
+        "F15" => KeyboardKey::Unknown(126),
+        "F16" => KeyboardKey::Unknown(127),
+        "F17" => KeyboardKey::Unknown(128),
+        "F18" => KeyboardKey::Unknown(129),
+        "F19" => KeyboardKey::Unknown(130),
+        "F20" => KeyboardKey::Unknown(131),
+        "F21" => KeyboardKey::Unknown(132),
+        "F22" => KeyboardKey::Unknown(133),
+        "F23" => KeyboardKey::Unknown(134),
+        "F24" => KeyboardKey::Unknown(135),
         "-" | "_" => KeyboardKey::Minus,
         "=" | "+" => KeyboardKey::Equal,
         "[" | "{" => KeyboardKey::LeftBracket,
@@ -1475,8 +1477,7 @@ fn pressed_modifiers(pressed_keys: &HashSet<KeyboardKey>) -> ManualHotkeyModifie
     ManualHotkeyModifiers {
         ctrl: pressed_keys.contains(&KeyboardKey::ControlLeft)
             || pressed_keys.contains(&KeyboardKey::ControlRight),
-        alt: pressed_keys.contains(&KeyboardKey::Alt)
-            || pressed_keys.contains(&KeyboardKey::AltGr),
+        alt: pressed_keys.contains(&KeyboardKey::Alt) || pressed_keys.contains(&KeyboardKey::AltGr),
         shift: pressed_keys.contains(&KeyboardKey::ShiftLeft)
             || pressed_keys.contains(&KeyboardKey::ShiftRight),
         cmd: pressed_keys.contains(&KeyboardKey::MetaLeft)
@@ -1484,7 +1485,10 @@ fn pressed_modifiers(pressed_keys: &HashSet<KeyboardKey>) -> ManualHotkeyModifie
     }
 }
 
-fn manual_hotkey_binding_active(binding: &ManualHotkeyBinding, pressed_keys: &HashSet<KeyboardKey>) -> bool {
+fn manual_hotkey_binding_active(
+    binding: &ManualHotkeyBinding,
+    pressed_keys: &HashSet<KeyboardKey>,
+) -> bool {
     let pressed_modifiers = pressed_modifiers(pressed_keys);
     if binding.modifiers.ctrl && !pressed_modifiers.ctrl {
         return false;
@@ -1524,6 +1528,35 @@ enum ClientMsg {
         hotkey: String,
     },
 
+    #[serde(rename = "configure_device_blacklist")]
+    ConfigureDeviceBlacklist {
+        #[serde(default)]
+        devices: Vec<String>,
+    },
+
+    /// Configure which keys are broadcast as `keyboard_event`. `keys`, when
+    /// present, replaces the allowlist of keys the overlay reacts to. `captureAll`,
+    /// when present, toggles transient "broadcast everything" mode used only while
+    /// the settings UI records a new binding. Either field may be omitted so a
+    /// client can update one without clobbering the other.
+    #[serde(rename = "configure_keyboard_capture")]
+    ConfigureKeyboardCapture {
+        #[serde(default)]
+        keys: Option<Vec<String>>,
+        #[serde(default, rename = "captureAll")]
+        capture_all: Option<bool>,
+    },
+
+    /// Replace the full set of app-level hotkeys evaluated server-side. Each entry
+    /// maps a stable action id to a hotkey string (same syntax as the manual
+    /// hotkey, e.g. "Alt+Shift+H" or "F13"). Sent by the Electron main process when
+    /// "route all hotkeys through input server" is enabled.
+    #[serde(rename = "configure_app_hotkeys")]
+    ConfigureAppHotkeys {
+        #[serde(default)]
+        hotkeys: Vec<AppHotkeyConfig>,
+    },
+
     #[serde(rename = "tokenize")]
     Tokenize {
         #[serde(default)]
@@ -1548,6 +1581,13 @@ enum ClientMsg {
 
     #[serde(other)]
     Unknown,
+}
+
+#[derive(Debug, Deserialize)]
+struct AppHotkeyConfig {
+    id: String,
+    #[serde(default)]
+    hotkey: String,
 }
 
 fn normalize_stick(v: f32, deadzone: f32) -> f32 {
@@ -1594,6 +1634,58 @@ fn send_broadcast(tx: &broadcast::Sender<String>, payload: String, label: &str) 
     }
 }
 
+async fn configure_device_blacklist(
+    blacklist: &SharedDeviceBlacklist,
+    states: &'static SharedStates,
+    tx: &broadcast::Sender<String>,
+    devices: Vec<String>,
+) {
+    let normalized = normalize_device_blacklist(devices);
+    let mut sorted_devices = normalized.iter().cloned().collect::<Vec<_>>();
+    sorted_devices.sort();
+
+    {
+        let mut guard = blacklist.lock().expect("device blacklist mutex poisoned");
+        *guard = normalized.clone();
+    }
+
+    let disconnected_devices = {
+        let mut guard = states.lock().await;
+        let ids_to_remove = guard
+            .iter()
+            .filter_map(|(id, st)| {
+                normalize_device_blacklist_entry(&st.device_name)
+                    .filter(|device_name| normalized.contains(device_name))
+                    .map(|_| (*id, st.device_name.clone()))
+            })
+            .collect::<Vec<_>>();
+
+        for (id, _) in &ids_to_remove {
+            guard.remove(id);
+        }
+
+        ids_to_remove
+            .into_iter()
+            .map(|(_, device_name)| device_name)
+            .collect::<Vec<_>>()
+    };
+
+    for device_name in disconnected_devices {
+        let msg = json!({
+            "type": "gamepad_disconnected",
+            "device": device_name,
+            "reason": "blacklisted",
+        });
+        send_broadcast(tx, msg.to_string(), "gamepad_disconnected(blacklisted)");
+    }
+
+    let msg = json!({
+        "type": "device_blacklist_updated",
+        "devices": sorted_devices,
+    });
+    send_broadcast(tx, msg.to_string(), "device_blacklist_updated");
+}
+
 fn configure_manual_hotkey(
     manual_hotkey: &SharedManualHotkey,
     tx: &broadcast::Sender<String>,
@@ -1634,6 +1726,66 @@ fn configure_manual_hotkey(
     }
     send_broadcast(tx, release_payload.1, "keyboard_listener_status");
     Ok(())
+}
+
+fn app_hotkey_event_payload(id: &str, state: &str) -> String {
+    json!({
+        "type": "app_hotkey_event",
+        "id": id,
+        "state": state,
+    })
+    .to_string()
+}
+
+/// Replace the full set of app-level hotkeys. Any hotkey that fails to parse is
+/// dropped (logged); previously-active hotkeys that disappear emit a final
+/// `released` so the client never gets stuck thinking a combo is held.
+fn configure_app_hotkeys(
+    manual_hotkey: &SharedManualHotkey,
+    tx: &broadcast::Sender<String>,
+    hotkeys: Vec<AppHotkeyConfig>,
+) {
+    let released_ids = {
+        let mut guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+
+        let mut new_map: HashMap<String, AppHotkeyEntry> = HashMap::with_capacity(hotkeys.len());
+        for cfg in hotkeys {
+            if cfg.id.trim().is_empty() {
+                continue;
+            }
+            match parse_manual_hotkey_binding(&cfg.hotkey) {
+                Ok(binding) => {
+                    new_map.insert(
+                        cfg.id,
+                        AppHotkeyEntry {
+                            binding,
+                            active: false,
+                        },
+                    );
+                }
+                Err(err) => warn!("ignoring app hotkey {}: {err}", cfg.id),
+            }
+        }
+
+        // Emit released for any currently-active id that is gone or replaced.
+        let released_ids = guard
+            .app_hotkeys
+            .iter()
+            .filter(|(id, entry)| entry.active && !new_map.contains_key(*id))
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+
+        guard.app_hotkeys = new_map;
+        released_ids
+    };
+
+    for id in released_ids {
+        send_broadcast(
+            tx,
+            app_hotkey_event_payload(&id, "released"),
+            "app_hotkey_event(released)",
+        );
+    }
 }
 
 /// Map an rdev key to a stable string identifier for the JavaScript client.
@@ -1754,24 +1906,57 @@ fn handle_manual_keyboard_event(
         pressed_keys.remove(&key)
     };
 
-    // ── Broadcast raw keyboard_event for every state transition ──
+    // ── Broadcast keyboard_event only for allowlisted keys ──
+    // The global hook necessarily sees every key (so modifier-only hotkeys can
+    // work), but we only transmit the keys the overlay actually reacts to — never
+    // arbitrary text the user types. This keeps the server from being, or looking
+    // like, a network keylogger.
     if is_transition {
         if let Some(key_name) = rdev_key_to_string(&key) {
-            let mods = pressed_modifiers(pressed_keys);
-            let payload = json!({
-                "type": "keyboard_event",
-                "key": key_name,
-                "pressed": pressed,
-                "modifiers": {
-                    "ctrl": mods.ctrl,
-                    "alt": mods.alt,
-                    "shift": mods.shift,
-                    "meta": mods.cmd,
-                },
-            })
-            .to_string();
-            send_broadcast(tx, payload, "keyboard_event");
+            let should_emit = {
+                let guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+                should_broadcast_key(&guard, key_name)
+            };
+            if should_emit {
+                let mods = pressed_modifiers(pressed_keys);
+                let payload = json!({
+                    "type": "keyboard_event",
+                    "key": key_name,
+                    "pressed": pressed,
+                    "modifiers": {
+                        "ctrl": mods.ctrl,
+                        "alt": mods.alt,
+                        "shift": mods.shift,
+                        "meta": mods.cmd,
+                    },
+                })
+                .to_string();
+                send_broadcast(tx, payload, "keyboard_event");
+            }
         }
+    }
+
+    // ── App-level hotkeys (route-all mode) ──
+    // Independent of the manual show-hotkey: recompute each binding against the
+    // current pressed set and broadcast only edge transitions.
+    let app_events = {
+        let mut guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+        let mut events = Vec::new();
+        for (id, entry) in guard.app_hotkeys.iter_mut() {
+            let next_active = manual_hotkey_binding_active(&entry.binding, pressed_keys);
+            if next_active != entry.active {
+                entry.active = next_active;
+                events.push((id.clone(), next_active));
+            }
+        }
+        events
+    };
+    for (id, active) in app_events {
+        send_broadcast(
+            tx,
+            app_hotkey_event_payload(&id, if active { "pressed" } else { "released" }),
+            "app_hotkey_event",
+        );
     }
 
     // ── Existing manual hotkey logic (unchanged) ──
@@ -1926,6 +2111,7 @@ async fn handle_socket(
     _tx: broadcast::Sender<String>,
     mut rx: broadcast::Receiver<String>,
     states: &'static SharedStates,
+    device_blacklist: SharedDeviceBlacklist,
     mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
     manual_hotkey: SharedManualHotkey,
@@ -1948,6 +2134,7 @@ async fn handle_socket(
         let guard = states.lock().await;
         guard
             .values()
+            .filter(|st| !is_device_blacklisted(&device_blacklist, &st.device_name))
             .map(|st| (st.device_name.clone(), st.buttons.clone(), st.axes.clone()))
             .collect::<Vec<_>>()
     };
@@ -1966,6 +2153,16 @@ async fn handle_socket(
         }
     }
 
+    let blacklist_message = device_blacklist_payload(&device_blacklist).to_string();
+    if ws_sink
+        .send(Message::Text(blacklist_message))
+        .await
+        .is_err()
+    {
+        info!("client {peer} disconnected during device blacklist snapshot");
+        return;
+    }
+
     let manual_status_message = {
         let guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
         manual_hotkey_status_payload(&guard).to_string()
@@ -1978,6 +2175,12 @@ async fn handle_socket(
         info!("client {peer} disconnected during manual hotkey status snapshot");
         return;
     }
+
+    // Tracks whether this connection turned on capture-all (settings recording a
+    // binding) so we can force it back off if the client disconnects mid-capture
+    // and never sends the "off" message — otherwise the server could be left
+    // broadcasting every keystroke.
+    let mut enabled_capture_all = false;
 
     loop {
         tokio::select! {
@@ -2010,6 +2213,7 @@ async fn handle_socket(
                                     let guard = states.lock().await;
                                     guard
                                         .values()
+                                        .filter(|st| !is_device_blacklisted(&device_blacklist, &st.device_name))
                                         .map(|st| (st.device_name.clone(), st.buttons.clone(), st.axes.clone()))
                                         .collect::<Vec<_>>()
                                 };
@@ -2025,6 +2229,9 @@ async fn handle_socket(
                                         break;
                                     }
                                 }
+                            }
+                            Ok(ClientMsg::ConfigureDeviceBlacklist { devices }) => {
+                                configure_device_blacklist(&device_blacklist, states, &_tx, devices).await;
                             }
                             Ok(ClientMsg::ConfigureManualHotkey { enabled, hotkey }) => {
                                 if let Err(err) =
@@ -2044,6 +2251,20 @@ async fn handle_socket(
                                         break;
                                     }
                                 }
+                            }
+                            Ok(ClientMsg::ConfigureKeyboardCapture { keys, capture_all }) => {
+                                let mut guard =
+                                    manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+                                if let Some(keys) = keys {
+                                    guard.capture_keys = keys.into_iter().collect();
+                                }
+                                if let Some(capture_all) = capture_all {
+                                    guard.capture_all = capture_all;
+                                    enabled_capture_all = capture_all;
+                                }
+                            }
+                            Ok(ClientMsg::ConfigureAppHotkeys { hotkeys }) => {
+                                configure_app_hotkeys(&manual_hotkey, &_tx, hotkeys);
                             }
                             Ok(ClientMsg::Tokenize {
                                 text,
@@ -2145,6 +2366,13 @@ async fn handle_socket(
         }
     }
 
+    // Fail safe: if this connection left capture-all on, turn it back off so a
+    // crashed/closed settings window can't leave the server broadcasting all keys.
+    if enabled_capture_all {
+        let mut guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+        guard.capture_all = false;
+    }
+
     info!("client disconnected: {peer}");
 }
 
@@ -2152,6 +2380,7 @@ async fn websocket_server(
     bind: SocketAddr,
     tx: broadcast::Sender<String>,
     states: &'static SharedStates,
+    device_blacklist: SharedDeviceBlacklist,
     mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
     manual_hotkey: SharedManualHotkey,
@@ -2170,6 +2399,7 @@ async fn websocket_server(
 
         let rx = tx.subscribe();
         let tx_clone = tx.clone();
+        let device_blacklist_clone = device_blacklist.clone();
 
         tokio::spawn(handle_socket(
             peer,
@@ -2177,6 +2407,7 @@ async fn websocket_server(
             tx_clone,
             rx,
             states,
+            device_blacklist_clone,
             mecab,
             sudachi,
             manual_hotkey.clone(),
@@ -2190,8 +2421,8 @@ async fn websocket_server(
 fn gilrs_input_thread(
     tx: broadcast::Sender<String>,
     states: &'static SharedStates,
+    device_blacklist: SharedDeviceBlacklist,
     cfg: Config,
-    dev_environment: bool,
 ) {
     let mut gilrs = match Gilrs::new() {
         Ok(g) => g,
@@ -2200,14 +2431,8 @@ fn gilrs_input_thread(
             return;
         }
     };
-    let mut dev_logger = DevInputLogger::new(dev_environment);
 
     info!("gilrs initialized; waiting for gamepad input...");
-    if dev_environment {
-        info!(
-            "dev gamepad logging enabled (GSM_DEV_ENVIRONMENT=1): raw events on, stick-axis logs sampled"
-        );
-    }
 
     // Pre-populate any already-connected pads.
     // IMPORTANT: don't hold a non-Send iterator across async awaits (we're on a thread anyway).
@@ -2219,6 +2444,11 @@ fn gilrs_input_thread(
 
     // Use blocking_lock() since we're on a plain thread.
     for (id, name) in connected {
+        if is_device_blacklisted(&device_blacklist, &name) {
+            info!("gamepad ignored at startup by device blacklist: {name}");
+            continue;
+        }
+
         let mut guard = states.blocking_lock();
         if !guard.contains_key(&id) {
             guard.insert(id, GamepadState::new(name.clone()));
@@ -2239,53 +2469,24 @@ fn gilrs_input_thread(
             let now = Instant::now();
             let device_name = gilrs.gamepad(id).name().to_string();
 
-            if dev_logger.enabled {
-                match &event {
-                    EventType::ButtonPressed(btn, _) => {
-                        debug!("dev input raw: device={device_name} event=ButtonPressed button={btn:?}");
-                    }
-                    EventType::ButtonReleased(btn, _) => {
-                        debug!("dev input raw: device={device_name} event=ButtonReleased button={btn:?}");
-                    }
-                    EventType::ButtonChanged(btn, value, _) => {
-                        debug!(
-                            "dev input raw: device={device_name} event=ButtonChanged button={btn:?} value={:.3}",
-                            *value
-                        );
-                    }
-                    EventType::AxisChanged(ax, raw, _) => {
-                        if let Some(name) = axis_name(*ax) {
-                            let normalized = if matches!(name, "lt" | "rt") {
-                                normalize_trigger(*raw)
-                            } else {
-                                normalize_stick(*raw, cfg.deadzone)
-                            };
-                            if !is_stick_axis(name)
-                                || dev_logger.should_log_stick(id, name, normalized, now)
-                            {
-                                debug!(
-                                    "dev input raw: device={device_name} event=AxisChanged axis={name} raw={:.3} normalized={:.3}",
-                                    *raw,
-                                    normalized
-                                );
-                            }
-                        } else {
-                            debug!(
-                                "dev input raw: device={device_name} event=AxisChanged axis={ax:?} raw={:.3}",
-                                *raw
-                            );
-                        }
-                    }
-                    EventType::Connected => {
-                        debug!("dev input raw: device={device_name} event=Connected");
-                    }
-                    EventType::Disconnected => {
-                        debug!("dev input raw: device={device_name} event=Disconnected");
-                    }
-                    other => {
-                        debug!("dev input raw: device={device_name} event={other:?}");
-                    }
+            if is_device_blacklisted(&device_blacklist, &device_name) {
+                let removed_state = {
+                    let mut guard = states.blocking_lock();
+                    guard.remove(&id).is_some()
+                };
+                if removed_state {
+                    let msg = json!({
+                        "type": "gamepad_disconnected",
+                        "device": device_name,
+                        "reason": "blacklisted",
+                    });
+                    send_broadcast(
+                        &tx,
+                        msg.to_string(),
+                        "gamepad_disconnected(blacklisted_event)",
+                    );
                 }
+                continue;
             }
 
             // Ensure state exists
@@ -2550,6 +2751,7 @@ fn gilrs_input_thread(
 async fn axis_repeat_loop(
     tx: broadcast::Sender<String>,
     states: &'static SharedStates,
+    device_blacklist: SharedDeviceBlacklist,
     cfg: Config,
 ) {
     let stick_axes = ["left_x", "left_y", "right_x", "right_y"];
@@ -2560,7 +2762,7 @@ async fn axis_repeat_loop(
         {
             let mut guard = states.lock().await;
             for (_id, st) in guard.iter_mut() {
-                if !st.connected {
+                if !st.connected || is_device_blacklisted(&device_blacklist, &st.device_name) {
                     continue;
                 }
 
@@ -2616,15 +2818,7 @@ fn keyboard_input_thread(tx: broadcast::Sender<String>, manual_hotkey: SharedMan
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
-    let dev_environment = gsm_dev_environment_enabled();
-    init_tracing(dev_environment);
     let args = Args::parse();
-    if dev_environment {
-        info!(
-            "GSM_DEV_ENVIRONMENT=1 detected; enabling verbose gamepad logging with sampled stick-axis logs"
-        );
-    }
-
     let bind: SocketAddr = format!("{}:{}", args.host, args.port)
         .parse()
         .expect("invalid bind addr");
@@ -2633,6 +2827,8 @@ async fn main() {
 
     // Leak states so spawned tasks can use 'static reference.
     let states: &'static SharedStates = Box::leak(Box::new(Mutex::new(HashMap::new())));
+    let device_blacklist: SharedDeviceBlacklist =
+        Arc::new(StdMutex::new(gamepad_device_blacklist_from_env()));
     let mecab_script = resolve_mecab_script_path();
     let mecab: &'static SharedMecab =
         Box::leak(Box::new(Mutex::new(MecabService::new(mecab_script))));
@@ -2652,16 +2848,18 @@ async fn main() {
         },
         ..ManualHotkeyState::default()
     }));
-    {
-        let mut svc = mecab.lock().await;
-        if let Err(e) = svc.ensure_bridge().await {
-            warn!("mecab bridge init failed; continuing without mecab: {e}");
+    match preferred_server_tokenizer_backend_from_env() {
+        ServerTokenizerBackend::Mecab => {
+            let mut svc = mecab.lock().await;
+            if let Err(e) = svc.ensure_bridge().await {
+                warn!("mecab bridge init failed; continuing without mecab: {e}");
+            }
         }
-    }
-    if preferred_server_tokenizer_backend_from_env() == ServerTokenizerBackend::Sudachi {
-        let mut svc = sudachi.lock().await;
-        if let Err(e) = svc.ensure_tokenizer().await {
-            warn!("sudachi init failed; continuing without sudachi: {e}");
+        ServerTokenizerBackend::Sudachi => {
+            let mut svc = sudachi.lock().await;
+            if let Err(e) = svc.ensure_tokenizer().await {
+                warn!("sudachi init failed; continuing without sudachi: {e}");
+            }
         }
     }
 
@@ -2672,17 +2870,24 @@ async fn main() {
         bind,
         tx.clone(),
         states,
+        device_blacklist.clone(),
         mecab,
         sudachi,
         manual_hotkey.clone(),
     ));
-    tokio::spawn(axis_repeat_loop(tx.clone(), states, cfg.clone()));
+    tokio::spawn(axis_repeat_loop(
+        tx.clone(),
+        states,
+        device_blacklist.clone(),
+        cfg.clone(),
+    ));
 
     // Gilrs input loop runs on a dedicated OS thread (Gilrs isn't Send).
     {
         let tx2 = tx.clone();
+        let device_blacklist2 = device_blacklist.clone();
         let cfg2 = cfg.clone();
-        thread::spawn(move || gilrs_input_thread(tx2, states, cfg2, dev_environment));
+        thread::spawn(move || gilrs_input_thread(tx2, states, device_blacklist2, cfg2));
     }
     {
         let tx2 = tx.clone();
@@ -2713,7 +2918,7 @@ mod tests {
     }
 
     #[test]
-    fn tokenizer_backend_defaults_to_mecab() {
+    fn tokenizer_backend_defaults_to_sudachi() {
         assert_eq!(
             ServerTokenizerBackend::from_value(Some("sudachi")),
             ServerTokenizerBackend::Sudachi
@@ -2724,11 +2929,34 @@ mod tests {
         );
         assert_eq!(
             ServerTokenizerBackend::from_value(Some("unknown")),
-            ServerTokenizerBackend::Mecab
+            ServerTokenizerBackend::Sudachi
         );
         assert_eq!(
             ServerTokenizerBackend::from_value(None),
-            ServerTokenizerBackend::Mecab
+            ServerTokenizerBackend::Sudachi
+        );
+    }
+
+    #[test]
+    fn device_blacklist_normalization_trims_deduplicates_and_drops_empty_entries() {
+        let normalized = normalize_device_blacklist(vec![
+            "  BT D700  ".to_string(),
+            "".to_string(),
+            "BT D700".to_string(),
+            "Xbox 360 Controller".to_string(),
+        ]);
+
+        assert_eq!(normalized.len(), 2);
+        assert!(normalized.contains("BT D700"));
+        assert!(normalized.contains("Xbox 360 Controller"));
+    }
+
+    #[test]
+    fn empty_device_blacklist_entries_are_rejected() {
+        assert_eq!(normalize_device_blacklist_entry("   "), None);
+        assert_eq!(
+            normalize_device_blacklist_entry("  Keychron Link  "),
+            Some("Keychron Link".to_string())
         );
     }
 
@@ -2758,13 +2986,71 @@ mod tests {
         let mut pressed_keys = HashSet::new();
         pressed_keys.insert(KeyboardKey::ShiftLeft);
         assert!(manual_hotkey_binding_active(&modifier_only, &pressed_keys));
-        assert!(!manual_hotkey_binding_active(&modifier_with_key, &pressed_keys));
+        assert!(!manual_hotkey_binding_active(
+            &modifier_with_key,
+            &pressed_keys
+        ));
 
         pressed_keys.insert(KeyboardKey::Space);
-        assert!(manual_hotkey_binding_active(&modifier_with_key, &pressed_keys));
+        assert!(manual_hotkey_binding_active(
+            &modifier_with_key,
+            &pressed_keys
+        ));
 
         pressed_keys.remove(&KeyboardKey::ShiftLeft);
         assert!(!manual_hotkey_binding_active(&modifier_only, &pressed_keys));
-        assert!(!manual_hotkey_binding_active(&modifier_with_key, &pressed_keys));
+        assert!(!manual_hotkey_binding_active(
+            &modifier_with_key,
+            &pressed_keys
+        ));
+    }
+
+    #[test]
+    fn keyboard_broadcast_respects_allowlist_and_capture_all() {
+        let mut state = ManualHotkeyState::default();
+
+        // Default-deny: with no allowlist and no capture session, nothing leaks.
+        assert!(!should_broadcast_key(&state, "KeyA"));
+        assert!(!should_broadcast_key(&state, "Enter"));
+
+        // Only allowlisted control keys are broadcast; typed text stays private.
+        state.capture_keys.insert("Enter".to_string());
+        state.capture_keys.insert("ShiftLeft".to_string());
+        assert!(should_broadcast_key(&state, "Enter"));
+        assert!(should_broadcast_key(&state, "ShiftLeft"));
+        assert!(!should_broadcast_key(&state, "KeyA"));
+
+        // capture-all (settings recording a binding) overrides the allowlist.
+        state.capture_all = true;
+        assert!(should_broadcast_key(&state, "KeyA"));
+    }
+
+    #[test]
+    fn extended_function_keys_parse_to_windows_vk_unknown_codes() {
+        let f13 = parse_manual_hotkey_key("F13").expect("F13 should parse");
+        assert_eq!(f13, KeyboardKey::Unknown(124));
+        let f24 = parse_manual_hotkey_key("f24").expect("F24 should parse");
+        assert_eq!(f24, KeyboardKey::Unknown(135));
+    }
+
+    #[test]
+    fn app_hotkey_binding_activates_from_pressed_keys() {
+        // F13 (Unknown(124)) and a modifier combo both evaluate via the shared
+        // manual_hotkey_binding_active path used by app hotkeys.
+        let f13 = parse_manual_hotkey_binding("F13").expect("F13 hotkey should parse");
+        let alt_shift_h = parse_manual_hotkey_binding("Alt+Shift+H").expect("combo should parse");
+
+        let mut pressed_keys = HashSet::new();
+        assert!(!manual_hotkey_binding_active(&f13, &pressed_keys));
+
+        pressed_keys.insert(KeyboardKey::Unknown(124));
+        assert!(manual_hotkey_binding_active(&f13, &pressed_keys));
+        assert!(!manual_hotkey_binding_active(&alt_shift_h, &pressed_keys));
+
+        pressed_keys.clear();
+        pressed_keys.insert(KeyboardKey::Alt);
+        pressed_keys.insert(KeyboardKey::ShiftLeft);
+        pressed_keys.insert(KeyboardKey::KeyH);
+        assert!(manual_hotkey_binding_active(&alt_shift_h, &pressed_keys));
     }
 }

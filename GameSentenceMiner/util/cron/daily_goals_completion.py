@@ -2,7 +2,8 @@
 Daily Goals Auto-Completion Cron Job for GameSentenceMiner
 
 This module provides a cron job that runs hourly to check goal completion and
-auto-complete historical missed dates where goals are valid and completed.
+auto-complete today plus the day the cron last ran (to catch a goal finished after
+that session's final check, e.g. just before the app was closed at midnight).
 
 This is designed to be called by the cron system via run_crons.py.
 
@@ -120,105 +121,38 @@ def _get_current_entry_payload() -> Tuple[Optional[GoalsTable], list, dict]:
     return current_entry, current_goals, goals_settings
 
 
-def _coerce_date(date_str: str) -> Optional[datetime.date]:
-    """Parse `YYYY-MM-DD` date strings safely."""
-    if not date_str:
-        return None
-    try:
-        return datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
-    except (ValueError, TypeError):
-        return None
+def _get_last_run_date(user_tz: pytz.BaseTzInfo) -> Optional[datetime.date]:
+    """Date (in the user's timezone) the completion cron last ran, or None if never.
 
-
-def _get_first_data_date(user_tz: pytz.BaseTzInfo) -> Optional[datetime.date]:
+    A day can only end un-snapshotted if goals were met *after* that session's last
+    hourly check — which makes it, by definition, the day GSM was last active. So
+    backfilling this one date (plus today) is sufficient; earlier missed days were
+    already this date on a prior run and got backfilled then.
     """
-    Determine the first known activity date across rollups, third-party stats,
-    and raw game lines.
-    """
-    from GameSentenceMiner.util.database.db import GameLinesTable
-    from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
-    from GameSentenceMiner.util.database.third_party_stats_table import (
-        ThirdPartyStatsTable,
-    )
-
-    candidates: list[datetime.date] = []
-
     try:
-        first_rollup = StatsRollupTable.get_first_date()
-        parsed = _coerce_date(first_rollup) if first_rollup else None
-        if parsed:
-            candidates.append(parsed)
-    except Exception as e:
-        logger.debug(f"Could not read first rollup date: {e}")
+        from GameSentenceMiner.util.cron.run_crons import Crons
+        from GameSentenceMiner.util.database.cron_table import CronTable
 
-    try:
-        if ThirdPartyStatsTable._db is not None:
-            row = ThirdPartyStatsTable._db.fetchone(f"SELECT MIN(date) FROM {ThirdPartyStatsTable._table}")
-            parsed = _coerce_date(row[0]) if row and row[0] else None
-            if parsed:
-                candidates.append(parsed)
+        cron = CronTable.get_by_name(Crons.DAILY_GOALS_COMPLETION.value)
+        if cron and cron.last_run:
+            return datetime.datetime.fromtimestamp(float(cron.last_run), tz=user_tz).date()
     except Exception as e:
-        logger.debug(f"Could not read first third-party stats date: {e}")
-
-    try:
-        if GameLinesTable._db is not None:
-            row = GameLinesTable._db.fetchone(f"SELECT MIN(timestamp) FROM {GameLinesTable._table}")
-            if row and row[0] is not None:
-                first_line_date = datetime.datetime.fromtimestamp(float(row[0]), tz=user_tz).date()
-                candidates.append(first_line_date)
-    except Exception as e:
-        logger.debug(f"Could not read first game line date: {e}")
-
-    if not candidates:
-        return None
-    return min(candidates)
+        logger.debug(f"Could not read last_run for daily goals completion: {e}")
+    return None
 
 
 def _build_candidate_dates(
-    current_goals: list,
     today: datetime.date,
-    static_first_data_date: Optional[datetime.date],
+    last_run_date: Optional[datetime.date],
 ) -> list[datetime.date]:
+    """Dates to evaluate: today plus the (possibly missed) day GSM last ran.
+
+    Goal applicability per date is decided by `get_goals_for_date`, so dates outside
+    every goal's window simply yield no goals and are skipped downstream.
     """
-    Build all historical candidate dates up to `today` where at least one goal
-    is valid based on current goal definitions.
-    """
-    candidate_dates: set[datetime.date] = set()
-
-    for goal in current_goals:
-        metric_type = goal.get("metricType")
-        if not metric_type or metric_type == "custom":
-            continue
-
-        target_value = goal.get("targetValue")
-        is_static = metric_type.endswith("_static")
-
-        if target_value is None:
-            continue
-
-        if is_static:
-            if static_first_data_date is None:
-                continue
-            start_date = static_first_data_date
-            end_date = today
-        else:
-            start_date = _coerce_date(goal.get("startDate"))
-            end_date = _coerce_date(goal.get("endDate"))
-            if not start_date or not end_date:
-                continue
-            if start_date > today:
-                continue
-            if end_date > today:
-                end_date = today
-
-        if start_date > end_date:
-            continue
-
-        current_date = start_date
-        while current_date <= end_date:
-            candidate_dates.add(current_date)
-            current_date += datetime.timedelta(days=1)
-
+    candidate_dates: set[datetime.date] = {today}
+    if last_run_date and last_run_date <= today:
+        candidate_dates.add(last_run_date)
     return sorted(candidate_dates)
 
 
@@ -403,7 +337,7 @@ def run_daily_goals_completion() -> Dict:
 
     This function:
     1. Gets the user's timezone from goals_settings
-    2. Builds historical candidate dates where goals are valid
+    2. Evaluates today plus the (possibly missed) day the cron last ran
     3. Evaluates completion for each uncompleted candidate date
     4. Creates snapshots for all dates that are completed
 
@@ -443,12 +377,8 @@ def run_daily_goals_completion() -> Dict:
                 "checked_count": 0,
             }
 
-        static_first_data_date = _get_first_data_date(user_tz)
-        candidate_dates = _build_candidate_dates(
-            current_goals=current_goals,
-            today=today,
-            static_first_data_date=static_first_data_date,
-        )
+        last_run_date = _get_last_run_date(user_tz)
+        candidate_dates = _build_candidate_dates(today=today, last_run_date=last_run_date)
 
         if not candidate_dates:
             return {

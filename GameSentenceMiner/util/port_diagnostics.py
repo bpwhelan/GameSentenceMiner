@@ -179,5 +179,5 @@ def terminate_process(pid: Optional[int], timeout_seconds: float = 3.0) -> bool:
             OSError,
         ):
             return False
-    except (psutil.AccessDenied, psutil.ZombieProcess, OSError):
+    except (psutil.AccessDenied, psutil.ZombieProcess, OSError):  # NOSONAR(S1045) separate scope from nested kill()
         return False

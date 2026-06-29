@@ -12,7 +12,7 @@ import GameSentenceMiner.ocr.gsm_ocr as gsm_ocr
 from GameSentenceMiner.ocr import owocr_area_selector_qt as area_selector_qt
 from GameSentenceMiner.ocr.gsm_ocr_config import Monitor, OCRConfig, Rectangle
 from GameSentenceMiner.owocr.owocr.ocr import post_process
-from GameSentenceMiner.owocr.owocr import run as run_module
+from GameSentenceMiner.owocr.owocr import ocr_runtime as run_module
 
 
 def test_resolve_requested_engines_prioritizes_cli_values():
@@ -45,8 +45,8 @@ def test_resolve_requested_engines_falls_back_to_config_values():
 def test_run_oneocr_disables_manual_combo_in_auto_mode(monkeypatch):
     captured = {}
 
-    monkeypatch.setattr(gsm_ocr.run, "init_config", lambda _parse_args: None)
-    monkeypatch.setattr(gsm_ocr.run, "run", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "init_config", lambda _parse_args: None)
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "run", lambda **kwargs: captured.update(kwargs))
 
     monkeypatch.setattr(gsm_ocr, "obs_ocr", True)
     monkeypatch.setattr(gsm_ocr, "window", None)
@@ -68,8 +68,8 @@ def test_run_oneocr_disables_manual_combo_in_auto_mode(monkeypatch):
 def test_run_oneocr_uses_manual_combo_in_manual_mode(monkeypatch):
     captured = {}
 
-    monkeypatch.setattr(gsm_ocr.run, "init_config", lambda _parse_args: None)
-    monkeypatch.setattr(gsm_ocr.run, "run", lambda **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "init_config", lambda _parse_args: None)
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "run", lambda **kwargs: captured.update(kwargs))
 
     monkeypatch.setattr(gsm_ocr, "obs_ocr", True)
     monkeypatch.setattr(gsm_ocr, "window", None)
@@ -92,6 +92,18 @@ def test_post_process_normalizes_contextual_japanese_dashes_to_choonpu():
     text = post_process("-刻も早く、ス-パ-でA-1を買う")
 
     assert text == "一刻も早く、スーパーでＡ－１を買う"
+
+
+def test_post_process_collapses_repeated_japanese_middle_dots():
+    text = post_process("私は・・・・・・まだうまく受け止められてないから。")
+
+    assert text == "私は・・・まだうまく受け止められてないから。"
+
+
+def test_post_process_collapses_google_lens_dot_variants():
+    text = post_process("私は••••••まだ······うまく受け止められてないから。")
+
+    assert text == "私は・・・まだ・・・うまく受け止められてないから。"
 
 
 def test_build_overlay_coordinate_payload_normalizes_lookup_text_dashes():
@@ -134,108 +146,166 @@ def test_build_overlay_coordinate_payload_normalizes_lookup_text_dashes():
     assert payload["lines"][0]["words"][1]["text"] == "A-1"
 
 
-def test_no_text_similarity_backoff_only_starts_after_no_text_cap():
-    threshold_sleep = run_module._get_sleep_add_for_target_rate(
-        0.5,
-        run_module._get_no_text_scan_rate_cap(0.5),
+def test_google_lens_is_overlay_supported_engine():
+    assert gsm_ocr._is_overlay_supported_engine("glens")
+    assert gsm_ocr._is_overlay_supported_engine("Google Lens")
+
+
+def test_second_ocr_prefers_google_lens_overlay_payload(monkeypatch):
+    sent = []
+    saved = []
+    ctrl = SimpleNamespace(
+        last_sent_result="",
+        last_ocr2_result=[],
+        config=gsm_ocr.TwoPassConfig(),
+    )
+    first_pass_payload = {
+        "schema": "gsm_ocr_geometry_v1",
+        "line_coords": [
+            {
+                "text": "oneocr",
+                "bounding_rect": {"x1": 0, "y1": 0, "x2": 40, "y2": 0, "x3": 40, "y3": 10, "x4": 0, "y4": 10},
+                "words": [
+                    {
+                        "text": "oneocr",
+                        "bounding_rect": {"x1": 0, "y1": 0, "x2": 40, "y2": 0, "x3": 40, "y3": 10, "x4": 0, "y4": 10},
+                    }
+                ],
+            }
+        ],
+        "pipeline": {
+            "engine": "oneocr",
+            "capture": {"scaled_size": {"width": 100, "height": 20}, "original_size": {"width": 100, "height": 20}},
+            "processing": {
+                "processed_size": {"width": 100, "height": 20},
+                "crop_offset": {"x": 0, "y": 0},
+                "coordinate_mode": "source_content",
+            },
+            "ocr": {},
+        },
+    }
+    lens_payload = {
+        "schema": "gsm_ocr_geometry_v1",
+        "line_coords": [
+            {
+                "text": "lens",
+                "bounding_rect": {"x1": 5, "y1": 0, "x2": 45, "y2": 0, "x3": 45, "y3": 10, "x4": 5, "y4": 10},
+                "words": [
+                    {
+                        "text": "lens",
+                        "bounding_rect": {"x1": 5, "y1": 0, "x2": 45, "y2": 0, "x3": 45, "y3": 10, "x4": 5, "y4": 10},
+                    }
+                ],
+            }
+        ],
+        "pipeline": {
+            "engine": "glens",
+            "capture": {"scaled_size": {"width": 100, "height": 20}, "original_size": {"width": 100, "height": 20}},
+            "processing": {
+                "processed_size": {"width": 100, "height": 20},
+                "crop_offset": {"x": 0, "y": 0},
+                "coordinate_mode": "source_content",
+            },
+            "ocr": {},
+        },
+    }
+
+    monkeypatch.setattr(gsm_ocr, "TextFiltering", lambda lang: object())
+    monkeypatch.setattr(gsm_ocr, "get_ocr_language", lambda: "ja")
+    monkeypatch.setattr(gsm_ocr, "get_controller", lambda: ctrl)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_ocr2", lambda: "glens")
+    monkeypatch.setattr(gsm_ocr, "capture_ocr_metrics_sample", lambda *args, **kwargs: None)
+    monkeypatch.setattr(gsm_ocr, "save_result_image", lambda *args, **kwargs: saved.append(args))
+
+    async def _send_result(text, time, *, response_dict=None, source=None):
+        sent.append({"text": text, "response_dict": response_dict, "source": source})
+
+    monkeypatch.setattr(gsm_ocr, "send_result", _send_result)
+    monkeypatch.setattr(
+        gsm_ocr.ocr_runtime,
+        "process_and_write_results",
+        lambda *args, **kwargs: (["lens"], "lens", lens_payload),
     )
 
-    assert (
-        run_module._should_check_no_text_similarity(
-            base_scan_rate=0.5,
-            sleep_time_to_add=threshold_sleep - 0.01,
-            sleep_reason="no_text",
-        )
-        is False
+    processor = gsm_ocr.OCRProcessor()
+    processor.do_second_ocr(
+        "",
+        datetime(2026, 2, 22, 12, 0, 0),
+        Image.new("RGB", (2, 2), color=255),
+        filtering=None,
+        response_dict=first_pass_payload,
     )
 
-    assert (
-        run_module._should_check_no_text_similarity(
-            base_scan_rate=0.5,
-            sleep_time_to_add=threshold_sleep,
-            sleep_reason="no_text",
-        )
-        is True
-    )
-
-    assert (
-        run_module._should_check_no_text_similarity(
-            base_scan_rate=0.5,
-            sleep_time_to_add=3.0,
-            sleep_reason="identical",
-        )
-        is False
-    )
+    assert saved
+    assert sent[0]["response_dict"]["pipeline"]["engine"] == "glens"
+    assert sent[0]["response_dict"]["line_coords"] == lens_payload["line_coords"]
 
 
-def test_no_text_similarity_backoff_requires_cached_last_image():
-    threshold_sleep = run_module._get_sleep_add_for_target_rate(
-        0.5,
-        run_module._get_no_text_scan_rate_cap(0.5),
-    )
+def test_second_ocr_rebases_cropped_google_lens_overlay_payload():
+    first_pass_payload = {
+        "schema": "gsm_ocr_geometry_v1",
+        "line_coords": [],
+        "pipeline": {
+            "engine": "oneocr",
+            "capture": {
+                "scaled_size": {"width": 1000, "height": 500},
+                "original_size": {"width": 1000, "height": 500},
+            },
+            "processing": {
+                "processed_size": {"width": 1000, "height": 500},
+                "crop_offset": {"x": 10, "y": 20},
+                "coordinate_mode": "source_content",
+            },
+            "ocr": {"crop_coords": [100, 50, 300, 150]},
+        },
+    }
+    lens_payload = {
+        "schema": "gsm_ocr_geometry_v1",
+        "line_coords": [
+            {
+                "text": "lens",
+                "bounding_rect": {"x1": 5, "y1": 6, "x2": 45, "y2": 6, "x3": 45, "y3": 26, "x4": 5, "y4": 26},
+                "words": [
+                    {
+                        "text": "lens",
+                        "bounding_rect": {
+                            "x1": 5,
+                            "y1": 6,
+                            "x2": 45,
+                            "y2": 6,
+                            "x3": 45,
+                            "y3": 26,
+                            "x4": 5,
+                            "y4": 26,
+                        },
+                    }
+                ],
+            }
+        ],
+        "pipeline": {
+            "engine": "glens",
+            "capture": {
+                "scaled_size": {"width": 200, "height": 100},
+                "original_size": {"width": 200, "height": 100},
+            },
+            "processing": {
+                "processed_size": {"width": 200, "height": 100},
+                "crop_offset": {"x": 0, "y": 0},
+                "coordinate_mode": "source_content",
+            },
+            "ocr": {},
+        },
+    }
 
-    assert (
-        run_module._can_check_no_text_similarity(
-            base_scan_rate=0.5,
-            sleep_time_to_add=threshold_sleep,
-            sleep_reason="no_text",
-            last_image=None,
-            last_image_np=None,
-        )
-        is False
-    )
+    selected_payload = gsm_ocr._select_second_pass_payload(first_pass_payload, lens_payload)
+    overlay_payload = gsm_ocr.build_overlay_coordinate_payload(selected_payload)
 
-    assert (
-        run_module._can_check_no_text_similarity(
-            base_scan_rate=0.5,
-            sleep_time_to_add=threshold_sleep,
-            sleep_reason="no_text",
-            last_image=object(),
-            last_image_np=object(),
-        )
-        is True
-    )
-
-
-def test_update_image_comparison_cache_copies_image_and_builds_numpy_cache():
-    img = Image.new("RGB", (3, 2), color=(10, 20, 30))
-
-    cached_image, cached_image_np = run_module._update_image_comparison_cache(None, img)
-
-    assert cached_image is not img
-    assert cached_image.size == img.size
-    assert cached_image_np.shape == (2, 3, 3)
-    assert tuple(cached_image_np[0, 0]) == (10, 20, 30)
-
-
-def test_no_text_similarity_backoff_extends_beyond_normal_cap():
-    sleep_time_to_add, sleep_reason = run_module._update_no_text_similarity_sleep_state(
-        base_scan_rate=0.5,
-        sleep_time_to_add=0.5,
-        sleep_reason="no_text",
-        is_similar=True,
-    )
-
-    assert sleep_reason == "no_text_similar"
-    assert sleep_time_to_add > 0.5
-    assert run_module._get_adjusted_scan_rate(0.5, sleep_time_to_add, sleep_reason) > 1.0
-
-
-def test_no_text_similarity_backoff_clamps_back_to_normal_cap_when_frame_changes():
-    expected_sleep = run_module._get_sleep_add_for_target_rate(
-        0.5,
-        run_module._get_no_text_scan_rate_cap(0.5),
-    )
-    sleep_time_to_add, sleep_reason = run_module._update_no_text_similarity_sleep_state(
-        base_scan_rate=0.5,
-        sleep_time_to_add=2.75,
-        sleep_reason="no_text_similar",
-        is_similar=False,
-    )
-
-    assert sleep_reason == "no_text"
-    assert sleep_time_to_add == expected_sleep
-    assert run_module._get_adjusted_scan_rate(0.5, sleep_time_to_add, sleep_reason) == 2.0
+    assert selected_payload is not lens_payload
+    assert overlay_payload["coordinate_space"]["source_width"] == 1000
+    assert overlay_payload["coordinate_space"]["source_height"] == 500
+    assert overlay_payload["coordinate_space"]["crop_offset"] == {"x": 110, "y": 70}
+    assert overlay_payload["lines"][0]["bounding_rect"]["x1"] == 115
+    assert overlay_payload["lines"][0]["bounding_rect"]["y1"] == 76
 
 
 def test_apply_ocr_config_to_image_supports_grayscale_masking():
@@ -283,6 +353,35 @@ def test_apply_ocr_config_to_image_scales_percentage_rectangles_to_frame_size():
     assert offset == (640, 360)
 
 
+def test_apply_ocr_config_to_image_includes_black_hole_rectangles_in_primary_crop():
+    img = Image.new("L", (100, 20), color=255)
+    config = SimpleNamespace(
+        rectangles=[
+            SimpleNamespace(
+                coordinates=[0, 0, 10, 10],
+                is_excluded=False,
+                is_secondary=False,
+                is_black_hole=False,
+            ),
+            SimpleNamespace(
+                coordinates=[40, 0, 10, 10],
+                is_excluded=False,
+                is_secondary=False,
+                is_black_hole=True,
+            ),
+        ]
+    )
+
+    processed, offset = run_module.apply_ocr_config_to_image(
+        img,
+        config,
+        return_full_size=False,
+    )
+
+    assert processed.size == (50, 10)
+    assert offset == (0, 0)
+
+
 def test_ocr_processor_second_pass_suppresses_subset_chunk_duplicate(monkeypatch):
     sent = []
     saved = []
@@ -315,7 +414,7 @@ def test_ocr_processor_second_pass_suppresses_subset_chunk_duplicate(monkeypatch
 
     monkeypatch.setattr(gsm_ocr, "send_result", _send_result)
     monkeypatch.setattr(
-        gsm_ocr.run,
+        gsm_ocr.ocr_runtime,
         "process_and_write_results",
         lambda *args, **kwargs: (["・「荘厳」？"], "・「荘厳」？", {"engine": "glens"}),
     )
@@ -347,59 +446,51 @@ def test_describe_obs_source_selection_handles_no_valid_source():
     )
 
 
+def test_obs_area_selector_uses_single_fast_initial_screenshot(monkeypatch):
+    calls = []
+
+    def fake_get_screenshot_pil(**kwargs):
+        calls.append(kwargs)
+        return Image.new("RGB", (640, 360), color=(255, 255, 255))
+
+    monkeypatch.setattr(area_selector_qt.obs, "get_screenshot_PIL", fake_get_screenshot_pil)
+    monkeypatch.setattr(
+        area_selector_qt.obs,
+        "get_active_video_sources",
+        lambda: (_ for _ in ()).throw(AssertionError("source enumeration should not run before first capture")),
+    )
+    monkeypatch.setattr(
+        area_selector_qt.obs,
+        "get_best_source_for_screenshot",
+        lambda: (_ for _ in ()).throw(AssertionError("source validation should not run before first capture")),
+    )
+
+    selector = SimpleNamespace(
+        overlay_config_mode=False,
+        screenshot_img=None,
+        target_window_geometry={},
+        bounding_box_original=None,
+        monitors=[],
+        _fit_capture_to_screen=lambda original_w, original_h: setattr(
+            selector,
+            "fit_args",
+            (original_w, original_h),
+        ),
+    )
+
+    area_selector_qt.OWOCRAreaSelectorWidget._init_obs_screenshot(selector)
+
+    assert calls == [{"compression": 90, "img_format": "jpg", "retry": 1}]
+    assert selector.fit_args == (640, 360)
+    assert selector.target_window_geometry == {"left": 0, "top": 0, "width": 640, "height": 360}
+
+
 def test_obs_screenshot_thread_capture_original_size_falls_back_when_source_dimensions_missing():
     thread = run_module.OBSScreenshotThread(SimpleNamespace(rectangles=[]), screen_capture_on_combo=False)
     del thread.source_width
     del thread.source_height
 
     assert thread.get_capture_original_size(2560, 1440) == {"width": 2560, "height": 1440}
-
-
-def test_websocket_server_buffers_until_first_client_connects():
-    server = gsm_ocr.WebsocketServerThread(read=True)
-    message = json.dumps({"sentence": "hello"})
-
-    class FakeClient:
-        def __init__(self):
-            self.messages = []
-
-        async def send(self, payload):
-            self.messages.append(json.loads(payload))
-
-    asyncio.run(server._queue_or_send_message(message))
-    assert list(server._pending_messages) == [message]
-
-    client = FakeClient()
-    asyncio.run(server._register_client(client))
-
-    assert client.messages == [{"sentence": "hello"}]
-    assert list(server._pending_messages) == []
-
-    server.clients.clear()
-    asyncio.run(server._queue_or_send_message(json.dumps({"sentence": "later"})))
-    assert list(server._pending_messages) == []
-
-
-def test_send_result_closed_websocket_loop_does_not_leak_coroutine_warning(monkeypatch, recwarn):
-    server = gsm_ocr.WebsocketServerThread(read=True)
-    loop = asyncio.new_event_loop()
-    server._loop = loop
-    server._event.set()
-    loop.close()
-
-    monkeypatch.setattr(gsm_ocr, "websocket_server_thread", server)
-    monkeypatch.setattr(gsm_ocr, "get_ocr_send_to_clipboard", lambda _source: False)
-    monkeypatch.setattr(gsm_ocr, "is_windows", lambda: False)
-
-    asyncio.run(gsm_ocr.send_result("hello", datetime.now()))
-    gc.collect()
-
-    leaked_coroutine_warnings = [
-        warning
-        for warning in recwarn
-        if warning.category is RuntimeWarning and "_queue_or_send_message" in str(warning.message)
-    ]
-    assert leaked_coroutine_warnings == []
 
 
 def test_apply_ipc_config_reload_refreshes_hotkeys_and_clipboard_toggle(monkeypatch):
@@ -443,7 +534,7 @@ def test_handle_command_reload_config_announces_reloaded_status(monkeypatch):
     monkeypatch.setattr(gsm_ocr, "_build_status_payload", lambda: {"paused": False, "scan_rate": 0.5})
     monkeypatch.setattr(gsm_ocr.ocr_ipc, "announce_config_reloaded", lambda: announced.append(("config", None)))
     monkeypatch.setattr(gsm_ocr.ocr_ipc, "announce_status", lambda payload: announced.append(("status", payload)))
-    monkeypatch.delattr(gsm_ocr.run, "paused", raising=False)
+    monkeypatch.delattr(gsm_ocr.ocr_runtime, "paused", raising=False)
 
     response = gsm_ocr._handle_command(
         {"command": "reload_config", "data": {"reload_electron": True}},

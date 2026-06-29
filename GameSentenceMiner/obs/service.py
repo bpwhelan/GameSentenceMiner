@@ -104,8 +104,9 @@ class OBSConnectionPool:
     single-client setup.
     """
 
-    def __init__(self, size=1, **kwargs):
+    def __init__(self, size=1, initial_connect_delay=0.0, **kwargs):
         self.size = max(1, size)
+        self.initial_connect_delay = max(0.0, float(initial_connect_delay or 0.0))
         self.connection_kwargs = kwargs
         self._clients: list[Optional[obs.ReqClient]] = [None] * self.size
         self._locks: list[threading.Lock] = [threading.Lock() for _ in range(self.size)]
@@ -122,7 +123,8 @@ class OBSConnectionPool:
     # -- connection lifecycle ------------------------------------------------
 
     def connect_all(self):
-        time.sleep(2)
+        if self.initial_connect_delay > 0:
+            time.sleep(self.initial_connect_delay)
         for idx in range(self.size):
             self._attempt_connect_slot(idx, initial=True)
         return True
@@ -241,6 +243,13 @@ class OBSState:
     replay_buffer_active: Optional[bool] = None
     record_active: Optional[bool] = None
     current_source_name: Optional[str] = None
+    # Last result of the screenshot output probe (_is_output_active_from_screenshot):
+    # True = capture producing output, False = capture empty, None = undetermined.
+    source_output_active: Optional[bool] = None
+    source_output_checked_at: float = 0.0
+    # Timestamp output first became (and has stayed) empty; None once it has output
+    # again. Lets consumers require a sustained no-output streak, not a single probe.
+    source_output_empty_since: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +280,7 @@ class OBSTickOptions:
 # OBSService
 # ---------------------------------------------------------------------------
 class OBSService:
-    def __init__(self, host, port, password, connections=2, check_output=False):
+    def __init__(self, host, port, password, connections=2, check_output=False, initial_connect_delay=0.0):
         self.host = host
         self.port = port
         self.password = password
@@ -281,7 +290,11 @@ class OBSService:
         self._pool_kwargs = {"host": host, "port": port, "password": password, "timeout": 3}
         self._event_client_kwargs = {"host": host, "port": port, "password": password, "timeout": 1}
 
-        self.connection_pool = OBSConnectionPool(size=connections, **self._pool_kwargs)
+        self.connection_pool = OBSConnectionPool(
+            size=connections,
+            initial_connect_delay=initial_connect_delay,
+            **self._pool_kwargs,
+        )
         self.connection_pool.connect_all()
 
         self.event_client = obs.EventClient(**self._event_client_kwargs)
@@ -574,6 +587,16 @@ class OBSService:
         if output_active is None:
             return
 
+        # Only the process that manages OBS outputs (the main GSM process, which
+        # connects with check_output=True) should react to replay-buffer state
+        # changes. Helper processes such as the OCR process connect with
+        # check_output=False purely for screenshots; they must not log
+        # "stopped outside GSM" or touch auto-start state they never use.
+        if not self.check_output:
+            with self._state_lock:
+                self.state.replay_buffer_active = bool(output_active)
+            return
+
         now = time.monotonic()
         expected = self._replay_buffer_action_pending
         recent_internal_action = (
@@ -837,10 +860,25 @@ class OBSService:
     def _is_output_active_from_screenshot(self) -> Optional[bool]:
         from GameSentenceMiner.obs.actions import get_screenshot_PIL
 
-        img = get_screenshot_PIL(compression=50, img_format="jpg", width=8, height=8)
-        if not img:
-            return None
-        return not is_image_empty(img)
+        # force_obs=True: this probe decides whether to stop the replay buffer, which
+        # records OBS's composited output.  We must sample that same output, not a
+        # direct Windows Graphics Capture of the game window — WGC bypasses OBS and can
+        # return a stale buffered frame (or a wrong/stale HWND's content) after the game
+        # has closed, which would keep the buffer running on a black OBS scene.
+        img = get_screenshot_PIL(compression=50, img_format="jpg", width=8, height=8, force_obs=True)
+        result = None if not img else not is_image_empty(img)
+        with self._state_lock:
+            now = time.time()
+            self.state.source_output_active = result
+            self.state.source_output_checked_at = now
+            if result is True:
+                # Has output: streak broken.
+                self.state.source_output_empty_since = None
+            elif result is False and self.state.source_output_empty_since is None:
+                # First confirmed-empty probe; start the streak. None (undetermined)
+                # leaves the streak untouched so transient probe failures don't reset it.
+                self.state.source_output_empty_since = now
+        return result
 
     # -- fit-to-screen -------------------------------------------------------
 
@@ -1301,6 +1339,7 @@ async def connect_to_obs(
     check_output=False,
     healthcheck_enabled=True,
     start_manager=True,
+    initial_connect_delay=0.0,
 ):
     import GameSentenceMiner.obs as _obs_pkg
 
@@ -1320,6 +1359,7 @@ async def connect_to_obs(
                     password=get_config().obs.password,
                     connections=connections,
                     check_output=check_output,
+                    initial_connect_delay=initial_connect_delay,
                 )
                 _bind_obs_service_clients()
                 gsm_status.obs_connected = True
@@ -1365,7 +1405,14 @@ async def connect_to_obs(
         _obs_pkg.connecting = False
 
 
-def connect_to_obs_sync(retry=2, connections=2, check_output=False, healthcheck_enabled=True, start_manager=True):
+def connect_to_obs_sync(
+    retry=2,
+    connections=2,
+    check_output=False,
+    healthcheck_enabled=True,
+    start_manager=True,
+    initial_connect_delay=0.0,
+):
     import GameSentenceMiner.obs as _obs_pkg
 
     if _obs_pkg.obs_service or _obs_pkg.connecting:
@@ -1384,6 +1431,7 @@ def connect_to_obs_sync(retry=2, connections=2, check_output=False, healthcheck_
                     password=get_config().obs.password,
                     connections=connections,
                     check_output=check_output,
+                    initial_connect_delay=initial_connect_delay,
                 )
                 _bind_obs_service_clients()
                 gsm_status.obs_connected = True

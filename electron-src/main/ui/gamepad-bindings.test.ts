@@ -173,6 +173,146 @@ describe("legacy gamepad button bindings", () => {
 
     expect(calls).toEqual(["next", "prev"]);
   });
+
+  it("uses configurable controller bindings for token toggle and mining", () => {
+    const handler = Object.create(GamepadHandler.prototype) as {
+      config: {
+        activationMode: string;
+        controllerEnabled: boolean;
+        confirmButton: string;
+        tokenModeToggleButton: string;
+        mineButton: string;
+      };
+      buttonStates: Map<string, Record<number, boolean>>;
+      buttonBindings: Record<string, any>;
+      bindingContainsButton: (binding: any, buttonIndex: number) => boolean;
+      isButtonBindingHeld: (binding: any, device: string) => boolean;
+      matchesButtonBindingDown: (binding: any, device: string, buttonIndex: number) => boolean;
+      areButtonBindingsEquivalent: (left: any, right: any) => boolean;
+      refreshButtonBindings: () => void;
+      onButtonDown: (buttonIndex: number, device: string) => void;
+      yomitanPopupVisible: boolean;
+      isNavigationActive: () => boolean;
+      shouldProcessNavigation: () => boolean;
+      confirmSelection: () => void;
+      cancelSelection: () => void;
+      toggleTokenMode: () => void;
+      triggerMining: () => void;
+    };
+
+    handler.config = {
+      activationMode: "modifier",
+      controllerEnabled: true,
+      confirmButton: "A",
+      tokenModeToggleButton: "Y",
+      mineButton: "X"
+    };
+    handler.buttonStates = new Map([["pad-1", { 3: true }]]);
+    handler.bindingContainsButton = GamepadHandler.prototype.bindingContainsButton;
+    handler.isButtonBindingHeld = GamepadHandler.prototype.isButtonBindingHeld;
+    handler.matchesButtonBindingDown = GamepadHandler.prototype.matchesButtonBindingDown;
+    handler.areButtonBindingsEquivalent = GamepadHandler.prototype.areButtonBindingsEquivalent;
+    handler.refreshButtonBindings = GamepadHandler.prototype.refreshButtonBindings;
+    handler.onButtonDown = GamepadHandler.prototype.onButtonDown;
+    handler.yomitanPopupVisible = false;
+    handler.isNavigationActive = () => true;
+    handler.shouldProcessNavigation = () => false;
+
+    const calls: string[] = [];
+    handler.confirmSelection = () => {
+      calls.push("confirm");
+    };
+    handler.cancelSelection = () => {
+      calls.push("cancel");
+    };
+    handler.toggleTokenMode = () => {
+      calls.push("token-toggle");
+    };
+    handler.triggerMining = () => {
+      calls.push("mine");
+    };
+
+    handler.refreshButtonBindings();
+
+    expect(handler.buttonBindings.tokenModeToggleButton).toMatchObject({
+      buttons: [3],
+      disabled: false,
+      label: "Y"
+    });
+    expect(handler.buttonBindings.mineButton).toMatchObject({
+      buttons: [2],
+      disabled: false,
+      label: "X"
+    });
+
+    handler.onButtonDown(3, "pad-1");
+    handler.buttonStates = new Map([["pad-1", { 2: true }]]);
+    handler.onButtonDown(2, "pad-1");
+
+    expect(calls).toEqual(["token-toggle", "mine"]);
+  });
+
+  it("preserves confirm behavior when mine and confirm share the default A button", () => {
+    const handler = Object.create(GamepadHandler.prototype) as {
+      config: {
+        activationMode: string;
+        controllerEnabled: boolean;
+        confirmButton: number;
+        mineButton: number;
+      };
+      buttonStates: Map<string, Record<number, boolean>>;
+      buttonBindings: Record<string, any>;
+      bindingContainsButton: (binding: any, buttonIndex: number) => boolean;
+      isButtonBindingHeld: (binding: any, device: string) => boolean;
+      matchesButtonBindingDown: (binding: any, device: string, buttonIndex: number) => boolean;
+      areButtonBindingsEquivalent: (left: any, right: any) => boolean;
+      refreshButtonBindings: () => void;
+      onButtonDown: (buttonIndex: number, device: string) => void;
+      yomitanPopupVisible: boolean;
+      isNavigationActive: () => boolean;
+      shouldProcessNavigation: () => boolean;
+      confirmSelection: () => void;
+      cancelSelection: () => void;
+      toggleTokenMode: () => void;
+      triggerMining: () => void;
+    };
+
+    handler.config = {
+      activationMode: "modifier",
+      controllerEnabled: true,
+      confirmButton: 0,
+      mineButton: 0
+    };
+    handler.buttonStates = new Map([["pad-1", { 0: true }]]);
+    handler.bindingContainsButton = GamepadHandler.prototype.bindingContainsButton;
+    handler.isButtonBindingHeld = GamepadHandler.prototype.isButtonBindingHeld;
+    handler.matchesButtonBindingDown = GamepadHandler.prototype.matchesButtonBindingDown;
+    handler.areButtonBindingsEquivalent = GamepadHandler.prototype.areButtonBindingsEquivalent;
+    handler.refreshButtonBindings = GamepadHandler.prototype.refreshButtonBindings;
+    handler.onButtonDown = GamepadHandler.prototype.onButtonDown;
+    handler.yomitanPopupVisible = false;
+    handler.isNavigationActive = () => true;
+    handler.shouldProcessNavigation = () => false;
+
+    const calls: string[] = [];
+    handler.confirmSelection = () => {
+      calls.push("confirm");
+    };
+    handler.cancelSelection = () => {
+      calls.push("cancel");
+    };
+    handler.toggleTokenMode = () => {
+      calls.push("token-toggle");
+    };
+    handler.triggerMining = () => {
+      calls.push("mine");
+    };
+
+    handler.refreshButtonBindings();
+    handler.onButtonDown(0, "pad-1");
+
+    expect(calls).toEqual(["confirm"]);
+  });
 });
 
 describe("legacy gamepad start block selection", () => {
@@ -354,6 +494,146 @@ describe("legacy gamepad block redraw recovery", () => {
     });
 
     expect(restoredIndex).toBe(1);
+  });
+
+  it("preserves the current selection when overlay text render completes", () => {
+    const calls: string[] = [];
+    const snapshot = {
+      rect: { left: 20, top: 20, right: 140, bottom: 50, width: 120, height: 30 },
+      relativeX: 0.6,
+      relativeY: 0.5
+    };
+    const handler = Object.create(GamepadHandler.prototype) as {
+      lastSelectionSnapshot: typeof snapshot | null;
+      skipNextTextRefresh: boolean;
+      preserveSelectionOnNextTextRefresh: boolean;
+      virtualMouse: { movedByAnalog: boolean; lastMoveTime: number };
+      currentBlockIndex: number;
+      currentCursorIndex: number;
+      isNavigationActive: () => boolean;
+      updateVirtualMouseCursor: () => void;
+      refreshTextBlocks: () => void;
+      restoreSelectionFromSnapshot: (snapshot: typeof snapshot) => boolean;
+      prefetchTokenizationForAllBlocks: () => void;
+      updateVisuals: () => void;
+      handleOverlayTextRenderComplete: (options: { snapshot: typeof snapshot; preserveSelection: boolean }) => void;
+    };
+
+    handler.lastSelectionSnapshot = null;
+    handler.skipNextTextRefresh = false;
+    handler.preserveSelectionOnNextTextRefresh = false;
+    handler.virtualMouse = { movedByAnalog: true, lastMoveTime: 123 };
+    handler.currentBlockIndex = 0;
+    handler.currentCursorIndex = 0;
+    handler.isNavigationActive = () => true;
+    handler.updateVirtualMouseCursor = () => calls.push("virtual");
+    handler.refreshTextBlocks = () => calls.push("refresh");
+    handler.restoreSelectionFromSnapshot = () => {
+      calls.push("restore");
+      handler.currentBlockIndex = 1;
+      handler.currentCursorIndex = 3;
+      return true;
+    };
+    handler.prefetchTokenizationForAllBlocks = () => calls.push("prefetch");
+    handler.updateVisuals = () => calls.push("visuals");
+
+    GamepadHandler.prototype.handleOverlayTextRenderComplete.call(handler, {
+      snapshot,
+      preserveSelection: true
+    });
+
+    expect(handler.lastSelectionSnapshot).toBe(snapshot);
+    expect(handler.skipNextTextRefresh).toBe(true);
+    expect(handler.preserveSelectionOnNextTextRefresh).toBe(true);
+    expect(handler.virtualMouse).toMatchObject({ movedByAnalog: false, lastMoveTime: 0 });
+    expect(handler.currentBlockIndex).toBe(1);
+    expect(handler.currentCursorIndex).toBe(3);
+    expect(calls).toEqual(["virtual", "refresh", "restore", "prefetch", "visuals"]);
+  });
+
+  it("clamps virtual mouse points to the only selectable block", () => {
+    const block = { isConnected: true };
+    const handler = Object.create(GamepadHandler.prototype) as {
+      textBlocks: Array<typeof block>;
+      currentBlockIndex: number;
+      blockHasSelectableCharacters: () => boolean;
+      getBlockBoundingRect: () => {
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+        width: number;
+        height: number;
+      };
+      constrainVirtualMousePointToBlocks: (x: number, y: number) => {
+        x: number;
+        y: number;
+        block: typeof block | null;
+        blockIndex: number;
+        constrained: boolean;
+      };
+    };
+
+    handler.textBlocks = [block];
+    handler.currentBlockIndex = 0;
+    handler.blockHasSelectableCharacters = () => true;
+    handler.getBlockBoundingRect = () => ({
+      left: 100,
+      top: 50,
+      right: 220,
+      bottom: 110,
+      width: 120,
+      height: 60
+    });
+
+    const clamped = handler.constrainVirtualMousePointToBlocks(500, 10);
+    expect(clamped).toMatchObject({ x: 220, y: 50, blockIndex: 0, constrained: true });
+    expect(clamped.block).toBe(block);
+
+    const inside = handler.constrainVirtualMousePointToBlocks(160, 75);
+    expect(inside).toMatchObject({ x: 160, y: 75, blockIndex: 0, constrained: false });
+    expect(inside.block).toBe(block);
+  });
+
+  it("snaps virtual mouse points to the nearest selectable block", () => {
+    const blocks = [{ isConnected: true }, { isConnected: true }];
+    const rects = new Map([
+      [blocks[0], { left: 0, top: 0, right: 100, bottom: 60, width: 100, height: 60 }],
+      [blocks[1], { left: 220, top: 0, right: 320, bottom: 60, width: 100, height: 60 }]
+    ]);
+    const handler = Object.create(GamepadHandler.prototype) as {
+      textBlocks: typeof blocks;
+      currentBlockIndex: number;
+      blockHasSelectableCharacters: () => boolean;
+      getBlockBoundingRect: (block: (typeof blocks)[number]) => {
+        left: number;
+        top: number;
+        right: number;
+        bottom: number;
+        width: number;
+        height: number;
+      };
+      constrainVirtualMousePointToBlocks: (x: number, y: number) => {
+        x: number;
+        y: number;
+        block: (typeof blocks)[number] | null;
+        blockIndex: number;
+        constrained: boolean;
+      };
+    };
+
+    handler.textBlocks = blocks;
+    handler.currentBlockIndex = 0;
+    handler.blockHasSelectableCharacters = () => true;
+    handler.getBlockBoundingRect = (block) => rects.get(block)!;
+
+    const clampedToSecond = handler.constrainVirtualMousePointToBlocks(170, 30);
+    expect(clampedToSecond).toMatchObject({ x: 220, y: 30, blockIndex: 1, constrained: true });
+    expect(clampedToSecond.block).toBe(blocks[1]);
+
+    const clampedToFirst = handler.constrainVirtualMousePointToBlocks(-30, 30);
+    expect(clampedToFirst).toMatchObject({ x: 0, y: 30, blockIndex: 0, constrained: true });
+    expect(clampedToFirst.block).toBe(blocks[0]);
   });
 });
 

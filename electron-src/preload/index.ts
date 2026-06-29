@@ -57,6 +57,7 @@ const onExactChannels = new Set<string>([
 
 const invokePrefixes = [
   "docs.",
+  "data.",
   "state.",
   "settings.",
   "ankiBeacon.",
@@ -68,6 +69,8 @@ const invokePrefixes = [
   "vn.",
   "yuzu.",
   "front.",
+  "texthook.",
+  "textprocess.",
   "wanakana-",
   "kuroshiro-"
 ];
@@ -87,12 +90,15 @@ const sendPrefixes = [
 ];
 
 const onPrefixes = [
+  "data.",
   "terminal-",
   "ocr-",
   "state-",
   "websocket-",
   "settings-",
-  "gsm-"
+  "gsm-",
+  "textprocess-",
+  "texthook."
 ];
 
 function isValidChannelName(channel: string): boolean {

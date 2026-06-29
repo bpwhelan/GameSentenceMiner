@@ -1,9 +1,11 @@
 import json
 import os
 import platform
+import re
 import requests
 import secrets
 import shutil
+import subprocess
 import tempfile
 import time
 import zipfile
@@ -25,6 +27,31 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_PROGRESS_MIN_INTERVAL_S = 0.25
 DOWNLOAD_PROGRESS_MIN_BYTES = 512 * 1024
 DOWNLOAD_PROGRESS_MIN_RATIO = 0.01
+FFMPEG_WINDOWS_X64_VERSION = "8.1.1"
+FFMPEG_WINDOWS_X64_BUILD = "full_build_shared"
+FFMPEG_WINDOWS_X64_URL = (
+    "https://github.com/GyanD/codexffmpeg/releases/download/8.1.1/ffmpeg-8.1.1-full_build-shared.zip"
+)
+FFMPEG_WINDOWS_ARM64_VERSION = "8.0"
+FFMPEG_WINDOWS_ARM64_BUILD = "essentials_shared"
+FFMPEG_WINDOWS_ARM64_URL = "https://r2.gamesentenceminer.com/ffmpeg-8.0-essentials-shared-win-arm64.zip"
+
+# obs-browser ships a full CEF runtime in obs-plugins/64bit (libcef.dll alone is ~200MB).
+# GSM never uses browser sources, so the plugin + CEF is pure dead weight.
+OBS_BROWSER_CEF_FILES = {
+    "obs-browser.dll",
+    "obs-browser-page.exe",
+    "libcef.dll",
+    "chrome_elf.dll",
+    "libegl.dll",
+    "libglesv2.dll",
+    "icudtl.dat",
+    "resources.pak",
+    "chrome_100_percent.pak",
+    "chrome_200_percent.pak",
+    "v8_context_snapshot.bin",
+    "snapshot_blob.bin",
+}
 
 
 def report_install_progress(
@@ -208,14 +235,57 @@ def copy_obs_settings(src, dest):
     return False
 
 
+def get_scene_switcher_dll_path(obs_path):
+    """Return the path where the Advanced Scene Switcher plugin DLL lives once installed."""
+    return os.path.join(obs_path, "obs-plugins", "64bit", "advanced-scene-switcher.dll")
+
+
+def _find_scene_switcher_plugin_root(extract_dir):
+    """Locate the extracted plugin root (the directory holding ``bin`` and ``data``).
+
+    The release zip ships a top-level ``advanced-scene-switcher/`` folder containing
+    ``bin/64bit/`` and ``data/``. We search rather than hard-code the folder name in
+    case the release layout changes.
+    """
+    for root, dirs, _files in os.walk(extract_dir):
+        dir_names = {name.lower() for name in dirs}
+        if "bin" in dir_names and "data" in dir_names:
+            return root
+    return None
+
+
+def install_scene_switcher_from_extracted(extract_dir, obs_path):
+    """Copy an extracted Advanced Scene Switcher tree into the OBS portable layout.
+
+    The plugin ships as ``<root>/bin/64bit/*`` and ``<root>/data/*`` but OBS portable
+    expects plugins under ``obs-plugins/64bit/`` and plugin data under
+    ``data/obs-plugins/advanced-scene-switcher/``. Dumping the raw tree at the OBS root
+    (the previous behaviour) meant OBS never loaded the plugin.
+    """
+    plugin_root = _find_scene_switcher_plugin_root(extract_dir)
+    if plugin_root is None:
+        raise RuntimeError("Extracted Advanced Scene Switcher archive did not contain bin/ and data/ directories.")
+
+    bin_64bit = os.path.join(plugin_root, "bin", "64bit")
+    data_dir = os.path.join(plugin_root, "data")
+    if not os.path.isdir(bin_64bit):
+        raise RuntimeError("Extracted Advanced Scene Switcher archive is missing bin/64bit.")
+
+    obs_plugins_64bit = os.path.join(obs_path, "obs-plugins", "64bit")
+    plugin_data_dir = os.path.join(obs_path, "data", "obs-plugins", "advanced-scene-switcher")
+    os.makedirs(obs_plugins_64bit, exist_ok=True)
+    shutil.copytree(bin_64bit, obs_plugins_64bit, dirs_exist_ok=True)
+    if os.path.isdir(data_dir):
+        os.makedirs(plugin_data_dir, exist_ok=True)
+        shutil.copytree(data_dir, plugin_data_dir, dirs_exist_ok=True)
+
+
 def download_scene_switcher_plugin(obs_path, stage_id: Optional[str] = None):
     """Download and install Advanced Scene Switcher plugin for OBS."""
     download_dir = os.path.join(get_app_directory(), "downloads")
     os.makedirs(download_dir, exist_ok=True)
 
-    # Check if plugin is already installed
-    plugin_dll_path = os.path.join(obs_path, "obs-plugins", "64bit", "advanced-scene-switcher.dll")
-    if os.path.exists(plugin_dll_path):
+    if os.path.exists(get_scene_switcher_dll_path(obs_path)):
         logger.debug("Advanced Scene Switcher plugin already installed.")
         return "skipped"
 
@@ -225,36 +295,96 @@ def download_scene_switcher_plugin(obs_path, stage_id: Optional[str] = None):
     scene_switcher_release = get_json_from_url(scene_switcher_url)
 
     if scene_switcher_release:
-        # Find the Windows x64 asset
+        # Find the Windows x64 asset. Skip the "-legacy" and installer variants.
         plugin_url = None
         for asset in scene_switcher_release.get("assets", []):
-            if "windows-x64.zip" in asset["name"]:
+            name = asset["name"]
+            if name.endswith("windows-x64.zip"):
                 plugin_url = asset["browser_download_url"]
                 break
 
         if plugin_url:
             scene_switcher_zip = os.path.join(download_dir, "advanced-scene-switcher.zip")
+            extract_dir = os.path.join(download_dir, "advanced-scene-switcher-extracted")
             if download_file(
                 plugin_url,
                 scene_switcher_zip,
                 stage_id=stage_id,
                 message="Downloading OBS Scene Switcher plugin...",
             ):
-                logger.info(f"Extracting Advanced Scene Switcher to {obs_path}...")
+                logger.info(f"Installing Advanced Scene Switcher into {obs_path}...")
                 try:
+                    if os.path.exists(extract_dir):
+                        shutil.rmtree(extract_dir)
                     with zipfile.ZipFile(scene_switcher_zip, "r") as zip_ref:
-                        zip_ref.extractall(obs_path)
+                        zip_ref.extractall(extract_dir)
+                    install_scene_switcher_from_extracted(extract_dir, obs_path)
+                    # Remove any stale copy from the old (broken) extraction layout that
+                    # dumped the raw "advanced-scene-switcher/" tree at the OBS root.
+                    stale_dir = os.path.join(obs_path, "advanced-scene-switcher")
+                    if os.path.isdir(stale_dir):
+                        shutil.rmtree(stale_dir, ignore_errors=True)
                     logger.success("Advanced Scene Switcher plugin installed successfully.")
                     return "completed"
                 except Exception as e:
-                    logger.error(f"Failed to extract Advanced Scene Switcher: {e}")
-                    raise RuntimeError(f"Failed to extract Advanced Scene Switcher: {e}") from e
+                    logger.error(f"Failed to install Advanced Scene Switcher: {e}")
+                    raise RuntimeError(f"Failed to install Advanced Scene Switcher: {e}") from e
                 finally:
                     if os.path.exists(scene_switcher_zip):
                         os.unlink(scene_switcher_zip)
+                    if os.path.exists(extract_dir):
+                        shutil.rmtree(extract_dir, ignore_errors=True)
         else:
             raise RuntimeError("Could not find Windows x64 version of Advanced Scene Switcher.")
     raise RuntimeError("Failed to install Advanced Scene Switcher plugin.")
+
+
+def prune_obs_directory(obs_path):
+    """Trim a downloaded OBS install down to what GSM uses.
+
+    Drops all debug symbols (*.pdb) and the obs-browser source's bundled CEF
+    runtime (~275MB), neither of which GSM ever loads.
+    """
+    removed_bytes = 0
+
+    def _rm_file(path):
+        nonlocal removed_bytes
+        try:
+            removed_bytes += os.path.getsize(path)
+            os.remove(path)
+        except OSError:
+            pass
+
+    def _rm_tree(path):
+        nonlocal removed_bytes
+        if not os.path.isdir(path):
+            return
+        for root, _dirs, files in os.walk(path):
+            for file in files:
+                try:
+                    removed_bytes += os.path.getsize(os.path.join(root, file))
+                except OSError:
+                    pass
+        shutil.rmtree(path, ignore_errors=True)
+
+    # Debug symbols, everywhere.
+    for root, _dirs, files in os.walk(obs_path):
+        for file in files:
+            if file.lower().endswith(".pdb"):
+                _rm_file(os.path.join(root, file))
+
+    # obs-browser plugin + its CEF runtime.
+    plugins_64bit = os.path.join(obs_path, "obs-plugins", "64bit")
+    if os.path.isdir(plugins_64bit):
+        for name in os.listdir(plugins_64bit):
+            if name.lower() in OBS_BROWSER_CEF_FILES:
+                _rm_file(os.path.join(plugins_64bit, name))
+    _rm_tree(os.path.join(plugins_64bit, "locales"))  # CEF localized resources
+    _rm_tree(os.path.join(obs_path, "data", "obs-plugins", "obs-browser"))
+
+    if removed_bytes:
+        logger.info(f"Pruned OBS install, freed {removed_bytes / (1024 * 1024):.0f} MB.")
+    return removed_bytes
 
 
 def download_obs_if_needed(stage_id: Optional[str] = "obs"):
@@ -262,8 +392,10 @@ def download_obs_if_needed(stage_id: Optional[str] = "obs"):
     obs_exe_path = get_obs_path()
     if os.path.exists(obs_path) and os.path.exists(obs_exe_path):
         logger.debug(f"OBS already installed at {obs_path}.")
+        prune_obs_directory(obs_path)  # trim existing installs too
         # Check and install plugin even if OBS is already installed
-        plugin_status = download_scene_switcher_plugin(obs_path, stage_id=stage_id)
+        # plugin_status = download_scene_switcher_plugin(obs_path, stage_id=stage_id)
+        plugin_status = "skipped"
         return "skipped" if plugin_status == "skipped" else "completed"
 
     if os.path.exists(obs_path) and not os.path.exists(obs_exe_path):
@@ -319,11 +451,12 @@ def download_obs_if_needed(stage_id: Optional[str] = "obs"):
                 with zipfile.ZipFile(obs_installer, "r") as zip_ref:
                     zip_ref.extractall(obs_path)
                 open(os.path.join(obs_path, "portable_mode"), "a").close()
-                write_obs_configs(obs_path)
+                write_obs_configs(obs_path, latest_release.get("tag_name"))
+                prune_obs_directory(obs_path)
                 logger.success(f"OBS extracted to {obs_path}.")
 
                 # Download and install Advanced Scene Switcher plugin
-                download_scene_switcher_plugin(obs_path, stage_id=stage_id)
+                # download_scene_switcher_plugin(obs_path, stage_id=stage_id)
                 return "completed"
             except Exception as e:
                 logger.error(f"Failed to extract OBS: {e}")
@@ -427,86 +560,272 @@ def write_default_scene_configs(obs_path):
             logger.debug(f"Created default scene config: {scene_name}")
 
 
-def write_obs_configs(obs_path):
+def _pack_obs_version(version_str):
+    """Pack an OBS version string (e.g. '31.0.2') into OBS's LastVersion integer.
+
+    OBS stores LastVersion using MAKE_SEMANTIC_VERSION(major, minor, patch) =
+    (major << 24) | (minor << 16) | patch. Setting it to the bundled version stops
+    the "What's New" / migration dialog from firing on first launch.
+    """
+    if not version_str:
+        return None
+    match = re.match(r"\s*v?(\d+)\.(\d+)(?:\.(\d+))?", version_str)
+    if not match:
+        return None
+    major, minor, patch = int(match.group(1)), int(match.group(2)), int(match.group(3) or 0)
+    return (major << 24) | (minor << 16) | patch
+
+
+def write_global_configs(obs_path, obs_version=None):
+    """Seed user.ini/global.ini so a fresh portable OBS skips its first-run prompts.
+
+    Without this file OBS treats the freshly-extracted portable install as brand new:
+    the EULA/"What's New" dialog and the Auto-Configuration Wizard (stream vs record,
+    resolution, FPS) both appear. FirstRun=true skips the wizard; LastVersion skips
+    the migration dialog; Profile/SceneCollection boot straight into the GSM profile
+    and scene collection we already seed. OBS 30.2+ uses user.ini (older builds use
+    global.ini) so we write both — whichever the bundled build reads lands ready.
+    """
+    config_dir = os.path.join(obs_path, "config", "obs-studio")
+    os.makedirs(config_dir, exist_ok=True)
+
+    packed_version = _pack_obs_version(obs_version)
+    last_version_line = f"LastVersion={packed_version}\n" if packed_version else ""
+
+    global_ini = (
+        "[General]\n"
+        "FirstRun=true\n"
+        f"{last_version_line}"
+        "Pre19Defaults=false\n"
+        "Pre21Defaults=false\n"
+        "Pre23Defaults=false\n"
+        "Pre24.1Defaults=false\n"
+        "\n"
+        "[Basic]\n"
+        "Profile=GSM\n"
+        "ProfileDir=GSM\n"
+        "SceneCollection=Untitled\n"
+        "SceneCollectionFile=Untitled\n"
+        "\n"
+        "[BasicWindow]\n"
+        "SysTrayEnabled=true\n"
+        "SysTrayWhenStarted=true\n"
+    )
+
+    for filename in ("user.ini", "global.ini"):
+        target = os.path.join(config_dir, filename)
+        if os.path.exists(target):
+            continue
+        with open(target, "w", encoding="utf-8") as global_ini_file:
+            global_ini_file.write(global_ini)
+        logger.debug(f"Wrote OBS {filename} to skip first-run prompts.")
+
+
+def write_obs_configs(obs_path, obs_version=None):
+    write_global_configs(obs_path, obs_version)
     write_websocket_configs(obs_path)
     write_replay_buffer_configs(obs_path)
     write_default_scene_configs(obs_path)
+
+
+def get_ffmpeg_download_spec():
+    system = platform.system()
+    if system != "Windows":
+        return None
+
+    machine = platform.machine().lower()
+    if machine in ["arm64", "aarch64"]:
+        return {
+            "url": FFMPEG_WINDOWS_ARM64_URL,
+            "version": FFMPEG_WINDOWS_ARM64_VERSION,
+            "build": FFMPEG_WINDOWS_ARM64_BUILD,
+            "compressed_format": "zip",
+        }
+
+    return {
+        "url": FFMPEG_WINDOWS_X64_URL,
+        "version": FFMPEG_WINDOWS_X64_VERSION,
+        "build": FFMPEG_WINDOWS_X64_BUILD,
+        "compressed_format": "zip",
+    }
+
+
+def parse_ffmpeg_version_output(output):
+    version = None
+    version_match = re.search(r"\bffmpeg version\s+([^\s]+)", output, re.IGNORECASE)
+    if version_match:
+        numeric_match = re.search(r"\d+(?:\.\d+)+", version_match.group(1))
+        if numeric_match:
+            version = numeric_match.group(0)
+
+    build = None
+    output_lower = output.lower()
+    if "full_build" in output_lower:
+        build = (
+            "full_build_shared"
+            if "--enable-shared" in output_lower or "full_build-shared" in output_lower
+            else "full_build"
+        )
+    elif "essentials_build" in output_lower:
+        build = "essentials_build"
+    elif "essentials-shared" in output_lower or "essentials_shared" in output_lower:
+        build = "essentials_shared"
+
+    return version, build
+
+
+def get_installed_ffmpeg_info(ffmpeg_exe_path):
+    try:
+        result = subprocess.run(
+            [ffmpeg_exe_path, "-version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except Exception as e:
+        logger.debug(f"Failed to inspect installed FFmpeg at {ffmpeg_exe_path}: {e}")
+        return None, None
+
+    return parse_ffmpeg_version_output(f"{result.stdout}\n{result.stderr}")
+
+
+def is_ffmpeg_install_current(ffmpeg_dir, ffmpeg_exe_path, ffprobe_exe_path, spec):
+    if not os.path.exists(ffmpeg_dir) or not os.path.exists(ffmpeg_exe_path) or not os.path.exists(ffprobe_exe_path):
+        return False
+
+    installed_version, installed_build = get_installed_ffmpeg_info(ffmpeg_exe_path)
+    if installed_version == spec["version"] and installed_build == spec["build"]:
+        return True
+
+    logger.info(
+        "Installed FFmpeg does not match required bundle "
+        f"({installed_version or 'unknown'} {installed_build or 'unknown'} != {spec['version']} {spec['build']})."
+    )
+    return False
+
+
+def flatten_directory(directory):
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            file_path = os.path.join(root, file)
+            if root != directory:  # Only move files from subdirectories
+                target_path = os.path.join(directory, file)
+                # Handle name conflicts by keeping the first occurrence
+                if not os.path.exists(target_path):
+                    shutil.move(file_path, target_path)
+
+    for root, dirs, files in os.walk(directory, topdown=False):
+        for dir_name in dirs:
+            dir_path = os.path.join(root, dir_name)
+            try:
+                os.rmdir(dir_path)
+            except OSError:
+                pass  # Directory not empty
+
+
+def prune_ffmpeg_directory(directory):
+    allowed_files = {"ffmpeg.exe", "ffprobe.exe"}
+    for root, dirs, files in os.walk(directory, topdown=False):
+        for file in files:
+            file_name = file.lower()
+            if file_name not in allowed_files and not file_name.endswith(".dll"):
+                os.remove(os.path.join(root, file))
+
+        for dir_name in dirs:
+            dir_path = os.path.join(root, dir_name)
+            try:
+                os.rmdir(dir_path)
+            except OSError:
+                pass  # Directory not empty
+
+
+def extract_ffmpeg_archive(ffmpeg_archive, extract_dir, compressed_format):
+    if compressed_format == "7z":
+        import py7zr
+
+        with py7zr.SevenZipFile(ffmpeg_archive, mode="r") as z:
+            z.extractall(extract_dir)
+    else:
+        with zipfile.ZipFile(ffmpeg_archive, "r") as zip_ref:
+            zip_ref.extractall(extract_dir)
+
+
+def replace_directory_with_rollback(source_dir, target_dir):
+    backup_dir = f"{target_dir}.bak"
+    if os.path.exists(backup_dir):
+        shutil.rmtree(backup_dir)
+
+    moved_existing = False
+    if os.path.exists(target_dir):
+        shutil.move(target_dir, backup_dir)
+        moved_existing = True
+
+    try:
+        shutil.move(source_dir, target_dir)
+    except Exception:
+        if moved_existing and not os.path.exists(target_dir) and os.path.exists(backup_dir):
+            shutil.move(backup_dir, target_dir)
+        raise
+
+    if moved_existing and os.path.exists(backup_dir):
+        try:
+            shutil.rmtree(backup_dir)
+        except Exception as e:
+            logger.debug(f"FFmpeg was updated, but the old backup at {backup_dir} could not be removed: {e}")
+
+
+def install_ffmpeg_archive(ffmpeg_archive, ffmpeg_dir, spec):
+    temp_ffmpeg_dir = f"{ffmpeg_dir}.tmp"
+    if os.path.exists(temp_ffmpeg_dir):
+        shutil.rmtree(temp_ffmpeg_dir)
+    os.makedirs(temp_ffmpeg_dir, exist_ok=True)
+
+    try:
+        extract_ffmpeg_archive(ffmpeg_archive, temp_ffmpeg_dir, spec["compressed_format"])
+        flatten_directory(temp_ffmpeg_dir)
+
+        expected_ffmpeg = os.path.join(temp_ffmpeg_dir, "ffmpeg.exe")
+        expected_ffprobe = os.path.join(temp_ffmpeg_dir, "ffprobe.exe")
+        if not os.path.exists(expected_ffmpeg) or not os.path.exists(expected_ffprobe):
+            raise RuntimeError("Downloaded FFmpeg archive did not contain ffmpeg.exe and ffprobe.exe.")
+
+        prune_ffmpeg_directory(temp_ffmpeg_dir)
+        replace_directory_with_rollback(temp_ffmpeg_dir, ffmpeg_dir)
+    except Exception:
+        if os.path.exists(temp_ffmpeg_dir):
+            shutil.rmtree(temp_ffmpeg_dir)
+        raise
 
 
 def download_ffmpeg_if_needed(stage_id: Optional[str] = "ffmpeg"):
     ffmpeg_dir = os.path.join(get_app_directory(), "ffmpeg")
     ffmpeg_exe_path = get_ffmpeg_path()
     ffprobe_exe_path = get_ffprobe_path()
+    ffmpeg_spec = get_ffmpeg_download_spec()
 
-    if os.path.exists(ffmpeg_dir) and os.path.exists(ffmpeg_exe_path) and os.path.exists(ffprobe_exe_path):
+    if ffmpeg_spec is None:
+        raise RuntimeError("Unsupported OS/architecture. Please install FFmpeg manually.")
+
+    if is_ffmpeg_install_current(ffmpeg_dir, ffmpeg_exe_path, ffprobe_exe_path, ffmpeg_spec):
+        prune_ffmpeg_directory(ffmpeg_dir)
         logger.debug(f"FFmpeg already installed at {ffmpeg_dir}.")
         return "skipped"
 
     if os.path.exists(ffmpeg_dir) and (not os.path.exists(ffmpeg_exe_path) or not os.path.exists(ffprobe_exe_path)):
         logger.info("FFmpeg directory exists but executables are missing. Re-downloading FFmpeg...")
-        shutil.rmtree(ffmpeg_dir)
-
-    system = platform.system()
-    ffmpeg_url = None
-    compressed_format = "zip"
-    if system == "Windows":
-        machine = platform.machine().lower()
-        if machine in ["arm64", "aarch64"]:
-            ffmpeg_url = "https://gsm.beangate.us/ffmpeg-8.0-essentials-shared-win-arm64.zip"
-            compressed_format = "zip"
-        else:
-            ffmpeg_url = (
-                "https://github.com/GyanD/codexffmpeg/releases/download/8.0.1/ffmpeg-8.0.1-essentials_build.zip"
-            )
-            compressed_format = "zip"
-    # elif system == "Linux":
-    #     ffmpeg_url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
-    # elif system == "Darwin":
-    #     ffmpeg_url = "https://evermeet.cx/ffmpeg/ffmpeg.zip"
-
-    if ffmpeg_url is None:
-        raise RuntimeError("Unsupported OS/architecture. Please install FFmpeg manually.")
+    elif os.path.exists(ffmpeg_dir):
+        logger.info("FFmpeg is installed but does not match the required bundle. Upgrading FFmpeg...")
 
     download_dir = os.path.join(get_app_directory(), "downloads")
     os.makedirs(download_dir, exist_ok=True)
-    ffmpeg_archive = os.path.join(download_dir, f"ffmpeg.{compressed_format}")
+    ffmpeg_archive = os.path.join(download_dir, f"ffmpeg.{ffmpeg_spec['compressed_format']}")
 
-    if download_file(ffmpeg_url, ffmpeg_archive, stage_id=stage_id, message="Downloading FFmpeg..."):
+    if download_file(ffmpeg_spec["url"], ffmpeg_archive, stage_id=stage_id, message="Downloading FFmpeg..."):
         logger.info(f"FFmpeg downloaded. Extracting to {ffmpeg_dir}...")
 
-        os.makedirs(ffmpeg_dir, exist_ok=True)
-
-        # Extract archive
         try:
-            if ffmpeg_url.endswith(".7z"):
-                import py7zr
-
-                with py7zr.SevenZipFile(ffmpeg_archive, mode="r") as z:
-                    z.extractall(ffmpeg_dir)
-            else:
-                with zipfile.ZipFile(ffmpeg_archive, "r") as zip_ref:
-                    zip_ref.extractall(ffmpeg_dir)
-
-            # Flatten directory structure - move all files to root ffmpeg_dir
-            def flatten_directory(directory):
-                for root, dirs, files in os.walk(directory):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        if root != directory:  # Only move files from subdirectories
-                            target_path = os.path.join(directory, file)
-                            # Handle name conflicts by keeping the first occurrence
-                            if not os.path.exists(target_path):
-                                shutil.move(file_path, target_path)
-                # Remove empty subdirectories
-                for root, dirs, files in os.walk(directory, topdown=False):
-                    for dir_name in dirs:
-                        dir_path = os.path.join(root, dir_name)
-                        try:
-                            os.rmdir(dir_path)
-                        except OSError:
-                            pass  # Directory not empty
-
-            flatten_directory(ffmpeg_dir)
+            install_ffmpeg_archive(ffmpeg_archive, ffmpeg_dir, ffmpeg_spec)
             logger.success(f"FFmpeg extracted to {ffmpeg_dir}.")
             return "completed"
         except Exception as e:

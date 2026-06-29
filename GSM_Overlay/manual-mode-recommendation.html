@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Push to Show Recommended</title>
+  <link rel="stylesheet" href="./components/manual-mode-card.css" />
+  <style>
+    * {
+      box-sizing: border-box;
+      scrollbar-width: thin;
+      scrollbar-color: #5a5a5a #2c2c2c;
+    }
+
+    *::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    *::-webkit-scrollbar-track {
+      background: #2c2c2c;
+      border-radius: 10px;
+    }
+
+    *::-webkit-scrollbar-thumb {
+      background: #5a5a5a;
+      border-radius: 10px;
+      border: 2px solid #2c2c2c;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+      color: #ffffff;
+      margin: 0;
+      padding: 18px;
+      min-height: 100vh;
+      line-height: 1.4;
+    }
+
+    .container {
+      max-width: 560px;
+      margin: 0 auto;
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 20px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 0 0 14px 0;
+    }
+
+    .header .icon {
+      font-size: 26px;
+      flex-shrink: 0;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .btn {
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.06);
+      color: #e8e8e8;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      transform: translateY(-1px);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+      border: none;
+      color: #ffffff;
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #45a049 0%, #3d8b40 100%);
+      box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="header">
+      <span class="icon">🖱️</span>
+      <h1>Push to Show Recommended</h1>
+    </div>
+
+    <div class="setting-group gsm-mm-card" id="manualModeCardMount"></div>
+
+    <div class="footer">
+      <button type="button" class="btn" id="btn-dismiss">Don't show again for this game</button>
+      <button type="button" class="btn btn-primary" id="btn-close">Done</button>
+    </div>
+  </div>
+
+  <script src="./components/manual-mode-card.js"></script>
+  <script>
+    const { ipcRenderer } = require("electron");
+
+    let currentGame = "";
+    let cardController = null;
+
+    function mountCard({ initial = {}, runtimeState = {}, game = "" } = {}) {
+      currentGame = game || "";
+      const mount = document.getElementById("manualModeCardMount");
+      const intro =
+        "GSM noticed this game may be hiding the mouse cursor, which can make the automatic overlay awkward to use. " +
+        "Push to Show keeps the overlay hidden until you press your hotkey — you can enable and configure it below.";
+
+      cardController = GSMManualModeCard.mount(mount, {
+        initial,
+        runtimeState,
+        platform: process.platform,
+        intro,
+        onChange: (key, value) => {
+          // Reuse the existing settings persistence/reconfiguration path in main.js.
+          ipcRenderer.send("setting-changed", { key, value });
+        },
+      });
+    }
+
+    // Initial data pushed from main.js once the window has loaded.
+    ipcRenderer.on("preload-manual-mode-recommendation", (event, payload) => {
+      if (cardController) {
+        cardController.applyValues(payload.initial || {});
+        cardController.setRuntimeState(payload.runtimeState || {});
+        currentGame = payload.game || currentGame;
+        return;
+      }
+      mountCard(payload || {});
+    });
+
+    // Live backend-status + manualMode updates (same channel settings.html uses).
+    ipcRenderer.on("settings-updated", (event, updates) => {
+      if (!cardController || !updates) return;
+      cardController.setRuntimeState({
+        backend: updates.manualHotkeyBackend,
+        backendReason: updates.manualHotkeyBackendReason,
+        keyboardAvailable: updates.manualHotkeyKeyboardAvailable,
+        keyboardError: updates.manualHotkeyKeyboardError,
+      });
+      if ("manualMode" in updates) {
+        cardController.applyValues({ manualMode: updates.manualMode });
+      }
+    });
+
+    document.getElementById("btn-dismiss").addEventListener("click", () => {
+      ipcRenderer.send("manual-mode-recommendation-dismiss", { game: currentGame });
+    });
+
+    document.getElementById("btn-close").addEventListener("click", () => {
+      ipcRenderer.send("manual-mode-recommendation-close");
+    });
+  </script>
+</body>
+
+</html>

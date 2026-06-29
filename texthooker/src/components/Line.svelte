@@ -22,7 +22,7 @@
 		settingsOpen$,
 	} from '../stores/stores';
 	import type { LineItem, LineItemEditEvent } from '../types';
-	import { dummyFn, newLineCharacter, updateScroll } from '../util';
+	import { dummyFn, getAutoScrollStick, isScrolledToEnd, newLineCharacter, updateScroll } from '../util';
 	import Icon from './Icon.svelte';
 	import { getGSMEndpoint } from '../gsm';
 
@@ -62,13 +62,16 @@
 
 	onMount(() => {
 		if (isLast) {
-			updateScroll(
-				pipWindow || window,
-				paragraph.parentElement.parentElement,
-				$reverseLineOrder$,
-				isVerticalDisplay,
-				$enableLineAnimation$ ? 'smooth' : 'auto',
-			);
+			// Don't yank a reader who scrolled up.
+			if (getAutoScrollStick(!!pipWindow)) {
+				updateScroll(
+					pipWindow || window,
+					paragraph.parentElement.parentElement,
+					$reverseLineOrder$,
+					isVerticalDisplay,
+					$enableLineAnimation$ ? 'smooth' : 'auto',
+				);
+			}
 			if ($lineIDs$ && $lineIDs$.includes(line.id) && $autoTranslateLines$) {
 				handleAction(line.id, 'TL', $blurAutoTranslatedLines$);
 			}
@@ -168,6 +171,16 @@
 			})
 			.then((data) => {
 				if (action === 'TL') {
+					// Capture before render; a slow TL landing must not yank a scrolled-up reader.
+					const wasAtEnd =
+						isLast &&
+						isScrolledToEnd(
+							pipWindow || window,
+							paragraph.parentElement.parentElement,
+							$reverseLineOrder$,
+							isVerticalDisplay,
+						);
+
 					line.translation = data['TL'];
 					if (blurTranslate) {
 						line.blurTranslation = true;
@@ -184,16 +197,18 @@
 						line.text += '\n';
 					}
 					$lineData$[line.index] = line;
-					tick().then(() => {
-						const behavior = $enableLineAnimation$ ? 'smooth' : 'auto';
-						paragraph?.scrollIntoView({
-							behavior,
-							block: $reverseLineOrder$ ? 'start' : 'end',
-							inline: isVerticalDisplay ? 'end' : 'nearest',
+					if (wasAtEnd) {
+						tick().then(() => {
+							const behavior = $enableLineAnimation$ ? 'smooth' : 'auto';
+							paragraph?.scrollIntoView({
+								behavior,
+								block: $reverseLineOrder$ ? 'start' : 'end',
+								inline: isVerticalDisplay ? 'end' : 'nearest',
+							});
+							// Scroll a bit more down
+							(pipWindow || window).scrollBy(0, 50);
 						});
-						// Scroll a bit more down
-						(pipWindow || window).scrollBy(0, 50);
-					});
+					}
 				}
 			})
 			.catch((error) => {

@@ -174,6 +174,7 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
 
         self.clients: Set[Any] = set()
         self.backedup_text = []
+        self._callback_tasks: Set[Any] = set()  # strong refs so fire-and-forget tasks aren't GC'd
 
     @property
     def loop(self):
@@ -206,7 +207,9 @@ class WebsocketServerThread(_PortConflictSupport, threading.Thread):
                     try:
                         callback_result = self.message_callback(message)
                         if asyncio.iscoroutine(callback_result):
-                            asyncio.create_task(callback_result)
+                            task = asyncio.create_task(callback_result)
+                            self._callback_tasks.add(task)
+                            task.add_done_callback(self._callback_tasks.discard)
                         await websocket.send("True")
                     except Exception as callback_error:
                         logger.error(f"[{self.server_name}] Error in message callback: {callback_error}")
@@ -331,6 +334,7 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
 
         self.clients_by_server_id: Dict[str, Set[Any]] = {}
         self.backup_by_server_id: Dict[str, list] = {}
+        self._callback_tasks: Set[Any] = set()  # strong refs so fire-and-forget tasks aren't GC'd
 
     @property
     def loop(self):
@@ -357,7 +361,9 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
             try:
                 callback_result = endpoint_spec.message_callback(message)
                 if asyncio.iscoroutine(callback_result):
-                    asyncio.create_task(callback_result)
+                    task = asyncio.create_task(callback_result)
+                    self._callback_tasks.add(task)
+                    task.add_done_callback(self._callback_tasks.discard)
                 await websocket.send("True")
             except Exception as callback_error:
                 logger.error(f"[{self.server_name}] Error in {server_id} callback: {callback_error}")
@@ -370,6 +376,39 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
             return
 
         await websocket.send("False")
+
+    async def _send_initial_overlay_state(self, websocket):
+        try:
+            from GameSentenceMiner.util.stats.live_stats import build_live_stats_payload, live_stats_tracker
+
+            await websocket.send(json.dumps(build_live_stats_payload(live_stats_tracker, reason="connect")))
+        except Exception as error:
+            logger.debug(f"[{self.server_name}] Failed to send initial overlay state: {error}")
+
+        try:
+            from GameSentenceMiner.web.live_goals import build_live_goals_payload
+
+            await websocket.send(json.dumps(build_live_goals_payload()))
+        except Exception as error:
+            logger.debug(f"[{self.server_name}] Failed to send initial overlay goals: {error}")
+
+        try:
+            from GameSentenceMiner.util.config.configuration import get_master_config, serialize_gsm_owned_overlay
+
+            master_config = get_master_config()
+            if master_config is not None:
+                overlay = master_config.get_config().overlay
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "gsm-overlay-config-updated",
+                            "settings": serialize_gsm_owned_overlay(overlay),
+                            "monitors": list(getattr(overlay, "monitors", []) or []),
+                        }
+                    )
+                )
+        except Exception as error:
+            logger.debug(f"[{self.server_name}] Failed to send initial GSM overlay config: {error}")
 
     async def _handler(self, websocket, path=None):
         server_id = self._resolve_target_server_id(websocket, path)
@@ -389,6 +428,9 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
                 for message in backup:
                     await websocket.send(message)
                 backup.clear()
+
+            if server_id == ID_OVERLAY:
+                await self._send_initial_overlay_state(websocket)
 
             async for message in websocket:
                 await self._handle_incoming_message(server_id, websocket, message)
@@ -733,7 +775,7 @@ def _start_legacy_listener_if_needed(
 
 _ENABLE_LEGACY_PORT_LISTENERS = False
 
-if _ENABLE_LEGACY_PORT_LISTENERS:
+if _ENABLE_LEGACY_PORT_LISTENERS:  # NOSONAR(S2583) intentional kill-switch for legacy listeners
     _start_legacy_listener_if_needed(
         server_id=ID_OVERLAY_LEGACY,
         read=True,

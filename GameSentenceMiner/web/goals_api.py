@@ -168,9 +168,15 @@ def get_todays_live_data(today, user_tz=None):
         tuple: (today_lines, live_stats) where live_stats may be None
     """
     if user_tz:
-        # Create timezone-aware datetimes to get correct timestamps
-        today_start = user_tz.localize(datetime.datetime.combine(today, datetime.time.min)).timestamp()
-        today_end = user_tz.localize(datetime.datetime.combine(today, datetime.time.max)).timestamp()
+        # Create timezone-aware datetimes to get correct timestamps. pytz zones need
+        # .localize(); plain datetime.timezone (e.g. the overlay's local system tz)
+        # is attached directly via tzinfo=.
+        if hasattr(user_tz, "localize"):
+            today_start = user_tz.localize(datetime.datetime.combine(today, datetime.time.min)).timestamp()
+            today_end = user_tz.localize(datetime.datetime.combine(today, datetime.time.max)).timestamp()
+        else:
+            today_start = datetime.datetime.combine(today, datetime.time.min, tzinfo=user_tz).timestamp()
+            today_end = datetime.datetime.combine(today, datetime.time.max, tzinfo=user_tz).timestamp()
     else:
         # Fallback to naive datetime (for backward compatibility)
         today_start = datetime.datetime.combine(today, datetime.time.min).timestamp()
@@ -605,6 +611,68 @@ def extract_metric_value(
     return 0
 
 
+def extract_game_metric_value(game_id, metric_type, start_date=None, end_date=None):
+    """Compute a metric for a single game from its lines (game-scoped goals).
+
+    Unlike extract_metric_value (which works off aggregated rollups and can only
+    filter by media_type), this reads the game's lines directly so a goal can be
+    scoped to one game. Dates are inclusive datetime.date bounds (local time),
+    matching how the heatmap buckets lines (datetime.date.fromtimestamp).
+
+    `finish_game` is measured in characters read for the game.
+    """
+    if not game_id:
+        return 0
+
+    from GameSentenceMiner.web.stats import calculate_actual_reading_time
+    from GameSentenceMiner.util.stats.stats_util import count_cards_from_lines
+
+    base = metric_type.replace("_static", "") if metric_type else ""
+    if base == "finish_game":
+        base = "characters"
+
+    lines = GameLinesTable.get_all_by_game_id(game_id, for_stats=True)
+
+    if start_date or end_date:
+        filtered = []
+        for ln in lines:
+            try:
+                line_date = datetime.date.fromtimestamp(float(ln.timestamp))
+            except (TypeError, ValueError):
+                continue
+            if start_date and line_date < start_date:
+                continue
+            if end_date and line_date > end_date:
+                continue
+            filtered.append(ln)
+        lines = filtered
+
+    if base == "characters":
+        return sum(len(ln.line_text) if ln.line_text else 0 for ln in lines)
+    if base == "hours":
+        timestamps = [float(ln.timestamp) for ln in lines]
+        texts = [ln.line_text or "" for ln in lines]
+        return calculate_actual_reading_time(timestamps, texts) / 3600
+    if base == "cards":
+        return count_cards_from_lines(lines)
+    if base == "games":
+        return 1 if lines else 0
+    return 0
+
+
+def calculate_finish_game_required_today(total_target, chars_done, end_date, today):
+    """Daily characters needed to finish a game by end_date (inclusive).
+
+    Auto-paces a "finish game by X date" goal: remaining characters spread evenly
+    over the days left (today included). Returns 0 once the target is reached.
+    """
+    remaining = max(0, (total_target or 0) - (chars_done or 0))
+    if remaining <= 0:
+        return 0
+    days_left = max(1, (end_date - today).days + 1)
+    return remaining / days_left
+
+
 def calculate_balanced_easy_day_multiplier(date, goals_settings):
     """
     Calculate a balanced multiplier that distributes work across the week
@@ -958,8 +1026,86 @@ def _build_goals_dashboard_payload(
         start_date_str = _get_goal_value(goal, "start_date", "startDate")
         end_date_str = _get_goal_value(goal, "end_date", "endDate")
         media_type = _get_goal_value(goal, "media_type", "mediaType", "ALL")
+        game_id = _get_goal_value(goal, "game_id", "gameId")
 
         if not goal_id or not metric_type or metric_type == "custom":
+            continue
+
+        # Game-scoped goals (and the "finish game by date" type) measure progress
+        # from a single game's lines instead of aggregated rollups.
+        if game_id or metric_type == "finish_game":
+            base_metric = "characters" if metric_type == "finish_game" else metric_type.replace("_static", "")
+
+            # Game-scoped static goals ("read 30 min of this game every day"):
+            # fixed daily target, today's progress measured from this game only.
+            if metric_type.endswith("_static"):
+                if not target_value:
+                    continue
+                today_value = extract_game_metric_value(game_id, base_metric, today, today)
+                total_value = extract_game_metric_value(game_id, base_metric)
+                goal_progress[goal_id] = {
+                    "progress": format_metric_value(total_value, base_metric),
+                    "daily_average": 0,
+                    "days_in_range": 1,
+                }
+                today_progress[goal_id] = {
+                    "required": format_metric_value(target_value, base_metric),
+                    "progress": format_metric_value(today_value, base_metric),
+                    "has_target": True,
+                    "days_remaining": None,
+                    "total_progress": None,
+                    "easy_day_percentage": 100,
+                    "is_static": True,
+                }
+                continue
+
+            if not all([target_value, start_date_str, end_date_str]):
+                continue
+            try:
+                start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
+            except ValueError:
+                continue
+
+            overall_end = today if today <= end_date else end_date
+            total_progress = extract_game_metric_value(game_id, base_metric, start_date, overall_end)
+            today_progress_value = extract_game_metric_value(game_id, base_metric, today, today)
+            days_in_range = (end_date - start_date).days + 1
+            goal_progress[goal_id] = {
+                "progress": format_metric_value(total_progress, base_metric),
+                "daily_average": format_metric_value(
+                    total_progress / days_in_range if days_in_range > 0 else 0, base_metric
+                ),
+                "days_in_range": days_in_range,
+            }
+
+            if today < start_date or today > end_date:
+                today_progress[goal_id] = {
+                    "required": 0,
+                    "progress": 0,
+                    "has_target": False,
+                    "expired": today > end_date,
+                    "not_started": today < start_date,
+                }
+            else:
+                days_remaining = (end_date - today).days + 1
+                if metric_type == "finish_game":
+                    daily_required = calculate_finish_game_required_today(target_value, total_progress, end_date, today)
+                    easy_day_percentage = 100
+                else:
+                    easy_day_multiplier = calculate_balanced_easy_day_multiplier(today, goals_settings)
+                    easy_day_percentage = int(easy_day_multiplier * 100)
+                    remaining_work = max(0, target_value - total_progress)
+                    daily_required = (
+                        remaining_work / days_remaining if days_remaining > 0 else 0
+                    ) * easy_day_multiplier
+                today_progress[goal_id] = {
+                    "required": format_metric_value(daily_required, base_metric),
+                    "progress": format_metric_value(today_progress_value, base_metric),
+                    "has_target": True,
+                    "days_remaining": days_remaining,
+                    "total_progress": format_metric_value(total_progress, base_metric),
+                    "easy_day_percentage": easy_day_percentage,
+                }
             continue
 
         is_static = metric_type.endswith("_static")
@@ -1232,9 +1378,54 @@ def get_goals_for_date(
             end_date_str = goal.get("endDate")
             goal_icon = goal.get("icon", "🎯")
             media_type = goal.get("mediaType", "ALL")
+            game_id = goal.get("gameId")
 
             # Custom goals remain checkbox-based and are excluded from numeric auto-completion.
             if metric_type == "custom":
+                continue
+
+            # Game-scoped goals (incl. finish_game): measure from one game's lines
+            # so completion isn't credited from reading other games.
+            if game_id or metric_type == "finish_game":
+                if not target_value:
+                    continue
+                base_metric = "characters" if metric_type == "finish_game" else metric_type.replace("_static", "")
+                try:
+                    progress_today = extract_game_metric_value(game_id, base_metric, target_date, target_date)
+                    if metric_type.endswith("_static"):
+                        progress_needed = target_value
+                    else:
+                        if not all([start_date_str, end_date_str]):
+                            continue
+                        try:
+                            start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
+                        except ValueError:
+                            continue
+                        if target_date < start_date or target_date > end_date:
+                            continue
+                        total_progress = extract_game_metric_value(game_id, base_metric, start_date, target_date)
+                        if metric_type == "finish_game":
+                            progress_needed = calculate_finish_game_required_today(
+                                target_value, total_progress, end_date, target_date
+                            )
+                        else:
+                            easy_day_multiplier = calculate_balanced_easy_day_multiplier(target_date, goals_settings)
+                            days_remaining = (end_date - target_date).days + 1
+                            remaining_work = max(0, target_value - total_progress)
+                            progress_needed = (
+                                remaining_work / days_remaining if days_remaining > 0 else 0
+                            ) * easy_day_multiplier
+                    goals_for_date.append(
+                        {
+                            "goal_name": goal_name,
+                            "progress_today": format_metric_value(progress_today, base_metric),
+                            "progress_needed": format_metric_value(progress_needed, base_metric),
+                            "metric_type": metric_type,
+                            "goal_icon": goal_icon,
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Error calculating game-scoped progress for goal '{goal_name}': {e}")
                 continue
 
             is_static = metric_type.endswith("_static") if metric_type else False
@@ -1385,10 +1576,37 @@ def register_goals_api_routes(app):
             end_date_str = data.get("end_date")
             goals_settings = data.get("goals_settings", {})
             media_type = data.get("media_type", "ALL")
+            game_id = data.get("game_id")
 
             # Validate required fields
             if not metric_type or not start_date_str or not end_date_str:
                 return jsonify({"error": "Missing required fields: metric_type, start_date, end_date"}), 400
+
+            # Game-scoped / finish_game goals: progress from the game's lines.
+            if game_id or metric_type == "finish_game":
+                try:
+                    start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
+                except ValueError as e:
+                    return jsonify({"error": str(e)}), 400
+                user_tz = get_user_timezone()
+                today = get_today_in_timezone(user_tz)
+                base_metric = "characters" if metric_type == "finish_game" else metric_type.replace("_static", "")
+                overall_end = today if today <= end_date else end_date
+                progress = (
+                    extract_game_metric_value(game_id, base_metric, start_date, overall_end)
+                    if today >= start_date
+                    else 0
+                )
+                days_in_range = (end_date - start_date).days + 1
+                return jsonify(
+                    {
+                        "progress": format_metric_value(progress, base_metric),
+                        "daily_average": format_metric_value(
+                            progress / days_in_range if days_in_range > 0 else 0, base_metric
+                        ),
+                        "days_in_range": days_in_range,
+                    }
+                ), 200
 
             # Validate metric type
             try:
@@ -1504,6 +1722,52 @@ def register_goals_api_routes(app):
             end_date_str = data.get("end_date")
             goals_settings = data.get("goals_settings", {})
             media_type = data.get("media_type", "ALL")
+            game_id = data.get("game_id")
+
+            # Game-scoped / finish_game goals: required + progress from the game's lines.
+            if game_id or metric_type == "finish_game":
+                if not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
+                    return jsonify({"error": "Missing required fields"}), 400
+                try:
+                    start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
+                except ValueError as e:
+                    return jsonify({"error": str(e)}), 400
+                user_tz = get_user_timezone()
+                today = get_today_in_timezone(user_tz)
+                if today < start_date or today > end_date:
+                    return jsonify(
+                        {
+                            "required": 0,
+                            "progress": 0,
+                            "has_target": False,
+                            "expired": today > end_date,
+                            "not_started": today < start_date,
+                        }
+                    ), 200
+                base_metric = "characters" if metric_type == "finish_game" else metric_type.replace("_static", "")
+                total_progress = extract_game_metric_value(game_id, base_metric, start_date, today)
+                today_progress = extract_game_metric_value(game_id, base_metric, today, today)
+                days_remaining = (end_date - today).days + 1
+                if metric_type == "finish_game":
+                    daily_required = calculate_finish_game_required_today(target_value, total_progress, end_date, today)
+                    easy_day_percentage = 100
+                else:
+                    easy_day_multiplier = calculate_balanced_easy_day_multiplier(today, goals_settings)
+                    easy_day_percentage = int(easy_day_multiplier * 100)
+                    remaining_work = max(0, target_value - total_progress)
+                    daily_required = (
+                        remaining_work / days_remaining if days_remaining > 0 else 0
+                    ) * easy_day_multiplier
+                return jsonify(
+                    {
+                        "required": format_metric_value(daily_required, base_metric),
+                        "progress": format_metric_value(today_progress, base_metric),
+                        "has_target": True,
+                        "days_remaining": days_remaining,
+                        "total_progress": format_metric_value(total_progress, base_metric),
+                        "easy_day_percentage": easy_day_percentage,
+                    }
+                ), 200
 
             # Check if this is a static goal
             is_static = metric_type.endswith("_static")
@@ -2402,6 +2666,25 @@ def register_goals_api_routes(app):
             logger.exception(f"Error getting current goals: {e}")
             return jsonify({"error": "Failed to get current goals"}), 500
 
+    @app.route("/api/goals/active", methods=["GET"])
+    def api_get_active_goals():
+        """Return every active goal with its computed progress (today + overall).
+
+        Used by the overlay settings picker and live-stats widget; the overlay
+        decides which of these goals to show and in which view.
+
+        Returns: {"goals": [{"id", "name", "icon", "metric_type",
+                             "today": {...}, "overall": {...}}, ...]}
+        """
+        from GameSentenceMiner.web.live_goals import build_live_goals_payload
+
+        try:
+            payload = build_live_goals_payload()
+            return jsonify({"goals": payload.get("goals", [])}), 200
+        except Exception as e:
+            logger.exception(f"Error getting active goals: {e}")
+            return jsonify({"goals": [], "error": "Failed to get active goals"}), 500
+
     @app.route("/api/goals/dashboard", methods=["GET"])
     def api_get_goals_dashboard():
         """Return the goals page bootstrap payload in one request."""
@@ -2592,11 +2875,82 @@ def register_goals_api_routes(app):
                 end_date_str = goal.get("endDate")
                 goal_icon = goal.get("icon", "🎯")
                 media_type = goal.get("mediaType", "ALL")
+                game_id = goal.get("gameId")
 
                 if not metric_type:
                     continue
 
                 try:
+                    # --- Game-scoped goals (incl. finish_game) ---
+                    # Progress is read from a single game's lines, never aggregated
+                    # rollups, so achievement isn't inflated by other games.
+                    if game_id or metric_type == "finish_game":
+                        if not target_value or target_value <= 0:
+                            continue
+                        base_metric = (
+                            "characters" if metric_type == "finish_game" else metric_type.replace("_static", "")
+                        )
+
+                        if metric_type.endswith("_static"):
+                            today_progress = extract_game_metric_value(game_id, base_metric, today, today)
+                            if today_progress >= target_value:
+                                percentage = (today_progress / target_value) * 100 if target_value > 0 else 100
+                                achieved_goals.append(
+                                    {
+                                        "goal_id": goal_id,
+                                        "goal_name": goal_name,
+                                        "goal_icon": goal_icon,
+                                        "metric_type": metric_type,
+                                        "media_type": media_type,
+                                        "target_value": format_metric_value(target_value, base_metric),
+                                        "current_progress": format_metric_value(today_progress, base_metric),
+                                        "completion_percentage": round(percentage, 1),
+                                        "start_date": None,
+                                        "end_date": None,
+                                        "is_static": True,
+                                        "is_custom": False,
+                                        "completed_today": True,
+                                        "achieved": True,
+                                        "expired": False,
+                                    }
+                                )
+                            continue
+
+                        if not all([start_date_str, end_date_str]):
+                            continue
+                        try:
+                            start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
+                        except ValueError:
+                            continue
+                        if today < start_date:
+                            continue
+                        overall_end = today if today <= end_date else end_date
+                        total_progress = extract_game_metric_value(game_id, base_metric, start_date, overall_end)
+                        percentage = (total_progress / target_value) * 100 if target_value > 0 else 0
+                        is_achieved = total_progress >= target_value
+                        is_expired = end_date < today
+                        if is_achieved or is_expired:
+                            achieved_goals.append(
+                                {
+                                    "goal_id": goal_id,
+                                    "goal_name": goal_name,
+                                    "goal_icon": goal_icon,
+                                    "metric_type": metric_type,
+                                    "media_type": media_type,
+                                    "target_value": format_metric_value(target_value, base_metric),
+                                    "current_progress": format_metric_value(total_progress, base_metric),
+                                    "completion_percentage": round(percentage, 1),
+                                    "start_date": start_date_str,
+                                    "end_date": end_date_str,
+                                    "is_static": False,
+                                    "is_custom": False,
+                                    "completed_today": False,
+                                    "achieved": is_achieved,
+                                    "expired": is_expired,
+                                }
+                            )
+                        continue
+
                     # --- Custom checkbox goals ---
                     if metric_type == "custom":
                         # Check if completed today via customCheckboxes in goals_settings

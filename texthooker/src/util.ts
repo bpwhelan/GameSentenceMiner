@@ -11,6 +11,46 @@ export function reduceToEmptyString() {
 	);
 }
 
+// Only autoscroll if the reader was already at the newest line. Captured per scope.
+let stickToBottomMain = true;
+let stickToBottomPip = true;
+
+export function setAutoScrollStick(isPip: boolean, value: boolean) {
+	if (isPip) {
+		stickToBottomPip = value;
+	} else {
+		stickToBottomMain = value;
+	}
+}
+
+export function getAutoScrollStick(isPip: boolean) {
+	return isPip ? stickToBottomPip : stickToBottomMain;
+}
+
+// Within `threshold` px of the newest line, across all four layout modes.
+export function isScrolledToEnd(
+	window: Window,
+	scrollElement: HTMLElement,
+	reverseLineOrder: boolean,
+	displayVertical: boolean,
+	threshold = 150
+): boolean {
+	if (!scrollElement) {
+		return true;
+	}
+
+	if (displayVertical) {
+		const maxAbs = scrollElement.scrollWidth - scrollElement.clientWidth;
+
+		return maxAbs - Math.abs(scrollElement.scrollLeft) <= threshold;
+	}
+
+	const maxY = scrollElement.scrollHeight - window.innerHeight;
+	const distanceFromEnd = reverseLineOrder ? window.scrollY : maxY - window.scrollY;
+
+	return distanceFromEnd <= threshold;
+}
+
 export function updateScroll(
 	window: Window,
 	scrollElement: HTMLElement,

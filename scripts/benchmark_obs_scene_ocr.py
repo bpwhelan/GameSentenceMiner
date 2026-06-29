@@ -30,7 +30,7 @@ def ensure_gsm_imports() -> None:
     from GameSentenceMiner import obs as gsm_obs
     from GameSentenceMiner.obs import connect_to_obs_sync as gsm_connect_to_obs_sync
     from GameSentenceMiner.obs import disconnect_from_obs as gsm_disconnect_from_obs
-    from GameSentenceMiner.owocr.owocr import run as gsm_run
+    from GameSentenceMiner.owocr.owocr import ocr_runtime as gsm_run
     from GameSentenceMiner.util.config.electron_config import get_ocr_ocr1 as gsm_get_ocr_ocr1
 
     obs = gsm_obs
@@ -53,7 +53,7 @@ def percentile(values: list[float], fraction: float) -> float:
         raise ValueError("percentile() requires at least one value")
     if fraction <= 0:
         return min(values)
-    if fraction >= 1:
+    if fraction >= 1:  # NOSONAR(S2583) real upper-bound guard; Sonar misreads it as constant
         return max(values)
 
     sorted_values = sorted(values)

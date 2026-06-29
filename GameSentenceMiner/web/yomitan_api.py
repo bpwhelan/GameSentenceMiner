@@ -19,6 +19,29 @@ from GameSentenceMiner.util.yomitan_dict import FrequencyDictBuilder, YomitanDic
 YOMITAN_CHARACTER_DICTIONARY_REVISION_VERSION = 1
 
 
+def notify_yomitan_character_dictionary_changed(reason: str, game_id: str | None = None) -> None:
+    """
+    Ask connected overlays to refresh the installed GSM character dictionary.
+
+    The Yomitan dictionary itself is generated lazily from /api/yomitan-dict.
+    This notification only tells the overlay to ask Yomitan to re-check the
+    index immediately after character data changes.
+    """
+    try:
+        from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
+
+        websocket_manager.send_nowait(
+            ID_OVERLAY,
+            {
+                "type": "yomitan_character_dictionary_changed",
+                "reason": reason,
+                "game_id": game_id,
+            },
+        )
+    except Exception as error:
+        logger.debug(f"Failed to notify overlay about Yomitan dictionary change: {error}")
+
+
 def _get_game_display_title(game: GamesTable) -> str:
     """Return the display title used when building the character dictionary."""
     return game.title_original or game.title_romaji or game.title_english or ""

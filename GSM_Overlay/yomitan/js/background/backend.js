@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2023-2025  Yomitan Authors
+ * Copyright (C) 2023-2026  Yomitan Authors
  * Copyright (C) 2016-2022  Yomichan Authors
  *
  * This program is free software: you can redistribute it and/or modify
@@ -28,11 +28,12 @@ import {logErrorLevelToNumber} from '../core/log-utilities.js';
 import {log} from '../core/log.js';
 import {isObjectNotArray} from '../core/object-utilities.js';
 import {clone, deferPromise, promiseTimeout} from '../core/utilities.js';
-import {generateAnkiNoteMediaFileName, INVALID_NOTE_ID, isNoteDataValid} from '../data/anki-util.js';
+import {generateAnkiNoteMediaFileName, INVALID_NOTE_ID, isNoteDataValid, mediaFileNameHashOrTimestamp} from '../data/anki-util.js';
 import {arrayBufferToBase64} from '../data/array-buffer-util.js';
 import {OptionsUtil} from '../data/options-util.js';
 import {getAllPermissions, hasPermissions, hasRequiredPermissionsForOptions} from '../data/permissions-util.js';
 import {DictionaryDatabase} from '../dictionary/dictionary-database.js';
+import {DictionaryWorker} from '../dictionary/dictionary-worker.js';
 import {Environment} from '../extension/environment.js';
 import {CacheMap} from '../general/cache-map.js';
 import {ObjectPropertyAccessor} from '../general/object-property-accessor.js';
@@ -561,15 +562,15 @@ export class Backend {
     }
 
     /** @type {import('api').ApiHandler<'parseText'>} */
-    async _onApiParseText({text, optionsContext, scanLength, useInternalParser, useMecabParser}) {
+    async _onApiParseText({text, optionsContext, scanLength, useInternalParser, useMecabParser, useAllFrequencyDictionaries}) {
         /** @type {import('api').ParseTextResultItem[]} */
         const results = [];
 
         const [internalResults, mecabResults] = await Promise.all([
             useInternalParser ?
                 (Array.isArray(text) ?
-                    Promise.all(text.map((t) => this._textParseScanning(t, scanLength, optionsContext))) :
-                    Promise.all([this._textParseScanning(text, scanLength, optionsContext)])) :
+                    Promise.all(text.map((t) => this._textParseScanning(t, scanLength, optionsContext, useAllFrequencyDictionaries))) :
+                    Promise.all([this._textParseScanning(text, scanLength, optionsContext, useAllFrequencyDictionaries)])) :
                 null,
             useMecabParser ?
                 (Array.isArray(text) ?
@@ -1091,7 +1092,149 @@ export class Backend {
             await this._sendBridgeClosePopups(sender);
             return {data: {closed: true}, responseStatusCode: 200};
         }
+        if (action === 'ensureGsmCharacterDictionary') {
+            return {data: await this._ensureGsmCharacterDictionary(body), responseStatusCode: 200};
+        }
         return await this._yomitanApi.invokeBridgeAction(action, body);
+    }
+
+    /**
+     * @param {unknown} body
+     * @returns {Promise<import('core').SerializableObject>}
+     */
+    async _ensureGsmCharacterDictionary(body) {
+        const input = isObjectNotArray(body) ? body : {};
+        const downloadUrl = typeof input.downloadUrl === 'string' ? input.downloadUrl : '';
+        const indexUrl = typeof input.indexUrl === 'string' ? input.indexUrl : '';
+        if (!this._isHttpUrl(downloadUrl) || !this._isHttpUrl(indexUrl)) {
+            throw new Error('Invalid GSM character dictionary URLs');
+        }
+
+        const latestIndexResponse = await fetch(indexUrl, {cache: 'no-store'});
+        if (!latestIndexResponse.ok) {
+            return {
+                action: 'skipped',
+                reason: 'index-unavailable',
+                status: latestIndexResponse.status,
+            };
+        }
+
+        const latestIndex = await latestIndexResponse.json();
+        if (!isObjectNotArray(latestIndex)) {
+            throw new Error('Invalid GSM character dictionary index response');
+        }
+
+        const title = typeof latestIndex.title === 'string' ? latestIndex.title : 'GSM Character Dictionary';
+        const latestRevision = typeof latestIndex.revision === 'string' ? latestIndex.revision : '';
+        if (latestRevision.length === 0) {
+            throw new Error('Invalid GSM character dictionary revision');
+        }
+
+        const dictionaries = await this._dictionaryDatabase.getDictionaryInfo();
+        const existing = dictionaries.find((dictionary) => dictionary.title === title);
+        if (existing && existing.revision === latestRevision) {
+            await this._ensureDictionaryEnabled(title, existing.styles);
+            return {
+                action: 'unchanged',
+                title,
+                revision: latestRevision,
+            };
+        }
+
+        const dictionaryResponse = await fetch(downloadUrl, {cache: 'no-store'});
+        if (!dictionaryResponse.ok) {
+            return {
+                action: 'skipped',
+                reason: 'download-unavailable',
+                status: dictionaryResponse.status,
+                title,
+                revision: latestRevision,
+            };
+        }
+
+        if (existing) {
+            await new DictionaryWorker().deleteDictionary(title, null);
+        }
+
+        const archiveContent = await dictionaryResponse.arrayBuffer();
+        const {result, errors} = await new DictionaryWorker().importDictionary(
+            archiveContent,
+            {
+                prefixWildcardsSupported: false,
+                yomitanVersion: chrome.runtime.getManifest().version,
+            },
+            null,
+        );
+        if (result === null || errors.length > 0) {
+            const message = errors.map((error) => error.message).join('; ') || 'Dictionary import failed';
+            throw new Error(message);
+        }
+
+        await this._ensureDictionaryEnabled(title, result.styles);
+        this._triggerDatabaseUpdated('dictionary', existing ? 'update' : 'import');
+
+        return {
+            action: existing ? 'updated' : 'imported',
+            title,
+            revision: result.revision,
+        };
+    }
+
+    /**
+     * @param {string} title
+     * @param {string|undefined} styles
+     */
+    async _ensureDictionaryEnabled(title, styles) {
+        const options = this._getOptionsFull(false);
+        /** @type {import('settings-modifications').ScopedModification[]} */
+        const targets = [];
+        for (let i = 0, ii = options.profiles.length; i < ii; ++i) {
+            const dictionaries = options.profiles[i].options.dictionaries;
+            if (dictionaries.some((dictionary) => dictionary.name === title)) {
+                continue;
+            }
+            dictionaries.push(this._createDefaultDictionarySettings(title, true, styles));
+            targets.push({
+                action: 'set',
+                path: `profiles[${i}].options.dictionaries`,
+                value: dictionaries,
+                scope: 'global',
+            });
+        }
+        if (targets.length > 0) {
+            await this._modifySettings(targets, 'gsm-character-dictionary');
+        }
+    }
+
+    /**
+     * @param {string} name
+     * @param {boolean} enabled
+     * @param {string|undefined} styles
+     * @returns {import('settings').DictionaryOptions}
+     */
+    _createDefaultDictionarySettings(name, enabled, styles) {
+        return {
+            name,
+            enabled,
+            allowSecondarySearches: false,
+            definitionsCollapsible: 'not-collapsible',
+            partsOfSpeechFilter: true,
+            useDeinflections: true,
+            styles: styles ?? '',
+        };
+    }
+
+    /**
+     * @param {string} url
+     * @returns {boolean}
+     */
+    _isHttpUrl(url) {
+        try {
+            const parsed = new URL(url);
+            return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        } catch (_) {
+            return false;
+        }
     }
 
     /**
@@ -1712,9 +1855,10 @@ export class Backend {
      * @param {string} text
      * @param {number} scanLength
      * @param {import('settings').OptionsContext} optionsContext
+     * @param {import('api').ApiParam<'parseText', 'useAllFrequencyDictionaries'>} useAllFrequencyDictionaries
      * @returns {Promise<import('api').ParseTextLine[]>}
      */
-    async _textParseScanning(text, scanLength, optionsContext) {
+    async _textParseScanning(text, scanLength, optionsContext, useAllFrequencyDictionaries) {
         /** @type {import('translator').FindTermsMode} */
         const mode = 'simple';
         const options = this._getProfileOptions(optionsContext, false);
@@ -1722,6 +1866,7 @@ export class Backend {
         /** @type {import('api').FindTermsDetails} */
         const details = {matchType: 'exact', deinflect: true};
         const findTermsOptions = this._getTranslatorFindTermsOptions(mode, details, options);
+        if (useAllFrequencyDictionaries) { findTermsOptions.useAllFrequencyDictionaries = true; }
         /** @type {import('api').ParseTextLine[]} */
         const results = [];
         let previousUngroupedSegment = null;
@@ -1763,7 +1908,7 @@ export class Backend {
                                     if (src.matchType !== 'exact') { continue; }
                                     validSources.push(src);
                                 }
-                                if (validSources.length > 0) { validHeadwords.push({term: headword.term, reading: headword.reading, sources: validSources}); }
+                                if (validSources.length > 0) { validHeadwords.push({term: headword.term, reading: headword.reading, sources: validSources, frequencies: dictionaryEntry.frequencies.filter((f) => f.headwordIndex === headword.headwordIndex)}); }
                             }
                             if (validHeadwords.length > 0) { trimmedHeadwords.push(validHeadwords); }
                         }
@@ -2350,6 +2495,7 @@ export class Backend {
         const {windowId} = tab;
 
         let token = null;
+        const errors = [];
         try {
             if (typeof tabId === 'number' && typeof frameId === 'number') {
                 const action = 'frontendSetAllVisibleOverride';
@@ -2357,16 +2503,29 @@ export class Backend {
                 token = await this._sendMessageTabPromise(tabId, {action, params}, {frameId});
             }
 
-            return await new Promise((resolve, reject) => {
-                chrome.tabs.captureVisibleTab(windowId, {format, quality}, (result) => {
-                    const e = chrome.runtime.lastError;
-                    if (e) {
-                        reject(new Error(e.message));
-                    } else {
-                        resolve(result);
-                    }
+            try {
+                return await new Promise((resolve, reject) => {
+                    chrome.tabs.captureVisibleTab(windowId, {format, quality}, (result) => {
+                        const e = chrome.runtime.lastError;
+                        if (e) {
+                            reject(new Error(e.message));
+                        } else {
+                            resolve(result);
+                        }
+                    });
                 });
-            });
+            } catch (e) {
+                errors.push(e);
+            }
+
+            // Fallback for some Firefox. Usually `chrome.tabs.captureVisibleTab` works but occasionally it doesn't
+            try {
+                return await browser.tabs.captureVisibleTab(windowId, {format, quality});
+            } catch (e) {
+                errors.push(e);
+            }
+
+            throw new Error('Failed to screenshot, errors: [' + errors.join(', ') + ']');
         } finally {
             if (token !== null) {
                 const action = 'frontendClearAllVisibleOverride';
@@ -2487,7 +2646,7 @@ export class Backend {
 
         let extension = contentType !== null ? getFileExtensionFromAudioMediaType(contentType) : null;
         if (extension === null) { extension = '.mp3'; }
-        let fileName = generateAnkiNoteMediaFileName('yomitan_audio', extension, timestamp);
+        let fileName = await mediaFileNameHashOrTimestamp('yomitan_audio', data, extension, null, timestamp);
         fileName = fileName.replace(/\]/g, '');
         return await ankiConnect.storeMediaFile(fileName, data);
     }
@@ -2581,11 +2740,7 @@ export class Backend {
             if (media !== null) {
                 const {content, mediaType} = media;
                 const extension = getFileExtensionFromImageMediaType(mediaType);
-                fileName = generateAnkiNoteMediaFileName(
-                    `yomitan_dictionary_media_${i + 1}`,
-                    extension !== null ? extension : '',
-                    timestamp,
-                );
+                fileName = await mediaFileNameHashOrTimestamp('yomitan_dictionary_media', content, extension, i, timestamp);
                 try {
                     fileName = await ankiConnect.storeMediaFile(fileName, content);
                 } catch (e) {
@@ -2747,6 +2902,7 @@ export class Backend {
             enabledDictionaryMap,
             excludeDictionaryDefinitions,
             language,
+            useAllFrequencyDictionaries: false,
         };
     }
 

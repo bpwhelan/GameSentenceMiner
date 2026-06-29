@@ -19,6 +19,7 @@ from GameSentenceMiner import obs
 from GameSentenceMiner.mecab import mecab
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.util.config.configuration import (
+    ANIMATED_SCREENSHOT_CODEC_DEFAULT,
     CommonLanguages,
     ProfileConfig,
     get_config,
@@ -66,6 +67,10 @@ def _get_ai_prompt_result():
     return get_ai_prompt_result
 
 
+def _animated_screenshot_codec(settings) -> str:
+    return getattr(settings, "codec", ANIMATED_SCREENSHOT_CODEC_DEFAULT)
+
+
 # Global variables to track state
 previous_note_ids = set()
 first_run = True
@@ -100,9 +105,12 @@ anki_beacon_state = AnkiBeaconState()
 @dataclass
 class AnkiPollingGateState:
     replay_buffer_polling_active: bool = False
+    baseline_seed_activation_logged: bool = False
+    baseline_seed_failure_logs_shown: int = 0
 
 
 anki_polling_gate_state = AnkiPollingGateState()
+MAX_BASELINE_SEED_FAILURE_LOGS = 5
 
 
 def _notify_anki_enhancement_failure(reason: str) -> None:
@@ -198,7 +206,11 @@ class MediaAssets:
 
     # Filenames after being stored in Anki's media collection
     audio_in_anki: str = ""
+    reused_audio: bool = False
+    reused_audio_result_id: str = ""
     screenshot_in_anki: str = ""
+    reused_screenshot: bool = False
+    reused_screenshot_result_id: str = ""
     prev_screenshot_in_anki: str = ""
     video_in_anki: str = ""
 
@@ -218,6 +230,10 @@ class MediaAssets:
     animated_vad_end: float = 0.0
     animated_prefetch_event: Any = None
     animated_prefetch_path: str = ""
+    animated_prefetch_start: float = 0.0
+    animated_prefetch_end: float = 0.0
+    animated_target_start: float = 0.0
+    animated_target_end: float = 0.0
 
     # Video deferred generation
     pending_video: bool = False
@@ -227,8 +243,8 @@ class MediaAssets:
     cleanup_callback: Any = None  # Callable to run after processing
 
     # Success Message Flags
-    animated = False
-    video = False
+    animated: bool = False
+    video: bool = False
 
 
 def _get_anki_field_config(field_key: str, anki_cfg=None):
@@ -432,6 +448,91 @@ def _generate_media_files(
     return assets
 
 
+def _get_reusable_audio_from_result(result_id: Optional[str]) -> str:
+    if not result_id:
+        return ""
+    anki_result = anki_results.get(result_id)
+    if not anki_result or not anki_result.success:
+        return ""
+    return anki_result.audio_in_anki or ""
+
+
+def _get_reusable_screenshot_from_result(result_id: Optional[str]) -> str:
+    if not result_id:
+        return ""
+    anki_result = anki_results.get(result_id)
+    if not anki_result or not anki_result.success:
+        return ""
+    return anki_result.screenshot_in_anki or ""
+
+
+def _resolve_reused_audio_result_id(
+    reuse_audio_result_id: Optional[str],
+    reuse_entry: Optional[SentenceAudioCacheEntry] = None,
+) -> Optional[str]:
+    if not reuse_audio_result_id:
+        return None
+    if reuse_audio_result_id not in anki_results:
+        result_ready, waited_seconds = _wait_for_reuse_result(reuse_audio_result_id, reuse_entry)
+        if not result_ready:
+            logger.warning(
+                f"Timed out waiting for reusable audio result {reuse_audio_result_id} "
+                f"after {waited_seconds:.1f}s; falling back to generated audio."
+            )
+            return None
+    if _get_reusable_audio_from_result(reuse_audio_result_id):
+        return reuse_audio_result_id
+    logger.warning(f"Reusable audio result {reuse_audio_result_id} did not contain Anki audio.")
+    return None
+
+
+def _resolve_reused_screenshot_result_id(
+    reuse_screenshot_result_id: Optional[str],
+    reuse_entry: Optional[SentenceAudioCacheEntry] = None,
+) -> Optional[str]:
+    if not reuse_screenshot_result_id:
+        return None
+    if reuse_screenshot_result_id not in anki_results:
+        result_ready, waited_seconds = _wait_for_reuse_result(reuse_screenshot_result_id, reuse_entry)
+        if not result_ready:
+            logger.warning(
+                f"Timed out waiting for reusable screenshot result {reuse_screenshot_result_id} "
+                f"after {waited_seconds:.1f}s; falling back to generated screenshot."
+            )
+            return None
+    if _get_reusable_screenshot_from_result(reuse_screenshot_result_id):
+        return reuse_screenshot_result_id
+    logger.warning(f"Reusable screenshot result {reuse_screenshot_result_id} did not contain an Anki screenshot.")
+    return None
+
+
+def _find_same_selection_reuse_entry(
+    reuse_key: Optional["SentenceAudioKey"],
+    current_word: str,
+) -> Optional[SentenceAudioCacheEntry]:
+    if not reuse_key:
+        return None
+    sentence_sig, line_sig, mined_line_sig = reuse_key
+    found_same_word_entry = False
+    for cached_key, entry in sentence_audio_cache.items():
+        if cached_key == reuse_key:
+            continue
+        if len(cached_key) != 3:
+            continue
+        cached_sentence_sig, cached_line_sig, cached_mined_line_sig = cached_key
+        if cached_sentence_sig != sentence_sig or cached_line_sig != line_sig:
+            continue
+        if cached_mined_line_sig == mined_line_sig:
+            continue
+        if entry.word == current_word:
+            found_same_word_entry = True
+            continue
+        return entry
+    if found_same_word_entry:
+        logger.info("Same word detected for cached line selection, generating new media.")
+    return None
+
+
 def _prepare_anki_note_fields(note: Dict, last_note: "AnkiCard", assets: MediaAssets, game_line: "GameLine") -> Dict:
     """Populates the fields of the Anki note dictionary."""
     config = get_config()
@@ -598,6 +699,75 @@ def _apply_confirmation_dialog_state(
     return selected_lines, start_time, end_time, vad_result
 
 
+ANIMATED_TIMING_EPSILON_SECONDS = 0.02
+
+
+def _coerce_timing_window(value) -> Optional[Tuple[float, float]]:
+    if not value:
+        return None
+    try:
+        if len(value) != 2:
+            return None
+    except TypeError:
+        return None
+    try:
+        start = float(value[0])
+        end = float(value[1])
+    except (TypeError, ValueError, KeyError):
+        return None
+    if end <= start:
+        return None
+    return start, end
+
+
+def _animated_requested_window(assets: MediaAssets) -> Optional[Tuple[float, float]]:
+    if not assets:
+        return None
+
+    start = float(assets.animated_start_time or 0.0) + float(assets.animated_vad_start or 0.0)
+    end = float(assets.animated_start_time or 0.0) + float(assets.animated_vad_end or 0.0)
+    if end <= start:
+        return None
+    return start, end
+
+
+def _animated_prefetch_window(assets: MediaAssets) -> Optional[Tuple[float, float]]:
+    if not assets:
+        return None
+    return _coerce_timing_window((assets.animated_prefetch_start, assets.animated_prefetch_end))
+
+
+def _animated_target_window(assets: MediaAssets) -> Optional[Tuple[float, float]]:
+    if not assets:
+        return None
+    return _coerce_timing_window((assets.animated_target_start, assets.animated_target_end))
+
+
+def _windows_match(first: Tuple[float, float], second: Tuple[float, float]) -> bool:
+    return (
+        abs(first[0] - second[0]) <= ANIMATED_TIMING_EPSILON_SECONDS
+        and abs(first[1] - second[1]) <= ANIMATED_TIMING_EPSILON_SECONDS
+    )
+
+
+def _window_contains(outer: Tuple[float, float], inner: Tuple[float, float]) -> bool:
+    return (
+        inner[0] >= outer[0] - ANIMATED_TIMING_EPSILON_SECONDS
+        and inner[1] <= outer[1] + ANIMATED_TIMING_EPSILON_SECONDS
+    )
+
+
+def _apply_confirmed_animated_timing(assets: MediaAssets, dialog_state: Optional[Dict]):
+    if not assets or not assets.pending_animated or not dialog_state:
+        return
+
+    audio_range = _coerce_timing_window(dialog_state.get("audio_edit_range"))
+    if not audio_range:
+        return
+
+    assets.animated_target_start, assets.animated_target_end = audio_range
+
+
 def _synchronize_deferred_media_metadata(
     assets: MediaAssets,
     video_path: str,
@@ -634,6 +804,10 @@ def _start_animated_screenshot_prefetch(assets: MediaAssets, config):
     if assets.animated_prefetch_event is not None:
         return
 
+    prefetch_window = _animated_requested_window(assets)
+    if prefetch_window:
+        assets.animated_prefetch_start, assets.animated_prefetch_end = prefetch_window
+
     assets.animated_prefetch_event = threading.Event()
 
     def _prefetch():
@@ -646,6 +820,7 @@ def _start_animated_screenshot_prefetch(assets: MediaAssets, config):
                 assets.animated_vad_start,
                 assets.animated_vad_end,
                 codec=settings.extension,
+                av1_encoder=_animated_screenshot_codec(settings),
                 quality=settings.scaled_quality,
                 fps=settings.fps,
                 audio=False,
@@ -772,6 +947,8 @@ def update_anki_card(
     end_time=None,
     vad_result=None,
     reuse_result_id: Optional[str] = None,
+    reuse_audio_result_id: Optional[str] = None,
+    reuse_screenshot_result_id: Optional[str] = None,
     precomputed_assets: Optional[MediaAssets] = None,
     precomputed_translation: Optional[str] = None,
 ):
@@ -784,6 +961,8 @@ def update_anki_card(
     # 1. Decide what to update based on config and existing note state
     update_audio_flag, update_picture_flag = _determine_update_conditions(last_note)
     update_audio_flag = bool(update_audio_flag and should_update_audio)
+    reuse_audio_result_id = _resolve_reused_audio_result_id(reuse_audio_result_id)
+    reuse_screenshot_result_id = _resolve_reused_screenshot_result_id(reuse_screenshot_result_id)
 
     # 2. Generate or retrieve all necessary media files
     assets = precomputed_assets or _generate_media_files(
@@ -797,8 +976,21 @@ def update_anki_card(
         reuse_result_id=reuse_result_id,
     )
     _synchronize_deferred_media_metadata(assets, video_path, start_time, vad_result)
-    assets.audio_path = audio_path  # Assign the passed audio path
-    if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files:
+    if reuse_audio_result_id:
+        assets.audio_in_anki = _get_reusable_audio_from_result(reuse_audio_result_id)
+        assets.reused_audio = bool(assets.audio_in_anki)
+        assets.reused_audio_result_id = reuse_audio_result_id if assets.reused_audio else ""
+        assets.audio_path = ""
+    else:
+        assets.audio_path = audio_path  # Assign the passed audio path
+    if reuse_screenshot_result_id:
+        assets.screenshot_in_anki = _get_reusable_screenshot_from_result(reuse_screenshot_result_id)
+        assets.reused_screenshot = bool(assets.screenshot_in_anki)
+        assets.reused_screenshot_result_id = reuse_screenshot_result_id if assets.reused_screenshot else ""
+        if assets.reused_screenshot:
+            assets.screenshot_path = ""
+            assets.pending_animated = False
+    if config.anki.show_update_confirmation_dialog_v2 and not use_existing_files and not assets.reused_screenshot:
         _start_animated_screenshot_prefetch(assets, config)
 
     # 3. Prepare the basic structure of the Anki note and its tags
@@ -832,7 +1024,7 @@ def update_anki_card(
         # Determine which audio path to pass to the dialog
         # If VAD failed but we have trimmed audio, pass that so user can choose to keep it
         dialog_audio_path = None
-        if update_audio_flag:
+        if update_audio_flag and not assets.reused_audio:
             if assets.audio_path and os.path.isfile(assets.audio_path):
                 dialog_audio_path = assets.audio_path
             elif (
@@ -861,6 +1053,8 @@ def update_anki_card(
             ss_time,
             previous_ss_time,
             assets.pending_animated,
+            reusing_audio=assets.reused_audio,
+            reusing_screenshot=assets.reused_screenshot,
         )
 
         if result is None:
@@ -888,6 +1082,7 @@ def update_anki_card(
             vad_result,
             dialog_state,
         )
+        _apply_confirmed_animated_timing(assets, dialog_state)
         _apply_confirmed_sentence_fields(note, last_note, sentence)
         if config.ai.add_to_anki and config.ai.anki_field:
             note["fields"][config.ai.anki_field] = translation
@@ -1047,8 +1242,8 @@ def _process_screenshot(
     if not assets:
         return
 
-    # If reusing existing files, just add the field to the note
-    if use_existing_files:
+    # If reusing an existing screenshot, just add the Anki media reference to the note.
+    if use_existing_files or assets.screenshot_in_anki:
         if assets.screenshot_in_anki and update_picture_flag:
             _apply_field_policy(
                 note,
@@ -1128,6 +1323,70 @@ def _process_previous_screenshot(
             )
 
 
+def _generate_animated_screenshot_for_window(assets: MediaAssets, config, timing_window: Optional[Tuple[float, float]]):
+    settings = config.screenshot.animated_settings
+    if timing_window:
+        return ffmpeg.video_to_animation_with_start_end(
+            assets.animated_video_path,
+            timing_window[0],
+            timing_window[1],
+            codec=settings.extension,
+            av1_encoder=_animated_screenshot_codec(settings),
+            quality=settings.scaled_quality,
+            fps=settings.fps,
+            audio=False,
+        )
+
+    return ffmpeg.get_anki_compatible_video(
+        assets.animated_video_path,
+        assets.animated_start_time,
+        assets.animated_vad_start,
+        assets.animated_vad_end,
+        codec=settings.extension,
+        av1_encoder=_animated_screenshot_codec(settings),
+        quality=settings.scaled_quality,
+        fps=settings.fps,
+        audio=False,
+    )
+
+
+def _trim_prefetched_animated_screenshot(
+    path: str,
+    assets: MediaAssets,
+    config,
+    target_window: Optional[Tuple[float, float]],
+) -> str:
+    if not path or not target_window:
+        return path
+
+    prefetch_window = _animated_prefetch_window(assets) or _animated_requested_window(assets)
+    if not prefetch_window:
+        return ""
+
+    if _windows_match(prefetch_window, target_window):
+        return path
+
+    if not _window_contains(prefetch_window, target_window):
+        return ""
+
+    settings = config.screenshot.animated_settings
+    start_offset = max(0.0, target_window[0] - prefetch_window[0])
+    duration = target_window[1] - target_window[0]
+    logger.info(
+        "Trimming prefetched animated screenshot to confirmed audio range "
+        f"({target_window[0]:.2f}s -> {target_window[1]:.2f}s)."
+    )
+    return ffmpeg.trim_animation(
+        path,
+        start_offset=start_offset,
+        duration=duration,
+        codec=settings.extension,
+        av1_encoder=_animated_screenshot_codec(settings),
+        quality=settings.scaled_quality,
+        fps=settings.fps,
+    )
+
+
 def _process_animated_screenshot(
     assets: MediaAssets,
     note: dict,
@@ -1140,23 +1399,24 @@ def _process_animated_screenshot(
         return
 
     try:
-        path = _get_prefetched_animated_screenshot_path(assets)
-        if path:
-            logger.info(f"Using prefetched animated screenshot: {path}")
-        else:
-            logger.info("Generating animated screenshot...")
-            settings = config.screenshot.animated_settings
+        target_window = _animated_target_window(assets)
+        prefetch_window = _animated_prefetch_window(assets) or _animated_requested_window(assets)
+        can_use_prefetch = not target_window or (prefetch_window and _window_contains(prefetch_window, target_window))
 
-            path = ffmpeg.get_anki_compatible_video(
-                assets.animated_video_path,
-                assets.animated_start_time,
-                assets.animated_vad_start,
-                assets.animated_vad_end,
-                codec=settings.extension,
-                quality=settings.scaled_quality,
-                fps=settings.fps,
-                audio=False,
+        path = ""
+        if can_use_prefetch:
+            path = _get_prefetched_animated_screenshot_path(assets)
+            if path:
+                logger.info(f"Using prefetched animated screenshot: {path}")
+                path = _trim_prefetched_animated_screenshot(path, assets, config, target_window)
+        elif target_window:
+            logger.info(
+                "Confirmed audio range extends outside the prefetched animated screenshot; regenerating animation."
             )
+
+        if not path:
+            logger.info("Generating animated screenshot...")
+            path = _generate_animated_screenshot_for_window(assets, config, target_window)
 
         if path and os.path.exists(path):
             wait_for_stable_file(path)
@@ -1214,6 +1474,7 @@ def _process_video(
             assets.video_params["vad_start"],
             assets.video_params["vad_end"],
             codec=settings.extension,
+            av1_encoder=_animated_screenshot_codec(settings),
             quality=settings.scaled_quality,
             fps=settings.fps,
             audio=True,
@@ -1258,8 +1519,8 @@ def _process_audio(
     if not assets or not use_voice:
         return
 
-    # If reusing existing files, just add the field to the note
-    if use_existing_files:
+    # If reusing existing audio, just add the Anki media reference to the note.
+    if use_existing_files or assets.audio_in_anki:
         if assets.audio_in_anki:
             _apply_field_policy(
                 note,
@@ -1370,6 +1631,13 @@ def _perform_post_update_actions(last_note: AnkiCard, selected_notes, config: Pr
 
 
 def _cleanup_assets(assets: MediaAssets):
+    if assets and assets.animated_prefetch_event and not assets.animated_prefetch_event.is_set():
+        try:
+            logger.debug("Waiting for animated screenshot prefetch before cleanup.")
+            assets.animated_prefetch_event.wait()
+        except Exception as e:
+            logger.exception(f"Error waiting for animated screenshot prefetch: {e}")
+
     if assets and assets.cleanup_callback:
         try:
             logger.debug("Calling cleanup callback after background processing complete")
@@ -2043,6 +2311,35 @@ def refresh_anki_beacon_connection_status(now: Optional[datetime] = None) -> boo
     return fresh
 
 
+def _is_anki_connect_reachable(timeout: float = 1.0) -> bool:
+    try:
+        response = requests.post(
+            get_config().anki.url,
+            json=request("version"),
+            headers={"Content-Type": "application/json"},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return isinstance(payload, dict) and payload.get("error") is None and payload.get("result") is not None
+    except Exception:
+        return False
+
+
+def refresh_anki_connect_connection_status(timeout: float = 1.0) -> bool:
+    """Refresh whether AnkiConnect is reachable without polling note state."""
+    if not get_config().anki.enabled:
+        return refresh_anki_beacon_connection_status()
+
+    if _is_anki_connect_reachable(timeout=timeout):
+        gsm_status.anki_connected = True
+        return True
+
+    if not refresh_anki_beacon_connection_status():
+        gsm_status.anki_connected = False
+    return False
+
+
 def handle_incoming_anki_event(payload: Dict[str, Any], received_at: Optional[datetime] = None) -> str:
     if not isinstance(payload, dict):
         raise ValueError("Anki event payload must be a JSON object.")
@@ -2196,6 +2493,33 @@ def update_new_cards(new_card_ids):
             continue
 
 
+def _resolve_mined_line_for_card(card, lines):
+    """Resolve the GameLine a card was mined from.
+
+    Normally this matches the Anki sentence against the text log. Overlay scans (periodic /
+    mouse-move, no text event) aren't in the log unless the user opted into the not-recommended
+    "add scanned lines to log" setting, so fall back to the last overlay scan when it matches the
+    card sentence and the log has no genuine match. This lets Yomitan overlay mining attach
+    audio/screenshot without polluting stats or the texthooker.
+    """
+    overlay_line = getattr(gsm_state, "last_overlay_scan_line", None)
+    anki_sentence = remove_html_and_cloze_tags(get_sentence(card)) if card else ""
+    try:
+        matched = get_mined_line(card, lines)
+    except Exception:
+        matched = None
+
+    if overlay_line is not None and anki_sentence and lines_match(overlay_line.text, anki_sentence):
+        matched_is_genuine = matched is not None and lines_match(matched.text, anki_sentence)
+        if not matched_is_genuine:
+            return overlay_line
+
+    if matched is None:
+        # Preserve the original "nothing to mine" error from get_mined_line.
+        return get_mined_line(card, lines)
+    return matched
+
+
 def update_single_card(card):
     """Process a single card (extracted from update_new_card for reusability)."""
     if not card or not check_tags_for_should_update(card):
@@ -2203,11 +2527,14 @@ def update_single_card(card):
     gsm_status.add_word_being_processed(card.get_field(get_config().anki.word_field))
     logger.debug(f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(card)}")
     lines = _get_texthooking_page_module().get_selected_lines()
-    game_line = get_mined_line(card, lines)
+    game_line = _resolve_mined_line_for_card(card, lines)
     game_line.mined_time = datetime.now()
     current_word = card.get_field(get_config().anki.word_field) if card else ""
     reuse_key = _build_sentence_audio_key(game_line, lines)
+    has_selected_lines = bool(lines)
     reuse_result_id = None
+    reuse_audio_result_id = None
+    reuse_screenshot_result_id = None
     use_prev_audio = False
 
     _prune_sentence_audio_cache()
@@ -2220,7 +2547,20 @@ def update_single_card(card):
                 reuse_result_id = cached_entry.line_id
             else:
                 logger.info("Same word detected for cached sentence, generating new audio.")
-        elif game_line.id in anki_results:
+        elif has_selected_lines:
+            reuse_entry = _find_same_selection_reuse_entry(reuse_key, current_word)
+            if reuse_entry:
+                config = get_config()
+                if config.screenshot.animated:
+                    use_prev_audio = True
+                    reuse_result_id = reuse_entry.line_id
+                elif getattr(config.anki, "reuse_audio_for_same_selected_lines_different_mined_line", True):
+                    reuse_audio_result_id = reuse_entry.line_id
+                if not config.screenshot.animated and getattr(
+                    config.anki, "reuse_screenshot_for_same_selected_lines_different_mined_line", False
+                ):
+                    reuse_screenshot_result_id = reuse_entry.line_id
+        elif not has_selected_lines and game_line.id in anki_results:
             cached_result = anki_results[game_line.id]
             if cached_result.word != current_word:
                 use_prev_audio = True
@@ -2233,7 +2573,11 @@ def update_single_card(card):
         if cached_result.word != current_word:
             use_prev_audio = True
             reuse_result_id = game_line.id
-    logger.info(f"New card using previous audio: {use_prev_audio}")
+    logger.info(
+        f"New card using previous media: {use_prev_audio}, "
+        f"reusing audio only: {bool(reuse_audio_result_id)}, "
+        f"reusing screenshot only: {bool(reuse_screenshot_result_id)}"
+    )
     if get_config().obs.get_game_from_scene:
         obs.update_current_game()
     if use_prev_audio:
@@ -2249,11 +2593,32 @@ def update_single_card(card):
     else:
         logger.info("New card(s) detected! Added to Processing Queue!")
         gsm_state.last_mined_line = game_line
-        queue_card_for_processing(card, lines, game_line)
+        queue_card_for_processing(
+            card,
+            lines,
+            game_line,
+            reuse_audio_result_id=reuse_audio_result_id,
+            reuse_screenshot_result_id=reuse_screenshot_result_id,
+        )
 
 
-def queue_card_for_processing(last_card, lines, last_mined_line):
-    card_queue.append((last_card, datetime.now(), lines, last_mined_line))
+def queue_card_for_processing(
+    last_card,
+    lines,
+    last_mined_line,
+    reuse_audio_result_id: Optional[str] = None,
+    reuse_screenshot_result_id: Optional[str] = None,
+):
+    card_queue.append(
+        (
+            last_card,
+            datetime.now(),
+            lines,
+            last_mined_line,
+            reuse_audio_result_id,
+            reuse_screenshot_result_id,
+        )
+    )
     reuse_key = _build_sentence_audio_key(last_mined_line, lines)
     current_word = last_card.get_field(get_config().anki.word_field) if last_card else ""
     previous_entry = sentence_audio_cache.get(reuse_key) if reuse_key else None
@@ -2327,24 +2692,40 @@ def _normalize_for_signature(text: str) -> str:
     return strip_whitespace_and_punctuation(remove_html_and_cloze_tags(text or "")).lower()
 
 
+SentenceAudioKey = Tuple[str, Tuple[Tuple[str, str], ...], Tuple[str, str]]
+
+
+def _line_signature_for_reuse(line: Optional[GameLine]) -> Tuple[str, str]:
+    if not line:
+        return ("", "")
+    line_id = str(getattr(line, "id", "") or "").strip()
+    text_sig = _normalize_for_signature(getattr(line, "text", "") or "")
+    return (line_id, text_sig)
+
+
 def _build_sentence_audio_key(
     game_line: GameLine, selected_lines: Optional[List[GameLine]]
-) -> Optional[Tuple[str, Tuple[str, ...]]]:
+) -> Optional[SentenceAudioKey]:
     if selected_lines:
-        line_sig = tuple(_normalize_for_signature(line.text) for line in selected_lines if line and line.text)
+        line_sig = tuple(
+            signature
+            for signature in (_line_signature_for_reuse(line) for line in selected_lines if line)
+            if signature[1]
+        )
     elif game_line and game_line.text:
-        line_sig = (_normalize_for_signature(game_line.text),)
+        line_sig = (_line_signature_for_reuse(game_line),)
     else:
         line_sig = tuple()
 
-    if not line_sig or all(not part for part in line_sig):
+    mined_line_sig = _line_signature_for_reuse(game_line)
+    if not line_sig or all(not part[1] for part in line_sig) or not mined_line_sig[1]:
         return None
 
-    sentence_sig = "".join(line_sig)
-    return (sentence_sig, line_sig)
+    sentence_sig = "".join(text_sig for _line_id, text_sig in line_sig)
+    return (sentence_sig, line_sig, mined_line_sig)
 
 
-def _set_sentence_audio_cache_entry(key: Optional[Tuple[str, Tuple[str, ...]]], line_id: Optional[str], word: str):
+def _set_sentence_audio_cache_entry(key: Optional[SentenceAudioKey], line_id: Optional[str], word: str):
     if not key or not line_id:
         return
     sentence_audio_cache[key] = SentenceAudioCacheEntry(line_id=line_id, word=word or "", created_at=datetime.now())
@@ -2453,6 +2834,23 @@ def _is_anki_polling_allowed() -> bool:
     return bool(getattr(obs_state, "replay_buffer_active", False))
 
 
+def _reset_anki_polling_baseline_seed_log_state() -> None:
+    anki_polling_gate_state.baseline_seed_activation_logged = False
+    anki_polling_gate_state.baseline_seed_failure_logs_shown = 0
+
+
+def _log_anki_polling_baseline_seed_failure(error: Exception) -> None:
+    if anki_polling_gate_state.baseline_seed_failure_logs_shown >= MAX_BASELINE_SEED_FAILURE_LOGS:
+        return
+
+    anki_polling_gate_state.baseline_seed_failure_logs_shown += 1
+    remaining_logs = MAX_BASELINE_SEED_FAILURE_LOGS - anki_polling_gate_state.baseline_seed_failure_logs_shown
+    logger.warning(
+        "Failed to seed Anki polling baseline after replay buffer activation: "
+        f"{error}. This warning will be shown {remaining_logs} more times"
+    )
+
+
 def _seed_anki_polling_baseline() -> bool:
     global previous_note_ids, first_run, errors_shown, final_warning_shown
 
@@ -2462,10 +2860,11 @@ def _seed_anki_polling_baseline() -> bool:
         gsm_status.anki_connected = True
         errors_shown = 0
         final_warning_shown = False
+        anki_polling_gate_state.baseline_seed_failure_logs_shown = 0
         return True
     except Exception as e:
         gsm_status.anki_connected = False
-        logger.warning(f"Failed to seed Anki polling baseline after replay buffer activation: {e}")
+        _log_anki_polling_baseline_seed_failure(e)
         return False
 
 
@@ -2503,11 +2902,15 @@ def _monitor_anki_iteration(unsuccessful_count: int, scaled_polling_rate: float)
         if anki_polling_gate_state.replay_buffer_polling_active:
             logger.info("OBS replay buffer inactive; disabling Anki polling.")
             anki_polling_gate_state.replay_buffer_polling_active = False
+        _reset_anki_polling_baseline_seed_log_state()
+        refresh_anki_connect_connection_status()
         time.sleep(base_polling_rate)
         return 0, base_polling_rate
 
     if not anki_polling_gate_state.replay_buffer_polling_active:
-        logger.info("OBS replay buffer active; enabling Anki polling and seeding the current Anki baseline.")
+        if not anki_polling_gate_state.baseline_seed_activation_logged:
+            logger.info("OBS replay buffer active; enabling Anki polling and seeding the current Anki baseline.")
+            anki_polling_gate_state.baseline_seed_activation_logged = True
         if _seed_anki_polling_baseline():
             anki_polling_gate_state.replay_buffer_polling_active = True
         time.sleep(base_polling_rate)

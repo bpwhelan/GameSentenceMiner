@@ -8,7 +8,6 @@ import log from 'electron-log/main.js';
 import {
     APP_NAME,
     BASE_DIR,
-    isDev,
     PACKAGE_NAME,
 } from '../util.js';
 import { getPullPreReleases, getPythonExtras, setPythonExtras } from '../store.js';
@@ -16,6 +15,7 @@ import { checkForUpdates } from '../update_checker.js';
 import {
     checkAndInstallUV,
     cleanUvCache,
+    getBundledBackendSpecifier,
     getInstalledPackageVersion,
     installPackageNoDeps,
     resolveRequestedExtras,
@@ -45,8 +45,6 @@ export interface BackendUpdateStatus {
     checkedAt: string | null;
     error: string | null;
     checking: boolean;
-    source: 'pypi' | 'prerelease-branch';
-    branch: string | null;
 }
 
 export interface AppUpdateStatus {
@@ -104,10 +102,6 @@ function startBackendUpdateSession(retryHandler: () => Promise<void>): void {
     updateInstallStage('venv', 'skipped', 'indeterminate', 1, 'Virtual environment already exists.');
 }
 
-function getPreReleasePackageSpecifier(branch: string): string {
-    return `https://github.com/bpwhelan/GameSentenceMiner/archive/refs/heads/${branch}.zip`;
-}
-
 function getAutoUpdater(forceDev: boolean = false): AppUpdater {
     const { autoUpdater } = electronUpdater;
     const wantPreRelease = getPullPreReleases();
@@ -154,8 +148,6 @@ export class UpdateManager {
         checkedAt: null,
         error: null,
         checking: false,
-        source: 'pypi',
-        branch: null,
     };
     private appStatusCache: AppUpdateStatus = {
         currentVersion: app.getVersion(),
@@ -191,24 +183,17 @@ export class UpdateManager {
         }
     }
 
-    public async getUpdateStatus(
-        preReleaseBranch: string | null = null
-    ): Promise<UpdateStatusSnapshot> {
+    public async getUpdateStatus(): Promise<UpdateStatusSnapshot> {
         const pythonPath = this.deps.getPythonPath();
         const backendCurrentVersion = pythonPath
             ? await getInstalledPackageVersion(pythonPath, PACKAGE_NAME)
             : null;
-        const normalizedPreReleaseBranch =
-            typeof preReleaseBranch === 'string' ? preReleaseBranch.trim() : '';
-        const backendSource = normalizedPreReleaseBranch ? 'prerelease-branch' : 'pypi';
 
         return {
             backend: {
                 ...this.backendStatusCache,
                 currentVersion: backendCurrentVersion,
                 checking: this.isUpdating,
-                source: backendSource,
-                branch: normalizedPreReleaseBranch || null,
             },
             app: {
                 ...this.appStatusCache,
@@ -221,30 +206,26 @@ export class UpdateManager {
     }
 
     public async checkForAvailableUpdates(
-        preReleaseBranch: string | null = null,
         forceDev: boolean = false
     ): Promise<UpdateStatusSnapshot> {
-        await this.checkBackendUpdateStatus(preReleaseBranch);
+        await this.checkBackendUpdateStatus();
         await this.checkAppUpdateStatus(forceDev);
-        return await this.getUpdateStatus(preReleaseBranch);
+        return await this.getUpdateStatus();
     }
 
     public async updateAvailableTargets(
-        shouldRestart: boolean = true,
-        preReleaseBranch: string | null = null,
+        _shouldRestart: boolean = true,
         forceDev: boolean = false
     ): Promise<UpdateStatusSnapshot> {
-        const status = await this.checkForAvailableUpdates(preReleaseBranch, forceDev);
-
-        if (status.backend.updateAvailable) {
-            await this.updateGSM(shouldRestart, false, preReleaseBranch);
-        }
+        // Only act on the Electron app update. The backend is synced on startup
+        // when a version change is detected, so we don't update it here.
+        const status = await this.checkForAvailableUpdates(forceDev);
 
         if (status.app.updateAvailable) {
             await this.downloadAppUpdate(forceDev, status.app);
         }
 
-        return await this.getUpdateStatus(preReleaseBranch);
+        return await this.getUpdateStatus();
     }
 
     public async autoUpdate(forceUpdate: boolean = false): Promise<void> {
@@ -273,48 +254,38 @@ export class UpdateManager {
     }
 
     public async runUpdateChecks(
-        shouldRestart: boolean = false,
-        force: boolean = false,
-        forceDev: boolean = false,
-        preReleaseBranch: string | null = null
+        _shouldRestart: boolean = false,
+        _force: boolean = false,
+        forceDev: boolean = false
     ): Promise<void> {
-        log.info('Starting full update process...');
-        await this.updateGSM(shouldRestart, force, preReleaseBranch);
-        if (!this.lastBackendUpdateSucceeded) {
-            log.warn(
-                `Backend update failed before application update check: ${
-                    this.lastBackendUpdateError ?? 'unknown reason'
-                }`
-            );
-            log.info('Continuing with application update check despite backend update failure.');
-        }
-        log.info('Python backend update check is complete.');
+        // Only check for an Electron app update here. The backend is version-locked
+        // to the app and is synced on startup when a version change is detected
+        // (see the startup flow in main.ts), so we no longer update it up front.
+        log.info('Starting application update check...');
         await this.autoUpdate(forceDev);
         log.info('Application update check is complete.');
     }
 
     public async updateGSM(
         shouldRestart: boolean = false,
-        force: boolean = false,
-        preReleaseBranch: string | null = null
+        force: boolean = false
     ): Promise<void> {
         if (this.isUpdating) {
             log.warn('Backend update already in progress. Waiting for current update run to finish.');
             await this.gsmUpdatePromise;
             return;
         }
-        this.gsmUpdatePromise = this.updateGSMInternal(shouldRestart, force, preReleaseBranch);
+        this.gsmUpdatePromise = this.updateGSMInternal(shouldRestart, force);
         await this.gsmUpdatePromise;
     }
 
     private async updateGSMInternal(
         shouldRestart: boolean = false,
         force: boolean = false,
-        preReleaseBranch: string | null = null,
         autoRepairAttemptsRemaining: number = 1
     ): Promise<void> {
         startBackendUpdateSession(async () => {
-            await this.updateGSMInternal(shouldRestart, force, preReleaseBranch, 1);
+            await this.updateGSMInternal(shouldRestart, force, 1);
         });
         this.isUpdating = true;
         this.lastBackendUpdateSucceeded = false;
@@ -342,11 +313,8 @@ export class UpdateManager {
             return;
         }
 
-        const normalizedPreReleaseBranch =
-            typeof preReleaseBranch === 'string' ? preReleaseBranch.trim() : '';
-        const preRelease = normalizedPreReleaseBranch.length > 0;
         log.info(
-            `Starting Python update internal process. force=${force}, restart=${shouldRestart}, prerelease=${preRelease}`
+            `Starting Python update internal process. force=${force}, restart=${shouldRestart}`
         );
 
         try {
@@ -355,38 +323,23 @@ export class UpdateManager {
                 emitUpdateProgress(1, totalSteps, 'Checking for backend updates');
 
                 const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
-                let updateAvailable = false;
-                let latestVersion: string | null = null;
 
-                if (preRelease) {
-                    updateAvailable = force;
-                    log.info(
-                        `Pre-release backend mode enabled (branch: ${normalizedPreReleaseBranch}). ` +
-                            `Skipping PyPI version check.`
-                    );
-                } else {
-                    devFaultInjector.maybeFail('update.check_for_updates');
-                    const versionCheck = await checkForUpdates();
-                    updateAvailable = versionCheck.updateAvailable;
-                    latestVersion = versionCheck.latestVersion;
-                }
+                devFaultInjector.maybeFail('update.check_for_updates');
+                const versionCheck = await checkForUpdates();
+                const updateAvailable = versionCheck.updateAvailable;
+                const latestVersion = versionCheck.latestVersion;
 
                 log.info(
-                    `Backend version check: installed=${installedVersion ?? 'not installed'}, latest=${
-                        preRelease ? `branch:${normalizedPreReleaseBranch}` : latestVersion ?? 'unknown'
-                    }, updateAvailable=${updateAvailable}, force=${force}, source=${
-                        preRelease ? 'prerelease-branch' : 'pypi'
-                    }`
+                    `Backend version check: installed=${installedVersion ?? 'not installed'}, ` +
+                        `bundled=${latestVersion ?? 'unknown'}, updateAvailable=${updateAvailable}, force=${force}`
                 );
                 this.backendStatusCache = {
                     currentVersion: installedVersion,
-                    latestVersion: preRelease ? normalizedPreReleaseBranch : latestVersion,
+                    latestVersion,
                     updateAvailable: updateAvailable || force,
                     checkedAt: new Date().toISOString(),
                     error: null,
                     checking: true,
-                    source: preRelease ? 'prerelease-branch' : 'pypi',
-                    branch: preRelease ? normalizedPreReleaseBranch : null,
                 };
 
                 // Resolve extras once and warn about any unsupported ones.
@@ -433,17 +386,9 @@ export class UpdateManager {
                         'uv runtime tooling is ready.'
                     );
 
-                    // Determine what package specifier to install.
-                    let packageSpecifier: string;
-                    if (preRelease) {
-                        packageSpecifier = getPreReleasePackageSpecifier(normalizedPreReleaseBranch);
-                    } else if (isDev) {
-                        packageSpecifier = '.';
-                    } else if (latestVersion) {
-                        packageSpecifier = `${PACKAGE_NAME}==${latestVersion}`;
-                    } else {
-                        packageSpecifier = PACKAGE_NAME;
-                    }
+                    // Always install the backend from the bundled source tree so
+                    // it stays locked to the shipped Electron app version.
+                    const packageSpecifier = getBundledBackendSpecifier();
 
                     log.info(
                         `Syncing environment and installing ${packageSpecifier} with extras: ${
@@ -556,6 +501,10 @@ export class UpdateManager {
                         );
                     }
 
+                    // Reclaim disk: drop any uv package cache (e.g. left by older
+                    // releases) now that the venv is synced. Best-effort.
+                    await cleanUvCache(pythonPath);
+
                     const updatedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
                     log.info(
                         `Backend version after update attempt: ${
@@ -564,19 +513,17 @@ export class UpdateManager {
                     );
                     this.backendStatusCache = {
                         currentVersion: updatedVersion,
-                        latestVersion: preRelease ? normalizedPreReleaseBranch : latestVersion,
+                        latestVersion,
                         updateAvailable: false,
                         checkedAt: new Date().toISOString(),
                         error: null,
                         checking: true,
-                        source: preRelease ? 'prerelease-branch' : 'pypi',
-                        branch: preRelease ? normalizedPreReleaseBranch : null,
                     };
 
                     emitUpdateProgress(5, totalSteps, 'Finalizing backend update');
                     new Notification({
-                        title: 'Update Successful',
-                        body: `${APP_NAME} backend has been updated successfully.`,
+                        title: 'Backend Synced',
+                        body: `${APP_NAME} backend has been synced successfully.`,
                         timeoutType: 'default',
                     }).show();
 
@@ -617,13 +564,11 @@ export class UpdateManager {
                     log.info('Python backend is already up-to-date.');
                     this.backendStatusCache = {
                         currentVersion: installedVersion,
-                        latestVersion: preRelease ? normalizedPreReleaseBranch : latestVersion,
+                        latestVersion,
                         updateAvailable: false,
                         checkedAt: new Date().toISOString(),
                         error: null,
                         checking: true,
-                        source: preRelease ? 'prerelease-branch' : 'pypi',
-                        branch: preRelease ? normalizedPreReleaseBranch : null,
                     };
                     updateInstallStage('verify_runtime', 'skipped', 'indeterminate', 1, 'No backend update was required.');
                     updateInstallStage('lock_sync', 'skipped', 'indeterminate', 1, 'Dependencies are already up to date.');
@@ -660,7 +605,6 @@ export class UpdateManager {
                     return await this.updateGSMInternal(
                         shouldRestart,
                         force,
-                        preReleaseBranch,
                         autoRepairAttemptsRemaining - 1
                     );
                 } catch (repairError) {
@@ -689,8 +633,8 @@ export class UpdateManager {
             emitUpdateProgress(1, 1, 'Python backend update failed');
             try {
                 new Notification({
-                    title: 'Update Failed',
-                    body: `${APP_NAME} backend update failed. Check logs for details.`,
+                    title: 'Backend Sync Failed',
+                    body: `${APP_NAME} backend sync failed. Check logs for details.`,
                     timeoutType: 'default',
                 }).show();
             } catch (notificationError) {
@@ -843,66 +787,41 @@ export class UpdateManager {
         }
     }
 
-    private async checkBackendUpdateStatus(
-        preReleaseBranch: string | null = null
-    ): Promise<BackendUpdateStatus> {
+    private async checkBackendUpdateStatus(): Promise<BackendUpdateStatus> {
         const pythonPath = this.deps.getPythonPath();
-        const normalizedPreReleaseBranch =
-            typeof preReleaseBranch === 'string' ? preReleaseBranch.trim() : '';
-        const preRelease = normalizedPreReleaseBranch.length > 0;
 
         if (!pythonPath) {
             this.backendStatusCache = {
                 currentVersion: null,
-                latestVersion: preRelease ? normalizedPreReleaseBranch : null,
+                latestVersion: null,
                 updateAvailable: false,
                 checkedAt: new Date().toISOString(),
                 error: 'pythonPath is not initialized',
                 checking: false,
-                source: preRelease ? 'prerelease-branch' : 'pypi',
-                branch: preRelease ? normalizedPreReleaseBranch : null,
             };
             return this.backendStatusCache;
         }
 
         try {
             const currentVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
-            if (preRelease) {
-                this.backendStatusCache = {
-                    currentVersion,
-                    latestVersion: normalizedPreReleaseBranch,
-                    updateAvailable: false,
-                    checkedAt: new Date().toISOString(),
-                    error: null,
-                    checking: false,
-                    source: 'prerelease-branch',
-                    branch: normalizedPreReleaseBranch,
-                };
-                return this.backendStatusCache;
-            }
-
             const versionCheck = await checkForUpdates();
             this.backendStatusCache = {
                 currentVersion,
                 latestVersion: versionCheck.latestVersion,
                 updateAvailable: versionCheck.updateAvailable,
                 checkedAt: new Date().toISOString(),
-                error: versionCheck.latestVersion ? null : 'Could not determine latest backend version.',
+                error: versionCheck.latestVersion ? null : 'Could not determine bundled backend version.',
                 checking: false,
-                source: 'pypi',
-                branch: null,
             };
             return this.backendStatusCache;
         } catch (error) {
             this.backendStatusCache = {
                 currentVersion: await getInstalledPackageVersion(pythonPath, PACKAGE_NAME),
-                latestVersion: preRelease ? normalizedPreReleaseBranch : null,
+                latestVersion: null,
                 updateAvailable: false,
                 checkedAt: new Date().toISOString(),
                 error: toErrorMessage(error),
                 checking: false,
-                source: preRelease ? 'prerelease-branch' : 'pypi',
-                branch: preRelease ? normalizedPreReleaseBranch : null,
             };
             return this.backendStatusCache;
         }

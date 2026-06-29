@@ -13,7 +13,7 @@ from enum import Enum
 from importlib import metadata
 from pathlib import Path
 from sys import platform
-from typing import Any, List, Dict, Optional, ClassVar
+from typing import Any, Callable, List, Dict, Optional, ClassVar
 
 OFF = "OFF"
 # VOSK = 'VOSK'
@@ -103,6 +103,40 @@ DEBUG = "DEBUG"
 
 DEFAULT_CONFIG = "Default"
 
+ANIMATED_SCREENSHOT_CODEC_DEFAULT = "libsvtav1"
+ANIMATED_SCREENSHOT_CODEC_LABELS = {
+    "libsvtav1": "libsvtav1 (fast)",
+    "libaom-av1": "libaom-av1 (slow, but higher quality, not recommended)",
+}
+ANIMATED_SCREENSHOT_CODECS = tuple(ANIMATED_SCREENSHOT_CODEC_LABELS.keys())
+
+SCREENSHOT_CAPTURE_BACKEND_AUTO = "auto"
+SCREENSHOT_CAPTURE_BACKEND_OBS = "obs"
+SCREENSHOT_CAPTURE_BACKEND_WINAPI = "winapi"
+SCREENSHOT_CAPTURE_BACKENDS = (
+    SCREENSHOT_CAPTURE_BACKEND_AUTO,
+    SCREENSHOT_CAPTURE_BACKEND_OBS,
+    SCREENSHOT_CAPTURE_BACKEND_WINAPI,
+)
+
+
+def normalize_screenshot_capture_backend(value: str | None) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "": SCREENSHOT_CAPTURE_BACKEND_AUTO,
+        "default": SCREENSHOT_CAPTURE_BACKEND_AUTO,
+        "websocket": SCREENSHOT_CAPTURE_BACKEND_OBS,
+        "obs_websocket": SCREENSHOT_CAPTURE_BACKEND_OBS,
+        "printwindow": SCREENSHOT_CAPTURE_BACKEND_WINAPI,
+        "win32": SCREENSHOT_CAPTURE_BACKEND_WINAPI,
+        "windows": SCREENSHOT_CAPTURE_BACKEND_WINAPI,
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized in SCREENSHOT_CAPTURE_BACKENDS:
+        return normalized
+    return SCREENSHOT_CAPTURE_BACKEND_AUTO
+
+
 current_game = ""
 
 supported_formats = {
@@ -131,7 +165,7 @@ KNOWN_ASPECT_RATIOS = [
     # --- Vertical / Mobile ---
     {"name": "9:16 (Portrait Mode)", "ratio": 9 / 16},
     {"name": "3:4 (Portrait 4:3)", "ratio": 3 / 4},
-    {"name": "1:1 (Square / UI Capture)", "ratio": 1 / 1},
+    {"name": "1:1 (Square / UI Capture)", "ratio": 1.0},
 ]
 
 KNOWN_ASPECT_RATIOS_DICT = {item["name"]: item["ratio"] for item in KNOWN_ASPECT_RATIOS}
@@ -178,7 +212,8 @@ def sanitize_and_resolve_path(input_path: str) -> str:
 class Locale(Enum):
     English = "en_us"
     日本語 = "ja_jp"
-    # 한국어 = 'ko_kr'
+    한국어 = "ko_kr"
+    Українська = "ukr_ua"
     中文 = "zh_cn"
     Español = "es_es"
     # Français = 'fr_fr'
@@ -193,6 +228,19 @@ class Locale(Enum):
         Case-insensitive.
         """
         value_lower = value.lower()
+        aliases = {
+            "en": cls.English.value,
+            "ja": cls.日本語.value,
+            "ko": cls.한국어.value,
+            "kr": cls.한국어.value,
+            "uk": cls.Українська.value,
+            "ukr": cls.Українська.value,
+            "ua": cls.Українська.value,
+            "zh": cls.中文.value,
+            "cn": cls.中文.value,
+            "es": cls.Español.value,
+        }
+        value_lower = aliases.get(value_lower, value_lower)
         for locale in cls:
             if locale.name.lower() == value_lower or locale.value.lower() == value_lower:
                 return locale
@@ -526,7 +574,7 @@ DEFAULT_WEBSOCKET_SOURCES: List[Dict[str, Any]] = [
 @dataclass
 class General:
     use_websocket: bool = True
-    use_clipboard: bool = True
+    use_clipboard: bool = False
     use_both_clipboard_and_websocket: bool = False
     merge_matching_sequential_text: bool = False
     websocket_uri: str = "localhost:6677,localhost:9001,localhost:2333"
@@ -611,8 +659,76 @@ class StringReplacement:
 
 @dataclass_json
 @dataclass
+class TextProcessor:
+    """A single text processing step that can be enabled/disabled and reordered."""
+
+    id: str = ""
+    enabled: bool = False
+
+
+@dataclass_json
+@dataclass
+class RemoveRepeatCharsConfig:
+    repeat_count: int = 1  # 1 = auto-detect
+    keep_non_repeated: bool = True
+
+
+@dataclass_json
+@dataclass
+class RemoveRepeatLinesConfig:
+    repeat_count: int = 1  # 1 = auto-detect
+
+
+@dataclass_json
+@dataclass
+class ExtractLinesConfig:
+    max_lines: int = 3
+    from_end: bool = True
+
+
+@dataclass_json
+@dataclass
+class UnicodeNormalizeConfig:
+    form: str = "NFKC"  # NFD, NFC, NFKD, NFKC
+
+
+@dataclass_json
+@dataclass
 class TextProcessing:
     string_replacement: StringReplacement = field(default_factory=StringReplacement)
+    processor_order: List[str] = field(
+        default_factory=lambda: [
+            "string_replacement",
+            "remove_repeated_chars",
+            "remove_repeated_lines",
+            "remove_control_chars",
+            "remove_non_japanese",
+            "remove_newlines",
+            "remove_numbers",
+            "remove_english",
+            "remove_curly_braces",
+            "remove_angle_brackets",
+            "extract_bracketed_text",
+            "extract_lines",
+            "unicode_normalize",
+        ]
+    )
+    remove_repeated_chars: bool = False
+    remove_repeated_chars_config: RemoveRepeatCharsConfig = field(default_factory=RemoveRepeatCharsConfig)
+    remove_repeated_lines: bool = False
+    remove_repeated_lines_config: RemoveRepeatLinesConfig = field(default_factory=RemoveRepeatLinesConfig)
+    remove_control_chars: bool = False
+    remove_non_japanese: bool = False
+    remove_newlines: bool = False
+    remove_numbers: bool = False
+    remove_english: bool = False
+    remove_curly_braces: bool = False
+    remove_angle_brackets: bool = False
+    extract_bracketed_text: bool = False
+    extract_lines: bool = False
+    extract_lines_config: ExtractLinesConfig = field(default_factory=ExtractLinesConfig)
+    unicode_normalize: bool = False
+    unicode_normalize_config: UnicodeNormalizeConfig = field(default_factory=UnicodeNormalizeConfig)
 
 
 @dataclass_json
@@ -730,6 +846,8 @@ class Anki:
     parent_tag: str = "Game"
     autoplay_audio: bool = False
     replay_audio_on_tts_generation: bool = True
+    reuse_audio_for_same_selected_lines_different_mined_line: bool = True
+    reuse_screenshot_for_same_selected_lines_different_mined_line: bool = False
     tag_unvoiced_cards: bool = False
     remove_overlay_tag: bool = False
 
@@ -855,7 +973,11 @@ class ProcessPausing:
     overlay_manual_hotkey_requests_pause: bool = False
     overlay_texthooker_hotkey_requests_pause: bool = False
     overlay_gamepad_navigation_requests_pause: bool = False
-    allowlist: List[str] = field(default_factory=list)
+    # Linux only: process name of the game to suspend (e.g. "eldenring.exe" under
+    # Proton, or a native binary name). Linux has no window handle to resolve a PID
+    # from, so the game is matched by process name. Mainly for Wayland users — leave
+    # blank to auto-detect the game from the OBS-captured X11 window (the default).
+    linux_target_process: str = ""
     denylist: List[str] = field(
         default_factory=lambda: [
             "explorer.exe",
@@ -877,6 +999,10 @@ class ProcessPausing:
             "gamesentenceminer.exe",
             "gsm_overlay.exe",
             "gsm_overlay",
+            # Linux/macOS critical processes (compositors, audio, shells, OBS/Steam
+            # helpers, GSM itself) are enforced unconditionally by the hardcoded
+            # _CRITICAL_DENYLIST floor in window_state_monitor, so they are not
+            # duplicated here.
         ]
     )
 
@@ -886,25 +1012,43 @@ class ProcessPausing:
 class AnimatedScreenshotSettings:
     fps: int = 15  # max 30
     extension: str = "avif"  # 'webp'
+    codec: str = ANIMATED_SCREENSHOT_CODEC_DEFAULT
     quality: int = 8  # 0-10
-    scaled_quality: int = 10  # 0-90 for webp, 10-45 for avif
+    max_width: int = 960  # 0 disables scaling
+    adaptive_avif: bool = False
+    faststart: bool = True
+    encoder_fallback: bool = True
+    scaled_quality: int = 10  # 0-90 for webp, encoder-specific CRF for avif
 
     def __post_init__(self):
         # Disable webp due to it being garbage
         self.extension = "avif"
-        self.scaled_quality = self._scale_quality(self.quality, self.extension)
+        self.fps = max(1, min(60, int(self.fps or 15)))
+        self.quality = max(0, min(10, int(self.quality or 0)))
+        self.max_width = max(0, min(3840, int(self.max_width or 0)))
+        self.adaptive_avif = bool(self.adaptive_avif)
+        self.faststart = bool(self.faststart)
+        self.encoder_fallback = bool(self.encoder_fallback)
+        if self.codec not in ANIMATED_SCREENSHOT_CODECS:
+            self.codec = ANIMATED_SCREENSHOT_CODEC_DEFAULT
+        self.scaled_quality = self._scale_quality(self.quality, self.extension, self.codec)
 
-    def _scale_quality(self, q: int, codec: str) -> int:
+    def _scale_quality(self, q: int, extension: str, av1_encoder: str | None = None) -> int:
         q = max(0, min(10, q))
 
-        if codec == "webp":
-            # 0 → 60, 10 → 80
+        if extension == "webp":
+            # 0 -> 60, 10 -> 80
             return int(60 + q * 2)
 
-        if codec == "avif":
+        if extension == "avif":
             # AV1 CRF: 0 = best, 63 = worst
-            # We expose 10-45 (recommended usable range)
-            # 0 → 45, 10 → 10
+            if av1_encoder == "libsvtav1":
+                # SVT-AV1 produces much larger files than libaom at the same CRF.
+                # 0 -> 45, 10 -> 24
+                return int(45 - q * 2.1)
+
+            # libaom-av1 historical range.
+            # 0 -> 45, 10 -> 10
             return int(45 - q * 3.5)
 
         return q
@@ -1032,6 +1176,7 @@ class VAD:
     use_cpu_for_inference: bool = False
     use_cpu_for_inference_v2: bool = True
     use_vad_filter_for_whisper: bool = True
+    preload_vad_model: bool = True
 
     def __post_init__(self):
         if self.selected_vad_model == self.backup_vad_model:
@@ -1067,6 +1212,9 @@ class Advanced:
     audio_backend: str = "sounddevice"  # 'sounddevice' or 'qt6'
     slowest_polling_rate: int = 5000  # in ms
     longest_sleep_time: float = 5.0
+    screenshot_capture_backend: str = SCREENSHOT_CAPTURE_BACKEND_OBS
+    screenshot_capture_backend_v2: str = SCREENSHOT_CAPTURE_BACKEND_AUTO
+    mute_game_on_minimize: bool = False
     cloud_sync_enabled: bool = False
     cloud_sync_auto_sync: bool = False
     cloud_sync_api_url: str = ""
@@ -1083,6 +1231,8 @@ class Advanced:
         # "communication_port + 1" while allowing new installs to keep this off.
         if self.plaintext_websocket_port == -1:
             self.plaintext_websocket_port = self.texthooker_communication_websocket_port + 1
+        self.screenshot_capture_backend = normalize_screenshot_capture_backend(self.screenshot_capture_backend)
+        self.screenshot_capture_backend_v2 = normalize_screenshot_capture_backend(self.screenshot_capture_backend_v2)
         self.cloud_sync_api_url = str(self.cloud_sync_api_url or "").strip().rstrip("/")
         self.cloud_sync_email = str(self.cloud_sync_email or "").strip()
         self.cloud_sync_api_token = str(self.cloud_sync_api_token or "").strip()
@@ -1259,6 +1409,13 @@ class OverlayEngine(str, Enum):
     SCREENAI = "screenai"
 
 
+class OverlayManualBackgroundMode(str, Enum):
+    # Paint a captured desktop snapshot behind the overlay during manual mode,
+    # for exclusive-fullscreen games whose frame is dropped when focus is lost.
+    OFF = "off"
+    ON_DEMAND = "on_demand"  # grab a fresh full-monitor frame via mss on activation
+
+
 @dataclass_json
 @dataclass
 class Overlay:
@@ -1271,6 +1428,8 @@ class Overlay:
     periodic: bool = False
     periodic_interval: float = 1.0
     periodic_ratio: float = 0.9
+    scan_on_mouse_move: bool = True  # only scan on a periodic tick when the cursor moved and is over the game window
+    inject_scanned_lines: bool = False  # not recommended: persist overlay scans to the log (pollutes stats/texthooker)
     minimum_character_size: int = 0
     use_overlay_area_config: bool = False
     use_ocr_area_config_v2: bool = False
@@ -1278,10 +1437,20 @@ class Overlay:
     ocr_area_config_include_secondary_areas: bool = True
     ocr_area_config_use_exclusion_zones: bool = True
     use_ocr_result_v2: bool = False
+    supplement_ocr_result_with_overlay: bool = False
     check_previous_lines_for_recycled_indicator: bool = False
     ocr_full_screen_instead_of_obs: bool = False
+    use_text_filtering: bool = True
+    manual_mode_desktop_background: str = OverlayManualBackgroundMode.OFF.value
 
     def __post_init__(self):
+        # Migrate the legacy "ocr_payload" strategy to the single on-demand capture.
+        if self.manual_mode_desktop_background not in (
+            OverlayManualBackgroundMode.OFF.value,
+            OverlayManualBackgroundMode.ON_DEMAND.value,
+        ):
+            self.manual_mode_desktop_background = OverlayManualBackgroundMode.ON_DEMAND.value
+
         if self.monitor_to_capture == -1:
             self.monitor_to_capture = 0  # Default to the first monitor if not set
 
@@ -1315,6 +1484,69 @@ class Overlay:
             self.monitor_to_capture = 0  # Reset to first monitor if out of range
 
 
+# --- GSM-owned overlay fields editable from the overlay settings window ---
+# The overlay window is the single home for overlay settings; these OCR-capture
+# fields live in master_config.overlay (per GSM profile) and are edited over the
+# overlay websocket. Most overlay userSettings keys match the python field name;
+# showRecycledIndicator is the one legacy alias.
+def _coerce_overlay_bool(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
+@dataclass(frozen=True)
+class GsmOwnedOverlayField:
+    overlay_key: str  # key used in the overlay app's userSettings
+    coerce: Callable[[Any], Any]
+
+
+GSM_OWNED_OVERLAY_FIELDS: Dict[str, GsmOwnedOverlayField] = {
+    "engine_v2": GsmOwnedOverlayField("engine_v2", lambda v: "" if v is None else str(v)),
+    "monitor_to_capture": GsmOwnedOverlayField("monitor_to_capture", int),
+    "monitor_to_capture_id": GsmOwnedOverlayField("monitor_to_capture_id", lambda v: "" if v is None else str(v)),
+    "periodic": GsmOwnedOverlayField("periodic", _coerce_overlay_bool),
+    "periodic_interval": GsmOwnedOverlayField("periodic_interval", float),
+    "periodic_ratio": GsmOwnedOverlayField("periodic_ratio", float),
+    "scan_on_mouse_move": GsmOwnedOverlayField("scan_on_mouse_move", _coerce_overlay_bool),
+    "inject_scanned_lines": GsmOwnedOverlayField("inject_scanned_lines", _coerce_overlay_bool),
+    "minimum_character_size": GsmOwnedOverlayField("minimum_character_size", int),
+    "use_ocr_result_v2": GsmOwnedOverlayField("use_ocr_result_v2", _coerce_overlay_bool),
+    "supplement_ocr_result_with_overlay": GsmOwnedOverlayField(
+        "supplement_ocr_result_with_overlay", _coerce_overlay_bool
+    ),
+    "ocr_full_screen_instead_of_obs": GsmOwnedOverlayField("ocr_full_screen_instead_of_obs", _coerce_overlay_bool),
+    "use_text_filtering": GsmOwnedOverlayField("use_text_filtering", _coerce_overlay_bool),
+    "manual_mode_desktop_background": GsmOwnedOverlayField(
+        "manual_mode_desktop_background", lambda v: "" if v is None else str(v)
+    ),
+    "check_previous_lines_for_recycled_indicator": GsmOwnedOverlayField("showRecycledIndicator", _coerce_overlay_bool),
+    "use_ocr_area_config_v2": GsmOwnedOverlayField("use_ocr_area_config_v2", _coerce_overlay_bool),
+    "ocr_area_config_include_primary_areas": GsmOwnedOverlayField(
+        "ocr_area_config_include_primary_areas", _coerce_overlay_bool
+    ),
+    "ocr_area_config_include_secondary_areas": GsmOwnedOverlayField(
+        "ocr_area_config_include_secondary_areas", _coerce_overlay_bool
+    ),
+    "ocr_area_config_use_exclusion_zones": GsmOwnedOverlayField(
+        "ocr_area_config_use_exclusion_zones", _coerce_overlay_bool
+    ),
+}
+
+
+def coerce_gsm_owned_overlay_value(field_name: str, value: Any) -> Any:
+    """Coerce an inbound overlay-config value to the field's expected type. Raises KeyError if unknown."""
+    spec = GSM_OWNED_OVERLAY_FIELDS.get(field_name)
+    if spec is None:
+        raise KeyError(field_name)
+    return spec.coerce(value)
+
+
+def serialize_gsm_owned_overlay(overlay: "Overlay") -> Dict[str, Any]:
+    """Return the GSM-owned overlay subset keyed by the overlay app's userSettings keys."""
+    return {spec.overlay_key: getattr(overlay, field_name) for field_name, spec in GSM_OWNED_OVERLAY_FIELDS.items()}
+
+
 @dataclass_json
 @dataclass
 class WIP:
@@ -1339,6 +1571,7 @@ class ProfileConfig:
     advanced: Advanced = field(default_factory=Advanced)
     ai: Ai = field(default_factory=Ai)
     overlay: Overlay = field(default_factory=Overlay)
+    process_pausing: ProcessPausing = field(default_factory=ProcessPausing)
     wip: WIP = field(default_factory=WIP)
     hotkeys: Hotkeys = field(default_factory=Hotkeys)
 
@@ -1388,6 +1621,9 @@ class ProfileConfig:
         self.screenshot.height = config_data["screenshot"].get("height", self.screenshot.height)
         self.screenshot.quality = config_data["screenshot"].get("quality", self.screenshot.quality)
         self.screenshot.extension = config_data["screenshot"].get("extension", self.screenshot.extension)
+        self.screenshot.capture_backend = normalize_screenshot_capture_backend(
+            config_data["screenshot"].get("capture_backend", self.screenshot.capture_backend)
+        )
         self.screenshot.custom_ffmpeg_settings = config_data["screenshot"].get(
             "custom_ffmpeg_settings", self.screenshot.custom_ffmpeg_settings
         )
@@ -1415,7 +1651,7 @@ class ProfileConfig:
 
         self.hotkeys.process_pause = config_data["hotkeys"].get("process_pause", self.hotkeys.process_pause)
 
-        with open(get_config_path(), "w") as f:
+        with open(get_config_path(), "w", encoding="utf-8") as f:
             f.write(self.to_json(indent=4))
             logger.warning(
                 "config.json successfully generated from previous settings. config.toml will no longer be used."
@@ -1423,8 +1659,7 @@ class ProfileConfig:
 
         return self
 
-    def restart_required(self, previous):
-        previous: ProfileConfig
+    def restart_required(self, previous: "ProfileConfig"):
         if any(
             [
                 previous.paths.folder_to_watch != self.paths.folder_to_watch,
@@ -1446,7 +1681,8 @@ class ProfileConfig:
 @dataclass_json
 @dataclass
 class StatsConfig:
-    session_gap_seconds: int = 3600
+    session_gap_seconds: int = 1800
+    reading_time_adaptive_v2: bool = True  # v2: cap reading time by session median speed
     streak_requirement_hours: float = 0.01  # 1 second required per day to keep your streak by default
     reading_hours_target: int = 1500  # Target reading hours based on TMW N1 achievement data
     character_count_target: int = 25000000  # Target character count (25M) inspired by Discord server milestones
@@ -1494,7 +1730,6 @@ class Config:
     stats: StatsConfig = field(default_factory=StatsConfig)
     overlay: Overlay = field(default_factory=Overlay)
     experimental: Experimental = field(default_factory=Experimental)
-    process_pausing: ProcessPausing = field(default_factory=ProcessPausing)
     discord: Discord = field(default_factory=Discord)
     version: str = ""
 
@@ -1638,6 +1873,8 @@ class Config:
         if not isinstance(configs, dict):
             return data
 
+        legacy_process_pausing = data.pop("process_pausing", None)
+
         if not isinstance(data.get("overlay"), dict):
             current_profile = data.get("current_profile") or DEFAULT_CONFIG
             profile_data = configs.get(current_profile)
@@ -1650,10 +1887,25 @@ class Config:
                 data["overlay"] = dict(legacy_overlay)
 
         for profile_data in configs.values():
+            if isinstance(profile_data, dict) and "process_pausing" not in profile_data:
+                profile_data["process_pausing"] = (
+                    dict(legacy_process_pausing)
+                    if isinstance(legacy_process_pausing, dict)
+                    else ProcessPausing().to_dict()
+                )
+            cls._migrate_process_pausing_data(profile_data)
             cls._migrate_anki_profile_data(profile_data)
             cls._migrate_single_port_fields(profile_data)
             cls._migrate_websocket_sources(profile_data)
         return data
+
+    @staticmethod
+    def _migrate_process_pausing_data(profile_data: Dict[str, Any]) -> None:
+        if not isinstance(profile_data, dict):
+            return
+        process_pausing = profile_data.get("process_pausing")
+        if isinstance(process_pausing, dict):
+            process_pausing.pop("allowlist", None)
 
     @staticmethod
     def _normalize_port(value: Any, fallback: int) -> int:
@@ -1749,7 +2001,7 @@ class Config:
     def load(cls):
         config_path = get_config_path()
         if os.path.exists(config_path):
-            with open(config_path, "r") as file:
+            with open(config_path, "r", encoding="utf-8-sig") as file:
                 data = json.load(file)
                 data = cls._migrate_raw_data(data)
                 return cls.from_dict(data)
@@ -1778,7 +2030,9 @@ class Config:
                         # Whisper basically uses Silero's VAD internally, so no need for backup
                         if profile.vad.selected_vad_model == WHISPER and profile.vad.backup_vad_model == SILERO:
                             profile.vad.backup_vad_model = OFF
-
+                if version.parse(self.version) < version.parse("2026.6.5"):
+                    if self.stats.session_gap_seconds == 3600:
+                        self.stats.session_gap_seconds = 1800
                 self.version = current_version
                 self.save()
 
@@ -1790,7 +2044,7 @@ class Config:
     def save(self):
         if self.current_profile in self.configs:
             self.configs[self.current_profile].overlay = self.overlay
-        with open(get_config_path(), "w") as file:
+        with open(get_config_path(), "w", encoding="utf-8") as file:
             json.dump(self.to_dict(), file, indent=4)
         return self
 
@@ -1843,7 +2097,6 @@ class Config:
         for profile in self.configs.values():
             self.sync_shared_field(config.hotkeys, profile.hotkeys, "open_utility")
             self.sync_shared_field(config.hotkeys, profile.hotkeys, "play_latest_audio")
-            self.sync_shared_field(config.hotkeys, profile.hotkeys, "process_pause")
             self.sync_shared_field(config.anki, profile.anki, "url")
             self.sync_shared_field(config.anki, profile.anki, "sentence_field")
             self.sync_shared_field(config.anki, profile.anki, "sentence_field_enabled")
@@ -1890,12 +2143,23 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "confirmation_always_on_top")
             self.sync_shared_field(config.anki, profile.anki, "confirmation_focus_on_show")
             self.sync_shared_field(config.anki, profile.anki, "replay_audio_on_tts_generation")
+            self.sync_shared_field(
+                config.anki,
+                profile.anki,
+                "reuse_audio_for_same_selected_lines_different_mined_line",
+            )
+            self.sync_shared_field(
+                config.anki,
+                profile.anki,
+                "reuse_screenshot_for_same_selected_lines_different_mined_line",
+            )
             self.sync_shared_field(config.general, profile.general, "open_config_on_startup")
             self.sync_shared_field(config.general, profile.general, "open_multimine_on_startup")
             self.sync_shared_field(config.general, profile.general, "websocket_uri")
             self.sync_shared_field(config.general, profile.general, "single_port")
             self.sync_shared_field(config.general, profile.general, "texthooker_port")
             self.sync_shared_field(config.general, profile.general, "target_language")
+            self.sync_shared_field(config.vad, profile.vad, "preload_vad_model")
             self.sync_shared_field(config.audio, profile.audio, "external_tool")
             self.sync_shared_field(config.audio, profile.audio, "anki_media_collection")
             self.sync_shared_field(config.audio, profile.audio, "external_tool_enabled")
@@ -2038,26 +2302,37 @@ def is_cuda_available():
 
             if cuda_found and cudnn_found:
                 return True
-        elif is_linux():
-            try:
-                import torch
-
-                if torch.cuda.is_available():
-                    logger.info("CUDA support found via PyTorch")
-                    return True
-            except ImportError:
-                pass
+        # Linux/macOS run faster-whisper on CPU (CTranslate2); torch is no longer a dependency,
+        # so there is no GPU path to probe here. GPU support on Linux can be added later via the
+        # `gpu` extra + Linux nvidia-* libs, mirroring the Windows nvidia.cublas/cudnn check above.
     except Exception:
         pass
     return False
 
 
-def get_app_directory():
+def get_default_app_directory():
+    """The default %APPDATA%/GameSentenceMiner (Windows) or ~/.config/GameSentenceMiner (mac/Linux)."""
     if platform == "win32":  # Windows
         appdata_dir = os.getenv("APPDATA")
     else:  # macOS and Linux
         appdata_dir = sanitize_and_resolve_path("~/.config")
-    config_dir = os.path.join(appdata_dir, "GameSentenceMiner")
+    return os.path.join(appdata_dir, "GameSentenceMiner")
+
+
+def get_app_directory():
+    # Resolution order: GSM_DATA_DIR env (set by Electron) -> pointer file at the default
+    # location -> the default. The pointer file lets a standalone (pip) backend find a
+    # relocated data dir even when Electron isn't around to set the env var.
+    default_dir = get_default_app_directory()
+    config_dir = os.getenv("GSM_DATA_DIR", "").strip()
+    if not config_dir:
+        try:
+            with open(os.path.join(default_dir, "data_dir.json"), "r", encoding="utf-8") as f:
+                config_dir = str(json.load(f).get("dataDir", "")).strip()
+        except (OSError, ValueError):
+            config_dir = ""
+    if not config_dir:
+        config_dir = default_dir
     # Create the directory if it doesn't exist
     os.makedirs(config_dir, exist_ok=True)
     return config_dir
@@ -2129,6 +2404,9 @@ def _remove_deprecated_config_settings(config_data: dict):
         overlay = profile_data.get("overlay")
         if isinstance(overlay, dict):
             overlay.pop("send_hotkey_text_to_texthooker", None)
+        process_pausing = profile_data.get("process_pausing")
+        if isinstance(process_pausing, dict):
+            process_pausing.pop("allowlist", None)
         advanced = profile_data.get("advanced")
         if isinstance(advanced, dict):
             advanced.pop("multi_line_sentence_storage_field", None)
@@ -2150,7 +2428,7 @@ def load_config():
 
     if os.path.exists(config_path):
         try:
-            with open(config_path, "r") as file:
+            with open(config_path, "r", encoding="utf-8-sig") as file:
                 config_file = json.load(file)
                 config_file = _remove_legacy_hotkeys(config_file)
                 config_file = _remove_deprecated_config_settings(config_file)
@@ -2159,7 +2437,7 @@ def load_config():
                     return Config.from_dict(config_file)
                 else:
                     logger.warning("Loading Profile-less Config, Converting to new Config!")
-                    with open(config_path, "r") as file:
+                    with open(config_path, "r", encoding="utf-8-sig") as file:
                         config_file = json.load(file)
                     config_file = _remove_legacy_hotkeys(config_file)
                     config_file = _remove_deprecated_config_settings(config_file)
@@ -2226,7 +2504,7 @@ def get_master_config():
 def save_full_config(config):
     if hasattr(config, "get_config") and getattr(config, "current_profile", None) in getattr(config, "configs", {}):
         config.configs[config.current_profile].overlay = config.overlay
-    with open(get_config_path(), "w") as file:
+    with open(get_config_path(), "w", encoding="utf-8") as file:
         json.dump(config.to_dict(), file, indent=4)
 
 
@@ -2310,10 +2588,17 @@ class GsmAppState:
         self.texthooker_audio_token = None
         self.texthooker_audio_line_id = None
         self.texthooker_video_trim_request = {}
+        # Non-Anki / Migaku helper: generate media into the output folder without making a card.
+        self.lines_for_media_creation = None
+        self.previous_lines_for_media_creation = None
+        self.media_creation_request = {}
         self.videos_with_pending_operations = set()  # Track videos that shouldn't be deleted yet
         self.disable_anki_confirmation_session = False
         self.replay_buffer_stopped_timestamp = None
         self.text_input_paused = False
+        # Last distinct overlay scan (periodic/mouse-move, no text event), kept as a transient
+        # GameLine so Yomitan overlay mining can attach audio/screenshot without logging it.
+        self.last_overlay_scan_line = None
 
 
 @dataclass_json

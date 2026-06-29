@@ -13,6 +13,10 @@ test("renderStableReleaseBody includes only user-facing downloads", () => {
   });
 
   assert.match(body, /\| Windows \| \[GameSentenceMiner-Setup-2026\.4\.2\.exe\]/);
+  assert.match(
+    body,
+    /\| Windows \(unpacked\) \| \[GameSentenceMiner-2026\.4\.2-win-unpacked\.zip\]/
+  );
   assert.match(body, /\| Linux \| \[GameSentenceMiner-2026\.4\.2\.AppImage\]/);
   assert.match(body, /\| macOS \(Apple Silicon\) \| \[GameSentenceMiner-2026\.4\.2-arm64\.dmg\]/);
   assert.doesNotMatch(body, /x64\.dmg/);
@@ -22,6 +26,7 @@ test("renderStableReleaseBody includes only user-facing downloads", () => {
 test("renderPrereleaseBody warns users away from prereleases", () => {
   const body = renderPrereleaseBody({
     repo: "bpwhelan/GameSentenceMiner",
+    version: "2026.4.3-beta.1",
   });
 
   assert.match(body, /\*\*Development prerelease\*\*/);
@@ -30,5 +35,10 @@ test("renderPrereleaseBody warns users away from prereleases", () => {
   assert.match(
     body,
     /https:\/\/github\.com\/bpwhelan\/GameSentenceMiner\/releases\/latest/
+  );
+  assert.match(body, /\| Windows \| \[GameSentenceMiner-Setup-2026\.4\.3-beta\.1\.exe\]/);
+  assert.match(
+    body,
+    /\| Windows \(unpacked\) \| \[GameSentenceMiner-2026\.4\.3-beta\.1-win-unpacked\.zip\]/
   );
 });

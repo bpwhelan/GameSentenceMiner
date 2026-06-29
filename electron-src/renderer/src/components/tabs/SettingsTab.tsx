@@ -23,6 +23,7 @@ import {
 } from "./settingsCatalog";
 import { SUPPORTED_LOCALES, useLocale, useTranslation } from "../../i18n";
 import type { SettingsCatalogOwner } from "../../types/settings";
+import { applyTheme, DEFAULT_THEME, THEME_GROUPS } from "../../lib/theme";
 
 const CATALOG_I18N_KEYS: Record<string, string> = {
   "desktop-appearance-startup": "desktopAppearance",
@@ -35,7 +36,6 @@ const CATALOG_I18N_KEYS: Record<string, string> = {
   "gsm-audio": "audio",
   "gsm-obs": "obs",
   "gsm-ai": "ai",
-  "gsm-overlay": "overlayOcr",
   "gsm-advanced-network": "advanced",
   "gsm-profiles": "profiles",
   "overlay-display-hotkeys": "overlayDisplay",
@@ -66,9 +66,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   windowTransparencyTarget: "",
   runWindowTransparencyToolOnStartup: false,
   runOverlayOnStartup: false,
+  textCaptureWizardEnabled: true,
   visibleTabs: ["launcher", "stats", "python", "console"],
   statsEndpoint: "overview",
-  locale: "en"
+  singlePort: 7275,
+  locale: "en",
+  theme: DEFAULT_THEME
 };
 
 const DEFAULT_UPDATE_STATUS: UpdateStatusSnapshot = {
@@ -78,9 +81,7 @@ const DEFAULT_UPDATE_STATUS: UpdateStatusSnapshot = {
     updateAvailable: false,
     checkedAt: null,
     error: null,
-    checking: false,
-    source: "pypi",
-    branch: null
+    checking: false
   },
   app: {
     currentVersion: "",
@@ -114,7 +115,6 @@ const SETTINGS_QUICK_LINK_IDS = [
   "gsm-anki",
   "gsm-audio",
   "gsm-screenshot",
-  "gsm-overlay",
   "overlay-display-hotkeys",
   "overlay-gamepad"
 ];
@@ -145,7 +145,8 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
     customPythonPackage:
       value.customPythonPackage || DEFAULT_SETTINGS.customPythonPackage,
     statsEndpoint: value.statsEndpoint || DEFAULT_SETTINGS.statsEndpoint,
-    locale: value.locale || DEFAULT_SETTINGS.locale
+    locale: value.locale || DEFAULT_SETTINGS.locale,
+    theme: value.theme || DEFAULT_SETTINGS.theme
   };
 }
 
@@ -179,13 +180,9 @@ function getDisplayCurrentVersion(status: UpdateTargetStatus): string {
 }
 
 function getDisplayLatestVersion(
-  label: "backend" | "app",
+  _label: "backend" | "app",
   status: UpdateTargetStatus
 ): string {
-  if (label === "backend" && status.source === "prerelease-branch") {
-    return status.branch ? `Branch ${status.branch}` : "Beta branch";
-  }
-
   if (status.latestVersion && status.latestVersion.trim().length > 0) {
     return status.latestVersion;
   }
@@ -601,6 +598,29 @@ export function SettingsTab({ active }: SettingsTabProps) {
               </div>
 
               <div className="input-group">
+                <label htmlFor="theme-select">{t("settings.desktop.theme")}</label>
+                <select
+                  id="theme-select"
+                  value={settings.theme}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    applyTheme(next);
+                    patchSettings({ theme: next });
+                  }}
+                >
+                  {THEME_GROUPS.map((group) => (
+                    <optgroup key={group.category} label={t(group.labelKey)}>
+                      {group.themes.map((theme) => (
+                        <option key={theme.id} value={theme.id}>
+                          {theme.labelKey ? t(theme.labelKey) : theme.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+
+              <div className="input-group">
                 <label htmlFor="start-console-minimized">{t("settings.desktop.startMinimized")}</label>
                 <input
                   id="start-console-minimized"
@@ -655,6 +675,20 @@ export function SettingsTab({ active }: SettingsTabProps) {
                   />
                 </div>
               ) : null}
+
+              <div className="input-group">
+                <label htmlFor="text-capture-wizard-enabled">
+                  {t("settings.desktop.textCaptureWizard")}
+                </label>
+                <input
+                  id="text-capture-wizard-enabled"
+                  type="checkbox"
+                  checked={settings.textCaptureWizardEnabled}
+                  onChange={(event) =>
+                    patchSettings({ textCaptureWizardEnabled: event.target.checked })
+                  }
+                />
+              </div>
             </div>
           </section>
 
@@ -805,15 +839,9 @@ export function SettingsTab({ active }: SettingsTabProps) {
                     <div className="update-version-meta">
                       {t("settings.updates.current", { version: getDisplayCurrentVersion(updateStatus.backend) })}
                     </div>
-                    {updateStatus.backend.source === "prerelease-branch" ? (
-                      <div className="update-version-meta">
-                        {t("settings.updates.channel", { channel: getDisplayLatestVersion("backend", updateStatus.backend) })}
-                      </div>
-                    ) : (
-                      <div className="update-version-meta">
-                        {t("settings.updates.latest", { version: getDisplayLatestVersion("backend", updateStatus.backend) })}
-                      </div>
-                    )}
+                    <div className="update-version-meta">
+                      {t("settings.updates.latest", { version: getDisplayLatestVersion("backend", updateStatus.backend) })}
+                    </div>
                   </div>
                   <div className="update-version-state">
                     {updateStatus.backend.updateAvailable &&
@@ -829,9 +857,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
                       </div>
                     ) : (
                       <span className="update-version-stable">
-                        {updateStatus.backend.source === "prerelease-branch"
-                          ? t("settings.updates.manualBranch")
-                          : t("settings.updates.upToDate")}
+                        {t("settings.updates.upToDate")}
                       </span>
                     )}
                   </div>

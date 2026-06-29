@@ -163,7 +163,6 @@ class AspectRatioLabel(QLabel):
 
 _anki_confirmation_dialog_instance = None
 
-EXPERIMENTAL_DIALOGUE_LINE_EXPANSION_ENABLED = True
 AUTO_ADD_DIALOGUE_LINE_EPSILON_SECONDS = 0.05
 AUTO_ADD_DIALOGUE_LINE_DEBOUNCE_MS = 175
 
@@ -183,6 +182,8 @@ class AnkiConfirmationDialog(QDialog):
         self.previous_screenshot_path = None
         self.audio_path = None
         self.vad_result = None
+        self.reusing_audio = False
+        self.reusing_screenshot = False
         self.result = None
         self.first_launch = True
         self._force_autoplay = False
@@ -368,6 +369,15 @@ class AnkiConfirmationDialog(QDialog):
         self.grid_layout.addWidget(self.screenshot_button, row, 2, Qt.AlignmentFlag.AlignLeft)
         row += 1
 
+        self.animated_audio_notice_label = QLabel(
+            "Heads up: adding audio padding regenerates the AVIF; trimming shorter reuses the background render."
+        )
+        self.animated_audio_notice_label.setStyleSheet("color: #856404; font-size: 11px;")
+        self.animated_audio_notice_label.setWordWrap(True)
+        self.animated_audio_notice_label.setVisible(False)
+        self.grid_layout.addWidget(self.animated_audio_notice_label, row, 1, 1, 2)
+        row += 1
+
         # 5. Previous Screenshot
         self.prev_screenshot_label_title = QLabel(f"{get_config().anki.previous_image_field}:")
         self.prev_screenshot_label_title.setStyleSheet("font-weight: bold;")
@@ -533,6 +543,8 @@ class AnkiConfirmationDialog(QDialog):
         screenshot_timestamp,
         previous_screenshot_timestamp,
         pending_animated=False,
+        reusing_audio=False,
+        reusing_screenshot=False,
     ):
         self._apply_window_behavior_preferences()
 
@@ -542,6 +554,8 @@ class AnkiConfirmationDialog(QDialog):
         self.screenshot_path = screenshot_path
         self.previous_screenshot_path = previous_screenshot_path
         self.vad_result = gsm_state.vad_result
+        self.reusing_audio = bool(reusing_audio)
+        self.reusing_screenshot = bool(reusing_screenshot)
         self.result = None
         self.pending_animated = pending_animated
         self._audio_edit_context = None
@@ -585,9 +599,11 @@ class AnkiConfirmationDialog(QDialog):
         # self.disable_dialog_checkbox.setChecked(False)
 
         # Handle Audio Path
-        self.audio_path = audio_path
+        self.audio_path = None if self.reusing_audio else audio_path
         if not self.audio_path and self.vad_result:
             self.audio_path = self.vad_result.trimmed_audio_path
+        if self.reusing_audio:
+            self.audio_path = None
         self._load_audio_edit_context(gsm_state.audio_edit_context)
 
         # Translation
@@ -599,10 +615,19 @@ class AnkiConfirmationDialog(QDialog):
             self.translation_text.setPlainText(translation)
             self.translation_text.blockSignals(False)
 
-        self._load_image_to_label(self.screenshot_path, self.image_label)
+        if self.reusing_screenshot:
+            self.image_label.setPixmap(QPixmap())
+            self.image_label.setText("Reusing screenshot from the previous mining operation.")
+            self.image_label.setStyleSheet("color: green; font-weight: bold;")
+        else:
+            self._load_image_to_label(self.screenshot_path, self.image_label)
 
         # Show animated screenshot status if pending
-        if pending_animated:
+        if self.reusing_screenshot:
+            self.screenshot_button.setText("Reusing screenshot")
+            self.screenshot_button.setStyleSheet("color: green; font-weight: bold;")
+            self.screenshot_button.setEnabled(False)
+        elif pending_animated:
             self.screenshot_button.setText("🎬 Animated (generating after confirmation)")
             self.screenshot_button.setStyleSheet("color: #ff8c00; font-weight: bold;")
             self.screenshot_button.setEnabled(False)
@@ -610,6 +635,8 @@ class AnkiConfirmationDialog(QDialog):
             self.screenshot_button.setText("Select New Screenshot")
             self.screenshot_button.setStyleSheet("")
             self.screenshot_button.setEnabled(True)
+        animated_extension = getattr(get_config().screenshot.animated_settings, "extension", "").lower()
+        self.animated_audio_notice_label.setVisible(bool(pending_animated and animated_extension == "avif"))
 
         use_prev_image = bool(self.previous_screenshot_path and get_config().anki.previous_image_field)
         self.prev_screenshot_label_title.setVisible(use_prev_image)
@@ -623,6 +650,7 @@ class AnkiConfirmationDialog(QDialog):
         self._configure_tab_order()
 
     def _load_image_to_label(self, path, label_widget):
+        label_widget.setStyleSheet("")
         if not path or not os.path.exists(path):
             label_widget.setPixmap(QPixmap())
             label_widget.setText("Image not found")
@@ -742,7 +770,6 @@ class AnkiConfirmationDialog(QDialog):
     def _on_handle_moved(self, which, start, end):
         self._sync_audio_edit_selection_to_current_clip(start, end)
         self._update_audio_expand_buttons()
-        self._schedule_auto_line_expand(which)
         if which == "start":
             # Stop audio and force restart (debounced)
             self.audio_player.stop_audio()
@@ -861,10 +888,7 @@ class AnkiConfirmationDialog(QDialog):
 
     def _dialogue_line_expansion_enabled(self):
         return bool(
-            EXPERIMENTAL_DIALOGUE_LINE_EXPANSION_ENABLED
-            and self._replay_context
-            and getattr(self._replay_context, "video_path", None)
-            and self._dialog_selected_lines
+            self._replay_context and getattr(self._replay_context, "video_path", None) and self._dialog_selected_lines
         )
 
     def _initialize_dialogue_line_timeline(self):
@@ -920,6 +944,38 @@ class AnkiConfirmationDialog(QDialog):
         self.dialogue_tools_status.setText(status_text)
 
     def _refresh_audio_controls(self, sentence_text):
+        if not self.audio_player.audio_available:
+            self.audio_status_label.setText("⚠ No audio player available on this platform.")
+            self.audio_status_label.setStyleSheet("color: #856404; font-weight: bold;")
+            self.codec_info_label.setVisible(False)
+            self.waveform_widget.setVisible(False)
+            self.audio_button.setVisible(False)
+            self.play_original_button.setVisible(False)
+            self.reset_audio_button.setVisible(False)
+            self._update_audio_expand_buttons(allow_buttons=False)
+            self.tts_button.setVisible(False)
+            self.tts_status_label.setVisible(False)
+            self.voice_button.setVisible(False)
+            self.no_voice_button.setVisible(False)
+            self.confirm_button.setVisible(True)
+            return
+
+        if self.reusing_audio:
+            self.audio_status_label.setText("Reusing audio from the previous mining operation.")
+            self.audio_status_label.setStyleSheet("color: green; font-weight: bold;")
+            self.codec_info_label.setVisible(False)
+            self.waveform_widget.setVisible(False)
+            self.audio_button.setVisible(False)
+            self.play_original_button.setVisible(False)
+            self.reset_audio_button.setVisible(False)
+            self._update_audio_expand_buttons(allow_buttons=False)
+            self.tts_button.setVisible(False)
+            self.tts_status_label.setVisible(False)
+            self.voice_button.setVisible(False)
+            self.no_voice_button.setVisible(False)
+            self.confirm_button.setVisible(True)
+            return
+
         has_audio_file = bool(self.audio_path and os.path.isfile(self.audio_path))
 
         vad_ran = self.vad_result is not None and hasattr(self.vad_result, "success")
@@ -1544,6 +1600,7 @@ class AnkiConfirmationDialog(QDialog):
         # Check if trimmed
         start, end = self.waveform_widget.get_selection_range()
         duration = self.waveform_widget.duration
+        self._sync_audio_edit_selection_to_current_clip(start, end)
 
         # Tolerance for float comparison
         if abs(start) < 0.01 and abs(end - duration) < 0.01:
@@ -1659,11 +1716,16 @@ class AnkiConfirmationDialog(QDialog):
         self.audio_player.cleanup()
 
     def _build_dialog_result_metadata(self):
+        audio_edit_range = None
+        if self._audio_edit_range:
+            audio_edit_range = (float(self._audio_edit_range[0]), float(self._audio_edit_range[1]))
+
         return {
             "selected_lines": self._selected_lines_for_pipeline(),
             "line_selection_changed": self._dialog_line_selection_changed,
             "audio_result": self._dialog_audio_result if self._dialog_line_selection_changed else None,
             "translation_regenerated": self._dialog_translation_regenerated,
+            "audio_edit_range": audio_edit_range,
         }
 
     def _on_voice(self):
@@ -1696,13 +1758,13 @@ class AnkiConfirmationDialog(QDialog):
 
         translation = self.translation_text.toPlainText().strip()
         self.result = (
-            False,
+            bool(self.reusing_audio),
             self.sentence_text.toPlainText().strip(),
             translation,
             self.screenshot_path,
             self.previous_screenshot_path,
             self.nsfw_tag_checkbox.isChecked(),
-            self.audio_path,
+            None if self.reusing_audio else self.audio_path,
             self._build_dialog_result_metadata(),
         )
         self.accept()
@@ -1761,6 +1823,8 @@ def show_anki_confirmation(
     screenshot_timestamp,
     previous_screenshot_timestamp,
     pending_animated=False,
+    reusing_audio=False,
+    reusing_screenshot=False,
 ):
     global _anki_confirmation_dialog_instance
 
@@ -1781,13 +1845,13 @@ def show_anki_confirmation(
             "Anki confirmation skipped (Session disabled). Restart app or wait 15m after replay buffer stops to re-enable."
         )
         return (
-            vad_detected_voice,
+            True if reusing_audio else vad_detected_voice,
             sentence,
             translation,
             screenshot_path,
             previous_screenshot_path,
             False,
-            final_audio_path,
+            None if reusing_audio else final_audio_path,
             {},
         )
 
@@ -1805,6 +1869,8 @@ def show_anki_confirmation(
         screenshot_timestamp,
         previous_screenshot_timestamp,
         pending_animated,
+        reusing_audio,
+        reusing_screenshot,
     )
 
     result = _anki_confirmation_dialog_instance.exec()

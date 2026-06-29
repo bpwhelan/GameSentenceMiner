@@ -1,0 +1,247 @@
+/* Text is rendered via generated content so Yomitan's caretRangeFromPoint
+   (which ignores user-select/pointer-events) finds no text node to scan. */
+#gsm-live-stats [data-text]::after {
+  content: attr(data-text);
+}
+
+#gsm-live-stats {
+  --gsm-live-stats-x: auto;
+  --gsm-live-stats-y: 16px;
+  position: fixed;
+  top: var(--gsm-live-stats-y);
+  right: 16px;
+  left: var(--gsm-live-stats-x);
+  z-index: 10004;
+  min-width: 190px;
+  max-width: min(270px, calc(100vw - 32px));
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(13, 17, 23, 0.74);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  color: #f5f7fb;
+  font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+  font-size: 12px;
+  line-height: 1.25;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-6px);
+  transition: opacity 160ms ease, transform 160ms ease;
+  user-select: none;
+}
+
+#gsm-live-stats.gsm-live-stats-visible {
+  opacity: 0.9;
+  transform: translateY(0);
+}
+
+#gsm-live-stats.gsm-live-stats-one-line {
+  width: max-content;
+  min-width: 0;
+  max-width: calc(100vw - 32px);
+  padding: 5px 8px;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(13, 17, 23, 0.68);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.24);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gsm-live-stats-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  color: #dce5f3;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.gsm-live-stats-status {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #697386;
+  box-shadow: 0 0 8px rgba(105, 115, 134, 0.65);
+  flex: 0 0 auto;
+}
+
+.gsm-live-stats-status.active {
+  background: #33d17a;
+  box-shadow: 0 0 9px rgba(51, 209, 122, 0.75);
+}
+
+.gsm-live-stats-pomodoro {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(229, 84, 75, 0.18);
+  color: #ffd9d4;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.gsm-live-stats-pomodoro.visible {
+  display: flex;
+}
+
+.gsm-live-stats-pomodoro.break {
+  background: rgba(51, 209, 122, 0.16);
+  color: #cdf5dd;
+}
+
+.gsm-live-stats-pomodoro.paused {
+  opacity: 0.6;
+}
+
+.gsm-live-stats-grid {
+  display: grid;
+  gap: 6px;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-stats-pomodoro {
+  margin-bottom: 0;
+  margin-right: 9px;
+  padding: 2px 7px;
+  font-size: 11px;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-stats-header {
+  display: none;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-stats-grid {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.gsm-live-stats-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 16px;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-stats-row {
+  flex: 0 0 auto;
+  gap: 4px;
+  min-height: 0;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-stats-row + .gsm-live-stats-row {
+  padding-left: 9px;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.gsm-live-stats-label {
+  color: #aeb8c7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gsm-live-stats-value {
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.gsm-live-stats-empty {
+  color: #aeb8c7;
+  font-size: 11px;
+}
+
+.gsm-live-stats-goals {
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.gsm-live-stats-goals.visible {
+  display: flex;
+}
+
+.gsm-live-goal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.gsm-live-goal-label {
+  color: #dce5f3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gsm-live-goal-value {
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.gsm-live-goal.met .gsm-live-goal-value {
+  color: #33d17a;
+}
+
+.gsm-live-goal-bar {
+  position: relative;
+  flex: 0 0 56px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+}
+
+.gsm-live-goal-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+  background: #4f9dff;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-stats-goals {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  margin-top: 6px;
+  padding-top: 6px;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-goal {
+  flex: 0 0 auto;
+  gap: 5px;
+}
+
+#gsm-live-stats.gsm-live-stats-one-line .gsm-live-goal-label {
+  flex: 0 0 auto;
+}

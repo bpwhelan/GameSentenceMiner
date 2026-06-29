@@ -521,7 +521,7 @@ def test_get_active_video_sources_can_suppress_connection_errors(monkeypatch):
         @contextlib.contextmanager
         def get_client(self):
             raise ConnectionError("OBS Client unavailable")
-            yield
+            yield  # NOSONAR(S1763) required so @contextmanager treats this as a generator
 
         def call(self, operation, retries=0, retryable=True):
             with self.get_client() as client:
@@ -690,14 +690,14 @@ def test_obs_connection_pool_recreates_client_after_failed_use(monkeypatch):
     pool.min_reconnect_interval = 0  # Allow immediate reconnect in tests
 
     with pytest.raises(RuntimeError):
-        with pool.get_client() as client:
-            first_client_id = client.client_id
+        with pool.get_client():
             raise RuntimeError("boom")
 
     with pool.get_client() as client:
         second_client_id = client.client_id
 
-    assert first_client_id == 0
+    # assert via created_clients (always populated) so the ids are definitely-defined
+    assert created_clients[0].client_id == 0
     assert second_client_id == 1
     assert created_clients[0].disconnected is True
 
@@ -734,6 +734,63 @@ def test_obs_connection_pool_healthcheck_client_is_independent(monkeypatch):
     hc2 = pool.get_healthcheck_client()
     assert hc2 is not hc
     assert len(created_clients) == 2
+
+
+def test_obs_connection_pool_has_no_initial_connect_delay_by_default(monkeypatch):
+    sleeps = []
+
+    class _FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def get_version(self):
+            return SimpleNamespace(obs_version="30.0.0")
+
+        def disconnect(self):
+            return None
+
+    monkeypatch.setattr(obs_service_module.obs, "ReqClient", _FakeClient)
+    monkeypatch.setattr(obs_service_module.time, "sleep", sleeps.append)
+
+    pool = obs_service_module.OBSConnectionPool(
+        host="localhost",
+        port=4455,
+        password="",
+        timeout=1,
+    )
+
+    pool.connect_all()
+
+    assert sleeps == []
+
+
+def test_obs_connection_pool_initial_connect_delay_is_opt_in(monkeypatch):
+    sleeps = []
+
+    class _FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def get_version(self):
+            return SimpleNamespace(obs_version="30.0.0")
+
+        def disconnect(self):
+            return None
+
+    monkeypatch.setattr(obs_service_module.obs, "ReqClient", _FakeClient)
+    monkeypatch.setattr(obs_service_module.time, "sleep", sleeps.append)
+
+    pool = obs_service_module.OBSConnectionPool(
+        host="localhost",
+        port=4455,
+        password="",
+        timeout=1,
+        initial_connect_delay=2.0,
+    )
+
+    pool.connect_all()
+
+    assert sleeps == [2.0]
 
 
 def test_wait_for_obs_ready_disconnects_probe_client(monkeypatch):
@@ -810,6 +867,18 @@ def test_connect_to_obs_sync_creates_service_and_manager(monkeypatch):
     assert obs_module.gsm_status.obs_connected is True
 
 
+def test_start_obs_skips_launch_when_already_connected(monkeypatch):
+    popen_calls = []
+
+    monkeypatch.setattr(obs_module.gsm_status, "obs_connected", True, raising=False)
+    monkeypatch.setattr(obs_module, "obs_process_pid", 4321, raising=False)
+    monkeypatch.setattr(obs_launch_module, "get_obs_path", lambda: "/missing/obs")
+    monkeypatch.setattr(obs_launch_module.subprocess, "Popen", lambda *args, **kwargs: popen_calls.append(args))
+
+    assert obs_launch_module.start_obs(force_restart=False) == 4321
+    assert popen_calls == []
+
+
 def test_disconnect_from_obs_clears_module_state(monkeypatch):
     disconnected = []
 
@@ -838,7 +907,7 @@ def test_toggle_replay_buffer_does_not_retry_non_idempotent_calls(monkeypatch):
         def get_client(self):
             attempts.append("get_client")
             raise ConnectionError("socket is already closed")
-            yield
+            yield  # NOSONAR(S1763) required so @contextmanager treats this as a generator
 
         def call(self, operation, retries=0, retryable=True):
             with self.get_client() as client:
@@ -1134,8 +1203,10 @@ def test_is_image_empty_near_black_within_tolerance():
 
 
 def test_is_image_empty_beyond_tolerance():
+    # All pixels near-black but with variation beyond both tolerance and black_threshold//2.
+    # Use a bright pixel so max > black_threshold (30) — clearly non-empty.
     img = Image.new("RGB", (4, 4), (0, 0, 0))
-    img.putpixel((0, 0), (10, 10, 10))  # beyond default tolerance=5
+    img.putpixel((0, 0), (80, 80, 80))
     assert obs_launch_module.is_image_empty(img) is False
 
 
@@ -1143,11 +1214,37 @@ def test_is_image_empty_grayscale():
     img = Image.new("L", (4, 4), 0)
     img.putpixel((0, 0), 4)
     assert obs_launch_module.is_image_empty(img) is True
-    img.putpixel((1, 1), 20)
+    # Value 80 is above black_threshold (30) and creates range > black_threshold//2 → not empty.
+    img.putpixel((1, 1), 80)
     assert obs_launch_module.is_image_empty(img) is False
 
 
 def test_is_image_empty_explicit_zero_tolerance():
+    # With tolerance=0, even a 1-unit deviation must be detected — BUT the near-black
+    # secondary path (black_threshold=30, range <= 15) still applies.  Use a value
+    # large enough to exceed both paths: max > black_threshold and range > black_threshold//2.
     img = Image.new("RGB", (4, 4), (0, 0, 0))
-    img.putpixel((0, 0), (1, 0, 0))
+    img.putpixel((0, 0), (80, 0, 0))
     assert obs_launch_module.is_image_empty(img, tolerance=0) is False
+
+
+def test_is_image_empty_near_black_obs_noise():
+    """Near-black OBS frame (game not running) should be treated as empty.
+
+    OBS sources sometimes return values slightly above 0 (JPEG artefacts,
+    compositing pipeline noise) when the game window is absent.  Values in the
+    13-30 range with low variation must not be falsely classified as non-empty.
+    """
+    # All pixels at value 20 — uniform near-black, well above the old threshold of 12.
+    img = Image.new("RGB", (64, 64), (20, 20, 20))
+    assert obs_launch_module.is_image_empty(img) is True
+
+    # Near-black with mild variation (simulates JPEG block artefacts on a dark frame).
+    img2 = Image.new("RGB", (64, 64), (15, 15, 15))
+    img2.putpixel((0, 0), (28, 27, 26))  # max=28 ≤ 30, range=13 ≤ 15
+    assert obs_launch_module.is_image_empty(img2) is True
+
+    # Slightly above threshold — should still be non-empty (has real variation).
+    img3 = Image.new("RGB", (64, 64), (0, 0, 0))
+    img3.putpixel((0, 0), (60, 60, 60))  # max=60 > 30 → non-empty
+    assert obs_launch_module.is_image_empty(img3) is False

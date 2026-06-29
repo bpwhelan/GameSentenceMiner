@@ -27,6 +27,12 @@ def test_stdin_loop_dispatches_only_valid_gsmcmd_lines(monkeypatch):
     received = []
     electron_ipc.register_command_handler(received.append)
 
+    class InlineExecutor:
+        def submit(self, fn, *args, **kwargs):
+            fn(*args, **kwargs)
+
+    monkeypatch.setattr(electron_ipc, "_command_dispatch_pool", InlineExecutor())
+
     stdin_data = io.StringIO(
         'ignored\nGSMCMD:{"function":"ping","data":{"x":1}}\nGSMCMD:not-json\nGSMCMD:{"function":"pong"}\n'
     )
@@ -65,6 +71,7 @@ def test_convenience_announce_helpers(monkeypatch):
     electron_ipc.announce_connected()
     electron_ipc.announce_status({"ready": True})
 
+    assert calls, "no IPC messages were sent"
     assert calls[0][0] == (electron_ipc.FunctionName.START.value,)
     assert calls[1][0] == (electron_ipc.FunctionName.STOP.value,)
     assert calls[2][0] == (

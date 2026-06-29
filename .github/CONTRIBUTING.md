@@ -19,7 +19,7 @@ That's it! This will build the TypeScript files and launch the Electron applicat
 
 ### Node.js Version Management with NVM
 
-**Important**: GSM loosely requires Node.js version 21 (I had 21 installed when I built it). I strongly recommend using Node Version Manager (NVM) to manage your Node.js installation. All I know is that 24 DOES NOT work.
+**Important**: GSM loosely requires Node.js version 22 (I had 22 installed when I built it). I strongly recommend using Node Version Manager (NVM) to manage your Node.js installation. All I know is that 24 DOES NOT work.
 
 #### Installing NVM
 
@@ -32,13 +32,13 @@ That's it! This will build the TypeScript files and launch the Electron applicat
 
 https://github.com/nvm-sh/nvm
 
-#### Setting up Node.js 21
+#### Setting up Node.js 22
 
 Once NVM is installed, set up the correct Node.js version:
 
 ```bash
-nvm install 21
-nvm use 21
+nvm install 22
+nvm use 22
 ```
 
 You can verify your Node.js version with:
@@ -64,7 +64,7 @@ node --version
 
 2. **Setup Environment**
    ```bash
-   nvm use 21
+   nvm use 22
    npm install
    ```
 
@@ -158,7 +158,7 @@ Before implementing new features:
 ### Common Issues
 
 **Build Failures:**
-- Ensure you're using Node.js 21: `node --version`
+- Ensure you're using Node.js 22: `node --version`
 - Clear node_modules and reinstall: `rm -rf node_modules && npm install`
 
 **Electron Not Starting:**

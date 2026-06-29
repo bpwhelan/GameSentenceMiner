@@ -1,4 +1,4 @@
-from GameSentenceMiner.owocr.owocr.run import run, init_config
+from GameSentenceMiner.owocr.owocr.ocr_runtime import run, init_config
 
 
 def main():

@@ -1,6 +1,6 @@
 {
   "name": "gsm_overlay",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "On-screen overlay for GameSentenceMiner",
   "main": "main.js",
   "scripts": {
@@ -15,24 +15,26 @@
   "author": "Beangate",
   "license": "LGPL-3.0-only",
   "devDependencies": {
-    "@electron-forge/cli": "^7.11.1",
-    "@electron-forge/maker-deb": "^7.11.1",
-    "@electron-forge/maker-rpm": "^7.11.1",
-    "@electron-forge/maker-squirrel": "^7.11.1",
-    "@electron-forge/maker-zip": "^7.11.1",
-    "@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
-    "@electron-forge/plugin-fuses": "^7.11.1",
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-deb": "^7.11.2",
+    "@electron-forge/maker-rpm": "^7.11.2",
+    "@electron-forge/maker-squirrel": "^7.11.2",
+    "@electron-forge/maker-zip": "^7.11.2",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.11.2",
+    "@electron-forge/plugin-fuses": "^7.11.2",
     "@electron/fuses": "^1.8.0",
-    "concurrently": "^9.2.1",
-    "cross-env": "^10.0.0",
-    "electron": "^41.3.0",
+    "concurrently": "^10.0.3",
+    "cross-env": "^10.1.0",
+    "electron": "^42.3.2",
     "nodemon": "^3.1.14",
-    "vite": "^7.3.2",
-    "wait-on": "^8.0.5"
+    "vite": "^8.0.16",
+    "wait-on": "^9.0.10"
   },
   "dependencies": {
     "electron-squirrel-startup": "1.0.1",
-    "ws": "^8.20.0"
+    "koffi": "^3.0.2",
+    "pinyin-pro": "^3.28.1",
+    "ws": "^8.21.0"
   },
   "overrides": {
     "@electron/rebuild": "^4.0.4",

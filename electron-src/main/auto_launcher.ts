@@ -10,6 +10,8 @@ import { getOverlayRuntimeState, runOverlayWithSource, stopOverlay } from './ui/
 import {
     getAgentPath,
     getAgentScriptsPath,
+    getForceManualOcrAllProfiles,
+    getIgnoreActiveSceneForOcr,
     getLaunchAgentMinimized,
     getLaunchLunaTranslatorMinimized,
     getLaunchTextractorMinimized,
@@ -19,16 +21,29 @@ import {
     getSteamGames,
     getTextractorPath32,
     getTextractorPath64,
-    getYuzuEmuPath,
-    getYuzuGamesConfig,
     runtimeState,
     upsertSceneLaunchProfile
 } from './store.js';
-import type { SceneLaunchProfile, SceneOcrMode } from './store.js';
+import type { SceneLaunchProfile, SceneOcrMode, SceneTextHookMode } from './store.js';
 import { exec, ChildProcess, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import { findAgentScriptById, resolveSwitchAgentScript } from './agent_script_resolver.js';
+import {
+    isHighConfidenceScriptMatch,
+    isSwitchEmulatorTarget,
+    resolveSwitchAgentScript
+} from './agent_script_resolver.js';
+import type { SwitchScriptResolutionResult } from './agent_script_resolver.js';
+import {
+    getProfileFor,
+    getRuntimeStatus,
+    setTextHookUserStartListener,
+    setTextHookUserStopListener,
+    startHookSession,
+    stopHookSession,
+} from './ui/texthook.js';
+
+type IntegratedTextHookEngine = "textractor" | "luna" | "agent";
 
 export class AutoLauncher {
     private intervalId: NodeJS.Timeout | null = null;
@@ -53,6 +68,20 @@ export class AutoLauncher {
     private suppressedAutoOcrReason: string = "";
     private lastLauncherPollAt: number = 0;
     private lastOcrPollAt: number = 0;
+    private lastTextHookStartFailureKey: string = "";
+    private suppressedAutoTextHookSceneId: string = "";
+    private suppressedAutoTextHookReason: string = "";
+    private lastTextHookAutomationSceneId: string = "";
+    private lastTextHookSuppressionSkipSceneId: string = "";
+
+    constructor() {
+        setTextHookUserStopListener(() => {
+            void this.suppressTextHookAutoStartForCurrentScene("user-stopped");
+        });
+        setTextHookUserStartListener(() => {
+            this.clearTextHookSuppression("user-started");
+        });
+    }
 
     private normalizeLaunchDelaySeconds(value: unknown): number {
         if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -115,6 +144,7 @@ export class AutoLauncher {
         this.expectedAutoLauncherOcrStop = false;
         this.lastObservedAutoLauncherOcrRunning = false;
         this.clearOcrSuppression("polling-stopped");
+        this.clearTextHookSuppression("polling-stopped");
     }
 
     private scheduleNextPoll(delay: number) {
@@ -177,6 +207,64 @@ export class AutoLauncher {
 
     private isAutoOcrSuppressedForScene(sceneId: string): boolean {
         return this.suppressedAutoOcrSceneId === sceneId;
+    }
+
+    private setTextHookSuppression(sceneId: string, reason: string) {
+        if (!sceneId) {
+            return;
+        }
+        this.suppressedAutoTextHookSceneId = sceneId;
+        this.suppressedAutoTextHookReason = reason;
+        this.lastTextHookSuppressionSkipSceneId = "";
+        this.logInternal(
+            `AutoLauncher: Text hook auto-start suppressed for scene ${sceneId} (${reason}).`
+        );
+    }
+
+    private clearTextHookSuppression(reason: string) {
+        if (!this.suppressedAutoTextHookSceneId) {
+            return;
+        }
+        this.logInternal(
+            `AutoLauncher: Clearing text hook auto-start suppression for scene ${this.suppressedAutoTextHookSceneId} (${reason}).`
+        );
+        this.suppressedAutoTextHookSceneId = "";
+        this.suppressedAutoTextHookReason = "";
+        this.lastTextHookSuppressionSkipSceneId = "";
+    }
+
+    private isAutoTextHookSuppressedForScene(sceneId: string): boolean {
+        return this.suppressedAutoTextHookSceneId === sceneId;
+    }
+
+    private clearTextHookSuppressionIfSceneChanged(currentScene: ObsScene) {
+        if (
+            this.suppressedAutoTextHookSceneId &&
+            this.suppressedAutoTextHookSceneId !== currentScene.id
+        ) {
+            this.clearTextHookSuppression("scene-changed");
+        }
+    }
+
+    private async suppressTextHookAutoStartForCurrentScene(reason: string) {
+        let sceneId = this.lastTextHookAutomationSceneId;
+        try {
+            const scene = await this.resolveCurrentScene();
+            sceneId = scene?.id || sceneId;
+        } catch {
+            // Use the last polled scene if OBS is temporarily unavailable.
+        }
+        this.setTextHookSuppression(sceneId, reason);
+    }
+
+    private logSuppressedTextHookAutoStartOnce(currentScene: ObsScene) {
+        if (this.lastTextHookSuppressionSkipSceneId === currentScene.id) {
+            return;
+        }
+        this.lastTextHookSuppressionSkipSceneId = currentScene.id;
+        this.logInternal(
+            `AutoLauncher: Text hook auto-start suppressed for scene "${currentScene.name}" until manual start or scene change.`
+        );
     }
 
     private stopOcrIfSceneChanged(currentScene: ObsScene) {
@@ -312,6 +400,33 @@ export class AutoLauncher {
         }
     }
 
+    private resolveDesiredOcrMode(
+        currentScene: ObsScene
+    ): { mode: SceneOcrMode; forcedManual: boolean } {
+        const sceneProfile = getSceneLaunchProfileForScene(currentScene);
+        let ocrMode: SceneOcrMode = sceneProfile?.ocrMode ?? "none";
+
+        // Legacy fallback for users who had OCR scenes configured before scene profiles existed.
+        if (!sceneProfile && ocrMode === "none") {
+            const legacyScenes = getObsOcrScenes();
+            if (legacyScenes.includes(currentScene.name)) {
+                ocrMode = "auto";
+            }
+        }
+
+        // "Turn on manual OCR for all profiles": any scene not already set to auto
+        // OCR falls back to manual OCR so background OCR utilities (screen cropper,
+        // manual capture hotkeys, etc.) stay available even when not actively gaming.
+        // Only scenes we promote from "none" should bypass the session-active gate;
+        // scenes a user explicitly set to manual keep their existing gated behavior.
+        const forcedManual = getForceManualOcrAllProfiles() && ocrMode === "none";
+        if (forcedManual) {
+            ocrMode = "manual";
+        }
+
+        return { mode: ocrMode, forcedManual };
+    }
+
     private async runOcrAutomation(currentScene: ObsScene) {
         try {
             const runtimeBefore = getOCRRuntimeState();
@@ -335,18 +450,30 @@ export class AutoLauncher {
             }
             this.lastObservedAutoLauncherOcrRunning = wasAutoLauncherRunning;
 
-            this.stopOcrIfSceneChanged(currentScene);
+            const ignoreActiveScene = getIgnoreActiveSceneForOcr();
+            const { mode: ocrMode, forcedManual: forcedManualOcr } =
+                this.resolveDesiredOcrMode(currentScene);
 
-            const sceneProfile = getSceneLaunchProfileForScene(currentScene);
-            let ocrMode: SceneOcrMode = sceneProfile?.ocrMode ?? "none";
-
-            // Legacy fallback for users who had OCR scenes configured before scene profiles existed.
-            if (!sceneProfile && ocrMode === "none") {
-                const legacyScenes = getObsOcrScenes();
-                if (legacyScenes.includes(currentScene.name)) {
-                    ocrMode = "auto";
+            // "Ignore active OBS scene for OCR": once OCR is running under
+            // auto-launcher control, leave it running regardless of scene
+            // changes (don't stop/restart it just because the active scene
+            // switched). It keeps the area config of the scene it started with.
+            //
+            // Exception: a forced-manual fallback session ("Turn on manual OCR
+            // for all profiles") must still defer to a scene whose Game
+            // Automation profile actually wants auto OCR. Without this, manual
+            // OCR started on a menu/idle scene gets pinned and never upgrades to
+            // auto when we land on the game scene.
+            if (ignoreActiveScene && wasAutoLauncherRunning) {
+                const desiredRunMode = ocrMode === "manual" ? "manual" : "auto";
+                const needsManualToAutoUpgrade =
+                    runtimeBefore.mode === "manual" && desiredRunMode === "auto";
+                if (!needsManualToAutoUpgrade) {
+                    return;
                 }
             }
+
+            this.stopOcrIfSceneChanged(currentScene);
 
             if (ocrMode === "none") {
                 if (this.isAutoOcrSuppressedForScene(currentScene.id)) {
@@ -357,7 +484,7 @@ export class AutoLauncher {
             }
 
             const isSceneActive = await this.isSceneSessionActive(currentScene);
-            if (!isSceneActive) {
+            if (!isSceneActive && !forcedManualOcr && !ignoreActiveScene) {
                 if (this.isAutoOcrSuppressedForScene(currentScene.id)) {
                     this.clearOcrSuppression("scene-inactive");
                 }
@@ -541,7 +668,9 @@ export class AutoLauncher {
         return null;
     }
 
-    private async getPreferredTextractorPath(gamePid: number): Promise<string | null> {
+    private async getPreferredTextractorPath(
+        gamePid: number,
+    ): Promise<string | null> {
         const configured64 = getTextractorPath64().trim();
         const configured32 = getTextractorPath32().trim();
 
@@ -604,7 +733,7 @@ export class AutoLauncher {
 
     private async handleTextractorAutomation(
         exeName: string | null | undefined,
-        launchDelaySeconds: number = 0
+        launchDelaySeconds: number = 0,
     ): Promise<void> {
         if (!exeName) {
             return;
@@ -707,6 +836,107 @@ export class AutoLauncher {
             lunaPath,
             'LunaTranslator',
             getLaunchLunaTranslatorMinimized()
+        );
+    }
+
+    private resolveIntegratedTextHookEngine(
+        exeName: string | null | undefined
+    ): IntegratedTextHookEngine | null {
+        if (!exeName) {
+            return null;
+        }
+
+        const profile = getProfileFor(exeName);
+        if (!profile || !profile.autoHook) {
+            return null;
+        }
+
+        if (profile.engine === "agent") {
+            return profile.agentScriptPath?.trim() ? "agent" : null;
+        }
+
+        if (!profile.hookId && !profile.hookFunction && !profile.manualHookCode) {
+            return null;
+        }
+
+        return profile.engine;
+    }
+
+    private async handleIntegratedTextHookAutomation(
+        exeName: string | null | undefined,
+        engine: IntegratedTextHookEngine,
+        launchDelaySeconds: number = 0
+    ): Promise<void> {
+        if (!exeName) {
+            return;
+        }
+
+        const gamePid = await this.getPidByProcessName(exeName);
+        if (gamePid <= 0) {
+            return;
+        }
+
+        const currentStatus = getRuntimeStatus();
+        if (currentStatus.running) {
+            if (
+                currentStatus.pid === gamePid &&
+                currentStatus.engine === engine &&
+                currentStatus.exeName.toLowerCase() === exeName.toLowerCase()
+            ) {
+                return;
+            }
+
+            // Same rule as OCR auto-start: never tear down a session the user
+            // started manually. If a user attaches a different engine (e.g.
+            // Luna while a Textractor profile is saved), leave it alone instead
+            // of repeatedly killing it to re-attach the saved profile.
+            if (currentStatus.source !== "auto-launcher") {
+                return;
+            }
+
+            this.logInternal(
+                `AutoLauncher: Stopping active text hook for ${currentStatus.exeName} before attaching ${engine} to ${exeName}.`
+            );
+            stopHookSession();
+        }
+
+        if (launchDelaySeconds > 0) {
+            this.logInternal(
+                `AutoLauncher: Waiting ${launchDelaySeconds.toFixed(1)}s before starting ${engine} text hook.`
+            );
+            await new Promise((resolve) => setTimeout(resolve, launchDelaySeconds * 1000));
+
+            const currentPid = await this.getPidByProcessName(exeName);
+            if (currentPid !== gamePid) {
+                this.logInternal(
+                    `AutoLauncher: Game process changed during ${engine} text hook delay (Old: ${gamePid}, New: ${currentPid}). Skipping attach.`
+                );
+                return;
+            }
+        }
+
+        const result = await startHookSession({
+            engine,
+            exeName,
+            pidOverride: gamePid,
+            source: "auto-launcher",
+        });
+        const failureKey = `${engine}:${exeName}:${gamePid}:${result.error ?? "unknown"}`;
+
+        if (!result.success) {
+            if (this.lastTextHookStartFailureKey !== failureKey) {
+                this.warnInternal(
+                    `AutoLauncher: Failed to start ${engine} text hook for ${exeName} (PID: ${gamePid}): ${result.error ?? "unknown error"}`
+                );
+                this.lastTextHookStartFailureKey = failureKey;
+            }
+            return;
+        }
+
+        this.lastTextHookStartFailureKey = "";
+        this.currentPollingInterval = this.defaultPollingInterval;
+        this.logInternal(
+            `AutoLauncher: Started ${engine} text hook for ${exeName} (PID: ${gamePid}).`
         );
     }
 
@@ -825,22 +1055,41 @@ export class AutoLauncher {
             const launchDelaySeconds = this.normalizeLaunchDelaySeconds(
                 sceneProfile.launchDelaySeconds
             );
-            const switchGame = this.getSwitchGameForScene(currentScene);
-            const validateContext =
-                switchGame?.scene?.name
-                    ? this.createSwitchContextValidator(
-                        currentScene,
-                        exeName,
-                        switchGame.scene.name
-                    )
-                    : undefined;
+
+            // Nintendo Switch emulators (yuzu, ryujinx, ...) keep a single
+            // process alive across games; the active game is identified by the
+            // live window title, not the executable. While the emulator is
+            // open, poll fast so the agent attaches as soon as a game's title
+            // appears and detaches as soon as the title goes away (back to the
+            // emulator menu). The validator re-checks the title every poll.
+            if (this.isSwitchEmulatorExecutable(exeName)) {
+                let keepFastPolling = false;
+                const emuPid = await this.getPidByProcessName(exeName.trim());
+                if (emuPid > 0) {
+                    keepFastPolling = true;
+                    this.currentPollingInterval = this.fastPollingInterval;
+                }
+
+                const validateContext = this.createSwitchContextValidator(
+                    currentScene,
+                    exeName,
+                    currentScene.name
+                );
+                await this.handleGame(
+                    exeName,
+                    scriptPath,
+                    profileKey,
+                    launchDelaySeconds,
+                    validateContext
+                );
+                return keepFastPolling;
+            }
 
             await this.handleGame(
                 exeName,
                 scriptPath,
                 profileKey,
-                launchDelaySeconds,
-                validateContext
+                launchDelaySeconds
             );
             return false;
         }
@@ -867,26 +1116,32 @@ export class AutoLauncher {
             return false;
         }
 
-        const yuzuGame = this.getSwitchGameForScene(currentScene);
-        if (yuzuGame) {
-            const emuProcessName = exeName || path.basename(getYuzuEmuPath());
-            if (!emuProcessName) {
-                this.resetAgentTracking();
-                return false;
-            }
-
+        if (this.isSwitchEmulatorExecutable(exeName)) {
+            const emuProcessName = exeName.trim();
             const precheckPid = await this.getPidByProcessName(emuProcessName);
             if (precheckPid > 0) {
                 keepFastPolling = true;
                 this.currentPollingInterval = this.fastPollingInterval;
             }
 
-            const scriptPath = findAgentScriptById(getAgentScriptsPath(), yuzuGame.id);
+            const windowTitle = await this.resolveSceneWindowTitle(
+                currentScene,
+                emuProcessName,
+                precheckPid > 0 ? precheckPid : undefined
+            );
+            const resolution = resolveSwitchAgentScript({
+                scriptsPath: getAgentScriptsPath(),
+                processName: emuProcessName,
+                windowTitle,
+                sceneName: currentScene.name,
+                explicitGameId: null,
+            });
+            const scriptPath = this.getAutoLaunchableSwitchScriptPath(resolution);
             if (scriptPath) {
-                const validateYuzuContext = this.createSwitchContextValidator(
+                const validateSwitchContext = this.createSwitchContextValidator(
                     currentScene,
                     emuProcessName,
-                    yuzuGame.scene.name
+                    currentScene.name
                 );
 
                 if (precheckPid <= 0) {
@@ -894,12 +1149,20 @@ export class AutoLauncher {
                     return keepFastPolling;
                 }
 
-                if (!(await validateYuzuContext(precheckPid))) {
+                if (!(await validateSwitchContext(precheckPid))) {
                     this.resetAgentTracking();
                     return keepFastPolling;
                 }
 
-                await this.handleGame(emuProcessName, scriptPath, yuzuGame.id, 0, validateYuzuContext);
+                await this.handleGame(
+                    emuProcessName,
+                    scriptPath,
+                    this.getSwitchGameTrackingId(scriptPath, resolution.titleId),
+                    0,
+                    validateSwitchContext
+                );
+            } else {
+                this.resetAgentTracking();
             }
 
             return keepFastPolling;
@@ -909,18 +1172,47 @@ export class AutoLauncher {
         return keepFastPolling;
     }
 
-    private getSwitchGameForScene(currentScene: ObsScene) {
-        return (
-            getYuzuGamesConfig().find((game) => {
-                if (!game.scene) {
-                    return false;
-                }
-                if (game.scene.id === currentScene.id) {
-                    return true;
-                }
-                return game.scene.name === currentScene.name;
-            }) ?? null
+    private isSwitchEmulatorExecutable(exeName: string | null | undefined): exeName is string {
+        if (!exeName || exeName.trim().length === 0) {
+            return false;
+        }
+        return isSwitchEmulatorTarget(exeName, null);
+    }
+
+    private getAutoLaunchableSwitchScriptPath(
+        resolution: SwitchScriptResolutionResult
+    ): string | null {
+        if (!resolution.path || !resolution.isSwitchTarget) {
+            return null;
+        }
+
+        if (
+            resolution.reason === "matched_explicit_id" ||
+            resolution.reason === "matched_title_id" ||
+            resolution.reason === "matched_name"
+        ) {
+            return resolution.path;
+        }
+
+        if (resolution.reason !== "matched_fuzzy_name") {
+            return null;
+        }
+
+        const selectedCandidate = resolution.candidates.find(
+            (candidate) => candidate.path === resolution.path
         );
+        if (!selectedCandidate) {
+            return null;
+        }
+
+        return isHighConfidenceScriptMatch(selectedCandidate.score)
+            ? resolution.path
+            : null;
+    }
+
+    private getSwitchGameTrackingId(scriptPath: string, titleId: string | null): string {
+        const normalizedTitleId = titleId?.trim();
+        return `switch:${normalizedTitleId || scriptPath}`;
     }
 
     private createSwitchContextValidator(
@@ -952,6 +1244,29 @@ export class AutoLauncher {
         };
     }
 
+    private async resolveSceneWindowTitle(
+        currentScene: ObsScene,
+        processName: string,
+        knownPid?: number
+    ): Promise<string | null> {
+        let windowTitle: string | null = null;
+        const pid =
+            typeof knownPid === "number"
+                ? knownPid
+                : await this.getPidByProcessName(processName);
+        if (pid > 0) {
+            windowTitle = await this.getLiveWindowTitle(pid);
+        }
+        if (!windowTitle) {
+            try {
+                windowTitle = (await getWindowTitleFromSource(currentScene.id)) ?? null;
+            } catch {
+                windowTitle = null;
+            }
+        }
+        return windowTitle;
+    }
+
     private async resolveSceneAgentScript(
         currentScene: ObsScene,
         exeName: string,
@@ -964,49 +1279,15 @@ export class AutoLauncher {
             }
         }
 
-        let windowTitle: string | null = null;
-        const pid = await this.getPidByProcessName(exeName);
-        if (pid > 0) {
-            windowTitle = await this.getLiveWindowTitle(pid);
-        }
-        if (!windowTitle) {
-            try {
-                windowTitle = (await getWindowTitleFromSource(currentScene.id)) ?? null;
-            } catch {
-                windowTitle = null;
-            }
-        }
-
-        const yuzuGame = getYuzuGamesConfig().find((game) => {
-            if (!game.scene) {
-                return false;
-            }
-            if (game.scene.id === currentScene.id) {
-                return true;
-            }
-            return game.scene.name === currentScene.name;
-        });
-
-        // Do not auto-fill/persist scripts from fuzzy or name-based matches.
-        // Only allow automatic script selection when a Yuzu scene has an exact ID match.
-        if (!yuzuGame?.id) {
-            return null;
-        }
-
+        const windowTitle = await this.resolveSceneWindowTitle(currentScene, exeName);
         const resolution = resolveSwitchAgentScript({
             scriptsPath: getAgentScriptsPath(),
             processName: exeName,
             windowTitle,
             sceneName: currentScene.name,
-            explicitGameId: yuzuGame.id,
+            explicitGameId: null,
         });
-
-        let resolvedScriptPath: string | null = null;
-        if (resolution.reason === "matched_explicit_id" && resolution.path) {
-            resolvedScriptPath = resolution.path;
-        } else {
-            resolvedScriptPath = findAgentScriptById(getAgentScriptsPath(), yuzuGame.id);
-        }
+        const resolvedScriptPath = this.getAutoLaunchableSwitchScriptPath(resolution);
 
         if (!resolvedScriptPath) {
             return null;
@@ -1027,12 +1308,64 @@ export class AutoLauncher {
         return resolvedScriptPath;
     }
 
+    private async runSavedTextHookProfileAutomation(
+        currentScene: ObsScene,
+        exeName: string | null | undefined
+    ): Promise<void> {
+        const savedProfileEngine = this.resolveIntegratedTextHookEngine(exeName);
+        if (!savedProfileEngine) {
+            return;
+        }
+
+        if (this.isAutoTextHookSuppressedForScene(currentScene.id)) {
+            this.logSuppressedTextHookAutoStartOnce(currentScene);
+            return;
+        }
+
+        await this.handleIntegratedTextHookAutomation(exeName, savedProfileEngine);
+    }
+
+    private async runLauncherTextHookAutomation(
+        currentScene: ObsScene,
+        exeName: string | null | undefined,
+        sceneProfile: SceneLaunchProfile | null,
+        textHookMode: SceneTextHookMode,
+        launchDelaySeconds: number
+    ): Promise<boolean> {
+        if (!sceneProfile) {
+            return this.handleAgentAutomation(currentScene, exeName, sceneProfile, true);
+        }
+
+        if (textHookMode === "agent") {
+            return this.handleAgentAutomation(currentScene, exeName, sceneProfile, false);
+        }
+
+        this.resetAgentTracking();
+
+        if (textHookMode === "textractor") {
+            await this.handleTextractorAutomation(
+                exeName,
+                launchDelaySeconds,
+            );
+            return false;
+        }
+
+        if (textHookMode === "luna") {
+            await this.handleLunaAutomation(exeName, launchDelaySeconds);
+            return false;
+        }
+
+        return false;
+    }
+
     private async runTextHookAutomation(currentScene: ObsScene): Promise<boolean> {
         let keepFastPolling = false;
+        this.lastTextHookAutomationSceneId = currentScene.id;
+        this.clearTextHookSuppressionIfSceneChanged(currentScene);
 
         try {
             const sceneProfile = getSceneLaunchProfileForScene(currentScene);
-            const textHookMode = sceneProfile?.textHookMode ?? "none";
+            const textHookMode: SceneTextHookMode = sceneProfile?.textHookMode ?? "none";
             const launchDelaySeconds = this.normalizeLaunchDelaySeconds(
                 sceneProfile?.launchDelaySeconds
             );
@@ -1048,21 +1381,13 @@ export class AutoLauncher {
                 );
             }
 
-            if (sceneProfile && textHookMode !== "agent") {
-                this.resetAgentTracking();
-                if (textHookMode === "textractor") {
-                    await this.handleTextractorAutomation(exeName, launchDelaySeconds);
-                } else if (textHookMode === "luna") {
-                    await this.handleLunaAutomation(exeName, launchDelaySeconds);
-                }
-                return false;
-            }
-
-            keepFastPolling = await this.handleAgentAutomation(
+            await this.runSavedTextHookProfileAutomation(currentScene, exeName);
+            keepFastPolling = await this.runLauncherTextHookAutomation(
                 currentScene,
                 exeName,
                 sceneProfile,
-                !sceneProfile
+                textHookMode,
+                launchDelaySeconds
             );
         } catch (error) {
             this.errorInternal("AutoLauncher poll error:", error);
@@ -1203,6 +1528,19 @@ export class AutoLauncher {
                 this.logInternal(`AutoLauncher: Agent for ${processName} (PID: ${pid}) not running. Relaunching...`);
                 this.launchAgent(pid, scriptPath);
                 this.currentPollingInterval = this.defaultPollingInterval;
+            } else if (validateContext) {
+                // Agent is already running for this PID/game. Switch emulators
+                // keep the same process across games, so re-check the live
+                // window title each poll and tear the agent down when the user
+                // exits to the emulator menu or swaps games (title stops
+                // matching). It re-attaches once a matching title reappears.
+                const stillValid = await validateContext(pid);
+                if (!stillValid) {
+                    this.logInternal(
+                        `AutoLauncher: Game ID ${gameId} no longer active (window title changed). Stopping agent.`
+                    );
+                    this.resetAgentTracking();
+                }
             }
             return;
         }

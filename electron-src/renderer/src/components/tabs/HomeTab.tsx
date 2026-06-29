@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invokeIpc } from "../../lib/ipc";
 import { useTranslation } from "../../i18n";
+import { TextCaptureWizard } from "../TextCaptureWizard";
 import type { GsmStatus, ObsCaptureMode, ObsScene, ObsWindow } from "../../types/models";
 
 /* ------------------------------------------------------------------ */
@@ -9,6 +10,7 @@ import type { GsmStatus, ObsCaptureMode, ObsScene, ObsWindow } from "../../types
 
 interface HomeTabProps {
   active: boolean;
+  onNavigateTab?: (tab: "ocr" | "texthook" | "launcher" | "settings") => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -25,6 +27,15 @@ const HELPER_SCENE_NAMES = new Set([
 const STATUS_POLL_MS = 1000;
 const SCENE_POLL_MS = 3000;
 const ANKI_BEACON_NUDGE_DELAY_MS = 15_000;
+
+const DEFAULT_PROFILE_NAME = "Default";
+const NEW_PROFILE_VALUE = "__new__";
+
+interface GsmProfileList {
+  profiles?: string[];
+  currentProfile?: string;
+  profileScenes?: Record<string, string[]>;
+}
 
 const OVERLAY_DOCS_URL =
   "https://docs.gamesentenceminer.com/docs/features/overlay";
@@ -298,7 +309,7 @@ function RenameModal({ scene, onClose, onConfirm }: RenameModalProps) {
 /*  Main HomeTab                                                       */
 /* ------------------------------------------------------------------ */
 
-export function HomeTab({ active }: HomeTabProps) {
+export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   const t = useTranslation();
 
   /* ---- Status ---------------------------------------------------- */
@@ -372,6 +383,20 @@ export function HomeTab({ active }: HomeTabProps) {
   const [selectedCaptureMode, setSelectedCaptureMode] = useState<ObsCaptureMode>("window_capture");
   const [overrideSceneName, setOverrideSceneName] = useState("");
   const [captureCardEnabled, setCaptureCardEnabled] = useState(false);
+  const [captureWizardOpen, setCaptureWizardOpen] = useState(false);
+  const [captureWizardScene, setCaptureWizardScene] = useState<ObsScene | null>(null);
+
+  /* ---- Game executable (Linux Wine/Proton target, per-scene) ----- */
+  const [gameExePath, setGameExePath] = useState("");
+  const [windowsDetectedExe, setWindowsDetectedExe] = useState("");
+  const [gameExeDetecting, setGameExeDetecting] = useState(false);
+
+  /* ---- GSM profiles ---------------------------------------------- */
+  const [gsmProfiles, setGsmProfiles] = useState<string[]>([]);
+  const [profileScenes, setProfileScenes] = useState<Record<string, string[]>>({});
+  const [profileAssigning, setProfileAssigning] = useState(false);
+  const [newProfileMode, setNewProfileMode] = useState(false);
+  const [newProfileName, setNewProfileName] = useState("");
 
   /* ---- Loaders --------------------------------------------------- */
   const [scenesLoading, setScenesLoading] = useState(true);
@@ -413,19 +438,32 @@ export function HomeTab({ active }: HomeTabProps) {
     setWindowsLoading(false);
   }, []);
 
+  const loadGsmProfiles = useCallback(async () => {
+    try {
+      const result = await invokeIpc<GsmProfileList | null>("settings.listGSMProfiles");
+      setGsmProfiles(Array.isArray(result?.profiles) ? result.profiles : []);
+      setProfileScenes(
+        result?.profileScenes && typeof result.profileScenes === "object"
+          ? result.profileScenes
+          : {},
+      );
+    } catch { /* swallow */ }
+  }, []);
+
   const refreshAll = useCallback(
     async (quick = false) => {
       await loadScenes();
       await loadWindows(quick);
+      await loadGsmProfiles();
     },
-    [loadScenes, loadWindows],
+    [loadScenes, loadWindows, loadGsmProfiles],
   );
 
   const handleWindowSelectionChange = useCallback((value: string) => {
     setSelectedWindowValue(value);
     const win = windows.find((candidate) => candidate.value === value);
     setSelectedCaptureMode(getDefaultCaptureMode(win));
-    setOverrideSceneName(win?.title ?? "");
+    setOverrideSceneName(win?.suggestedSceneName || win?.title || "");
   }, [windows]);
 
   // Initial fetch + polling
@@ -451,11 +489,25 @@ export function HomeTab({ active }: HomeTabProps) {
     }
   }, [selectedWindowValue]);
 
+  // Leave "new profile" entry mode whenever the active scene changes.
+  useEffect(() => {
+    setNewProfileMode(false);
+    setNewProfileName("");
+  }, [selectedSceneId]);
+
   /* ---- Scene actions --------------------------------------------- */
   const selectedScene = scenes.find((s) => s.id === selectedSceneId) ?? null;
   const isHelperScene = selectedScene ? HELPER_SCENE_NAMES.has(selectedScene.name) : true;
   const hasUserScenes = scenes.some((s) => !HELPER_SCENE_NAMES.has(s.name));
   if (hasUserScenes && !captureCardEverShown) setCaptureCardEverShown(true);
+
+  /* ---- Scene profile mapping ------------------------------------- */
+  const otherProfilesExist = gsmProfiles.some((p) => p !== DEFAULT_PROFILE_NAME);
+  // A scene that isn't explicitly assigned to any profile effectively runs under Default.
+  const sceneProfile = selectedScene
+    ? gsmProfiles.find((p) => (profileScenes[p] ?? []).includes(selectedScene.name)) ?? DEFAULT_PROFILE_NAME
+    : DEFAULT_PROFILE_NAME;
+  const showSceneProfileRow = Boolean(otherProfilesExist && selectedScene && !isHelperScene);
 
   const selectedWindow = windows.find((w) => w.value === selectedWindowValue) ?? null;
   const isCaptureCardSelection = selectedWindow?.targetKind === "capture_card";
@@ -493,10 +545,128 @@ export function HomeTab({ active }: HomeTabProps) {
     return () => { cancelled = true; };
   }, [active, selectedSceneId]);
 
+  // Load the per-scene game executable path (Linux) when the selected scene changes.
+  useEffect(() => {
+    const name = selectedScene?.name;
+    if (!active || !isLinux || !name || isHelperScene) {
+      setGameExePath("");
+      return;
+    }
+    let cancelled = false;
+    invokeIpc<string>("texthook.getGameExePath", name)
+      .then((p) => { if (!cancelled) setGameExePath(typeof p === "string" ? p : ""); })
+      .catch(() => { if (!cancelled) setGameExePath(""); });
+    return () => { cancelled = true; };
+  }, [active, selectedSceneId, isHelperScene, selectedScene?.name]);
+
+  // On Windows the executable is informational only — read it from the OBS capture.
+  useEffect(() => {
+    if (!active || !isWindows) {
+      setWindowsDetectedExe("");
+      return;
+    }
+    let cancelled = false;
+    invokeIpc<{ exeName?: string | null }>("texthook.getActiveCapture")
+      .then((c) => { if (!cancelled) setWindowsDetectedExe(c?.exeName ?? ""); })
+      .catch(() => { if (!cancelled) setWindowsDetectedExe(""); });
+    return () => { cancelled = true; };
+  }, [active, selectedSceneId]);
+
+  const persistGameExePath = useCallback(async (value: string) => {
+    const name = selectedScene?.name;
+    if (!name) return;
+    try {
+      await invokeIpc("texthook.setGameExePath", { sceneName: name, path: value });
+    } catch { /* swallow */ }
+  }, [selectedScene?.name]);
+
+  const handleBrowseGameExe = useCallback(async () => {
+    try {
+      const res = await invokeIpc<{ canceled: boolean; path: string }>("texthook.browseGameExe");
+      if (res && !res.canceled && res.path) {
+        setGameExePath(res.path);
+        await persistGameExePath(res.path);
+      }
+    } catch { /* swallow */ }
+  }, [persistGameExePath]);
+
+  const handleAutoDetectGameExe = useCallback(async () => {
+    setGameExeDetecting(true);
+    try {
+      const res = await invokeIpc<{ path: string; error?: string }>("texthook.autoDetectGameExe");
+      if (res?.path) {
+        setGameExePath(res.path);
+        await persistGameExePath(res.path);
+      }
+    } catch { /* swallow */ } finally {
+      setGameExeDetecting(false);
+    }
+  }, [persistGameExePath]);
+
   const handleSceneChange = useCallback((id: string) => {
     setSelectedSceneId(id);
     if (id) void invokeIpc("obs.switchScene.id", id);
   }, []);
+
+  const handleSceneProfileChange = useCallback(
+    async (value: string) => {
+      const sceneName = selectedScene?.name;
+      if (!sceneName) return;
+      if (value === NEW_PROFILE_VALUE) {
+        setNewProfileName("");
+        setNewProfileMode(true);
+        return;
+      }
+      // Optimistically move the scene to the chosen profile (exclusive).
+      setProfileScenes((prev) => {
+        const next: Record<string, string[]> = {};
+        for (const [profile, sceneList] of Object.entries(prev)) {
+          next[profile] = sceneList.filter((s) => s !== sceneName);
+        }
+        next[value] = [...(next[value] ?? []), sceneName];
+        return next;
+      });
+      setProfileAssigning(true);
+      try {
+        await invokeIpc("settings.relateSceneToProfile", {
+          sceneName,
+          profileName: value,
+          createNew: false,
+        });
+      } catch { /* swallow */ } finally {
+        setProfileAssigning(false);
+      }
+    },
+    [selectedScene],
+  );
+
+  const handleCreateProfileForScene = useCallback(async () => {
+    const sceneName = selectedScene?.name;
+    const name = newProfileName.trim();
+    if (!sceneName || !name) return;
+    setProfileAssigning(true);
+    try {
+      await invokeIpc("settings.relateSceneToProfile", {
+        sceneName,
+        profileName: name,
+        createNew: true,
+      });
+      // Optimistically reflect the new profile + assignment.
+      setGsmProfiles((prev) => (prev.includes(name) ? prev : [...prev, name]));
+      setProfileScenes((prev) => {
+        const next: Record<string, string[]> = {};
+        for (const [profile, sceneList] of Object.entries(prev)) {
+          next[profile] = sceneList.filter((s) => s !== sceneName);
+        }
+        next[name] = [...(next[name] ?? []), sceneName];
+        return next;
+      });
+      setNewProfileMode(false);
+      setNewProfileName("");
+    } catch { /* swallow */ } finally {
+      setProfileAssigning(false);
+    }
+  }, [newProfileName, selectedScene]);
 
   const handleRemoveScene = useCallback(async () => {
     if (!selectedSceneId) return;
@@ -536,7 +706,13 @@ export function HomeTab({ active }: HomeTabProps) {
     }
   }, [selectedSceneId, selectedSceneCaptureMode, refreshAll]);
 
-  const handleCreateScene = useCallback(() => {
+  const handleOpenCaptureWizard = useCallback(() => {
+    if (!selectedScene || isHelperScene) return;
+    setCaptureWizardScene(selectedScene);
+    setCaptureWizardOpen(true);
+  }, [isHelperScene, selectedScene]);
+
+  const handleCreateScene = useCallback(async () => {
     const win = selectedWindow;
     if (!win) return;
     const payload = {
@@ -550,8 +726,24 @@ export function HomeTab({ active }: HomeTabProps) {
       audioDeviceId: win.audioDeviceId,
       wasapiInputDeviceId: win.wasapiInputDeviceId,
     };
-    void invokeIpc("obs.createScene", payload);
-  }, [selectedWindow, overrideSceneName, selectedCaptureMode]);
+    await invokeIpc("obs.createScene", payload);
+    await refreshAll();
+
+    try {
+      const [settings, activeScene] = await Promise.all([
+        invokeIpc<{ textCaptureWizardEnabled?: boolean }>("settings.getSettings"),
+        invokeIpc<ObsScene | null>("obs.getActiveScene")
+      ]);
+      if (settings?.textCaptureWizardEnabled === false) {
+        return;
+      }
+      setCaptureWizardScene(activeScene ?? null);
+      setCaptureWizardOpen(true);
+    } catch {
+      setCaptureWizardScene(null);
+      setCaptureWizardOpen(true);
+    }
+  }, [selectedWindow, overrideSceneName, selectedCaptureMode, refreshAll]);
 
   const handleCaptureCardToggle = useCallback(async (enabled: boolean) => {
     try {
@@ -562,6 +754,12 @@ export function HomeTab({ active }: HomeTabProps) {
       setCaptureCardEnabled(!enabled);
     }
   }, [loadWindows]);
+
+  const handleCaptureWizardClose = useCallback(() => {
+    setCaptureWizardOpen(false);
+    setCaptureWizardScene(null);
+    void refreshAll();
+  }, [refreshAll]);
 
   /* ---- Actions --------------------------------------------------- */
   const openGSMSettings = useCallback(() => void invokeIpc("settings.openGSMSettings"), []);
@@ -709,6 +907,77 @@ export function HomeTab({ active }: HomeTabProps) {
                 </div>
               </div>
 
+                            {/* Scene profile selector — only when more than the Default profile exists */}
+              {showSceneProfileRow && (
+                <div className="home-row">
+                  <div className="home-row__label home-profile-label">
+                    <label htmlFor="home-scene-profile-select">{t("home.obs.profileLabel")}</label>
+                    <button
+                      type="button"
+                      className="home-profile-help-btn"
+                      data-tip={t("home.obs.profileTooltip")}
+                      aria-label={t("home.obs.profileTooltip")}
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10"/>
+                        <path d="M12 16v-4"/>
+                        <path d="M12 8h.01"/>
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="home-row__controls">
+                    {newProfileMode ? (
+                      <>
+                        <input
+                          id="home-scene-profile-new"
+                          className="home-input"
+                          type="text"
+                          value={newProfileName}
+                          placeholder={t("home.obs.profileNewPlaceholder")}
+                          autoComplete="off"
+                          autoFocus
+                          onChange={(e) => setNewProfileName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") { e.preventDefault(); void handleCreateProfileForScene(); }
+                            if (e.key === "Escape") { e.preventDefault(); setNewProfileMode(false); setNewProfileName(""); }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="home-text-btn"
+                          disabled={profileAssigning || !newProfileName.trim()}
+                          onClick={() => void handleCreateProfileForScene()}
+                        >
+                          {t("home.obs.profileCreate")}
+                        </button>
+                        <button
+                          type="button"
+                          className="home-text-btn"
+                          disabled={profileAssigning}
+                          onClick={() => { setNewProfileMode(false); setNewProfileName(""); }}
+                        >
+                          {t("home.obs.profileCancel")}
+                        </button>
+                      </>
+                    ) : (
+                      <select
+                        id="home-scene-profile-select"
+                        className="home-select"
+                        value={sceneProfile}
+                        disabled={profileAssigning}
+                        onChange={(e) => void handleSceneProfileChange(e.target.value)}
+                      >
+                        {gsmProfiles.map((name) => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                        <option value={NEW_PROFILE_VALUE}>{t("home.obs.profileNewOption")}</option>
+                      </select>
+                    )}
+                  </div>
+                </div>
+              )}
+
+
               {/* Scene actions */}
               <div className="home-row">
                 <span className="home-row__label">{/* spacer */}</span>
@@ -735,6 +1004,15 @@ export function HomeTab({ active }: HomeTabProps) {
                   )}
                   <button
                     type="button"
+                    className="home-text-btn"
+                    disabled={isHelperScene}
+                    onClick={handleOpenCaptureWizard}
+                    title={t("home.obs.runCaptureWizardTooltip")}
+                  >
+                    {t("home.obs.runCaptureWizard")}
+                  </button>
+                  <button
+                    type="button"
                     className="home-text-btn home-text-btn--danger"
                     disabled={isHelperScene}
                     onClick={() => void handleRemoveScene()}
@@ -753,6 +1031,59 @@ export function HomeTab({ active }: HomeTabProps) {
                    */}
                 </div>
               </div>
+
+              {/* Game executable — Linux Wine/Proton hook target (read-only on Windows) */}
+              {selectedScene && !isHelperScene && (
+                <div className="home-row">
+                  <label className="home-row__label" htmlFor="home-game-exe">
+                    {t("home.obs.gameExeLabel")}
+                  </label>
+                  <div className="home-row__controls">
+                    {isWindows ? (
+                      <input
+                        id="home-game-exe"
+                        className="home-input"
+                        type="text"
+                        value={windowsDetectedExe}
+                        readOnly
+                        disabled
+                        title={t("home.obs.gameExeWindowsTooltip")}
+                        autoComplete="off"
+                      />
+                    ) : (
+                      <>
+                        <input
+                          id="home-game-exe"
+                          className="home-input"
+                          type="text"
+                          value={gameExePath}
+                          placeholder={t("home.obs.gameExePlaceholder")}
+                          autoComplete="off"
+                          onChange={(e) => setGameExePath(e.target.value)}
+                          onBlur={(e) => void persistGameExePath(e.target.value.trim())}
+                        />
+                        <button
+                          type="button"
+                          className="home-text-btn"
+                          onClick={() => void handleBrowseGameExe()}
+                        >
+                          {t("home.obs.gameExeBrowse")}
+                        </button>
+                        <button
+                          type="button"
+                          className="home-text-btn"
+                          disabled={gameExeDetecting}
+                          onClick={() => void handleAutoDetectGameExe()}
+                        >
+                          {gameExeDetecting
+                            ? t("home.obs.gameExeDetecting")
+                            : t("home.obs.gameExeAutoDetect")}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </section>}
 
@@ -898,7 +1229,7 @@ export function HomeTab({ active }: HomeTabProps) {
                   <button
                     type="button"
                     disabled={!canCreateScene}
-                    onClick={handleCreateScene}
+                    onClick={() => void handleCreateScene()}
                     title={t("home.obs.setupCaptureTooltip")}
                   >
                     {t("home.obs.setupCapture")}
@@ -1062,6 +1393,13 @@ export function HomeTab({ active }: HomeTabProps) {
             >
               {t("home.support.kofi")}
             </a>
+            <a
+              href="#"
+              className="home-support__link"
+              onClick={(e) => { e.preventDefault(); openExternal("https://github.com/bpwhelan/GameSentenceMiner"); }}
+            >
+              {t("home.support.githubStar")}
+            </a>
           </footer>
         </div>
 
@@ -1079,6 +1417,13 @@ export function HomeTab({ active }: HomeTabProps) {
             onClose={closeAnkiBeaconModal}
           />
         )}
+        {captureWizardOpen ? (
+          <TextCaptureWizard
+            initialScene={captureWizardScene}
+            onNavigateTab={onNavigateTab}
+            onClose={handleCaptureWizardClose}
+          />
+        ) : null}
       </div>
     </div>
   );

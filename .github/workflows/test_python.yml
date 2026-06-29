@@ -49,6 +49,14 @@ jobs:
       - name: Sync dependencies (project + dev)
         run: uv sync --extra dev
 
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg-full --no-progress -y
+
       # - name: Check Python formatting
       #   run: uv run ruff format --check GameSentenceMiner tests scripts
 
@@ -57,6 +65,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            ffmpeg \
             xvfb \
             libportaudio2 \
             portaudio19-dev \

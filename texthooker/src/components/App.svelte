@@ -3,9 +3,14 @@
 		mdiArrowULeftTop,
 		mdiCancel,
 		mdiChartBar,
+		mdiChevronDown,
+		mdiChevronLeft,
+		mdiChevronRight,
+		mdiChevronUp,
 		mdiCog,
 		mdiDelete,
 		mdiDeleteForever,
+		mdiFolderMultipleImage,
 		mdiNoteEdit,
 		mdiPause,
 		mdiPlay,
@@ -13,10 +18,10 @@
 		mdiWindowMaximize,
 		mdiWindowRestore,
 	} from '@mdi/js';
-	import { debounceTime, filter, fromEvent, map, NEVER, switchMap, tap, type Subscription } from 'rxjs';
+	import { debounceTime, filter, fromEvent, map, NEVER, switchMap, tap, throttleTime, type Subscription } from 'rxjs';
 	import { onMount, tick } from 'svelte';
 	import { quintInOut } from 'svelte/easing';
-	import { fly } from 'svelte/transition';
+	import { fade, fly } from 'svelte/transition';
 	import {
 		actionHistory$,
 		allowNewLineDuringPause$,
@@ -67,8 +72,10 @@
 		applyCustomCSS,
 		applyReplacements,
 		generateRandomUUID,
+		isScrolledToEnd,
 		newLineCharacter,
 		reduceToEmptyString,
+		setAutoScrollStick,
 		updateScroll
 	} from '../util';
 	import DialogManager from './DialogManager.svelte';
@@ -176,6 +183,18 @@
 			}
 
 			if (text) {
+				// Capture before render: content grows, so a later check is too late.
+				const mainAtEnd = isScrolledToEnd(window, lineContainer, $reverseLineOrder$, $displayVertical$);
+				setAutoScrollStick(false, mainAtEnd);
+				if (pipWindow) {
+					setAutoScrollStick(true, isScrolledToEnd(pipWindow, pipContainer, $reverseLineOrder$, false));
+				}
+
+				// Tally lines that skipped autoscroll so the indicator can show them.
+				if (!mainAtEnd) {
+					newLinesBelow += 1;
+				}
+
 				$lineData$ = applyEqualLineStartMerge([
 					...applyMaxLinesAndGetRemainingLineData(1),
 					{ id, text, ...lineMeta },
@@ -223,6 +242,26 @@
 		tap(mountFunction),
 		reduceToEmptyString(),
 	);
+
+	// Capture-phase so element scroll (vertical mode) is caught too, not just window.
+	const scrollHandler$ = fromEvent(window, 'scroll', { capture: true, passive: true }).pipe(
+		throttleTime(100, undefined, { leading: true, trailing: true }),
+		tap(() => (isAtNewest = isScrolledToEnd(window, lineContainer, $reverseLineOrder$, $displayVertical$))),
+		reduceToEmptyString(),
+	);
+
+	let isAtNewest = true;
+	let newLinesBelow = 0;
+
+	$: if (isAtNewest) newLinesBelow = 0;
+	$: showScrollToNewest = !isAtNewest && !!$lineData$.length;
+	$: newestIconPath = $displayVertical$
+		? $reverseLineOrder$
+			? mdiChevronRight
+			: mdiChevronLeft
+		: $reverseLineOrder$
+			? mdiChevronUp
+			: mdiChevronDown;
 
 	$: iconSize = isSmFactor ? '1.5rem' : '1.25rem';
 	$: audioProgressPercent = audioDuration > 0 ? Math.min(100, (audioCurrentTime / audioDuration) * 100) : 0;
@@ -732,6 +771,10 @@
 		}
 	}
 
+	function scrollToNewest() {
+		updateScroll(window, lineContainer, $reverseLineOrder$, $displayVertical$, 'smooth');
+	}
+
 	function handleMissedLine() {
 		clearTimeout($flashOnPauseTimeout$);
 
@@ -888,8 +931,32 @@
 		return currentLineData;
 	}
 
+	// Non-Anki / Migaku helper: build media folders for the selected (or last) line without an Anki card.
+	async function handleCreateMedia() {
+		try {
+			const response = await fetch(getGSMEndpoint('/create-media'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					ids: selectedLineIds,
+					trim_with_vad: $trimAudioWithVAD$,
+				}),
+			});
+			if (!response.ok) {
+				const data = await response.json().catch(() => ({}));
+				$openDialog$ = {
+					type: 'error',
+					message: data.error || `Failed to create media (HTTP ${response.status})`,
+					showCancel: false,
+				};
+			}
+		} catch (error) {
+			console.error('Error creating media:', error);
+		}
+	}
+
 	let numberOfLinesToTranslate = '';
-	
+
 	async function handleTranslate() {
 		if (!numberOfLinesToTranslate.trim()) return;
 
@@ -926,6 +993,7 @@
 {$pasteHandler$ ?? ''}
 {$copyBlocker$ ?? ''}
 {$resizeHandler$ ?? ''}
+{$scrollHandler$ ?? ''}
 
 {#if $showSpinner$}
 	<Spinner />
@@ -984,6 +1052,13 @@
 	{/if}
 	<div role="button" title="Open Notes" class="mr-1 hover:text-primary sm:mr-2">
 		<Icon path={mdiNoteEdit} width={iconSize} height={iconSize} on:click={() => ($notesOpen$ = true)} />
+	</div>
+	<div
+		role="button"
+		title="Create media folder (no Anki card) for selected or last line"
+		class="mr-1 hover:text-primary sm:mr-2"
+	>
+		<Icon path={mdiFolderMultipleImage} width={iconSize} height={iconSize} on:click={handleCreateMedia} />
 	</div>
 	{#if pipAvailable}
 		<div
@@ -1066,6 +1141,19 @@
 	
 	
 </main>
+
+{#if showScrollToNewest}
+	<div class="fixed bottom-3 left-1/2 z-50 -translate-x-1/2" transition:fade={{ duration: 150 }}>
+		<button
+			class="flex items-center gap-1 rounded-full border border-base-content/20 bg-base-100/95 py-1.5 pl-2 pr-3 text-xs shadow-lg backdrop-blur transition-colors hover:text-primary"
+			on:click={scrollToNewest}
+			title="Jump to newest line"
+		>
+			<Icon path={newestIconPath} width="1rem" height="1rem" />
+			<span>{newLinesBelow > 0 ? `${newLinesBelow > 99 ? '99+' : newLinesBelow} new` : 'Newest'}</span>
+		</button>
+	</div>
+{/if}
 
 <!-- Small translate textbox positioned at bottom right -->
 <div class="fixed bottom-2 right-2 z-50">

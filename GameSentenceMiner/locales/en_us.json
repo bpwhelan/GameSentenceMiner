@@ -20,6 +20,12 @@
         "ok": "OK",
         "run_function": "Run Function"
       },
+      "search": {
+        "placeholder": "Search all settings…",
+        "matches": "{count} matches",
+        "match": "1 match",
+        "no_results": "No settings match your search."
+      },
       "tabs": {
         "key_settings": {
           "title": "Key Settings",
@@ -274,6 +280,14 @@
             "label": "Tag Unvoiced Cards:",
             "tooltip": "Automatically add 'unvoiced' tag to cards that have no audio."
           },
+          "reuse_audio_for_same_selected_lines_different_mined_line": {
+            "label": "Same Selection, Different Line: Reuse Audio:",
+            "tooltip": "When mining another word from the same selected lines but a different mined line, save a new replay and reuse the previous card's audio. Same selected lines plus the same mined line still uses the full-media reuse path."
+          },
+          "reuse_screenshot_for_same_selected_lines_different_mined_line": {
+            "label": "Same Selection, Different Line: Reuse Screenshot:",
+            "tooltip": "When mining another word from the same selected lines but a different mined line, save a new replay and reuse the previous card's screenshot."
+          },
           "multi_overwrites_sentence": {
             "label": "Multi-line Mining Overwrite Sentence:",
             "tooltip": "When using Multi-line Mining, overwrite the sentence with a concatenation of the lines selected."
@@ -328,6 +342,10 @@
           "use_cpu_for_inference": {
             "label": "Force CPU:",
             "tooltip": "Even if CUDA is installed, use CPU for Whisper"
+          },
+          "preload_vad_model": {
+            "label": "Preload VAD Model:",
+            "tooltip": "Load the VAD model at startup instead of on first use. Shared across all profiles."
           },
           "use_tts_as_fallback": {
             "label": "Use TTS as Fallback:",
@@ -386,6 +404,10 @@
           "extension": {
             "label": "Extension:",
             "tooltip": "File extension for the screenshot format."
+          },
+          "capture_backend": {
+            "label": "Capture Backend:",
+            "tooltip": "Screenshot capture backend. auto uses fast Windows capture with OBS fallback, obs avoids direct Windows capture, and winapi prefers direct Windows capture."
           },
           "animated": {
             "label": "Animated:",
@@ -460,8 +482,8 @@
             "tooltip": "Path of the Anki Media Collection, used for external Trimming tool. NO TRAILING SLASH"
           },
           "external_tool": {
-            "label": "External Audio Editing Tool:",
-            "tooltip": "Path to External tool that opens the audio up for manual trimming. I recommend OcenAudio for in-place Editing."
+            "label": "External Audio Editing Tool: (Deprecated)",
+            "tooltip": "Deprecated: The Anki confirmation dialog now includes built-in manual trimming, so an external editor is no longer needed. Path to External tool that opens the audio up for manual trimming."
           },
           "external_tool_enabled": {
             "label": "Enabled:",
@@ -604,6 +626,10 @@
           "polling_rate": {
             "label": "Polling Rate:",
             "tooltip": "Rate at which Anki will check for updates (in milliseconds)."
+          },
+          "mute_game_on_minimize": {
+            "label": "Mute Game When Minimized:",
+            "tooltip": "On Windows, mute the captured game while its window is minimized. Background or unfocused windows are not muted."
           }
         },
         "ai": {
@@ -713,11 +739,19 @@
           },
           "periodic": {
             "label": "Periodic Capture:",
-            "tooltip": "Enable periodic capture of the screen for Overlay. Note, you still need text flowing into GSM for mining to work."
+            "tooltip": "Re-scan the screen on an interval so the overlay stays current without a text event. You can look up and mine these scans through Yomitan in the overlay; GSM attaches audio/screenshot automatically (no need to log the line)."
           },
           "periodic_interval": {
             "label": "Capture Interval (Seconds):",
             "tooltip": "Interval in seconds for periodic screen capture."
+          },
+          "scan_on_mouse_move": {
+            "label": "Only Scan When Mouse Moves:",
+            "tooltip": "While periodic capture is on, only scan when the mouse moves and is hovering over the visible game window. Avoids constant re-OCR when you're idle or looking elsewhere. Windows only."
+          },
+          "inject_scanned_lines": {
+            "label": "Add Scanned Lines to Log (Not Recommended):",
+            "tooltip": "Not recommended. Overlay mining already works without this. When on, every distinct scan is written to the text log, which inflates your stats and floods the texthooker with OCR noise. Only enable if you specifically want scanned lines to appear there."
           }
           ,
           "periodic_ratio": {
@@ -755,8 +789,16 @@
             "tooltip": "Apply exclusion zones from the OCR area config to mask parts of the overlay capture. These are the regions previously shown as orange boxes."
           },
           "use_ocr_result": {
-            "label": "Use OCR Result (Experimental):",
-            "tooltip": "When enabled, the overlay uses pre-computed OCR results when available. Disable this to force a fresh overlay OCR scan."
+            "label": "Use OCR Result Only (Experimental):",
+            "tooltip": "When enabled, the overlay uses ONLY pre-computed OCR results when available. The rest of the screen becomes unlookupable. Mutually exclusive with 'Supplement with Overlay Scan'."
+          },
+          "supplement_ocr_result_with_overlay": {
+            "label": "Supplement OCR Result with Overlay Scan:",
+            "tooltip": "When enabled, the overlay immediately shows pre-computed OCR results, then performs a supplemental overlay scan to make the rest of the screen lookupable too. The supplemental results are added without clearing the primary text."
+          },
+          "manual_mode_desktop_background": {
+            "label": "Freeze Game Frame Behind Overlay (Exclusive Fullscreen):",
+            "tooltip": "For exclusive-fullscreen games (e.g. Resident Evil 7) whose frame disappears when Push to Show steals focus: the instant the overlay is shown, GSM grabs a fresh full-monitor snapshot and paints it behind the overlay, so lookups sit over the last game frame instead of your desktop. There may be some flicker, this is unavoidable."
           },
           "check_previous_lines_for_recycled_indicator": {
             "label": "Check Previous Lines:",
@@ -794,10 +836,6 @@
           "require_game_exe_match": {
             "label": "Require Game EXE Match:",
             "tooltip": "Only allow pausing when the target exe matches the detected game exe."
-          },
-          "allowlist": {
-            "label": "Allowlist (EXE Names):",
-            "tooltip": "Comma-separated exe names that are always allowed."
           },
           "denylist": {
             "label": "Denylist (EXE Names):",
@@ -842,6 +880,10 @@
           "message": "Are you sure you want to delete the profile '{profile_name}'?",
           "error_title": "Error",
           "error_cannot_delete_default": "Cannot delete the Default profile."
+        },
+        "relate_scene": {
+          "title": "Relate Scene",
+          "message": "Relate the current scene '{scene}' with profile '{profile}'?\n\nThe scene will switch to this profile automatically and be removed from any other profile."
         },
         "install_ocenaudio": {
           "title": "Download OcenAudio?",

@@ -55,8 +55,6 @@ from .ocr import build_spatial_text, line_dict_to_spatial_entry
 from .config import Config
 from GameSentenceMiner.util.config.configuration import get_config
 
-from typing import Union
-
 _UNINITIALIZED = object()
 
 _WIN32_CAPTURE_DEPS = _UNINITIALIZED
@@ -66,7 +64,6 @@ _MSS_MODULE = _UNINITIALIZED
 _WEBSOCKETS_MODULE = _UNINITIALIZED
 _CV2_MODULE = _UNINITIALIZED
 _PSUTIL_MODULE = _UNINITIALIZED
-_SSIM_FUNCTION = _UNINITIALIZED
 _DESKTOP_NOTIFIER_SYNC = _UNINITIALIZED
 
 win32gui = None
@@ -244,16 +241,6 @@ def _load_psutil_module():
     return _PSUTIL_MODULE
 
 
-def _load_ssim_function():
-    global _SSIM_FUNCTION
-    if _SSIM_FUNCTION is _UNINITIALIZED:
-        try:
-            _SSIM_FUNCTION = importlib.import_module("skimage.metrics").structural_similarity
-        except ImportError:
-            _SSIM_FUNCTION = None
-    return _SSIM_FUNCTION
-
-
 def _create_notifier():
     global _DESKTOP_NOTIFIER_SYNC
     if _DESKTOP_NOTIFIER_SYNC is _UNINITIALIZED:
@@ -275,6 +262,7 @@ scaled_ocr_config_cache = {}
 scaled_ocr_config_cache_lock = threading.Lock()
 MAX_SCALED_OCR_CACHE_SIZE = 24
 TEXT_DETECTION_RESULT_SCHEMA = "gsm_text_detection_v1"
+BLACK_HOLE_SKIP_LOG_MESSAGE = "Text is inside a black hole OCR box, skipping further processing."
 
 
 def _safe_int(value, default=0):
@@ -347,13 +335,14 @@ def _join_selected_blocks_with_source_separators(source_text, blocks, selected_i
     return "".join(result_parts)
 
 
-def _rebuild_text_from_structured_result(raw_response_dict, coords, filtering):
+def _rebuild_text_from_structured_result(raw_response_dict, coords, filtering, is_second_ocr=False):
     if raw_response_dict and isinstance(raw_response_dict, dict) and "paragraphs" in raw_response_dict and filtering:
         try:
             ocr_result = dict_to_ocr_result(raw_response_dict)
             if ocr_result:
-                ordered_ocr_result = filtering.order_paragraphs_and_lines(ocr_result)
-                return filtering.extract_text_from_ocr_result(ordered_ocr_result)
+                if is_second_ocr:
+                    ocr_result = filtering.order_paragraphs_and_lines(ocr_result)
+                return filtering.extract_text_from_ocr_result(ocr_result)
         except Exception as e:
             logger.warning(f"Error applying advanced layout analysis: {e}")
 
@@ -554,6 +543,7 @@ def _build_scaled_ocr_cache_key(ocr_config, width, height):
                     bool(getattr(rect, "is_excluded", False)),
                     bool(getattr(rect, "is_secondary", False)),
                     bool(getattr(rect, "is_exclusive", False)),
+                    bool(getattr(rect, "is_black_hole", False)),
                     monitor_signature,
                 )
             )
@@ -999,6 +989,9 @@ class TextFiltering:
         # Furigana filter sensitivity logic from config
         self.furigana_filter = get_furigana_filter_sensitivity() > 0
         self.debug_filtering = False
+        # Layout-analysis tuning flags (ported from upstream owocr)
+        self.support_center_aligned_text = True
+        self.merge_close_paragraphs = True
 
         self.kana_variants = {
             "ぁ": ["ぁ", "あ"],
@@ -1121,25 +1114,29 @@ class TextFiltering:
             filtered_text = self._convert_small_kana_to_big(filtered_text)
         return filtered_text
 
-    # --- Layout Analysis Methods from run_base.py ---
+    # --- Layout Analysis Methods (ported from upstream owocr) ---
 
     def order_paragraphs_and_lines(self, ocr_result):
         # Update sensitivity config
         self.furigana_filter = get_furigana_filter_sensitivity() > 0
 
-        # Extract all lines and determine their orientation
-        all_lines = []
-        for paragraph in ocr_result.paragraphs:
-            for line in paragraph.lines:
-                if line.text is None:
-                    line.text = self.get_line_text(line)
+        if self.debug_filtering:
+            for p in ocr_result.paragraphs:
+                lines_repr = []
+                for line in p.lines:
+                    line_text = self.get_line_text(line)
+                    if getattr(line, "writing_direction", None):
+                        lines_repr.append(f"{line_text} writing_direction: {line.writing_direction}")
+                    else:
+                        lines_repr.append(line_text)
+                logger.opt(colors=True).debug(
+                    "<red>Engine paragraph: '{}' writing_direction: '{}'</>",
+                    lines_repr,
+                    p.writing_direction,
+                )
 
-                if paragraph.writing_direction:
-                    is_vertical = paragraph.writing_direction == "TOP_TO_BOTTOM"
-                else:
-                    is_vertical = self._is_line_vertical(line, ocr_result.image_properties)
-
-                all_lines.append({"line_obj": line, "is_vertical": is_vertical})
+        # Wrap lines into dicts with extra metadata needed for reordering
+        all_lines = self._create_line_dicts(ocr_result)
 
         if not all_lines:
             return ocr_result
@@ -1165,13 +1162,59 @@ class TextFiltering:
             paragraphs=final_paragraphs,
         )
 
+    def _create_line_dicts(self, ocr_result):
+        lang = get_ocr_language()
+        lines = []
+        for paragraph in ocr_result.paragraphs:
+            for line in paragraph.lines:
+                if line.text is None:
+                    line.text = self.get_line_text(line)
+                if not line.text.strip():
+                    continue
+
+                normalized_text = "".join(self.cj_regex.findall(line.text))
+                has_jp_text = normalized_text != ""
+                has_kanji = has_jp_text and bool(self.kanji_regex.search(normalized_text))
+
+                line_writing_direction = getattr(line, "writing_direction", None)
+                if line_writing_direction:
+                    is_vertical = line_writing_direction == "TOP_TO_BOTTOM"
+                    is_rtl = line_writing_direction == "RIGHT_TO_LEFT"
+                elif paragraph.writing_direction:
+                    is_vertical = paragraph.writing_direction == "TOP_TO_BOTTOM"
+                    is_rtl = paragraph.writing_direction == "RIGHT_TO_LEFT"
+                else:
+                    is_vertical = self._is_line_vertical(line, ocr_result.image_properties)
+                    is_rtl = (not is_vertical) and lang in ("ar", "he")
+
+                line_dimension = line.bounding_box.height if is_vertical else line.bounding_box.width
+                char_count = len(line.text)
+                character_size = line_dimension / char_count if char_count > 0 else 0.0
+
+                lines.append(
+                    {
+                        "line_obj": line,
+                        "is_vertical": is_vertical,
+                        "is_rtl": is_rtl,
+                        "character_size": character_size,
+                        "has_jp_text": has_jp_text,
+                        "has_kanji": has_kanji,
+                        "is_furigana": False,
+                        "paragraph_id": None,
+                    }
+                )
+
+        return lines
+
     def _create_paragraphs_from_lines(self, lines):
         grouped = set()
         all_paragraphs = []
 
-        def _group_lines(is_vertical):
+        def _group_lines(is_vertical, is_rtl):
             indices = [
-                i for i, line in enumerate(lines) if (line["is_vertical"] in (is_vertical, None)) and i not in grouped
+                i
+                for i, line in enumerate(lines)
+                if (line["is_vertical"] in (is_vertical, None)) and (line["is_rtl"] == is_rtl) and i not in grouped
             ]
 
             if len(indices) < 2:
@@ -1180,6 +1223,9 @@ class TextFiltering:
             if is_vertical:
                 get_start = lambda l: l["line_obj"].bounding_box.top
                 get_end = lambda l: l["line_obj"].bounding_box.bottom
+            elif is_rtl:
+                get_start = lambda l: l["line_obj"].bounding_box.right
+                get_end = lambda l: l["line_obj"].bounding_box.left
             else:
                 get_start = lambda l: l["line_obj"].bounding_box.left
                 get_end = lambda l: l["line_obj"].bounding_box.right
@@ -1199,8 +1245,9 @@ class TextFiltering:
                     all_paragraphs.append(new_paragraph)
                     grouped.update(original_indices)
 
-        _group_lines(True)
-        _group_lines(False)
+        _group_lines(True, False)
+        _group_lines(False, True)
+        _group_lines(False, False)
 
         # Create paragraphs out of ungrouped lines
         ungrouped_lines = [line for i, line in enumerate(lines) if i not in grouped]
@@ -1236,52 +1283,84 @@ class TextFiltering:
                 height=bottom - top,
             )
 
-            writing_direction = "TOP_TO_BOTTOM" if is_vertical else "LEFT_TO_RIGHT"
+            if is_vertical:
+                writing_direction = "TOP_TO_BOTTOM"
+            elif lines[0]["is_rtl"]:
+                writing_direction = "RIGHT_TO_LEFT"
+            else:
+                writing_direction = "LEFT_TO_RIGHT"
         else:
             line_objs = [lines[0]["line_obj"]]
             new_bbox = lines[0]["line_obj"].bounding_box
-            writing_direction = "TOP_TO_BOTTOM" if lines[0]["is_vertical"] else "LEFT_TO_RIGHT"
+            if lines[0]["is_vertical"]:
+                writing_direction = "TOP_TO_BOTTOM"
+            elif lines[0]["is_rtl"]:
+                writing_direction = "RIGHT_TO_LEFT"
+            else:
+                writing_direction = "LEFT_TO_RIGHT"
 
         paragraph = Paragraph(bounding_box=new_bbox, lines=line_objs, writing_direction=writing_direction)
 
         if not merging_step:
-            character_size = self._calculate_character_size(lines, is_vertical)
+            if is_vertical:
+                largest_line = max(lines, key=lambda x: x["line_obj"].bounding_box.width)
+            else:
+                largest_line = max(lines, key=lambda x: x["line_obj"].bounding_box.height)
 
-            return {"paragraph_obj": paragraph, "character_size": character_size}
+            return {
+                "paragraph_obj": paragraph,
+                "character_size": largest_line["character_size"],
+            }
 
-        return paragraph
-
-    def _calculate_character_size(self, lines, is_vertical):
-        if is_vertical:
-            largest_line = max(lines, key=lambda x: x["line_obj"].bounding_box.width)
-            line_dimension = largest_line["line_obj"].bounding_box.height
-        else:
-            largest_line = max(lines, key=lambda x: x["line_obj"].bounding_box.height)
-            line_dimension = largest_line["line_obj"].bounding_box.width
-
-        char_count = len(self.get_line_text(largest_line["line_obj"]))
-
-        if char_count == 0:
-            return 0.0
-
-        return line_dimension / char_count
+        # When merging_step is True, don't allow mixing distinct original paragraphs
+        paragraph_ids = [line["paragraph_id"] for line in lines if line["paragraph_id"] is not None]
+        if len(set(paragraph_ids)) <= 1:
+            return paragraph
+        return None
 
     def _should_group_in_same_paragraph(self, line1, line2, is_vertical):
         bbox1 = line1["line_obj"].bounding_box
         bbox2 = line2["line_obj"].bounding_box
 
+        character_size = max(line1["character_size"], line2["character_size"])
+
         if is_vertical:
-            vertical_overlap = self._check_vertical_overlap(bbox1, bbox2)
             horizontal_distance = self._calculate_horizontal_distance(bbox1, bbox2)
             line_width = max(bbox1.width, bbox2.width)
 
-            return vertical_overlap > 0.1 and horizontal_distance < line_width * 2
-        else:
-            horizontal_overlap = self._check_horizontal_overlap(bbox1, bbox2)
-            vertical_distance = self._calculate_vertical_distance(bbox1, bbox2)
-            line_height = max(bbox1.height, bbox2.height)
+            if not (horizontal_distance < line_width * 2):
+                return False
 
-            return horizontal_overlap > 0.1 and vertical_distance < line_height * 2
+            if (bbox1.top - bbox2.top) < (2 * character_size):
+                return True
+        else:
+            vertical_distance = self._calculate_vertical_distance(bbox1, bbox2)
+            max_line_height = max(bbox1.height, bbox2.height)
+
+            if not (vertical_distance < max_line_height * 2):
+                return False
+
+            if line1["is_rtl"]:
+                coord1 = bbox2.right
+                coord2 = bbox1.right
+            else:
+                coord1 = bbox1.left
+                coord2 = bbox2.left
+
+            if (coord1 - coord2) < (2 * character_size):
+                return True
+
+            if self.support_center_aligned_text:
+                horizontal_overlap = self._check_horizontal_overlap(bbox1, bbox2)
+                if horizontal_overlap > 0.9:
+                    return True
+
+        # Last-chance: group when one line is furigana of the other
+        if len(self._furigana_filter([line1, line2], is_vertical)) == 1:
+            line1["is_furigana"] = True
+            return True
+
+        return False
 
     def _merge_overlapping_lines(self, lines, is_vertical):
         if len(lines) < 2:
@@ -1314,31 +1393,55 @@ class TextFiltering:
             if len(merge_group) > 1:
                 merged_line = self._merge_multiple_lines(merge_group, is_vertical)
                 merged.append(merged_line)
+                if self.debug_filtering:
+                    logger.opt(colors=True).debug(
+                        "<green>Merged lines: '{}' vertical: '{}'</>",
+                        [line["line_obj"].text for line in merge_group],
+                        is_vertical,
+                    )
             else:
                 merged.append(current_line)
 
         return merged
 
     def _merge_multiple_lines(self, lines, is_vertical):
+        is_rtl = lines[0]["is_rtl"]
+
         if is_vertical:
             # Sort lines by y-coordinate (top to bottom)
             sort_key = lambda line: line["line_obj"].bounding_box.center_y
+            reverse_sort = False
         else:
-            # Sort lines by x-coordinate (left to right)
+            # Sort lines by x-coordinate (right to left if RTL, else left to right)
             sort_key = lambda line: line["line_obj"].bounding_box.center_x
+            reverse_sort = is_rtl
 
-        lines = sorted(lines, key=sort_key)
+        lines = sorted(lines, key=sort_key, reverse=reverse_sort)
 
         text_sorted = ""
+        words_sorted = []
+        bboxes = []
+        no_space_size = 0.0
+        has_jp_text = False
+        has_kanji = False
+        is_furigana = False
         for line in lines:
             text_sorted += line["line_obj"].text
-
-        words_sorted = []
-        for line in lines:
             words_sorted.extend(line["line_obj"].words)
+            bboxes.append(line["line_obj"].bounding_box)
+            line_dimension = (
+                line["line_obj"].bounding_box.height if is_vertical else line["line_obj"].bounding_box.width
+            )
+            no_space_size += line_dimension
+            if line["has_jp_text"]:
+                has_jp_text = True
+            if line["is_furigana"] and not has_kanji:
+                is_furigana = True
+            if line["has_kanji"]:
+                is_furigana = False
+                has_kanji = True
 
-        # Calculate new bounding box that encompasses all lines
-        bboxes = [line["line_obj"].bounding_box for line in lines]
+        character_size = no_space_size / len(text_sorted) if text_sorted else 0.0
 
         left = min(bbox.left for bbox in bboxes)
         right = max(bbox.right for bbox in bboxes)
@@ -1355,7 +1458,16 @@ class TextFiltering:
         # Create new merged line
         merged_line = Line(bounding_box=new_bbox, words=words_sorted, text=text_sorted)
 
-        return {"line_obj": merged_line, "is_vertical": is_vertical}
+        return {
+            "line_obj": merged_line,
+            "is_vertical": is_vertical,
+            "is_rtl": is_rtl,
+            "character_size": character_size,
+            "has_jp_text": has_jp_text,
+            "has_kanji": has_kanji,
+            "is_furigana": is_furigana,
+            "paragraph_id": None,
+        }
 
     def _should_merge_lines(self, line1, line2, is_vertical):
         bbox1 = line1["line_obj"].bounding_box
@@ -1365,46 +1477,50 @@ class TextFiltering:
             horizontal_overlap = self._check_horizontal_overlap(bbox1, bbox2)
             vertical_overlap = self._check_vertical_overlap(bbox1, bbox2)
 
-            return horizontal_overlap > 0.7 and vertical_overlap < 0.4
+            return horizontal_overlap > 0.8 and vertical_overlap < 0.4
 
         else:
             vertical_overlap = self._check_vertical_overlap(bbox1, bbox2)
             horizontal_overlap = self._check_horizontal_overlap(bbox1, bbox2)
 
-            return vertical_overlap > 0.7 and horizontal_overlap < 0.4
+            return vertical_overlap > 0.8 and horizontal_overlap < 0.4
 
     def _furigana_filter(self, lines, is_vertical):
         filtered_lines = []
-
-        for line in lines:
-            line_text = self.get_line_text(line["line_obj"])
-            normalized_line_text = "".join(self.cj_regex.findall(line_text))
-            line["normalized_text"] = normalized_line_text
-        if all(not line["normalized_text"] for line in lines):
-            return lines
-
         for i, line in enumerate(lines):
             if i >= len(lines) - 1:
                 filtered_lines.append(line)
                 continue
 
-            current_line_text = self.get_line_text(line["line_obj"])
-            current_line_bbox = line["line_obj"].bounding_box
             next_line = lines[i + 1]
-            next_line_text = self.get_line_text(next_line["line_obj"])
+
+            if not (line["has_jp_text"] and next_line["has_jp_text"]):
+                filtered_lines.append(line)
+                continue
+            if line["has_kanji"]:
+                filtered_lines.append(line)
+                continue
+            if not next_line["has_kanji"]:
+                filtered_lines.append(line)
+                continue
+            if next_line["is_furigana"]:
+                filtered_lines.append(line)
+                continue
+            if line["is_furigana"]:
+                continue
+
+            current_line_text = line["line_obj"].text
+            current_line_bbox = line["line_obj"].bounding_box
+            next_line_text = next_line["line_obj"].text
             next_line_bbox = next_line["line_obj"].bounding_box
 
-            if not (line["normalized_text"] and next_line["normalized_text"]):
-                filtered_lines.append(line)
-                continue
-            has_kanji = self.kanji_regex.search(line["normalized_text"])
-            if has_kanji:
-                filtered_lines.append(line)
-                continue
-            next_has_kanji = self.kanji_regex.search(next_line["normalized_text"])
-            if not next_has_kanji:
-                filtered_lines.append(line)
-                continue
+            if self.debug_filtering:
+                logger.opt(colors=True).debug(
+                    "<magenta>Furigana check line: '{}' against line: '{}' vertical: '{}'</>",
+                    current_line_text,
+                    next_line_text,
+                    is_vertical,
+                )
 
             if is_vertical:
                 min_h_distance = abs(next_line_bbox.width - current_line_bbox.width) / 2
@@ -1413,6 +1529,12 @@ class TextFiltering:
 
                 horizontal_distance = current_line_bbox.center_x - next_line_bbox.center_x
                 vertical_overlap = self._check_vertical_overlap(current_line_bbox, next_line_bbox)
+
+                if self.debug_filtering:
+                    logger.opt(colors=True).debug(
+                        f"<magenta>Vertical position: min h.dist '{min_h_distance:.4f}' max h.dist '{max_h_distance:.4f}' "
+                        f"h.dist '{horizontal_distance:.4f}' v.overlap '{vertical_overlap:.4f}'</>"
+                    )
 
                 passed_position_check = (
                     min_h_distance < horizontal_distance < max_h_distance and vertical_overlap > min_v_overlap
@@ -1425,6 +1547,12 @@ class TextFiltering:
                 vertical_distance = next_line_bbox.center_y - current_line_bbox.center_y
                 horizontal_overlap = self._check_horizontal_overlap(current_line_bbox, next_line_bbox)
 
+                if self.debug_filtering:
+                    logger.opt(colors=True).debug(
+                        f"<magenta>Horizontal position: min v.dist '{min_v_distance:.4f}' max v.dist '{max_v_distance:.4f}' "
+                        f"v.dist '{vertical_distance:.4f}' h.overlap '{horizontal_overlap:.4f}'</>"
+                    )
+
                 passed_position_check = (
                     min_v_distance < vertical_distance < max_v_distance and horizontal_overlap > min_h_overlap
                 )
@@ -1434,17 +1562,32 @@ class TextFiltering:
                 continue
 
             if is_vertical:
-                width_threshold = next_line_bbox.width * 0.77
-                passed_size_check = current_line_bbox.width < width_threshold
+                height_threshold = next_line["character_size"] * 0.85
+                passed_size_check = line["character_size"] < height_threshold
+                if self.debug_filtering:
+                    logger.opt(colors=True).debug(
+                        f"<magenta>Vertical size: kanji '{next_line['character_size']:.4f}' "
+                        f"kana '{line['character_size']:.4f}' max kana '{height_threshold:.4f}'</>"
+                    )
             else:
                 height_threshold = next_line_bbox.height * 0.85
                 passed_size_check = current_line_bbox.height < height_threshold
+                if self.debug_filtering:
+                    logger.opt(colors=True).debug(
+                        f"<magenta>Horizontal height: kanji '{next_line_bbox.height:.4f}' "
+                        f"kana '{current_line_bbox.height:.4f}' max kana '{height_threshold:.4f}'</>"
+                    )
 
             if not passed_size_check:
                 filtered_lines.append(line)
                 continue
 
-            # Skip line (furigana detected)
+            if self.debug_filtering:
+                logger.opt(colors=True).debug(
+                    "<yellow>Detected furigana line: '{}' next to line: '{}'</>",
+                    current_line_text,
+                    next_line_text,
+                )
 
         return filtered_lines
 
@@ -1458,15 +1601,18 @@ class TextFiltering:
             vertical_distance = self._calculate_vertical_distance(bbox1, bbox2)
             horizontal_overlap = self._check_horizontal_overlap(bbox1, bbox2)
 
-            return vertical_distance <= 3 * character_size and horizontal_overlap > 0.4
+            return vertical_distance <= 2 * character_size and horizontal_overlap > 0.9
         else:
+            if paragraph1["paragraph_obj"].writing_direction != paragraph2["paragraph_obj"].writing_direction:
+                return False
+
             horizontal_distance = self._calculate_horizontal_distance(bbox1, bbox2)
             vertical_overlap = self._check_vertical_overlap(bbox1, bbox2)
 
-            return horizontal_distance <= 3 * character_size and vertical_overlap > 0.4
+            return horizontal_distance <= 3 * character_size and vertical_overlap > 0.9
 
     def _merge_close_paragraphs(self, paragraphs):
-        if len(paragraphs) < 2:
+        if (not self.merge_close_paragraphs) or len(paragraphs) < 2:
             return [p["paragraph_obj"] for p in paragraphs]
 
         merged_paragraphs = []
@@ -1504,8 +1650,23 @@ class TextFiltering:
                     merged_paragraphs.append(paragraphs[original_indices[0]]["paragraph_obj"])
                 else:
                     component_paragraphs = [paragraphs[i] for i in original_indices]
+                    if self.debug_filtering:
+                        logger.opt(colors=True).debug(
+                            "<green>Trying to merge paragraphs vertical: '{}'</>",
+                            is_vertical,
+                        )
+                        for p in component_paragraphs:
+                            logger.opt(colors=True).debug(
+                                "<green>    Paragraph: '{}'</>",
+                                [line.text for line in p["paragraph_obj"].lines],
+                            )
                     merged_paragraph = self._merge_multiple_paragraphs(component_paragraphs, is_vertical)
-                    merged_paragraphs.append(merged_paragraph)
+                    if merged_paragraph:
+                        if self.debug_filtering:
+                            logger.opt(colors=True).debug("<green>Merged paragraphs!</>")
+                        merged_paragraphs.append(merged_paragraph)
+                    else:
+                        merged_paragraphs.extend([p["paragraph_obj"] for p in component_paragraphs])
 
         _merge_paragraphs(True)
         _merge_paragraphs(False)
@@ -1514,19 +1675,33 @@ class TextFiltering:
 
     def _merge_multiple_paragraphs(self, paragraphs, is_vertical):
         merged_lines = []
+        paragraph_id = 0
         for p in paragraphs:
+            paragraph_id += 1
             for line in p["paragraph_obj"].lines:
-                merged_lines.append({"line_obj": line, "is_vertical": is_vertical})
+                merged_lines.append(
+                    {
+                        "line_obj": line,
+                        "is_vertical": is_vertical,
+                        "is_rtl": p["paragraph_obj"].writing_direction == "RIGHT_TO_LEFT",
+                        "character_size": 0.0,
+                        "has_jp_text": False,
+                        "has_kanji": False,
+                        "is_furigana": False,
+                        "paragraph_id": paragraph_id,
+                    }
+                )
 
         return self._create_paragraph_from_lines(merged_lines, is_vertical, True)
 
     def _group_paragraphs_into_rows(self, paragraphs):
         if len(paragraphs) < 2:
-            return [{"paragraphs": paragraphs, "is_vertical": False}]
+            is_vertical_or_rtl = paragraphs[0].writing_direction != "LEFT_TO_RIGHT" if paragraphs else False
+            return [{"paragraphs": paragraphs, "is_vertical_or_rtl": is_vertical_or_rtl}]
 
         components = self._find_connected_components(
             items=paragraphs,
-            should_connect=lambda p1, p2: self._check_vertical_overlap(p1.bounding_box, p2.bounding_box) > 0.4,
+            should_connect=lambda p1, p2: self._check_vertical_overlap(p1.bounding_box, p2.bounding_box) > 0.2,
             get_start_coord=lambda p: p.bounding_box.top,
             get_end_coord=lambda p: p.bounding_box.bottom,
         )
@@ -1534,10 +1709,10 @@ class TextFiltering:
         rows = []
         for component in components:
             row_paragraphs = [paragraphs[i] for i in component]
-            vertical_count = sum(1 for p in row_paragraphs if p.writing_direction == "TOP_TO_BOTTOM")
-            is_vertical = vertical_count * 2 >= len(row_paragraphs)
+            vertical_or_rtl_count = sum(1 for p in row_paragraphs if p.writing_direction != "LEFT_TO_RIGHT")
+            is_vertical_or_rtl = vertical_or_rtl_count * 2 >= len(row_paragraphs)
 
-            rows.append({"paragraphs": row_paragraphs, "is_vertical": is_vertical})
+            rows.append({"paragraphs": row_paragraphs, "is_vertical_or_rtl": is_vertical_or_rtl})
 
         return rows
 
@@ -1546,7 +1721,7 @@ class TextFiltering:
 
         for row in rows:
             paragraphs = row["paragraphs"]
-            is_vertical = row["is_vertical"]
+            is_vertical_or_rtl = row["is_vertical_or_rtl"]
 
             if len(paragraphs) < 2:
                 reordered_rows.append(row)
@@ -1555,33 +1730,33 @@ class TextFiltering:
             # Sort paragraphs by x-coordinate (left edge)
             paragraphs_sorted = sorted(paragraphs, key=lambda p: p.bounding_box.left)
 
-            if is_vertical:
-                # Reverse the entire order for predominantly vertical rows
+            if is_vertical_or_rtl:
+                # Reverse the entire order for predominantly vertical/RTL rows
                 paragraphs_sorted.reverse()
 
             # Further reorder contiguous blocks with different orientation
-            final_order = self._reorder_mixed_orientation_blocks(paragraphs_sorted, is_vertical)
+            final_order = self._reorder_mixed_orientation_blocks(paragraphs_sorted, is_vertical_or_rtl)
 
-            reordered_rows.append({"paragraphs": final_order, "is_vertical": is_vertical})
+            reordered_rows.append({"paragraphs": final_order, "is_vertical_or_rtl": is_vertical_or_rtl})
 
         return reordered_rows
 
-    def _reorder_mixed_orientation_blocks(self, paragraphs, row_is_vertical):
+    def _reorder_mixed_orientation_blocks(self, paragraphs, row_is_vertical_or_rtl):
         if len(paragraphs) < 2:
             return paragraphs
 
         result = []
         current_block = [paragraphs[0]]
-        current_orientation = paragraphs[0].writing_direction == "TOP_TO_BOTTOM"
+        current_orientation = paragraphs[0].writing_direction != "LEFT_TO_RIGHT"
 
         for para in paragraphs[1:]:
-            para_orientation = para.writing_direction == "TOP_TO_BOTTOM"
+            para_orientation = para.writing_direction != "LEFT_TO_RIGHT"
 
             if para_orientation == current_orientation:
                 current_block.append(para)
             else:
                 # Process the completed block
-                if current_orientation != row_is_vertical:
+                if current_orientation != row_is_vertical_or_rtl:
                     # Reverse blocks that don't match row orientation
                     current_block.reverse()
                 result.extend(current_block)
@@ -1591,7 +1766,7 @@ class TextFiltering:
                 current_orientation = para_orientation
 
         # Process the last block
-        if current_orientation != row_is_vertical:
+        if current_orientation != row_is_vertical_or_rtl:
             current_block.reverse()
         result.extend(current_block)
 
@@ -1599,6 +1774,19 @@ class TextFiltering:
 
     def _flatten_rows_to_paragraphs(self, rows):
         rows_sorted = sorted(rows, key=lambda r: min(p.bounding_box.top for p in r["paragraphs"]))
+
+        if self.debug_filtering:
+            for r in rows_sorted:
+                logger.opt(colors=True).debug(
+                    "<green>Row vertical_or_rtl: '{}'</>",
+                    r["is_vertical_or_rtl"],
+                )
+                for p in r["paragraphs"]:
+                    logger.opt(colors=True).debug(
+                        "<green>    Paragraph: '{}' writing_direction: '{}'</>",
+                        [line.text for line in p.lines],
+                        p.writing_direction,
+                    )
 
         all_paragraphs = []
         for row in rows_sorted:
@@ -1630,6 +1818,9 @@ class TextFiltering:
         bbox = line.bounding_box
         pixel_width = bbox.width * image_properties.width
         pixel_height = bbox.height * image_properties.height
+
+        if pixel_height <= 0:
+            return False
 
         aspect_ratio = pixel_width / pixel_height
         return aspect_ratio < 0.8
@@ -1894,10 +2085,18 @@ class TextFiltering:
         all_blocks = []
         new_blocks = []
         new_block_indexes = []
+        duplicate_prefix_indexes = set()
+        for idx, block_compare in enumerate(orig_text_compare):
+            if not block_compare:
+                break
+            if block_compare not in last_text:
+                break
+            duplicate_prefix_indexes.add(idx)
+
         for idx, block in enumerate(orig_text):
             if orig_text_filtered[idx]:
                 all_blocks.append(str(block).strip().replace("BLANK_LINE", "\n"))
-            if orig_text_compare[idx] and (orig_text_compare[idx] not in last_text):
+            if orig_text_compare[idx] and idx not in duplicate_prefix_indexes:
                 new_blocks.append(str(block).strip().replace("BLANK_LINE", "\n"))
                 new_block_indexes.append(idx)
 
@@ -2315,27 +2514,6 @@ class ScreenshotThread(threading.Thread):
             self.windows_window_tracker_instance.join()
 
 
-def apply_adaptive_threshold_filter(img):
-    cv2_module = _load_cv2_module()
-    if cv2_module is None:
-        raise RuntimeError("opencv-python is not installed")
-    img = cv2_module.cvtColor(np.array(img), cv2_module.COLOR_RGB2BGR)
-    gray = cv2_module.cvtColor(img, cv2_module.COLOR_BGR2GRAY)
-    inverted = cv2_module.bitwise_not(gray)
-    blur = cv2_module.GaussianBlur(inverted, (3, 3), 0)
-    thresh = cv2_module.adaptiveThreshold(
-        blur,
-        255,
-        cv2_module.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2_module.THRESH_BINARY,
-        11,
-        2,
-    )
-    result = cv2_module.bitwise_not(thresh)
-
-    return Image.fromarray(result)
-
-
 def _close_cached_image(image):
     try:
         if image is not None and hasattr(image, "close"):
@@ -2345,261 +2523,82 @@ def _close_cached_image(image):
 
 
 def _update_image_comparison_cache(cached_image, image):
+    """Cache the given image and its numpy view for fast pixel comparisons.
+
+    The returned ``cached_image`` is the same object passed in (no PIL.copy),
+    because callers treat the cache as read-only. We pay the PIL→numpy
+    conversion exactly once per cache update instead of per comparison.
+    """
     if image is None:
         _close_cached_image(cached_image)
         return None, None
 
     try:
-        cached_snapshot = image.copy() if isinstance(image, Image.Image) else image
-        cached_snapshot_np = np.array(cached_snapshot)
+        cached_snapshot_np = image if isinstance(image, np.ndarray) else np.asarray(image)
     except Exception:
         logger.debug("Failed to cache image for comparison.")
         _close_cached_image(cached_image)
         return None, None
 
-    _close_cached_image(cached_image)
-    return cached_snapshot, cached_snapshot_np
+    if cached_image is not None and cached_image is not image:
+        _close_cached_image(cached_image)
+    return image, cached_snapshot_np
 
 
 def set_last_image(image):
     global last_image, last_image_np
     last_image, last_image_np = _update_image_comparison_cache(last_image, image)
-    # last_image = apply_adaptive_threshold_filter(image)
 
 
 def are_images_identical(img1, img2, img2_np=None):
-    """
-    Compares two images for pixel-wise identity.
-    Optionally, pass a cached np.array for img2 as img2_np to avoid repeated conversion.
+    """Pixel-identical comparison. Accepts PIL or numpy for either side.
 
-    Args:
-        img1: PIL.Image or np.ndarray
-        img2: PIL.Image or np.ndarray
-        img2_np: Optional cached np.ndarray for img2
-
-    Returns:
-        bool: True if images are identical, False otherwise.
+    Pass ``img2_np`` (a cached numpy view of ``img2``) to skip the conversion
+    of the reference image; ``img1`` is converted lazily as well.
     """
-    if any(v is None for v in (img1, img2, img2_np)):
+    if img1 is None or (img2 is None and img2_np is None):
         return False
 
     try:
-        img1_np = np.array(img1)
-        img2_np = img2_np if img2_np is not None else np.array(img2)
+        img1_np = img1 if isinstance(img1, np.ndarray) else np.asarray(img1)
+        if img2_np is None:
+            img2_np = img2 if isinstance(img2, np.ndarray) else np.asarray(img2)
     except Exception:
         logger.warning("Failed to convert images to numpy arrays for comparison.")
         return False
 
-    return (img1_np.shape == img2_np.shape) and np.array_equal(img1_np, img2_np)
+    if img1_np.shape != img2_np.shape:
+        return False
+    # Sample a handful of pixels first to reject obviously-different frames
+    # in O(1) before paying for the full bytewise comparison.
+    if img1_np.size >= 256:
+        if img1_np.ndim >= 2:
+            corners = (
+                (0, 0),
+                (0, -1),
+                (-1, 0),
+                (-1, -1),
+                (img1_np.shape[0] // 2, img1_np.shape[1] // 2),
+            )
+            for y, x in corners:
+                if not np.array_equal(img1_np[y, x], img2_np[y, x]):
+                    return False
+    return np.array_equal(img1_np, img2_np)
 
 
-ImageType = Union[np.ndarray, Image.Image]
-
-
-def _prepare_image(image: ImageType) -> np.ndarray:
-    """
-    Standardizes an image (PIL or NumPy) into an OpenCV-compatible NumPy array (BGR).
-    """
-    cv2_module = _load_cv2_module()
-    if cv2_module is None:
-        raise RuntimeError("opencv-python is not installed")
-    # If the image is a PIL Image, convert it to a NumPy array
-    if isinstance(image, Image.Image):
-        # Convert PIL Image (which is RGB) to a NumPy array, then convert RGB to BGR for OpenCV
-        prepared_image = cv2_module.cvtColor(np.array(image), cv2_module.COLOR_RGB2BGR)
-    # If it's already a NumPy array, assume it's in a compatible format (like BGR)
-    elif isinstance(image, np.ndarray):
-        prepared_image = image
-    else:
-        raise TypeError(f"Unsupported image type: {type(image)}. Must be a PIL Image or NumPy array.")
-
-    return prepared_image
-
-
-i = 1
-
-
-def calculate_ssim_score(imageA: ImageType, imageB: ImageType) -> float:
-    global i
-    """
-    Calculates the structural similarity index (SSIM) between two images.
-
-    Args:
-        imageA: The first image as a NumPy array.
-        imageB: The second image as a NumPy array.
-
-    Returns:
-        The SSIM score between the two images (between -1 and 1).
-    """
-
-    if isinstance(imageA, Image.Image):
-        imageA = apply_adaptive_threshold_filter(imageA)
-
-    # Save Images to temp for debugging on a random 1/20 chance
-    # if np.random.rand() < 0.05:
-    # if i < 600:
-    #     # Save as image_000
-    #     imageA.save(os.path.join(get_temporary_directory(), f'frame_{i:03d}.png'), 'PNG')
-    #     i += 1
-    # imageB.save(os.path.join(get_temporary_directory(), f'ssim_imageB_{i:03d}.png'), 'PNG')
-
-    imageA = _prepare_image(imageA)
-    imageB = _prepare_image(imageB)
-
-    # Images must have the same dimensions
-    if imageA.shape != imageB.shape:
-        raise ValueError("Input images must have the same dimensions.")
-
-    # Convert images to grayscale for a more robust SSIM comparison
-    # This is less sensitive to minor color changes and lighting.
-    # grayA = cv2.cvtColor(imageA, cv2.COLOR_BGR2GRAY)
-    # grayB = cv2.cvtColor(imageB, cv2.COLOR_BGR2GRAY)
-
-    # Calculate the SSIM. The `score` is the main value.
-    # The `win_size` parameter must be an odd number and less than the image dimensions.
-    # We choose a value that is likely to be safe for a variety of image sizes.
-    win_size = min(3, imageA.shape[0] // 2, imageA.shape[1] // 2)
-    if win_size % 2 == 0:  # ensure it's odd
-        win_size -= 1
-
-    ssim_func = _load_ssim_function()
-    if ssim_func is None:
-        raise RuntimeError("scikit-image is not installed")
-    score, _ = ssim_func(imageA, imageB, full=True, win_size=win_size)
-
-    return score
-
-
-showed = False
-
-
-def are_images_similar(imageA: Image.Image, imageB: Image.Image, threshold: float = 0.98) -> bool:
-    """
-    Compares two images and returns True if their similarity score is above a threshold.
-
-    Args:
-        imageA: The first image as a NumPy array.
-        imageB: The second image as a NumPy array.
-        threshold: The minimum SSIM score to be considered "similar".
-                   Defaults to 0.98 (very high similarity). Your original `90` would
-                   be equivalent to a threshold of `0.90` here.
-
-    Returns:
-        True if the images are similar, False otherwise.
-    """
-    return False
-    if None in (imageA, imageB):
-        logger.info("One of the images is None, cannot compare.")
+def is_image_empty(img_np):
+    """Cheap blank-frame detector: True if the image is uniform colour."""
+    if img_np is None or img_np.size == 0:
         return False
     try:
-        global showed
-        if not showed:
-            imageA.show()
-            imageB.show()
-            showed = True
-        score = calculate_ssim_score(imageA, imageB)
-        logger.info(f"SSIM score between images: {score}")
-    except Exception as e:
-        logger.info(e)
+        patch = img_np[:8, :8]
+        if patch.ndim == 3:
+            return bool(np.all(patch.max(axis=(0, 1)) - patch.min(axis=(0, 1)) == 0)) and bool(
+                np.all(img_np.max(axis=(0, 1)) - img_np.min(axis=(0, 1)) == 0)
+            )
+        return bool(patch.max() - patch.min() == 0) and bool(img_np.max() - img_np.min() == 0)
+    except Exception:
         return False
-    return score > threshold
-
-
-EMPTY_SCAN_RATE_MAX = 5.0
-NO_TEXT_SCAN_RATE_MAX = 2.0
-NO_TEXT_SIMILAR_SCAN_RATE_MAX = 5.0
-NO_TEXT_SLEEP_INCREMENT = 0.005
-NO_TEXT_SIMILAR_SLEEP_INCREMENT = 0.25
-NO_TEXT_SIMILARITY_THRESHOLD = 0.98
-
-
-def _get_sleep_scan_rate_cap(base_scan_rate: float, sleep_reason: str) -> float:
-    if sleep_reason in ("empty", "no_text_similar"):
-        return EMPTY_SCAN_RATE_MAX
-    return NO_TEXT_SCAN_RATE_MAX
-
-
-def _get_adjusted_scan_rate(base_scan_rate: float, sleep_time_to_add: float, sleep_reason: str) -> float:
-    return max(
-        base_scan_rate, min(base_scan_rate + sleep_time_to_add, _get_sleep_scan_rate_cap(base_scan_rate, sleep_reason))
-    )
-
-
-def _get_sleep_add_for_target_rate(base_scan_rate: float, target_scan_rate: float) -> float:
-    return max(0.0, target_scan_rate - base_scan_rate)
-
-
-def _get_no_text_scan_rate_cap(base_scan_rate: float) -> float:
-    return max(base_scan_rate, NO_TEXT_SCAN_RATE_MAX)
-
-
-def _should_check_no_text_similarity(base_scan_rate: float, sleep_time_to_add: float, sleep_reason: str) -> bool:
-    if sleep_reason not in ("no_text", "no_text_similar"):
-        return False
-    current_scan_rate = _get_adjusted_scan_rate(base_scan_rate, sleep_time_to_add, sleep_reason)
-    return current_scan_rate >= _get_no_text_scan_rate_cap(base_scan_rate)
-
-
-def _can_check_no_text_similarity(
-    base_scan_rate: float,
-    sleep_time_to_add: float,
-    sleep_reason: str,
-    last_image,
-    last_image_np,
-) -> bool:
-    return (
-        last_image is not None
-        and last_image_np is not None
-        and _should_check_no_text_similarity(base_scan_rate, sleep_time_to_add, sleep_reason)
-    )
-
-
-def _update_no_text_similarity_sleep_state(
-    base_scan_rate: float,
-    sleep_time_to_add: float,
-    sleep_reason: str,
-    is_similar: bool,
-) -> tuple[float, str]:
-    if is_similar:
-        max_sleep_add = max(0.0, NO_TEXT_SIMILAR_SCAN_RATE_MAX - base_scan_rate)
-        min_sleep_add = _get_sleep_add_for_target_rate(base_scan_rate, _get_no_text_scan_rate_cap(base_scan_rate))
-        next_sleep_add = max(sleep_time_to_add, min_sleep_add) + NO_TEXT_SIMILAR_SLEEP_INCREMENT
-        return min(next_sleep_add, max_sleep_add), "no_text_similar"
-
-    if sleep_reason == "no_text_similar":
-        sleep_time_to_add = min(
-            sleep_time_to_add,
-            _get_sleep_add_for_target_rate(base_scan_rate, _get_no_text_scan_rate_cap(base_scan_rate)),
-        )
-        return sleep_time_to_add, "no_text"
-
-    return sleep_time_to_add, sleep_reason
-
-
-def quick_text_detection(pil_image, threshold_ratio=0.01):
-    """
-    Quick check if image likely contains text using edge detection.
-
-    Args:
-        pil_image (PIL.Image): Input image
-        threshold_ratio (float): Minimum ratio of edge pixels to consider text present
-
-    Returns:
-        bool: True if text is likely present
-    """
-    # Convert to grayscale
-    gray = np.array(pil_image.convert("L"))
-
-    # Apply Canny edge detection
-    cv2_module = _load_cv2_module()
-    if cv2_module is None:
-        raise RuntimeError("opencv-python is not installed")
-    edges = cv2_module.Canny(gray, 50, 150)
-
-    # Calculate ratio of edge pixels
-    edge_ratio = np.sum(edges > 0) / edges.size
-
-    return edge_ratio > threshold_ratio
 
 
 # Use OBS for Screenshot Source (i.e. Linux)
@@ -2787,7 +2786,7 @@ class OBSScreenshotThread(threading.Thread):
                 primary_rectangles = []
                 if self.ocr_config and getattr(self.ocr_config, "rectangles", None):
                     for rect in self.ocr_config.rectangles:
-                        if rect.is_excluded or rect.is_secondary:
+                        if rect.is_excluded or rect.is_secondary or _is_black_hole_rectangle(rect):
                             continue
                         primary_rectangles.append(list(rect.coordinates))
                 frame_metadata = {
@@ -2849,6 +2848,16 @@ def _get_rectangle_mask_fill(image):
     return tuple(0 for _ in bands[:4])
 
 
+def _is_black_hole_rectangle(rectangle):
+    return bool(getattr(rectangle, "is_black_hole", False)) and not bool(getattr(rectangle, "is_excluded", False))
+
+
+def _is_ocr_capture_rectangle(rectangle, is_secondary=False):
+    return not bool(getattr(rectangle, "is_excluded", False)) and bool(
+        getattr(rectangle, "is_secondary", False)
+    ) == bool(is_secondary)
+
+
 def apply_ocr_config_to_image(
     img,
     ocr_config,
@@ -2887,7 +2896,7 @@ def apply_ocr_config_to_image(
     if both_types:
         rectangles = [r for r in ocr_config.rectangles if not r.is_excluded]
     elif not rectangles:
-        rectangles = [r for r in ocr_config.rectangles if not r.is_excluded and r.is_secondary == is_secondary]
+        rectangles = [r for r in ocr_config.rectangles if _is_ocr_capture_rectangle(r, is_secondary)]
 
     for rectangle in ocr_config.rectangles:
         if rectangle.is_excluded:
@@ -3216,6 +3225,7 @@ def _get_exclusive_ocr_rectangles(original_width=None, original_height=None):
             getattr(rect, "is_exclusive", False)
             and not getattr(rect, "is_excluded", False)
             and not getattr(rect, "is_secondary", False)
+            and not getattr(rect, "is_black_hole", False)
         )
     ]
 
@@ -3257,6 +3267,78 @@ def _box_is_inside_any_rectangle(box, rectangles):
         rect_bottom = rect_top + rect_height
         if box_left >= rect_left and box_top >= rect_top and box_right <= rect_right and box_bottom <= rect_bottom:
             return True
+    return False
+
+
+def _box_overlaps_any_rectangle(box, rectangles):
+    if not box:
+        return False
+
+    box_left, box_top, box_right, box_bottom = box
+    for rect in rectangles:
+        rect_left, rect_top, rect_width, rect_height = getattr(rect, "coordinates", (0, 0, 0, 0))
+        rect_right = rect_left + rect_width
+        rect_bottom = rect_top + rect_height
+        if box_left < rect_right and box_right > rect_left and box_top < rect_bottom and box_bottom > rect_top:
+            return True
+    return False
+
+
+def check_text_is_in_black_hole(
+    crop_coords: tuple,
+    crop_coords_list: list,
+    crop_offset: tuple = None,
+    crop_padding: int = 5,
+) -> bool:
+    """
+    Checks if any recognized text overlaps a black-hole OCR rectangle.
+
+    Black-hole rectangles void the whole OCR result before exclusive filtering.
+    """
+
+    crop_padding = max(0, _safe_int(crop_padding, 5))
+    if crop_offset is None:
+        crop_offset = globals()["crop_offset"]
+
+    coords_to_check = []
+    if crop_coords_list:
+        coords_to_check = crop_coords_list
+    elif crop_coords:
+        coords_to_check = [tuple(crop_coords) + ("",)]
+    if not coords_to_check:
+        return False
+
+    if "obs_screenshot_thread" not in globals() or not obs_screenshot_thread:
+        return False
+
+    original_width = obs_screenshot_thread.width
+    original_height = obs_screenshot_thread.height
+
+    if original_width is None or original_height is None:
+        return False
+
+    ocr_config = get_scaled_scene_ocr_config(original_width, original_height)
+
+    if not ocr_config or not any(_is_black_hole_rectangle(rect) for rect in ocr_config.rectangles):
+        return False
+
+    black_hole_rectangles = [rect for rect in ocr_config.rectangles if _is_black_hole_rectangle(rect)]
+
+    if not black_hole_rectangles:
+        return False
+
+    for coord_entry in coords_to_check:
+        original_box = _coord_entry_to_original_box(coord_entry, crop_offset, crop_padding)
+        if original_box is None:
+            return False
+
+        box_left, box_top, box_right, box_bottom = original_box
+        if box_left < 0 or box_top < 0 or box_right > original_width or box_bottom > original_height:
+            return False
+
+        if _box_overlaps_any_rectangle(original_box, black_hole_rectangles):
+            return True
+
     return False
 
 
@@ -3532,8 +3614,18 @@ def process_and_write_results(
                 _safe_int(pipeline_metadata["processing"]["crop_offset"].get("x")),
                 _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
             )
+            original_size = pipeline_metadata["capture"]["scaled_size"]
+            if write_to is not None and check_text_is_in_black_hole(
+                detection_payload.get("crop_coords", None),
+                detection_payload.get("crop_coords_list", []),
+                crop_offset=current_crop_offset,
+                crop_padding=detection_payload.get("crop_padding", 5),
+            ):
+                logger.opt(ansi=True).info(BLACK_HOLE_SKIP_LOG_MESSAGE)
+                if return_payload:
+                    return "", "", None
+                return "", ""
             if not is_second_ocr:
-                original_size = pipeline_metadata["capture"]["scaled_size"]
                 detection_payload, _exclusive_applied = apply_exclusive_text_detection_filter(
                     detection_payload,
                     crop_offset=current_crop_offset,
@@ -3551,11 +3643,21 @@ def process_and_write_results(
                     return "", "", None
                 return "", ""
 
+            pipeline_metadata["ocr"] = {
+                "crop_coords": list(detection_payload.get("crop_coords"))
+                if detection_payload.get("crop_coords")
+                else None,
+                "crop_coords_list": [list(c[:5]) for c in (detection_payload.get("crop_coords_list") or [])],
+                "line_count": 0,
+            }
+            detection_payload["pipeline"] = pipeline_metadata
+
             if write_to == "callback":
                 logger.opt(ansi=True).info(
                     f"{len(detection_payload['boxes'])} text boxes recognized in {end_time - start_time:0.03f}s using "
                     f"<{engine_color}>{engine_instance.readable_name}</{engine_color}>:"
                 )
+                logger.opt(ansi=True).info(crop_coords)
                 callback_kwargs = {}
                 try:
                     sig = inspect.signature(txt_callback)
@@ -3583,7 +3685,9 @@ def process_and_write_results(
                 return "", "", detection_payload
             return str(detection_payload), str(detection_payload)
 
-        rebuilt_text = _rebuild_text_from_structured_result(raw_response_dict, coords, filtering)
+        rebuilt_text = _rebuild_text_from_structured_result(
+            raw_response_dict, coords, filtering, is_second_ocr=is_second_ocr
+        )
         if rebuilt_text is not None:
             text = rebuilt_text
 
@@ -3597,8 +3701,17 @@ def process_and_write_results(
             _safe_int(pipeline_metadata["processing"]["crop_offset"].get("x")),
             _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
         )
+        original_size = pipeline_metadata["capture"]["scaled_size"]
+        if write_to is not None and check_text_is_in_black_hole(
+            crop_coords,
+            crop_coords_list,
+            crop_offset=current_crop_offset,
+        ):
+            logger.opt(ansi=True).info(BLACK_HOLE_SKIP_LOG_MESSAGE)
+            if return_payload:
+                return "", "", None
+            return "", ""
         if not is_second_ocr:
-            original_size = pipeline_metadata["capture"]["scaled_size"]
             text, coords, crop_coords_list, crop_coords, raw_response_dict, _exclusive_applied = (
                 apply_exclusive_ocr_area_filter(
                     text,
@@ -3869,7 +3982,7 @@ def run(
     :param read_from: Specifies where to read input images from. Can be either "clipboard", "websocket", "unixsocket" (on macOS/Linux), "screencapture", or a path to a directory.
     :param write_to: Specifies where to save recognized texts to. Can be either "clipboard", "websocket", or a path to a text file.
     :param delay_secs: How often to check for new images, in seconds.
-    :param engine: OCR engine to use. Available: "mangaocr", "glens", "glensweb", "bing", "gvision", "avision", "alivetext", "azure", "winrtocr", "oneocr", "screenai", "mlkitocr", "easyocr", "rapidocr", "ocrspace".
+    :param engine: OCR engine to use. Available: "mangaocr", "glens", "glensweb", "bing", "gvision", "avision", "alivetext", "azure", "winrtocr", "oneocr", "screenai", "mlkitocr", "ndlocrlite", "easyocr", "rapidocr", "ocrspace".
     :param pause_at_startup: Pause at startup.
     :param ignore_flag: Process flagged clipboard images (images that are copied to the clipboard with the *ocr_ignore* string).
     :param delete_images: Delete image files after processing when reading from a directory.
@@ -4181,16 +4294,28 @@ def run(
     if config_check_thread:
         config_check_thread.add_config_callback(handle_config_changes)
         config_check_thread.add_area_callback(handle_area_config_changes)
+
+    # --- Adaptive scan-rate state ---
+    # Sleep additions accumulate while nothing interesting is happening (blank
+    # frames, no text detected, or pixel-identical frames). They reset the
+    # moment we get a useful OCR result.
+    EMPTY_FRAME_SCAN_RATE_CAP = 5.0
+    NO_TEXT_SCAN_RATE_CAP = 2.0
+    NO_TEXT_SLEEP_INCREMENT = 0.005
+    EMPTY_SLEEP_INCREMENT = 0.5
+    IDENTICAL_SLEEP_INCREMENT = 0.005
+    IDLE_BACKOFF_AFTER_SECONDS = 10
+
     no_text_streak = 0
-    sleep_time_to_add = 0
+    sleep_time_to_add = 0.0
     last_result_time = time.time()
     has_seen_text_result = False
     sleep_reason = ""
-    last_no_text_compare_image = None
-    last_no_text_compare_image_np = None
+    base_scan_rate = get_ocr_scan_rate()
 
     def get_adjusted_scan_rate():
-        return _get_adjusted_scan_rate(get_ocr_scan_rate(), sleep_time_to_add, sleep_reason)
+        cap = EMPTY_FRAME_SCAN_RATE_CAP if sleep_reason == "empty" else NO_TEXT_SCAN_RATE_CAP
+        return max(base_scan_rate, min(base_scan_rate + sleep_time_to_add, max(base_scan_rate, cap)))
 
     while not terminated:
         ocr_start_time = datetime.now()
@@ -4198,6 +4323,9 @@ def run(
         img = None
         filter_img = False
         image_metadata = None
+        # Snapshot scan rate once per iteration to avoid repeated Store.get() lookups
+        # (each call deep-copies the OCR config under an RLock).
+        base_scan_rate = get_ocr_scan_rate()
 
         if process_queue:
             try:
@@ -4228,8 +4356,8 @@ def run(
                 notify = False
                 last_screenshot_time = time.time()
                 ocr_start_time = datetime.now()
-                if adjusted_scan_rate > get_ocr_scan_rate():
-                    ocr_start_time = ocr_start_time - timedelta(seconds=adjusted_scan_rate - get_ocr_scan_rate())
+                if adjusted_scan_rate > base_scan_rate:
+                    ocr_start_time = ocr_start_time - timedelta(seconds=adjusted_scan_rate - base_scan_rate)
 
         if img == 0:
             on_window_closed(False)
@@ -4237,75 +4365,35 @@ def run(
             break
         elif img:
             if filter_img:
-                base_scan_rate = get_ocr_scan_rate()
-                # Check if the image is completely empty (all white or all black), this is pretty much 0 cpu usage and saves a lot of useless OCR attempts
-                try:
-                    extrema = img.getextrema()
-                    # For RGB or RGBA images, extrema is a tuple of (min, max) for each channel
-                    if isinstance(extrema[0], tuple):
-                        is_empty = all(e[0] == e[1] for e in extrema)
-                    else:
-                        is_empty = extrema[0] == extrema[1]
-                    if is_empty:
-                        logger.background("Image is empty (all pixels same), sleeping.")
-                        max_empty_add = max(0, EMPTY_SCAN_RATE_MAX - base_scan_rate)
-                        if sleep_reason != "empty":
-                            sleep_time_to_add = 0
-                        sleep_reason = "empty"
-                        sleep_time_to_add = min(sleep_time_to_add + 0.5, max_empty_add)
-                        continue
-                except Exception as e:
-                    logger.info(f"Could not determine if image is empty: {e}")
+                # Cheap blank-frame detector. Skips OCR when the capture is a
+                # solid color (game minimized, OBS scene blank, etc.).
+                img_np = img if isinstance(img, np.ndarray) else None
+                if img_np is None:
+                    try:
+                        img_np = np.asarray(img)
+                    except Exception:
+                        img_np = None
+                if img_np is not None and is_image_empty(img_np):
+                    logger.background("Image is empty (all pixels same), sleeping.")
+                    max_empty_add = max(0.0, EMPTY_FRAME_SCAN_RATE_CAP - base_scan_rate)
+                    if sleep_reason != "empty":
+                        sleep_time_to_add = 0.0
+                    sleep_reason = "empty"
+                    sleep_time_to_add = min(sleep_time_to_add + EMPTY_SLEEP_INCREMENT, max_empty_add)
+                    continue
 
                 if sleep_reason == "empty":
-                    sleep_time_to_add = 0
+                    sleep_time_to_add = 0.0
                     sleep_reason = ""
 
-                if _can_check_no_text_similarity(
-                    base_scan_rate,
-                    sleep_time_to_add,
-                    sleep_reason,
-                    last_no_text_compare_image,
-                    last_no_text_compare_image_np,
-                ):
-                    is_similar = are_images_identical(img, last_no_text_compare_image, last_no_text_compare_image_np)
-                    if not is_similar:
-                        is_similar = are_images_similar(
-                            img,
-                            last_no_text_compare_image,
-                            threshold=NO_TEXT_SIMILARITY_THRESHOLD,
-                        )
-                    if is_similar:
-                        sleep_time_to_add, sleep_reason = _update_no_text_similarity_sleep_state(
-                            base_scan_rate,
-                            sleep_time_to_add,
-                            sleep_reason,
-                            is_similar=True,
-                        )
-                        logger.info(
-                            f"No-text frame still >= {NO_TEXT_SIMILARITY_THRESHOLD:.0%} similar to last OCR frame, extending sleep."
-                        )
-                        continue
-                    sleep_time_to_add, sleep_reason = _update_no_text_similarity_sleep_state(
-                        base_scan_rate,
-                        sleep_time_to_add,
-                        sleep_reason,
-                        is_similar=False,
-                    )
-
-                # Compare images, but only if it's one box, multiple boxes skews results way too much and produces false positives
-                # if ocr_config and len(ocr_config.rectangles) < 2:
-                #     if are_images_similar(img, last_image):
-                #         logger.info("Captured screenshot is similar to the last one, sleeping.")
-                #         if time.time() - last_result_time > 10:
-                #             sleep_time_to_add += .005
-                #         continue
-                # else:
-                if are_images_identical(img, last_image, last_image_np):
+                if are_images_identical(img_np if img_np is not None else img, last_image, last_image_np):
                     logger.background("Screenshot identical to last, sleeping.")
                     sleep_reason = "identical"
-                    if time.time() - last_result_time > 10:
-                        sleep_time_to_add += 0.005
+                    if time.time() - last_result_time > IDLE_BACKOFF_AFTER_SECONDS:
+                        sleep_time_to_add = min(
+                            sleep_time_to_add + IDENTICAL_SLEEP_INCREMENT,
+                            max(0.0, NO_TEXT_SCAN_RATE_CAP - base_scan_rate),
+                        )
                     continue
 
                 orig_text, text = process_and_write_results(
@@ -4318,23 +4406,22 @@ def run(
                     furigana_filter_sensitivity=None if get_ocr_two_pass_ocr() else get_furigana_filter_sensitivity(),
                     image_metadata=image_metadata,
                 )
-                last_no_text_compare_image, last_no_text_compare_image_np = _update_image_comparison_cache(
-                    last_no_text_compare_image,
-                    img,
-                )
                 if not text:
                     no_text_streak += 1
-                    enough_idle_time = (time.time() - last_result_time) > 10
+                    enough_idle_time = (time.time() - last_result_time) > IDLE_BACKOFF_AFTER_SECONDS
                     if no_text_streak > 1 and (not has_seen_text_result or enough_idle_time):
-                        sleep_time_to_add += NO_TEXT_SLEEP_INCREMENT
+                        sleep_time_to_add = min(
+                            sleep_time_to_add + NO_TEXT_SLEEP_INCREMENT,
+                            max(0.0, NO_TEXT_SCAN_RATE_CAP - base_scan_rate),
+                        )
                         sleep_reason = "no_text"
                         logger.background("No text detected, sleeping.")
                     else:
-                        sleep_time_to_add = 0
+                        sleep_time_to_add = 0.0
                         sleep_reason = ""
                 else:
                     no_text_streak = 0
-                    sleep_time_to_add = 0
+                    sleep_time_to_add = 0.0
                     last_result_time = time.time()
                     sleep_reason = ""
                     has_seen_text_result = True
@@ -4378,7 +4465,6 @@ def run(
         key_combo_listener.stop()
     if config_check_thread:
         config_check_thread.join()
-    _close_cached_image(last_no_text_compare_image)
 
 
 def get_engine_names():

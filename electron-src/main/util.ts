@@ -1,9 +1,11 @@
 import * as os from 'os';
+import * as fs from 'fs';
 import path from "path";
 import {promisify} from "util";
 import {execFile, spawn, execSync} from "child_process";
 import { app, type WebPreferences } from "electron";
 import {__dirname} from "./main.js";
+import { getBaseDir } from "./data_dir.js";
 
 export type SupportedPlatform = 'linux' | 'darwin' | 'win32';
 export const isMac = process.platform === 'darwin';
@@ -12,13 +14,15 @@ export const isArmMac: boolean = isMac && !!cpuModel && /Apple M\d/i.test(cpuMod
 
 export const APP_NAME = 'GameSentenceMiner';
 export const PACKAGE_NAME = "GameSentenceMiner";
+export const BACKEND_GITHUB_REPO_URL = 'https://github.com/bpwhelan/GameSentenceMiner';
+export const OVERLAY_RESOURCES_ENV = 'GSM_OVERLAY_RESOURCES_PATH';
 export const execFileAsync = promisify(execFile);
 
 export const isDev = !app.isPackaged;
 
-export const BASE_DIR = process.env.APPDATA
-    ? path.join(process.env.APPDATA, APP_NAME) // Windows
-    : path.join(os.homedir(), '.config', APP_NAME); // macOS/Linux
+// Resolved once at import via the data_dir pointer (or the default %APPDATA%/GameSentenceMiner).
+// Fixed for the process lifetime; relocating the data dir forces a relaunch.
+export const BASE_DIR = getBaseDir();
 
 export const DOWNLOAD_DIR = path.join(BASE_DIR, 'downloads');
 
@@ -97,6 +101,35 @@ export function getResourcesDir(): string {
         : path.join(process.resourcesPath); // Production (ASAR-safe)
 }
 
+/**
+ * Resolve the git branch a pre-release (beta) build was cut from, by reading the
+ * prerelease.json metadata bundled into the app at build time (written by
+ * dev_release_exe.yml). Returns null for stable builds, which ship no metadata.
+ */
+export function resolvePreReleaseBranch(): string | null {
+    const candidates = [
+        path.join(getResourcesDir(), 'prerelease.json'),
+        path.join(getAssetsDir(), 'prerelease.json'),
+        path.join(getResourcesDir(), 'assets', 'prerelease.json'),
+    ];
+    const seen = new Set<string>();
+    for (const candidate of candidates) {
+        if (!candidate || seen.has(candidate) || !fs.existsSync(candidate)) {
+            continue;
+        }
+        seen.add(candidate);
+        try {
+            const parsed = JSON.parse(fs.readFileSync(candidate, 'utf8')) as { branch?: unknown };
+            if (typeof parsed.branch === 'string' && parsed.branch.trim().length > 0) {
+                return parsed.branch.trim();
+            }
+        } catch (error) {
+            console.warn(`Failed to parse prerelease metadata at ${candidate}:`, error);
+        }
+    }
+    return null;
+}
+
 export function getOverlayPath(): string {
     // Overlay builds are produced per-platform into folders named like
     // gsm_overlay-<platform>-<arch> (e.g. gsm_overlay-win32-x64, gsm_overlay-linux-x64).
@@ -106,6 +139,14 @@ export function getOverlayPath(): string {
     return isDev
         ? path.join(__dirname, `../../GSM_Overlay/out/${dirName}`) // Development path
         : path.join(process.resourcesPath, `GSM_Overlay/${dirName}`); // Production (ASAR-safe)
+}
+
+export function getOverlayResourcesPath(): string {
+    return path.join(getOverlayPath(), 'resources');
+}
+
+export function getOverlayAppAsarPath(): string {
+    return path.join(getOverlayResourcesPath(), 'app.asar');
 }
 
 export function getOverlayExecName(): string {

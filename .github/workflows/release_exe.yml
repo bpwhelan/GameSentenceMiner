@@ -5,21 +5,22 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: Rebuild and overwrite release assets even if they already exist
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: release-exe-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: write
-  packages: none
-  actions: read
-  pull-requests: none
-  issues: none
-
 jobs:
   prepare-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       should_build_any: ${{ steps.version_check.outputs.should_build_any }}
       should_create_release: ${{ steps.version_check.outputs.should_create_release }}
@@ -43,6 +44,7 @@ jobs:
         id: version_check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE_REBUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.force_rebuild == true }}
         run: |
           set -euo pipefail
 
@@ -74,6 +76,7 @@ jobs:
 
             WINDOWS_SETUP="GameSentenceMiner-Setup-$PACKAGE_VERSION.exe"
             WINDOWS_BLOCKMAP="$WINDOWS_SETUP.blockmap"
+            WINDOWS_UNPACKED_ZIP="GameSentenceMiner-$PACKAGE_VERSION-win-unpacked.zip"
             LINUX_APPIMAGE="GameSentenceMiner-$PACKAGE_VERSION.AppImage"
             MAC_ARM64_DMG="GameSentenceMiner-$PACKAGE_VERSION-arm64.dmg"
             MAC_ARM64_BLOCKMAP="$MAC_ARM64_DMG.blockmap"
@@ -82,15 +85,22 @@ jobs:
             SHOULD_BUILD_LINUX=false
             SHOULD_BUILD_MAC_ARM64=false
 
-            if ! has_asset "$WINDOWS_SETUP" || ! has_asset "$WINDOWS_BLOCKMAP" || ! has_asset "latest.yml"; then
+            if [ "$FORCE_REBUILD" = "true" ]; then
+              echo "Force rebuild requested. Rebuilding all release assets."
+              SHOULD_BUILD_WINDOWS=true
+              SHOULD_BUILD_LINUX=true
+              SHOULD_BUILD_MAC_ARM64=true
+            fi
+
+            if [ "$FORCE_REBUILD" != "true" ] && { ! has_asset "$WINDOWS_SETUP" || ! has_asset "$WINDOWS_BLOCKMAP" || ! has_asset "$WINDOWS_UNPACKED_ZIP" || ! has_asset "latest.yml"; }; then
               SHOULD_BUILD_WINDOWS=true
             fi
 
-            if ! has_asset "$LINUX_APPIMAGE" || ! has_asset "latest-linux.yml"; then
+            if [ "$FORCE_REBUILD" != "true" ] && { ! has_asset "$LINUX_APPIMAGE" || ! has_asset "latest-linux.yml"; }; then
               SHOULD_BUILD_LINUX=true
             fi
 
-            if ! has_asset "$MAC_ARM64_DMG" || ! has_asset "$MAC_ARM64_BLOCKMAP" || ! has_asset "latest-mac.yml"; then
+            if [ "$FORCE_REBUILD" != "true" ] && { ! has_asset "$MAC_ARM64_DMG" || ! has_asset "$MAC_ARM64_BLOCKMAP" || ! has_asset "latest-mac.yml"; }; then
               SHOULD_BUILD_MAC_ARM64=true
             fi
 
@@ -130,6 +140,8 @@ jobs:
     needs:
       - prepare-release
     if: needs.prepare-release.outputs.should_create_release == 'true'
+    permissions:
+      contents: write
     steps:
       - name: Create release shell
         uses: softprops/action-gh-release@v2
@@ -144,12 +156,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build-windows:
+  build-windows-unsigned:
     runs-on: windows-latest
     needs:
       - prepare-release
       - create-release
     if: always() && needs.prepare-release.outputs.should_build_windows == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    outputs:
+      windows_installer_artifact_id: ${{ steps.upload-unsigned-windows.outputs.artifact-id }}
+      windows_unpacked_artifact_id: ${{ steps.upload-unsigned-windows-unpacked.outputs.artifact-id }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -171,15 +190,6 @@ jobs:
             package-lock.json
             GSM_Overlay/package-lock.json
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
-
       - name: Cache Electron binaries
         uses: actions/cache@v4
         with:
@@ -190,11 +200,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-electron-cache-
 
-      - name: Build gamepad server (Windows)
+      - name: Fetch prebuilt overlay server (Windows)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
           New-Item -ItemType Directory -Force -Path GSM_Overlay/input_server/bin/win32 | Out-Null
-          Copy-Item GSM_Overlay/input_server/target/release/gsm_overlay_server.exe GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe -Force
+          gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-win32.exe --output GSM_Overlay/input_server/bin/win32/gsm_overlay_server.exe --clobber
 
       - name: Convert Handlebar files to LF line endings
         run: |
@@ -217,6 +229,205 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify packaged overlay
+        run: npm run verify:overlay-package
+
+      - name: Upload unsigned Windows installer for SignPath
+        id: upload-unsigned-windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: signpath-windows-${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
+          path: dist/*Setup*.exe
+          if-no-files-found: error
+
+      - name: Upload unsigned unpacked Windows build for SignPath
+        id: upload-unsigned-windows-unpacked
+        uses: actions/upload-artifact@v4
+        with:
+          name: signpath-windows-unpacked-${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
+          path: dist/win-unpacked
+          if-no-files-found: error
+
+  sign-windows-installer:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-release
+      - build-windows-unsigned
+    if: always() && needs.build-windows-unsigned.result == 'success'
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    steps:
+      - name: Submit Windows installer signing request
+        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd
+        with:
+          api-token: ${{ secrets.SIGNPATH_APITOKEN }}
+          organization-id: c677c167-9f3e-4577-b967-5d7730bf742d
+          project-slug: GameSentenceMiner
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ needs.build-windows-unsigned.outputs.windows_installer_artifact_id }}
+          wait-for-completion: true
+          output-artifact-directory: signed_windows
+
+      - name: Upload signed Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-windows-installer-${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
+          path: signed_windows
+          if-no-files-found: error
+
+  sign-windows-unpacked:
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-release
+      - build-windows-unsigned
+    if: always() && needs.build-windows-unsigned.result == 'success'
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    steps:
+      - name: Submit unpacked Windows signing request
+        id: sign-windows-unpacked
+        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd
+        with:
+          api-token: ${{ secrets.SIGNPATH_APITOKEN }}
+          organization-id: c677c167-9f3e-4577-b967-5d7730bf742d
+          project-slug: GameSentenceMiner
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: Unpacked_GSM
+          github-artifact-id: ${{ needs.build-windows-unsigned.outputs.windows_unpacked_artifact_id }}
+          wait-for-completion: true
+
+      - name: Download signed unpacked Windows build
+        shell: pwsh
+        env:
+          SIGNPATH_APITOKEN: ${{ secrets.SIGNPATH_APITOKEN }}
+        run: |
+          $packageVersion = "${{ needs.prepare-release.outputs.PACKAGE_VERSION }}"
+          if (-not $packageVersion) {
+            throw "Package version is not available."
+          }
+          if (-not $env:SIGNPATH_APITOKEN) {
+            throw "SIGNPATH_APITOKEN secret is not available."
+          }
+
+          $distRoot = "dist"
+          New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
+          $zipPath = Join-Path (Resolve-Path $distRoot).Path "GameSentenceMiner-$packageVersion-win-unpacked.zip"
+          if (Test-Path $zipPath) {
+            Remove-Item -LiteralPath $zipPath -Force
+          }
+
+          $headers = @{
+            Authorization = "Bearer $env:SIGNPATH_APITOKEN"
+          }
+          Invoke-WebRequest -Uri "${{ steps.sign-windows-unpacked.outputs.signed-artifact-download-url }}" -Headers $headers -OutFile $zipPath
+          if (-not (Test-Path $zipPath)) {
+            throw "Failed to download signed unpacked Windows zip."
+          }
+
+      - name: Upload signed unpacked Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-windows-unpacked-${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
+          path: dist/GameSentenceMiner-${{ needs.prepare-release.outputs.PACKAGE_VERSION }}-win-unpacked.zip
+          if-no-files-found: error
+
+  publish-windows-release:
+    runs-on: windows-latest
+    needs:
+      - prepare-release
+      - sign-windows-installer
+      - sign-windows-unpacked
+    if: always() && needs.sign-windows-installer.result == 'success' && needs.sign-windows-unpacked.result == 'success'
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies for release metadata
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Download signed Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-windows-installer-${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
+          path: signed_windows
+
+      - name: Download signed unpacked Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-windows-unpacked-${{ needs.prepare-release.outputs.PACKAGE_VERSION }}
+          path: dist
+
+      - name: Stage signed installer and recreate update metadata
+        shell: pwsh
+        run: |
+          $packageVersion = "${{ needs.prepare-release.outputs.PACKAGE_VERSION }}"
+          if (-not $packageVersion) {
+            throw "Package version is not available."
+          }
+
+          $distRoot = "dist"
+          New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
+          $distRoot = (Resolve-Path $distRoot).Path
+          $artifactRoot = (Resolve-Path "signed_windows").Path
+
+          $expectedInstallerName = "GameSentenceMiner-Setup-$packageVersion.exe"
+          $distExePath = Join-Path $distRoot $expectedInstallerName
+
+          $signedExe = Get-ChildItem -Path $artifactRoot -Recurse -File -Filter $expectedInstallerName | Select-Object -First 1
+          if (-not $signedExe) {
+            $signedExe = Get-ChildItem -Path $artifactRoot -Recurse -File -Filter "*Setup*.exe" | Select-Object -First 1
+          }
+          if (-not $signedExe) {
+            throw "No signed installer found in signed_windows."
+          }
+
+          if ($signedExe.Name -ne $expectedInstallerName) {
+            throw "Signed installer name '$($signedExe.Name)' does not match expected '$expectedInstallerName'."
+          }
+
+          Copy-Item -Path $signedExe.FullName -Destination $distExePath -Force
+
+          $appBuilder = node -e "process.stdout.write(require('app-builder-bin').appBuilderPath)"
+          if (-not $appBuilder) {
+            throw "Unable to resolve app-builder path."
+          }
+
+          $blockmapOutput = "$distExePath.blockmap"
+          $blockmapJson = & $appBuilder blockmap --input "$distExePath" --output "$blockmapOutput"
+          if ($LASTEXITCODE -ne 0) {
+            throw "app-builder failed to generate blockmap."
+          }
+          $blockmapInfo = $blockmapJson | ConvertFrom-Json
+
+          $releaseDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+          $latestYml = @(
+            "version: $packageVersion",
+            "files:",
+            "  - url: $expectedInstallerName",
+            "    sha512: $($blockmapInfo.sha512)",
+            "    size: $($blockmapInfo.size)",
+            "path: $expectedInstallerName",
+            "sha512: $($blockmapInfo.sha512)",
+            "releaseDate: '$releaseDate'"
+          ) -join "`n"
+          Set-Content -Path (Join-Path $distRoot "latest.yml") -Value $latestYml -Encoding utf8NoBOM
+
       - name: Upload Windows release assets
         uses: softprops/action-gh-release@v2
         with:
@@ -231,6 +442,7 @@ jobs:
           append_body: false
           files: |
             dist/*Setup*.exe
+            dist/GameSentenceMiner-*-win-unpacked.zip
             dist/latest.yml
             dist/*.blockmap
         env:
@@ -242,6 +454,8 @@ jobs:
       - prepare-release
       - create-release
     if: always() && needs.prepare-release.outputs.should_build_linux == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -262,15 +476,6 @@ jobs:
             package-lock.json
             GSM_Overlay/package-lock.json
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
-
       - name: Cache Electron binaries
         uses: actions/cache@v4
         with:
@@ -281,20 +486,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-electron-cache-
 
-      - name: Install Linux native build deps
+      - name: Fetch prebuilt overlay server (Linux)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libudev-dev \
-            libx11-dev \
-            libxtst-dev
-
-      - name: Build gamepad server (Linux)
-        run: |
-          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
           mkdir -p GSM_Overlay/input_server/bin/linux
-          cp GSM_Overlay/input_server/target/release/gsm_overlay_server GSM_Overlay/input_server/bin/linux/gsm_overlay_server
+          gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-linux --output GSM_Overlay/input_server/bin/linux/gsm_overlay_server --clobber
           chmod +x GSM_Overlay/input_server/bin/linux/gsm_overlay_server
 
       - name: Build Overlay
@@ -310,6 +507,9 @@ jobs:
         run: npm run app:dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify packaged overlay
+        run: npm run verify:overlay-package
 
       - name: Upload Linux release assets
         uses: softprops/action-gh-release@v2
@@ -335,6 +535,8 @@ jobs:
       - prepare-release
       - create-release
     if: always() && needs.prepare-release.outputs.should_build_mac_arm64 == 'true' && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -355,15 +557,6 @@ jobs:
             package-lock.json
             GSM_Overlay/package-lock.json
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            GSM_Overlay/input_server -> GSM_Overlay/input_server/target
-
       - name: Cache Electron binaries
         uses: actions/cache@v4
         with:
@@ -374,11 +567,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-electron-cache-
 
-      - name: Build gamepad server (macOS)
+      - name: Fetch prebuilt overlay server (macOS)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
           mkdir -p GSM_Overlay/input_server/bin/darwin
-          cp GSM_Overlay/input_server/target/release/gsm_overlay_server GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
+          gh release download overlay-server --repo ${{ github.repository }} --pattern gsm_overlay_server-darwin --output GSM_Overlay/input_server/bin/darwin/gsm_overlay_server --clobber
           chmod +x GSM_Overlay/input_server/bin/darwin/gsm_overlay_server
 
       - name: Build Overlay
@@ -394,6 +588,9 @@ jobs:
         run: npm run app:dist -- --mac --arm64 -c.mac.artifactName='${productName}-${version}-${arch}.${ext}'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify packaged overlay
+        run: npm run verify:overlay-package
 
       - name: Copy arm64 update manifest
         run: cp dist/latest-mac.yml dist/latest-mac-arm64.yml
@@ -423,6 +620,8 @@ jobs:
     needs:
       - prepare-release
     if: needs.prepare-release.outputs.should_build_any == 'false'
+    permissions:
+      contents: read
     steps:
       - name: Report skipped build
         run: |

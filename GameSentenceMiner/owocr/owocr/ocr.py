@@ -1,6 +1,7 @@
 import base64
 import ctypes
 import curl_cffi
+import functools
 import importlib
 import io
 import json
@@ -15,6 +16,7 @@ import struct
 import sys
 import time
 import urllib.request
+import jaconv
 from PIL import Image, ImageOps, UnidentifiedImageError
 from dataclasses import dataclass, field, asdict
 from math import sqrt, floor, sin, cos, atan2
@@ -47,6 +49,7 @@ _GOOGLE_VISION_DEPS = _UNINITIALIZED
 _AZURE_VISION_DEPS = _UNINITIALIZED
 _EASYOCR_MODULE = _UNINITIALIZED
 _RAPIDOCR_DEPS = _UNINITIALIZED
+_PADDLEOCR_MODULE = _UNINITIALIZED
 _WINOCR_MODULE = _UNINITIALIZED
 _ONEOCR_MODULE = _UNINITIALIZED
 _LENS_PROTO_DEPS = _UNINITIALIZED
@@ -68,6 +71,16 @@ _JAPANESE_LEADING_KANA_DASH_REGEX = regex.compile(
 _JAPANESE_CONTEXTUAL_KANA_DASH_REGEX = regex.compile(
     rf"(?<=[{_JAPANESE_KANA_CLASS}])[{_JAPANESE_DASH_VARIANTS_CLASS}]+(?=(?:[{_JAPANESE_KANA_CLASS}{_JAPANESE_DASH_TRAILERS}\n])|$)"
 )
+_JAPANESE_ELLIPSIS_DOT_TRANSLATION = str.maketrans(
+    {
+        "･": "・",
+        "·": "・",
+        "•": "・",
+        "∙": "・",
+        "⋅": "・",
+    }
+)
+_JAPANESE_ELLIPSIS_SEQUENCE_REGEX = re.compile(r"[・.．]{2,}")
 
 
 def _load_fpng_module():
@@ -104,6 +117,12 @@ def _load_manga_ocr_module():
     return _MANGA_OCR_MODULE
 
 
+def _gaussian_window(M, std):
+    # Replaces scipy.signal.windows.gaussian so we don't pull in scipy/scikit-image.
+    n = np.arange(0, M) - (M - 1) / 2
+    return np.exp(-0.5 * (n / std) ** 2)
+
+
 def _load_manga_ocr_segmented_dependencies():
     global _MANGA_OCR_SEGMENTED_DEPS
     if _MANGA_OCR_SEGMENTED_DEPS is _UNINITIALIZED:
@@ -114,12 +133,11 @@ def _load_manga_ocr_segmented_dependencies():
         else:
             try:
                 text_detector_module = importlib.import_module("comic_text_detector.inference")
-                gaussian_module = importlib.import_module("scipy.signal.windows")
                 torch_module = importlib.import_module("torch")
                 _MANGA_OCR_SEGMENTED_DEPS = {
                     **base,
                     "TextDetector": text_detector_module.TextDetector,
-                    "gaussian": gaussian_module.gaussian,
+                    "gaussian": _gaussian_window,
                     "torch": torch_module,
                     "cv2": cv2_module,
                 }
@@ -203,6 +221,16 @@ def _load_rapidocr_dependencies():
         except ImportError:
             _RAPIDOCR_DEPS = None
     return _RAPIDOCR_DEPS
+
+
+def _load_paddleocr_module():
+    global _PADDLEOCR_MODULE
+    if _PADDLEOCR_MODULE is _UNINITIALIZED:
+        try:
+            _PADDLEOCR_MODULE = importlib.import_module("paddleocr")
+        except ImportError:
+            _PADDLEOCR_MODULE = None
+    return _PADDLEOCR_MODULE
 
 
 def _load_winocr_module():
@@ -291,6 +319,7 @@ def _load_message_to_dict():
 
 def _load_screen_ai_pb2():
     module_paths = (
+        "GameSentenceMiner.owocr.owocr.screenai_protos.chrome_screen_ai_pb2",
         "GameSentenceMiner.owocr.owocr.screen_ai.proto.chrome_screen_ai_pb2",
         "GameSentenceMiner.owocr.owocr.screen_ai.chrome_screen_ai_pb2",
     )
@@ -352,12 +381,22 @@ class BoundingBox:
 
 
 @dataclass
+class Symbol:
+    """Represents a single recognized character/symbol with its bounding box."""
+
+    text: str
+    bounding_box: BoundingBox
+    separator: Optional[str] = None  # The character(s) that follow the symbol, e.g., a space
+
+
+@dataclass
 class Word:
     """Represents a single recognized word and its properties."""
 
     text: str
     bounding_box: BoundingBox
     separator: Optional[str] = None  # The character(s) that follow the word, e.g., a space
+    symbols: Optional[List[Symbol]] = None  # Optional: character-level breakdown of the word
 
 
 @dataclass
@@ -367,6 +406,7 @@ class Line:
     bounding_box: BoundingBox
     words: List[Word] = field(default_factory=list)
     text: Optional[str] = None  # Optional: The entire text line, as reported by the OCR engine
+    writing_direction: Optional[str] = None  # Optional: e.g., "LEFT_TO_RIGHT", "TOP_TO_BOTTOM"
 
 
 @dataclass
@@ -401,6 +441,8 @@ class EngineCapabilities:
     line_bounding_boxes: bool
     paragraphs: bool
     paragraph_bounding_boxes: bool
+    symbols: bool = False
+    symbol_bounding_boxes: bool = False
 
 
 @dataclass
@@ -453,17 +495,42 @@ def normalize_japanese_ocr_text_and_segments(text, segments=None):
     return normalized_text, normalized_segments
 
 
-def post_process(text, keep_blank_lines=False):
-    import jaconv
+def normalize_japanese_ocr_fullwidth(text):
+    """Convert half-width ascii/digits/kana to full-width.
 
+    OCR engines frequently return half-width numbers/letters (``2``) even when the
+    game renders them full-width (``２``). The main OCR pipeline already folds these
+    to full-width via :func:`post_process` (``jaconv.h2z``); applying the same here
+    keeps overlay text consistent with the source sentence so dictionary lookups on
+    those tokens succeed. This matches ``post_process``'s ``ascii``/``digit`` flags.
+    """
+    if not isinstance(text, str) or not text:
+        return text
+    return jaconv.h2z(text, ascii=True, digit=True)
+
+
+def normalize_japanese_ocr_ellipses(text):
+    if not isinstance(text, str) or not text:
+        return text
+
+    text = text.replace("…", "・・・")
+    text = text.replace("‥", "・・")
+    text = text.replace("⋯", "・・・")
+    text = text.translate(_JAPANESE_ELLIPSIS_DOT_TRANSLATION)
+
+    def _collapse(match):
+        return "・・・" if len(match.group(0)) >= 3 else "・・"
+
+    return _JAPANESE_ELLIPSIS_SEQUENCE_REGEX.sub(_collapse, text)
+
+
+def post_process(text, keep_blank_lines=False):
     text = text.replace('"', "")
     if keep_blank_lines:
         text = "\n".join(["".join(i.split()) for i in text.splitlines()])
     else:
         text = "".join(["".join(i.split()) for i in text.splitlines()])
-    text = text.replace("…", "・・・")
-    text = re.sub("[・.]{2,}", lambda x: (x.end() - x.start()) * "・", text)
-    text = re.sub(r"・{3,}", "・・・", text)
+    text = normalize_japanese_ocr_ellipses(text)
     text = jaconv.h2z(text, ascii=True, digit=True)
     text = normalize_japanese_ocr_dashes(text)
     return text
@@ -572,27 +639,26 @@ def limit_image_size(img, max_size):
     return False, "", (None, None)
 
 
+_LANG_REGEX_PATTERNS = {
+    "ja": r"[\u3041-\u3096\u30A1-\u30FA\u4E00-\u9FFF]",
+    "zh": r"[\u4E00-\u9FFF]",
+    "ko": r"[\uAC00-\uD7AF]",
+    "ar": r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]",
+    "ru": r"[\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F\u1C80-\u1C8F]",
+    "el": r"[\u0370-\u03FF\u1F00-\u1FFF]",
+    "he": r"[\u0590-\u05FF\uFB1D-\uFB4F]",
+    "th": r"[\u0E00-\u0E7F]",
+}
+_LANG_REGEX_DEFAULT_PATTERN = (
+    r"[a-zA-Z\u00C0-\u00FF\u0100-\u017F\u0180-\u024F\u0250-\u02AF\u1D00-\u1D7F"
+    r"\u1D80-\u1DBF\u1E00-\u1EFF\u2C60-\u2C7F\uA720-\uA7FF\uAB30-\uAB6F]"
+)
+
+
+@functools.lru_cache(maxsize=None)
 def get_regex(lang):
-    if lang == "ja":
-        return re.compile(r"[\u3041-\u3096\u30A1-\u30FA\u4E00-\u9FFF]")
-    elif lang == "zh":
-        return re.compile(r"[\u4E00-\u9FFF]")
-    elif lang == "ko":
-        return re.compile(r"[\uAC00-\uD7AF]")
-    elif lang == "ar":
-        return re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
-    elif lang == "ru":
-        return re.compile(r"[\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F\u1C80-\u1C8F]")
-    elif lang == "el":
-        return re.compile(r"[\u0370-\u03FF\u1F00-\u1FFF]")
-    elif lang == "he":
-        return re.compile(r"[\u0590-\u05FF\uFB1D-\uFB4F]")
-    elif lang == "th":
-        return re.compile(r"[\u0E00-\u0E7F]")
-    else:
-        return re.compile(
-            r"[a-zA-Z\u00C0-\u00FF\u0100-\u017F\u0180-\u024F\u0250-\u02AF\u1D00-\u1D7F\u1D80-\u1DBF\u1E00-\u1EFF\u2C60-\u2C7F\uA720-\uA7FF\uAB30-\uAB6F]"
-        )
+    pattern = _LANG_REGEX_PATTERNS.get(lang, _LANG_REGEX_DEFAULT_PATTERN)
+    return re.compile(pattern)
 
 
 def quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width=None, img_height=None):
@@ -820,17 +886,22 @@ def line_dict_to_spatial_entry(line_dict, is_vertical=False):
     }
 
 
+_INTER_LINE_OPENING_PUNCTUATION = "([{\"'\u300c\u300e\uff08\u3010\u3008\u300a\uff3b\uff5b\uff1c"
+_INTER_LINE_CLOSING_PUNCTUATION_RE = re.compile(
+    r"^[\)\]\}\.,!?:;%\u2026\uff0c\u3002\u3001\uff1f\uff01\uff1a\uff1b\u300d\u300f\uff09\u3011\u3009\u300b\uff3d\uff5d\uff1e]"
+)
+
+
 def _should_insert_inter_line_space(previous_text, current_text):
     if not previous_text or not current_text:
         return False
-    if previous_text[-1].isspace() or current_text[0].isspace():
+    prev_last = previous_text[-1]
+    curr_first = current_text[0]
+    if prev_last.isspace() or curr_first.isspace():
         return False
-    if previous_text[-1] in "([{\"'\u300c\u300e\uff08\u3010\u3008\u300a\uff3b\uff5b\uff1c":
+    if prev_last in _INTER_LINE_OPENING_PUNCTUATION:
         return False
-    if re.match(
-        r"^[\)\]\}\.,!?:;%\u2026\uff0c\u3002\u3001\uff1f\uff01\uff1a\uff1b\u300d\u300f\uff09\u3011\u3009\u300b\uff3d\uff5d\uff1e]",
-        current_text,
-    ):
+    if _INTER_LINE_CLOSING_PUNCTUATION_RE.match(current_text):
         return False
     return True
 
@@ -3402,12 +3473,15 @@ class ScreenAIOCR:
                                 "words": line_words,
                             }
                         )
+                        # Use all four corners; x1/x3 alone aren't the AABB when rotated.
+                        xs = (line_rect["x1"], line_rect["x2"], line_rect["x3"], line_rect["x4"])
+                        ys = (line_rect["y1"], line_rect["y2"], line_rect["y3"], line_rect["y4"])
                         crop_coords_list.append(
                             (
-                                line_rect["x1"] - 5,
-                                line_rect["y1"] - 5,
-                                line_rect["x3"] + 5,
-                                line_rect["y3"] + 5,
+                                min(xs) - 5,
+                                min(ys) - 5,
+                                max(xs) + 5,
+                                max(ys) + 5,
                                 line_text,
                             )
                         )
@@ -4513,6 +4587,9 @@ class EasyOCR:
         return pil_image_to_numpy_array(img)
 
 
+# NOTE: Do NOT port owocr's NDLOCR-Lite (`ndlocrlite`) engine here. It was evaluated and
+# rejected: ~1-2s per scan on even a tiny region at ~30% CPU — too slow/heavy for both the
+# main OCR and stability OCR. Final decision; see AGENTS.md. Don't re-attempt.
 class RapidOCR:
     name = "rapidocr"
     readable_name = "RapidOCR"
@@ -4636,6 +4713,115 @@ class RapidOCR:
             return (False, "Invalid image provided")
 
         read_results, elapsed = self.model(self._preprocess(img))
+        ocr_result = self._to_generic_result(read_results, img.width, img.height)
+        x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity)
+
+        if is_path:
+            img.close()
+        return x
+
+    def _preprocess(self, img):
+        return pil_image_to_numpy_array(img)
+
+
+def _paddle_model_name(ocr_version, size, kind):
+    # Builds e.g. "PP-OCRv6_tiny_det"; size tokens (tiny/small/medium) are PP-OCRv6's.
+    return f"{ocr_version}_{size}_{kind}"
+
+
+class PaddleOCR:
+    name = "paddleocr"
+    readable_name = "PaddleOCR"
+    key = "p"
+    config_entry = "paddleocr"
+    available = False
+    local = True
+    manual_language = True
+    coordinate_support = True
+    threading_support = True
+    capabilities = EngineCapabilities(
+        words=False,
+        word_bounding_boxes=False,
+        lines=True,
+        line_bounding_boxes=True,
+        paragraphs=False,
+        paragraph_bounding_boxes=False,
+    )
+
+    def __init__(self, config={}, lang="ja"):
+        paddleocr_module = _load_paddleocr_module()
+        if paddleocr_module is None:
+            logger.warning("paddleocr not available, PaddleOCR will not work!")
+            return
+
+        ocr_version = config.get("ocr_version", "PP-OCRv6")
+        det_size = config.get("det_model", "tiny")
+        rec_size = config.get("rec_model", "medium")
+        logger.info(f"Loading PaddleOCR model (det={det_size}, rec={rec_size})")
+        # Document-oriented stages slow things down and hurt game text; off by default.
+        # mkldnn (oneDNN) crashes some PP-OCR models on CPU, so it's off unless opted in.
+        self.model = paddleocr_module.PaddleOCR(
+            lang=self.language_to_model_language(lang),
+            ocr_version=ocr_version,
+            text_detection_model_name=_paddle_model_name(ocr_version, det_size, "det"),
+            text_recognition_model_name=_paddle_model_name(ocr_version, rec_size, "rec"),
+            device=config.get("device", "gpu" if config.get("gpu", False) else "cpu"),
+            enable_mkldnn=config.get("enable_mkldnn", False),
+            use_doc_orientation_classify=config.get("use_doc_orientation_classify", False),
+            use_doc_unwarping=config.get("use_doc_unwarping", False),
+            use_textline_orientation=config.get("use_textline_orientation", False),
+        )
+        self.available = True
+        logger.info("PaddleOCR ready")
+
+    def language_to_model_language(self, language):
+        return {
+            "ja": "japan",
+            "zh": "ch",
+            "ko": "korean",
+            "en": "en",
+            "es": "es",
+            "fr": "fr",
+            "de": "german",
+            "ru": "ru",
+            "ar": "ar",
+            "hi": "hi",
+        }.get(language, "en")
+
+    def _convert_bbox(self, poly, img_width, img_height):
+        (x1, y1), (x2, y2), (x3, y3), (x4, y4) = [(float(x), float(y)) for x, y in poly]
+        return quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height)
+
+    def _to_generic_result(self, response, img_width, img_height):
+        lines = []
+
+        for res in response or []:
+            texts = res["rec_texts"]
+            polys = res["rec_polys"]
+            for text, poly in zip(texts, polys):
+                bbox = self._convert_bbox(poly, img_width, img_height)
+                word = Word(text=text, bounding_box=bbox)
+                line = Line(bounding_box=bbox, words=[word], text=text)
+                lines.append(line)
+
+        if lines:
+            p_bbox = merge_bounding_boxes(lines)
+            paragraphs = [Paragraph(bounding_box=p_bbox, lines=lines)]
+        else:
+            paragraphs = []
+
+        return OcrResult(
+            image_properties=ImageProperties(width=img_width, height=img_height),
+            paragraphs=paragraphs,
+            engine_capabilities=self.capabilities,
+        )
+
+    def __call__(self, img, furigana_filter_sensitivity=0):
+        img, is_path = input_to_pil_image(img)
+        if not img:
+            return (False, "Invalid image provided")
+
+        read_results = self.model.predict(self._preprocess(img))
         ocr_result = self._to_generic_result(read_results, img.width, img.height)
         x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity)
 
@@ -4809,7 +4995,9 @@ class GeminiOCR:
                 self.model = config["model"]
                 self.generation_config = types.GenerateContentConfig(
                     temperature=0.0,
-                    max_output_tokens=300,
+                    # High cap so thinking models (e.g. gemma-*-it) can finish reasoning
+                    # and still emit the answer; non-thinking models stop early at STOP.
+                    max_output_tokens=2000,
                     safety_settings=[
                         types.SafetySetting(
                             category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
@@ -4871,6 +5059,15 @@ class GeminiOCR:
             response = self.client.models.generate_content(
                 model=self.model, contents=contents, config=self.generation_config
             )
+            # response.text is None when no text part was returned (e.g. thinking model
+            # truncated by MAX_TOKENS, or response blocked). Surface a useful reason.
+            if response.text is None:
+                finish = None
+                if response.candidates:
+                    finish = response.candidates[0].finish_reason
+                if finish and str(finish).endswith("MAX_TOKENS"):
+                    return (False, "Gemini returned no text (hit max_output_tokens). Try a non-thinking model.")
+                return (True, "", None, None, None, None)
             text_output = response.text.strip()
 
             # Mimic OneOCR result for text-only response
@@ -4966,61 +5163,98 @@ class GroqOCR:
 
 
 # OpenAI-Compatible Endpoint OCR using LM Studio
-class localLLMOCR:
+class OpenAICompatibleOCR:
+    # `name`/`key` are kept stable ("local_llm_ocr") so existing user configs and the
+    # frontend engine selection keep working. This now talks to any OpenAI-compatible
+    # /chat/completions endpoint (OpenAI, OpenRouter, LM Studio, Ollama, vLLM, ...).
     name = "local_llm_ocr"
-    readable_name = "Local LLM OCR"
+    readable_name = "OpenAI-Compatible OCR"
     key = "a"
     available = False
     last_ocr_time = time.time() - 5
 
+    DEFAULT_BASE_URL = "https://api.openai.com/v1"
+
     def __init__(self, config={}, lang="ja"):
         self.keep_llm_hot_thread = None
-        # All three config values are required: url, model, api_key
-        if not config or not (config.get("url") and config.get("model") and config.get("api_key")):
-            logger.warning("Local LLM OCR requires url, model, and api_key in config, Local LLM OCR will not work!")
-            return
+        self.available = False
 
         try:
             import openai
         except ImportError:
-            logger.warning("openai module not available, Local LLM OCR will not work!")
+            logger.warning("openai module not available, OpenAI-Compatible OCR will not work!")
             return
-        import openai
-        import threading
+
+        config = config or {}
+        ai_config = getattr(get_config(), "ai", None)
+
+        # Engine config (owocr ini) takes priority; fall back to the GSM AI `open_ai_*` settings.
+        api_url = config.get("url") or config.get("api_url") or getattr(ai_config, "open_ai_url", "")
+        self.model = config.get("model") or getattr(ai_config, "open_ai_model", "")
+        api_key = config.get("api_key") or getattr(ai_config, "open_ai_api_key", "")
+
+        if not self.model:
+            logger.warning("OpenAI-Compatible OCR requires a model (open_ai_model), it will not work!")
+            return
+
+        # Some local endpoints don't check the key; send a placeholder so the client still works.
+        self.api_key = api_key or "sk-no-key-required"
+        self.base_url = self._normalize_base_url(api_url)
+        self.custom_prompt = config.get("prompt", None)
+        self.temperature = config.get("temperature", getattr(ai_config, "temperature", 0.1))
+        self.max_tokens = config.get("max_tokens", getattr(ai_config, "max_output_tokens", 4096))
+        self.keep_warm = config.get("keep_warm", False)  # only useful for local models
+        timeout = config.get("timeout", 30)
 
         try:
-            self.api_url = config.get("url", "http://localhost:1234/v1/chat/completions")
-            self.model = config.get("model", "qwen2.5-vl-3b-instruct")
-            self.api_key = config.get("api_key", "lm-studio")
-            self.keep_warm = config.get("keep_warm", True)
-            self.custom_prompt = config.get("prompt", None)
-            self.available = True
-            if not self.check_url_for_connectivity(self.api_url):
-                self.available = False
-                logger.warning(f"Local LLM OCR API URL not reachable: {self.api_url}")
-                return
             self.client = openai.OpenAI(
-                base_url=self.api_url.replace("/v1/chat/completions", "/v1"),
+                base_url=self.base_url,
                 api_key=self.api_key,
-                timeout=1,
+                timeout=timeout,
             )
-            if self.client.models.retrieve(self.model):
-                self.model = self.model
-            logger.info(f"Local LLM OCR (OpenAI-compatible) ready with model {self.model}")
-            if self.keep_warm:
-                self.keep_llm_hot_thread = threading.Thread(target=self.keep_llm_warm, daemon=True)
-                self.keep_llm_hot_thread.start()
-        except Exception:
-            logger.warning("Error initializing Local LLM OCR, Local LLM OCR will not work!")
+        except Exception as e:
+            logger.warning(f"Error initializing OpenAI-Compatible OCR: {e}")
+            return
 
-    def check_url_for_connectivity(self, url):
-        import requests
+        self.available = True
+        logger.info(f"OpenAI-Compatible OCR ready with model '{self.model}' at {self.base_url}")
+        if self.keep_warm:
+            import threading
 
-        try:
-            response = requests.get(url, timeout=0.5)
-            return response.status_code == 200
-        except Exception:
-            return False
+            self.keep_llm_hot_thread = threading.Thread(target=self.keep_llm_warm, daemon=True)
+            self.keep_llm_hot_thread.start()
+
+    def _normalize_base_url(self, url):
+        # Accept a bare host, a base URL, or a full chat/completions endpoint and reduce
+        # it to the base the OpenAI client expects.
+        url = (url or "").strip().rstrip("/")
+        if not url:
+            return self.DEFAULT_BASE_URL
+        if url.endswith("/chat/completions"):
+            url = url[: -len("/chat/completions")]
+        return url
+
+    def _create_completion(self, messages):
+        # Newer models (gpt-5 / o-series) reject `max_tokens` (want `max_completion_tokens`)
+        # and a non-default `temperature`. Adapt on the fly so we stay endpoint-agnostic.
+        params = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+        }
+        for _ in range(3):
+            try:
+                return self.client.chat.completions.create(**params)
+            except Exception as e:
+                msg = str(e).lower()
+                if "max_tokens" in params and "max_tokens" in msg and "max_completion_tokens" in msg:
+                    params["max_completion_tokens"] = params.pop("max_tokens")
+                    continue
+                if "temperature" in params and "temperature" in msg and "unsupported" in msg:
+                    params.pop("temperature")
+                    continue
+                raise
 
     def keep_llm_warm(self):
         def ocr_blank_black_image():
@@ -5031,7 +5265,7 @@ class localLLMOCR:
 
             # Create a blank black image
             blank_image = Image.fromarray(np.zeros((100, 100, 3), dtype=np.uint8))
-            logger.info("Keeping local LLM OCR warm with a blank black image")
+            logger.info("Keeping OpenAI-Compatible OCR warm with a blank black image")
             self(blank_image)
 
         while True:
@@ -5049,26 +5283,22 @@ class localLLMOCR:
                 prompt = self.custom_prompt.strip()
             else:
                 prompt = f"""
-                Extract all {CommonLanguages.from_code(get_ocr_language()).name} Text from Image. Ignore all Furigana. Do not return any commentary, just the text in the image. Do not Translate. If there is no text in the image, return "" (Empty String). 
+                Extract all {CommonLanguages.from_code(get_ocr_language()).name} Text from Image. Ignore all Furigana. Do not return any commentary, just the text in the image. Do not Translate. If there is no text in the image, return "" (Empty String).
                 """
 
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/png;base64,{img_base64}"},
-                            },
-                        ],
-                    }
-                ],
-                max_tokens=4096,
-                temperature=0.1,
-            )
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{img_base64}"},
+                        },
+                    ],
+                }
+            ]
+            response = self._create_completion(messages)
             self.last_ocr_time = time.time()
             if response.choices and response.choices[0].message.content:
                 text_output = response.choices[0].message.content.strip()
@@ -5076,7 +5306,7 @@ class localLLMOCR:
             else:
                 return (True, "", None, None, None, None)
         except Exception as e:
-            return (False, f"Local LLM OCR request failed: {e}")
+            return (False, f"OpenAI-Compatible OCR request failed: {e}")
 
 
 # import os
@@ -5542,6 +5772,91 @@ class OpenCvEastTextDetector(BaseTextDetector):
                 img_pil.close()
 
 
+class PaddleTextDetector(BaseTextDetector):
+    """Detection-only engine backed by PaddleOCR's standalone text detector."""
+
+    name = "paddle_text_detector"
+    readable_name = "PaddleOCR Text Detector"
+    key = "t"
+    config_entry = "paddle_text_detector"
+    local = True
+    manual_language = False
+    coordinate_support = True
+    threading_support = True
+    capabilities = EngineCapabilities(
+        words=False,
+        word_bounding_boxes=False,
+        lines=False,
+        line_bounding_boxes=False,
+        paragraphs=False,
+        paragraph_bounding_boxes=False,
+    )
+
+    def __init__(self, config=None, lang="ja"):
+        config = config or {}
+        self.default_confidence_threshold = float(config.get("confidence_threshold", 0.4))
+        self.crop_padding = int(config.get("crop_padding", 5))
+        self.model = None
+
+        paddleocr_module = _load_paddleocr_module()
+        if paddleocr_module is None:
+            logger.warning("paddleocr not available, PaddleTextDetector will not work!")
+            return
+
+        ocr_version = config.get("ocr_version", "PP-OCRv6")
+        det_size = config.get("det_model", "tiny")
+        logger.info(f"Loading PaddleTextDetector model (det={det_size})")
+        # mkldnn (oneDNN) crashes some PP-OCR models on CPU, so it's off unless opted in.
+        self.model = paddleocr_module.TextDetection(
+            model_name=_paddle_model_name(ocr_version, det_size, "det"),
+            device=config.get("device", "gpu" if config.get("gpu", False) else "cpu"),
+            enable_mkldnn=config.get("enable_mkldnn", False),
+        )
+        self.available = True
+        logger.info("PaddleTextDetector ready")
+
+    def __call__(
+        self,
+        img,
+        furigana_filter_sensitivity=0,
+        confidence_threshold: float = None,
+        **kwargs,
+    ):
+        if not self.available or self.model is None:
+            return (False, "PaddleTextDetector is not available.")
+
+        threshold = self._resolve_confidence_threshold(confidence_threshold)
+        img_pil, is_path = input_to_pil_image(img)
+        if not img_pil:
+            return (False, "Invalid image provided")
+
+        try:
+            input_image = np.array(img_pil.convert("RGB"))
+            detections = []
+            for res in self.model.predict(input_image):
+                polys = res.get("dt_polys")
+                scores = res.get("dt_scores")
+                for poly, score in zip(polys, scores):
+                    try:
+                        score = float(score)
+                    except (TypeError, ValueError):
+                        score = 1.0
+                    if score < threshold:
+                        continue
+                    xs = [float(p[0]) for p in poly]
+                    ys = [float(p[1]) for p in poly]
+                    detections.append({"box": [min(xs), min(ys), max(xs), max(ys)], "score": score})
+            result = self._as_detection_result(detections, input_image.shape[1], input_image.shape[0])
+        except Exception as e:
+            logger.error(f"PaddleTextDetector error: {e}")
+            result = (False, f"PaddleTextDetector error: {e}")
+        finally:
+            if is_path:
+                img_pil.close()
+
+        return result
+
+
 # --- EXAMPLE USAGE ---
 if __name__ == "__main__":
     img = Image.open(r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\owocr\owocr\test_furigana.png")
@@ -6002,7 +6317,7 @@ if __name__ == "__main__":
 # QWENOCR.initialize()
 # qwenocr = QWENOCR()
 
-# localOCR = localLLMOCR(config={'api_url': 'http://localhost:1234/v1/chat/completions', 'model': 'qwen2.5-vl-3b-instruct'})
+# localOCR = OpenAICompatibleOCR(config={'api_url': 'http://localhost:1234/v1/chat/completions', 'model': 'qwen2.5-vl-3b-instruct'})
 
 # for i in range(10):
 #     start_time = time.time()

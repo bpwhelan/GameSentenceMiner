@@ -12,6 +12,8 @@ import { registerOBSIPC } from '../ui/obs.js';
 import { registerAnkiBeaconIPC } from '../ui/anki_beacon.js';
 import { registerYuzuIPC } from '../ui/yuzu.js';
 import { registerVNIPC } from '../ui/vn.js';
+import { registerTextHookIPC } from '../ui/texthook.js';
+import { registerTextProcessIPC } from '../ui/textprocess.js';
 import { exportLogsArchive } from './log_export.js';
 import { BASE_DIR } from '../util.js';
 import { isAllowedDocsUrl } from '../../shared/docs.js';
@@ -19,7 +21,7 @@ import type { InstallSessionSnapshot } from '../../shared/install_session.js';
 
 interface MainIPCDependencies {
     getMainWindow: () => BrowserWindow | null;
-    restartApplication: () => Promise<void>;
+    applyIconStyle: (iconStyle: string) => void;
     getUpdateStatus: () => Promise<unknown>;
     checkForUpdates: () => Promise<unknown>;
     updateNow: () => Promise<unknown>;
@@ -93,6 +95,8 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
     registerPythonIPC();
     registerStateIPC();
     registerAnkiBeaconIPC();
+    registerTextHookIPC();
+    registerTextProcessIPC();
 
     ipcMain.handle('show-error-box', async (_event, { title, message, detail }) => {
         const mainWindow = deps.getMainWindow();
@@ -187,23 +191,11 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
         return { success: await deps.retryInstallSession() };
     });
 
-    ipcMain.on('settings.iconStyleChanged', async () => {
-        const mainWindow = deps.getMainWindow();
-        if (!mainWindow || mainWindow.isDestroyed()) {
+    ipcMain.on('settings.iconStyleChanged', (_event, iconStyle) => {
+        if (typeof iconStyle !== 'string') {
             return;
         }
 
-        const response = await dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            title: 'Restart Required',
-            message: 'Changing the icon requires restarting the app. Restart now?',
-            buttons: ['Restart', 'Later'],
-            defaultId: 0,
-            cancelId: 1,
-        });
-
-        if (response.response === 0) {
-            await deps.restartApplication();
-        }
+        deps.applyIconStyle(iconStyle);
     });
 }

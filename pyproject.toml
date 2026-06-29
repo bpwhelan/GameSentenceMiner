@@ -7,56 +7,49 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "GameSentenceMiner"
-version = "2026.5.4"
+version = "2026.6.15"
 description = "A tool for mining sentences from games. Update: Dependencies, replay buffer based line searching, and bug fixes."
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
-license = { text = "MIT License" }
+license = { file = "LICENSE" }
 authors = [
   { name = "Beangate", email = "bpwhelan95@gmail.com"}
 ]
 urls = { Homepage = "https://github.com/bpwhelan/GameSentenceMiner", Repository = "https://github.com/bpwhelan/GameSentenceMiner" }
 classifiers = [
   "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: MIT License",
+  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
   "Operating System :: OS Independent"
 ]
 dependencies = [
   "requests~=2.32.5",
-  "chardet>=3.0.2,<6",
   "watchdog~=6.0.0",
   "soundfile~=0.13.1",
   "toml~=0.10.2",
   "psutil~=7.1.0",
+  "python-xlib ; sys_platform == 'linux'",
   "rapidfuzz~=3.10.0",
   "plyer~=2.1.0",
   "keyboard~=0.13.5",
   "websockets~=15.0.1",
   "dataclasses_json~=0.6.7",
   "obsws-python~=1.8.0",
-  "DateTime~=5.5",
+  "pytz>=2025.1",
   "numpy==2.2.6",
   "faster-whisper~=1.2.1",
-  "silero-vad~=6.2.0",
   "regex~=2025.10.23",
   "opencv-python~=4.12.0.88",
-  "scikit-image~=0.25.2",
   "oneocr==1.0.10",
   "sounddevice~=0.5.2",
-  "matplotlib~=3.10.6",
   "groq~=0.33.0",
   "flask~=3.1.2",
   "pystray~=0.19.5",
   "pygetwindow==0.0.9; sys_platform == 'win32'",
   "pywin32==311; sys_platform == 'win32'",
-  "stable-ts~=2.19.1",
-  "torchcodec~=0.8.1",
-  "torchaudio~=2.8.0",
-  "torch~=2.8.0",
   "pillow~=12.0.0",
   "openai~=2.6.0",
   "flask-compress~=1.15",
-  "meikiocr~=0.3.3",
+  "meikiocr~=0.3.4",
   "jaconv~=0.4.0",
   "loguru~=0.7.3",
   "pyperclipfix>=1.9.4",
@@ -82,6 +75,7 @@ dependencies = [
   "fpng~=0.1.0",
   "onnxruntime~=1.23.2",
   "google-genai~=1.70.0",
+  "windows-capture>=2.0.0 ; sys_platform == 'win32'",
 ]
 
 
@@ -91,7 +85,11 @@ lens = [
 ]
 
 gpu = [
-  "onnxruntime-gpu[cudnn,cuda]",
+  "onnxruntime-gpu",
+  # GPU whisper: CTranslate2 needs cuBLAS + cuDNN at runtime. These used to arrive transitively
+  # via torch's CUDA wheel; torch is gone, so the gpu extra pulls them directly (win32 only).
+  "nvidia-cublas-cu12 ; sys_platform == 'win32'",
+  "nvidia-cudnn-cu12 ; sys_platform == 'win32'",
 ]
 
 dev = [
@@ -99,6 +97,7 @@ dev = [
   "hypothesis>=6.100.0",
   "pre-commit>=4.3.0",
   "ruff>=0.14.0",
+  "matplotlib~=3.10.6",  # only used by scripts/ocr_metrics_benchmark.py
 ]
 
 # This creates a command-line script named `gamesentenceminer` that will

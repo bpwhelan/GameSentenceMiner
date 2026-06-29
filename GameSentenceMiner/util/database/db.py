@@ -175,14 +175,14 @@ class SQLiteDB:
             raise RuntimeError("Cannot commit changes in read-only mode.")
         with self._lock:
             conn = self._get_connection()
-            if is_dev:
-                if isinstance(params, dict):
-                    truncated_params = {
-                        key: str(value)[:50] if value is not None else None for key, value in params.items()
-                    }
-                else:
-                    truncated_params = tuple(str(p)[:50] if p is not None else None for p in params)
-                logger.debug(f"Executed query: {query} with params: {truncated_params}")
+            # if is_dev:
+            #     if isinstance(params, dict):
+            #         truncated_params = {
+            #             key: str(value)[:50] if value is not None else None for key, value in params.items()
+            #         }
+            #     else:
+            #         truncated_params = tuple(str(p)[:50] if p is not None else None for p in params)
+            #     logger.debug(f"Executed query: {query} with params: {truncated_params}")
             cur = conn.cursor()
             cur.execute(query, params)
             if commit and not self._in_transaction():
@@ -761,24 +761,24 @@ class AIModelsTable(SQLiteDBTable):
 
     @classmethod
     def set_gemini_models(cls, models: List[str]):
-        models = cls.all()
-        if not models:
+        existing = cls.all()  # don't shadow the `models` param with the row list
+        if not existing:
             new_model = cls(gemini_models=models, groq_models=[], last_updated=time.time())
             new_model.save()
             return
-        for model in models:
+        for model in existing:
             model.gemini_models = models
             model.last_updated = time.time()
             model.save()
 
     @classmethod
     def set_groq_models(cls, models: List[str]):
-        models = cls.all()
-        if not models:
+        existing = cls.all()  # don't shadow the `models` param with the row list
+        if not existing:
             new_model = cls(gemini_models=[], groq_models=models, last_updated=time.time())
             new_model.save()
             return
-        for model in models:
+        for model in existing:
             model.groq_models = models
             model.last_updated = time.time()
             model.save()
@@ -1527,54 +1527,199 @@ def get_db_directory(test=False, delete_test=False) -> str:
     return sanitize_and_resolve_path(path)
 
 
-# Backup and compress the database on load, with today's date, up to 5 days ago (clean up old backups)
-def backup_db(db_path: str):
+DATABASE_BACKUP_RETENTION_DAYS = 5
+DATABASE_BACKUP_PAGE_COUNT = 512
+DATABASE_BACKUP_SLEEP_SECONDS = 0.05
+DATABASE_BACKUP_BUSY_TIMEOUT_MS = 5000
+DATABASE_BACKUP_GZIP_COMPRESSLEVEL = 1
+DATABASE_BACKUP_COPY_BUFFER_SIZE = 1024 * 1024
+DATABASE_BACKUP_LOCK_STALE_SECONDS = 6 * 60 * 60
 
-    # Create a of the backups on migration
-    pre_jiten_merge_backup = os.path.join(os.path.dirname(db_path), "backup", "database", "pre_jiten")
-    if not os.path.exists(pre_jiten_merge_backup):
-        os.makedirs(pre_jiten_merge_backup, exist_ok=True)
-        for fname in os.listdir(os.path.join(os.path.dirname(db_path), "backup", "database")):
-            fpath = os.path.join(os.path.dirname(db_path), "backup", "database", fname)
-            if os.path.isfile(fpath):
-                shutil.copy2(fpath, pre_jiten_merge_backup)
 
-    backup_dir = os.path.join(os.path.dirname(db_path), "backup", "database")
-    os.makedirs(backup_dir, exist_ok=True)
-    today = time.strftime("%Y-%m-%d")
-    backup_file = os.path.join(backup_dir, f"gsm_{today}.db.gz")
+def _timestamp_from_backup_now(now: Optional[Union[float, datetime]] = None) -> float:
+    if now is None:
+        return time.time()
+    if isinstance(now, datetime):
+        return now.timestamp()
+    return float(now)
 
-    # Test, remove backups older than 60 minutes
-    # cutoff = time.time() - 60 * 60
-    # Clean up backups older than 5 days
-    cutoff = time.time() - 5 * 24 * 60 * 60
+
+def _backup_date_string(now: Optional[Union[float, datetime]] = None) -> str:
+    if isinstance(now, datetime):
+        return now.strftime("%Y-%m-%d")
+    if now is None:
+        return time.strftime("%Y-%m-%d")
+    return time.strftime("%Y-%m-%d", time.localtime(float(now)))
+
+
+def _database_backup_dir(db_path: str) -> str:
+    return os.path.join(os.path.dirname(db_path), "backup", "database")
+
+
+def _daily_database_backup_path(db_path: str, now: Optional[Union[float, datetime]] = None) -> str:
+    return os.path.join(_database_backup_dir(db_path), f"gsm_{_backup_date_string(now)}.db.gz")
+
+
+def _remove_expired_database_backups(
+    backup_dir: str,
+    *,
+    now: Optional[Union[float, datetime]] = None,
+    retention_days: int = DATABASE_BACKUP_RETENTION_DAYS,
+) -> None:
+    cutoff = _timestamp_from_backup_now(now) - retention_days * 24 * 60 * 60
+
     for fname in os.listdir(backup_dir):
         fpath = os.path.join(backup_dir, fname)
-        if fname.startswith("gsm_") and fname.endswith(".db.gz"):
-            try:
-                file_time = os.path.getmtime(fpath)
-                if file_time < cutoff:
-                    os.remove(fpath)
-                    logger.info(f"Old backup removed: {fpath}")
-            except Exception as e:
-                logger.warning(f"Failed to remove old backup {fpath}: {e}")
+        if not (fname.startswith("gsm_") and fname.endswith(".db.gz")):
+            continue
+        if not os.path.isfile(fpath):
+            continue
+        try:
+            if os.path.getmtime(fpath) < cutoff:
+                os.remove(fpath)
+                logger.info(f"Old backup removed: {fpath}")
+        except Exception as e:
+            logger.warning(f"Failed to remove old backup {fpath}: {e}")
 
-    # Create backup if not already present for today
-    if not os.path.exists(backup_file):
-        with open(db_path, "rb") as f_in, open(backup_file, "wb") as f_out:
-            with gzip.GzipFile(fileobj=f_out, mode="wb") as gz_out:
-                shutil.copyfileobj(f_in, gz_out)
-        logger.success(f"Database backup created: {backup_file}")
+
+@contextmanager
+def _database_backup_lock(backup_dir: str):
+    lock_path = os.path.join(backup_dir, ".gsm_backup.lock")
+    lock_fd = None
+
+    def try_create_lock():
+        return os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+
+    try:
+        try:
+            lock_fd = try_create_lock()
+        except FileExistsError:
+            try:
+                lock_age = time.time() - os.path.getmtime(lock_path)
+                if lock_age <= DATABASE_BACKUP_LOCK_STALE_SECONDS:
+                    yield False
+                    return
+                os.remove(lock_path)
+                lock_fd = try_create_lock()
+            except (FileExistsError, OSError):
+                yield False
+                return
+
+        os.write(lock_fd, f"{os.getpid()} {time.time()}".encode("ascii"))
+        yield True
+    finally:
+        if lock_fd is not None:
+            try:
+                os.close(lock_fd)
+            finally:
+                try:
+                    os.remove(lock_path)
+                except OSError:
+                    pass
+
+
+def _create_sqlite_backup(source_path: str, destination_path: str) -> None:
+    source_uri = f"file:{source_path}?mode=ro"
+    with sqlite3.connect(source_uri, uri=True, check_same_thread=False) as source_conn:
+        source_conn.execute(f"PRAGMA busy_timeout = {DATABASE_BACKUP_BUSY_TIMEOUT_MS}")
+        with sqlite3.connect(destination_path, check_same_thread=False) as backup_conn:
+            source_conn.backup(
+                backup_conn,
+                pages=DATABASE_BACKUP_PAGE_COUNT,
+                sleep=DATABASE_BACKUP_SLEEP_SECONDS,
+            )
+
+
+def _gzip_file(source_path: str, destination_path: str) -> None:
+    with open(source_path, "rb") as f_in, open(destination_path, "wb") as f_out:
+        with gzip.GzipFile(
+            fileobj=f_out,
+            mode="wb",
+            compresslevel=DATABASE_BACKUP_GZIP_COMPRESSLEVEL,
+        ) as gz_out:
+            shutil.copyfileobj(f_in, gz_out, length=DATABASE_BACKUP_COPY_BUFFER_SIZE)
+
+
+def backup_db(db_path: str, *, now: Optional[Union[float, datetime]] = None) -> Optional[str]:
+    """Create today's compressed SQLite backup if one does not already exist."""
+    if not os.path.exists(db_path):
+        logger.debug(f"Skipping database backup because database does not exist: {db_path}")
+        return None
+
+    backup_dir = _database_backup_dir(db_path)
+    os.makedirs(backup_dir, exist_ok=True)
+    _remove_expired_database_backups(backup_dir, now=now)
+
+    backup_file = _daily_database_backup_path(db_path, now)
+    if os.path.exists(backup_file):
+        logger.debug(f"Database backup already exists for today: {backup_file}")
+        return None
+
+    with _database_backup_lock(backup_dir) as lock_acquired:
+        if not lock_acquired:
+            logger.debug("Skipping database backup because another backup is already running.")
+            return None
+        if os.path.exists(backup_file):
+            logger.debug(f"Database backup already exists for today: {backup_file}")
+            return None
+
+        temp_prefix = f".{os.path.basename(backup_file)}.{os.getpid()}.{threading.get_ident()}"
+        temp_db = os.path.join(backup_dir, f"{temp_prefix}.tmp.db")
+        temp_gz = os.path.join(backup_dir, f"{temp_prefix}.tmp.gz")
+
+        try:
+            for temp_path in (temp_db, temp_gz):
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+
+            _create_sqlite_backup(db_path, temp_db)
+            _gzip_file(temp_db, temp_gz)
+            os.replace(temp_gz, backup_file)
+            logger.success(f"Database backup created: {backup_file}")
+            return backup_file
+        finally:
+            for temp_path in (temp_db, temp_gz):
+                try:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                except OSError:
+                    pass
+
+
+def schedule_database_backup(db_path: str, *, read_only: bool = False) -> Optional[threading.Thread]:
+    """Run the daily database backup asynchronously so app startup is not blocked."""
+    if read_only:
+        logger.info("Skipping database backup in read-only mode")
+        return None
+    if os.environ.get("GSM_DISABLE_DB_BACKUP", "0") == "1":
+        logger.info("Skipping database backup because GSM_DISABLE_DB_BACKUP=1")
+        return None
+    if not os.path.exists(db_path):
+        logger.debug(f"Skipping database backup because database does not exist: {db_path}")
+        return None
+
+    def run_backup():
+        try:
+            backup_db(db_path)
+        except Exception as e:
+            logger.warning(f"Database backup failed: {e}")
+
+    thread = threading.Thread(
+        target=run_backup,
+        name="gsm-database-backup",
+        daemon=True,
+    )
+    thread.start()
+    return thread
 
 
 db_path = get_db_directory()
-if os.path.exists(db_path):
-    backup_db(db_path)
+# Default: normal read/write, but allow environment variable to override for read-only mode
+_gsm_db_read_only = os.environ.get("GSM_DB_READ_ONLY", "0") == "1"
+_startup_backup_thread = schedule_database_backup(db_path, read_only=_gsm_db_read_only)
 
 # db_path = get_db_directory(test=True, delete_test=False)
 
-# Default: normal read/write, but allow environment variable to override for read-only mode
-_gsm_db_read_only = os.environ.get("GSM_DB_READ_ONLY", "0") == "1"
 gsm_db = SQLiteDB(db_path, read_only=_gsm_db_read_only)
 _pending_tokenization_schema_sync = False
 
@@ -2075,7 +2220,7 @@ def check_and_run_migrations():
                     update_all_jiten_games,
                 )
 
-                result = update_all_jiten_games()
+                result = update_all_jiten_games(force=True)
                 logger.success(
                     f"✅ Jiten update completed: {result['updated_games']} games updated with genres and tags"
                 )
@@ -2106,7 +2251,7 @@ def check_and_run_migrations():
 if gsm_db.read_only:
     logger.info("Skipping database migrations in read-only mode")
 else:
-    check_and_run_migrations()
+    threading.Thread(target=check_and_run_migrations, daemon=True).start()
 
 # all_lines = GameLinesTable.all()
 

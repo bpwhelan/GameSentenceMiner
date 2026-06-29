@@ -762,6 +762,18 @@ async def send_word_coordinates_to_overlay(data):
         await websocket_manager.send(ID_OVERLAY, data)
 
 
+async def send_overlay_clear(line_id=None):
+    """Send a clear event to the overlay so stale word boxes are removed immediately when a new line starts processing."""
+    if websocket_manager.has_clients(ID_OVERLAY):
+        await websocket_manager.send(ID_OVERLAY, {"type": "overlay_clear", "line_id": line_id})
+
+
+async def send_manual_background_to_overlay(image_data_url):
+    """Push a captured desktop snapshot to the overlay for exclusive-fullscreen manual mode."""
+    if image_data_url and websocket_manager.has_clients(ID_OVERLAY):
+        await websocket_manager.send(ID_OVERLAY, {"type": "manual_mode_background", "image": image_data_url})
+
+
 @app.route("/update_checkbox", methods=["POST"])
 def update_event():
     data = request.get_json()
@@ -922,6 +934,64 @@ def trim_video():
         obs.save_replay_buffer()
 
     return jsonify({"queued": True, "line_id": event_id}), 200
+
+
+@app.route("/create-media", methods=["POST"])
+def create_media():
+    """Generate media (screenshot/audio/trimmed video) into the output folder for the given
+    line(s) WITHOUT creating an Anki card (non-Anki / Migaku helper)."""
+    data = request.get_json() or {}
+    ids = data.get("ids") or []
+    trim_with_vad = bool(data.get("trim_with_vad", False))
+
+    if not get_config().paths.output_folder:
+        # No destination configured: open the settings to the Paths tab so the user can set one.
+        try:
+            if gsm_state.config_app:
+                gsm_state.config_app.show_window(root_tab_key="general", subtab_key="paths")
+        except Exception as e:
+            logger.debug(f"Failed to open settings for output folder: {e}")
+        return jsonify(
+            {
+                "error": ("No output folder is set. Set an Output Folder in the Paths settings, then try again."),
+                "open_settings": True,
+            }
+        ), 400
+
+    lines = [line for event_id in ids if (line := get_event_line_by_id(event_id)) is not None]
+    if not lines:
+        lines = get_selected_lines()
+    if not lines:
+        ordered_ids = event_manager.get_ordered_ids()
+        if ordered_ids:
+            last_line = get_event_line_by_id(ordered_ids[-1])
+            if last_line:
+                lines = [last_line]
+    if not lines:
+        return jsonify({"error": "No line available to create media for."}), 400
+
+    gsm_state.lines_for_media_creation = lines
+    gsm_state.media_creation_request = {
+        "trim_with_vad": trim_with_vad,
+        "open_folder": True,
+    }
+
+    from GameSentenceMiner.web.service import handle_texthooker_button
+
+    primary_line = lines[0]
+    previous_lines = gsm_state.previous_lines_for_media_creation or []
+    reuse_replay = (
+        gsm_state.previous_replay
+        and previous_lines
+        and previous_lines[0] is primary_line
+        and len(previous_lines) == len(lines)
+    )
+    if reuse_replay:
+        handle_texthooker_button(gsm_state.previous_replay)
+    else:
+        obs.save_replay_buffer()
+
+    return jsonify({"queued": True, "count": len(lines)}), 200
 
 
 @app.route("/texthooker/audio/<token>", methods=["GET"])
@@ -1112,9 +1182,47 @@ def get_status():
         from GameSentenceMiner import anki as anki_module
 
         anki_module.refresh_anki_beacon_connection_status()
+        anki_module.refresh_anki_connect_connection_status()
     except Exception:
-        logger.debug("Unable to refresh AnkiBeacon status for /get_status.", exc_info=True)
+        logger.debug("Unable to refresh Anki status for /get_status.", exc_info=True)
     return jsonify(gsm_status.to_dict()), 200
+
+
+@app.route("/linux/detect_game_exe", methods=["GET"])
+def linux_detect_game_exe():
+    """Auto-detect the game executable from the OBS-captured X11 window (Linux only)."""
+    from GameSentenceMiner.util.config.configuration import is_linux
+
+    if not is_linux():
+        return jsonify({"path": "", "supported": False}), 200
+    path = ""
+    try:
+        from GameSentenceMiner.util.platform.base_window_monitor import (
+            detect_linux_game_executable,
+        )
+
+        path = detect_linux_game_executable() or ""
+    except Exception:
+        logger.debug("Linux game-exe auto-detect failed.", exc_info=True)
+    return jsonify({"path": path, "supported": True}), 200
+
+
+@app.route("/linux/set_target_process", methods=["POST"])
+def linux_set_target_process():
+    """Write the game-exe basename through to process_pausing.linux_target_process."""
+    data = request.get_json(silent=True) or {}
+    target = str(data.get("target") or "").strip()
+    basename = os.path.basename(target.replace("\\", "/")) if target else ""
+    try:
+        from GameSentenceMiner.util.config.configuration import save_current_config
+
+        cfg = get_config()
+        cfg.process_pausing.linux_target_process = basename
+        save_current_config(cfg)
+        return jsonify({"success": True, "linux_target_process": basename}), 200
+    except Exception as e:
+        logger.error(f"Failed to set linux_target_process: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.template_filter("datetimeformat")
@@ -1281,9 +1389,10 @@ class _LegacyMovedPageHandler(BaseHTTPRequestHandler):
 
     def _send_moved_page(self, include_body: bool = True):
         current_port = _get_single_port()
-        requested_host = (self.headers.get("Host") or "localhost").split(":", 1)[0] or "localhost"
-        requested_path = self.path if self.path else "/"
-        new_url = f"http://{requested_host}:{current_port}{requested_path}"
+        # Pin host to localhost and strip CR/LF + leading slashes so the Host header / request
+        # path can't be reflected into the Location header (open redirect / header injection).
+        requested_path = "/" + (self.path or "/").replace("\r", "").replace("\n", "").lstrip("/")
+        new_url = f"http://localhost:{current_port}{requested_path}"
 
         message = textwrap.dedent(f"""
             <!DOCTYPE html>

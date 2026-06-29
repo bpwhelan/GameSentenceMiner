@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from PIL import Image
 
 from GameSentenceMiner.owocr.owocr import ocr as ocr_module
-from GameSentenceMiner.owocr.owocr import run as run_module
+from GameSentenceMiner.owocr.owocr import ocr_runtime as run_module
 
 
 def test_check_text_is_all_menu_uses_crop_coords_list_over_union_box(monkeypatch):
@@ -61,6 +61,103 @@ def test_check_text_is_all_menu_accepts_four_value_crop_coords(monkeypatch):
         crop_coords_list,
         crop_offset=(0, 0),
     )
+
+
+def test_check_text_is_all_menu_clamps_box_past_frame_edge(monkeypatch):
+    # A menu rectangle flush to the bottom/edges of the frame. A reconstructed
+    # ScreenAI box gets +5 padding that pushes it a few px past the frame; it must
+    # be clamped (not abort the whole check) so the in-menu text is still skipped.
+    menu_rectangles = [SimpleNamespace(is_secondary=True, coordinates=(0, 50, 100, 50))]
+    fake_config = SimpleNamespace(rectangles=menu_rectangles)
+
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=100, height=100),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_config)
+
+    # After -/+5 padding removal this maps to (10, 60, 95, 105); y2=105 is past the
+    # 100px frame and previously aborted the check with a hard return False.
+    crop_coords_list = [(5, 55, 100, 110, "menu line")]
+
+    assert run_module.check_text_is_all_menu(
+        (5, 55, 100, 110),
+        crop_coords_list,
+        crop_offset=(0, 0),
+    )
+
+
+def test_process_and_write_results_applies_menu_filter_on_second_pass(monkeypatch):
+    # Second OCR pass calls with write_to=None; the menu skip must still run when
+    # apply_area_filters is set (automatic OCR), not only when write_to is set.
+    menu_rectangles = [
+        SimpleNamespace(is_secondary=True, coordinates=(0, 0, 100, 100)),
+        SimpleNamespace(is_secondary=True, coordinates=(200, 0, 100, 100)),
+    ]
+    fake_area_config = SimpleNamespace(rectangles=menu_rectangles)
+
+    class FakeOCR:
+        name = "screenai"
+        readable_name = "ScreenAI"
+
+        def __call__(self, img, furigana_filter_sensitivity=0):
+            return (
+                True,
+                "menu\nitems",
+                [],
+                [(5, 5, 95, 95, "menu"), (205, 5, 295, 95, "items")],
+                (5, 5, 295, 95),
+                None,
+            )
+
+    callback_calls = []
+
+    monkeypatch.setattr(
+        run_module,
+        "config",
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+    )
+    monkeypatch.setattr(
+        run_module,
+        "logger",
+        SimpleNamespace(opt=lambda **kwargs: SimpleNamespace(info=lambda *args, **kwargs: None)),
+    )
+    monkeypatch.setattr(run_module, "engine_instances", [FakeOCR()], raising=False)
+    monkeypatch.setattr(run_module, "engine_index", 0, raising=False)
+    monkeypatch.setattr(run_module, "auto_pause_handler", None, raising=False)
+    monkeypatch.setattr(
+        run_module,
+        "txt_callback",
+        lambda *args, **kwargs: callback_calls.append({"args": args, "kwargs": kwargs}),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_area_config)
+
+    # write_to=None mimics do_second_ocr; apply_area_filters=True is what the OCR2
+    # caller now passes for automatic OCR.
+    orig_text, text, payload = run_module.process_and_write_results(
+        Image.new("RGB", (400, 300), color=0),
+        None,
+        None,
+        None,
+        None,
+        engine="screenai",
+        return_payload=True,
+        apply_area_filters=True,
+    )
+
+    assert text == ""
+    assert payload is None
+    assert not orig_text
+    assert callback_calls == []
 
 
 def test_exclusive_ocr_area_filter_keeps_only_lines_inside_exclusive_rectangles(monkeypatch):
@@ -142,6 +239,292 @@ def test_exclusive_ocr_area_filter_leaves_text_when_no_exclusive_text_found(monk
     assert filtered_crop_coords_list == crop_coords_list
     assert crop_coords == (5, 5, 95, 95)
     assert raw_response_dict == {"lines": []}
+
+
+def test_check_text_is_in_black_hole_matches_any_detected_text_box(monkeypatch):
+    rectangles = [
+        SimpleNamespace(
+            is_secondary=False,
+            is_excluded=False,
+            is_exclusive=False,
+            is_black_hole=True,
+            coordinates=(0, 0, 100, 100),
+        ),
+        SimpleNamespace(
+            is_secondary=False,
+            is_excluded=False,
+            is_exclusive=True,
+            is_black_hole=False,
+            coordinates=(200, 0, 100, 100),
+        ),
+    ]
+    fake_config = SimpleNamespace(rectangles=rectangles)
+
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_config)
+
+    crop_coords_list = [(5, 5, 95, 95, "void"), (205, 5, 295, 95, "exclusive")]
+
+    assert run_module.check_text_is_in_black_hole(
+        (5, 5, 295, 95),
+        crop_coords_list,
+        crop_offset=(0, 0),
+    )
+
+
+def test_check_text_is_in_black_hole_ignores_disjoint_box(monkeypatch):
+    rectangles = [
+        SimpleNamespace(
+            is_secondary=False,
+            is_excluded=False,
+            is_exclusive=False,
+            is_black_hole=True,
+            coordinates=(0, 0, 100, 100),
+        ),
+    ]
+    fake_config = SimpleNamespace(rectangles=rectangles)
+
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_config)
+
+    crop_coords_list = [(105, 5, 145, 95, "outside")]
+
+    assert not run_module.check_text_is_in_black_hole(
+        (105, 5, 145, 95),
+        crop_coords_list,
+        crop_offset=(0, 0),
+    )
+
+
+def test_check_text_is_in_black_hole_matches_box_overlap(monkeypatch):
+    rectangles = [
+        SimpleNamespace(
+            is_secondary=False,
+            is_excluded=False,
+            is_exclusive=False,
+            is_black_hole=True,
+            coordinates=(0, 0, 100, 100),
+        ),
+    ]
+    fake_config = SimpleNamespace(rectangles=rectangles)
+
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_config)
+
+    crop_coords_list = [(5, 5, 205, 95, "line overlaps black hole")]
+
+    assert run_module.check_text_is_in_black_hole(
+        (5, 5, 205, 95),
+        crop_coords_list,
+        crop_offset=(0, 0),
+    )
+
+
+def test_check_text_is_in_black_hole_skips_out_of_bounds_box(monkeypatch):
+    # A near-edge / out-of-frame box (e.g. a reconstructed ScreenAI line) must not
+    # abort the whole-frame check; a later in-frame line in the black hole still hits.
+    rectangles = [
+        SimpleNamespace(
+            is_secondary=False,
+            is_excluded=False,
+            is_exclusive=False,
+            is_black_hole=True,
+            coordinates=(0, 0, 100, 100),
+        ),
+    ]
+    fake_config = SimpleNamespace(rectangles=rectangles)
+
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_config)
+
+    crop_coords_list = [
+        (5, 5, 405, 95, "out of bounds"),  # box_right > width
+        (5, 5, 95, 95, "void"),  # inside the black hole
+    ]
+
+    assert run_module.check_text_is_in_black_hole(
+        (5, 5, 405, 95),
+        crop_coords_list,
+        crop_offset=(0, 0),
+    )
+
+
+def test_process_and_write_results_skips_black_hole_before_exclusive_filter(monkeypatch):
+    rectangles = [
+        SimpleNamespace(
+            is_secondary=False,
+            is_excluded=False,
+            is_exclusive=False,
+            is_black_hole=True,
+            coordinates=(0, 0, 100, 100),
+        ),
+        SimpleNamespace(
+            is_secondary=False,
+            is_excluded=False,
+            is_exclusive=True,
+            is_black_hole=False,
+            coordinates=(200, 0, 100, 100),
+        ),
+    ]
+    fake_area_config = SimpleNamespace(rectangles=rectangles)
+
+    class FakeOCR:
+        name = "fakeocr"
+        readable_name = "Fake OCR"
+
+        def __call__(self, img, furigana_filter_sensitivity=0):
+            return (
+                True,
+                "void\nexclusive",
+                [],
+                [(5, 5, 95, 95, "void"), (205, 5, 295, 95, "exclusive")],
+                (5, 5, 295, 95),
+                None,
+            )
+
+    callback_calls = []
+    log_messages = []
+
+    monkeypatch.setattr(
+        run_module,
+        "config",
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+    )
+    monkeypatch.setattr(
+        run_module,
+        "logger",
+        SimpleNamespace(
+            opt=lambda **kwargs: SimpleNamespace(info=lambda message, *args, **kwargs: log_messages.append(message))
+        ),
+    )
+    monkeypatch.setattr(run_module, "engine_instances", [FakeOCR()], raising=False)
+    monkeypatch.setattr(run_module, "engine_index", 0, raising=False)
+    monkeypatch.setattr(run_module, "auto_pause_handler", None, raising=False)
+    monkeypatch.setattr(
+        run_module,
+        "txt_callback",
+        lambda *args, **kwargs: callback_calls.append({"args": args, "kwargs": kwargs}),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_area_config)
+
+    orig_text, text = run_module.process_and_write_results(
+        Image.new("RGB", (400, 300), color=0),
+        "callback",
+        None,
+        None,
+        None,
+    )
+
+    assert (orig_text, text) == ("", "")
+    assert callback_calls == []
+    assert run_module.BLACK_HOLE_SKIP_LOG_MESSAGE in log_messages
+
+
+def test_process_and_write_results_skips_detector_black_hole_before_exclusive_filter(monkeypatch):
+    rectangles = [
+        SimpleNamespace(
+            is_secondary=False,
+            is_excluded=False,
+            is_exclusive=False,
+            is_black_hole=True,
+            coordinates=(0, 0, 100, 100),
+        ),
+        SimpleNamespace(
+            is_secondary=False,
+            is_excluded=False,
+            is_exclusive=True,
+            is_black_hole=False,
+            coordinates=(200, 0, 100, 100),
+        ),
+    ]
+    fake_area_config = SimpleNamespace(rectangles=rectangles)
+
+    class FakeDetector:
+        name = "meiki_text_detector"
+        readable_name = "Meiki Text Detector"
+
+        def __call__(self, img, furigana_filter_sensitivity=0):
+            return ocr_module._build_text_detection_result(
+                self.name,
+                [
+                    {"box": [10, 10, 90, 90], "score": 0.9},
+                    {"box": [210, 10, 290, 90], "score": 0.8},
+                ],
+                img_width=400,
+                img_height=300,
+                crop_padding=5,
+            )
+
+    callback_calls = []
+    log_messages = []
+
+    monkeypatch.setattr(
+        run_module,
+        "config",
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+    )
+    monkeypatch.setattr(
+        run_module,
+        "logger",
+        SimpleNamespace(
+            opt=lambda **kwargs: SimpleNamespace(info=lambda message, *args, **kwargs: log_messages.append(message))
+        ),
+    )
+    monkeypatch.setattr(run_module, "engine_instances", [FakeDetector()], raising=False)
+    monkeypatch.setattr(run_module, "engine_index", 0, raising=False)
+    monkeypatch.setattr(run_module, "auto_pause_handler", None, raising=False)
+    monkeypatch.setattr(
+        run_module,
+        "txt_callback",
+        lambda *args, **kwargs: callback_calls.append({"args": args, "kwargs": kwargs}),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_area_config)
+
+    orig_text, text = run_module.process_and_write_results(
+        Image.new("RGB", (400, 300), color=0),
+        "callback",
+        None,
+        None,
+        None,
+    )
+
+    assert (orig_text, text) == ("", "")
+    assert callback_calls == []
+    assert run_module.BLACK_HOLE_SKIP_LOG_MESSAGE in log_messages
 
 
 def test_build_text_detection_result_includes_per_box_crop_coords():

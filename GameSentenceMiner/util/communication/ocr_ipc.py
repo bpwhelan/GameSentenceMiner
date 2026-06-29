@@ -1,16 +1,17 @@
-"""Stdout/Stdin IPC utilities for OCR process <-> Electron communication.
+"""OCR process <-> Electron IPC.
 
-This is a specialized IPC module for the OCR subprocess, following the same
-pattern as electron_ipc.py but tailored for OCR-specific commands.
+Transport is the unified message bus (see bus_client.py and the Electron broker
+in electron-src/main/runtime/message_bus.ts) when GSM is launched by Electron
+(env GSM_BROKER_PORT/GSM_BROKER_TOKEN present). When run standalone, it falls
+back to the legacy stdout/stdin line protocol (OCRMSG:/OCRCMD:) so the OCR
+process is still usable on its own.
 
-Electron expects structured messages printed to stdout as lines:
-    OCRMSG:{JSON}
-Where JSON is an object: {"function": <name>, "data": {...}, "id": optional}
+Bus mapping:
+  - events  OCR -> main : topic "ocr.event", data {"event": <name>, "data": {...}}
+  - commands main -> OCR: topic "ocr.command", data {"command": <name>, ...}
 
-Electron sends commands to OCR via stdin as lines:
-    OCRCMD:{JSON}
-
-This module replaces the websocket-based remote control for OCR.
+This module keeps the same public API it always had (register_command_handler,
+start_ipc_listener, send_event, announce_*) so gsm_ocr.py doesn't need to change.
 """
 
 from __future__ import annotations
@@ -27,6 +28,12 @@ try:
 except ImportError:
     # Fallback for standalone testing
     from loguru import logger
+
+from GameSentenceMiner.util.communication import bus_client
+
+# Bus topics for the OCR <-> main channel.
+OCR_EVENT_TOPIC = "ocr.event"
+OCR_COMMAND_TOPIC = "ocr.command"
 
 
 class OCRCommand(Enum):
@@ -63,15 +70,32 @@ _command_handler: Optional[CommandHandler] = None
 _stdin_thread: Optional[threading.Thread] = None
 
 
+def _use_bus() -> bool:
+    return bus_client.is_bus_available()
+
+
 def register_command_handler(handler: CommandHandler) -> None:
-    """Register a handler invoked for each parsed OCRCMD JSON object.
+    """Register a handler invoked for each parsed OCR command JSON object.
     Handler receives a dict with keys: command, data (optional), id (optional)."""
     global _command_handler
     _command_handler = handler
 
 
 def send_event(event: str, data: Optional[Dict[str, Any]] = None, id: Optional[str] = None) -> None:
-    """Send a structured event message to Electron via stdout."""
+    """Send a structured event message to Electron (bus, or stdout fallback)."""
+    if _use_bus():
+        payload: Dict[str, Any] = {"event": event}
+        if data is not None:
+            payload["data"] = data
+        if id is not None:
+            payload["id"] = id
+        # Broadcast: main consumes events for the UI; the backend consumes
+        # ocr_result for the text-intake pipeline (no main relay).
+        bus_client.get_bus().publish(bus_client.BROADCAST, OCR_EVENT_TOPIC, payload)
+        logger.debug(f"OCR bus event sent: {event}")
+        return
+
+    # Legacy stdout fallback.
     payload = {"event": event}
     if data is not None:
         payload["data"] = data
@@ -82,31 +106,53 @@ def send_event(event: str, data: Optional[Dict[str, Any]] = None, id: Optional[s
     logger.debug(f"OCR IPC Sent: {line}")
 
 
+def _dispatch_command(cmd_data: Dict[str, Any]) -> None:
+    if _command_handler:
+        try:
+            _command_handler(cmd_data)
+        except Exception as e:
+            logger.warning(f"Error in OCR command handler: {e}")
+
+
+def _on_bus_command(msg: Dict[str, Any]) -> None:
+    """Bus subscriber: unwrap the command payload and dispatch it."""
+    cmd_data = msg.get("data") or {}
+    if isinstance(cmd_data, dict):
+        logger.debug(f"OCR bus command received: {cmd_data.get('command')}")
+        _dispatch_command(cmd_data)
+
+
 def _stdin_loop() -> None:
-    """Blocking loop reading stdin for OCRCMD lines."""
+    """Legacy blocking loop reading stdin for OCRCMD lines (standalone mode)."""
     logger.debug("Starting OCR stdin IPC loop (OCRCMD)...")
     try:
         for raw in sys.stdin:
             line = raw.strip()
-            if not line:
-                continue
-            if not line.startswith("OCRCMD:"):
-                # Ignore non-command lines
+            if not line or not line.startswith("OCRCMD:"):
                 continue
             json_part = line[7:]
             try:
                 msg = json.loads(json_part)
                 logger.debug(f"OCR IPC Received command: {msg}")
-                if _command_handler:
-                    _command_handler(msg)
+                _dispatch_command(msg)
             except Exception as e:
                 logger.warning(f"Failed to parse OCRCMD line: {line} error={e}")
     except Exception as e:
         logger.error(f"OCR stdin loop error: {e}")
 
 
-def start_ipc_listener() -> threading.Thread:
-    """Start stdin reading in a daemon thread so OCR main loop is not blocked."""
+def start_ipc_listener() -> Optional[threading.Thread]:
+    """Begin receiving commands from Electron.
+
+    On the bus: connect and subscribe to the command topic. Standalone: spawn the
+    legacy stdin reader thread.
+    """
+    if _use_bus():
+        client = bus_client.start_bus()
+        client.subscribe(OCR_COMMAND_TOPIC, _on_bus_command)
+        logger.info("OCR IPC listener started (message bus)")
+        return None
+
     global _stdin_thread
     if _stdin_thread and _stdin_thread.is_alive():
         logger.warning("OCR IPC listener already running")
@@ -114,38 +160,32 @@ def start_ipc_listener() -> threading.Thread:
 
     _stdin_thread = threading.Thread(target=_stdin_loop, name="OCR_IPC_Listener", daemon=True)
     _stdin_thread.start()
-    logger.info("OCR IPC listener started")
+    logger.info("OCR IPC listener started (stdin fallback)")
     return _stdin_thread
 
 
 # Convenience wrappers for common events to Electron
 def announce_started():
-    """Announce that OCR process has started."""
     send_event(OCREvent.STARTED.value)
 
 
 def announce_stopped():
-    """Announce that OCR process has stopped."""
     send_event(OCREvent.STOPPED.value)
 
 
 def announce_paused():
-    """Announce that OCR is now paused."""
     send_event(OCREvent.PAUSED.value, {"paused": True})
 
 
 def announce_unpaused():
-    """Announce that OCR is now unpaused."""
     send_event(OCREvent.UNPAUSED.value, {"paused": False})
 
 
 def announce_status(status: Dict[str, Any]):
-    """Announce current OCR status."""
     send_event(OCREvent.STATUS.value, status)
 
 
 def announce_error(error: str, details: Optional[Dict[str, Any]] = None):
-    """Announce an error occurred."""
     data = {"error": error}
     if details:
         data.update(details)
@@ -153,7 +193,6 @@ def announce_error(error: str, details: Optional[Dict[str, Any]] = None):
 
 
 def announce_ocr_result(text: str, metadata: Optional[Dict[str, Any]] = None):
-    """Announce an OCR result."""
     data = {"text": text}
     if metadata:
         data.update(metadata)
@@ -161,38 +200,8 @@ def announce_ocr_result(text: str, metadata: Optional[Dict[str, Any]] = None):
 
 
 def announce_config_reloaded():
-    """Announce that OCR config was reloaded."""
     send_event(OCREvent.CONFIG_RELOADED.value)
 
 
 def announce_force_stable_changed(enabled: bool):
-    """Announce that force stable mode changed."""
     send_event(OCREvent.FORCE_STABLE_CHANGED.value, {"enabled": enabled})
-
-
-if __name__ == "__main__":
-    # Example usage when run standalone for testing
-    import time
-
-    def test_handler(cmd: dict):
-        print(f"Test handler received: {cmd}")
-        command = cmd.get("command")
-
-        if command == OCRCommand.GET_STATUS.value:
-            announce_status({"paused": False, "engine": "test", "scan_rate": 1.0})
-        elif command == OCRCommand.TOGGLE_PAUSE.value:
-            announce_paused()
-
-    register_command_handler(test_handler)
-    start_ipc_listener()
-    announce_started()
-
-    print("OCR IPC test mode - send commands via stdin", file=sys.stderr)
-    print('Example: OCRCMD:{"command":"get_status"}', file=sys.stderr)
-
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        announce_stopped()
-        print("\nExiting OCR IPC test", file=sys.stderr)

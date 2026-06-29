@@ -50,6 +50,7 @@ from GameSentenceMiner.ui import window_state_manager, WindowId
 from GameSentenceMiner.ui.config.binding import BindingManager, ValueTransform
 from GameSentenceMiner.ui.config.editor import ConfigEditor
 from GameSentenceMiner.ui.config.i18n import load_localization
+from GameSentenceMiner.ui.config.search import ConfigSearchController, SearchLineEdit
 from GameSentenceMiner.ui.config.labels import LabelColor, build_label
 from GameSentenceMiner.ui.config.prompt_help import PromptHelpDialog
 from GameSentenceMiner.ui.config.safety import safe_config_callback, safe_config_methods
@@ -87,6 +88,7 @@ from GameSentenceMiner.ocr.gsm_ocr_config import (
 )
 from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.config.configuration import (
+    ANIMATED_SCREENSHOT_CODEC_LABELS,
     Config,
     Locale,
     is_gsm_cloud_ai_preview_enabled,
@@ -104,6 +106,7 @@ from GameSentenceMiner.util.config.configuration import (
     Ai,
     Advanced,
     OverlayEngine,
+    OverlayManualBackgroundMode,
     get_app_directory,
     get_config,
     WHISPER_LARGE,
@@ -130,6 +133,7 @@ from GameSentenceMiner.util.config.configuration import (
     is_gsm_cloud_preview_enabled,
     save_full_config,
     AnimatedScreenshotSettings,
+    SCREENSHOT_CAPTURE_BACKENDS,
     Discord,
     Experimental,
     AnkiField,
@@ -170,14 +174,29 @@ class HorizontalTextTabBar(QTabBar):
             painter.drawControl(QStyle.ControlElement.CE_TabBarTabLabel, option)
 
 
+class ClearableKeySequenceEdit(QKeySequenceEdit):
+    """Key sequence editor that treats Esc and Backspace as clear commands."""
+
+    _CLEAR_KEYS = {Qt.Key.Key_Escape, Qt.Key.Key_Backspace}
+
+    def keyPressEvent(self, event):
+        if event.key() in self._CLEAR_KEYS and event.modifiers() == Qt.KeyboardModifier.NoModifier:
+            self.clear()
+            event.accept()
+            return
+
+        super().keyPressEvent(event)
+
+
 @safe_config_methods()
 class ConfigWindow(QWidget):
     # Signals for thread-safe operations
     _show_window_signal = pyqtSignal(str, str)
     _close_window_signal = pyqtSignal()
-    _reload_settings_signal = pyqtSignal()
+    _reload_settings_signal = pyqtSignal(bool, bool)
     _quit_app_signal = pyqtSignal()
     _selector_finished_signal = pyqtSignal()
+    _open_area_selector_signal = pyqtSignal()
     _gsm_cloud_sync_finished_signal = pyqtSignal(dict)
     _AUTO_SAVE_DEBOUNCE_MS = 900
     _RUNTIME_RELOAD_DEBOUNCE_MS = 1200
@@ -215,6 +234,9 @@ class ConfigWindow(QWidget):
         self._settings_tab_indices = {}
         self._settings_subtab_widgets = {}
         self._settings_subtab_indices = {}
+        self._profile_change_hooks = []
+        self._suppress_profile_change_hooks = False
+        self._suppress_relate_scene_prompt = False
 
         # --- Load Configuration and Localization ---
         self.editor = ConfigEditor()
@@ -244,6 +266,7 @@ class ConfigWindow(QWidget):
 
         # --- Main Layout ---
         self.main_layout = QVBoxLayout(self)
+        self.main_layout.addWidget(self._create_search_bar())
         self.tab_widget = QTabWidget()
         self._configure_tab_widgets()
         self.main_layout.addWidget(self.tab_widget)
@@ -252,6 +275,8 @@ class ConfigWindow(QWidget):
         self._create_all_widgets()
         self._register_shared_bindings()
         self._create_tabs()
+        self.search_controller = ConfigSearchController(self, self.search_count_label)
+        self.search_input.textChanged.connect(self.search_controller.apply)
 
         # --- Bottom Button Bar ---
         self._create_button_bar()
@@ -269,6 +294,7 @@ class ConfigWindow(QWidget):
         self._reload_settings_signal.connect(self._reload_settings_impl)
         self._quit_app_signal.connect(QApplication.instance().quit)
         self._selector_finished_signal.connect(self.on_selector_finished)
+        self._open_area_selector_signal.connect(self.open_overlay_area_selector)
         self._gsm_cloud_sync_finished_signal.connect(self._on_gsm_cloud_sync_finished)
 
         # --- Periodic OBS Error Check ---
@@ -290,6 +316,10 @@ class ConfigWindow(QWidget):
         """
         # Emit signal to show window on the GUI thread
         self._show_window_signal.emit(str(root_tab_key or ""), str(subtab_key or ""))
+
+    def request_open_overlay_area_selector(self):
+        """Launch the overlay area selector. Thread-safe: can be called from any thread."""
+        self._open_area_selector_signal.emit()
 
     def _show_window_impl(self, root_tab_key: str = "", subtab_key: str = ""):
         """Internal implementation of show_window that runs on the GUI thread."""
@@ -407,31 +437,63 @@ class ConfigWindow(QWidget):
         self._save_window_geometry()
         self.hide()
 
-    def reload_settings(self, force_refresh=False):
+    def reload_settings(self, force_refresh=False, suppress_profile_change_hooks=False):
         """
         Reloads the settings in the UI.
         Thread-safe: Can be called from any thread.
         """
-        self._reload_settings_signal.emit()
+        self._reload_settings_signal.emit(force_refresh, suppress_profile_change_hooks)
 
-    def _reload_settings_impl(self, force_refresh=False):
-        self._flush_pending_auto_save()
-        new_config = configuration.load_config()
-        current_config = new_config.get_config()
+    def _reload_settings_impl(self, force_refresh=False, suppress_profile_change_hooks=False):
+        previous_suppress_profile_hooks = getattr(self, "_suppress_profile_change_hooks", False)
+        self._suppress_profile_change_hooks = previous_suppress_profile_hooks or suppress_profile_change_hooks
+        try:
+            self._flush_pending_auto_save()
+            new_config = configuration.load_config()
+            current_config = new_config.get_config()
+            locale_changed = new_config.get_locale() != self.master_config.get_locale()
 
-        if force_refresh or current_config.name != self.settings.name or self.settings.config_changed(current_config):
-            logger.info("Config changed, reloading UI.")
-            self.editor.replace_master_config(new_config)
-            self.master_config = self.editor.master_config
-            self.settings = self.editor.profile
-            self._load_settings_to_ui_safely()
-            self.binder.refresh_all()
-            self._update_window_title()
-            self.refresh_obs_scenes(force_reload=True)
+            if locale_changed:
+                logger.info("Locale changed, reloading UI localization.")
+                self.editor.replace_master_config(new_config)
+                self.master_config = self.editor.master_config
+                self.settings = self.editor.profile
+                self.i18n = load_localization(self.master_config.get_locale())
+                self.editor.clear_listeners()
+                self.binder = BindingManager(self.editor)
+                self._register_shared_bindings()
+                self.tab_widget.clear()
+                self._create_tabs()
+                self._create_button_bar()
+                self._load_settings_to_ui_safely()
+                self._connect_signals()
+                self._update_window_title()
+                self.refresh_obs_scenes(force_reload=True)
+                return
+
+            if (
+                force_refresh
+                or current_config.name != self.settings.name
+                or self.settings.config_changed(current_config)
+            ):
+                logger.info("Config changed, reloading UI.")
+                self.editor.replace_master_config(new_config)
+                self.master_config = self.editor.master_config
+                self.settings = self.editor.profile
+                self._load_settings_to_ui_safely()
+                self.binder.refresh_all()
+                self._update_window_title()
+                self.refresh_obs_scenes(force_reload=True)
+        finally:
+            self._suppress_profile_change_hooks = previous_suppress_profile_hooks
 
     def add_save_hook(self, func):
         if func not in on_save:
             on_save.append(func)
+
+    def add_profile_change_hook(self, func):
+        if func not in self._profile_change_hooks:
+            self._profile_change_hooks.append(func)
 
     def set_test_func(self, func):
         self.test_func = func
@@ -603,6 +665,25 @@ class ConfigWindow(QWidget):
         configuration.reload_config()
         for func in on_save:
             func()
+        self._broadcast_overlay_config_to_overlay()
+
+    def _broadcast_overlay_config_to_overlay(self):
+        """Push GSM-owned overlay settings to an open overlay window so it stays in sync with PyQt edits."""
+        try:
+            from GameSentenceMiner.util.config.configuration import serialize_gsm_owned_overlay
+            from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
+
+            overlay = configuration.get_master_config().get_config().overlay
+            websocket_manager.send_nowait(
+                ID_OVERLAY,
+                {
+                    "type": "gsm-overlay-config-updated",
+                    "settings": serialize_gsm_owned_overlay(overlay),
+                    "monitors": list(getattr(overlay, "monitors", []) or []),
+                },
+            )
+        except Exception as e:
+            logger.debug(f"Failed to broadcast overlay config to overlay window: {e}")
 
     def _did_user_facing_port_change(self, previous_config: ProfileConfig, new_config: ProfileConfig) -> bool:
         try:
@@ -692,6 +773,21 @@ class ConfigWindow(QWidget):
             overlay_monitor_descriptors = getattr(self, "overlay_monitor_descriptors", [])
             if 0 <= selected_monitor_index < len(overlay_monitor_descriptors):
                 selected_monitor_descriptor = overlay_monitor_descriptors[selected_monitor_index]
+
+            process_pausing = ProcessPausing(
+                enabled=self.process_pausing_enabled_check.isChecked(),
+                auto_resume_seconds=self.process_pausing_auto_resume_seconds_edit.value(),
+                require_game_exe_match=True,  # Always true
+                overlay_manual_hotkey_requests_pause=self.process_pausing_overlay_manual_hotkey_requests_pause_check.isChecked(),
+                overlay_texthooker_hotkey_requests_pause=self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.isChecked(),
+                overlay_gamepad_navigation_requests_pause=self.process_pausing_overlay_gamepad_navigation_requests_pause_check.isChecked(),
+                linux_target_process=self.process_pausing_linux_target_process_edit.text().strip(),
+                denylist=[
+                    item.strip().lower()
+                    for item in self.process_pausing_denylist_edit.text().split(",")
+                    if item.strip()
+                ],
+            )
 
             config = ProfileConfig(
                 scenes=selected_scenes,
@@ -784,6 +880,12 @@ class ConfigWindow(QWidget):
                     confirmation_always_on_top=self.anki_confirmation_always_on_top_check.isChecked(),
                     confirmation_focus_on_show=self.anki_confirmation_focus_on_show_check.isChecked(),
                     replay_audio_on_tts_generation=self.anki_confirmation_replay_audio_on_tts_generation_check.isChecked(),
+                    reuse_audio_for_same_selected_lines_different_mined_line=(
+                        self.anki_same_selection_different_line_reuse_audio_check.isChecked()
+                    ),
+                    reuse_screenshot_for_same_selected_lines_different_mined_line=(
+                        self.anki_same_selection_different_line_reuse_screenshot_check.isChecked()
+                    ),
                 ),
                 features=Features(
                     full_auto=self.full_auto_check.isChecked(),
@@ -807,8 +909,12 @@ class ConfigWindow(QWidget):
                     trim_black_bars_wip=self.trim_black_bars_check.isChecked(),
                     animated_settings=AnimatedScreenshotSettings(
                         fps=max(10, min(30, self.animated_fps_spin.value())),
-                        # extension=self.animated_extension_combo.currentText(),
+                        codec=str(self.animated_codec_combo.currentData() or self.animated_codec_combo.currentText()),
                         quality=max(0, min(10, self.animated_quality_spin.value())),
+                        max_width=max(0, min(3840, self.animated_max_width_spin.value())),
+                        adaptive_avif=self.animated_adaptive_avif_check.isChecked(),
+                        faststart=self.animated_faststart_check.isChecked(),
+                        encoder_fallback=self.animated_encoder_fallback_check.isChecked(),
                     ),
                 ),
                 audio=Audio(
@@ -860,6 +966,7 @@ class ConfigWindow(QWidget):
                     use_cpu_for_inference=self.use_cpu_for_inference_check.isChecked(),
                     use_cpu_for_inference_v2=self.use_cpu_for_inference_check.isChecked(),
                     use_vad_filter_for_whisper=self.use_vad_filter_for_whisper_check.isChecked(),
+                    preload_vad_model=self.vad_preload_model_check.isChecked(),
                 ),
                 advanced=Advanced(
                     audio_player_path=self.audio_player_path_edit.text(),
@@ -870,7 +977,9 @@ class ConfigWindow(QWidget):
                     plaintext_websocket_port=self.settings.advanced.plaintext_websocket_port,
                     localhost_bind_address=self.localhost_bind_address_edit.text(),
                     longest_sleep_time=float(self.longest_sleep_time_edit.text() or 5.0),
+                    screenshot_capture_backend_v2=self.screenshot_capture_backend_combo.currentText(),
                     dont_collect_stats=self.dont_collect_stats_check.isChecked(),
+                    mute_game_on_minimize=self.mute_game_on_minimize_check.isChecked(),
                 ),
                 ai=Ai(
                     add_to_anki=self.ai_enabled_check.isChecked(),
@@ -942,6 +1051,8 @@ class ConfigWindow(QWidget):
                     periodic=self.periodic_check.isChecked(),
                     periodic_ratio=periodic_ratio,
                     periodic_interval=float(self.periodic_interval_edit.text() or 0.0),
+                    scan_on_mouse_move=self.scan_on_mouse_move_check.isChecked(),
+                    inject_scanned_lines=self.inject_scanned_lines_check.isChecked(),
                     minimum_character_size=int(self.overlay_minimum_character_size_edit.text() or 0),
                     use_overlay_area_config=self.use_overlay_area_config_check.isChecked(),
                     use_ocr_area_config_v2=self.use_ocr_area_config_check.isChecked(),
@@ -949,6 +1060,12 @@ class ConfigWindow(QWidget):
                     ocr_area_config_include_secondary_areas=self.ocr_area_config_include_secondary_areas_check.isChecked(),
                     ocr_area_config_use_exclusion_zones=self.ocr_area_config_use_exclusion_zones_check.isChecked(),
                     use_ocr_result_v2=self.use_ocr_result_check.isChecked(),
+                    supplement_ocr_result_with_overlay=self.supplement_ocr_result_with_overlay_check.isChecked(),
+                    manual_mode_desktop_background=(
+                        OverlayManualBackgroundMode.ON_DEMAND.value
+                        if self.manual_mode_desktop_background_check.isChecked()
+                        else OverlayManualBackgroundMode.OFF.value
+                    ),
                     check_previous_lines_for_recycled_indicator=bool(
                         getattr(self.settings.overlay, "check_previous_lines_for_recycled_indicator", False)
                     ),
@@ -957,6 +1074,7 @@ class ConfigWindow(QWidget):
                         and self.ocr_full_screen_instead_of_obs_checkbox.isChecked()
                     ),
                 ),
+                process_pausing=process_pausing,
             )
 
             # Handle custom audio encode settings
@@ -984,30 +1102,10 @@ class ConfigWindow(QWidget):
             self.master_config.locale = self.editor.master_config.locale
             self.master_config.overlay = config.overlay
 
-            auto_resume_seconds = self.process_pausing_auto_resume_seconds_edit.value()
-
             self.master_config.experimental = Experimental(
                 enable_experimental_features=self.experimental_features_enabled_check.isChecked(),
                 enable_tokenization=self.enable_tokenization_check.isChecked(),
                 tokenize_low_performance=self.tokenize_low_performance_check.isChecked(),
-            )
-            self.master_config.process_pausing = ProcessPausing(
-                enabled=self.process_pausing_enabled_check.isChecked(),
-                auto_resume_seconds=auto_resume_seconds,
-                require_game_exe_match=True,  # Always true
-                overlay_manual_hotkey_requests_pause=self.process_pausing_overlay_manual_hotkey_requests_pause_check.isChecked(),
-                overlay_texthooker_hotkey_requests_pause=self.process_pausing_overlay_texthooker_hotkey_requests_pause_check.isChecked(),
-                overlay_gamepad_navigation_requests_pause=self.process_pausing_overlay_gamepad_navigation_requests_pause_check.isChecked(),
-                allowlist=[
-                    item.strip().lower()
-                    for item in self.process_pausing_allowlist_edit.text().split(",")
-                    if item.strip()
-                ],
-                denylist=[
-                    item.strip().lower()
-                    for item in self.process_pausing_denylist_edit.text().split(",")
-                    if item.strip()
-                ],
             )
 
             # Get selected blacklisted scenes from Discord list
@@ -1091,6 +1189,14 @@ class ConfigWindow(QWidget):
         self._flush_pending_auto_save(target_profile_name=previous_profile_name)
         self.master_config.current_profile = new_profile_name
         self.master_config.save()
+        if not getattr(self, "_suppress_profile_change_hooks", False):
+            for func in list(self._profile_change_hooks):
+                try:
+                    func(previous_profile_name, new_profile_name)
+                except Exception as e:
+                    logger.debug(
+                        f"Profile change hook failed for '{previous_profile_name}' -> '{new_profile_name}': {e}"
+                    )
         self.editor.replace_master_config(self.master_config)
         self.master_config = self.editor.master_config
         self.settings = self.editor.profile
@@ -1100,6 +1206,82 @@ class ConfigWindow(QWidget):
         self._update_window_title()
         is_default = new_profile_name == DEFAULT_CONFIG
         self.delete_profile_button.setHidden(is_default)
+        self._maybe_prompt_relate_scene(new_profile_name)
+
+    def _maybe_prompt_relate_scene(self, profile_name: str) -> None:
+        """Offer to relate the current OBS scene with the newly selected profile."""
+        if getattr(self, "_suppress_relate_scene_prompt", False):
+            return
+        try:
+            current_scene = str(obs.get_current_scene() or "").strip()
+        except Exception:
+            current_scene = ""
+        if not current_scene:
+            return
+        profile = self.master_config.configs.get(profile_name)
+        if profile is None:
+            return
+        existing = {str(s or "").strip() for s in (getattr(profile, "scenes", []) or [])}
+        if current_scene in existing:
+            return
+
+        i18n = self.i18n.get("dialogs", {}).get("relate_scene", {})
+        title = i18n.get("title", "Relate Scene")
+        message_template = i18n.get("message", "Relate the current scene '{scene}' with profile '{profile}'?")
+        try:
+            message = message_template.format(scene=current_scene, profile=profile_name)
+        except (KeyError, ValueError):
+            message = f"Relate the current scene '{current_scene}' with profile '{profile_name}'?"
+
+        reply = QMessageBox.question(
+            self,
+            title,
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._relate_current_scene_to_profile(profile_name, current_scene)
+
+    def _relate_current_scene_to_profile(self, profile_name: str, scene: str) -> None:
+        scene = str(scene or "").strip()
+        if not scene:
+            return
+        # Exclusive: drop the scene from every other profile so it maps to exactly one.
+        for name, config in self.master_config.configs.items():
+            if name == profile_name:
+                continue
+            scenes = self._normalize_scene_selection(getattr(config, "scenes", []))
+            if scene in scenes:
+                config.scenes = [s for s in scenes if s != scene]
+        # Add to the now-current profile's working copy so the save path persists it.
+        current_scenes = self._normalize_scene_selection(getattr(self.settings, "scenes", []))
+        if scene not in current_scenes:
+            current_scenes.append(scene)
+        self.settings.scenes = current_scenes
+        self.save_settings(show_indicator=False)
+        self.refresh_obs_scenes(force_reload=True)
+
+    def _on_dont_collect_stats_clicked(self, checked: bool) -> None:
+        """Gate enabling 'don't collect stats' behind a hard-to-miss warning."""
+        if not checked:
+            return
+        reply = QMessageBox.warning(
+            self,
+            "Completely Disable Stats Collection?",
+            "<b>This completely stops ALL stats collection.</b><br><br>"
+            "Your stats and game lines are <b>only ever stored locally on this PC</b> — "
+            "GSM never sends them anywhere, to anyone. There is no server, no cloud, no telemetry.<br><br>"
+            "If you enable this, GSM will <b>stop recording lines to its local database</b>, which "
+            "permanently disables features that rely on it: per-game stats, reading heatmaps, "
+            "line history/search, streaks, and any future stats-based features.<br><br>"
+            "Lines that are not recorded while this is on <b>cannot be recovered later.</b><br><br>"
+            "Are you sure you want to turn this off?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            self.dont_collect_stats_check.setChecked(False)
 
     @staticmethod
     def _normalize_scene_selection(scene_names):
@@ -1233,6 +1415,8 @@ class ConfigWindow(QWidget):
         self.anki_confirmation_focus_on_show_check = QCheckBox()
         self.anki_confirmation_autoplay_audio_check = QCheckBox()
         self.anki_confirmation_replay_audio_on_tts_generation_check = QCheckBox()
+        self.anki_same_selection_different_line_reuse_audio_check = QCheckBox()
+        self.anki_same_selection_different_line_reuse_screenshot_check = QCheckBox()
         self.anki_url_edit = QLineEdit()
         self.anki_note_type_combo = self._create_anki_field_combo()
         self.sentence_field_edit = self._create_anki_field_combo()
@@ -1288,6 +1472,7 @@ class ConfigWindow(QWidget):
         self.screenshot_height_edit = QLineEdit()
         self.screenshot_quality_edit = QLineEdit()
         self.screenshot_extension_combo = QComboBox()
+        self.screenshot_capture_backend_combo = QComboBox()
         self.animated_screenshot_check = QCheckBox()
         self.screenshot_custom_ffmpeg_settings_edit = QLineEdit()
         self.screenshot_timing_combo = QComboBox()
@@ -1297,9 +1482,16 @@ class ConfigWindow(QWidget):
         # Animated Screenshot Settings
         self.animated_fps_spin = QSpinBox()
         self.animated_fps_spin.setRange(10, 30)
-        # self.animated_extension_combo = QComboBox()
+        self.animated_max_width_spin = QSpinBox()
+        self.animated_max_width_spin.setRange(0, 3840)
+        self.animated_max_width_spin.setSingleStep(40)
+        self.animated_max_width_spin.setSpecialValueText("Source width")
+        self.animated_codec_combo = QComboBox()
         self.animated_quality_spin = QSpinBox()
         self.animated_quality_spin.setRange(0, 10)
+        self.animated_adaptive_avif_check = QCheckBox()
+        self.animated_faststart_check = QCheckBox()
+        self.animated_encoder_fallback_check = QCheckBox()
         self.animated_settings_group = QGroupBox()
 
         # Discord Settings
@@ -1350,6 +1542,7 @@ class ConfigWindow(QWidget):
         self.splice_padding_edit = QLineEdit()
         self.use_cpu_for_inference_check = QCheckBox()
         self.use_vad_filter_for_whisper_check = QCheckBox()
+        self.vad_preload_model_check = QCheckBox()
 
         # OBS
         self.obs_open_obs_check = QCheckBox()
@@ -1433,23 +1626,30 @@ class ConfigWindow(QWidget):
         self.periodic_check = QCheckBox()
         self.periodic_interval_edit = QLineEdit()
         self.periodic_ratio_edit = QLineEdit()
+        self.scan_on_mouse_move_check = QCheckBox()
+        self.inject_scanned_lines_check = QCheckBox()
         self.number_of_local_scans_per_event_edit = QLineEdit()
         self.overlay_minimum_character_size_edit = QLineEdit()
-        self.manual_overlay_scan_hotkey_edit = QKeySequenceEdit()
+        self.manual_overlay_scan_hotkey_edit = ClearableKeySequenceEdit()
         self.use_overlay_area_config_check = QCheckBox()
         self.use_ocr_area_config_check = QCheckBox()
         self.ocr_area_config_include_primary_areas_check = QCheckBox()
         self.ocr_area_config_include_secondary_areas_check = QCheckBox()
         self.ocr_area_config_use_exclusion_zones_check = QCheckBox()
         self.use_ocr_result_check = QCheckBox()
+        self.supplement_ocr_result_with_overlay_check = QCheckBox()
+        # Created here (not in the overlay tab) so load/save still round-trip these
+        # overlay-owned values even though the overlay window is now their only editor.
+        self.ocr_full_screen_instead_of_obs_checkbox = QCheckBox()
+        self.manual_mode_desktop_background_check = QCheckBox()
         self.check_previous_lines_for_recycled_indicator_check = QCheckBox()
-        self.pause_text_intake_hotkey_edit = QKeySequenceEdit()
+        self.pause_text_intake_hotkey_edit = ClearableKeySequenceEdit()
         self.relay_outputs_when_text_intake_paused_check = QCheckBox()
 
         # Advanced
         self.audio_player_path_edit = QLineEdit()
         self.video_player_path_edit = QLineEdit()
-        self.play_latest_audio_hotkey_edit = QKeySequenceEdit()
+        self.play_latest_audio_hotkey_edit = ClearableKeySequenceEdit()
         self.multi_line_line_break_edit = QLineEdit()
         self.ocr_websocket_port_edit = QLineEdit()
         self.texthooker_communication_websocket_port_edit = QLineEdit()
@@ -1458,6 +1658,8 @@ class ConfigWindow(QWidget):
         self.localhost_bind_address_edit = QLineEdit()
         self.longest_sleep_time_edit = QLineEdit()
         self.dont_collect_stats_check = QCheckBox()
+        self.dont_collect_stats_check.clicked.connect(self._on_dont_collect_stats_clicked)
+        self.mute_game_on_minimize_check = QCheckBox()
         self.current_version_label = QLabel()
         self.latest_version_label = QLabel()
 
@@ -1496,16 +1698,18 @@ class ConfigWindow(QWidget):
         self.process_pausing_overlay_manual_hotkey_requests_pause_check = QCheckBox()
         self.process_pausing_overlay_texthooker_hotkey_requests_pause_check = QCheckBox()
         self.process_pausing_overlay_gamepad_navigation_requests_pause_check = QCheckBox()
-        self.process_pausing_allowlist_edit = QLineEdit()
         self.process_pausing_denylist_edit = QLineEdit()
+        self.process_pausing_linux_target_process_edit = QLineEdit()
+        self.process_pausing_linux_target_process_edit.setPlaceholderText(
+            "eldenring.exe  (Proton) or native binary name"
+        )
         self.process_pausing_auto_resume_seconds_edit = QSpinBox()
         self.process_pausing_auto_resume_seconds_edit.setRange(5, 300)
         self.process_pausing_auto_resume_seconds_edit.setToolTip(
             "Number of seconds to auto-resume after pausing (5-300) NON-NEGOTIABLE."
         )
 
-        self.process_pause_hotkey_edit = QKeySequenceEdit()
-        self.process_pausing_allowlist_edit.setPlaceholderText("game.exe, foo.exe")
+        self.process_pause_hotkey_edit = ClearableKeySequenceEdit()
         self.process_pausing_denylist_edit.setPlaceholderText("explorer.exe, steam.exe")
 
     def _register_shared_bindings(self):
@@ -1537,10 +1741,10 @@ class ConfigWindow(QWidget):
             self.sentence_field_append_check,
         )
         self.binder.bind(("profile", "anki", "sentence_audio_field"), self.sentence_audio_field_edit)
-        self.binder.bind(
-            ("profile", "anki", "sentence_audio_field_enabled"),
-            self.sentence_audio_field_enabled_check,
-        )
+        # Sentence-audio "Enabled" is the same setting as audio.enabled; bind both widgets to that
+        # single path so the Anki tab and Audio tab toggles stay in sync.
+        self.binder.bind(("profile", "audio", "enabled"), self.sentence_audio_field_enabled_check)
+        self.binder.bind(("profile", "audio", "enabled"), self.audio_enabled_check)
         self.binder.bind(
             ("profile", "anki", "sentence_audio_field_overwrite"),
             self.sentence_audio_field_overwrite_check,
@@ -1550,15 +1754,31 @@ class ConfigWindow(QWidget):
             self.sentence_audio_field_append_check,
         )
         self.binder.bind(("profile", "anki", "picture_field"), self.picture_field_edit)
-        self.binder.bind(
-            ("profile", "anki", "picture_field_enabled"),
-            self.picture_field_enabled_check,
-        )
+        # Picture "Enabled" is the same setting as screenshot.enabled; bind both widgets to that
+        # single path so the Anki tab and Screenshot tab toggles stay in sync.
+        self.binder.bind(("profile", "screenshot", "enabled"), self.picture_field_enabled_check)
+        self.binder.bind(("profile", "screenshot", "enabled"), self.screenshot_enabled_check)
         self.binder.bind(
             ("profile", "anki", "picture_field_overwrite"),
             self.picture_field_overwrite_check,
         )
         self.binder.bind(("profile", "anki", "picture_field_append"), self.picture_field_append_check)
+        self.binder.bind(
+            (
+                "profile",
+                "anki",
+                "reuse_audio_for_same_selected_lines_different_mined_line",
+            ),
+            self.anki_same_selection_different_line_reuse_audio_check,
+        )
+        self.binder.bind(
+            (
+                "profile",
+                "anki",
+                "reuse_screenshot_for_same_selected_lines_different_mined_line",
+            ),
+            self.anki_same_selection_different_line_reuse_screenshot_check,
+        )
         self.binder.bind(("profile", "anki", "word_field"), self.word_field_edit)
         self.binder.bind(
             ("profile", "anki", "previous_sentence_field"),
@@ -2128,6 +2348,20 @@ class ConfigWindow(QWidget):
             tabs_i18n.get("profiles", {}).get("title", "Profiles"),
         )
 
+    def _create_search_bar(self):
+        search_i18n = self.i18n.get("search", {})
+        bar = QWidget()
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(4, 4, 4, 0)
+        self.search_input = SearchLineEdit()
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.setPlaceholderText(search_i18n.get("placeholder", "Search all settings…"))
+        self.search_count_label = QLabel()
+        self.search_count_label.setStyleSheet("color: #888;")
+        layout.addWidget(self.search_input, 1)
+        layout.addWidget(self.search_count_label)
+        return bar
+
     def _configure_tab_widgets(self):
         self.tab_widget.setObjectName("ConfigRootTabs")
         root_tab_bar = HorizontalTextTabBar()
@@ -2339,11 +2573,9 @@ class ConfigWindow(QWidget):
             append_check.setEnabled(not overwrite_check.isChecked())
             overwrite_check.setEnabled(not append_check.isChecked())
 
-        for core_enabled_check in (
-            self.sentence_field_enabled_check,
-            self.sentence_audio_field_enabled_check,
-            self.picture_field_enabled_check,
-        ):
+        # Sentence text is always written, so its "Enabled" stays locked on. Picture and
+        # sentence-audio "Enabled" are now user-toggleable (synced with screenshot/audio.enabled).
+        for core_enabled_check in (self.sentence_field_enabled_check,):
             with QSignalBlocker(core_enabled_check):
                 core_enabled_check.setChecked(True)
             core_enabled_check.setEnabled(False)
@@ -2450,6 +2682,11 @@ class ConfigWindow(QWidget):
         if self.process_pausing_enabled_check.isChecked():  # Qt.CheckState.Checked
             if not self._show_game_pausing_warning():
                 self.process_pausing_enabled_check.setChecked(False)
+
+    def _set_process_pausing_enabled_from_config(self, enabled: bool):
+        """Apply saved process-pausing state without treating it as a user enable action."""
+        with QSignalBlocker(self.process_pausing_enabled_check):
+            self.process_pausing_enabled_check.setChecked(bool(enabled))
 
     def _anki_invoke(self, action, **params):
         url = (self.anki_url_edit.text() or get_config().anki.url).strip()
@@ -2675,6 +2912,12 @@ class ConfigWindow(QWidget):
         self.anki_confirmation_replay_audio_on_tts_generation_check.setChecked(
             bool(getattr(s.anki, "replay_audio_on_tts_generation", True))
         )
+        self.anki_same_selection_different_line_reuse_audio_check.setChecked(
+            bool(getattr(s.anki, "reuse_audio_for_same_selected_lines_different_mined_line", True))
+        )
+        self.anki_same_selection_different_line_reuse_screenshot_check.setChecked(
+            bool(getattr(s.anki, "reuse_screenshot_for_same_selected_lines_different_mined_line", False))
+        )
         self._set_text_value(self.anki_url_edit, s.anki.url)
         self._suppress_anki_field_refresh = True
         self.anki_note_type_combo.setCurrentText(s.anki.note_type)
@@ -2695,10 +2938,12 @@ class ConfigWindow(QWidget):
         self.sentence_field_enabled_check.setChecked(s.anki.sentence_field_enabled)
         self.sentence_field_overwrite_check.setChecked(s.anki.sentence_field_overwrite)
         self.sentence_field_append_check.setChecked(s.anki.sentence_field_append)
-        self.sentence_audio_field_enabled_check.setChecked(s.anki.sentence_audio_field_enabled)
+        # Sentence-audio "Enabled" mirrors audio.enabled (the canonical capture toggle).
+        self.sentence_audio_field_enabled_check.setChecked(s.audio.enabled)
         self.sentence_audio_field_overwrite_check.setChecked(s.anki.sentence_audio_field_overwrite)
         self.sentence_audio_field_append_check.setChecked(s.anki.sentence_audio_field_append)
-        self.picture_field_enabled_check.setChecked(s.anki.picture_field_enabled)
+        # Picture "Enabled" mirrors screenshot.enabled (the canonical capture toggle).
+        self.picture_field_enabled_check.setChecked(s.screenshot.enabled)
         self.picture_field_overwrite_check.setChecked(s.anki.picture_field_overwrite)
         self.picture_field_append_check.setChecked(s.anki.picture_field_append)
         self.previous_sentence_field_enabled_check.setChecked(s.anki.previous_sentence_field_enabled)
@@ -2740,6 +2985,9 @@ class ConfigWindow(QWidget):
         self.screenshot_extension_combo.clear()
         self.screenshot_extension_combo.addItems(["webp", "avif", "png", "jpeg"])
         self.screenshot_extension_combo.setCurrentText(s.screenshot.extension)
+        self.screenshot_capture_backend_combo.clear()
+        self.screenshot_capture_backend_combo.addItems(list(SCREENSHOT_CAPTURE_BACKENDS))
+        self.screenshot_capture_backend_combo.setCurrentText(s.advanced.screenshot_capture_backend_v2)
         self.animated_screenshot_check.setChecked(s.screenshot.animated)
         self._set_text_value(self.screenshot_custom_ffmpeg_settings_edit, s.screenshot.custom_ffmpeg_settings)
         self.screenshot_timing_combo.clear()
@@ -2750,10 +2998,26 @@ class ConfigWindow(QWidget):
 
         # Animated Screenshot Settings
         self.animated_fps_spin.setValue(max(10, min(30, s.screenshot.animated_settings.fps)))
-        # self.animated_extension_combo.clear()
-        # self.animated_extension_combo.addItems(['avif'])
-        # self.animated_extension_combo.setCurrentText(s.screenshot.animated_settings.extension)
+        self.animated_max_width_spin.setValue(
+            max(0, min(3840, getattr(s.screenshot.animated_settings, "max_width", 960)))
+        )
+        self.animated_codec_combo.clear()
+        for codec, label in ANIMATED_SCREENSHOT_CODEC_LABELS.items():
+            self.animated_codec_combo.addItem(label, codec)
+        codec_index = self.animated_codec_combo.findData(
+            getattr(s.screenshot.animated_settings, "codec", next(iter(ANIMATED_SCREENSHOT_CODEC_LABELS)))
+        )
+        if codec_index < 0:
+            codec_index = 0
+        self.animated_codec_combo.setCurrentIndex(codec_index)
         self.animated_quality_spin.setValue(max(0, min(10, s.screenshot.animated_settings.quality)))
+        self.animated_adaptive_avif_check.setChecked(
+            bool(getattr(s.screenshot.animated_settings, "adaptive_avif", False))
+        )
+        self.animated_faststart_check.setChecked(bool(getattr(s.screenshot.animated_settings, "faststart", True)))
+        self.animated_encoder_fallback_check.setChecked(
+            bool(getattr(s.screenshot.animated_settings, "encoder_fallback", True))
+        )
 
         # Update visibility of animated settings
         self._update_animated_settings_visibility()
@@ -2803,6 +3067,7 @@ class ConfigWindow(QWidget):
             getattr(s.vad, "use_cpu_for_inference_v2", s.vad.use_cpu_for_inference)
         )
         self.use_vad_filter_for_whisper_check.setChecked(s.vad.use_vad_filter_for_whisper)
+        self.vad_preload_model_check.setChecked(getattr(s.vad, "preload_vad_model", True))
 
         # OBS
         self.obs_open_obs_check.setChecked(s.obs.open_obs)
@@ -2900,6 +3165,8 @@ class ConfigWindow(QWidget):
         self.periodic_check.setChecked(s.overlay.periodic)
         self.periodic_interval_edit.setText(str(s.overlay.periodic_interval))
         self.periodic_ratio_edit.setText(str(s.overlay.periodic_ratio))
+        self.scan_on_mouse_move_check.setChecked(bool(getattr(s.overlay, "scan_on_mouse_move", True)))
+        self.inject_scanned_lines_check.setChecked(bool(getattr(s.overlay, "inject_scanned_lines", False)))
         # self.number_of_local_scans_per_event_edit.setText(str(s.overlay.number_of_local_scans_per_event))
         overlay_minimum_character_size = get_overlay_minimum_character_size(default=s.overlay.minimum_character_size)
         self.overlay_minimum_character_size_edit.setText(str(overlay_minimum_character_size))
@@ -2916,6 +3183,13 @@ class ConfigWindow(QWidget):
             bool(getattr(s.overlay, "ocr_area_config_use_exclusion_zones", True))
         )
         self.use_ocr_result_check.setChecked(s.overlay.use_ocr_result_v2)
+        self.supplement_ocr_result_with_overlay_check.setChecked(
+            bool(getattr(s.overlay, "supplement_ocr_result_with_overlay", False))
+        )
+        self.manual_mode_desktop_background_check.setChecked(
+            getattr(s.overlay, "manual_mode_desktop_background", OverlayManualBackgroundMode.OFF.value)
+            == OverlayManualBackgroundMode.ON_DEMAND.value
+        )
         self.check_previous_lines_for_recycled_indicator_check.setChecked(
             bool(getattr(s.overlay, "check_previous_lines_for_recycled_indicator", True))
         )
@@ -2935,8 +3209,8 @@ class ConfigWindow(QWidget):
         self.experimental_features_enabled_check.setChecked(experimental_cfg.enable_experimental_features)
         self.enable_tokenization_check.setChecked(getattr(experimental_cfg, "enable_tokenization", False))
         self.tokenize_low_performance_check.setChecked(getattr(experimental_cfg, "tokenize_low_performance", False))
-        process_cfg = getattr(self.master_config, "process_pausing", ProcessPausing())
-        self.process_pausing_enabled_check.setChecked(process_cfg.enabled)
+        process_cfg = getattr(s, "process_pausing", ProcessPausing())
+        self._set_process_pausing_enabled_from_config(process_cfg.enabled)
         self.process_pausing_auto_resume_seconds_edit.setValue(process_cfg.auto_resume_seconds)
         self.process_pausing_require_game_exe_match_check.setChecked(True)  # Always true
         self.process_pausing_require_game_exe_match_check.setEnabled(False)  # Always disabled
@@ -2949,8 +3223,11 @@ class ConfigWindow(QWidget):
         self.process_pausing_overlay_gamepad_navigation_requests_pause_check.setChecked(
             bool(getattr(process_cfg, "overlay_gamepad_navigation_requests_pause", False))
         )
-        self._set_text_value(self.process_pausing_allowlist_edit, ", ".join(process_cfg.allowlist))
         self._set_text_value(self.process_pausing_denylist_edit, ", ".join(process_cfg.denylist))
+        self._set_text_value(
+            self.process_pausing_linux_target_process_edit,
+            getattr(process_cfg, "linux_target_process", ""),
+        )
         self.process_pause_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.process_pause or ""))
 
         # Advanced
@@ -2967,6 +3244,7 @@ class ConfigWindow(QWidget):
         self._set_text_value(self.localhost_bind_address_edit, s.advanced.localhost_bind_address)
         self.longest_sleep_time_edit.setText(str(s.advanced.longest_sleep_time))
         self.dont_collect_stats_check.setChecked(s.advanced.dont_collect_stats)
+        self.mute_game_on_minimize_check.setChecked(bool(getattr(s.advanced, "mute_game_on_minimize", False)))
         self.current_version_label.setText(get_current_version())
         self.latest_version_label.setText(get_latest_version())
 
@@ -3319,8 +3597,12 @@ class ConfigWindow(QWidget):
             self.master_config.configs[name].name = name
             self._create_button_bar()
             self._connect_signals()
-            self.profile_combo.addItem(name)
-            self.profile_combo.setCurrentText(name)  # This will trigger the change handler
+            self._suppress_relate_scene_prompt = True
+            try:
+                self.profile_combo.addItem(name)
+                self.profile_combo.setCurrentText(name)  # This will trigger the change handler
+            finally:
+                self._suppress_relate_scene_prompt = False
 
     def copy_profile(self):
         source_profile = self.profile_combo.currentText()
@@ -3335,8 +3617,12 @@ class ConfigWindow(QWidget):
             self.master_config.configs[name].name = name
             self._create_button_bar()
             self._connect_signals()
-            self.profile_combo.addItem(name)
-            self.profile_combo.setCurrentText(name)
+            self._suppress_relate_scene_prompt = True
+            try:
+                self.profile_combo.addItem(name)
+                self.profile_combo.setCurrentText(name)
+            finally:
+                self._suppress_relate_scene_prompt = False
 
     def delete_profile(self):
         self._flush_pending_auto_save()
@@ -3601,19 +3887,6 @@ class ConfigWindow(QWidget):
             self.open_monitor_area_selector()
             return
 
-        reply = QMessageBox.question(
-            self,
-            "Prepare for Overlay Area Selection",
-            "The config gui will minimize and the overlay area selector will open in 1 second after you click OK.\n\n"
-            "Ready to continue?",
-            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Ok,
-        )
-
-        if reply != QMessageBox.StandardButton.Ok:
-            logger.info("Overlay area selector cancelled by user")
-            return
-
         logger.info("Launching overlay area selector in OBS mode")
         self._launch_overlay_selector_in_process(
             lambda callback: show_area_selector(
@@ -3633,21 +3906,6 @@ class ConfigWindow(QWidget):
             monitor_index = int(self.overlay_monitor_combo.currentIndex() or 0)
         except (ValueError, AttributeError):
             monitor_index = 0
-
-        # Show confirmation dialog
-        reply = QMessageBox.question(
-            self,  # Use self as parent so it centers on app
-            "Prepare for Overlay Area Selection",
-            f"Make sure your game is visible on Monitor {monitor_index + 1} before proceeding.\n\n"
-            "The config gui will minimize and the overlay area selector will open in 1 second after you click OK.\n\n"
-            "Ready to continue?",
-            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Ok,
-        )
-
-        if reply != QMessageBox.StandardButton.Ok:
-            logger.info("Monitor area selector cancelled by user")
-            return
 
         logger.info(f"Launching monitor area selector for monitor {monitor_index}")
         self._launch_overlay_selector_in_process(

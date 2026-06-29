@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { I18nProvider } from "../../i18n";
 import { HomeTab } from "./HomeTab";
 import type { GsmStatus, ObsWindow } from "../../types/models";
 
@@ -196,15 +197,15 @@ describe("HomeTab", () => {
     expect(statusCard).not.toBeNull();
 
     expect(
-      setupCard?.compareDocumentPosition(overlayCard as Element) &
+      setupCard!.compareDocumentPosition(overlayCard!) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      overlayCard?.compareDocumentPosition(utilities as Element) &
+      overlayCard!.compareDocumentPosition(utilities!) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      utilities?.compareDocumentPosition(statusCard as Element) &
+      utilities!.compareDocumentPosition(statusCard!) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
@@ -567,5 +568,57 @@ describe("HomeTab", () => {
       sceneUuid: "scene-1",
       targetMode: "game_capture",
     });
+  });
+
+  it("opens the text capture wizard for the selected active scene", async () => {
+    const scene = { id: "scene-1", name: "Example Game" };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "get_gsm_status") return okStatus;
+      if (channel === "settings.getSettings") return { runOverlayOnStartup: false };
+      if (channel === "obs.getScenes") return [scene];
+      if (channel === "obs.getActiveScene") return scene;
+      if (channel === "obs.getSceneCaptureMode") return "window_capture";
+      if (channel === "obs.getScenePreviewSnapshot") {
+        return {
+          sceneName: scene.name,
+          sceneId: scene.id,
+          sourceName: "Example Game",
+          captureMode: "window_capture",
+          imageData: null,
+        };
+      }
+      if (channel === "texthook.getActiveCapture") {
+        return {
+          sceneName: scene.name,
+          sceneId: scene.id,
+          exeName: "ExampleGame.exe",
+        };
+      }
+      if (channel === "obs.getCaptureCardProbeEnabled") return false;
+      if (channel === "obs.getWindows") return [];
+      return null;
+    });
+
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <HomeTab active />
+        </I18nProvider>,
+      );
+      await flushAsyncWork();
+    });
+
+    const wizardButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Run Capture Wizard",
+    );
+    expect(wizardButton).toBeInstanceOf(HTMLButtonElement);
+
+    await act(async () => {
+      (wizardButton as HTMLButtonElement).click();
+      await flushAsyncWork();
+    });
+
+    expect(container.textContent).toContain("Text Capture Wizard");
+    expect(invokeMock).toHaveBeenCalledWith("obs.getScenePreviewSnapshot", "scene-1");
   });
 });

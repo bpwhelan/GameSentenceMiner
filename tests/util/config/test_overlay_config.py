@@ -5,7 +5,7 @@ from pathlib import Path
 
 from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.platform import monitor_selection
-from GameSentenceMiner.util.config.configuration import Config, Overlay, ProfileConfig
+from GameSentenceMiner.util.config.configuration import Config, Overlay, ProcessPausing, ProfileConfig
 
 
 def test_overlay_use_ocr_result_defaults_to_true():
@@ -139,10 +139,68 @@ def test_legacy_profile_overlay_migrates_when_global_overlay_missing():
     assert migrated["overlay"]["periodic"] is True
 
 
+def test_legacy_global_process_pausing_migrates_into_profiles():
+    legacy_process_pausing = ProcessPausing(
+        enabled=True,
+        auto_resume_seconds=45,
+        denylist=["steam.exe"],
+    ).to_dict()
+    legacy_process_pausing["allowlist"] = ["game.exe"]
+    raw_config = {
+        "configs": {
+            "Default": ProfileConfig().to_dict(),
+            "Game": ProfileConfig().to_dict(),
+        },
+        "current_profile": "Default",
+        "process_pausing": legacy_process_pausing,
+    }
+    for profile_data in raw_config["configs"].values():
+        profile_data.pop("process_pausing", None)
+
+    migrated = Config._migrate_raw_data(raw_config)
+
+    assert "process_pausing" not in migrated
+    assert migrated["configs"]["Default"]["process_pausing"]["enabled"] is True
+    assert migrated["configs"]["Default"]["process_pausing"]["auto_resume_seconds"] == 45
+    assert "allowlist" not in migrated["configs"]["Game"]["process_pausing"]
+    assert migrated["configs"]["Game"]["process_pausing"]["denylist"] == ["steam.exe"]
+
+
+def test_deprecated_process_pausing_allowlist_removed_from_profileless_config():
+    config_data = {
+        "process_pausing": {
+            "allowlist": ["game.exe"],
+            "denylist": ["steam.exe"],
+        },
+    }
+
+    migrated = configuration._remove_deprecated_config_settings(config_data)
+
+    assert "allowlist" not in migrated["process_pausing"]
+    assert migrated["process_pausing"]["denylist"] == ["steam.exe"]
+
+
+def test_process_pausing_is_profile_scoped_round_trip():
+    config = Config(
+        configs={
+            "Default": ProfileConfig(process_pausing=ProcessPausing(enabled=True)),
+            "Game": ProfileConfig(process_pausing=ProcessPausing(enabled=False)),
+        },
+        current_profile="Game",
+    )
+
+    data = config.to_dict()
+    restored = Config.from_dict(data)
+
+    assert "process_pausing" not in data
+    assert restored.configs["Default"].process_pausing.enabled is True
+    assert restored.get_config().process_pausing.enabled is False
+
+
 def test_overlay_locales_include_use_ocr_result_strings():
     root = Path(__file__).resolve().parents[3]
     locales_dir = root / "GameSentenceMiner" / "locales"
-    locale_names = ("en_us", "ja_jp", "zh_cn", "es_es")
+    locale_names = ("en_us", "ja_jp", "zh_cn", "es_es", "ko_kr", "ukr_ua")
 
     for locale_name in locale_names:
         locale_data = json.loads((locales_dir / f"{locale_name}.json").read_text(encoding="utf-8"))

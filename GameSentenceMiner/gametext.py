@@ -1,8 +1,8 @@
 import asyncio
 import json
+import os
 import uuid
 
-# import pyperclip
 import websockets
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
@@ -10,6 +10,7 @@ from rapidfuzz import fuzz
 
 from GameSentenceMiner import obs
 from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
+from GameSentenceMiner.util.communication.electron_ipc import send_message
 from GameSentenceMiner.util.config.configuration import (
     get_config,
     gsm_status,
@@ -34,6 +35,71 @@ from GameSentenceMiner.util.text_log import (
     add_line,
 )
 
+pyperclip = None
+try:
+    import pyperclipfix as pyperclip
+except Exception:
+    logger.warning("failed to import pyperclip, clipboard monitoring will not work!")
+
+
+# ---------------------------------------------------------------------------
+# Module state
+# ---------------------------------------------------------------------------
+
+# The most recent raw text handed to the pipeline. Read by external callers
+# (e.g. the clipboard monitor) to avoid re-submitting unchanged clipboard text.
+current_line = ""
+current_line_time = datetime.now()
+
+# Sequential-merge bookkeeping (only used when merge_matching_sequential_text is on).
+current_sequence_start_time = None
+last_raw_clipboard = ""
+timer = None
+
+last_clipboard = ""
+
+websocket_connected = {}
+websocket_tasks = {}  # Track active websocket listener tasks by URI
+current_websocket_uris = set()  # URIs we currently have listeners for
+_config_monitor_task = None  # Long-lived task watching config for URI changes
+text_monitor_initialized = False
+
+# In-house text sources (OCR, texthook). Like a connected websocket, an active
+# in-house source pauses clipboard polling so the same line isn't ingested twice.
+inhouse_sources_active = {}
+
+# Rate-based spam detection: keep the last 60 message timestamps per source.
+message_timestamps = defaultdict(lambda: deque(maxlen=60))
+rate_limit_active = defaultdict(bool)
+
+# De-duplication of incoming text events. Every source (clipboard, websocket, and
+# Electron IPC such as OCR / texthook) funnels through handle_new_text_event, so a
+# single recent-history check here covers all of them -- including IPC events that
+# never touch the clipboard or a websocket.
+# Cross-source fuzzy dedup: when an OCR line echoes a hook line that arrived
+# moments earlier (same screen, slightly different recognition/whitespace), drop
+# the OCR copy and keep the more reliable hook line.
+_DEDUP_WINDOW_SECONDS = 2.0
+_CROSS_SOURCE_DEDUP_WINDOW_SECONDS = 5.0
+_CROSS_SOURCE_SIMILARITY_THRESHOLD = 70  # fuzz.ratio over whitespace-stripped text
+_recent_text_events = deque(maxlen=20)  # entries of (text, arrival_datetime, source)
+
+# After a few auto-OCR lines are dropped as echoes of hook lines, warn once that
+# running auto OCR alongside a hook is usually redundant (and offer to stop it).
+_OCR_HOOK_REDUNDANCY_THRESHOLD = 3
+_ocr_hook_redundancy_count = 0
+_ocr_hook_redundancy_warned = False
+
+# When stats collection is disabled in advanced config, remind the user on the
+# first few received lines each startup so it's obvious nothing is being stored.
+_dont_collect_stats_notice_count = 0
+_DONT_COLLECT_STATS_NOTICE_LIMIT = 10
+
+
+# ---------------------------------------------------------------------------
+# Small helpers
+# ---------------------------------------------------------------------------
+
 
 def _get_overlay_websocket():
     from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
@@ -53,44 +119,39 @@ def _log_info(message: str, *, colors: bool = False) -> None:
     logger.info(message)
 
 
+def _send_text_received_preview_event(
+    raw_text: str,
+    processed_text: str,
+    line_time: datetime,
+    source: str | None,
+    source_display_name: str | None,
+) -> None:
+    if not os.environ.get("GSM_ELECTRON"):
+        return
+    try:
+        send_message(
+            "text_received",
+            {
+                "text": raw_text,
+                "processed_text": processed_text,
+                "time": line_time.isoformat(),
+                "source": source or "",
+                "source_display_name": source_display_name or "",
+            },
+        )
+    except Exception as exc:
+        logger.debug(f"Failed to send text preview event to Electron: {exc}")
+
+
 async def _add_event_to_texthooker(new_line):
     from GameSentenceMiner.web.texthooking_page import add_event_to_texthooker
 
     await add_event_to_texthooker(new_line)
 
 
-pyperclip = None
-try:
-    import pyperclipfix as pyperclip
-except Exception:
-    logger.warning("failed to import pyperclip, clipboard monitoring will not work!")
-
-current_line = ""
-current_line_after_regex = ""
-current_line_time = datetime.now()
-# Track the start time for the current sequence
-current_sequence_start_time = None
-# Track the last raw clipboard text for prefix comparison
-last_raw_clipboard = ""
-timer = None
-
-last_clipboard = ""
-
-reconnecting = False
-websocket_connected = {}
-websocket_tasks = {}  # Track active websocket tasks by URI
-current_websocket_uris = set()  # Track current URIs from config
-text_monitor_initialized = False
-
-# Rate-based spam detection globals
-message_timestamps = defaultdict(lambda: deque(maxlen=60))  # Store last 60 message timestamps per source
-rate_limit_active = defaultdict(bool)  # Track if rate limiting is active per source
-
-
-def is_ocr_websocket_uri(uri: str) -> bool:
-    """Return True when a websocket URI targets GSM's internal OCR feed."""
-    ocr_uri = f"localhost:{get_config().advanced.ocr_websocket_port}"
-    return uri.strip() == ocr_uri
+# ---------------------------------------------------------------------------
+# Text intake pause/resume
+# ---------------------------------------------------------------------------
 
 
 def is_text_monitor_initialized() -> bool:
@@ -128,56 +189,82 @@ def should_drop_text_input_completely() -> bool:
     return is_text_intake_paused() and not should_relay_outputs_when_text_intake_paused()
 
 
-def resolve_websocket_source_name(uri: str) -> str:
-    """Resolve a user-facing source label for a websocket URI."""
-    websocket_source_name = ""
-    if is_ocr_websocket_uri(uri):
-        websocket_source_name = "GSM OCR"
-    try:
-        if not websocket_source_name:
-            for source in get_config().general.websocket_sources:
-                if source.uri.strip() == uri:
-                    websocket_source_name = source.name.strip() if source.name else ""
-                    break
-    except Exception:
-        pass
-    if not websocket_source_name:
-        # Fallback to well-known port names
-        from GameSentenceMiner.util.config.configuration import WELL_KNOWN_WS_SOURCES
-
-        port = uri.split(":")[-1].strip() if ":" in uri else ""
-        websocket_source_name = WELL_KNOWN_WS_SOURCES.get(port, "")
-    if not websocket_source_name:
-        websocket_source_name = uri
-    return websocket_source_name
+# ---------------------------------------------------------------------------
+# De-duplication
+# ---------------------------------------------------------------------------
 
 
-def _has_connected_websocket(websocket_url: str) -> bool:
-    connected = getattr(gsm_status, "websockets_connected", None)
-    if isinstance(connected, dict):
-        return websocket_url in connected
-    if isinstance(connected, list):
-        return websocket_url in connected
-    return False
+def _is_ocr_source(source: str | None) -> bool:
+    return bool(source) and str(source).lower() in (TextSource.OCR, TextSource.OCR_MANUAL)
 
 
-def _mark_websocket_connected(websocket_url: str, websocket_source_name: str) -> None:
-    connected = getattr(gsm_status, "websockets_connected", None)
-    if isinstance(connected, dict):
-        connected[websocket_url] = websocket_source_name
+def _classify_duplicate_text_event(text: str, source: str | None = None) -> str | None:
+    """Return why this text is a duplicate, or None if it should be accepted.
+
+    Reasons:
+      * "exact"     -- an immediate repeat of the last accepted line (e.g. OCR
+        re-reading an unchanged screen), regardless of how much time has passed.
+      * "recent"    -- the same line echoed by a second source within a short
+        window (e.g. OCR over IPC while the clipboard picks up the same text).
+      * "ocr_echo"  -- an OCR line that is *nearly* identical to a hook line
+        received moments earlier (same screen, minor whitespace/recognition
+        differences). With both a hook and OCR connected the hook is the
+        reliable copy, so the OCR echo is discarded.
+
+    Dialogue that legitimately recurs later, with other lines in between, is
+    still accepted because it is no longer the most recent line.
+    """
+    if not text:
+        return None
+    if _recent_text_events and _recent_text_events[-1][0] == text:
+        return "exact"
+    now = datetime.now()
+    for previous_text, previous_time, _ in _recent_text_events:
+        if previous_text == text and (now - previous_time).total_seconds() <= _DEDUP_WINDOW_SECONDS:
+            return "recent"
+
+    if _is_ocr_source(source):
+        stripped = "".join(text.split())
+        for previous_text, previous_time, previous_source in _recent_text_events:
+            if _is_ocr_source(previous_source):
+                continue
+            if (now - previous_time).total_seconds() > _CROSS_SOURCE_DEDUP_WINDOW_SECONDS:
+                continue
+            previous_stripped = "".join(previous_text.split())
+            if not previous_stripped:
+                continue
+            if (
+                previous_stripped == stripped
+                or fuzz.ratio(previous_stripped, stripped) >= _CROSS_SOURCE_SIMILARITY_THRESHOLD
+            ):
+                return "ocr_echo"
+    return None
+
+
+def _record_text_event(text: str, source: str | None = None) -> None:
+    _recent_text_events.append((text, datetime.now(), source))
+
+
+def _note_ocr_hook_redundancy(source: str | None) -> None:
+    """Track auto-OCR lines dropped as hook echoes; warn once past the threshold."""
+    global _ocr_hook_redundancy_count, _ocr_hook_redundancy_warned
+    # Only *auto* OCR running alongside a hook is the redundant case; manual OCR
+    # is a deliberate per-shot action, so an occasional echo there is expected.
+    if _ocr_hook_redundancy_warned or str(source).lower() != TextSource.OCR:
         return
-    if isinstance(connected, list):
-        if websocket_url not in connected:
-            connected.append(websocket_url)
+    _ocr_hook_redundancy_count += 1
+    if _ocr_hook_redundancy_count >= _OCR_HOOK_REDUNDANCY_THRESHOLD:
+        _ocr_hook_redundancy_warned = True
+        if os.environ.get("GSM_ELECTRON"):
+            try:
+                send_message("ocr_hook_redundant", {})
+            except Exception as exc:
+                logger.debug(f"Failed to send OCR/hook redundancy warning: {exc}")
 
 
-def _mark_websocket_disconnected(websocket_url: str) -> None:
-    connected = getattr(gsm_status, "websockets_connected", None)
-    if isinstance(connected, dict):
-        connected.pop(websocket_url, None)
-        return
-    if isinstance(connected, list) and websocket_url in connected:
-        connected.remove(websocket_url)
+# ---------------------------------------------------------------------------
+# Rate limiting
+# ---------------------------------------------------------------------------
 
 
 def is_message_rate_limited(source="clipboard"):
@@ -230,6 +317,62 @@ def is_message_rate_limited(source="clipboard"):
     return False
 
 
+# ---------------------------------------------------------------------------
+# In-house text sources (OCR / texthook)
+# ---------------------------------------------------------------------------
+
+
+def set_inhouse_source_active(source: str, active: bool) -> None:
+    """Mark an in-house text source (e.g. "ocr", "texthook") active or inactive.
+
+    Mirrors websocket connect/disconnect: while any in-house source is active,
+    clipboard polling pauses (unless use_both_clipboard_and_websocket is set), so
+    the same line isn't ingested from both the bus and the clipboard.
+    """
+    key = (source or "").strip().lower()
+    if not key:
+        return
+    inhouse_sources_active[key] = bool(active)
+    logger.info(f"In-house text source '{key}' {'started' if active else 'stopped'}.")
+
+    # Report the actual clipboard outcome, not just this source's state: a still
+    # connected websocket or another active source keeps the clipboard paused even
+    # when this one stops, and use_both_clipboard_and_websocket disables pausing.
+    if get_config().general.use_both_clipboard_and_websocket:
+        logger.info("Clipboard stays active (use_both_clipboard_and_websocket is enabled).")
+        return
+    blockers = _clipboard_pause_blockers()
+    if blockers:
+        logger.info(f"Clipboard monitoring remains paused; still active: {', '.join(blockers)}.")
+    else:
+        logger.info("No other text sources active; clipboard monitoring will resume shortly.")
+
+
+def is_inhouse_source_active() -> bool:
+    return any(inhouse_sources_active.values())
+
+
+def _clipboard_pause_blockers() -> list[str]:
+    """Human-readable list of sources currently keeping clipboard polling paused."""
+    blockers = []
+    connected_ws = [resolve_websocket_source_name(uri) for uri, ok in websocket_connected.items() if ok]
+    blockers.extend(f"websocket: {name}" for name in connected_ws)
+    blockers.extend(source for source, ok in inhouse_sources_active.items() if ok)
+    return blockers
+
+
+def should_pause_clipboard_for_other_source() -> bool:
+    """True when a connected websocket or active in-house source should pause clipboard."""
+    if get_config().general.use_both_clipboard_and_websocket:
+        return False
+    return any(websocket_connected.values()) or is_inhouse_source_active()
+
+
+# ---------------------------------------------------------------------------
+# Clipboard monitoring
+# ---------------------------------------------------------------------------
+
+
 async def monitor_clipboard():
     global current_line, last_clipboard
     if not pyperclip:
@@ -240,36 +383,91 @@ async def monitor_clipboard():
     except Exception as e:
         logger.error(f"Error accessing clipboard: {e}")
         return
+    # Treat whatever is already on the clipboard at startup as seen, so we don't
+    # ingest stale content on launch.
+    last_clipboard = current_line
     send_message_on_resume = False
-    time_received = datetime.now()
     while True:
         if not get_config().general.use_clipboard:
             gsm_status.clipboard_enabled = False
             await asyncio.sleep(5)
             continue
-        if not get_config().general.use_both_clipboard_and_websocket and any(websocket_connected.values()):
+        if should_pause_clipboard_for_other_source():
             gsm_status.clipboard_enabled = False
             await asyncio.sleep(5)
             send_message_on_resume = True
             continue
         elif send_message_on_resume:
-            logger.info("No Websocket Connections, resuming Clipboard Monitoring.")
+            logger.info("No other text source active; Clipboard Monitoring resumed.")
             send_message_on_resume = False
         gsm_status.clipboard_enabled = True
+        time_received = datetime.now()
         current_clipboard = pyperclip.paste()
 
-        if current_clipboard and current_clipboard != current_line and current_clipboard != last_clipboard:
-            # Check for rate limiting before processing
+        # Only act when the clipboard actually changes; cross-source de-dup is
+        # handled centrally in handle_new_text_event.
+        if current_clipboard and current_clipboard != last_clipboard:
             if is_message_rate_limited("clipboard"):
-                continue  # Drop message due to rate limiting
+                await asyncio.sleep(0.2)
+                continue
             last_clipboard = current_clipboard
             await handle_new_text_event(
                 current_clipboard,
                 line_time=time_received,
                 source_display_name="Clipboard",
             )
-        time_received = datetime.now()
         await asyncio.sleep(0.2)
+
+
+# ---------------------------------------------------------------------------
+# Websocket source management
+# ---------------------------------------------------------------------------
+
+
+def resolve_websocket_source_name(uri: str) -> str:
+    """Resolve a user-facing source label for a websocket URI."""
+    try:
+        for source in get_config().general.websocket_sources:
+            if source.uri.strip() == uri:
+                if source.name and source.name.strip():
+                    return source.name.strip()
+                break
+    except Exception:
+        pass
+
+    # Fall back to well-known port names, then the raw URI.
+    from GameSentenceMiner.util.config.configuration import WELL_KNOWN_WS_SOURCES
+
+    port = uri.split(":")[-1].strip() if ":" in uri else ""
+    return WELL_KNOWN_WS_SOURCES.get(port) or uri
+
+
+def _has_connected_websocket(websocket_url: str) -> bool:
+    connected = getattr(gsm_status, "websockets_connected", None)
+    if isinstance(connected, dict):
+        return websocket_url in connected
+    if isinstance(connected, list):
+        return websocket_url in connected
+    return False
+
+
+def _mark_websocket_connected(websocket_url: str, websocket_source_name: str) -> None:
+    connected = getattr(gsm_status, "websockets_connected", None)
+    if isinstance(connected, dict):
+        connected[websocket_url] = websocket_source_name
+        return
+    if isinstance(connected, list):
+        if websocket_url not in connected:
+            connected.append(websocket_url)
+
+
+def _mark_websocket_disconnected(websocket_url: str) -> None:
+    connected = getattr(gsm_status, "websockets_connected", None)
+    if isinstance(connected, dict):
+        connected.pop(websocket_url, None)
+        return
+    if isinstance(connected, list) and websocket_url in connected:
+        connected.remove(websocket_url)
 
 
 def get_output_websocket_ports():
@@ -303,103 +501,84 @@ def is_output_uri(uri):
     return False
 
 
-async def listen_websockets():
-    """Main websocket listener that manages connections and adapts to config changes."""
-    global websocket_tasks, current_websocket_uris
-
-    # Start config monitoring task
-    asyncio.create_task(monitor_websocket_config_changes())
-
-    # Initial setup of websocket connections
-    await update_websocket_connections()
-
-
-async def update_websocket_connections():
-    """Update websocket connections based on current config."""
-    global websocket_tasks, current_websocket_uris
-
-    # Get URIs from the new websocket_sources list
-    config_uris = set()
+def _get_enabled_websocket_uris() -> set:
+    """Collect the set of enabled, non-output websocket URIs from config."""
+    uris = set()
     for source in get_config().general.websocket_sources:
         if source.enabled:
             uri = source.uri.strip()
             if uri and not is_output_uri(uri):
-                config_uris.add(uri)
+                uris.add(uri)
+    return uris
 
-    # Determine which URIs to add and remove
-    uris_to_add = config_uris - current_websocket_uris
-    uris_to_remove = current_websocket_uris - config_uris
 
-    # Stop tasks for removed URIs
-    for uri in uris_to_remove:
-        if uri in websocket_tasks:
-            task_info = websocket_tasks[uri]
-            task_info["stop_event"].set()  # Signal task to stop
+async def listen_websockets():
+    """Set up websocket listeners and start watching config for changes."""
+    global _config_monitor_task
+
+    await update_websocket_connections()
+
+    # Keep a reference so the monitor task is not garbage collected.
+    if _config_monitor_task is None or _config_monitor_task.done():
+        _config_monitor_task = asyncio.create_task(monitor_websocket_config_changes())
+
+
+async def update_websocket_connections():
+    """Start/stop websocket listener tasks to match the current config."""
+    global current_websocket_uris
+
+    config_uris = _get_enabled_websocket_uris()
+
+    # Stop listeners for URIs that are no longer configured.
+    for uri in current_websocket_uris - config_uris:
+        task_info = websocket_tasks.pop(uri, None)
+        if task_info:
+            task_info["stop_event"].set()
             logger.info(f"Removed websocket URI from config: {uri}")
-            del websocket_tasks[uri]
 
-    # Start tasks for new URIs
-    for uri in uris_to_add:
+    # Start listeners for newly configured URIs.
+    for uri in config_uris - current_websocket_uris:
         stop_event = asyncio.Event()
-        task = asyncio.create_task(listen_on_websocket(uri, max_sleep=1, stop_event=stop_event))
+        task = asyncio.create_task(listen_on_websocket(uri, stop_event=stop_event))
         websocket_tasks[uri] = {"task": task, "stop_event": stop_event}
         logger.info(f"Added new websocket URI from config: {uri}")
 
-    # Always ensure OCR websocket is running (separate from user-configured URIs)
-    ocr_uri = f"localhost:{get_config().advanced.ocr_websocket_port}"
-    if ocr_uri not in websocket_tasks:
-        stop_event = asyncio.Event()
-        task = asyncio.create_task(listen_on_websocket(ocr_uri, max_sleep=0.5, stop_event=stop_event))
-        websocket_tasks[ocr_uri] = {"task": task, "stop_event": stop_event}
-        logger.info(f"Started OCR websocket listener on {ocr_uri}")
-
-    # Update tracking
     current_websocket_uris = config_uris.copy()
 
 
 async def monitor_websocket_config_changes():
-    """Monitor config for websocket URI changes and update connections accordingly."""
-    global current_websocket_uris
-    last_config_uris = set()
+    """Poll the config and reconcile websocket listeners when sources change.
 
+    update_websocket_connections() diffs against current_websocket_uris, so calling
+    it repeatedly is a no-op until the configured sources actually change.
+    """
     while True:
         await asyncio.sleep(5)
-
         if not get_config().general.use_websocket:
             continue
-
-        # Get current URIs from websocket_sources
-        config_uris = set()
-        for source in get_config().general.websocket_sources:
-            if source.enabled:
-                uri = source.uri.strip()
-                if uri and not is_output_uri(uri):
-                    config_uris.add(uri)
-
-        # Check if config has changed
-        if config_uris != last_config_uris:
+        if _get_enabled_websocket_uris() != current_websocket_uris:
             await update_websocket_connections()
-            last_config_uris = config_uris.copy()
 
 
-async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
+async def listen_on_websocket(uri, stop_event=None):
     """Listen to a single websocket connection."""
-    global current_line, current_line_time, websocket_connected
     try_other = False
-
     websocket_source_name = resolve_websocket_source_name(uri)
-
-    reconnect_sleep_manager = SleepManager(initial_delay=0.5, name=f"WebSocket_{uri}")
+    # External websocket sources are niche now that OCR/texthook run in-house, so
+    # reconnect passively: start slow and back off to a long idle poll.
+    reconnect_sleep_manager = SleepManager(
+        initial_delay=2.0, backoff_factor=2.0, name=f"WebSocket_{uri}", max_delay=5.0
+    )
 
     while True:
-        # Check if this task should stop (URI removed from config)
+        # Stop if this URI was removed from config.
         if stop_event and stop_event.is_set():
             logger.info(f"Stopping websocket listener for {uri} (removed from config)")
             if uri in websocket_connected:
                 websocket_connected[uri] = False
             break
 
-        if not get_config().general.use_websocket and not is_ocr_websocket_uri(uri):
+        if not get_config().general.use_websocket:
             await asyncio.sleep(5)
             continue
 
@@ -430,7 +609,7 @@ async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
                 websocket_connected[uri] = True
 
                 async for message in websocket:
-                    # Check if task should stop mid-connection
+                    # Stop mid-connection if the URI was removed from config.
                     if stop_event and stop_event.is_set():
                         logger.info(f"Closing websocket connection to {uri} (removed from config)")
                         break
@@ -459,52 +638,46 @@ async def listen_on_websocket(uri, max_sleep=1, stop_event=None):
                         current_clipboard = message
 
                     try:
-                        if current_clipboard != current_line:
-                            await handle_new_text_event(
-                                current_clipboard,
-                                line_time if line_time else message_received_time,
-                                dict_from_ocr=dict_from_ocr,
-                                source=source,
-                                source_display_name=websocket_source_name,
-                            )
+                        await handle_new_text_event(
+                            current_clipboard,
+                            line_time if line_time else message_received_time,
+                            dict_from_ocr=dict_from_ocr,
+                            source=source,
+                            source_display_name=websocket_source_name,
+                        )
                     except Exception as e:
                         logger.exception(f"Error handling new text event: {e}")
 
-        except (
-            websockets.ConnectionClosed,
-            ConnectionError,
-            websockets.InvalidStatus,
-            ConnectionResetError,
-            Exception,
-        ) as e:
+        except Exception as e:
             _mark_websocket_disconnected(websocket_url)
             websocket_connected[uri] = False
             if isinstance(e, websockets.InvalidStatus) and e.response and e.response.status_code == 404:
                 logger.info(f"WebSocket {uri} returned 404, attempting alternate path.")
                 try_other = True
 
-            # Check if task should stop before reconnecting
+            # Stop before reconnecting if the URI was removed from config.
             if stop_event and stop_event.is_set():
                 break
 
             await reconnect_sleep_manager.async_sleep()
 
 
+# ---------------------------------------------------------------------------
+# Sequential line merging
+# ---------------------------------------------------------------------------
+
+
 async def merge_sequential_lines(line, start_time=None, source=None, source_display_name=None):
     if not get_config().general.merge_matching_sequential_text:
         return
     logger.info(f"Merging Sequential Lines: {line}")
-    # Use the sequence start time for the merged line
+    # Use the sequence start time for the merged line.
     await add_line_to_text_log(
         line,
         start_time if start_time else datetime.now(),
         source=source,
         source_display_name=source_display_name,
     )
-    timer = None
-    # Reset sequence tracking
-    current_sequence_start_time = None
-    last_raw_clipboard = ""
 
 
 def schedule_merge(wait, coro, args):
@@ -512,8 +685,40 @@ def schedule_merge(wait, coro, args):
         await asyncio.sleep(wait)
         await coro(*args)
 
-    task = asyncio.create_task(wrapper())
-    return task
+    return asyncio.create_task(wrapper())
+
+
+def _schedule_sequential_merge(line_text, line_time, source, source_display_name):
+    """Debounce rapidly-growing text (e.g. OCR streaming a sentence) into one line.
+
+    A new fragment that extends (or closely matches) the previous one keeps the
+    same sequence and just resets the flush timer; an unrelated line starts a new
+    sequence while letting the previous sequence's pending flush fire.
+    """
+    global timer, current_sequence_start_time, last_raw_clipboard
+
+    is_continuation = bool(timer) and (
+        line_text.startswith(last_raw_clipboard) or fuzz.ratio(line_text, last_raw_clipboard) > 50
+    )
+
+    if is_continuation:
+        # Same sequence: keep the original start time and restart the flush timer.
+        timer.cancel()
+    else:
+        # New sequence: do not cancel any in-flight flush for the prior sequence.
+        current_sequence_start_time = line_time if line_time else datetime.now()
+
+    last_raw_clipboard = line_text
+    timer = schedule_merge(
+        2,
+        merge_sequential_lines,
+        [line_text, current_sequence_start_time, source, source_display_name],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Core text intake pipeline
+# ---------------------------------------------------------------------------
 
 
 async def handle_new_text_event(
@@ -522,59 +727,39 @@ async def handle_new_text_event(
     dict_from_ocr=None,
     source=None,
     source_display_name=None,
+    copy_to_clipboard=False,
+    exclude_from_stats=False,
 ):
-    global \
-        current_line, \
-        current_line_time, \
-        current_line_after_regex, \
-        timer, \
-        current_sequence_start_time, \
-        last_raw_clipboard
+    """Single entry point for every text source (clipboard, websocket, IPC)."""
+    global current_line
     current_line = current_clipboard
+
     if should_drop_text_input_completely():
         logger.debug("Text intake is paused; dropping incoming text without further processing.")
         return
+
+    duplicate_reason = _classify_duplicate_text_event(current_clipboard, source)
+    if duplicate_reason:
+        logger.debug(f"Dropping duplicate text event from [{source_display_name or source or 'Unknown'}].")
+        if duplicate_reason == "ocr_echo":
+            _note_ocr_hook_redundancy(source)
+        return
+    _record_text_event(current_clipboard, source)
+
     obs.update_current_game()
     discord_rpc_manager.update(obs.get_current_game(sanitize=False, update=False))
-    # Only apply this logic if merging is enabled
+
     if get_config().general.merge_matching_sequential_text:
-        # If no timer is active, this is the start of a new sequence
-        if not timer:
-            current_sequence_start_time = line_time if line_time else datetime.now()
-            last_raw_clipboard = current_line
-            # Start the timer
-            timer = schedule_merge(
-                2,
-                merge_sequential_lines,
-                [current_line[:], current_sequence_start_time, source, source_display_name],
-            )
-        else:
-            # If the new text starts with the previous, reset the timer (do not update start time)
-            if current_line.startswith(last_raw_clipboard) or fuzz.ratio(current_line, last_raw_clipboard) > 50:
-                last_raw_clipboard = current_line
-                timer.cancel()
-                timer = schedule_merge(
-                    2,
-                    merge_sequential_lines,
-                    [current_line[:], current_sequence_start_time, source, source_display_name],
-                )
-            else:
-                # If not a prefix, treat as a new sequence
-                # timer.cancel()
-                current_sequence_start_time = line_time if line_time else datetime.now()
-                last_raw_clipboard = current_line
-                timer = schedule_merge(
-                    2,
-                    merge_sequential_lines,
-                    [current_line[:], current_sequence_start_time, source, source_display_name],
-                )
+        _schedule_sequential_merge(current_clipboard, line_time, source, source_display_name)
     else:
         await add_line_to_text_log(
-            current_line,
+            current_clipboard,
             line_time,
             dict_from_ocr=dict_from_ocr,
             source=source,
             source_display_name=source_display_name,
+            copy_to_clipboard=copy_to_clipboard,
+            exclude_from_stats=exclude_from_stats,
         )
 
 
@@ -585,11 +770,32 @@ async def add_line_to_text_log(
     source=None,
     skip_overlay=False,
     source_display_name=None,
+    copy_to_clipboard=False,
+    exclude_from_stats=False,
 ):
+    global current_line_time, _dont_collect_stats_notice_count
+
     current_line_after_regex = apply_text_processing(line, get_config().text_processing)
     source_label = source_display_name or source or "Unknown"
     _log_info(f"<cyan>Line Received from [{source_label}]: {current_line_after_regex}</cyan>", colors=True)
     current_line_time = line_time if line_time else datetime.now()
+
+    if get_config().advanced.dont_collect_stats and _dont_collect_stats_notice_count < _DONT_COLLECT_STATS_NOTICE_LIMIT:
+        _dont_collect_stats_notice_count += 1
+        logger.info("stats is disabled in advanced config, skipping DB")
+
+    if copy_to_clipboard and current_line_after_regex:
+        from GameSentenceMiner.util.clipboard import copy as clipboard_copy
+
+        clipboard_copy(current_line_after_regex)
+
+    _send_text_received_preview_event(
+        line,
+        current_line_after_regex,
+        current_line_time,
+        source,
+        source_display_name,
+    )
     if is_text_intake_paused():
         await _handle_paused_text_input(
             current_line_after_regex,
@@ -599,12 +805,36 @@ async def add_line_to_text_log(
         )
         return
 
-    live_stats_tracker.add_line(current_line_after_regex, current_line_time.timestamp())
+    # When the current game isn't actually being captured by OBS (e.g. manual OCR
+    # left running for the screen cropper while not gaming), don't mine the line:
+    # the clipboard copy above already ran, so just relay it to the texthooker/output
+    # websocket clients and stop before stats/DB/overlay/persistence.
+    # if not obs.is_game_capture_active():
+    #     logger.info(
+    #         f"Game not being captured by OBS; relaying line from [{source_label}] to texthooker/output only."
+    #     )
+    #     await _add_event_to_texthooker(
+    #         _build_transient_output_line(current_line_after_regex, current_line_time, source=source)
+    #     )
+    #     from GameSentenceMiner.util.clipboard import copy as clipboard_copy
+
+    #     if copy_to_clipboard and current_line_after_regex:
+    #         from GameSentenceMiner.util.clipboard import copy as clipboard_copy
+
+    #         clipboard_copy(current_line_after_regex)
+    #     return
+
+    if not exclude_from_stats:
+        live_stats_tracker.add_line(current_line_after_regex, current_line_time.timestamp())
     gsm_status.last_line_received = current_line_time.strftime("%Y-%m-%d %H:%M:%S")
 
     new_line = add_line(current_line_after_regex, current_line_time, source=source)
     if not new_line:
         return
+    if exclude_from_stats:
+        # e.g. ad-hoc area-select OCR while OBS isn't capturing a game: relay/show
+        # the line but don't attribute it to the current game's stats or persist it.
+        new_line.excluded_from_stats = True
 
     await _add_event_to_texthooker(new_line)
     id_overlay, websocket_manager = _get_overlay_websocket()
@@ -624,7 +854,7 @@ async def add_line_to_text_log(
     obs.add_longplay_srt_line(current_line_time, new_line)
 
     # Link the new_line to the games table, but skip if 'nostatspls' in scene
-    if "nostatspls" not in new_line.scene.lower():
+    if not exclude_from_stats and "nostatspls" not in new_line.scene.lower():
         if new_line.scene:
             # Get or create the game record
             game = GamesTable.get_or_create_by_name(new_line.scene)
@@ -673,8 +903,9 @@ def reset_line_hotkey_pressed():
     gsm_state.last_mined_line = None
 
 
-# def run_websocket_listener():
-#     asyncio.run(listen_websockets())
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 
 async def start_text_monitor():
@@ -683,12 +914,10 @@ async def start_text_monitor():
     await listen_websockets()
     if get_config().general.use_websocket:
         if get_config().general.use_both_clipboard_and_websocket:
-            logger.info("Listening for Text on both WebSocket and Clipboard.")
+            logger.info("Listening for text on both WebSocket and Clipboard.")
         else:
-            logger.info(
-                "Both WebSocket and Clipboard monitoring are enabled. WebSocket will take precedence if connected."
-            )
+            logger.info("Listening for text on WebSocket; Clipboard is used only while no WebSocket is connected.")
     text_monitor_initialized = True
+    # monitor_clipboard() runs forever; websocket listeners run as background
+    # tasks on this same loop.
     await monitor_clipboard()
-    while True:
-        await asyncio.sleep(60)

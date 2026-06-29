@@ -266,6 +266,14 @@
             "label": "标记无音频卡片:",
             "tooltip": "自动为没有音频的卡片添加'unvoiced'标签。"
           },
+          "reuse_audio_for_same_selected_lines_different_mined_line": {
+            "label": "相同选中行、不同挖掘行：复用音频:",
+            "tooltip": "当从相同选中行中挖掘另一个词，但挖掘行不同的时候，保存新的回放并复用上一张卡片的音频。相同选中行且相同挖掘行仍会使用完整媒体复用流程。"
+          },
+          "reuse_screenshot_for_same_selected_lines_different_mined_line": {
+            "label": "相同选中行、不同挖掘行：复用截图:",
+            "tooltip": "当从相同选中行中挖掘另一个词，但挖掘行不同的时候，保存新的回放并复用上一张卡片的截图。"
+          },
           "multi_overwrites_sentence": {
             "label": "多行挖掘覆盖句子:",
             "tooltip": "使用多行挖掘时，用所选行的串联覆盖句子。"
@@ -378,6 +386,10 @@
           "extension": {
             "label": "扩展名:",
             "tooltip": "截图格式的文件扩展名。"
+          },
+          "capture_backend": {
+            "label": "捕获方式:",
+            "tooltip": "截图捕获方式。auto 使用快速 Windows 捕获并在失败时回退到 OBS，obs 避免直接 Windows 捕获，winapi 优先使用直接 Windows 捕获。"
           },
           "animated": {
             "label": "动画:",
@@ -592,6 +604,10 @@
           "polling_rate": {
             "label": "轮询率:",
             "tooltip": "Anki 检查更新的速率（毫秒）。"
+          },
+          "mute_game_on_minimize": {
+            "label": "最小化时静音游戏:",
+            "tooltip": "在 Windows 上，仅当目标游戏窗口最小化时将其静音。后台或未聚焦时不会静音。"
           }
         },
         "ai": {
@@ -711,8 +727,12 @@
             "tooltip": "应用 OCR 区域配置中的排除区域来遮罩覆盖层截图的一部分，也就是之前显示为橙色框的区域。"
           },
           "use_ocr_result": {
-            "label": "使用 OCR 结果:",
-            "tooltip": "启用时，覆盖层会在可用情况下使用预先计算的 OCR 结果。禁用后将强制覆盖层重新执行 OCR 扫描。"
+            "label": "仅使用 OCR 结果（实验性）:",
+            "tooltip": "启用时，覆盖层仅使用预先计算的 OCR 结果。屏幕其余部分将无法查找。与'用覆盖层扫描补充'互斥。"
+          },
+          "supplement_ocr_result_with_overlay": {
+            "label": "用覆盖层扫描补充 OCR 结果:",
+            "tooltip": "启用时，立即显示预计算的 OCR 结果，然后执行补充扫描使屏幕其余部分也可查找。"
           }
         },
         "experimental": {
@@ -734,10 +754,6 @@
           "require_game_exe_match": {
             "label": "需要游戏 EXE 匹配:",
             "tooltip": "仅当目标 exe 与检测到的游戏 exe 匹配时才允许暂停。"
-          },
-          "allowlist": {
-            "label": "允许列表 (EXE 名称):",
-            "tooltip": "始终允许的 exe 名称（逗号分隔）。"
           },
           "denylist": {
             "label": "拒绝列表 (EXE 名称):",
@@ -782,6 +798,10 @@
           "message": "您确定要删除配置文件 '{profile_name}' 吗？",
           "error_title": "错误",
           "error_cannot_delete_default": "无法删除默认配置文件。"
+        },
+        "relate_scene": {
+          "title": "关联场景",
+          "message": "将当前场景 '{scene}' 与配置文件 '{profile}' 关联？\n\n该场景将自动切换到此配置文件，并从其他任何配置文件中移除。"
         },
         "install_ocenaudio": {
           "title": "下载 OcenAudio？",

@@ -616,6 +616,44 @@ class TestTwoPassDifferentEngines:
         assert len(sent_texts) == 1
         assert sent_texts[0]["text"] == ocr2_text
 
+    def test_text_appears_instantly_runs_second_ocr_on_first_text_frame(
+        self,
+        sent_texts,
+        second_ocr_calls,
+    ):
+        cfg = dataclasses.replace(self.CFG, text_appears_instantly=True)
+        ctrl = _make_controller(
+            cfg,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
+            second_ocr_return="instant_refined",
+        )
+
+        ctrl.handle_ocr_result("新しいセリフ", ["新しいセリフ"], _make_time(), _dummy_img())
+
+        assert len(second_ocr_calls) == 1
+        assert [item["text"] for item in sent_texts] == ["instant_refined"]
+
+    def test_text_appears_instantly_does_not_repeat_same_stability_text(
+        self,
+        sent_texts,
+        second_ocr_calls,
+    ):
+        cfg = dataclasses.replace(self.CFG, text_appears_instantly=True)
+        ctrl = _make_controller(
+            cfg,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
+            second_ocr_return="instant_refined",
+        )
+        text = "新しいセリフ"
+
+        ctrl.handle_ocr_result(text, [text], _make_time(), _dummy_img())
+        ctrl.handle_ocr_result(text, [text], _make_time(1), _dummy_img())
+
+        assert len(second_ocr_calls) == 1
+        assert [item["text"] for item in sent_texts] == ["instant_refined"]
+
     def test_second_ocr_receives_correct_engine(
         self,
         sent_texts,
@@ -823,6 +861,32 @@ class TestMeikiFirstPass:
         )
         assert len(sent_texts) == 0
 
+    def test_text_appears_instantly_detection_box_triggers_on_first_frame(
+        self,
+        sent_texts,
+        second_ocr_calls,
+    ):
+        cfg = dataclasses.replace(self.CFG, text_appears_instantly=True)
+        ctrl = _make_controller(
+            cfg,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
+            second_ocr_return="meiki_instant_refined",
+        )
+        coords = (10, 20, 100, 50)
+
+        ctrl.handle_ocr_result(
+            "テスト",
+            ["テスト"],
+            _make_time(),
+            _dummy_img(),
+            meiki_boxes=[{"box": coords}],
+            crop_coords=coords,
+        )
+
+        assert len(second_ocr_calls) == 1
+        assert [item["text"] for item in sent_texts] == ["meiki_instant_refined"]
+
     def test_meiki_stable_coords_triggers_second_pass(
         self,
         sent_texts,
@@ -886,6 +950,44 @@ class TestMeikiFirstPass:
         )
         assert len(second_ocr_calls) == 0
 
+    def test_meiki_changed_coords_reset_start_time(self, sent_texts, second_ocr_calls):
+        ctrl = _make_controller(
+            self.CFG,
+            sent_texts,
+            second_ocr_calls=second_ocr_calls,
+            second_ocr_return="meiki_refined",
+        )
+        false_positive_coords = (10, 20, 100, 50)
+        real_text_coords = (200, 300, 500, 400)
+
+        ctrl.handle_ocr_result(
+            "",
+            [],
+            _make_time(0),
+            _dummy_img(),
+            meiki_boxes=[{"box": false_positive_coords}],
+            crop_coords=false_positive_coords,
+        )
+        ctrl.handle_ocr_result(
+            "",
+            [],
+            _make_time(10),
+            _dummy_img(),
+            meiki_boxes=[{"box": real_text_coords}],
+            crop_coords=real_text_coords,
+        )
+        ctrl.handle_ocr_result(
+            "",
+            [],
+            _make_time(11),
+            _dummy_img(),
+            meiki_boxes=[{"box": real_text_coords}],
+            crop_coords=real_text_coords,
+        )
+
+        assert len(second_ocr_calls) == 1
+        assert sent_texts[0]["time"] == _make_time(10)
+
     def test_meiki_stable_then_same_coords_suppressed(
         self,
         sent_texts,
@@ -935,22 +1037,24 @@ class TestMeikiFirstPass:
             second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_refined",
         )
+        base_coords = (10, 20, 100, 50)
+        tol = TwoPassOCRController.MEIKI_TOL
+        shifted_coords = tuple(coord + tol for coord in base_coords)
         ctrl.handle_ocr_result(
             "テスト",
             ["テスト"],
             _make_time(),
             _dummy_img(),
-            meiki_boxes=[{"box": (10, 20, 100, 50)}],
-            crop_coords=(10, 20, 100, 50),
+            meiki_boxes=[{"box": base_coords}],
+            crop_coords=base_coords,
         )
-        # +3 pixels – within tolerance of 5
         ctrl.handle_ocr_result(
             "テスト",
             ["テスト"],
             _make_time(1),
             _dummy_img(),
-            meiki_boxes=[{"box": (13, 22, 102, 53)}],
-            crop_coords=(13, 22, 102, 53),
+            meiki_boxes=[{"box": shifted_coords}],
+            crop_coords=shifted_coords,
         )
         assert len(sent_texts) == 1
 
@@ -962,22 +1066,24 @@ class TestMeikiFirstPass:
             second_ocr_calls=second_ocr_calls,
             second_ocr_return="meiki_refined",
         )
+        base_coords = (10, 20, 100, 50)
+        outside_tol = TwoPassOCRController.MEIKI_TOL + 1
+        shifted_coords = tuple(coord + outside_tol for coord in base_coords)
         ctrl.handle_ocr_result(
             "テスト",
             ["テスト"],
             _make_time(),
             _dummy_img(),
-            meiki_boxes=[{"box": (10, 20, 100, 50)}],
-            crop_coords=(10, 20, 100, 50),
+            meiki_boxes=[{"box": base_coords}],
+            crop_coords=base_coords,
         )
-        # +6 pixels – outside tolerance
         ctrl.handle_ocr_result(
             "テスト",
             ["テスト"],
             _make_time(1),
             _dummy_img(),
-            meiki_boxes=[{"box": (16, 26, 106, 56)}],
-            crop_coords=(16, 26, 106, 56),
+            meiki_boxes=[{"box": shifted_coords}],
+            crop_coords=shifted_coords,
         )
         assert len(sent_texts) == 0
 
@@ -1921,6 +2027,28 @@ class TestCompareModuleCoverageGaps:
 
         assert is_evolving_text("text", "") is False
 
+    def test_is_evolving_text_tolerates_garbled_growing_edge(self):
+        """A garbled trailing char on the shorter (growing) frame must not
+        drop a clearly-evolving line below the prefix threshold.
+
+        Regression: OneOCR read 熱 as 热Ｃ mid-render; the partial frame still
+        evolves into the full line and must be detected as such.
+        """
+        from GameSentenceMiner.ocr.compare import is_evolving_text, normalize_for_comparison
+
+        shorter = normalize_for_comparison("無理をすると、すぐに热Ｃ")
+        longer = normalize_for_comparison("無理をすると、すぐに熱をだして、肺に六")
+        assert is_evolving_text(shorter, longer) is True
+
+    def test_normalize_for_comparison_folds_full_width(self):
+        """Half-width/full-width variants must compare equal after folding."""
+        from GameSentenceMiner.ocr.compare import compare_ocr_results, normalize_for_comparison
+
+        assert normalize_for_comparison("ＡＢＣ１２３") == normalize_for_comparison("ABC123")
+        assert normalize_for_comparison("ﾊﾛｰ") == normalize_for_comparison("ハロー")
+        # And the dedupe path treats them as duplicates.
+        assert compare_ocr_results("ﾊﾛｰ123", "ハロー１２３", threshold=90) is True
+
     def test_compare_empty_after_strip(self):
         """When both texts are only whitespace, should return False."""
         assert compare_ocr_results("   ", "   ") is False
@@ -2226,12 +2354,12 @@ class TestLastSentSubstringTrim:
         assert len(sent_texts) == 1
         assert sent_texts[0]["text"] == "続き"
 
-    def test_same_engine_bypass_trims_suffix_match(self, sent_texts):
+    def test_same_engine_bypass_preserves_suffix_match(self, sent_texts):
         ctrl = _make_controller(self.CFG_SAME, sent_texts)
         ctrl.last_sent_result = "前の文"
         ctrl._send_same_engine_filtered(["続き  前の文"], _make_time(), _dummy_img())
         assert len(sent_texts) == 1
-        assert sent_texts[0]["text"] == "続き"
+        assert sent_texts[0]["text"] == "続き前の文"
 
     def test_dispatch_second_pass_trims_prefix_match(self, sent_texts):
         ctrl = _make_controller(self.CFG_DIFF, sent_texts)
@@ -2246,7 +2374,7 @@ class TestLastSentSubstringTrim:
         assert len(sent_texts) == 1
         assert sent_texts[0]["text"] == "続き"
 
-    def test_dispatch_second_pass_trims_suffix_match(self, sent_texts):
+    def test_dispatch_second_pass_preserves_suffix_match(self, sent_texts):
         ctrl = _make_controller(self.CFG_DIFF, sent_texts)
         ctrl.last_sent_result = "前の文"
         sent = ctrl._dispatch_second_pass_result(
@@ -2257,4 +2385,4 @@ class TestLastSentSubstringTrim:
         )
         assert sent is True
         assert len(sent_texts) == 1
-        assert sent_texts[0]["text"] == "続き"
+        assert sent_texts[0]["text"] == "続き  前の文"

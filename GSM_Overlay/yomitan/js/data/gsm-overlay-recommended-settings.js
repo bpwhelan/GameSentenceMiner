@@ -83,9 +83,25 @@ export const gsmOverlayRecommendationPacks = Object.freeze([
     Object.freeze({
         id: 'overlay-glass-popup',
         title: 'Use the GSM glass popup appearance',
-        description: 'Applies the popup CSS that matches GSM\'s transparent overlay.',
+        description: 'Applies the popup CSS and dark theme that match GSM\'s transparent overlay.',
         suppressPromptOnFreshInstall: true,
         settings: Object.freeze([
+            Object.freeze({
+                description: 'Set Body theme to Dark (required by the glass CSS).',
+                operation: Object.freeze({
+                    action: 'set',
+                    path: 'general.popupTheme',
+                    value: 'dark',
+                }),
+            }),
+            Object.freeze({
+                description: 'Set Shadow theme to Dark (required by the glass CSS).',
+                operation: Object.freeze({
+                    action: 'set',
+                    path: 'general.popupOuterTheme',
+                    value: 'dark',
+                }),
+            }),
             Object.freeze({
                 description: 'Set Popup CSS to the GSM glass theme.',
                 operation: Object.freeze({

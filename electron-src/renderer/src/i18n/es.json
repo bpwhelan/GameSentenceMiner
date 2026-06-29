@@ -38,6 +38,12 @@
       "title": "Captura de juego activa",
       "required": "Requerido",
       "gameLabel": "Juego:",
+      "profileLabel": "Perfil:",
+      "profileTooltip": "Los perfiles permiten usar diferentes ajustes por juego.\n\nPor perfil: audio (formato, offsets, VAD), captura de pantalla (formato, temporización, calidad), tipo de nota y etiquetas de Anki, IA y traducción, procesamiento de texto, funciones, OCR del overlay.\n\nCompartido entre perfiles: conexión OBS, rutas de carpetas de salida, nombres de campos y URL de Anki, puertos websocket.\n\nNota: las áreas de OCR y la automatización de juegos son por escena de OBS, no por perfil.",
+      "profileNewOption": "➕ Nuevo perfil…",
+      "profileNewPlaceholder": "Nombre del nuevo perfil",
+      "profileCreate": "Crear",
+      "profileCancel": "Cancelar",
       "refreshScenes": "Actualizar juegos",
       "renameScene": "Renombrar captura de juego",
       "removeGame": "Eliminar juego",
@@ -96,7 +102,8 @@
     "support": {
       "text": "Apoyar GSM",
       "githubSponsors": "GitHub Sponsors",
-      "kofi": "Ko-fi"
+      "kofi": "Ko-fi",
+      "githubStar": "Estrella en GitHub (Gratis)"
     },
     "ankiBeacon": {
       "statusMissing": "AnkiBeacon ⚠️",
@@ -124,8 +131,10 @@
     "tabs": {
       "home": "Inicio",
       "ocr": "OCR",
+      "textHook": "Texthook / Agent",
+      "textProcessing": "Procesamiento de texto",
       "stats": "Estadísticas",
-      "gameSettings": "Ajustes del juego",
+      "gameSettings": "Automatización de juegos",
       "settings": "Ajustes",
       "python": "Python",
       "logs": "Registros"
@@ -245,7 +254,7 @@
       "title": "¡Todo listo! 🎉",
       "description": "GSM está listo. Aquí tienes algunos consejos para empezar:",
       "tipHome": "Abre la pestaña <strong>Inicio</strong> para ver el flujo de texto del juego actual",
-      "tipGameSettings": "Usa <strong>Ajustes del juego</strong> para configurar perfiles por juego",
+      "tipGameSettings": "Usa <strong>Automatización de juegos</strong> para configurar la automatización por juego",
       "tipSettings": "Revisa la pestaña <strong>Ajustes</strong> para configuración de Anki, audio y atajos",
       "tipConsole": "La pestaña <strong>Consola</strong> muestra lo que GSM está haciendo en segundo plano",
       "guidePre": "Para guías detalladas y resolución de problemas, visita el",
@@ -322,7 +331,7 @@
     "visibility": {
       "title": "Ajustes de visibilidad",
       "visibleTabs": "Pestañas visibles:",
-      "tabGameSettings": "Ajustes del juego",
+      "tabGameSettings": "Automatización de juegos",
       "tabStats": "Estadísticas",
       "tabPython": "Python",
       "tabConsole": "Consola",
@@ -443,10 +452,10 @@
     }
   },
   "launcher": {
-    "title": "Ajustes del juego",
+    "title": "Automatización de juegos",
     "docsButton": "Documentación del lanzador automático",
     "docsButtonTooltip": "Abrir documentación del lanzador automático",
-    "infoLabel": "Resumen de ajustes del juego",
+    "infoLabel": "Resumen de automatización de juegos",
     "overviewTooltip": "Configura rutas compartidas de herramientas de enganche de texto y automatización por juego. Elige un modo de enganche de texto (Ninguno/Agent/Textractor/Luna) y un modo OCR (Ninguno/Auto/Manual) para cada juego.",
     "shared": {
       "title": "Ajustes de herramientas compartidas",
@@ -504,7 +513,7 @@
       "openedReleases": "Página de versiones de {label} abierta.",
       "failedOpenReleases": "No se pudo abrir la página de versiones.",
       "failedOpenDocs": "No se pudo abrir la documentación.",
-      "savedShared": "Ajustes compartidos del juego guardados.",
+      "savedShared": "Ajustes compartidos de automatización de juegos guardados.",
       "updatedPath": "Ajuste de ruta compartida actualizado.",
       "savedScene": "Automatización guardada para el juego: {scene}",
       "updatedScript": "Script de Agent actualizado para el juego: {scene}",
@@ -518,7 +527,7 @@
       "downloadFailed": "No se pudo instalar {tool}."
     },
     "tooltips": {
-      "sharedToolSettings": "Rutas compartidas usadas por los ajustes del juego en todos los juegos de este perfil.",
+      "sharedToolSettings": "Rutas compartidas usadas por la automatización de juegos en todos los juegos de este perfil.",
       "sceneAutomation": "Comportamiento de inicio específico del juego. Cada juego puede usar diferentes ajustes de enganche de texto y OCR.",
       "agentPath": "Ruta al ejecutable de Agent cuando el lanzador de enganche de texto está configurado como Agent.",
       "agentScriptsPath": "Carpeta que contiene archivos de script de Agent (.js). Se usa para autodetección y valores predeterminados de exploración.",
@@ -546,7 +555,7 @@
       "ocrNone": "No iniciar OCR para este juego.",
       "ocrAuto": "Iniciar OCR automático continuo cuando este juego esté activo.",
       "ocrManual": "Iniciar entorno OCR manual para este juego. La captura OCR permanece manual mediante controles/atajos.",
-      "status": "Último estado de guardado/detección de las acciones de ajustes del juego.",
+      "status": "Último estado de guardado/detección de las acciones de automatización de juegos.",
       "candidatePicker": "Elegir el candidato de script de Agent que mejor coincida para este juego.",
       "noScene": "No hay un perfil de juego cargado. Selecciona un juego primero."
     }
@@ -569,7 +578,7 @@
       "title": "Ajustes OCR",
       "advanced": "Avanzado",
       "scanRate": "Frecuencia de escaneo (s):",
-      "textSpeed": "Velocidad de texto:",
+      "scanSpeed": "Velocidad de escaneo:",
       "language": "Idioma:",
       "scanImageQuality": "Calidad de imagen de escaneo",
       "furiganaFilter": "Filtro de furigana",
@@ -667,7 +676,7 @@
       "exportAreas": "Copia los rectángulos OCR de la escena actual al portapapeles como JSON.",
       "docs": "Abre la guía de OCR con ayuda de configuración, notas de motores y flujos de trabajo.",
       "advancedMode": "Muestra la selección de motor y el ajuste de comparación. El modo básico mantiene visibles los ajustes comunes y oculta los controles expertos.",
-      "basicScanRate": "Qué tan rápido aparece el texto en el juego.\n• Instantáneo: mejor para texto inmediato, mayor uso de CPU\n• Normal: equilibrado para la mayoría de diálogos\n• Lento: mejor para texto que aparece gradualmente",
+      "basicScanRate": "Con qué frecuencia escanea OCR en modo básico.\n• Lo más rápido posible (0): sin retraso de escaneo; puede exponer problemas de UTF-8/codificación y usa más CPU\n• Rápido: sondeo rápido para texto reactivo\n• Normal: equilibrado para la mayoría de diálogos\n• Lento/Muy lento: mejor para texto que aparece gradualmente",
       "advancedScanRate": "Intervalo de sondeo de OCR en segundos. Los valores bajos escanean más a menudo y reaccionan más rápido, pero usan más recursos. Los valores altos escanean menos y pueden sentirse más tranquilos con texto lento.",
       "language": "Selecciona el idioma para el procesamiento OCR. Esto garantiza que solo se capturen bloques con los caracteres correctos. Todos los idiomas de escritura latina (inglés, español, francés, alemán, etc.) están cubiertos por inglés.",
       "baseScale": "Controla cuánto se escala la captura antes de escanear.\n• Menor = escaneos más rápidos, menos CPU, pero puede omitir texto pequeño\n• Mayor = más preciso con fuentes pequeñas, pero usa más CPU\n\n50% -> Rápido | 75% -> Equilibrado | 100% -> Más lento\n\nConsejo: si OCR omite kanji pequeños o caracteres, intenta aumentar este valor.",
@@ -755,7 +764,9 @@
       "hi": "Hindi"
     },
     "scanRates": {
-      "instant": "Instantáneo",
+      "asFastAsPossible": "Lo más rápido posible (0)",
+      "asFastAsPossibleWarning": "Lo más rápido posible (0) - advertencia UTF-8",
+      "fast": "Rápido",
       "normal": "Normal",
       "slow": "Lento",
       "verySlow": "Muy lento"
@@ -795,6 +806,86 @@
       "importFailed": "Importación fallida.",
       "areaConfigExported": "Configuración de área OCR copiada al portapapeles.",
       "exportFailed": "Exportación fallida."
+    }
+  },
+  "texthook": {
+    "credits": {
+      "text": "Herramientas de text hook",
+      "agent": "Agent",
+      "textractor": "Textractor",
+      "luna": "LunaTranslator"
+    },
+    "steps": {
+      "targetDesc": "Proceso del juego detectado desde la captura de OBS",
+      "engineConfig": "Motor y configuración",
+      "engineDesc": "Elige un motor de hooking y configúralo",
+      "options": "Opciones y perfil",
+      "optionsDesc": "Ajusta el retardo de salida y guarda tus ajustes",
+      "manualHookLabel": "Opcional / avanzado: código de hook manual"
+    },
+    "capture": {
+      "title": "Captura activa",
+      "scene": "Escena",
+      "executable": "Ejecutable",
+      "pid": "PID",
+      "refresh": "Actualizar",
+      "unknown": "Desconocido",
+      "noScene": "Sin escena activa"
+    },
+    "engine": {
+      "title": "Motor",
+      "label": "Motor de hooking:",
+      "luna": "Luna Hook",
+      "textractor": "Textractor"
+    },
+    "profile": {
+      "title": "Perfil guardado",
+      "saved": "Guardado",
+      "autoHook": "Adjuntar hook automáticamente al próximo inicio",
+      "flushDelay": "Retardo de envío de salida (ms):",
+      "manualHook": "Código de hook manual (H/R-code, opcional):",
+      "manualHookHint": "Déjalo vacío salvo que ya tengas un H-code o R-code específico. La mayoría de usuarios debería iniciar el motor y elegir un hook detectado.",
+      "attachManual": "Adjuntar hook manual",
+      "save": "Guardar hook",
+      "delete": "Eliminar perfil"
+    },
+    "hooks": {
+      "title": "Hooks detectados",
+      "count": "{count} hooks",
+      "waiting": "Esperando hooks. Genera texto en el juego.",
+      "notRunning": "Pulsa 'Iniciar' para iniciar el motor.",
+      "noTextYet": "(sin texto aún)"
+    },
+    "output": {
+      "title": "Salida del hook seleccionado",
+      "waiting": "Esperando texto del hook seleccionado…",
+      "selectHook": "Selecciona un hook de la lista para ver su texto."
+    },
+    "log": {
+      "title": "Registro del motor",
+      "empty": "Aún no hay mensajes."
+    },
+    "status": {
+      "attached": "Adjuntado",
+      "ready": "Listo",
+      "noTarget": "Sin objetivo"
+    },
+    "actions": {
+      "start": "Iniciar",
+      "stop": "Detener"
+    },
+    "notices": {
+      "started": "Adjuntado a {exe} (PID {pid}).",
+      "selected": "Hook #{id} seleccionado. La salida se reenvía a GSM.",
+      "manualAttached": "Código de hook manual adjuntado.",
+      "profileSaved": "Perfil de hook guardado para este juego.",
+      "profileDeleted": "Perfil de hook eliminado."
+    },
+    "errors": {
+      "startFailed": "No se pudo iniciar el motor de hooking.",
+      "manualFailed": "No se pudo adjuntar el hook manual.",
+      "profileSaveFailed": "No se pudo guardar el perfil del hook.",
+      "noExe": "No se detectó ejecutable para la captura activa."
     }
   }
 }

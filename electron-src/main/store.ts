@@ -2,10 +2,12 @@ import Store from "electron-store";
 import { SteamGame } from "./ui/steam.js";
 import {ObsScene} from "./ui/obs.js";
 import { BrowserWindow } from "electron";
-import * as os from "os";
 import path from "path";
 import { findAgentScriptById } from "./agent_script_resolver.js";
+import { getBaseDir } from "./data_dir.js";
 
+const APP_BASE_DIR = getBaseDir();
+const DEFAULT_AGENT_SCRIPTS_PATH = path.join(APP_BASE_DIR, "agent-scripts", "scripts");
 
 interface YuzuConfig {
     emuPath: string;
@@ -44,6 +46,7 @@ interface SteamConfig {
 interface OCRConfig {
     twoPassOCR: boolean;
     optimize_second_scan: boolean;
+    text_appears_instantly?: boolean;
     ocr1: string;
     ocr2: string;
     scanRate: number;
@@ -59,11 +62,14 @@ interface OCRConfig {
     send_to_clipboard_auto?: boolean | null;
     send_to_clipboard_menu?: boolean | null;
     send_to_clipboard_area_select?: boolean | null;
+
     keep_newline: boolean;
     keep_newline_auto?: boolean | null;
     keep_newline_menu?: boolean | null;
     keep_newline_area_select?: boolean | null;
     obs_capture_preprocess?: "none" | "grayscale" | "grayscale_unsharp";
+    compactBoxes?: boolean;
+    compactBoxesGap?: number;
     processPriority: 'low' | 'below_normal' | 'normal' | 'above_normal' | 'high';
     base_scale?: number;
     duplicate_similarity_threshold?: number;
@@ -108,6 +114,8 @@ export interface SceneLaunchProfile {
     launchOverlay: boolean;
     agentScriptPath: string;
     launchDelaySeconds: number;
+    /** Linux: path to the game executable, used to locate the Wine/Proton prefix for hooking. */
+    gameExecutablePath?: string;
 }
 
 export interface LaunchableGame {
@@ -152,13 +160,17 @@ interface StoreConfig {
     windowTransparencyTarget: string; // Target window for transparency tool
     runWindowTransparencyToolOnStartup: boolean; // Whether to run the transparency tool on startup
     runOverlayOnStartup: boolean; // Whether to run the overlay on startup
+    textCaptureWizardEnabled: boolean; // Whether to show the text capture wizard after capture setup
     obsOcrScenes: string[];
     pullPreReleases: boolean;
     preReleaseMetadataAutoEnableApplied: boolean;
     runManualOCROnStartup: boolean;
+    forceManualOcrAllProfiles: boolean; // Turn on manual OCR for every scene/profile not already set to auto OCR
+    ignoreActiveSceneForOcr: boolean; // Keep auto-launched OCR running regardless of the active OBS scene
     visibleTabs: string[]; // Array of visible tab IDs
     statsEndpoint: string; // Stats tab endpoint
     locale: string; // UI language code (e.g. "en", "ukr")
+    theme: string; // Renderer UI theme id (daisyUI theme name)
     pythonPath: string;
     electronAppVersion: string;
     VN: VNConfig;
@@ -187,7 +199,7 @@ export const store = new Store<StoreConfig>({
             lastGameLaunched: "",
             games: []
         },
-        agentScriptsPath: ``,
+        agentScriptsPath: DEFAULT_AGENT_SCRIPTS_PATH,
         textractorPath: ``,
         textractorPath64: "",
         textractorPath32: "",
@@ -219,6 +231,7 @@ export const store = new Store<StoreConfig>({
         OCR: {
             twoPassOCR: true,
             optimize_second_scan: true,
+            text_appears_instantly: false,
             ocr1: "oneocr",
             ocr2: "glens",
             language: "ja",
@@ -233,12 +246,15 @@ export const store = new Store<StoreConfig>({
             send_to_clipboard_auto: null,
             send_to_clipboard_menu: null,
             send_to_clipboard_area_select: null,
+
             scanRate: 0.5,
             keep_newline: false,
             keep_newline_auto: null,
             keep_newline_menu: null,
             keep_newline_area_select: null,
             obs_capture_preprocess: "none",
+            compactBoxes: false,
+            compactBoxesGap: 12,
             processPriority: "normal",
             base_scale: 0.75,
             duplicate_similarity_threshold: 80,
@@ -270,21 +286,23 @@ export const store = new Store<StoreConfig>({
         windowTransparencyTarget: '', // Default to empty string if not set
         runWindowTransparencyToolOnStartup: false, // Whether to run the transparency tool on startup
         runOverlayOnStartup: false, // Whether to run the overlay on startup    
+        textCaptureWizardEnabled: true,
         obsOcrScenes: [],
         pullPreReleases: false,
         preReleaseMetadataAutoEnableApplied: false,
         runManualOCROnStartup: false,
+        forceManualOcrAllProfiles: false,
+        ignoreActiveSceneForOcr: false,
         visibleTabs: ['launcher', 'stats', 'console'], // Default all tabs visible
         statsEndpoint: 'overview', // Default stats endpoint
         locale: 'en', // UI language code
+        theme: 'gsm-dark', // Default renderer UI theme
         hasCompletedSetup: false,
         consoleMode: 'simple', // 'simple' = need-to-know only, 'advanced' = full log
         setupWizardVersion: 0,
         uiMode: 'basic',
     },
-    cwd: process.env.APPDATA
-        ? path.join(process.env.APPDATA, 'GameSentenceMiner', 'electron')
-        : path.join(os.homedir(), '.config', 'GameSentenceMiner', 'electron')
+    cwd: path.join(APP_BASE_DIR, 'electron')
 });
 
 const DEFAULT_SCENE_TEXT_HOOK_MODE: SceneTextHookMode = "none";
@@ -342,6 +360,10 @@ function normalizeSceneLaunchProfile(value: unknown): SceneLaunchProfile | null 
                 ? profile.agentScriptPath.trim()
                 : "",
         launchDelaySeconds: normalizeLaunchDelaySeconds(profile.launchDelaySeconds),
+        gameExecutablePath:
+            typeof profile.gameExecutablePath === "string" && profile.gameExecutablePath.trim().length > 0
+                ? profile.gameExecutablePath.trim()
+                : undefined,
     };
 }
 
@@ -392,7 +414,7 @@ function mergeSceneLaunchProfile(
     patch: Partial<
         Pick<
             SceneLaunchProfile,
-            "textHookMode" | "ocrMode" | "launchOverlay" | "agentScriptPath" | "launchDelaySeconds"
+            "textHookMode" | "ocrMode" | "launchOverlay" | "agentScriptPath" | "launchDelaySeconds" | "gameExecutablePath"
         >
     >
 ): void {
@@ -419,6 +441,7 @@ function mergeSceneLaunchProfile(
                   launchOverlay: DEFAULT_SCENE_LAUNCH_OVERLAY,
                   agentScriptPath: "",
                 launchDelaySeconds: DEFAULT_SCENE_LAUNCH_DELAY_SECONDS,
+                gameExecutablePath: undefined,
               };
 
     const next: SceneLaunchProfile = {
@@ -438,6 +461,10 @@ function mergeSceneLaunchProfile(
             typeof patch.launchDelaySeconds === "number"
                 ? normalizeLaunchDelaySeconds(patch.launchDelaySeconds)
                 : existing.launchDelaySeconds,
+        gameExecutablePath:
+            typeof patch.gameExecutablePath === "string"
+                ? (patch.gameExecutablePath.trim() || undefined)
+                : existing.gameExecutablePath,
     };
 
     if (existingIndex >= 0) {
@@ -738,6 +765,14 @@ export function setRunOverlayOnStartup(run: boolean): void {
     store.set("runOverlayOnStartup", run);
 }
 
+export function getTextCaptureWizardEnabled(): boolean {
+    return store.get("textCaptureWizardEnabled", true);
+}
+
+export function setTextCaptureWizardEnabled(enabled: boolean): void {
+    store.set("textCaptureWizardEnabled", enabled);
+}
+
 export function getObsOcrScenes(): string[] {
     return store.get("obsOcrScenes") || [];
 }
@@ -767,6 +802,22 @@ export function getRunManualOCROnStartup(): boolean {
 
 export function setRunManualOCROnStartup(run: boolean): void {
     store.set("runManualOCROnStartup", run);
+}
+
+export function getForceManualOcrAllProfiles(): boolean {
+    return store.get("forceManualOcrAllProfiles", false);
+}
+
+export function setForceManualOcrAllProfiles(force: boolean): void {
+    store.set("forceManualOcrAllProfiles", force);
+}
+
+export function getIgnoreActiveSceneForOcr(): boolean {
+    return store.get("ignoreActiveSceneForOcr", false);
+}
+
+export function setIgnoreActiveSceneForOcr(ignore: boolean): void {
+    store.set("ignoreActiveSceneForOcr", ignore);
 }
 
 export function getSceneLaunchProfiles(): SceneLaunchProfile[] {
@@ -832,6 +883,26 @@ export function upsertSceneLaunchProfile(profile: SceneLaunchProfile): void {
     setSceneLaunchProfiles(profiles);
 }
 
+export function getGameExePathForScene(sceneName: string): string {
+    const name = (sceneName ?? "").trim();
+    if (!name) {
+        return "";
+    }
+    const profiles = getSceneLaunchProfiles();
+    const match = profiles.find((profile) => profile.sceneName === name);
+    return match?.gameExecutablePath ?? "";
+}
+
+export function setGameExePathForScene(sceneName: string, exePath: string): void {
+    const name = (sceneName ?? "").trim();
+    if (!name) {
+        return;
+    }
+    const profiles = getSceneLaunchProfiles();
+    mergeSceneLaunchProfile(profiles, { name }, { gameExecutablePath: exePath ?? "" });
+    setSceneLaunchProfiles(profiles);
+}
+
 export function getVisibleTabs(): string[] {
     return store.get("visibleTabs", ['launcher', 'stats', 'console']);
 }
@@ -862,6 +933,14 @@ export function getLocale(): string {
 
 export function setLocale(locale: string): void {
     store.set("locale", locale);
+}
+
+export function getTheme(): string {
+    return store.get("theme") || "gsm-dark";
+}
+
+export function setTheme(theme: string): void {
+    store.set("theme", theme || "gsm-dark");
 }
 
 export function getHasCompletedSetup(): boolean {
@@ -1067,7 +1146,10 @@ export function setYuzuGamesConfig(games: YuzuGame[]): void {
 
 // Agent scripts path getters and setters
 export function getAgentScriptsPath(): string {
-    return store.get('agentScriptsPath');
+    const configuredPath = store.get('agentScriptsPath');
+    return typeof configuredPath === "string" && configuredPath.trim().length > 0
+        ? configuredPath
+        : DEFAULT_AGENT_SCRIPTS_PATH;
 }
 
 export function setAgentScriptsPath(path: string): void {

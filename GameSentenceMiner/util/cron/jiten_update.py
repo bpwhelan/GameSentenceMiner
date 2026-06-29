@@ -26,6 +26,63 @@ from GameSentenceMiner.util.clients.vndb_api_client import VNDBApiClient
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.games_table import GamesTable
 
+# Guardrails for the daily jiten_sync. Source metadata rarely changes, so we don't
+# re-fetch every linked game forever — a game is only re-synced while it's "fresh"
+# and actively played. Forced runs (manual / schema-migration backfill) bypass these.
+SYNC_SETTLED_AFTER_DAYS = 30  # stop syncing games first seen longer ago than this
+SYNC_INACTIVE_AFTER_DAYS = 14  # stop syncing games with no new lines in this window
+
+
+def _should_sync_game(game: GamesTable, now: float) -> tuple[bool, str]:
+    """Decide whether a linked game is still worth re-syncing, returning (sync, reason)."""
+    if game.completed:
+        return False, "completed"
+    # A linked game still missing its title was never synced — always sync.
+    if game.deck_id and not game.title_original:
+        return True, ""
+    first = GamesTable.get_start_date(game.id)
+    last = GamesTable.get_last_played_date(game.id)
+    # No lines yet (e.g. freshly linked, not played) — keep syncing so metadata fills in.
+    if first is None or last is None:
+        return True, ""
+    if (now - last) > SYNC_INACTIVE_AFTER_DAYS * 86400:
+        return False, f"inactive for {int((now - last) // 86400)}d"
+    if (now - first) > SYNC_SETTLED_AFTER_DAYS * 86400:
+        return False, "metadata settled"
+    return True, ""
+
+
+def _filter_settled_games(
+    jiten_games: List[GamesTable],
+    vndb_only_games: List[GamesTable],
+    anilist_only_games: List[GamesTable],
+) -> tuple[List[GamesTable], List[GamesTable], List[GamesTable], set, int]:
+    """Drop settled games from each source list for the scheduled run.
+
+    Returns the kept lists, the set of game ids still eligible (for the character-data
+    phase), and the number of games skipped.
+    """
+    now = time.time()
+    skipped = 0
+
+    def keep(games: List[GamesTable], label: str) -> List[GamesTable]:
+        nonlocal skipped
+        kept = []
+        for game in games:
+            sync, reason = _should_sync_game(game, now)
+            if sync:
+                kept.append(game)
+            else:
+                skipped += 1
+                logger.debug(f"Skipping {label} sync for '{game.title_original}': {reason}")
+        return kept
+
+    jiten_kept = keep(jiten_games, "jiten")
+    vndb_kept = keep(vndb_only_games, "vndb")
+    anilist_kept = keep(anilist_only_games, "anilist")
+    eligible_ids = {game.id for game in jiten_kept + vndb_kept + anilist_kept}
+    return jiten_kept, vndb_kept, anilist_kept, eligible_ids, skipped
+
 
 def fetch_jiten_data_for_game(game: GamesTable) -> Optional[Dict]:
     """
@@ -128,6 +185,15 @@ def update_character_data_from_vndb_anilist(game: GamesTable) -> Dict:
                         )
                     except Exception as queue_error:
                         logger.debug(f"Failed to queue Sudachi user dictionary export after VNDB update: {queue_error}")
+                    try:
+                        from GameSentenceMiner.web.yomitan_api import notify_yomitan_character_dictionary_changed
+
+                        notify_yomitan_character_dictionary_changed(
+                            "jiten-update:vndb-character-data",
+                            game.id,
+                        )
+                    except Exception as notify_error:
+                        logger.debug(f"Failed to notify Yomitan character dictionary update: {notify_error}")
                     logger.info(f"Updated VNDB data for {game.title_original}")
                     vndb_updated = True
                 else:
@@ -171,6 +237,15 @@ def update_character_data_from_vndb_anilist(game: GamesTable) -> Dict:
                         logger.debug(
                             f"Failed to queue Sudachi user dictionary export after AniList update: {queue_error}"
                         )
+                    try:
+                        from GameSentenceMiner.web.yomitan_api import notify_yomitan_character_dictionary_changed
+
+                        notify_yomitan_character_dictionary_changed(
+                            "jiten-update:anilist-character-data",
+                            game.id,
+                        )
+                    except Exception as notify_error:
+                        logger.debug(f"Failed to notify Yomitan character dictionary update: {notify_error}")
                     logger.info(f"Updated AniList data for {game.title_original}")
                     anilist_updated = True
                 else:
@@ -543,7 +618,7 @@ def update_single_game_from_jiten(game: GamesTable, jiten_data: Dict) -> Dict:
         }
 
 
-def update_all_jiten_games() -> Dict:
+def update_all_jiten_games(force: bool = False) -> Dict:
     """
     Update all games from their linked data sources (Jiten, VNDB, AniList).
 
@@ -554,6 +629,11 @@ def update_all_jiten_games() -> Dict:
     - Continues on errors (individual game failures don't stop the process)
     - Downloads cover images from all available sources
     - Adds delay between games to avoid rate limiting
+
+    Args:
+        force: When False (the scheduled run), skip games that are settled
+            (completed, inactive, or first seen long ago) so we don't re-sync
+            rarely-changing metadata every day. When True, sync every linked game.
 
     Returns:
         Dictionary with summary statistics:
@@ -597,6 +677,23 @@ def update_all_jiten_games() -> Dict:
         f"Found {total_games} total games: {jiten_count} Jiten, {vndb_only_count} VNDB-only, "
         f"{anilist_only_count} AniList-only, {unlinked_count} unlinked"
     )
+
+    # Apply guardrails: skip settled games (completed / inactive / long since linked)
+    # so the daily run doesn't re-fetch rarely-changing metadata for the whole library.
+    if force:
+        skipped_count = 0
+        eligible_ids = {game.id for game in all_games}
+    else:
+        jiten_games, vndb_only_games, anilist_only_games, eligible_ids, skipped_count = _filter_settled_games(
+            jiten_games, vndb_only_games, anilist_only_games
+        )
+        jiten_count = len(jiten_games)
+        vndb_only_count = len(vndb_only_games)
+        anilist_only_count = len(anilist_only_games)
+        logger.info(
+            f"Guardrails: skipping {skipped_count} settled game(s); "
+            f"syncing {jiten_count + vndb_only_count + anilist_only_count}"
+        )
 
     # Process each game
     updated_count = 0
@@ -761,7 +858,7 @@ def update_all_jiten_games() -> Dict:
     # === PHASE 4: Process character data for all games with VNDB/AniList IDs ===
     logger.info("Phase 4: Processing VNDB/AniList character data for all games...")
     for i, game in enumerate(all_games, 1):
-        if game.vndb_id or game.anilist_id:
+        if (game.vndb_id or game.anilist_id) and game.id in eligible_ids:
             logger.debug(
                 f"Processing character data {i}/{total_games}: {game.title_original} "
                 f"(vndb_id: {game.vndb_id}, anilist_id: {game.anilist_id})"
@@ -790,6 +887,7 @@ def update_all_jiten_games() -> Dict:
     logger.info(f"   - Unlinked: {unlinked_count}")
     logger.info(f"   - Successfully updated: {updated_count}")
     logger.info(f"   - Failed: {failed_count}")
+    logger.info(f"   - Skipped (settled): {skipped_count}")
     logger.info(f"   - Total fields updated: {total_fields_updated}")
     logger.info(f"   - Time elapsed: {elapsed_time:.2f} seconds")
 
@@ -801,6 +899,7 @@ def update_all_jiten_games() -> Dict:
         "unlinked_games": unlinked_count,
         "updated_games": updated_count,
         "failed_games": failed_count,
+        "skipped_games": skipped_count,
         "total_fields_updated": total_fields_updated,
         "elapsed_time": elapsed_time,
         "details": details,

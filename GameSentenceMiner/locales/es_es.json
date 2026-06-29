@@ -266,6 +266,14 @@
             "label": "Etiquetar Tarjetas sin Audio:",
             "tooltip": "Agregar automáticamente la etiqueta 'unvoiced' a las tarjetas que no tienen audio."
           },
+          "reuse_audio_for_same_selected_lines_different_mined_line": {
+            "label": "Misma Selección, Línea Diferente: Reutilizar Audio:",
+            "tooltip": "Al minar otra palabra de las mismas líneas seleccionadas pero desde una línea minada diferente, guardar una nueva repetición y reutilizar el audio de la tarjeta anterior. Las mismas líneas seleccionadas con la misma línea minada siguen usando la ruta de reutilización completa de medios."
+          },
+          "reuse_screenshot_for_same_selected_lines_different_mined_line": {
+            "label": "Misma Selección, Línea Diferente: Reutilizar Captura:",
+            "tooltip": "Al minar otra palabra de las mismas líneas seleccionadas pero desde una línea minada diferente, guardar una nueva repetición y reutilizar la captura de pantalla de la tarjeta anterior."
+          },
           "multi_overwrites_sentence": {
             "label": "Minería de Múltiples Líneas Sobrescribe Oración:",
             "tooltip": "Al usar Minería de Múltiples Líneas, sobrescribir la oración con una concatenación de las líneas seleccionadas."
@@ -386,6 +394,10 @@
           "extension": {
             "label": "Extensión:",
             "tooltip": "Extensión de archivo para el formato de captura de pantalla."
+          },
+          "capture_backend": {
+            "label": "Método de Captura:",
+            "tooltip": "Método de captura de pantalla. auto usa la captura rápida de Windows con fallback a OBS, obs evita la captura directa de Windows y winapi prefiere la captura directa de Windows."
           },
           "animated": {
             "label": "Animado:",
@@ -601,6 +613,10 @@
             "label": "Tasa de Sondeo:",
             "tooltip": "Velocidad a la que Anki verificará las actualizaciones (en milisegundos)."
           },
+          "mute_game_on_minimize": {
+            "label": "Silenciar Juego al Minimizar:",
+            "tooltip": "En Windows, silencia el juego capturado solo mientras su ventana está minimizada. No se silencia al estar en segundo plano o sin foco."
+          },
           "localhost_bind_address": {
             "label": "Dirección de Enlace de Localhost:",
             "tooltip": "Dirección de enlace para el servidor local."
@@ -754,8 +770,12 @@
             "tooltip": "Aplica las zonas de exclusión de la configuración de áreas para enmascarar partes de la captura de la superposición. Son las regiones que antes aparecían como cuadros naranjas."
           },
           "use_ocr_result": {
-            "label": "Usar resultado OCR:",
-            "tooltip": "Al activar, la superposición usa resultados OCR precomputados cuando estén disponibles. Desactívalo para forzar un nuevo escaneo OCR en la superposición."
+            "label": "Usar solo resultado OCR (Experimental):",
+            "tooltip": "Al activar, la superposición usa SOLO resultados OCR precomputados cuando estén disponibles. El resto de la pantalla no se puede consultar. Mutuamente exclusivo con 'Complementar con escaneo de superposición'."
+          },
+          "supplement_ocr_result_with_overlay": {
+            "label": "Complementar resultado OCR con escaneo:",
+            "tooltip": "Al activar, muestra inmediatamente los resultados OCR precomputados y luego realiza un escaneo complementario para que el resto de la pantalla también sea consultable."
           }
         },
         "experimental": {
@@ -777,10 +797,6 @@
           "require_game_exe_match": {
             "label": "Requerir Coincidencia de EXE de Juego:",
             "tooltip": "Solo permitir pausa cuando el exe objetivo coincide con el exe de juego detectado."
-          },
-          "allowlist": {
-            "label": "Lista de Permitidos (Nombres EXE):",
-            "tooltip": "Nombres exe separados por comas que siempre están permitidos."
           },
           "denylist": {
             "label": "Lista de Denegados (Nombres EXE):",
@@ -825,6 +841,10 @@
           "message": "¿Está seguro de que desea eliminar el perfil '{profile_name}'?",
           "error_title": "Error",
           "error_cannot_delete_default": "No se puede eliminar el perfil Predeterminado."
+        },
+        "relate_scene": {
+          "title": "Relacionar escena",
+          "message": "¿Relacionar la escena actual '{scene}' con el perfil '{profile}'?\n\nLa escena cambiará automáticamente a este perfil y se eliminará de cualquier otro perfil."
         },
         "install_ocenaudio": {
           "title": "¿Descargar OcenAudio?",

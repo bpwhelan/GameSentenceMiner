@@ -3,6 +3,27 @@
 
 <head>
 <style>
+  /* Hidden container for Jiten Reader to parse text into .jiten-word spans.
+     Positioned off-screen but NOT display:none so Jiten's parser can see it. */
+  #jiten-parse-container {
+    position: absolute;
+    left: -99999px;
+    top: -99999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    user-select: none;
+    font-size: 16px;
+    color: transparent;
+  }
+  /* Override Jiten Reader's own CSS styles inside the parse container */
+  #jiten-parse-container .jiten-word {
+    all: unset !important;
+    display: inline !important;
+  }
+
   /* Hidden character for Yomitan popup hiding */
   #yomitan-hide-char {
     position: absolute;
@@ -23,6 +44,12 @@
     --gsm-furigana-font-weight: 600;
     --gsm-furigana-outline-color: #222222;
     --gsm-furigana-outline-width: 1.5px;
+    /* Pinyin tone colors (1=high, 2=rising, 3=dipping, 4=falling, 5=neutral). */
+    --gsm-pinyin-tone1-color: #ff5252;
+    --gsm-pinyin-tone2-color: #ffb300;
+    --gsm-pinyin-tone3-color: #4caf50;
+    --gsm-pinyin-tone4-color: #42a5f5;
+    --gsm-pinyin-tone5-color: #e0e0e0;
     height: 100%;
     margin: 0;
     padding: 0;
@@ -69,14 +96,12 @@ background: rgba(202, 12, 12, 0.692);
     white-space: nowrap;
     background: rgba(15, 15, 15, 0);
     color: rgba(255, 255, 255, 0);
-    text-align: start;
     pointer-events: auto;
     user-select: text;
     z-index: 999;
-    line-height: 1;
-    display: block;
+    display: flex;
     align-items: center;
-    justify-content: flex-start;
+    justify-content: center;
     overflow: visible;
   }
 
@@ -123,6 +148,12 @@ background: rgba(202, 12, 12, 0.692);
     text-shadow: 0 0 1px var(--gsm-furigana-outline-color);
   }
 
+  .pinyin-tone-1 { color: var(--gsm-pinyin-tone1-color); }
+  .pinyin-tone-2 { color: var(--gsm-pinyin-tone2-color); }
+  .pinyin-tone-3 { color: var(--gsm-pinyin-tone3-color); }
+  .pinyin-tone-4 { color: var(--gsm-pinyin-tone4-color); }
+  .pinyin-tone-5 { color: var(--gsm-pinyin-tone5-color); }
+
   #furigana-layer {
     position: fixed;
     inset: 0;
@@ -130,6 +161,76 @@ background: rgba(202, 12, 12, 0.692);
     pointer-events: none;
     user-select: none;
     z-index: 1002;
+  }
+
+  /* ==================== Jiten SRS Highlighting ==================== */
+  /* Highlights are drawn as overlay boxes (one per token) by jiten_highlight.js,
+     NOT by styling the per-character .text-box glyphs — a single box spanning
+     the whole token reads as one highlight instead of one-per-character. The
+     overlay sits behind the (normally transparent) text glyphs. Mature/mastered
+     (known) words are subtle; i+1 is the most prominent (blue) signal. */
+  :root {
+    --gsm-jiten-highlight-opacity: 0.7;
+    /* Nudge the whole highlight box (and thus its bottom underline) down a few
+       pixels by default so the underline clears the glyph descenders. User
+       adjustable via the "Highlight Vertical Offset" setting. */
+    --gsm-jiten-highlight-offset-y: 3px;
+    --gsm-jiten-color-new: 165, 102, 239;
+    --gsm-jiten-color-young: 208, 135, 0;
+    --gsm-jiten-color-mature: 112, 192, 0;
+    --gsm-jiten-color-due: 255, 69, 0;
+    --gsm-jiten-color-mastered: 112, 192, 0;
+    --gsm-jiten-color-blacklisted: 119, 119, 119;
+    --gsm-jiten-color-frequent: 75, 141, 127;
+    --gsm-jiten-color-iplus1: 53, 158, 255;
+  }
+
+  /* Full-viewport layer holding the token highlight boxes. Sits just below the
+     text boxes (z-index 999) so transparent glyphs render on top of it. */
+  #jiten-highlight-layer {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    overflow: visible;
+    z-index: 997;
+  }
+
+  /* Each .gsm-jiten-hl is positioned (position: fixed) over a token's union
+     bounding rect. Modifier classes (--new, --due, --frequent, --iplus1, …)
+     layer the visual treatment for that token's SRS state. */
+  .gsm-jiten-hl {
+    position: fixed;
+    pointer-events: none;
+    box-sizing: border-box;
+    border-radius: 3px;
+    transform: translateY(var(--gsm-jiten-highlight-offset-y, 0px));
+  }
+  .gsm-jiten-hl--new {
+    border-bottom: 3px solid rgba(var(--gsm-jiten-color-new), var(--gsm-jiten-highlight-opacity));
+  }
+  .gsm-jiten-hl--young {
+    border-bottom: 3px solid rgba(var(--gsm-jiten-color-young), var(--gsm-jiten-highlight-opacity));
+  }
+  .gsm-jiten-hl--due {
+    border-bottom: 3px solid rgba(var(--gsm-jiten-color-due), var(--gsm-jiten-highlight-opacity));
+  }
+  .gsm-jiten-hl--mature {
+    /* Known words: subtle. */
+    border-bottom: 2px solid rgba(var(--gsm-jiten-color-mature), calc(var(--gsm-jiten-highlight-opacity) * 0.4));
+  }
+  .gsm-jiten-hl--mastered {
+    border-bottom: 2px solid rgba(var(--gsm-jiten-color-mastered), calc(var(--gsm-jiten-highlight-opacity) * 0.4));
+  }
+  .gsm-jiten-hl--blacklisted {
+    border-bottom: 2px solid rgba(var(--gsm-jiten-color-blacklisted), calc(var(--gsm-jiten-highlight-opacity) * 0.4));
+  }
+  .gsm-jiten-hl--frequent {
+    /* Modest teal underline layered on top of the state highlight. */
+    box-shadow: inset 0 -3px 0 rgba(var(--gsm-jiten-color-frequent), 0.6);
+  }
+  .gsm-jiten-hl--iplus1 {
+    /* Primary "you should know this word" signal. Thicker blue underline. */
+    border-bottom: 4px solid rgba(var(--gsm-jiten-color-iplus1), 0.95) !important;
   }
 
   .text-box-container {
@@ -146,6 +247,15 @@ background: rgba(202, 12, 12, 0.692);
     align-items: center;
     justify-content: flex-start;
     overflow: visible;
+  }
+
+  /* Freeze-frame activation gate: hide the WHOLE overlay (text + gamepad nav visuals +
+     the snapshot img itself) until the frozen frame has painted, so nothing flashes over
+     the still-live game. Group opacity can't be overridden by descendants, so this is a
+     hard "show nothing yet". Layout/requestAnimationFrame still run (window is shown
+     inactive), and a full-monitor capture stays clean because nothing is rendered. */
+  body.manual-background-pending {
+    opacity: 0 !important;
   }
 
   body.force-visible .text-box,
@@ -639,11 +749,20 @@ background: rgba(202, 12, 12, 0.692);
 </style>
 
 <style src="shared.css"></style>
+<link rel="stylesheet" href="live_stats_widget.css">
   <meta charset="UTF-8">
 </head>
 
 
 <body style="margin:0px;">
+  <!-- Manual-mode desktop background: opaque snapshot painted behind the overlay for
+       exclusive-fullscreen games whose frame is dropped when manual mode steals focus. -->
+  <img id="manual-desktop-background" alt=""
+       style="display:none; position:fixed; inset:0; width:100%; height:100%; object-fit:cover; z-index:0; pointer-events:none;" />
+
+  <!-- Hidden container for Jiten Reader to parse text -->
+  <div id="jiten-parse-container"></div>
+
   <!-- Gamepad Status Indicator -->
   <div id="gamepad-status">🎮 No controller</div>
 
@@ -651,11 +770,11 @@ background: rgba(202, 12, 12, 0.692);
   <div id="manual-mode-recommendation">
     <span class="recommendation-icon">💡</span>
     <div class="recommendation-text">
-      <strong>Fullscreen Game Detected:</strong> If you're using exclusive fullscreen mode, manual mode may provide better overlay stability.
+      <strong>Fullscreen Game Detected:</strong> If you're using exclusive fullscreen mode, Push to Show may provide better overlay stability.
     </div>
     <div class="recommendation-buttons">
       <button class="recommendation-btn recommendation-btn-primary" id="btn-enable-manual">
-        Enable Manual Mode
+        Enable Push to Show
       </button>
       <button class="recommendation-btn recommendation-btn-secondary" id="btn-dismiss-recommendation">
         Got it
@@ -1009,15 +1128,17 @@ background: rgba(202, 12, 12, 0.692);
   });
 
 
-  // Safety check: detect stale popup state
-  // Since Yomitan popups are in shadow roots, we can't query the DOM directly.
-  // Instead, we'll detect if the count seems stuck and hasn't changed in a while.
+  // Safety check: detect stale popup state. Older fallback logic cleared the
+  // popup state solely because the count was unchanged for a while, which made
+  // long-lived dictionary popups click-through and leaked wheel input to games.
   let lastPopupChangeTime = Date.now();
   let lastPopupCount = 0;
   const STALE_TIMEOUT = 12000;
   const GSM_CHARACTER_DICTIONARY_STARTUP_DELAY_MS = 30000;
+  const GSM_CHARACTER_DICTIONARY_REFRESH_DELAY_MS = 2000;
   let gsmCharacterDictionaryEnsureStarted = false;
   let gsmCharacterDictionaryEnsureTimeoutId = null;
+  let gsmCharacterDictionaryEnsureInProgress = false;
 
   async function closeYomitanLookups(reason = 'manual-hide') {
     if (!yomitanShowing) {
@@ -1063,21 +1184,25 @@ background: rgba(202, 12, 12, 0.692);
     }
   }
 
-  async function ensureGsmCharacterDictionaryFresh(reason = 'startup') {
-    if (gsmCharacterDictionaryEnsureStarted) {
+  async function ensureGsmCharacterDictionaryFresh(reason = 'startup', options = {}) {
+    const force = options.force === true;
+    if (gsmCharacterDictionaryEnsureInProgress || (gsmCharacterDictionaryEnsureStarted && !force)) {
       return;
     }
     gsmCharacterDictionaryEnsureStarted = true;
+    gsmCharacterDictionaryEnsureInProgress = true;
 
     const bridge = window.gsmYomitanBridge;
     if (!bridge || typeof bridge.ensureGsmCharacterDictionary !== 'function') {
       console.warn(`[Yomitan] GSM dictionary bridge unavailable (${reason})`);
+      gsmCharacterDictionaryEnsureInProgress = false;
       return;
     }
 
     const urls = getGsmDictionaryUrls();
     if (!urls) {
       console.warn(`[Yomitan] GSM dictionary URLs unavailable (${reason})`);
+      gsmCharacterDictionaryEnsureInProgress = false;
       return;
     }
 
@@ -1086,21 +1211,85 @@ background: rgba(202, 12, 12, 0.692);
       console.log(`[Yomitan] GSM character dictionary ensure result (${reason}):`, result);
     } catch (error) {
       console.warn(`[Yomitan] Failed to ensure GSM character dictionary (${reason}):`, error);
+    } finally {
+      gsmCharacterDictionaryEnsureInProgress = false;
     }
   }
 
-  function scheduleGsmCharacterDictionaryEnsure(reason = 'startup') {
-    if (gsmCharacterDictionaryEnsureStarted || gsmCharacterDictionaryEnsureTimeoutId !== null) {
+  // Auto-updating the GSM character dictionary caused more problems than it
+  // solved, so it's disabled. Leave the plumbing in place but never schedule.
+  const GSM_CHARACTER_DICTIONARY_AUTO_UPDATE_ENABLED = false;
+
+  function scheduleGsmCharacterDictionaryEnsure(reason = 'startup', options = {}) {
+    if (!GSM_CHARACTER_DICTIONARY_AUTO_UPDATE_ENABLED) {
       return;
     }
+    const force = options.force === true;
+    if (gsmCharacterDictionaryEnsureStarted && !force) {
+      return;
+    }
+    if (gsmCharacterDictionaryEnsureTimeoutId !== null) {
+      if (!force) {
+        return;
+      }
+      window.clearTimeout(gsmCharacterDictionaryEnsureTimeoutId);
+      gsmCharacterDictionaryEnsureTimeoutId = null;
+    }
 
+    const delayMs = Number.isFinite(options.delayMs) ? options.delayMs : GSM_CHARACTER_DICTIONARY_STARTUP_DELAY_MS;
     gsmCharacterDictionaryEnsureTimeoutId = window.setTimeout(() => {
       gsmCharacterDictionaryEnsureTimeoutId = null;
-      void ensureGsmCharacterDictionaryFresh(reason);
-    }, GSM_CHARACTER_DICTIONARY_STARTUP_DELAY_MS);
+      void ensureGsmCharacterDictionaryFresh(reason, { force });
+    }, delayMs);
+  }
+
+  function isYomitanPopupElement(element) {
+    return (
+      element instanceof HTMLElement &&
+      (element.classList.contains('yomitan-popup') || element.tagName === 'YOMITAN-POPUP-TAG-NAME')
+    );
+  }
+
+  function getVisibleYomitanPopupFrames() {
+    return Array.from(document.querySelectorAll('iframe.yomitan-popup'))
+      .filter((frame) => {
+        const style = window.getComputedStyle(frame);
+        if (style.visibility === 'hidden' || style.display === 'none') {
+          return false;
+        }
+
+        const rect = frame.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+  }
+
+  function syncYomitanPopupStateFromDom(reason = 'dom-sync') {
+    const visiblePopupFrames = getVisibleYomitanPopupFrames();
+    if (visiblePopupFrames.length === 0) {
+      return false;
+    }
+
+    if (!yomitanShowing || yomitanPopupCount !== visiblePopupFrames.length) {
+      yomitanPopupIds.clear();
+      visiblePopupFrames.forEach((_, index) => {
+        yomitanPopupIds.add(`dom-popup-${index}`);
+      });
+      yomitanPopupCount = visiblePopupFrames.length;
+      yomitanShowing = true;
+      ipcRenderer.send('yomitan-event', true);
+      console.log(`[Yomitan] Synced visible popup state from DOM (${reason}): ${visiblePopupFrames.length}`);
+    }
+
+    lastPopupCount = yomitanPopupCount;
+    lastPopupChangeTime = Date.now();
+    return true;
   }
   
   setInterval(() => {
+    if (syncYomitanPopupStateFromDom('stale-check')) {
+      return;
+    }
+
     // Track when count last changed
     if (yomitanPopupCount !== lastPopupCount) {
       lastPopupChangeTime = Date.now();
@@ -1159,6 +1348,11 @@ background: rgba(202, 12, 12, 0.692);
       yomitanShowing = true;
       ipcRenderer.send('yomitan-event', true);
     }
+
+    // Refresh the Jiten grading bar config for the (possibly new) popup frame.
+    requestJitenReaderGradingSettings();
+    pushJitenGradingConfig();
+    setTimeout(() => pushJitenGradingConfig(), 250);
   });
 
   // When popup is hidden, tell main process to ignore mouse events again
@@ -1241,6 +1435,7 @@ background: rgba(202, 12, 12, 0.692);
 </script>
 
 <script src="block_detection.js"></script>
+<script src="live_stats_widget.js"></script>
 <script>
   const { ipcRenderer } = require("electron");
   // Try to load OverlayUtils if available (since this is an Electron renderer process)
@@ -1258,6 +1453,13 @@ background: rgba(202, 12, 12, 0.692);
     window.GSMFuriganaUtils = FuriganaUtils;
   } catch (e) {
     console.warn("Could not require furigana_utils.js:", e);
+  }
+  let ReadingOverlay;
+  try {
+    ReadingOverlay = require("./reading_overlay_utils.js");
+    window.GSMReadingOverlay = ReadingOverlay;
+  } catch (e) {
+    console.warn("Could not require reading_overlay_utils.js:", e);
   }
   if (!BlockDetection) {
     try {
@@ -1310,6 +1512,17 @@ background: rgba(202, 12, 12, 0.692);
   });
   const furiganaStyleSettings = { ...DEFAULT_FURIGANA_STYLE };
 
+  // Default pinyin tone colors (1=high, 2=rising, 3=dipping, 4=falling, 5=neutral).
+  // Mirrors the CSS variables in the :root block.
+  const DEFAULT_PINYIN_TONE_COLORS = Object.freeze({
+    pinyinTone1Color: '#ff5252',
+    pinyinTone2Color: '#ffb300',
+    pinyinTone3Color: '#4caf50',
+    pinyinTone4Color: '#42a5f5',
+    pinyinTone5Color: '#e0e0e0',
+  });
+  const pinyinToneColorSettings = { ...DEFAULT_PINYIN_TONE_COLORS };
+
   let isDragging = false;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
@@ -1344,13 +1557,437 @@ background: rgba(202, 12, 12, 0.692);
   let showTextIndicators = true;
   let fadeTextIndicators = false;
   let showFurigana = false;
+  // Which reading system the overlay renders above the text: 'japanese'
+  // (furigana via the tokenizer backend) or 'chinese' (pinyin via pinyin-pro).
+  let readingLanguage = 'japanese';
+  // Color-code each pinyin syllable by its tone (Chinese only).
+  let pinyinToneColorsEnabled = true;
   let showRecycledIndicator = true;
   let immediateSentenceRecycled = false;
   let overlayRenderGeneration = 0;
+  let lastOverlayTextRenderSignature = null;
   const FURIGANA_LINE_CACHE_TTL_MS = 2500;
   const MAX_FURIGANA_LINE_CACHE_ENTRIES = 200;
   let lastFuriganaRenderSignature = null;
   const furiganaLineCache = new Map();
+  // Jiten SRS Highlighting state (mirror approach)
+  let jitenHighlightingEnabled = true;
+  // Most recent OCR lines, kept even while highlighting is off so toggling on can
+  // re-parse current text instead of waiting for new OCR.
+  let lastJitenHighlightLines = null;
+  // Whether Jiten can parse right now (extension enabled + API key + not paused),
+  // verified via the settings bridge. Optimistic until first verification; self-heals
+  // on toggles, bridge-ready, and throttled re-checks, so no restart is needed.
+  let jitenHighlightAvailable = true;
+  let jitenSettingsSyncPending = false;
+  let lastJitenSettingsSyncAt = 0;
+  const JITEN_SETTINGS_RESYNC_THROTTLE_MS = 8000;
+  // The line_id we last parsed for. OCR sends several payloads per line as it
+  // stabilizes; to stay API-friendly we parse at most twice (first payload + final),
+  // and just reposition for intermediate jitter. null = single-shot scans (final).
+  let jitenHighlightParsedLineId = false; // sentinel distinct from any real id (incl. null)
+
+  function setJitenHighlightOpacity(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return;
+    const clamped = Math.max(0, Math.min(1, n));
+    document.documentElement.style.setProperty('--gsm-jiten-highlight-opacity', String(clamped));
+  }
+
+  function setJitenHighlightOffsetY(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return;
+    const clamped = Math.max(-48, Math.min(48, n));
+    document.documentElement.style.setProperty('--gsm-jiten-highlight-offset-y', `${clamped}px`);
+  }
+
+  // Ask the Jiten Reader extension to parse the current lines and mirror SRS
+  // highlights (the extension's content script does the parsing).
+  function applyJitenHighlightingForLines(lines, meta) {
+    if (!jitenHighlightingEnabled || !jitenReaderEnabled) return;
+    // Not verified parseable yet → kick a throttled re-check so a freshly-added
+    // key / unpause resumes on its own, then bail.
+    if (!jitenHighlightAvailable) {
+      if (Date.now() - lastJitenSettingsSyncAt > JITEN_SETTINGS_RESYNC_THROTTLE_MS) {
+        syncJitenSettings('lines-while-unavailable');
+      }
+      return;
+    }
+    const api = window.GsmJitenHighlight;
+    if (!api || typeof api.requestParse !== 'function') {
+      console.log('[JitenHighlight] Skipped: jiten_highlight.js not loaded');
+      return;
+    }
+    if (!Array.isArray(lines) || lines.length === 0) return;
+
+    // No meta (e.g. a manual toggle-on re-parse) → always parse.
+    const forced = !meta;
+    const lineId = (meta && meta.lineId != null) ? String(meta.lineId) : null;
+    const isFinal = !!(meta && meta.isFinal);
+
+    let shouldParse;
+    if (forced || isFinal) {
+      // Final pass: parse (requestParse dedups identical text, so it's free if unchanged).
+      shouldParse = true;
+      jitenHighlightParsedLineId = lineId;
+    } else if (lineId !== jitenHighlightParsedLineId) {
+      // First payload for a new line: parse once for a fast highlight.
+      shouldParse = true;
+      jitenHighlightParsedLineId = lineId;
+    } else {
+      // Intermediate jitter for the same line: just reposition existing highlights.
+      shouldParse = false;
+    }
+
+    if (shouldParse) {
+      api.requestParse(lines).catch((err) => {
+        console.warn('[JitenHighlight] Parse request failed:', err);
+      });
+    } else if (typeof api.reposition === 'function') {
+      api.reposition();
+    }
+  }
+
+  // Initialize highlight module on page load
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.GsmJitenHighlight) window.GsmJitenHighlight.init();
+    }, { once: true });
+  } else {
+    if (window.GsmJitenHighlight) window.GsmJitenHighlight.init();
+  }
+
+  // Mark Jiten highlighting unavailable when a toggle is turned off. Resetting the
+  // flag here is what lets a later off->on transition re-highlight: applyVerified
+  // only refreshes when availability actually flips, so a stale `true` would
+  // suppress the refresh until an overlay restart.
+  function markJitenUnavailable() {
+    jitenHighlightAvailable = false;
+    const api = window.GsmJitenHighlight;
+    if (!api) return;
+    if (typeof api.setAvailable === 'function') api.setAvailable(false);
+    if (typeof api.clearJitenHighlighting === 'function') api.clearJitenHighlighting();
+  }
+
+  // "Show Jiten Style Text Highlighting" toggle. On enable, re-verify and
+  // re-highlight current text; on disable, clear and mark unavailable.
+  function setJitenHighlightingEnabled(value) {
+    const was = jitenHighlightingEnabled;
+    jitenHighlightingEnabled = value !== false;
+    if (window.GsmJitenHighlight) window.GsmJitenHighlight.setEnabled(jitenHighlightingEnabled);
+    if (jitenHighlightingEnabled && !was) syncJitenSettings('enable-highlighting');
+    else if (!jitenHighlightingEnabled && was) markJitenUnavailable();
+  }
+
+  // Enabling the reader re-loads the extension in the main process (async, can
+  // take a while), and its settings-bridge content script only goes live once
+  // that finishes. So an immediate verify races the load and gets stuck
+  // "unavailable". Wait a beat as a fallback; the authoritative trigger is the
+  // "jitenReaderLoaded" signal main sends once the extension is actually ready.
+  const JITEN_ENABLE_VERIFY_DELAY_MS = 1500;
+  let jitenEnableVerifyTimer = null;
+
+  // "Enable Jiten Reader" master switch. Same off->on / on->off handling.
+  function setJitenReaderEnabled(value) {
+    const was = jitenReaderEnabled;
+    jitenReaderEnabled = value !== false;
+    if (jitenReaderEnabled && !was) {
+      clearTimeout(jitenEnableVerifyTimer);
+      jitenEnableVerifyTimer = setTimeout(() => syncJitenSettings('enable-reader'), JITEN_ENABLE_VERIFY_DELAY_MS);
+    } else if (!jitenReaderEnabled && was) {
+      clearTimeout(jitenEnableVerifyTimer);
+      markJitenUnavailable();
+    }
+  }
+
+  // Apply a freshly-verified availability state (from the settings bridge):
+  // available means highlighting + the reader are on, an API key is present, and
+  // parsing isn't paused. When it flips on, re-highlight what's already on screen.
+  function applyVerifiedJitenAvailability(hasApiKey, parsingPaused) {
+    const wasAvailable = jitenHighlightAvailable;
+    const nowAvailable = jitenReaderEnabled && jitenHighlightingEnabled && !!hasApiKey && !parsingPaused;
+    jitenHighlightAvailable = nowAvailable;
+    if (window.GsmJitenHighlight && typeof window.GsmJitenHighlight.setAvailable === 'function') {
+      window.GsmJitenHighlight.setAvailable(nowAvailable);
+    }
+    if (nowAvailable && !wasAvailable) {
+      // Became usable — highlight what's already on screen instead of waiting
+      // for the next OCR update.
+      if (window.GsmJitenHighlight && typeof window.GsmJitenHighlight.refresh === 'function') {
+        window.GsmJitenHighlight.refresh(lastJitenHighlightLines);
+      } else {
+        applyJitenHighlightingForLines(lastJitenHighlightLines);
+      }
+    }
+    if (!nowAvailable) {
+      const reason = !jitenReaderEnabled ? 'Jiten Reader disabled'
+        : !jitenHighlightingEnabled ? 'highlighting disabled'
+        : parsingPaused ? 'parsing paused in Jiten Reader'
+        : !hasApiKey ? 'no Jiten API key set'
+        : 'unknown';
+      console.log(`[JitenHighlight] Highlighting unavailable (${reason}); will re-check automatically.`);
+    }
+  }
+
+  // Cleanup for the in-flight verify (removes its listener + timeout) so a newer,
+  // authoritative trigger can supersede a stale one instead of being dropped by
+  // the pending guard. Set while a verify is in flight, null otherwise.
+  let jitenSyncCleanup = null;
+
+  // Verify via the gsm-settings-bridge content script whether Jiten can parse
+  // right now (API key present, not paused). Called on toggles, bridge-ready, and
+  // throttled re-checks. No bridge response → extension absent → mark unavailable.
+  // `force` cancels any in-flight verify first — used after the extension (re)loads,
+  // when a verify posted before the bridge was live would otherwise never resolve.
+  function syncJitenSettings(reason = 'manual', force = false) {
+    if (jitenSettingsSyncPending) {
+      if (!force) return;
+      if (jitenSyncCleanup) jitenSyncCleanup();
+    }
+    jitenSettingsSyncPending = true;
+    lastJitenSettingsSyncAt = Date.now();
+    const requestId = `gsm-sync-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let timeoutId = null;
+    const cleanup = () => {
+      window.removeEventListener('message', onResponse);
+      clearTimeout(timeoutId);
+      jitenSettingsSyncPending = false;
+      jitenSyncCleanup = null;
+    };
+    const onResponse = (event) => {
+      const data = event && event.data;
+      if (!data || data.type !== 'gsm-jiten-settings-response' || data.requestId !== requestId) return;
+      cleanup();
+      const d = (data.data && typeof data.data === 'object') ? data.data : {};
+      applyVerifiedJitenAvailability(d.hasApiKey === true, d.parsingPaused === true);
+    };
+    jitenSyncCleanup = cleanup;
+    window.addEventListener('message', onResponse);
+    try { window.postMessage({ type: 'gsm-jiten-settings-request', requestId }, '*'); } catch (_) { /* ignore */ }
+    timeoutId = setTimeout(() => {
+      if (!jitenSettingsSyncPending) return;
+      cleanup();
+      // No bridge response → Jiten Reader extension not present/loaded.
+      applyVerifiedJitenAvailability(false, false);
+    }, 2000);
+  }
+
+  // The bridge announces itself once its content script is live; verify then.
+  window.addEventListener('message', (event) => {
+    const data = event && event.data;
+    if (data && data.type === 'gsm-jiten-settings-ready') {
+      // Bridge just came live (e.g. extension finished loading) — supersede any
+      // stale verify that was posted before it could answer.
+      syncJitenSettings('bridge-ready', true);
+    }
+  });
+  // Also verify shortly after load in case the bridge announced before this
+  // listener was attached.
+  setTimeout(() => syncJitenSettings('startup'), 1500);
+
+  // ==================== Jiten grading bar bridge (Yomitan popup) ====================
+  // Proxies the Yomitan popup's grading bar to the Jiten SRS API. Shown only when
+  // the reader is enabled and "Show Jiten Grader Buttons" is on. All API specifics
+  // stay here so the popup stays a thin UI shell needing no host permission.
+  let jitenReaderEnabled = true;
+  let showJitenGradingButtons = true;
+  let jitenGradingReaderSettings = { showGradingActions: true, twoGrades: false, disableReviews: false };
+  let jitenGradingSettingsRequestPending = false;
+  const JITEN_GRADING_PARSE_URL = 'https://api.jiten.moe/api/reader/parse';
+  // Numeric SRS state -> highlight class (mirrors Jiten Reader's CARD_STATE_MAP).
+  const JITEN_CARD_STATE_CLASS_MAP = {
+    0: 'new', 1: 'young', 2: 'mature', 3: 'blacklisted', 4: 'due', 5: 'mastered',
+  };
+  // Session memo of term/reading -> {wordId, readingIndex}. wordIds are stable, so
+  // repeat grades of the same word skip the resolve parse, falling back only on a miss.
+  const jitenWordRefMemo = new Map();
+  const jitenWordRefMemoKey = (term, reading) => `${String(term || '')}${String(reading || '')}`;
+
+  function getJitenGradingApiKey() {
+    try {
+      return (typeof gamepadSettings !== 'undefined' && gamepadSettings && gamepadSettings.jitenApiKey)
+        ? String(gamepadSettings.jitenApiKey).trim()
+        : '';
+    } catch (_) { return ''; }
+  }
+
+  function computeJitenGradingEnabled() {
+    return !!(jitenReaderEnabled && showJitenGradingButtons);
+  }
+
+  function getYomitanGradingTargetFrames() {
+    return Array.from(document.querySelectorAll('iframe.yomitan-popup'));
+  }
+
+  function buildJitenGradingConfigMessage() {
+    const showGrading = jitenGradingReaderSettings.showGradingActions !== false &&
+      jitenGradingReaderSettings.disableReviews !== true;
+    return {
+      type: 'gsm-jiten-grading-config',
+      enabled: computeJitenGradingEnabled(),
+      showGrading: showGrading,
+      twoGrades: jitenGradingReaderSettings.twoGrades === true,
+      hasApiKey: !!getJitenGradingApiKey(),
+    };
+  }
+
+  function pushJitenGradingConfig(targetWindow) {
+    const msg = buildJitenGradingConfigMessage();
+    if (targetWindow && typeof targetWindow.postMessage === 'function') {
+      try { targetWindow.postMessage(msg, '*'); } catch (_) { /* ignore */ }
+      return;
+    }
+    for (const frame of getYomitanGradingTargetFrames()) {
+      try { if (frame.contentWindow) frame.contentWindow.postMessage(msg, '*'); } catch (_) { /* ignore */ }
+    }
+  }
+
+  // Pull the user's grading-related Jiten Reader settings via the content-script
+  // bridge (gsm-settings-bridge.js), so the bar mirrors their two-grade / review
+  // preferences. Falls back to defaults (full grade set) if unavailable.
+  function requestJitenReaderGradingSettings() {
+    if (jitenGradingSettingsRequestPending) return;
+    jitenGradingSettingsRequestPending = true;
+    const requestId = `gsm-grading-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const truthy = (v) => v === true || v === 'true';
+    const falsy = (v) => v === false || v === 'false';
+    const onResponse = (event) => {
+      const data = event && event.data;
+      if (!data || data.type !== 'gsm-jiten-settings-response' || data.requestId !== requestId) return;
+      window.removeEventListener('message', onResponse);
+      jitenGradingSettingsRequestPending = false;
+      const d = (data.data && typeof data.data === 'object') ? data.data : {};
+      jitenGradingReaderSettings = {
+        showGradingActions: !falsy(d.showGradingActions),
+        twoGrades: truthy(d.jitenUseTwoGrades),
+        disableReviews: truthy(d.jitenDisableReviews),
+      };
+      pushJitenGradingConfig();
+      // This round-trip carries the same availability signals — use them to keep
+      // highlight availability fresh for free (e.g. when a Yomitan popup opens).
+      applyVerifiedJitenAvailability(d.hasApiKey === true, d.parsingPaused === true);
+    };
+    window.addEventListener('message', onResponse);
+    try { window.postMessage({ type: 'gsm-jiten-settings-request', requestId }, '*'); } catch (_) { /* ignore */ }
+    setTimeout(() => {
+      if (!jitenGradingSettingsRequestPending) return;
+      window.removeEventListener('message', onResponse);
+      jitenGradingSettingsRequestPending = false;
+      pushJitenGradingConfig();
+    }, 2000);
+  }
+
+  // Resolve a term to a Jiten wordId/readingIndex by parsing it (cached IPC).
+  async function resolveJitenWordRef(term, reading) {
+    const text = String(term || '').trim();
+    if (!text) return null;
+    // Check session memo first — wordIds are stable, so a repeated grade of the
+    // same headword never needs to re-parse.
+    const memoK = jitenWordRefMemoKey(text, reading);
+    const cached = jitenWordRefMemo.get(memoK);
+    if (cached) return cached;
+
+    const apiKey = getJitenGradingApiKey();
+    if (!apiKey) return null;
+    let payload;
+    try {
+      payload = await ipcRenderer.invoke('gsm-jiten-parse', {
+        text, apiKey, endpoint: JITEN_GRADING_PARSE_URL, timeout: 4000,
+      });
+    } catch (_) { return null; }
+    const groups = payload && Array.isArray(payload.tokens) ? payload.tokens : [];
+    const row = Array.isArray(groups[0]) ? groups[0] : [];
+    let best = null;
+    for (const tok of row) {
+      if (!tok || typeof tok !== 'object') continue;
+      const wordId = Number(tok.wordId);
+      if (!Number.isFinite(wordId)) continue;
+      const readingIndex = Number.isFinite(Number(tok.readingIndex)) ? Number(tok.readingIndex) : 0;
+      const span = (Number(tok.end) || 0) - (Number(tok.start) || 0);
+      if (!best || span > best.span) best = { wordId, readingIndex, span };
+    }
+    const result = best ? { wordId: best.wordId, readingIndex: best.readingIndex } : null;
+    if (result) jitenWordRefMemo.set(memoK, result);
+    return result;
+  }
+
+  // After a grade, optimistically recolor the overlay highlight based on what the
+  // grade *should* produce, instead of making an extra lookup-vocabulary API call.
+  // rating 1 (Again) → due, rating 2-4 → young/mature (we pick 'young' as safe),
+  // blacklist → blacklisted, neverForget → mastered.
+  function applyOptimisticHighlightState(wordId, readingIndex, gradeKind, rating, deck) {
+    const api = window.GsmJitenHighlight;
+    if (!api || typeof api.applyCardState !== 'function') return;
+    let classes;
+    if (gradeKind === 'state') {
+      if (deck === 'blacklist') {
+        classes = ['blacklisted'];
+      } else if (deck === 'neverForget') {
+        classes = ['mastered'];
+      } else {
+        classes = ['new'];
+      }
+    } else {
+      // review
+      if (rating === 1) {
+        classes = ['due'];
+      } else {
+        classes = ['young'];
+      }
+    }
+    try { api.applyCardState(wordId, readingIndex, classes); } catch (_) { /* ignore */ }
+  }
+
+  async function handleJitenGradeRequest(data, source) {
+    const requestId = data.requestId;
+    const reply = (payload) => {
+      if (!source || typeof source.postMessage !== 'function') return;
+      try { source.postMessage(Object.assign({ type: 'gsm-jiten-grade-result', requestId }, payload), '*'); } catch (_) { /* ignore */ }
+    };
+    try {
+      const apiKey = getJitenGradingApiKey();
+      if (!apiKey) { reply({ ok: false, error: 'JitenAPI key is not set' }); return; }
+      const ref = await resolveJitenWordRef(data.term, data.reading);
+      if (!ref) { reply({ ok: false, error: 'Could not resolve word in Jiten' }); return; }
+      const endpoint = JITEN_GRADING_PARSE_URL;
+      if (data.kind === 'review') {
+        await ipcRenderer.invoke('gsm-jiten-review', {
+          wordId: ref.wordId, readingIndex: ref.readingIndex, rating: Number(data.rating),
+          apiKey, endpoint, timeout: 5000,
+        });
+      } else if (data.kind === 'state') {
+        const deck = String(data.deck || '');
+        const action = String(data.action || 'add');
+        if (!deck) { reply({ ok: false, error: 'Missing deck' }); return; }
+        await ipcRenderer.invoke('gsm-jiten-set-vocabulary-state', {
+          wordId: ref.wordId, readingIndex: ref.readingIndex, state: `${deck}-${action}`,
+          apiKey, endpoint, timeout: 5000,
+        });
+      } else {
+        reply({ ok: false, error: 'Unknown grade kind' }); return;
+      }
+      reply({ ok: true, wordId: ref.wordId, readingIndex: ref.readingIndex });
+      // Optimistic highlight update — no extra API call needed. We know the target
+      // state from the grade action itself.
+      applyOptimisticHighlightState(ref.wordId, ref.readingIndex, data.kind, Number(data.rating), data.deck);
+    } catch (e) {
+      reply({ ok: false, error: String((e && e.message) || e) });
+    }
+  }
+
+  window.addEventListener('message', (event) => {
+    const data = event && event.data;
+    if (!data || typeof data !== 'object') return;
+    if (data.type === 'gsm-jiten-grading-config-request') {
+      requestJitenReaderGradingSettings();
+      pushJitenGradingConfig(event.source || undefined);
+      return;
+    }
+    if (data.type === 'gsm-jiten-grade') {
+      void handleJitenGradeRequest(data, event.source);
+    }
+  });
+
   const pendingSentenceRecycledStates = new Map();
   let display = null;
   let width = 2560;
@@ -1503,6 +2140,17 @@ background: rgba(202, 12, 12, 0.692);
     document.documentElement.style.setProperty('--gsm-furigana-outline-width', `${furiganaStyleSettings.furiganaOutlineWidth}px`);
   }
 
+  function applyPinyinToneColorSettings(newSettings = {}) {
+    for (let tone = 1; tone <= 5; tone++) {
+      const key = `pinyinTone${tone}Color`;
+      pinyinToneColorSettings[key] = sanitizeFuriganaColor(
+        newSettings[key] ?? pinyinToneColorSettings[key],
+        DEFAULT_PINYIN_TONE_COLORS[key]
+      );
+      document.documentElement.style.setProperty(`--gsm-pinyin-tone${tone}-color`, pinyinToneColorSettings[key]);
+    }
+  }
+
   function shouldShowFuriganaLayer() {
     return showFurigana &&
       furiganaVisible &&
@@ -1558,11 +2206,16 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function getFuriganaBackendCacheSignature() {
-    const backend = String(gamepadSettings?.tokenizerBackend || 'mecab').toLowerCase();
-    if (backend === 'yomitan-bridge' || backend === 'yomitan-api') {
-      return `${backend}|${String(gamepadSettings?.yomitanApiUrl || '').trim()}|${Number.parseInt(gamepadSettings?.yomitanScanLength, 10) || 10}`;
+    const langPrefix = `${readingLanguage}:${(ReadingOverlay && ReadingOverlay.PINYIN_GROUPING_MODE) || 'character'}`;
+    if (readingLanguage === 'chinese') {
+      // Pinyin is computed locally and is independent of the tokenizer backend.
+      return langPrefix;
     }
-    return backend;
+    const backend = String(gamepadSettings?.tokenizerBackend || 'sudachi').toLowerCase();
+    if (backend === 'yomitan-bridge' || backend === 'yomitan-api') {
+      return `${langPrefix}|${backend}|${String(gamepadSettings?.yomitanApiUrl || '').trim()}|${Number.parseInt(gamepadSettings?.yomitanScanLength, 10) || 10}`;
+    }
+    return `${langPrefix}|${backend}`;
   }
 
   function getFuriganaLineCacheKey(text) {
@@ -1605,6 +2258,7 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   applyFuriganaStyleSettings();
+  applyPinyinToneColorSettings();
 
   // Loading indicator functions
   let loadingStartTime = null;
@@ -1705,6 +2359,212 @@ background: rgba(202, 12, 12, 0.692);
     }
   }
 
+  function dispatchOverlayPayloadEvent(eventName, payload) {
+    window.dispatchEvent(new CustomEvent(eventName, { detail: payload }));
+  }
+
+  // Decide whether an OCR line is laid out vertically (CJK top-to-bottom
+  // columns) or horizontally. OneOCR doesn't tag orientation, so infer it from
+  // geometry: multiple word boxes that spread further down the screen than
+  // across it form a vertical column, and a lone multi-glyph word box that is
+  // taller than it is wide is likewise vertical. Bounding rects are fractions of
+  // the image, so convert spreads to pixels before comparing. Defaults to
+  // horizontal when ambiguous (single glyph, no boxes).
+  function isOverlayLineVertical(line) {
+    const words = Array.isArray(line.words)
+      ? line.words.filter((w) => w && w.bounding_rect && typeof w.text === 'string' && w.text.length)
+      : [];
+    if (words.length === 0) return false;
+
+    const viewportWidth = window.innerWidth || 1;
+    const viewportHeight = window.innerHeight || 1;
+
+    if (words.length === 1) {
+      // A single glyph is ambiguous; only treat a multi-glyph box as vertical.
+      if (Array.from(words[0].text).length <= 1) return false;
+      const r = words[0].bounding_rect;
+      const widthPx = (r.x3 - r.x1) * viewportWidth;
+      const heightPx = (r.y3 - r.y1) * viewportHeight;
+      return heightPx > widthPx;
+    }
+
+    let minCenterX = Infinity, maxCenterX = -Infinity;
+    let minCenterY = Infinity, maxCenterY = -Infinity;
+    for (const word of words) {
+      const r = word.bounding_rect;
+      const centerX = (r.x1 + r.x3) / 2;
+      const centerY = (r.y1 + r.y3) / 2;
+      minCenterX = Math.min(minCenterX, centerX);
+      maxCenterX = Math.max(maxCenterX, centerX);
+      minCenterY = Math.min(minCenterY, centerY);
+      maxCenterY = Math.max(maxCenterY, centerY);
+    }
+    const xSpreadPx = (maxCenterX - minCenterX) * viewportWidth;
+    const ySpreadPx = (maxCenterY - minCenterY) * viewportHeight;
+    return ySpreadPx > xSpreadPx;
+  }
+
+  function buildOverlayLineRenderUnits(line, lineIdx, lineBlocks, blockBoundaries, blockCount) {
+    const blockId = lineBlocks.get(lineIdx);
+    const boundaries = blockBoundaries.get(blockId) || { start: lineIdx, end: lineIdx };
+    const isBlockStart = lineIdx === boundaries.start;
+    const isBlockEnd = lineIdx === boundaries.end;
+    const wordList = [];
+    const useLexicalWordBoxes = shouldPreserveLexicalWordBoxes(line.text);
+    // Lexical (non-CJK) lines are always horizontal; only CJK lines can be vertical.
+    const isVertical = !useLexicalWordBoxes && isOverlayLineVertical(line);
+
+    if (useLexicalWordBoxes) {
+      wordList.push(...buildLexicalWordRenderUnits(line.words, line.text, !isBlockEnd));
+    } else {
+      if (isBlockStart && blockId > 0 && Array.isArray(line.words) && line.words[0]?.bounding_rect) {
+        wordList.push({
+          text: '\n',
+          bounding_rect: {
+            x1: line.words[0].bounding_rect.x1,
+            y1: line.words[0].bounding_rect.y1,
+            x3: line.words[0].bounding_rect.x1,
+            y3: line.words[0].bounding_rect.y3
+          }
+        });
+      }
+
+      for (const w of Array.isArray(line.words) ? line.words : []) {
+        if (!w || typeof w.text !== 'string' || !w.text.length || !w.bounding_rect) {
+          continue;
+        }
+        const glyphs = Array.from(w.text);
+        const len = glyphs.length;
+        if (len <= 1) {
+          wordList.push(w);
+          continue;
+        }
+        // Slice the word box by per-glyph advance weight rather than evenly, so
+        // mixed full/half-width runs stay aligned with the underlying glyphs.
+        // Vertical lines stack glyphs top-to-bottom, so slice along Y instead of X.
+        if (isVertical) {
+          const edges = distributeGlyphWidths(glyphs, w.bounding_rect.y1, w.bounding_rect.y3);
+          for (let k = 0; k < len; k++) {
+            wordList.push({
+              text: glyphs[k],
+              bounding_rect: {
+                x1: w.bounding_rect.x1,
+                y1: edges[k],
+                x3: w.bounding_rect.x3,
+                y3: k + 1 < len ? edges[k + 1] : w.bounding_rect.y3
+              }
+            });
+          }
+        } else {
+          const edges = distributeGlyphWidths(glyphs, w.bounding_rect.x1, w.bounding_rect.x3);
+          for (let k = 0; k < len; k++) {
+            wordList.push({
+              text: glyphs[k],
+              bounding_rect: {
+                x1: edges[k],
+                y1: w.bounding_rect.y1,
+                x3: k + 1 < len ? edges[k + 1] : w.bounding_rect.x3,
+                y3: w.bounding_rect.y3
+              }
+            });
+          }
+        }
+      }
+
+      if (isBlockEnd && Array.isArray(line.words) && line.words.length > 0) {
+        const lastWord = line.words[line.words.length - 1];
+        if (lastWord?.bounding_rect) {
+          wordList.push({
+            text: '\n',
+            bounding_rect: {
+              x1: lastWord.bounding_rect.x3,
+              y1: lastWord.bounding_rect.y1,
+              x3: lastWord.bounding_rect.x3,
+              y3: lastWord.bounding_rect.y3
+            }
+          });
+        }
+      }
+    }
+
+    return {
+      blockId,
+      boundaries,
+      isBlockStart,
+      isBlockEnd,
+      wordList,
+      blockCount,
+      isVertical,
+    };
+  }
+
+  function getOverlayTextRenderSignature(lines, lineBlocks, blockBoundaries, blockCount) {
+    const signature = [];
+    let textBoxCount = 0;
+
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      const linePlan = buildOverlayLineRenderUnits(lines[lineIdx], lineIdx, lineBlocks, blockBoundaries, blockCount);
+      textBoxCount += linePlan.wordList.length;
+      signature.push(JSON.stringify(linePlan.wordList.map((word) => String(word.text || ''))));
+    }
+
+    return {
+      signature: signature.join('|'),
+      textBoxCount,
+    };
+  }
+
+  function getReusableOverlayTextBoxes(renderSignature, expectedTextBoxCount) {
+    if (!renderSignature || renderSignature !== lastOverlayTextRenderSignature) {
+      return null;
+    }
+
+    const textBoxes = Array.from(document.querySelectorAll('.text-box'));
+    return textBoxes.length === expectedTextBoxCount ? textBoxes : null;
+  }
+
+  function clearOverlayRecalibrationDecorations() {
+    const selectors = ['.big-interactive-area', '.line-box', '.recycled-indicator', '.block-separator'];
+    selectors.forEach(sel => {
+      const elements = document.querySelectorAll(sel);
+      for (let i = 0; i < elements.length; i++) {
+        elements[i].remove();
+      }
+    });
+    const trans = document.getElementById('translation-display');
+    if (trans) trans.remove();
+  }
+
+  function prepareGamepadForOverlayTextRender() {
+    if (gamepadHandler && typeof gamepadHandler.prepareForOverlayTextRender === 'function') {
+      return gamepadHandler.prepareForOverlayTextRender();
+    }
+    if (gamepadHandler && typeof gamepadHandler.rememberCurrentSelectionSnapshot === 'function') {
+      return gamepadHandler.rememberCurrentSelectionSnapshot();
+    }
+    return null;
+  }
+
+  function completeGamepadOverlayTextRender(snapshot, options = {}) {
+    if (!gamepadHandler) {
+      return;
+    }
+
+    if (typeof gamepadHandler.handleOverlayTextRenderComplete === 'function') {
+      gamepadHandler.handleOverlayTextRenderComplete({
+        snapshot,
+        preserveSelection: options.preserveSelection !== false,
+      });
+    } else if (typeof gamepadHandler.refreshTextBlocks === 'function') {
+      gamepadHandler.refreshTextBlocks();
+      if (typeof gamepadHandler.updateVisuals === 'function') {
+        gamepadHandler.updateVisuals();
+      }
+    }
+
+    updateGamepadStatusIndicator();
+  }
+
   async function handleOverlayWebSocketData(rawData) {
         let data = rawData;
         try {
@@ -1717,9 +2577,37 @@ background: rgba(202, 12, 12, 0.692);
           ipcRenderer.send("config-received", data.config);
         }
 
+        if (data.type === "live_stats_update") {
+          dispatchOverlayPayloadEvent("gsm-live-stats-update", data);
+          return;
+        }
+
+        if (data.type === "live_goals_update") {
+          dispatchOverlayPayloadEvent("gsm-live-goals-update", data);
+          return;
+        }
+
+        if (data.type === "manual_mode_background") {
+          showManualDesktopBackground(data.image);
+          return;
+        }
+
+        if (data.type === "yomitan_character_dictionary_changed") {
+          console.log("[Yomitan] Character dictionary change event received:", data);
+          scheduleGsmCharacterDictionaryEnsure(
+            data.reason || "character-dictionary-changed",
+            {
+              force: true,
+              delayMs: GSM_CHARACTER_DICTIONARY_REFRESH_DELAY_MS,
+            }
+          );
+          return;
+        }
+
         // Handle window state events
         if (data.type === "window_state") {
           console.log("Window state event received:", data.data, "for game:", data.game);
+          dispatchOverlayPayloadEvent("gsm-window-state-update", data);
           
           // Process magpie_info from websocket
           if (data.magpie_info !== undefined) {
@@ -1743,6 +2631,7 @@ background: rgba(202, 12, 12, 0.692);
             magpieActive: isMagpieActive,
             magpieInfo: currentMagpieInfo,
             isFullscreen: data.is_fullscreen || false,
+            cursorHidden: data.cursor_hidden || false,
             recommendManualMode: data.recommend_manual_mode || false
           });
           return; // Don't process as text display
@@ -1767,6 +2656,11 @@ background: rgba(202, 12, 12, 0.692);
           return;
         }
 
+        if (data.type === "overlay_clear") {
+          clearTextBoxes();
+          return;
+        }
+
         // Clear existing text boxes
         const mainBoxBounds = mainBox.getBoundingClientRect();
 
@@ -1777,13 +2671,15 @@ background: rgba(202, 12, 12, 0.692);
         // Check if data has words array (new word-level coordinate format)
         if (data.type == "word_coordinates" && Array.isArray(data.data) && data.data.every(item => item.text && item.bounding_rect)) {
           renderedTextPayload = true;
+          const isSupplemental = data.supplemental === true;
           const isSentenceRecycled = resolvePendingSentenceRecycledState(data.line_id, data.is_sentence_recycled);
-          setImmediateSentenceRecycled(isSentenceRecycled);
+          if (!isSupplemental) {
+            setImmediateSentenceRecycled(isSentenceRecycled);
+          }
           // Handle array of {text, bounding_rect}
           ipcRenderer.send("text-received", data);
 
-          clearTextBoxes({ preserveFurigana: true });
-          const renderGeneration = ++overlayRenderGeneration;
+          const renderGeneration = isSupplemental ? overlayRenderGeneration : ++overlayRenderGeneration;
           
           // FIRST PASS: Detect blocks by "general area" (y-first with soft x guards)
           const {
@@ -1791,6 +2687,27 @@ background: rgba(202, 12, 12, 0.692);
             blockBoundaries,
             blockCount: currentBlockId,
           } = detectTextBlocks(data.data);
+          const renderSignatureInfo = getOverlayTextRenderSignature(
+            data.data,
+            lineBlocks,
+            blockBoundaries,
+            currentBlockId
+          );
+          const reusableTextBoxes = isSupplemental
+            ? null
+            : getReusableOverlayTextBoxes(renderSignatureInfo.signature, renderSignatureInfo.textBoxCount);
+          const isRecalibration = Array.isArray(reusableTextBoxes);
+          const gamepadRenderSnapshot = prepareGamepadForOverlayTextRender();
+
+          // Supplemental results append to existing overlay without clearing.
+          // Retry recalibrations keep text nodes in place and only refresh geometry.
+          if (!isSupplemental) {
+            if (isRecalibration) {
+              clearOverlayRecalibrationDecorations();
+            } else {
+              clearTextBoxes({ preserveFurigana: true });
+            }
+          }
           
           console.log("Detected text blocks:", Array.from(blockBoundaries.entries()).map(([blockId, boundaries]) => ({
             blockId,
@@ -1812,20 +2729,24 @@ background: rgba(202, 12, 12, 0.692);
           // SECOND PASS: Process lines with block awareness
           const blockContainers = new Map(); // Map from block ID to container div
           const blockIndicatorBounds = new Map();
+          let reusableTextBoxIndex = 0;
           
           for (let lineIdx = 0; lineIdx < data.data.length; lineIdx++) {
             const line = data.data[lineIdx];
             console.log("Processing line:", line);
             
             // Check if this is the start or end of a block
-            const blockId = lineBlocks.get(lineIdx);
-            const boundaries = blockBoundaries.get(blockId) || { start: lineIdx, end: lineIdx };
-            const isBlockStart = lineIdx === boundaries.start;
-            const isBlockEnd = lineIdx === boundaries.end;
+            const linePlan = buildOverlayLineRenderUnits(line, lineIdx, lineBlocks, blockBoundaries, currentBlockId);
+            const { blockId, boundaries, isBlockStart, isBlockEnd, wordList, isVertical } = linePlan;
             
             // Create a container paragraph for this block if it's the start
             if (isBlockStart) {
-              const blockContainer = document.createElement('p');
+              let blockContainer = isRecalibration
+                ? document.querySelector(`.text-block-container[data-block-id="${blockId}"]`)
+                : null;
+              if (!blockContainer) {
+                blockContainer = document.createElement('p');
+              }
               blockContainer.className = 'text-block-container';
               blockContainer.setAttribute('data-block-id', blockId);
               blockContainer.setAttribute('data-line-start', boundaries.start);
@@ -1838,7 +2759,9 @@ background: rgba(202, 12, 12, 0.692);
               blockContainer.style.height = '100%';
               blockContainer.style.margin = '0';
               blockContainer.style.padding = '0';
-              document.body.appendChild(blockContainer);
+              if (!blockContainer.isConnected) {
+                document.body.appendChild(blockContainer);
+              }
               blockContainers.set(blockId, blockContainer);
             }
             
@@ -1859,64 +2782,6 @@ background: rgba(202, 12, 12, 0.692);
             let origMinx = Infinity, origMiny = Infinity, origMaxx = -Infinity, origMaxy = -Infinity;
             let bigInteractiveArea = document.createElement("div");
             bigInteractiveArea.className = "big-interactive-area interactive half-interactive";
-            const wordList = [];
-            const useLexicalWordBoxes = shouldPreserveLexicalWordBoxes(line.text);
-
-            if (useLexicalWordBoxes) {
-              wordList.push(...buildLexicalWordRenderUnits(line.words, line.text, !isBlockEnd));
-            } else {
-              // Flatten CJK tokens into single characters so Yomitan can anchor each glyph precisely.
-              if (isBlockStart && blockId > 0 && Array.isArray(line.words) && line.words[0]?.bounding_rect) {
-                wordList.push({
-                  text: '\n',
-                  bounding_rect: {
-                    x1: line.words[0].bounding_rect.x1,
-                    y1: line.words[0].bounding_rect.y1,
-                    x3: line.words[0].bounding_rect.x1,
-                    y3: line.words[0].bounding_rect.y3
-                  }
-                });
-              }
-
-              for (const w of Array.isArray(line.words) ? line.words : []) {
-                if (!w || typeof w.text !== 'string' || !w.text.length || !w.bounding_rect) {
-                  continue;
-                }
-                const glyphs = Array.from(w.text);
-                const len = glyphs.length;
-                if (len <= 1) {
-                  wordList.push(w);
-                  continue;
-                }
-                const charWidth = (w.bounding_rect.x3 - w.bounding_rect.x1) / len;
-                for (let k = 0; k < len; k++) {
-                  wordList.push({
-                    text: glyphs[k],
-                    bounding_rect: {
-                      x1: w.bounding_rect.x1 + (k * charWidth),
-                      y1: w.bounding_rect.y1,
-                      x3: w.bounding_rect.x1 + ((k + 1) * charWidth),
-                      y3: w.bounding_rect.y3
-                    }
-                  });
-                }
-              }
-
-              if (isBlockEnd && Array.isArray(line.words) && line.words.length > 0) {
-                const lastWord = line.words[line.words.length - 1];
-                if (lastWord?.bounding_rect) {
-                  wordList.push({
-                    text: '\n',
-                    bounding_rect: {
-                      x1: lastWord.bounding_rect.x3,
-                      y1: lastWord.bounding_rect.y1,
-                      x3: lastWord.bounding_rect.x3,
-                      y3: lastWord.bounding_rect.y3
-                    }
-                  });
-                }
-              }
-            }
 
             const lineWordBoxes = [];
 
@@ -1946,12 +2811,16 @@ background: rgba(202, 12, 12, 0.692);
               miny = Math.min(miny, y1);
               maxx = Math.max(maxx, x3);
               maxy = Math.max(maxy, y3);
-              const box = createTextBox(word.text, x1, y1, x3, y3, 0, true, true, false);
+              const box = isRecalibration
+                ? applyTextBoxLayout(reusableTextBoxes[reusableTextBoxIndex++], word.text, x1, y1, x3, y3, true, isVertical)
+                : createTextBox(word.text, x1, y1, x3, y3, 0, true, true, isVertical);
               box.dataset.lineIndex = lineIdx;
               const blockContainer = blockContainers.get(blockId);
-              if (blockContainer) {
+              if (blockContainer && box.parentNode !== blockContainer) {
                 blockContainer.appendChild(box);
-              } else {
+              } else if (!blockContainer && box.parentNode !== document.body) {
+                document.body.appendChild(box);
+              } else if (!box.isConnected) {
                 document.body.appendChild(box);
               }
 
@@ -1967,6 +2836,7 @@ background: rgba(202, 12, 12, 0.692);
                 text: word.text,
                 widthPercent: x3 - x1,
                 heightPercent: y3 - y1,
+                x1,
                 y1,
                 y3,
                 boundBox,
@@ -1982,12 +2852,16 @@ background: rgba(202, 12, 12, 0.692);
                 lineWordBox.text,
                 lineWordBox.widthPercent,
                 lineWordBox.heightPercent,
-                lineWordBox.boundBox
+                lineWordBox.boundBox,
+                isVertical
               );
               lineWordBox.estimatedFontSize = fontSize;
-              lineWordBox.box.style.fontSize = `${fontSize}px`;
             }
 
+            // Use the median font-size across non-punctuation characters on the line.
+            // OCR bounding boxes are tight ink bounds with measurement noise, so
+            // individual characters get slightly different widths even at the same
+            // game font-size. The median normalizes this for consistent rendering.
             const surroundingBoxes = lineWordBoxes.filter((lineWordBox) => (
               !lineWordBox.hiddenByMainBox
               && !isContextSizedPunctuationMarker(lineWordBox.text)
@@ -2000,21 +2874,49 @@ background: rgba(202, 12, 12, 0.692);
               && lineWordBox.estimatedFontSize > 0
             ));
             const fontReferenceBoxes = surroundingBoxes.length > 0 ? surroundingBoxes : visibleBoxes;
-            const surroundingFontSize = getMedianValue(fontReferenceBoxes.map((lineWordBox) => lineWordBox.estimatedFontSize));
-            const surroundingHeightPercent = getMedianValue(fontReferenceBoxes.map((lineWordBox) => lineWordBox.heightPercent));
+            const lineFontSize = getMedianValue(fontReferenceBoxes.map((lineWordBox) => lineWordBox.estimatedFontSize));
 
-            if (surroundingFontSize > 0) {
-              for (const lineWordBox of lineWordBoxes) {
-                if (lineWordBox.hiddenByMainBox || !isContextSizedPunctuationMarker(lineWordBox.text)) {
-                  continue;
-                }
-                lineWordBox.box.style.fontSize = `${Math.round(surroundingFontSize)}px`;
+            // Clamp every character box on the line to a single uniform size on
+            // the cross-axis (the max across reference glyphs) anchored at a
+            // shared edge, so the boxes line up evenly instead of each tracking
+            // its own ink-tight extent (which makes punctuation/kana boxes
+            // shorter than kanji). The along-text axis stays per-character.
+            //   - Horizontal lines: unify top + height, vary left per-character.
+            //   - Vertical lines:   unify left + width, vary top per-character.
+            const sizeReferenceBoxes = fontReferenceBoxes.length > 0 ? fontReferenceBoxes : visibleBoxes;
+            let uniformStartPercent = null;
+            let uniformExtentPercent = null;
+            if (sizeReferenceBoxes.length > 0) {
+              if (isVertical) {
+                uniformStartPercent = Math.min(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.x1));
+                uniformExtentPercent = Math.max(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.widthPercent));
+              } else {
+                uniformStartPercent = Math.min(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.y1));
+                uniformExtentPercent = Math.max(...sizeReferenceBoxes.map((lineWordBox) => lineWordBox.heightPercent));
+              }
+            }
 
-                if (surroundingHeightPercent > 0 && surroundingHeightPercent > lineWordBox.heightPercent * 1.1) {
-                  const centerY = (lineWordBox.y1 + lineWordBox.y3) / 2;
-                  const newY1 = Math.max(0, Math.min(100 - surroundingHeightPercent, centerY - (surroundingHeightPercent / 2)));
-                  lineWordBox.box.style.top = `${newY1 + offsetY}%`;
-                  lineWordBox.box.style.height = `${surroundingHeightPercent}%`;
+            // Apply consistent font-size and uniform cross-axis size to all characters on the line.
+            // Actual punctuation keeps its natural OCR-tight box and size instead of being clamped
+            // up to the line's uniform glyph extent, so it stays a small, hard-to-hover lookup target.
+            for (const lineWordBox of lineWordBoxes) {
+              if (lineWordBox.hiddenByMainBox) {
+                continue;
+              }
+              const keepNaturalSize = isStandalonePunctuation(lineWordBox.text);
+              const effectiveFontSize = (!keepNaturalSize && lineFontSize > 0)
+                ? Math.round(lineFontSize)
+                : lineWordBox.estimatedFontSize;
+              lineWordBox.box.style.fontSize = `${effectiveFontSize}px`;
+
+              if (!keepNaturalSize && uniformExtentPercent > 0) {
+                const clampedStart = Math.max(0, Math.min(100 - uniformExtentPercent, uniformStartPercent));
+                if (isVertical) {
+                  lineWordBox.box.style.left = `${clampedStart + offsetX}%`;
+                  lineWordBox.box.style.width = `${uniformExtentPercent}%`;
+                } else {
+                  lineWordBox.box.style.top = `${clampedStart + offsetY}%`;
+                  lineWordBox.box.style.height = `${uniformExtentPercent}%`;
                 }
               }
             }
@@ -2057,6 +2959,15 @@ background: rgba(202, 12, 12, 0.692);
             document.body.appendChild(bigInteractiveArea);
           }
 
+          if (isRecalibration) {
+            const activeBlockContainers = new Set(blockContainers.values());
+            document.querySelectorAll('.text-block-container').forEach((container) => {
+              if (!activeBlockContainers.has(container) && !container.querySelector('.text-box')) {
+                container.remove();
+              }
+            });
+          }
+
           blockIndicatorBounds.forEach((bounds) => {
             const blockBox = document.createElement("div");
             blockBox.className = "line-box";
@@ -2074,7 +2985,7 @@ background: rgba(202, 12, 12, 0.692);
           // Add recycled sentence indicator if applicable. Anchor it to the
           // final rendered block bounds so it stays beside the visible text,
           // including when Magpie remaps coordinates.
-          if (showRecycledIndicator && isSentenceRecycled && blockIndicatorBounds.size > 0) {
+          if (!isSupplemental && showRecycledIndicator && isSentenceRecycled && blockIndicatorBounds.size > 0) {
             const renderedBlockBounds = Array.from(blockIndicatorBounds.values());
             const lastBlockBounds = renderedBlockBounds[renderedBlockBounds.length - 1];
 
@@ -2100,9 +3011,41 @@ background: rgba(202, 12, 12, 0.692);
             }
           }
           
-          renderFuriganaForFrame(data.data, renderGeneration).catch((err) => {
-            console.warn('[Furigana] Async render failed:', err);
-          });
+          // Skip furigana rendering for supplemental results (background text).
+          //
+          // The .text-box spans created above already carry the lookupable text
+          // and are in the DOM, so Yomitan can scan/look them up right now. All
+          // enrichment (furigana, pinyin, AND jiten highlighting, which is kicked
+          // from inside renderFuriganaForFrame) must NOT run on the main thread
+          // until the text has actually painted — otherwise it executes in the
+          // same frame (microtasks/awaited box-building drain before paint) and
+          // delays the text becoming visible. requestAnimationFrame fires just
+          // *before* the next paint, so hop through a 0ms timeout to land right
+          // *after* it. The generation guard drops the work if a newer frame has
+          // since arrived.
+          if (!isSupplemental) {
+            const enrichmentGeneration = renderGeneration;
+            const scheduleEnrichment = () => {
+              if (enrichmentGeneration !== overlayRenderGeneration) {
+                return;
+              }
+              renderFuriganaForFrame(data.data, enrichmentGeneration, {
+                lineId: data.line_id != null ? data.line_id : null,
+                isFinal: data.is_final === true,
+              }).catch((err) => {
+                console.warn('[Furigana] Async render failed:', err);
+              });
+            };
+            if (typeof requestAnimationFrame === 'function') {
+              requestAnimationFrame(() => setTimeout(scheduleEnrichment, 0));
+            } else {
+              setTimeout(scheduleEnrichment, 0);
+            }
+          }
+          lastOverlayTextRenderSignature = isSupplemental
+            ? null
+            : renderSignatureInfo.signature;
+          completeGamepadOverlayTextRender(gamepadRenderSnapshot, { preserveSelection: true });
 
         } else {
           const line = data?.sentence ?? data;
@@ -2117,7 +3060,7 @@ background: rgba(202, 12, 12, 0.692);
           }
         }
 
-        if (renderedTextPayload && shouldShowReadyIndicator) {
+        if (renderedTextPayload && shouldShowReadyIndicator && !(data && data.supplemental)) {
           showReadyIndicator();
         }
         if (manualMode && !manualHotkeyPressed) {
@@ -2140,9 +3083,7 @@ background: rgba(202, 12, 12, 0.692);
     });
   });
 
-  function createTextBox(sentence, x1, y1, x2, y2, fontSize, noBackground = false, transparentText = false, verticalText = false) {
-    const textBox = document.createElement('span');
-    textBox.className = 'text-box';
+  function applyTextBoxLayout(textBox, sentence, x1, y1, x2, y2, transparentText = false, verticalText = false) {
     const text = sentence[0] == '\n' ? sentence.slice(1) : sentence;
     textBox.textContent = text;
     textBox.classList.add('interactive');
@@ -2151,12 +3092,13 @@ background: rgba(202, 12, 12, 0.692);
     textBox.style.top = `${y1 + offsetY}%`;
     textBox.style.width = `${x2 - x1}%`;
     textBox.style.height = `${y2 - y1}%`;
-    textBox.style.display = 'block';
+    textBox.style.display = 'flex';
+    textBox.style.alignItems = 'center';
+    textBox.style.justifyContent = 'center';
     textBox.style.overflow = 'visible';
     textBox.style.whiteSpace = 'nowrap';
     textBox.style.fontSize = '48px';
-    textBox.style.lineHeight = 'normal';
-    textBox.style.textOverflow = 'ellipsis';
+    textBox.style.lineHeight = '1';
     textBox.style.background = 'rgba(0,0,0,0)';
     textBox.style.border = 'none';
     if (transparentText) {
@@ -2165,17 +3107,15 @@ background: rgba(202, 12, 12, 0.692);
 
     if (verticalText && /[^\u0000-\u007F]+/.test(sentence)) {
       textBox.style.writingMode = 'vertical-rl';
-      textBox.style.textAlign = 'center';
-      textBox.style.alignItems = 'flex-start';
-      textBox.style.justifyContent = 'center';
       textBox.style.whiteSpace = 'normal';
-    } else {
-      textBox.style.lineHeight = '1';
-      textBox.style.display = 'block';
-      textBox.style.overflow = 'visible';
-      textBox.style.whiteSpace = 'nowrap';
     }
     return textBox;
+  }
+
+  function createTextBox(sentence, x1, y1, x2, y2, fontSize, noBackground = false, transparentText = false, verticalText = false) {
+    const textBox = document.createElement('span');
+    textBox.className = 'text-box';
+    return applyTextBoxLayout(textBox, sentence, x1, y1, x2, y2, transparentText, verticalText);
   }
 
   function createNavigationBox(sentence, x1, y1, x2, y2) {
@@ -2197,6 +3137,41 @@ background: rgba(202, 12, 12, 0.692);
 
   function normalizeLexicalFragmentText(text) {
     return String(text || '').replace(/\s+/g, '');
+  }
+
+  // Approximate horizontal advance of a single glyph relative to a full-width
+  // CJK cell (= 1.0). OneOCR only gives word-level boxes, so per-character boxes
+  // are produced by slicing a word box; slicing by *advance weight* instead of
+  // evenly keeps boxes aligned when a word mixes full-width and half-width
+  // glyphs (e.g. kanji + ASCII/digits/half-width punctuation). Pure full-width
+  // CJK is unaffected (every weight is 1.0).
+  const FULL_WIDTH_ADVANCE_REGEX = /[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Hangul}　-〿！-｠￠-￦⺀-⻿ㇰ-ㇿ‥…]/u;
+  function glyphAdvanceWeight(glyph) {
+    if (!glyph) return 1.0;
+    const codePoint = glyph.codePointAt(0);
+    // C0/C1 controls (e.g. injected "\n") take no horizontal space.
+    if (codePoint < 0x20 || (codePoint >= 0x7f && codePoint <= 0x9f)) return 0;
+    return FULL_WIDTH_ADVANCE_REGEX.test(glyph) ? 1.0 : 0.5;
+  }
+
+  // Split [x1, x3] across glyphs proportionally to their advance weights and
+  // return the left edge of each glyph plus the total span consumed.
+  function distributeGlyphWidths(glyphs, x1, x3) {
+    const span = x3 - x1;
+    const weights = glyphs.map(glyphAdvanceWeight);
+    let totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+    if (!(totalWeight > 0)) {
+      // All zero-width (defensive): fall back to even distribution.
+      totalWeight = glyphs.length || 1;
+      for (let i = 0; i < weights.length; i++) weights[i] = 1;
+    }
+    const edges = [];
+    let cursor = x1;
+    for (let i = 0; i < glyphs.length; i++) {
+      edges.push(cursor);
+      cursor += span * (weights[i] / totalWeight);
+    }
+    return edges;
   }
 
   function buildLexicalWordRenderUnits(words, lineText, appendTrailingSpace = false) {
@@ -2288,12 +3263,60 @@ background: rgba(202, 12, 12, 0.692);
     };
   }
 
-  function estimateFontSize(word, widthPercent, heightPercent, rect) {
-    if (rect && Number.isFinite(rect.height) && rect.height > 0) {
-      return Math.max(8, Math.min(100, Math.round(rect.height)));
+  function estimateFontSize(word, widthPercent, heightPercent, rect, isVerticalOverride = null) {
+    const text = typeof word === 'string' ? word : '';
+    const charCount = Math.max(1, text.length);
+
+    // Get actual pixel dimensions of the bounding box
+    let pixelHeight, pixelWidth;
+    if (rect && Number.isFinite(rect.height) && rect.height > 0 && Number.isFinite(rect.width) && rect.width > 0) {
+      pixelHeight = rect.height;
+      pixelWidth = rect.width;
+    } else {
+      pixelHeight = (heightPercent / 100) * window.innerHeight;
+      pixelWidth = (widthPercent / 100) * window.innerWidth;
     }
-    const pixelHeight = (heightPercent / 100) * window.innerHeight;
-    return Math.max(8, Math.min(100, Math.round(pixelHeight)));
+
+    if (pixelHeight <= 0 || pixelWidth <= 0) return 8;
+
+    const isCJK = CJK_LEXICAL_REGEX.test(text);
+    const aspectRatio = pixelWidth / pixelHeight;
+
+    // Prefer the line-level orientation when the caller has detected it (per-line
+    // geometry is far more reliable than a single glyph's aspect ratio). Fall
+    // back to the per-box heuristic for standalone estimates: for vertical CJK,
+    // width ≈ single char width and height ≈ charCount * char_height, giving a
+    // narrow aspect ratio.
+    const isLikelyVertical = isVerticalOverride !== null
+      ? isVerticalOverride
+      : (isCJK && charCount > 1 && aspectRatio < 0.8);
+
+    if (isCJK) {
+      let fontSize;
+      if (isLikelyVertical) {
+        // Vertical CJK: characters stack top-to-bottom.
+        // Each character's advance = 1em vertically, so:
+        //   font-size = box_height / char_count
+        // Constrain by box_width (the column width) to prevent horizontal overflow.
+        const sizeFromHeight = pixelHeight / charCount;
+        const sizeFromWidth = pixelWidth;
+        fontSize = Math.min(sizeFromHeight, sizeFromWidth);
+      } else {
+        // Horizontal CJK: characters advance left-to-right, each advance = 1em.
+        // font-size = box_width / char_count ensures characters span the box exactly.
+        // Constrain by box_height to prevent vertical overflow.
+        const sizeFromWidth = pixelWidth / charCount;
+        const sizeFromHeight = pixelHeight;
+        fontSize = Math.min(sizeFromWidth, sizeFromHeight);
+      }
+      return Math.max(8, Math.round(fontSize));
+    } else {
+      // Latin/other scripts: average character advance ≈ 0.55em,
+      // visible glyph height (cap + descenders) ≈ 0.75em.
+      const sizeFromWidth = pixelWidth / (charCount * 0.55);
+      const sizeFromHeight = pixelHeight / 0.75;
+      return Math.max(8, Math.round(Math.min(sizeFromHeight, sizeFromWidth)));
+    }
   }
 
   function isContextSizedPunctuationMarker(text) {
@@ -2313,6 +3336,29 @@ background: rgba(202, 12, 12, 0.692);
       return false;
     }
     // Visible punctuation/symbol-like markers inherit surrounding text sizing.
+    return true;
+  }
+
+  // "Actual" punctuation: visible non-lexical marks (。、！？「」（）… ) EXCLUDING the
+  // dash/long-vowel family, which read as part of a word and should stay line-sized.
+  // These keep their natural OCR-tight box (not clamped to the line's uniform glyph
+  // extent) so they remain small, low-priority hover targets that are harder to look up.
+  function isStandalonePunctuation(text) {
+    if (typeof text !== 'string') {
+      return false;
+    }
+    const compact = text.replace(/\s+/g, '');
+    if (!compact || compact === '\n') {
+      return false;
+    }
+    // Dash-like markers belong to the word/reading; don't treat them as punctuation.
+    if (/^[\-‐‑‒–—―ーｰ－〜～]+$/.test(compact)) {
+      return false;
+    }
+    // Lexical characters are real lookup targets.
+    if (LATIN_NUMERIC_REGEX.test(compact) || CJK_LEXICAL_REGEX.test(compact)) {
+      return false;
+    }
     return true;
   }
 
@@ -2358,6 +3404,10 @@ background: rgba(202, 12, 12, 0.692);
 
   function getFuriganaAnnotationsForLine(line, segments) {
     const lineText = line && typeof line.text === 'string' ? line.text : '';
+    if (ReadingOverlay && typeof ReadingOverlay.getAnnotationsForLine === 'function') {
+      return ReadingOverlay.getAnnotationsForLine(readingLanguage, lineText, segments);
+    }
+    // Fallback (module unavailable): Japanese furigana via FuriganaUtils only.
     const normalizedSegments = (FuriganaUtils && typeof FuriganaUtils.normalizeBackendSegments === 'function')
       ? FuriganaUtils.normalizeBackendSegments(lineText, segments || [], { source: 'overlay-renderer' })
       : (Array.isArray(segments) ? segments : []);
@@ -2446,17 +3496,35 @@ background: rgba(202, 12, 12, 0.692);
       furiganaBox.style.top = `${top}%`;
       furiganaBox.style.width = `${segmentWidth}%`;
       furiganaBox.style.setProperty('--gsm-furigana-base-font-size', `${baseFontSize}px`);
+      const toneColored = readingLanguage === 'chinese'
+        && pinyinToneColorsEnabled
+        && Array.isArray(annotation.parts)
+        && annotation.parts.length > 0;
       furiganaBox._gsmRenderSignature = [
         roundFuriganaSignatureValue(left),
         roundFuriganaSignatureValue(top),
         roundFuriganaSignatureValue(segmentWidth),
         String(Math.round(baseFontSize)),
         reading,
+        toneColored ? `t:${annotation.parts.map((p) => p.tone).join(',')}` : '',
       ].join('|');
 
       const furiganaText = document.createElement('span');
       furiganaText.className = 'furigana-reading';
-      furiganaText.textContent = reading;
+      if (toneColored) {
+        // Color each syllable by its tone so tones are legible even at small sizes.
+        annotation.parts.forEach((part, partIdx) => {
+          if (partIdx > 0) {
+            furiganaText.appendChild(document.createTextNode(' '));
+          }
+          const toneSpan = document.createElement('span');
+          toneSpan.className = `pinyin-tone-${part.tone || 5}`;
+          toneSpan.textContent = part.text;
+          furiganaText.appendChild(toneSpan);
+        });
+      } else {
+        furiganaText.textContent = reading;
+      }
       furiganaBox.appendChild(furiganaText);
 
       boxes.push(furiganaBox);
@@ -2465,24 +3533,54 @@ background: rgba(202, 12, 12, 0.692);
     return boxes;
   }
 
-  async function renderFuriganaForFrame(lines, renderGeneration) {
-    if (showFurigana && !gamepadHandler && typeof syncGamepadHandlerLifecycle === 'function') {
-      await syncGamepadHandlerLifecycle();
+  async function renderFuriganaForFrame(lines, renderGeneration, jitenMeta) {
+    // Remember the current lines even when highlighting is off, so flipping the
+    // toggle on can immediately highlight what's already on screen.
+    lastJitenHighlightLines = lines;
+    // Jiten highlighting works independently via the extension's content script.
+    // Trigger it regardless of furigana readiness.
+    if (jitenHighlightingEnabled) {
+      Promise.resolve().then(() => {
+        if (renderGeneration !== overlayRenderGeneration) return;
+        applyJitenHighlightingForLines(lines, jitenMeta);
+      });
     }
 
-    const furiganaReady = gamepadHandler && (
-      typeof gamepadHandler.canRequestFurigana === 'function'
-        ? gamepadHandler.canRequestFurigana()
-        : gamepadHandler.isServerConnected()
-    );
-    if (!showFurigana || !furiganaReady) {
+    if (!showFurigana) {
       resetFuriganaRenderState();
       return;
+    }
+
+    // Chinese pinyin is produced locally by pinyin-pro and needs no tokenizer
+    // backend, so skip the gamepad/server readiness checks and round-trip.
+    const usesLocalReadings = !!(ReadingOverlay && !ReadingOverlay.requiresBackend(readingLanguage));
+    if (usesLocalReadings) {
+      if (!ReadingOverlay.isReady(readingLanguage)) {
+        resetFuriganaRenderState();
+        return;
+      }
+    } else {
+      if (!gamepadHandler && typeof syncGamepadHandlerLifecycle === 'function') {
+        await syncGamepadHandlerLifecycle();
+      }
+      const furiganaReady = gamepadHandler && (
+        typeof gamepadHandler.canRequestFurigana === 'function'
+          ? gamepadHandler.canRequestFurigana()
+          : gamepadHandler.isServerConnected()
+      );
+      if (!furiganaReady) {
+        resetFuriganaRenderState();
+        return;
+      }
     }
 
     const furiganaRequests = lines.map((line, lineIdx) => {
       if (!line || !line.text || !/[^\u0000-\u007F]/.test(line.text)) {
         return Promise.resolve(null);
+      }
+      if (usesLocalReadings) {
+        // Annotations are derived from line.text directly; segments unused.
+        return Promise.resolve({ line, lineIdx, segments: [] });
       }
       const cachedLine = getCachedFuriganaLine(line.text);
       if (cachedLine) {
@@ -2509,7 +3607,13 @@ background: rgba(202, 12, 12, 0.692);
     let renderedCount = 0;
     const renderSignatureParts = [];
     for (const item of resolved) {
-      if (!item || !item.segments || item.segments.length === 0) {
+      if (!item) {
+        continue;
+      }
+      // For backend (Japanese) readings, an empty segment list means no reading
+      // was produced. Local readings (Chinese pinyin) derive annotations from the
+      // line text directly, so don't skip them on empty segments.
+      if (!usesLocalReadings && (!item.segments || item.segments.length === 0)) {
         continue;
       }
       const boxes = createFuriganaBoxesForLine(item.line, item.segments);
@@ -2611,6 +3715,7 @@ background: rgba(202, 12, 12, 0.692);
   // Function to clear all existing text boxes
   function clearTextBoxes(options = {}) {
     const preserveFurigana = options.preserveFurigana === true;
+    lastOverlayTextRenderSignature = null;
     // Fast way to clear DOM without leaving residue
     const selectors = ['.text-box', '.big-interactive-area', '.spacer', '.line-box', '.recycled-indicator', '.text-block-container', '.block-separator'];
     selectors.forEach(sel => {
@@ -2623,7 +3728,11 @@ background: rgba(202, 12, 12, 0.692);
       resetFuriganaRenderState();
     }
     
-    // Don't remove translation-display here if you want it to persist, 
+    // Token highlights are overlay boxes positioned over the now-removed
+    // text boxes, so clear them too or they'd be left floating.
+    if (window.GsmJitenHighlight) window.GsmJitenHighlight.clearJitenHighlighting();
+
+    // Don't remove translation-display here if you want it to persist,
     // but DO remove it if you're getting new text.
     const trans = document.getElementById('translation-display');
     if (trans) trans.remove();
@@ -2640,11 +3749,100 @@ background: rgba(202, 12, 12, 0.692);
     if (furiganaLayer) {
       furiganaLayer.style.display = 'none';
     }
-    
-    // Don't remove translation-display here if you want it to persist, 
+
+    // Token highlights are overlay boxes over the text; hide them with it.
+    if (window.GsmJitenHighlight) window.GsmJitenHighlight.clearJitenHighlighting();
+
+    // Don't remove translation-display here if you want it to persist,
     // but DO remove it if you're getting new text.
     const trans = document.getElementById('translation-display');
     if (trans) trans.style.display = 'none';
+  }
+
+  // Freeze-frame activation gating: when the on-demand snapshot is enabled, hold the
+  // visible overlay reveal (text boxes + force-visible) until the frozen frame has painted,
+  // so nothing flashes over the still-live game. A safety timeout reveals anyway so a
+  // missing/slow snapshot can never leave the overlay blank.
+  let pendingManualRevealForBackground = false;
+  let manualRevealFallbackTimer = null;
+
+  function revealManualOverlayContent() {
+    document.body.classList.add('force-visible');
+    showTextBoxes();
+  }
+
+  function armDeferredManualReveal() {
+    pendingManualRevealForBackground = true;
+    // Hide the entire overlay (not just text) until the snapshot paints, so gamepad nav
+    // visuals never appear over the live game either.
+    document.body.classList.add('manual-background-pending');
+    if (manualRevealFallbackTimer) clearTimeout(manualRevealFallbackTimer);
+    manualRevealFallbackTimer = setTimeout(() => {
+      if (pendingManualRevealForBackground) finishDeferredManualReveal();
+    }, 600);
+  }
+
+  function finishDeferredManualReveal() {
+    if (!pendingManualRevealForBackground) return;
+    pendingManualRevealForBackground = false;
+    if (manualRevealFallbackTimer) { clearTimeout(manualRevealFallbackTimer); manualRevealFallbackTimer = null; }
+    document.body.classList.remove('manual-background-pending');
+    revealManualOverlayContent();
+  }
+
+  function cancelDeferredManualReveal() {
+    pendingManualRevealForBackground = false;
+    if (manualRevealFallbackTimer) { clearTimeout(manualRevealFallbackTimer); manualRevealFallbackTimer = null; }
+    document.body.classList.remove('manual-background-pending');
+  }
+
+  // Manual-mode desktop background: only shown while manual mode is active, cleared
+  // on release so the captured desktop snapshot never lingers over the live game.
+  function showManualDesktopBackground(imageDataUrl) {
+    const bg = document.getElementById('manual-desktop-background');
+    if (!bg || !imageDataUrl) return;
+    if (!manualHotkeyPressed) {
+      console.log('[ManualBackground] image received but manual mode not active; ignoring.');
+      return;
+    }
+    console.log('[ManualBackground] decoding desktop background (' + imageDataUrl.length + ' bytes).');
+
+    // Tell main the snapshot is on-screen so it can steal focus only now — otherwise an
+    // exclusive-fullscreen game drops its frame before the snapshot paints (flicker).
+    const signalPainted = () => {
+      // Two frames so the snapshot has actually been presented, not just laid out.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        ipcRenderer.send('manual-mode-background-painted');
+      }));
+    };
+    const reveal = () => {
+      bg.style.display = 'block';
+      signalPainted();
+      // Frozen frame is now painted behind the overlay — safe to reveal text/focus.
+      finishDeferredManualReveal();
+    };
+    const unblock = () => {
+      // Never leave main waiting on a snapshot that failed to load.
+      console.warn('[ManualBackground] image failed to load; showing overlay anyway.');
+      ipcRenderer.send('manual-mode-background-painted');
+      finishDeferredManualReveal();
+    };
+
+    bg.style.display = 'none';
+    bg.src = imageDataUrl;
+    if (typeof bg.decode === 'function') {
+      bg.decode().then(reveal).catch(() => { bg.onload = reveal; bg.onerror = unblock; });
+    } else {
+      bg.onload = reveal;
+      bg.onerror = unblock;
+    }
+  }
+
+  function clearManualDesktopBackground() {
+    const bg = document.getElementById('manual-desktop-background');
+    if (!bg) return;
+    bg.style.display = 'none';
+    bg.removeAttribute('src');
   }
 
   function showTextBoxes() {
@@ -2656,8 +3854,11 @@ background: rgba(202, 12, 12, 0.692);
         }
     });
     updateFuriganaVisibilityState();
-    
-    // Don't remove translation-display here if you want it to persist, 
+
+    // Re-draw token highlights over the now-visible boxes.
+    if (window.GsmJitenHighlight) window.GsmJitenHighlight.reposition();
+
+    // Don't remove translation-display here if you want it to persist,
     // but DO remove it if you're getting new text.
     const trans = document.getElementById('translation-display');
     if (trans) trans.style.display = 'block';
@@ -2701,9 +3902,7 @@ background: rgba(202, 12, 12, 0.692);
   document.addEventListener("click", (event) => {
     // Use composedPath to see into Shadow DOMs
     const path = event.composedPath();
-    const isYomitanPopup = path.some(el => 
-      el instanceof HTMLElement && (el.classList.contains('yomitan-popup') || el.tagName === 'YOMITAN-POPUP-TAG-NAME')
-    );
+    const isYomitanPopup = path.some(isYomitanPopupElement);
     
     const target = event.target;
     const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');
@@ -2724,9 +3923,7 @@ background: rgba(202, 12, 12, 0.692);
   // Use mousedown to catch events earlier in the chain, giving better pass-through behavior
   document.addEventListener("mousedown", (event) => {
     const path = event.composedPath();
-    const isYomitanPopup = path.some(el => 
-      el instanceof HTMLElement && (el.classList.contains('yomitan-popup') || el.tagName === 'YOMITAN-POPUP-TAG-NAME')
-    );
+    const isYomitanPopup = path.some(isYomitanPopupElement);
     
     const target = event.target;
     // const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');
@@ -2763,8 +3960,39 @@ background: rgba(202, 12, 12, 0.692);
     }
     shouldShowReadyIndicator = newsettings.showReadyIndicator !== false;
     showFurigana = newsettings.showFurigana;
+    if (Object.prototype.hasOwnProperty.call(newsettings, "readingLanguage")) {
+      readingLanguage = (ReadingOverlay && typeof ReadingOverlay.normalizeLanguage === 'function')
+        ? ReadingOverlay.normalizeLanguage(newsettings.readingLanguage)
+        : (String(newsettings.readingLanguage || 'japanese').toLowerCase() === 'chinese' ? 'chinese' : 'japanese');
+    }
+    if (Object.prototype.hasOwnProperty.call(newsettings, "pinyinToneColors")) {
+      pinyinToneColorsEnabled = newsettings.pinyinToneColors !== false;
+    }
+    applyPinyinToneColorSettings({
+      pinyinTone1Color: newsettings.pinyinTone1Color,
+      pinyinTone2Color: newsettings.pinyinTone2Color,
+      pinyinTone3Color: newsettings.pinyinTone3Color,
+      pinyinTone4Color: newsettings.pinyinTone4Color,
+      pinyinTone5Color: newsettings.pinyinTone5Color,
+    });
     hideFuriganaOnStartup = newsettings.hideFuriganaOnStartup === true;
     hideFuriganaAfterSeconds = clampNumber(newsettings.hideFuriganaAfterSeconds, 0, 0, 60);
+    if (Object.prototype.hasOwnProperty.call(newsettings, "jitenHighlightingEnabled")) {
+      setJitenHighlightingEnabled(newsettings.jitenHighlightingEnabled);
+    }
+    if (Object.prototype.hasOwnProperty.call(newsettings, "enableJitenReader")) {
+      setJitenReaderEnabled(newsettings.enableJitenReader);
+    }
+    if (Object.prototype.hasOwnProperty.call(newsettings, "showJitenGradingButtons")) {
+      showJitenGradingButtons = newsettings.showJitenGradingButtons !== false;
+    }
+    pushJitenGradingConfig();
+    if (Object.prototype.hasOwnProperty.call(newsettings, "jitenHighlightOpacity")) {
+      setJitenHighlightOpacity(newsettings.jitenHighlightOpacity);
+    }
+    if (Object.prototype.hasOwnProperty.call(newsettings, "jitenHighlightOffsetY")) {
+      setJitenHighlightOffsetY(newsettings.jitenHighlightOffsetY);
+    }
     applyFuriganaStyleSettings({
       furiganaScale: newsettings.furiganaScale,
       furiganaYOffset: newsettings.furiganaYOffset,
@@ -2821,8 +4049,29 @@ background: rgba(202, 12, 12, 0.692);
     if (newsettings.gamepadForwardEnterButton !== undefined) {
       gamepadSettings.forwardEnterButton = newsettings.gamepadForwardEnterButton;
     }
+    if (newsettings.gamepadForwardSpaceButton !== undefined) {
+      gamepadSettings.forwardSpaceButton = newsettings.gamepadForwardSpaceButton;
+    }
+    if (newsettings.gamepadForwardCtrlButton !== undefined) {
+      gamepadSettings.forwardCtrlButton = newsettings.gamepadForwardCtrlButton;
+    }
+    if (newsettings.gamepadForwardEscapeButton !== undefined) {
+      gamepadSettings.forwardEscapeButton = newsettings.gamepadForwardEscapeButton;
+    }
+    if (newsettings.gamepadForwardClickButton !== undefined) {
+      gamepadSettings.forwardClickButton = newsettings.gamepadForwardClickButton;
+    }
     if (newsettings.gamepadManualOverlayScanButton !== undefined) {
       gamepadSettings.manualOverlayScanButton = newsettings.gamepadManualOverlayScanButton;
+    }
+    if (newsettings.gamepadPauseToggleButton !== undefined) {
+      gamepadSettings.pauseToggleButton = newsettings.gamepadPauseToggleButton;
+    }
+    if (newsettings.gamepadTokenModeToggleButton !== undefined) {
+      gamepadSettings.tokenModeToggleButton = newsettings.gamepadTokenModeToggleButton;
+    }
+    if (newsettings.gamepadMineButton !== undefined) {
+      gamepadSettings.mineButton = newsettings.gamepadMineButton;
     }
     if (newsettings.gamepadNextEntryButton !== undefined) {
       gamepadSettings.nextEntryButton = newsettings.gamepadNextEntryButton;
@@ -2970,6 +4219,30 @@ background: rgba(202, 12, 12, 0.692);
         case "showReadyIndicator":
           shouldShowReadyIndicator = value !== false;
           break;
+        case "jitenHighlightingEnabled":
+          setJitenHighlightingEnabled(value);
+          pushJitenGradingConfig();
+          break;
+        case "enableJitenReader":
+          setJitenReaderEnabled(value);
+          pushJitenGradingConfig();
+          break;
+        case "jitenReaderLoaded":
+          // Main finished (re)loading the extension, so the settings-bridge is
+          // now live — verify availability now instead of waiting out the delay.
+          clearTimeout(jitenEnableVerifyTimer);
+          syncJitenSettings('reader-loaded', true);
+          break;
+        case "showJitenGradingButtons":
+          showJitenGradingButtons = value !== false;
+          pushJitenGradingConfig();
+          break;
+        case "jitenHighlightOpacity":
+          setJitenHighlightOpacity(value);
+          break;
+        case "jitenHighlightOffsetY":
+          setJitenHighlightOffsetY(value);
+          break;
         case "showFurigana":
           showFurigana = value;
           if (!showFurigana) {
@@ -2977,6 +4250,32 @@ background: rgba(202, 12, 12, 0.692);
             furiganaAutoHidden = false;
           }
           updateFuriganaVisibilityState();
+          break;
+        case "readingLanguage": {
+          readingLanguage = (ReadingOverlay && typeof ReadingOverlay.normalizeLanguage === 'function')
+            ? ReadingOverlay.normalizeLanguage(value)
+            : (String(value || 'japanese').toLowerCase() === 'chinese' ? 'chinese' : 'japanese');
+          // Re-render readings for the text already on screen so the switch is instant.
+          resetFuriganaRenderState();
+          if (Array.isArray(lastJitenHighlightLines) && lastJitenHighlightLines.length > 0) {
+            renderFuriganaForFrame(lastJitenHighlightLines, overlayRenderGeneration, null);
+          }
+          break;
+        }
+        case "pinyinToneColors": {
+          pinyinToneColorsEnabled = value !== false;
+          resetFuriganaRenderState();
+          if (Array.isArray(lastJitenHighlightLines) && lastJitenHighlightLines.length > 0) {
+            renderFuriganaForFrame(lastJitenHighlightLines, overlayRenderGeneration, null);
+          }
+          break;
+        }
+        case "pinyinTone1Color":
+        case "pinyinTone2Color":
+        case "pinyinTone3Color":
+        case "pinyinTone4Color":
+        case "pinyinTone5Color":
+          applyPinyinToneColorSettings({ [key]: value });
           break;
         case "hideFuriganaOnStartup":
           hideFuriganaOnStartup = value;
@@ -3123,15 +4422,21 @@ background: rgba(202, 12, 12, 0.692);
     hideOnStartup = newValue;
   })
 
-  ipcRenderer.on('show-overlay-hotkey', (event, isActive) => {
+  ipcRenderer.on('show-overlay-hotkey', (event, isActive, options) => {
     manualHotkeyPressed = isActive;
     if (manualHotkeyPressed) {
       manualModeActivatedOnce = true;
       setManualInteractionSuppressed(false);
-      document.body.classList.add('force-visible');
-      showTextBoxes();
+      if (options && options.deferRevealForBackground === true) {
+        // Wait for the frozen-frame snapshot to paint before showing any overlay content.
+        armDeferredManualReveal();
+      } else {
+        revealManualOverlayContent();
+      }
       ipcRenderer.send('set-ignore-mouse-events', false);
     } else {
+      cancelDeferredManualReveal();
+      clearManualDesktopBackground();
       const finishManualHotkeyRelease = () => {
         applyManualInactivePresentation('manual-hotkey-release');
       };
@@ -3161,6 +4466,7 @@ background: rgba(202, 12, 12, 0.692);
     if (shouldHide) {
       // Mirror the hotkey release behavior but mark it as AFK-driven
       manualHotkeyPressed = false;
+      clearManualDesktopBackground();
       if (!pinned) {
         document.body.classList.remove('force-visible');
       }
@@ -3274,15 +4580,24 @@ background: rgba(202, 12, 12, 0.692);
   });
 
   // Handle manual mode recommendation
-  ipcRenderer.on('recommend-manual-mode', (event, { game }) => {
+  ipcRenderer.on('recommend-manual-mode', (event, { game, reason }) => {
     if (dismissedRecommendationGames.includes(game)) {
       // User already dismissed for this game permanently
       return;
     }
-    
+
     currentGameForRecommendation = game;
     const banner = document.getElementById('manual-mode-recommendation');
     if (banner) {
+      // Tailor the copy to why we're recommending manual mode.
+      const textEl = banner.querySelector('.recommendation-text');
+      if (textEl) {
+        if (reason === 'cursor-hidden') {
+          textEl.innerHTML = "<strong>Mouse Cursor Hidden:</strong> This game hides the mouse cursor, which can make the overlay hard to use. Push to Show lets you summon it with a hotkey.";
+        } else {
+          textEl.innerHTML = "<strong>Fullscreen Game Detected:</strong> If you're using exclusive fullscreen mode, manual mode may provide better overlay stability.";
+        }
+      }
       banner.classList.add('visible');
     }
   });
@@ -3416,6 +4731,7 @@ background: rgba(202, 12, 12, 0.692);
 </script>
 
 <script src="yomitan_bridge.js"></script>
+<script src="jiten_highlight.js"></script>
 
 <script>
   // ==================== Gamepad Integration ====================
@@ -3440,7 +4756,14 @@ background: rgba(202, 12, 12, 0.692);
     confirmButton: 0, // A
     cancelButton: 1, // B
     forwardEnterButton: -1, // Disabled
+    forwardSpaceButton: -1, // Disabled
+    forwardCtrlButton: -1, // Disabled
+    forwardEscapeButton: -1, // Disabled
+    forwardClickButton: -1, // Disabled - left-clicks the center of the target game window
     manualOverlayScanButton: -1, // Disabled
+    pauseToggleButton: -1, // Disabled - pauses/resumes the text source while navigating
+    tokenModeToggleButton: 3, // Y
+    mineButton: 0, // A
     nextEntryButton: 7, // RT trigger - navigate to next Yomitan entry
     prevEntryButton: 6, // LT trigger - navigate to previous Yomitan entry
     repeatDelay: 400,
@@ -3449,7 +4772,7 @@ background: rgba(202, 12, 12, 0.692);
     focusOverlayOnEntry: true, // Focus overlay window when navigation activates
     tokenMode: false, // Navigate by tokenizer word units instead of characters
     tokenizerBackend: 'sudachi', // "mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api"
-    localTokenizerFallbackBackend: 'mecab', // Local retry backend when the selected tokenizer fails
+    localTokenizerFallbackBackend: 'sudachi', // Local retry backend when the selected tokenizer fails
     yomitanApiUrl: 'http://127.0.0.1:19633', // Base URL for Yomitan API
     yomitanScanLength: 10, // scanLength for Yomitan /tokenize
     jitenApiKey: '', // X-Api-Key used for Jiten/api/reader/parse
@@ -3463,7 +4786,12 @@ background: rgba(202, 12, 12, 0.692);
     keyboardConfirmKey: 'Enter',
     keyboardCancelKey: 'Escape',
     keyboardForwardEnterKey: null,
+    keyboardForwardSpaceKey: null,
+    keyboardForwardCtrlKey: null,
+    keyboardForwardEscapeKey: null,
+    keyboardForwardClickKey: null,
     keyboardManualOverlayScanKey: null,
+    keyboardPauseToggleKey: null,
     keyboardTokenModeToggleKey: null,
     keyboardNextEntryKey: null,
     keyboardPrevEntryKey: null,
@@ -3477,7 +4805,9 @@ background: rgba(202, 12, 12, 0.692);
   // Keyboard setting keys that map directly (settingKey in settings.html -> gamepadSettings key)
   const KEYBOARD_SETTING_KEYS = [
     'keyboardModifierKey', 'keyboardToggleKey', 'keyboardConfirmKey', 'keyboardCancelKey',
-    'keyboardForwardEnterKey', 'keyboardManualOverlayScanKey', 'keyboardTokenModeToggleKey',
+    'keyboardForwardEnterKey', 'keyboardForwardSpaceKey', 'keyboardForwardCtrlKey', 'keyboardForwardEscapeKey',
+    'keyboardForwardClickKey',
+    'keyboardManualOverlayScanKey', 'keyboardPauseToggleKey', 'keyboardTokenModeToggleKey',
     'keyboardNextEntryKey', 'keyboardPrevEntryKey',
     'keyboardNavigateUp', 'keyboardNavigateDown', 'keyboardNavigateLeft', 'keyboardNavigateRight',
     'keyboardMineButton',
@@ -3488,7 +4818,7 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function usesServerBackedGamepadTokenizer(backend) {
-    const tokenizerBackend = String(backend || 'mecab').toLowerCase();
+    const tokenizerBackend = String(backend || 'sudachi').toLowerCase();
     return tokenizerBackend === 'mecab' || tokenizerBackend === 'sudachi';
   }
 
@@ -3525,7 +4855,14 @@ background: rgba(202, 12, 12, 0.692);
       confirmButton: gamepadSettings.confirmButton,
       cancelButton: gamepadSettings.cancelButton,
       forwardEnterButton: gamepadSettings.forwardEnterButton,
+      forwardSpaceButton: gamepadSettings.forwardSpaceButton,
+      forwardCtrlButton: gamepadSettings.forwardCtrlButton,
+      forwardEscapeButton: gamepadSettings.forwardEscapeButton,
+      forwardClickButton: gamepadSettings.forwardClickButton,
       manualOverlayScanButton: gamepadSettings.manualOverlayScanButton,
+      pauseToggleButton: gamepadSettings.pauseToggleButton,
+      tokenModeToggleButton: gamepadSettings.tokenModeToggleButton,
+      mineButton: gamepadSettings.mineButton,
       nextEntryButton: gamepadSettings.nextEntryButton,
       prevEntryButton: gamepadSettings.prevEntryButton,
       repeatDelay: gamepadSettings.repeatDelay,
@@ -3549,7 +4886,12 @@ background: rgba(202, 12, 12, 0.692);
       keyboardConfirmKey: gamepadSettings.keyboardConfirmKey,
       keyboardCancelKey: gamepadSettings.keyboardCancelKey,
       keyboardForwardEnterKey: gamepadSettings.keyboardForwardEnterKey,
+      keyboardForwardSpaceKey: gamepadSettings.keyboardForwardSpaceKey,
+      keyboardForwardCtrlKey: gamepadSettings.keyboardForwardCtrlKey,
+      keyboardForwardEscapeKey: gamepadSettings.keyboardForwardEscapeKey,
+      keyboardForwardClickKey: gamepadSettings.keyboardForwardClickKey,
       keyboardManualOverlayScanKey: gamepadSettings.keyboardManualOverlayScanKey,
+      keyboardPauseToggleKey: gamepadSettings.keyboardPauseToggleKey,
       keyboardTokenModeToggleKey: gamepadSettings.keyboardTokenModeToggleKey,
       keyboardNextEntryKey: gamepadSettings.keyboardNextEntryKey,
       keyboardPrevEntryKey: gamepadSettings.keyboardPrevEntryKey,
@@ -3801,9 +5143,26 @@ background: rgba(202, 12, 12, 0.692);
   });
   
   // IPC: Toggle gamepad navigation mode (can be triggered by hotkey from main)
-  ipcRenderer.on('gamepad-toggle-navigation', () => {
+  let lastHandledGamepadToggleRequestId = null;
+  ipcRenderer.on('gamepad-toggle-navigation', (event, payload) => {
+    // Dedup main's retry: it reuses the same requestId, so an already-handled press
+    // is ignored while a genuinely dropped first send still toggles via the retry.
+    const requestId = payload && payload.requestId;
+    if (requestId != null && requestId === lastHandledGamepadToggleRequestId) {
+      return;
+    }
+    if (requestId != null) {
+      lastHandledGamepadToggleRequestId = requestId;
+    }
     if (gamepadHandler && gamepadSettings.enabled) {
       gamepadHandler.manualToggle();
+    }
+  });
+
+  // IPC: Authoritative on-demand pause state from main (so the indicator stays in sync).
+  ipcRenderer.on('gamepad-pause-state', (event, payload) => {
+    if (gamepadHandler && typeof gamepadHandler.setNavigationPauseActive === 'function') {
+      gamepadHandler.setNavigationPauseActive(!!(payload && payload.paused));
     }
   });
 
@@ -3906,8 +5265,36 @@ background: rgba(202, 12, 12, 0.692);
       gamepadSettings.forwardEnterButton = updatedSettings.gamepadForwardEnterButton;
       needsLifecycleSync = true;
     }
+    if (updatedSettings.gamepadForwardSpaceButton !== undefined) {
+      gamepadSettings.forwardSpaceButton = updatedSettings.gamepadForwardSpaceButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadForwardCtrlButton !== undefined) {
+      gamepadSettings.forwardCtrlButton = updatedSettings.gamepadForwardCtrlButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadForwardEscapeButton !== undefined) {
+      gamepadSettings.forwardEscapeButton = updatedSettings.gamepadForwardEscapeButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadForwardClickButton !== undefined) {
+      gamepadSettings.forwardClickButton = updatedSettings.gamepadForwardClickButton;
+      needsLifecycleSync = true;
+    }
     if (updatedSettings.gamepadManualOverlayScanButton !== undefined) {
       gamepadSettings.manualOverlayScanButton = updatedSettings.gamepadManualOverlayScanButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadPauseToggleButton !== undefined) {
+      gamepadSettings.pauseToggleButton = updatedSettings.gamepadPauseToggleButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadTokenModeToggleButton !== undefined) {
+      gamepadSettings.tokenModeToggleButton = updatedSettings.gamepadTokenModeToggleButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadMineButton !== undefined) {
+      gamepadSettings.mineButton = updatedSettings.gamepadMineButton;
       needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadNextEntryButton !== undefined) {
