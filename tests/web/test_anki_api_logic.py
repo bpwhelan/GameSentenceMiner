@@ -13,14 +13,13 @@ Covers:
 
 from __future__ import annotations
 
-import json
 import sys
 import time as _time
 import types
 import datetime
 from dataclasses import dataclass, field
 from typing import Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import flask
 import pytest
@@ -110,7 +109,9 @@ def _stub_config(monkeypatch, anki_mod, parent_tag="Game", word_field="Word"):
     cfg = MagicMock()
     cfg.anki.parent_tag = parent_tag
     cfg.anki.word_field = word_field
+    cfg.anki.note_type = ""
     monkeypatch.setattr(anki_mod, "get_config", lambda: cfg)
+    return cfg
 
 
 # ===================================================================
@@ -629,7 +630,7 @@ class TestGetAnkiKanjiFromCache:
         monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: True)
         assert anki_mod._get_anki_kanji_from_cache() == set()
 
-    def test_extracts_kanji_from_first_field(self, anki_mod, monkeypatch):
+    def test_extracts_kanji_from_configured_word_field(self, anki_mod, monkeypatch):
         monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: False)
         _stub_config(monkeypatch, anki_mod, "Game")
 
@@ -649,6 +650,23 @@ class TestGetAnkiKanjiFromCache:
         assert "字" in result
         # Non-kanji characters should not be included
         assert "テ" not in result
+
+    def test_missing_configured_word_field_does_not_fallback_to_first_field(self, anki_mod, monkeypatch):
+        monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: False)
+        _stub_config(monkeypatch, anki_mod, "Game", "ConfiguredWord")
+
+        notes = [
+            FakeNote(
+                note_id=1,
+                tags=["Game::FF7"],
+                mod=1700000000,
+                fields_json={"OtherField": {"value": "漢字"}},
+            ),
+        ]
+        data = _make_anki_data(notes, [], [])
+        monkeypatch.setattr(anki_mod, "_get_anki_data", lambda: data)
+
+        assert anki_mod._get_anki_kanji_from_cache() == set()
 
     def test_notes_without_parent_tag_excluded(self, anki_mod, monkeypatch):
         monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: False)
@@ -753,6 +771,53 @@ class TestGetAnkiKanjiFromCache:
 
         result = anki_mod._get_anki_kanji_from_cache()
         assert result == set()
+
+
+class TestGetAnkiKanjiFromAnkiConnect:
+    """Tests for live AnkiConnect kanji fallback extraction."""
+
+    def test_extracts_filtered_notes_from_ankiconnect(self, anki_mod, monkeypatch):
+        cfg = _stub_config(monkeypatch, anki_mod, "Game", "Word")
+
+        calls = []
+
+        def fake_invoke(action, **params):
+            calls.append((action, params))
+            if action == "findNotes":
+                assert params["query"] == "Word:_*"
+                return [1500000, 1700000, 1900000, "bad"]
+            if action == "notesInfo":
+                assert params["notes"] == [1700000]
+                return [
+                    {
+                        "noteId": 1700000,
+                        "tags": ["Game::FF7"],
+                        "fields": {"Word": {"value": "漢字テスト"}},
+                    },
+                    {
+                        "noteId": 1700001,
+                        "tags": ["Other::FF7"],
+                        "fields": {"Word": {"value": "偽"}},
+                    },
+                ]
+            raise AssertionError(f"Unexpected AnkiConnect action: {action}")
+
+        fake_anki = types.SimpleNamespace(invoke=fake_invoke)
+        monkeypatch.setitem(sys.modules, "GameSentenceMiner.anki", fake_anki)
+        import GameSentenceMiner
+
+        monkeypatch.setattr(GameSentenceMiner, "anki", fake_anki, raising=False)
+        from GameSentenceMiner.util.cron import anki_card_sync
+
+        monkeypatch.setattr(anki_card_sync, "get_config", lambda: cfg)
+
+        result = anki_mod._get_anki_kanji_from_ankiconnect(
+            start_timestamp=1600000,
+            end_timestamp=1800000,
+        )
+
+        assert result == {"漢", "字"}
+        assert [call[0] for call in calls] == ["findNotes", "notesInfo"]
 
 
 # ===================================================================
@@ -1217,3 +1282,35 @@ class TestKanjiStatsFetch:
         assert result["missing_kanji"] == [{"kanji": "漢", "frequency": 3}]
         mock_rollup_table.get_first_date.assert_called_once_with()
         mock_rollup_table.get_date_range.assert_called_once()
+
+    def test_empty_cache_uses_live_anki_without_inventing_gsm_kanji(self, anki_mod, monkeypatch):
+        mock_rollup_table = MagicMock()
+        mock_rollup_table.get_first_date.return_value = None
+        monkeypatch.setattr(anki_mod, "StatsRollupTable", mock_rollup_table)
+        monkeypatch.setattr(anki_mod, "combine_rollup_and_live_stats", lambda rollup, live: {})
+
+        mock_game_lines_table = MagicMock()
+        mock_game_lines_table.get_lines_filtered_by_timestamp.return_value = []
+        mock_game_lines_table.all.return_value = []
+        monkeypatch.setattr(anki_mod, "GameLinesTable", mock_game_lines_table)
+        monkeypatch.setattr(
+            anki_mod,
+            "calculate_kanji_frequency",
+            lambda lines: {"kanji_data": [], "unique_count": 0, "max_frequency": 0},
+        )
+        monkeypatch.setattr(anki_mod, "_is_cache_empty", lambda: True)
+        monkeypatch.setattr(anki_mod, "_get_anki_kanji_from_cache", lambda start, end: set())
+        monkeypatch.setattr(
+            anki_mod,
+            "_get_anki_kanji_from_ankiconnect",
+            lambda start, end: {"漢", "字"},
+        )
+
+        result = anki_mod._fetch_kanji_stats(None, None)
+
+        assert result == {
+            "missing_kanji": [],
+            "anki_kanji_count": 2,
+            "gsm_kanji_count": 0,
+            "coverage_percent": 0.0,
+        }
