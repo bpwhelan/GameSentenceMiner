@@ -241,6 +241,82 @@ def test_handle_new_text_event_dedupes_across_sources(monkeypatch):
     assert handled_lines == ["同じ", "違う"]
 
 
+def test_handle_new_text_event_drops_ocr_echo_of_hook_line(monkeypatch):
+    """A near-identical OCR line that follows a hook line is discarded.
+
+    With both a hook and OCR connected the hook is authoritative, so an OCR echo
+    differing only by whitespace/minor recognition is dropped while genuinely new
+    OCR lines still pass through.
+    """
+    handled_lines = []
+
+    async def fake_add_line_to_text_log(line, *_args, **_kwargs):
+        handled_lines.append(line)
+
+    monkeypatch.setattr(
+        gametext,
+        "get_config",
+        lambda: SimpleNamespace(
+            general=SimpleNamespace(merge_matching_sequential_text=False),
+            hotkeys=SimpleNamespace(relay_outputs_when_text_intake_paused=True),
+        ),
+    )
+    monkeypatch.setattr(gametext.obs, "update_current_game", lambda: None)
+    monkeypatch.setattr(gametext.obs, "get_current_game", lambda *_a, **_k: "")
+    monkeypatch.setattr(gametext.discord_rpc_manager, "update", lambda *_a, **_k: None)
+    monkeypatch.setattr(gametext, "add_line_to_text_log", fake_add_line_to_text_log)
+    monkeypatch.setattr(gametext.gsm_state, "text_input_paused", False, raising=False)
+    gametext._recent_text_events.clear()
+
+    hook_line = "壁はうねうねと動くと、 ２０ｍ程の長い滑り台にその形を変えた。"
+    ocr_echo = "壁はうねうねと動くと、２０ｍ程の長い滑り台にその形を変えた。"
+
+    asyncio.run(gametext.handle_new_text_event(hook_line, source="Texthook", source_display_name="Luna"))
+    asyncio.run(gametext.handle_new_text_event(ocr_echo, source=gametext.TextSource.OCR, source_display_name="GSM OCR"))
+    # A genuinely different OCR line is still accepted.
+    asyncio.run(gametext.handle_new_text_event("別の行", source=gametext.TextSource.OCR, source_display_name="GSM OCR"))
+
+    assert handled_lines == [hook_line, "別の行"]
+
+
+def test_repeated_ocr_hook_echoes_warn_once(monkeypatch):
+    """Several auto-OCR echoes of hook lines trigger a single redundancy warning."""
+
+    async def fake_add_line_to_text_log(line, *_args, **_kwargs):
+        pass
+
+    monkeypatch.setattr(
+        gametext,
+        "get_config",
+        lambda: SimpleNamespace(
+            general=SimpleNamespace(merge_matching_sequential_text=False),
+            hotkeys=SimpleNamespace(relay_outputs_when_text_intake_paused=True),
+        ),
+    )
+    monkeypatch.setattr(gametext.obs, "update_current_game", lambda: None)
+    monkeypatch.setattr(gametext.obs, "get_current_game", lambda *_a, **_k: "")
+    monkeypatch.setattr(gametext.discord_rpc_manager, "update", lambda *_a, **_k: None)
+    monkeypatch.setattr(gametext, "add_line_to_text_log", fake_add_line_to_text_log)
+    monkeypatch.setattr(gametext.gsm_state, "text_input_paused", False, raising=False)
+    monkeypatch.setenv("GSM_ELECTRON", "1")
+
+    sent = []
+    monkeypatch.setattr(gametext, "send_message", lambda fn, data=None: sent.append((fn, data)))
+
+    gametext._recent_text_events.clear()
+    gametext._ocr_hook_redundancy_count = 0
+    gametext._ocr_hook_redundancy_warned = False
+
+    for i in range(gametext._OCR_HOOK_REDUNDANCY_THRESHOLD + 2):
+        line = f"行number{i}です"
+        asyncio.run(gametext.handle_new_text_event(line, source="Texthook", source_display_name="Luna"))
+        asyncio.run(
+            gametext.handle_new_text_event(line + " ", source=gametext.TextSource.OCR, source_display_name="GSM OCR")
+        )
+
+    assert [fn for fn, _ in sent] == ["ocr_hook_redundant"]
+
+
 def test_set_text_intake_paused_announces_state_and_notifies(monkeypatch):
     announced_states = []
     paused_notifications = []

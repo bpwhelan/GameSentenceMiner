@@ -392,6 +392,24 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
         except Exception as error:
             logger.debug(f"[{self.server_name}] Failed to send initial overlay goals: {error}")
 
+        try:
+            from GameSentenceMiner.util.config.configuration import get_master_config, serialize_gsm_owned_overlay
+
+            master_config = get_master_config()
+            if master_config is not None:
+                overlay = master_config.get_config().overlay
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "gsm-overlay-config-updated",
+                            "settings": serialize_gsm_owned_overlay(overlay),
+                            "monitors": list(getattr(overlay, "monitors", []) or []),
+                        }
+                    )
+                )
+        except Exception as error:
+            logger.debug(f"[{self.server_name}] Failed to send initial GSM overlay config: {error}")
+
     async def _handler(self, websocket, path=None):
         server_id = self._resolve_target_server_id(websocket, path)
         if not server_id:

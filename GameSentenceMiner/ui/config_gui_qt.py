@@ -50,6 +50,7 @@ from GameSentenceMiner.ui import window_state_manager, WindowId
 from GameSentenceMiner.ui.config.binding import BindingManager, ValueTransform
 from GameSentenceMiner.ui.config.editor import ConfigEditor
 from GameSentenceMiner.ui.config.i18n import load_localization
+from GameSentenceMiner.ui.config.search import ConfigSearchController, SearchLineEdit
 from GameSentenceMiner.ui.config.labels import LabelColor, build_label
 from GameSentenceMiner.ui.config.prompt_help import PromptHelpDialog
 from GameSentenceMiner.ui.config.safety import safe_config_callback, safe_config_methods
@@ -195,6 +196,7 @@ class ConfigWindow(QWidget):
     _reload_settings_signal = pyqtSignal(bool, bool)
     _quit_app_signal = pyqtSignal()
     _selector_finished_signal = pyqtSignal()
+    _open_area_selector_signal = pyqtSignal()
     _gsm_cloud_sync_finished_signal = pyqtSignal(dict)
     _AUTO_SAVE_DEBOUNCE_MS = 900
     _RUNTIME_RELOAD_DEBOUNCE_MS = 1200
@@ -264,6 +266,7 @@ class ConfigWindow(QWidget):
 
         # --- Main Layout ---
         self.main_layout = QVBoxLayout(self)
+        self.main_layout.addWidget(self._create_search_bar())
         self.tab_widget = QTabWidget()
         self._configure_tab_widgets()
         self.main_layout.addWidget(self.tab_widget)
@@ -272,6 +275,8 @@ class ConfigWindow(QWidget):
         self._create_all_widgets()
         self._register_shared_bindings()
         self._create_tabs()
+        self.search_controller = ConfigSearchController(self, self.search_count_label)
+        self.search_input.textChanged.connect(self.search_controller.apply)
 
         # --- Bottom Button Bar ---
         self._create_button_bar()
@@ -289,6 +294,7 @@ class ConfigWindow(QWidget):
         self._reload_settings_signal.connect(self._reload_settings_impl)
         self._quit_app_signal.connect(QApplication.instance().quit)
         self._selector_finished_signal.connect(self.on_selector_finished)
+        self._open_area_selector_signal.connect(self.open_overlay_area_selector)
         self._gsm_cloud_sync_finished_signal.connect(self._on_gsm_cloud_sync_finished)
 
         # --- Periodic OBS Error Check ---
@@ -310,6 +316,10 @@ class ConfigWindow(QWidget):
         """
         # Emit signal to show window on the GUI thread
         self._show_window_signal.emit(str(root_tab_key or ""), str(subtab_key or ""))
+
+    def request_open_overlay_area_selector(self):
+        """Launch the overlay area selector. Thread-safe: can be called from any thread."""
+        self._open_area_selector_signal.emit()
 
     def _show_window_impl(self, root_tab_key: str = "", subtab_key: str = ""):
         """Internal implementation of show_window that runs on the GUI thread."""
@@ -655,6 +665,25 @@ class ConfigWindow(QWidget):
         configuration.reload_config()
         for func in on_save:
             func()
+        self._broadcast_overlay_config_to_overlay()
+
+    def _broadcast_overlay_config_to_overlay(self):
+        """Push GSM-owned overlay settings to an open overlay window so it stays in sync with PyQt edits."""
+        try:
+            from GameSentenceMiner.util.config.configuration import serialize_gsm_owned_overlay
+            from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
+
+            overlay = configuration.get_master_config().get_config().overlay
+            websocket_manager.send_nowait(
+                ID_OVERLAY,
+                {
+                    "type": "gsm-overlay-config-updated",
+                    "settings": serialize_gsm_owned_overlay(overlay),
+                    "monitors": list(getattr(overlay, "monitors", []) or []),
+                },
+            )
+        except Exception as e:
+            logger.debug(f"Failed to broadcast overlay config to overlay window: {e}")
 
     def _did_user_facing_port_change(self, previous_config: ProfileConfig, new_config: ProfileConfig) -> bool:
         try:
@@ -1022,6 +1051,8 @@ class ConfigWindow(QWidget):
                     periodic=self.periodic_check.isChecked(),
                     periodic_ratio=periodic_ratio,
                     periodic_interval=float(self.periodic_interval_edit.text() or 0.0),
+                    scan_on_mouse_move=self.scan_on_mouse_move_check.isChecked(),
+                    inject_scanned_lines=self.inject_scanned_lines_check.isChecked(),
                     minimum_character_size=int(self.overlay_minimum_character_size_edit.text() or 0),
                     use_overlay_area_config=self.use_overlay_area_config_check.isChecked(),
                     use_ocr_area_config_v2=self.use_ocr_area_config_check.isChecked(),
@@ -1595,6 +1626,8 @@ class ConfigWindow(QWidget):
         self.periodic_check = QCheckBox()
         self.periodic_interval_edit = QLineEdit()
         self.periodic_ratio_edit = QLineEdit()
+        self.scan_on_mouse_move_check = QCheckBox()
+        self.inject_scanned_lines_check = QCheckBox()
         self.number_of_local_scans_per_event_edit = QLineEdit()
         self.overlay_minimum_character_size_edit = QLineEdit()
         self.manual_overlay_scan_hotkey_edit = ClearableKeySequenceEdit()
@@ -1605,6 +1638,9 @@ class ConfigWindow(QWidget):
         self.ocr_area_config_use_exclusion_zones_check = QCheckBox()
         self.use_ocr_result_check = QCheckBox()
         self.supplement_ocr_result_with_overlay_check = QCheckBox()
+        # Created here (not in the overlay tab) so load/save still round-trip these
+        # overlay-owned values even though the overlay window is now their only editor.
+        self.ocr_full_screen_instead_of_obs_checkbox = QCheckBox()
         self.manual_mode_desktop_background_check = QCheckBox()
         self.check_previous_lines_for_recycled_indicator_check = QCheckBox()
         self.pause_text_intake_hotkey_edit = ClearableKeySequenceEdit()
@@ -1705,10 +1741,10 @@ class ConfigWindow(QWidget):
             self.sentence_field_append_check,
         )
         self.binder.bind(("profile", "anki", "sentence_audio_field"), self.sentence_audio_field_edit)
-        self.binder.bind(
-            ("profile", "anki", "sentence_audio_field_enabled"),
-            self.sentence_audio_field_enabled_check,
-        )
+        # Sentence-audio "Enabled" is the same setting as audio.enabled; bind both widgets to that
+        # single path so the Anki tab and Audio tab toggles stay in sync.
+        self.binder.bind(("profile", "audio", "enabled"), self.sentence_audio_field_enabled_check)
+        self.binder.bind(("profile", "audio", "enabled"), self.audio_enabled_check)
         self.binder.bind(
             ("profile", "anki", "sentence_audio_field_overwrite"),
             self.sentence_audio_field_overwrite_check,
@@ -1718,10 +1754,10 @@ class ConfigWindow(QWidget):
             self.sentence_audio_field_append_check,
         )
         self.binder.bind(("profile", "anki", "picture_field"), self.picture_field_edit)
-        self.binder.bind(
-            ("profile", "anki", "picture_field_enabled"),
-            self.picture_field_enabled_check,
-        )
+        # Picture "Enabled" is the same setting as screenshot.enabled; bind both widgets to that
+        # single path so the Anki tab and Screenshot tab toggles stay in sync.
+        self.binder.bind(("profile", "screenshot", "enabled"), self.picture_field_enabled_check)
+        self.binder.bind(("profile", "screenshot", "enabled"), self.screenshot_enabled_check)
         self.binder.bind(
             ("profile", "anki", "picture_field_overwrite"),
             self.picture_field_overwrite_check,
@@ -2312,6 +2348,20 @@ class ConfigWindow(QWidget):
             tabs_i18n.get("profiles", {}).get("title", "Profiles"),
         )
 
+    def _create_search_bar(self):
+        search_i18n = self.i18n.get("search", {})
+        bar = QWidget()
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(4, 4, 4, 0)
+        self.search_input = SearchLineEdit()
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.setPlaceholderText(search_i18n.get("placeholder", "Search all settings…"))
+        self.search_count_label = QLabel()
+        self.search_count_label.setStyleSheet("color: #888;")
+        layout.addWidget(self.search_input, 1)
+        layout.addWidget(self.search_count_label)
+        return bar
+
     def _configure_tab_widgets(self):
         self.tab_widget.setObjectName("ConfigRootTabs")
         root_tab_bar = HorizontalTextTabBar()
@@ -2523,11 +2573,9 @@ class ConfigWindow(QWidget):
             append_check.setEnabled(not overwrite_check.isChecked())
             overwrite_check.setEnabled(not append_check.isChecked())
 
-        for core_enabled_check in (
-            self.sentence_field_enabled_check,
-            self.sentence_audio_field_enabled_check,
-            self.picture_field_enabled_check,
-        ):
+        # Sentence text is always written, so its "Enabled" stays locked on. Picture and
+        # sentence-audio "Enabled" are now user-toggleable (synced with screenshot/audio.enabled).
+        for core_enabled_check in (self.sentence_field_enabled_check,):
             with QSignalBlocker(core_enabled_check):
                 core_enabled_check.setChecked(True)
             core_enabled_check.setEnabled(False)
@@ -2890,10 +2938,12 @@ class ConfigWindow(QWidget):
         self.sentence_field_enabled_check.setChecked(s.anki.sentence_field_enabled)
         self.sentence_field_overwrite_check.setChecked(s.anki.sentence_field_overwrite)
         self.sentence_field_append_check.setChecked(s.anki.sentence_field_append)
-        self.sentence_audio_field_enabled_check.setChecked(s.anki.sentence_audio_field_enabled)
+        # Sentence-audio "Enabled" mirrors audio.enabled (the canonical capture toggle).
+        self.sentence_audio_field_enabled_check.setChecked(s.audio.enabled)
         self.sentence_audio_field_overwrite_check.setChecked(s.anki.sentence_audio_field_overwrite)
         self.sentence_audio_field_append_check.setChecked(s.anki.sentence_audio_field_append)
-        self.picture_field_enabled_check.setChecked(s.anki.picture_field_enabled)
+        # Picture "Enabled" mirrors screenshot.enabled (the canonical capture toggle).
+        self.picture_field_enabled_check.setChecked(s.screenshot.enabled)
         self.picture_field_overwrite_check.setChecked(s.anki.picture_field_overwrite)
         self.picture_field_append_check.setChecked(s.anki.picture_field_append)
         self.previous_sentence_field_enabled_check.setChecked(s.anki.previous_sentence_field_enabled)
@@ -3115,6 +3165,8 @@ class ConfigWindow(QWidget):
         self.periodic_check.setChecked(s.overlay.periodic)
         self.periodic_interval_edit.setText(str(s.overlay.periodic_interval))
         self.periodic_ratio_edit.setText(str(s.overlay.periodic_ratio))
+        self.scan_on_mouse_move_check.setChecked(bool(getattr(s.overlay, "scan_on_mouse_move", True)))
+        self.inject_scanned_lines_check.setChecked(bool(getattr(s.overlay, "inject_scanned_lines", False)))
         # self.number_of_local_scans_per_event_edit.setText(str(s.overlay.number_of_local_scans_per_event))
         overlay_minimum_character_size = get_overlay_minimum_character_size(default=s.overlay.minimum_character_size)
         self.overlay_minimum_character_size_edit.setText(str(overlay_minimum_character_size))
@@ -3835,19 +3887,6 @@ class ConfigWindow(QWidget):
             self.open_monitor_area_selector()
             return
 
-        reply = QMessageBox.question(
-            self,
-            "Prepare for Overlay Area Selection",
-            "The config gui will minimize and the overlay area selector will open in 1 second after you click OK.\n\n"
-            "Ready to continue?",
-            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Ok,
-        )
-
-        if reply != QMessageBox.StandardButton.Ok:
-            logger.info("Overlay area selector cancelled by user")
-            return
-
         logger.info("Launching overlay area selector in OBS mode")
         self._launch_overlay_selector_in_process(
             lambda callback: show_area_selector(
@@ -3867,21 +3906,6 @@ class ConfigWindow(QWidget):
             monitor_index = int(self.overlay_monitor_combo.currentIndex() or 0)
         except (ValueError, AttributeError):
             monitor_index = 0
-
-        # Show confirmation dialog
-        reply = QMessageBox.question(
-            self,  # Use self as parent so it centers on app
-            "Prepare for Overlay Area Selection",
-            f"Make sure your game is visible on Monitor {monitor_index + 1} before proceeding.\n\n"
-            "The config gui will minimize and the overlay area selector will open in 1 second after you click OK.\n\n"
-            "Ready to continue?",
-            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Ok,
-        )
-
-        if reply != QMessageBox.StandardButton.Ok:
-            logger.info("Monitor area selector cancelled by user")
-            return
 
         logger.info(f"Launching monitor area selector for monitor {monitor_index}")
         self._launch_overlay_selector_in_process(

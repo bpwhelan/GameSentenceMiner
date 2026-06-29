@@ -22,20 +22,25 @@ describe('Electron build configuration', () => {
         expect(packageJson.build?.files).toContain('dist/shared/**/*');
     });
 
-    it('packages only overlay resources so the nested app shares the outer Electron runtime', () => {
+    it('packages staged overlay resources so the nested app shares the outer Electron runtime', () => {
         const repoRoot = process.cwd();
         const packageJson = JSON.parse(
             fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'),
-        ) as { build?: { extraFiles?: Array<{ from?: string; filter?: string[]; to?: string }> } };
+        ) as {
+            build?: { extraFiles?: Array<{ from?: string; filter?: string[]; to?: string }> };
+            scripts?: Record<string, string>;
+        };
 
         const overlayCopy = packageJson.build?.extraFiles?.find(
-            (entry) => entry.from === 'GSM_Overlay/out',
+            (entry) => entry.from === 'build/overlay',
         );
 
+        expect(packageJson.scripts?.['stage:overlay']).toBe('node scripts/stage-overlay-build.mjs');
+        expect(packageJson.scripts?.['verify:overlay-package']).toBe('node scripts/verify-overlay-package.mjs');
+        expect(packageJson.scripts?.['app:dist']).toContain('npm run stage:overlay');
         expect(overlayCopy).toBeDefined();
         expect(overlayCopy?.to).toBe('resources/GSM_Overlay');
-        expect(overlayCopy?.filter).toContain('**/resources/**');
-        expect(overlayCopy?.filter).not.toContain('**/*');
+        expect(overlayCopy?.filter).toEqual(['**/*']);
     });
 
     it('uses an electron-builder configuration accepted by the installed schema', async () => {

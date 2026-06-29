@@ -17,10 +17,12 @@
     "sync:legacy": "node electron-src/renderer/scripts/sync-legacy-assets.mjs",
     "test:ts": "vitest run --config vitest.config.ts",
     "test:ts:watch": "vitest --config vitest.config.ts",
-    "app:dir": "electron-builder --dir",
+    "app:dir": "npm run build && npm run stage:overlay && electron-builder --dir",
     "sync:version": "node scripts/sync-version.mjs",
-    "app:dist": "npm run build && electron-builder --publish=never",
-    "app:deploy": "electron-builder --publish=always"
+    "stage:overlay": "node scripts/stage-overlay-build.mjs",
+    "verify:overlay-package": "node scripts/verify-overlay-package.mjs",
+    "app:dist": "npm run build && npm run stage:overlay && electron-builder --publish=never",
+    "app:deploy": "npm run build && npm run stage:overlay && electron-builder --publish=always"
   },
   "type": "module",
   "engines": {
@@ -55,12 +57,10 @@
         "to": "resources/pyproject.toml"
       },
       {
-        "from": "GSM_Overlay/out",
+        "from": "build/overlay",
         "to": "resources/GSM_Overlay",
         "filter": [
-          "**/resources/**",
-          "!make",
-          "!make/**/*"
+          "**/*"
         ]
       },
       {

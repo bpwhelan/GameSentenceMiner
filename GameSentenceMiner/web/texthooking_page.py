@@ -762,6 +762,12 @@ async def send_word_coordinates_to_overlay(data):
         await websocket_manager.send(ID_OVERLAY, data)
 
 
+async def send_overlay_clear(line_id=None):
+    """Send a clear event to the overlay so stale word boxes are removed immediately when a new line starts processing."""
+    if websocket_manager.has_clients(ID_OVERLAY):
+        await websocket_manager.send(ID_OVERLAY, {"type": "overlay_clear", "line_id": line_id})
+
+
 async def send_manual_background_to_overlay(image_data_url):
     """Push a captured desktop snapshot to the overlay for exclusive-fullscreen manual mode."""
     if image_data_url and websocket_manager.has_clients(ID_OVERLAY):

@@ -528,6 +528,7 @@ class GamepadHandler {
       forwardSpaceButton: options.forwardSpaceButton ?? -1, // Disabled by default; forwards Space to target game window
       forwardCtrlButton: options.forwardCtrlButton ?? -1, // Disabled by default; forwards Ctrl (skip) to target game window
       forwardEscapeButton: options.forwardEscapeButton ?? -1, // Disabled by default; forwards Escape to target game window
+      forwardClickButton: options.forwardClickButton ?? -1, // Disabled by default; left-clicks the center of the target game window
       manualOverlayScanButton: options.manualOverlayScanButton ?? -1, // Disabled by default; triggers manual overlay scan
       pauseToggleButton: options.pauseToggleButton ?? -1, // Disabled by default; pauses/resumes the text source while navigation is active
       tokenModeToggleButton: options.tokenModeToggleButton ?? 3, // Y button to toggle token/char mode
@@ -596,6 +597,7 @@ class GamepadHandler {
       keyboardForwardSpaceKey: options.keyboardForwardSpaceKey || null,
       keyboardForwardCtrlKey: options.keyboardForwardCtrlKey || null,
       keyboardForwardEscapeKey: options.keyboardForwardEscapeKey || null,
+      keyboardForwardClickKey: options.keyboardForwardClickKey || null,
       keyboardManualOverlayScanKey: options.keyboardManualOverlayScanKey || null,
       keyboardPauseToggleKey: options.keyboardPauseToggleKey || null,
       keyboardTokenModeToggleKey: options.keyboardTokenModeToggleKey || null,
@@ -1347,6 +1349,7 @@ class GamepadHandler {
       forwardSpaceButton: normalizeGamepadBindingValue(this.config.forwardSpaceButton, -1),
       forwardCtrlButton: normalizeGamepadBindingValue(this.config.forwardCtrlButton, -1),
       forwardEscapeButton: normalizeGamepadBindingValue(this.config.forwardEscapeButton, -1),
+      forwardClickButton: normalizeGamepadBindingValue(this.config.forwardClickButton, -1),
       manualOverlayScanButton: normalizeGamepadBindingValue(this.config.manualOverlayScanButton, -1),
       pauseToggleButton: normalizeGamepadBindingValue(this.config.pauseToggleButton, -1),
       tokenModeToggleButton: normalizeGamepadBindingValue(this.config.tokenModeToggleButton, 3),
@@ -1366,6 +1369,7 @@ class GamepadHandler {
       forwardSpaceKey: normalizeKeyboardBindingValue(this.config.keyboardForwardSpaceKey),
       forwardCtrlKey: normalizeKeyboardBindingValue(this.config.keyboardForwardCtrlKey),
       forwardEscapeKey: normalizeKeyboardBindingValue(this.config.keyboardForwardEscapeKey),
+      forwardClickKey: normalizeKeyboardBindingValue(this.config.keyboardForwardClickKey),
       manualOverlayScanKey: normalizeKeyboardBindingValue(this.config.keyboardManualOverlayScanKey),
       pauseToggleKey: normalizeKeyboardBindingValue(this.config.keyboardPauseToggleKey),
       tokenModeToggleKey: normalizeKeyboardBindingValue(this.config.keyboardTokenModeToggleKey),
@@ -2684,6 +2688,12 @@ class GamepadHandler {
       }
     }
 
+    // Forward a left click to the center of the target game window
+    if (keyboardEventMatchesBinding(kb.forwardClickKey, keyName, keys, mods)) {
+      this.forwardClickToTargetWindow();
+      return;
+    }
+
     // Manual overlay scan
     if (keyboardEventMatchesBinding(kb.manualOverlayScanKey, keyName, keys, mods)) {
       this.requestManualOverlayScan();
@@ -2866,6 +2876,11 @@ class GamepadHandler {
       }
     }
 
+    if (this.matchesButtonBindingDown(this.buttonBindings.forwardClickButton, device, buttonIndex)) {
+      this.forwardClickToTargetWindow();
+      return;
+    }
+
     if (this.matchesButtonBindingDown(manualOverlayScanBinding, device, buttonIndex)) {
       this.requestManualOverlayScan();
       return;
@@ -2951,6 +2966,15 @@ class GamepadHandler {
     }
 
     ipc.send('gamepad-forward-key', key);
+  }
+
+  forwardClickToTargetWindow() {
+    const ipc = this.getIpcRenderer();
+    if (!ipc) {
+      return;
+    }
+
+    ipc.send('gamepad-forward-click');
   }
 
   requestManualOverlayScan() {
@@ -6427,6 +6451,7 @@ class GamepadHandler {
       safeConfig.forwardSpaceButton = this.describeButtonBinding(this.buttonBindings.forwardSpaceButton);
       safeConfig.forwardCtrlButton = this.describeButtonBinding(this.buttonBindings.forwardCtrlButton);
       safeConfig.forwardEscapeButton = this.describeButtonBinding(this.buttonBindings.forwardEscapeButton);
+      safeConfig.forwardClickButton = this.describeButtonBinding(this.buttonBindings.forwardClickButton);
       safeConfig.manualOverlayScanButton = this.describeButtonBinding(this.buttonBindings.manualOverlayScanButton);
       safeConfig.pauseToggleButton = this.describeButtonBinding(this.buttonBindings.pauseToggleButton);
       safeConfig.tokenModeToggleButton = this.describeButtonBinding(this.buttonBindings.tokenModeToggleButton);

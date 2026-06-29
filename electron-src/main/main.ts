@@ -1181,6 +1181,43 @@ function sendBackendCommand(fn: string, data?: Record<string, unknown>): boolean
     return bus.isConnected('backend');
 }
 
+let ocrHookRedundantDialogShown = false;
+
+/** Warn once that running auto OCR alongside a text hook is usually redundant,
+ *  and offer to stop OCR. The backend only emits this after several OCR lines
+ *  are dropped as echoes of hook lines. */
+async function showOcrHookRedundantDialog(): Promise<void> {
+    if (ocrHookRedundantDialogShown) {
+        return;
+    }
+    ocrHookRedundantDialogShown = true;
+    try {
+        const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+        const options: Electron.MessageBoxOptions = {
+            type: 'question',
+            buttons: ['Stop OCR', 'Keep Both Running'],
+            defaultId: 0,
+            cancelId: 1,
+            title: 'OCR and text hook both running',
+            message: "GSM noticed you're using a text hook and also have Auto OCR running.",
+            detail:
+                'Running both is usually unnecessary — the hook already captures the text.\n\n' +
+                'If you only kept OCR on for the overlay: the overlay is triggered by any text ' +
+                'source, so it works from the hook alone without Auto OCR running.\n\n' +
+                'If you want to keep OCR on for Area Select OCR or menu text capture, I recommend using "Manual OCR" instead.\n\n' +
+                'Stop OCR?',
+        };
+        const result = parent
+            ? await dialog.showMessageBox(parent, options)
+            : await dialog.showMessageBox(options);
+        if (result.response === 0) {
+            stopOCR();
+        }
+    } catch (e) {
+        console.error('Failed to show OCR/hook redundancy dialog:', e);
+    }
+}
+
 function handleBackendMessage(msg: BackendMessage): void {
     if (msg.function === 'notification' && msg.data) {
         try {
@@ -1188,6 +1225,9 @@ function handleBackendMessage(msg: BackendMessage): void {
         } catch (e) {
             console.error('Failed to route notification from Python:', e);
         }
+    }
+    if (msg.function === 'ocr_hook_redundant') {
+        void showOcrHookRedundantDialog();
     }
     if (msg.function === 'text_intake_state') {
         setTextIntakePausedState(Boolean(msg.data?.paused));

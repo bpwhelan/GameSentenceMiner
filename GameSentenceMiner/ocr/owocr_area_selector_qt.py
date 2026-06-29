@@ -16,6 +16,7 @@ from PyQt6.QtGui import (
     QAction,
     QGuiApplication,
     QIcon,
+    QFont,
 )
 from PyQt6.QtWidgets import (
     QApplication,
@@ -245,7 +246,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.instructions_visible = self._load_selector_ui_state().get("instructions_visible", True)
         self.instructions_dimmed = False
         # Sits below the top toolbar so the two don't overlap.
-        self.instructions_rect = QRect(20, 60, 400, 340)
+        self.instructions_rect = QRect(20, 60, 400, 380)
 
         self.toolbar = None
 
@@ -262,6 +263,11 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.long_press_timer.timeout.connect(self._show_save_menu)
         self.long_press_pos = None
         self.long_press_active = False
+
+        # Right-click delete disambiguation: when several boxes overlap the click,
+        # we badge each candidate (1..N) and highlight the one hovered in the menu.
+        self.delete_candidates = []
+        self.delete_highlight_index = None
 
         logger.debug("Calling _initialize()...")
         self._initialize()
@@ -1114,6 +1120,10 @@ class OWOCRAreaSelectorWidget(QWidget):
         for rect in self.rectangles:
             self._draw_rectangle(painter, rect)
 
+        # Overlay numbered badges when disambiguating an overlapping right-click.
+        if self.delete_candidates:
+            self._draw_delete_badges(painter)
+
         # Draw current drawing rectangle
         if self.start_pos and self.current_pos:
             x1 = min(self.start_pos.x(), self.current_pos.x())
@@ -1173,6 +1183,51 @@ class OWOCRAreaSelectorWidget(QWidget):
         # Restore painter state
         painter.restore()
 
+    def _draw_delete_badges(self, painter):
+        """Badge each overlap candidate 1..N; emphasize the one hovered in the menu."""
+        painter.save()
+        sx, sy = self._scale_xy()
+        img_rect = self._image_rect()
+
+        badge_font = QFont()
+        badge_font.setPointSize(13)
+        badge_font.setBold(True)
+
+        for badge, rect_index in enumerate(self.delete_candidates, start=1):
+            if not (0 <= rect_index < len(self.rectangles)):
+                continue
+            rect = self.rectangles[rect_index]
+            wx = img_rect.x() + int(rect["x"] * sx)
+            wy = img_rect.y() + int(rect["y"] * sy)
+            ww = int(rect["w"] * sx)
+            wh = int(rect["h"] * sy)
+
+            is_target = rect_index == self.delete_highlight_index
+
+            # Highlight the box the hovered menu entry would delete.
+            if is_target:
+                painter.setPen(QPen(QColor(255, 60, 60), 4, Qt.PenStyle.DashLine))
+                painter.setBrush(QBrush(QColor(255, 60, 60, 70)))
+                painter.drawRect(wx, wy, ww, wh)
+
+            # Numbered badge anchored at the box's top-left corner.
+            badge_size = 26
+            bx, by = wx + 2, wy + 2
+            badge_color = QColor(255, 60, 60) if is_target else QColor(20, 20, 20, 220)
+            painter.setBrush(QBrush(badge_color))
+            painter.setPen(QPen(QColor(255, 255, 255), 2))
+            painter.drawEllipse(bx, by, badge_size, badge_size)
+
+            painter.setFont(badge_font)
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(
+                QRect(bx, by, badge_size, badge_size),
+                Qt.AlignmentFlag.AlignCenter,
+                str(badge),
+            )
+
+        painter.restore()
+
     def _draw_instructions(self, painter):
         """Draw instruction panel."""
         # Save painter state to prevent color bleed from rectangle drawing
@@ -1181,7 +1236,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         panel_x = 20
         panel_y = 60
         panel_width = 400
-        panel_height = 340
+        panel_height = 380
 
         # Determine opacity based on hover state
         alpha = 5 if self.instructions_dimmed else 230
@@ -1208,6 +1263,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                 "• Left Click + Drag: Create selection area",
                 "• Ctrl + A: Select entire screen",
                 "• Right-Click on box: Delete it",
+                "   (overlapping? pick which to delete)",
                 "• Modifiers (Shift/Ctrl) are DISABLED",
                 "",
                 "Save Options:",
@@ -1225,6 +1281,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                 "• Ctrl + Alt + Left Click + Drag: Black hole area (black)",
                 "• Ctrl + A: Select entire screen (green)",
                 "• Right-Click on box: Delete it",
+                "   (overlapping? pick which to delete)",
                 "• Right-Click empty space: Menu",
                 "",
                 "Save Options (No Keyboard Needed!):",
@@ -1285,19 +1342,23 @@ class OWOCRAreaSelectorWidget(QWidget):
         elif event.button() == Qt.MouseButton.RightButton:
             # Hit-test in base coords (rectangles are stored in base space).
             base_pos = self._to_base_point(event.pos())
-            rect_clicked = False
-            for i, rect in enumerate(self.rectangles):
+            candidates = [
+                i
+                for i, rect in enumerate(self.rectangles)
                 if (
                     rect["x"] <= base_pos.x() <= rect["x"] + rect["w"]
                     and rect["y"] <= base_pos.y() <= rect["y"] + rect["h"]
-                ):
-                    self._delete_rectangle_at(base_pos)
-                    rect_clicked = True
-                    break
+                )
+            ]
 
-            # If not on a rectangle, show context menu (widget pos for mapToGlobal)
-            if not rect_clicked:
+            if not candidates:
+                # Empty space: show the normal context menu (widget pos for mapToGlobal).
                 self._show_context_menu(event.pos())
+            elif len(candidates) == 1:
+                self._delete_rectangle_index(candidates[0])
+            else:
+                # Overlapping boxes: let the user pick which one to delete.
+                self._show_delete_choice_menu(candidates, event.pos())
 
     def mouseMoveEvent(self, event):
         """Handle mouse movement for drawing and hover detection."""
@@ -1382,16 +1443,74 @@ class OWOCRAreaSelectorWidget(QWidget):
             self.update()
 
     def _delete_rectangle_at(self, pos):
-        """Delete rectangle at given position."""
+        """Delete the first rectangle covering the given (base-coord) position."""
         for i, rect in enumerate(self.rectangles):
             if rect["x"] <= pos.x() <= rect["x"] + rect["w"] and rect["y"] <= pos.y() <= rect["y"] + rect["h"]:
-                self.undo_stack.append(("delete", i, rect.copy()))
-                del self.rectangles[i]
-                self.redo_stack.clear()
-                logger.info(f"Deleted rectangle at index {i}")
-                self._schedule_live_save()
-                self.update()
+                self._delete_rectangle_index(i)
                 break
+
+    def _delete_rectangle_index(self, index):
+        """Delete the rectangle at the given index (with undo support)."""
+        if not (0 <= index < len(self.rectangles)):
+            return
+        rect = self.rectangles[index]
+        self.undo_stack.append(("delete", index, rect.copy()))
+        del self.rectangles[index]
+        self.redo_stack.clear()
+        logger.info(f"Deleted rectangle at index {index}")
+        self._schedule_live_save()
+        self.update()
+
+    def _rect_type_label(self, rect):
+        """(emoji, name) describing a rectangle's type, matching the toolbar colors."""
+        if rect.get("is_black_hole", False):
+            return "⬛", "Black Hole"
+        if rect["is_excluded"]:
+            return "🟠", "Exclusion"
+        if rect.get("is_secondary", False):
+            return "🟣", "Secondary"
+        if rect.get("is_exclusive", False):
+            return "🔷", "Exclusive"
+        return "🟢", "Normal"
+
+    def _show_delete_choice_menu(self, candidate_indices, widget_pos):
+        """Let the user choose which of several overlapping boxes to delete.
+
+        Each candidate is badged 1..N on the canvas; hovering a menu entry
+        highlights the matching box so the choice is unambiguous.
+        """
+        self.delete_candidates = list(candidate_indices)
+        self.delete_highlight_index = None
+        self.update()
+
+        menu = QMenu(self)
+        header = QAction("Delete which box?", self)
+        header.setEnabled(False)
+        menu.addAction(header)
+        menu.addSeparator()
+
+        for badge, rect_index in enumerate(self.delete_candidates, start=1):
+            rect = self.rectangles[rect_index]
+            emoji, name = self._rect_type_label(rect)
+            action = QAction(f"{badge}.  {emoji} {name}  ({rect['w']}×{rect['h']})", self)
+            # Highlight the box this entry refers to while hovered.
+            action.hovered.connect(lambda idx=rect_index: self._set_delete_highlight(idx))
+            action.triggered.connect(lambda _=False, idx=rect_index: self._delete_rectangle_index(idx))
+            menu.addAction(action)
+
+        # Clear badges/highlight once the menu goes away (selection or cancel).
+        menu.aboutToHide.connect(self._clear_delete_candidates)
+        menu.exec(self.mapToGlobal(widget_pos))
+
+    def _set_delete_highlight(self, rect_index):
+        if self.delete_highlight_index != rect_index:
+            self.delete_highlight_index = rect_index
+            self.update()
+
+    def _clear_delete_candidates(self):
+        self.delete_candidates = []
+        self.delete_highlight_index = None
+        self.update()
 
     def _clamp_position(self, pos):
         """Clamp a position to stay within the window bounds."""

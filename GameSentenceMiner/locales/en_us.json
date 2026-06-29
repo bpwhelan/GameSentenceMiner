@@ -20,6 +20,12 @@
         "ok": "OK",
         "run_function": "Run Function"
       },
+      "search": {
+        "placeholder": "Search all settings…",
+        "matches": "{count} matches",
+        "match": "1 match",
+        "no_results": "No settings match your search."
+      },
       "tabs": {
         "key_settings": {
           "title": "Key Settings",
@@ -733,11 +739,19 @@
           },
           "periodic": {
             "label": "Periodic Capture:",
-            "tooltip": "Enable periodic capture of the screen for Overlay. Note, you still need text flowing into GSM for mining to work."
+            "tooltip": "Re-scan the screen on an interval so the overlay stays current without a text event. You can look up and mine these scans through Yomitan in the overlay; GSM attaches audio/screenshot automatically (no need to log the line)."
           },
           "periodic_interval": {
             "label": "Capture Interval (Seconds):",
             "tooltip": "Interval in seconds for periodic screen capture."
+          },
+          "scan_on_mouse_move": {
+            "label": "Only Scan When Mouse Moves:",
+            "tooltip": "While periodic capture is on, only scan when the mouse moves and is hovering over the visible game window. Avoids constant re-OCR when you're idle or looking elsewhere. Windows only."
+          },
+          "inject_scanned_lines": {
+            "label": "Add Scanned Lines to Log (Not Recommended):",
+            "tooltip": "Not recommended. Overlay mining already works without this. When on, every distinct scan is written to the text log, which inflates your stats and floods the texthooker with OCR noise. Only enable if you specifically want scanned lines to appear there."
           }
           ,
           "periodic_ratio": {
@@ -784,7 +798,7 @@
           },
           "manual_mode_desktop_background": {
             "label": "Freeze Game Frame Behind Overlay (Exclusive Fullscreen):",
-            "tooltip": "For exclusive-fullscreen games (e.g. Resident Evil 7) whose frame disappears when manual mode steals focus: the instant manual mode activates, GSM grabs a fresh full-monitor snapshot and paints it behind the overlay, so lookups sit over the last game frame instead of your desktop. There may be some flicker, this is unavoidable."
+            "tooltip": "For exclusive-fullscreen games (e.g. Resident Evil 7) whose frame disappears when Push to Show steals focus: the instant the overlay is shown, GSM grabs a fresh full-monitor snapshot and paints it behind the overlay, so lookups sit over the last game frame instead of your desktop. There may be some flicker, this is unavoidable."
           },
           "check_previous_lines_for_recycled_indicator": {
             "label": "Check Previous Lines:",

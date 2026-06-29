@@ -20,6 +20,7 @@ class TextSource:
     SECONDARY = "secondary"
     SCREEN_CROPPER = "screen_cropper"
     HOTKEY = "hotkey"
+    OVERLAY = "overlay"  # overlay periodic/mouse-move scan, no text event; audio timing is best-guess
 
     # How much padding in seconds to add when capturing text from different sources
     _PADDING_SECONDS = {
@@ -30,6 +31,7 @@ class TextSource:
         SECONDARY: 3,
         SCREEN_CROPPER: 5,
         HOTKEY: 3,
+        OVERLAY: 3,
     }
 
     @classmethod

@@ -11,6 +11,7 @@ const bg = require('./background');
 const BackendConnector = require('./backend_connector');
 const { createMagpieState } = require('./magpie');
 const { JitenParseCache, postJitenSrs, DEFAULT_JITEN_PARSE_URL: JITEN_DEFAULT_PARSE_URL } = require('./jiten_cache');
+const { forceForegroundWindow } = require('./win_foreground');
 const {
   MANUAL_HOTKEY_BACKEND_ELECTRON,
   MANUAL_HOTKEY_BACKEND_INPUT_SERVER,
@@ -90,12 +91,37 @@ const OVERLAY_PROFILE_CONTROL_KEYS = new Set([
   OVERLAY_PROFILE_SETTINGS_KEY,
   OVERLAY_ACTIVE_PROFILE_KEY,
 ]);
+// GSM owns these overlay OCR-capture settings; they live per-GSM-profile in config.json
+// and are edited over the websocket, not stored in the overlay's own profiles.
+// Map: overlay userSettings key -> python overlay.<field> (identity unless noted).
+const GSM_OWNED_OVERLAY_FIELD_MAP = {
+  engine_v2: "engine_v2",
+  monitor_to_capture: "monitor_to_capture",
+  monitor_to_capture_id: "monitor_to_capture_id",
+  periodic: "periodic",
+  periodic_interval: "periodic_interval",
+  periodic_ratio: "periodic_ratio",
+  scan_on_mouse_move: "scan_on_mouse_move",
+  inject_scanned_lines: "inject_scanned_lines",
+  minimum_character_size: "minimum_character_size",
+  use_ocr_result_v2: "use_ocr_result_v2",
+  supplement_ocr_result_with_overlay: "supplement_ocr_result_with_overlay",
+  ocr_full_screen_instead_of_obs: "ocr_full_screen_instead_of_obs",
+  use_text_filtering: "use_text_filtering",
+  manual_mode_desktop_background: "manual_mode_desktop_background",
+  showRecycledIndicator: "check_previous_lines_for_recycled_indicator",
+  use_ocr_area_config_v2: "use_ocr_area_config_v2",
+  ocr_area_config_include_primary_areas: "ocr_area_config_include_primary_areas",
+  ocr_area_config_include_secondary_areas: "ocr_area_config_include_secondary_areas",
+  ocr_area_config_use_exclusion_zones: "ocr_area_config_use_exclusion_zones",
+};
+const GSM_OWNED_OVERLAY_SETTING_KEYS = Object.keys(GSM_OWNED_OVERLAY_FIELD_MAP);
 const OVERLAY_NON_PROFILE_SETTING_KEYS = new Set([
   ...OVERLAY_PROFILE_CONTROL_KEYS,
+  ...GSM_OWNED_OVERLAY_SETTING_KEYS,
   "weburl1",
   "weburl2",
   "texthookerUrl",
-  "showRecycledIndicator",
   "mainBoxStartupWarningAcknowledged",
   "dismissedFullscreenRecommendations",
   "gamepadServerPort",
@@ -274,12 +300,26 @@ function getManualModeBackgroundMode(gsmSettings = getGSMSettings()) {
   return mode || "off";
 }
 
+// Monitors enumerated by the GSM backend, for the OCR/Capture monitor dropdown.
+let gsmOverlayMonitors = [];
+
 function syncGsmOwnedOverlaySettingsFromGSM(reason = "unknown") {
+  const gsmSettings = getGSMSettings();
+  const profileSettings = getCurrentGSMProfileSettings(gsmSettings);
+  const overlaySettings = profileSettings && typeof profileSettings.overlay === "object"
+    ? profileSettings.overlay
+    : {};
+
   const updates = {};
-  const showRecycledIndicator = getGSMRecycledIndicatorSetting();
-  if (userSettings.showRecycledIndicator !== showRecycledIndicator) {
-    userSettings.showRecycledIndicator = showRecycledIndicator;
-    updates.showRecycledIndicator = showRecycledIndicator;
+  for (const [overlayKey, pythonField] of Object.entries(GSM_OWNED_OVERLAY_FIELD_MAP)) {
+    if (!Object.prototype.hasOwnProperty.call(overlaySettings, pythonField)) {
+      continue;
+    }
+    const value = overlaySettings[pythonField];
+    if (userSettings[overlayKey] !== value) {
+      userSettings[overlayKey] = value;
+      updates[overlayKey] = value;
+    }
   }
 
   if (Object.keys(updates).length > 0) {
@@ -293,6 +333,44 @@ function syncGsmOwnedOverlaySettingsFromGSM(reason = "unknown") {
   }
 
   return Object.keys(updates).length > 0;
+}
+
+// Apply a GSM-owned overlay config push from the backend (gsm-overlay-config-updated).
+function applyGsmOwnedOverlayConfig(settings, monitors) {
+  const updates = {};
+  if (settings && typeof settings === "object") {
+    for (const overlayKey of GSM_OWNED_OVERLAY_SETTING_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(settings, overlayKey)) {
+        continue;
+      }
+      const value = settings[overlayKey];
+      if (userSettings[overlayKey] !== value) {
+        userSettings[overlayKey] = value;
+        updates[overlayKey] = value;
+      }
+    }
+  }
+  if (Array.isArray(monitors)) {
+    gsmOverlayMonitors = monitors.slice();
+  }
+  for (const win of [mainWindow, settingsWindow]) {
+    if (!win || win.isDestroyed()) {
+      continue;
+    }
+    if (Object.keys(updates).length > 0) {
+      win.webContents.send("settings-updated", updates);
+    }
+    win.webContents.send("gsm-overlay-monitors", gsmOverlayMonitors);
+  }
+}
+
+// Forward a GSM-owned overlay setting change to the backend for persistence.
+function sendGsmOwnedOverlayConfig(overlayKey, value) {
+  const pythonField = GSM_OWNED_OVERLAY_FIELD_MAP[overlayKey];
+  if (!pythonField || !backend) {
+    return;
+  }
+  backend.send({ type: "set-gsm-overlay-config", key: pythonField, value });
 }
 
 let manualHotkeyPressed = false;
@@ -418,6 +496,10 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "yomitanSettingsHotkey": "Alt+Shift+Y",
   "overlaySettingsHotkey": "Alt+Shift+S",
   "translateHotkey": "Alt+T",
+  // Advanced: route every overlay hotkey through the Rust input server's global
+  // keyboard hook instead of Electron globalShortcut. For games (e.g. Skyrim) that
+  // swallow normal global hotkeys. Also enables F13-F24 bindings.
+  "routeAllHotkeysThroughInputServer": false,
   "autoRequestTranslation": false,
   "showRecycledIndicator": false,
   "pinned": false,
@@ -489,6 +571,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadForwardSpaceButton": -1, // Disabled by default; forwards Space to target game window
   "gamepadForwardCtrlButton": -1, // Disabled by default; forwards Ctrl (skip) to target game window
   "gamepadForwardEscapeButton": -1, // Disabled by default; forwards Escape to target game window
+  "gamepadForwardClickButton": -1, // Disabled by default; left-clicks the center of the target game window
   "gamepadManualOverlayScanButton": -1, // Disabled by default; triggers manual overlay scan
   "gamepadPauseToggleButton": -1, // Disabled by default; pauses/resumes the text source while navigating
   "gamepadTokenModeToggleButton": 3, // Y button - toggles token/character navigation
@@ -1102,8 +1185,9 @@ function isManualHotkeyUsingInputServer(settings = userSettings) {
 
   const preferredBackend = resolveManualHotkeyBackend(settings.showHotkey, {
     forceInputServer:
+      settings.routeAllHotkeysThroughInputServer === true ||
       normalizeHotkeyForComparison(settings.showHotkey) ===
-      normalizeHotkeyForComparison(manualHotkeyElectronFailureHotkey),
+        normalizeHotkeyForComparison(manualHotkeyElectronFailureHotkey),
   });
   return preferredBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER;
 }
@@ -1356,6 +1440,18 @@ let manualHotkeyInputServerConnection = {
 };
 let manualHotkeyElectronFailureHotkey = null;
 
+// Route-all-hotkeys mode: a persistent connection to the input server that
+// evaluates every overlay hotkey server-side (see configure_app_hotkeys in the
+// Rust server). Separate socket from the manual-hotkey connection so its
+// lifecycle is independent of manual mode. `registry` maps a stable action id ->
+// { accelerator, handler }.
+let appHotkeyInputServerConnection = {
+  socket: null,
+  url: null,
+  reconnectTimer: null,
+  registry: new Map(),
+};
+
 const manualHotkeyController = createManualHotkeyController({
   holdReleaseTimeoutMs: MANUAL_HOTKEY_ELECTRON_RELEASE_TIMEOUT_MS,
   getMode: () => normalizeManualModeType(userSettings.manualModeType),
@@ -1593,6 +1689,11 @@ function handleOverlayWebSocketControlMessage(type, data) {
     return true;
   }
 
+  if (message.type === "gsm-overlay-config-updated") {
+    applyGsmOwnedOverlayConfig(message.settings, message.monitors);
+    return true;
+  }
+
   return false;
 }
 
@@ -1774,6 +1875,10 @@ function resolveGamepadServerExecutable() {
 
 function shouldRunInputServer(settings = userSettings) {
   if (settings.gamepadEnabled) {
+    return true;
+  }
+
+  if (settings.routeAllHotkeysThroughInputServer) {
     return true;
   }
 
@@ -2194,6 +2299,197 @@ function syncManualHotkeyInputServerConnection(reason = "unknown") {
     manualHotkeyInputServerConnection.keyboardError = err.message || "Unable to connect to input server.";
     publishManualHotkeyRuntimeStatus();
   });
+}
+
+// ─────────────────────── App-hotkey input-server routing ───────────────────────
+// When "route all hotkeys through input server" is enabled, every overlay hotkey
+// is registered on the Rust input server (server-side combo eval) instead of
+// Electron globalShortcut, so it fires even in games that swallow global hotkeys.
+
+const appHotkeyGlobalShortcutAccelerators = new Map(); // id -> accelerator currently held by globalShortcut
+
+function isRouteAllHotkeysEnabled() {
+  return userSettings.routeAllHotkeysThroughInputServer === true;
+}
+
+function buildAppHotkeyConfigPayload() {
+  const hotkeys = [];
+  for (const [id, entry] of appHotkeyInputServerConnection.registry) {
+    if (entry && entry.accelerator) {
+      hotkeys.push({ id, hotkey: entry.accelerator });
+    }
+  }
+  return hotkeys;
+}
+
+function sendAppHotkeyConfig() {
+  const state = appHotkeyInputServerConnection;
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
+    return;
+  }
+  try {
+    state.socket.send(JSON.stringify({
+      type: "configure_app_hotkeys",
+      hotkeys: buildAppHotkeyConfigPayload(),
+    }));
+  } catch (err) {
+    console.warn("[AppHotkey] Failed to send app hotkey config:", err.message);
+  }
+}
+
+function closeAppHotkeyInputServerConnection({ clearUrl = true, clearReconnect = true } = {}) {
+  const state = appHotkeyInputServerConnection;
+  if (clearReconnect && state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
+  if (state.socket) {
+    try {
+      state.socket.removeAllListeners();
+      state.socket.close();
+    } catch (err) {
+      console.warn("[AppHotkey] Failed to close input server socket:", err.message);
+    }
+    state.socket = null;
+  }
+  if (clearUrl) {
+    state.url = null;
+  }
+}
+
+function scheduleAppHotkeyInputServerReconnect(reason = "unknown") {
+  const state = appHotkeyInputServerConnection;
+  if (state.reconnectTimer) {
+    return;
+  }
+  state.reconnectTimer = setTimeout(() => {
+    state.reconnectTimer = null;
+    syncAppHotkeyInputServerConnection(`reconnect:${reason}`);
+  }, OVERLAY_WS_RECONNECT_DELAY_MS);
+}
+
+function handleAppHotkeyInputServerMessage(rawMessage) {
+  let message = null;
+  try {
+    message = JSON.parse(rawMessage);
+  } catch (err) {
+    console.warn("[AppHotkey] Failed to parse input server message:", rawMessage);
+    return;
+  }
+  // Fire on the press edge only — mirrors globalShortcut, which triggers on key-down.
+  if (message.type === "app_hotkey_event" && message.state === "pressed") {
+    const entry = appHotkeyInputServerConnection.registry.get(message.id);
+    if (entry && typeof entry.handler === "function") {
+      try {
+        entry.handler();
+      } catch (err) {
+        console.warn(`[AppHotkey] Handler for ${message.id} threw:`, err.message);
+      }
+    }
+  }
+}
+
+function syncAppHotkeyInputServerConnection(reason = "unknown") {
+  const state = appHotkeyInputServerConnection;
+
+  if (!isRouteAllHotkeysEnabled()) {
+    if (state.socket && state.socket.readyState === WebSocket.OPEN) {
+      try {
+        state.socket.send(JSON.stringify({ type: "configure_app_hotkeys", hotkeys: [] }));
+      } catch (err) {
+        console.warn("[AppHotkey] Failed to clear app hotkeys before closing:", err.message);
+      }
+    }
+    closeAppHotkeyInputServerConnection();
+    return;
+  }
+
+  const url = getInputServerWebSocketUrl();
+  if (
+    state.url === url &&
+    state.socket &&
+    (state.socket.readyState === WebSocket.OPEN || state.socket.readyState === WebSocket.CONNECTING)
+  ) {
+    if (state.socket.readyState === WebSocket.OPEN) {
+      sendAppHotkeyConfig();
+    }
+    return;
+  }
+
+  closeAppHotkeyInputServerConnection({ clearUrl: false });
+  state.url = url;
+  console.log(`[AppHotkey] Connecting to input server websocket (${reason}) -> ${url}`);
+
+  const socket = new WebSocket(url);
+  state.socket = socket;
+  socket.on("open", () => {
+    if (appHotkeyInputServerConnection.socket !== socket) return;
+    console.log("[AppHotkey] Input server websocket connected");
+    sendAppHotkeyConfig();
+  });
+  socket.on("message", (payload) => {
+    if (appHotkeyInputServerConnection.socket !== socket) return;
+    const text = Buffer.isBuffer(payload) ? payload.toString("utf8") : String(payload);
+    handleAppHotkeyInputServerMessage(text);
+  });
+  socket.on("close", () => {
+    if (appHotkeyInputServerConnection.socket !== socket) return;
+    appHotkeyInputServerConnection.socket = null;
+    if (isRouteAllHotkeysEnabled()) {
+      scheduleAppHotkeyInputServerReconnect(reason);
+    }
+  });
+  socket.on("error", (err) => {
+    if (appHotkeyInputServerConnection.socket !== socket) return;
+    console.warn("[AppHotkey] Input server websocket error:", err.message);
+  });
+}
+
+// Register `handler` under a stable `id` for `accelerator`, choosing the backend
+// based on the route-all setting. Always clears any prior registration for the id
+// (in both backends) first, so toggling the setting cleanly swaps backends and
+// avoids double-firing.
+function setAppHotkey(id, accelerator, handler) {
+  clearAppHotkey(id);
+
+  const accel = String(accelerator || "").trim();
+  if (!accel) {
+    return false;
+  }
+
+  if (isRouteAllHotkeysEnabled()) {
+    appHotkeyInputServerConnection.registry.set(id, { accelerator: accel, handler });
+    syncAppHotkeyInputServerConnection(`register:${id}`);
+    sendAppHotkeyConfig();
+    return true;
+  }
+
+  let registered = false;
+  try {
+    registered = globalShortcut.register(accel, handler);
+  } catch (err) {
+    console.warn(`[Hotkeys] Failed to register ${accel} for ${id}:`, err.message);
+    return false;
+  }
+  if (registered) {
+    appHotkeyGlobalShortcutAccelerators.set(id, accel);
+  }
+  return registered;
+}
+
+function clearAppHotkey(id) {
+  const prevAccel = appHotkeyGlobalShortcutAccelerators.get(id);
+  if (prevAccel) {
+    try {
+      globalShortcut.unregister(prevAccel);
+    } catch (err) {
+      console.warn(`[Hotkeys] Failed to unregister ${prevAccel} for ${id}:`, err.message);
+    }
+    appHotkeyGlobalShortcutAccelerators.delete(id);
+  }
+  if (appHotkeyInputServerConnection.registry.delete(id)) {
+    sendAppHotkeyConfig();
+  }
 }
 
 const OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY = "manual_hotkey";
@@ -2749,6 +3045,9 @@ function aggressivelyShowOverlayAndReturnFocus() {
     refreshWorkspace: true,
   });
   mainWindow.focus();
+  // Electron focus() alone can't steal foreground when triggered outside a
+  // WM_HOTKEY context (input-server hotkeys); assert it natively too.
+  forceForegroundWindow(mainWindow);
 }
 
 function focusOverlayForYomitanLookup() {
@@ -2844,6 +3143,8 @@ function aggressivelyFocusOverlayForGamepadNavigation() {
   }
 }
 
+let gamepadToggleRequestSeq = 0;
+
 function requestGamepadNavigationToggleFromMain(source = "unknown") {
   if (!userSettings.gamepadEnabled) {
     console.log(`[Gamepad] Ignoring toggle request from ${source}: gamepad disabled`);
@@ -2855,15 +3156,19 @@ function requestGamepadNavigationToggleFromMain(source = "unknown") {
   }
 
   const previousState = !!gamepadNavigationActive;
-  console.log(`[Gamepad] Toggle requested from ${source}; previous active=${previousState}`);
-  mainWindow.webContents.send("gamepad-toggle-navigation");
+  // Tag the press so the renderer toggles at most once per logical press. The retry
+  // below reuses this id, so a slow state round-trip (e.g. the extra input-server hop
+  // when "route all hotkeys" is on) can't double-toggle and desync the latched state.
+  const requestId = ++gamepadToggleRequestSeq;
+  console.log(`[Gamepad] Toggle requested from ${source}; previous active=${previousState}; id=${requestId}`);
+  mainWindow.webContents.send("gamepad-toggle-navigation", { requestId });
 
   // If renderer misses the first IPC during rapid focus/window transitions, retry once.
   setTimeout(() => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
     if (gamepadNavigationActive === previousState) {
-      console.log(`[Gamepad] Toggle state unchanged after first request from ${source}; retrying`);
-      mainWindow.webContents.send("gamepad-toggle-navigation");
+      console.log(`[Gamepad] Toggle state unchanged after first request from ${source}; retrying id=${requestId}`);
+      mainWindow.webContents.send("gamepad-toggle-navigation", { requestId });
     }
   }, 120);
 }
@@ -3680,8 +3985,16 @@ function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
   const manualBackgroundMode = getManualModeBackgroundMode();
   requestManualModeBackground(triggerSource);
 
+  // On-demand freeze-frame: hold the visible overlay reveal (text boxes + focus steal)
+  // until the snapshot has painted, so nothing flashes over the live game before the
+  // frozen frame is in place. The renderer reveals on paint or its own safety timeout.
+  const deferRevealForBackground =
+    manualBackgroundMode === "on_demand" &&
+    !keepManualActivationFocusNeutral &&
+    (currentMagpieState.active || isManualMode());
+
   isOverlayVisible = true;
-  mainWindow.webContents.send('show-overlay-hotkey', true);
+  mainWindow.webContents.send('show-overlay-hotkey', true, { deferRevealForBackground });
 
   if (!isLinux()) {
     mainWindow.setIgnoreMouseEvents(false, { forward: true });
@@ -3711,6 +4024,7 @@ function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
       waitForManualBackgroundThenFocus(triggerSource);
     } else {
       mainWindow.show();
+      forceForegroundWindow(mainWindow);
     }
   }
 
@@ -3735,6 +4049,7 @@ function waitForManualBackgroundThenFocus(triggerSource) {
           try { mainWindow.moveTop(); } catch (e) { /* moveTop unavailable on some platforms */ }
         }
         mainWindow.focus();
+        forceForegroundWindow(mainWindow);
         console.log(`[ManualBackground] Overlay focused after ${reason} (source=${triggerSource}).`);
       }
     } catch (e) { /* show/focus may be unavailable during rapid transitions */ }
@@ -4176,7 +4491,7 @@ function registerTexthookerHotkey(oldHotkey) {
     console.warn(`[TexthookerMode] Hotkey conflict resolved; using ${texthookerHotkey}`);
   }
 
-  const registered = globalShortcut.register(texthookerHotkey, () => {
+  const registered = setAppHotkey("texthooker", texthookerHotkey, () => {
     if (!texthookerWindow || texthookerWindow.isDestroyed()) {
       createTexthookerWindow();
     }
@@ -4277,7 +4592,9 @@ function registerManualShowHotkey(oldHotkey) {
 
   if (!isManualMode()) {
     console.log("[ManualHotkey] Not in manual mode, skipping registration.");
-    manualHotkeyBackend = resolveManualHotkeyBackend(userSettings.showHotkey);
+    manualHotkeyBackend = resolveManualHotkeyBackend(userSettings.showHotkey, {
+      forceInputServer: isRouteAllHotkeysEnabled(),
+    });
     manualHotkeyBackendReason = manualHotkeyBackend;
     manualHotkeyElectronFailureHotkey = null;
     syncManualHotkeyInputServerConnection("manual-mode-disabled");
@@ -4285,7 +4602,9 @@ function registerManualShowHotkey(oldHotkey) {
     return;
   }
 
-  const requestedBackend = resolveManualHotkeyBackend(userSettings.showHotkey);
+  const requestedBackend = resolveManualHotkeyBackend(userSettings.showHotkey, {
+    forceInputServer: isRouteAllHotkeysEnabled(),
+  });
   manualHotkeyBackend = requestedBackend;
   manualHotkeyBackendReason = requestedBackend;
   const manualModeType = normalizeManualModeType(userSettings.manualModeType);
@@ -4387,7 +4706,10 @@ function openSettings() {
       webPreferences: {
         preload: FIND_IN_PAGE_PRELOAD_PATH,
         nodeIntegration: true,
-        contextIsolation: false
+        contextIsolation: false,
+        // Own session so Yomitan/Jiten content scripts (loaded into the default
+        // session) aren't injected here — keeps dictionary lookups off settings text.
+        partition: "persist:gsm-overlay-settings",
       },
     });
     enableFindInPage(settingsWindow);
@@ -4431,6 +4753,11 @@ function openSettings() {
         runtimeSettings: getManualHotkeyRuntimeStatus(),
         profileState: getOverlayProfileState(),
       });
+      // Populate the OCR/Capture monitor dropdown, then ask the backend to refresh it.
+      settingsWindow.webContents.send("gsm-overlay-monitors", gsmOverlayMonitors);
+      if (backend) {
+        backend.send({ type: "get-gsm-overlay-config" });
+      }
     });
     settingsWindow.on("closed", () => {
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -4838,7 +5165,7 @@ function updateTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: 'Manual Mode',
+      label: 'Push to Show',
       type: 'checkbox',
       checked: isManualMode(),
       click: (menuItem) => {
@@ -4969,9 +5296,9 @@ app.whenReady().then(async () => {
       type: 'warning',
       buttons: ['OK'],
       defaultId: 0,
-      title: 'GSM Overlay - Manual Mode Enforced',
+      title: 'GSM Overlay - Push to Show Enforced',
       message: 'Overlay requires hotkey to show text for lookups on macOS and Linux due to platform limitations.\n\n' +
-        'Use the configured hotkey: ' + userSettings.showHotkey + ' and the selected manual mode type to control the overlay. Current mode: ' + manualModeDescription + '.',
+        'Use the configured hotkey: ' + userSettings.showHotkey + ' and the selected Push to Show type to control the overlay. Current mode: ' + manualModeDescription + '.',
     });
   }
 
@@ -5230,10 +5557,12 @@ app.whenReady().then(async () => {
   createTray();
 
   // Register toggle window hotkey
-  function registerToggleWindowHotkey(oldHotkey) {
-    if (oldHotkey) globalShortcut.unregister(oldHotkey);
-    globalShortcut.unregister(userSettings.toggleWindowHotkey);
-    globalShortcut.register(userSettings.toggleWindowHotkey || "Alt+Shift+H", () => {
+  // Each register*Hotkey routes through setAppHotkey, which picks the backend
+  // (Electron globalShortcut, or the input server when "route all hotkeys" is on).
+  // The oldHotkey param is retained for call-site compatibility; setAppHotkey
+  // clears the id's prior registration in both backends, so it is no longer used.
+  function registerToggleWindowHotkey(_oldHotkey) {
+    setAppHotkey("toggleWindow", userSettings.toggleWindowHotkey || "Alt+Shift+H", () => {
       if (mainWindow) {
         ensureMainWindowIsOnConnectedDisplay("hotkey-toggle-window");
         mainWindow.webContents.send('toggle-main-box');
@@ -5243,10 +5572,8 @@ app.whenReady().then(async () => {
   registerToggleWindowHotkey();
 
   // Register minimize hotkey
-  function registerMinimizeHotkey(oldHotkey) {
-    if (oldHotkey) globalShortcut.unregister(oldHotkey);
-    globalShortcut.unregister(userSettings.minimizeHotkey);
-    globalShortcut.register(userSettings.minimizeHotkey || "Alt+Shift+J", () => {
+  function registerMinimizeHotkey(_oldHotkey) {
+    setAppHotkey("minimize", userSettings.minimizeHotkey || "Alt+Shift+J", () => {
       if (mainWindow) {
         resetActivityTimer();
         if (afkHidden) {
@@ -5268,30 +5595,24 @@ app.whenReady().then(async () => {
   registerMinimizeHotkey();
 
   // Register yomitan settings hotkey
-  function registerYomitanSettingsHotkey(oldHotkey) {
-    if (oldHotkey) globalShortcut.unregister(oldHotkey);
-    globalShortcut.unregister(userSettings.yomitanSettingsHotkey);
-    globalShortcut.register(userSettings.yomitanSettingsHotkey || "Alt+Shift+Y", () => {
+  function registerYomitanSettingsHotkey(_oldHotkey) {
+    setAppHotkey("yomitanSettings", userSettings.yomitanSettingsHotkey || "Alt+Shift+Y", () => {
       openYomitanSettings();
     });
   }
   registerYomitanSettingsHotkey();
 
   // Register overlay settings hotkey
-  function registerOverlaySettingsHotkey(oldHotkey) {
-    if (oldHotkey) globalShortcut.unregister(oldHotkey);
-    globalShortcut.unregister(userSettings.overlaySettingsHotkey);
-    globalShortcut.register(userSettings.overlaySettingsHotkey || "Alt+Shift+S", () => {
+  function registerOverlaySettingsHotkey(_oldHotkey) {
+    setAppHotkey("overlaySettings", userSettings.overlaySettingsHotkey || "Alt+Shift+S", () => {
       openSettings();
     });
   }
   registerOverlaySettingsHotkey();
 
   // Register translate hotkey
-  function registerTranslateHotkey(oldHotkey) {
-    if (oldHotkey) globalShortcut.unregister(oldHotkey);
-    globalShortcut.unregister(userSettings.translateHotkey);
-    globalShortcut.register(userSettings.translateHotkey || "Alt+T", () => {
+  function registerTranslateHotkey(_oldHotkey) {
+    setAppHotkey("translate", userSettings.translateHotkey || "Alt+T", () => {
       console.log("Translate hotkey pressed");
 
       // If translation has been requested, just toggle visibility
@@ -5316,10 +5637,8 @@ app.whenReady().then(async () => {
   registerTranslateHotkey();
 
   // Register toggle furigana hotkey
-  function registerToggleFuriganaHotkey(oldHotkey) {
-    if (oldHotkey) globalShortcut.unregister(oldHotkey);
-    globalShortcut.unregister(userSettings.toggleFuriganaHotkey);
-    globalShortcut.register(userSettings.toggleFuriganaHotkey || "Alt+F", () => {
+  function registerToggleFuriganaHotkey(_oldHotkey) {
+    setAppHotkey("toggleFurigana", userSettings.toggleFuriganaHotkey || "Alt+F", () => {
       if (mainWindow) {
         mainWindow.webContents.send("toggle-furigana-visibility");
       }
@@ -5344,6 +5663,8 @@ app.whenReady().then(async () => {
     }
 
     registeredGamepadKeyboardHotkey = null;
+    // Drop any prior input-server registration so backend switches stay clean.
+    clearAppHotkey("gamepadKeyboard");
 
     if (!userSettings.gamepadEnabled || !userSettings.gamepadKeyboardEnabled) {
       console.log('[Gamepad] Keyboard navigation hotkey disabled');
@@ -5353,6 +5674,16 @@ app.whenReady().then(async () => {
     const requestedHotkey = (userSettings.gamepadKeyboardHotkey || '').trim();
     if (!requestedHotkey) {
       console.log('[Gamepad] Keyboard navigation hotkey empty; skipping registration');
+      return;
+    }
+
+    // Route-all mode: register server-side (always succeeds for a valid combo, so
+    // the globalShortcut-failure Alt+G fallback below does not apply).
+    if (isRouteAllHotkeysEnabled()) {
+      setAppHotkey("gamepadKeyboard", requestedHotkey, () => {
+        requestGamepadNavigationToggleFromMain(`keyboard:${requestedHotkey}`);
+      });
+      console.log(`[Gamepad] Keyboard hotkey routed through input server: ${requestedHotkey}`);
       return;
     }
 
@@ -5411,6 +5742,21 @@ app.whenReady().then(async () => {
       registerGamepadKeyboardHotkey(previous.gamepadKeyboardHotkey);
       syncGamepadServerState(`${reason}:gamepad-keyboard`);
     }
+    if (changed("routeAllHotkeysThroughInputServer")) {
+      // Backend changed for every hotkey: ensure the server is up, then re-register
+      // all hotkeys (each setAppHotkey swaps backends and clears the prior one).
+      syncGamepadServerState(`${reason}:route-all-hotkeys`);
+      registerToggleWindowHotkey();
+      registerMinimizeHotkey();
+      registerYomitanSettingsHotkey();
+      registerOverlaySettingsHotkey();
+      registerTranslateHotkey();
+      registerToggleFuriganaHotkey();
+      registerTexthookerHotkey();
+      registerGamepadKeyboardHotkey();
+      registerManualShowHotkey();
+      syncAppHotkeyInputServerConnection(`${reason}:route-all-hotkeys`);
+    }
     if (
       changed("gamepadTokenizerBackend") ||
       changed("gamepadLocalTokenizerFallbackBackend") ||
@@ -5453,9 +5799,14 @@ app.whenReady().then(async () => {
   // Start the shared Rust input server if any current feature requires it.
   syncGamepadServerState("app-whenReady");
 
+  // If route-all-hotkeys is already enabled at launch, open the app-hotkey socket
+  // (the register* calls above populated the registry).
+  syncAppHotkeyInputServerConnection("app-whenReady");
+
   app.on('will-quit', () => {
     releaseAllOverlayPauseRequests();
     globalShortcut.unregisterAll();
+    closeAppHotkeyInputServerConnection();
     stopOverlayWebSockets();
     void stopGamepadServer("app-will-quit");
     if (pendingDisplaySyncTimer) {
@@ -6190,6 +6541,21 @@ app.whenReady().then(async () => {
           }
         }
         break;
+      case "routeAllHotkeysThroughInputServer":
+        // Backend changed for every hotkey: ensure the server is up, then
+        // re-register all hotkeys (setAppHotkey swaps backends and clears the old).
+        syncGamepadServerState("setting-changed:routeAllHotkeysThroughInputServer");
+        registerToggleWindowHotkey();
+        registerMinimizeHotkey();
+        registerYomitanSettingsHotkey();
+        registerOverlaySettingsHotkey();
+        registerTranslateHotkey();
+        registerToggleFuriganaHotkey();
+        registerTexthookerHotkey();
+        registerGamepadKeyboardHotkey();
+        registerManualShowHotkey();
+        syncAppHotkeyInputServerConnection("setting-changed:routeAllHotkeysThroughInputServer");
+        break;
       case "texthookerUrl":
         if (texthookerWindow && !texthookerWindow.isDestroyed()) {
           waitForTexthookerUrl(texthookerWindow, value);
@@ -6243,6 +6609,7 @@ app.whenReady().then(async () => {
       case "gamepadForwardSpaceButton":
       case "gamepadForwardCtrlButton":
       case "gamepadForwardEscapeButton":
+      case "gamepadForwardClickButton":
       case "gamepadManualOverlayScanButton":
       case "gamepadPauseToggleButton":
       case "gamepadTokenModeToggleButton":
@@ -6273,15 +6640,6 @@ app.whenReady().then(async () => {
       case "showFurigana":
         syncGamepadServerState("setting-changed:showFurigana");
         break;
-      case "showRecycledIndicator":
-        if (backend) {
-          backend.send({
-            type: "set-gsm-overlay-config",
-            key: "check_previous_lines_for_recycled_indicator",
-            value,
-          });
-        }
-        break;
       case "gamepadKeyboardEnabled":
       case "gamepadKeyboardHotkey":
         console.log(`[Gamepad] Keyboard setting changed: ${key} = ${value}`);
@@ -6289,11 +6647,21 @@ app.whenReady().then(async () => {
         registerGamepadKeyboardHotkey(oldValue);
         break;
     }
+    // GSM-owned OCR-capture settings are persisted by the backend, not the overlay profile.
+    if (GSM_OWNED_OVERLAY_FIELD_MAP[key]) {
+      sendGsmOwnedOverlayConfig(key, value);
+    }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("settings-updated", { [key]: value });
     }
     saveSettings();
     updateTrayMenu();
+  });
+
+  ipcMain.on("overlay-select-ocr-area", () => {
+    if (backend) {
+      backend.send({ type: "select-ocr-area" });
+    }
   });
 
   // Legacy handlers for backward compatibility - can be removed after transition
@@ -6527,12 +6895,29 @@ app.whenReady().then(async () => {
     });
   };
 
+  const forwardClickToTargetWindow = () => {
+    if (!backend || !backend.connected) {
+      console.warn("[Gamepad] Cannot forward click: backend is not connected");
+      return;
+    }
+
+    backend.send({
+      type: "send-click-request",
+      source: "gamepad",
+      activateWindow: true,
+    });
+  };
+
   ipcMain.on("gamepad-forward-enter", () => {
     forwardKeyToTargetWindow("enter");
   });
 
   ipcMain.on("gamepad-forward-key", (_event, key) => {
     forwardKeyToTargetWindow(key);
+  });
+
+  ipcMain.on("gamepad-forward-click", () => {
+    forwardClickToTargetWindow();
   });
 
   ipcMain.on("gamepad-manual-overlay-scan", () => {

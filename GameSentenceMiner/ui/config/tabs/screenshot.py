@@ -15,6 +15,9 @@ def build_screenshot_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     tabs_i18n = i18n.get("tabs", {})
 
+    window.screenshot_enabled_check.setToolTip(
+        "Capture screenshots for cards. Synced with the Picture field's Enabled toggle in the Anki tab."
+    )
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "screenshot", "enabled"),
         window.screenshot_enabled_check,

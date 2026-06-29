@@ -76,8 +76,19 @@ rate_limit_active = defaultdict(bool)
 # Electron IPC such as OCR / texthook) funnels through handle_new_text_event, so a
 # single recent-history check here covers all of them -- including IPC events that
 # never touch the clipboard or a websocket.
+# Cross-source fuzzy dedup: when an OCR line echoes a hook line that arrived
+# moments earlier (same screen, slightly different recognition/whitespace), drop
+# the OCR copy and keep the more reliable hook line.
 _DEDUP_WINDOW_SECONDS = 2.0
-_recent_text_events = deque(maxlen=20)  # entries of (text, arrival_datetime)
+_CROSS_SOURCE_DEDUP_WINDOW_SECONDS = 5.0
+_CROSS_SOURCE_SIMILARITY_THRESHOLD = 70  # fuzz.ratio over whitespace-stripped text
+_recent_text_events = deque(maxlen=20)  # entries of (text, arrival_datetime, source)
+
+# After a few auto-OCR lines are dropped as echoes of hook lines, warn once that
+# running auto OCR alongside a hook is usually redundant (and offer to stop it).
+_OCR_HOOK_REDUNDANCY_THRESHOLD = 3
+_ocr_hook_redundancy_count = 0
+_ocr_hook_redundancy_warned = False
 
 # When stats collection is disabled in advanced config, remind the user on the
 # first few received lines each startup so it's obvious nothing is being stored.
@@ -183,32 +194,72 @@ def should_drop_text_input_completely() -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _is_duplicate_text_event(text: str) -> bool:
-    """Return True when this exact text was already accepted recently.
+def _is_ocr_source(source: str | None) -> bool:
+    return bool(source) and str(source).lower() in (TextSource.OCR, TextSource.OCR_MANUAL)
 
-    Two kinds of duplicates are dropped:
-      * An immediate repeat of the last accepted line (e.g. OCR re-reading an
-        unchanged screen), regardless of how much time has passed.
-      * The same line echoed by a second source within a short window (e.g. OCR
-        delivering over IPC while the clipboard picks up the same text moments
-        later).
+
+def _classify_duplicate_text_event(text: str, source: str | None = None) -> str | None:
+    """Return why this text is a duplicate, or None if it should be accepted.
+
+    Reasons:
+      * "exact"     -- an immediate repeat of the last accepted line (e.g. OCR
+        re-reading an unchanged screen), regardless of how much time has passed.
+      * "recent"    -- the same line echoed by a second source within a short
+        window (e.g. OCR over IPC while the clipboard picks up the same text).
+      * "ocr_echo"  -- an OCR line that is *nearly* identical to a hook line
+        received moments earlier (same screen, minor whitespace/recognition
+        differences). With both a hook and OCR connected the hook is the
+        reliable copy, so the OCR echo is discarded.
 
     Dialogue that legitimately recurs later, with other lines in between, is
     still accepted because it is no longer the most recent line.
     """
     if not text:
-        return False
+        return None
     if _recent_text_events and _recent_text_events[-1][0] == text:
-        return True
+        return "exact"
     now = datetime.now()
-    for previous_text, previous_time in _recent_text_events:
+    for previous_text, previous_time, _ in _recent_text_events:
         if previous_text == text and (now - previous_time).total_seconds() <= _DEDUP_WINDOW_SECONDS:
-            return True
-    return False
+            return "recent"
+
+    if _is_ocr_source(source):
+        stripped = "".join(text.split())
+        for previous_text, previous_time, previous_source in _recent_text_events:
+            if _is_ocr_source(previous_source):
+                continue
+            if (now - previous_time).total_seconds() > _CROSS_SOURCE_DEDUP_WINDOW_SECONDS:
+                continue
+            previous_stripped = "".join(previous_text.split())
+            if not previous_stripped:
+                continue
+            if (
+                previous_stripped == stripped
+                or fuzz.ratio(previous_stripped, stripped) >= _CROSS_SOURCE_SIMILARITY_THRESHOLD
+            ):
+                return "ocr_echo"
+    return None
 
 
-def _record_text_event(text: str) -> None:
-    _recent_text_events.append((text, datetime.now()))
+def _record_text_event(text: str, source: str | None = None) -> None:
+    _recent_text_events.append((text, datetime.now(), source))
+
+
+def _note_ocr_hook_redundancy(source: str | None) -> None:
+    """Track auto-OCR lines dropped as hook echoes; warn once past the threshold."""
+    global _ocr_hook_redundancy_count, _ocr_hook_redundancy_warned
+    # Only *auto* OCR running alongside a hook is the redundant case; manual OCR
+    # is a deliberate per-shot action, so an occasional echo there is expected.
+    if _ocr_hook_redundancy_warned or str(source).lower() != TextSource.OCR:
+        return
+    _ocr_hook_redundancy_count += 1
+    if _ocr_hook_redundancy_count >= _OCR_HOOK_REDUNDANCY_THRESHOLD:
+        _ocr_hook_redundancy_warned = True
+        if os.environ.get("GSM_ELECTRON"):
+            try:
+                send_message("ocr_hook_redundant", {})
+            except Exception as exc:
+                logger.debug(f"Failed to send OCR/hook redundancy warning: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -687,10 +738,13 @@ async def handle_new_text_event(
         logger.debug("Text intake is paused; dropping incoming text without further processing.")
         return
 
-    if _is_duplicate_text_event(current_clipboard):
+    duplicate_reason = _classify_duplicate_text_event(current_clipboard, source)
+    if duplicate_reason:
         logger.debug(f"Dropping duplicate text event from [{source_display_name or source or 'Unknown'}].")
+        if duplicate_reason == "ocr_echo":
+            _note_ocr_hook_redundancy(source)
         return
-    _record_text_event(current_clipboard)
+    _record_text_event(current_clipboard, source)
 
     obs.update_current_game()
     discord_rpc_manager.update(obs.get_current_game(sanitize=False, update=False))

@@ -68,6 +68,8 @@ interface OCRConfig {
     keep_newline_menu?: boolean | null;
     keep_newline_area_select?: boolean | null;
     obs_capture_preprocess?: "none" | "grayscale" | "grayscale_unsharp";
+    compactBoxes?: boolean;
+    compactBoxesGap?: number;
     processPriority: 'low' | 'below_normal' | 'normal' | 'above_normal' | 'high';
     base_scale?: number;
     duplicate_similarity_threshold?: number;
@@ -251,6 +253,8 @@ export const store = new Store<StoreConfig>({
             keep_newline_menu: null,
             keep_newline_area_select: null,
             obs_capture_preprocess: "none",
+            compactBoxes: false,
+            compactBoxesGap: 12,
             processPriority: "normal",
             base_scale: 0.75,
             duplicate_similarity_threshold: 80,

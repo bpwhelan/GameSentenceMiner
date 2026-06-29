@@ -117,6 +117,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify packaged overlay
+        run: npm run verify:overlay-package
+
       # --- Test signing (SignPath) disabled ---
       # - name: Upload unsigned Windows installer for SignPath
       #   id: upload-unsigned-windows
@@ -338,6 +341,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify packaged overlay
+        run: npm run verify:overlay-package
+
       - name: Upload to pre-release
         uses: softprops/action-gh-release@v2
         with:
@@ -414,6 +420,9 @@ jobs:
         run: npm run app:dist -- --mac --arm64 -c.mac.artifactName='${productName}-${version}-${arch}.${ext}'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify packaged overlay
+        run: npm run verify:overlay-package
 
       - name: Copy arm64 update manifest
         run: cp dist/latest-mac.yml dist/latest-mac-arm64.yml

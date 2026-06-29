@@ -36,7 +36,6 @@ const CATALOG_I18N_KEYS: Record<string, string> = {
   "gsm-audio": "audio",
   "gsm-obs": "obs",
   "gsm-ai": "ai",
-  "gsm-overlay": "overlayOcr",
   "gsm-advanced-network": "advanced",
   "gsm-profiles": "profiles",
   "overlay-display-hotkeys": "overlayDisplay",
@@ -116,7 +115,6 @@ const SETTINGS_QUICK_LINK_IDS = [
   "gsm-anki",
   "gsm-audio",
   "gsm-screenshot",
-  "gsm-overlay",
   "overlay-display-hotkeys",
   "overlay-gamepad"
 ];

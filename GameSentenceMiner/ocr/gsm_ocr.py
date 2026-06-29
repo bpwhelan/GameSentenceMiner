@@ -35,6 +35,7 @@ from GameSentenceMiner.ocr.compare import (
     normalize_for_comparison,
 )
 from GameSentenceMiner import obs
+from GameSentenceMiner.ocr.composite_layout import CompositeLayout
 from GameSentenceMiner.ocr.gsm_ocr_config import (
     OCRConfig,
     has_config_changed,
@@ -2272,26 +2273,33 @@ def _normalize_size(size_obj: Any, fallback_width: int = 0, fallback_height: int
     return {"width": _safe_int(fallback_width), "height": _safe_int(fallback_height)}
 
 
-def _translate_bounding_rect(bounding_rect: dict[str, Any], offset_x: int, offset_y: int) -> dict[str, float]:
+def _translate_bounding_rect(bounding_rect: dict[str, Any], layout: "CompositeLayout") -> dict[str, float]:
+    xs = [float(bounding_rect.get(key, 0.0)) for key in ("x1", "x2", "x3", "x4")]
+    ys = [float(bounding_rect.get(key, 0.0)) for key in ("y1", "y2", "y3", "y4")]
+    # Shift the whole quad by a single per-region translation (picked from its
+    # center) so packed boxes map back to the source frame without distortion.
+    center_x = sum(xs) / 4.0
+    center_y = sum(ys) / 4.0
+    offset_x, offset_y = layout.offset_for_point(center_x, center_y)
     translated = {}
-    for key in ("x1", "x2", "x3", "x4"):
-        translated[key] = float(bounding_rect.get(key, 0.0)) + float(offset_x)
-    for key in ("y1", "y2", "y3", "y4"):
-        translated[key] = float(bounding_rect.get(key, 0.0)) + float(offset_y)
+    for key, value in zip(("x1", "x2", "x3", "x4"), xs):
+        translated[key] = value + float(offset_x)
+    for key, value in zip(("y1", "y2", "y3", "y4"), ys):
+        translated[key] = value + float(offset_y)
     return translated
 
 
-def _translate_line_to_source_space(line: dict[str, Any], offset_x: int, offset_y: int) -> dict[str, Any]:
+def _translate_line_to_source_space(line: dict[str, Any], layout: "CompositeLayout") -> dict[str, Any]:
     translated_line = {
         "text": str(line.get("text", "") or ""),
-        "bounding_rect": _translate_bounding_rect(line.get("bounding_rect", {}) or {}, offset_x, offset_y),
+        "bounding_rect": _translate_bounding_rect(line.get("bounding_rect", {}) or {}, layout),
         "words": [],
     }
     for word in line.get("words", []) or []:
         translated_line["words"].append(
             {
                 "text": str(word.get("text", "") or ""),
-                "bounding_rect": _translate_bounding_rect(word.get("bounding_rect", {}) or {}, offset_x, offset_y),
+                "bounding_rect": _translate_bounding_rect(word.get("bounding_rect", {}) or {}, layout),
             }
         )
     return translated_line
@@ -2416,8 +2424,9 @@ def build_overlay_coordinate_payload(response_dict: Any) -> dict[str, Any] | Non
 
     offset_x = _safe_int(crop_offset.get("x"))
     offset_y = _safe_int(crop_offset.get("y"))
+    crop_layout = CompositeLayout.from_metadata(crop_offset)
     translated_lines = _normalize_overlay_lookup_lines(
-        [_translate_line_to_source_space(line, offset_x, offset_y) for line in lines if isinstance(line, dict)]
+        [_translate_line_to_source_space(line, crop_layout) for line in lines if isinstance(line, dict)]
     )
     if not translated_lines:
         return None
@@ -2553,10 +2562,11 @@ def _rebase_second_pass_payload_to_first_pass(first_pass_payload: Any, second_pa
     rebased_pipeline["capture"] = copy.deepcopy(first_capture)
 
     rebased_processing = rebased_pipeline.setdefault("processing", {})
-    rebased_processing["crop_offset"] = {
-        "x": _safe_int(first_crop_offset.get("x"), 0) + ocr2_crop_x,
-        "y": _safe_int(first_crop_offset.get("y"), 0) + ocr2_crop_y,
-    }
+    # OCR2 ran on a crop of the (possibly packed) OCR1 composite at origin
+    # (ocr2_crop_x, ocr2_crop_y). Shift the first-pass layout into OCR2-crop space
+    # so per-region packing offsets still map OCR2 coordinates back to the source.
+    first_layout = CompositeLayout.from_metadata(first_crop_offset)
+    rebased_processing["crop_offset"] = first_layout.translate_dest(-ocr2_crop_x, -ocr2_crop_y).to_metadata()
     for key in ("capture_origin", "coordinate_mode", "crop_rectangles"):
         if key in first_processing:
             rebased_processing[key] = copy.deepcopy(first_processing[key])
@@ -2700,10 +2710,10 @@ class OCRProcessor:
         crop_offset = metadata.get("ocr_area_crop_offset")
         if not isinstance(crop_offset, dict):
             crop_offset = {"x": 0, "y": 0}
-        metadata["ocr_area_crop_offset"] = {
-            "x": _safe_int(crop_offset.get("x"), 0) + int(add_x),
-            "y": _safe_int(crop_offset.get("y"), 0) + int(add_y),
-        }
+        # OCR2 runs on a crop at (add_x, add_y) of the prior composite; shift the
+        # layout into that crop's space so packed per-region offsets stay valid.
+        layout = CompositeLayout.from_metadata(crop_offset)
+        metadata["ocr_area_crop_offset"] = layout.translate_dest(-int(add_x), -int(add_y)).to_metadata()
         return metadata
 
     def _prepare_beangate_secondary_ocr2_image(self, img, ignore_furigana_filter=False):

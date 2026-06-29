@@ -1110,6 +1110,210 @@
       padding: 4px 2px;
     }
 
+    /* Injected one-line description under settings (mirrors .hotkey-info). */
+    .setting-desc {
+      font-size: 11px;
+      color: #8a8a8a;
+      margin-top: 3px;
+      line-height: 1.4;
+      font-style: normal;
+    }
+
+    /* Cross-tab search bar */
+    .settings-search {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(0, 0, 0, 0.22);
+    }
+
+    .settings-search-icon {
+      font-size: 14px;
+      opacity: 0.7;
+    }
+
+    .settings-search input {
+      flex: 1;
+      min-width: 0;
+      border: none;
+      background: transparent;
+      color: #ffffff;
+      font-size: 14px;
+      padding: 4px 2px;
+    }
+
+    .settings-search input:focus {
+      outline: none;
+      box-shadow: none;
+      background: transparent;
+    }
+
+    .settings-search-count {
+      font-size: 11px;
+      color: #9fb09f;
+      white-space: nowrap;
+    }
+
+    .settings-search-clear {
+      width: 24px;
+      height: 24px;
+      flex: 0 0 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      color: #d0d0d0;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .settings-search-clear:hover {
+      color: #ffffff;
+      border-color: rgba(76, 175, 80, 0.55);
+      background: rgba(76, 175, 80, 0.18);
+    }
+
+    .settings-search-noresults {
+      margin: 4px 0 14px;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px dashed rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.03);
+      color: #9a9a9a;
+      font-size: 13px;
+      text-align: center;
+    }
+
+    /* While searching, the tab bar is irrelevant (results span all tabs). */
+    body.search-active .settings-tabs {
+      opacity: 0.45;
+      pointer-events: none;
+    }
+
+    /* Capability cards (Overview tab) — modeled on .preset-card. */
+    .capability-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+    }
+
+    .capability-card {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      text-align: left;
+      padding: 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
+      color: #e8e8e8;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .capability-card:hover {
+      border-color: rgba(90, 163, 255, 0.5);
+      background: rgba(38, 71, 116, 0.28);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+    }
+
+    .capability-card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .capability-card-blurb {
+      font-size: 12px;
+      line-height: 1.5;
+      color: #c4c4c4;
+      flex: 1;
+    }
+
+    .capability-card-cta {
+      font-size: 11px;
+      font-weight: 600;
+      color: #9cc3ff;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    /* Highlighted "quick answer" callout (e.g. the red-boxes FAQ). */
+    /* Hide the red-boxes FAQ when the indicators are already turned off.
+       !important so it wins over the tab/search inline-display juggling. */
+    .red-callout-hidden {
+      display: none !important;
+    }
+
+    .overview-callout {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 193, 7, 0.32);
+      background: linear-gradient(135deg, rgba(255, 193, 7, 0.14) 0%, rgba(255, 255, 255, 0.04) 100%);
+    }
+
+    .overview-callout-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .overview-callout-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #ffe9b0;
+    }
+
+    .overview-callout-text {
+      font-size: 12px;
+      color: #e6dcc2;
+      line-height: 1.45;
+    }
+
+    .overview-callout-button {
+      flex-shrink: 0;
+      border: 1px solid rgba(255, 193, 7, 0.5);
+      background: rgba(60, 48, 12, 0.55);
+      color: #fff3d6;
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .overview-callout-button:hover {
+      border-color: rgba(255, 193, 7, 0.75);
+      background: rgba(92, 73, 18, 0.85);
+      transform: translateY(-1px);
+    }
+
+    /* Brief highlight when a card/callout jumps to a specific setting. */
+    @keyframes setting-flash-anim {
+      0% { background: rgba(76, 175, 80, 0.0); box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.0); }
+      25% { background: rgba(76, 175, 80, 0.28); box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.45); }
+      100% { background: rgba(76, 175, 80, 0.0); box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.0); }
+    }
+
+    .setting-flash {
+      animation: setting-flash-anim 1.6s ease-out 1;
+    }
+
     @media (max-width: 1024px) {
       .settings-grid {
         grid-template-columns: 1fr;
@@ -1178,36 +1382,88 @@
       </div>
     </div> -->
 
+    <div class="settings-search">
+      <span class="settings-search-icon" aria-hidden="true">🔍</span>
+      <input type="text" id="settingsSearchInput" autocomplete="off" spellcheck="false"
+        placeholder="Search all settings… (e.g. red boxes, pomodoro, controller, furigana)"
+        aria-label="Search all overlay settings" />
+      <span id="settingsSearchCount" class="settings-search-count"></span>
+      <button type="button" id="settingsSearchClear" class="settings-search-clear" title="Clear search" aria-label="Clear search">✕</button>
+    </div>
+    <div id="settingsSearchNoResults" class="settings-search-noresults" style="display: none;">
+      No settings match your search.
+    </div>
+
     <div class="settings-tabs" role="tablist" aria-label="Settings Categories">
-      <button type="button" class="settings-tab-button active" data-settings-tab="general" role="tab" aria-selected="true">General</button>
-      <button type="button" class="settings-tab-button" data-settings-tab="stats" role="tab" aria-selected="false">Stats</button>
+      <button type="button" class="settings-tab-button active" data-settings-tab="overview" role="tab" aria-selected="true">Overview</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="reading" role="tab" aria-selected="false">Reading</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="interaction" role="tab" aria-selected="false">Interaction</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="gamepad" role="tab" aria-selected="false">Gamepad</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="stats" role="tab" aria-selected="false">Stats &amp; Goals</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="dictionary" role="tab" aria-selected="false">Jiten Reader</button>
       <button type="button" class="settings-tab-button" data-settings-tab="profiles" role="tab" aria-selected="false">Profiles</button>
-      <button type="button" class="settings-tab-button" data-settings-tab="furigana" role="tab" aria-selected="false">Furigana</button>
-      <button type="button" class="settings-tab-button" data-settings-tab="jiten" role="tab" aria-selected="false">Jiten Reader</button>
-      <button type="button" class="settings-tab-button" data-settings-tab="controller" role="tab" aria-selected="false">Controller</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="capture" role="tab" aria-selected="false">Capture</button>
       <button type="button" class="settings-tab-button" data-settings-tab="advanced" role="tab" aria-selected="false">Advanced</button>
     </div>
 
     <div class="settings-grid">
-    <div class="setting-group full-width" data-tab="general" id="overlayPresetsGroup">
+    <div class="setting-group full-width" data-tab="overview">
+      <h4>What the overlay can do</h4>
+      <p class="presets-intro">
+        The overlay is far more than on-screen text. Pick a capability to jump straight to its
+        settings — or use the search box up top to find anything by name.
+      </p>
+      <div class="capability-cards" id="capabilityCards"></div>
+    </div>
+
+    <!-- High-frequency FAQ: "how do I remove the red boxes?". Surfaced on Overview so the
+         answer is one click away; the default stays ON so new users see it's working.
+         Hidden by the enhancer when Show Text Indicators is already off. -->
+    <div class="setting-group full-width" data-tab="overview" id="redBoxesCallout">
+      <div class="overview-callout">
+        <div class="overview-callout-copy">
+          <span class="overview-callout-title">Seeing red boxes around the text?</span>
+          <span class="overview-callout-text">
+            Those borders mean the overlay is capturing text correctly. If you'd rather hide them,
+            turn off the "Show Text Indicators" setting.
+          </span>
+        </div>
+        <button type="button" class="overview-callout-button" data-jump-setting="showTextIndicators" data-jump-tab="reading">
+          Remove the boxes →
+        </button>
+      </div>
+    </div>
+
+    <div class="setting-group full-width" data-tab="overview" id="overlayPresetsGroup">
       <h4>★ Recommended Setups</h4>
       <p class="presets-intro">
         One click to apply a known-good combo. Pick the one that matches how you play — you can
-        still fine-tune anything below afterwards.
+        still fine-tune anything afterwards.
       </p>
       <div class="preset-cards" id="overlayPresetCards"></div>
       <p class="presets-intro" style="margin: 12px 0 0 0;">
-        Tip: if <strong>Shift</strong> clashes with a game key, open Manual Mode below and change the
-        hotkey to <strong>Shift+Space</strong>.
+        Tip: if <strong>Shift</strong> clashes with a game key, open the Interaction tab's Push to Show
+        card and change the hotkey to <strong>Shift+Space</strong>.
       </p>
     </div>
 
-    <!-- Manual Mode card markup is injected from components/manual-mode-card.js (shared
-         with the manual-mode recommendation window). IDs match the bindings below.
-         Promoted to the top of General as the highest-impact interaction setting. -->
-    <div class="setting-group full-width" data-tab="general" id="manualModeCardMount"></div>
+    <!-- Push to Show card markup is injected from components/manual-mode-card.js (shared
+         with the recommendation window). IDs match the bindings below.
+         Lives on the Interaction tab as the highest-impact interaction setting. -->
+    <div class="setting-group full-width" data-tab="interaction" id="manualModeCardMount"></div>
 
-    <div class="setting-group" data-tab="general">
+    <div class="setting-group" data-tab="interaction">
+      <h4>Push to Show &mdash; Advanced</h4>
+      <label>
+        <span class="label-text">
+          Freeze Game Frame Behind Overlay (Exclusive Fullscreen)
+          <div class="hotkey-info">For exclusive-fullscreen games (e.g. Resident Evil 7) whose frame disappears when the overlay steals focus: grab a fresh full-monitor snapshot and paint it behind the overlay so lookups sit over the last game frame. May flicker.</div>
+        </span>
+        <input type="checkbox" id="manual_mode_desktop_background" />
+      </label>
+    </div>
+
+    <div class="setting-group" data-tab="reading">
       <h4>Visibility</h4>
       <label>
         <span class="label-text">Show "Ready" Indicator</span>
@@ -1354,7 +1610,7 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="general">
+    <div class="setting-group" data-tab="interaction">
       <h4>Behavior</h4>
       <label>
         <span class="label-text">Open Settings on Startup</span>
@@ -1377,7 +1633,122 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="furigana">
+    <div class="setting-group full-width" data-tab="capture">
+      <h4>OCR / Capture</h4>
+      <p class="hotkey-info">These OCR-capture settings are stored with your active GSM profile. This window is their home — edit them here.</p>
+      <label>
+        <span class="label-text">OCR Engine</span>
+        <select id="engine_v2">
+          <option value="oneocr">OneOCR</option>
+          <option value="lens">Google Lens</option>
+          <option value="meikiocr">MeikiOCR</option>
+          <option value="screenai">ScreenAI</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">Monitor to Capture</span>
+        <select id="monitor_to_capture">
+          <option value="0">Monitor 1</option>
+        </select>
+      </label>
+      <label>
+        <span class="label-text">OCR Capture Area</span>
+        <button type="button" id="selectOcrAreaButton" class="secondary">Select OCR Area...</button>
+      </label>
+      <label>
+        <span class="label-text">Use OCR Area Config</span>
+        <input type="checkbox" id="use_ocr_area_config_v2" />
+      </label>
+      <label>
+        <span class="label-text">Minimum Character Size (0 = disabled)</span>
+        <input type="number" id="minimum_character_size" value="0" min="0" max="500" />
+      </label>
+    </div>
+
+    <div class="setting-group" data-tab="capture">
+      <h4>Periodic Scanning</h4>
+      <label>
+        <span class="label-text">Enable Periodic Scanning</span>
+        <input type="checkbox" id="periodic" />
+      </label>
+      <label>
+        <span class="label-text">Scan Interval (seconds)</span>
+        <input type="number" id="periodic_interval" value="1" min="0.1" max="60" step="0.1" />
+      </label>
+      <label>
+        <span class="label-text">Only Scan When the Cursor Moves Over the Game</span>
+        <input type="checkbox" id="scan_on_mouse_move" />
+      </label>
+      <label>
+        <span class="label-text">Add Scanned Lines to the Text Log (mining/stats)</span>
+        <input type="checkbox" id="inject_scanned_lines" />
+      </label>
+    </div>
+
+    <div class="setting-group" data-tab="capture">
+      <h4>OCR Results</h4>
+      <label>
+        <span class="label-text">
+          Use OCR Result V2
+          <div class="hotkey-info">Use only the dedicated OCR-result pipeline for overlay text. Mutually exclusive with "Supplement With Overlay".</div>
+        </span>
+        <input type="checkbox" id="use_ocr_result_v2" />
+      </label>
+      <label>
+        <span class="label-text">
+          Supplement OCR Result With Overlay
+          <div class="hotkey-info">Merge overlay-scanned text into the OCR result for more complete lines. Mutually exclusive with "Use OCR Result V2".</div>
+        </span>
+        <input type="checkbox" id="supplement_ocr_result_with_overlay" />
+      </label>
+      <label>
+        <span class="label-text">Apply Text Filtering</span>
+        <input type="checkbox" id="use_text_filtering" />
+      </label>
+    </div>
+
+    <div class="setting-group" data-tab="capture">
+      <details class="setting-section">
+        <summary>Legacy / Advanced &mdash; don't change unless you know why</summary>
+        <label>
+          <span class="label-text">
+            Periodic Scan Ratio
+            <div class="hotkey-info">Advanced periodic-scan tuning. Leave at the default (0.9) unless instructed otherwise.</div>
+          </span>
+          <input type="number" id="periodic_ratio" value="0.9" min="0" max="1" step="0.05" />
+        </label>
+        <label class="sub-option">
+          <span class="label-text">
+            Include Primary OCR Areas
+            <div class="hotkey-info">When OCR Area Config is on, include primary (main) areas in the overlay.</div>
+          </span>
+          <input type="checkbox" id="ocr_area_config_include_primary_areas" />
+        </label>
+        <label class="sub-option">
+          <span class="label-text">
+            Include Secondary OCR Areas
+            <div class="hotkey-info">When OCR Area Config is on, include secondary areas in the overlay.</div>
+          </span>
+          <input type="checkbox" id="ocr_area_config_include_secondary_areas" />
+        </label>
+        <label class="sub-option">
+          <span class="label-text">
+            Apply Exclusion Zones
+            <div class="hotkey-info">When OCR Area Config is on, drop text inside exclusion zones.</div>
+          </span>
+          <input type="checkbox" id="ocr_area_config_use_exclusion_zones" />
+        </label>
+        <label>
+          <span class="label-text" style="color:#ff6b6b;">
+            OCR Full Screen Instead of OBS
+            <div class="hotkey-info">Legacy/debug capture method: captures the full screen instead of the OBS game window.</div>
+          </span>
+          <input type="checkbox" id="ocr_full_screen_instead_of_obs" />
+        </label>
+      </details>
+    </div>
+
+    <div class="setting-group" data-tab="reading">
       <h4>Furigana Display</h4>
       <label>
         <span class="label-text">
@@ -1403,7 +1774,7 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="furigana" id="pinyinToneColorsGroup">
+    <div class="setting-group" data-tab="reading" id="pinyinToneColorsGroup">
       <h4>Pinyin Tone Colors</h4>
       <label>
         <span class="label-text">
@@ -1434,7 +1805,7 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="furigana">
+    <div class="setting-group" data-tab="reading">
       <h4>Furigana Style</h4>
       <label>
         <span class="label-text">
@@ -1481,10 +1852,10 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="furigana">
+    <div class="setting-group" data-tab="reading">
       <h4>Furigana Tokenizer</h4>
       <div class="shared-setting-note">
-        These tokenizer settings are shared with controller navigation. Changing them here updates the controller tab too.
+        These tokenizer settings are shared with controller navigation. Changing them here updates the Gamepad tab too.
       </div>
       <label>
         <span class="label-text">
@@ -1561,7 +1932,7 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="furigana">
+    <div class="setting-group" data-tab="reading">
       <h4>Furigana Hotkeys</h4>
       <label>
         <span class="label-text">
@@ -1581,7 +1952,7 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="jiten">
+    <div class="setting-group" data-tab="dictionary">
       <h4>Jiten Reader</h4>
       <label class="master-toggle">
         <span class="label-text">
@@ -1606,7 +1977,7 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="jiten">
+    <div class="setting-group" data-tab="dictionary">
       <h4>Overlay Integration <span style="color: #ff6b6b; font-size: 13px; font-weight: normal;">⚠️ WIP</span></h4>
       <div class="hotkey-info" style="color: #ffcc66; margin-bottom: 10px;">
         Work in progress. To avoid unnecessary API calls, some operations are intentionally delayed in order to play nice with Jiten's API.
@@ -1635,9 +2006,44 @@
       </label>
     </div>
 
-    <details class="setting-group setting-section full-width" data-tab="general">
-      <summary>Hotkeys</summary>
-      <div class="setting-section-body">
+    <!-- TextFeed promoted to its own card (separate from Translation); the hotkey is
+         the headline since it's the high-value, frequently-used control. -->
+    <div class="setting-group full-width" data-tab="interaction">
+      <h4>TextFeed</h4>
+      <label>
+        <span class="label-text">
+          TextFeed Hotkey
+          <div class="hotkey-info">Toggle the TextFeed window — a scrollable feed of recent lines, great for re-reading or copying text. One of the overlay's most useful shortcuts.</div>
+          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+          <div id="texthooker-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
+        </span>
+        <div class="input-container">
+          <input type="text" id="texthookerHotkey" value="Alt+Shift+R"
+            title="Enter a valid hotkey (e.g., Alt+Shift+R)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+          <button type="button" class="guide-button"
+            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+            Guide
+          </button>
+        </div>
+      </label>
+      <label>
+        <span class="label-text">
+          TextFeed URL
+          <div class="hotkey-info">Automatically synced from GSM's single-port texthooker setting.</div>
+        </span>
+        <input type="text" id="texthookerUrl" value="http://localhost:7275/texthooker" readonly />
+      </label>
+    </div>
+
+    <div class="setting-group full-width" data-tab="interaction">
+      <h4>Hotkeys</h4>
+      <label>
+        <span class="label-text">
+          Route all hotkeys through input server
+          <div class="hotkey-info">For games (e.g. Skyrim) where normal global hotkeys don't fire. Uses GSM's low-level keyboard hook for every hotkey. Also enables F13–F24 bindings.</div>
+        </span>
+        <input type="checkbox" id="routeAllHotkeysThroughInputServer" />
+      </label>
       <label>
         <span class="label-text">
           Toggle Window Hotkey
@@ -1702,12 +2108,9 @@
           </button>
         </div>
       </label>
-      </div>
-    </details>
+    </div>
 
-    <details class="setting-group setting-section full-width" data-tab="general">
-      <summary>Advanced</summary>
-      <div class="setting-section-body">
+    <div class="setting-group full-width" data-tab="interaction">
         <div id="text-offset-group">
           <h4>Text Offset</h4>
           <label>
@@ -1766,34 +2169,9 @@
             </button>
           </div>
         </label>
-        <h4>TextFeed</h4>
-        <label>
-          <span class="label-text">
-            TextFeed URL
-            <div class="hotkey-info">Automatically synced from GSM's single-port texthooker setting.</div>
-          </span>
-          <input type="text" id="texthookerUrl" value="http://localhost:7275/texthooker" readonly />
-        </label>
-        <label>
-          <span class="label-text">
-            TextFeed Hotkey
-            <div class="hotkey-info">Toggle the TextFeed window.</div>
-            <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
-            <div id="texthooker-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
-          </span>
-          <div class="input-container">
-            <input type="text" id="texthookerHotkey" value="Alt+Shift+R"
-              title="Enter a valid hotkey (e.g., Alt+Shift+R)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
-            <button type="button" class="guide-button"
-              onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
-              Guide
-            </button>
-          </div>
-        </label>
-      </div>
-    </details>
+    </div>
 
-    <div class="setting-group" data-tab="controller">
+    <div class="setting-group" data-tab="gamepad">
       <h4>🎮 Gamepad Navigation (Experimental)</h4>
       <label>
         <span class="label-text">
@@ -1882,6 +2260,14 @@
         </span>
         <input type="text" id="gamepadForwardEscapeButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardForwardEscapeKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
+      </label>
+      <label>
+        <span class="label-text">
+          Forward Click Button
+          <div class="hotkey-info">Left-click the center of the current GSM target window</div>
+        </span>
+        <input type="text" id="gamepadForwardClickButton" class="gamepad-binding-input" value="Disabled" placeholder="Click and press a controller combo" readonly />
+        <input type="text" id="keyboardForwardClickKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
@@ -2237,7 +2623,7 @@
     });
 
     let mainBoxStartupWarningAcknowledged = false;
-    let activeSettingsTab = "general";
+    let activeSettingsTab = "overview";
     let overlayProfileState = {
       enabled: false,
       activeProfileName: "Default",
@@ -2302,6 +2688,7 @@
       gamepadForwardSpaceButton: { settingKey: "gamepadForwardSpaceButton", label: "Forward Space Button", fallbackValue: -1 },
       gamepadForwardCtrlButton: { settingKey: "gamepadForwardCtrlButton", label: "Forward Ctrl Button", fallbackValue: -1 },
       gamepadForwardEscapeButton: { settingKey: "gamepadForwardEscapeButton", label: "Forward Escape Button", fallbackValue: -1 },
+      gamepadForwardClickButton: { settingKey: "gamepadForwardClickButton", label: "Forward Click Button", fallbackValue: -1 },
       gamepadManualOverlayScanButton: { settingKey: "gamepadManualOverlayScanButton", label: "Manual Overlay Scan Button", fallbackValue: -1 },
       gamepadPauseToggleButton: { settingKey: "gamepadPauseToggleButton", label: "Pause Button", fallbackValue: -1 },
       gamepadTokenModeToggleButton: { settingKey: "gamepadTokenModeToggleButton", label: "Token Mode Toggle Button", fallbackValue: 3 },
@@ -2319,6 +2706,7 @@
       keyboardForwardSpaceKey: { settingKey: "keyboardForwardSpaceKey", label: "Keyboard Forward Space Key", fallbackValue: null },
       keyboardForwardCtrlKey: { settingKey: "keyboardForwardCtrlKey", label: "Keyboard Forward Ctrl Key", fallbackValue: null },
       keyboardForwardEscapeKey: { settingKey: "keyboardForwardEscapeKey", label: "Keyboard Forward Escape Key", fallbackValue: null },
+      keyboardForwardClickKey: { settingKey: "keyboardForwardClickKey", label: "Keyboard Forward Click Key", fallbackValue: null },
       keyboardManualOverlayScanKey: { settingKey: "keyboardManualOverlayScanKey", label: "Keyboard Manual Overlay Scan Key", fallbackValue: null },
       keyboardPauseToggleKey: { settingKey: "keyboardPauseToggleKey", label: "Keyboard Pause Key", fallbackValue: null },
       keyboardTokenModeToggleKey: { settingKey: "keyboardTokenModeToggleKey", label: "Keyboard Token Toggle Key", fallbackValue: null },
@@ -2332,7 +2720,7 @@
     };
 
     function updateSettingsTabVisibility(tabName) {
-      const nextTab = tabName || "general";
+      const nextTab = tabName || "overview";
       activeSettingsTab = nextTab;
 
       const tabButtons = document.querySelectorAll(".settings-tab-button[data-settings-tab]");
@@ -2354,7 +2742,7 @@
         grid.style.display = hasVisibleGroup ? "grid" : "none";
       });
 
-      if (nextTab === "controller") {
+      if (nextTab === "gamepad") {
         renderGamepadInputConsole();
       }
     }
@@ -2524,7 +2912,7 @@
           manualModeCheckbox.disabled = true;
           const manualModeLabel = manualModeCheckbox.closest('label');
           if (manualModeLabel) {
-            manualModeLabel.title = 'Manual mode is required on Linux and macOS.';
+            manualModeLabel.title = 'Push to Show is required on Linux and macOS.';
           }
         }
 
@@ -2990,6 +3378,15 @@
       group.style.display = select.value === "chinese" ? "" : "none";
     }
 
+    // The OCR-area subset toggles only apply when OCR Area Config is enabled.
+    function syncOcrAreaSubsetUi() {
+      const enabled = document.getElementById("use_ocr_area_config_v2")?.checked === true;
+      ["ocr_area_config_include_primary_areas", "ocr_area_config_include_secondary_areas", "ocr_area_config_use_exclusion_zones"].forEach((id) => {
+        const control = document.getElementById(id);
+        if (control) control.disabled = !enabled;
+      });
+    }
+
     function syncGamepadSettingsEnabledUi() {
       const enabled = document.getElementById("gamepadEnabled")?.checked !== false;
       updateGamepadSettingsVisibility(enabled);
@@ -3002,6 +3399,7 @@
         "gamepadForwardSpaceButton",
         "gamepadForwardCtrlButton",
         "gamepadForwardEscapeButton",
+        "gamepadForwardClickButton",
         "gamepadManualOverlayScanButton",
         "gamepadPauseToggleButton",
         "gamepadTokenModeToggleButton",
@@ -3166,6 +3564,8 @@
       };
     }
 
+    // Latest GSM-owned monitor index; used to restore selection once the dropdown is populated.
+    let desiredMonitorToCapture = 0;
     const SETTING_BINDING_DEFINITIONS = [
       createCheckboxBinding("showReadyIndicator", "#showReadyIndicator"),
       createCheckboxBinding("showTextIndicators", "#showTextIndicators", {
@@ -3173,6 +3573,80 @@
       }),
       createCheckboxBinding("fadeTextIndicators", "#fadeTextIndicators"),
       createCheckboxBinding("showRecycledIndicator", "#showRecycledIndicator"),
+      // GSM-owned OCR/Capture settings (persisted by the backend per GSM profile).
+      createSelectBinding("engine_v2", "#engine_v2"),
+      {
+        key: "monitor_to_capture",
+        selectors: ["#monitor_to_capture"],
+        event: "change",
+        read: (control) => {
+          const numeric = Number.parseInt(control.value, 10);
+          return Number.isFinite(numeric) ? numeric : 0;
+        },
+        write: (control, value) => {
+          const idx = Number.isFinite(Number(value)) ? Number(value) : 0;
+          desiredMonitorToCapture = idx;
+          if (control.querySelector(`option[value="${idx}"]`)) {
+            control.value = String(idx);
+          }
+        },
+        normalize: (value) => {
+          const numeric = Number.parseInt(value, 10);
+          return Number.isFinite(numeric) ? numeric : 0;
+        },
+      },
+      createCheckboxBinding("use_ocr_area_config_v2", "#use_ocr_area_config_v2", {
+        afterApply: () => syncOcrAreaSubsetUi(),
+      }),
+      createNumberBinding("minimum_character_size", "#minimum_character_size", {
+        fallback: 0,
+        min: 0,
+        max: 500,
+        integer: true,
+      }),
+      createCheckboxBinding("periodic", "#periodic"),
+      createNumberBinding("periodic_interval", "#periodic_interval", {
+        fallback: 1,
+        min: 0.1,
+        max: 60,
+      }),
+      createCheckboxBinding("scan_on_mouse_move", "#scan_on_mouse_move"),
+      createCheckboxBinding("inject_scanned_lines", "#inject_scanned_lines"),
+      createCheckboxBinding("use_ocr_result_v2", "#use_ocr_result_v2", {
+        afterApply: (value, options) => {
+          if (value === true && options.source === "user") {
+            void commitSettingValue("supplement_ocr_result_with_overlay", false, null);
+          }
+        },
+      }),
+      createCheckboxBinding("supplement_ocr_result_with_overlay", "#supplement_ocr_result_with_overlay", {
+        afterApply: (value, options) => {
+          if (value === true && options.source === "user") {
+            void commitSettingValue("use_ocr_result_v2", false, null);
+          }
+        },
+      }),
+      createCheckboxBinding("use_text_filtering", "#use_text_filtering"),
+      // Legacy / advanced OCR-capture settings (collapsed in the Capture tab).
+      createNumberBinding("periodic_ratio", "#periodic_ratio", {
+        fallback: 0.9,
+        min: 0,
+        max: 1,
+      }),
+      createCheckboxBinding("ocr_area_config_include_primary_areas", "#ocr_area_config_include_primary_areas"),
+      createCheckboxBinding("ocr_area_config_include_secondary_areas", "#ocr_area_config_include_secondary_areas"),
+      createCheckboxBinding("ocr_area_config_use_exclusion_zones", "#ocr_area_config_use_exclusion_zones"),
+      createCheckboxBinding("ocr_full_screen_instead_of_obs", "#ocr_full_screen_instead_of_obs"),
+      {
+        key: "manual_mode_desktop_background",
+        selectors: ["#manual_mode_desktop_background"],
+        event: "change",
+        read: (control) => (control.checked === true ? "on_demand" : "off"),
+        write: (control, value) => {
+          control.checked = String(value || "off").trim().toLowerCase() === "on_demand";
+        },
+        normalize: (value) => (String(value || "off").trim().toLowerCase() === "on_demand" ? "on_demand" : "off"),
+      },
       createCheckboxBinding("showLiveStats", "#showLiveStats"),
       createCheckboxBinding("showLiveGoals", "#showLiveGoals"),
       createSelectBinding("liveStatsDisplayModeV2", "#liveStatsDisplayModeV2", {
@@ -3238,6 +3712,7 @@
       },
       createCheckboxBinding("openSettingsOnStartup", "#openSettingsOnStartup"),
       createCheckboxBinding("focusOverlayOnYomitanLookup", "#focusOverlayOnYomitanLookup"),
+      createCheckboxBinding("routeAllHotkeysThroughInputServer", "#routeAllHotkeysThroughInputServer"),
       createNumberBinding("afkTimer", "#afkTimer", {
         fallback: 5,
         min: 0,
@@ -3355,6 +3830,7 @@
       createGamepadBindingSetting("gamepadForwardSpaceButton"),
       createGamepadBindingSetting("gamepadForwardCtrlButton"),
       createGamepadBindingSetting("gamepadForwardEscapeButton"),
+      createGamepadBindingSetting("gamepadForwardClickButton"),
       createGamepadBindingSetting("gamepadManualOverlayScanButton"),
       createGamepadBindingSetting("gamepadPauseToggleButton"),
       createGamepadBindingSetting("gamepadTokenModeToggleButton"),
@@ -3369,6 +3845,7 @@
       createKeyboardBindingSetting("keyboardForwardSpaceKey"),
       createKeyboardBindingSetting("keyboardForwardCtrlKey"),
       createKeyboardBindingSetting("keyboardForwardEscapeKey"),
+      createKeyboardBindingSetting("keyboardForwardClickKey"),
       createKeyboardBindingSetting("keyboardManualOverlayScanKey"),
       createKeyboardBindingSetting("keyboardPauseToggleKey"),
       createKeyboardBindingSetting("keyboardTokenModeToggleKey"),
@@ -3524,6 +4001,37 @@
 
     document.getElementById("openOffsetHelper").addEventListener("click", () => {
       ipcRenderer.send("open-offset-helper");
+    });
+
+    const selectOcrAreaButton = document.getElementById("selectOcrAreaButton");
+    if (selectOcrAreaButton) {
+      selectOcrAreaButton.addEventListener("click", () => {
+        ipcRenderer.send("overlay-select-ocr-area");
+      });
+    }
+
+    // Populate the monitor dropdown from the backend-provided monitor list, preserving selection.
+    function populateMonitorOptions(monitors) {
+      const select = document.getElementById("monitor_to_capture");
+      if (!select || !Array.isArray(monitors) || monitors.length === 0) {
+        return;
+      }
+      select.innerHTML = "";
+      monitors.forEach((label, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = typeof label === "string" && label.trim() ? label : `Monitor ${index + 1}`;
+        select.appendChild(option);
+      });
+      // Restore the active monitor index (tracked even when options weren't populated yet).
+      const current = String(desiredMonitorToCapture);
+      if (select.querySelector(`option[value="${current}"]`)) {
+        select.value = current;
+      }
+    }
+
+    ipcRenderer.on("gsm-overlay-monitors", (event, monitors) => {
+      populateMonitorOptions(monitors);
     });
 
     document.getElementById("resetOffset").addEventListener("click", () => {
@@ -4639,8 +5147,8 @@
       },
       {
         id: "manual-hold",
-        name: "Manual · Hold",
-        blurb: "For a more \"Yomitan\" style experience. Hold Shift to reveal the overlay, release to hide. Manual mode is recommended for most games that hide the mouse cursor, or require a lot of interaction. Vertical Text, and Magpie compatibility also become more stable.",
+        name: "Push to Show · Hold",
+        blurb: "For a more \"Yomitan\" style experience. Hold Shift to reveal the overlay, release to hide. Push to Show is recommended for most games that hide the mouse cursor, or require a lot of interaction. Vertical Text, and Magpie compatibility also become more stable.",
         values: {
           manualMode: true,
           manualModeType: "hold",
@@ -4650,7 +5158,7 @@
       },
       {
         id: "manual-toggle",
-        name: "Manual · Toggle",
+        name: "Push to Show · Toggle",
         blurb: "Press Shift+Space once to show, again to hide. For a sticky overlay instead of hold-to-show.",
         values: {
           manualMode: true,
@@ -4742,7 +5250,7 @@
         const unavailable = isOverlayPresetUnavailable(preset);
         card.disabled = unavailable;
         card.classList.toggle("active", !unavailable && isOverlayPresetActive(preset));
-        card.title = unavailable ? "Manual mode is required on Linux and macOS." : "";
+        card.title = unavailable ? "Push to Show is required on Linux and macOS." : "";
       });
     }
 
@@ -4761,7 +5269,7 @@
         gamepadInputConsoleLines.shift();
       }
 
-      if (activeSettingsTab === "controller") {
+      if (activeSettingsTab === "gamepad") {
         renderGamepadInputConsole();
       }
     }
@@ -5519,6 +6027,10 @@
       }
     }, 5000);
   </script>
+  <!-- Discoverability layer: descriptions, capability cards, cross-tab search.
+       Loaded after the inline script so updateSettingsTabVisibility() exists. -->
+  <script src="./components/settings-metadata.js"></script>
+  <script src="./components/settings-enhancer.js"></script>
 </body>
 
 </html>

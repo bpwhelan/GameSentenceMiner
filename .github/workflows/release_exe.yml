@@ -5,6 +5,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: Rebuild and overwrite release assets even if they already exist
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: release-exe-${{ github.workflow }}-${{ github.ref }}
@@ -38,6 +44,7 @@ jobs:
         id: version_check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE_REBUILD: ${{ github.event_name == 'workflow_dispatch' && inputs.force_rebuild == true }}
         run: |
           set -euo pipefail
 
@@ -78,15 +85,22 @@ jobs:
             SHOULD_BUILD_LINUX=false
             SHOULD_BUILD_MAC_ARM64=false
 
-            if ! has_asset "$WINDOWS_SETUP" || ! has_asset "$WINDOWS_BLOCKMAP" || ! has_asset "$WINDOWS_UNPACKED_ZIP" || ! has_asset "latest.yml"; then
+            if [ "$FORCE_REBUILD" = "true" ]; then
+              echo "Force rebuild requested. Rebuilding all release assets."
+              SHOULD_BUILD_WINDOWS=true
+              SHOULD_BUILD_LINUX=true
+              SHOULD_BUILD_MAC_ARM64=true
+            fi
+
+            if [ "$FORCE_REBUILD" != "true" ] && { ! has_asset "$WINDOWS_SETUP" || ! has_asset "$WINDOWS_BLOCKMAP" || ! has_asset "$WINDOWS_UNPACKED_ZIP" || ! has_asset "latest.yml"; }; then
               SHOULD_BUILD_WINDOWS=true
             fi
 
-            if ! has_asset "$LINUX_APPIMAGE" || ! has_asset "latest-linux.yml"; then
+            if [ "$FORCE_REBUILD" != "true" ] && { ! has_asset "$LINUX_APPIMAGE" || ! has_asset "latest-linux.yml"; }; then
               SHOULD_BUILD_LINUX=true
             fi
 
-            if ! has_asset "$MAC_ARM64_DMG" || ! has_asset "$MAC_ARM64_BLOCKMAP" || ! has_asset "latest-mac.yml"; then
+            if [ "$FORCE_REBUILD" != "true" ] && { ! has_asset "$MAC_ARM64_DMG" || ! has_asset "$MAC_ARM64_BLOCKMAP" || ! has_asset "latest-mac.yml"; }; then
               SHOULD_BUILD_MAC_ARM64=true
             fi
 
@@ -214,6 +228,9 @@ jobs:
         run: npm run app:dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify packaged overlay
+        run: npm run verify:overlay-package
 
       - name: Upload unsigned Windows installer for SignPath
         id: upload-unsigned-windows
@@ -491,6 +508,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify packaged overlay
+        run: npm run verify:overlay-package
+
       - name: Upload Linux release assets
         uses: softprops/action-gh-release@v2
         with:
@@ -568,6 +588,9 @@ jobs:
         run: npm run app:dist -- --mac --arm64 -c.mac.artifactName='${productName}-${version}-${arch}.${ext}'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify packaged overlay
+        run: npm run verify:overlay-package
 
       - name: Copy arm64 update manifest
         run: cp dist/latest-mac.yml dist/latest-mac-arm64.yml

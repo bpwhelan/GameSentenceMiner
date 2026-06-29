@@ -13,7 +13,7 @@ from enum import Enum
 from importlib import metadata
 from pathlib import Path
 from sys import platform
-from typing import Any, List, Dict, Optional, ClassVar
+from typing import Any, Callable, List, Dict, Optional, ClassVar
 
 OFF = "OFF"
 # VOSK = 'VOSK'
@@ -1428,6 +1428,8 @@ class Overlay:
     periodic: bool = False
     periodic_interval: float = 1.0
     periodic_ratio: float = 0.9
+    scan_on_mouse_move: bool = True  # only scan on a periodic tick when the cursor moved and is over the game window
+    inject_scanned_lines: bool = False  # not recommended: persist overlay scans to the log (pollutes stats/texthooker)
     minimum_character_size: int = 0
     use_overlay_area_config: bool = False
     use_ocr_area_config_v2: bool = False
@@ -1480,6 +1482,69 @@ class Overlay:
             self.monitors = []
         if self.monitor_to_capture >= len(self.monitors):
             self.monitor_to_capture = 0  # Reset to first monitor if out of range
+
+
+# --- GSM-owned overlay fields editable from the overlay settings window ---
+# The overlay window is the single home for overlay settings; these OCR-capture
+# fields live in master_config.overlay (per GSM profile) and are edited over the
+# overlay websocket. Most overlay userSettings keys match the python field name;
+# showRecycledIndicator is the one legacy alias.
+def _coerce_overlay_bool(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
+@dataclass(frozen=True)
+class GsmOwnedOverlayField:
+    overlay_key: str  # key used in the overlay app's userSettings
+    coerce: Callable[[Any], Any]
+
+
+GSM_OWNED_OVERLAY_FIELDS: Dict[str, GsmOwnedOverlayField] = {
+    "engine_v2": GsmOwnedOverlayField("engine_v2", lambda v: "" if v is None else str(v)),
+    "monitor_to_capture": GsmOwnedOverlayField("monitor_to_capture", int),
+    "monitor_to_capture_id": GsmOwnedOverlayField("monitor_to_capture_id", lambda v: "" if v is None else str(v)),
+    "periodic": GsmOwnedOverlayField("periodic", _coerce_overlay_bool),
+    "periodic_interval": GsmOwnedOverlayField("periodic_interval", float),
+    "periodic_ratio": GsmOwnedOverlayField("periodic_ratio", float),
+    "scan_on_mouse_move": GsmOwnedOverlayField("scan_on_mouse_move", _coerce_overlay_bool),
+    "inject_scanned_lines": GsmOwnedOverlayField("inject_scanned_lines", _coerce_overlay_bool),
+    "minimum_character_size": GsmOwnedOverlayField("minimum_character_size", int),
+    "use_ocr_result_v2": GsmOwnedOverlayField("use_ocr_result_v2", _coerce_overlay_bool),
+    "supplement_ocr_result_with_overlay": GsmOwnedOverlayField(
+        "supplement_ocr_result_with_overlay", _coerce_overlay_bool
+    ),
+    "ocr_full_screen_instead_of_obs": GsmOwnedOverlayField("ocr_full_screen_instead_of_obs", _coerce_overlay_bool),
+    "use_text_filtering": GsmOwnedOverlayField("use_text_filtering", _coerce_overlay_bool),
+    "manual_mode_desktop_background": GsmOwnedOverlayField(
+        "manual_mode_desktop_background", lambda v: "" if v is None else str(v)
+    ),
+    "check_previous_lines_for_recycled_indicator": GsmOwnedOverlayField("showRecycledIndicator", _coerce_overlay_bool),
+    "use_ocr_area_config_v2": GsmOwnedOverlayField("use_ocr_area_config_v2", _coerce_overlay_bool),
+    "ocr_area_config_include_primary_areas": GsmOwnedOverlayField(
+        "ocr_area_config_include_primary_areas", _coerce_overlay_bool
+    ),
+    "ocr_area_config_include_secondary_areas": GsmOwnedOverlayField(
+        "ocr_area_config_include_secondary_areas", _coerce_overlay_bool
+    ),
+    "ocr_area_config_use_exclusion_zones": GsmOwnedOverlayField(
+        "ocr_area_config_use_exclusion_zones", _coerce_overlay_bool
+    ),
+}
+
+
+def coerce_gsm_owned_overlay_value(field_name: str, value: Any) -> Any:
+    """Coerce an inbound overlay-config value to the field's expected type. Raises KeyError if unknown."""
+    spec = GSM_OWNED_OVERLAY_FIELDS.get(field_name)
+    if spec is None:
+        raise KeyError(field_name)
+    return spec.coerce(value)
+
+
+def serialize_gsm_owned_overlay(overlay: "Overlay") -> Dict[str, Any]:
+    """Return the GSM-owned overlay subset keyed by the overlay app's userSettings keys."""
+    return {spec.overlay_key: getattr(overlay, field_name) for field_name, spec in GSM_OWNED_OVERLAY_FIELDS.items()}
 
 
 @dataclass_json
@@ -2531,6 +2596,9 @@ class GsmAppState:
         self.disable_anki_confirmation_session = False
         self.replay_buffer_stopped_timestamp = None
         self.text_input_paused = False
+        # Last distinct overlay scan (periodic/mouse-move, no text event), kept as a transient
+        # GameLine so Yomitan overlay mining can attach audio/screenshot without logging it.
+        self.last_overlay_scan_line = None
 
 
 @dataclass_json

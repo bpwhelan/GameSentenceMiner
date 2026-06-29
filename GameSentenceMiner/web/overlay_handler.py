@@ -8,7 +8,14 @@ from typing import Optional
 
 from GameSentenceMiner.ai.ai_prompting import get_ai_prompt_result
 from GameSentenceMiner.obs import get_current_game, get_current_scene
-from GameSentenceMiner.util.config.configuration import get_config, get_master_config, logger, save_full_config
+from GameSentenceMiner.util.config.configuration import (
+    coerce_gsm_owned_overlay_value,
+    get_config,
+    get_master_config,
+    logger,
+    save_full_config,
+    serialize_gsm_owned_overlay,
+)
 from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
 from GameSentenceMiner.util.overlay.get_overlay_coords import get_overlay_processor
 from GameSentenceMiner.util.text_log import TextSource, game_log, get_all_lines, normalize_text_for_comparison
@@ -44,10 +51,16 @@ class OverlayRequestHandler:
                 await self.handle_restore_focus_request(message)
             elif message_type == "send-key-request":
                 await self.handle_send_key_request(message)
+            elif message_type == "send-click-request":
+                await self.handle_send_click_request(message)
             elif message_type == "process-pause-request":
                 await self.handle_process_pause_request(message)
             elif message_type == "set-gsm-overlay-config":
                 await self.handle_gsm_overlay_config_request(message)
+            elif message_type == "get-gsm-overlay-config":
+                await self.broadcast_gsm_owned_overlay_config()
+            elif message_type == "select-ocr-area":
+                self.handle_select_ocr_area_request(message)
             elif message_type == "open-gsm-settings":
                 self.handle_open_gsm_settings_request(message)
             else:
@@ -262,6 +275,35 @@ class OverlayRequestHandler:
         except Exception as e:
             logger.exception(f"Failed handling overlay key request: {e}")
 
+    async def handle_send_click_request(self, message: Optional[dict] = None):
+        """
+        Handle a left-click-forward request from the overlay.
+        Clicks the center of the target game window's client area.
+        """
+        try:
+            payload = message if isinstance(message, dict) else {}
+            source = str(payload.get("source", "overlay")).strip().lower() or "overlay"
+            activate_window = bool(payload.get("activateWindow", True))
+            try:
+                target_pid = int(payload.get("targetPid", 0) or 0)
+            except (TypeError, ValueError):
+                target_pid = 0
+
+            overlay_processor = get_overlay_processor()
+            monitor = overlay_processor.window_monitor if overlay_processor else None
+            if not monitor or not monitor.target_hwnd:
+                logger.debug(f"No target window available for overlay click request from {source}")
+                return
+
+            sent = await monitor.send_click_to_target_window(
+                target_pid=target_pid if target_pid > 0 else None,
+                activate_window=activate_window,
+            )
+            if not sent:
+                logger.warning(f"Failed to send click to target window (source={source})")
+        except Exception as e:
+            logger.exception(f"Failed handling overlay click request: {e}")
+
     async def handle_process_pause_request(self, message: dict):
         """
         Handle explicit pause/resume requests from overlay hotkeys.
@@ -283,35 +325,100 @@ class OverlayRequestHandler:
         except Exception as e:
             logger.exception(f"Failed handling process pause request action={action} source={source}: {e}")
 
+    @staticmethod
+    def _extract_overlay_config_updates(message: dict) -> dict:
+        """Read inbound overlay-config updates as {python_field: raw_value} from either shape."""
+        settings = message.get("settings")
+        if isinstance(settings, dict):
+            return dict(settings)
+        key = str(message.get("key", "")).strip()
+        if key:
+            return {key: message.get("value")}
+        return {}
+
     async def handle_gsm_overlay_config_request(self, message: dict):
         """
         Persist GSM-owned overlay settings changed from the Electron overlay UI.
+        Accepts a single {key, value} or a batch {settings: {field: value}}.
         """
-        setting_key = str(message.get("key", "")).strip()
-        if setting_key != "check_previous_lines_for_recycled_indicator":
-            logger.warning(f"Ignoring unsupported GSM overlay config key from overlay: {setting_key}")
+        updates = self._extract_overlay_config_updates(message)
+        if not updates:
             return
 
-        enabled = message.get("value") is True
         master_config = get_master_config()
         if master_config is None:
             logger.warning("Unable to save overlay config from overlay: master config is not loaded.")
             return
 
         current_config = master_config.get_config()
-        current_config.overlay.check_previous_lines_for_recycled_indicator = enabled
+        applied = {}
+        for field_name, raw_value in updates.items():
+            try:
+                value = coerce_gsm_owned_overlay_value(field_name, raw_value)
+            except KeyError:
+                logger.warning(f"Ignoring unsupported GSM overlay config key from overlay: {field_name}")
+                continue
+            except (TypeError, ValueError) as e:
+                logger.warning(f"Ignoring invalid GSM overlay config value for {field_name}: {e}")
+                continue
+            setattr(current_config.overlay, field_name, value)
+            applied[field_name] = value
+
+        if not applied:
+            return
+
         master_config.overlay = current_config.overlay
         save_full_config(master_config)
-        self._sync_recycled_line_cache(enabled)
-        logger.info(f"Updated overlay recycled-line checking from overlay settings: {enabled}")
 
+        if "check_previous_lines_for_recycled_indicator" in applied:
+            self._sync_recycled_line_cache(applied["check_previous_lines_for_recycled_indicator"])
+        self._apply_overlay_runtime_side_effects(current_config.overlay, applied)
+        logger.info(f"Updated GSM-owned overlay settings from overlay: {sorted(applied)}")
+
+        await self.broadcast_gsm_owned_overlay_config(current_config.overlay)
+
+    def _apply_overlay_runtime_side_effects(self, overlay, applied: dict) -> None:
+        """Re-resolve runtime state for fields that need more than a plain config write."""
+        if "monitor_to_capture" in applied or "monitor_to_capture_id" in applied:
+            try:
+                from GameSentenceMiner.util.platform.monitor_selection import (
+                    get_mss_monitor_descriptors,
+                    set_overlay_monitor_identity_from_index,
+                )
+
+                monitors = [descriptor["bounds"] for descriptor in get_mss_monitor_descriptors()]
+                set_overlay_monitor_identity_from_index(overlay, monitors, overlay.monitor_to_capture)
+            except Exception as e:
+                logger.debug(f"Could not re-resolve overlay monitor selection after config change: {e}")
+
+    async def broadcast_gsm_owned_overlay_config(self, overlay=None) -> None:
+        """Push the full GSM-owned overlay subset (+ monitor list) to the overlay UI."""
+        if overlay is None:
+            master_config = get_master_config()
+            if master_config is None:
+                return
+            overlay = master_config.get_config().overlay
         await websocket_manager.send(
             ID_OVERLAY,
             {
                 "type": "gsm-overlay-config-updated",
-                "settings": {"showRecycledIndicator": enabled},
+                "settings": serialize_gsm_owned_overlay(overlay),
+                "monitors": list(getattr(overlay, "monitors", []) or []),
             },
         )
+
+    def handle_select_ocr_area_request(self, message: dict):
+        """Launch the OCR/overlay area selector from the overlay settings UI."""
+        try:
+            from GameSentenceMiner.util.config.configuration import gsm_state
+
+            settings_window = getattr(gsm_state, "config_app", None)
+            if settings_window is None:
+                logger.warning("Unable to open OCR area selector from overlay: settings window is not initialized.")
+                return
+            settings_window.request_open_overlay_area_selector()
+        except Exception as e:
+            logger.exception(f"Failed to open OCR area selector from overlay: {e}")
 
     def _sync_recycled_line_cache(self, enabled: bool) -> None:
         if not enabled:

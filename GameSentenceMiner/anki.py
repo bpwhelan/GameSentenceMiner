@@ -2493,6 +2493,33 @@ def update_new_cards(new_card_ids):
             continue
 
 
+def _resolve_mined_line_for_card(card, lines):
+    """Resolve the GameLine a card was mined from.
+
+    Normally this matches the Anki sentence against the text log. Overlay scans (periodic /
+    mouse-move, no text event) aren't in the log unless the user opted into the not-recommended
+    "add scanned lines to log" setting, so fall back to the last overlay scan when it matches the
+    card sentence and the log has no genuine match. This lets Yomitan overlay mining attach
+    audio/screenshot without polluting stats or the texthooker.
+    """
+    overlay_line = getattr(gsm_state, "last_overlay_scan_line", None)
+    anki_sentence = remove_html_and_cloze_tags(get_sentence(card)) if card else ""
+    try:
+        matched = get_mined_line(card, lines)
+    except Exception:
+        matched = None
+
+    if overlay_line is not None and anki_sentence and lines_match(overlay_line.text, anki_sentence):
+        matched_is_genuine = matched is not None and lines_match(matched.text, anki_sentence)
+        if not matched_is_genuine:
+            return overlay_line
+
+    if matched is None:
+        # Preserve the original "nothing to mine" error from get_mined_line.
+        return get_mined_line(card, lines)
+    return matched
+
+
 def update_single_card(card):
     """Process a single card (extracted from update_new_card for reusability)."""
     if not card or not check_tags_for_should_update(card):
@@ -2500,7 +2527,7 @@ def update_single_card(card):
     gsm_status.add_word_being_processed(card.get_field(get_config().anki.word_field))
     logger.debug(f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(card)}")
     lines = _get_texthooking_page_module().get_selected_lines()
-    game_line = get_mined_line(card, lines)
+    game_line = _resolve_mined_line_for_card(card, lines)
     game_line.mined_time = datetime.now()
     current_word = card.get_field(get_config().anki.word_field) if card else ""
     reuse_key = _build_sentence_audio_key(game_line, lines)

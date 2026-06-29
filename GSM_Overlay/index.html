@@ -249,6 +249,15 @@ background: rgba(202, 12, 12, 0.692);
     overflow: visible;
   }
 
+  /* Freeze-frame activation gate: hide the WHOLE overlay (text + gamepad nav visuals +
+     the snapshot img itself) until the frozen frame has painted, so nothing flashes over
+     the still-live game. Group opacity can't be overridden by descendants, so this is a
+     hard "show nothing yet". Layout/requestAnimationFrame still run (window is shown
+     inactive), and a full-monitor capture stays clean because nothing is rendered. */
+  body.manual-background-pending {
+    opacity: 0 !important;
+  }
+
   body.force-visible .text-box,
   body:hover .text-box {
     background: rgba(15, 15, 15, 0.856);
@@ -761,11 +770,11 @@ background: rgba(202, 12, 12, 0.692);
   <div id="manual-mode-recommendation">
     <span class="recommendation-icon">💡</span>
     <div class="recommendation-text">
-      <strong>Fullscreen Game Detected:</strong> If you're using exclusive fullscreen mode, manual mode may provide better overlay stability.
+      <strong>Fullscreen Game Detected:</strong> If you're using exclusive fullscreen mode, Push to Show may provide better overlay stability.
     </div>
     <div class="recommendation-buttons">
       <button class="recommendation-btn recommendation-btn-primary" id="btn-enable-manual">
-        Enable Manual Mode
+        Enable Push to Show
       </button>
       <button class="recommendation-btn recommendation-btn-secondary" id="btn-dismiss-recommendation">
         Got it
@@ -2647,6 +2656,11 @@ background: rgba(202, 12, 12, 0.692);
           return;
         }
 
+        if (data.type === "overlay_clear") {
+          clearTextBoxes();
+          return;
+        }
+
         // Clear existing text boxes
         const mainBoxBounds = mainBox.getBoundingClientRect();
 
@@ -3745,6 +3759,43 @@ background: rgba(202, 12, 12, 0.692);
     if (trans) trans.style.display = 'none';
   }
 
+  // Freeze-frame activation gating: when the on-demand snapshot is enabled, hold the
+  // visible overlay reveal (text boxes + force-visible) until the frozen frame has painted,
+  // so nothing flashes over the still-live game. A safety timeout reveals anyway so a
+  // missing/slow snapshot can never leave the overlay blank.
+  let pendingManualRevealForBackground = false;
+  let manualRevealFallbackTimer = null;
+
+  function revealManualOverlayContent() {
+    document.body.classList.add('force-visible');
+    showTextBoxes();
+  }
+
+  function armDeferredManualReveal() {
+    pendingManualRevealForBackground = true;
+    // Hide the entire overlay (not just text) until the snapshot paints, so gamepad nav
+    // visuals never appear over the live game either.
+    document.body.classList.add('manual-background-pending');
+    if (manualRevealFallbackTimer) clearTimeout(manualRevealFallbackTimer);
+    manualRevealFallbackTimer = setTimeout(() => {
+      if (pendingManualRevealForBackground) finishDeferredManualReveal();
+    }, 600);
+  }
+
+  function finishDeferredManualReveal() {
+    if (!pendingManualRevealForBackground) return;
+    pendingManualRevealForBackground = false;
+    if (manualRevealFallbackTimer) { clearTimeout(manualRevealFallbackTimer); manualRevealFallbackTimer = null; }
+    document.body.classList.remove('manual-background-pending');
+    revealManualOverlayContent();
+  }
+
+  function cancelDeferredManualReveal() {
+    pendingManualRevealForBackground = false;
+    if (manualRevealFallbackTimer) { clearTimeout(manualRevealFallbackTimer); manualRevealFallbackTimer = null; }
+    document.body.classList.remove('manual-background-pending');
+  }
+
   // Manual-mode desktop background: only shown while manual mode is active, cleared
   // on release so the captured desktop snapshot never lingers over the live game.
   function showManualDesktopBackground(imageDataUrl) {
@@ -3767,11 +3818,14 @@ background: rgba(202, 12, 12, 0.692);
     const reveal = () => {
       bg.style.display = 'block';
       signalPainted();
+      // Frozen frame is now painted behind the overlay — safe to reveal text/focus.
+      finishDeferredManualReveal();
     };
     const unblock = () => {
       // Never leave main waiting on a snapshot that failed to load.
       console.warn('[ManualBackground] image failed to load; showing overlay anyway.');
       ipcRenderer.send('manual-mode-background-painted');
+      finishDeferredManualReveal();
     };
 
     bg.style.display = 'none';
@@ -4003,6 +4057,9 @@ background: rgba(202, 12, 12, 0.692);
     }
     if (newsettings.gamepadForwardEscapeButton !== undefined) {
       gamepadSettings.forwardEscapeButton = newsettings.gamepadForwardEscapeButton;
+    }
+    if (newsettings.gamepadForwardClickButton !== undefined) {
+      gamepadSettings.forwardClickButton = newsettings.gamepadForwardClickButton;
     }
     if (newsettings.gamepadManualOverlayScanButton !== undefined) {
       gamepadSettings.manualOverlayScanButton = newsettings.gamepadManualOverlayScanButton;
@@ -4365,15 +4422,20 @@ background: rgba(202, 12, 12, 0.692);
     hideOnStartup = newValue;
   })
 
-  ipcRenderer.on('show-overlay-hotkey', (event, isActive) => {
+  ipcRenderer.on('show-overlay-hotkey', (event, isActive, options) => {
     manualHotkeyPressed = isActive;
     if (manualHotkeyPressed) {
       manualModeActivatedOnce = true;
       setManualInteractionSuppressed(false);
-      document.body.classList.add('force-visible');
-      showTextBoxes();
+      if (options && options.deferRevealForBackground === true) {
+        // Wait for the frozen-frame snapshot to paint before showing any overlay content.
+        armDeferredManualReveal();
+      } else {
+        revealManualOverlayContent();
+      }
       ipcRenderer.send('set-ignore-mouse-events', false);
     } else {
+      cancelDeferredManualReveal();
       clearManualDesktopBackground();
       const finishManualHotkeyRelease = () => {
         applyManualInactivePresentation('manual-hotkey-release');
@@ -4531,7 +4593,7 @@ background: rgba(202, 12, 12, 0.692);
       const textEl = banner.querySelector('.recommendation-text');
       if (textEl) {
         if (reason === 'cursor-hidden') {
-          textEl.innerHTML = "<strong>Mouse Cursor Hidden:</strong> This game hides the mouse cursor, which can make the overlay hard to use. Manual mode lets you summon it with a hotkey.";
+          textEl.innerHTML = "<strong>Mouse Cursor Hidden:</strong> This game hides the mouse cursor, which can make the overlay hard to use. Push to Show lets you summon it with a hotkey.";
         } else {
           textEl.innerHTML = "<strong>Fullscreen Game Detected:</strong> If you're using exclusive fullscreen mode, manual mode may provide better overlay stability.";
         }
@@ -4697,6 +4759,7 @@ background: rgba(202, 12, 12, 0.692);
     forwardSpaceButton: -1, // Disabled
     forwardCtrlButton: -1, // Disabled
     forwardEscapeButton: -1, // Disabled
+    forwardClickButton: -1, // Disabled - left-clicks the center of the target game window
     manualOverlayScanButton: -1, // Disabled
     pauseToggleButton: -1, // Disabled - pauses/resumes the text source while navigating
     tokenModeToggleButton: 3, // Y
@@ -4726,6 +4789,7 @@ background: rgba(202, 12, 12, 0.692);
     keyboardForwardSpaceKey: null,
     keyboardForwardCtrlKey: null,
     keyboardForwardEscapeKey: null,
+    keyboardForwardClickKey: null,
     keyboardManualOverlayScanKey: null,
     keyboardPauseToggleKey: null,
     keyboardTokenModeToggleKey: null,
@@ -4742,6 +4806,7 @@ background: rgba(202, 12, 12, 0.692);
   const KEYBOARD_SETTING_KEYS = [
     'keyboardModifierKey', 'keyboardToggleKey', 'keyboardConfirmKey', 'keyboardCancelKey',
     'keyboardForwardEnterKey', 'keyboardForwardSpaceKey', 'keyboardForwardCtrlKey', 'keyboardForwardEscapeKey',
+    'keyboardForwardClickKey',
     'keyboardManualOverlayScanKey', 'keyboardPauseToggleKey', 'keyboardTokenModeToggleKey',
     'keyboardNextEntryKey', 'keyboardPrevEntryKey',
     'keyboardNavigateUp', 'keyboardNavigateDown', 'keyboardNavigateLeft', 'keyboardNavigateRight',
@@ -4793,6 +4858,7 @@ background: rgba(202, 12, 12, 0.692);
       forwardSpaceButton: gamepadSettings.forwardSpaceButton,
       forwardCtrlButton: gamepadSettings.forwardCtrlButton,
       forwardEscapeButton: gamepadSettings.forwardEscapeButton,
+      forwardClickButton: gamepadSettings.forwardClickButton,
       manualOverlayScanButton: gamepadSettings.manualOverlayScanButton,
       pauseToggleButton: gamepadSettings.pauseToggleButton,
       tokenModeToggleButton: gamepadSettings.tokenModeToggleButton,
@@ -4823,6 +4889,7 @@ background: rgba(202, 12, 12, 0.692);
       keyboardForwardSpaceKey: gamepadSettings.keyboardForwardSpaceKey,
       keyboardForwardCtrlKey: gamepadSettings.keyboardForwardCtrlKey,
       keyboardForwardEscapeKey: gamepadSettings.keyboardForwardEscapeKey,
+      keyboardForwardClickKey: gamepadSettings.keyboardForwardClickKey,
       keyboardManualOverlayScanKey: gamepadSettings.keyboardManualOverlayScanKey,
       keyboardPauseToggleKey: gamepadSettings.keyboardPauseToggleKey,
       keyboardTokenModeToggleKey: gamepadSettings.keyboardTokenModeToggleKey,
@@ -5076,7 +5143,17 @@ background: rgba(202, 12, 12, 0.692);
   });
   
   // IPC: Toggle gamepad navigation mode (can be triggered by hotkey from main)
-  ipcRenderer.on('gamepad-toggle-navigation', () => {
+  let lastHandledGamepadToggleRequestId = null;
+  ipcRenderer.on('gamepad-toggle-navigation', (event, payload) => {
+    // Dedup main's retry: it reuses the same requestId, so an already-handled press
+    // is ignored while a genuinely dropped first send still toggles via the retry.
+    const requestId = payload && payload.requestId;
+    if (requestId != null && requestId === lastHandledGamepadToggleRequestId) {
+      return;
+    }
+    if (requestId != null) {
+      lastHandledGamepadToggleRequestId = requestId;
+    }
     if (gamepadHandler && gamepadSettings.enabled) {
       gamepadHandler.manualToggle();
     }
@@ -5198,6 +5275,10 @@ background: rgba(202, 12, 12, 0.692);
     }
     if (updatedSettings.gamepadForwardEscapeButton !== undefined) {
       gamepadSettings.forwardEscapeButton = updatedSettings.gamepadForwardEscapeButton;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadForwardClickButton !== undefined) {
+      gamepadSettings.forwardClickButton = updatedSettings.gamepadForwardClickButton;
       needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadManualOverlayScanButton !== undefined) {

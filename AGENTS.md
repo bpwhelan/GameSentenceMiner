@@ -1,5 +1,10 @@
 # Repository Instructions
 
+## Do NOT port NDLOCR-Lite
+- Do not port the `ndlocrlite` / NDLOCR-Lite engine from owocr into GSM (`GameSentenceMiner/owocr/owocr/ocr.py`).
+- It was evaluated and rejected: ~1-2 seconds per scan on even a very small region at ~30% CPU. Too slow/heavy for the main OCR and for stability OCR alike.
+- This is a final decision — don't re-attempt it.
+
 ## Yomitan Edit Workflow
 
 - Do not edit built/compiled files under `GSM_Overlay/yomitan/` directly.

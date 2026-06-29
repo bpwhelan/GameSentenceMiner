@@ -330,6 +330,15 @@ struct ManualHotkeyBinding {
     key: Option<KeyboardKey>,
 }
 
+/// An app-level hotkey (toggle window, translate, etc.) routed through the input
+/// server when the user enables "route all hotkeys through input server". Evaluated
+/// server-side like the manual show-hotkey; only edge transitions are broadcast.
+#[derive(Debug, Clone)]
+struct AppHotkeyEntry {
+    binding: ManualHotkeyBinding,
+    active: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 struct ManualHotkeyStatus {
     available: bool,
@@ -352,6 +361,10 @@ struct ManualHotkeyState {
     /// Only used transiently while the settings UI is recording a new binding
     /// ("press a key..."), and reset to false as soon as capture ends.
     capture_all: bool,
+    /// App-level hotkeys keyed by a stable action id. Evaluated server-side on
+    /// every key transition; edges are broadcast as `app_hotkey_event`. Like the
+    /// manual show-hotkey this only ever emits configured combos, never raw keys.
+    app_hotkeys: HashMap<String, AppHotkeyEntry>,
 }
 
 /// Decide whether a key transition should be broadcast to clients as a
@@ -1399,6 +1412,21 @@ fn parse_manual_hotkey_key(token: &str) -> Result<KeyboardKey, String> {
         "F10" => KeyboardKey::F10,
         "F11" => KeyboardKey::F11,
         "F12" => KeyboardKey::F12,
+        // rdev 0.5.3 has no F13-F24 variants; on Windows they surface as
+        // Key::Unknown(vk) with virtual-key codes 124-135 (matches the listener's
+        // pressed_keys set, so manual_hotkey_binding_active works unchanged).
+        "F13" => KeyboardKey::Unknown(124),
+        "F14" => KeyboardKey::Unknown(125),
+        "F15" => KeyboardKey::Unknown(126),
+        "F16" => KeyboardKey::Unknown(127),
+        "F17" => KeyboardKey::Unknown(128),
+        "F18" => KeyboardKey::Unknown(129),
+        "F19" => KeyboardKey::Unknown(130),
+        "F20" => KeyboardKey::Unknown(131),
+        "F21" => KeyboardKey::Unknown(132),
+        "F22" => KeyboardKey::Unknown(133),
+        "F23" => KeyboardKey::Unknown(134),
+        "F24" => KeyboardKey::Unknown(135),
         "-" | "_" => KeyboardKey::Minus,
         "=" | "+" => KeyboardKey::Equal,
         "[" | "{" => KeyboardKey::LeftBracket,
@@ -1519,6 +1547,16 @@ enum ClientMsg {
         capture_all: Option<bool>,
     },
 
+    /// Replace the full set of app-level hotkeys evaluated server-side. Each entry
+    /// maps a stable action id to a hotkey string (same syntax as the manual
+    /// hotkey, e.g. "Alt+Shift+H" or "F13"). Sent by the Electron main process when
+    /// "route all hotkeys through input server" is enabled.
+    #[serde(rename = "configure_app_hotkeys")]
+    ConfigureAppHotkeys {
+        #[serde(default)]
+        hotkeys: Vec<AppHotkeyConfig>,
+    },
+
     #[serde(rename = "tokenize")]
     Tokenize {
         #[serde(default)]
@@ -1543,6 +1581,13 @@ enum ClientMsg {
 
     #[serde(other)]
     Unknown,
+}
+
+#[derive(Debug, Deserialize)]
+struct AppHotkeyConfig {
+    id: String,
+    #[serde(default)]
+    hotkey: String,
 }
 
 fn normalize_stick(v: f32, deadzone: f32) -> f32 {
@@ -1681,6 +1726,66 @@ fn configure_manual_hotkey(
     }
     send_broadcast(tx, release_payload.1, "keyboard_listener_status");
     Ok(())
+}
+
+fn app_hotkey_event_payload(id: &str, state: &str) -> String {
+    json!({
+        "type": "app_hotkey_event",
+        "id": id,
+        "state": state,
+    })
+    .to_string()
+}
+
+/// Replace the full set of app-level hotkeys. Any hotkey that fails to parse is
+/// dropped (logged); previously-active hotkeys that disappear emit a final
+/// `released` so the client never gets stuck thinking a combo is held.
+fn configure_app_hotkeys(
+    manual_hotkey: &SharedManualHotkey,
+    tx: &broadcast::Sender<String>,
+    hotkeys: Vec<AppHotkeyConfig>,
+) {
+    let released_ids = {
+        let mut guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+
+        let mut new_map: HashMap<String, AppHotkeyEntry> = HashMap::with_capacity(hotkeys.len());
+        for cfg in hotkeys {
+            if cfg.id.trim().is_empty() {
+                continue;
+            }
+            match parse_manual_hotkey_binding(&cfg.hotkey) {
+                Ok(binding) => {
+                    new_map.insert(
+                        cfg.id,
+                        AppHotkeyEntry {
+                            binding,
+                            active: false,
+                        },
+                    );
+                }
+                Err(err) => warn!("ignoring app hotkey {}: {err}", cfg.id),
+            }
+        }
+
+        // Emit released for any currently-active id that is gone or replaced.
+        let released_ids = guard
+            .app_hotkeys
+            .iter()
+            .filter(|(id, entry)| entry.active && !new_map.contains_key(*id))
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+
+        guard.app_hotkeys = new_map;
+        released_ids
+    };
+
+    for id in released_ids {
+        send_broadcast(
+            tx,
+            app_hotkey_event_payload(&id, "released"),
+            "app_hotkey_event(released)",
+        );
+    }
 }
 
 /// Map an rdev key to a stable string identifier for the JavaScript client.
@@ -1829,6 +1934,29 @@ fn handle_manual_keyboard_event(
                 send_broadcast(tx, payload, "keyboard_event");
             }
         }
+    }
+
+    // ── App-level hotkeys (route-all mode) ──
+    // Independent of the manual show-hotkey: recompute each binding against the
+    // current pressed set and broadcast only edge transitions.
+    let app_events = {
+        let mut guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+        let mut events = Vec::new();
+        for (id, entry) in guard.app_hotkeys.iter_mut() {
+            let next_active = manual_hotkey_binding_active(&entry.binding, pressed_keys);
+            if next_active != entry.active {
+                entry.active = next_active;
+                events.push((id.clone(), next_active));
+            }
+        }
+        events
+    };
+    for (id, active) in app_events {
+        send_broadcast(
+            tx,
+            app_hotkey_event_payload(&id, if active { "pressed" } else { "released" }),
+            "app_hotkey_event",
+        );
     }
 
     // ── Existing manual hotkey logic (unchanged) ──
@@ -2134,6 +2262,9 @@ async fn handle_socket(
                                     guard.capture_all = capture_all;
                                     enabled_capture_all = capture_all;
                                 }
+                            }
+                            Ok(ClientMsg::ConfigureAppHotkeys { hotkeys }) => {
+                                configure_app_hotkeys(&manual_hotkey, &_tx, hotkeys);
                             }
                             Ok(ClientMsg::Tokenize {
                                 text,
@@ -2756,9 +2887,7 @@ async fn main() {
         let tx2 = tx.clone();
         let device_blacklist2 = device_blacklist.clone();
         let cfg2 = cfg.clone();
-        thread::spawn(move || {
-            gilrs_input_thread(tx2, states, device_blacklist2, cfg2)
-        });
+        thread::spawn(move || gilrs_input_thread(tx2, states, device_blacklist2, cfg2));
     }
     {
         let tx2 = tx.clone();
@@ -2894,5 +3023,34 @@ mod tests {
         // capture-all (settings recording a binding) overrides the allowlist.
         state.capture_all = true;
         assert!(should_broadcast_key(&state, "KeyA"));
+    }
+
+    #[test]
+    fn extended_function_keys_parse_to_windows_vk_unknown_codes() {
+        let f13 = parse_manual_hotkey_key("F13").expect("F13 should parse");
+        assert_eq!(f13, KeyboardKey::Unknown(124));
+        let f24 = parse_manual_hotkey_key("f24").expect("F24 should parse");
+        assert_eq!(f24, KeyboardKey::Unknown(135));
+    }
+
+    #[test]
+    fn app_hotkey_binding_activates_from_pressed_keys() {
+        // F13 (Unknown(124)) and a modifier combo both evaluate via the shared
+        // manual_hotkey_binding_active path used by app hotkeys.
+        let f13 = parse_manual_hotkey_binding("F13").expect("F13 hotkey should parse");
+        let alt_shift_h = parse_manual_hotkey_binding("Alt+Shift+H").expect("combo should parse");
+
+        let mut pressed_keys = HashSet::new();
+        assert!(!manual_hotkey_binding_active(&f13, &pressed_keys));
+
+        pressed_keys.insert(KeyboardKey::Unknown(124));
+        assert!(manual_hotkey_binding_active(&f13, &pressed_keys));
+        assert!(!manual_hotkey_binding_active(&alt_shift_h, &pressed_keys));
+
+        pressed_keys.clear();
+        pressed_keys.insert(KeyboardKey::Alt);
+        pressed_keys.insert(KeyboardKey::ShiftLeft);
+        pressed_keys.insert(KeyboardKey::KeyH);
+        assert!(manual_hotkey_binding_active(&alt_shift_h, &pressed_keys));
     }
 }

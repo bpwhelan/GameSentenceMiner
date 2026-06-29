@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <title>Manual Mode Recommended</title>
+  <title>Push to Show Recommended</title>
   <link rel="stylesheet" href="./components/manual-mode-card.css" />
   <style>
     * {
@@ -108,7 +108,7 @@
   <div class="container">
     <div class="header">
       <span class="icon">🖱️</span>
-      <h1>Manual Mode Recommended</h1>
+      <h1>Push to Show Recommended</h1>
     </div>
 
     <div class="setting-group gsm-mm-card" id="manualModeCardMount"></div>
@@ -131,7 +131,7 @@
       const mount = document.getElementById("manualModeCardMount");
       const intro =
         "GSM noticed this game may be hiding the mouse cursor, which can make the automatic overlay awkward to use. " +
-        "Manual Mode keeps the overlay hidden until you press your hotkey — you can enable and configure it below.";
+        "Push to Show keeps the overlay hidden until you press your hotkey — you can enable and configure it below.";
 
       cardController = GSMManualModeCard.mount(mount, {
         initial,

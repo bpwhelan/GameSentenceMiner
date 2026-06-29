@@ -146,6 +146,9 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             enabled_locked=True,
         ),
     )
+    window.sentence_audio_field_enabled_check.setToolTip(
+        "Uncheck to disable sentence audio entirely. Synced with the Audio tab's Enabled toggle."
+    )
     fields_layout.addRow(
         window._create_labeled_widget(tabs_i18n, "anki", "sentence_audio_field", color=LabelColor.IMPORTANT),
         _create_field_mapping_row(
@@ -153,8 +156,10 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             window.sentence_audio_field_enabled_check,
             window.sentence_audio_field_overwrite_check,
             window.sentence_audio_field_append_check,
-            enabled_locked=True,
         ),
+    )
+    window.picture_field_enabled_check.setToolTip(
+        "Uncheck to disable screenshots entirely. Synced with the Screenshot tab's Enabled toggle."
     )
     fields_layout.addRow(
         window._create_labeled_widget(tabs_i18n, "anki", "picture_field", color=LabelColor.IMPORTANT),
@@ -163,7 +168,6 @@ def build_anki_general_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             window.picture_field_enabled_check,
             window.picture_field_overwrite_check,
             window.picture_field_append_check,
-            enabled_locked=True,
         ),
     )
     fields_layout.addRow(
