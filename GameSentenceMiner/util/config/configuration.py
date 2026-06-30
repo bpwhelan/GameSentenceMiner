@@ -1203,7 +1203,6 @@ class Advanced:
     video_player_path: str = ""
     show_screenshot_buttons: bool = False
     multi_line_line_break: str = "<br>"
-    ocr_websocket_port: int = 9002
     texthooker_communication_websocket_port: int = 7276
     localhost_bind_address: str = (
         "127.0.0.1"  # Default 127.0.0.1 for security, set to 0.0.0.0 to allow external connections
@@ -2168,7 +2167,6 @@ class Config:
             self.sync_shared_field(config.advanced, profile.advanced, "audio_player_path")
             self.sync_shared_field(config.advanced, profile.advanced, "video_player_path")
             self.sync_shared_field(config.advanced, profile.advanced, "multi_line_line_break")
-            self.sync_shared_field(config.advanced, profile.advanced, "ocr_websocket_port")
             self.sync_shared_field(
                 config.advanced,
                 profile.advanced,
@@ -2410,6 +2408,7 @@ def _remove_deprecated_config_settings(config_data: dict):
         advanced = profile_data.get("advanced")
         if isinstance(advanced, dict):
             advanced.pop("multi_line_sentence_storage_field", None)
+            advanced.pop("ocr_websocket_port", None)
 
     _remove_from_profile(config_data)
     configs = config_data.get("configs")

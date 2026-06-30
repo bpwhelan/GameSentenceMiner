@@ -54,6 +54,8 @@ def _timestamp(iso_datetime: str) -> float:
 
 
 def _freeze_stats_today(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
     import GameSentenceMiner.web.rollup_stats as rollup_stats
     import GameSentenceMiner.web.stats as stats_module
     import GameSentenceMiner.web.stats_api as stats_api
@@ -63,6 +65,11 @@ def _freeze_stats_today(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(stats_service.datetime, "date", _FrozenDate)
     monkeypatch.setattr(rollup_stats.datetime, "date", _FrozenDate)
     monkeypatch.setattr(stats_module.datetime, "date", _FrozenDate)
+    monkeypatch.setattr(
+        stats_module,
+        "get_stats_config",
+        lambda: SimpleNamespace(reading_time_adaptive_v2=True),
+    )
 
 
 def _seed_games() -> None:
@@ -435,9 +442,9 @@ def test_api_stats_full_flow_returns_expected_dashboard_contract(
     all_games = data["allGamesStats"]
     assert all_games["total_characters"] == 132
     assert all_games["total_sentences"] == 10
-    assert all_games["total_time_hours"] == pytest.approx(1.675)
-    assert all_games["reading_speed"] == 79
-    assert all_games["sessions"] == 5
+    assert all_games["total_time_hours"] == pytest.approx(1.6833333333333333)
+    assert all_games["reading_speed"] == 78
+    assert all_games["sessions"] == 4
     assert all_games["completed_games"] == 1
     assert all_games["first_date"] == "2026-03-10"
     assert all_games["last_date"] == "2026-03-12"
@@ -445,7 +452,7 @@ def test_api_stats_full_flow_returns_expected_dashboard_contract(
     assert data["timePeriodAverages"] == {
         "avgHoursPerDay": 0.56,
         "avgCharsPerDay": 44,
-        "avgSpeedPerDay": 525,
+        "avgSpeedPerDay": 285,
         "totalHours": 1.68,
         "totalChars": 132,
     }

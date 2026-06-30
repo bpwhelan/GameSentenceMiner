@@ -477,6 +477,7 @@
       "showYuzuLauncher": "Show Yuzu Launcher:",
       "runTransparencyOnStartup": "Run Window Transparency Tool on Startup:",
       "runOverlayOnStartup": "Run Overlay on Startup:",
+      "quitOnWindowClose": "Exit GSM when closing the window:",
       "textCaptureWizard": "Show Text Capture Wizard after capture setup:"
     },
     "visibility": {
@@ -790,7 +791,9 @@
       "manualMenu": "Manual / Menu:",
       "areaSelect": "Area Select:",
       "wholeWindow": "Whole Window:",
-      "pause": "Pause:"
+      "pause": "Pause:",
+      "runAction": "Run",
+      "runActionTitle": "Trigger this action now"
     },
     "console": {
       "title": "Console",

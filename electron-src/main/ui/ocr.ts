@@ -1200,6 +1200,18 @@ export function registerOCRUtilsIPC() {
         sendOcrCommand('toggle_pause');
     });
 
+    ipcMain.on('ocr.manual-ocr', () => {
+        sendOcrCommand('manual_ocr');
+    });
+
+    ipcMain.on('ocr.whole-window-ocr', () => {
+        sendOcrCommand('whole_window_ocr');
+    });
+
+    ipcMain.on('ocr.area-select-ocr', () => {
+        sendOcrCommand('area_select_ocr');
+    });
+
     ipcMain.on('ocr.get-status', () => {
         if (!getProcessManager().isRunning(OCR_CLIENT_ID)) {
             sendToMainWindowFrames('ocr-ipc-error', 'No active OCR process');

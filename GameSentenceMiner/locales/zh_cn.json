@@ -585,10 +585,6 @@
             "label": "多行句子存储字段:",
             "tooltip": "Anki 中用于临时存储多行句子的字段。"
           },
-          "ocr_port": {
-            "label": "OCR WebSocket 端口:",
-            "tooltip": "OCR WebSocket 通信的端口。GSM 也将在此端口上侦听。"
-          },
           "texthooker_comm_port": {
             "label": "文本评送通信 WebSocket 端口:",
             "tooltip": "GSM 文本评送 WebSocket 通信的端口。"

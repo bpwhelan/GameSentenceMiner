@@ -454,6 +454,7 @@
       "showYuzuLauncher": "Показувати Yuzu Launcher:",
       "runTransparencyOnStartup": "Запускати інструмент прозорості вікон при старті:",
       "runOverlayOnStartup": "Запускати оверлей при старті:",
+      "quitOnWindowClose": "Виходити з GSM під час закриття вікна:",
       "textCaptureWizard": "Показувати майстер захоплення тексту після налаштування захоплення:"
     },
     "visibility": {
@@ -763,7 +764,9 @@
       "manualMenu": "Ручний / Меню:",
       "areaSelect": "Вибір області:",
       "wholeWindow": "Все вікно:",
-      "pause": "Пауза:"
+      "pause": "Пауза:",
+      "runAction": "Виконати",
+      "runActionTitle": "Виконати цю дію зараз"
     },
     "console": {
       "title": "Консоль",

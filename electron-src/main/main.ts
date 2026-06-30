@@ -10,7 +10,10 @@ import {
     shell,
     Tray,
 } from 'electron';
-import { sendNotificationFromPython } from './notifications.js';
+import {
+    sendGSMStillRunningInTrayNotification,
+    sendNotificationFromPython,
+} from './notifications.js';
 import * as path from 'path';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import {
@@ -44,6 +47,7 @@ import {
     getPullPreReleases,
     getPreReleaseMetadataAutoEnableApplied,
     getPythonExtras,
+    getQuitOnWindowClose,
     getRunOverlayOnStartup,
     getRunWindowTransparencyToolOnStartup,
     getStartConsoleMinimized,
@@ -239,6 +243,8 @@ let readyTrayFallbackIconCache: Electron.NativeImage | null = null;
 let backendStatusPollTimer: ReturnType<typeof setInterval> | null = null;
 let trayReadyIndicatorTimer: ReturnType<typeof setTimeout> | null = null;
 let trayReadyIndicatorExpiresAt = 0;
+let hasShownCloseToTrayNotification = false;
+let quitFromWindowCloseInProgress = false;
 const UPDATE_PROGRESS_PREFIX = 'UpdateProgress:';
 const STARTUP_REPAIR_WINDOW_MS = 15_000;
 const TRAY_READY_INDICATOR_MS = 10_000;
@@ -1589,8 +1595,23 @@ async function createWindow() {
 
     mainWindow.on('close', function (event) {
         if (!isQuitting) {
+            if (getQuitOnWindowClose()) {
+                event.preventDefault();
+                if (!quitFromWindowCloseInProgress) {
+                    quitFromWindowCloseInProgress = true;
+                    void quit().finally(() => {
+                        quitFromWindowCloseInProgress = false;
+                    });
+                }
+                return;
+            }
+
             event.preventDefault();
             mainWindow?.hide();
+            if (!hasShownCloseToTrayNotification) {
+                hasShownCloseToTrayNotification = true;
+                sendGSMStillRunningInTrayNotification();
+            }
             //             createTray();
             return;
         }

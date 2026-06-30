@@ -584,10 +584,6 @@
             "label": "複数行保存用フィールド:",
             "tooltip": "複数行の文章を一時的に保存するAnkiフィールド。"
           },
-          "ocr_port": {
-            "label": "OCR WebSocketポート:",
-            "tooltip": "OCR WebSocket通信用のポート。GSMもこのポートで待機します。"
-          },
           "texthooker_comm_port": {
             "label": "テキストフィード通信WebSocketポート:",
             "tooltip": "GSMテキストフィード WebSocket通信用のポート。"

@@ -972,7 +972,6 @@ class ConfigWindow(QWidget):
                     audio_player_path=self.audio_player_path_edit.text(),
                     video_player_path=self.video_player_path_edit.text(),
                     multi_line_line_break=self.multi_line_line_break_edit.text(),
-                    ocr_websocket_port=int(self.ocr_websocket_port_edit.text() or 0),
                     texthooker_communication_websocket_port=self.settings.advanced.texthooker_communication_websocket_port,
                     plaintext_websocket_port=self.settings.advanced.plaintext_websocket_port,
                     localhost_bind_address=self.localhost_bind_address_edit.text(),
@@ -1651,7 +1650,6 @@ class ConfigWindow(QWidget):
         self.video_player_path_edit = QLineEdit()
         self.play_latest_audio_hotkey_edit = ClearableKeySequenceEdit()
         self.multi_line_line_break_edit = QLineEdit()
-        self.ocr_websocket_port_edit = QLineEdit()
         self.texthooker_communication_websocket_port_edit = QLineEdit()
         self.plaintext_websocket_export_port_edit = QLineEdit()
         self.polling_rate_edit = QLineEdit()
@@ -3235,7 +3233,6 @@ class ConfigWindow(QWidget):
         self._set_text_value(self.video_player_path_edit, s.advanced.video_player_path)
         self.play_latest_audio_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.play_latest_audio or ""))
         self._set_text_value(self.multi_line_line_break_edit, s.advanced.multi_line_line_break)
-        self.ocr_websocket_port_edit.setText(str(s.advanced.ocr_websocket_port))
         self.texthooker_communication_websocket_port_edit.setText(
             str(s.advanced.texthooker_communication_websocket_port)
         )

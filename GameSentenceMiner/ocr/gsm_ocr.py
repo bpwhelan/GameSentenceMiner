@@ -2149,6 +2149,13 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
                 if announce_ipc:
                     ocr_ipc.announce_error("Whole-window OCR capture failed")
 
+        elif command == ocr_ipc.OCRCommand.AREA_SELECT_OCR.value:
+            # Screen cropper blocks until the user finishes selecting, so run it
+            # off the IPC handler thread and ack immediately.
+            threading.Thread(target=run_area_select_ocr_once, daemon=True).start()
+            response["success"] = True
+            logger.info("IPC: Triggered Area-Select OCR")
+
         elif command == ocr_ipc.OCRCommand.TOGGLE_FORCE_STABLE.value:
             is_stable = get_controller().toggle_force_stable()
             response["success"] = True
@@ -3575,6 +3582,39 @@ def run_whole_window_ocr_once(source=TextSource.MANUAL) -> bool:
     return True
 
 
+def run_area_select_ocr_once(source=TextSource.SCREEN_CROPPER) -> bool:
+    """Launch the screen cropper and queue an area-select OCR pass.
+
+    Owned by this OCR subprocess (shared by the hotkey and the IPC command).
+    """
+    from GameSentenceMiner.ui.qt_main import launch_screen_cropper
+
+    logger.info("Running Area-Select OCR via screen cropper...")
+    capture_time = datetime.now()
+    cropped_img = launch_screen_cropper(transparent_mode=False)
+
+    if not cropped_img:
+        logger.info("Screen cropper cancelled")
+        return False
+
+    image_metadata = get_screen_crop_image_metadata(cropped_img)
+    second_ocr_queue.put(
+        (
+            "",
+            capture_time,
+            cropped_img,
+            TextFiltering(lang=get_ocr_language()),
+            None,
+            True,
+            True,
+            image_metadata,
+            None,
+            source,
+        )
+    )
+    return True
+
+
 def add_ss_hotkey():
     # We'll create the signal helper when the Qt app is available
     global _screen_cropper_signals
@@ -3628,34 +3668,8 @@ def add_ss_hotkey():
             source=TextSource.SECONDARY,
         )
 
-    filtering = TextFiltering(lang=get_ocr_language())
-
     def capture_screen_crop():
-        from GameSentenceMiner.ui.qt_main import launch_screen_cropper
-
-        print("Taking screenshot via screen cropper...")
-        capture_time = datetime.now()
-        cropped_img = launch_screen_cropper(transparent_mode=False)
-
-        global second_ocr_queue
-        if cropped_img:
-            image_metadata = get_screen_crop_image_metadata(cropped_img)
-            second_ocr_queue.put(
-                (
-                    "",
-                    capture_time,
-                    cropped_img,
-                    filtering,
-                    None,
-                    True,
-                    True,
-                    image_metadata,
-                    None,
-                    TextSource.SCREEN_CROPPER,
-                )
-            )
-        else:
-            logger.info("Screen cropper cancelled")
+        run_area_select_ocr_once()
 
     def capture_whole_window():
         run_whole_window_ocr_once(source=TextSource.MANUAL)

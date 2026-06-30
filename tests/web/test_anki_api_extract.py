@@ -348,6 +348,7 @@ class TestRouteHandlersDelegation:
             "GameSentenceMiner.util.database.anki_tables",
             fake_anki_tables,
         )
+
         def fake_invoke(action, **params):
             assert action == "version"
             assert params["timeout"] == 2

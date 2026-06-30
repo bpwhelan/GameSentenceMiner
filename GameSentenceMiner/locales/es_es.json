@@ -593,10 +593,6 @@
             "label": "Campo de Almacenamiento de Oración Multi-Línea:",
             "tooltip": "Campo en Anki para almacenar temporalmente la oración multi-línea."
           },
-          "ocr_port": {
-            "label": "Puerto WebSocket de OCR:",
-            "tooltip": "Puerto para comunicación WebSocket de OCR. GSM también escuchará en este puerto"
-          },
           "texthooker_comm_port": {
             "label": "Puerto WebSocket de Comunicación de Text Feed:",
             "tooltip": "Puerto para comunicación WebSocket de GSM Text Feed."

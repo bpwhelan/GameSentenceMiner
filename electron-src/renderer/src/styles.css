@@ -4830,6 +4830,27 @@ body {
   min-width: 0;
 }
 
+.ocr-hotkey-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ocr-hotkey-run {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.ocr-hotkey-run:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Console */
 .ocr-workspace .ocr-console-status {
   border: 1px solid var(--gsm-border-default);

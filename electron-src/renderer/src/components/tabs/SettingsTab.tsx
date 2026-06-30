@@ -66,6 +66,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   windowTransparencyTarget: "",
   runWindowTransparencyToolOnStartup: false,
   runOverlayOnStartup: false,
+  quitOnWindowClose: false,
   textCaptureWizardEnabled: true,
   visibleTabs: ["launcher", "stats", "python", "console"],
   statsEndpoint: "overview",
@@ -675,6 +676,20 @@ export function SettingsTab({ active }: SettingsTabProps) {
                   />
                 </div>
               ) : null}
+
+              <div className="input-group">
+                <label htmlFor="quit-on-window-close">
+                  {t("settings.desktop.quitOnWindowClose")}
+                </label>
+                <input
+                  id="quit-on-window-close"
+                  type="checkbox"
+                  checked={settings.quitOnWindowClose}
+                  onChange={(event) =>
+                    patchSettings({ quitOnWindowClose: event.target.checked })
+                  }
+                />
+              </div>
 
               <div className="input-group">
                 <label htmlFor="text-capture-wizard-enabled">

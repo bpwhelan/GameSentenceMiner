@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import GameSentenceMiner.gametext as gametext
 
 
-def _make_config(*, use_websocket: bool, ocr_websocket_port: int = 9002):
+def _make_config(*, use_websocket: bool):
     return SimpleNamespace(
         general=SimpleNamespace(
             use_websocket=use_websocket,
@@ -12,7 +12,7 @@ def _make_config(*, use_websocket: bool, ocr_websocket_port: int = 9002):
             use_both_clipboard_and_websocket=False,
             websocket_sources=[],
         ),
-        advanced=SimpleNamespace(ocr_websocket_port=ocr_websocket_port),
+        advanced=SimpleNamespace(),
     )
 
 
@@ -164,7 +164,7 @@ def test_resolve_websocket_source_name_prefers_configured_name(monkeypatch):
             general=SimpleNamespace(
                 websocket_sources=[SimpleNamespace(uri="localhost:6677", name="Agent", enabled=True)],
             ),
-            advanced=SimpleNamespace(ocr_websocket_port=9002),
+            advanced=SimpleNamespace(),
         ),
     )
 

@@ -23,6 +23,7 @@ import {
     getLaunchAgentMinimized,
     getLaunchTextractorMinimized,
     getPythonPath,
+    getQuitOnWindowClose,
     getRunOverlayOnStartup,
     getRunWindowTransparencyToolOnStartup,
     getSceneLaunchProfileForScene,
@@ -49,6 +50,7 @@ import {
     setPullPreReleases,
     setConsoleMode,
     setCustomPythonPackage,
+    setQuitOnWindowClose,
     setForceManualOcrAllProfiles,
     setIgnoreActiveSceneForOcr,
     setHasCompletedSetup,
@@ -901,6 +903,7 @@ function getSettingsSnapshot() {
         windowTransparencyTarget: store.get('windowTransparencyTarget') || '',
         runWindowTransparencyToolOnStartup: getRunWindowTransparencyToolOnStartup(),
         runOverlayOnStartup: getRunOverlayOnStartup(),
+        quitOnWindowClose: getQuitOnWindowClose(),
         textCaptureWizardEnabled: getTextCaptureWizardEnabled(),
         visibleTabs: getVisibleTabs(),
         statsEndpoint: getStatsEndpoint(),
@@ -1055,6 +1058,9 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         }
         if (typeof payload.runOverlayOnStartup === 'boolean') {
             setRunOverlayOnStartup(payload.runOverlayOnStartup);
+        }
+        if (typeof payload.quitOnWindowClose === 'boolean') {
+            setQuitOnWindowClose(payload.quitOnWindowClose);
         }
         if (typeof payload.textCaptureWizardEnabled === 'boolean') {
             setTextCaptureWizardEnabled(payload.textCaptureWizardEnabled);

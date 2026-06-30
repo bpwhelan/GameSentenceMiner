@@ -160,6 +160,7 @@ interface StoreConfig {
     windowTransparencyTarget: string; // Target window for transparency tool
     runWindowTransparencyToolOnStartup: boolean; // Whether to run the transparency tool on startup
     runOverlayOnStartup: boolean; // Whether to run the overlay on startup
+    quitOnWindowClose: boolean; // Whether the main window X button quits instead of hiding to tray
     textCaptureWizardEnabled: boolean; // Whether to show the text capture wizard after capture setup
     obsOcrScenes: string[];
     pullPreReleases: boolean;
@@ -286,6 +287,7 @@ export const store = new Store<StoreConfig>({
         windowTransparencyTarget: '', // Default to empty string if not set
         runWindowTransparencyToolOnStartup: false, // Whether to run the transparency tool on startup
         runOverlayOnStartup: false, // Whether to run the overlay on startup    
+        quitOnWindowClose: false,
         textCaptureWizardEnabled: true,
         obsOcrScenes: [],
         pullPreReleases: false,
@@ -763,6 +765,14 @@ export function getRunOverlayOnStartup(): boolean {
 
 export function setRunOverlayOnStartup(run: boolean): void {
     store.set("runOverlayOnStartup", run);
+}
+
+export function getQuitOnWindowClose(): boolean {
+    return store.get("quitOnWindowClose", false);
+}
+
+export function setQuitOnWindowClose(quitOnClose: boolean): void {
+    store.set("quitOnWindowClose", quitOnClose);
 }
 
 export function getTextCaptureWizardEnabled(): boolean {

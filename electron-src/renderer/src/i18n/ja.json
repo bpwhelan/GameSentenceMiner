@@ -454,6 +454,7 @@
       "showYuzuLauncher": "Yuzuランチャーを表示:",
       "runTransparencyOnStartup": "起動時に透過ツールを実行:",
       "runOverlayOnStartup": "起動時にオーバーレイを実行:",
+      "quitOnWindowClose": "ウィンドウを閉じたときにGSMを終了:",
       "textCaptureWizard": "キャプチャ設定後にテキストキャプチャウィザードを表示:"
     },
     "visibility": {
@@ -763,7 +764,9 @@
       "manualMenu": "手動 / メニュー:",
       "areaSelect": "エリア選択:",
       "wholeWindow": "ウィンドウ全体:",
-      "pause": "一時停止:"
+      "pause": "一時停止:",
+      "runAction": "実行",
+      "runActionTitle": "このアクションを今すぐ実行します"
     },
     "console": {
       "title": "コンソール",

@@ -12,6 +12,7 @@ def test_live_stats_snapshot_contains_current_session_values():
     tracker.times_mined = 2
     tracker.session_start_time = 1000.0
     tracker.last_line_time = 1060.0
+    tracker.lines_count = 5
 
     payload = build_live_stats_payload(tracker, reason="test", now=1070.0)
 
@@ -146,8 +147,22 @@ def test_v2_cph_guard_blocks_spike_until_enough_lines(monkeypatch):
     assert tracker.get_chars_per_hour() > 0
 
 
-def test_v1_default_unchanged_floor(monkeypatch):
-    # With v2 off (default), a short line still uses the v1 15s floor.
+def test_v1_disabled_unchanged_floor(monkeypatch):
+    from types import SimpleNamespace
+    import GameSentenceMiner.util.stats.live_stats as live_mod
+
+    monkeypatch.setattr(
+        live_mod,
+        "get_stats_config",
+        lambda: SimpleNamespace(
+            reading_time_adaptive_v2=False,
+            session_gap_seconds=1800,
+            regex_out_repetitions=False,
+            extra_punctuation_regex="",
+        ),
+    )
+
+    # With v2 off, a short line still uses the v1 15s floor.
     tracker = LiveSessionTracker()
     tracker.add_line("ab", 1000.0)
     tracker.add_line("next", 1060.0)

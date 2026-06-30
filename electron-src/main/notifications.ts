@@ -17,6 +17,7 @@ export enum NotificationType {
     CheckOBS = 'Check OBS',
     Error = 'Error',
     GSMReady = 'GSM Ready',
+    GSMStillRunning = 'GSM Still Running',
     GSMTextIntakePaused = 'GSM Text Intake Paused',
     GSMTextIntakeResumed = 'GSM Text Intake Resumed',
 }
@@ -232,6 +233,15 @@ export function sendErrorNoAnkiUpdate() {
 export function sendGSMReadyNotification(message: string) {
     sendNotification(NotificationType.GSMReady, message, 5000);
 }
+
+export function sendGSMStillRunningInTrayNotification() {
+    sendNotification(
+        NotificationType.GSMStillRunning,
+        'GSM is still running in the system tray. Use the tray icon to open or exit GSM.',
+        5000
+    );
+}
+
 export function sendErrorNotification(message: string) {
     sendNotification(NotificationType.Error, message, 5000);
 }

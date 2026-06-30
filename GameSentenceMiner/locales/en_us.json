@@ -607,10 +607,6 @@
             "label": "Multi-Line Sentence Storage Field:",
             "tooltip": "Field in Anki for storing the multi-line sentence temporarily."
           },
-          "ocr_port": {
-            "label": "OCR WebSocket Port:",
-            "tooltip": "Port for OCR WebSocket communication. GSM will also listen on this port"
-          },
           "texthooker_comm_port": {
             "label": "Text Feed Communication WebSocket Port:",
             "tooltip": "Port for GSM Text Feed WebSocket communication. "

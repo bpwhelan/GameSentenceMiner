@@ -255,6 +255,13 @@ class TestTodayStatsRoute:
         }
 
     def test_today_stats_with_session_summary(self, client, monkeypatch):
+        import GameSentenceMiner.web.stats as stats_mod
+
+        monkeypatch.setattr(
+            stats_mod,
+            "get_stats_config",
+            lambda: SimpleNamespace(reading_time_adaptive_v2=True),
+        )
         self._patch_time(monkeypatch)
         self._seed_lines()
 
@@ -263,15 +270,15 @@ class TestTodayStatsRoute:
 
         data = resp.get_json()
         assert data["todayTotalChars"] == 6
-        assert data["todayTotalHours"] == 0.01
-        assert data["todayCharsPerHour"] == 720
+        assert data["todayTotalHours"] == 0.0
+        assert data["todayCharsPerHour"] == 1440
         assert data["todaySessions"] == 1
         assert len(data["sessions"]) == 1
 
         session = data["sessions"][0]
         assert session["totalChars"] == 6
-        assert session["totalSeconds"] == 30.0
-        assert session["charsPerHour"] == 720
+        assert session["totalSeconds"] == 15.0
+        assert session["charsPerHour"] == 1440
 
     def test_today_stats_uses_preloaded_game_metadata_for_linked_lines(self, client, monkeypatch):
         self._patch_time(monkeypatch)

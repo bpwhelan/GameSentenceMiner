@@ -1249,11 +1249,14 @@ def register_anki_api_endpoints(app):
                 from GameSentenceMiner import anki as anki_module
 
                 try:
-                    anki_connect_available = anki_module.invoke(
-                        "version",
-                        timeout=2,
-                        raise_on_error=False,
-                    ) is not None
+                    anki_connect_available = (
+                        anki_module.invoke(
+                            "version",
+                            timeout=2,
+                            raise_on_error=False,
+                        )
+                        is not None
+                    )
                 except Exception as probe_error:
                     logger.debug(f"AnkiConnect availability probe failed: {probe_error}")
 
