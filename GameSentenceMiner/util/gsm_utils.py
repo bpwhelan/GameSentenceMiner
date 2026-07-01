@@ -174,17 +174,36 @@ def isascii(s: str):
             return False
 
 
-def do_text_replacements(text, replacements_json):
-    if not text:
-        return text
+# Cache parsed replacements + compiled regexes, keyed by file path and mtime.
+_text_replacements_cache: dict = {}
 
-    replacements = {}
-    if os.path.exists(replacements_json):
+
+def _load_text_replacements(replacements_json):
+    """Return (enabled, compiled_ops) for the replacements file, cached by mtime.
+
+    compiled_ops is a list of (kind, payload, replacement):
+      - "re": compiled regex (re: prefix)
+      - "word": compiled whole-word ascii regex
+      - "literal": plain str.replace search string
+    """
+    try:
+        mtime = os.path.getmtime(replacements_json)
+    except OSError:
+        return False, []
+
+    cached = _text_replacements_cache.get(replacements_json)
+    if cached is not None and cached[0] == mtime:
+        return cached[1], cached[2]
+
+    try:
         with open(replacements_json, "r", encoding="utf-8") as f:
-            replacements.update(json.load(f))
+            replacements = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return False, []
 
-    if replacements.get("enabled", False):
-        orig_text = text
+    enabled = bool(replacements.get("enabled", False))
+    compiled_ops = []
+    if enabled:
         filters = replacements.get("args", {}).get("replacements", {})
         for fil, replacement in filters.items():
             if not fil:
@@ -192,14 +211,31 @@ def do_text_replacements(text, replacements_json):
             if fil.startswith("re:"):
                 pattern = fil[3:]
                 try:
-                    text = re.sub(pattern, replacement, text)
-                except Exception:
+                    compiled_ops.append(("re", re.compile(pattern), replacement))
+                except re.error:
                     logger.error(f"Invalid regex pattern: {pattern}")
                     continue
             if isascii(fil):
-                text = re.sub(r"\b{}\b".format(re.escape(fil)), replacement, text)
+                compiled_ops.append(("word", re.compile(r"\b{}\b".format(re.escape(fil))), replacement))
             else:
-                text = text.replace(fil, replacement)
+                compiled_ops.append(("literal", fil, replacement))
+
+    _text_replacements_cache[replacements_json] = (mtime, enabled, compiled_ops)
+    return enabled, compiled_ops
+
+
+def do_text_replacements(text, replacements_json):
+    if not text:
+        return text
+
+    enabled, compiled_ops = _load_text_replacements(replacements_json)
+    if enabled:
+        orig_text = text
+        for kind, payload, replacement in compiled_ops:
+            if kind == "literal":
+                text = text.replace(payload, replacement)
+            else:
+                text = payload.sub(replacement, text)
         if text != orig_text:
             logger.info(f"Text replaced: '{orig_text}' -> '{text}' using replacements.")
     return text

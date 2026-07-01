@@ -220,7 +220,7 @@ class Store:
                 return _clone(self.data)
             return _deep_merge_defaults(self.defaults, raw_data)
 
-    def get(self, key: str, default: Any = None) -> Any:
+    def get(self, key: str, default: Any = None, *, copy: bool = True) -> Any:
         keys = key.split(".") if key else []
         with self._lock:
             value: Any = self.data
@@ -229,7 +229,7 @@ class Store:
                     value = value[current_key]
                 else:
                     return default
-            return _clone(value)
+            return _clone(value) if copy else value
 
     def set(self, key: str, value: Any) -> bool:
         keys = key.split(".") if key else []
@@ -289,6 +289,11 @@ def _get_ocr_value(key: str, default: Any = None) -> Any:
     return _get_ocr_config().get(key, default)
 
 
+def _get_ocr_value_readonly(key: str, default: Any = None) -> Any:
+    """Read a single OCR scalar without deepcopying the whole OCR dict."""
+    return electron_store.get(f"OCR.{key}", default, copy=False)
+
+
 def _get_ocr_int_value(
     key: str,
     default: int,
@@ -309,7 +314,7 @@ def _get_ocr_int_value(
 
 
 def _is_advanced_mode() -> bool:
-    return bool(_get_ocr_value("advancedMode", False))
+    return bool(_get_ocr_value_readonly("advancedMode", False))
 
 
 def _get_keep_newline_key_for_source(source: str | None = None) -> str:
@@ -371,7 +376,7 @@ def _get_basic_ocr2_engine(ocr_config: Dict[str, Any]) -> str:
 def get_ocr_two_pass_ocr() -> bool:
     if not _is_advanced_mode():
         return True
-    return bool(_get_ocr_value("twoPassOCR", True))
+    return bool(_get_ocr_value_readonly("twoPassOCR", True))
 
 
 def get_ocr_optimize_second_scan() -> bool:
@@ -403,7 +408,7 @@ def get_ocr_window_name() -> str:
 
 
 def get_ocr_language() -> str:
-    return str(_get_ocr_value("language", "ja") or "ja")
+    return str(_get_ocr_value_readonly("language", "ja") or "ja")
 
 
 def get_ocr_ocr_screenshots() -> bool:
@@ -414,7 +419,7 @@ def get_ocr_ocr_screenshots() -> bool:
 
 def get_ocr_furigana_filter_sensitivity() -> int:
     try:
-        return int(_get_ocr_value("furigana_filter_sensitivity", 0))
+        return int(_get_ocr_value_readonly("furigana_filter_sensitivity", 0))
     except (TypeError, ValueError):
         return 0
 
@@ -461,11 +466,10 @@ def get_ocr_send_to_clipboard(source: str | None = None) -> bool:
 
 
 def get_ocr_scan_rate() -> float:
-    ocr_config = _get_ocr_config()
-    scan_rate = ocr_config.get("scanRate")
+    scan_rate = _get_ocr_value_readonly("scanRate", None)
 
     if scan_rate is None and not _is_advanced_mode():
-        scan_rate = ocr_config.get("scanRate_basic", 0.5)
+        scan_rate = _get_ocr_value_readonly("scanRate_basic", 0.5)
 
     try:
         return float(scan_rate)
@@ -495,12 +499,12 @@ def get_ocr_base_scale() -> float:
 
 
 def get_ocr_keep_newline(source: str | None = None) -> bool:
-    explicit_value = _get_ocr_value(_get_keep_newline_key_for_source(source), None)
+    explicit_value = _get_ocr_value_readonly(_get_keep_newline_key_for_source(source), None)
     if isinstance(explicit_value, bool):
         return explicit_value
     if not _is_advanced_mode():
         return True
-    return bool(_get_ocr_value("keep_newline", False))
+    return bool(_get_ocr_value_readonly("keep_newline", False))
 
 
 def get_ocr_duplicate_similarity_threshold() -> int:
