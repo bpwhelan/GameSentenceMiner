@@ -143,6 +143,14 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate changelog release asset
+        run: |
+          mkdir -p dist
+          node scripts/validate-changelog.mjs --version "${{ needs.prepare-release.outputs.PACKAGE_VERSION }}"
+          node scripts/export-changelog-release-asset.mjs --version "${{ needs.prepare-release.outputs.PACKAGE_VERSION }}" --repo "${{ github.repository }}" --out "dist/changelog-v${{ needs.prepare-release.outputs.PACKAGE_VERSION }}.json"
+
       - name: Create release shell
         uses: softprops/action-gh-release@v2
         with:
@@ -153,6 +161,9 @@ jobs:
           draft: false
           prerelease: false
           append_body: false
+          files: |
+            dist/changelog-v${{ needs.prepare-release.outputs.PACKAGE_VERSION }}.json
+            dist/changelog-assets-*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -434,6 +434,27 @@
     "openLogs": "Open Logs",
     "quit": "Quit"
   },
+  "changelog": {
+    "title": "What's Changed",
+    "versionRange": "{from} → {to}",
+    "loading": "Loading release notes...",
+    "empty": "No release notes are available for this update.",
+    "imageAlt": "Release note image",
+    "fallbackNote": "Showing bundled release notes because the latest online notes could not be loaded.",
+    "continue": "Continue",
+    "syncing": "Syncing backend...",
+    "source": {
+      "loading": "Loading",
+      "bundled": "Bundled notes",
+      "remote": "Latest notes"
+    },
+    "backend": {
+      "title": "Updating Python backend",
+      "preparing": "Preparing backend sync...",
+      "completed": "Backend sync complete.",
+      "failed": "Backend sync failed."
+    }
+  },
   "settings": {
     "hub": {
       "findSetting": "Find a Setting",

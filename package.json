@@ -19,6 +19,8 @@
     "test:ts:watch": "vitest --config vitest.config.ts",
     "app:dir": "npm run build && npm run stage:overlay && electron-builder --dir",
     "sync:version": "node scripts/sync-version.mjs",
+    "changelog:validate": "node scripts/validate-changelog.mjs",
+    "changelog:export": "node scripts/export-changelog-release-asset.mjs",
     "stage:overlay": "node scripts/stage-overlay-build.mjs",
     "verify:overlay-package": "node scripts/verify-overlay-package.mjs",
     "app:dist": "npm run build && npm run stage:overlay && electron-builder --publish=never",
@@ -143,6 +145,9 @@
     "obs-websocket-js": "^5.0.8",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
+    "react-markdown": "^10.1.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
     "semver": "^7.7.4",
     "tar": "^7.5.13",
     "ws": "^8.20.0"

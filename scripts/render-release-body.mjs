@@ -1,4 +1,6 @@
 import { pathToFileURL } from "node:url";
+import fs from "node:fs";
+import path from "node:path";
 
 const DEFAULT_REPO = "bpwhelan/GameSentenceMiner";
 
@@ -55,6 +57,66 @@ function renderDownloadTable({ repo, version }) {
   ];
 }
 
+function sanitizeChangelogAssetName(version, ref) {
+  const cleanRef = ref.replaceAll("\\", "/").replace(/[^0-9A-Za-z._-]+/g, "-");
+  return `changelog-assets-${version}-${cleanRef}`;
+}
+
+function isExternalUrl(value) {
+  return /^(?:https?:|data:|blob:|gsm-changelog:)/i.test(value);
+}
+
+function rewriteChangelogImagesForRelease(markdown, repo, version) {
+  return markdown.replace(/!\[([^\]]*)]\(([^)\s]+)(\s+["'][^"']*["'])?\)/g, (match, alt, ref, title = "") => {
+    if (isExternalUrl(ref)) {
+      return match;
+    }
+    const assetName = sanitizeChangelogAssetName(version, ref);
+    return `![${alt}](${buildDownloadUrl(repo, version, assetName)}${title})`;
+  });
+}
+
+function loadBundledChangelogMarkdown(version) {
+  const repoRoot = process.cwd();
+  const changelogRoot = path.join(repoRoot, "electron-src", "assets", "changelog");
+  const manifestPath = path.join(changelogRoot, "manifest.json");
+  if (!fs.existsSync(manifestPath)) {
+    return "";
+  }
+
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    const releases = Array.isArray(manifest.releases) ? manifest.releases : [];
+    const entry = releases.find((release) => release?.version === version);
+    if (!entry) {
+      return "";
+    }
+    const relativeFile = entry.file || `releases/${version}.md`;
+    const markdownPath = path.resolve(changelogRoot, relativeFile);
+    if (!markdownPath.startsWith(`${path.resolve(changelogRoot)}${path.sep}`)) {
+      throw new Error(`Changelog path escapes root: ${relativeFile}`);
+    }
+    return fs.readFileSync(markdownPath, "utf8").trim();
+  } catch (error) {
+    console.warn(
+      `[render-release-body] Could not append bundled changelog: ${
+        error instanceof Error ? error.message : error
+      }`
+    );
+    return "";
+  }
+}
+
+function renderBundledChangelogSection(repo, version) {
+  const markdown = loadBundledChangelogMarkdown(version);
+  if (!markdown) {
+    return [];
+  }
+
+  const body = markdown.replace(/^\s*# .*(?:\r?\n)+/, "").trim();
+  return ["", "## What's Changed", "", rewriteChangelogImagesForRelease(body, repo, version)];
+}
+
 export function renderStableReleaseBody({ repo = DEFAULT_REPO, version }) {
   ensureVersion(version);
 
@@ -64,6 +126,7 @@ export function renderStableReleaseBody({ repo = DEFAULT_REPO, version }) {
     ...renderDownloadTable({ repo, version }),
     "",
     "Intel Mac builds are no longer provided. If you need GSM on Intel Mac, run it from source.",
+    ...renderBundledChangelogSection(repo, version),
   ].join("\n");
 }
 
@@ -86,6 +149,7 @@ export function renderPrereleaseBody({ repo = DEFAULT_REPO, version }) {
     "## Downloads",
     "",
     ...renderDownloadTable({ repo, version }),
+    ...renderBundledChangelogSection(repo, version),
   ].join("\n");
 }
 

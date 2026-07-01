@@ -46,6 +46,7 @@ import {
     getAutoUpdateGSMApp,
     getPullPreReleases,
     getPreReleaseMetadataAutoEnableApplied,
+    getPendingDesktopChangelog,
     getPythonExtras,
     getQuitOnWindowClose,
     getRunOverlayOnStartup,
@@ -58,6 +59,10 @@ import {
     setHasCompletedSetup,
     getIconStyle,
     setIconStyle,
+    setPendingDesktopChangelog,
+    clearPendingDesktopChangelog,
+    hasSeenDesktopChangelog,
+    markDesktopChangelogSeen,
     setPythonExtras,
     setPullPreReleases,
     setPreReleaseMetadataAutoEnableApplied,
@@ -88,6 +93,14 @@ import { UpdateManager } from './services/update_manager.js';
 import type { UpdateStatusSnapshot } from './services/update_manager.js';
 import { devFaultInjector } from './services/dev_fault_injection.js';
 import { runUpdateChaosHarness } from './services/update_chaos_harness.js';
+import {
+    DesktopChangelogManager,
+    getDesktopUpdateChangelogTarget,
+} from './services/desktop_changelog.js';
+import {
+    registerChangelogProtocolHandler,
+    registerChangelogProtocolScheme,
+} from './services/changelog_protocol.js';
 import { getConfiguredSinglePort } from './gsm_config.js';
 import {
     getStatusTrayIconPath,
@@ -115,6 +128,8 @@ import type {
     InstallStageId,
 } from '../shared/install_session.js';
 import { INSTALL_STAGE_IDS } from '../shared/install_session.js';
+
+registerChangelogProtocolScheme();
 
 export class FeatureFlags {
     /**
@@ -283,6 +298,8 @@ function safeSendToMainWindow(channel: string, payload: unknown): boolean {
 installSessionManager.setSnapshotListener((channel, snapshot) => {
     safeSendToMainWindow(channel, snapshot);
 });
+
+let desktopChangelogManager: DesktopChangelogManager;
 
 function ensureInstallSession(
     origin: InstallSessionOrigin,
@@ -669,6 +686,23 @@ function sendTerminalLog(payload: TerminalLogPayload): void {
 
 const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
+
+desktopChangelogManager = new DesktopChangelogManager(
+    {
+        getPending: () => getPendingDesktopChangelog(),
+        setPending: (record) => setPendingDesktopChangelog(record),
+        clearPending: (toVersion) => clearPendingDesktopChangelog(toVersion),
+        hasSeen: (version) => hasSeenDesktopChangelog(version),
+        markSeen: (version) => markDesktopChangelogSeen(version),
+    },
+    {
+        assetsDir: getAssetsDir(),
+    }
+);
+
+desktopChangelogManager.setSnapshotListener((snapshot) => {
+    safeSendToMainWindow('changelog.snapshot', snapshot);
+});
 
 const updateManager = new UpdateManager({
     getPythonPath: () => pythonPath,
@@ -1452,6 +1486,9 @@ async function createWindow() {
         updateNow: async () => await updateAvailableTargets(),
         getActiveInstallSession: () => installSessionManager.getActiveSnapshot(),
         retryInstallSession: async () => await installSessionManager.retryLastFailedSession(),
+        getPendingDesktopUpdateChangelog: () => desktopChangelogManager.getPendingSnapshot(),
+        markDesktopUpdateChangelogSeen: async (toVersion?: string) =>
+            desktopChangelogManager.markSeen(toVersion),
     });
     registerDataRelocateIPC();
 
@@ -2273,6 +2310,7 @@ if (!app.requestSingleInstanceLock()) {
     app.whenReady().then(async () => {
         try {
             bootstrapPreReleaseSettingsFromMetadata();
+            registerChangelogProtocolHandler(getAssetsDir());
             try {
                 await startBus();
                 wireBackendBus();
@@ -2363,12 +2401,24 @@ if (!app.requestSingleInstanceLock()) {
             const storedVersion = getElectronAppVersion();
             const appVersionChanged = storedVersion !== '' && storedVersion !== currentVersion;
             const updateFlagPath = path.join(BASE_DIR, 'update_python.flag');
+            const updateFlagExists = fs.existsSync(updateFlagPath);
             if (appVersionChanged) {
                 log.info(
                     `Detected Electron app version change (${storedVersion} -> ${currentVersion}). Forcing Python update before launch.`
                 );
             }
-            if (fs.existsSync(updateFlagPath)) {
+            const changelogTarget = getDesktopUpdateChangelogTarget({
+                storedVersion,
+                currentVersion,
+                updateFlagExists,
+                existingPending: desktopChangelogManager.getPendingRecord(),
+                isSeen: (version) => hasSeenDesktopChangelog(version),
+            });
+            if (changelogTarget) {
+                desktopChangelogManager.startDesktopUpdate(changelogTarget);
+            }
+
+            if (updateFlagExists) {
                 await updateGSM(false, true);
                 if (updateManager.lastBackendUpdateWasSuccessful) {
                     try {

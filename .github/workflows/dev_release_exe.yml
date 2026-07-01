@@ -262,6 +262,11 @@ jobs:
             throw "Failed to create unpacked Windows zip."
           }
 
+      - name: Generate changelog release asset
+        shell: pwsh
+        run: |
+          node scripts/export-changelog-release-asset.mjs --version "${{ needs.compute-version.outputs.PACKAGE_VERSION }}" --repo "${{ github.repository }}" --out "dist/changelog-v${{ needs.compute-version.outputs.PACKAGE_VERSION }}.json"
+
       - name: Upload to pre-release
         uses: softprops/action-gh-release@v2
         with:
@@ -275,6 +280,8 @@ jobs:
             dist/GameSentenceMiner-*-win-unpacked.zip
             dist/latest.yml
             dist/*.blockmap
+            dist/changelog-v${{ needs.compute-version.outputs.PACKAGE_VERSION }}.json
+            dist/changelog-assets-*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

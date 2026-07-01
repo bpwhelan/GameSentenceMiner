@@ -10,6 +10,7 @@ import {
     type InstallSessionSnapshot,
     type InstallStageState,
 } from '../../shared/install_session.js';
+import type { DesktopUpdateChangelogSnapshot } from '../../shared/changelog.js';
 
 const invokeMock = vi.fn();
 const sendMock = vi.fn();
@@ -123,6 +124,33 @@ function createSnapshot(
     };
 }
 
+function createChangelogSnapshot(
+    status: DesktopUpdateChangelogSnapshot['status'] = 'ready'
+): DesktopUpdateChangelogSnapshot {
+    return {
+        fromVersion: '1.0.0',
+        toVersion: '1.0.1',
+        status,
+        source: 'bundled',
+        title: "What's Changed in 1.0.1",
+        markdown: [
+            '# Heading from markdown',
+            '',
+            'A **bold** change with [a link](https://example.com).',
+            '',
+            '![Screenshot](1.0.1/shot.png)',
+            '',
+            '| Feature | Supported |',
+            '| --- | --- |',
+            '| Tables | Yes |',
+            '',
+            '<script>alert("x")</script>',
+        ].join('\n'),
+        assetBaseUrl: 'gsm-changelog://images/',
+        error: null,
+    };
+}
+
 describe('App install-session integration', () => {
     let container: HTMLDivElement;
     let root: Root;
@@ -137,6 +165,9 @@ describe('App install-session integration', () => {
             if (channel === 'install-session.getActive') {
                 return createSnapshot('failed');
             }
+            if (channel === 'changelog.getPendingDesktopUpdate') {
+                return null;
+            }
             if (channel === 'settings.getSettings') {
                 return {};
             }
@@ -144,6 +175,7 @@ describe('App install-session integration', () => {
                 channel === 'state.set' ||
                 channel === 'logs.openFolder' ||
                 channel === 'install-session.retry' ||
+                channel === 'changelog.markDesktopUpdateSeen' ||
                 channel === 'open-external'
             ) {
                 return null;
@@ -207,6 +239,9 @@ describe('App install-session integration', () => {
             if (channel === 'install-session.getActive') {
                 return null;
             }
+            if (channel === 'changelog.getPendingDesktopUpdate') {
+                return null;
+            }
             if (channel === 'settings.getSettings') {
                 return {
                     hasCompletedSetup: true,
@@ -257,6 +292,9 @@ describe('App install-session integration', () => {
         });
         invokeMock.mockImplementation(async (channel: string) => {
             if (channel === 'install-session.getActive') {
+                return null;
+            }
+            if (channel === 'changelog.getPendingDesktopUpdate') {
                 return null;
             }
             if (channel === 'settings.getSettings') {
@@ -338,6 +376,9 @@ describe('App install-session integration', () => {
             if (channel === 'install-session.getActive') {
                 return createSnapshot('failed', 'startup');
             }
+            if (channel === 'changelog.getPendingDesktopUpdate') {
+                return null;
+            }
             if (channel === 'settings.getSettings') {
                 return { hasCompletedSetup: true };
             }
@@ -345,6 +386,7 @@ describe('App install-session integration', () => {
                 channel === 'state.set' ||
                 channel === 'logs.openFolder' ||
                 channel === 'install-session.retry' ||
+                channel === 'changelog.markDesktopUpdateSeen' ||
                 channel === 'open-external'
             ) {
                 return null;
@@ -368,8 +410,100 @@ describe('App install-session integration', () => {
             if (channel === 'install-session.getActive') {
                 return createSnapshot('running', 'backend_update');
             }
+            if (channel === 'changelog.getPendingDesktopUpdate') {
+                return null;
+            }
             if (channel === 'settings.getSettings') {
                 return { hasCompletedSetup: false };
+            }
+            if (
+                channel === 'state.set' ||
+                channel === 'logs.openFolder' ||
+                channel === 'install-session.retry' ||
+                channel === 'changelog.markDesktopUpdateSeen' ||
+                channel === 'open-external'
+            ) {
+                return null;
+            }
+            return {};
+        });
+
+        const { default: App } = await import('./App.js');
+
+        await act(async () => {
+            root.render(<App />);
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(container.querySelector('.install-session-overlay')).toBeNull();
+    });
+
+    it('shows the whats changed dialog for a pending desktop update changelog', async () => {
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') {
+                return createSnapshot('running', 'backend_update');
+            }
+            if (channel === 'changelog.getPendingDesktopUpdate') {
+                return createChangelogSnapshot();
+            }
+            if (channel === 'settings.getSettings') {
+                return { hasCompletedSetup: true };
+            }
+            if (
+                channel === 'state.set' ||
+                channel === 'logs.openFolder' ||
+                channel === 'install-session.retry' ||
+                channel === 'changelog.markDesktopUpdateSeen' ||
+                channel === 'open-external'
+            ) {
+                return { success: true };
+            }
+            return {};
+        });
+
+        const { default: App } = await import('./App.js');
+
+        await act(async () => {
+            root.render(<App />);
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        expect(container.querySelector('.install-session-overlay')).toBeNull();
+        expect(container.querySelector('.whats-changed-overlay')).not.toBeNull();
+        expect(container.textContent).toContain("What's Changed in 1.0.1");
+        expect(container.textContent).toContain('A bold change with');
+        expect(container.querySelector('table')).not.toBeNull();
+        expect(container.querySelector('script')).toBeNull();
+        expect(container.querySelector('img')?.getAttribute('src')).toBe(
+            'gsm-changelog://images/1.0.1/shot.png'
+        );
+        const markdownLink = container.querySelector('.whats-changed-body a');
+        expect(markdownLink?.getAttribute('href')).toBe('https://example.com');
+        markdownLink?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        expect(invokeMock).toHaveBeenCalledWith('open-external', 'https://example.com');
+
+        const continueButton = Array.from(container.querySelectorAll('button')).find(
+            (button) => button.textContent === 'Syncing backend...'
+        );
+        expect(continueButton).toBeDefined();
+        expect(continueButton?.hasAttribute('disabled')).toBe(true);
+    });
+
+    it('enables continue after the backend update session completes', async () => {
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') {
+                return createSnapshot('running', 'backend_update');
+            }
+            if (channel === 'changelog.getPendingDesktopUpdate') {
+                return createChangelogSnapshot();
+            }
+            if (channel === 'changelog.markDesktopUpdateSeen') {
+                return { success: true };
+            }
+            if (channel === 'settings.getSettings') {
+                return { hasCompletedSetup: true };
             }
             if (
                 channel === 'state.set' ||
@@ -390,6 +524,95 @@ describe('App install-session integration', () => {
             await Promise.resolve();
         });
 
-        expect(container.querySelector('.install-session-overlay')).toBeNull();
+        const completed = createSnapshot('running', 'backend_update');
+        completed.status = 'completed';
+        completed.overallProgress = 1;
+        completed.currentMessage = 'Backend update complete.';
+        completed.finishedAt = 2;
+
+        await act(async () => {
+            for (const callback of listeners.get('install-session.finished') ?? []) {
+                callback({}, completed);
+            }
+            await Promise.resolve();
+        });
+
+        const continueButton = Array.from(container.querySelectorAll('button')).find(
+            (button) => button.textContent === 'Continue'
+        );
+        expect(continueButton).toBeDefined();
+        expect(continueButton?.hasAttribute('disabled')).toBe(false);
+
+        await act(async () => {
+            continueButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            await Promise.resolve();
+        });
+
+        expect(invokeMock).toHaveBeenCalledWith('changelog.markDesktopUpdateSeen', '1.0.1');
+        expect(container.querySelector('.whats-changed-overlay')).toBeNull();
+    });
+
+    it('keeps failed desktop update changelog sessions actionable', async () => {
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') {
+                return createSnapshot('running', 'backend_update');
+            }
+            if (channel === 'changelog.getPendingDesktopUpdate') {
+                return createChangelogSnapshot();
+            }
+            if (channel === 'settings.getSettings') {
+                return { hasCompletedSetup: true };
+            }
+            if (
+                channel === 'state.set' ||
+                channel === 'logs.openFolder' ||
+                channel === 'install-session.retry' ||
+                channel === 'changelog.markDesktopUpdateSeen' ||
+                channel === 'open-external'
+            ) {
+                return { success: true };
+            }
+            return {};
+        });
+
+        const { default: App } = await import('./App.js');
+
+        await act(async () => {
+            root.render(<App />);
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        const failed = createSnapshot('failed', 'backend_update');
+        await act(async () => {
+            for (const callback of listeners.get('install-session.finished') ?? []) {
+                callback({}, failed);
+            }
+            await Promise.resolve();
+        });
+
+        const retryButton = Array.from(container.querySelectorAll('button')).find(
+            (button) => button.textContent === 'Retry'
+        );
+        const openLogsButton = Array.from(container.querySelectorAll('button')).find(
+            (button) => button.textContent === 'Open Logs'
+        );
+        const quitButton = Array.from(container.querySelectorAll('button')).find(
+            (button) => button.textContent === 'Quit'
+        );
+
+        expect(container.textContent).toContain('Backend sync failed.');
+        expect(retryButton).toBeDefined();
+        expect(openLogsButton).toBeDefined();
+        expect(quitButton).toBeDefined();
+
+        retryButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        openLogsButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        quitButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+        expect(invokeMock).toHaveBeenCalledWith('install-session.retry');
+        expect(invokeMock).toHaveBeenCalledWith('logs.openFolder');
+        expect(sendMock).toHaveBeenCalledWith('app-close');
+        expect(invokeMock).not.toHaveBeenCalledWith('changelog.markDesktopUpdateSeen', '1.0.1');
     });
 });

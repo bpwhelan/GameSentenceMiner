@@ -17,6 +17,7 @@ import { registerTextProcessIPC } from '../ui/textprocess.js';
 import { exportLogsArchive } from './log_export.js';
 import { BASE_DIR } from '../util.js';
 import { isAllowedDocsUrl } from '../../shared/docs.js';
+import type { DesktopUpdateChangelogSnapshot } from '../../shared/changelog.js';
 import type { InstallSessionSnapshot } from '../../shared/install_session.js';
 
 interface MainIPCDependencies {
@@ -27,6 +28,8 @@ interface MainIPCDependencies {
     updateNow: () => Promise<unknown>;
     getActiveInstallSession: () => InstallSessionSnapshot | null;
     retryInstallSession: () => Promise<boolean>;
+    getPendingDesktopUpdateChangelog: () => DesktopUpdateChangelogSnapshot | null;
+    markDesktopUpdateChangelogSeen: (toVersion?: string) => Promise<boolean> | boolean;
 }
 
 let ipcRegistered = false;
@@ -189,6 +192,18 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
 
     ipcMain.handle('install-session.retry', async () => {
         return { success: await deps.retryInstallSession() };
+    });
+
+    ipcMain.handle('changelog.getPendingDesktopUpdate', async () => {
+        return deps.getPendingDesktopUpdateChangelog();
+    });
+
+    ipcMain.handle('changelog.markDesktopUpdateSeen', async (_event, toVersion?: unknown) => {
+        return {
+            success: await deps.markDesktopUpdateChangelogSeen(
+                typeof toVersion === 'string' ? toVersion : undefined
+            ),
+        };
     });
 
     ipcMain.on('settings.iconStyleChanged', (_event, iconStyle) => {

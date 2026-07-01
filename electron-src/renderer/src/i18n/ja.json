@@ -423,6 +423,27 @@
     "openLogs": "ログを開く",
     "quit": "終了"
   },
+  "changelog": {
+    "title": "変更点",
+    "versionRange": "{from} → {to}",
+    "loading": "リリースノートを読み込み中...",
+    "empty": "このアップデートのリリースノートはありません。",
+    "imageAlt": "リリースノート画像",
+    "fallbackNote": "最新のオンラインノートを読み込めなかったため、同梱されたリリースノートを表示しています。",
+    "continue": "続行",
+    "syncing": "バックエンドを同期中...",
+    "source": {
+      "loading": "読み込み中",
+      "bundled": "同梱ノート",
+      "remote": "最新ノート"
+    },
+    "backend": {
+      "title": "Pythonバックエンドを更新中",
+      "preparing": "バックエンド同期を準備中...",
+      "completed": "バックエンド同期が完了しました。",
+      "failed": "バックエンド同期に失敗しました。"
+    }
+  },
   "settings": {
     "hub": {
       "findSetting": "設定を探す",

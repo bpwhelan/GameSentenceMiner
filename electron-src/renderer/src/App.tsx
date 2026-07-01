@@ -5,6 +5,7 @@ import { LauncherTab } from "./components/tabs/LauncherTab";
 import { SettingsTab } from "./components/tabs/SettingsTab";
 import { SetupWizard } from "./components/SetupWizard";
 import { InstallSessionModal } from "./components/InstallSessionModal";
+import { WhatsChangedDialog } from "./components/WhatsChangedDialog";
 import type { ControlledTab } from "./types/models";
 import { OCRTab } from "./components/tabs/OCRTab";
 import { TextHookTab } from "./components/tabs/TextHookTab";
@@ -12,6 +13,7 @@ import { TextProcessingTab } from "./components/tabs/TextProcessingTab";
 import { HomeTab } from "./components/tabs/HomeTab";
 import { useTranslation } from "./i18n";
 import { getTerminalColors, THEME_CHANGED_EVENT } from "./lib/theme";
+import type { DesktopUpdateChangelogSnapshot } from "../../shared/changelog";
 import type { InstallSessionSnapshot } from "../../shared/install_session";
 
 type TabId =
@@ -867,6 +869,11 @@ export default function App() {
   const [showWizard, setShowWizard] = useState(false);
   const [wizardChecked, setWizardChecked] = useState(false);
   const [installSession, setInstallSession] = useState<InstallSessionSnapshot | null>(null);
+  const [desktopChangelog, setDesktopChangelog] =
+    useState<DesktopUpdateChangelogSnapshot | null>(null);
+  const [desktopUpdateBackendStatus, setDesktopUpdateBackendStatus] = useState<
+    "pending" | "running" | "completed" | "failed"
+  >("pending");
   const [hasCompletedSetup, setHasCompletedSetup] = useState<boolean | null>(null);
   const [visibleControlledTabs, setVisibleControlledTabs] = useState<
     Record<ControlledTab, boolean>
@@ -898,10 +905,35 @@ export default function App() {
     [isTabVisible]
   );
   const isTabVisibleRef = useRef(isTabVisible);
+  const desktopChangelogRef = useRef<DesktopUpdateChangelogSnapshot | null>(null);
+  const lastBackendUpdateStatusRef = useRef<
+    "pending" | "running" | "completed" | "failed" | null
+  >(null);
 
   useEffect(() => {
     isTabVisibleRef.current = isTabVisible;
   }, [isTabVisible]);
+
+  useEffect(() => {
+    desktopChangelogRef.current = desktopChangelog;
+    if (desktopChangelog) {
+      if (lastBackendUpdateStatusRef.current) {
+        setDesktopUpdateBackendStatus(lastBackendUpdateStatusRef.current);
+        return;
+      }
+      setDesktopUpdateBackendStatus((current) =>
+        current === "completed" || current === "failed" ? current : "pending"
+      );
+    } else {
+      setDesktopUpdateBackendStatus("pending");
+    }
+  }, [desktopChangelog]);
+
+  useEffect(() => {
+    if (desktopChangelog && installSession?.origin === "backend_update") {
+      setDesktopUpdateBackendStatus(installSession.status);
+    }
+  }, [desktopChangelog, installSession]);
 
   const selectTab = useCallback(
     (tab: TabId) => {
@@ -981,6 +1013,36 @@ export default function App() {
     let disposed = false;
 
     void window.ipcRenderer
+      .invoke<DesktopUpdateChangelogSnapshot | null>(
+        "changelog.getPendingDesktopUpdate"
+      )
+      .then((snapshot) => {
+        if (!disposed) {
+          setDesktopChangelog(snapshot);
+        }
+      });
+
+    const offSnapshot = window.ipcRenderer.on(
+      "changelog.snapshot",
+      (_event, payload) => {
+        if (payload && typeof payload === "object") {
+          setDesktopChangelog(payload as DesktopUpdateChangelogSnapshot);
+        } else {
+          setDesktopChangelog(null);
+        }
+      }
+    );
+
+    return () => {
+      disposed = true;
+      offSnapshot();
+    };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+
+    void window.ipcRenderer
       .invoke<InstallSessionSnapshot | null>("install-session.getActive")
       .then((snapshot) => {
         if (!disposed) {
@@ -991,7 +1053,17 @@ export default function App() {
     const offSnapshot = window.ipcRenderer.on(
       "install-session.snapshot",
       (_event, payload) => {
-        setInstallSession(payload as InstallSessionSnapshot);
+        const snapshot = payload as InstallSessionSnapshot;
+        setInstallSession(snapshot);
+        if (snapshot.origin === "backend_update") {
+          lastBackendUpdateStatusRef.current = "running";
+        }
+        if (
+          snapshot.origin === "backend_update" &&
+          desktopChangelogRef.current
+        ) {
+          setDesktopUpdateBackendStatus("running");
+        }
       }
     );
 
@@ -999,6 +1071,17 @@ export default function App() {
       "install-session.finished",
       (_event, payload) => {
         const snapshot = payload as InstallSessionSnapshot;
+        if (snapshot.origin === "backend_update") {
+          lastBackendUpdateStatusRef.current = snapshot.status;
+        }
+        if (
+          snapshot.origin === "backend_update" &&
+          desktopChangelogRef.current
+        ) {
+          setDesktopUpdateBackendStatus(snapshot.status);
+          setInstallSession(snapshot.status === "failed" ? snapshot : null);
+          return;
+        }
         if (snapshot?.status === "failed") {
           setInstallSession(snapshot);
           return;
@@ -1040,6 +1123,17 @@ export default function App() {
 
   const quitInstallFlow = useCallback(() => {
     window.ipcRenderer.send("app-close");
+  }, []);
+
+  const markDesktopChangelogSeen = useCallback(async () => {
+    const toVersion = desktopChangelogRef.current?.toVersion;
+    const result = await window.ipcRenderer.invoke<{ success?: boolean }>(
+      "changelog.markDesktopUpdateSeen",
+      toVersion
+    );
+    if (result?.success !== false) {
+      setDesktopChangelog(null);
+    }
   }, []);
 
   const shouldShowInstallSessionModal = useMemo(() => {
@@ -1157,6 +1251,17 @@ export default function App() {
       {shouldShowInstallSessionModal ? (
         <InstallSessionModal
           snapshot={installSession}
+          onRetry={() => void retryInstallSession()}
+          onOpenLogs={() => void openInstallLogs()}
+          onQuit={quitInstallFlow}
+        />
+      ) : null}
+      {desktopChangelog ? (
+        <WhatsChangedDialog
+          changelog={desktopChangelog}
+          installSession={installSession}
+          backendStatus={desktopUpdateBackendStatus}
+          onContinue={() => void markDesktopChangelogSeen()}
           onRetry={() => void retryInstallSession()}
           onOpenLogs={() => void openInstallLogs()}
           onQuit={quitInstallFlow}

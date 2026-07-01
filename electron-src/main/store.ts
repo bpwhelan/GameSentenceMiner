@@ -5,6 +5,7 @@ import { BrowserWindow } from "electron";
 import path from "path";
 import { findAgentScriptById } from "./agent_script_resolver.js";
 import { getBaseDir } from "./data_dir.js";
+import type { DesktopUpdateChangelogPendingRecord } from "../shared/changelog.js";
 
 const APP_BASE_DIR = getBaseDir();
 const DEFAULT_AGENT_SCRIPTS_PATH = path.join(APP_BASE_DIR, "agent-scripts", "scripts");
@@ -174,6 +175,8 @@ interface StoreConfig {
     theme: string; // Renderer UI theme id (daisyUI theme name)
     pythonPath: string;
     electronAppVersion: string;
+    desktopChangelogSeenVersions: string[];
+    pendingDesktopChangelog: DesktopUpdateChangelogPendingRecord | null;
     VN: VNConfig;
     steam: SteamConfig;
     agentPath: string;
@@ -219,6 +222,8 @@ export const store = new Store<StoreConfig>({
         },
         pythonPath: "",
         electronAppVersion: "",
+        desktopChangelogSeenVersions: [],
+        pendingDesktopChangelog: null,
         steam: {
             steamPath: "",
             steamGames: [],
@@ -690,6 +695,63 @@ export function getElectronAppVersion(): string {
 
 export function setElectronAppVersion(version: string): void {
     store.set("electronAppVersion", version);
+}
+
+export function getPendingDesktopChangelog(): DesktopUpdateChangelogPendingRecord | null {
+    const pending = store.get("pendingDesktopChangelog", null);
+    if (!pending || typeof pending !== "object") {
+        return null;
+    }
+
+    const fromVersion = typeof pending.fromVersion === "string" ? pending.fromVersion.trim() : "";
+    const toVersion = typeof pending.toVersion === "string" ? pending.toVersion.trim() : "";
+    if (!fromVersion || !toVersion) {
+        return null;
+    }
+
+    return { fromVersion, toVersion };
+}
+
+export function setPendingDesktopChangelog(record: DesktopUpdateChangelogPendingRecord): void {
+    store.set("pendingDesktopChangelog", {
+        fromVersion: record.fromVersion,
+        toVersion: record.toVersion,
+    });
+}
+
+export function clearPendingDesktopChangelog(toVersion?: string): void {
+    const pending = getPendingDesktopChangelog();
+    if (toVersion && pending?.toVersion !== toVersion) {
+        return;
+    }
+    store.set("pendingDesktopChangelog", null);
+}
+
+export function getDesktopChangelogSeenVersions(): string[] {
+    const seen = store.get("desktopChangelogSeenVersions", []);
+    if (!Array.isArray(seen)) {
+        return [];
+    }
+    return seen
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+}
+
+export function hasSeenDesktopChangelog(version: string): boolean {
+    return getDesktopChangelogSeenVersions().includes(version);
+}
+
+export function markDesktopChangelogSeen(version: string): void {
+    const normalized = version.trim();
+    if (!normalized) {
+        return;
+    }
+    const seen = getDesktopChangelogSeenVersions();
+    if (!seen.includes(normalized)) {
+        store.set("desktopChangelogSeenVersions", [...seen, normalized].slice(-50));
+    }
+    clearPendingDesktopChangelog(normalized);
 }
 
 export function getCustomPythonPackage(): string {
