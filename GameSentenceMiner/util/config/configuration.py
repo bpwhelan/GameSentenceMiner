@@ -2463,41 +2463,44 @@ def load_config():
 
 
 config_instance: Config = None
+# Guards swaps/mutations of config_instance against concurrent get_config() reads. RLock for re-entrancy.
+_config_lock = threading.RLock()
 
 
 def get_config():
     global config_instance
-    if config_instance is None:
-        config_instance = load_config()
-
-    return config_instance.get_config()
+    with _config_lock:
+        if config_instance is None:
+            config_instance = load_config()
+        return config_instance.get_config()
 
 
 def get_overlay_config():
     global config_instance
-    if config_instance is None:
-        config_instance = load_config()
-    return config_instance.overlay
-    # global config_instance
-    # if config_instance is None:
-    #     config_instance = load_config()
-    # return config_instance.overlay
+    with _config_lock:
+        if config_instance is None:
+            config_instance = load_config()
+        return config_instance.overlay
 
 
 def reload_config():
     global config_instance
-    config_instance = load_config()
+    new_config = load_config()
+    with _config_lock:
+        config_instance = new_config
 
 
 def get_stats_config():
     global config_instance
-    if config_instance is None:
-        config_instance = load_config()
-    return config_instance.stats
+    with _config_lock:
+        if config_instance is None:
+            config_instance = load_config()
+        return config_instance.stats
 
 
 def get_master_config():
-    return config_instance
+    with _config_lock:
+        return config_instance
 
 
 def save_full_config(config):
@@ -2509,19 +2512,22 @@ def save_full_config(config):
 
 def save_current_config(config):
     global config_instance
-    config_instance.set_config_for_profile(config_instance.current_profile, config)
+    with _config_lock:
+        config_instance.set_config_for_profile(config_instance.current_profile, config)
     save_full_config(config_instance)
 
 
 def save_stats_config(stats_config):
     global config_instance
-    config_instance.stats = stats_config
+    with _config_lock:
+        config_instance.stats = stats_config
     save_full_config(config_instance)
 
 
 def switch_profile_and_save(profile_name):
     global config_instance
-    config_instance.current_profile = profile_name
+    with _config_lock:
+        config_instance.current_profile = profile_name
     save_full_config(config_instance)
     return config_instance.get_config()
 

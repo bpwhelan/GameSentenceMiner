@@ -206,16 +206,18 @@ class SQLiteDB:
             return cur
 
     def fetchall(self, query: str, params: Union[Tuple, Dict] = ()) -> List[Tuple]:
-        conn = self._get_connection()
-        cur = conn.cursor()
-        cur.execute(query, params)
-        return cur.fetchall()
+        with self._lock:
+            conn = self._get_connection()
+            cur = conn.cursor()
+            cur.execute(query, params)
+            return cur.fetchall()
 
     def fetchone(self, query: str, params: Union[Tuple, Dict] = ()) -> Optional[Tuple]:
-        conn = self._get_connection()
-        cur = conn.cursor()
-        cur.execute(query, params)
-        return cur.fetchone()
+        with self._lock:
+            conn = self._get_connection()
+            cur = conn.cursor()
+            cur.execute(query, params)
+            return cur.fetchone()
 
     def create_table(self, table_sql: str):
         if self.read_only:
@@ -306,9 +308,10 @@ class SQLiteDBTable:
         return cls.from_row(row) if row else None
 
     @classmethod
-    def from_row(cls: Type[T], row: Tuple, clean_columns: list = []) -> T:
+    def from_row(cls: Type[T], row: Tuple, clean_columns: Optional[list] = None) -> T:
         if not row:
             return None
+        clean_columns = clean_columns or []
         obj = cls()
 
         try:
