@@ -67,6 +67,10 @@ html {
   box-sizing: inherit;
 }
 
+::details-content {
+  box-sizing: inherit;
+}
+
 body,
 input {
   font-family: "Nunito Sans", "Noto Sans Symbols 2", "Segoe UI", "Noto Sans JP", "Noto Sans CJK JP", "Hiragino Sans GB", "Meiryo", sans-serif;
@@ -304,16 +308,19 @@ body {
   width: 300px;
   padding: 0 1em 1em;
 }
-body .profile-row {
+body .profile-row,
+body .theme-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin: 1em 0 0;
 }
-body .profile-row span {
+body .profile-row span,
+body .theme-row span {
   color: #bbb;
 }
-body .profile-row select {
+body .profile-row select,
+body .theme-row select {
   padding: 0.4em 0.8em;
   min-width: 150px;
   max-width: 180px;
@@ -324,11 +331,16 @@ body .profile-row select {
   border-radius: 0.7em;
   cursor: pointer;
 }
-body .profile-row select:hover {
+body .profile-row select:hover,
+body .theme-row select:hover {
   box-shadow: inset 0 0 3px var(--jiten-accent, #D8B9FA);
 }
-body .profile-row select:focus {
+body .profile-row select:focus,
+body .theme-row select:focus {
   outline: none;
+}
+body .theme-row {
+  margin-top: 0.5em;
 }
 body .pages::-webkit-scrollbar {
   display: none !important;
@@ -354,6 +366,14 @@ body .pages a.hide {
 }
 body .pages a.hide:not(:last-of-type) {
   display: none;
+}
+body .reader-row {
+  margin: 0.5em 0;
+}
+body .reader-row a.outline {
+  display: block;
+  padding: 0.4em 1em;
+  text-align: center;
 }
 body .toggle-row {
   display: flex;

@@ -12,12 +12,14 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ });
 /* harmony import */ var _extension_read_storage__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(2);
 /* harmony import */ var _default_configuration__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(3);
-/* harmony import */ var _profile_constants__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(5);
-/* harmony import */ var _profiles_state__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(6);
+/* harmony import */ var _profile_constants__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(7);
+/* harmony import */ var _profiles_state__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(8);
 
 
 
 
+// Fetch all configs which should be a number, boolean or object
+// Use those to properly parse stored values
 const NUMBER_KEYS = Object.keys(_default_configuration__WEBPACK_IMPORTED_MODULE_1__.DEFAULT_CONFIGURATION).filter((key) => typeof _default_configuration__WEBPACK_IMPORTED_MODULE_1__.DEFAULT_CONFIGURATION[key] === 'number');
 const BOOLEAN_KEYS = Object.keys(_default_configuration__WEBPACK_IMPORTED_MODULE_1__.DEFAULT_CONFIGURATION).filter((key) => typeof _default_configuration__WEBPACK_IMPORTED_MODULE_1__.DEFAULT_CONFIGURATION[key] === 'boolean');
 const OBJECT_KEYS = Object.keys(_default_configuration__WEBPACK_IMPORTED_MODULE_1__.DEFAULT_CONFIGURATION).filter((key) => typeof _default_configuration__WEBPACK_IMPORTED_MODULE_1__.DEFAULT_CONFIGURATION[key] === 'object');
@@ -44,6 +46,7 @@ const getConfiguration = async (key) => {
             return JSON.parse(value);
         }
         catch {
+            // Catch broken persisted values and return the default value
             return defaultValue;
         }
     }
@@ -74,63 +77,122 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   DEFAULT_CONFIGURATION: () => (/* binding */ DEFAULT_CONFIGURATION)
 /* harmony export */ });
 /* harmony import */ var _jiten_types__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(4);
+/* harmony import */ var _reader_mode_themes__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(5);
+/* harmony import */ var _word_style_themes__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(6);
+
+
 
 const DEFAULT_CONFIGURATION = Object.freeze({
     schemaVersion: 1,
+    //#region Theme
     themeBgColour: '#181818',
     themeAccentColour: '#D8B9FA',
+    //#endregion
+    //#region JPDB Integration
     jitenApiKey: '',
     jitenApiEndpoint: 'https://api.jiten.moe/api',
+    //#endregion
+    //#region Mining configuration
     jitenAddToForq: false,
-    setSentences: false,
+    setSentences: true,
     jitenDisableReviews: false,
     jitenUseTwoGrades: false,
+    // Review on-screen words / auto-fail on dwell
+    massReviewNew: true,
+    massReviewDue: true,
+    massReviewYoung: false,
+    massReviewMature: false,
+    massReviewCooldownHours: 20,
+    massReviewRequireConfirm: true,
+    autoFailOnDwell: false,
+    autoFailDwellDuration: 500,
+    jitenMineToStudyDeck: false,
+    jitenStudyDeckId: '',
+    jitenAutoMineOnReview: false,
+    // JPDB Flag settings
     jitenRotateFlags: false,
     jitenRotateCycle: false,
     jitenCycleNeverForget: true,
     jitenCycleBlacklist: true,
     jitenCycleSuspended: false,
+    //#endregion
+    //#region Parsing
     hideInactiveTabs: true,
     showCurrentOnTop: true,
     showParseButton: false,
-    enabledFeatures: [],
+    enabledFeatures: ['reader-mode'],
     disabledParsers: [],
     additionalHosts: '',
     additionalMeta: '[]',
+    readerModeTheme: _reader_mode_themes__WEBPACK_IMPORTED_MODULE_1__.DEFAULT_READER_THEME,
+    readerModeFont: _reader_mode_themes__WEBPACK_IMPORTED_MODULE_1__.DEFAULT_READER_FONT,
+    readerModeFontSize: _reader_mode_themes__WEBPACK_IMPORTED_MODULE_1__.READER_FONT_SIZE.default,
+    readerModeBold: _reader_mode_themes__WEBPACK_IMPORTED_MODULE_1__.DEFAULT_READER_BOLD,
+    readerModeWidth: _reader_mode_themes__WEBPACK_IMPORTED_MODULE_1__.READER_WIDTH.default,
+    readerModeLineHeight: _reader_mode_themes__WEBPACK_IMPORTED_MODULE_1__.READER_LINE_HEIGHT.default,
+    pdfReaderMode: 'faithful',
+    //#endregion
+    //#region Texthighlighting
     newStates: [_jiten_types__WEBPACK_IMPORTED_MODULE_0__.JitenCardState.NEW],
     markTopX: false,
     markAllTypes: false,
     markTopXCount: 10_000,
     markIPlus1: false,
     minSentenceLength: 3,
-    markOnlyFrequent: false,
+    iPlusOneMaxFrequency: false,
+    iPlusOneMaxFrequencyCount: 15_000,
     skipFurigana: false,
-    generatePitch: false,
+    generatePitch: true,
+    markWordsInDeck: false,
+    wordStyleConfig: structuredClone(_word_style_themes__WEBPACK_IMPORTED_MODULE_2__.DEFAULT_WORD_STYLE_CONFIG),
     customWordCSS: '',
+    //#endregion
+    //#region Popup
     showPopupOnHover: false,
     renderCloseButton: true,
+    closeButtonBottomLeft: false,
     touchscreenSupport: false,
+    touchscreenDoubleTap: false,
+    touchscreenLongPress: false,
+    touchscreenLongPressDuration: 250,
     disableFadeAnimation: false,
     leftAlignPopupToWord: false,
+    // Popup settings
     hideAfterAction: true,
     hidePopupAutomatically: true,
     hidePopupDelay: 500,
     showMiningActions: true,
     moveMiningActions: false,
+    showDeckButton: true,
     showGradingActions: true,
     moveGradingActions: false,
     showRotateActions: false,
     moveRotateActions: false,
     showConjugations: true,
+    showPitchDiagrams: true,
+    showDeckMembership: true,
+    disableHeadWordLink: false,
+    ttsVoice: 'female',
+    ttsAutoPlay: false,
+    popupWidth: 350,
+    popupHeight: 250,
     customPopupCSS: '',
+    //#endregion
+    //#region Keybinds
+    // General keybinds
     parseKey: [{ key: 'P', code: 'KeyP', modifiers: ['Alt'] }],
     showPopupKey: [{ key: 'Shift', code: 'ShiftLeft', modifiers: [] }],
     showAdvancedDialogKey: [],
     lookupSelectionKey: [{ key: 'L', code: 'KeyL', modifiers: ['Alt'] }],
+    readerModeKey: [{ key: 'H', code: 'KeyH', modifiers: ['Alt'] }],
+    // Mining keybinds
+    addToStudyDeckKey: [],
     addToMiningKey: [],
     addToBlacklistKey: [],
     addToNeverForgetKey: [],
     addToSuspendedKey: [],
+    cycleMasterBlacklistKey: [],
+    // Review keybinds
     jitenReviewNothing: [],
     jitenReviewSomething: [],
     jitenReviewHard: [],
@@ -138,8 +200,12 @@ const DEFAULT_CONFIGURATION = Object.freeze({
     jitenReviewEasy: [],
     jitenReviewFail: [],
     jitenReviewPass: [],
+    massReviewKey: [],
+    // Rotation keybinds
     jitenRotateForward: [],
     jitenRotateBackward: [],
+    //#endregion
+    //#region Anki Integration (not implemented!)
     enableAnkiIntegration: false,
     ankiUrl: 'http://localhost:8765',
     ankiProxyUrl: '',
@@ -168,13 +234,17 @@ const DEFAULT_CONFIGURATION = Object.freeze({
         templateTargets: [],
     },
     ankiReadonlyConfigs: [],
+    //#endregion
+    //#region Status Bar
     statusBarEnabled: true,
     statusBarAutoHide: true,
     statusBarHideIcon: false,
     statusBarShowBadge: true,
+    statusBarShowReviewButton: true,
     statusBarPosition: 'bottom',
     toggleStatusBarKey: [{ key: 'S', code: 'KeyS', modifiers: ['Alt'] }],
-    skipReleaseNotes: false,
+    //#endregion
+    skipReleaseNotes: true,
     enableDebugMode: false,
 });
 
@@ -185,8 +255,12 @@ const DEFAULT_CONFIGURATION = Object.freeze({
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   DECK_MEMBERSHIP_CLASSES: () => (/* binding */ DECK_MEMBERSHIP_CLASSES),
+/* harmony export */   IN_ANY_DECK_CLASS: () => (/* binding */ IN_ANY_DECK_CLASS),
 /* harmony export */   JitenCardState: () => (/* binding */ JitenCardState),
-/* harmony export */   JitenRatingMap: () => (/* binding */ JitenRatingMap)
+/* harmony export */   JitenRatingMap: () => (/* binding */ JitenRatingMap),
+/* harmony export */   STUDY_DECK_CLASS: () => (/* binding */ STUDY_DECK_CLASS),
+/* harmony export */   StudyDeckType: () => (/* binding */ StudyDeckType)
 /* harmony export */ });
 const JitenRatingMap = {
     unknown: 0,
@@ -203,11 +277,317 @@ var JitenCardState;
     JitenCardState["MASTERED"] = "mastered";
     JitenCardState["BLACKLISTED"] = "blacklisted";
     JitenCardState["DUE"] = "due";
+    // A form covered by a sibling form the user already has a card for (kanji parent or
+    // script variant). Always accompanies exactly one tier state — NEW/YOUNG/MATURE/
+    // MASTERED/BLACKLISTED, never DUE — and is not reviewable itself.
+    JitenCardState["REDUNDANT"] = "redundant";
+    // A parked card (manual suspend or leech auto-suspend). Keeps its tier — YOUNG/MATURE —
+    // for stats, but is never DUE: a suspended card is not scheduled for review.
+    JitenCardState["SUSPENDED"] = "suspended";
 })(JitenCardState || (JitenCardState = {}));
+// Mirrors the backend StudyDeckType enum.
+var StudyDeckType;
+(function (StudyDeckType) {
+    StudyDeckType[StudyDeckType["MEDIA_DECK"] = 0] = "MEDIA_DECK";
+    StudyDeckType[StudyDeckType["GLOBAL_DYNAMIC"] = 1] = "GLOBAL_DYNAMIC";
+    StudyDeckType[StudyDeckType["STATIC_WORD_LIST"] = 2] = "STATIC_WORD_LIST";
+})(StudyDeckType || (StudyDeckType = {}));
+// CSS class applied to a word for each type of study deck it belongs to.
+const STUDY_DECK_CLASS = {
+    [StudyDeckType.MEDIA_DECK]: 'in-media-deck',
+    [StudyDeckType.GLOBAL_DYNAMIC]: 'in-frequency-deck',
+    [StudyDeckType.STATIC_WORD_LIST]: 'in-word-list',
+};
+// Generic class applied to any word in at least one study deck, regardless of type.
+const IN_ANY_DECK_CLASS = 'in-any-deck';
+const DECK_MEMBERSHIP_CLASSES = [...Object.values(STUDY_DECK_CLASS), IN_ANY_DECK_CLASS];
 
 
 /***/ }),
 /* 5 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   DEFAULT_READER_BOLD: () => (/* binding */ DEFAULT_READER_BOLD),
+/* harmony export */   DEFAULT_READER_FONT: () => (/* binding */ DEFAULT_READER_FONT),
+/* harmony export */   DEFAULT_READER_THEME: () => (/* binding */ DEFAULT_READER_THEME),
+/* harmony export */   READER_FONTS: () => (/* binding */ READER_FONTS),
+/* harmony export */   READER_FONT_SIZE: () => (/* binding */ READER_FONT_SIZE),
+/* harmony export */   READER_FONT_STACKS: () => (/* binding */ READER_FONT_STACKS),
+/* harmony export */   READER_LINE_HEIGHT: () => (/* binding */ READER_LINE_HEIGHT),
+/* harmony export */   READER_THEMES: () => (/* binding */ READER_THEMES),
+/* harmony export */   READER_WIDTH: () => (/* binding */ READER_WIDTH),
+/* harmony export */   resolveReaderFont: () => (/* binding */ resolveReaderFont)
+/* harmony export */ });
+const READER_THEMES = [
+    { id: 'light', label: 'Light', bg: '#ffffff', fg: '#1a1a1a' },
+    { id: 'sepia', label: 'Sepia', bg: '#f4ecd8', fg: '#5b4636' },
+    { id: 'gray', label: 'Gray', bg: '#5c5c5c', fg: '#e8e8e8' },
+    { id: 'dark', label: 'Dark', bg: '#1a1a1a', fg: '#dcdcdc' },
+    { id: 'black', label: 'Black', bg: '#000000', fg: '#c8c8c8' },
+    { id: 'solarized', label: 'Solarized', bg: '#002b36', fg: '#93a1a1' },
+];
+const DEFAULT_READER_THEME = 'dark';
+const READER_FONTS = [
+    { id: 'sans', label: 'Gothic' },
+    { id: 'serif', label: 'Mincho' },
+    { id: 'rounded', label: 'Rounded' },
+];
+const READER_FONT_STACKS = {
+    sans: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, sans-serif",
+    serif: "'Hiragino Mincho ProN', 'Yu Mincho', YuMincho, 'MS PMincho', serif",
+    rounded: "'Hiragino Maru Gothic ProN', 'Hiragino Maru Gothic Pro', 'Yu Gothic UI', 'Segoe UI Rounded', 'Quicksand', sans-serif",
+};
+const DEFAULT_READER_FONT = 'sans';
+// Resolves a stored font value to a CSS font-family. Built-in ids map to a curated stack; any
+// other value is treated as an installed font family name (from the Local Font Access API).
+const resolveReaderFont = (value) => {
+    if (value in READER_FONT_STACKS) {
+        return READER_FONT_STACKS[value];
+    }
+    return `"${value.replace(/["\\]/g, '')}", sans-serif`;
+};
+const READER_FONT_SIZE = { min: 14, max: 32, step: 1, default: 18 };
+const READER_WIDTH = { min: 28, max: 64, step: 1, default: 42 };
+const READER_LINE_HEIGHT = { min: 1.4, max: 2.4, step: 0.1, default: 1.9 };
+const DEFAULT_READER_BOLD = false;
+
+
+/***/ }),
+/* 6 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   DEFAULT_WORD_STYLE_CONFIG: () => (/* binding */ DEFAULT_WORD_STYLE_CONFIG),
+/* harmony export */   PRESET_THEMES: () => (/* binding */ PRESET_THEMES)
+/* harmony export */ });
+const PRESETS = [
+    [
+        'default',
+        {
+            label: 'Default',
+            config: {
+                v: 1,
+                theme: 'default',
+                states: {
+                    new: { effects: [{ type: 'text-colour', colour: '#a566ef' }] },
+                    young: {
+                        effects: [{ type: 'underline', colour: '#d08700', style: 'solid', thickness: 2 }],
+                    },
+                    mature: { effects: [] },
+                    mastered: { effects: [] },
+                    due: { effects: [{ type: 'text-colour', colour: '#ff4500' }] },
+                    blacklisted: { effects: [{ type: 'opacity', value: 0.5, hoverOnly: false }] },
+                    suspended: { effects: [{ type: 'opacity', value: 0.5, hoverOnly: false }] },
+                    redundant: { effects: [{ type: 'background', colour: '#4b9fff', opacity: 0.14 }] },
+                    frequent: {
+                        effects: [{ type: 'underline', colour: '#4b8d7f', style: 'dotted', thickness: 2 }],
+                    },
+                    'i-plus-one': {
+                        effects: [
+                            { type: 'shadow', colour: '#359eff', blur: 6, offsetX: 0, offsetY: 2 },
+                            { type: 'shadow', colour: '#359eff', blur: 12, offsetX: 0, offsetY: 4 },
+                        ],
+                    },
+                    unparsed: { effects: [] },
+                    heiban: { effects: [] },
+                    atamadaka: { effects: [] },
+                    nakadaka: { effects: [] },
+                    odaka: { effects: [] },
+                    kifuku: { effects: [] },
+                },
+            },
+        },
+    ],
+    [
+        'toyBox',
+        {
+            label: 'Toy Box',
+            config: {
+                v: 1,
+                theme: 'toyBox',
+                states: {
+                    new: { effects: [{ type: 'text-colour', colour: '#4b8dff' }] },
+                    young: { effects: [{ type: 'text-colour', colour: '#4ac34a' }] },
+                    mature: { effects: [] },
+                    mastered: { effects: [] },
+                    due: { effects: [{ type: 'text-colour', colour: '#e8a735' }] },
+                    blacklisted: { effects: [{ type: 'text-colour', colour: '#777777' }] },
+                    suspended: { effects: [{ type: 'text-colour', colour: '#777777' }] },
+                    redundant: { effects: [{ type: 'background', colour: '#4b8dff', opacity: 0.16 }] },
+                    frequent: {
+                        effects: [{ type: 'underline', colour: '#4b8dff', style: 'solid', thickness: 2 }],
+                    },
+                    'i-plus-one': {
+                        effects: [{ type: 'shadow', colour: '#4b8dff', blur: 6, offsetX: 0, offsetY: 2 }],
+                    },
+                    unparsed: { effects: [] },
+                    heiban: { effects: [] },
+                    atamadaka: { effects: [] },
+                    nakadaka: { effects: [] },
+                    odaka: { effects: [] },
+                    kifuku: { effects: [] },
+                },
+            },
+        },
+    ],
+    [
+        'monochrome',
+        {
+            label: 'Monochrome',
+            config: {
+                v: 1,
+                theme: 'monochrome',
+                states: {
+                    new: { effects: [{ type: 'text-colour', colour: '#cccccc' }] },
+                    young: { effects: [{ type: 'text-colour', colour: '#999999' }] },
+                    mature: { effects: [{ type: 'text-colour', colour: '#666666' }] },
+                    mastered: { effects: [] },
+                    due: {
+                        effects: [
+                            { type: 'text-colour', colour: '#ffffff' },
+                            { type: 'underline', colour: '#ffffff', style: 'solid', thickness: 1 },
+                        ],
+                    },
+                    blacklisted: { effects: [{ type: 'opacity', value: 0.4, hoverOnly: false }] },
+                    suspended: { effects: [{ type: 'opacity', value: 0.4, hoverOnly: false }] },
+                    redundant: { effects: [{ type: 'background', colour: '#aaaaaa', opacity: 0.18 }] },
+                    frequent: {
+                        effects: [{ type: 'underline', colour: '#999999', style: 'dotted', thickness: 1 }],
+                    },
+                    'i-plus-one': { effects: [{ type: 'background', colour: '#cccccc', opacity: 0.1 }] },
+                    unparsed: { effects: [] },
+                    heiban: { effects: [] },
+                    atamadaka: { effects: [] },
+                    nakadaka: { effects: [] },
+                    odaka: { effects: [] },
+                    kifuku: { effects: [] },
+                },
+            },
+        },
+    ],
+    [
+        'high-contrast',
+        {
+            label: 'High Contrast',
+            config: {
+                v: 1,
+                theme: 'high-contrast',
+                states: {
+                    new: {
+                        effects: [
+                            { type: 'text-colour', colour: '#ff00ff' },
+                            { type: 'background', colour: '#ff00ff', opacity: 0.1 },
+                        ],
+                    },
+                    young: {
+                        effects: [
+                            { type: 'text-colour', colour: '#ffaa00' },
+                            { type: 'background', colour: '#ffaa00', opacity: 0.1 },
+                        ],
+                    },
+                    mature: { effects: [{ type: 'text-colour', colour: '#00ff00' }] },
+                    mastered: { effects: [] },
+                    due: {
+                        effects: [
+                            { type: 'text-colour', colour: '#ff0000' },
+                            { type: 'underline', colour: '#ff0000', style: 'wavy', thickness: 2 },
+                        ],
+                    },
+                    blacklisted: { effects: [{ type: 'text-colour', colour: '#555555' }] },
+                    suspended: { effects: [] },
+                    redundant: { effects: [{ type: 'background', colour: '#00aaff', opacity: 0.45 }] },
+                    frequent: {
+                        effects: [{ type: 'underline', colour: '#00ffff', style: 'solid', thickness: 2 }],
+                    },
+                    'i-plus-one': { effects: [{ type: 'background', colour: '#4444ff', opacity: 0.5 }] },
+                    unparsed: { effects: [] },
+                    heiban: { effects: [] },
+                    atamadaka: { effects: [] },
+                    nakadaka: { effects: [] },
+                    odaka: { effects: [] },
+                    kifuku: { effects: [] },
+                },
+            },
+        },
+    ],
+    [
+        'subtle',
+        {
+            label: 'Subtle',
+            config: {
+                v: 1,
+                theme: 'subtle',
+                states: {
+                    new: { effects: [{ type: 'background', colour: '#a566ef', opacity: 0.15 }] },
+                    young: { effects: [{ type: 'background', colour: '#d08700', opacity: 0.12 }] },
+                    mature: { effects: [] },
+                    mastered: { effects: [] },
+                    due: { effects: [{ type: 'background', colour: '#ff4500', opacity: 0.15 }] },
+                    blacklisted: { effects: [{ type: 'opacity', value: 0.5, hoverOnly: false }] },
+                    suspended: { effects: [] },
+                    redundant: { effects: [{ type: 'background', colour: '#4b9fff', opacity: 0.12 }] },
+                    frequent: { effects: [{ type: 'background', colour: '#4b8d7f', opacity: 0.1 }] },
+                    'i-plus-one': { effects: [{ type: 'background', colour: '#359eff', opacity: 0.1 }] },
+                    unparsed: { effects: [] },
+                    heiban: { effects: [] },
+                    atamadaka: { effects: [] },
+                    nakadaka: { effects: [] },
+                    odaka: { effects: [] },
+                    kifuku: { effects: [] },
+                },
+            },
+        },
+    ],
+    [
+        'underline',
+        {
+            label: 'Underline',
+            config: {
+                v: 1,
+                theme: 'underline',
+                states: {
+                    new: {
+                        effects: [{ type: 'underline', colour: '#a566ef', style: 'solid', thickness: 3 }],
+                    },
+                    young: {
+                        effects: [{ type: 'underline', colour: '#e8a020', style: 'solid', thickness: 3 }],
+                    },
+                    mature: { effects: [] },
+                    mastered: { effects: [] },
+                    due: {
+                        effects: [{ type: 'underline', colour: '#e03030', style: 'solid', thickness: 3 }],
+                    },
+                    blacklisted: { effects: [] },
+                    suspended: { effects: [] },
+                    redundant: {
+                        effects: [{ type: 'underline', colour: '#4b9fff', style: 'dotted', thickness: 3 }],
+                    },
+                    frequent: {
+                        effects: [{ type: 'underline', colour: '#40a840', style: 'dashed', thickness: 3 }],
+                    },
+                    'i-plus-one': {
+                        effects: [{ type: 'underline', colour: '#40a840', style: 'solid', thickness: 3 }],
+                    },
+                    unparsed: { effects: [] },
+                    heiban: { effects: [] },
+                    atamadaka: { effects: [] },
+                    nakadaka: { effects: [] },
+                    odaka: { effects: [] },
+                    kifuku: { effects: [] },
+                },
+            },
+        },
+    ],
+];
+const PRESET_THEMES = new Map(PRESETS);
+const DEFAULT_WORD_STYLE_CONFIG = structuredClone(PRESETS[0][1].config);
+
+
+/***/ }),
+/* 7 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -241,7 +621,7 @@ const generateProfileId = () => {
 
 
 /***/ }),
-/* 6 */
+/* 8 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -250,8 +630,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   getProfilesState: () => (/* binding */ getProfilesState),
 /* harmony export */   setProfilesState: () => (/* binding */ setProfilesState)
 /* harmony export */ });
-/* harmony import */ var _profile_constants__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(5);
-/* harmony import */ var _profile_types__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(7);
+/* harmony import */ var _profile_constants__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(7);
+/* harmony import */ var _profile_types__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(9);
 
 
 const createDefaultProfilesState = () => ({
@@ -300,7 +680,7 @@ const getActiveProfileId = async () => {
 
 
 /***/ }),
-/* 7 */
+/* 9 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -325,7 +705,7 @@ const DEFAULT_PROFILES_STATE = {
 
 
 /***/ }),
-/* 8 */
+/* 10 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -333,8 +713,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   migrateToProfiles: () => (/* binding */ migrateToProfiles)
 /* harmony export */ });
 /* harmony import */ var _default_configuration__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(3);
-/* harmony import */ var _profile_constants__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(5);
-/* harmony import */ var _profile_types__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(7);
+/* harmony import */ var _profile_constants__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(7);
+/* harmony import */ var _profile_types__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(9);
 
 
 
@@ -369,14 +749,12 @@ const migrateToProfiles = async () => {
         await chrome.storage.local.set(newStorage);
         await chrome.storage.local.remove(keysToRemove);
     }
-    catch (error) {
-        console.error('Failed to migrate to profiles:', error);
-    }
+    catch { }
 };
 
 
 /***/ }),
-/* 9 */
+/* 11 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -384,9 +762,9 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   invalidateSetConfigurationCache: () => (/* binding */ invalidateSetConfigurationCache),
 /* harmony export */   setConfiguration: () => (/* binding */ setConfiguration)
 /* harmony export */ });
-/* harmony import */ var _extension_write_storage__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(10);
-/* harmony import */ var _profile_constants__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(5);
-/* harmony import */ var _profiles_state__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(6);
+/* harmony import */ var _extension_write_storage__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(12);
+/* harmony import */ var _profile_constants__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(7);
+/* harmony import */ var _profiles_state__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(8);
 
 
 
@@ -404,7 +782,7 @@ const setConfiguration = async (key, value) => {
 
 
 /***/ }),
-/* 10 */
+/* 12 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -415,14 +793,14 @@ const writeStorage = (key, value) => chrome.storage.local.set({ [key]: value });
 
 
 /***/ }),
-/* 11 */
+/* 13 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   addContextMenu: () => (/* binding */ addContextMenu)
 /* harmony export */ });
-/* harmony import */ var _add_install_listener__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(12);
+/* harmony import */ var _add_install_listener__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(14);
 
 let handlers;
 const addContextMenu = (options, handler) => {
@@ -447,7 +825,7 @@ const addContextMenu = (options, handler) => {
 
 
 /***/ }),
-/* 12 */
+/* 14 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -471,7 +849,7 @@ const OnInstalledReason = chrome.runtime.OnInstalledReason;
 
 
 /***/ }),
-/* 13 */
+/* 15 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -482,40 +860,16 @@ const openOptionsPage = () => chrome.runtime.openOptionsPage();
 
 
 /***/ }),
-/* 14 */
+/* 16 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   openView: () => (/* binding */ openView)
 /* harmony export */ });
-/* harmony import */ var _get_url__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(15);
+/* harmony import */ var _get_url__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(17);
 
 const openView = (view) => chrome.tabs.create({ url: (0,_get_url__WEBPACK_IMPORTED_MODULE_0__.getURL)(`views/${view}.html`) });
-
-
-/***/ }),
-/* 15 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   getURL: () => (/* binding */ getURL)
-/* harmony export */ });
-const getURL = (url) => chrome.runtime.getURL(url);
-
-
-/***/ }),
-/* 16 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   setParsingPaused: () => (/* binding */ setParsingPaused)
-/* harmony export */ });
-const setParsingPaused = async (paused) => {
-    await chrome.storage.local.set({ parsingPaused: paused });
-};
 
 
 /***/ }),
@@ -524,21 +878,9 @@ const setParsingPaused = async (paused) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   onBroadcastMessage: () => (/* binding */ onBroadcastMessage)
+/* harmony export */   getURL: () => (/* binding */ getURL)
 /* harmony export */ });
-/* harmony import */ var _extension_runtime__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(18);
-
-const onBroadcastMessage = (event, handler, runNow = false) => {
-    _extension_runtime__WEBPACK_IMPORTED_MODULE_0__.runtime.onMessage.addListener((message) => {
-        if (message.event !== event) {
-            return;
-        }
-        void handler(...message.args);
-    });
-    if (runNow) {
-        handler();
-    }
-};
+const getURL = (url) => chrome.runtime.getURL(url);
 
 
 /***/ }),
@@ -558,16 +900,95 @@ const runtime = chrome.runtime;
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   ParsePageCommand: () => (/* binding */ ParsePageCommand)
+/* harmony export */   clearRejectedApiToken: () => (/* binding */ clearRejectedApiToken),
+/* harmony export */   isApiTokenRejected: () => (/* binding */ isApiTokenRejected),
+/* harmony export */   requestByUrl: () => (/* binding */ requestByUrl)
 /* harmony export */ });
-/* harmony import */ var _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(20);
+/* harmony import */ var _configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
+/* harmony import */ var _dom_display_toast__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(20);
 
-class ParsePageCommand extends _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__.ForegroundCommand {
-    constructor() {
-        super(...arguments);
-        this.key = 'parsePage';
+
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 500;
+const API_KEY_REJECTED_MESSAGE = 'Jiten API key was rejected by the server. Please update it in the extension settings.';
+// Latches the token that was rejected with 401/403 so subsequent requests fail
+// fast without hitting the API until the key is changed or revalidated.
+let rejectedApiToken;
+const clearRejectedApiToken = () => {
+    rejectedApiToken = undefined;
+};
+const isApiTokenRejected = async () => {
+    if (!rejectedApiToken) {
+        return false;
     }
-}
+    return (await (0,_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('jitenApiKey')) === rejectedApiToken;
+};
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const isRetryable = (error, response) => {
+    if (!response) {
+        return true;
+    }
+    const status = response.status;
+    return status === 429 || status >= 500;
+};
+const requestByUrl = async (baseUrl = 'https://api.jiten.moe', action, params, options) => {
+    const apiToken = options?.apiToken || (await (0,_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('jitenApiKey'));
+    if (!apiToken?.length) {
+        (0,_dom_display_toast__WEBPACK_IMPORTED_MODULE_1__.displayToast)('error', 'API Token is not set');
+        throw new Error('API Token is not set');
+    }
+    // Requests with an explicitly provided token (e.g. key validation in the
+    // settings) bypass the latch so the server is actually consulted again.
+    if (!options?.apiToken && apiToken === rejectedApiToken) {
+        throw new Error(API_KEY_REJECTED_MESSAGE);
+    }
+    const usedUrl = new URL(`${baseUrl}/${action}`);
+    let lastError;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        let response;
+        try {
+            response = await fetch(usedUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `ApiKey ${apiToken}`,
+                    Accept: 'application/json',
+                },
+                body: params ? JSON.stringify(params) : undefined,
+                signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+            });
+        }
+        catch (error) {
+            lastError = error;
+            if (attempt < MAX_RETRIES - 1) {
+                const backoff = INITIAL_BACKOFF_MS * 2 ** attempt;
+                await wait(backoff + Math.random() * backoff * 0.5);
+                continue;
+            }
+            (0,_dom_display_toast__WEBPACK_IMPORTED_MODULE_1__.displayToast)('error', 'jiten.moe is unreachable', error.message);
+            throw error;
+        }
+        if (response.status === 401 || response.status === 403) {
+            rejectedApiToken = apiToken;
+            throw new Error(API_KEY_REJECTED_MESSAGE);
+        }
+        if (!response.ok && isRetryable(null, response) && attempt < MAX_RETRIES - 1) {
+            const backoff = INITIAL_BACKOFF_MS * 2 ** attempt;
+            await wait(backoff + Math.random() * backoff * 0.5);
+            continue;
+        }
+        const responseObject = (await response.json());
+        if ('error_message' in responseObject) {
+            throw new Error(responseObject.error_message);
+        }
+        if (apiToken === rejectedApiToken) {
+            rejectedApiToken = undefined;
+        }
+        return responseObject;
+    }
+    throw lastError;
+};
 
 
 /***/ }),
@@ -576,241 +997,11 @@ class ParsePageCommand extends _lib_foreground_command__WEBPACK_IMPORTED_MODULE_
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   ForegroundCommand: () => (/* binding */ ForegroundCommand)
-/* harmony export */ });
-/* harmony import */ var _extension_get_last_error__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(21);
-/* harmony import */ var _extension_tabs__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(22);
-/* harmony import */ var _command__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(23);
-
-
-
-class ForegroundCommand extends _command__WEBPACK_IMPORTED_MODULE_2__.Command {
-    send(tabId, afterCall) {
-        void this.call(tabId, afterCall);
-    }
-    call(tabId, afterCall) {
-        const promise = new Promise((resolve, reject) => {
-            _extension_tabs__WEBPACK_IMPORTED_MODULE_1__.tabs.sendMessage(tabId, {
-                event: this.key,
-                command: this.constructor.name,
-                isBroadcast: false,
-                args: this.arguments,
-            }, (response) => {
-                const lastError = (0,_extension_get_last_error__WEBPACK_IMPORTED_MODULE_0__.getLastError)();
-                if (lastError) {
-                    reject(lastError);
-                }
-                resolve(response);
-            });
-        });
-        return afterCall
-            ? promise.then(async (r) => {
-                await afterCall(r);
-                return r;
-            })
-            : promise;
-    }
-}
-
-
-/***/ }),
-/* 21 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   getLastError: () => (/* binding */ getLastError)
-/* harmony export */ });
-const getLastError = () => chrome.runtime.lastError;
-
-
-/***/ }),
-/* 22 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   tabs: () => (/* binding */ tabs)
-/* harmony export */ });
-const tabs = chrome.tabs;
-
-
-/***/ }),
-/* 23 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   Command: () => (/* binding */ Command)
-/* harmony export */ });
-class Command {
-    constructor(...args) {
-        this.arguments = args;
-    }
-}
-
-
-/***/ }),
-/* 24 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   ParseSelectionCommand: () => (/* binding */ ParseSelectionCommand)
-/* harmony export */ });
-/* harmony import */ var _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(20);
-
-class ParseSelectionCommand extends _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__.ForegroundCommand {
-    constructor() {
-        super(...arguments);
-        this.key = 'parseSelection';
-    }
-}
-
-
-/***/ }),
-/* 25 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   DeckManager: () => (/* binding */ DeckManager)
-/* harmony export */ });
-/* harmony import */ var _shared_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
-/* harmony import */ var _shared_jiten_list_user_decks__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(26);
-/* harmony import */ var _shared_messages_broadcast_deck_list_updated_command__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(35);
-/* harmony import */ var _shared_messages_receiving_on_broadcast_message__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(17);
-
-
-
-
-class DeckManager {
-    constructor() {
-        this.jitenApiKey = null;
-        this.internalDecks = [
-            { id: 'blacklist', name: '[Blacklist]' },
-            { id: 'never-forget', name: '[Never forget]' },
-            { id: 'forq', name: '[ForQ]' },
-        ];
-        this.decks = [];
-        this.managableDecks = [];
-        (0,_shared_messages_receiving_on_broadcast_message__WEBPACK_IMPORTED_MODULE_3__.onBroadcastMessage)('configurationUpdated', async () => {
-            const jitenApiKey = await (0,_shared_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('jitenApiKey');
-            if (jitenApiKey === this.jitenApiKey) {
-                return;
-            }
-            this.jitenApiKey = jitenApiKey;
-            if (this.jitenApiKey) {
-                await this.loadDecks();
-            }
-        }, true);
-    }
-    async loadDecks() {
-        this.decks = [...this.internalDecks, ...(await this.fetchDecks())];
-        this.managableDecks = this.decks.filter((deck) => !deck.is_built_in || typeof deck.id === 'string');
-        new _shared_messages_broadcast_deck_list_updated_command__WEBPACK_IMPORTED_MODULE_2__.DeckListUpdatedCommand(this.managableDecks).send();
-    }
-    async fetchDecks() {
-        return await (0,_shared_jiten_list_user_decks__WEBPACK_IMPORTED_MODULE_1__.listUserDecks)([
-            'id',
-            'name',
-            'vocabulary_count',
-            'word_count',
-            'vocabulary_known_coverage',
-            'vocabulary_in_progress_coverage',
-            'is_built_in',
-        ], {
-            apiToken: this.jitenApiKey,
-        });
-    }
-}
-
-
-/***/ }),
-/* 26 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   listUserDecks: () => (/* binding */ listUserDecks)
-/* harmony export */ });
-/* harmony import */ var _request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(27);
-
-const listUserDecks = (fields, options) => (0,_request__WEBPACK_IMPORTED_MODULE_0__.request)('list-user-decks', { fields }, options).then(({ decks }) => decks.map((deck) => deck.reduce((acc, value, index) => ({ ...acc, [fields[index]]: value }), {})));
-
-
-/***/ }),
-/* 27 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   request: () => (/* binding */ request)
-/* harmony export */ });
-/* harmony import */ var _configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
-/* harmony import */ var _request_by_url__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(28);
-
-
-const request = async (action, params, options) => {
-    const baseUrl = await (0,_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('jitenApiEndpoint');
-    return await (0,_request_by_url__WEBPACK_IMPORTED_MODULE_1__.requestByUrl)(baseUrl, action, params, options);
-};
-
-
-/***/ }),
-/* 28 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   requestByUrl: () => (/* binding */ requestByUrl)
-/* harmony export */ });
-/* harmony import */ var _configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
-/* harmony import */ var _dom_display_toast__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(29);
-
-
-const requestByUrl = async (baseUrl = 'https://api.jiten.moe', action, params, options) => {
-    const apiToken = options?.apiToken || (await (0,_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('jitenApiKey'));
-    if (!apiToken?.length) {
-        (0,_dom_display_toast__WEBPACK_IMPORTED_MODULE_1__.displayToast)('error', 'API Token is not set');
-        throw new Error('API Token is not set');
-    }
-    const usedUrl = new URL(`${baseUrl}/${action}`);
-    let response;
-    try {
-        response = await fetch(usedUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `ApiKey ${apiToken}`,
-                Accept: 'application/json',
-            },
-            body: params ? JSON.stringify(params) : undefined,
-        });
-    }
-    catch (error) {
-        (0,_dom_display_toast__WEBPACK_IMPORTED_MODULE_1__.displayToast)('error', 'jiten.moe is unreachable', error.message);
-        throw error;
-    }
-    const responseObject = (await response.json());
-    if ('error_message' in responseObject) {
-        throw new Error(responseObject.error_message);
-    }
-    return responseObject;
-};
-
-
-/***/ }),
-/* 29 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   displayToast: () => (/* binding */ displayToast)
 /* harmony export */ });
-/* harmony import */ var _extension_get_style_url__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(30);
-/* harmony import */ var _create_element__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(31);
-/* harmony import */ var _find_element__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(34);
+/* harmony import */ var _extension_get_style_url__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(21);
+/* harmony import */ var _create_element__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(22);
+/* harmony import */ var _find_element__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(25);
 
 
 
@@ -844,6 +1035,8 @@ function getOrCreateToastContainer() {
 }
 function displayToast(type, message, error, skipMessageTimeout) {
     if (typeof document === 'undefined') {
+        // This is a background-side environment, so we can't display a toast
+        // or manipulate the DOM.
         return;
     }
     const timeoutDuration = 5000;
@@ -856,29 +1049,36 @@ function displayToast(type, message, error, skipMessageTimeout) {
     }
     const container = getOrCreateToastContainer();
     const toast = (0,_create_element__WEBPACK_IMPORTED_MODULE_1__.createElement)('li', {
-        class: ['toast', 'outline', type],
+        class: ['toast', type],
         handler: () => toast.classList.add('hide'),
         children: [
             {
+                tag: 'span',
+                class: ['icon'],
+            },
+            {
                 tag: 'div',
-                class: ['column'],
+                class: ['content'],
                 children: [
                     {
                         tag: 'span',
+                        class: ['message'],
                         innerText: message,
                     },
-                    type === 'error'
-                        ? {
-                            tag: 'span',
-                            innerText: '⎘',
-                            handler(ev) {
-                                ev?.stopPropagation();
-                                void navigator.clipboard.writeText(error ?? message);
-                            },
-                        }
-                        : false,
                 ],
             },
+            type === 'error'
+                ? {
+                    tag: 'button',
+                    class: ['action'],
+                    attributes: { 'aria-label': 'Copy error details' },
+                    innerText: '⎘',
+                    handler(ev) {
+                        ev?.stopPropagation();
+                        void navigator.clipboard.writeText(error ?? message);
+                    },
+                }
+                : false,
         ],
     });
     container.appendChild(toast);
@@ -906,27 +1106,27 @@ function displayToast(type, message, error, skipMessageTimeout) {
 
 
 /***/ }),
-/* 30 */
+/* 21 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   getStyleUrl: () => (/* binding */ getStyleUrl)
 /* harmony export */ });
-/* harmony import */ var _get_url__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(15);
+/* harmony import */ var _get_url__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(17);
 
 const getStyleUrl = (url) => (0,_get_url__WEBPACK_IMPORTED_MODULE_0__.getURL)(`css/${url}.css`);
 
 
 /***/ }),
-/* 31 */
+/* 22 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   createElement: () => (/* binding */ createElement)
 /* harmony export */ });
-/* harmony import */ var _append_element__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(32);
+/* harmony import */ var _append_element__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(23);
 
 function createElement(p0, p1) {
     const tag = typeof p0 === 'string' ? p0 : p0.tag;
@@ -974,15 +1174,15 @@ function createElement(p0, p1) {
 
 
 /***/ }),
-/* 32 */
+/* 23 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   appendElement: () => (/* binding */ appendElement)
 /* harmony export */ });
-/* harmony import */ var _create_element__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(31);
-/* harmony import */ var _resolve_element__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(33);
+/* harmony import */ var _create_element__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(22);
+/* harmony import */ var _resolve_element__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(24);
 
 
 function appendElement(parent, child) {
@@ -993,7 +1193,7 @@ function appendElement(parent, child) {
 
 
 /***/ }),
-/* 33 */
+/* 24 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -1006,7 +1206,7 @@ function resolveElement(element) {
 
 
 /***/ }),
-/* 34 */
+/* 25 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -1021,21 +1221,219 @@ function findElement(p0, p1, _) {
 
 
 /***/ }),
+/* 26 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   OpenReaderModeCommand: () => (/* binding */ OpenReaderModeCommand)
+/* harmony export */ });
+/* harmony import */ var _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(27);
+
+class OpenReaderModeCommand extends _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__.ForegroundCommand {
+    constructor() {
+        super(...arguments);
+        this.key = 'openReaderMode';
+    }
+}
+
+
+/***/ }),
+/* 27 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   ForegroundCommand: () => (/* binding */ ForegroundCommand)
+/* harmony export */ });
+/* harmony import */ var _extension_get_last_error__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(28);
+/* harmony import */ var _extension_tabs__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(29);
+/* harmony import */ var _command__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(30);
+
+
+
+class ForegroundCommand extends _command__WEBPACK_IMPORTED_MODULE_2__.Command {
+    send(tabId, afterCall) {
+        // Fire-and-forget: swallow rejections (e.g. "Receiving end does not exist" when the target tab
+        // has no content script yet / was closed). Callers that need the result use call() and handle it.
+        void this.call(tabId, afterCall).catch(() => undefined);
+    }
+    call(tabId, afterCall) {
+        const promise = new Promise((resolve, reject) => {
+            _extension_tabs__WEBPACK_IMPORTED_MODULE_1__.tabs.sendMessage(tabId, {
+                event: this.key,
+                command: this.constructor.name,
+                isBroadcast: false,
+                args: this.arguments,
+            }, (response) => {
+                const lastError = (0,_extension_get_last_error__WEBPACK_IMPORTED_MODULE_0__.getLastError)();
+                if (lastError) {
+                    reject(lastError);
+                }
+                resolve(response);
+            });
+        });
+        return afterCall
+            ? promise.then(async (r) => {
+                await afterCall(r);
+                return r;
+            })
+            : promise;
+    }
+}
+
+
+/***/ }),
+/* 28 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   getLastError: () => (/* binding */ getLastError)
+/* harmony export */ });
+const getLastError = () => chrome.runtime.lastError;
+
+
+/***/ }),
+/* 29 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   tabs: () => (/* binding */ tabs)
+/* harmony export */ });
+const tabs = chrome.tabs;
+
+
+/***/ }),
+/* 30 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   Command: () => (/* binding */ Command)
+/* harmony export */ });
+class Command {
+    constructor(...args) {
+        this.arguments = args;
+    }
+}
+
+
+/***/ }),
+/* 31 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   ParsePageCommand: () => (/* binding */ ParsePageCommand)
+/* harmony export */ });
+/* harmony import */ var _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(27);
+
+class ParsePageCommand extends _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__.ForegroundCommand {
+    constructor() {
+        super(...arguments);
+        this.key = 'parsePage';
+    }
+}
+
+
+/***/ }),
+/* 32 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   ParseSelectionCommand: () => (/* binding */ ParseSelectionCommand)
+/* harmony export */ });
+/* harmony import */ var _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(27);
+
+class ParseSelectionCommand extends _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__.ForegroundCommand {
+    constructor() {
+        super(...arguments);
+        this.key = 'parseSelection';
+    }
+}
+
+
+/***/ }),
+/* 33 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   onBroadcastMessage: () => (/* binding */ onBroadcastMessage)
+/* harmony export */ });
+/* harmony import */ var _extension_runtime__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(18);
+
+/**
+ * Message handler to receive broadcasted messages.
+ */
+const onBroadcastMessage = (event, handler, runNow = false) => {
+    const listener = (message) => {
+        if (message.event !== event) {
+            return;
+        }
+        void handler(...message.args);
+    };
+    _extension_runtime__WEBPACK_IMPORTED_MODULE_0__.runtime.onMessage.addListener(listener);
+    if (runNow) {
+        handler();
+    }
+    return () => _extension_runtime__WEBPACK_IMPORTED_MODULE_0__.runtime.onMessage.removeListener(listener);
+};
+
+
+/***/ }),
+/* 34 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   AddToStudyDeckCommandHandler: () => (/* binding */ AddToStudyDeckCommandHandler)
+/* harmony export */ });
+/* harmony import */ var _shared_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
+/* harmony import */ var _shared_jiten_add_to_study_deck__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(35);
+/* harmony import */ var _shared_messages_background_add_to_study_deck_command__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(36);
+/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(38);
+
+
+
+
+class AddToStudyDeckCommandHandler extends _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_3__.BackgroundCommandHandler {
+    constructor() {
+        super(...arguments);
+        this.command = _shared_messages_background_add_to_study_deck_command__WEBPACK_IMPORTED_MODULE_2__.AddToStudyDeckCommand;
+    }
+    async handle(_sender, deckId, wordId, readingIndex, sentence, source) {
+        const setSentences = await (0,_shared_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('setSentences');
+        await (0,_shared_jiten_add_to_study_deck__WEBPACK_IMPORTED_MODULE_1__.addToStudyDeck)(deckId, wordId, readingIndex, setSentences ? sentence : undefined, setSentences ? source : undefined);
+    }
+}
+
+
+/***/ }),
 /* 35 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   DeckListUpdatedCommand: () => (/* binding */ DeckListUpdatedCommand)
+/* harmony export */   addToStudyDeck: () => (/* binding */ addToStudyDeck)
 /* harmony export */ });
-/* harmony import */ var _lib_broadcast_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(36);
+/* harmony import */ var _configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
+/* harmony import */ var _request_by_url__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(19);
 
-class DeckListUpdatedCommand extends _lib_broadcast_command__WEBPACK_IMPORTED_MODULE_0__.BroadcastCommand {
-    constructor() {
-        super(...arguments);
-        this.key = 'deckListUpdated';
-    }
-}
+
+const addToStudyDeck = async (deckId, wordId, readingIndex, sentence, source) => {
+    const baseUrl = await (0,_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('jitenApiEndpoint');
+    await (0,_request_by_url__WEBPACK_IMPORTED_MODULE_1__.requestByUrl)(baseUrl, `srs/study-decks/${deckId}/words`, {
+        wordId,
+        readingIndex,
+        occurrences: 1,
+        sentence,
+        source,
+    });
+};
 
 
 /***/ }),
@@ -1044,13 +1442,251 @@ class DeckListUpdatedCommand extends _lib_broadcast_command__WEBPACK_IMPORTED_MO
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   AddToStudyDeckCommand: () => (/* binding */ AddToStudyDeckCommand)
+/* harmony export */ });
+/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(37);
+
+class AddToStudyDeckCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_0__.BackgroundCommand {
+    constructor() {
+        super(...arguments);
+        this.key = 'addToStudyDeck';
+    }
+}
+
+
+/***/ }),
+/* 37 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   BackgroundCommand: () => (/* binding */ BackgroundCommand)
+/* harmony export */ });
+/* harmony import */ var _extension_get_last_error__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(28);
+/* harmony import */ var _extension_runtime__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(18);
+/* harmony import */ var _lib_command__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(30);
+
+
+
+class BackgroundCommand extends _lib_command__WEBPACK_IMPORTED_MODULE_2__.Command {
+    send(afterCall) {
+        this.call(afterCall).catch((error) => {
+            // eslint-disable-next-line no-console
+            console.error(`[BackgroundCommand] ${this.constructor.name} failed:`, error);
+        });
+    }
+    call(afterCall) {
+        const promise = new Promise((resolve, reject) => {
+            _extension_runtime__WEBPACK_IMPORTED_MODULE_1__.runtime.sendMessage({
+                event: this.key,
+                command: this.constructor.name,
+                isBroadcast: false,
+                args: this.arguments,
+            }, (response) => {
+                const lastError = (0,_extension_get_last_error__WEBPACK_IMPORTED_MODULE_0__.getLastError)();
+                if (lastError) {
+                    return reject(lastError);
+                }
+                if (!response?.success) {
+                    return reject(new Error('Command failed or received invalid response'));
+                }
+                resolve(response.result);
+            });
+        });
+        return afterCall
+            ? promise.then(async (r) => {
+                await afterCall(r);
+                return r;
+            })
+            : promise;
+    }
+}
+
+
+/***/ }),
+/* 38 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   BackgroundCommandHandler: () => (/* binding */ BackgroundCommandHandler)
+/* harmony export */ });
+class BackgroundCommandHandler {
+}
+
+
+/***/ }),
+/* 39 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   BatchReviewCommandHandler: () => (/* binding */ BatchReviewCommandHandler)
+/* harmony export */ });
+/* harmony import */ var _shared_jiten_batch_review__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(40);
+/* harmony import */ var _shared_jiten_get_card_state__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(42);
+/* harmony import */ var _shared_messages_background_batch_review_command__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(43);
+/* harmony import */ var _shared_messages_broadcast_card_state_updated_command__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(44);
+/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(38);
+
+
+
+
+
+class BatchReviewCommandHandler extends _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_4__.BackgroundCommandHandler {
+    constructor() {
+        super(...arguments);
+        this.command = _shared_messages_background_batch_review_command__WEBPACK_IMPORTED_MODULE_2__.BatchReviewCommand;
+    }
+    async handle(sender, items) {
+        const result = await (0,_shared_jiten_batch_review__WEBPACK_IMPORTED_MODULE_0__.batchReview)(items);
+        const words = items.map((item) => [item.wordId, item.readingIndex]);
+        const states = await (0,_shared_jiten_get_card_state__WEBPACK_IMPORTED_MODULE_1__.getCardStates)(words);
+        words.forEach(([wordId, readingIndex], index) => {
+            const state = states[index];
+            if (state) {
+                new _shared_messages_broadcast_card_state_updated_command__WEBPACK_IMPORTED_MODULE_3__.CardStateUpdatedCommand(wordId, readingIndex, state.states, state.deckIds).send();
+            }
+        });
+        return result;
+    }
+}
+
+
+/***/ }),
+/* 40 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   batchReview: () => (/* binding */ batchReview)
+/* harmony export */ });
+/* harmony import */ var _request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(41);
+/* harmony import */ var _types__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(4);
+
+
+const batchReview = (items, options) => {
+    const reviews = items.map((item) => ({
+        wordId: item.wordId,
+        readingIndex: item.readingIndex,
+        rating: _types__WEBPACK_IMPORTED_MODULE_1__.JitenRatingMap[item.rating],
+    }));
+    return (0,_request__WEBPACK_IMPORTED_MODULE_0__.request)('srs/batch-review', { reviews }, options);
+};
+
+
+/***/ }),
+/* 41 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   request: () => (/* binding */ request)
+/* harmony export */ });
+/* harmony import */ var _configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
+/* harmony import */ var _request_by_url__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(19);
+
+
+const request = async (action, params, options) => {
+    const baseUrl = await (0,_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('jitenApiEndpoint');
+    return await (0,_request_by_url__WEBPACK_IMPORTED_MODULE_1__.requestByUrl)(baseUrl, action, params, options);
+};
+
+
+/***/ }),
+/* 42 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   getCardState: () => (/* binding */ getCardState),
+/* harmony export */   getCardStates: () => (/* binding */ getCardStates)
+/* harmony export */ });
+/* harmony import */ var _request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(41);
+/* harmony import */ var _types__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(4);
+
+
+const CARD_STATE_MAP = {
+    0: _types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.NEW,
+    1: _types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.YOUNG,
+    2: _types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.MATURE,
+    3: _types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.BLACKLISTED,
+    4: _types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.DUE,
+    5: _types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.MASTERED,
+    6: _types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.REDUNDANT,
+    7: _types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.SUSPENDED,
+};
+const toCardStateResult = (states, deckIds) => {
+    if (!Array.isArray(states) || states.length === 0) {
+        return { states: [_types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.NEW], deckIds };
+    }
+    const mapped = states
+        .map((state) => CARD_STATE_MAP[state])
+        .filter((s) => s !== undefined);
+    return { states: mapped.length > 0 ? mapped : [_types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.NEW], deckIds };
+};
+const getCardState = async (wordId, readingIndex, options) => {
+    const [state] = await getCardStates([[wordId, readingIndex]], options);
+    return state;
+};
+const getCardStates = async (words, options) => {
+    if (words.length === 0) {
+        return [];
+    }
+    const result = await (0,_request__WEBPACK_IMPORTED_MODULE_0__.request)('reader/lookup-vocabulary', { words }, options);
+    return words.map((_, index) => toCardStateResult(result.result?.[index], result.decks?.[index] ?? []));
+};
+
+
+/***/ }),
+/* 43 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   BatchReviewCommand: () => (/* binding */ BatchReviewCommand)
+/* harmony export */ });
+/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(37);
+
+class BatchReviewCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_0__.BackgroundCommand {
+    constructor() {
+        super(...arguments);
+        this.key = 'batchReview';
+    }
+}
+
+
+/***/ }),
+/* 44 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   CardStateUpdatedCommand: () => (/* binding */ CardStateUpdatedCommand)
+/* harmony export */ });
+/* harmony import */ var _lib_broadcast_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(45);
+
+class CardStateUpdatedCommand extends _lib_broadcast_command__WEBPACK_IMPORTED_MODULE_0__.BroadcastCommand {
+    constructor() {
+        super(...arguments);
+        this.key = 'cardStateUpdated';
+    }
+}
+
+
+/***/ }),
+/* 45 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   BroadcastCommand: () => (/* binding */ BroadcastCommand)
 /* harmony export */ });
-/* harmony import */ var _extension_get_last_error__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(21);
-/* harmony import */ var _extension_get_tabs__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(37);
+/* harmony import */ var _extension_get_last_error__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(28);
+/* harmony import */ var _extension_get_tabs__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(46);
 /* harmony import */ var _extension_runtime__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(18);
-/* harmony import */ var _extension_tabs__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(22);
-/* harmony import */ var _command__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(23);
+/* harmony import */ var _extension_tabs__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(29);
+/* harmony import */ var _command__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(30);
 
 
 
@@ -1074,6 +1710,7 @@ class BroadcastCommand extends _command__WEBPACK_IMPORTED_MODULE_4__.Command {
         };
     }
     supressError() {
+        // Fetch the last error to suppress it.
         (0,_extension_get_last_error__WEBPACK_IMPORTED_MODULE_0__.getLastError)();
         return true;
     }
@@ -1087,7 +1724,7 @@ class BroadcastCommand extends _command__WEBPACK_IMPORTED_MODULE_4__.Command {
 
 
 /***/ }),
-/* 37 */
+/* 46 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -1104,118 +1741,89 @@ const getTabs = (queryInfo) => {
 
 
 /***/ }),
-/* 38 */
+/* 47 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   FetchDecksCommandHandler: () => (/* binding */ FetchDecksCommandHandler)
+/* harmony export */   FetchStudyDecksCommandHandler: () => (/* binding */ FetchStudyDecksCommandHandler),
+/* harmony export */   invalidateStudyDecksCache: () => (/* binding */ invalidateStudyDecksCache)
 /* harmony export */ });
-/* harmony import */ var _shared_messages_background_fetch_decks_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(39);
-/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(41);
+/* harmony import */ var _shared_jiten_fetch_study_decks__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(48);
+/* harmony import */ var _shared_messages_background_fetch_study_decks_command__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(49);
+/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(38);
 
 
-class FetchDecksCommandHandler extends _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_1__.BackgroundCommandHandler {
-    constructor(_deckManager) {
-        super();
-        this._deckManager = _deckManager;
-        this.command = _shared_messages_background_fetch_decks_command__WEBPACK_IMPORTED_MODULE_0__.FetchDecksCommand;
-    }
-    async handle() {
-        await this._deckManager.loadDecks();
-    }
+
+const CACHE_TTL_MS = 60_000;
+let cached;
+function invalidateStudyDecksCache() {
+    cached = undefined;
 }
-
-
-/***/ }),
-/* 39 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   FetchDecksCommand: () => (/* binding */ FetchDecksCommand)
-/* harmony export */ });
-/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(40);
-
-class FetchDecksCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_0__.BackgroundCommand {
+class FetchStudyDecksCommandHandler extends _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_2__.BackgroundCommandHandler {
     constructor() {
         super(...arguments);
-        this.key = 'fetchDecks';
+        this.command = _shared_messages_background_fetch_study_decks_command__WEBPACK_IMPORTED_MODULE_1__.FetchStudyDecksCommand;
+    }
+    handle() {
+        const now = Date.now();
+        if (cached && cached.expiresAt > now) {
+            return cached.value;
+        }
+        // Cache the in-flight promise so concurrent calls (e.g. a burst of frame
+        // inits) share a single request rather than each hitting the API.
+        const value = (0,_shared_jiten_fetch_study_decks__WEBPACK_IMPORTED_MODULE_0__.fetchStudyDecks)().catch((error) => {
+            invalidateStudyDecksCache();
+            throw error;
+        });
+        cached = { value, expiresAt: now + CACHE_TTL_MS };
+        return value;
     }
 }
 
 
 /***/ }),
-/* 40 */
+/* 48 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   BackgroundCommand: () => (/* binding */ BackgroundCommand)
+/* harmony export */   fetchStudyDecks: () => (/* binding */ fetchStudyDecks)
 /* harmony export */ });
-/* harmony import */ var _extension_get_last_error__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(21);
-/* harmony import */ var _extension_runtime__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(18);
-/* harmony import */ var _lib_command__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(23);
+/* harmony import */ var _request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(41);
 
-
-
-class BackgroundCommand extends _lib_command__WEBPACK_IMPORTED_MODULE_2__.Command {
-    send(afterCall) {
-        this.call(afterCall).catch((error) => {
-            console.error(`[BackgroundCommand] ${this.constructor.name} failed:`, error);
-        });
-    }
-    call(afterCall) {
-        const promise = new Promise((resolve, reject) => {
-            _extension_runtime__WEBPACK_IMPORTED_MODULE_1__.runtime.sendMessage({
-                event: this.key,
-                command: this.constructor.name,
-                isBroadcast: false,
-                args: this.arguments,
-            }, (response) => {
-                const lastError = (0,_extension_get_last_error__WEBPACK_IMPORTED_MODULE_0__.getLastError)();
-                if (lastError) {
-                    return reject(lastError);
-                }
-                if (!response || !response.success) {
-                    return reject(new Error('Command failed or received invalid response'));
-                }
-                resolve(response.result);
-            });
-        });
-        return afterCall
-            ? promise.then(async (r) => {
-                await afterCall(r);
-                return r;
-            })
-            : promise;
-    }
-}
+const fetchStudyDecks = (options) => (0,_request__WEBPACK_IMPORTED_MODULE_0__.request)('srs/reader-study-decks', undefined, options);
 
 
 /***/ }),
-/* 41 */
+/* 49 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   BackgroundCommandHandler: () => (/* binding */ BackgroundCommandHandler)
+/* harmony export */   FetchStudyDecksCommand: () => (/* binding */ FetchStudyDecksCommand)
 /* harmony export */ });
-class BackgroundCommandHandler {
+/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(37);
+
+class FetchStudyDecksCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_0__.BackgroundCommand {
+    constructor() {
+        super(...arguments);
+        this.key = 'fetchStudyDecks';
+    }
 }
 
 
 /***/ }),
-/* 42 */
+/* 50 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   ForgetCardCommandHandler: () => (/* binding */ ForgetCardCommandHandler)
 /* harmony export */ });
-/* harmony import */ var _shared_jiten_request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(27);
-/* harmony import */ var _shared_messages_background_forget_card_command__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(43);
-/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(41);
+/* harmony import */ var _shared_jiten_request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(41);
+/* harmony import */ var _shared_messages_background_forget_card_command__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(51);
+/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(38);
 
 
 
@@ -1224,7 +1832,7 @@ class ForgetCardCommandHandler extends _lib_background_command_handler__WEBPACK_
         super(...arguments);
         this.command = _shared_messages_background_forget_card_command__WEBPACK_IMPORTED_MODULE_1__.ForgetCardCommand;
     }
-    async handle(sender, wordId, readingIndex) {
+    async handle(_sender, wordId, readingIndex) {
         await (0,_shared_jiten_request__WEBPACK_IMPORTED_MODULE_0__.request)('srs/set-vocabulary-state', {
             wordId,
             readingIndex,
@@ -1235,14 +1843,14 @@ class ForgetCardCommandHandler extends _lib_background_command_handler__WEBPACK_
 
 
 /***/ }),
-/* 43 */
+/* 51 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   ForgetCardCommand: () => (/* binding */ ForgetCardCommand)
 /* harmony export */ });
-/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(40);
+/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(37);
 
 class ForgetCardCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_0__.BackgroundCommand {
     constructor(wordId, readingIndex) {
@@ -1253,16 +1861,16 @@ class ForgetCardCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE
 
 
 /***/ }),
-/* 44 */
+/* 52 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   GradeCardCommandHandler: () => (/* binding */ GradeCardCommandHandler)
 /* harmony export */ });
-/* harmony import */ var _shared_jiten_review__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(45);
-/* harmony import */ var _shared_messages_background_grade_card_command__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(46);
-/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(41);
+/* harmony import */ var _shared_jiten_review__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(53);
+/* harmony import */ var _shared_messages_background_grade_card_command__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(54);
+/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(38);
 
 
 
@@ -1278,14 +1886,14 @@ class GradeCardCommandHandler extends _lib_background_command_handler__WEBPACK_I
 
 
 /***/ }),
-/* 45 */
+/* 53 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   review: () => (/* binding */ review)
 /* harmony export */ });
-/* harmony import */ var _request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(27);
+/* harmony import */ var _request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(41);
 /* harmony import */ var _types__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(4);
 
 
@@ -1296,14 +1904,14 @@ const review = (rating, wordId, readingIndex, options) => {
 
 
 /***/ }),
-/* 46 */
+/* 54 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   GradeCardCommand: () => (/* binding */ GradeCardCommand)
 /* harmony export */ });
-/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(40);
+/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(37);
 
 class GradeCardCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_0__.BackgroundCommand {
     constructor() {
@@ -1314,7 +1922,7 @@ class GradeCardCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_
 
 
 /***/ }),
-/* 47 */
+/* 55 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -1322,11 +1930,11 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   RunDeckActionCommandHandler: () => (/* binding */ RunDeckActionCommandHandler)
 /* harmony export */ });
 /* harmony import */ var _shared_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
-/* harmony import */ var _shared_jiten_add_vocabulary__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(48);
-/* harmony import */ var _shared_jiten_remove_vocabulary__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(49);
-/* harmony import */ var _shared_jiten_set_card_sentence__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(50);
-/* harmony import */ var _shared_messages_background_run_deck_action_command__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(51);
-/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(41);
+/* harmony import */ var _shared_jiten_add_vocabulary__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(56);
+/* harmony import */ var _shared_jiten_remove_vocabulary__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(57);
+/* harmony import */ var _shared_jiten_set_card_sentence__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(58);
+/* harmony import */ var _shared_messages_background_run_deck_action_command__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(59);
+/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(38);
 
 
 
@@ -1350,14 +1958,14 @@ class RunDeckActionCommandHandler extends _lib_background_command_handler__WEBPA
 
 
 /***/ }),
-/* 48 */
+/* 56 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   addVocabulary: () => (/* binding */ addVocabulary)
 /* harmony export */ });
-/* harmony import */ var _request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(27);
+/* harmony import */ var _request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(41);
 
 const addVocabulary = async (deckName, wordId, readingIndex, options) => {
     await (0,_request__WEBPACK_IMPORTED_MODULE_0__.request)('srs/set-vocabulary-state', {
@@ -1369,14 +1977,14 @@ const addVocabulary = async (deckName, wordId, readingIndex, options) => {
 
 
 /***/ }),
-/* 49 */
+/* 57 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   removeVocabulary: () => (/* binding */ removeVocabulary)
 /* harmony export */ });
-/* harmony import */ var _request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(27);
+/* harmony import */ var _request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(41);
 
 const removeVocabulary = async (deckName, wordId, readingIndex, options) => {
     await (0,_request__WEBPACK_IMPORTED_MODULE_0__.request)('srs/set-vocabulary-state', {
@@ -1388,14 +1996,14 @@ const removeVocabulary = async (deckName, wordId, readingIndex, options) => {
 
 
 /***/ }),
-/* 50 */
+/* 58 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   setCardSentence: () => (/* binding */ setCardSentence)
 /* harmony export */ });
-/* harmony import */ var _request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(27);
+/* harmony import */ var _request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(41);
 
 const setCardSentence = (wordId, readingIndex, sentence, options) => (0,_request__WEBPACK_IMPORTED_MODULE_0__.request)('set-card-sentence', {
     wordId,
@@ -1405,14 +2013,14 @@ const setCardSentence = (wordId, readingIndex, sentence, options) => (0,_request
 
 
 /***/ }),
-/* 51 */
+/* 59 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   RunDeckActionCommand: () => (/* binding */ RunDeckActionCommand)
 /* harmony export */ });
-/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(40);
+/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(37);
 
 class RunDeckActionCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_0__.BackgroundCommand {
     constructor() {
@@ -1423,17 +2031,17 @@ class RunDeckActionCommand extends _lib_background_command__WEBPACK_IMPORTED_MOD
 
 
 /***/ }),
-/* 52 */
+/* 60 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   UpdateCardStateCommandHandler: () => (/* binding */ UpdateCardStateCommandHandler)
 /* harmony export */ });
-/* harmony import */ var _shared_jiten_get_card_state__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(53);
-/* harmony import */ var _shared_messages_background_update_card_state_command__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(54);
-/* harmony import */ var _shared_messages_broadcast_card_state_updated_command__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(55);
-/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(41);
+/* harmony import */ var _shared_jiten_get_card_state__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(42);
+/* harmony import */ var _shared_messages_background_update_card_state_command__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(61);
+/* harmony import */ var _shared_messages_broadcast_card_state_updated_command__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(44);
+/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(38);
 
 
 
@@ -1444,56 +2052,21 @@ class UpdateCardStateCommandHandler extends _lib_background_command_handler__WEB
         this.command = _shared_messages_background_update_card_state_command__WEBPACK_IMPORTED_MODULE_1__.UpdateCardStateCommand;
     }
     async handle(sender, wordId, readingIndex) {
-        const newCardState = await (0,_shared_jiten_get_card_state__WEBPACK_IMPORTED_MODULE_0__.getCardState)(wordId, readingIndex);
-        new _shared_messages_broadcast_card_state_updated_command__WEBPACK_IMPORTED_MODULE_2__.CardStateUpdatedCommand(wordId, readingIndex, newCardState).send();
+        const { states, deckIds } = await (0,_shared_jiten_get_card_state__WEBPACK_IMPORTED_MODULE_0__.getCardState)(wordId, readingIndex);
+        new _shared_messages_broadcast_card_state_updated_command__WEBPACK_IMPORTED_MODULE_2__.CardStateUpdatedCommand(wordId, readingIndex, states, deckIds).send();
     }
 }
 
 
 /***/ }),
-/* 53 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   getCardState: () => (/* binding */ getCardState)
-/* harmony export */ });
-/* harmony import */ var _request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(27);
-/* harmony import */ var _types__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(4);
-
-
-const CARD_STATE_MAP = {
-    0: _types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.NEW,
-    1: _types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.YOUNG,
-    2: _types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.MATURE,
-    3: _types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.BLACKLISTED,
-    4: _types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.DUE,
-    5: _types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.MASTERED,
-};
-const getCardState = async (wordId, readingIndex, options) => {
-    const result = await (0,_request__WEBPACK_IMPORTED_MODULE_0__.request)('reader/lookup-vocabulary', {
-        words: [[wordId, readingIndex]],
-    }, options);
-    const [firstWord] = result.result;
-    if (!Array.isArray(firstWord) || firstWord.length === 0) {
-        return [_types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.NEW];
-    }
-    const states = firstWord
-        .map((state) => CARD_STATE_MAP[state])
-        .filter((s) => s !== undefined);
-    return states.length > 0 ? states : [_types__WEBPACK_IMPORTED_MODULE_1__.JitenCardState.NEW];
-};
-
-
-/***/ }),
-/* 54 */
+/* 61 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   UpdateCardStateCommand: () => (/* binding */ UpdateCardStateCommand)
 /* harmony export */ });
-/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(40);
+/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(37);
 
 class UpdateCardStateCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_0__.BackgroundCommand {
     constructor() {
@@ -1504,25 +2077,7 @@ class UpdateCardStateCommand extends _lib_background_command__WEBPACK_IMPORTED_M
 
 
 /***/ }),
-/* 55 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   CardStateUpdatedCommand: () => (/* binding */ CardStateUpdatedCommand)
-/* harmony export */ });
-/* harmony import */ var _lib_broadcast_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(36);
-
-class CardStateUpdatedCommand extends _lib_broadcast_command__WEBPACK_IMPORTED_MODULE_0__.BroadcastCommand {
-    constructor() {
-        super(...arguments);
-        this.key = 'cardStateUpdated';
-    }
-}
-
-
-/***/ }),
-/* 56 */
+/* 62 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -1563,16 +2118,16 @@ class BackgroundCommandHandlerCollection {
 
 
 /***/ }),
-/* 57 */
+/* 63 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   OpenSettingsCommandHandler: () => (/* binding */ OpenSettingsCommandHandler)
 /* harmony export */ });
-/* harmony import */ var _shared_extension_open_options_page__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(13);
-/* harmony import */ var _shared_messages_background_open_settings_command__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(58);
-/* harmony import */ var _background_command_handler__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(41);
+/* harmony import */ var _shared_extension_open_options_page__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(15);
+/* harmony import */ var _shared_messages_background_open_settings_command__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(64);
+/* harmony import */ var _background_command_handler__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(38);
 
 
 
@@ -1588,14 +2143,14 @@ class OpenSettingsCommandHandler extends _background_command_handler__WEBPACK_IM
 
 
 /***/ }),
-/* 58 */
+/* 64 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   OpenSettingsCommand: () => (/* binding */ OpenSettingsCommand)
 /* harmony export */ });
-/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(40);
+/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(37);
 
 class OpenSettingsCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_0__.BackgroundCommand {
     constructor() {
@@ -1606,15 +2161,15 @@ class OpenSettingsCommand extends _lib_background_command__WEBPACK_IMPORTED_MODU
 
 
 /***/ }),
-/* 59 */
+/* 65 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   UpdateBadgeCommandHandler: () => (/* binding */ UpdateBadgeCommandHandler)
 /* harmony export */ });
-/* harmony import */ var _shared_messages_background_update_badge_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(60);
-/* harmony import */ var _background_command_handler__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(41);
+/* harmony import */ var _shared_messages_background_update_badge_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(66);
+/* harmony import */ var _background_command_handler__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(38);
 
 
 function getComprehensionColour(percentage) {
@@ -1644,14 +2199,14 @@ class UpdateBadgeCommandHandler extends _background_command_handler__WEBPACK_IMP
 
 
 /***/ }),
-/* 60 */
+/* 66 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   UpdateBadgeCommand: () => (/* binding */ UpdateBadgeCommand)
 /* harmony export */ });
-/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(40);
+/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(37);
 
 class UpdateBadgeCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_0__.BackgroundCommand {
     constructor() {
@@ -1662,15 +2217,15 @@ class UpdateBadgeCommand extends _lib_background_command__WEBPACK_IMPORTED_MODUL
 
 
 /***/ }),
-/* 61 */
+/* 67 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   LookupController: () => (/* binding */ LookupController)
 /* harmony export */ });
-/* harmony import */ var _shared_extension_add_context_menu__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(11);
-/* harmony import */ var _shared_extension_open_new_tab__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(62);
+/* harmony import */ var _shared_extension_add_context_menu__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(13);
+/* harmony import */ var _shared_extension_open_new_tab__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(68);
 
 
 class LookupController {
@@ -1693,7 +2248,7 @@ class LookupController {
 
 
 /***/ }),
-/* 62 */
+/* 68 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -1704,15 +2259,15 @@ const openNewTab = (url) => chrome.tabs.create({ url });
 
 
 /***/ }),
-/* 63 */
+/* 69 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   LookupTextCommandHandler: () => (/* binding */ LookupTextCommandHandler)
 /* harmony export */ });
-/* harmony import */ var _shared_messages_background_lookup_text_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(64);
-/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(41);
+/* harmony import */ var _shared_messages_background_lookup_text_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(70);
+/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(38);
 
 
 class LookupTextCommandHandler extends _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_1__.BackgroundCommandHandler {
@@ -1728,14 +2283,14 @@ class LookupTextCommandHandler extends _lib_background_command_handler__WEBPACK_
 
 
 /***/ }),
-/* 64 */
+/* 70 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   LookupTextCommand: () => (/* binding */ LookupTextCommand)
 /* harmony export */ });
-/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(40);
+/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(37);
 
 class LookupTextCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_0__.BackgroundCommand {
     constructor() {
@@ -1746,16 +2301,16 @@ class LookupTextCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE
 
 
 /***/ }),
-/* 65 */
+/* 71 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   AbortRequestCommandHandler: () => (/* binding */ AbortRequestCommandHandler)
 /* harmony export */ });
-/* harmony import */ var _shared_messages_background_abort_request_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(66);
-/* harmony import */ var _shared_messages_foreground_sequence_aborted_command__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(67);
-/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(41);
+/* harmony import */ var _shared_messages_background_abort_request_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(72);
+/* harmony import */ var _shared_messages_foreground_sequence_aborted_command__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(73);
+/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(38);
 
 
 
@@ -1773,14 +2328,14 @@ class AbortRequestCommandHandler extends _lib_background_command_handler__WEBPAC
 
 
 /***/ }),
-/* 66 */
+/* 72 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   AbortRequestCommand: () => (/* binding */ AbortRequestCommand)
 /* harmony export */ });
-/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(40);
+/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(37);
 
 class AbortRequestCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_0__.BackgroundCommand {
     constructor() {
@@ -1791,14 +2346,14 @@ class AbortRequestCommand extends _lib_background_command__WEBPACK_IMPORTED_MODU
 
 
 /***/ }),
-/* 67 */
+/* 73 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   SequenceAbortedCommand: () => (/* binding */ SequenceAbortedCommand)
 /* harmony export */ });
-/* harmony import */ var _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(20);
+/* harmony import */ var _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(27);
 
 class SequenceAbortedCommand extends _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__.ForegroundCommand {
     constructor() {
@@ -1809,7 +2364,7 @@ class SequenceAbortedCommand extends _lib_foreground_command__WEBPACK_IMPORTED_M
 
 
 /***/ }),
-/* 68 */
+/* 74 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -1817,115 +2372,50 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   ParseCommandHandler: () => (/* binding */ ParseCommandHandler)
 /* harmony export */ });
 /* harmony import */ var _shared_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
-/* harmony import */ var _shared_extension_inject_style__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(69);
-/* harmony import */ var _shared_extension_open_options_page__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(13);
-/* harmony import */ var _shared_messages_background_parse_command__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(70);
-/* harmony import */ var _shared_messages_foreground_toast_command__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(71);
-/* harmony import */ var _shared_messages_receiving_on_broadcast_message__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(17);
-/* harmony import */ var _shared_theme_get_theme_css_vars__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(72);
-/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(41);
+/* harmony import */ var _shared_extension_open_options_page__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(15);
+/* harmony import */ var _shared_jiten_request_by_url__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(19);
+/* harmony import */ var _shared_messages_background_parse_command__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(75);
+/* harmony import */ var _shared_messages_foreground_toast_command__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(76);
+/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(38);
 
 
 
 
 
 
-
-
-class ParseCommandHandler extends _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_7__.BackgroundCommandHandler {
+class ParseCommandHandler extends _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_5__.BackgroundCommandHandler {
     constructor(_parseController) {
         super();
         this._parseController = _parseController;
         this.command = _shared_messages_background_parse_command__WEBPACK_IMPORTED_MODULE_3__.ParseCommand;
         this._failToast = new _shared_messages_foreground_toast_command__WEBPACK_IMPORTED_MODULE_4__.ToastCommand('error', 'Jiten API key is not set. Please set it in the extension settings.');
+        this._rejectedToast = new _shared_messages_foreground_toast_command__WEBPACK_IMPORTED_MODULE_4__.ToastCommand('error', 'Jiten API key was rejected by the server. Please update it in the extension settings.');
     }
     async handle(sender, data) {
         const jitenApiKey = await (0,_shared_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('jitenApiKey');
         if (!jitenApiKey?.length) {
             await this._failToast.call(sender.tab.id);
-            await (0,_shared_extension_open_options_page__WEBPACK_IMPORTED_MODULE_2__.openOptionsPage)();
+            await (0,_shared_extension_open_options_page__WEBPACK_IMPORTED_MODULE_1__.openOptionsPage)();
             return;
         }
-        (0,_shared_messages_receiving_on_broadcast_message__WEBPACK_IMPORTED_MODULE_5__.onBroadcastMessage)('configurationUpdated', async () => {
-            const themeVars = await (0,_shared_theme_get_theme_css_vars__WEBPACK_IMPORTED_MODULE_6__.getThemeCssVars)();
-            const customWordCSS = await (0,_shared_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('customWordCSS');
-            await (0,_shared_extension_inject_style__WEBPACK_IMPORTED_MODULE_1__.injectStyle)(sender.tab.id, 'word', `${themeVars}\n${customWordCSS}`);
-        }, true);
+        if (await (0,_shared_jiten_request_by_url__WEBPACK_IMPORTED_MODULE_2__.isApiTokenRejected)()) {
+            await this._rejectedToast.call(sender.tab.id);
+            return;
+        }
         this._parseController.parseSequences(sender, data);
     }
 }
 
 
 /***/ }),
-/* 69 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   injectStyle: () => (/* binding */ injectStyle)
-/* harmony export */ });
-const tabs = new Map();
-chrome.tabs.onRemoved.addListener((tabId) => {
-    tabs.delete(tabId);
-});
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (changeInfo.status === 'loading') {
-        tabs.delete(tabId);
-    }
-});
-const getPath = (file) => `css/${file}.css`;
-const insert = (tabId, cfg) => chrome.scripting.insertCSS({
-    target: { tabId, allFrames: true },
-    ...cfg,
-});
-const remove = (tabId, cfg) => chrome.scripting
-    .removeCSS({
-    target: { tabId, allFrames: true },
-    ...cfg,
-})
-    .catch(() => {
-});
-const replaceFile = async (tabId, oldFile, newFile) => {
-    if (oldFile) {
-        await remove(tabId, { files: [oldFile] });
-    }
-    if (newFile) {
-        await insert(tabId, { files: [newFile] });
-    }
-};
-const replaceRaw = async (tabId, oldRaw, newRaw) => {
-    if (oldRaw) {
-        await remove(tabId, { css: oldRaw });
-    }
-    if (newRaw) {
-        await insert(tabId, { css: newRaw });
-    }
-};
-const injectStyle = async (tabId, file, raw) => {
-    const currentConfig = tabs.get(tabId) || {};
-    const filePath = file?.length ? getPath(file) : undefined;
-    if (currentConfig.raw === raw && currentConfig.file === filePath) {
-        return;
-    }
-    if (currentConfig.file !== filePath) {
-        await replaceFile(tabId, currentConfig.file, filePath);
-    }
-    if (currentConfig.raw !== raw) {
-        await replaceRaw(tabId, currentConfig.raw, raw);
-    }
-    tabs.set(tabId, { file: filePath, raw });
-};
-
-
-/***/ }),
-/* 70 */
+/* 75 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   ParseCommand: () => (/* binding */ ParseCommand)
 /* harmony export */ });
-/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(40);
+/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(37);
 
 class ParseCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_0__.BackgroundCommand {
     constructor() {
@@ -1936,14 +2426,14 @@ class ParseCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_0__.
 
 
 /***/ }),
-/* 71 */
+/* 76 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   ToastCommand: () => (/* binding */ ToastCommand)
 /* harmony export */ });
-/* harmony import */ var _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(20);
+/* harmony import */ var _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(27);
 
 class ToastCommand extends _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__.ForegroundCommand {
     constructor() {
@@ -1954,34 +2444,17 @@ class ToastCommand extends _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__.
 
 
 /***/ }),
-/* 72 */
-/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   getThemeCssVars: () => (/* binding */ getThemeCssVars)
-/* harmony export */ });
-/* harmony import */ var _configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
-
-const getThemeCssVars = async () => {
-    const bg = await (0,_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('themeBgColour');
-    const accent = await (0,_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('themeAccentColour');
-    return `:root, :host { --jiten-bg: ${bg}; --jiten-accent: ${accent}; }`;
-};
-
-
-/***/ }),
-/* 73 */
+/* 77 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   ParseController: () => (/* binding */ ParseController)
 /* harmony export */ });
-/* harmony import */ var _shared_messages_foreground_sequence_error_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(74);
-/* harmony import */ var _shared_messages_foreground_sequence_success_command__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(75);
-/* harmony import */ var _parser__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(76);
-/* harmony import */ var _worker_queue__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(79);
+/* harmony import */ var _shared_messages_foreground_sequence_error_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(78);
+/* harmony import */ var _shared_messages_foreground_sequence_success_command__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(79);
+/* harmony import */ var _parser__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(80);
+/* harmony import */ var _worker_queue__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(83);
 
 
 
@@ -2049,14 +2522,14 @@ class ParseController {
 
 
 /***/ }),
-/* 74 */
+/* 78 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   SequenceErrorCommand: () => (/* binding */ SequenceErrorCommand)
 /* harmony export */ });
-/* harmony import */ var _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(20);
+/* harmony import */ var _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(27);
 
 class SequenceErrorCommand extends _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__.ForegroundCommand {
     constructor() {
@@ -2067,14 +2540,14 @@ class SequenceErrorCommand extends _lib_foreground_command__WEBPACK_IMPORTED_MOD
 
 
 /***/ }),
-/* 75 */
+/* 79 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   SequenceSuccessCommand: () => (/* binding */ SequenceSuccessCommand)
 /* harmony export */ });
-/* harmony import */ var _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(20);
+/* harmony import */ var _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(27);
 
 class SequenceSuccessCommand extends _lib_foreground_command__WEBPACK_IMPORTED_MODULE_0__.ForegroundCommand {
     constructor() {
@@ -2085,15 +2558,15 @@ class SequenceSuccessCommand extends _lib_foreground_command__WEBPACK_IMPORTED_M
 
 
 /***/ }),
-/* 76 */
+/* 80 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   Parser: () => (/* binding */ Parser)
 /* harmony export */ });
-/* harmony import */ var _shared_jiten_parse__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(77);
-/* harmony import */ var _pitch_accent_utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(78);
+/* harmony import */ var _shared_jiten_parse__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(81);
+/* harmony import */ var _pitch_accent_utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(82);
 
 
 class Parser {
@@ -2112,14 +2585,19 @@ class Parser {
     }
     extractRubiesFromAnnotated(input) {
         const rubies = [];
+        // Group 1: Prefix (any text before the target, including newlines)
+        // Group 2: The Base (Kanji and Iteration marks like 々)
+        // Group 3: The Ruby (inside brackets)
         const regex = /((?:.|\n)*?)([\u4e00-\u9faf\u3005-\u3007]+)\[([^\]]+)\]/g;
         let match;
-        let currentOffset = 0;
+        let currentOffset = 0; // This tracks the position in the CLEAN (displayed) string
         while ((match = regex.exec(input)) !== null) {
-            const prefix = match[1];
-            const base = match[2];
-            const ruby = match[3];
+            const prefix = match[1]; // e.g., "もう" in "もう一度"
+            const base = match[2]; // e.g., "一度"
+            const ruby = match[3]; // e.g., "いちど"
+            // 1. Advance offset past the prefix (plain text that has no ruby)
             currentOffset += prefix.length;
+            // 2. Mark the ruby position
             const start = currentOffset;
             const length = base.length;
             const end = start + length;
@@ -2129,6 +2607,7 @@ class Parser {
                 end,
                 length,
             });
+            // 3. Advance offset past the base (the text covered by ruby)
             currentOffset += length;
         }
         return rubies;
@@ -2141,9 +2620,11 @@ class Parser {
             3: 'blacklisted',
             4: 'due',
             5: 'mastered',
+            6: 'redundant',
+            7: 'suspended',
         };
         return vocabulary.map((vocab) => {
-            const { wordId, readingIndex, spelling, reading, frequencyRank, partsOfSpeech, meaningsChunks, meaningsPartOfSpeech, knownState, pitchAccent, } = vocab;
+            const { wordId, readingIndex, spelling, reading, frequencyRank, partsOfSpeech, meaningsChunks, meaningsPartOfSpeech, knownState, pitchAccents, studyDeckIds, } = vocab;
             const cardState = knownState
                 .map((state) => CARD_STATE_MAP[state])
                 .filter((s) => s !== undefined);
@@ -2162,21 +2643,32 @@ class Parser {
                     partsOfSpeech: meaningsPartOfSpeech[i],
                 })),
                 cardState,
-                pitchAccent: pitchAccent ?? [],
+                pitchAccents: pitchAccents ?? [],
                 wordWithReading: null,
+                deckIds: studyDeckIds ?? [],
             };
         });
     }
+    buildLookupKey(wordId, readingIndex) {
+        return `${wordId}:${readingIndex}`;
+    }
     parseTokens(tokens, cards, vocabulary) {
+        const vocabMap = new Map();
+        const cardMap = new Map();
+        for (const v of vocabulary) {
+            vocabMap.set(this.buildLookupKey(v.wordId, v.readingIndex), v);
+        }
+        for (const c of cards) {
+            cardMap.set(this.buildLookupKey(c.wordId, c.readingIndex), c);
+        }
         return tokens.map((group) => {
             let lastPitchClass = '';
             return group.map((token) => {
-                const vocabEntry = vocabulary.find((v) => {
-                    return v.wordId === token.wordId && v.readingIndex === token.readingIndex;
-                });
-                const card = cards.find((c) => c.wordId === token.wordId && c.readingIndex === token.readingIndex);
+                const key = this.buildLookupKey(token.wordId, token.readingIndex);
+                const vocabEntry = vocabMap.get(key);
+                const card = cardMap.get(key);
                 const isParticle = card.partsOfSpeech.includes('prt');
-                const pitchClass = isParticle ? '' : (0,_pitch_accent_utils__WEBPACK_IMPORTED_MODULE_1__.getPitchClass)(card.pitchAccent, card.reading);
+                const pitchClass = isParticle ? '' : (0,_pitch_accent_utils__WEBPACK_IMPORTED_MODULE_1__.getPitchClass)(card.pitchAccents, card.reading);
                 lastPitchClass = pitchClass || lastPitchClass;
                 const rubies = vocabEntry?.reading
                     ? this.extractRubiesFromAnnotated(vocabEntry.reading).map((ruby) => ({
@@ -2223,25 +2715,30 @@ class Parser {
                 return;
             }
             let offset = 0;
-            for (const sentence of sentences) {
+            for (let s = 0; s < sentences.length; s++) {
+                const sentence = sentences[s];
                 const compareSentence = sentence.replace(/(^[「『])|([。！？」』]$)/g, '');
                 const positionInParagraphs = paragraph.substring(offset).indexOf(compareSentence);
                 if (positionInParagraphs === -1) {
-                    offset += sentence.length;
-                    return;
+                    continue;
                 }
                 const sentenceStart = offset + positionInParagraphs;
-                const sentenceEnd = sentenceStart + sentence.length;
+                const nextCompareSentence = sentences[s + 1]?.replace(/(^[「『])|([。！？」』]$)/g, '');
+                const nextPosition = nextCompareSentence
+                    ? paragraph.indexOf(nextCompareSentence, sentenceStart + compareSentence.length)
+                    : -1;
+                const sentenceEnd = nextPosition !== -1 ? nextPosition : paragraph.length;
                 for (const token of tokenData) {
                     if (token.start >= sentenceStart && token.end <= sentenceEnd) {
                         token.sentence = sentence;
                     }
                 }
-                offset += sentence.length;
+                offset = sentenceStart + compareSentence.length;
             }
         });
     }
     splitJapaneseTextIntoSentences(text) {
+        // Regular expression to match sentence-ending punctuation marks and quotation marks
         const sentenceEndRegex = /.*?[。！？」』](?=\s?|$)|「.*?」|『.*?』/g;
         const sentences = text.match(sentenceEndRegex) || [];
         return sentences.length
@@ -2250,10 +2747,13 @@ class Parser {
                 .filter(Boolean)
                 .filter((sentence) => !/^[」』]$/.exec(sentence))
                 .map((sentence) => {
+                // If the sentence is a quotation, return it as is
                 if (/「.*?」|『.*?』/.exec(sentence)) {
                     return sentence;
                 }
+                // If a quotation contained multiple sentences, remove the quotation marks
                 const trimmed = sentence.replace(/(^「|『)|(」|』$)/, '');
+                // Add a period at the end of the sentence if it doesn't already have a sentence-ending punctuation mark
                 return /[。！？]$/.exec(trimmed) ? trimmed : `${trimmed}。`;
             })
             : [text];
@@ -2262,14 +2762,14 @@ class Parser {
 
 
 /***/ }),
-/* 77 */
+/* 81 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   parse: () => (/* binding */ parse)
 /* harmony export */ });
-/* harmony import */ var _request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(27);
+/* harmony import */ var _request__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(41);
 
 const parse = async (paragraphs, options) => {
     const result = await (0,_request__WEBPACK_IMPORTED_MODULE_0__.request)('reader/parse', {
@@ -2280,13 +2780,14 @@ const parse = async (paragraphs, options) => {
 
 
 /***/ }),
-/* 78 */
+/* 82 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   getPitchClass: () => (/* binding */ getPitchClass)
 /* harmony export */ });
+// Small yoon vowels that do NOT form a separate mora (small tsu DOES count as a mora)
 const smallNonMora = new Set(['ゃ', 'ゅ', 'ょ', 'ャ', 'ュ', 'ョ', 'ァ', 'ィ', 'ゥ', 'ェ', 'ォ']);
 const countMorae = (reading) => {
     let count = 0;
@@ -2301,11 +2802,13 @@ const getPitchClass = (pitchAccent, reading) => {
     if (!pitchAccent.length) {
         return '';
     }
-    const [accent] = pitchAccent;
+    const [accent] = pitchAccent; // hatsuon accent number: 0, 1, 2, ...
     const morae = countMorae(reading);
+    // Map accent number to pattern name
     if (accent === 0) {
         return 'heiban';
     }
+    // Maintain prior special-case behavior for 1-mora words
     if (morae === 1 && accent === 1) {
         return 'odaka';
     }
@@ -2318,12 +2821,13 @@ const getPitchClass = (pitchAccent, reading) => {
     if (accent > 1 && accent < morae) {
         return 'nakadaka';
     }
+    // If none matched, it's an unknown or unsupported pattern
     return 'unknown-pattern';
 };
 
 
 /***/ }),
-/* 79 */
+/* 83 */
 /***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
 
 __webpack_require__.r(__webpack_exports__);
@@ -2356,6 +2860,90 @@ class WorkerQueue {
         }
         this._isProcessing = false;
         await this.process();
+    }
+}
+
+
+/***/ }),
+/* 84 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   FetchPdfCommandHandler: () => (/* binding */ FetchPdfCommandHandler)
+/* harmony export */ });
+/* harmony import */ var _shared_messages_background_fetch_pdf_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(85);
+/* harmony import */ var _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(38);
+
+
+const delay = (ms) => new Promise((resolve) => {
+    setTimeout(resolve, ms);
+});
+const looksLikePdf = (bytes) => bytes.length >= 5 &&
+    bytes[0] === 0x25 && // %
+    bytes[1] === 0x50 && // P
+    bytes[2] === 0x44 && // D
+    bytes[3] === 0x46; // F
+const toBase64 = (bytes) => {
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+};
+class FetchPdfCommandHandler extends _lib_background_command_handler__WEBPACK_IMPORTED_MODULE_1__.BackgroundCommandHandler {
+    constructor() {
+        super(...arguments);
+        this.command = _shared_messages_background_fetch_pdf_command__WEBPACK_IMPORTED_MODULE_0__.FetchPdfCommand;
+    }
+    // Some repositories (bepress/Digital Commons CGI endpoints) answer the first request with a 202
+    // "still generating" placeholder, then serve the real PDF 200 on a retry. 202 passes response.ok,
+    // so retry until the body actually begins with the %PDF magic.
+    async handle(_sender, url) {
+        try {
+            for (let attempt = 0; attempt < 8; attempt++) {
+                const response = await fetch(url, { redirect: 'follow', credentials: 'include' });
+                if (response.status === 202) {
+                    await delay(1500);
+                    continue;
+                }
+                if (!response.ok) {
+                    return { ok: false, error: `Server responded ${response.status} ${response.statusText}` };
+                }
+                const bytes = new Uint8Array(await response.arrayBuffer());
+                if (looksLikePdf(bytes)) {
+                    return { ok: true, base64: toBase64(bytes) };
+                }
+                await delay(1500);
+            }
+            return { ok: false, error: 'The server kept returning a non-PDF / 202 response' };
+        }
+        catch (error) {
+            return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
+    }
+}
+
+
+/***/ }),
+/* 85 */
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   FetchPdfCommand: () => (/* binding */ FetchPdfCommand)
+/* harmony export */ });
+/* harmony import */ var _lib_background_command__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(37);
+
+// Fetches a PDF in the service worker (which has real host-permission cross-origin access, unlike an
+// extension page subject to CORS) and returns it base64-encoded so the bytes survive runtime
+// messaging serialisation. Errors are returned in the result (not thrown) so the page can show the
+// real reason rather than the generic "command failed".
+class FetchPdfCommand extends _lib_background_command__WEBPACK_IMPORTED_MODULE_0__.BackgroundCommand {
+    constructor() {
+        super(...arguments);
+        this.key = 'fetchPdf';
     }
 }
 
@@ -2422,30 +3010,40 @@ var __webpack_exports__ = {};
 (() => {
 __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _shared_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(1);
-/* harmony import */ var _shared_configuration_migrate_to_profiles__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(8);
-/* harmony import */ var _shared_configuration_set_configuration__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(9);
-/* harmony import */ var _shared_extension_add_context_menu__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(11);
-/* harmony import */ var _shared_extension_add_install_listener__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(12);
-/* harmony import */ var _shared_extension_open_options_page__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(13);
-/* harmony import */ var _shared_extension_open_view__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(14);
-/* harmony import */ var _shared_extension_set_parsing_paused__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(16);
-/* harmony import */ var _shared_messages_receiving_on_broadcast_message__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(17);
-/* harmony import */ var _shared_messages_foreground_parse_page_command__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(19);
-/* harmony import */ var _shared_messages_foreground_parse_selection_command__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(24);
-/* harmony import */ var _jiten_deck_manager__WEBPACK_IMPORTED_MODULE_11__ = __webpack_require__(25);
-/* harmony import */ var _jiten_fetch_decks_command_handler__WEBPACK_IMPORTED_MODULE_12__ = __webpack_require__(38);
-/* harmony import */ var _jiten_card_actions_forget_card_command_handler__WEBPACK_IMPORTED_MODULE_13__ = __webpack_require__(42);
-/* harmony import */ var _jiten_card_actions_grade_card_command_handler__WEBPACK_IMPORTED_MODULE_14__ = __webpack_require__(44);
-/* harmony import */ var _jiten_card_actions_run_deck_action_command_handler__WEBPACK_IMPORTED_MODULE_15__ = __webpack_require__(47);
-/* harmony import */ var _jiten_card_actions_update_card_state_command_handler__WEBPACK_IMPORTED_MODULE_16__ = __webpack_require__(52);
-/* harmony import */ var _lib_background_command_handler_collection__WEBPACK_IMPORTED_MODULE_17__ = __webpack_require__(56);
-/* harmony import */ var _lib_open_settings_command_handler__WEBPACK_IMPORTED_MODULE_18__ = __webpack_require__(57);
-/* harmony import */ var _lib_update_badge_command_handler__WEBPACK_IMPORTED_MODULE_19__ = __webpack_require__(59);
-/* harmony import */ var _lookup_lookup_controller__WEBPACK_IMPORTED_MODULE_20__ = __webpack_require__(61);
-/* harmony import */ var _lookup_lookup_text_command_handler__WEBPACK_IMPORTED_MODULE_21__ = __webpack_require__(63);
-/* harmony import */ var _parser_abort_request_command_handler__WEBPACK_IMPORTED_MODULE_22__ = __webpack_require__(65);
-/* harmony import */ var _parser_parse_command_handler__WEBPACK_IMPORTED_MODULE_23__ = __webpack_require__(68);
-/* harmony import */ var _parser_parse_controller__WEBPACK_IMPORTED_MODULE_24__ = __webpack_require__(73);
+/* harmony import */ var _shared_configuration_migrate_to_profiles__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(10);
+/* harmony import */ var _shared_configuration_set_configuration__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(11);
+/* harmony import */ var _shared_extension_add_context_menu__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(13);
+/* harmony import */ var _shared_extension_add_install_listener__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(14);
+/* harmony import */ var _shared_extension_open_options_page__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(15);
+/* harmony import */ var _shared_extension_open_view__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(16);
+/* harmony import */ var _shared_extension_runtime__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(18);
+/* harmony import */ var _shared_jiten_request_by_url__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(19);
+/* harmony import */ var _shared_messages_foreground_open_reader_mode_command__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(26);
+/* harmony import */ var _shared_messages_foreground_parse_page_command__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(31);
+/* harmony import */ var _shared_messages_foreground_parse_selection_command__WEBPACK_IMPORTED_MODULE_11__ = __webpack_require__(32);
+/* harmony import */ var _shared_messages_receiving_on_broadcast_message__WEBPACK_IMPORTED_MODULE_12__ = __webpack_require__(33);
+/* harmony import */ var _shared_word_style_themes__WEBPACK_IMPORTED_MODULE_13__ = __webpack_require__(6);
+/* harmony import */ var _jiten_card_actions_add_to_study_deck_command_handler__WEBPACK_IMPORTED_MODULE_14__ = __webpack_require__(34);
+/* harmony import */ var _jiten_card_actions_batch_review_command_handler__WEBPACK_IMPORTED_MODULE_15__ = __webpack_require__(39);
+/* harmony import */ var _jiten_card_actions_fetch_study_decks_command_handler__WEBPACK_IMPORTED_MODULE_16__ = __webpack_require__(47);
+/* harmony import */ var _jiten_card_actions_forget_card_command_handler__WEBPACK_IMPORTED_MODULE_17__ = __webpack_require__(50);
+/* harmony import */ var _jiten_card_actions_grade_card_command_handler__WEBPACK_IMPORTED_MODULE_18__ = __webpack_require__(52);
+/* harmony import */ var _jiten_card_actions_run_deck_action_command_handler__WEBPACK_IMPORTED_MODULE_19__ = __webpack_require__(55);
+/* harmony import */ var _jiten_card_actions_update_card_state_command_handler__WEBPACK_IMPORTED_MODULE_20__ = __webpack_require__(60);
+/* harmony import */ var _lib_background_command_handler_collection__WEBPACK_IMPORTED_MODULE_21__ = __webpack_require__(62);
+/* harmony import */ var _lib_open_settings_command_handler__WEBPACK_IMPORTED_MODULE_22__ = __webpack_require__(63);
+/* harmony import */ var _lib_update_badge_command_handler__WEBPACK_IMPORTED_MODULE_23__ = __webpack_require__(65);
+/* harmony import */ var _lookup_lookup_controller__WEBPACK_IMPORTED_MODULE_24__ = __webpack_require__(67);
+/* harmony import */ var _lookup_lookup_text_command_handler__WEBPACK_IMPORTED_MODULE_25__ = __webpack_require__(69);
+/* harmony import */ var _parser_abort_request_command_handler__WEBPACK_IMPORTED_MODULE_26__ = __webpack_require__(71);
+/* harmony import */ var _parser_parse_command_handler__WEBPACK_IMPORTED_MODULE_27__ = __webpack_require__(74);
+/* harmony import */ var _parser_parse_controller__WEBPACK_IMPORTED_MODULE_28__ = __webpack_require__(77);
+/* harmony import */ var _pdf_fetch_pdf_command_handler__WEBPACK_IMPORTED_MODULE_29__ = __webpack_require__(84);
+
+
+
+
+
 
 
 
@@ -2474,35 +3072,86 @@ __webpack_require__.r(__webpack_exports__);
 const isMobile = navigator.userAgent.toLowerCase().includes('android') ??
     navigator.userAgentData?.mobile ??
     false;
-const parsePageCommand = new _shared_messages_foreground_parse_page_command__WEBPACK_IMPORTED_MODULE_9__.ParsePageCommand();
-const parseSelectionCommand = new _shared_messages_foreground_parse_selection_command__WEBPACK_IMPORTED_MODULE_10__.ParseSelectionCommand();
-const lookupController = new _lookup_lookup_controller__WEBPACK_IMPORTED_MODULE_20__.LookupController();
-const lookupTextCommandHandler = new _lookup_lookup_text_command_handler__WEBPACK_IMPORTED_MODULE_21__.LookupTextCommandHandler(lookupController);
-const parseController = new _parser_parse_controller__WEBPACK_IMPORTED_MODULE_24__.ParseController();
-const parseCommandHandler = new _parser_parse_command_handler__WEBPACK_IMPORTED_MODULE_23__.ParseCommandHandler(parseController);
-const abortRequestCommandHandler = new _parser_abort_request_command_handler__WEBPACK_IMPORTED_MODULE_22__.AbortRequestCommandHandler(parseController);
-const deckManager = new _jiten_deck_manager__WEBPACK_IMPORTED_MODULE_11__.DeckManager();
-const fetchDecksCommandHandler = new _jiten_fetch_decks_command_handler__WEBPACK_IMPORTED_MODULE_12__.FetchDecksCommandHandler(deckManager);
-const updateCardStateCommandHandler = new _jiten_card_actions_update_card_state_command_handler__WEBPACK_IMPORTED_MODULE_16__.UpdateCardStateCommandHandler();
-const gradeCardCommandHandler = new _jiten_card_actions_grade_card_command_handler__WEBPACK_IMPORTED_MODULE_14__.GradeCardCommandHandler();
-const runDeckActionCommandHandler = new _jiten_card_actions_run_deck_action_command_handler__WEBPACK_IMPORTED_MODULE_15__.RunDeckActionCommandHandler();
-const forgetCardCommandHandler = new _jiten_card_actions_forget_card_command_handler__WEBPACK_IMPORTED_MODULE_13__.ForgetCardCommandHandler();
-const openSettingsCommandHandler = new _lib_open_settings_command_handler__WEBPACK_IMPORTED_MODULE_18__.OpenSettingsCommandHandler();
-const updateBadgeCommandHandler = new _lib_update_badge_command_handler__WEBPACK_IMPORTED_MODULE_19__.UpdateBadgeCommandHandler();
-const handlerCollection = new _lib_background_command_handler_collection__WEBPACK_IMPORTED_MODULE_17__.BackgroundCommandHandlerCollection(fetchDecksCommandHandler, lookupTextCommandHandler, parseCommandHandler, abortRequestCommandHandler, updateCardStateCommandHandler, gradeCardCommandHandler, runDeckActionCommandHandler, forgetCardCommandHandler, openSettingsCommandHandler, updateBadgeCommandHandler);
+const parsePageCommand = new _shared_messages_foreground_parse_page_command__WEBPACK_IMPORTED_MODULE_10__.ParsePageCommand();
+const parseSelectionCommand = new _shared_messages_foreground_parse_selection_command__WEBPACK_IMPORTED_MODULE_11__.ParseSelectionCommand();
+const lookupController = new _lookup_lookup_controller__WEBPACK_IMPORTED_MODULE_24__.LookupController();
+const lookupTextCommandHandler = new _lookup_lookup_text_command_handler__WEBPACK_IMPORTED_MODULE_25__.LookupTextCommandHandler(lookupController);
+const parseController = new _parser_parse_controller__WEBPACK_IMPORTED_MODULE_28__.ParseController();
+const parseCommandHandler = new _parser_parse_command_handler__WEBPACK_IMPORTED_MODULE_27__.ParseCommandHandler(parseController);
+const abortRequestCommandHandler = new _parser_abort_request_command_handler__WEBPACK_IMPORTED_MODULE_26__.AbortRequestCommandHandler(parseController);
+const updateCardStateCommandHandler = new _jiten_card_actions_update_card_state_command_handler__WEBPACK_IMPORTED_MODULE_20__.UpdateCardStateCommandHandler();
+const gradeCardCommandHandler = new _jiten_card_actions_grade_card_command_handler__WEBPACK_IMPORTED_MODULE_18__.GradeCardCommandHandler();
+const batchReviewCommandHandler = new _jiten_card_actions_batch_review_command_handler__WEBPACK_IMPORTED_MODULE_15__.BatchReviewCommandHandler();
+const runDeckActionCommandHandler = new _jiten_card_actions_run_deck_action_command_handler__WEBPACK_IMPORTED_MODULE_19__.RunDeckActionCommandHandler();
+const fetchStudyDecksCommandHandler = new _jiten_card_actions_fetch_study_decks_command_handler__WEBPACK_IMPORTED_MODULE_16__.FetchStudyDecksCommandHandler();
+const addToStudyDeckCommandHandler = new _jiten_card_actions_add_to_study_deck_command_handler__WEBPACK_IMPORTED_MODULE_14__.AddToStudyDeckCommandHandler();
+const forgetCardCommandHandler = new _jiten_card_actions_forget_card_command_handler__WEBPACK_IMPORTED_MODULE_17__.ForgetCardCommandHandler();
+const openSettingsCommandHandler = new _lib_open_settings_command_handler__WEBPACK_IMPORTED_MODULE_22__.OpenSettingsCommandHandler();
+const updateBadgeCommandHandler = new _lib_update_badge_command_handler__WEBPACK_IMPORTED_MODULE_23__.UpdateBadgeCommandHandler();
+const fetchPdfCommandHandler = new _pdf_fetch_pdf_command_handler__WEBPACK_IMPORTED_MODULE_29__.FetchPdfCommandHandler();
+const handlerCollection = new _lib_background_command_handler_collection__WEBPACK_IMPORTED_MODULE_21__.BackgroundCommandHandlerCollection(lookupTextCommandHandler, parseCommandHandler, abortRequestCommandHandler, updateCardStateCommandHandler, gradeCardCommandHandler, batchReviewCommandHandler, runDeckActionCommandHandler, fetchStudyDecksCommandHandler, addToStudyDeckCommandHandler, forgetCardCommandHandler, openSettingsCommandHandler, updateBadgeCommandHandler, fetchPdfCommandHandler);
 handlerCollection.listen();
-void (0,_shared_extension_set_parsing_paused__WEBPACK_IMPORTED_MODULE_7__.setParsingPaused)(false);
-(0,_shared_messages_receiving_on_broadcast_message__WEBPACK_IMPORTED_MODULE_8__.onBroadcastMessage)('profileSwitched', () => {
+async function ensureOffscreenDocument() {
+    const contexts = await chrome.runtime.getContexts({
+        contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
+    });
+    if (contexts.length > 0) {
+        return;
+    }
+    await chrome.offscreen.createDocument({
+        url: 'views/offscreen.html',
+        reasons: [chrome.offscreen.Reason.AUDIO_PLAYBACK],
+        justification: 'TTS audio playback',
+    });
+}
+_shared_extension_runtime__WEBPACK_IMPORTED_MODULE_7__.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type === 'stopTts') {
+        void _shared_extension_runtime__WEBPACK_IMPORTED_MODULE_7__.runtime.sendMessage({ type: 'stopTtsAudio' });
+        return false;
+    }
+    if (message.type !== 'playTts') {
+        return false;
+    }
+    (async () => {
+        const apiEndpoint = await (0,_shared_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('jitenApiEndpoint');
+        const baseUrl = apiEndpoint.replace(/\/api\/?$/, '');
+        const url = `${baseUrl}/api/tts/word/${message.wordId}/${message.readingIndex}` +
+            `?voice=${encodeURIComponent(message.voice ?? 'female')}`;
+        const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+        if (!response.ok) {
+            throw new Error(`TTS request failed: ${response.status}`);
+        }
+        const buffer = await response.arrayBuffer();
+        const data = Array.from(new Uint8Array(buffer));
+        await ensureOffscreenDocument();
+        return _shared_extension_runtime__WEBPACK_IMPORTED_MODULE_7__.runtime.sendMessage({ type: 'playTtsAudio', data });
+    })()
+        .then((result) => sendResponse(result))
+        .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+});
+(0,_shared_messages_receiving_on_broadcast_message__WEBPACK_IMPORTED_MODULE_12__.onBroadcastMessage)('profileSwitched', () => {
     (0,_shared_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.invalidateProfileCache)();
     (0,_shared_configuration_set_configuration__WEBPACK_IMPORTED_MODULE_2__.invalidateSetConfigurationCache)();
+    (0,_shared_jiten_request_by_url__WEBPACK_IMPORTED_MODULE_8__.clearRejectedApiToken)();
+    (0,_jiten_card_actions_fetch_study_decks_command_handler__WEBPACK_IMPORTED_MODULE_16__.invalidateStudyDecksCache)();
 });
+(0,_shared_messages_receiving_on_broadcast_message__WEBPACK_IMPORTED_MODULE_12__.onBroadcastMessage)('configurationUpdated', () => (0,_shared_jiten_request_by_url__WEBPACK_IMPORTED_MODULE_8__.clearRejectedApiToken)());
+async function migrateWordStyleConfig() {
+    const existing = await (0,_shared_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('wordStyleConfig');
+    if (existing?.v) {
+        return;
+    }
+    await (0,_shared_configuration_set_configuration__WEBPACK_IMPORTED_MODULE_2__.setConfiguration)('wordStyleConfig', structuredClone(_shared_word_style_themes__WEBPACK_IMPORTED_MODULE_13__.DEFAULT_WORD_STYLE_CONFIG));
+}
 (0,_shared_extension_add_install_listener__WEBPACK_IMPORTED_MODULE_4__.addInstallListener)(async ({ reason }) => {
-    if (reason === _shared_extension_add_install_listener__WEBPACK_IMPORTED_MODULE_4__.OnInstalledReason.INSTALL) {
+    if (reason === 'install') {
         await (0,_shared_configuration_migrate_to_profiles__WEBPACK_IMPORTED_MODULE_1__.migrateToProfiles)();
         await (0,_shared_extension_open_options_page__WEBPACK_IMPORTED_MODULE_5__.openOptionsPage)();
     }
-    if (reason === _shared_extension_add_install_listener__WEBPACK_IMPORTED_MODULE_4__.OnInstalledReason.UPDATE) {
+    if (reason === 'update') {
         await (0,_shared_configuration_migrate_to_profiles__WEBPACK_IMPORTED_MODULE_1__.migrateToProfiles)();
+        await migrateWordStyleConfig();
         const skipReleaseNotes = await (0,_shared_configuration_get_configuration__WEBPACK_IMPORTED_MODULE_0__.getConfiguration)('skipReleaseNotes');
         if (skipReleaseNotes) {
             return;
@@ -2521,6 +3170,16 @@ if (!isMobile) {
         title: 'Parse Selection',
         contexts: ['selection'],
     }, (_, { id }) => parseSelectionCommand.send(id));
+    (0,_shared_extension_add_context_menu__WEBPACK_IMPORTED_MODULE_3__.addContextMenu)({
+        id: 'open-reader-mode',
+        title: 'Open in Reader Mode',
+        contexts: ['page'],
+    }, (_, { id }) => new _shared_messages_foreground_open_reader_mode_command__WEBPACK_IMPORTED_MODULE_9__.OpenReaderModeCommand().send(id));
+    (0,_shared_extension_add_context_menu__WEBPACK_IMPORTED_MODULE_3__.addContextMenu)({
+        id: 'open-selection-reader-mode',
+        title: 'Open Selection in Reader Mode',
+        contexts: ['selection'],
+    }, (info, { id }) => new _shared_messages_foreground_open_reader_mode_command__WEBPACK_IMPORTED_MODULE_9__.OpenReaderModeCommand(info.selectionText).send(id));
 }
 
 })();

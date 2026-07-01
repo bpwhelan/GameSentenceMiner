@@ -68,6 +68,10 @@ html {
   box-sizing: inherit;
 }
 
+::details-content {
+  box-sizing: inherit;
+}
+
 body,
 input {
   font-family: "Nunito Sans", "Noto Sans Symbols 2", "Segoe UI", "Noto Sans JP", "Noto Sans CJK JP", "Hiragino Sans GB", "Meiryo", sans-serif;
@@ -281,13 +285,11 @@ label[disabled] {
 
 input[type=number],
 input[type=password],
+input[type=search],
 input[type=text],
 input[type=url],
 textarea,
 select {
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
   height: 3em;
   width: 100%;
   font-size: 0.95em;
@@ -302,6 +304,7 @@ select {
 }
 input[type=number]:focus,
 input[type=password]:focus,
+input[type=search]:focus,
 input[type=text]:focus,
 input[type=url]:focus,
 textarea:focus,
@@ -601,10 +604,16 @@ h6 {
   text-align: center;
 }
 
+.settings-layout {
+  display: flex;
+  flex-direction: column;
+}
+
 form {
   display: flex;
   flex-direction: column;
-  gap: 3em;
+  min-width: 0;
+  gap: 2em;
 }
 form :where(.form-box-parent, .accordion) ~ :where(.form-box-parent, .accordion) {
   margin-top: 1.5em;
@@ -613,6 +622,117 @@ form > .section {
   border: 1px solid #3a3a3a;
   border-radius: 8px;
   padding: 1.5em;
+}
+
+.section,
+.section-collapsible {
+  scroll-margin-top: 7em;
+}
+
+.settings-search {
+  position: sticky;
+  top: 0;
+  z-index: 51;
+  padding: 0.5em 0;
+  background-color: var(--jiten-bg, #181818);
+  border-bottom: 1px solid #3a3a3a;
+}
+.settings-search input[type=search] {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+.search-hidden {
+  display: none !important;
+}
+
+.search-match {
+  border-left: 2px solid var(--jiten-accent, #D8B9FA);
+  padding-left: 0.5em;
+  background-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 5%, transparent);
+  border-radius: 2px;
+}
+
+#settings-toc {
+  position: sticky;
+  top: 3.5em;
+  z-index: 50;
+  display: flex;
+  overflow-x: auto;
+  white-space: nowrap;
+  gap: 0.25em;
+  padding: 0.5em 0.25em;
+  margin-bottom: 1em;
+  background-color: var(--jiten-bg, #181818);
+  border-bottom: 1px solid #3a3a3a;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+#settings-toc::-webkit-scrollbar {
+  display: none;
+}
+#settings-toc a {
+  scroll-snap-align: center;
+  flex-shrink: 0;
+  padding: 0.35em 0.75em;
+  border-radius: 1em;
+  font-size: 0.8em;
+  color: rgba(255, 255, 255, 0.6);
+  text-decoration: none;
+  border: 1px solid transparent;
+  border-bottom: none;
+  transition: color 0.15s, background-color 0.15s;
+}
+#settings-toc a:hover, #settings-toc a:focus {
+  color: rgba(255, 255, 255, 0.85);
+  background-color: rgba(255, 255, 255, 0.05);
+  border-bottom: none;
+}
+#settings-toc a.active {
+  color: var(--jiten-accent, #D8B9FA);
+  background-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 12%, transparent);
+}
+
+details.section-collapsible {
+  border: 1px solid #3a3a3a;
+  border-radius: 8px;
+  padding: 0;
+  margin-bottom: 0;
+}
+details.section-collapsible > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 1em 1.5em;
+  cursor: pointer;
+  user-select: none;
+  font-size: 135%;
+  font-weight: bold;
+  text-align: center;
+  justify-content: center;
+  opacity: 1;
+  list-style: none;
+}
+details.section-collapsible > summary::-webkit-details-marker {
+  display: none;
+}
+details.section-collapsible > summary::before {
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+details.section-collapsible[open] > summary::before {
+  transform: rotate(45deg);
+}
+details.section-collapsible > :not(summary) {
+  padding: 0 1.5em 1.5em;
 }
 
 .pitch-accent div {
@@ -831,6 +951,9 @@ profile-selector {
   display: block;
 }
 profile-selector select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
   min-width: 200px;
   background-color: transparent;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23D8B9FA' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
@@ -852,4 +975,99 @@ profile-selector select:focus {
 profile-selector select option {
   background-color: #fff;
   color: #000;
+}
+
+@media (max-width: 35em) {
+  .form-box-parent {
+    flex-wrap: wrap;
+  }
+  .table-box .row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5em;
+    padding: 0.75em 1em;
+  }
+  .container {
+    padding: 0 0.5em;
+  }
+  .colour-picker-group {
+    flex-wrap: wrap;
+  }
+}
+@media (min-width: 35em) and (max-width: 59em) {
+  .form-box-parent {
+    flex-wrap: wrap;
+  }
+}
+@media (min-width: 72em) {
+  body {
+    max-width: 72em;
+  }
+  .settings-layout {
+    flex-direction: row;
+    gap: 2em;
+  }
+  #settings-toc {
+    position: sticky;
+    top: 4em;
+    flex-direction: column;
+    width: 13em;
+    flex-shrink: 0;
+    align-self: flex-start;
+    overflow-x: visible;
+    white-space: normal;
+    border-bottom: none;
+    border-right: 1px solid #3a3a3a;
+    padding: 0.5em 0;
+    margin-bottom: 0;
+    gap: 0.15em;
+    background-color: transparent;
+    scroll-snap-type: none;
+  }
+  #settings-toc a {
+    border-radius: 0;
+    padding: 0.4em 0.75em;
+    font-size: 0.85em;
+    border-left: 2px solid transparent;
+    border-right: none;
+  }
+  #settings-toc a:hover, #settings-toc a:focus {
+    background-color: transparent;
+    border-left-color: rgba(255, 255, 255, 0.2);
+  }
+  #settings-toc a.active {
+    background-color: transparent;
+    border-left-color: var(--jiten-accent, #D8B9FA);
+  }
+  form {
+    flex: 1;
+    min-width: 0;
+  }
+  .section,
+  .section-collapsible {
+    scroll-margin-top: 4.5em;
+  }
+}
+.reader-theme-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6em;
+  align-items: center;
+}
+
+.reader-theme-swatch {
+  width: 1.7em;
+  height: 1.7em;
+  padding: 0;
+  border: 2px solid;
+  border-radius: 50%;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: transform 0.1s ease;
+}
+.reader-theme-swatch:hover {
+  transform: scale(1.12);
+}
+.reader-theme-swatch.active {
+  box-shadow: 0 0 0 2px var(--jiten-bg, #181818), 0 0 0 4px var(--jiten-accent, #d8b9fa);
 }

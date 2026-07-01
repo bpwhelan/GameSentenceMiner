@@ -1,0 +1,366 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+#jiten-pdf {
+  min-height: 100vh;
+  box-sizing: border-box;
+  font-family: var(--reader-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif);
+  font-size: var(--reader-font-size, 18px);
+  line-height: var(--reader-line-height, 1.9);
+  background-color: var(--reader-bg);
+  color: var(--reader-fg);
+}
+#jiten-pdf.reader-bold .pdf-page-reflow {
+  font-weight: 600;
+}
+#jiten-pdf.reader-theme-light {
+  --reader-bg: #ffffff;
+  --reader-fg: #1a1a1a;
+  --reader-muted: #6b6b6b;
+  --reader-border: rgba(0, 0, 0, 0.12);
+  --reader-btn-bg: rgba(0, 0, 0, 0.05);
+  --reader-panel-bg: #ffffff;
+}
+#jiten-pdf.reader-theme-sepia {
+  --reader-bg: #f4ecd8;
+  --reader-fg: #5b4636;
+  --reader-muted: #8a7257;
+  --reader-border: rgba(91, 70, 54, 0.18);
+  --reader-btn-bg: rgba(91, 70, 54, 0.08);
+  --reader-panel-bg: #faf3e3;
+}
+#jiten-pdf.reader-theme-gray {
+  --reader-bg: #5c5c5c;
+  --reader-fg: #e8e8e8;
+  --reader-muted: #c0c0c0;
+  --reader-border: rgba(255, 255, 255, 0.18);
+  --reader-btn-bg: rgba(255, 255, 255, 0.1);
+  --reader-panel-bg: #4f4f4f;
+}
+#jiten-pdf.reader-theme-dark {
+  --reader-bg: #1a1a1a;
+  --reader-fg: #dcdcdc;
+  --reader-muted: #9a9a9a;
+  --reader-border: rgba(255, 255, 255, 0.14);
+  --reader-btn-bg: rgba(255, 255, 255, 0.08);
+  --reader-panel-bg: #262626;
+}
+#jiten-pdf.reader-theme-black {
+  --reader-bg: #000000;
+  --reader-fg: #c8c8c8;
+  --reader-muted: #808080;
+  --reader-border: rgba(255, 255, 255, 0.12);
+  --reader-btn-bg: rgba(255, 255, 255, 0.06);
+  --reader-panel-bg: #141414;
+}
+#jiten-pdf.reader-theme-solarized {
+  --reader-bg: #002b36;
+  --reader-fg: #93a1a1;
+  --reader-muted: #657b83;
+  --reader-border: rgba(147, 161, 161, 0.18);
+  --reader-btn-bg: rgba(147, 161, 161, 0.1);
+  --reader-panel-bg: #073642;
+}
+#jiten-pdf.pdf-drag-over {
+  outline: 3px dashed var(--reader-fg);
+  outline-offset: -10px;
+}
+
+#jiten-pdf .reader-controls-anchor {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.6em 1em;
+  background: var(--reader-bg);
+  border-bottom: 1px solid var(--reader-border);
+  font-size: 16px;
+  line-height: normal;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+#jiten-pdf .reader-toolbar {
+  display: flex;
+  gap: 0.5em;
+  align-items: center;
+}
+
+#jiten-pdf .pdf-page-label {
+  margin-right: 0.5em;
+  color: var(--reader-muted);
+  font-size: 0.85em;
+  align-self: center;
+}
+
+#jiten-pdf .reader-panel {
+  position: fixed;
+  top: 3.5em;
+  right: 1em;
+  width: 20em;
+  max-width: calc(100vw - 2em);
+  max-height: calc(100vh - 5em);
+  overflow-y: auto;
+  box-sizing: border-box;
+  display: none;
+  flex-direction: column;
+  gap: 1em;
+  padding: 1.1em;
+  border: 1px solid var(--reader-border);
+  border-radius: 0.7em;
+  background: var(--reader-panel-bg, var(--reader-bg));
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+#jiten-pdf .reader-panel.open {
+  display: flex;
+}
+
+#jiten-pdf .pdf-mode-toggle {
+  display: flex;
+  gap: 0.5em;
+}
+
+#jiten-pdf .pdf-mode-btn {
+  flex: 1;
+}
+#jiten-pdf .pdf-mode-btn.active {
+  border-color: var(--reader-fg);
+  box-shadow: inset 0 0 0 1px var(--reader-fg);
+}
+
+#jiten-pdf.pdf-mode-faithful .pdf-typography {
+  display: none;
+}
+
+#jiten-pdf .reader-theme-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5em;
+}
+
+#jiten-pdf .reader-theme-option {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.45em 0.6em;
+  border: 1px solid var(--reader-border);
+  border-radius: 0.5em;
+  background: var(--reader-btn-bg);
+  color: var(--reader-fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85em;
+}
+#jiten-pdf .reader-theme-option:hover {
+  border-color: var(--reader-fg);
+}
+#jiten-pdf .reader-theme-option.active {
+  border-color: var(--reader-fg);
+  box-shadow: inset 0 0 0 1px var(--reader-fg);
+}
+
+#jiten-pdf .reader-swatch {
+  flex: none;
+  width: 1.3em;
+  height: 1.3em;
+  border: 2px solid;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+#jiten-pdf .reader-panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75em;
+}
+
+#jiten-pdf .reader-panel-label {
+  font-size: 0.85em;
+  color: var(--reader-muted);
+}
+
+#jiten-pdf .reader-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+#jiten-pdf .reader-stepper-label {
+  min-width: 1.2em;
+  text-align: center;
+  font-weight: 700;
+}
+
+#jiten-pdf .reader-select {
+  appearance: auto;
+  max-width: 11em;
+  border: 1px solid var(--reader-border);
+  border-radius: 0.4em;
+  background: var(--reader-btn-bg);
+  color: var(--reader-fg);
+  font: inherit;
+  font-size: 0.85em;
+  padding: 0.3em 0.4em;
+}
+
+#jiten-pdf .reader-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11em;
+  height: 0.4em;
+  margin: 0.5em 0;
+  border-radius: 1em;
+  background: var(--reader-border);
+  cursor: pointer;
+}
+#jiten-pdf .reader-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.1em;
+  height: 1.1em;
+  border: none;
+  border-radius: 50%;
+  background: var(--reader-fg);
+}
+#jiten-pdf .reader-range::-moz-range-thumb {
+  width: 1.1em;
+  height: 1.1em;
+  border: none;
+  border-radius: 50%;
+  background: var(--reader-fg);
+}
+
+#jiten-pdf .reader-btn {
+  appearance: none;
+  border: 1px solid var(--reader-border);
+  border-radius: 0.4em;
+  background: var(--reader-btn-bg);
+  color: var(--reader-fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85em;
+  padding: 0.35em 0.7em;
+  line-height: 1;
+}
+#jiten-pdf .reader-btn:hover {
+  border-color: var(--reader-fg);
+}
+
+#jiten-pdf .reader-options-btn {
+  font-weight: 700;
+}
+
+#jiten-pdf .pdf-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8em;
+  min-height: 70vh;
+  text-align: center;
+  padding: 2em;
+}
+#jiten-pdf .pdf-empty.hidden {
+  display: none;
+}
+
+#jiten-pdf .pdf-empty-title {
+  margin: 0;
+  font-size: 1.5em;
+  font-weight: 700;
+}
+
+#jiten-pdf .pdf-empty-hint {
+  margin: 0;
+  color: var(--reader-muted);
+}
+
+#jiten-pdf .pdf-file-input {
+  color: var(--reader-fg);
+}
+
+#jiten-pdf .pdf-url-row {
+  display: flex;
+  gap: 0.5em;
+  width: min(34em, 90vw);
+}
+
+#jiten-pdf .pdf-url-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5em 0.7em;
+  border: 1px solid var(--reader-border);
+  border-radius: 0.4em;
+  background: var(--reader-btn-bg);
+  color: var(--reader-fg);
+  font: inherit;
+  font-size: 0.9em;
+}
+
+#jiten-pdf .pdf-pages {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2em 1.5em 6em;
+}
+
+#jiten-pdf .pdf-page {
+  min-height: 40vh;
+}
+
+#jiten-pdf .pdf-page-reflow {
+  max-width: var(--reader-width, 42em);
+  margin: 0 auto 1em;
+  min-height: 0;
+}
+#jiten-pdf .pdf-page-reflow p {
+  margin: 0 0 1.4em;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  color: var(--reader-fg);
+}
+
+#jiten-pdf .pdf-page-faithful {
+  position: relative;
+  margin: 0 auto 2em;
+  min-height: 0;
+  background: #ffffff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+}
+#jiten-pdf .pdf-page-faithful canvas {
+  display: block;
+}
+
+#jiten-pdf .textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  z-index: 1;
+}
+#jiten-pdf .textLayer > span,
+#jiten-pdf .textLayer > br {
+  position: absolute;
+  white-space: pre;
+  transform-origin: 0% 0%;
+  color: transparent;
+}
+#jiten-pdf .textLayer .jiten-word {
+  -webkit-text-fill-color: transparent !important;
+  padding-block: 0.1em;
+  border-radius: 0.12em;
+  cursor: pointer;
+}
+#jiten-pdf .textLayer rt {
+  display: none;
+}

@@ -1,0 +1,365 @@
+#ajb-reader {
+  all: initial;
+  position: fixed;
+  inset: 0;
+  z-index: 2147483640;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-family: var(--reader-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif);
+  font-size: var(--reader-font-size, 18px);
+  line-height: var(--reader-line-height, 1.9);
+  background-color: var(--reader-bg);
+  color: var(--reader-fg);
+}
+#ajb-reader.reader-bold .reader-content {
+  font-weight: 600;
+}
+#ajb-reader.reader-theme-light {
+  --reader-bg: #ffffff;
+  --reader-fg: #1a1a1a;
+  --reader-muted: #6b6b6b;
+  --reader-border: rgba(0, 0, 0, 0.12);
+  --reader-btn-bg: rgba(0, 0, 0, 0.05);
+  --reader-panel-bg: #ffffff;
+}
+#ajb-reader.reader-theme-sepia {
+  --reader-bg: #f4ecd8;
+  --reader-fg: #5b4636;
+  --reader-muted: #8a7257;
+  --reader-border: rgba(91, 70, 54, 0.18);
+  --reader-btn-bg: rgba(91, 70, 54, 0.08);
+  --reader-panel-bg: #faf3e3;
+}
+#ajb-reader.reader-theme-gray {
+  --reader-bg: #5c5c5c;
+  --reader-fg: #e8e8e8;
+  --reader-muted: #c0c0c0;
+  --reader-border: rgba(255, 255, 255, 0.18);
+  --reader-btn-bg: rgba(255, 255, 255, 0.1);
+  --reader-panel-bg: #4f4f4f;
+}
+#ajb-reader.reader-theme-dark {
+  --reader-bg: #1a1a1a;
+  --reader-fg: #dcdcdc;
+  --reader-muted: #9a9a9a;
+  --reader-border: rgba(255, 255, 255, 0.14);
+  --reader-btn-bg: rgba(255, 255, 255, 0.08);
+  --reader-panel-bg: #262626;
+}
+#ajb-reader.reader-theme-black {
+  --reader-bg: #000000;
+  --reader-fg: #c8c8c8;
+  --reader-muted: #808080;
+  --reader-border: rgba(255, 255, 255, 0.12);
+  --reader-btn-bg: rgba(255, 255, 255, 0.06);
+  --reader-panel-bg: #141414;
+}
+#ajb-reader.reader-theme-solarized {
+  --reader-bg: #002b36;
+  --reader-fg: #93a1a1;
+  --reader-muted: #657b83;
+  --reader-border: rgba(147, 161, 161, 0.18);
+  --reader-btn-bg: rgba(147, 161, 161, 0.1);
+  --reader-panel-bg: #073642;
+}
+
+#ajb-reader .reader-controls-anchor {
+  position: sticky;
+  top: 0.75em;
+  z-index: 2;
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5em;
+  font-size: 16px;
+  line-height: normal;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+#ajb-reader .reader-toolbar {
+  display: flex;
+  gap: 0.5em;
+  justify-content: flex-end;
+}
+
+#ajb-reader .reader-panel {
+  position: fixed;
+  top: 4em;
+  right: 1em;
+  width: 20em;
+  max-width: calc(100vw - 2em);
+  max-height: calc(100vh - 6em);
+  overflow-y: auto;
+  box-sizing: border-box;
+  display: none;
+  flex-direction: column;
+  gap: 1em;
+  padding: 1.1em;
+  border: 1px solid var(--reader-border);
+  border-radius: 0.7em;
+  background: var(--reader-panel-bg, var(--reader-bg));
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+#ajb-reader .reader-panel.open {
+  display: flex;
+}
+
+#ajb-reader .reader-theme-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5em;
+}
+
+#ajb-reader .reader-theme-option {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.45em 0.6em;
+  border: 1px solid var(--reader-border);
+  border-radius: 0.5em;
+  background: var(--reader-btn-bg);
+  color: var(--reader-fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85em;
+}
+#ajb-reader .reader-theme-option:hover {
+  border-color: var(--reader-fg);
+}
+#ajb-reader .reader-theme-option.active {
+  border-color: var(--reader-fg);
+  box-shadow: inset 0 0 0 1px var(--reader-fg);
+}
+
+#ajb-reader .reader-swatch {
+  flex: none;
+  width: 1.3em;
+  height: 1.3em;
+  border: 2px solid;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+
+#ajb-reader .reader-panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75em;
+}
+
+#ajb-reader .reader-panel-label {
+  font-size: 0.85em;
+  color: var(--reader-muted);
+}
+
+#ajb-reader .reader-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+#ajb-reader .reader-stepper-label {
+  min-width: 1.2em;
+  text-align: center;
+  font-weight: 700;
+}
+
+#ajb-reader .reader-select {
+  appearance: auto;
+  max-width: 11em;
+  border: 1px solid var(--reader-border);
+  border-radius: 0.4em;
+  background: var(--reader-btn-bg);
+  color: var(--reader-fg);
+  font: inherit;
+  font-size: 0.85em;
+  padding: 0.3em 0.4em;
+}
+
+#ajb-reader .reader-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11em;
+  height: 0.4em;
+  margin: 0.5em 0;
+  border-radius: 1em;
+  background: var(--reader-border);
+  cursor: pointer;
+}
+#ajb-reader .reader-range::-webkit-slider-runnable-track {
+  height: 0.4em;
+  border-radius: 1em;
+  background: transparent;
+}
+#ajb-reader .reader-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.1em;
+  height: 1.1em;
+  margin-top: -0.35em;
+  border: none;
+  border-radius: 50%;
+  background: var(--reader-fg);
+}
+#ajb-reader .reader-range::-moz-range-track {
+  height: 0.4em;
+  border-radius: 1em;
+  background: var(--reader-border);
+}
+#ajb-reader .reader-range::-moz-range-thumb {
+  width: 1.1em;
+  height: 1.1em;
+  border: none;
+  border-radius: 50%;
+  background: var(--reader-fg);
+}
+
+#ajb-reader .reader-btn {
+  appearance: none;
+  border: 1px solid var(--reader-border);
+  border-radius: 0.4em;
+  background: var(--reader-btn-bg);
+  color: var(--reader-fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85em;
+  padding: 0.35em 0.7em;
+  line-height: 1;
+}
+#ajb-reader .reader-btn:hover {
+  border-color: var(--reader-fg);
+}
+
+#ajb-reader .reader-options-btn {
+  font-weight: 700;
+}
+
+#ajb-reader .reader-close-btn {
+  font-weight: 700;
+}
+
+#ajb-reader .reader-surface {
+  box-sizing: border-box;
+  max-width: var(--reader-width, 42em);
+  margin: 0 auto;
+  padding: 3.5em 1.5em 6em;
+}
+
+#ajb-reader .reader-header {
+  margin-bottom: 2em;
+  padding-bottom: 1em;
+  border-bottom: 1px solid var(--reader-border);
+}
+
+#ajb-reader .reader-title {
+  margin: 0;
+  font-size: 1.9em;
+  line-height: 1.3;
+  font-weight: 700;
+  color: var(--reader-fg);
+}
+
+#ajb-reader .reader-byline {
+  margin: 0.5em 0 0;
+  color: var(--reader-muted);
+  font-size: 0.95em;
+}
+
+#ajb-reader .reader-content {
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+#ajb-reader .reader-content,
+#ajb-reader .reader-content p,
+#ajb-reader .reader-content li,
+#ajb-reader .reader-content h1,
+#ajb-reader .reader-content h2,
+#ajb-reader .reader-content h3,
+#ajb-reader .reader-content h4,
+#ajb-reader .reader-content h5,
+#ajb-reader .reader-content h6 {
+  color: var(--reader-fg);
+}
+
+#ajb-reader .reader-content p,
+#ajb-reader .reader-content li,
+#ajb-reader .reader-content blockquote {
+  font-size: 1em;
+  margin: 0 0 1.4em;
+}
+
+#ajb-reader .reader-content h1,
+#ajb-reader .reader-content h2,
+#ajb-reader .reader-content h3,
+#ajb-reader .reader-content h4 {
+  line-height: 1.4;
+  margin: 1.6em 0 0.6em;
+  font-weight: 700;
+}
+
+#ajb-reader .reader-content a {
+  color: var(--reader-fg);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+#ajb-reader .reader-content img,
+#ajb-reader .reader-content svg,
+#ajb-reader .reader-content video {
+  display: block;
+  float: none;
+  max-width: 100%;
+  height: auto;
+  margin: 1.4em auto;
+  border: 0;
+  background: none;
+  border-radius: 0.3em;
+}
+
+#ajb-reader .reader-content figure {
+  float: none;
+  width: auto;
+  max-width: 100%;
+  margin: 1.6em auto;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+#ajb-reader .reader-content figcaption {
+  margin-top: 0.6em;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: center;
+  font-size: 0.85em;
+  color: var(--reader-muted);
+}
+
+#ajb-reader .reader-content blockquote {
+  padding-left: 1em;
+  border-left: 3px solid var(--reader-border);
+  color: var(--reader-muted);
+}
+
+#ajb-reader .reader-content pre,
+#ajb-reader .reader-content code {
+  background: var(--reader-btn-bg);
+  border-radius: 0.3em;
+}
+
+#ajb-reader .reader-content pre {
+  padding: 1em;
+  overflow-x: auto;
+}
+
+#ajb-reader .reader-content hr {
+  border: none;
+  border-top: 1px solid var(--reader-border);
+  margin: 2em 0;
+}
+
+html.ajb-reader-open {
+  overflow: hidden;
+}

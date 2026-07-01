@@ -1,6 +1,117 @@
 <link rel="stylesheet" media="screen" href="../css/changelog.css" />
 <h2>Changelog</h2>
 
+<h5>1.3.0 (2026.06.29)</h5>
+<ul>
+  <li><span class="description">Added a distraction-free reader mode accessible through the extension's status bar, the extension's popup or the right-click context menu</span></li>
+  <li><span class="description">Added a basic PDF reader accessible through the extension icon</span></li>
+  <li><span class="description">Fixed furigana display on Ttsu Reader and Yatsu reader</span></li>
+  <li><span class="description">Fixed ASBPlayer parsing</span></li>
+  <li><span class="description">Small bug fixes & optimisations</span></li>
+</ul>
+
+<h5>1.2.1 (2026.06.09)</h5>
+<ul>
+  <li><span class="description">Fixed a bug where the mass review keybind was always active, even when not parsing</span></li>
+</ul>
+
+<h5>1.2.0 (2026.06.09)</h5>
+<ul>
+  <li><span class="description">Added the possibility to Mass Review every word currently visible on screen as "good" with a single button in the status bar or a keybind. Configurable in settings > mass review</span></li>
+  <li><span class="description">Added an option to auto-fail cards when you open the pop-up (meaning that you forgot to recall), off by default. Configurable in settings > mass review</span></li>
+  <li><span class="description">Added an option to auto-mine on review, reviewing a card will add it to your selected word list (unless it's already in it). Configurable in settings > mining</span></li>
+  <li><span class="description">The popup now shows the decks and word lists a word belongs to, with a checkmark when it's in one of your word lists. You can toggle it off in settings > popup</span></li>
+  <li><span class="description">Words can now be styled differently if they are in a deck, with the option to have different styling if they're in a media deck, a global frequency deck or a word list </span></li>
+  <li><span class="description">Simplified custom domain syntax to not require protocol and wildcards</span></li>
+  <li><span class="description">Redundant words are now handled with custom styling and not being able to review them</span></li>
+  <li><span class="description">You can place the close button at the bottom left of the popup now (mobile)</span></li>
+  <li><span class="description">Redesigned the toaster notifications</span></li>
+  <li><span class="description">Added an error when trying to mine a word with no mining deck set</span></li>
+  <li><span class="description">Fixed word status not being immediately updated when reviewing words marked as frequent</span></li>
+  <li><span class="description">Fixed the forget popup behaviour on mobile</span></li>
+  <li><span class="description">Fixed native furigana not working on Yatsu Reader</span></li>
+  <li><span class="description">Fixed furigana handling in ttsu reader</span></li>
+  <li><span class="description">Fixed text area overflow in the settings</span></li>
+</ul>
+
+<h5>1.1.1 (2026.05.15)</h5>
+<ul>
+  <li><span class="description">Added a setting to deactivate the Deck+ button</span></li>
+  <li><span class="description">Fix inconsistent parsing on Yatsu reader</span></li>
+</ul>
+
+<h5>1.1.0 (2026.05.07)</h5>
+<ul>
+  <li><span class="description">Added mining to a Jiten SRS deck, mining to preselected deck configurable in settings > mining. This also sets the current sentence as a custom example sentence</span></li>
+  <li><span class="description">Added TTS support with 5 voices, configurable in settings > popup</span></li>
+  <li><span class="description">Popup can now be resized by dragging the corner and in settings</span></li>
+  <li><span class="description">Fixed Mokuro Reader parsing</span></li>
+  <li><span class="description">Fixed Aozora Bunko parsing</span></li>
+  <li><span class="description">Added support for Yatsu Reader</span></li>
+  <li><span class="description">Added support for Nihongo Tracker</span></li>
+  <li><span class="description">Slightly changed the styling of the popup buttons</span></li>
+  <li><span class="description">Fixed pitch accents on long words overflowing from the popup</span></li>
+  <li><span class="description">Various optimisations</span></li>
+</ul>
+
+<h5>1.0.7 (2026.04.02)</h5>
+<ul>
+  <li><span class="description">Added pitch accent graphs (toggleable in settings)</span></li>
+  <li><span class="description">Added pitch accent colouring (customisable in theme settings, none by default)</span></li>
+  <li><span class="description">Added a button to reveal your API key</span></li>
+  <li><span class="description">Added an option to disable the head word link to avoid accidental clicks on mobile</span></li>
+  <li><span class="description">Added an option to use long press to trigger the pop-up</span></li>
+  <li><span class="description">Fixed the again keybind not working</span></li>
+  <li><span class="description">Fixed the forget pop-up closing itself on mobile</span></li>
+  <li><span class="description">Fixed the manatan manga parser</span></li>
+  <li><span class="description">Fixed the setpoint feature on ttsu (thanks SHIRO-Suit for the PR!)</span></li>
+</ul>
+
+<h5>1.0.6 (2026.03.03)</h5>
+<ul>
+  <li><span class="description">Fixed scrolling in the settings not working on Firefox</span></li>
+</ul>
+
+<h5>1.0.5 (2026.03.03)</h5>
+<ul>
+  <li><span class="description">Revamped the settings page, added a table of content and a search bar</span></li>
+  <li><span class="description">Fixed the i+1 sentence display</span></li>
+  <li><span class="description">Fixed Jiten Reader breaking Manatan native pop-up for manga</span></li>
+  <li><span class="description">Fixed native furigana sometimes breaking up word detection</span></li>
+  <li><span class="description">Added an option to open the popup on double tap</span></li>
+  <li><span class="description">Changed the changelog to not open on update by default (configurable in settings)</span></li>
+</ul>
+
+<h5>1.0.4 (2026.02.17)</h5>
+<ul>
+  <li><span class="description">Added a new visual theming system in the settings with a few presets. Themes can be be changed instantly from the extension icon and shared simply with a string</span></li>
+  <li><span class="description">Fixed a bug where i+1 word styling could get overriden by other states</span></li>
+  <li><span class="description">Fixed the layout shifting in ttsu reader</span></li>
+  <li><span class="description">Fixed the blacklist/master hotkey not unblacklisting/unmastering</span></li>
+  <li><span class="description">Added a new cycle hotkey that cycles between mastered, blacklisted and back to learning</span></li>
+</ul>
+
+<h5>1.0.3 (2026.02.05)</h5>
+<ul>
+  <li><span class="description">Completely revert stylus/pen support as it doesn't work correctly</span></li>
+</ul>
+
+<h5>1.0.2 (2026.02.04)</h5>
+<ul>
+  <li><span class="description">Try to fix pen support for Firefox mobile</span></li>
+</ul>
+
+<h5>1.0.1 (2026.02.02)</h5>
+<ul>
+  <li><span class="description">Added (<a href="https://web.readest.com">Readest</a> support</span></li>
+  <li><span class="description">Added (<a href="https://kizuna-texthooker-ui.app">Kizuna</a> support</span></li>
+  <li><span class="description">Added (<a href="https://github.com/KolbyML/Manatan">Manatan</a> support (anime, manga & LN)</span></li>
+  <li><span class="description">Added an option to choose between touch, stylus/pen or both for mobile</span></li>
+  <li><span class="description">Added an option to be able to highlight i+1 word only below a frequency</span></li>
+  <li><span class="description">Fixed an issue with the API key not working when exporting and importing a profile</span></li>
+  <li><span class="description">Fixed an issue where the pause would unpause after a few minutes</span></li>
+</ul>
+
 <h5>1.0.0 (2026.01.06)</h5>
 <ul>
   <li><span class="description">Welcome to the initial version of Jiten Reader! You'll need an account on <a href="https://jiten.moe" target="_blank">Jiten</a> if you don't already have one.</span></li>
