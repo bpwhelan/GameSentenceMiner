@@ -111,6 +111,8 @@ class AnkiPollingGateState:
 
 anki_polling_gate_state = AnkiPollingGateState()
 MAX_BASELINE_SEED_FAILURE_LOGS = 5
+CONFIRMATION_CANCEL_ACTION_KEY = "cancel_action"
+CONFIRMATION_CANCEL_ACTION_DELETE_CARD = "delete_card"
 
 
 def _notify_anki_enhancement_failure(reason: str) -> None:
@@ -124,6 +126,33 @@ def _mark_anki_update_failure(result_id: Optional[str], reason: str, word: str =
     if not result_id:
         return
     anki_results[result_id] = AnkiUpdateResult.failure(reason=reason, word=word or "")
+
+
+def _confirmation_cancel_action(result: Any) -> str:
+    if isinstance(result, dict):
+        return str(result.get(CONFIRMATION_CANCEL_ACTION_KEY) or "")
+    return ""
+
+
+def _delete_cancelled_anki_note(last_note: "AnkiCard") -> bool:
+    note_id = getattr(last_note, "noteId", None)
+    if not note_id:
+        logger.warning("Cannot delete cancelled Anki card because no note id is available.")
+        return False
+
+    try:
+        invoke("deleteNotes", notes=[note_id])
+        try:
+            previous_note_ids.discard(int(note_id))
+        except (TypeError, ValueError):
+            previous_note_ids.discard(note_id)
+        logger.info(f"Deleted Anki note {note_id} after confirmation dialog exit.")
+        return True
+    except Exception as e:
+        reason = f"Failed to delete Anki note {note_id} after confirmation dialog exit: {e}"
+        logger.exception(reason)
+        _notify_anki_enhancement_failure(reason)
+        return False
 
 
 # --- Migration Utilities ---
@@ -1056,6 +1085,12 @@ def update_anki_card(
             reusing_audio=assets.reused_audio,
             reusing_screenshot=assets.reused_screenshot,
         )
+
+        cancel_action = _confirmation_cancel_action(result)
+        if cancel_action == CONFIRMATION_CANCEL_ACTION_DELETE_CARD:
+            logger.info("Anki confirmation dialog requested card deletion; skipping update.")
+            _delete_cancelled_anki_note(last_note)
+            return False
 
         if result is None:
             # Dialog was cancelled

@@ -67,6 +67,8 @@ def test_apply_window_behavior_preferences_sets_show_without_activating(monkeypa
 
     assert probe.attributes == [(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)]
     assert probe.flags & Qt.WindowType.WindowStaysOnTopHint
+    assert probe.flags & Qt.WindowType.WindowSystemMenuHint
+    assert probe.flags & Qt.WindowType.WindowCloseButtonHint
 
 
 def test_apply_window_behavior_preferences_clears_show_without_activating_when_focus_enabled(
@@ -80,6 +82,8 @@ def test_apply_window_behavior_preferences_clears_show_without_activating_when_f
 
     assert probe.attributes == [(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)]
     assert not (probe.flags & Qt.WindowType.WindowStaysOnTopHint)
+    assert probe.flags & Qt.WindowType.WindowSystemMenuHint
+    assert probe.flags & Qt.WindowType.WindowCloseButtonHint
 
 
 def test_exec_routes_to_non_activating_path_when_focus_disabled():
@@ -98,6 +102,47 @@ def test_exec_routes_to_modal_exec_when_focus_enabled():
 
     assert result == "with"
     assert probe.calls == ["apply", "with"]
+
+
+def test_apply_exit_choice_cancel_keeps_dialog_open():
+    probe = SimpleNamespace(result="existing", _exit_confirmed=False)
+
+    result = anki_confirmation_qt.AnkiConfirmationDialog._apply_exit_choice(
+        probe,
+        anki_confirmation_qt.EXIT_CHOICE_CANCEL,
+    )
+
+    assert result is False
+    assert probe.result == "existing"
+    assert probe._exit_confirmed is False
+
+
+def test_apply_exit_choice_ok_discards_update():
+    probe = SimpleNamespace(result="existing", _exit_confirmed=False)
+
+    result = anki_confirmation_qt.AnkiConfirmationDialog._apply_exit_choice(
+        probe,
+        anki_confirmation_qt.EXIT_CHOICE_DISCARD,
+    )
+
+    assert result is True
+    assert probe.result is None
+    assert probe._exit_confirmed is True
+
+
+def test_apply_exit_choice_delete_card_sets_cancel_action():
+    probe = SimpleNamespace(result="existing", _exit_confirmed=False)
+
+    result = anki_confirmation_qt.AnkiConfirmationDialog._apply_exit_choice(
+        probe,
+        anki_confirmation_qt.EXIT_CHOICE_DELETE_CARD,
+    )
+
+    assert result is True
+    assert probe.result == {
+        anki_confirmation_qt.CONFIRMATION_CANCEL_ACTION_KEY: anki_confirmation_qt.CONFIRMATION_CANCEL_ACTION_DELETE_CARD
+    }
+    assert probe._exit_confirmed is True
 
 
 def test_calculate_audio_expanded_range_clamps_to_source_bounds():

@@ -165,6 +165,11 @@ _anki_confirmation_dialog_instance = None
 
 AUTO_ADD_DIALOGUE_LINE_EPSILON_SECONDS = 0.05
 AUTO_ADD_DIALOGUE_LINE_DEBOUNCE_MS = 175
+CONFIRMATION_CANCEL_ACTION_KEY = "cancel_action"
+CONFIRMATION_CANCEL_ACTION_DELETE_CARD = "delete_card"
+EXIT_CHOICE_DISCARD = "discard"
+EXIT_CHOICE_DELETE_CARD = "delete_card"
+EXIT_CHOICE_CANCEL = "cancel"
 
 
 class AnkiConfirmationDialog(QDialog):
@@ -205,6 +210,8 @@ class AnkiConfirmationDialog(QDialog):
         self._replay_video_duration = 0.0
         self._replay_file_mod_time = None
         self._pending_auto_line_direction = None
+        self._exit_confirmed = False
+        self._rejected_cleanup_done = False
 
         # Auto-accept timer
         self._auto_accept_qtimer = None
@@ -576,6 +583,8 @@ class AnkiConfirmationDialog(QDialog):
         self._replay_video_duration = 0.0
         self._replay_file_mod_time = None
         self._pending_auto_line_direction = None
+        self._exit_confirmed = False
+        self._rejected_cleanup_done = False
         self._auto_line_expand_timer.stop()
         self._initialize_dialogue_line_timeline()
 
@@ -685,7 +694,13 @@ class AnkiConfirmationDialog(QDialog):
     def _apply_window_behavior_preferences(self):
         anki_config = get_config().anki
         focus_on_show = self._should_focus_on_show()
-        flags = Qt.WindowType.Dialog | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint
+        flags = (
+            Qt.WindowType.Dialog
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
         if getattr(anki_config, "confirmation_always_on_top", True):
             flags |= Qt.WindowType.WindowStaysOnTopHint
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, not focus_on_show)
@@ -1775,11 +1790,68 @@ class AnkiConfirmationDialog(QDialog):
         save_current_config(config)
         reload_config()
 
-    def closeEvent(self, event):
+    def _show_exit_confirmation_message(self):
+        message_box = QMessageBox(self)
+        message_box.setIcon(QMessageBox.Icon.Warning)
+        message_box.setWindowTitle("Discard Anki update?")
+        message_box.setText(
+            "Exiting this dialog will throw away the generated audio and will NOT update the Anki card."
+        )
+        message_box.setInformativeText(
+            "Choose OK to discard this update, OK and Delete card to delete the current Anki note too, "
+            "or Cancel to keep editing."
+        )
+
+        ok_button = message_box.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
+        delete_button = message_box.addButton("OK and Delete card", QMessageBox.ButtonRole.DestructiveRole)
+        cancel_button = message_box.addButton(QMessageBox.StandardButton.Cancel)
+        message_box.setDefaultButton(cancel_button)
+        message_box.setEscapeButton(cancel_button)
+
+        message_box.exec()
+        clicked_button = message_box.clickedButton()
+        if clicked_button == delete_button:
+            return EXIT_CHOICE_DELETE_CARD
+        if clicked_button == ok_button:
+            return EXIT_CHOICE_DISCARD
+        return EXIT_CHOICE_CANCEL
+
+    def _apply_exit_choice(self, choice):
+        if choice == EXIT_CHOICE_CANCEL:
+            return False
+
+        if choice == EXIT_CHOICE_DELETE_CARD:
+            self.result = {CONFIRMATION_CANCEL_ACTION_KEY: CONFIRMATION_CANCEL_ACTION_DELETE_CARD}
+        else:
+            self.result = None
+        self._exit_confirmed = True
+        return True
+
+    def _confirm_exit_and_apply_result(self):
+        if self._exit_confirmed:
+            return True
+        return self._apply_exit_choice(self._show_exit_confirmation_message())
+
+    def _finish_rejected_dialog(self):
+        if self._rejected_cleanup_done:
+            return
         self._cancel_auto_accept()
         self._auto_line_expand_timer.stop()
         self._cleanup_audio()
         window_state_manager.save_geometry(self, WindowId.ANKI_CONFIRMATION)
+        self._rejected_cleanup_done = True
+
+    def reject(self):
+        if not self._confirm_exit_and_apply_result():
+            return
+        self._finish_rejected_dialog()
+        super().reject()
+
+    def closeEvent(self, event):
+        if not self._confirm_exit_and_apply_result():
+            event.ignore()
+            return
+        self._finish_rejected_dialog()
         super().closeEvent(event)
 
     def _exec_with_activation(self):
