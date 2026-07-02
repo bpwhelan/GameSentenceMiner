@@ -2420,6 +2420,21 @@
         </span>
         <input type="checkbox" id="gamepadFocusOverlayOnEntry" checked />
       </label>
+      <h5 style="margin-top: 15px; margin-bottom: 10px; color: #888;">Overlay Visibility</h5>
+      <label>
+        <span class="label-text">
+          Show Token/Character Mode
+          <div class="hotkey-info">Show the navigation mode indicator while gamepad navigation is active</div>
+        </span>
+        <input type="checkbox" id="gamepadShowModeIndicator" checked />
+      </label>
+      <label>
+        <span class="label-text">
+          Show Navigation Status
+          <div class="hotkey-info">Show the bottom gamepad status line while navigation is active</div>
+        </span>
+        <input type="checkbox" id="gamepadShowNavigationStatus" checked />
+      </label>
       <label>
         <span class="label-text">
           Navigation Repeat Delay (ms)
@@ -3409,6 +3424,8 @@
         "gamepadTokenMode",
         "gamepadAutoConfirmSelection",
         "gamepadFocusOverlayOnEntry",
+        "gamepadShowModeIndicator",
+        "gamepadShowNavigationStatus",
         "gamepadRepeatDelay",
         "gamepadRepeatRate",
         "gamepadServerPort",
@@ -3858,6 +3875,8 @@
       createKeyboardBindingSetting("keyboardMineButton"),
       createCheckboxBinding("gamepadTokenMode", "#gamepadTokenMode"),
       createCheckboxBinding("gamepadFocusOverlayOnEntry", "#gamepadFocusOverlayOnEntry"),
+      createCheckboxBinding("gamepadShowModeIndicator", "#gamepadShowModeIndicator"),
+      createCheckboxBinding("gamepadShowNavigationStatus", "#gamepadShowNavigationStatus"),
       createSelectBinding("gamepadTokenizerBackend", ["#gamepadTokenizerBackend", "#furiganaTokenizerBackend"], {
         normalize: normalizeTokenizerBackendValue,
         afterApply: () => updateTokenizerBackendFieldState(),
@@ -4693,6 +4712,8 @@
         gamepadTokenMode: userSettings.gamepadTokenMode !== false,
         gamepadAutoConfirmSelection: userSettings.gamepadAutoConfirmSelection !== false,
         gamepadFocusOverlayOnEntry: userSettings.gamepadFocusOverlayOnEntry !== false,
+        gamepadShowModeIndicator: userSettings.gamepadShowModeIndicator !== false,
+        gamepadShowNavigationStatus: userSettings.gamepadShowNavigationStatus !== false,
         gamepadControllerEnabled: userSettings.gamepadControllerEnabled !== false,
         gamepadKeyboardEnabled: userSettings.gamepadKeyboardEnabled !== false,
         gamepadDeviceBlacklist: normalizeGamepadDeviceBlacklistValue(userSettings.gamepadDeviceBlacklist),

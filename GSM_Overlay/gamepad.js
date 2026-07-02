@@ -572,6 +572,7 @@ class GamepadHandler {
       // Visual feedback
       highlightColor: options.highlightColor || 'rgba(0, 255, 136, 0.5)',
       cursorColor: options.cursorColor || 'rgba(255, 200, 0, 0.8)',
+      showModeIndicator: options.showModeIndicator !== false,
       
       // Callbacks
       onBlockChange: options.onBlockChange || null,
@@ -5967,6 +5968,7 @@ class GamepadHandler {
     // Create mode indicator
     this.modeIndicator = document.createElement('div');
     this.modeIndicator.id = 'gamepad-mode-indicator';
+    this.modeIndicator.setAttribute('aria-hidden', 'true');
     this.modeIndicator.style.cssText = `
       position: fixed;
       top: 60px;
@@ -5983,8 +5985,14 @@ class GamepadHandler {
       pointer-events: none;
       box-shadow: 0 0 15px rgba(0, 255, 136, 0.3);
     `;
-    this.modeIndicator.innerHTML = '🎮 Controller Mode';
+    this.setGeneratedText(this.modeIndicator, '🎮 Controller Mode');
     document.body.appendChild(this.modeIndicator);
+  }
+
+  setGeneratedText(element, text) {
+    if (element) {
+      element.dataset.text = text;
+    }
   }
 
   createCursorSegmentHighlight() {
@@ -6276,8 +6284,9 @@ class GamepadHandler {
   
   showModeIndicator(show) {
     if (this.modeIndicator) {
-      this.modeIndicator.style.display = show ? 'block' : 'none';
-      if (show) {
+      const visible = show && this.config.showModeIndicator !== false;
+      this.modeIndicator.style.display = visible ? 'block' : 'none';
+      if (visible) {
         this.updateModeIndicatorText();
       }
     }
@@ -6321,7 +6330,7 @@ class GamepadHandler {
     if (this.modeIndicator) {
       const pausedSuffix = this.navigationPauseActive ? ' · ⏸ Paused' : '';
       if (!this.currentBlockSupportsTokenization()) {
-        this.modeIndicator.innerHTML = `Character Mode${pausedSuffix}`;
+        this.setGeneratedText(this.modeIndicator, `Character Mode${pausedSuffix}`);
         return;
       }
       let tokenBackendReady = (this.mecabAvailable && this.wsConnected) || this.tokens.length > 0;
@@ -6337,7 +6346,7 @@ class GamepadHandler {
         tokenBackendReady = this.jpdbApiReachable || this.tokens.length > 0;
       }
       const modeText = this.tokenMode && tokenBackendReady ? 'Token Mode' : 'Character Mode';
-      this.modeIndicator.innerHTML = `${modeText}${pausedSuffix}`;
+      this.setGeneratedText(this.modeIndicator, `${modeText}${pausedSuffix}`);
     }
   }
 
@@ -6369,6 +6378,7 @@ class GamepadHandler {
     this.config.connectToServer = this.config.connectToServer !== false;
     this.config.inputSuppressed = this.config.inputSuppressed === true;
     this.config.focusOverlayOnEntry = this.config.focusOverlayOnEntry !== false;
+    this.config.showModeIndicator = this.config.showModeIndicator !== false;
     console.log('[GamepadHandler] Config updated:', this.getConfigForLogging());
 
     if (oldFocusOverlayOnEntry !== this.config.focusOverlayOnEntry) {
@@ -6408,6 +6418,9 @@ class GamepadHandler {
     if (this.modeIndicator) {
       this.modeIndicator.style.color = this.config.highlightColor;
       this.modeIndicator.style.borderColor = this.config.highlightColor;
+      if (this.isActive) {
+        this.showModeIndicator(true);
+      }
     }
 
     const backendChanged = (

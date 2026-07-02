@@ -521,6 +521,11 @@ background: rgba(202, 12, 12, 0.692);
     animation: indicator-glow 2s ease-in-out infinite;
   }
 
+  #gamepad-mode-indicator::after,
+  #gamepad-status::after {
+    content: attr(data-text);
+  }
+
   @keyframes indicator-glow {
     0%, 100% {
       box-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
@@ -764,7 +769,7 @@ background: rgba(202, 12, 12, 0.692);
   <div id="jiten-parse-container"></div>
 
   <!-- Gamepad Status Indicator -->
-  <div id="gamepad-status">🎮 No controller</div>
+  <div id="gamepad-status" data-text="🎮 No controller"></div>
 
   <!-- Manual Mode Recommendation Banner -->
   <div id="manual-mode-recommendation">
@@ -4097,6 +4102,12 @@ background: rgba(202, 12, 12, 0.692);
     if (newsettings.gamepadKeyboardEnabled !== undefined) {
       gamepadSettings.keyboardEnabled = newsettings.gamepadKeyboardEnabled;
     }
+    if (newsettings.gamepadShowModeIndicator !== undefined) {
+      gamepadSettings.showModeIndicator = newsettings.gamepadShowModeIndicator;
+    }
+    if (newsettings.gamepadShowNavigationStatus !== undefined) {
+      gamepadSettings.showNavigationStatus = newsettings.gamepadShowNavigationStatus;
+    }
     // Load keyboard binding settings
     for (const key of KEYBOARD_SETTING_KEYS) {
       if (newsettings[key] !== undefined) {
@@ -4779,6 +4790,8 @@ background: rgba(202, 12, 12, 0.692);
     jpdbApiKey: '', // Bearer token used for JPDB /api/v1/parse
     controllerEnabled: true, // Enable controller button activation
     keyboardEnabled: true, // Enable keyboard hotkey activation (set from settings)
+    showModeIndicator: true, // Show Token/Character Mode indicator while navigating
+    showNavigationStatus: true, // Show bottom navigation status while navigating
     inputSuppressed: false, // Temporarily suppress controller processing (settings input test)
     // Keyboard bindings (parallel to gamepad button bindings)
     keyboardModifierKey: null,
@@ -4878,6 +4891,7 @@ background: rgba(202, 12, 12, 0.692);
       jpdbApiKey: gamepadSettings.jpdbApiKey,
       controllerEnabled: getEffectiveControllerEnabled(),
       keyboardEnabled: getEffectiveKeyboardEnabled(),
+      showModeIndicator: gamepadSettings.showModeIndicator !== false,
       connectToServer: shouldConnectGamepadServer(),
       inputSuppressed: gamepadInputSuppressed === true,
       // Keyboard bindings
@@ -5044,7 +5058,7 @@ background: rgba(202, 12, 12, 0.692);
       gamepadStatusHideTimeout = null;
     }
 
-    if (!gamepadSettings.enabled || !gamepadHandler) {
+    if (!gamepadSettings.enabled || !gamepadHandler || gamepadSettings.showNavigationStatus === false) {
       wasGamepadConnected = false;
       statusEl.classList.remove('connected', 'server-connected', 'active');
       statusEl.style.display = 'none';
@@ -5075,14 +5089,14 @@ background: rgba(202, 12, 12, 0.692);
     } else if (state.isActive) {
       const modeLabel = state.tokenMode && state.totalTokens > 0 ? 'Token' : 'Char';
       const totalUnits = state.tokenMode && state.totalTokens > 0 ? state.totalTokens : state.totalCharacters;
-      statusEl.textContent = `🎮 Navigation: Block ${state.currentBlockIndex + 1}/${state.totalBlocks} | ${modeLabel} ${state.currentCursorIndex + 1}/${totalUnits}`;
+      statusEl.dataset.text = `🎮 Navigation: Block ${state.currentBlockIndex + 1}/${state.totalBlocks} | ${modeLabel} ${state.currentCursorIndex + 1}/${totalUnits}`;
       statusEl.style.display = 'block';
       statusEl.style.color = '#00ff88';
     } else {
       const readyMessage = navigationAvailability.controller
         ? '🎮 Controller ready (hold LB + D-Pad to navigate)'
         : '🎮 Navigation ready';
-      statusEl.textContent = readyMessage;
+      statusEl.dataset.text = readyMessage;
       statusEl.style.display = justConnected ? 'block' : 'none';
       statusEl.style.color = '#00ff88';
       if (justConnected) {
@@ -5340,6 +5354,14 @@ background: rgba(202, 12, 12, 0.692);
     if (updatedSettings.gamepadKeyboardEnabled !== undefined) {
       gamepadSettings.keyboardEnabled = updatedSettings.gamepadKeyboardEnabled;
       needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadShowModeIndicator !== undefined) {
+      gamepadSettings.showModeIndicator = updatedSettings.gamepadShowModeIndicator;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadShowNavigationStatus !== undefined) {
+      gamepadSettings.showNavigationStatus = updatedSettings.gamepadShowNavigationStatus;
+      updateGamepadStatusIndicator();
     }
     if (updatedSettings.gamepadRepeatDelay !== undefined) {
       gamepadSettings.repeatDelay = updatedSettings.gamepadRepeatDelay;

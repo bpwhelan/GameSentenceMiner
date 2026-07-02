@@ -580,6 +580,8 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadPrevEntryButton": 6, // LT trigger - navigate to previous Yomitan entry
   "gamepadAutoConfirmSelection": true,
   "gamepadFocusOverlayOnEntry": true,
+  "gamepadShowModeIndicator": true,
+  "gamepadShowNavigationStatus": true,
   "gamepadRepeatDelay": 400,
   "gamepadRepeatRate": 150,
   "gamepadServerPort": GAMEPAD_SERVER_BASE_PORT, // Port for gamepad server
@@ -6618,6 +6620,8 @@ app.whenReady().then(async () => {
       case "gamepadPrevEntryButton":
       case "gamepadAutoConfirmSelection":
       case "gamepadFocusOverlayOnEntry":
+      case "gamepadShowModeIndicator":
+      case "gamepadShowNavigationStatus":
       case "gamepadRepeatDelay":
       case "gamepadRepeatRate":
       case "gamepadControllerEnabled":
