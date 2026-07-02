@@ -87,14 +87,11 @@
 
   // Overview "what the overlay can do" cards. `tab` must match a data-settings-tab value.
   const GSM_CAPABILITY_CARDS = [
-    { icon: "📖", title: "Readings & Furigana", tab: "reading", blurb: "Furigana / pinyin readings above the text, plus styling, fonts, and reading language." },
-    { icon: "✋", title: "Push to Show", tab: "interaction", blurb: "Hold or toggle a hotkey to reveal the overlay only when you want it — great for cutscenes and mouse-hiding games." },
+    { icon: "📖", title: "Readings, Stats & Jiten", tab: "reading", blurb: "Furigana / pinyin, live stats, goals, Pomodoro, and Jiten Reader integration." },
+    { icon: "✋", title: "Push to Show & Hotkeys", tab: "interaction", blurb: "Reveal the overlay only when you want it, tune hotkeys, and control TextFeed or translation." },
     { icon: "🎮", title: "Hands-Free Gamepad Nav", tab: "gamepad", blurb: "Drive the cursor and trigger Yomitan lookups with a controller — no keyboard or mouse needed." },
-    { icon: "📊", title: "Live Stats & Goals", tab: "stats", blurb: "Show chars/hour, cards mined, and your daily goals in-game, with a built-in Pomodoro timer." },
-    { icon: "📚", title: "Jiten Reader", tab: "dictionary", blurb: "Jiten Reader Integration: SRS-aware highlighting and grading right from the overlay." },
     { icon: "🔍", title: "OCR Capture", tab: "capture", blurb: "Pick the engine, monitor, and capture area, and scan text on a timer or on demand." },
-    { icon: "🗂️", title: "Game Profiles", tab: "profiles", blurb: "Tie overlay settings to your GSM profiles to tie configuration to a set of games." },
-    { icon: "⌨️", title: "Hotkeys & Interaction", tab: "interaction", blurb: "Customize every hotkey, Yomitan focus behavior, translation, and the TextFeed window." },
+    { icon: "🗂️", title: "Profiles & System", tab: "system", blurb: "Tie settings to GSM profiles and check platform or connection details." },
   ];
 
   global.GSM_SETTING_DESCRIPTIONS = GSM_SETTING_DESCRIPTIONS;

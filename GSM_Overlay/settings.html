@@ -45,27 +45,27 @@
       background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
       color: #ffffff;
       margin: 0;
-      padding: 16px;
+      padding: 12px;
       min-height: 100vh;
       line-height: 1.4;
     }
 
     .container {
-      max-width: 1400px;
+      max-width: 1320px;
       margin: 0 auto;
       background: rgba(255, 255, 255, 0.05);
       backdrop-filter: blur(10px);
-      border-radius: 12px;
+      border-radius: 8px;
       border: 1px solid rgba(255, 255, 255, 0.1);
-      padding: 20px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.26);
     }
 
     .settings-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
-      gap: 16px;
-      margin-top: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
     }
 
     .settings-grid.single-column {
@@ -73,10 +73,10 @@
     }
 
     h3 {
-      margin: 0 0 20px 0;
-      font-size: 22px;
+      margin: 0 0 12px 0;
+      font-size: 18px;
       font-weight: 600;
-      text-align: center;
+      text-align: left;
       background: linear-gradient(135deg, #ffffff 0%, #cccccc 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
@@ -87,27 +87,28 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 14px;
+      gap: 10px;
       flex-wrap: wrap;
-      margin-bottom: 18px;
-      padding: 14px 16px;
-      border-radius: 10px;
+      margin-bottom: 10px;
+      padding: 8px 10px;
+      border-radius: 8px;
       border: 1px solid rgba(76, 175, 80, 0.28);
-      background: linear-gradient(135deg, rgba(76, 175, 80, 0.16) 0%, rgba(255, 255, 255, 0.04) 100%);
+      background: rgba(76, 175, 80, 0.09);
     }
 
     .docs-banner-copy {
       display: flex;
-      flex-direction: column;
-      gap: 4px;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
     }
 
     .docs-banner-title {
       font-size: 13px;
       font-weight: 700;
       color: #f4fff4;
-      letter-spacing: 0.4px;
-      text-transform: uppercase;
+      letter-spacing: 0;
+      text-transform: none;
     }
 
     .docs-banner-subtitle {
@@ -118,7 +119,7 @@
     .docs-banner-links {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 6px;
     }
 
     .settings-hub-banner {
@@ -148,9 +149,9 @@
       border: 1px solid rgba(76, 175, 80, 0.35);
       background: rgba(12, 32, 18, 0.55);
       color: #efffef;
-      padding: 8px 13px;
-      border-radius: 999px;
-      font-size: 12px;
+      padding: 5px 9px;
+      border-radius: 6px;
+      font-size: 11px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s ease;
@@ -184,22 +185,26 @@
     }
 
     .settings-tabs {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+      gap: 4px;
+      margin-bottom: 12px;
+      padding: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.16);
     }
 
     .settings-tab-button {
       border: 1px solid rgba(255, 255, 255, 0.16);
       background: rgba(255, 255, 255, 0.04);
       color: #cfcfcf;
-      padding: 8px 14px;
-      border-radius: 8px;
+      padding: 6px 8px;
+      border-radius: 6px;
       font-size: 12px;
       font-weight: 600;
-      letter-spacing: 0.3px;
-      text-transform: uppercase;
+      letter-spacing: 0;
+      text-transform: none;
       cursor: pointer;
       transition: all 0.2s ease;
     }
@@ -226,34 +231,34 @@
     }
 
     .setting-group {
-      margin-bottom: 16px;
-      padding: 12px;
-      background: rgba(255, 255, 255, 0.03);
-      border-radius: 8px;
+      margin-bottom: 0;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.025);
+      border-radius: 7px;
       border: 1px solid rgba(255, 255, 255, 0.06);
     }
 
     .setting-group h4 {
-      margin: 0 0 10px 0;
-      font-size: 13px;
+      margin: 0 0 8px 0;
+      font-size: 12px;
       font-weight: 500;
       color: #cccccc;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.35px;
     }
 
     label {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 10px;
+      margin-bottom: 6px;
       font-size: 13px;
       font-weight: 500;
       color: #e0e0e0;
-      padding: 8px 12px;
-      background: rgba(255, 255, 255, 0.02);
-      border-radius: 6px;
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 6px 8px;
+      background: rgba(255, 255, 255, 0.012);
+      border-radius: 5px;
+      border: 1px solid rgba(255, 255, 255, 0.035);
       transition: all 0.2s ease;
     }
 
@@ -267,11 +272,11 @@
     }
 
     label.master-toggle {
-      padding: 14px 16px;
-      margin-bottom: 14px;
+      padding: 9px 10px;
+      margin-bottom: 8px;
       background: linear-gradient(135deg, rgba(76, 175, 80, 0.16) 0%, rgba(255, 255, 255, 0.04) 100%);
       border: 1px solid rgba(76, 175, 80, 0.4);
-      border-radius: 8px;
+      border-radius: 6px;
     }
 
     label.master-toggle:hover {
@@ -280,17 +285,17 @@
     }
 
     label.master-toggle .label-text {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 700;
     }
 
     label.master-toggle input[type="checkbox"] {
-      width: 22px;
-      height: 22px;
+      width: 20px;
+      height: 20px;
     }
 
     label.sub-option {
-      margin-left: 20px;
+      margin-left: 12px;
       background: rgba(255, 255, 255, 0.01);
       border-left: 2px solid rgba(76, 175, 80, 0.3);
     }
@@ -302,7 +307,7 @@
 
     .label-text {
       flex: 1;
-      margin-right: 12px;
+      margin-right: 10px;
     }
 
     .input-container {
@@ -367,14 +372,15 @@
 
     input[type="text"],
     input[type="number"],
+    input[type="password"],
     select {
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid rgba(255, 255, 255, 0.2);
       border-radius: 4px;
-      padding: 6px 10px;
+      padding: 5px 8px;
       color: #ffffff;
       font-size: 13px;
-      min-width: 180px;
+      min-width: 160px;
       transition: all 0.2s ease;
     }
 
@@ -390,6 +396,7 @@
 
     input[type="text"]:focus,
     input[type="number"]:focus,
+    input[type="password"]:focus,
     select:focus {
       outline: none;
       border-color: #4CAF50;
@@ -397,15 +404,16 @@
       box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
     }
 
-    input[type="text"]:disabled {
+    input[type="text"]:disabled,
+    input[type="password"]:disabled {
       opacity: 0.5;
       cursor: not-allowed;
     }
 
     input[type="checkbox"] {
       appearance: none;
-      width: 18px;
-      height: 18px;
+      width: 16px;
+      height: 16px;
       background: rgba(255, 255, 255, 0.08);
       border: 2px solid rgba(255, 255, 255, 0.2);
       border-radius: 3px;
@@ -552,7 +560,7 @@
     }
 
     .hotkey-info {
-      font-size: 11px;
+      font-size: 10.5px;
       color: #888;
       margin-top: 2px;
       font-style: italic;
@@ -898,7 +906,7 @@
 
     /* Recommended Setups (presets) */
     .presets-intro {
-      margin: 0 0 12px 0;
+      margin: 0 0 8px 0;
       font-size: 12px;
       line-height: 1.45;
       color: #b8c4b8;
@@ -906,8 +914,8 @@
 
     .preset-cards {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 8px;
     }
 
     .preset-card {
@@ -915,8 +923,8 @@
       flex-direction: column;
       gap: 6px;
       text-align: left;
-      padding: 14px;
-      border-radius: 8px;
+      padding: 11px;
+      border-radius: 7px;
       border: 1px solid rgba(255, 255, 255, 0.1);
       background: rgba(255, 255, 255, 0.04);
       color: #e8e8e8;
@@ -1124,9 +1132,9 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 12px;
-      padding: 8px 12px;
-      border-radius: 10px;
+      margin-bottom: 8px;
+      padding: 6px 9px;
+      border-radius: 8px;
       border: 1px solid rgba(255, 255, 255, 0.12);
       background: rgba(0, 0, 0, 0.22);
     }
@@ -1142,8 +1150,8 @@
       border: none;
       background: transparent;
       color: #ffffff;
-      font-size: 14px;
-      padding: 4px 2px;
+      font-size: 13px;
+      padding: 3px 2px;
     }
 
     .settings-search input:focus {
@@ -1200,17 +1208,17 @@
     /* Capability cards (Overview tab) — modeled on .preset-card. */
     .capability-cards {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 8px;
     }
 
     .capability-card {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 5px;
       text-align: left;
-      padding: 16px;
-      border-radius: 10px;
+      padding: 11px;
+      border-radius: 7px;
       border: 1px solid rgba(255, 255, 255, 0.1);
       background: rgba(255, 255, 255, 0.04);
       color: #e8e8e8;
@@ -1221,12 +1229,12 @@
     .capability-card:hover {
       border-color: rgba(90, 163, 255, 0.5);
       background: rgba(38, 71, 116, 0.28);
-      transform: translateY(-2px);
-      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.24);
     }
 
     .capability-card-title {
-      font-size: 15px;
+      font-size: 13px;
       font-weight: 700;
       color: #ffffff;
     }
@@ -1257,10 +1265,10 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 14px;
+      gap: 10px;
       flex-wrap: wrap;
-      padding: 14px 16px;
-      border-radius: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
       border: 1px solid rgba(255, 193, 7, 0.32);
       background: linear-gradient(135deg, rgba(255, 193, 7, 0.14) 0%, rgba(255, 255, 255, 0.04) 100%);
     }
@@ -1340,7 +1348,8 @@
       }
 
       input[type="text"],
-      input[type="number"] {
+      input[type="number"],
+      input[type="password"] {
         min-width: 100%;
       }
 
@@ -1355,10 +1364,6 @@
   <div class="container">
     <h3>Overlay Settings</h3>
     <div class="docs-banner">
-      <div class="docs-banner-copy">
-        <span class="docs-banner-title">Documentation</span>
-        <span class="docs-banner-subtitle">Open the overlay guides without leaving GSM.</span>
-      </div>
       <div class="docs-banner-links">
         <button type="button" class="docs-link-chip yomitan-settings-chip" id="openYomitanSettings"
           title="Open Yomitan dictionary settings">
@@ -1385,7 +1390,7 @@
     <div class="settings-search">
       <span class="settings-search-icon" aria-hidden="true">🔍</span>
       <input type="text" id="settingsSearchInput" autocomplete="off" spellcheck="false"
-        placeholder="Search all settings… (e.g. red boxes, pomodoro, controller, furigana) (WIP)"
+        placeholder="Search settings... (red boxes, pomodoro, controller, furigana)"
         aria-label="Search all overlay settings" />
       <span id="settingsSearchCount" class="settings-search-count"></span>
       <button type="button" id="settingsSearchClear" class="settings-search-clear" title="Clear search" aria-label="Clear search">✕</button>
@@ -1396,14 +1401,11 @@
 
     <div class="settings-tabs" role="tablist" aria-label="Settings Categories">
       <button type="button" class="settings-tab-button active" data-settings-tab="overview" role="tab" aria-selected="true">Overview</button>
-      <button type="button" class="settings-tab-button" data-settings-tab="reading" role="tab" aria-selected="false">Reading</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="reading" role="tab" aria-selected="false">Reading, Stats & Jiten</button>
       <button type="button" class="settings-tab-button" data-settings-tab="interaction" role="tab" aria-selected="false">Interaction</button>
       <button type="button" class="settings-tab-button" data-settings-tab="gamepad" role="tab" aria-selected="false">Gamepad</button>
-      <button type="button" class="settings-tab-button" data-settings-tab="stats" role="tab" aria-selected="false">Stats &amp; Goals</button>
-      <button type="button" class="settings-tab-button" data-settings-tab="dictionary" role="tab" aria-selected="false">Jiten Reader</button>
-      <button type="button" class="settings-tab-button" data-settings-tab="profiles" role="tab" aria-selected="false">Profiles</button>
-      <button type="button" class="settings-tab-button" data-settings-tab="capture" role="tab" aria-selected="false">Capture</button>
-      <button type="button" class="settings-tab-button" data-settings-tab="advanced" role="tab" aria-selected="false">Advanced</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="capture" role="tab" aria-selected="false">Capture / OCR</button>
+      <button type="button" class="settings-tab-button" data-settings-tab="system" role="tab" aria-selected="false">System</button>
     </div>
 
     <div class="settings-grid">
@@ -1484,7 +1486,7 @@
       
     </div>
 
-    <div class="setting-group" data-tab="stats">
+    <div class="setting-group" data-tab="reading">
       <h4>Live Stats</h4>
       <label>
         <span class="label-text">
@@ -1605,24 +1607,6 @@
           <div class="hotkey-info">Starts a work block automatically when a reading session begins.</div>
         </span>
         <input type="checkbox" id="pomodoroAutoStart" />
-      </label>
-    </div>
-
-    <div class="setting-group" data-tab="advanced">
-      <h4>WebSocket Connections (Don't Change)</h4>
-      <label>
-        <span class="label-text">Plaintext WebSocket URL</span>
-        <div class="input-container">
-          <input type="text" id="wsUrl1" value="ws://127.0.0.1:7276/ws/plaintext" readonly />
-          <span id="wsstatus1" class="status-indicator connected"></span>
-        </div>
-      </label>
-      <label>
-        <span class="label-text">GSM WebSocket URL</span>
-        <div class="input-container">
-          <input type="text" id="wsUrl2" value="ws://127.0.0.1:7276/ws/overlay" readonly />
-          <span id="wsstatus2" class="status-indicator connected"></span>
-        </div>
       </label>
     </div>
 
@@ -1968,7 +1952,7 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="dictionary">
+    <div class="setting-group" data-tab="reading">
       <h4>Jiten Reader</h4>
       <label class="master-toggle">
         <span class="label-text">
@@ -1993,7 +1977,7 @@
       </label>
     </div>
 
-    <div class="setting-group" data-tab="dictionary">
+    <div class="setting-group" data-tab="reading">
       <h4>Overlay Integration <span style="color: #ff6b6b; font-size: 13px; font-weight: normal;">⚠️ WIP</span></h4>
       <div class="hotkey-info" style="color: #ffcc66; margin-bottom: 10px;">
         Work in progress. To avoid unnecessary API calls, some operations are intentionally delayed in order to play nice with Jiten's API.
@@ -2187,7 +2171,7 @@
         </label>
     </div>
 
-    <div class="setting-group" data-tab="gamepad">
+    <div class="setting-group full-width" data-tab="gamepad">
       <h4>🎮 Gamepad Navigation (Experimental)</h4>
       <label>
         <span class="label-text">
@@ -2550,7 +2534,7 @@
     </div>
 
     <div class="settings-grid single-column">
-    <div class="setting-group" data-tab="profiles">
+    <div class="setting-group" data-tab="system">
       <h4>Overlay Profiles</h4>
       <label>
         <span class="label-text">
@@ -2581,7 +2565,7 @@
     </div>
 
     <div class="settings-grid single-column">
-    <div class="setting-group" data-tab="advanced">
+    <div class="setting-group" data-tab="system">
       <h4>Developer</h4>
       <label>
         <span class="label-text">
@@ -4767,10 +4751,12 @@
       });
 
       if (resolvedSettings.weburl1 !== undefined) {
-        document.getElementById("wsUrl1").value = resolvedSettings.weburl1;
+        const wsUrl1 = document.getElementById("wsUrl1");
+        if (wsUrl1) wsUrl1.value = resolvedSettings.weburl1;
       }
       if (resolvedSettings.weburl2 !== undefined) {
-        document.getElementById("wsUrl2").value = resolvedSettings.weburl2;
+        const wsUrl2 = document.getElementById("wsUrl2");
+        if (wsUrl2) wsUrl2.value = resolvedSettings.weburl2;
       }
       if (resolvedSettings.texthookerUrl !== undefined) {
         document.getElementById("texthookerUrl").value = resolvedSettings.texthookerUrl;
@@ -4971,6 +4957,7 @@
     // Handle websocket status updates
     function updateWebSocketStatus(type, isConnected) {
       const statusElement = document.getElementById(type === "ws1" ? "wsstatus1" : "wsstatus2");
+      if (!statusElement) return;
       statusElement.className = `status-indicator ${isConnected ? "connected" : "disconnected"}`;
     }
 
