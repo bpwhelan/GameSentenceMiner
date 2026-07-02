@@ -309,6 +309,29 @@ class TestDeleteGames:
         assert "DeleteMe" in data["successful_games"]
         assert data["total_sentences_deleted"] >= 1
 
+    def test_delete_existing_game_removes_games_table_record(self, client):
+        game = _create_game("Linked Title", obs_scene_name="OBS Scene")
+        line = _create_line(game_name="OBS Scene", game_id=game.id, text="消える行")
+
+        resp = client.post("/api/delete-games", json={"game_names": ["OBS Scene"]})
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["deleted_game_records"] == 1
+        assert GameLinesTable.get(line.id) is None
+        assert GamesTable.get(game.id) is None
+
+    def test_delete_zero_line_game_record_by_scene_name(self, client):
+        game = _create_game("Already Deleted Title", obs_scene_name="Already Deleted Scene")
+
+        resp = client.post("/api/delete-games", json={"game_names": ["Already Deleted Scene"]})
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["total_sentences_deleted"] == 0
+        assert data["deleted_game_records"] == 1
+        assert GamesTable.get(game.id) is None
+
     def test_delete_multiple_games(self, client):
         _create_line(game_name="Game1", text="A")
         _create_line(game_name="Game2", text="B")

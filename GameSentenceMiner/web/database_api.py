@@ -22,6 +22,77 @@ def _chunked(values, size):
         yield values[start : start + size]
 
 
+def _get_game_record_ids_for_names(game_names):
+    from GameSentenceMiner.util.database.games_table import GamesTable
+
+    unique_names = [name for name in dict.fromkeys(game_names) if name]
+    if not unique_names:
+        return []
+
+    game_ids = set()
+    for chunk in _chunked(unique_names, 200):
+        placeholders = ",".join("?" for _ in chunk)
+
+        rows = GameLinesTable._db.fetchall(
+            f"SELECT DISTINCT game_id FROM {GameLinesTable._table} "
+            f"WHERE game_name IN ({placeholders}) AND game_id IS NOT NULL AND game_id != ''",
+            tuple(chunk),
+        )
+        game_ids.update(row[0] for row in rows if row and row[0])
+
+        rows = GamesTable._db.fetchall(
+            f"""
+            SELECT id
+            FROM {GamesTable._table}
+            WHERE title_original IN ({placeholders})
+               OR obs_scene_name IN ({placeholders})
+               OR title_romaji IN ({placeholders})
+               OR title_english IN ({placeholders})
+            """,
+            tuple(chunk) * 4,
+        )
+        game_ids.update(row[0] for row in rows if row and row[0])
+
+    return list(game_ids)
+
+
+def _get_existing_game_record_names(game_names):
+    from GameSentenceMiner.util.database.games_table import GamesTable
+
+    unique_names = {name for name in game_names if name}
+    if not unique_names:
+        return set()
+
+    matched_names = set()
+    for chunk in _chunked(list(unique_names), 200):
+        placeholders = ",".join("?" for _ in chunk)
+        rows = GamesTable._db.fetchall(
+            f"""
+            SELECT title_original, obs_scene_name, title_romaji, title_english
+            FROM {GamesTable._table}
+            WHERE title_original IN ({placeholders})
+               OR obs_scene_name IN ({placeholders})
+               OR title_romaji IN ({placeholders})
+               OR title_english IN ({placeholders})
+            """,
+            tuple(chunk) * 4,
+        )
+        for row in rows:
+            matched_names.update(value for value in row if value in unique_names)
+
+    return matched_names
+
+
+def _delete_game_records_by_id(game_ids):
+    from GameSentenceMiner.util.database.games_table import GamesTable
+
+    return GamesTable._db.delete_where_in(
+        GamesTable._table,
+        GamesTable._pk,
+        game_ids,
+    )
+
+
 def _parse_local_date_timestamp(date_text: str, *, end_of_day: bool = False) -> float:
     """Parse a YYYY-MM-DD date using local time semantics."""
     parsed = datetime.datetime.strptime(date_text, "%Y-%m-%d")
@@ -966,14 +1037,18 @@ def register_database_api_routes(app):
                 return jsonify({"error": "game_names must be a list"}), 400
 
             # Validate that all games exist
-            existing_games = GameLinesTable.get_all_games_with_lines()
-            invalid_games = [name for name in game_names if name not in existing_games]
+            existing_games = set(GameLinesTable.get_all_games_with_lines())
+            existing_game_record_names = _get_existing_game_record_names(game_names)
+            invalid_games = [
+                name for name in game_names if name not in existing_games and name not in existing_game_record_names
+            ]
 
             if invalid_games:
                 return jsonify({"error": f"Games not found: {', '.join(invalid_games)}"}), 400
 
             deletion_results = {}
             total_deleted = 0
+            game_record_ids_to_delete = _get_game_record_ids_for_names(game_names)
 
             placeholders = ",".join("?" for _ in game_names)
             count_rows = GameLinesTable._db.fetchall(
@@ -1024,10 +1099,19 @@ def register_database_api_routes(app):
             # Check if any deletions were successful
             successful_deletions = [name for name, result in deletion_results.items() if result["status"] == "success"]
             failed_deletions = [name for name, result in deletion_results.items() if result["status"] == "error"]
+            deleted_game_records = 0
+            if successful_deletions and game_record_ids_to_delete:
+                deleted_game_records = _delete_game_records_by_id(game_record_ids_to_delete)
+                logger.info(
+                    "Deleted %s game record(s) after deleting lines for %s",
+                    deleted_game_records,
+                    ", ".join(successful_deletions),
+                )
 
             response_data = {
                 "message": f"Deletion completed. {len(successful_deletions)} games successfully deleted.",
                 "total_sentences_deleted": total_deleted,
+                "deleted_game_records": deleted_game_records,
                 "successful_games": successful_deletions,
                 "failed_games": failed_deletions,
                 "detailed_results": deletion_results,
