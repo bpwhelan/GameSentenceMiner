@@ -21,7 +21,7 @@
         "run_function": "Run Function"
       },
       "search": {
-        "placeholder": "Search all settings…",
+        "placeholder": "Search all settings… (WIP)",
         "matches": "{count} matches",
         "match": "1 match",
         "no_results": "No settings match your search."
