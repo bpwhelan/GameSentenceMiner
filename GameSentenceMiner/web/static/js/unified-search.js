@@ -346,7 +346,7 @@ const UnifiedSearch = {
             </div>
             ${description ? `<div class="search-result-description">${description}</div>` : ''}
             <div class="search-result-actions">
-                <button class="action-btn primary unified-search-select-btn">🔗 Link</button>
+                <button class="action-btn primary unified-search-select-btn">🔗 Use This Match</button>
                 ${result.source_url ? `<a href="${escape(result.source_url)}" target="_blank" rel="noopener noreferrer" class="action-btn">🔗 View Source</a>` : ''}
             </div>
         `;

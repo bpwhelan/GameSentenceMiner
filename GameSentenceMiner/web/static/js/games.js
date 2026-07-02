@@ -108,8 +108,8 @@
                 <button class="game-card-menu-btn" title="Actions">⋮</button>
                 <div class="game-card-menu" style="display:none;">
                     <button data-action="edit">📝 Edit</button>
-                    ${!game.is_linked ? '<button data-action="search">🔍 Link to Database</button>' : ''}
-                    ${game.is_linked ? '<button data-action="repull">🔄 Repull Data</button>' : ''}
+                    ${!game.is_linked ? '<button data-action="search">🔍 Find Game Info</button>' : ''}
+                    ${game.is_linked ? '<button data-action="repull">🔄 Refresh Game Info</button>' : ''}
                     ${game.is_linked ? '<button data-action="unlink">🔗 Unlink</button>' : ''}
                     ${!game.completed ? '<button data-action="complete">🏁 Mark Complete</button>' : ''}
                     <button data-action="dedup">🔄 Deduplicate</button>

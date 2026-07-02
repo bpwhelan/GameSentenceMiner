@@ -340,7 +340,7 @@
         this.elements.searchError.textContent = '';
         this.elements.searchLoading.style.display = 'none';
 
-        this.elements.confirmTitle.textContent = 'Confirm Game Link';
+        this.elements.confirmTitle.textContent = 'Confirm Match';
         this.elements.confirmCurrentGame.innerHTML = '';
         this.elements.confirmMatchedGame.innerHTML = '';
         this.elements.confirmError.style.display = 'none';
@@ -417,8 +417,8 @@
 
         const sourceConfig = getSourceConfig(result.source || 'jiten');
         this.elements.confirmTitle.textContent = result.source === 'jiten'
-            ? 'Confirm Game Link'
-            : `Confirm Game Link (${sourceConfig.label})`;
+            ? 'Confirm Match'
+            : `Confirm Match (${sourceConfig.label})`;
 
         if (this.elements.confirmOverwriteMetadata) {
             this.elements.confirmOverwriteMetadata.checked = false;

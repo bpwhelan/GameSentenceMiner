@@ -2424,7 +2424,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         const gameName = getCurrentManagedGameName();
-        if (!window.confirm(`Re-pull metadata for "${gameName}"?\n\nThis will update all non-manually-edited fields with fresh data from the linked source (Jiten, VNDB, AniList, or IGDB).`)) {
+        if (!window.confirm(`Refresh game info for "${gameName}"?\n\nThis will update all non-manually-edited fields with fresh data from the linked source (Jiten, VNDB, AniList, or IGDB).`)) {
             return;
         }
 
@@ -2439,7 +2439,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 throw new Error(result.error || 'Unknown error');
             }
 
-            let message = 'Metadata re-pulled successfully!';
+            let message = 'Game info refreshed successfully!';
             if (result.sources_used && result.sources_used.length > 0) {
                 message += `\nSources: ${result.sources_used.join(', ')}`;
             }
@@ -2453,7 +2453,7 @@ document.addEventListener('DOMContentLoaded', function () {
             alert(message);
             refreshOverviewAfterGameManagement();
         } catch (error) {
-            alert(`Failed to re-pull metadata: ${error.message}`);
+            alert(`Failed to refresh game info: ${error.message}`);
         }
     }
 

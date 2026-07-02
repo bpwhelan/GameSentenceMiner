@@ -300,7 +300,7 @@ function createUnifiedResultCard(result, globalIndex) {
         </div>
         ${description ? `<div class="search-result-description">${description}</div>` : ''}
         <div class="search-result-actions">
-            <button class="action-btn primary" onclick="selectUnifiedSearchResult(${globalIndex})">🔗 Link</button>
+            <button class="action-btn primary" onclick="selectUnifiedSearchResult(${globalIndex})">🔗 Use This Match</button>
             ${result.source_url ? `<a href="${escapeHtml(result.source_url)}" target="_blank" rel="noopener noreferrer" class="action-btn">🔗 View</a>` : ''}
         </div>
     `;
@@ -463,8 +463,8 @@ function showLinkConfirmation() {
     const modalHeader = document.querySelector('#gameLinkConfirmModal .modal-header h3');
     if (modalHeader) {
         modalHeader.textContent = isJitenSource
-            ? 'Confirm Game Link'
-            : `Confirm Game Link (${config.label})`;
+            ? 'Confirm Match'
+            : `Confirm Match (${config.label})`;
     }
     
     // Show manual overrides warning if any
@@ -977,7 +977,7 @@ async function saveGameEdits() {
 }
 
 /**
- * Repull data from the associated data source for a game
+ * Refresh game info from the associated data source for a game
  * Supports Jiten.moe, VNDB, AniList, and IGDB - will automatically detect the source
  * @param {string} gameId - Game ID to repull data for
  * @param {string} gameName - Game name for display
@@ -986,7 +986,7 @@ async function repullJitenData(gameId, gameName) {
     console.log(`🔄 Starting repull operation for game: ${gameName} (ID: ${gameId})`);
     
     showDatabaseConfirmPopup(
-        `Repull data for "${gameName}"? This will update all non-manually edited fields with fresh data from the linked source (Jiten, VNDB, AniList, or IGDB).`,
+        `Refresh game info for "${gameName}"? This will update all non-manually edited fields with fresh data from the linked source (Jiten, VNDB, AniList, or IGDB).`,
         async () => {
             console.log(`✅ User confirmed repull for ${gameName}`);
             
