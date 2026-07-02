@@ -2,7 +2,7 @@
 Cron Job Runner for GameSentenceMiner
 
 This script checks for due cron jobs and executes them.
-Should be called periodically (e.g., every hour) by an external scheduler.
+It can run as a background scheduler or as a one-shot due-task check.
 
 Usage:
     python -m GameSentenceMiner.util.cron.run_crons
@@ -20,6 +20,8 @@ from GameSentenceMiner.util.database.cron_table import CronTable
 
 
 MAX_QUEUE_WAIT_SECONDS = 0.5
+SCHEDULE_CHECK_INTERVAL_SECONDS = 60
+CRON_TABLE_REFRESH_INTERVAL_SECONDS = 900
 # A single task running longer than this is almost certainly stuck. We can't kill the
 # thread, but we log a warning (and keep re-warning) so it shows up in users' logs. The
 # recurring culprit is a user plugin with a blocking/looping main().
@@ -216,14 +218,64 @@ class _SlowTaskWatchdog:
         self._arm()
 
 
+class _CronTableCache:
+    """Caches enabled cron rows so frequent checks do not query SQLite every minute."""
+
+    def __init__(self, refresh_interval: int = CRON_TABLE_REFRESH_INTERVAL_SECONDS):
+        self.refresh_interval = refresh_interval
+        self._crons: list[CronTable] = []
+        self._loaded_at: Optional[float] = None
+
+    def get_due_crons(self) -> list[CronTable]:
+        self._refresh_if_stale()
+        now = time.time()
+        return sorted(
+            [cron for cron in self._crons if cron.enabled and cron.next_run is not None and cron.next_run <= now],
+            key=lambda cron: cron.next_run,
+        )
+
+    def update_cron(self, cron: CronTable) -> None:
+        if cron.id is None:
+            return
+
+        if not cron.enabled:
+            self._crons = [cached for cached in self._crons if cached.id != cron.id]
+            return
+
+        for index, cached in enumerate(self._crons):
+            if cached.id == cron.id:
+                self._crons[index] = cron
+                break
+        else:
+            self._crons.append(cron)
+
+        self._crons.sort(key=lambda cached: cached.next_run or 0)
+
+    def _refresh_if_stale(self) -> None:
+        now = time.monotonic()
+        if self._loaded_at is not None and now - self._loaded_at < self.refresh_interval:
+            return
+
+        self._crons = CronTable.get_all_enabled()
+        self._loaded_at = now
+        logger.debug(f"Refreshed scheduled task cache with {len(self._crons)} enabled cron job(s)")
+
+
 class CronScheduler:
     """
-    Thread-based cron scheduler that checks for due cron jobs every 15 minutes.
+    Thread-based cron scheduler that checks cached cron rows every minute.
+    The enabled cron table cache refreshes every 15 minutes.
     It uses a Queue to allow immediate execution of forced tasks.
     """
 
-    def __init__(self, check_interval: int = 900):
+    def __init__(
+        self,
+        check_interval: int = SCHEDULE_CHECK_INTERVAL_SECONDS,
+        cache_refresh_interval: int = CRON_TABLE_REFRESH_INTERVAL_SECONDS,
+    ):
         self.check_interval = check_interval
+        self.cache_refresh_interval = cache_refresh_interval
+        self._cron_cache = _CronTableCache(refresh_interval=cache_refresh_interval)
         self._thread: Optional[threading.Thread] = None
         self._running = False
 
@@ -286,7 +338,10 @@ class CronScheduler:
             )
             self._thread.start()
 
-        logger.background(f"CronScheduler started with check interval of {self.check_interval}s")
+        logger.background(
+            f"CronScheduler started with check interval of {self.check_interval}s "
+            f"(cron table cache refresh: {self.cache_refresh_interval}s)"
+        )
 
     def shutdown(self):
         """Signal the scheduler to wind down without blocking.
@@ -392,7 +447,16 @@ class CronScheduler:
             return
 
         try:
-            run_due_crons(force_task, progress=self._set_active_task)
+            if force_task:
+                run_due_crons(force_task, progress=self._set_active_task)
+                return
+
+            due_crons = self._cron_cache.get_due_crons()
+            run_due_crons(
+                progress=self._set_active_task,
+                due_crons=due_crons,
+                on_cron_ran=self._cron_cache.update_cron,
+            )
         except Exception as e:
             logger.exception(f"Cron batch execution failed: {e}")
         finally:
@@ -423,7 +487,12 @@ def _execute_cron(cron, task_def: "_TaskDef", progress: Optional[Callable[[Optio
 
         duration = time.monotonic() - started
         if cron.id != -1:
-            CronTable.just_ran(cron.id)
+            updated_cron = CronTable.just_ran(cron.id)
+            if updated_cron:
+                cron.last_run = updated_cron.last_run
+                cron.next_run = updated_cron.next_run
+                cron.enabled = updated_cron.enabled
+                cron.schedule = updated_cron.schedule
 
         detail["success"] = task_def.success(result)
         detail["result"] = result
@@ -450,12 +519,16 @@ def _execute_cron(cron, task_def: "_TaskDef", progress: Optional[Callable[[Optio
 def run_due_crons(
     force_task: Optional["Crons"] = None,
     progress: Optional[Callable[[Optional[str]], None]] = None,
+    due_crons: Optional[list] = None,
+    on_cron_ran: Optional[Callable[[CronTable], None]] = None,
 ) -> dict:
     """
     Check for and execute all due cron jobs.
 
     ``progress`` (optional) is called with the task name when each task starts and
     with ``None`` when it ends, so a caller can surface what's currently running.
+    ``due_crons`` lets the background scheduler provide rows from its cron-table
+    cache instead of querying SQLite on every check.
     """
 
     if force_task:
@@ -467,7 +540,7 @@ def run_due_crons(
             description=f"Forced execution of {force_task.value}",
         )
         due_crons = [fake_cron]
-    else:
+    elif due_crons is None:
         due_crons = CronTable.get_due_crons()
 
     if not due_crons:
@@ -504,8 +577,12 @@ def run_due_crons(
             continue
 
         detail = _execute_cron(cron, task_def, progress)
-        executed_count += detail.pop("_executed", False)
-        failed_count += detail.pop("_failed", False)
+        executed = detail.pop("_executed", False)
+        failed = detail.pop("_failed", False)
+        executed_count += executed
+        failed_count += failed
+        if executed and on_cron_ran and cron.id != -1:
+            on_cron_ran(cron)
         details.append(detail)
 
     logger.background(

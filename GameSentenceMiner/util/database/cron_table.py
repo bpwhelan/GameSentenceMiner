@@ -6,6 +6,18 @@ from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.db import SQLiteDBTable
 
 
+VALID_SCHEDULES = [
+    "once",
+    "minutely",
+    "quarter_hourly",
+    "hourly",
+    "daily",
+    "weekly",
+    "monthly",
+    "yearly",
+]
+
+
 class CronTable(SQLiteDBTable):
     """
     Table for managing scheduled cron jobs in GSM.
@@ -30,7 +42,7 @@ class CronTable(SQLiteDBTable):
         float,  # next_run (Unix timestamp)
         bool,  # enabled
         float,  # created_at (Unix timestamp)
-        str,  # schedule (once, daily, weekly, monthly, yearly)
+        str,  # schedule (once, minutely, quarter_hourly, hourly, daily, weekly, monthly, yearly)
     ]
     _pk = "id"
     _auto_increment = True
@@ -57,7 +69,8 @@ class CronTable(SQLiteDBTable):
             next_run: Unix timestamp for next scheduled run
             enabled: Whether the cron job is active
             created_at: Unix timestamp of creation (defaults to now)
-            schedule: Schedule type ('once', 'minutely', 'hourly', 'daily', 'weekly', 'monthly', 'yearly')
+            schedule: Schedule type ('once', 'minutely', 'quarter_hourly', 'hourly', 'daily', 'weekly',
+                'monthly', 'yearly')
         """
         self.id = id
         self.name = name if name else ""
@@ -66,9 +79,7 @@ class CronTable(SQLiteDBTable):
         self.next_run = next_run if next_run else time.time()
         self.enabled = enabled
         self.created_at = created_at if created_at else time.time()
-        self.schedule = (
-            schedule if schedule in ["once", "minutely", "hourly", "daily", "weekly", "monthly", "yearly"] else "once"
-        )
+        self.schedule = schedule if schedule in VALID_SCHEDULES else "once"
 
     @classmethod
     def create_cron_entry(
@@ -86,7 +97,8 @@ class CronTable(SQLiteDBTable):
             name: Unique name for the cron job
             description: Human-readable description
             next_run: Unix timestamp for next scheduled run
-            schedule: Schedule type ('once', 'minutely', 'hourly', 'daily', 'weekly', 'monthly', 'yearly')
+            schedule: Schedule type ('once', 'minutely', 'quarter_hourly', 'hourly', 'daily', 'weekly',
+                'monthly', 'yearly')
             enabled: Whether the cron job is active (default: True)
 
         Returns:
@@ -96,17 +108,8 @@ class CronTable(SQLiteDBTable):
             ValueError: If schedule type is invalid or name already exists
         """
         # Validate schedule type
-        valid_schedules = [
-            "once",
-            "minutely",
-            "hourly",
-            "daily",
-            "weekly",
-            "monthly",
-            "yearly",
-        ]
-        if schedule not in valid_schedules:
-            raise ValueError(f"Invalid schedule type '{schedule}'. Must be one of: {', '.join(valid_schedules)}")
+        if schedule not in VALID_SCHEDULES:
+            raise ValueError(f"Invalid schedule type '{schedule}'. Must be one of: {', '.join(VALID_SCHEDULES)}")
 
         # Check if name already exists
         existing = cls.get_by_name(name)
@@ -234,7 +237,7 @@ class CronTable(SQLiteDBTable):
             logger.warning(f"Cron job with id {cron_id} not found")
 
     @classmethod
-    def just_ran(cls, cron_id: int):
+    def just_ran(cls, cron_id: int) -> Optional["CronTable"]:
         """
         Mark a cron job as having just run and calculate the next run time based on its schedule.
 
@@ -247,11 +250,14 @@ class CronTable(SQLiteDBTable):
 
         Args:
             cron_id: The ID of the cron job that just ran
+
+        Returns:
+            CronTable: The updated cron entry, or None if it could not be updated.
         """
         cron = cls.get(cron_id)
         if not cron:
             logger.warning(f"Cron job with id {cron_id} not found")
-            return
+            return None
 
         # Set last_run to now
         now = time.time()
@@ -268,6 +274,11 @@ class CronTable(SQLiteDBTable):
         elif cron.schedule == "minutely":
             # Schedule for 1 minute from now
             next_run_dt = now_dt + timedelta(minutes=1)
+            cron.next_run = next_run_dt.timestamp()
+            logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
+        elif cron.schedule == "quarter_hourly":
+            # Schedule for 15 minutes from now
+            next_run_dt = now_dt + timedelta(minutes=15)
             cron.next_run = next_run_dt.timestamp()
             logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         elif cron.schedule == "hourly":
@@ -296,44 +307,60 @@ class CronTable(SQLiteDBTable):
             logger.debug(f"Cron job '{cron.name}' completed, next run scheduled for {next_run_dt}")
         else:
             logger.warning(f"Unknown schedule type '{cron.schedule}' for cron job '{cron.name}'")
-            return
+            return None
 
         # Save all changes
         cron.save()
+        return cron
 
     @classmethod
     def setup_plugins_cron(cls) -> "CronTable":
         """
-        Set up the user plugins cron job to run every minute.
+        Set up the user plugins cron job to run every 15 minutes.
         This is called automatically on GSM startup to ensure the plugins cron exists.
 
         The cron will:
         1. Create plugins.py if it doesn't exist
-        2. Execute plugins.py main() function every minute
+        2. Execute plugins.py main() function every 15 minutes
 
         Returns:
             CronTable: The created or existing cron entry
         """
-        # Check if cron already exists
-        existing = cls.get_by_name("plugins")
+        # Check if cron already exists. Rename the legacy "plugins" row because the
+        # scheduler dispatch registry uses "user_plugins".
+        existing = cls.get_by_name("user_plugins")
+        legacy = cls.get_by_name("plugins")
 
         if existing:
+            if existing.schedule != "quarter_hourly":
+                existing.schedule = "quarter_hourly"
+                existing.save()
+            if legacy and legacy.enabled:
+                legacy.disable()
             logger.debug("Plugins cron job already exists")
             return existing
 
-        # Create new cron entry to run every minute
+        if legacy:
+            legacy.name = "user_plugins"
+            legacy.description = "Execute user-defined plugins from AppData/GameSentenceMiner/plugins.py"
+            legacy.schedule = "quarter_hourly"
+            legacy.save()
+            logger.info("Updated legacy plugins cron job - runs every 15 minutes")
+            return legacy
+
+        # Create new cron entry to run every 15 minutes
         now = time.time()
-        next_run = now + 60  # Run in 1 minute
+        next_run = now + (15 * 60)
 
         cron = cls.create_cron_entry(
-            name="plugins",
+            name="user_plugins",
             description="Execute user-defined plugins from AppData/GameSentenceMiner/plugins.py",
             next_run=next_run,
-            schedule="minutely",
+            schedule="quarter_hourly",
             enabled=True,
         )
 
-        logger.info("Created plugins cron job - runs every minute")
+        logger.info("Created plugins cron job - runs every 15 minutes")
         logger.info("Edit your plugins at: %APPDATA%/GameSentenceMiner/plugins.py")
 
         return cron

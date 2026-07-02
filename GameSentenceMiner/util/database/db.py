@@ -2111,8 +2111,18 @@ def check_and_run_migrations():
         """
         Create the user_plugins cron job if it doesn't exist.
         """
+        legacy_cron = CronTable.get_by_name("plugins")
         existing_cron = CronTable.get_by_name("user_plugins")
         if not existing_cron:
+            if legacy_cron:
+                logger.info("Migrating legacy plugins scheduled task to user_plugins...")
+                legacy_cron.name = "user_plugins"
+                legacy_cron.description = "Custom user plugins"
+                legacy_cron.schedule = "quarter_hourly"
+                legacy_cron.save()
+                logger.info("✅ Updated user_plugins scheduled task to run every 15 minutes")
+                return
+
             logger.info("Creating user_plugins scheduled task...")
             # Schedule to run immediately (2 minutes ago)
             now = datetime.now()
@@ -2122,13 +2132,25 @@ def check_and_run_migrations():
                 name="user_plugins",
                 description="Custom user plugins",
                 next_run=two_minutes_ago.timestamp(),
-                schedule="minutely",  # by default gsm checks crons every 5 mins, so this actually runs every 15 mins
+                schedule="quarter_hourly",
             )
             logger.info(
                 f"✅ Created user_plugins scheduled task - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})"
             )
         else:
-            logger.debug("user_plugins scheduled task already exists, skipping creation.")
+            changed = False
+            if existing_cron.schedule != "quarter_hourly":
+                existing_cron.schedule = "quarter_hourly"
+                changed = True
+            if changed:
+                existing_cron.save()
+                logger.info("✅ Updated user_plugins scheduled task to run every 15 minutes")
+            else:
+                logger.debug("user_plugins scheduled task already exists, skipping creation.")
+
+            if legacy_cron and legacy_cron.enabled:
+                legacy_cron.disable()
+                logger.info("Disabled legacy plugins scheduled task")
 
     def migrate_jiten_upgrader_cron_job():
         """
