@@ -260,6 +260,7 @@ let trayReadyIndicatorTimer: ReturnType<typeof setTimeout> | null = null;
 let trayReadyIndicatorExpiresAt = 0;
 let hasShownCloseToTrayNotification = false;
 let quitFromWindowCloseInProgress = false;
+let quitPromise: Promise<void> | null = null;
 const UPDATE_PROGRESS_PREFIX = 'UpdateProgress:';
 const STARTUP_REPAIR_WINDOW_MS = 15_000;
 const TRAY_READY_INDICATOR_MS = 10_000;
@@ -1725,6 +1726,37 @@ function createTray() {
     }
 }
 
+function destroyTray(): void {
+    if (!tray) {
+        return;
+    }
+
+    try {
+        tray.destroy();
+    } catch (error) {
+        console.warn('Failed to destroy tray during shutdown:', error);
+    } finally {
+        tray = null;
+    }
+}
+
+function hideUserFacingShutdownSurfaces(): void {
+    isQuitting = true;
+    clearTrayReadyIndicatorTimer();
+    clearBackendStatusPollTimer();
+    trayReadyIndicatorExpiresAt = 0;
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        try {
+            mainWindow.hide();
+        } catch (error) {
+            console.warn('Failed to hide main window during shutdown:', error);
+        }
+    }
+
+    destroyTray();
+}
+
 function showWindow() {
     mainWindow?.show();
     //     tray.destroy();
@@ -2668,16 +2700,32 @@ export async function stopScripts(): Promise<void> {
     }
 }
 
-async function quit(): Promise<void> {
+async function runQuit(): Promise<void> {
+    hideUserFacingShutdownSurfaces();
     autoLauncher.stopPolling();
-    stopOverlay();
-    await stopScripts();
-    if (pyProc != null && !pyProc.killed) {
-        await closeAllPythonProcesses();
+
+    try {
+        stopOverlay();
+        await stopScripts();
+        if (pyProc != null && !pyProc.killed) {
+            await closeAllPythonProcesses();
+        }
+        await closeOBSFromElectron({ reason: 'app quit' });
+        await stopBus().catch((err) => console.warn('Failed to stop message bus:', err));
+    } catch (error) {
+        console.error('Error during app shutdown cleanup:', error);
+    } finally {
+        app.quit();
     }
-    await closeOBSFromElectron({ reason: 'app quit' });
-    await stopBus().catch((err) => console.warn('Failed to stop message bus:', err));
-    app.quit();
+}
+
+async function quit(): Promise<void> {
+    if (!quitPromise) {
+        quitPromise = runQuit().finally(() => {
+            quitPromise = null;
+        });
+    }
+    return quitPromise;
 }
 
 // Stop everything that holds handles in the data dir, without quitting the app (used before a
