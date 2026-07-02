@@ -91,6 +91,14 @@ def test_all_lines_data_aggregates_live_dates_with_adaptive_reading_time(
     client,
     monkeypatch,
 ):
+    import GameSentenceMiner.web.stats as stats_mod
+
+    monkeypatch.setattr(
+        stats_mod,
+        "get_stats_config",
+        lambda: SimpleNamespace(reading_time_adaptive_v2=True),
+    )
+
     today = datetime.date.today().isoformat()
     live_lines = [
         SimpleNamespace(
@@ -121,6 +129,6 @@ def test_all_lines_data_aggregates_live_dates_with_adaptive_reading_time(
             "timestamp": datetime.datetime.combine(datetime.date.today(), datetime.time.min).timestamp(),
             "date": today,
             "characters": 6,
-            "reading_time_seconds": 30.0,
+            "reading_time_seconds": 15.0,
         }
     ]

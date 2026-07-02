@@ -122,6 +122,12 @@
   display: none;
 }
 
+#gsm-live-stats.gsm-live-stats-stats-hidden .gsm-live-stats-header,
+#gsm-live-stats.gsm-live-stats-stats-hidden .gsm-live-stats-pomodoro,
+#gsm-live-stats.gsm-live-stats-stats-hidden .gsm-live-stats-grid {
+  display: none;
+}
+
 #gsm-live-stats.gsm-live-stats-one-line .gsm-live-stats-grid {
   display: flex;
   align-items: center;
@@ -180,6 +186,12 @@
 
 .gsm-live-stats-goals.visible {
   display: flex;
+}
+
+#gsm-live-stats.gsm-live-stats-stats-hidden .gsm-live-stats-goals.visible {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .gsm-live-goal {

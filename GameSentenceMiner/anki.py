@@ -111,6 +111,8 @@ class AnkiPollingGateState:
 
 anki_polling_gate_state = AnkiPollingGateState()
 MAX_BASELINE_SEED_FAILURE_LOGS = 5
+CONFIRMATION_CANCEL_ACTION_KEY = "cancel_action"
+CONFIRMATION_CANCEL_ACTION_DELETE_CARD = "delete_card"
 
 
 def _notify_anki_enhancement_failure(reason: str) -> None:
@@ -124,6 +126,33 @@ def _mark_anki_update_failure(result_id: Optional[str], reason: str, word: str =
     if not result_id:
         return
     anki_results[result_id] = AnkiUpdateResult.failure(reason=reason, word=word or "")
+
+
+def _confirmation_cancel_action(result: Any) -> str:
+    if isinstance(result, dict):
+        return str(result.get(CONFIRMATION_CANCEL_ACTION_KEY) or "")
+    return ""
+
+
+def _delete_cancelled_anki_note(last_note: "AnkiCard") -> bool:
+    note_id = getattr(last_note, "noteId", None)
+    if not note_id:
+        logger.warning("Cannot delete cancelled Anki card because no note id is available.")
+        return False
+
+    try:
+        invoke("deleteNotes", notes=[note_id])
+        try:
+            previous_note_ids.discard(int(note_id))
+        except (TypeError, ValueError):
+            previous_note_ids.discard(note_id)
+        logger.info(f"Deleted Anki note {note_id} after confirmation dialog exit.")
+        return True
+    except Exception as e:
+        reason = f"Failed to delete Anki note {note_id} after confirmation dialog exit: {e}"
+        logger.exception(reason)
+        _notify_anki_enhancement_failure(reason)
+        return False
 
 
 # --- Migration Utilities ---
@@ -1056,6 +1085,12 @@ def update_anki_card(
             reusing_audio=assets.reused_audio,
             reusing_screenshot=assets.reused_screenshot,
         )
+
+        cancel_action = _confirmation_cancel_action(result)
+        if cancel_action == CONFIRMATION_CANCEL_ACTION_DELETE_CARD:
+            logger.info("Anki confirmation dialog requested card deletion; skipping update.")
+            _delete_cancelled_anki_note(last_note)
+            return False
 
         if result is None:
             # Dialog was cancelled
@@ -2493,6 +2528,33 @@ def update_new_cards(new_card_ids):
             continue
 
 
+def _resolve_mined_line_for_card(card, lines):
+    """Resolve the GameLine a card was mined from.
+
+    Normally this matches the Anki sentence against the text log. Overlay scans (periodic /
+    mouse-move, no text event) aren't in the log unless the user opted into the not-recommended
+    "add scanned lines to log" setting, so fall back to the last overlay scan when it matches the
+    card sentence and the log has no genuine match. This lets Yomitan overlay mining attach
+    audio/screenshot without polluting stats or the texthooker.
+    """
+    overlay_line = getattr(gsm_state, "last_overlay_scan_line", None)
+    anki_sentence = remove_html_and_cloze_tags(get_sentence(card)) if card else ""
+    try:
+        matched = get_mined_line(card, lines)
+    except Exception:
+        matched = None
+
+    if overlay_line is not None and anki_sentence and lines_match(overlay_line.text, anki_sentence):
+        matched_is_genuine = matched is not None and lines_match(matched.text, anki_sentence)
+        if not matched_is_genuine:
+            return overlay_line
+
+    if matched is None:
+        # Preserve the original "nothing to mine" error from get_mined_line.
+        return get_mined_line(card, lines)
+    return matched
+
+
 def update_single_card(card):
     """Process a single card (extracted from update_new_card for reusability)."""
     if not card or not check_tags_for_should_update(card):
@@ -2500,7 +2562,7 @@ def update_single_card(card):
     gsm_status.add_word_being_processed(card.get_field(get_config().anki.word_field))
     logger.debug(f"last mined line: {gsm_state.last_mined_line}, current sentence: {get_sentence(card)}")
     lines = _get_texthooking_page_module().get_selected_lines()
-    game_line = get_mined_line(card, lines)
+    game_line = _resolve_mined_line_for_card(card, lines)
     game_line.mined_time = datetime.now()
     current_word = card.get_field(get_config().anki.word_field) if card else ""
     reuse_key = _build_sentence_audio_key(game_line, lines)

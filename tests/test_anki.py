@@ -1876,6 +1876,39 @@ def test_update_anki_card_confirmation_marks_reused_media(monkeypatch):
     assert captured["use_existing_files"] is False
 
 
+def test_update_anki_card_confirmation_delete_card_deletes_note_and_skips_update(monkeypatch):
+    cfg = _base_config()
+    cfg.anki.show_update_confirmation_dialog_v2 = True
+    cfg.anki.previous_image_field = ""
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_start_animated_screenshot_prefetch", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args, **_kwargs: note)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda: [])
+
+    qt_main_stub = ModuleType("GameSentenceMiner.ui.qt_main")
+    qt_main_stub.launch_anki_confirmation = lambda *_args, **_kwargs: {
+        anki.CONFIRMATION_CANCEL_ACTION_KEY: anki.CONFIRMATION_CANCEL_ACTION_DELETE_CARD
+    }
+    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", qt_main_stub)
+
+    invoke_calls = []
+    monkeypatch.setattr(anki, "invoke", lambda action, **kwargs: invoke_calls.append((action, kwargs)))
+    monkeypatch.setattr(anki, "run_new_thread", lambda _fn: pytest.fail("normal update should not be queued"))
+
+    result = anki.update_anki_card(
+        last_note=SimpleNamespace(noteId=10, get_field=lambda _field: ""),
+        note={"id": 10, "fields": {"Sentence": "sentence"}},
+        tango="word",
+        should_update_audio=False,
+        game_line=SimpleNamespace(id="line-2", text="line", TL="", prev=None),
+        selected_lines=[],
+        precomputed_assets=anki.MediaAssets(screenshot_path="new-shot.png"),
+    )
+
+    assert result is False
+    assert invoke_calls == [("deleteNotes", {"notes": [10]})]
+
+
 def test_cleanup_assets_invokes_callback():
     called = []
     assets = anki.MediaAssets(cleanup_callback=lambda: called.append("ok"))

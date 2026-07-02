@@ -117,6 +117,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify packaged overlay
+        run: npm run verify:overlay-package
+
       # --- Test signing (SignPath) disabled ---
       # - name: Upload unsigned Windows installer for SignPath
       #   id: upload-unsigned-windows
@@ -259,6 +262,11 @@ jobs:
             throw "Failed to create unpacked Windows zip."
           }
 
+      - name: Generate changelog release asset
+        shell: pwsh
+        run: |
+          node scripts/export-changelog-release-asset.mjs --version "${{ needs.compute-version.outputs.PACKAGE_VERSION }}" --repo "${{ github.repository }}" --out "dist/changelog-v${{ needs.compute-version.outputs.PACKAGE_VERSION }}.json"
+
       - name: Upload to pre-release
         uses: softprops/action-gh-release@v2
         with:
@@ -272,6 +280,8 @@ jobs:
             dist/GameSentenceMiner-*-win-unpacked.zip
             dist/latest.yml
             dist/*.blockmap
+            dist/changelog-v${{ needs.compute-version.outputs.PACKAGE_VERSION }}.json
+            dist/changelog-assets-*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -337,6 +347,9 @@ jobs:
         run: npm run app:dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify packaged overlay
+        run: npm run verify:overlay-package
 
       - name: Upload to pre-release
         uses: softprops/action-gh-release@v2
@@ -414,6 +427,9 @@ jobs:
         run: npm run app:dist -- --mac --arm64 -c.mac.artifactName='${productName}-${version}-${arch}.${ext}'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify packaged overlay
+        run: npm run verify:overlay-package
 
       - name: Copy arm64 update manifest
         run: cp dist/latest-mac.yml dist/latest-mac-arm64.yml

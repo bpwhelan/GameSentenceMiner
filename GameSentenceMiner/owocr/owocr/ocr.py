@@ -319,6 +319,7 @@ def _load_message_to_dict():
 
 def _load_screen_ai_pb2():
     module_paths = (
+        "GameSentenceMiner.owocr.owocr.screenai_protos.chrome_screen_ai_pb2",
         "GameSentenceMiner.owocr.owocr.screen_ai.proto.chrome_screen_ai_pb2",
         "GameSentenceMiner.owocr.owocr.screen_ai.chrome_screen_ai_pb2",
     )
@@ -4586,6 +4587,9 @@ class EasyOCR:
         return pil_image_to_numpy_array(img)
 
 
+# NOTE: Do NOT port owocr's NDLOCR-Lite (`ndlocrlite`) engine here. It was evaluated and
+# rejected: ~1-2s per scan on even a tiny region at ~30% CPU — too slow/heavy for both the
+# main OCR and stability OCR. Final decision; see AGENTS.md. Don't re-attempt.
 class RapidOCR:
     name = "rapidocr"
     readable_name = "RapidOCR"

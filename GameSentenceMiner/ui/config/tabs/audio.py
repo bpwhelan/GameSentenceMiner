@@ -15,6 +15,9 @@ def build_audio_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     tabs_i18n = i18n.get("tabs", {})
 
+    window.audio_enabled_check.setToolTip(
+        "Capture sentence audio for cards. Synced with the Sentence Audio field's Enabled toggle in the Anki tab."
+    )
     layout.addRow(
         window._create_labeled_widget(tabs_i18n, "audio", "enabled"),
         window.audio_enabled_check,
@@ -58,7 +61,7 @@ def build_audio_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     ext_tool_layout.addWidget(window._create_labeled_widget(tabs_i18n, "audio", "external_tool_enabled"))
     ext_tool_layout.addStretch()
     layout.addRow(
-        window._create_labeled_widget(tabs_i18n, "audio", "external_tool", color=LabelColor.RECOMMENDED),
+        window._create_labeled_widget(tabs_i18n, "audio", "external_tool", color=LabelColor.DEPRECATED),
         ext_tool_widget,
     )
 

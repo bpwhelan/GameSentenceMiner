@@ -10,6 +10,7 @@
 		mdiCog,
 		mdiDelete,
 		mdiDeleteForever,
+		mdiFolderMultipleImage,
 		mdiNoteEdit,
 		mdiPause,
 		mdiPlay,
@@ -930,8 +931,32 @@
 		return currentLineData;
 	}
 
+	// Non-Anki / Migaku helper: build media folders for the selected (or last) line without an Anki card.
+	async function handleCreateMedia() {
+		try {
+			const response = await fetch(getGSMEndpoint('/create-media'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					ids: selectedLineIds,
+					trim_with_vad: $trimAudioWithVAD$,
+				}),
+			});
+			if (!response.ok) {
+				const data = await response.json().catch(() => ({}));
+				$openDialog$ = {
+					type: 'error',
+					message: data.error || `Failed to create media (HTTP ${response.status})`,
+					showCancel: false,
+				};
+			}
+		} catch (error) {
+			console.error('Error creating media:', error);
+		}
+	}
+
 	let numberOfLinesToTranslate = '';
-	
+
 	async function handleTranslate() {
 		if (!numberOfLinesToTranslate.trim()) return;
 
@@ -1027,6 +1052,13 @@
 	{/if}
 	<div role="button" title="Open Notes" class="mr-1 hover:text-primary sm:mr-2">
 		<Icon path={mdiNoteEdit} width={iconSize} height={iconSize} on:click={() => ($notesOpen$ = true)} />
+	</div>
+	<div
+		role="button"
+		title="Create media folder (no Anki card) for selected or last line"
+		class="mr-1 hover:text-primary sm:mr-2"
+	>
+		<Icon path={mdiFolderMultipleImage} width={iconSize} height={iconSize} on:click={handleCreateMedia} />
 	</div>
 	{#if pipAvailable}
 		<div

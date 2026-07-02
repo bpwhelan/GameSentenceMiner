@@ -89,10 +89,12 @@ def _make_anki_data(notes, cards, reviews):
     }
 
 
-def _stub_config(monkeypatch, anki_mod, parent_tag="Game"):
+def _stub_config(monkeypatch, anki_mod, parent_tag="Game", word_field="Expression"):
     """Stub get_config() to return a config with the given parent_tag."""
     cfg = MagicMock()
     cfg.anki.parent_tag = parent_tag
+    cfg.anki.word_field = word_field
+    cfg.anki.note_type = ""
     monkeypatch.setattr(anki_mod, "get_config", lambda: cfg)
 
 
@@ -235,7 +237,7 @@ def kanji_note_scenario(draw):
     - A unique note_id (ms timestamp, used for creation-time filtering)
     - An independent mod value (seconds, must NOT affect filtering)
     - Tags including "Game::SomeGame"
-    - fields_json with kanji characters in the first field value
+    - fields_json with kanji characters in the configured word field value
     """
     num_notes = draw(st.integers(min_value=1, max_value=10))
 
@@ -244,7 +246,7 @@ def kanji_note_scenario(draw):
     notes = []
     for nid in note_ids:
         mod_val = draw(mod_st)
-        # Pick 1-3 kanji for this note's first field
+        # Pick 1-3 kanji for this note's configured word field
         kanji_chars = draw(st.lists(st.sampled_from(KANJI_POOL), min_size=1, max_size=3, unique=True))
         field_text = "".join(kanji_chars)
         notes.append(
@@ -278,8 +280,8 @@ def test_kanji_cache_filtering_uses_note_creation_timestamp(scenario, anki_mod, 
 
     Property 2: Kanji cache filtering uses note creation timestamp
 
-    For any set of Anki notes containing kanji in their first field, and for
-    any date range [start_ms, end_ms], calling
+    For any set of Anki notes containing kanji in their configured word field,
+    and for any date range [start_ms, end_ms], calling
     _get_anki_kanji_from_cache(start_ms, end_ms) SHALL return kanji only from
     notes where start_ms <= note.note_id <= end_ms. Notes whose mod * 1000
     falls inside the range but whose note_id falls outside SHALL NOT
@@ -302,9 +304,9 @@ def test_kanji_cache_filtering_uses_note_creation_timestamp(scenario, anki_mod, 
     for note in notes:
         if start_ms <= note.note_id <= end_ms:
             fields = note.fields_json
-            first_field = next(iter(fields.values()), None)
-            if first_field and isinstance(first_field, dict) and "value" in first_field:
-                for char in first_field["value"]:
+            word_field = fields.get("Expression")
+            if word_field and isinstance(word_field, dict) and "value" in word_field:
+                for char in word_field["value"]:
                     if is_kanji(char):
                         expected_kanji.add(char)
 
@@ -324,9 +326,9 @@ def test_kanji_cache_filtering_uses_note_creation_timestamp(scenario, anki_mod, 
 
         if mod_in_range and not note_in_range:
             fields = note.fields_json
-            first_field = next(iter(fields.values()), None)
-            if first_field and isinstance(first_field, dict) and "value" in first_field:
-                note_kanji = {c for c in first_field["value"] if is_kanji(c)}
+            word_field = fields.get("Expression")
+            if word_field and isinstance(word_field, dict) and "value" in word_field:
+                note_kanji = {c for c in word_field["value"] if is_kanji(c)}
                 # These kanji should not appear in result UNLESS another
                 # in-range note also contributed them
                 in_range_kanji = set()
@@ -335,9 +337,9 @@ def test_kanji_cache_filtering_uses_note_creation_timestamp(scenario, anki_mod, 
                         continue
                     if start_ms <= other.note_id <= end_ms:
                         of = other.fields_json
-                        off = next(iter(of.values()), None)
-                        if off and isinstance(off, dict) and "value" in off:
-                            in_range_kanji.update(c for c in off["value"] if is_kanji(c))
+                        configured_field = of.get("Expression")
+                        if configured_field and isinstance(configured_field, dict) and "value" in configured_field:
+                            in_range_kanji.update(c for c in configured_field["value"] if is_kanji(c))
                 leaked = note_kanji - in_range_kanji
                 assert not (leaked & result), (
                     f"Note {note.note_id} has mod*1000={mod_ms} in range but "

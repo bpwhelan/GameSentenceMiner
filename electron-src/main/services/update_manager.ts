@@ -214,14 +214,12 @@ export class UpdateManager {
     }
 
     public async updateAvailableTargets(
-        shouldRestart: boolean = true,
+        _shouldRestart: boolean = true,
         forceDev: boolean = false
     ): Promise<UpdateStatusSnapshot> {
+        // Only act on the Electron app update. The backend is synced on startup
+        // when a version change is detected, so we don't update it here.
         const status = await this.checkForAvailableUpdates(forceDev);
-
-        if (status.backend.updateAvailable) {
-            await this.updateGSM(shouldRestart, false);
-        }
 
         if (status.app.updateAvailable) {
             await this.downloadAppUpdate(forceDev, status.app);
@@ -256,21 +254,14 @@ export class UpdateManager {
     }
 
     public async runUpdateChecks(
-        shouldRestart: boolean = false,
-        force: boolean = false,
+        _shouldRestart: boolean = false,
+        _force: boolean = false,
         forceDev: boolean = false
     ): Promise<void> {
-        log.info('Starting full update process...');
-        await this.updateGSM(shouldRestart, force);
-        if (!this.lastBackendUpdateSucceeded) {
-            log.warn(
-                `Backend update failed before application update check: ${
-                    this.lastBackendUpdateError ?? 'unknown reason'
-                }`
-            );
-            log.info('Continuing with application update check despite backend update failure.');
-        }
-        log.info('Python backend update check is complete.');
+        // Only check for an Electron app update here. The backend is version-locked
+        // to the app and is synced on startup when a version change is detected
+        // (see the startup flow in main.ts), so we no longer update it up front.
+        log.info('Starting application update check...');
         await this.autoUpdate(forceDev);
         log.info('Application update check is complete.');
     }
@@ -531,8 +522,8 @@ export class UpdateManager {
 
                     emitUpdateProgress(5, totalSteps, 'Finalizing backend update');
                     new Notification({
-                        title: 'Update Successful',
-                        body: `${APP_NAME} backend has been updated successfully.`,
+                        title: 'Backend Synced',
+                        body: `${APP_NAME} backend has been synced successfully.`,
                         timeoutType: 'default',
                     }).show();
 
@@ -642,8 +633,8 @@ export class UpdateManager {
             emitUpdateProgress(1, 1, 'Python backend update failed');
             try {
                 new Notification({
-                    title: 'Update Failed',
-                    body: `${APP_NAME} backend update failed. Check logs for details.`,
+                    title: 'Backend Sync Failed',
+                    body: `${APP_NAME} backend sync failed. Check logs for details.`,
                     timeoutType: 'default',
                 }).show();
             } catch (notificationError) {

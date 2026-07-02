@@ -68,6 +68,10 @@ html {
   box-sizing: inherit;
 }
 
+::details-content {
+  box-sizing: inherit;
+}
+
 body,
 input {
   font-family: "Nunito Sans", "Noto Sans Symbols 2", "Segoe UI", "Noto Sans JP", "Noto Sans CJK JP", "Hiragino Sans GB", "Meiryo", sans-serif;
@@ -281,13 +285,11 @@ label[disabled] {
 
 input[type=number],
 input[type=password],
+input[type=search],
 input[type=text],
 input[type=url],
 textarea,
 select {
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
   height: 3em;
   width: 100%;
   font-size: 0.95em;
@@ -302,6 +304,7 @@ select {
 }
 input[type=number]:focus,
 input[type=password]:focus,
+input[type=search]:focus,
 input[type=text]:focus,
 input[type=url]:focus,
 textarea:focus,
@@ -596,14 +599,15 @@ label.outline[disabled] {
 }
 
 .popup {
-  width: 350px;
-  max-height: 250px;
+  width: var(--popup-width, 350px);
+  height: var(--popup-height, 250px);
   display: flex;
   flex-direction: column;
   gap: 0.5em;
   margin: 0;
   padding: 0.5em;
   border-radius: 0.5em;
+  position: relative;
   color: #bbb;
   background-color: var(--jiten-bg, #181818);
   box-shadow: 5px 5px 15px 0px rgba(0, 0, 0, 0.5);
@@ -611,84 +615,158 @@ label.outline[disabled] {
 .popup section.controls {
   display: flex;
   flex-direction: row;
-  gap: 0.5em;
+  gap: 0.4em;
 }
 .popup section.controls a {
-  line-height: 0.7em;
-  height: 1.2em;
   font-size: 0.7em;
-  padding: 0.5em 0.5em 0 0.5em;
+  line-height: 1;
+  padding: 0.35em 0.6em;
+  border-radius: 4px;
+  font-weight: 500;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 .popup section.controls a:hover {
-  filter: brightness(1.2);
+  filter: none;
 }
 .popup section.controls a:active {
-  filter: brightness(0.8);
+  filter: none;
+  transform: scale(0.97);
+}
+.popup section.controls a.disabled {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
 }
 .popup section.controls#mining .mining, .popup section.controls#rotation .mining {
   color: var(--jiten-accent, #D8B9FA);
-  border-color: var(--jiten-accent, #D8B9FA);
-  box-shadow: inset 0 0 3px var(--jiten-accent, #D8B9FA);
+  border-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 35%, #171717);
+  background-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 12%, #171717);
+  box-shadow: none;
+}
+.popup section.controls#mining .mining:hover, .popup section.controls#rotation .mining:hover {
+  background-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 22%, #171717);
+  border-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 55%, #171717);
 }
 .popup section.controls#mining .never-forget, .popup section.controls#rotation .never-forget {
   color: #70c000;
-  border-color: #70c000;
-  box-shadow: inset 0 0 3px #70c000;
+  border-color: color-mix(in srgb, #70c000 35%, #171717);
+  background-color: color-mix(in srgb, #70c000 12%, #171717);
+  box-shadow: none;
+}
+.popup section.controls#mining .never-forget:hover, .popup section.controls#rotation .never-forget:hover {
+  background-color: color-mix(in srgb, #70c000 22%, #171717);
+  border-color: color-mix(in srgb, #70c000 55%, #171717);
 }
 .popup section.controls#mining .blacklist, .popup section.controls#rotation .blacklist {
   color: #777;
-  border-color: #777;
-  box-shadow: inset 0 0 3px #777;
+  border-color: color-mix(in srgb, #777 35%, #171717);
+  background-color: color-mix(in srgb, #777 12%, #171717);
+  box-shadow: none;
+}
+.popup section.controls#mining .blacklist:hover, .popup section.controls#rotation .blacklist:hover {
+  background-color: color-mix(in srgb, #777 22%, #171717);
+  border-color: color-mix(in srgb, #777 55%, #171717);
 }
 .popup section.controls#mining .suspend, .popup section.controls#rotation .suspend {
   color: #aaa;
-  border-color: #aaa;
-  box-shadow: inset 0 0 3px #aaa;
+  border-color: color-mix(in srgb, #aaa 35%, #171717);
+  background-color: color-mix(in srgb, #aaa 12%, #171717);
+  box-shadow: none;
+}
+.popup section.controls#mining .suspend:hover, .popup section.controls#rotation .suspend:hover {
+  background-color: color-mix(in srgb, #aaa 22%, #171717);
+  border-color: color-mix(in srgb, #aaa 55%, #171717);
 }
 .popup section.controls#mining .forget, .popup section.controls#rotation .forget {
   color: #ff3b3b;
-  border-color: #ff3b3b;
-  box-shadow: inset 0 0 3px #ff3b3b;
+  border-color: color-mix(in srgb, #ff3b3b 35%, #171717);
+  background-color: color-mix(in srgb, #ff3b3b 12%, #171717);
+  box-shadow: none;
+}
+.popup section.controls#mining .forget:hover, .popup section.controls#rotation .forget:hover {
+  background-color: color-mix(in srgb, #ff3b3b 22%, #171717);
+  border-color: color-mix(in srgb, #ff3b3b 55%, #171717);
 }
 .popup section.controls#grading .again {
   color: #ff3b3b;
-  border-color: #ff3b3b;
-  box-shadow: inset 0 0 3px #ff3b3b;
+  border-color: color-mix(in srgb, #ff3b3b 35%, #171717);
+  background-color: color-mix(in srgb, #ff3b3b 12%, #171717);
+  box-shadow: none;
+}
+.popup section.controls#grading .again:hover {
+  background-color: color-mix(in srgb, #ff3b3b 22%, #171717);
+  border-color: color-mix(in srgb, #ff3b3b 55%, #171717);
 }
 .popup section.controls#grading .something {
   color: #ff3b3b;
-  border-color: #ff3b3b;
-  box-shadow: inset 0 0 3px #ff3b3b;
+  border-color: color-mix(in srgb, #ff3b3b 35%, #171717);
+  background-color: color-mix(in srgb, #ff3b3b 12%, #171717);
+  box-shadow: none;
+}
+.popup section.controls#grading .something:hover {
+  background-color: color-mix(in srgb, #ff3b3b 22%, #171717);
+  border-color: color-mix(in srgb, #ff3b3b 55%, #171717);
 }
 .popup section.controls#grading .hard {
   color: #df6d2b;
-  border-color: #df6d2b;
-  box-shadow: inset 0 0 3px #df6d2b;
+  border-color: color-mix(in srgb, #df6d2b 35%, #171717);
+  background-color: color-mix(in srgb, #df6d2b 12%, #171717);
+  box-shadow: none;
+}
+.popup section.controls#grading .hard:hover {
+  background-color: color-mix(in srgb, #df6d2b 22%, #171717);
+  border-color: color-mix(in srgb, #df6d2b 55%, #171717);
 }
 .popup section.controls#grading .good {
   color: var(--jiten-accent, #D8B9FA);
-  border-color: var(--jiten-accent, #D8B9FA);
-  box-shadow: inset 0 0 3px var(--jiten-accent, #D8B9FA);
+  border-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 35%, #171717);
+  background-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 12%, #171717);
+  box-shadow: none;
+}
+.popup section.controls#grading .good:hover {
+  background-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 22%, #171717);
+  border-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 55%, #171717);
 }
 .popup section.controls#grading .easy {
   color: #4fa825;
-  border-color: #4fa825;
-  box-shadow: inset 0 0 3px #4fa825;
+  border-color: color-mix(in srgb, #4fa825 35%, #171717);
+  background-color: color-mix(in srgb, #4fa825 12%, #171717);
+  box-shadow: none;
+}
+.popup section.controls#grading .easy:hover {
+  background-color: color-mix(in srgb, #4fa825 22%, #171717);
+  border-color: color-mix(in srgb, #4fa825 55%, #171717);
 }
 .popup section.controls#grading .fail {
   color: #ff3b3b;
-  border-color: #ff3b3b;
-  box-shadow: inset 0 0 3px #ff3b3b;
+  border-color: color-mix(in srgb, #ff3b3b 35%, #171717);
+  background-color: color-mix(in srgb, #ff3b3b 12%, #171717);
+  box-shadow: none;
+}
+.popup section.controls#grading .fail:hover {
+  background-color: color-mix(in srgb, #ff3b3b 22%, #171717);
+  border-color: color-mix(in srgb, #ff3b3b 55%, #171717);
 }
 .popup section.controls#grading .pass {
   color: #4fa825;
-  border-color: #4fa825;
-  box-shadow: inset 0 0 3px #4fa825;
+  border-color: color-mix(in srgb, #4fa825 35%, #171717);
+  background-color: color-mix(in srgb, #4fa825 12%, #171717);
+  box-shadow: none;
+}
+.popup section.controls#grading .pass:hover {
+  background-color: color-mix(in srgb, #4fa825 22%, #171717);
+  border-color: color-mix(in srgb, #4fa825 55%, #171717);
 }
 .popup section.controls#close {
   position: absolute;
   top: 0.5em;
   right: 0.5em;
+}
+.popup section.controls#close.bottom-left {
+  top: auto;
+  right: auto;
+  bottom: 0.5em;
+  left: 0.5em;
 }
 .popup section.controls#close a {
   background-color: rgba(255, 255, 255, 0.1);
@@ -729,12 +807,39 @@ label.outline[disabled] {
   flex-direction: row;
   justify-content: space-between;
 }
-.popup section#context .subsection #link {
+.popup section#context .subsection #headword {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+  min-width: 0;
+}
+.popup section#context .subsection #headword #link {
   font-size: 150%;
+  color: var(--jiten-accent, #D8B9FA);
   border-bottom: 1px dashed #555;
 }
-.popup section#context .subsection #link:hover {
+.popup section#context .subsection #headword #link:hover {
   border-bottom-style: solid;
+}
+.popup section#context .subsection #headword #tts-btn {
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+  user-select: none;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+.popup section#context .subsection #headword #tts-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+.popup section#context .subsection #headword #tts-btn:hover {
+  opacity: 1;
+}
+.popup section#context .subsection #headword #tts-btn.playing {
+  opacity: 1;
 }
 .popup section#context .subsection #state {
   display: flex;
@@ -763,6 +868,9 @@ label.outline[disabled] {
 .popup section#context .subsection #state span.suspended {
   color: #aaa;
 }
+.popup section#context .subsection #state span.redundant {
+  color: #4b9fff;
+}
 .popup section#context .subsection #state span.known {
   color: #70c000;
 }
@@ -785,30 +893,14 @@ label.outline[disabled] {
 .popup section#context .subsection#meta #pitch-accent {
   display: flex;
   flex-direction: row;
-  gap: 0.5em;
-}
-.popup section#context .subsection#meta #pitch-accent .pitch span {
-  padding: 1px 1px 1px 2px;
-  line-height: 1em;
-  border-style: solid;
-  border-image-slice: 2;
-  border-image-source: linear-gradient(to bottom, rgba(232, 104, 123, 0.8), rgba(75, 141, 255, 0.8));
-}
-.popup section#context .subsection#meta #pitch-accent .pitch .low {
-  border-width: 0 2px 2px 0;
-  margin-right: -2px;
-}
-.popup section#context .subsection#meta #pitch-accent .pitch .high {
-  border-width: 2px 2px 0 0;
-  margin-right: -2px;
-}
-.popup section#context .subsection#meta #pitch-accent .pitch .low-final {
-  border-width: 0 0 2px 0;
-}
-.popup section#context .subsection#meta #pitch-accent .pitch .high-final {
-  border-width: 2px 0 0 0;
+  align-items: center;
+  gap: 0.25em;
+  overflow-x: auto;
+  min-width: 0;
 }
 .popup section#details {
+  flex: 1 1 0;
+  min-height: 0;
   overflow: auto;
   margin-top: 0.5em;
 }
@@ -839,8 +931,35 @@ label.outline[disabled] {
   padding: 0 0 0 1.5em;
 }
 
+.resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  overflow: hidden;
+}
+.resize-handle::before {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 0 14px 14px;
+  border-color: transparent transparent rgba(255, 255, 255, 0.35) transparent;
+}
+.popup:hover .resize-handle {
+  opacity: 1;
+}
+
 #confirm-overlay {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   width: 100vw;
@@ -872,36 +991,180 @@ label.outline[disabled] {
 #confirm-overlay #confirm-dialog #confirm-buttons a.outline {
   font-size: 0.8em;
   padding: 0.4em 1em;
+  border-radius: 4px;
+  font-weight: 500;
   cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 #confirm-overlay #confirm-dialog #confirm-buttons a.outline.mining {
   color: var(--jiten-accent, #D8B9FA);
-  border-color: var(--jiten-accent, #D8B9FA);
-  box-shadow: inset 0 0 3px var(--jiten-accent, #D8B9FA);
+  border-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 35%, #171717);
+  background-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 12%, #171717);
+  box-shadow: none;
+}
+#confirm-overlay #confirm-dialog #confirm-buttons a.outline.mining:hover {
+  background-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 22%, #171717);
+  border-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 55%, #171717);
 }
 #confirm-overlay #confirm-dialog #confirm-buttons a.outline.never-forget {
   color: #70c000;
-  border-color: #70c000;
-  box-shadow: inset 0 0 3px #70c000;
+  border-color: color-mix(in srgb, #70c000 35%, #171717);
+  background-color: color-mix(in srgb, #70c000 12%, #171717);
+  box-shadow: none;
+}
+#confirm-overlay #confirm-dialog #confirm-buttons a.outline.never-forget:hover {
+  background-color: color-mix(in srgb, #70c000 22%, #171717);
+  border-color: color-mix(in srgb, #70c000 55%, #171717);
 }
 #confirm-overlay #confirm-dialog #confirm-buttons a.outline.blacklist {
   color: #777;
-  border-color: #777;
-  box-shadow: inset 0 0 3px #777;
+  border-color: color-mix(in srgb, #777 35%, #171717);
+  background-color: color-mix(in srgb, #777 12%, #171717);
+  box-shadow: none;
+}
+#confirm-overlay #confirm-dialog #confirm-buttons a.outline.blacklist:hover {
+  background-color: color-mix(in srgb, #777 22%, #171717);
+  border-color: color-mix(in srgb, #777 55%, #171717);
 }
 #confirm-overlay #confirm-dialog #confirm-buttons a.outline.suspend {
   color: #aaa;
-  border-color: #aaa;
-  box-shadow: inset 0 0 3px #aaa;
+  border-color: color-mix(in srgb, #aaa 35%, #171717);
+  background-color: color-mix(in srgb, #aaa 12%, #171717);
+  box-shadow: none;
+}
+#confirm-overlay #confirm-dialog #confirm-buttons a.outline.suspend:hover {
+  background-color: color-mix(in srgb, #aaa 22%, #171717);
+  border-color: color-mix(in srgb, #aaa 55%, #171717);
 }
 #confirm-overlay #confirm-dialog #confirm-buttons a.outline.forget {
   color: #ff3b3b;
-  border-color: #ff3b3b;
-  box-shadow: inset 0 0 3px #ff3b3b;
+  border-color: color-mix(in srgb, #ff3b3b 35%, #171717);
+  background-color: color-mix(in srgb, #ff3b3b 12%, #171717);
+  box-shadow: none;
+}
+#confirm-overlay #confirm-dialog #confirm-buttons a.outline.forget:hover {
+  background-color: color-mix(in srgb, #ff3b3b 22%, #171717);
+  border-color: color-mix(in srgb, #ff3b3b 55%, #171717);
 }
 #confirm-overlay #confirm-dialog #confirm-buttons a.outline:hover {
-  filter: brightness(1.2);
+  filter: none;
 }
 #confirm-overlay #confirm-dialog #confirm-buttons a.outline:active {
-  filter: brightness(0.8);
+  filter: none;
+  transform: scale(0.97);
+}
+
+#deck-picker-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2147483647;
+}
+#deck-picker-overlay #deck-picker-dialog {
+  background-color: var(--jiten-bg, #181818);
+  border-radius: 0.5em;
+  padding: 1em;
+  min-width: 200px;
+  max-width: 300px;
+  box-shadow: 5px 5px 15px 0px rgba(0, 0, 0, 0.5);
+}
+#deck-picker-overlay #deck-picker-dialog #deck-picker-title {
+  color: #bbb;
+  margin: 0 0 0.75em 0;
+  font-size: 0.9em;
+  font-weight: 500;
+}
+#deck-picker-overlay #deck-picker-dialog #deck-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+#deck-picker-overlay #deck-picker-dialog #deck-picker-list a.outline {
+  font-size: 0.8em;
+  padding: 0.5em 0.8em;
+  border-radius: 4px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  color: var(--jiten-accent, #D8B9FA);
+  border-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 35%, #171717);
+  background-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 12%, #171717);
+  box-shadow: none;
+}
+#deck-picker-overlay #deck-picker-dialog #deck-picker-list a.outline:hover {
+  background-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 22%, #171717);
+  border-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 55%, #171717);
+  filter: none;
+}
+#deck-picker-overlay #deck-picker-dialog #deck-picker-list a.outline:active {
+  filter: none;
+  transform: scale(0.97);
+}
+#deck-picker-overlay #deck-picker-dialog #deck-picker-list a.outline.already-in {
+  opacity: 0.6;
+  cursor: default;
+}
+#deck-picker-overlay #deck-picker-dialog #deck-picker-list a.outline.already-in:hover {
+  background-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 12%, #171717);
+  border-color: color-mix(in srgb, var(--jiten-accent, #D8B9FA) 35%, #171717);
+}
+#deck-picker-overlay #deck-picker-dialog #deck-picker-list a.outline.already-in:active {
+  transform: none;
+}
+
+#deck-membership {
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+  margin-top: 0.4em;
+  opacity: 0.85;
+}
+#deck-membership .deck-membership-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  min-width: 0;
+}
+#deck-membership .deck-membership-label {
+  flex: 0 0 auto;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+#deck-membership .deck-membership-names {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#add-to-deck.in-list {
+  color: rgba(80, 200, 120, 0.9);
+  border-color: color-mix(in srgb, rgba(80, 200, 120, 0.9) 45%, #171717);
+  background-color: color-mix(in srgb, rgba(80, 200, 120, 0.9) 14%, #171717);
+}
+
+.deck-dot {
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.deck-dot.in-word-list {
+  background-color: rgba(80, 200, 120, 0.9);
+}
+.deck-dot.in-media-deck {
+  background-color: rgba(90, 160, 255, 0.9);
+}
+.deck-dot.in-frequency-deck {
+  background-color: rgba(190, 130, 255, 0.9);
 }

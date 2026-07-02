@@ -596,6 +596,16 @@ def get_ocr_use_obs_as_source() -> bool:
     return bool(_get_ocr_value("useObsAsOCRSource", True))
 
 
+def get_ocr_compact_boxes() -> bool:
+    # Pack OCR crop rectangles together (removing transparent dead space) before
+    # running detection. Opt-in; off by default so behaviour is unchanged.
+    return bool(_get_ocr_value("compactBoxes", False))
+
+
+def get_ocr_compact_boxes_gap() -> int:
+    return _get_ocr_int_value("compactBoxesGap", 12, min_value=0, max_value=512)
+
+
 def get_furigana_filter_sensitivity() -> int:
     return get_ocr_furigana_filter_sensitivity()
 

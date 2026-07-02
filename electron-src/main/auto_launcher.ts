@@ -133,11 +133,14 @@ export class AutoLauncher {
     }
 
     public stopPolling() {
+        const wasPolling = this.intervalId !== null;
         if (this.intervalId) {
             clearTimeout(this.intervalId);
             this.intervalId = null;
         }
-        this.logInternal("Stopped AutoLauncher polling.");
+        if (wasPolling) {
+            this.logInternal("Stopped AutoLauncher polling.");
+        }
         this.resetAgentTracking();
         this.stopOcrAutomation();
         this.stopOverlayAutomation();

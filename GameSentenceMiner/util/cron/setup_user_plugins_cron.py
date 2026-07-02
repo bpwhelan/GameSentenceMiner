@@ -1,7 +1,7 @@
 """
 Setup script for User Plugins cron job.
 
-This script manages the plugins cron entry that executes user-defined plugins every minute.
+This script manages the plugins cron entry that executes user-defined plugins every 15 minutes.
 The plugins.py file is automatically created in the user's AppData directory if it doesn't exist.
 
 Run this to enable/disable the user plugins system:
@@ -19,7 +19,7 @@ from GameSentenceMiner.util.cron.user_plugins import ensure_plugins_file_exists
 
 def setup_user_plugins_cron(enabled: bool = True) -> CronTable:
     """
-    Set up or update the user plugins cron job to run every minute.
+    Set up or update the user plugins cron job to run every 15 minutes.
 
     Args:
         enabled: Whether the cron job should be enabled (default: True)
@@ -32,9 +32,17 @@ def setup_user_plugins_cron(enabled: bool = True) -> CronTable:
     print(f"User plugins file location: {plugin_path}")
 
     # Check if cron already exists
-    existing = CronTable.get_by_name("plugins")
+    existing = CronTable.get_by_name("user_plugins")
+    legacy = CronTable.get_by_name("plugins")
 
     if existing:
+        if existing.schedule != "quarter_hourly":
+            existing.schedule = "quarter_hourly"
+            existing.save()
+            print("✅ Updated existing plugins scheduled task to every 15 minutes")
+        if legacy and legacy.enabled:
+            legacy.disable()
+            print("✅ Disabled legacy plugins scheduled task")
         print("Plugins scheduled task already exists")
         if enabled and not existing.enabled:
             existing.enable()
@@ -46,6 +54,20 @@ def setup_user_plugins_cron(enabled: bool = True) -> CronTable:
             status = "enabled" if existing.enabled else "disabled"
             print(f"Plugins scheduled task is already {status}")
         return existing
+
+    if legacy:
+        legacy.name = "user_plugins"
+        legacy.schedule = "quarter_hourly"
+        legacy.description = "Execute user-defined plugins from AppData/GameSentenceMiner/plugins.py"
+        legacy.save()
+        print("✅ Updated legacy plugins scheduled task to every 15 minutes")
+        if enabled and not legacy.enabled:
+            legacy.enable()
+            print("✅ Enabled existing plugins scheduled task")
+        elif not enabled and legacy.enabled:
+            legacy.disable()
+            print("✅ Disabled existing plugins scheduled task")
+        return legacy
 
     # Create new cron entry using the setup method from CronTable
     cron = CronTable.setup_plugins_cron()
@@ -75,7 +97,7 @@ def main():
     # Setup the cron
     cron = setup_user_plugins_cron(enabled=True)
 
-    print("\n   Schedule: Every minute (minutely)")
+    print("\n   Schedule: Every 15 minutes (quarter_hourly)")
     print(f"   Status: {'Enabled' if cron.enabled else 'Disabled'}")
     print(f"   Next run: {datetime.fromtimestamp(cron.next_run)}")
 
@@ -85,7 +107,7 @@ def main():
     print(f"1. Edit your plugins file: {plugin_path}")
     print("2. Add plugin functions from USER_PLUGINS_README.md")
     print("3. Call them in main() function")
-    print("4. Save the file - it will run automatically every minute")
+    print("4. Save the file - it will run automatically every 15 minutes")
     print("\nSee full documentation and examples:")
     print("  GameSentenceMiner/util/cron/USER_PLUGINS_README.md")
     print("\nTo disable the cron job:")

@@ -101,6 +101,21 @@ describe('MessageBroker', () => {
         expect(broker.isClientConnected('ocr')).toBe(false);
     });
 
+    it('stops promptly with a connected socket that has not sent hello', async () => {
+        const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+        await new Promise<void>((resolve, reject) => {
+            socket.once('open', () => resolve());
+            socket.once('error', reject);
+        });
+
+        await expect(
+            Promise.race([
+                broker.stop().then(() => 'stopped'),
+                new Promise((resolve) => setTimeout(() => resolve('timed-out'), 250)),
+            ])
+        ).resolves.toBe('stopped');
+    });
+
     it('routes a directed message to the addressed client', async () => {
         const ocr = await connectClient('ocr');
         const overlay = await connectClient('overlay');

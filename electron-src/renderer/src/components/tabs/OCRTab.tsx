@@ -63,6 +63,8 @@ interface OcrStoredConfig {
   keep_newline_menu?: boolean;
   keep_newline_area_select?: boolean;
   obs_capture_preprocess?: string;
+  compactBoxes?: boolean;
+  compactBoxesGap?: number;
   ignore_ocr_run_1_text?: boolean;
   processPriority?: string;
   base_scale?: number;
@@ -95,6 +97,8 @@ interface OcrUiConfig {
   keepNewlineMenu: boolean;
   keepNewlineAreaSelect: boolean;
   obsCapturePreprocess: string;
+  compactBoxes: boolean;
+  compactBoxesGap: number;
   ignoreOcrRun1Text: boolean;
   processPriority: ProcessPriority;
   baseScale: number;
@@ -698,6 +702,8 @@ function normalizeOcrConfig(
       typeof value?.obs_capture_preprocess === "string"
         ? value.obs_capture_preprocess
         : "none",
+    compactBoxes: value?.compactBoxes === true,
+    compactBoxesGap: numericValue(value?.compactBoxesGap, 12),
     ignoreOcrRun1Text: value?.ignore_ocr_run_1_text === true,
     processPriority: normalizeProcessPriority(value?.processPriority),
     baseScale: numericValue(value?.base_scale, 0.75),
@@ -744,6 +750,8 @@ function buildPersistedConfig(
     keep_newline_menu: config.keepNewlineMenu,
     keep_newline_area_select: config.keepNewlineAreaSelect,
     obs_capture_preprocess: config.obsCapturePreprocess,
+    compactBoxes: config.compactBoxes,
+    compactBoxesGap: config.compactBoxesGap,
     ignore_ocr_run_1_text: config.ignoreOcrRun1Text,
     processPriority: config.processPriority,
     base_scale: config.baseScale,
@@ -868,6 +876,8 @@ const OCR_TOOLTIP_KEYS = {
   processPriority: "ocr.tooltips.processPriority",
   defaultSceneFurigana: "ocr.tooltips.defaultSceneFurigana",
   obsCapturePreprocess: "ocr.tooltips.obsCapturePreprocess",
+  compactBoxes: "ocr.tooltips.compactBoxes",
+  compactBoxesGap: "ocr.tooltips.compactBoxesGap",
   ignoreRun1Logs: "ocr.tooltips.ignoreRun1Logs",
   installDependency: "ocr.tooltips.installDependency",
   uninstallDependency: "ocr.tooltips.uninstallDependency",
@@ -1748,6 +1758,18 @@ export function OCRTab({ active }: OcrTabProps) {
     sendIpc("ocr.toggle-pause");
   }, []);
 
+  const triggerManualOcr = useCallback(() => {
+    sendIpc("ocr.manual-ocr");
+  }, []);
+
+  const triggerWholeWindowOcr = useCallback(() => {
+    sendIpc("ocr.whole-window-ocr");
+  }, []);
+
+  const triggerAreaSelectOcr = useCallback(() => {
+    sendIpc("ocr.area-select-ocr");
+  }, []);
+
   const installSelectedDependency = useCallback(() => {
     appendTerminalLine(`\x1b[36mInstalling ${installDependency}...\x1b[0m`);
     sendIpc("ocr.install-selected-dep", installDependency);
@@ -2436,38 +2458,60 @@ export function OCRTab({ active }: OcrTabProps) {
                   <label htmlFor="manual-hotkey" {...titleProps(ocrTooltips.manualHotkey)}>
                     {t("ocr.hotkeys.manualMenu")}
                   </label>
-                  <input
-                    id="manual-hotkey"
-                    type="text"
-                    readOnly
-                    value={config.manualOcrHotkey}
-                    onKeyDown={(event) => {
-                      const next = captureHotkey(event);
-                      setConfig((current) => ({
-                        ...current,
-                        manualOcrHotkey: next
-                      }));
-                    }}
-                  />
+                  <div className="ocr-hotkey-row">
+                    <input
+                      id="manual-hotkey"
+                      type="text"
+                      readOnly
+                      value={config.manualOcrHotkey}
+                      onKeyDown={(event) => {
+                        const next = captureHotkey(event);
+                        setConfig((current) => ({
+                          ...current,
+                          manualOcrHotkey: next
+                        }));
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="secondary ocr-hotkey-run"
+                      disabled={!runningState.isRunning}
+                      title={t("ocr.hotkeys.runActionTitle")}
+                      onClick={triggerManualOcr}
+                    >
+                      {t("ocr.hotkeys.runAction")}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="input-group">
                   <label htmlFor="area-hotkey" {...titleProps(ocrTooltips.areaSelectHotkey)}>
                     {t("ocr.hotkeys.areaSelect")}
                   </label>
-                  <input
-                    id="area-hotkey"
-                    type="text"
-                    readOnly
-                    value={config.areaSelectOcrHotkey}
-                    onKeyDown={(event) => {
-                      const next = captureHotkey(event);
-                      setConfig((current) => ({
-                        ...current,
-                        areaSelectOcrHotkey: next
-                      }));
-                    }}
-                  />
+                  <div className="ocr-hotkey-row">
+                    <input
+                      id="area-hotkey"
+                      type="text"
+                      readOnly
+                      value={config.areaSelectOcrHotkey}
+                      onKeyDown={(event) => {
+                        const next = captureHotkey(event);
+                        setConfig((current) => ({
+                          ...current,
+                          areaSelectOcrHotkey: next
+                        }));
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="secondary ocr-hotkey-run"
+                      disabled={!runningState.isRunning}
+                      title={t("ocr.hotkeys.runActionTitle")}
+                      onClick={triggerAreaSelectOcr}
+                    >
+                      {t("ocr.hotkeys.runAction")}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="input-group">
@@ -2477,19 +2521,30 @@ export function OCRTab({ active }: OcrTabProps) {
                   >
                     {t("ocr.hotkeys.wholeWindow")}
                   </label>
-                  <input
-                    id="whole-window-hotkey"
-                    type="text"
-                    readOnly
-                    value={config.wholeWindowOcrHotkey}
-                    onKeyDown={(event) => {
-                      const next = captureHotkey(event);
-                      setConfig((current) => ({
-                        ...current,
-                        wholeWindowOcrHotkey: next
-                      }));
-                    }}
-                  />
+                  <div className="ocr-hotkey-row">
+                    <input
+                      id="whole-window-hotkey"
+                      type="text"
+                      readOnly
+                      value={config.wholeWindowOcrHotkey}
+                      onKeyDown={(event) => {
+                        const next = captureHotkey(event);
+                        setConfig((current) => ({
+                          ...current,
+                          wholeWindowOcrHotkey: next
+                        }));
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="secondary ocr-hotkey-run"
+                      disabled={!runningState.isRunning}
+                      title={t("ocr.hotkeys.runActionTitle")}
+                      onClick={triggerWholeWindowOcr}
+                    >
+                      {t("ocr.hotkeys.runAction")}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="input-group">
@@ -2633,6 +2688,51 @@ export function OCRTab({ active }: OcrTabProps) {
                     ))}
                   </select>
                 </div>
+
+                <div className="input-group">
+                  <label
+                    htmlFor="compact-boxes"
+                    {...titleProps(ocrTooltips.compactBoxes)}
+                  >
+                    {t("ocr.debug.compactBoxes")}
+                  </label>
+                  <input
+                    id="compact-boxes"
+                    type="checkbox"
+                    checked={config.compactBoxes}
+                    onChange={(event) => {
+                      setConfig((current) => ({
+                        ...current,
+                        compactBoxes: event.target.checked
+                      }));
+                    }}
+                  />
+                </div>
+
+                {config.compactBoxes && (
+                  <div className="input-group">
+                    <label
+                      htmlFor="compact-boxes-gap"
+                      {...titleProps(ocrTooltips.compactBoxesGap)}
+                    >
+                      {t("ocr.debug.compactBoxesGap")}
+                    </label>
+                    <input
+                      id="compact-boxes-gap"
+                      type="number"
+                      min={0}
+                      max={512}
+                      step={1}
+                      value={config.compactBoxesGap}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          compactBoxesGap: integerValue(event.target.value, 12)
+                        }));
+                      }}
+                    />
+                  </div>
+                )}
 
                 <div className="input-group wrap">
                   <label htmlFor="dep-install" {...titleProps(ocrTooltips.installDependency)}>

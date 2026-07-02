@@ -190,6 +190,16 @@ class TestCalculateKanjiFrequency:
 
 
 class TestCalculateActualReadingTime:
+    @pytest.fixture(autouse=True)
+    def _disable_v2(self, monkeypatch):
+        import GameSentenceMiner.web.stats as stats_mod
+
+        monkeypatch.setattr(
+            stats_mod,
+            "get_stats_config",
+            lambda: SimpleNamespace(reading_time_adaptive_v2=False),
+        )
+
     def test_empty_timestamps(self):
         assert calculate_actual_reading_time([], line_texts=[]) == 0.0
 
@@ -276,6 +286,16 @@ class TestCalculateActualReadingTime:
 
 class TestAdaptiveIQRFiltering:
     """Tests for the Stage 2 IQR-based outlier filtering."""
+
+    @pytest.fixture(autouse=True)
+    def _disable_v2(self, monkeypatch):
+        import GameSentenceMiner.web.stats as stats_mod
+
+        monkeypatch.setattr(
+            stats_mod,
+            "get_stats_config",
+            lambda: SimpleNamespace(reading_time_adaptive_v2=False),
+        )
 
     def test_iqr_replaces_outlier_slow_lines(self):
         # Build a session with 12 lines: 10 normal, 2 outlier-slow.

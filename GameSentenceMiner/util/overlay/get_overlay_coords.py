@@ -34,6 +34,7 @@ from GameSentenceMiner.util.config.configuration import (
     get_config,
     get_overlay_config,
     get_temporary_directory,
+    gsm_state,
     is_wayland,
     is_windows,
     is_beangate,
@@ -58,6 +59,7 @@ from GameSentenceMiner.util.text_log import (
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 from GameSentenceMiner.web.texthooking_page import (
     send_manual_background_to_overlay,
+    send_overlay_clear,
     send_word_coordinates_to_overlay,
 )
 
@@ -135,14 +137,58 @@ async def _window_monitor_loop(window_monitor: WindowStateMonitor):
             await asyncio.sleep(1)
 
 
+def _get_cursor_pos():
+    """Current cursor position, or None when unavailable (non-Windows / error)."""
+    if not is_windows():
+        return None
+    try:
+        import win32api
+
+        return win32api.GetCursorPos()
+    except Exception:
+        return None
+
+
+def _cursor_over_target_window(processor, cursor_pos) -> bool:
+    """True when the game window is showing (and not obscured) and the cursor is over its client area."""
+    if not is_windows() or not user32 or cursor_pos is None:
+        return False
+    monitor = getattr(processor, "window_monitor", None)
+    hwnd = getattr(monitor, "target_hwnd", None) if monitor else None
+    if not hwnd or not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
+        return False
+    # Match the overlay's own visibility: it shows only for "active"/"background" and hides
+    # when the game is obscured/minimized/closed (see GSM_Overlay main.js window_state handling).
+    if getattr(monitor, "last_state", None) not in ("active", "background"):
+        return False
+    geometry = get_window_client_physical_geometry(hwnd)
+    if not geometry:
+        return False
+    left, top, width, height = geometry
+    x, y = cursor_pos
+    return left <= x < left + width and top <= y < top + height
+
+
 async def _overlay_loop():
     """Main loop to periodically process and send overlay data."""
     first_time_run = True
+    last_cursor_pos = None
     while True:
         if websocket_manager.has_clients(ID_OVERLAY):
-            if get_config().overlay.periodic:
+            overlay_cfg = get_config().overlay
+            if overlay_cfg.periodic:
+                # Mouse-move gating: only scan when the cursor moved AND is over the visible game window.
+                if overlay_cfg.scan_on_mouse_move:
+                    cursor_pos = _get_cursor_pos()
+                    if cursor_pos is not None and (
+                        cursor_pos == last_cursor_pos or not _cursor_over_target_window(overlay_processor, cursor_pos)
+                    ):
+                        last_cursor_pos = cursor_pos
+                        await asyncio.sleep(overlay_cfg.periodic_interval)
+                        continue
+                    last_cursor_pos = cursor_pos
                 await overlay_processor.find_box_and_send_to_overlay(check_against_last=True, local_ocr_retry=0)
-                await asyncio.sleep(get_config().overlay.periodic_interval)
+                await asyncio.sleep(overlay_cfg.periodic_interval)
             elif first_time_run:
                 await overlay_processor.find_box_and_send_to_overlay(check_against_last=False, local_ocr_retry=0)
                 first_time_run = False
@@ -853,6 +899,27 @@ class OverlayProcessor:
 
         return filtered
 
+    async def _record_overlay_scan(self, text: Optional[str], line: "GameLine" = None) -> None:
+        """Remember a distinct overlay scan (no backing text event) so Yomitan overlay mining can
+        attach audio/screenshot to it. The scan is kept as a transient (non-logged) GameLine; it is
+        only written to the text log when the user opts into the not-recommended
+        ``inject_scanned_lines`` setting (which pollutes stats and the texthooker)."""
+        if line is not None or not text or not text.strip():
+            return
+        try:
+            from GameSentenceMiner.gametext import _build_transient_output_line
+
+            gsm_state.last_overlay_scan_line = _build_transient_output_line(
+                text, datetime.now(), source=TextSource.OVERLAY
+            )
+            if get_overlay_config().inject_scanned_lines:
+                from GameSentenceMiner.gametext import add_line_to_text_log
+
+                # skip_overlay avoids re-triggering this scan; OVERLAY source carries best-guess audio padding.
+                await add_line_to_text_log(text, source=TextSource.OVERLAY, skip_overlay=True)
+        except Exception as e:
+            logger.debug(f"Failed to record overlay scan: {e}")
+
     async def find_box_and_send_to_overlay(
         self,
         line: "GameLine" = None,
@@ -874,6 +941,12 @@ class OverlayProcessor:
                 await self.current_task
             except asyncio.CancelledError:  # NOSONAR(S7497) we cancelled it on purpose; swallow is intended
                 logger.debug("Previous OCR task was cancelled")
+
+        # Clear stale overlay boxes immediately so there's no window where old
+        # word boxes are visible while OCR for the new line is in-flight.
+        if line is not None:
+            clear_line_id = str(getattr(line, "id", "")).strip() or None
+            await send_overlay_clear(clear_line_id)
 
         has_precomputed_payload = self._should_use_precomputed_overlay_payload(dict_from_ocr)
 
@@ -1971,14 +2044,26 @@ class OverlayProcessor:
                 stabilized = self._is_overlay_text_stabilized(
                     text_str, last_result_flattened, normalized_sentence_to_check
                 )
-                if not stabilized:
+                # Stabilization is only meaningful when we can retry or have a known
+                # sentence to converge on; for single-try periodic scans it's always
+                # "not stable", so don't log noise there.
+                if not stabilized and (tries > 1 or normalized_sentence_to_check):
                     logger.background(
                         f"Text not stabilized on try {i + 1}: '{text_str}' (sentence_to_check: '{normalized_sentence_to_check}')"
                     )
                 last_result_flattened = text_str
                 # logger.display(f"Local OCR found text: {text_str}")
 
-                if self.last_oneocr_result and check_against_last:
+                # Text that strictly grew (last read is contained in this one) is a real
+                # update, not jitter — e.g. a trailing 「から」 arriving a beat after the rest.
+                # The similarity dedup can't tell them apart (a 2-char tail stays >90%),
+                # so it would suppress the growth forever; let it through.
+                text_grew = (
+                    text_str != self.last_oneocr_result
+                    and self.last_oneocr_result
+                    and self.last_oneocr_result in text_str
+                )
+                if self.last_oneocr_result and check_against_last and not text_grew:
                     op_start = time.time()
                     # Quick length check optimization before fuzzy matching
                     if abs(len(text_str) - len(self.last_oneocr_result)) > 5:
@@ -2107,6 +2192,7 @@ class OverlayProcessor:
                     i + 1,
                 )
 
+                await self._record_overlay_scan(last_result_flattened, line)
                 return
 
             if crop_coords_list:
@@ -2229,6 +2315,8 @@ class OverlayProcessor:
         op_start = time.time()
         await send_word_coordinates_to_overlay(data)
         self._log_timing(op_start, f"Send {len(extracted_data)} Lens word coordinates to overlay")
+
+        await self._record_overlay_scan(text_str, line)
 
         # Log completion with comprehensive details
         elapsed_ms = (datetime.now() - start_time).total_seconds() * 1000

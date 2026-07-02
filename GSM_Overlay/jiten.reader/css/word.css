@@ -1,3 +1,28 @@
+.jiten-word {
+  margin-inline: 0.5px;
+}
+
+.ttsu-parser .jiten-word {
+  margin-inline: 0;
+}
+
+.ttsu-parser .jiten-word > ruby[data-furi] {
+  display: inline-block;
+  position: relative;
+  vertical-align: baseline;
+  text-align: center;
+  line-height: 1;
+}
+
+.ttsu-parser .jiten-word > ruby[data-furi] > rt {
+  position: absolute;
+  inset-block-end: 100%;
+  inset-inline: 0;
+  text-align: center;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .jiten-word ruby,
 .jiten-word rt {
   color: inherit !important;
@@ -10,92 +35,100 @@
   font-size: 60%;
 }
 
+a .jiten-word:not(.unparsed):last-child::after,
+a.jiten-word:not(.unparsed)::after {
+  content: "";
+  display: inline-block;
+  width: 0.65em;
+  height: 0.65em;
+  margin-left: 2px;
+  vertical-align: baseline;
+  opacity: 0.7;
+  background: currentColor;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E");
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E");
+  mask-size: contain;
+  mask-repeat: no-repeat;
+}
+
 .jiten-word:not(.unparsed):hover,
 .jiten-word:not(.unparsed).hovered {
   text-decoration: underline;
   text-underline-position: under left;
 }
 
-.jiten-word.misparsed {
-  color: rgb(255, 0, 0);
-  background-color: lightgray;
+.ttsu-parser .jiten-word:not(.unparsed):hover,
+.ttsu-parser .jiten-word:not(.unparsed).hovered {
+  text-decoration: none;
+  background-image: linear-gradient(currentColor, currentColor);
+  background-position: left 100%;
+  background-repeat: no-repeat;
+  background-size: 100% max(1px, 0.07em);
+  padding-block-end: 0.1em;
 }
 
-.jiten-word.locked {
-  color: rgb(119, 119, 119);
+.ttsu-parser .book-content--writing-vertical-rl .jiten-word:not(.unparsed):hover,
+.ttsu-parser .book-content--writing-vertical-rl .jiten-word:not(.unparsed).hovered {
+  background-position: left top;
+  background-size: max(1px, 0.07em) 100%;
 }
 
-.jiten-word.suspended {
-  color: rgb(119, 119, 119);
+.jiten-word.in-word-list {
+  border-bottom: 2px dotted rgba(80, 200, 120, 0.9);
 }
 
-.jiten-word.blacklisted {
-  color: rgb(119, 119, 119);
+.jiten-word.in-media-deck {
+  border-bottom: 2px dotted rgba(90, 160, 255, 0.9);
 }
 
-.jiten-word.never-forget {
-  color: rgb(112, 192, 0);
+.jiten-word.in-frequency-deck {
+  border-bottom: 2px dotted rgba(190, 130, 255, 0.9);
 }
 
-.jiten-word.not-in-deck {
-  color: rgba(75, 141, 255, 0.5);
+@keyframes jiten-flash-good {
+  0% {
+    background-color: rgba(76, 175, 80, 0);
+  }
+  20% {
+    background-color: rgba(76, 175, 80, 0.6);
+  }
+  100% {
+    background-color: rgba(76, 175, 80, 0);
+  }
+}
+@keyframes jiten-flash-fail {
+  0% {
+    background-color: rgba(244, 67, 54, 0);
+  }
+  20% {
+    background-color: rgba(244, 67, 54, 0.6);
+  }
+  100% {
+    background-color: rgba(244, 67, 54, 0);
+  }
+}
+.jiten-word.jiten-flash-good {
+  border-radius: 3px;
+  animation: jiten-flash-good 0.6s ease-out;
 }
 
-.jiten-word.new {
-  color: rgb(165, 102, 239);
+.jiten-word.jiten-flash-fail {
+  border-radius: 3px;
+  animation: jiten-flash-fail 0.6s ease-out;
 }
 
-.jiten-word.frequent {
-  color: rgb(75, 141, 127);
+@keyframes jiten-fade-in-pending {
+  from {
+    background-color: rgba(255, 193, 7, 0);
+  }
+  to {
+    background-color: rgba(255, 193, 7, 0.45);
+  }
 }
-
-.jiten-word.young {
-  color: rgb(208, 135, 0);
-}
-
-.jiten-word.mature {
-  color: rgb(112, 192, 0);
-}
-
-.jiten-word.due {
-  color: rgb(255, 69, 0);
-}
-
-.jiten-word.failed {
-  color: rgb(255, 0, 0);
-}
-
-.jiten-word.i-plus-one {
-  text-shadow: 0 2px 6px #359eff, 0 4px 12px #359eff;
-  transition: text-shadow 0.3s ease-in-out;
-}
-
-.jiten-word.heiban {
-  text-decoration: underline;
-  text-decoration-color: #359eff;
-  text-underline-position: under left;
-}
-
-.jiten-word.atamadaka {
-  text-decoration: underline;
-  text-decoration-color: #fe4b74;
-  text-underline-position: under left;
-}
-
-.jiten-word.nakadaka {
-  text-decoration: underline;
-  text-decoration-color: #fba840;
-  text-underline-position: under left;
-}
-
-.jiten-word.odaka {
-  text-decoration: underline;
-  text-decoration-color: #57ccb7;
-  text-underline-position: under left;
-}
-
-.jiten-word.kifuku {
-  text-decoration: underline;
-  text-decoration-color: #9050f6;
-  text-underline-position: under left;
+.jiten-word.jiten-review-pending {
+  border-radius: 3px;
+  background-color: rgba(255, 193, 7, 0.45);
+  animation: jiten-fade-in-pending 0.25s ease-out;
 }

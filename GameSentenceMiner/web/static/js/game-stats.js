@@ -1999,13 +1999,13 @@
     });
 
     // ================================================================
-    //  Re-pull Metadata
+    //  Refresh Game Info
     // ================================================================
     async function repullMetadata() {
         if (!currentGameData) return;
 
         var gameName = currentGameData.title_original || 'this game';
-        if (!window.confirm('Re-pull metadata for "' + gameName + '"?\n\nThis will update all non-manually-edited fields with fresh data from the linked source (Jiten, VNDB, AniList, or IGDB).')) {
+        if (!window.confirm('Refresh game info for "' + gameName + '"?\n\nThis will update all non-manually-edited fields with fresh data from the linked source (Jiten, VNDB, AniList, or IGDB).')) {
             return;
         }
 
@@ -2018,11 +2018,11 @@
             var result = await response.json();
 
             if (!response.ok) {
-                alert('Failed to re-pull metadata: ' + (result.error || 'Unknown error'));
+                alert('Failed to refresh game info: ' + (result.error || 'Unknown error'));
                 return;
             }
 
-            var message = 'Metadata re-pulled successfully!';
+            var message = 'Game info refreshed successfully!';
 
             if (result.sources_used && result.sources_used.length > 0) {
                 message += '\nSources: ' + result.sources_used.join(', ');
@@ -2037,7 +2037,7 @@
             alert(message);
             loadGameData();
         } catch (error) {
-            alert('Failed to re-pull metadata: ' + error.message);
+            alert('Failed to refresh game info: ' + error.message);
         }
     }
 

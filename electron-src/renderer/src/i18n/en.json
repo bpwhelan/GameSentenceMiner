@@ -434,6 +434,28 @@
     "openLogs": "Open Logs",
     "quit": "Quit"
   },
+  "changelog": {
+    "title": "What's Changed",
+    "versionRange": "{from} → {to}",
+    "loading": "Loading release notes...",
+    "empty": "No release notes are available for this update.",
+    "imageAlt": "Release note image",
+    "fallbackNote": "Showing bundled release notes because the latest online notes could not be loaded.",
+    "continue": "Continue",
+    "close": "Close",
+    "syncing": "Syncing backend...",
+    "source": {
+      "loading": "Loading",
+      "bundled": "Bundled notes",
+      "remote": "Latest notes"
+    },
+    "backend": {
+      "title": "Updating Python backend",
+      "preparing": "Preparing backend sync...",
+      "completed": "Backend sync complete.",
+      "failed": "Backend sync failed."
+    }
+  },
   "settings": {
     "hub": {
       "findSetting": "Find a Setting",
@@ -477,6 +499,7 @@
       "showYuzuLauncher": "Show Yuzu Launcher:",
       "runTransparencyOnStartup": "Run Window Transparency Tool on Startup:",
       "runOverlayOnStartup": "Run Overlay on Startup:",
+      "quitOnWindowClose": "Exit GSM when closing the window:",
       "textCaptureWizard": "Show Text Capture Wizard after capture setup:"
     },
     "visibility": {
@@ -511,6 +534,9 @@
       "lastChecked": "Last checked: {time}",
       "checkForUpdates": "Check for Updates",
       "checking": "Checking...",
+      "viewReleaseNotes": "View Release Notes",
+      "loadingReleaseNotes": "Loading Notes...",
+      "releaseNotesUnavailable": "Release notes are not available for the selected update.",
       "updateNow": "Update Now",
       "updating": "Updating...",
       "unknown": "Unknown"
@@ -790,7 +816,9 @@
       "manualMenu": "Manual / Menu:",
       "areaSelect": "Area Select:",
       "wholeWindow": "Whole Window:",
-      "pause": "Pause:"
+      "pause": "Pause:",
+      "runAction": "Run",
+      "runActionTitle": "Trigger this action now"
     },
     "console": {
       "title": "Console",
@@ -805,6 +833,8 @@
       "processPriority": "Process Priority:",
       "defaultFuriganaSensitivity": "Default Furigana Sensitivity:",
       "obsCapturePreprocess": "OBS Capture Preprocess:",
+      "compactBoxes": "Compact OCR Areas (Experimental):",
+      "compactBoxesGap": "Compact Area Gap (px):",
       "installDependency": "Install Dependency:",
       "installBtn": "Install",
       "removeDependency": "Remove Dependency:",
@@ -871,6 +901,8 @@
       "processPriority": "Sets the process priority for the OCR Python process on Windows. Higher values may improve OCR responsiveness but can reduce system responsiveness.",
       "defaultSceneFurigana": "Used when a scene does not yet have a saved config file. Existing scenes keep their own saved value.",
       "obsCapturePreprocess": "Applies preprocessing to OBS screenshots before OCR cropping. Grayscale + Autocontrast + Unsharp can improve subtitle OCR in noisy scenes.",
+      "compactBoxes": "Experimental. When multiple OCR areas are set, packs them together (removing transparent dead space) before running detection, while preserving their relative layout. Can improve engines that struggle with large empty regions, e.g. a black-hole box at the top of a menu with dialogue at the bottom. Coordinates are mapped back to the original frame automatically.",
+      "compactBoxesGap": "Transparent padding kept between packed OCR areas, in pixels.",
       "ignoreRun1Logs": "Hides OCR terminal lines containing \"OCR Run 1: Text recognized...\" to reduce duplicate output noise when two-pass OCR is enabled. Run 2 lines stay highlighted in green.",
       "installDependency": "Install optional OCR dependencies into the GSM Python environment. If unsure, choose a recommended option.",
       "uninstallDependency": "Remove optional OCR dependencies from the GSM Python environment.",

@@ -223,9 +223,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function buildSyncBannerMessage(data) {
         const manualPrompt = 'Want to manually sync Anki now?';
         const autoSyncMessage = formatAutoSyncMessage(data);
-        const cacheMessage = data?.cache_populated
-            ? `Cache: ${data.note_count} notes, ${data.card_count} cards.`
-            : 'No cached Anki data yet.';
+        let cacheMessage = 'No cached Anki data yet.';
+        if (data?.cache_populated) {
+            cacheMessage = `Cache: ${data.note_count} notes, ${data.card_count} cards.`;
+        } else if (data?.anki_connect_available) {
+            cacheMessage = 'Using live AnkiConnect fallback until the cache syncs.';
+        }
         const lastSyncedText = formatIsoTimestamp(data?.last_synced);
 
         const parts = [manualPrompt, autoSyncMessage, cacheMessage];
@@ -247,7 +250,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 throw new Error(`HTTP ${resp.status}`);
             }
             const data = await resp.json();
-            showAnkiConnectWarning(!data.cache_populated);
+            showAnkiConnectWarning(!(data.cache_populated || data.anki_connect_available));
 
             if (syncStatusBar && syncStatusText) {
                 syncStatusText.textContent = buildSyncBannerMessage(data);

@@ -193,9 +193,9 @@ class AIService:
         game_title: str = "",
         custom_prompt: Optional[str] = None,
     ) -> str:
-        if not lines or not current_line:
+        if (not lines or not current_line) and not sentence:
             self.logger.warning(
-                f"Invalid input for process: lines={len(lines)}, current_line={getattr(current_line, 'index', None)}"
+                f"Invalid input for process: lines={len(lines)}, current_line={getattr(current_line, 'index', None)}, sentence={sentence}"
             )
             return "Invalid input."
 

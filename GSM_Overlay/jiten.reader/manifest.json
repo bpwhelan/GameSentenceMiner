@@ -1,68 +1,73 @@
-{
-  "manifest_version": 3,
-  "name": "Jiten Reader",
-  "version": "1.0.0",
-  "description": "Japanese text parsing with Jiten",
-  "key": "RDnU8X9qESWlTcGD55Vsdlfna93HJo1g",
-  "minimum_chrome_version": "116",
-  "background": {
-    "service_worker": "js/background-worker.js"
-  },
-  "action": {
-    "default_popup": "views/widget.html",
-    "default_icon": {
-      "16": "assets/16.png",
-      "24": "assets/24.png",
-      "32": "assets/32.png",
-      "48": "assets/48.png",
-      "64": "assets/64.png",
-      "96": "assets/96.png",
-      "128": "assets/128.png"
-    },
-    "default_title": "Jiten Reader"
-  },
-  "options_ui": {
-    "page": "views/settings.html",
-    "open_in_tab": true
-  },
-  "icons": {
-    "16": "assets/16.png",
-    "24": "assets/24.png",
-    "32": "assets/32.png",
-    "48": "assets/48.png",
-    "64": "assets/64.png",
-    "96": "assets/96.png",
-    "128": "assets/128.png"
-  },
-  "permissions": [
-    "contextMenus",
-    "scripting",
-    "storage"
-  ],
-  "content_scripts": [
-    {
-      "matches": [
-        "<all_urls>"
-      ],
-      "js": [
-        "js/ajb.js",
-        "js/gsm-settings-bridge.js"
-      ],
-      "all_frames": true
-    }
-  ],
-  "host_permissions": [
-    "<all_urls>"
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "assets/*",
-        "css/*"
-      ],
-      "matches": [
-        "<all_urls>"
-      ]
-    }
-  ]
+﻿{
+    "manifest_version":  3,
+    "name":  "Jiten Reader for GSM Overlay",
+    "version":  "1.3.0",
+    "description":  "Japanese text parsing with Jiten",
+    "minimum_chrome_version":  "116",
+    "background":  {
+                       "service_worker":  "js/background-worker.js"
+                   },
+    "action":  {
+                   "default_popup":  "views/widget.html",
+                   "default_icon":  {
+                                        "16":  "assets/16.png",
+                                        "24":  "assets/24.png",
+                                        "32":  "assets/32.png",
+                                        "48":  "assets/48.png",
+                                        "64":  "assets/64.png",
+                                        "96":  "assets/96.png",
+                                        "128":  "assets/128.png"
+                                    },
+                   "default_title":  "Jiten Reader"
+               },
+    "options_ui":  {
+                       "page":  "views/settings.html",
+                       "open_in_tab":  true
+                   },
+    "icons":  {
+                  "16":  "assets/16.png",
+                  "24":  "assets/24.png",
+                  "32":  "assets/32.png",
+                  "48":  "assets/48.png",
+                  "64":  "assets/64.png",
+                  "96":  "assets/96.png",
+                  "128":  "assets/128.png"
+              },
+    "permissions":  [
+                        "contextMenus",
+                        "offscreen",
+                        "scripting",
+                        "storage"
+                    ],
+    "content_security_policy":  {
+                                    "extension_pages":  "script-src \u0027self\u0027 \u0027wasm-unsafe-eval\u0027; object-src \u0027self\u0027"
+                                },
+    "content_scripts":  [
+                            {
+                                "matches":  [
+                                                "\u003call_urls\u003e"
+                                            ],
+                                "js":  [
+                                           "js/ajb.js",
+                                           "js/gsm-settings-bridge.js"
+                                       ],
+                                "all_frames":  true,
+                                "match_about_blank":  true
+                            }
+                        ],
+    "host_permissions":  [
+                             "\u003call_urls\u003e"
+                         ],
+    "web_accessible_resources":  [
+                                     {
+                                         "resources":  [
+                                                           "assets/*",
+                                                           "css/*"
+                                                       ],
+                                         "matches":  [
+                                                         "\u003call_urls\u003e"
+                                                     ]
+                                     }
+                                 ],
+    "key":  "RDnU8X9qESWlTcGD55Vsdlfna93HJo1g"
 }

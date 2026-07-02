@@ -423,6 +423,28 @@
     "openLogs": "ログを開く",
     "quit": "終了"
   },
+  "changelog": {
+    "title": "変更点",
+    "versionRange": "{from} → {to}",
+    "loading": "リリースノートを読み込み中...",
+    "empty": "このアップデートのリリースノートはありません。",
+    "imageAlt": "リリースノート画像",
+    "fallbackNote": "最新のオンラインノートを読み込めなかったため、同梱されたリリースノートを表示しています。",
+    "continue": "続行",
+    "close": "閉じる",
+    "syncing": "バックエンドを同期中...",
+    "source": {
+      "loading": "読み込み中",
+      "bundled": "同梱ノート",
+      "remote": "最新ノート"
+    },
+    "backend": {
+      "title": "Pythonバックエンドを更新中",
+      "preparing": "バックエンド同期を準備中...",
+      "completed": "バックエンド同期が完了しました。",
+      "failed": "バックエンド同期に失敗しました。"
+    }
+  },
   "settings": {
     "hub": {
       "findSetting": "設定を探す",
@@ -454,6 +476,7 @@
       "showYuzuLauncher": "Yuzuランチャーを表示:",
       "runTransparencyOnStartup": "起動時に透過ツールを実行:",
       "runOverlayOnStartup": "起動時にオーバーレイを実行:",
+      "quitOnWindowClose": "ウィンドウを閉じたときにGSMを終了:",
       "textCaptureWizard": "キャプチャ設定後にテキストキャプチャウィザードを表示:"
     },
     "visibility": {
@@ -488,6 +511,9 @@
       "lastChecked": "最終確認: {time}",
       "checkForUpdates": "アップデートを確認",
       "checking": "確認中...",
+      "viewReleaseNotes": "リリースノートを表示",
+      "loadingReleaseNotes": "ノートを読み込み中...",
+      "releaseNotesUnavailable": "選択したアップデートのリリースノートは利用できません。",
       "updateNow": "今すぐアップデート",
       "updating": "アップデート中...",
       "unknown": "不明"
@@ -763,7 +789,9 @@
       "manualMenu": "手動 / メニュー:",
       "areaSelect": "エリア選択:",
       "wholeWindow": "ウィンドウ全体:",
-      "pause": "一時停止:"
+      "pause": "一時停止:",
+      "runAction": "実行",
+      "runActionTitle": "このアクションを今すぐ実行します"
     },
     "console": {
       "title": "コンソール",

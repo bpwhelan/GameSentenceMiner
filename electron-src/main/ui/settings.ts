@@ -23,6 +23,7 @@ import {
     getLaunchAgentMinimized,
     getLaunchTextractorMinimized,
     getPythonPath,
+    getQuitOnWindowClose,
     getRunOverlayOnStartup,
     getRunWindowTransparencyToolOnStartup,
     getSceneLaunchProfileForScene,
@@ -49,6 +50,7 @@ import {
     setPullPreReleases,
     setConsoleMode,
     setCustomPythonPackage,
+    setQuitOnWindowClose,
     setForceManualOcrAllProfiles,
     setIgnoreActiveSceneForOcr,
     setHasCompletedSetup,
@@ -901,6 +903,7 @@ function getSettingsSnapshot() {
         windowTransparencyTarget: store.get('windowTransparencyTarget') || '',
         runWindowTransparencyToolOnStartup: getRunWindowTransparencyToolOnStartup(),
         runOverlayOnStartup: getRunOverlayOnStartup(),
+        quitOnWindowClose: getQuitOnWindowClose(),
         textCaptureWizardEnabled: getTextCaptureWizardEnabled(),
         visibleTabs: getVisibleTabs(),
         statsEndpoint: getStatsEndpoint(),
@@ -933,6 +936,11 @@ interface SettingsIPCDependencies {
     getUpdateStatus: () => Promise<unknown>;
     checkForUpdates: () => Promise<unknown>;
     updateNow: () => Promise<unknown>;
+    showUpdateChangelogPreview?: (payload: {
+        fromVersion: string;
+        toVersion: string;
+        includePrereleases?: boolean;
+    }) => unknown;
 }
 
 export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
@@ -964,6 +972,30 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
             return null;
         }
         return await deps.updateNow();
+    });
+
+    ipcMain.handle('settings.showUpdateChangelogPreview', async (_event, payload) => {
+        if (!deps?.showUpdateChangelogPreview) {
+            return null;
+        }
+
+        const input = payload && typeof payload === 'object'
+            ? (payload as Record<string, unknown>)
+            : {};
+        const fromVersion =
+            typeof input.fromVersion === 'string' ? input.fromVersion.trim() : '';
+        const toVersion =
+            typeof input.toVersion === 'string' ? input.toVersion.trim() : '';
+
+        if (!fromVersion || !toVersion) {
+            return null;
+        }
+
+        return deps.showUpdateChangelogPreview({
+            fromVersion,
+            toVersion,
+            includePrereleases: input.includePrereleases === true,
+        });
     });
 
     ipcMain.handle('settings.saveSettings', async (_, settings: any) => {
@@ -1055,6 +1087,9 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         }
         if (typeof payload.runOverlayOnStartup === 'boolean') {
             setRunOverlayOnStartup(payload.runOverlayOnStartup);
+        }
+        if (typeof payload.quitOnWindowClose === 'boolean') {
+            setQuitOnWindowClose(payload.quitOnWindowClose);
         }
         if (typeof payload.textCaptureWizardEnabled === 'boolean') {
             setTextCaptureWizardEnabled(payload.textCaptureWizardEnabled);

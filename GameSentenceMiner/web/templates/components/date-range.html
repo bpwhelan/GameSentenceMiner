@@ -26,6 +26,9 @@
                 <option value="week">Current Week</option>
                 <option value="month">Current Month</option>
                 <option value="year">Current Year</option>
+                <option value="lastWeek">Last Week</option>
+                <option value="lastMonth">Last Month</option>
+                <option value="lastYear">Last Year</option>
                 <option value="7days">Last 7 Days</option>
                 <option value="30days">Last 30 Days</option>
                 <option value="365days">Last 365 Days</option>
@@ -86,6 +89,16 @@
                 fromInput.dispatchEvent(new Event('change'));
                 toInput.dispatchEvent(new Event('change'));
             },
+            lastWeek: function () {
+                var start = getWeekStart(new Date());
+                start.setDate(start.getDate() - 7);
+                var end = new Date(start);
+                end.setDate(start.getDate() + 6);
+                fromInput.value = toISODate(start);
+                toInput.value = toISODate(end);
+                fromInput.dispatchEvent(new Event('change'));
+                toInput.dispatchEvent(new Event('change'));
+            },
             month: function () {
                 var now = new Date();
                 var start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -95,10 +108,28 @@
                 fromInput.dispatchEvent(new Event('change'));
                 toInput.dispatchEvent(new Event('change'));
             },
+            lastMonth: function () {
+                var now = new Date();
+                var start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                var end = new Date(now.getFullYear(), now.getMonth(), 0);
+                fromInput.value = toISODate(start);
+                toInput.value = toISODate(end);
+                fromInput.dispatchEvent(new Event('change'));
+                toInput.dispatchEvent(new Event('change'));
+            },
             year: function () {
                 var now = new Date();
                 var start = new Date(now.getFullYear(), 0, 1);
                 var end = new Date(now.getFullYear(), 11, 31);
+                fromInput.value = toISODate(start);
+                toInput.value = toISODate(end);
+                fromInput.dispatchEvent(new Event('change'));
+                toInput.dispatchEvent(new Event('change'));
+            },
+            lastYear: function () {
+                var now = new Date();
+                var start = new Date(now.getFullYear() - 1, 0, 1);
+                var end = new Date(now.getFullYear() - 1, 11, 31);
                 fromInput.value = toISODate(start);
                 toInput.value = toISODate(end);
                 fromInput.dispatchEvent(new Event('change'));

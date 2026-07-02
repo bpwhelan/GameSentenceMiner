@@ -597,10 +597,6 @@
             "label": "멀티라인 문장 저장 필드:",
             "tooltip": "멀티라인 문장을 임시 저장하기 위한 Anki 필드입니다."
           },
-          "ocr_port": {
-            "label": "OCR WebSocket 포트:",
-            "tooltip": "OCR WebSocket 통신용 포트입니다. GSM도 이 포트에서 수신합니다."
-          },
           "texthooker_comm_port": {
             "label": "텍스트 피드 통신 WebSocket 포트:",
             "tooltip": "GSM 텍스트 피드 WebSocket 통신용 포트입니다."

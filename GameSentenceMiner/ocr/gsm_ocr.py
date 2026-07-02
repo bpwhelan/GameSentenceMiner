@@ -35,6 +35,7 @@ from GameSentenceMiner.ocr.compare import (
     normalize_for_comparison,
 )
 from GameSentenceMiner import obs
+from GameSentenceMiner.ocr.composite_layout import CompositeLayout
 from GameSentenceMiner.ocr.gsm_ocr_config import (
     OCRConfig,
     has_config_changed,
@@ -2148,6 +2149,13 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
                 if announce_ipc:
                     ocr_ipc.announce_error("Whole-window OCR capture failed")
 
+        elif command == ocr_ipc.OCRCommand.AREA_SELECT_OCR.value:
+            # Screen cropper blocks until the user finishes selecting, so run it
+            # off the IPC handler thread and ack immediately.
+            threading.Thread(target=run_area_select_ocr_once, daemon=True).start()
+            response["success"] = True
+            logger.info("IPC: Triggered Area-Select OCR")
+
         elif command == ocr_ipc.OCRCommand.TOGGLE_FORCE_STABLE.value:
             is_stable = get_controller().toggle_force_stable()
             response["success"] = True
@@ -2272,26 +2280,33 @@ def _normalize_size(size_obj: Any, fallback_width: int = 0, fallback_height: int
     return {"width": _safe_int(fallback_width), "height": _safe_int(fallback_height)}
 
 
-def _translate_bounding_rect(bounding_rect: dict[str, Any], offset_x: int, offset_y: int) -> dict[str, float]:
+def _translate_bounding_rect(bounding_rect: dict[str, Any], layout: "CompositeLayout") -> dict[str, float]:
+    xs = [float(bounding_rect.get(key, 0.0)) for key in ("x1", "x2", "x3", "x4")]
+    ys = [float(bounding_rect.get(key, 0.0)) for key in ("y1", "y2", "y3", "y4")]
+    # Shift the whole quad by a single per-region translation (picked from its
+    # center) so packed boxes map back to the source frame without distortion.
+    center_x = sum(xs) / 4.0
+    center_y = sum(ys) / 4.0
+    offset_x, offset_y = layout.offset_for_point(center_x, center_y)
     translated = {}
-    for key in ("x1", "x2", "x3", "x4"):
-        translated[key] = float(bounding_rect.get(key, 0.0)) + float(offset_x)
-    for key in ("y1", "y2", "y3", "y4"):
-        translated[key] = float(bounding_rect.get(key, 0.0)) + float(offset_y)
+    for key, value in zip(("x1", "x2", "x3", "x4"), xs):
+        translated[key] = value + float(offset_x)
+    for key, value in zip(("y1", "y2", "y3", "y4"), ys):
+        translated[key] = value + float(offset_y)
     return translated
 
 
-def _translate_line_to_source_space(line: dict[str, Any], offset_x: int, offset_y: int) -> dict[str, Any]:
+def _translate_line_to_source_space(line: dict[str, Any], layout: "CompositeLayout") -> dict[str, Any]:
     translated_line = {
         "text": str(line.get("text", "") or ""),
-        "bounding_rect": _translate_bounding_rect(line.get("bounding_rect", {}) or {}, offset_x, offset_y),
+        "bounding_rect": _translate_bounding_rect(line.get("bounding_rect", {}) or {}, layout),
         "words": [],
     }
     for word in line.get("words", []) or []:
         translated_line["words"].append(
             {
                 "text": str(word.get("text", "") or ""),
-                "bounding_rect": _translate_bounding_rect(word.get("bounding_rect", {}) or {}, offset_x, offset_y),
+                "bounding_rect": _translate_bounding_rect(word.get("bounding_rect", {}) or {}, layout),
             }
         )
     return translated_line
@@ -2416,8 +2431,9 @@ def build_overlay_coordinate_payload(response_dict: Any) -> dict[str, Any] | Non
 
     offset_x = _safe_int(crop_offset.get("x"))
     offset_y = _safe_int(crop_offset.get("y"))
+    crop_layout = CompositeLayout.from_metadata(crop_offset)
     translated_lines = _normalize_overlay_lookup_lines(
-        [_translate_line_to_source_space(line, offset_x, offset_y) for line in lines if isinstance(line, dict)]
+        [_translate_line_to_source_space(line, crop_layout) for line in lines if isinstance(line, dict)]
     )
     if not translated_lines:
         return None
@@ -2553,10 +2569,11 @@ def _rebase_second_pass_payload_to_first_pass(first_pass_payload: Any, second_pa
     rebased_pipeline["capture"] = copy.deepcopy(first_capture)
 
     rebased_processing = rebased_pipeline.setdefault("processing", {})
-    rebased_processing["crop_offset"] = {
-        "x": _safe_int(first_crop_offset.get("x"), 0) + ocr2_crop_x,
-        "y": _safe_int(first_crop_offset.get("y"), 0) + ocr2_crop_y,
-    }
+    # OCR2 ran on a crop of the (possibly packed) OCR1 composite at origin
+    # (ocr2_crop_x, ocr2_crop_y). Shift the first-pass layout into OCR2-crop space
+    # so per-region packing offsets still map OCR2 coordinates back to the source.
+    first_layout = CompositeLayout.from_metadata(first_crop_offset)
+    rebased_processing["crop_offset"] = first_layout.translate_dest(-ocr2_crop_x, -ocr2_crop_y).to_metadata()
     for key in ("capture_origin", "coordinate_mode", "crop_rectangles"):
         if key in first_processing:
             rebased_processing[key] = copy.deepcopy(first_processing[key])
@@ -2700,10 +2717,10 @@ class OCRProcessor:
         crop_offset = metadata.get("ocr_area_crop_offset")
         if not isinstance(crop_offset, dict):
             crop_offset = {"x": 0, "y": 0}
-        metadata["ocr_area_crop_offset"] = {
-            "x": _safe_int(crop_offset.get("x"), 0) + int(add_x),
-            "y": _safe_int(crop_offset.get("y"), 0) + int(add_y),
-        }
+        # OCR2 runs on a crop at (add_x, add_y) of the prior composite; shift the
+        # layout into that crop's space so packed per-region offsets stay valid.
+        layout = CompositeLayout.from_metadata(crop_offset)
+        metadata["ocr_area_crop_offset"] = layout.translate_dest(-int(add_x), -int(add_y)).to_metadata()
         return metadata
 
     def _prepare_beangate_secondary_ocr2_image(self, img, ignore_furigana_filter=False):
@@ -2803,6 +2820,9 @@ class OCRProcessor:
                 image_metadata=working_image_metadata,
                 return_payload=True,
                 source=source,
+                # Menu/black-hole skips only for automatic OCR; manual & secondary
+                # (menu-OCR hotkey) explicitly want that region's text.
+                apply_area_filters=(source == TextSource.OCR),
             )
 
             # Area-select / ad-hoc OCR (screen cropper, whole-window, secondary)
@@ -3034,6 +3054,7 @@ def _run_second_ocr_callback(img, last_result, filtering, engine, **kw):
         furigana_filter_sensitivity=furigana_filter_sensitivity,
         return_payload=True,
         source=kw.get("source", TextSource.OCR),
+        apply_area_filters=(kw.get("source", TextSource.OCR) == TextSource.OCR),
     )
     return SecondPassResult(
         text=text or "",
@@ -3238,14 +3259,34 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
 
     if reload_area:
         try:
-            ocr_config_changed = ocr_config is None or has_config_changed(ocr_config)
+            from GameSentenceMiner.ocr.gsm_ocr_config import get_scene_ocr_config
+
+            # Live edits should always re-apply, even if the gate can't see a
+            # diff (e.g. the global config read a divergent path).
+            force = bool(payload.get("force"))
+            ocr_config_changed = force or ocr_config is None or has_config_changed(ocr_config)
             if ocr_config_changed:
                 logger.info("IPC: OCR area config changed, reloading...")
+                # Stale cached scaled configs would otherwise shadow the new areas.
+                ocr_runtime.clear_scaled_ocr_config_cache()
                 ocr_config = get_ocr_config(use_window_for_config=True, window=obs.get_current_game())
                 if hasattr(ocr_runtime, "screenshot_thread") and ocr_runtime.screenshot_thread:
                     ocr_runtime.screenshot_thread.ocr_config = ocr_config
-                if hasattr(ocr_runtime, "obs_screenshot_thread") and ocr_runtime.obs_screenshot_thread:
-                    ocr_runtime.obs_screenshot_thread.init_config()
+                obs_thread = getattr(ocr_runtime, "obs_screenshot_thread", None)
+                if obs_thread:
+                    # Swap the running config directly instead of init_config(),
+                    # which re-runs OBS source detection. That detection can race
+                    # the capture thread, fail, and return early WITHOUT updating
+                    # ocr_config -- leaving the old (whole-window) crop in place.
+                    new_scene_config = get_scene_ocr_config(refresh=True)
+                    width = getattr(obs_thread, "width", None)
+                    height = getattr(obs_thread, "height", None)
+                    if new_scene_config and width and height:
+                        new_scene_config.scale_to_custom_size(width, height)
+                        obs_thread.ocr_config = new_scene_config
+                    else:
+                        # Dimensions not known yet -> fall back to full init.
+                        obs_thread.init_config()
                 reset_callback_vars()
         except Exception as e:
             logger.debug(f"IPC: Error reloading OCR area config: {e}")
@@ -3541,6 +3582,39 @@ def run_whole_window_ocr_once(source=TextSource.MANUAL) -> bool:
     return True
 
 
+def run_area_select_ocr_once(source=TextSource.SCREEN_CROPPER) -> bool:
+    """Launch the screen cropper and queue an area-select OCR pass.
+
+    Owned by this OCR subprocess (shared by the hotkey and the IPC command).
+    """
+    from GameSentenceMiner.ui.qt_main import launch_screen_cropper
+
+    logger.info("Running Area-Select OCR via screen cropper...")
+    capture_time = datetime.now()
+    cropped_img = launch_screen_cropper(transparent_mode=False)
+
+    if not cropped_img:
+        logger.info("Screen cropper cancelled")
+        return False
+
+    image_metadata = get_screen_crop_image_metadata(cropped_img)
+    second_ocr_queue.put(
+        (
+            "",
+            capture_time,
+            cropped_img,
+            TextFiltering(lang=get_ocr_language()),
+            None,
+            True,
+            True,
+            image_metadata,
+            None,
+            source,
+        )
+    )
+    return True
+
+
 def add_ss_hotkey():
     # We'll create the signal helper when the Qt app is available
     global _screen_cropper_signals
@@ -3594,34 +3668,8 @@ def add_ss_hotkey():
             source=TextSource.SECONDARY,
         )
 
-    filtering = TextFiltering(lang=get_ocr_language())
-
     def capture_screen_crop():
-        from GameSentenceMiner.ui.qt_main import launch_screen_cropper
-
-        print("Taking screenshot via screen cropper...")
-        capture_time = datetime.now()
-        cropped_img = launch_screen_cropper(transparent_mode=False)
-
-        global second_ocr_queue
-        if cropped_img:
-            image_metadata = get_screen_crop_image_metadata(cropped_img)
-            second_ocr_queue.put(
-                (
-                    "",
-                    capture_time,
-                    cropped_img,
-                    filtering,
-                    None,
-                    True,
-                    True,
-                    image_metadata,
-                    None,
-                    TextSource.SCREEN_CROPPER,
-                )
-            )
-        else:
-            logger.info("Screen cropper cancelled")
+        run_area_select_ocr_once()
 
     def capture_whole_window():
         run_whole_window_ocr_once(source=TextSource.MANUAL)

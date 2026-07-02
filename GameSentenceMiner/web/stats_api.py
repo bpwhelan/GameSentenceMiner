@@ -27,6 +27,7 @@ from GameSentenceMiner.util.jiten_difficulty import get_jiten_difficulty_label
 from GameSentenceMiner.web.rollup_stats import (
     calculate_difficulty_speed_from_rollup,
     calculate_genre_tag_stats_from_rollup,
+    get_first_date_combined,
 )
 from GameSentenceMiner.util.stats.stats_util import (
     count_cards_from_line,
@@ -858,7 +859,7 @@ def _build_all_games_stats(
     if completed_games_count is None:
         completed_games_count = len(GamesTable.get_all_completed() or [])
     if first_date is None:
-        first_date = StatsRollupTable.get_first_date()
+        first_date = get_first_date_combined()
 
     all_games_stats: dict = {
         "total_characters": combined_stats.get("total_characters", 0),
@@ -2092,8 +2093,8 @@ def register_stats_api_routes(app):
                 if end_date < start_date:
                     start_date, end_date = end_date, start_date
             elif use_all_time:
-                # Get all data from first rollup date to today
-                first_rollup_date = StatsRollupTable.get_first_date()
+                # Get all data from first rollup/third-party date to today
+                first_rollup_date = get_first_date_combined()
                 if not first_rollup_date:
                     return jsonify({"labels": [], "timeData": [], "charsData": [], "speedData": []}), 200
 

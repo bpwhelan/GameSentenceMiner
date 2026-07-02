@@ -316,7 +316,9 @@ const GoalsUtils = {
                 name: g.title_original || g.title_romaji || g.title_english || '(unnamed)',
                 // Total game length (jiten.moe) is the ideal "finish" target; fall
                 // back to characters mined so far when no jiten length is linked.
-                charCount: g.jiten_character_count || g.mined_character_count || 0
+                charCount: g.jiten_character_count || g.mined_character_count || 0,
+                // Game's media type (e.g. "Visual Novel"); used to pre-tag finish_game goals.
+                mediaType: g.type || ''
             }));
         } catch (error) {
             console.error('Failed to load games list for goals:', error);
@@ -1620,7 +1622,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 const id = g.id != null ? String(g.id) : '';
                 const name = g.name || '(unnamed)';
                 const charCount = g.charCount || 0;
-                return `<option value="${id}" data-name="${escapeHtmlAttr(name)}" data-char-count="${charCount}">${escapeHtmlAttr(name)}</option>`;
+                const mediaType = g.mediaType || '';
+                return `<option value="${id}" data-name="${escapeHtmlAttr(name)}" data-char-count="${charCount}" data-media-type="${escapeHtmlAttr(mediaType)}">${escapeHtmlAttr(name)}</option>`;
             }).join('');
         if (selectedId) {
             select.value = String(selectedId);
@@ -1645,6 +1648,26 @@ document.addEventListener('DOMContentLoaded', function () {
         if (current === '' || current === _lastAutoFilledCharCount) {
             targetInput.value = String(charCount);
             _lastAutoFilledCharCount = String(charCount);
+        }
+    }
+
+    // Pre-tag a "finish a game by date" goal with the selected game's media type
+    // (e.g. totsuraba → Visual Novel), pre-selected but overridable. Only overwrites
+    // the default/previously auto-filled value so a manual override is preserved.
+    let _lastAutoFilledMediaType = '';
+    function applyGameMediaTypeToTarget() {
+        if (document.getElementById('goalMetricType')?.value !== 'finish_game') return;
+        const select = document.getElementById('goalGameType');
+        const mediaSelect = document.getElementById('goalMediaType');
+        if (!select || !mediaSelect) return;
+        const opt = select.selectedOptions[0];
+        const gameMediaType = opt ? (opt.dataset.mediaType || '') : '';
+        // Only pre-select a type the dropdown actually offers.
+        if (!gameMediaType || !Array.from(mediaSelect.options).some(o => o.value === gameMediaType)) return;
+        const current = mediaSelect.value;
+        if (current === 'ALL' || current === _lastAutoFilledMediaType) {
+            mediaSelect.value = gameMediaType;
+            _lastAutoFilledMediaType = gameMediaType;
         }
     }
 
@@ -1683,11 +1706,15 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        // Media-type filter is meaningless when scoped to one game (the backend
-        // reads that game's lines directly and ignores media_type), so hide it.
+        // Media-type filter is meaningless when scoped to one game's lines, so hide
+        // it for game-scoped goals — except finish_game, where the media type tags
+        // the goal (pre-filled from the game, e.g. a VN) rather than filtering.
         const mediaTypeContainer = document.getElementById('goalMediaTypeContainer');
         if (mediaTypeContainer) {
-            mediaTypeContainer.style.display = isGameScoped ? 'none' : 'block';
+            mediaTypeContainer.style.display = (isGameScoped && !isFinishGame) ? 'none' : 'block';
+        }
+        if (isFinishGame) {
+            applyGameMediaTypeToTarget();
         }
         const targetValueContainer = document.getElementById('goalTargetValueContainer');
         const timeValueContainer = document.getElementById('goalTimeValueContainer');
@@ -1916,6 +1943,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const goalGameTypeSelect = document.getElementById('goalGameType');
     if (goalGameTypeSelect) {
         goalGameTypeSelect.addEventListener('change', applyGameCharCountToTarget);
+        goalGameTypeSelect.addEventListener('change', applyGameMediaTypeToTarget);
     }
     const goalScopeToGameToggle = document.getElementById('goalScopeToGame');
     if (goalScopeToGameToggle) {
@@ -1946,6 +1974,7 @@ document.addEventListener('DOMContentLoaded', function () {
         addCustomGoalBtn.addEventListener('click', function () {
             editingGoalId = null;
             _lastAutoFilledCharCount = '';
+            _lastAutoFilledMediaType = '';
             customGoalModalTitle.textContent = 'Add Custom Goal';
             customGoalForm.reset();
             customGoalModal.style.display = 'flex';
@@ -2098,6 +2127,10 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         editingGoalId = goalId;
+        // Reset auto-fill trackers so the goal's saved target/media type (which may
+        // be a manual override) is preserved rather than re-pulled from the game.
+        _lastAutoFilledCharCount = '';
+        _lastAutoFilledMediaType = '';
         customGoalModalTitle.textContent = 'Edit Custom Goal';
 
         document.getElementById('goalName').value = goal.name;

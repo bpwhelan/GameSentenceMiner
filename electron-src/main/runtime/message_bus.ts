@@ -122,9 +122,17 @@ export class MessageBroker extends EventEmitter {
         this.pending.clear();
         this.buffers.clear();
 
+        const sockets = new Set<WebSocket>();
         for (const client of this.clients.values()) {
+            sockets.add(client.socket);
+        }
+        for (const socket of this.server?.clients ?? []) {
+            sockets.add(socket);
+        }
+
+        for (const socket of sockets) {
             try {
-                client.socket.close();
+                socket.terminate();
             } catch {
                 // Best-effort during teardown.
             }

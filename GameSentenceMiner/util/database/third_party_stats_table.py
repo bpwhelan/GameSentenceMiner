@@ -51,6 +51,13 @@ class ThirdPartyStatsTable(SQLiteDBTable):
         self.created_at = created_at if created_at is not None else time.time()
 
     @classmethod
+    def get_first_date(cls) -> Optional[str]:
+        """Get the earliest date with third-party stats data."""
+        row = cls._db.fetchone(f"SELECT date FROM {cls._table} ORDER BY date ASC LIMIT 1")
+        result = row[0] if row else None
+        return result
+
+    @classmethod
     def get_date_range(cls, start_date: str, end_date: str) -> List["ThirdPartyStatsTable"]:
         """Get all third-party stats rows within a date range (inclusive)."""
         rows = cls._db.fetchall(

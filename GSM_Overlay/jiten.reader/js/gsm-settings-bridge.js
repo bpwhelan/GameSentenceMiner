@@ -2,36 +2,24 @@
 //
 // Runs as a content script alongside ajb.js. Listens for window.postMessage
 // requests of type 'gsm-jiten-settings-request' and replies with the relevant
-// SRS highlighting configuration drawn from chrome.storage.local. This lets
-// the overlay piggyback on the user's Jiten Reader settings (markIPlus1,
-// markTopX, newStates, etc.) without duplicating the UI.
-//
-// Protocol:
-//   request : { type: 'gsm-jiten-settings-request', requestId }
-//   response: { type: 'gsm-jiten-settings-response', requestId, data, error? }
-//
-// `data` is a plain object containing the settings the overlay understands.
-// Unknown / missing keys are simply omitted; the consumer falls back to its
-// own defaults.
+// SRS highlighting configuration from chrome.storage.local. This lets GSM reuse
+// the user's active Jiten Reader profile settings without duplicating the UI.
 
 (function () {
   'use strict';
 
-  // Only run in the top frame to avoid duplicate replies on framed pages.
   try {
     if (window.top !== window) return;
   } catch (_) {
     return;
   }
 
-  // chrome.storage may be unavailable in some content-script contexts; bail
-  // gracefully if so. The overlay will fall back to defaults.
   if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
     return;
   }
 
-  // Known setting keys the overlay cares about. Values mirror the names used
-  // by Jiten Reader's existing options UI. Anything else is ignored.
+  var PROFILES_STATE_KEY = '__profiles__';
+  var DEFAULT_PROFILE_ID = 'default';
   var RELEVANT_KEYS = [
     'markIPlus1',
     'markTopX',
@@ -42,76 +30,82 @@
     'newStates',
     'activeProfile',
     'profiles',
-    // Grading-bar config (mirrored into the Yomitan popup's grading bar).
     'showGradingActions',
     'jitenUseTwoGrades',
     'jitenDisableReviews',
   ];
 
+  function hasOwn(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj, key);
+  }
+
+  function parseJson(value) {
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value);
+    } catch (_) {
+      return value;
+    }
+  }
+
+  function getActiveProfileId(all) {
+    var profilesRaw = all[PROFILES_STATE_KEY];
+    var profilesState = parseJson(profilesRaw);
+    if (
+      profilesState &&
+      typeof profilesState.activeProfileId === 'string' &&
+      profilesState.activeProfileId
+    ) {
+      return profilesState.activeProfileId;
+    }
+
+    var legacyActiveProfile = all.activeProfile;
+    if (typeof legacyActiveProfile === 'string' && legacyActiveProfile) {
+      return legacyActiveProfile;
+    }
+
+    return DEFAULT_PROFILE_ID;
+  }
+
+  function getProfileValue(all, activeProfileId, key) {
+    var profileKey = 'profile:' + activeProfileId + ':' + key;
+    if (hasOwn(all, profileKey)) {
+      return all[profileKey];
+    }
+    if (hasOwn(all, key)) {
+      return all[key];
+    }
+    return undefined;
+  }
+
   function readSettings() {
     return new Promise(function (resolve) {
       try {
-        chrome.storage.local.get(null, function (all) {
+        chrome.storage.local.get(null, function (items) {
           if (chrome.runtime && chrome.runtime.lastError) {
             resolve({});
             return;
           }
+
+          var all = items && typeof items === 'object' ? items : {};
+          var activeProfileId = getActiveProfileId(all);
           var out = {};
-          if (!all || typeof all !== 'object') {
-            resolve(out);
-            return;
-          }
-          // Pass through any matching top-level keys verbatim.
+
           for (var i = 0; i < RELEVANT_KEYS.length; i++) {
-            var k = RELEVANT_KEYS[i];
-            if (Object.prototype.hasOwnProperty.call(all, k)) {
-              out[k] = all[k];
-            }
-          }
-          // Jiten Reader stores per-profile values as `profile:<id>:<key>`.
-          // If an active profile is set, lift its values to the top level so
-          // the consumer doesn't need to know about the profile scheme.
-          var activeProfile = out.activeProfile || all.activeProfile;
-          if (activeProfile) {
-            var prefix = 'profile:' + activeProfile + ':';
-            for (var key in all) {
-              if (!Object.prototype.hasOwnProperty.call(all, key)) continue;
-              if (key.indexOf(prefix) !== 0) continue;
-              var shortKey = key.slice(prefix.length);
-              if (RELEVANT_KEYS.indexOf(shortKey) === -1) continue;
-              // Profile-scoped values win over top-level fallbacks.
-              out[shortKey] = all[key];
+            var key = RELEVANT_KEYS[i];
+            var value = getProfileValue(all, activeProfileId, key);
+            if (typeof value !== 'undefined') {
+              out[key] = value;
             }
           }
 
-          // Availability signals so the overlay can verify the extension can
-          // actually parse before doing highlight work (and recover on its own
-          // once the user fixes things) instead of guessing from failures.
-          //
-          // The API key is profile-scoped under `profile:<activeProfileId>:jitenApiKey`
-          // (active profile lives in the `__profiles__` state JSON), with a
-          // legacy top-level fallback. We only report whether a key EXISTS — the
-          // raw key never leaves the extension.
-          var activeProfileId = 'default';
-          try {
-            var profilesRaw = all['__profiles__'];
-            if (profilesRaw) {
-              var profilesState = (typeof profilesRaw === 'string') ? JSON.parse(profilesRaw) : profilesRaw;
-              if (profilesState && profilesState.activeProfileId) {
-                activeProfileId = profilesState.activeProfileId;
-              }
-            }
-          } catch (_) { /* fall back to 'default' */ }
-          var apiKeyValue = all['profile:' + activeProfileId + ':jitenApiKey'];
-          if (typeof apiKeyValue !== 'string' || !apiKeyValue.length) {
-            apiKeyValue = all['jitenApiKey'];
-          }
+          var apiKeyValue = getProfileValue(all, activeProfileId, 'jitenApiKey');
           out.hasApiKey = typeof apiKeyValue === 'string' && apiKeyValue.trim().length > 0;
-          out.parsingPaused = all['parsingPaused'] === true || all['parsingPaused'] === 'true';
+          out.parsingPaused = all.parsingPaused === true || all.parsingPaused === 'true';
 
           resolve(out);
         });
-      } catch (e) {
+      } catch (_) {
         resolve({});
       }
     });
@@ -123,28 +117,35 @@
     if (!msg || typeof msg !== 'object') return;
     if (msg.type !== 'gsm-jiten-settings-request') return;
     var requestId = msg.requestId;
-    readSettings().then(function (data) {
-      try {
-        window.postMessage({
-          type: 'gsm-jiten-settings-response',
-          requestId: requestId,
-          data: data,
-        }, '*');
-      } catch (_) { /* swallow */ }
-    }).catch(function (err) {
-      try {
-        window.postMessage({
-          type: 'gsm-jiten-settings-response',
-          requestId: requestId,
-          data: {},
-          error: String((err && err.message) || err),
-        }, '*');
-      } catch (_) { /* swallow */ }
-    });
+    readSettings()
+      .then(function (data) {
+        try {
+          window.postMessage(
+            {
+              type: 'gsm-jiten-settings-response',
+              requestId: requestId,
+              data: data,
+            },
+            '*',
+          );
+        } catch (_) {}
+      })
+      .catch(function (err) {
+        try {
+          window.postMessage(
+            {
+              type: 'gsm-jiten-settings-response',
+              requestId: requestId,
+              data: {},
+              error: String((err && err.message) || err),
+            },
+            '*',
+          );
+        } catch (_) {}
+      });
   });
 
-  // Announce availability so consumers can skip polling on slow loads.
   try {
     window.postMessage({ type: 'gsm-jiten-settings-ready' }, '*');
-  } catch (_) { /* swallow */ }
+  } catch (_) {}
 })();

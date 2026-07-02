@@ -303,13 +303,13 @@
     "Use regular keyboard keys for best compatibility";
 
   const CARD_HTML = `
-    <h4>Manual Mode</h4>
+    <h4>Push to Show</h4>
     <label>
       <span class="label-text">Only Show Overlay on Hotkey (Enabled)</span>
       <input type="checkbox" id="manualMode" />
     </label>
     <label>
-      <span class="label-text">Manual Mode Type</span>
+      <span class="label-text">Push to Show Type</span>
       <select id="manualModeType">
         <option value="hold">Hold (press and hold to show)</option>
         <option value="toggle">Toggle (press once to show, press again to hide)</option>
@@ -335,7 +335,7 @@
     <div id="manual-hotkey-runtime-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;"></div>
     <label>
       <span class="label-text">
-        Re-Scan When Entering Manual Mode
+        Re-Scan When Showing Overlay
         <div class="hotkey-info">Trigger the same backend scan used by GSM's manual overlay scan actions</div>
       </span>
       <input type="checkbox" id="manualModeRescanOnShow" />
@@ -343,7 +343,7 @@
     <label>
       <span class="label-text">
         Hotkey
-        <div class="hotkey-info">Used for the selected manual mode type above</div>
+        <div class="hotkey-info">Used for the selected Push to Show type above</div>
         <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
         <div id="ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
       </span>

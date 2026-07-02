@@ -356,32 +356,6 @@ export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
     notes: "Saved per GSM profile."
   },
   {
-    id: "gsm-overlay",
-    label: "Overlay OCR",
-    owner: "python",
-    keywords: [
-      "overlay",
-      "overlay ocr",
-      "ocr area",
-      "monitor",
-      "capture area",
-      "overlay engine",
-      "minimum character size",
-      "periodic scan",
-      "periodic interval",
-      "periodic ratio",
-      "use ocr result",
-      "select area",
-      "full screen ocr"
-    ],
-    shortDescription: "Choose monitor, OCR area, and backend overlay capture behavior.",
-    openAction: {
-      ...OPEN_GSM_SETTINGS,
-      rootTabKey: "overlay"
-    },
-    notes: "Saved per GSM profile."
-  },
-  {
     id: "gsm-advanced-network",
     label: "Advanced",
     owner: "python",
@@ -434,7 +408,7 @@ export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
   },
   {
     id: "overlay-display-hotkeys",
-    label: "Overlay display and hotkeys",
+    label: "Overlay display, OCR, and hotkeys",
     owner: "overlay",
     keywords: [
       "overlay",
@@ -460,18 +434,31 @@ export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
       "startup",
       "auto minimize",
       "afk timer",
+      "push to show",
       "manual mode",
       "only show on hotkey",
-      "manual mode type",
-      "show overlay",
-      "hide overlay",
+      "push to show type",
       "window visibility",
       "furigana",
       "hide furigana on startup",
       "toggle furigana hotkey",
-      "yomitan settings"
+      "yomitan settings",
+      "overlay ocr",
+      "ocr engine",
+      "ocr area",
+      "select ocr area",
+      "monitor",
+      "monitor to capture",
+      "capture area",
+      "minimum character size",
+      "periodic scan",
+      "periodic interval",
+      "scan on mouse move",
+      "use ocr result",
+      "text filtering",
+      "full screen ocr"
     ],
-    shortDescription: "Overlay visibility, furigana display, indicators, offsets, and hotkeys.",
+    shortDescription: "Overlay visibility, furigana, OCR engine/monitor/area, indicators, offsets, and hotkeys.",
     openAction: OPEN_OVERLAY_SETTINGS,
     notes: "Saved in the overlay window itself."
   },

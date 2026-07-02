@@ -1,11 +1,15 @@
 import asyncio
 import os
+import platform
 import secrets
 import shlex
+import shutil
 import subprocess
+import time
 
 from GameSentenceMiner import anki
 from GameSentenceMiner.util.config.configuration import gsm_state, logger, get_config
+from GameSentenceMiner.util.gsm_utils import sanitize_filename
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.media.audio_player import AudioPlayer
 from GameSentenceMiner.util.media.ffmpeg import get_video_timings
@@ -195,8 +199,91 @@ def _trim_video_for_line(line: GameLine, video_path: str, trim_with_vad: bool) -
     return ffmpeg.trim_replay_for_gameline(video_path, start_time, end_time, accurate=True)
 
 
+def _open_folder(folder_path: str):
+    try:
+        if platform.system() == "Windows":
+            os.startfile(folder_path)
+        elif platform.system() == "Darwin":
+            subprocess.Popen(["open", folder_path])
+        else:
+            subprocess.Popen(["xdg-open", folder_path])
+    except Exception as e:
+        logger.error(f"Error opening output folder: {e}")
+
+
+def create_media_for_lines(video_path=""):
+    """Generate media (screenshot/audio/trimmed video) for the given line(s) into the output
+    folder without creating an Anki card. Used by the non-Anki / Migaku helper button."""
+    config = get_config()
+    lines = gsm_state.lines_for_media_creation or []
+    request = gsm_state.media_creation_request or {}
+    trim_with_vad = bool(request.get("trim_with_vad", False))
+    open_folder = bool(request.get("open_folder", config.paths.open_output_folder_on_card_creation))
+
+    gsm_state.lines_for_media_creation = None
+    gsm_state.media_creation_request = {}
+    gsm_state.previous_lines_for_media_creation = lines
+
+    if not lines or not config.paths.output_folder:
+        return
+
+    primary_line: GameLine = lines[0]
+    line_cutoff = lines[-1].get_next_time()
+    full_text = "".join(line.text for line in lines if line and line.text)
+
+    date_path = os.path.join(config.paths.output_folder, time.strftime("%Y-%m"), time.strftime("%d"))
+    folder_name = sanitize_filename(full_text.strip())[:32].strip() or "line"
+    word_path = os.path.join(date_path, f"{folder_name}_{time.strftime('%H-%M-%S')}")
+    os.makedirs(word_path, exist_ok=True)
+
+    if config.screenshot.enabled:
+        try:
+            screenshot = ffmpeg.get_screenshot_for_line(video_path, primary_line, True)
+            if screenshot and os.path.isfile(screenshot):
+                shutil.copy(screenshot, word_path)
+        except Exception as e:
+            logger.error(f"Failed to create screenshot for media folder: {e}")
+
+    if config.audio.enabled:
+        try:
+            audio_path = get_audio_from_video(
+                primary_line,
+                line_cutoff,
+                video_path,
+                temporary=True,
+                use_vad_postprocessing=trim_with_vad,
+                full_text=full_text,
+            )
+            if audio_path and os.path.isfile(audio_path):
+                shutil.copy(audio_path, word_path)
+        except Exception as e:
+            logger.error(f"Failed to create audio for media folder: {e}")
+
+    if config.paths.copy_trimmed_replay_to_output_folder:
+        try:
+            trimmed_video = _trim_video_for_line(primary_line, video_path, trim_with_vad)
+            if trimmed_video and os.path.isfile(trimmed_video):
+                shutil.copy(trimmed_video, word_path)
+        except Exception as e:
+            logger.error(f"Failed to create trimmed video for media folder: {e}")
+
+    try:
+        with open(os.path.join(word_path, "sentence.txt"), "w", encoding="utf-8") as f:
+            f.write(full_text)
+    except Exception as e:
+        logger.error(f"Failed to write sentence text for media folder: {e}")
+
+    logger.info(f"Created media folder (no Anki card): {word_path}")
+    if open_folder:
+        _open_folder(word_path)
+
+
 def handle_texthooker_button(video_path=""):
     try:
+        if gsm_state.lines_for_media_creation:
+            create_media_for_lines(video_path)
+            return
+
         if gsm_state.line_for_audio:
             request = gsm_state.texthooker_audio_request or {}
             playback_mode = request.get("playback_mode", "native")

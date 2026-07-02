@@ -36,7 +36,6 @@ const CATALOG_I18N_KEYS: Record<string, string> = {
   "gsm-audio": "audio",
   "gsm-obs": "obs",
   "gsm-ai": "ai",
-  "gsm-overlay": "overlayOcr",
   "gsm-advanced-network": "advanced",
   "gsm-profiles": "profiles",
   "overlay-display-hotkeys": "overlayDisplay",
@@ -67,6 +66,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   windowTransparencyTarget: "",
   runWindowTransparencyToolOnStartup: false,
   runOverlayOnStartup: false,
+  quitOnWindowClose: false,
   textCaptureWizardEnabled: true,
   visibleTabs: ["launcher", "stats", "python", "console"],
   statsEndpoint: "overview",
@@ -116,7 +116,6 @@ const SETTINGS_QUICK_LINK_IDS = [
   "gsm-anki",
   "gsm-audio",
   "gsm-screenshot",
-  "gsm-overlay",
   "overlay-display-hotkeys",
   "overlay-gamepad"
 ];
@@ -211,6 +210,7 @@ export function SettingsTab({ active }: SettingsTabProps) {
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [isApplyingUpdates, setIsApplyingUpdates] = useState(false);
+  const [isLoadingReleaseNotes, setIsLoadingReleaseNotes] = useState(false);
   const [settingsSearchQuery, setSettingsSearchQuery] = useState("");
   const [hubMessage, setHubMessage] = useState<string | null>(null);
 
@@ -403,10 +403,57 @@ export function SettingsTab({ active }: SettingsTabProps) {
     }
   }, [loadUpdateStatus]);
 
+  const showUpdateChangelogPreview = useCallback(async () => {
+    const fromVersion = updateStatus.app.currentVersion?.trim() ?? "";
+    const toVersion = updateStatus.app.latestVersion?.trim() ?? "";
+    if (!fromVersion || !toVersion) {
+      setUpdateMessage(t("settings.updates.releaseNotesUnavailable"));
+      return;
+    }
+
+    setIsLoadingReleaseNotes(true);
+    setUpdateMessage(null);
+    try {
+      const snapshot = await invokeIpc<unknown>(
+        "settings.showUpdateChangelogPreview",
+        {
+          fromVersion,
+          toVersion,
+          includePrereleases: updateStatus.app.channel === "beta"
+        }
+      );
+      if (!snapshot) {
+        setUpdateMessage(t("settings.updates.releaseNotesUnavailable"));
+      }
+    } catch (error) {
+      console.error("Failed to load update release notes:", error);
+      setUpdateMessage(
+        error instanceof Error
+          ? error.message
+          : t("settings.updates.releaseNotesUnavailable")
+      );
+    } finally {
+      setIsLoadingReleaseNotes(false);
+    }
+  }, [
+    t,
+    updateStatus.app.channel,
+    updateStatus.app.currentVersion,
+    updateStatus.app.latestVersion
+  ]);
+
   const hasPendingUpdates =
     updateStatus.backend.updateAvailable || updateStatus.app.updateAvailable;
+  const canPreviewUpdateChangelog = Boolean(
+    updateStatus.app.updateAvailable &&
+      updateStatus.app.currentVersion?.trim() &&
+      updateStatus.app.latestVersion?.trim()
+  );
   const updateBusy =
-    isCheckingUpdates || isApplyingUpdates || updateStatus.anyUpdateInProgress;
+    isCheckingUpdates ||
+    isApplyingUpdates ||
+    isLoadingReleaseNotes ||
+    updateStatus.anyUpdateInProgress;
   const checkedAt =
     updateStatus.app.checkedAt && updateStatus.backend.checkedAt
       ? new Date(updateStatus.app.checkedAt) > new Date(updateStatus.backend.checkedAt)
@@ -679,6 +726,20 @@ export function SettingsTab({ active }: SettingsTabProps) {
               ) : null}
 
               <div className="input-group">
+                <label htmlFor="quit-on-window-close">
+                  {t("settings.desktop.quitOnWindowClose")}
+                </label>
+                <input
+                  id="quit-on-window-close"
+                  type="checkbox"
+                  checked={settings.quitOnWindowClose}
+                  onChange={(event) =>
+                    patchSettings({ quitOnWindowClose: event.target.checked })
+                  }
+                />
+              </div>
+
+              <div className="input-group">
                 <label htmlFor="text-capture-wizard-enabled">
                   {t("settings.desktop.textCaptureWizard")}
                 </label>
@@ -912,6 +973,18 @@ export function SettingsTab({ active }: SettingsTabProps) {
                   disabled={updateBusy}
                 >
                   {isCheckingUpdates ? t("settings.updates.checking") : t("settings.updates.checkForUpdates")}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    void showUpdateChangelogPreview();
+                  }}
+                  disabled={!canPreviewUpdateChangelog || updateBusy}
+                >
+                  {isLoadingReleaseNotes
+                    ? t("settings.updates.loadingReleaseNotes")
+                    : t("settings.updates.viewReleaseNotes")}
                 </button>
                 <button
                   type="button"

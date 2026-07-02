@@ -10,11 +10,14 @@ os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")  # Suppress TensorFlow logs
 os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")  # Suppress transformers logs
 
 from GameSentenceMiner.ocr.coordinate_math import scale_percentage_rectangle_to_even_pixels
+from GameSentenceMiner.ocr.composite_layout import CompositeLayout, pack_rectangles
 from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_scene_ocr_config
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, OCR_REPLACEMENTS_FILE
 from GameSentenceMiner.util.config.electron_config import (
     get_furigana_filter_sensitivity,
     get_ocr_base_scale,
+    get_ocr_compact_boxes,
+    get_ocr_compact_boxes_gap,
     get_ocr_keep_newline,
     get_ocr_language,
     get_ocr_obs_capture_preprocess_mode,
@@ -398,11 +401,17 @@ def _build_pipeline_metadata(image_metadata, img_or_path, engine_name, is_second
     crop_meta = meta.get("ocr_area_crop_offset") or {}
     offset_x = _safe_int(crop_meta.get("x"), 0)
     offset_y = _safe_int(crop_meta.get("y"), 0)
+    crop_regions = crop_meta.get("regions") if isinstance(crop_meta, dict) else None
     rectangles = meta.get("ocr_area_rectangles")
     if not isinstance(rectangles, list):
         rectangles = []
     capture_origin = meta.get("capture_origin") if isinstance(meta.get("capture_origin"), dict) else {}
     coordinate_mode = str(meta.get("coordinate_mode") or "source_content")
+
+    crop_offset_meta = {"x": offset_x, "y": offset_y}
+    if crop_regions:
+        # Preserve per-region packing so detected boxes map back to the source frame.
+        crop_offset_meta["regions"] = crop_regions
 
     return {
         "schema": "gsm_ocr_pipeline_v1",
@@ -415,7 +424,7 @@ def _build_pipeline_metadata(image_metadata, img_or_path, engine_name, is_second
         },
         "processing": {
             "processed_size": _size_dict(processed_w, processed_h),
-            "crop_offset": {"x": offset_x, "y": offset_y},
+            "crop_offset": crop_offset_meta,
             "crop_rectangles": rectangles,
             "capture_origin": {
                 "x": _safe_int(capture_origin.get("x"), 0),
@@ -2819,10 +2828,7 @@ class OBSScreenshotThread(threading.Thread):
                     "capture_source": "obs",
                     "capture_original_size": self.get_capture_original_size(capture_width, capture_height),
                     "capture_scaled_size": _size_dict(capture_width, capture_height),
-                    "ocr_area_crop_offset": {
-                        "x": _safe_int(crop_offset[0]),
-                        "y": _safe_int(crop_offset[1]),
-                    },
+                    "ocr_area_crop_offset": CompositeLayout.from_metadata(crop_offset).to_metadata(),
                     "ocr_area_rectangles": primary_rectangles,
                     "capture_preprocess_mode": capture_preprocess_mode,
                 }
@@ -2892,7 +2898,24 @@ def apply_ocr_config_to_image(
     return_full_size=True,
     both_types=False,
     sharpen_after_trim=False,
+    compact=None,
+    pack_gap=None,
 ):
+    # When `compact` is None, fall back to the config flag. Packing only applies to
+    # the cropped composite path (return_full_size=False); full-size frames are
+    # returned untouched.
+    if compact is None and not return_full_size:
+        try:
+            compact = get_ocr_compact_boxes()
+        except Exception:
+            compact = False
+    compact = bool(compact) and not return_full_size
+    if pack_gap is None:
+        try:
+            pack_gap = get_ocr_compact_boxes_gap()
+        except Exception:
+            pack_gap = 12
+
     def resolve_rectangle_coordinates(rectangle):
         raw_coordinates = list(getattr(rectangle, "coordinates", []) or [])
         if len(raw_coordinates) < 4:
@@ -2937,10 +2960,7 @@ def apply_ocr_config_to_image(
             )
     # If no rectangles to process, return the original image
     if not rectangles:
-        if return_full_size:
-            return img, (0, 0)
-        else:
-            return img, (0, 0)
+        return img, CompositeLayout((0, 0))
 
     # Sort top to bottom
     # rectangles.sort(key=lambda r: r.coordinates[1])
@@ -2950,10 +2970,7 @@ def apply_ocr_config_to_image(
         rectangle = rectangles[0]
         area = resolve_rectangle_coordinates(rectangle)
         if not area:
-            if return_full_size:
-                return img, (0, 0)
-            else:
-                return img, (0, 0)
+            return img, CompositeLayout((0, 0))
         # Ensure crop coordinates are within image bounds
         left = max(0, area[0])
         top = max(0, area[1])
@@ -2962,20 +2979,14 @@ def apply_ocr_config_to_image(
 
         # Return original image if coordinates are invalid
         if left >= right or top >= bottom:
-            if return_full_size:
-                return img, (0, 0)
-            else:
-                return img, (0, 0)
+            return img, CompositeLayout((0, 0))
 
         try:
             cropped_img = img.crop((left, top, right, bottom))
-            return cropped_img, (left, top)
+            return cropped_img, CompositeLayout((left, top))
         except ValueError:
             logger.warning("Error cropping image region, returning original")
-            if return_full_size:
-                return img, (0, 0)
-            else:
-                return img, (0, 0)
+            return img, CompositeLayout((0, 0))
 
     # Calculate the bounding box of all rectangles
     min_left = img.width
@@ -3005,10 +3016,33 @@ def apply_ocr_config_to_image(
 
     # If no valid rectangles, return original image
     if not valid_rectangles:
-        if return_full_size:
-            return img, (0, 0)
-        else:
-            return img, (0, 0)
+        return img, CompositeLayout((0, 0))
+
+    # Packed path: compress the transparent dead space between crops while keeping
+    # their relative layout, then record per-region offsets so detected boxes can
+    # be mapped back to the original frame. Centralized in composite_layout.py.
+    if compact:
+        boxes = [(left, top, right, bottom) for (_rect, left, top, right, bottom) in valid_rectangles]
+        regions, packed_width, packed_height = pack_rectangles(boxes, gap=pack_gap)
+        if regions and packed_width > 0 and packed_height > 0:
+            composite_img = Image.new("RGBA", (packed_width, packed_height), (0, 0, 0, 0))
+            for (_rect, left, top, right, bottom), region in zip(valid_rectangles, regions):
+                try:
+                    cropped_image = img.crop((left, top, right, bottom))
+                    composite_img.paste(cropped_image, (region.dest_x, region.dest_y))
+                except ValueError:
+                    logger.warning("Error cropping image region, skipping rectangle")
+                    continue
+            composite_img = _apply_trim_sharpen(composite_img, sharpen_after_trim)
+            bbox_w = max_right - min_left
+            bbox_h = max_bottom - min_top
+            bbox_area = bbox_w * bbox_h
+            shrink_pct = round(100 - (packed_width * packed_height * 100 / bbox_area)) if bbox_area else 0
+            logger.debug(
+                f"Compacted {len(regions)} OCR areas: {bbox_w}x{bbox_h} -> "
+                f"{packed_width}x{packed_height} (gap={pack_gap}px, {shrink_pct}% smaller area)"
+            )
+            return composite_img, CompositeLayout((min_left, min_top), regions)
 
     # Create a composite image sized to the bounding box or original image size
     if return_full_size:
@@ -3037,7 +3071,7 @@ def apply_ocr_config_to_image(
 
     if not return_full_size:
         composite_img = _apply_trim_sharpen(composite_img, sharpen_after_trim)
-    return composite_img, (offset_x, offset_y)
+    return composite_img, CompositeLayout((offset_x, offset_y))
 
 
 class AutopauseTimer:
@@ -3266,14 +3300,21 @@ def _coord_entry_to_original_box(coord_entry, crop_offset=(0, 0), crop_padding=5
         return None
 
     crop_padding = max(0, _safe_int(crop_padding, 5))
-    offset_x, offset_y = crop_offset or (0, 0)
 
-    crop_x += crop_padding + _safe_int(offset_x)
-    crop_y += crop_padding + _safe_int(offset_y)
-    crop_x2 -= crop_padding
-    crop_y2 -= crop_padding
-    crop_x2 += _safe_int(offset_x)
-    crop_y2 += _safe_int(offset_y)
+    # Strip the per-detection padding in composite space, then map back to the
+    # original frame. CompositeLayout handles both the uniform-crop case and the
+    # packed case (per-region offsets); a bare tuple keeps the legacy add-offset path.
+    composite_box = (
+        crop_x + crop_padding,
+        crop_y + crop_padding,
+        crop_x2 - crop_padding,
+        crop_y2 - crop_padding,
+    )
+    layout = crop_offset if isinstance(crop_offset, CompositeLayout) else CompositeLayout.from_metadata(crop_offset)
+    mapped = layout.map_box(composite_box)
+    if mapped is None:
+        return None
+    crop_x, crop_y, crop_x2, crop_y2 = [int(round(value)) for value in mapped]
 
     if crop_x2 < crop_x:
         crop_x, crop_x2 = crop_x2, crop_x
@@ -3562,8 +3603,14 @@ def process_and_write_results(
     image_metadata=None,
     return_payload=False,
     source="ocr",
+    apply_area_filters=None,
 ):
     global engine_index
+    # Black-hole / menu skips must run whenever we emit a result, not only when
+    # write_to is set. The second OCR pass returns via return value (write_to=None),
+    # so callers pass apply_area_filters explicitly for automatic OCR.
+    if apply_area_filters is None:
+        apply_area_filters = write_to is not None
     # TODO Replace this at a later date
     is_second_ocr = bool(engine)
     if auto_pause_handler:
@@ -3638,12 +3685,9 @@ def process_and_write_results(
                 engine_instance.name,
                 is_second_ocr,
             )
-            current_crop_offset = (
-                _safe_int(pipeline_metadata["processing"]["crop_offset"].get("x")),
-                _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
-            )
+            current_crop_offset = CompositeLayout.from_metadata(pipeline_metadata["processing"]["crop_offset"])
             original_size = pipeline_metadata["capture"]["scaled_size"]
-            if write_to is not None and check_text_is_in_black_hole(
+            if apply_area_filters and check_text_is_in_black_hole(
                 detection_payload.get("crop_coords", None),
                 detection_payload.get("crop_coords_list", []),
                 crop_offset=current_crop_offset,
@@ -3660,7 +3704,7 @@ def process_and_write_results(
                     original_width=original_size.get("width"),
                     original_height=original_size.get("height"),
                 )
-            if write_to is not None and check_text_is_all_menu(
+            if apply_area_filters and check_text_is_all_menu(
                 detection_payload.get("crop_coords", None),
                 detection_payload.get("crop_coords_list", []),
                 crop_offset=current_crop_offset,
@@ -3724,12 +3768,9 @@ def process_and_write_results(
             engine_instance.name,
             is_second_ocr,
         )
-        current_crop_offset = (
-            _safe_int(pipeline_metadata["processing"]["crop_offset"].get("x")),
-            _safe_int(pipeline_metadata["processing"]["crop_offset"].get("y")),
-        )
+        current_crop_offset = CompositeLayout.from_metadata(pipeline_metadata["processing"]["crop_offset"])
         original_size = pipeline_metadata["capture"]["scaled_size"]
-        if write_to is not None and check_text_is_in_black_hole(
+        if apply_area_filters and check_text_is_in_black_hole(
             crop_coords,
             crop_coords_list,
             crop_offset=current_crop_offset,
@@ -3773,9 +3814,11 @@ def process_and_write_results(
             "line_count": len(coords) if isinstance(coords, list) else 0,
         }
 
-        if write_to is not None:
+        if apply_area_filters:
             if check_text_is_all_menu(crop_coords, crop_coords_list, crop_offset=current_crop_offset):
                 logger.opt(ansi=True).info("Text is identified as all menu items, skipping further processing.")
+                if return_payload:
+                    return orig_text, "", None
                 return orig_text, ""
 
         logger.opt(ansi=True).info(
@@ -3906,10 +3949,13 @@ def check_text_is_all_menu(
         crop_y += offset_y
         crop_x2 += offset_x
         crop_y2 += offset_y
-        # Validate that crop coordinates are within bounds
-        if crop_x < 0 or crop_y < 0 or crop_x2 > original_width or crop_y2 > original_height:
-            # logger.info(f"Crop coordinates ({crop_x}, {crop_y}, {crop_x2}, {crop_y2}) are out of bounds.")
-            return False
+        # Reconstructed boxes (e.g. ScreenAI) can land a few px out of frame from
+        # rotation/padding rounding; clamp to the frame instead of aborting the
+        # whole-frame menu check (which would silently leak menu text through).
+        crop_x = max(0, min(crop_x, original_width))
+        crop_y = max(0, min(crop_y, original_height))
+        crop_x2 = max(0, min(crop_x2, original_width))
+        crop_y2 = max(0, min(crop_y2, original_height))
 
         # Check if this specific crop area falls within ANY menu rectangle
         found_in_menu = False
@@ -4009,7 +4055,7 @@ def run(
     :param read_from: Specifies where to read input images from. Can be either "clipboard", "websocket", "unixsocket" (on macOS/Linux), "screencapture", or a path to a directory.
     :param write_to: Specifies where to save recognized texts to. Can be either "clipboard", "websocket", or a path to a text file.
     :param delay_secs: How often to check for new images, in seconds.
-    :param engine: OCR engine to use. Available: "mangaocr", "glens", "glensweb", "bing", "gvision", "avision", "alivetext", "azure", "winrtocr", "oneocr", "screenai", "mlkitocr", "easyocr", "rapidocr", "ocrspace".
+    :param engine: OCR engine to use. Available: "mangaocr", "glens", "glensweb", "bing", "gvision", "avision", "alivetext", "azure", "winrtocr", "oneocr", "screenai", "mlkitocr", "ndlocrlite", "easyocr", "rapidocr", "ocrspace".
     :param pause_at_startup: Pause at startup.
     :param ignore_flag: Process flagged clipboard images (images that are copied to the clipboard with the *ocr_ignore* string).
     :param delete_images: Delete image files after processing when reading from a directory.

@@ -67,6 +67,10 @@ html {
   box-sizing: inherit;
 }
 
+::details-content {
+  box-sizing: inherit;
+}
+
 body,
 input {
   font-family: "Nunito Sans", "Noto Sans Symbols 2", "Segoe UI", "Noto Sans JP", "Noto Sans CJK JP", "Hiragino Sans GB", "Meiryo", sans-serif;

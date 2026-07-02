@@ -68,6 +68,10 @@ html {
   box-sizing: inherit;
 }
 
+::details-content {
+  box-sizing: inherit;
+}
+
 body,
 input {
   font-family: "Nunito Sans", "Noto Sans Symbols 2", "Segoe UI", "Noto Sans JP", "Noto Sans CJK JP", "Hiragino Sans GB", "Meiryo", sans-serif;
@@ -281,13 +285,11 @@ label[disabled] {
 
 input[type=number],
 input[type=password],
+input[type=search],
 input[type=text],
 input[type=url],
 textarea,
 select {
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
   height: 3em;
   width: 100%;
   font-size: 0.95em;
@@ -302,6 +304,7 @@ select {
 }
 input[type=number]:focus,
 input[type=password]:focus,
+input[type=search]:focus,
 input[type=text]:focus,
 input[type=url]:focus,
 textarea:focus,

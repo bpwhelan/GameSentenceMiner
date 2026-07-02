@@ -17,6 +17,7 @@ import { registerTextProcessIPC } from '../ui/textprocess.js';
 import { exportLogsArchive } from './log_export.js';
 import { BASE_DIR } from '../util.js';
 import { isAllowedDocsUrl } from '../../shared/docs.js';
+import type { DesktopUpdateChangelogSnapshot } from '../../shared/changelog.js';
 import type { InstallSessionSnapshot } from '../../shared/install_session.js';
 
 interface MainIPCDependencies {
@@ -25,8 +26,16 @@ interface MainIPCDependencies {
     getUpdateStatus: () => Promise<unknown>;
     checkForUpdates: () => Promise<unknown>;
     updateNow: () => Promise<unknown>;
+    showUpdateChangelogPreview: (payload: {
+        fromVersion: string;
+        toVersion: string;
+        includePrereleases?: boolean;
+    }) => unknown;
     getActiveInstallSession: () => InstallSessionSnapshot | null;
     retryInstallSession: () => Promise<boolean>;
+    getPendingDesktopUpdateChangelog: () => DesktopUpdateChangelogSnapshot | null;
+    markDesktopUpdateChangelogSeen: (toVersion?: string) => Promise<boolean> | boolean;
+    clearManualDesktopChangelog: () => void;
 }
 
 let ipcRegistered = false;
@@ -89,6 +98,7 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
         getUpdateStatus: deps.getUpdateStatus,
         checkForUpdates: deps.checkForUpdates,
         updateNow: deps.updateNow,
+        showUpdateChangelogPreview: deps.showUpdateChangelogPreview,
     });
     registerOCRUtilsIPC();
     registerFrontPageIPC();
@@ -189,6 +199,23 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
 
     ipcMain.handle('install-session.retry', async () => {
         return { success: await deps.retryInstallSession() };
+    });
+
+    ipcMain.handle('changelog.getPendingDesktopUpdate', async () => {
+        return deps.getPendingDesktopUpdateChangelog();
+    });
+
+    ipcMain.handle('changelog.markDesktopUpdateSeen', async (_event, toVersion?: unknown) => {
+        return {
+            success: await deps.markDesktopUpdateChangelogSeen(
+                typeof toVersion === 'string' ? toVersion : undefined
+            ),
+        };
+    });
+
+    ipcMain.handle('changelog.clearManualDisplay', async () => {
+        deps.clearManualDesktopChangelog();
+        return { success: true };
     });
 
     ipcMain.on('settings.iconStyleChanged', (_event, iconStyle) => {

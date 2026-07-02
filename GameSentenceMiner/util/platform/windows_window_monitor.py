@@ -62,6 +62,13 @@ _FORWARD_KEY_ALIASES: Dict[str, str] = {
     "esc": "escape",
 }
 
+# Left-click injection at the window center (parallel to the curated key forwarding).
+MOUSEEVENTF_LEFTDOWN = 0x0002
+MOUSEEVENTF_LEFTUP = 0x0004
+WM_LBUTTONDOWN = 0x0201
+WM_LBUTTONUP = 0x0202
+MK_LBUTTON = 0x0001
+
 WinEventProcType = ctypes.WINFUNCTYPE(
     None,
     wintypes.HANDLE,
@@ -1727,6 +1734,73 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         if foreground_hwnd == target_hwnd:
             return self._send_key_with_fallbacks(vk, scan, extended)
         return self._post_key_to_hwnd(target_hwnd, vk, scan, extended)
+
+    def _get_client_center_screen(self, hwnd: int) -> Optional[Tuple[int, int]]:
+        """Physical-pixel screen position of the target window client area's center."""
+        geometry = get_window_client_physical_geometry(hwnd)
+        if not geometry:
+            return None
+        x, y, width, height = geometry
+        if width <= 0 or height <= 0:
+            return None
+        return x + width // 2, y + height // 2
+
+    def _send_left_click_with_input(self, screen_x: int, screen_y: int) -> bool:
+        """Inject a real left click at the given screen point (works for games reading raw input)."""
+        if not is_windows():
+            return False
+        try:
+            with per_monitor_v2_dpi_context():
+                user32.SetCursorPos(int(screen_x), int(screen_y))
+                time.sleep(0.01)
+                user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                time.sleep(0.01)
+                user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+            return True
+        except Exception:
+            return False
+
+    def _post_click_to_hwnd(self, hwnd: int) -> bool:
+        """Best-effort PostMessage click at the client-area center (often ignored by games)."""
+        if not is_windows() or not hwnd:
+            return False
+        geometry = get_window_client_physical_geometry(hwnd)
+        if not geometry:
+            return False
+        _, _, width, height = geometry
+        cx = max(0, width // 2)
+        cy = max(0, height // 2)
+        lparam = ((cy & 0xFFFF) << 16) | (cx & 0xFFFF)
+        down_ok = bool(user32.PostMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lparam))
+        up_ok = bool(user32.PostMessageW(hwnd, WM_LBUTTONUP, 0, lparam))
+        return down_ok and up_ok
+
+    async def send_click_to_target_window(self, target_pid: Optional[int] = None, activate_window: bool = True) -> bool:
+        """Forward a left click to the center of the target game window's client area."""
+        if not is_windows():
+            return False
+
+        requested_pid = int(target_pid or 0)
+        target_hwnd = self._resolve_target_hwnd(requested_pid)
+        if not target_hwnd:
+            return False
+
+        self.target_hwnd = target_hwnd
+        center = self._get_client_center_screen(target_hwnd)
+
+        if activate_window:
+            focused = await self.activate_target_window()
+            if not focused:
+                return False
+            await asyncio.sleep(0.03)
+            if center:
+                return self._send_left_click_with_input(*center)
+            return False
+
+        foreground_hwnd = user32.GetForegroundWindow()
+        if foreground_hwnd == target_hwnd and center:
+            return self._send_left_click_with_input(*center)
+        return self._post_click_to_hwnd(target_hwnd)
 
     def post_enter_to_target_window(self, target_pid: Optional[int] = None) -> bool:
         """Backward-compatible direct PostMessage path."""

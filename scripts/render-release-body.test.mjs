@@ -42,3 +42,17 @@ test("renderPrereleaseBody warns users away from prereleases", () => {
     /\| Windows \(unpacked\) \| \[GameSentenceMiner-2026\.4\.3-beta\.1-win-unpacked\.zip\]/
   );
 });
+
+test("renderStableReleaseBody appends bundled changelog with release image URLs", () => {
+  const body = renderStableReleaseBody({
+    repo: "bpwhelan/GameSentenceMiner",
+    version: "2026.6.15",
+  });
+
+  assert.match(body, /## What's Changed/);
+  assert.match(body, /Desktop Update Notes/);
+  assert.match(
+    body,
+    /https:\/\/github\.com\/bpwhelan\/GameSentenceMiner\/releases\/download\/v2026\.6\.15\/changelog-assets-2026\.6\.15-2026\.6\.15-gsm-ready\.png/
+  );
+});

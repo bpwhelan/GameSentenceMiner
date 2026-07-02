@@ -10,7 +10,10 @@ import {
     shell,
     Tray,
 } from 'electron';
-import { sendNotificationFromPython } from './notifications.js';
+import {
+    sendGSMStillRunningInTrayNotification,
+    sendNotificationFromPython,
+} from './notifications.js';
 import * as path from 'path';
 import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import {
@@ -43,7 +46,9 @@ import {
     getAutoUpdateGSMApp,
     getPullPreReleases,
     getPreReleaseMetadataAutoEnableApplied,
+    getPendingDesktopChangelog,
     getPythonExtras,
+    getQuitOnWindowClose,
     getRunOverlayOnStartup,
     getRunWindowTransparencyToolOnStartup,
     getStartConsoleMinimized,
@@ -54,6 +59,10 @@ import {
     setHasCompletedSetup,
     getIconStyle,
     setIconStyle,
+    setPendingDesktopChangelog,
+    clearPendingDesktopChangelog,
+    hasSeenDesktopChangelog,
+    markDesktopChangelogSeen,
     setPythonExtras,
     setPullPreReleases,
     setPreReleaseMetadataAutoEnableApplied,
@@ -84,6 +93,14 @@ import { UpdateManager } from './services/update_manager.js';
 import type { UpdateStatusSnapshot } from './services/update_manager.js';
 import { devFaultInjector } from './services/dev_fault_injection.js';
 import { runUpdateChaosHarness } from './services/update_chaos_harness.js';
+import {
+    DesktopChangelogManager,
+    getDesktopUpdateChangelogTarget,
+} from './services/desktop_changelog.js';
+import {
+    registerChangelogProtocolHandler,
+    registerChangelogProtocolScheme,
+} from './services/changelog_protocol.js';
 import { getConfiguredSinglePort } from './gsm_config.js';
 import {
     getStatusTrayIconPath,
@@ -111,6 +128,8 @@ import type {
     InstallStageId,
 } from '../shared/install_session.js';
 import { INSTALL_STAGE_IDS } from '../shared/install_session.js';
+
+registerChangelogProtocolScheme();
 
 export class FeatureFlags {
     /**
@@ -239,6 +258,9 @@ let readyTrayFallbackIconCache: Electron.NativeImage | null = null;
 let backendStatusPollTimer: ReturnType<typeof setInterval> | null = null;
 let trayReadyIndicatorTimer: ReturnType<typeof setTimeout> | null = null;
 let trayReadyIndicatorExpiresAt = 0;
+let hasShownCloseToTrayNotification = false;
+let quitFromWindowCloseInProgress = false;
+let quitPromise: Promise<void> | null = null;
 const UPDATE_PROGRESS_PREFIX = 'UpdateProgress:';
 const STARTUP_REPAIR_WINDOW_MS = 15_000;
 const TRAY_READY_INDICATOR_MS = 10_000;
@@ -277,6 +299,8 @@ function safeSendToMainWindow(channel: string, payload: unknown): boolean {
 installSessionManager.setSnapshotListener((channel, snapshot) => {
     safeSendToMainWindow(channel, snapshot);
 });
+
+let desktopChangelogManager: DesktopChangelogManager;
 
 function ensureInstallSession(
     origin: InstallSessionOrigin,
@@ -664,6 +688,27 @@ function sendTerminalLog(payload: TerminalLogPayload): void {
 const __filename = fileURLToPath(import.meta.url);
 export const __dirname = path.dirname(__filename);
 
+desktopChangelogManager = new DesktopChangelogManager(
+    {
+        getPending: () => getPendingDesktopChangelog(),
+        setPending: (record) => setPendingDesktopChangelog(record),
+        clearPending: (toVersion) => clearPendingDesktopChangelog(toVersion),
+        hasSeen: (version) => hasSeenDesktopChangelog(version),
+        markSeen: (version) => markDesktopChangelogSeen(version),
+    },
+    {
+        assetsDir: getAssetsDir(),
+    }
+);
+
+desktopChangelogManager.setSnapshotListener((snapshot) => {
+    safeSendToMainWindow('changelog.snapshot', snapshot);
+});
+
+desktopChangelogManager.setManualSnapshotListener((snapshot) => {
+    safeSendToMainWindow('changelog.manualSnapshot', snapshot);
+});
+
 const updateManager = new UpdateManager({
     getPythonPath: () => pythonPath,
     closeAllPythonProcesses: async () => closeAllPythonProcesses(),
@@ -719,6 +764,22 @@ async function checkForAvailableUpdates(): Promise<UpdateStatusSnapshot> {
 
 async function updateAvailableTargets(): Promise<UpdateStatusSnapshot> {
     return await updateManager.updateAvailableTargets(true);
+}
+
+function showUpdateChangelogPreview(input: {
+    fromVersion: string;
+    toVersion: string;
+    includePrereleases?: boolean;
+}) {
+    return desktopChangelogManager.startUpdatePreview(
+        {
+            fromVersion: input.fromVersion,
+            toVersion: input.toVersion,
+        },
+        {
+            includePrereleases: input.includePrereleases,
+        }
+    );
 }
 
 function getGSMModulePath(): string {
@@ -1181,6 +1242,43 @@ function sendBackendCommand(fn: string, data?: Record<string, unknown>): boolean
     return bus.isConnected('backend');
 }
 
+let ocrHookRedundantDialogShown = false;
+
+/** Warn once that running auto OCR alongside a text hook is usually redundant,
+ *  and offer to stop OCR. The backend only emits this after several OCR lines
+ *  are dropped as echoes of hook lines. */
+async function showOcrHookRedundantDialog(): Promise<void> {
+    if (ocrHookRedundantDialogShown) {
+        return;
+    }
+    ocrHookRedundantDialogShown = true;
+    try {
+        const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+        const options: Electron.MessageBoxOptions = {
+            type: 'question',
+            buttons: ['Stop OCR', 'Keep Both Running'],
+            defaultId: 0,
+            cancelId: 1,
+            title: 'OCR and text hook both running',
+            message: "GSM noticed you're using a text hook and also have Auto OCR running.",
+            detail:
+                'Running both is usually unnecessary — the hook already captures the text.\n\n' +
+                'If you only kept OCR on for the overlay: the overlay is triggered by any text ' +
+                'source, so it works from the hook alone without Auto OCR running.\n\n' +
+                'If you want to keep OCR on for Area Select OCR or menu text capture, I recommend using "Manual OCR" instead.\n\n' +
+                'Stop OCR?',
+        };
+        const result = parent
+            ? await dialog.showMessageBox(parent, options)
+            : await dialog.showMessageBox(options);
+        if (result.response === 0) {
+            stopOCR();
+        }
+    } catch (e) {
+        console.error('Failed to show OCR/hook redundancy dialog:', e);
+    }
+}
+
 function handleBackendMessage(msg: BackendMessage): void {
     if (msg.function === 'notification' && msg.data) {
         try {
@@ -1188,6 +1286,9 @@ function handleBackendMessage(msg: BackendMessage): void {
         } catch (e) {
             console.error('Failed to route notification from Python:', e);
         }
+    }
+    if (msg.function === 'ocr_hook_redundant') {
+        void showOcrHookRedundantDialog();
     }
     if (msg.function === 'text_intake_state') {
         setTextIntakePausedState(Boolean(msg.data?.paused));
@@ -1404,8 +1505,13 @@ async function createWindow() {
         getUpdateStatus: async () => await getUpdateStatus(),
         checkForUpdates: async () => await checkForAvailableUpdates(),
         updateNow: async () => await updateAvailableTargets(),
+        showUpdateChangelogPreview,
         getActiveInstallSession: () => installSessionManager.getActiveSnapshot(),
         retryInstallSession: async () => await installSessionManager.retryLastFailedSession(),
+        getPendingDesktopUpdateChangelog: () => desktopChangelogManager.getPendingSnapshot(),
+        markDesktopUpdateChangelogSeen: async (toVersion?: string) =>
+            desktopChangelogManager.markSeen(toVersion),
+        clearManualDesktopChangelog: () => desktopChangelogManager.clearManualDisplay(),
     });
     registerDataRelocateIPC();
 
@@ -1451,6 +1557,12 @@ async function createWindow() {
                     label: 'Open Documentation',
                     click: () => {
                         shell.openExternal('https://docs.gamesentenceminer.com/docs/overview');
+                    },
+                },
+                {
+                    label: "What's Changed",
+                    click: () => {
+                        showManualDesktopChangelog();
                     },
                 },
                 {
@@ -1549,12 +1661,45 @@ async function createWindow() {
 
     mainWindow.on('close', function (event) {
         if (!isQuitting) {
+            if (getQuitOnWindowClose()) {
+                event.preventDefault();
+                if (!quitFromWindowCloseInProgress) {
+                    quitFromWindowCloseInProgress = true;
+                    void quit().finally(() => {
+                        quitFromWindowCloseInProgress = false;
+                    });
+                }
+                return;
+            }
+
             event.preventDefault();
             mainWindow?.hide();
+            if (!hasShownCloseToTrayNotification) {
+                hasShownCloseToTrayNotification = true;
+                sendGSMStillRunningInTrayNotification();
+            }
             //             createTray();
             return;
         }
         mainWindow = null;
+    });
+}
+
+function showManualDesktopChangelog(): void {
+    const currentVersion = app.getVersion();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+        }
+        if (!mainWindow.isVisible()) {
+            mainWindow.show();
+        }
+        mainWindow.focus();
+    }
+
+    desktopChangelogManager.startManualDisplay({
+        fromVersion: currentVersion,
+        toVersion: currentVersion,
     });
 }
 
@@ -1579,6 +1724,37 @@ function createTray() {
         console.error('Failed to create tray:', error);
         // Don't throw - tray is optional, app can continue without it
     }
+}
+
+function destroyTray(): void {
+    if (!tray) {
+        return;
+    }
+
+    try {
+        tray.destroy();
+    } catch (error) {
+        console.warn('Failed to destroy tray during shutdown:', error);
+    } finally {
+        tray = null;
+    }
+}
+
+function hideUserFacingShutdownSurfaces(): void {
+    isQuitting = true;
+    clearTrayReadyIndicatorTimer();
+    clearBackendStatusPollTimer();
+    trayReadyIndicatorExpiresAt = 0;
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        try {
+            mainWindow.hide();
+        } catch (error) {
+            console.warn('Failed to hide main window during shutdown:', error);
+        }
+    }
+
+    destroyTray();
 }
 
 function showWindow() {
@@ -2212,6 +2388,7 @@ if (!app.requestSingleInstanceLock()) {
     app.whenReady().then(async () => {
         try {
             bootstrapPreReleaseSettingsFromMetadata();
+            registerChangelogProtocolHandler(getAssetsDir());
             try {
                 await startBus();
                 wireBackendBus();
@@ -2302,12 +2479,24 @@ if (!app.requestSingleInstanceLock()) {
             const storedVersion = getElectronAppVersion();
             const appVersionChanged = storedVersion !== '' && storedVersion !== currentVersion;
             const updateFlagPath = path.join(BASE_DIR, 'update_python.flag');
+            const updateFlagExists = fs.existsSync(updateFlagPath);
             if (appVersionChanged) {
                 log.info(
                     `Detected Electron app version change (${storedVersion} -> ${currentVersion}). Forcing Python update before launch.`
                 );
             }
-            if (fs.existsSync(updateFlagPath)) {
+            const changelogTarget = getDesktopUpdateChangelogTarget({
+                storedVersion,
+                currentVersion,
+                updateFlagExists,
+                existingPending: desktopChangelogManager.getPendingRecord(),
+                isSeen: (version) => hasSeenDesktopChangelog(version),
+            });
+            if (changelogTarget) {
+                desktopChangelogManager.startDesktopUpdate(changelogTarget);
+            }
+
+            if (updateFlagExists) {
                 await updateGSM(false, true);
                 if (updateManager.lastBackendUpdateWasSuccessful) {
                     try {
@@ -2511,16 +2700,32 @@ export async function stopScripts(): Promise<void> {
     }
 }
 
-async function quit(): Promise<void> {
+async function runQuit(): Promise<void> {
+    hideUserFacingShutdownSurfaces();
     autoLauncher.stopPolling();
-    stopOverlay();
-    await stopScripts();
-    if (pyProc != null && !pyProc.killed) {
-        await closeAllPythonProcesses();
+
+    try {
+        stopOverlay();
+        await stopScripts();
+        if (pyProc != null && !pyProc.killed) {
+            await closeAllPythonProcesses();
+        }
+        await closeOBSFromElectron({ reason: 'app quit' });
+        await stopBus().catch((err) => console.warn('Failed to stop message bus:', err));
+    } catch (error) {
+        console.error('Error during app shutdown cleanup:', error);
+    } finally {
+        app.quit();
     }
-    await closeOBSFromElectron({ reason: 'app quit' });
-    await stopBus().catch((err) => console.warn('Failed to stop message bus:', err));
-    app.quit();
+}
+
+async function quit(): Promise<void> {
+    if (!quitPromise) {
+        quitPromise = runQuit().finally(() => {
+            quitPromise = null;
+        });
+    }
+    return quitPromise;
 }
 
 // Stop everything that holds handles in the data dir, without quitting the app (used before a
