@@ -20,9 +20,37 @@ interface ChangelogManifest {
 }
 
 interface RemoteChangelogPayload {
+    version?: unknown;
     title?: unknown;
     markdown?: unknown;
     assetBaseUrl?: unknown;
+}
+
+interface GithubReleaseAssetPayload {
+    name?: unknown;
+    browser_download_url?: unknown;
+}
+
+interface GithubReleasePayload {
+    tag_name?: unknown;
+    name?: unknown;
+    draft?: unknown;
+    prerelease?: unknown;
+    assets?: unknown;
+}
+
+interface RemoteChangelogRelease {
+    version: string;
+    title?: string;
+    changelogUrl: string;
+    assetBaseUrl: string;
+    prerelease: boolean;
+}
+
+interface RemoteChangelogSection {
+    version: string;
+    title: string;
+    markdown: string;
 }
 
 export interface DesktopChangelogStoreAdapter {
@@ -48,10 +76,20 @@ export interface DesktopUpdateChangelogTriggerInput {
     isSeen: (version: string) => boolean;
 }
 
+export interface DesktopUpdateChangelogPreviewOptions {
+    includePrereleases?: boolean;
+}
+
+interface ManualResolveOptions extends DesktopUpdateChangelogPreviewOptions {
+    remoteRange?: boolean;
+}
+
 type SnapshotListener = (snapshot: DesktopUpdateChangelogSnapshot | null) => void;
 
 const DEFAULT_REPO = 'bpwhelan/GameSentenceMiner';
 const BUNDLED_ASSET_BASE_URL = 'gsm-changelog://images/';
+const GITHUB_RELEASES_PAGE_SIZE = 100;
+const MAX_GITHUB_RELEASE_PAGES = 5;
 
 function cloneSnapshot(
     snapshot: DesktopUpdateChangelogSnapshot | null
@@ -154,6 +192,36 @@ function selectManifestEntries(
         .sort((a, b) => compareVersions(a.version, b.version));
 }
 
+function normalizeReleaseVersion(value: string): string {
+    return value.trim().replace(/^v(?=\d)/i, '');
+}
+
+function versionInPreviewRange(version: string, fromVersion: string, toVersion: string): boolean {
+    const normalizedVersion = normalizeReleaseVersion(version);
+    const normalizedFromVersion = normalizeReleaseVersion(fromVersion);
+    const normalizedToVersion = normalizeReleaseVersion(toVersion);
+
+    if (
+        semver.valid(normalizedVersion) &&
+        semver.valid(normalizedFromVersion) &&
+        semver.valid(normalizedToVersion)
+    ) {
+        if (!semver.gt(normalizedToVersion, normalizedFromVersion)) {
+            return semver.eq(normalizedVersion, normalizedToVersion);
+        }
+        return (
+            semver.gt(normalizedVersion, normalizedFromVersion) &&
+            semver.lte(normalizedVersion, normalizedToVersion)
+        );
+    }
+
+    return normalizedVersion === normalizedToVersion;
+}
+
+function isAbsoluteAssetUrl(value: string): boolean {
+    return /^(?:https?:|data:|blob:|gsm-changelog:)/i.test(value);
+}
+
 function isHttpsUrl(value: string): boolean {
     try {
         return new URL(value).protocol === 'https:';
@@ -162,15 +230,81 @@ function isHttpsUrl(value: string): boolean {
     }
 }
 
+function buildReleaseAssetBaseUrl(repo: string, version: string): string {
+    return `https://github.com/${repo}/releases/download/v${encodeURIComponent(version)}/`;
+}
+
+function buildReleaseChangelogAssetUrl(repo: string, version: string): string {
+    return `${buildReleaseAssetBaseUrl(repo, version)}changelog-v${encodeURIComponent(version)}.json`;
+}
+
+function getReleaseChangelogAssetUrl(
+    repo: string,
+    version: string,
+    assets: unknown
+): string {
+    const expectedName = `changelog-v${version}.json`;
+    if (Array.isArray(assets)) {
+        for (const asset of assets) {
+            const candidate = asset as GithubReleaseAssetPayload;
+            if (
+                candidate &&
+                typeof candidate.name === 'string' &&
+                candidate.name === expectedName &&
+                typeof candidate.browser_download_url === 'string' &&
+                isHttpsUrl(candidate.browser_download_url)
+            ) {
+                return candidate.browser_download_url;
+            }
+        }
+    }
+    return buildReleaseChangelogAssetUrl(repo, version);
+}
+
+function resolveRemoteAssetUrl(src: string, assetBaseUrl: string): string {
+    if (isAbsoluteAssetUrl(src)) {
+        return src;
+    }
+
+    try {
+        const cleanBase = assetBaseUrl.endsWith('/') ? assetBaseUrl : `${assetBaseUrl}/`;
+        const cleanSrc = src.replace(/^\.?\//, '');
+        return new URL(cleanSrc, cleanBase).toString();
+    } catch {
+        return src;
+    }
+}
+
+function rewriteMarkdownImagesForBaseUrl(markdown: string, assetBaseUrl: string): string {
+    return markdown.replace(
+        /!\[([^\]]*)]\(([^)\s]+)(\s+["'][^"']*["'])?\)/g,
+        (match, alt: string, ref: string, title = '') => {
+            const resolved = resolveRemoteAssetUrl(ref, assetBaseUrl);
+            return resolved === ref && !isAbsoluteAssetUrl(ref)
+                ? match
+                : `![${alt}](${resolved}${title})`;
+        }
+    );
+}
+
+function missingRemoteMarkdown(version: string): string {
+    return [
+        `# What's Changed in ${version}`,
+        '',
+        'Detailed release notes are not available for this version.',
+    ].join('\n');
+}
+
 async function fetchWithTimeout(
     fetchImpl: typeof fetch,
     url: string,
-    timeoutMs: number
+    timeoutMs: number,
+    init: RequestInit = {}
 ): Promise<Response> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        return await fetchImpl(url, { signal: controller.signal });
+        return await fetchImpl(url, { ...init, signal: controller.signal });
     } finally {
         clearTimeout(timeout);
     }
@@ -210,7 +344,10 @@ export function getDesktopUpdateChangelogTarget(
 export class DesktopChangelogManager {
     private snapshot: DesktopUpdateChangelogSnapshot | null = null;
     private listener: SnapshotListener | null = null;
+    private manualListener: SnapshotListener | null = null;
     private resolvingKey: string | null = null;
+    private manualResolvingKey: string | null = null;
+    private manualRequestId = 0;
     private readonly repo: string;
     private readonly fetchImpl: typeof fetch;
     private readonly remoteTimeoutMs: number;
@@ -226,6 +363,10 @@ export class DesktopChangelogManager {
 
     public setSnapshotListener(listener: SnapshotListener | null): void {
         this.listener = listener;
+    }
+
+    public setManualSnapshotListener(listener: SnapshotListener | null): void {
+        this.manualListener = listener;
     }
 
     public getPendingRecord(): DesktopUpdateChangelogPendingRecord | null {
@@ -294,6 +435,38 @@ export class DesktopChangelogManager {
         return true;
     }
 
+    public startManualDisplay(
+        record: DesktopUpdateChangelogPendingRecord
+    ): DesktopUpdateChangelogSnapshot {
+        const requestId = ++this.manualRequestId;
+        const loading = makeLoadingSnapshot(record);
+        this.emitManual(loading);
+        this.resolveManual(record, requestId);
+        return { ...loading };
+    }
+
+    public startUpdatePreview(
+        record: DesktopUpdateChangelogPendingRecord,
+        options: DesktopUpdateChangelogPreviewOptions = {}
+    ): DesktopUpdateChangelogSnapshot {
+        const requestId = ++this.manualRequestId;
+        const loading = makeLoadingSnapshot(record);
+        this.emitManual(loading);
+        this.resolveManual(record, requestId, {
+            remoteRange: true,
+            includePrereleases:
+                options.includePrereleases ??
+                Boolean(semver.valid(record.toVersion) && semver.prerelease(record.toVersion)),
+        });
+        return { ...loading };
+    }
+
+    public clearManualDisplay(): void {
+        this.manualRequestId += 1;
+        this.manualResolvingKey = null;
+        this.emitManual(null);
+    }
+
     private resolve(record: DesktopUpdateChangelogPendingRecord): void {
         const key = versionKey(record);
         if (this.resolvingKey === key) {
@@ -330,6 +503,65 @@ export class DesktopChangelogManager {
             });
     }
 
+    private resolveManual(
+        record: DesktopUpdateChangelogPendingRecord,
+        requestId: number,
+        options: ManualResolveOptions = {}
+    ): void {
+        const key = `${requestId}:${versionKey(record)}`;
+        if (this.manualResolvingKey === key) {
+            return;
+        }
+        this.manualResolvingKey = key;
+
+        void this.resolveBundled(record)
+            .then((bundled) => {
+                if (!this.isCurrentManual(requestId)) {
+                    return;
+                }
+                this.emitManual(bundled);
+                const remoteOptions = {
+                    isCurrent: () => this.isCurrentManual(requestId),
+                    applySnapshot: (snapshot: DesktopUpdateChangelogSnapshot) =>
+                        this.emitManual(snapshot),
+                };
+                if (options.remoteRange) {
+                    void this.resolveRemoteRange(record, {
+                        ...remoteOptions,
+                        includePrereleases: options.includePrereleases === true,
+                    });
+                } else {
+                    void this.resolveRemote(record, remoteOptions);
+                }
+            })
+            .catch((error) => {
+                if (!this.isCurrentManual(requestId)) {
+                    return;
+                }
+                const message = error instanceof Error ? error.message : String(error);
+                this.emitManual(
+                    makeReadySnapshot(record, {
+                        source: 'bundled',
+                        markdown: fallbackMarkdown(record.toVersion),
+                        error: message,
+                    })
+                );
+                log.warn(`Falling back to generic manual changelog: ${message}`);
+                if (options.remoteRange) {
+                    void this.resolveRemoteRange(record, {
+                        isCurrent: () => this.isCurrentManual(requestId),
+                        applySnapshot: (snapshot) => this.emitManual(snapshot),
+                        includePrereleases: options.includePrereleases === true,
+                    });
+                }
+            })
+            .finally(() => {
+                if (this.manualResolvingKey === key) {
+                    this.manualResolvingKey = null;
+                }
+            });
+    }
+
     private isCurrent(record: DesktopUpdateChangelogPendingRecord): boolean {
         const pending = this.store.getPending();
         return (
@@ -337,6 +569,10 @@ export class DesktopChangelogManager {
             pending?.toVersion === record.toVersion &&
             !this.store.hasSeen(record.toVersion)
         );
+    }
+
+    private isCurrentManual(requestId: number): boolean {
+        return requestId === this.manualRequestId;
     }
 
     private async resolveBundled(
@@ -393,7 +629,13 @@ export class DesktopChangelogManager {
         });
     }
 
-    private async resolveRemote(record: DesktopUpdateChangelogPendingRecord): Promise<void> {
+    private async resolveRemote(
+        record: DesktopUpdateChangelogPendingRecord,
+        options: {
+            isCurrent?: () => boolean;
+            applySnapshot?: (snapshot: DesktopUpdateChangelogSnapshot) => void;
+        } = {}
+    ): Promise<void> {
         const url = `https://github.com/${this.repo}/releases/download/v${encodeURIComponent(
             record.toVersion
         )}/changelog-v${encodeURIComponent(record.toVersion)}.json`;
@@ -416,20 +658,213 @@ export class DesktopChangelogManager {
                     ? payload.title
                     : undefined;
 
-            if (!this.isCurrent(record)) {
+            const isCurrent = options.isCurrent ?? (() => this.isCurrent(record));
+            if (!isCurrent()) {
                 return;
             }
 
-            this.snapshot = makeReadySnapshot(record, {
+            const snapshot = makeReadySnapshot(record, {
                 source: 'remote',
                 title,
                 markdown: payload.markdown.trim(),
                 assetBaseUrl,
             });
-            this.emit();
+            if (options.applySnapshot) {
+                options.applySnapshot(snapshot);
+            } else {
+                this.snapshot = snapshot;
+                this.emit();
+            }
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             log.info(`Using bundled changelog for ${record.toVersion}; remote fetch failed: ${message}`);
+        }
+    }
+
+    private async fetchRemoteChangelogReleases(
+        includePrereleases: boolean
+    ): Promise<RemoteChangelogRelease[]> {
+        const releases: RemoteChangelogRelease[] = [];
+        for (let page = 1; page <= MAX_GITHUB_RELEASE_PAGES; page += 1) {
+            const url = `https://api.github.com/repos/${this.repo}/releases?per_page=${GITHUB_RELEASES_PAGE_SIZE}&page=${page}`;
+            const response = await fetchWithTimeout(this.fetchImpl, url, this.remoteTimeoutMs, {
+                headers: {
+                    Accept: 'application/vnd.github+json',
+                },
+            });
+            if (!response.ok) {
+                throw new Error(`GitHub releases returned HTTP ${response.status}`);
+            }
+
+            const payload = (await response.json()) as unknown;
+            if (!Array.isArray(payload)) {
+                throw new Error('GitHub releases response was not an array.');
+            }
+
+            for (const item of payload) {
+                const release = item as GithubReleasePayload;
+                if (!release || release.draft === true) {
+                    continue;
+                }
+                const prerelease = release.prerelease === true;
+                if (prerelease && !includePrereleases) {
+                    continue;
+                }
+                if (typeof release.tag_name !== 'string') {
+                    continue;
+                }
+
+                const version = normalizeReleaseVersion(release.tag_name);
+                if (!version) {
+                    continue;
+                }
+
+                releases.push({
+                    version,
+                    title:
+                        typeof release.name === 'string' && release.name.trim().length > 0
+                            ? release.name.trim()
+                            : undefined,
+                    changelogUrl: getReleaseChangelogAssetUrl(this.repo, version, release.assets),
+                    assetBaseUrl: buildReleaseAssetBaseUrl(this.repo, version),
+                    prerelease,
+                });
+            }
+
+            if (payload.length < GITHUB_RELEASES_PAGE_SIZE) {
+                break;
+            }
+        }
+
+        return releases;
+    }
+
+    private async fetchRemoteChangelogSection(
+        release: RemoteChangelogRelease
+    ): Promise<RemoteChangelogSection> {
+        const response = await fetchWithTimeout(
+            this.fetchImpl,
+            release.changelogUrl,
+            this.remoteTimeoutMs
+        );
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const payload = (await response.json()) as RemoteChangelogPayload;
+        if (typeof payload.markdown !== 'string' || payload.markdown.trim().length === 0) {
+            throw new Error('Remote changelog payload did not include markdown.');
+        }
+
+        const assetBaseUrl =
+            typeof payload.assetBaseUrl === 'string' && isHttpsUrl(payload.assetBaseUrl)
+                ? payload.assetBaseUrl
+                : release.assetBaseUrl;
+        const title =
+            typeof payload.title === 'string' && payload.title.trim().length > 0
+                ? payload.title.trim()
+                : release.title || `What's Changed in ${release.version}`;
+
+        return {
+            version: release.version,
+            title,
+            markdown: rewriteMarkdownImagesForBaseUrl(payload.markdown.trim(), assetBaseUrl),
+        };
+    }
+
+    private async resolveRemoteRange(
+        record: DesktopUpdateChangelogPendingRecord,
+        options: {
+            includePrereleases: boolean;
+            isCurrent?: () => boolean;
+            applySnapshot?: (snapshot: DesktopUpdateChangelogSnapshot) => void;
+        }
+    ): Promise<void> {
+        try {
+            const releases = await this.fetchRemoteChangelogReleases(options.includePrereleases);
+            const uniqueReleases = new Map<string, RemoteChangelogRelease>();
+            for (const release of releases) {
+                if (!uniqueReleases.has(release.version)) {
+                    uniqueReleases.set(release.version, release);
+                }
+            }
+
+            const selected = Array.from(uniqueReleases.values())
+                .filter((release) =>
+                    versionInPreviewRange(release.version, record.fromVersion, record.toVersion)
+                )
+                .sort((a, b) => compareVersions(a.version, b.version));
+
+            if (selected.length === 0) {
+                throw new Error(
+                    `No GitHub changelog releases found from ${record.fromVersion} to ${record.toVersion}.`
+                );
+            }
+
+            const sections = await Promise.all(
+                selected.map(async (release) => {
+                    try {
+                        return await this.fetchRemoteChangelogSection(release);
+                    } catch (error) {
+                        const message = error instanceof Error ? error.message : String(error);
+                        log.info(
+                            `Using placeholder changelog for ${release.version}; remote asset fetch failed: ${message}`
+                        );
+                        return {
+                            version: release.version,
+                            title: release.title || `What's Changed in ${release.version}`,
+                            markdown: missingRemoteMarkdown(release.version),
+                        };
+                    }
+                })
+            );
+
+            const isCurrent = options.isCurrent ?? (() => true);
+            if (!isCurrent()) {
+                return;
+            }
+
+            const markdown =
+                sections.length === 1
+                    ? sections[0]?.markdown ?? ''
+                    : sections
+                          .map((section) =>
+                              [
+                                  `## ${section.title || section.version}`,
+                                  '',
+                                  stripLeadingHeading(section.markdown),
+                              ].join('\n')
+                          )
+                          .join('\n\n')
+                          .trim();
+            const title =
+                sections.length === 1
+                    ? sections[0]?.title || `What's Changed in ${record.toVersion}`
+                    : `What's Changed from ${record.fromVersion} to ${record.toVersion}`;
+
+            const snapshot = makeReadySnapshot(record, {
+                source: 'remote',
+                title,
+                markdown,
+                assetBaseUrl: BUNDLED_ASSET_BASE_URL,
+            });
+            if (options.applySnapshot) {
+                options.applySnapshot(snapshot);
+            } else {
+                this.snapshot = snapshot;
+                this.emit();
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            log.info(
+                `Using bundled changelog preview for ${record.toVersion}; GitHub range fetch failed: ${message}`
+            );
+        }
+    }
+
+    private emitManual(snapshot: DesktopUpdateChangelogSnapshot | null): void {
+        if (this.manualListener) {
+            this.manualListener(cloneSnapshot(snapshot));
         }
     }
 

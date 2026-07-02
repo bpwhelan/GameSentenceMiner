@@ -27,6 +27,8 @@ type TabId =
   | "python"
   | "console";
 
+type ChangelogDisplayMode = "update" | "manual";
+
 const TABS: Array<{ id: TabId; labelKey: string }> = [
   { id: "obs", labelKey: "app.tabs.home" },
   { id: "ocr", labelKey: "app.tabs.ocr" },
@@ -871,6 +873,8 @@ export default function App() {
   const [installSession, setInstallSession] = useState<InstallSessionSnapshot | null>(null);
   const [desktopChangelog, setDesktopChangelog] =
     useState<DesktopUpdateChangelogSnapshot | null>(null);
+  const [desktopChangelogMode, setDesktopChangelogMode] =
+    useState<ChangelogDisplayMode>("update");
   const [desktopUpdateBackendStatus, setDesktopUpdateBackendStatus] = useState<
     "pending" | "running" | "completed" | "failed"
   >("pending");
@@ -906,6 +910,7 @@ export default function App() {
   );
   const isTabVisibleRef = useRef(isTabVisible);
   const desktopChangelogRef = useRef<DesktopUpdateChangelogSnapshot | null>(null);
+  const desktopChangelogModeRef = useRef<ChangelogDisplayMode>("update");
   const lastBackendUpdateStatusRef = useRef<
     "pending" | "running" | "completed" | "failed" | null
   >(null);
@@ -916,7 +921,8 @@ export default function App() {
 
   useEffect(() => {
     desktopChangelogRef.current = desktopChangelog;
-    if (desktopChangelog) {
+    desktopChangelogModeRef.current = desktopChangelogMode;
+    if (desktopChangelog && desktopChangelogMode === "update") {
       if (lastBackendUpdateStatusRef.current) {
         setDesktopUpdateBackendStatus(lastBackendUpdateStatusRef.current);
         return;
@@ -924,16 +930,20 @@ export default function App() {
       setDesktopUpdateBackendStatus((current) =>
         current === "completed" || current === "failed" ? current : "pending"
       );
-    } else {
+    } else if (!desktopChangelog) {
       setDesktopUpdateBackendStatus("pending");
     }
-  }, [desktopChangelog]);
+  }, [desktopChangelog, desktopChangelogMode]);
 
   useEffect(() => {
-    if (desktopChangelog && installSession?.origin === "backend_update") {
+    if (
+      desktopChangelog &&
+      desktopChangelogMode === "update" &&
+      installSession?.origin === "backend_update"
+    ) {
       setDesktopUpdateBackendStatus(installSession.status);
     }
-  }, [desktopChangelog, installSession]);
+  }, [desktopChangelog, desktopChangelogMode, installSession]);
 
   const selectTab = useCallback(
     (tab: TabId) => {
@@ -1018,6 +1028,7 @@ export default function App() {
       )
       .then((snapshot) => {
         if (!disposed) {
+          setDesktopChangelogMode("update");
           setDesktopChangelog(snapshot);
         }
       });
@@ -1026,6 +1037,19 @@ export default function App() {
       "changelog.snapshot",
       (_event, payload) => {
         if (payload && typeof payload === "object") {
+          setDesktopChangelogMode("update");
+          setDesktopChangelog(payload as DesktopUpdateChangelogSnapshot);
+        } else {
+          setDesktopChangelog(null);
+        }
+      }
+    );
+
+    const offManualSnapshot = window.ipcRenderer.on(
+      "changelog.manualSnapshot",
+      (_event, payload) => {
+        if (payload && typeof payload === "object") {
+          setDesktopChangelogMode("manual");
           setDesktopChangelog(payload as DesktopUpdateChangelogSnapshot);
         } else {
           setDesktopChangelog(null);
@@ -1036,6 +1060,7 @@ export default function App() {
     return () => {
       disposed = true;
       offSnapshot();
+      offManualSnapshot();
     };
   }, []);
 
@@ -1060,7 +1085,8 @@ export default function App() {
         }
         if (
           snapshot.origin === "backend_update" &&
-          desktopChangelogRef.current
+          desktopChangelogRef.current &&
+          desktopChangelogModeRef.current === "update"
         ) {
           setDesktopUpdateBackendStatus("running");
         }
@@ -1076,7 +1102,8 @@ export default function App() {
         }
         if (
           snapshot.origin === "backend_update" &&
-          desktopChangelogRef.current
+          desktopChangelogRef.current &&
+          desktopChangelogModeRef.current === "update"
         ) {
           setDesktopUpdateBackendStatus(snapshot.status);
           setInstallSession(snapshot.status === "failed" ? snapshot : null);
@@ -1125,7 +1152,13 @@ export default function App() {
     window.ipcRenderer.send("app-close");
   }, []);
 
-  const markDesktopChangelogSeen = useCallback(async () => {
+  const closeDesktopChangelog = useCallback(async () => {
+    if (desktopChangelogModeRef.current === "manual") {
+      await window.ipcRenderer.invoke("changelog.clearManualDisplay");
+      setDesktopChangelog(null);
+      return;
+    }
+
     const toVersion = desktopChangelogRef.current?.toVersion;
     const result = await window.ipcRenderer.invoke<{ success?: boolean }>(
       "changelog.markDesktopUpdateSeen",
@@ -1261,7 +1294,8 @@ export default function App() {
           changelog={desktopChangelog}
           installSession={installSession}
           backendStatus={desktopUpdateBackendStatus}
-          onContinue={() => void markDesktopChangelogSeen()}
+          requiresBackendSync={desktopChangelogMode === "update"}
+          onContinue={() => void closeDesktopChangelog()}
           onRetry={() => void retryInstallSession()}
           onOpenLogs={() => void openInstallLogs()}
           onQuit={quitInstallFlow}

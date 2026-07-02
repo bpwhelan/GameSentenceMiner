@@ -704,6 +704,10 @@ desktopChangelogManager.setSnapshotListener((snapshot) => {
     safeSendToMainWindow('changelog.snapshot', snapshot);
 });
 
+desktopChangelogManager.setManualSnapshotListener((snapshot) => {
+    safeSendToMainWindow('changelog.manualSnapshot', snapshot);
+});
+
 const updateManager = new UpdateManager({
     getPythonPath: () => pythonPath,
     closeAllPythonProcesses: async () => closeAllPythonProcesses(),
@@ -759,6 +763,22 @@ async function checkForAvailableUpdates(): Promise<UpdateStatusSnapshot> {
 
 async function updateAvailableTargets(): Promise<UpdateStatusSnapshot> {
     return await updateManager.updateAvailableTargets(true);
+}
+
+function showUpdateChangelogPreview(input: {
+    fromVersion: string;
+    toVersion: string;
+    includePrereleases?: boolean;
+}) {
+    return desktopChangelogManager.startUpdatePreview(
+        {
+            fromVersion: input.fromVersion,
+            toVersion: input.toVersion,
+        },
+        {
+            includePrereleases: input.includePrereleases,
+        }
+    );
 }
 
 function getGSMModulePath(): string {
@@ -1484,11 +1504,13 @@ async function createWindow() {
         getUpdateStatus: async () => await getUpdateStatus(),
         checkForUpdates: async () => await checkForAvailableUpdates(),
         updateNow: async () => await updateAvailableTargets(),
+        showUpdateChangelogPreview,
         getActiveInstallSession: () => installSessionManager.getActiveSnapshot(),
         retryInstallSession: async () => await installSessionManager.retryLastFailedSession(),
         getPendingDesktopUpdateChangelog: () => desktopChangelogManager.getPendingSnapshot(),
         markDesktopUpdateChangelogSeen: async (toVersion?: string) =>
             desktopChangelogManager.markSeen(toVersion),
+        clearManualDesktopChangelog: () => desktopChangelogManager.clearManualDisplay(),
     });
     registerDataRelocateIPC();
 
@@ -1534,6 +1556,12 @@ async function createWindow() {
                     label: 'Open Documentation',
                     click: () => {
                         shell.openExternal('https://docs.gamesentenceminer.com/docs/overview');
+                    },
+                },
+                {
+                    label: "What's Changed",
+                    click: () => {
+                        showManualDesktopChangelog();
                     },
                 },
                 {
@@ -1653,6 +1681,24 @@ async function createWindow() {
             return;
         }
         mainWindow = null;
+    });
+}
+
+function showManualDesktopChangelog(): void {
+    const currentVersion = app.getVersion();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+        }
+        if (!mainWindow.isVisible()) {
+            mainWindow.show();
+        }
+        mainWindow.focus();
+    }
+
+    desktopChangelogManager.startManualDisplay({
+        fromVersion: currentVersion,
+        toVersion: currentVersion,
     });
 }
 

@@ -442,6 +442,7 @@
     "imageAlt": "Release note image",
     "fallbackNote": "Showing bundled release notes because the latest online notes could not be loaded.",
     "continue": "Continue",
+    "close": "Close",
     "syncing": "Syncing backend...",
     "source": {
       "loading": "Loading",
@@ -533,6 +534,9 @@
       "lastChecked": "Last checked: {time}",
       "checkForUpdates": "Check for Updates",
       "checking": "Checking...",
+      "viewReleaseNotes": "View Release Notes",
+      "loadingReleaseNotes": "Loading Notes...",
+      "releaseNotesUnavailable": "Release notes are not available for the selected update.",
       "updateNow": "Update Now",
       "updating": "Updating...",
       "unknown": "Unknown"

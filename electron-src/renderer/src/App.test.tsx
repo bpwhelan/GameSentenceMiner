@@ -552,6 +552,70 @@ describe('App install-session integration', () => {
         expect(container.querySelector('.whats-changed-overlay')).toBeNull();
     });
 
+    it('shows a manual whats changed dialog without marking the version seen', async () => {
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') {
+                return null;
+            }
+            if (channel === 'changelog.getPendingDesktopUpdate') {
+                return null;
+            }
+            if (channel === 'settings.getSettings') {
+                return { hasCompletedSetup: true };
+            }
+            if (
+                channel === 'state.set' ||
+                channel === 'logs.openFolder' ||
+                channel === 'install-session.retry' ||
+                channel === 'changelog.markDesktopUpdateSeen' ||
+                channel === 'changelog.clearManualDisplay' ||
+                channel === 'open-external'
+            ) {
+                return { success: true };
+            }
+            return {};
+        });
+
+        const { default: App } = await import('./App.js');
+
+        await act(async () => {
+            root.render(<App />);
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        const manualSnapshot = createChangelogSnapshot();
+        manualSnapshot.fromVersion = manualSnapshot.toVersion;
+
+        await act(async () => {
+            for (const callback of listeners.get('changelog.manualSnapshot') ?? []) {
+                callback({}, manualSnapshot);
+            }
+            await Promise.resolve();
+        });
+
+        expect(container.querySelector('.whats-changed-overlay')).not.toBeNull();
+        expect(container.querySelector('.whats-changed-progress')).toBeNull();
+        expect(container.textContent).toContain("What's Changed in 1.0.1");
+        expect(container.textContent).toContain('1.0.1');
+        expect(container.textContent).not.toContain('1.0.1 → 1.0.1');
+
+        const closeButton = Array.from(container.querySelectorAll('button')).find(
+            (button) => button.textContent === 'Close'
+        );
+        expect(closeButton).toBeDefined();
+        expect(closeButton?.hasAttribute('disabled')).toBe(false);
+
+        await act(async () => {
+            closeButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            await Promise.resolve();
+        });
+
+        expect(invokeMock).not.toHaveBeenCalledWith('changelog.markDesktopUpdateSeen', '1.0.1');
+        expect(invokeMock).toHaveBeenCalledWith('changelog.clearManualDisplay');
+        expect(container.querySelector('.whats-changed-overlay')).toBeNull();
+    });
+
     it('keeps failed desktop update changelog sessions actionable', async () => {
         invokeMock.mockImplementation(async (channel: string) => {
             if (channel === 'install-session.getActive') {

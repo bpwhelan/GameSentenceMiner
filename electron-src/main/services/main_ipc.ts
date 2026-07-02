@@ -26,10 +26,16 @@ interface MainIPCDependencies {
     getUpdateStatus: () => Promise<unknown>;
     checkForUpdates: () => Promise<unknown>;
     updateNow: () => Promise<unknown>;
+    showUpdateChangelogPreview: (payload: {
+        fromVersion: string;
+        toVersion: string;
+        includePrereleases?: boolean;
+    }) => unknown;
     getActiveInstallSession: () => InstallSessionSnapshot | null;
     retryInstallSession: () => Promise<boolean>;
     getPendingDesktopUpdateChangelog: () => DesktopUpdateChangelogSnapshot | null;
     markDesktopUpdateChangelogSeen: (toVersion?: string) => Promise<boolean> | boolean;
+    clearManualDesktopChangelog: () => void;
 }
 
 let ipcRegistered = false;
@@ -92,6 +98,7 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
         getUpdateStatus: deps.getUpdateStatus,
         checkForUpdates: deps.checkForUpdates,
         updateNow: deps.updateNow,
+        showUpdateChangelogPreview: deps.showUpdateChangelogPreview,
     });
     registerOCRUtilsIPC();
     registerFrontPageIPC();
@@ -204,6 +211,11 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
                 typeof toVersion === 'string' ? toVersion : undefined
             ),
         };
+    });
+
+    ipcMain.handle('changelog.clearManualDisplay', async () => {
+        deps.clearManualDesktopChangelog();
+        return { success: true };
     });
 
     ipcMain.on('settings.iconStyleChanged', (_event, iconStyle) => {

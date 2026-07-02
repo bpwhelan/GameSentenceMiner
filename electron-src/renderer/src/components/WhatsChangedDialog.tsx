@@ -30,6 +30,7 @@ export function WhatsChangedDialog({
   changelog,
   installSession,
   backendStatus,
+  requiresBackendSync = true,
   onContinue,
   onRetry,
   onOpenLogs,
@@ -38,14 +39,15 @@ export function WhatsChangedDialog({
   changelog: DesktopUpdateChangelogSnapshot;
   installSession: InstallSessionSnapshot | null;
   backendStatus: "pending" | "running" | "completed" | "failed";
+  requiresBackendSync?: boolean;
   onContinue: () => void;
   onRetry: () => void;
   onOpenLogs: () => void;
   onQuit: () => void;
 }) {
   const t = useTranslation();
-  const isFailed = backendStatus === "failed";
-  const canContinue = backendStatus === "completed";
+  const isFailed = requiresBackendSync && backendStatus === "failed";
+  const canContinue = !requiresBackendSync || backendStatus === "completed";
   const progress =
     installSession && typeof installSession.overallProgress === "number"
       ? installSession.overallProgress
@@ -65,10 +67,12 @@ export function WhatsChangedDialog({
         <header className="whats-changed-header">
           <div>
             <p className="whats-changed-kicker">
-              {t("changelog.versionRange", {
-                from: changelog.fromVersion,
-                to: changelog.toVersion
-              })}
+              {changelog.fromVersion === changelog.toVersion
+                ? changelog.toVersion
+                : t("changelog.versionRange", {
+                    from: changelog.fromVersion,
+                    to: changelog.toVersion
+                  })}
             </p>
             <h2>{changelog.title || t("changelog.title")}</h2>
           </div>
@@ -81,19 +85,21 @@ export function WhatsChangedDialog({
           </div>
         </header>
 
-        <section className="whats-changed-progress" aria-live="polite">
-          <div className="whats-changed-progress-top">
-            <span>{t("changelog.backend.title")}</span>
-            <span>{formatPercent(progress)}</span>
-          </div>
-          <div className={`whats-changed-progress-bar ${backendStatus === "running" || backendStatus === "pending" ? "is-running" : ""}`}>
-            <div
-              className="whats-changed-progress-fill"
-              style={{ width: `${Math.max(backendStatus === "pending" ? 8 : 0, Math.round(progress * 100))}%` }}
-            />
-          </div>
-          <p>{statusLabel}</p>
-        </section>
+        {requiresBackendSync ? (
+          <section className="whats-changed-progress" aria-live="polite">
+            <div className="whats-changed-progress-top">
+              <span>{t("changelog.backend.title")}</span>
+              <span>{formatPercent(progress)}</span>
+            </div>
+            <div className={`whats-changed-progress-bar ${backendStatus === "running" || backendStatus === "pending" ? "is-running" : ""}`}>
+              <div
+                className="whats-changed-progress-fill"
+                style={{ width: `${Math.max(backendStatus === "pending" ? 8 : 0, Math.round(progress * 100))}%` }}
+              />
+            </div>
+            <p>{statusLabel}</p>
+          </section>
+        ) : null}
 
         <section className="whats-changed-body">
           {changelog.status === "loading" ? (
@@ -153,9 +159,13 @@ export function WhatsChangedDialog({
             <button
               className="whats-changed-continue"
               onClick={onContinue}
-              disabled={!canContinue}
+              disabled={requiresBackendSync && !canContinue}
             >
-              {canContinue ? t("changelog.continue") : t("changelog.syncing")}
+              {requiresBackendSync
+                ? canContinue
+                  ? t("changelog.continue")
+                  : t("changelog.syncing")
+                : t("changelog.close")}
             </button>
           )}
         </footer>

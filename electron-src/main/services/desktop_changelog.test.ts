@@ -226,4 +226,194 @@ describe('DesktopChangelogManager', () => {
         expect(store.seen.has('1.0.1')).toBe(true);
         expect(manager.getPendingSnapshot()).toBeNull();
     });
+
+    it('shows a manual changelog without persisting pending or seen state', async () => {
+        const assetsDir = makeTempAssetsDir();
+        writeManifest(assetsDir, [
+            { version: '1.0.1', title: 'Bundled', markdown: '# Bundled\n\nBundled change.' },
+        ]);
+        const store = makeStore();
+        const snapshots: Array<unknown> = [];
+        const manager = new DesktopChangelogManager(store, {
+            assetsDir,
+            fetchImpl: vi.fn(async () => new Response('', { status: 404 })) as unknown as typeof fetch,
+        });
+        manager.setManualSnapshotListener((snapshot) => snapshots.push(snapshot));
+
+        const loading = manager.startManualDisplay({
+            fromVersion: '1.0.1',
+            toVersion: '1.0.1',
+        });
+        expect(loading.status).toBe('loading');
+        expect(store.pending).toBeNull();
+
+        await vi.waitFor(() => {
+            expect(snapshots.some((snapshot) => {
+                const candidate = snapshot as { status?: string; source?: string; markdown?: string } | null;
+                return (
+                    candidate?.status === 'ready' &&
+                    candidate.source === 'bundled' &&
+                    candidate.markdown?.includes('Bundled change.')
+                );
+            })).toBe(true);
+        });
+
+        expect(store.pending).toBeNull();
+        expect(store.seen.size).toBe(0);
+        expect(manager.getPendingSnapshot()).toBeNull();
+    });
+
+    it('does not emit stale remote notes after manual display is cleared', async () => {
+        const assetsDir = makeTempAssetsDir();
+        writeManifest(assetsDir, [
+            { version: '1.0.1', title: 'Bundled', markdown: '# Bundled\n\nBundled change.' },
+        ]);
+        let resolveFetch: (value: Response) => void = () => {};
+        const fetchPromise = new Promise<Response>((resolve) => {
+            resolveFetch = resolve;
+        });
+        const fetchMock = vi.fn(async () => fetchPromise) as unknown as typeof fetch;
+        const snapshots: Array<unknown | null> = [];
+        const manager = new DesktopChangelogManager(makeStore(), {
+            assetsDir,
+            fetchImpl: fetchMock,
+        });
+        manager.setManualSnapshotListener((snapshot) => snapshots.push(snapshot));
+
+        manager.startManualDisplay({
+            fromVersion: '1.0.1',
+            toVersion: '1.0.1',
+        });
+
+        await vi.waitFor(() => {
+            expect(fetchMock).toHaveBeenCalled();
+        });
+
+        manager.clearManualDisplay();
+        resolveFetch(
+            new Response(
+                JSON.stringify({
+                    title: 'Remote notes',
+                    markdown: '# Remote\n\nRemote change.',
+                    assetBaseUrl: 'https://github.com/bpwhelan/GameSentenceMiner/releases/download/v1.0.1/',
+                })
+            )
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+
+        const clearIndex = snapshots.findIndex((snapshot) => snapshot === null);
+        expect(clearIndex).toBeGreaterThanOrEqual(0);
+        expect(
+            snapshots.slice(clearIndex + 1).some((snapshot) => {
+                const candidate = snapshot as { source?: string; markdown?: string } | null;
+                return candidate?.source === 'remote' || candidate?.markdown?.includes('Remote change.');
+            })
+        ).toBe(false);
+    });
+
+    it('loads a preview from every GitHub changelog asset between current and latest', async () => {
+        const assetsDir = makeTempAssetsDir();
+        writeManifest(assetsDir, []);
+        const snapshots: Array<unknown | null> = [];
+        const fetchMock = vi.fn(async (url: string) => {
+            if (url.includes('/releases?')) {
+                return new Response(
+                    JSON.stringify([
+                        {
+                            tag_name: 'v1.0.2',
+                            draft: false,
+                            prerelease: false,
+                            assets: [
+                                {
+                                    name: 'changelog-v1.0.2.json',
+                                    browser_download_url: 'https://downloads.example/1.0.2.json',
+                                },
+                            ],
+                        },
+                        {
+                            tag_name: 'v1.0.1',
+                            draft: false,
+                            prerelease: false,
+                            assets: [
+                                {
+                                    name: 'changelog-v1.0.1.json',
+                                    browser_download_url: 'https://downloads.example/1.0.1.json',
+                                },
+                            ],
+                        },
+                        {
+                            tag_name: 'v1.0.3-beta.1',
+                            draft: false,
+                            prerelease: true,
+                            assets: [
+                                {
+                                    name: 'changelog-v1.0.3-beta.1.json',
+                                    browser_download_url: 'https://downloads.example/1.0.3-beta.1.json',
+                                },
+                            ],
+                        },
+                    ])
+                );
+            }
+            if (url === 'https://downloads.example/1.0.1.json') {
+                return new Response(
+                    JSON.stringify({
+                        title: 'One',
+                        markdown: '# One\n\nFirst remote change.\n\n![One](one.png)',
+                        assetBaseUrl: 'https://github.com/bpwhelan/GameSentenceMiner/releases/download/v1.0.1/',
+                    })
+                );
+            }
+            if (url === 'https://downloads.example/1.0.2.json') {
+                return new Response(
+                    JSON.stringify({
+                        title: 'Two',
+                        markdown: '# Two\n\nSecond remote change.',
+                        assetBaseUrl: 'https://github.com/bpwhelan/GameSentenceMiner/releases/download/v1.0.2/',
+                    })
+                );
+            }
+            return new Response('', { status: 404 });
+        }) as unknown as typeof fetch;
+        const store = makeStore();
+        const manager = new DesktopChangelogManager(store, {
+            assetsDir,
+            fetchImpl: fetchMock,
+        });
+        manager.setManualSnapshotListener((snapshot) => snapshots.push(snapshot));
+
+        manager.startUpdatePreview(
+            {
+                fromVersion: '1.0.0',
+                toVersion: '1.0.2',
+            },
+            {
+                includePrereleases: false,
+            }
+        );
+
+        await vi.waitFor(() => {
+            expect(snapshots.some((snapshot) => {
+                const candidate = snapshot as { source?: string; markdown?: string } | null;
+                return (
+                    candidate?.source === 'remote' &&
+                    candidate.markdown?.includes('First remote change.') &&
+                    candidate.markdown.includes('Second remote change.')
+                );
+            })).toBe(true);
+        });
+
+        const ready = snapshots.at(-1) as { title?: string; markdown?: string } | null;
+        expect(ready?.title).toBe("What's Changed from 1.0.0 to 1.0.2");
+        expect(ready?.markdown?.indexOf('First remote change.')).toBeLessThan(
+            ready?.markdown?.indexOf('Second remote change.') ?? -1
+        );
+        expect(ready?.markdown).toContain(
+            '![One](https://github.com/bpwhelan/GameSentenceMiner/releases/download/v1.0.1/one.png)'
+        );
+        expect(ready?.markdown).not.toContain('1.0.3-beta.1');
+        expect(store.pending).toBeNull();
+        expect(store.seen.size).toBe(0);
+    });
 });

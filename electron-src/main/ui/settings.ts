@@ -936,6 +936,11 @@ interface SettingsIPCDependencies {
     getUpdateStatus: () => Promise<unknown>;
     checkForUpdates: () => Promise<unknown>;
     updateNow: () => Promise<unknown>;
+    showUpdateChangelogPreview?: (payload: {
+        fromVersion: string;
+        toVersion: string;
+        includePrereleases?: boolean;
+    }) => unknown;
 }
 
 export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
@@ -967,6 +972,30 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
             return null;
         }
         return await deps.updateNow();
+    });
+
+    ipcMain.handle('settings.showUpdateChangelogPreview', async (_event, payload) => {
+        if (!deps?.showUpdateChangelogPreview) {
+            return null;
+        }
+
+        const input = payload && typeof payload === 'object'
+            ? (payload as Record<string, unknown>)
+            : {};
+        const fromVersion =
+            typeof input.fromVersion === 'string' ? input.fromVersion.trim() : '';
+        const toVersion =
+            typeof input.toVersion === 'string' ? input.toVersion.trim() : '';
+
+        if (!fromVersion || !toVersion) {
+            return null;
+        }
+
+        return deps.showUpdateChangelogPreview({
+            fromVersion,
+            toVersion,
+            includePrereleases: input.includePrereleases === true,
+        });
     });
 
     ipcMain.handle('settings.saveSettings', async (_, settings: any) => {
