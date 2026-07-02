@@ -58,6 +58,8 @@ const VALID_TRACKED_GAME_WINDOW_STATES = new Set(["active", "background", "obscu
 const VALID_LIVE_STATS_DISPLAY_MODES = new Set(["always", "new-line"]);
 const VALID_LIVE_STATS_LAYOUTS = new Set(["stacked", "one-line"]);
 const VALID_LIVE_STATS_POSITION_MODES = new Set(["active-window", "overlay"]);
+const VALID_LIVE_STATS_VISIBILITY_MODES = new Set(["all", "stats", "goals", "hidden"]);
+const LIVE_STATS_VISIBILITY_CYCLE_ORDER = Object.freeze(["stats", "goals", "hidden", "all"]);
 const LIVE_STATS_FIELD_KEYS = ["chars_per_hour", "total_characters", "active_reading_time", "raw_reading_time", "cards_mined"];
 const GAMEPAD_SERVER_BASE_PORT = 7276;
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
@@ -508,6 +510,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "fadeTextIndicators": false,
   "showLiveStats": true,
   "showLiveGoals": true,
+  "liveStatsToggleHotkey": "Alt+Shift+L",
   // Per-goal overlay selection chosen in the settings window:
   //   { [goalId]: { enabled: boolean, view: "today" | "overall" } }
   "overlayGoals": {},
@@ -603,6 +606,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
 
 let userSettings = { ...DEFAULT_USER_SETTINGS, [OVERLAY_PROFILE_SETTINGS_KEY]: {} };
 let reconfigureOverlayRuntimeForSettingsChange = () => {};
+let liveStatsVisibilityMode = "all";
 
 const MANUAL_HOTKEY_ELECTRON_RELEASE_TIMEOUT_MS = 650;
 
@@ -815,7 +819,7 @@ function publishOverlayProfileState() {
 }
 
 function publishOverlaySettingsSnapshot(reason = "unknown") {
-  const snapshot = { ...userSettings };
+  const snapshot = buildOverlaySettingsPayload();
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("settings-updated", snapshot);
   }
@@ -993,6 +997,95 @@ function hasAllLiveStatsFieldKeys(value) {
     typeof value === "object" &&
     !Array.isArray(value) &&
     LIVE_STATS_FIELD_KEYS.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function normalizeLiveStatsVisibilityMode(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return VALID_LIVE_STATS_VISIBILITY_MODES.has(normalized) ? normalized : "all";
+}
+
+function getLiveStatsAvailability(settings = userSettings) {
+  return {
+    statsEnabled: settings.showLiveStats !== false,
+    goalsEnabled: settings.showLiveGoals !== false,
+  };
+}
+
+function getLiveStatsModeVisibility(mode, settings = userSettings) {
+  const { statsEnabled, goalsEnabled } = getLiveStatsAvailability(settings);
+  const normalizedMode = normalizeLiveStatsVisibilityMode(mode);
+
+  if (normalizedMode === "hidden") {
+    return { statsVisible: false, goalsVisible: false };
+  }
+
+  if (normalizedMode === "stats") {
+    return { statsVisible: statsEnabled, goalsVisible: false };
+  }
+
+  if (normalizedMode === "goals") {
+    return { statsVisible: false, goalsVisible: goalsEnabled };
+  }
+
+  return {
+    statsVisible: statsEnabled,
+    goalsVisible: goalsEnabled,
+  };
+}
+
+function getLiveStatsVisibilitySignature(mode, settings = userSettings) {
+  const visibility = getLiveStatsModeVisibility(mode, settings);
+  return `${visibility.statsVisible ? "1" : "0"}:${visibility.goalsVisible ? "1" : "0"}`;
+}
+
+function getLiveStatsVisibilityCycleModes(settings = userSettings) {
+  const modes = [];
+  const seenSignatures = new Set();
+
+  for (const mode of LIVE_STATS_VISIBILITY_CYCLE_ORDER) {
+    const visibility = getLiveStatsModeVisibility(mode, settings);
+    if (mode !== "hidden" && !visibility.statsVisible && !visibility.goalsVisible) {
+      continue;
+    }
+
+    const signature = `${visibility.statsVisible ? "1" : "0"}:${visibility.goalsVisible ? "1" : "0"}`;
+    if (seenSignatures.has(signature)) {
+      continue;
+    }
+    seenSignatures.add(signature);
+    modes.push(mode);
+  }
+
+  return modes.length > 0 ? modes : ["hidden"];
+}
+
+function buildOverlaySettingsPayload() {
+  return {
+    ...userSettings,
+    liveStatsVisibilityMode: normalizeLiveStatsVisibilityMode(liveStatsVisibilityMode),
+  };
+}
+
+function publishLiveStatsVisibilityMode(reason = "unknown") {
+  const payload = { liveStatsVisibilityMode: normalizeLiveStatsVisibilityMode(liveStatsVisibilityMode) };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("settings-updated", payload);
+  }
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send("settings-updated", payload);
+  }
+  console.log(`[LiveStats] Visibility mode is now ${payload.liveStatsVisibilityMode} (${reason}).`);
+}
+
+function advanceLiveStatsVisibilityMode(reason = "hotkey") {
+  const cycleModes = getLiveStatsVisibilityCycleModes(userSettings);
+  const currentSignature = getLiveStatsVisibilitySignature(liveStatsVisibilityMode, userSettings);
+  const currentIndex = cycleModes.findIndex(
+    (mode) => getLiveStatsVisibilitySignature(mode, userSettings) === currentSignature
+  );
+  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % cycleModes.length : 0;
+  liveStatsVisibilityMode = cycleModes[nextIndex] || "hidden";
+  publishLiveStatsVisibilityMode(reason);
 }
 
 function normalizeLiveStatsSettings(settings) {
@@ -4749,7 +4842,7 @@ function openSettings() {
     settingsWindow.webContents.once("did-finish-load", () => {
       if (!settingsWindow || settingsWindow.isDestroyed()) return;
       settingsWindow.webContents.send("preload-settings", {
-        userSettings,
+        userSettings: buildOverlaySettingsPayload(),
         websocketStates,
         defaultSettings: DEFAULT_USER_SETTINGS,
         runtimeSettings: getManualHotkeyRuntimeStatus(),
@@ -5647,6 +5740,13 @@ app.whenReady().then(async () => {
     });
   }
   registerToggleFuriganaHotkey();
+
+  function registerLiveStatsToggleHotkey(_oldHotkey) {
+    setAppHotkey("liveStatsToggle", userSettings.liveStatsToggleHotkey || "Alt+Shift+L", () => {
+      advanceLiveStatsVisibilityMode("hotkey");
+    });
+  }
+  registerLiveStatsToggleHotkey();
   
   function registerGamepadKeyboardHotkey(oldHotkey) {
     const keysToUnregister = new Set([
@@ -5740,6 +5840,7 @@ app.whenReady().then(async () => {
     if (changed("overlaySettingsHotkey")) registerOverlaySettingsHotkey(previous.overlaySettingsHotkey);
     if (changed("translateHotkey")) registerTranslateHotkey(previous.translateHotkey);
     if (changed("texthookerHotkey")) registerTexthookerHotkey(previous.texthookerHotkey);
+    if (changed("liveStatsToggleHotkey")) registerLiveStatsToggleHotkey(previous.liveStatsToggleHotkey);
     if (changed("gamepadKeyboardHotkey") || changed("gamepadKeyboardEnabled") || changed("gamepadEnabled")) {
       registerGamepadKeyboardHotkey(previous.gamepadKeyboardHotkey);
       syncGamepadServerState(`${reason}:gamepad-keyboard`);
@@ -5754,6 +5855,7 @@ app.whenReady().then(async () => {
       registerOverlaySettingsHotkey();
       registerTranslateHotkey();
       registerToggleFuriganaHotkey();
+      registerLiveStatsToggleHotkey();
       registerTexthookerHotkey();
       registerGamepadKeyboardHotkey();
       registerManualShowHotkey();
@@ -6112,7 +6214,7 @@ app.whenReady().then(async () => {
     if (isDev) {
       // mainWindow.openDevTools({ mode: 'detach' });
     }
-    mainWindow.webContents.send("load-settings", userSettings);
+    mainWindow.webContents.send("load-settings", buildOverlaySettingsPayload());
     broadcastPomodoroState();
     mainWindow.webContents.send("display-info", buildOverlayDisplayInfo(display));
     mainWindow.webContents.send("gamepad-input-test-active", { active: gamepadInputTestActive });
@@ -6531,6 +6633,9 @@ app.whenReady().then(async () => {
       case "translateHotkey":
         registerTranslateHotkey(oldValue);
         break;
+      case "liveStatsToggleHotkey":
+        registerLiveStatsToggleHotkey(oldValue);
+        break;
       case "texthookerHotkey":
         {
           const resolved = ensureManualAndTexthookerHotkeysDistinct("setting-changed:texthookerHotkey");
@@ -6553,6 +6658,7 @@ app.whenReady().then(async () => {
         registerOverlaySettingsHotkey();
         registerTranslateHotkey();
         registerToggleFuriganaHotkey();
+        registerLiveStatsToggleHotkey();
         registerTexthookerHotkey();
         registerGamepadKeyboardHotkey();
         registerManualShowHotkey();

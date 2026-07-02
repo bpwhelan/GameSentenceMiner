@@ -10,6 +10,7 @@
   const DEFAULT_SETTINGS = Object.freeze({
     showLiveStats: true,
     showLiveGoals: true,
+    liveStatsVisibilityMode: "all",
     liveStatsDisplayModeV2: "always",
     liveStatsLayoutV2: "one-line",
     liveStatsAutoHideSeconds: 5,
@@ -29,6 +30,7 @@
   const VALID_DISPLAY_MODES = new Set(["always", "new-line"]);
   const VALID_LAYOUTS = new Set(["stacked", "one-line"]);
   const VALID_POSITION_MODES = new Set(["active-window", "overlay"]);
+  const VALID_VISIBILITY_MODES = new Set(["all", "stats", "goals", "hidden"]);
   const FIELD_KEYS = DEFAULT_FIELD_DEFINITIONS.map((field) => field.key);
 
   let ipcRenderer = null;
@@ -88,6 +90,11 @@
     return VALID_LAYOUTS.has(normalized) ? normalized : DEFAULT_SETTINGS.liveStatsLayoutV2;
   }
 
+  function normalizeVisibilityMode(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    return VALID_VISIBILITY_MODES.has(normalized) ? normalized : DEFAULT_SETTINGS.liveStatsVisibilityMode;
+  }
+
   function normalizeLiveStatsFields(value = {}) {
     const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
     const normalized = {};
@@ -117,6 +124,7 @@
     return {
       showLiveStats: normalizeBoolean(settings.showLiveStats, state.settings.showLiveStats),
       showLiveGoals: normalizeBoolean(settings.showLiveGoals ?? state.settings.showLiveGoals, true),
+      liveStatsVisibilityMode: normalizeVisibilityMode(settings.liveStatsVisibilityMode ?? state.settings.liveStatsVisibilityMode),
       overlayGoals: normalizeOverlayGoals(settings.overlayGoals ?? state.settings.overlayGoals),
       liveStatsDisplayModeV2: normalizeDisplayMode(settings.liveStatsDisplayModeV2 ?? state.settings.liveStatsDisplayModeV2),
       liveStatsLayoutV2: normalizeLayout(settings.liveStatsLayoutV2 ?? state.settings.liveStatsLayoutV2),
@@ -291,6 +299,16 @@
     renderPomodoro();
   }
 
+  function isStatsModeVisible() {
+    const mode = normalizeVisibilityMode(state.settings.liveStatsVisibilityMode);
+    return state.settings.showLiveStats === true && (mode === "all" || mode === "stats");
+  }
+
+  function isGoalsModeVisible() {
+    const mode = normalizeVisibilityMode(state.settings.liveStatsVisibilityMode);
+    return state.settings.showLiveGoals === true && (mode === "all" || mode === "goals");
+  }
+
   function pomodoroRemainingSeconds(pomodoro) {
     if (pomodoro.running && Number.isFinite(Number(pomodoro.endTimestamp))) {
       return Math.max(0, (Number(pomodoro.endTimestamp) - Date.now()) / 1000);
@@ -304,8 +322,8 @@
       return;
     }
     const pomodoro = state.pomodoro;
-    if (!pomodoro || !pomodoro.enabled) {
-      el.classList.remove("visible");
+    if (!isStatsModeVisible() || !pomodoro || !pomodoro.enabled) {
+      el.classList.remove("visible", "break", "paused");
       return;
     }
 
@@ -335,7 +353,7 @@
   // The server feeds every active goal; the overlay decides which to show (and in
   // which view) via the overlayGoals setting configured in the settings window.
   function getVisibleGoals() {
-    if (state.settings.showLiveGoals === false) {
+    if (!isGoalsModeVisible()) {
       return [];
     }
     const goals = Array.isArray(state.goals) ? state.goals : [];
@@ -485,9 +503,17 @@
     renderPomodoro();
     renderGoals();
     state.root.classList.toggle("gsm-live-stats-one-line", state.settings.liveStatsLayoutV2 === "one-line");
+    const statsVisible = isStatsModeVisible();
+    state.root.classList.toggle("gsm-live-stats-stats-hidden", !statsVisible);
     const payload = state.payload;
     state.status.classList.toggle("active", !!payload?.session_active);
     state.grid.replaceChildren();
+
+    if (!statsVisible) {
+      updatePosition();
+      updateVisibility();
+      return;
+    }
 
     if (!payload) {
       const empty = document.createElement("div");
@@ -630,9 +656,11 @@
   }
 
   function updateVisibility() {
-    const pomodoroActive = !!(state.pomodoro && state.pomodoro.enabled);
+    const statsVisible = isStatsModeVisible();
+    const statsActive = statsVisible && state.payload !== null;
+    const pomodoroActive = statsVisible && !!(state.pomodoro && state.pomodoro.enabled);
     const goalsActive = getVisibleGoals().length > 0;
-    const enabled = state.settings.showLiveStats === true && (state.payload !== null || pomodoroActive || goalsActive);
+    const enabled = statsActive || pomodoroActive || goalsActive;
     if (!enabled) {
       setVisible(false);
       return;

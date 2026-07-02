@@ -1385,7 +1385,7 @@
     <div class="settings-search">
       <span class="settings-search-icon" aria-hidden="true">🔍</span>
       <input type="text" id="settingsSearchInput" autocomplete="off" spellcheck="false"
-        placeholder="Search all settings… (e.g. red boxes, pomodoro, controller, furigana)"
+        placeholder="Search all settings… (e.g. red boxes, pomodoro, controller, furigana) (WIP)"
         aria-label="Search all overlay settings" />
       <span id="settingsSearchCount" class="settings-search-count"></span>
       <button type="button" id="settingsSearchClear" class="settings-search-clear" title="Clear search" aria-label="Clear search">✕</button>
@@ -1499,6 +1499,22 @@
           <div class="hotkey-info">Shows the goals you pick below in the live stats widget.</div>
         </span>
         <input type="checkbox" id="showLiveGoals" />
+      </label>
+      <label>
+        <span class="label-text">
+          Toggle Stats/Goals Hotkey
+          <div class="hotkey-info">Cycles visible live overlay parts: stats only, goals only, hidden, then all.</div>
+          <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
+          <div id="livestatstoggle-ctrl-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;">⚠️ Warning: Ctrl key may interfere with game controls (text skipping)</div>
+        </span>
+        <div class="input-container">
+          <input type="text" id="liveStatsToggleHotkey" value="Alt+Shift+L"
+            title="Enter a valid hotkey (e.g., Alt+Shift+L)&#10;&#10;⚠️ WARNING: Avoid Ctrl key in games/visual novels&#10;(Ctrl is commonly used for text skipping)&#10;&#10;Note: Some keys may not work (e.g., numpad +, certain special keys)&#10;Use regular keyboard keys for best compatibility" />
+          <button type="button" class="guide-button"
+            onclick="window.open('https://www.electronjs.org/docs/latest/tutorial/keyboard-shortcuts', '_blank')">
+            Guide
+          </button>
+        </div>
       </label>
       <div class="overlay-goals-picker" id="overlayGoalsPicker">
         <div class="overlay-goals-picker-header">
@@ -2975,6 +2991,7 @@
       showHotkey: { warningElementId: "ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
       toggleFuriganaHotkey: { warningElementId: "furigana-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
       translateHotkey: { warningElementId: "translate-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
+      liveStatsToggleHotkey: { warningElementId: "livestatstoggle-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
       toggleWindowHotkey: { warningElementId: "togglewindow-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
       minimizeHotkey: { warningElementId: "minimize-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
       yomitanSettingsHotkey: { warningElementId: "yomitansettings-ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
@@ -3666,6 +3683,7 @@
       },
       createCheckboxBinding("showLiveStats", "#showLiveStats"),
       createCheckboxBinding("showLiveGoals", "#showLiveGoals"),
+      createHotkeyBinding("liveStatsToggleHotkey", "#liveStatsToggleHotkey"),
       createSelectBinding("liveStatsDisplayModeV2", "#liveStatsDisplayModeV2", {
         normalize: normalizeLiveStatsDisplayModeValue,
       }),

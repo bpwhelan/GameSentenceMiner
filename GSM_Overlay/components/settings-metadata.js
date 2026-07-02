@@ -93,7 +93,7 @@
     { icon: "📊", title: "Live Stats & Goals", tab: "stats", blurb: "Show chars/hour, cards mined, and your daily goals in-game, with a built-in Pomodoro timer." },
     { icon: "📚", title: "Jiten Reader", tab: "dictionary", blurb: "Jiten Reader Integration: SRS-aware highlighting and grading right from the overlay." },
     { icon: "🔍", title: "OCR Capture", tab: "capture", blurb: "Pick the engine, monitor, and capture area, and scan text on a timer or on demand." },
-    { icon: "🗂️", title: "Per-Game Profiles", tab: "profiles", blurb: "Tie overlay settings to your GSM profiles to tie configuration to a set of games." },
+    { icon: "🗂️", title: "Game Profiles", tab: "profiles", blurb: "Tie overlay settings to your GSM profiles to tie configuration to a set of games." },
     { icon: "⌨️", title: "Hotkeys & Interaction", tab: "interaction", blurb: "Customize every hotkey, Yomitan focus behavior, translation, and the TextFeed window." },
   ];
 
