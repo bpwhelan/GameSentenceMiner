@@ -423,7 +423,6 @@ class CronScheduler:
                     next_check_time = time.monotonic() + self.check_interval
                 except queue.Empty:
                     if not self._stop_event.is_set() and time.monotonic() >= next_check_time:
-                        logger.background("Running periodic scheduled task check...")
                         self._execute_safe(None)
                         next_check_time = time.monotonic() + self.check_interval
                 except Exception as e:
