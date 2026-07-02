@@ -3,7 +3,16 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const CHANGELOG_SCHEME = 'gsm-changelog';
-const IMAGE_EXTENSIONS = new Set(['.avif', '.gif', '.jpg', '.jpeg', '.png', '.webp']);
+const MEDIA_EXTENSIONS = new Set([
+    '.avif',
+    '.gif',
+    '.jpg',
+    '.jpeg',
+    '.mp4',
+    '.png',
+    '.webm',
+    '.webp',
+]);
 
 export function registerChangelogProtocolScheme(): void {
     protocol.registerSchemesAsPrivileged([
@@ -37,7 +46,7 @@ export function registerChangelogProtocolHandler(assetsDir: string): void {
         const extension = path.extname(candidate).toLowerCase();
         if (
             !candidate.startsWith(imagesRootWithSeparator) ||
-            !IMAGE_EXTENSIONS.has(extension)
+            !MEDIA_EXTENSIONS.has(extension)
         ) {
             return new Response('Not found', { status: 404 });
         }

@@ -6517,6 +6517,7 @@ button.danger:hover:not(:disabled) {
 }
 
 .whats-changed-header {
+  grid-row: 1;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -6553,6 +6554,7 @@ button.danger:hover:not(:disabled) {
 }
 
 .whats-changed-progress {
+  grid-row: 2;
   padding: 14px 30px 18px;
   border-bottom: 1px solid var(--gsm-border-subtle, #283241);
   background: rgba(255, 255, 255, 0.025);
@@ -6602,6 +6604,8 @@ button.danger:hover:not(:disabled) {
 }
 
 .whats-changed-body {
+  grid-row: 3;
+  min-height: 0;
   overflow: auto;
   padding: 26px 30px 30px;
   color: var(--gsm-text, #d9e2ec);
@@ -6652,7 +6656,8 @@ button.danger:hover:not(:disabled) {
   color: var(--gsm-accent-text, #8db9ff);
 }
 
-.whats-changed-body img {
+.whats-changed-body img,
+.whats-changed-body video {
   display: block;
   max-width: 100%;
   max-height: 420px;
@@ -6707,6 +6712,7 @@ button.danger:hover:not(:disabled) {
 }
 
 .whats-changed-note {
+  grid-row: 4;
   margin: 0;
   padding: 10px 30px;
   border-top: 1px solid var(--gsm-border-subtle, #283241);
@@ -6715,11 +6721,58 @@ button.danger:hover:not(:disabled) {
 }
 
 .whats-changed-footer {
+  grid-row: 5;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 10px;
   padding: 16px 30px 22px;
   border-top: 1px solid var(--gsm-border-subtle, #283241);
+}
+
+.whats-changed-footer button {
+  flex: 0 0 auto;
+  border: 1px solid var(--gsm-accent-border, #5f88cc);
+  border-radius: 999px;
+  padding: 7px 14px;
+  color: var(--gsm-accent-strong, #dbe8ff);
+  background: var(--gsm-accent-soft, rgba(95, 136, 204, 0.18));
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease,
+    opacity 120ms ease;
+}
+
+.whats-changed-footer button:hover:not(:disabled) {
+  border-color: var(--gsm-accent, #7aa2ff);
+  color: var(--gsm-text-on-accent, #ffffff);
+  background: rgba(122, 162, 255, 0.22);
+}
+
+.whats-changed-footer button.secondary {
+  border-color: var(--gsm-border-default, #334055);
+  color: var(--gsm-text-primary, #eef3ff);
+  background: var(--gsm-surface-2, #273140);
+}
+
+.whats-changed-footer button.secondary:hover:not(:disabled) {
+  border-color: var(--gsm-border-strong, #4d5d73);
+  color: var(--gsm-accent-strong, #dbe8ff);
+  background: var(--gsm-surface-hover, #303b4a);
+}
+
+.whats-changed-footer button.danger {
+  border-color: var(--gsm-danger-border, #7f332f);
+  color: var(--gsm-danger-text, #ffb8b3);
+  background: rgba(127, 51, 47, 0.24);
+}
+
+.whats-changed-footer button.danger:hover:not(:disabled) {
+  border-color: var(--gsm-danger, #b23028);
+  color: var(--gsm-text-on-accent, #ffffff);
+  background: rgba(178, 48, 40, 0.36);
 }
 
 .whats-changed-continue {

@@ -140,6 +140,8 @@ function createChangelogSnapshot(
             '',
             '![Screenshot](1.0.1/shot.png)',
             '',
+            '![Demo](1.0.1/demo.mp4)',
+            '',
             '| Feature | Supported |',
             '| --- | --- |',
             '| Tables | Yes |',
@@ -479,6 +481,9 @@ describe('App install-session integration', () => {
         expect(container.querySelector('img')?.getAttribute('src')).toBe(
             'gsm-changelog://images/1.0.1/shot.png'
         );
+        expect(container.querySelector('video')?.getAttribute('src')).toBe(
+            'gsm-changelog://images/1.0.1/demo.mp4'
+        );
         const markdownLink = container.querySelector('.whats-changed-body a');
         expect(markdownLink?.getAttribute('href')).toBe('https://example.com');
         markdownLink?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
@@ -605,6 +610,7 @@ describe('App install-session integration', () => {
         );
         expect(closeButton).toBeDefined();
         expect(closeButton?.hasAttribute('disabled')).toBe(false);
+        expect(closeButton?.classList.contains('secondary')).toBe(true);
 
         await act(async () => {
             closeButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));

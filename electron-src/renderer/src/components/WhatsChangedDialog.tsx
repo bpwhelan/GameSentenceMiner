@@ -26,6 +26,10 @@ function resolveAssetUrl(src: string | undefined, assetBaseUrl: string): string 
   return `${cleanBase}${cleanSrc}`;
 }
 
+function isVideoAsset(src: string | undefined): boolean {
+  return /\.(?:mp4|webm)(?:[?#]|$)/i.test(src ?? "");
+}
+
 export function WhatsChangedDialog({
   changelog,
   installSession,
@@ -124,13 +128,23 @@ export function WhatsChangedDialog({
                     {children}
                   </a>
                 ),
-                img: ({ src, alt }) => (
-                  <img
-                    src={resolveAssetUrl(src, changelog.assetBaseUrl)}
-                    alt={alt || t("changelog.imageAlt")}
-                    loading="lazy"
-                  />
-                )
+                img: ({ src, alt }) => {
+                  const resolvedSrc = resolveAssetUrl(src, changelog.assetBaseUrl);
+                  return isVideoAsset(src) ? (
+                    <video
+                      src={resolvedSrc}
+                      aria-label={alt || undefined}
+                      controls
+                      preload="metadata"
+                    />
+                  ) : (
+                    <img
+                      src={resolvedSrc}
+                      alt={alt || t("changelog.imageAlt")}
+                      loading="lazy"
+                    />
+                  );
+                }
               }}
             >
               {changelog.markdown || t("changelog.empty")}
@@ -145,19 +159,20 @@ export function WhatsChangedDialog({
         <footer className="whats-changed-footer">
           {isFailed ? (
             <>
-              <button className="install-btn-retry" onClick={onRetry}>
+              <button type="button" className="install-btn-retry" onClick={onRetry}>
                 {t("install.retry")}
               </button>
-              <button className="install-btn-logs" onClick={onOpenLogs}>
+              <button type="button" className="install-btn-logs secondary" onClick={onOpenLogs}>
                 {t("install.openLogs")}
               </button>
-              <button className="install-btn-quit" onClick={onQuit}>
+              <button type="button" className="install-btn-quit danger" onClick={onQuit}>
                 {t("install.quit")}
               </button>
             </>
           ) : (
             <button
-              className="whats-changed-continue"
+              type="button"
+              className={`whats-changed-continue${requiresBackendSync ? "" : " secondary"}`}
               onClick={onContinue}
               disabled={requiresBackendSync && !canContinue}
             >
