@@ -458,16 +458,16 @@ export class AutoLauncher {
                 this.resolveDesiredOcrMode(currentScene);
 
             // "Ignore active OBS scene for OCR": once OCR is running under
-            // auto-launcher control, leave it running regardless of scene
-            // changes (don't stop/restart it just because the active scene
-            // switched). It keeps the area config of the scene it started with.
+            // auto-launcher control, leave it running across scene changes when
+            // the new scene still has an OCR mode. It keeps the area config of
+            // the scene it started with.
             //
             // Exception: a forced-manual fallback session ("Turn on manual OCR
             // for all profiles") must still defer to a scene whose Game
             // Automation profile actually wants auto OCR. Without this, manual
             // OCR started on a menu/idle scene gets pinned and never upgrades to
             // auto when we land on the game scene.
-            if (ignoreActiveScene && wasAutoLauncherRunning) {
+            if (ignoreActiveScene && wasAutoLauncherRunning && ocrMode !== "none") {
                 const desiredRunMode = ocrMode === "manual" ? "manual" : "auto";
                 const needsManualToAutoUpgrade =
                     runtimeBefore.mode === "manual" && desiredRunMode === "auto";

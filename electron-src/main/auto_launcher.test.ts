@@ -189,6 +189,29 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         expect(startOCRMock).not.toHaveBeenCalled();
     });
 
+    it('stops auto-launched OCR when the next scene has no OCR automation, even while ignoring active scene changes', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        const nextScene = { id: 'scene-2', name: 'Scene 2' };
+
+        launcher.activeOcrMode = 'auto';
+        launcher.activeOcrSceneId = 'scene-1';
+        getIgnoreActiveSceneForOcrMock.mockReturnValue(true);
+        getOCRRuntimeStateMock.mockReturnValue({
+            isRunning: true,
+            source: 'auto-launcher',
+            mode: 'auto',
+        });
+        stopOCRMock.mockReturnValue(true);
+
+        await launcher.runOcrAutomation(nextScene);
+
+        expect(stopOCRMock).toHaveBeenCalledWith({ onlyIfSource: 'auto-launcher' });
+        expect(startOCRMock).not.toHaveBeenCalled();
+        expect(launcher.activeOcrMode).toBe('none');
+        expect(launcher.activeOcrSceneId).toBe('');
+    });
+
     it('falls back to OBS scene output when executable detection is unavailable', async () => {
         const { AutoLauncher } = await loadAutoLauncherModule();
         const launcher = new AutoLauncher() as any;
