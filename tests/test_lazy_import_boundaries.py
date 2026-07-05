@@ -122,6 +122,27 @@ def test_importing_ui_package_does_not_load_pyqt():
     assert result["pyqt_loaded"] is False
 
 
+def test_importing_media_package_does_not_load_pyqt():
+    result = _run_probe(
+        """
+        import json
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path.cwd()))
+        import GameSentenceMiner.util.media  # noqa: F401
+
+        print(json.dumps({
+            "audio_player_loaded": "GameSentenceMiner.util.media.audio_player" in sys.modules,
+            "pyqt_loaded": any(name.startswith("PyQt6") for name in sys.modules),
+        }))
+        """
+    )
+
+    assert result["audio_player_loaded"] is False
+    assert result["pyqt_loaded"] is False
+
+
 def test_importing_gsm_does_not_eagerly_load_web_stack_modules():
     result = _run_probe(
         """

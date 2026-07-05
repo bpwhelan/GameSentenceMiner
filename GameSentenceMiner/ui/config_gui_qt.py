@@ -115,6 +115,7 @@ from GameSentenceMiner.util.config.configuration import (
     WHISPER_SMALL,
     WHISPER_MEDIUM,
     WHISPER_TURBO,
+    FIRERED,
     SILERO,
     WHISPER,
     OFF,
@@ -3048,10 +3049,10 @@ class ConfigWindow(QWidget):
         )
         self.whisper_model_combo.setCurrentText(s.vad.whisper_model)
         self.selected_vad_model_combo.clear()
-        self.selected_vad_model_combo.addItems([SILERO, WHISPER])
+        self.selected_vad_model_combo.addItems([SILERO, FIRERED, WHISPER])
         self.selected_vad_model_combo.setCurrentText(s.vad.selected_vad_model)
         self.backup_vad_model_combo.clear()
-        self.backup_vad_model_combo.addItems([OFF, SILERO, WHISPER])
+        self.backup_vad_model_combo.addItems([OFF, SILERO, FIRERED, WHISPER])
         self.backup_vad_model_combo.setCurrentText(s.vad.backup_vad_model)
         self.add_audio_on_no_results_check.setChecked(s.vad.add_audio_on_no_results)
         self.use_tts_as_fallback_check.setChecked(s.vad.use_tts_as_fallback)

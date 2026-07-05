@@ -114,3 +114,55 @@ def test_silero_vad_converts_sample_indices_to_seconds(monkeypatch):
     assert len(result.segments) == 1
     assert result.segments[0].start == 0.5
     assert result.segments[0].end == 1.5
+
+
+def test_firered_vad_converts_onnx_probabilities_to_segments(monkeypatch):
+    class FakeTempWav:
+        def __init__(self, input_audio):
+            self.input_audio = input_audio
+
+        def __enter__(self):
+            return "temp.wav"
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeModel:
+        def run(self, _output_names, feeds):
+            assert feeds["feat"].shape == (1, 5, 80)
+            return [np.array([[[0.1], [0.8], [0.9], [0.1], [0.1]]], dtype=np.float32)]
+
+    class FakeFeatureExtractor:
+        def extract(self, path):
+            assert path == "temp.wav"
+            return np.zeros((5, 80), dtype=np.float32), 0.05
+
+    processor = vad.FireRedVADProcessor()
+    processor.vad_model = FakeModel()
+    processor._feature_extractor = FakeFeatureExtractor()
+    processor._postprocessor = vad.FireRedVADPostprocessor(
+        smooth_window_size=1,
+        speech_threshold=0.5,
+        min_speech_frame=1,
+        max_speech_frame=2000,
+        min_silence_frame=1,
+        merge_silence_frame=0,
+        extend_speech_frame=0,
+    )
+
+    monkeypatch.setattr(vad, "TempWav", FakeTempWav)
+
+    result = processor._detect_voice_activity("input.mp3", "")
+
+    assert len(result.segments) == 1
+    assert result.segments[0].start == pytest.approx(0.0)
+    assert result.segments[0].end == pytest.approx(0.04)
+
+
+def test_firered_cmvn_parser_reads_bundled_stats():
+    means, inverse_std_variances = vad._load_firered_cmvn(vad._get_firered_asset_path("cmvn.ark"))
+
+    assert means.shape == (80,)
+    assert inverse_std_variances.shape == (80,)
+    assert means.dtype == np.float32
+    assert inverse_std_variances.dtype == np.float32

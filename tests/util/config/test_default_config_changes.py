@@ -16,6 +16,11 @@ def test_missing_vad_model_uses_new_silero_default():
     assert loaded.configs["Default"].vad.selected_vad_model == configuration.SILERO
 
 
+def test_vad_model_helpers_include_firered():
+    assert VAD(selected_vad_model=configuration.FIRERED).is_firered()
+    assert VAD(backup_vad_model=configuration.FIRERED).is_firered()
+
+
 def test_configs_already_on_silero_record_default_change_as_accepted():
     config = Config.new()
     config.configs["Default"].vad.selected_vad_model = configuration.WHISPER

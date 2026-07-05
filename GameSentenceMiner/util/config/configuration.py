@@ -17,6 +17,7 @@ from typing import Any, Callable, List, Dict, Optional, ClassVar
 
 OFF = "OFF"
 # VOSK = 'VOSK'
+FIRERED = "FIRERED"
 SILERO = "SILERO"
 WHISPER = "WHISPER"
 # GROQ = 'GROQ'
@@ -1185,6 +1186,9 @@ class VAD:
     def __post_init__(self):
         if self.selected_vad_model == self.backup_vad_model:
             self.backup_vad_model = OFF
+
+    def is_firered(self):
+        return self.selected_vad_model == FIRERED or self.backup_vad_model == FIRERED
 
     def is_silero(self):
         return self.selected_vad_model == SILERO or self.backup_vad_model == SILERO

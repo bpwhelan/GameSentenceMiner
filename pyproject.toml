@@ -37,6 +37,7 @@ dependencies = [
   "pytz>=2025.1",
   "numpy==2.2.6",
   "faster-whisper~=1.2.1",
+  "kaldi-native-fbank>=1.15.0",
   "regex~=2025.10.23",
   "opencv-python~=4.12.0.88",
   "oneocr==1.0.10",
@@ -111,7 +112,7 @@ packages = { find = { include = ["GameSentenceMiner*"] } }
 
 [tool.setuptools.package-data]
 "GameSentenceMiner.web" = ["**/*"]
-"GameSentenceMiner" = ["assets/*", "locales/*"]
+"GameSentenceMiner" = ["assets/*", "assets/fireredvad/*", "locales/*"]
 "GameSentenceMiner.mecab" = ["**/*"]
 
 [tool.uv.sources]
