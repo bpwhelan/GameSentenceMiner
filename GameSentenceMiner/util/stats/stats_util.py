@@ -13,11 +13,12 @@ MIN_CHARS_FOR_SPEED = 5  # Minimum chars for a line to be included in IQR analys
 MIN_SAMPLES_FOR_IQR = 10  # Minimum lines needed before applying IQR filtering
 
 # --- v2 adaptive reading time constants ---
-# v2 caps each line at what it *should* take at the session's own median
-# reading speed, instead of a fixed seconds-per-char. Shared by the live
+# v2 caps each line at what it *should* take at a conservative version of the
+# session's own median reading speed, instead of a fixed seconds-per-char. Shared by the live
 # tracker (live_stats.py) and the historical calc (web/stats.py) so both agree.
 ADAPTIVE_FLOOR_SECONDS = 2.0  # Minimum time credited for any line in v2
 ADAPTIVE_TOLERANCE = 2.5  # Slack factor over the expected per-line time
+ADAPTIVE_MEDIAN_CPS_SCALE = 0.8  # Use a conservative 80% of session median speed
 MIN_LINES_FOR_CPH = 5  # Lines required before live cph is shown (anti-spike guard)
 
 
@@ -46,12 +47,14 @@ def session_median_cps(gaps: Iterable[tuple[float, int]]) -> float:
 def adaptive_cap_seconds(char_count: int, median_cps: float) -> float:
     """Max plausible reading seconds for one line at the session's pace.
 
-    cap = char_count / median_cps * ADAPTIVE_TOLERANCE, with a small floor and
-    the shared absolute ceiling. Falls back to the fixed per-char cap until a
-    median speed is available (start of session).
+    cap = char_count / scaled_median_cps * ADAPTIVE_TOLERANCE, with a small
+    floor and the shared absolute ceiling. The median is discounted so unusually
+    fast/easy lines do not make later AFK caps too aggressive. Falls back to the
+    fixed per-char cap until a median speed is available (start of session).
     """
     if median_cps and median_cps > 0:
-        cap = max(ADAPTIVE_FLOOR_SECONDS, (char_count / median_cps) * ADAPTIVE_TOLERANCE)
+        scaled_median_cps = median_cps * ADAPTIVE_MEDIAN_CPS_SCALE
+        cap = max(ADAPTIVE_FLOOR_SECONDS, (char_count / scaled_median_cps) * ADAPTIVE_TOLERANCE)
     else:
         cap = max(ADAPTIVE_FLOOR_SECONDS, char_count * MAX_SEC_PER_CHAR)
     return min(cap, ABSOLUTE_CEILING)

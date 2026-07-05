@@ -50,6 +50,13 @@ def _get_config_window_class():
 
 
 @lru_cache(maxsize=1)
+def _get_show_default_config_change_dialogs():
+    from GameSentenceMiner.ui.default_config_change_dialog_qt import show_default_config_change_dialogs
+
+    return show_default_config_change_dialogs
+
+
+@lru_cache(maxsize=1)
 def _get_show_furigana_filter_preview():
     from GameSentenceMiner.ui.furigana_filter_preview_qt import (
         show_furigana_filter_preview,
@@ -408,6 +415,11 @@ def get_dialog_manager():
     """Get the global DialogManager, initializing App if needed."""
     get_qt_app()  # Ensures App and Manager exist
     return _dialog_manager
+
+
+def show_default_config_changes_if_needed(parent=None):
+    get_qt_app()
+    return _get_show_default_config_change_dialogs()(parent=parent)
 
 
 # def get_config_window():

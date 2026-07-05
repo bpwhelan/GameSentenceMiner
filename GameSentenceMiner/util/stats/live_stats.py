@@ -129,7 +129,7 @@ class LiveSessionTracker:
         """Credit the time spent reading the previous line, capped per the active algorithm."""
         prev_char_count = len(self.last_line_text) if self.last_line_text else 0
         if get_stats_config().reading_time_adaptive_v2:
-            # v2: cap the gap by the session's own median reading speed.
+            # v2: cap the gap by a conservative session-median reading speed.
             if prev_char_count >= MIN_CHARS_FOR_SPEED and gap > 0:
                 self._speed_samples.append(prev_char_count / gap)
             max_time = adaptive_cap_seconds(prev_char_count, _median(self._speed_samples))
@@ -149,7 +149,7 @@ class LiveSessionTracker:
         together keeps read speed from spiking the instant a huge line appears.
 
         The maximum time credited for a gap is capped per the active algorithm
-        (v1 fixed seconds-per-char, or v2 adaptive to session median speed).
+        (v1 fixed seconds-per-char, or v2 adaptive to conservative session median speed).
         """
         stats_config = get_stats_config()
         if self.last_line_time:

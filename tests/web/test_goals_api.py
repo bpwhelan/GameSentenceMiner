@@ -23,6 +23,7 @@ import pytest
 
 from GameSentenceMiner.util.database.db import SQLiteDB, GameLinesTable, GoalsTable
 from GameSentenceMiner.util.database.games_table import GamesTable
+from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 
 
 @pytest.fixture(autouse=True)
@@ -89,6 +90,49 @@ def _seed_current_goals(goals=None, settings=None):
         goals_settings_json=settings_json,
         last_updated=time.time(),
     )
+
+
+def _utc_timestamp(day: datetime.date, hour: int = 12) -> float:
+    return datetime.datetime.combine(day, datetime.time(hour=hour), tzinfo=datetime.timezone.utc).timestamp()
+
+
+def _seed_rollup(date: datetime.date, *, characters: int = 0, seconds: float = 0.0) -> None:
+    StatsRollupTable(
+        date=date.isoformat(),
+        total_lines=1 if characters else 0,
+        total_characters=characters,
+        total_sessions=1 if seconds else 0,
+        unique_games_played=1 if characters else 0,
+        total_reading_time_seconds=seconds,
+        total_active_time_seconds=seconds,
+    ).save()
+
+
+def _seed_today_line(day: datetime.date, *, text: str, game_id: str = "") -> None:
+    GameLinesTable(
+        id=f"line-{uuid.uuid4()}",
+        game_name="Test Game",
+        game_id=game_id,
+        line_text=text,
+        timestamp=_utc_timestamp(day),
+    ).save()
+
+
+def _seed_game(
+    game_id: str,
+    *,
+    title: str = "Test Game",
+    scene: str = "Test Game",
+    character_count: int = 0,
+    game_type: str = "Visual Novel",
+) -> None:
+    GamesTable(
+        id=game_id,
+        title_original=title,
+        obs_scene_name=scene,
+        character_count=character_count,
+        game_type=game_type,
+    ).save()
 
 
 # ===================================================================
@@ -342,6 +386,79 @@ class TestGoalsDashboard:
         assert "goal_custom" not in data["today_progress"]
         assert data["projections"]["goal_active"]["target"] == 1000
 
+    def test_today_required_does_not_decrease_from_today_live_progress(self, client):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        yesterday = today - datetime.timedelta(days=1)
+        end = today + datetime.timedelta(days=2)
+        _seed_rollup(yesterday, characters=100)
+        _seed_today_line(today, text="x" * 30)
+        _seed_current_goals(
+            goals=[
+                {
+                    "id": "goal_active",
+                    "name": "Read chars",
+                    "metricType": "characters",
+                    "targetValue": 310,
+                    "startDate": yesterday.isoformat(),
+                    "endDate": end.isoformat(),
+                    "icon": "📖",
+                    "mediaType": "ALL",
+                }
+            ]
+        )
+
+        resp = client.get("/api/goals/dashboard", headers={"X-Timezone": "UTC"})
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["today_progress"]["goal_active"]["progress"] == 30
+        assert data["today_progress"]["goal_active"]["required"] == 70
+        assert data["today_progress"]["goal_active"]["total_progress"] == 130
+
+    def test_finish_game_goal_resolves_stale_game_id_from_stored_game_name(self, client):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        yesterday = today - datetime.timedelta(days=1)
+        end = today + datetime.timedelta(days=2)
+        stale_game_id = "stale-game-id"
+        current_game_id = "current-game-id"
+        older_duplicate_id = "older-duplicate-id"
+
+        _seed_game(older_duplicate_id, title="Totsuraba", scene="Old Scene", character_count=600)
+        _seed_today_line(yesterday, text="x" * 10, game_id=older_duplicate_id)
+        _seed_game(current_game_id, title="Totsuraba", scene="Totsuraba", character_count=600)
+        _seed_today_line(yesterday, text="x" * 300, game_id=current_game_id)
+        _seed_today_line(today, text="x" * 30, game_id=current_game_id)
+        _seed_current_goals(
+            goals=[
+                {
+                    "id": "goal_finish_game",
+                    "name": "Finish Totsuraba by mid July",
+                    "metricType": "finish_game",
+                    "targetValue": 600,
+                    "startDate": yesterday.isoformat(),
+                    "endDate": end.isoformat(),
+                    "icon": "🏁",
+                    "mediaType": "Visual Novel",
+                    "gameId": stale_game_id,
+                    "gameName": "Totsuraba",
+                }
+            ]
+        )
+
+        resp = client.get("/api/goals/dashboard", headers={"X-Timezone": "UTC"})
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["today_progress"]["goal_finish_game"]["progress"] == 30
+        assert data["today_progress"]["goal_finish_game"]["required"] == 100
+        assert data["today_progress"]["goal_finish_game"]["total_progress"] == 330
+
+        active_resp = client.get("/api/goals/active")
+        assert active_resp.status_code == 200
+        active_goal = active_resp.get_json()["goals"][0]
+        assert active_goal["today"]["progress"] == 30
+        assert active_goal["today"]["required"] == 100
+
 
 # ===================================================================
 # /api/goals/update POST
@@ -517,7 +634,6 @@ class TestTodayProgress:
         assert resp.status_code == 400
 
     def test_static_goal_returns_target_as_required(self, client):
-        today = datetime.date.today()
         resp = client.post(
             "/api/goals/today-progress",
             json={
@@ -550,6 +666,62 @@ class TestTodayProgress:
         assert data["has_target"] is True
         assert "required" in data
         assert "progress" in data
+
+    def test_required_uses_progress_before_today(self, client):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        yesterday = today - datetime.timedelta(days=1)
+        end = today + datetime.timedelta(days=2)
+        _seed_rollup(yesterday, characters=100)
+        _seed_today_line(today, text="x" * 30)
+
+        resp = client.post(
+            "/api/goals/today-progress",
+            headers={"X-Timezone": "UTC"},
+            json={
+                "goal_id": "goal_2",
+                "metric_type": "characters",
+                "target_value": 310,
+                "start_date": yesterday.isoformat(),
+                "end_date": end.isoformat(),
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["required"] == 70
+        assert data["progress"] == 30
+        assert data["total_progress"] == 130
+
+    def test_finish_game_today_progress_resolves_stale_game_id_from_game_name(self, client):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        yesterday = today - datetime.timedelta(days=1)
+        end = today + datetime.timedelta(days=2)
+        stale_game_id = "stale-game-id"
+        current_game_id = "current-game-id"
+
+        _seed_game(current_game_id, title="Totsuraba", scene="Totsuraba", character_count=600)
+        _seed_today_line(yesterday, text="x" * 300, game_id=current_game_id)
+        _seed_today_line(today, text="x" * 30, game_id=current_game_id)
+
+        resp = client.post(
+            "/api/goals/today-progress",
+            headers={"X-Timezone": "UTC"},
+            json={
+                "goal_id": "goal_finish_game",
+                "metric_type": "finish_game",
+                "target_value": 600,
+                "start_date": yesterday.isoformat(),
+                "end_date": end.isoformat(),
+                "game_id": stale_game_id,
+                "game_name": "Totsuraba",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["required"] == 100
+        assert data["progress"] == 30
+        assert data["total_progress"] == 330
 
     def test_expired_goal_returns_no_target(self, client):
         resp = client.post(

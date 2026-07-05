@@ -830,7 +830,12 @@ window.formatTimeHuman = function(hours) {
 
 window.formatTimeRaw = function(hours) {
     if (!hours || hours <= 0) return '0h';
-    return Math.round(hours) + 'h';
+    if (hours < 1) {
+        const minutes = Math.round(hours * 60);
+        return minutes > 0 ? minutes + 'm' : '<1m';
+    }
+    const roundedHours = Math.round(hours * 10) / 10;
+    return roundedHours.toString() + 'h';
 };
 
 window.formatTime = function(hours) {

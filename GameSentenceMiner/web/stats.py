@@ -355,8 +355,9 @@ def calculate_actual_reading_time(
         below-whisker (IQR) slow outliers with a median-speed estimate.
 
     v2 (adaptive)
-        Caps each line at what it *should* take at the session's own median
-        reading speed (shared with the live tracker), with a small floor.
+        Caps each line at what it *should* take at a conservative version of
+        the session's own median reading speed (shared with the live tracker),
+        with a small floor.
 
     Returns:
         Actual reading time in seconds.
@@ -412,7 +413,7 @@ def _reading_time_legacy(raw_gaps: Sequence[tuple[float, int]]) -> float:
 
 
 def _reading_time_adaptive(raw_gaps: Sequence[tuple[float, int]]) -> float:
-    """v2: cap each line by the session's own median reading speed."""
+    """v2: cap each line by a conservative session-median reading speed."""
     median_cps = session_median_cps(raw_gaps)
     return sum(min(raw_gap, adaptive_cap_seconds(char_count, median_cps)) for raw_gap, char_count in raw_gaps)
 

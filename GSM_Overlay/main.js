@@ -4787,6 +4787,7 @@ function openSettings() {
   mainWindow.webContents.send("request-current-settings");
   ipcMain.once("reply-current-settings", (event, settings) => {
     if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.setAlwaysOnTop(false);
       settingsWindow.show();
       settingsWindow.focus();
       return;
@@ -4796,7 +4797,6 @@ function openSettings() {
       height: 980,
       icon: getOverlayAppIconPath(),
       resizable: true,
-      alwaysOnTop: true,
       title: "Overlay Settings",
       webPreferences: {
         preload: FIND_IN_PAGE_PRELOAD_PATH,

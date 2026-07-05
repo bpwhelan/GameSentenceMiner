@@ -1474,7 +1474,11 @@ class GSMApplication:
     def run(self, reloading: bool = False) -> None:
         self.initialize(reloading)
 
-        self.state.settings_window = _get_qt_main_module().get_config_window()
+        qt_main = _get_qt_main_module()
+        qt_main.get_qt_app()
+        qt_main.show_default_config_changes_if_needed()
+
+        self.state.settings_window = qt_main.get_config_window()
         gsm_state.config_app = self.state.settings_window
 
         self.start_background_threads()
@@ -1525,7 +1529,7 @@ class GSMApplication:
         )
         send_message(FunctionName.INITIALIZED.value, {"status": "ready"})
         self._start_thread(self._announce_startup_ready, "startup-ready-announcer")
-        _get_qt_main_module().start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)
+        qt_main.start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)
 
 
 def main() -> None:

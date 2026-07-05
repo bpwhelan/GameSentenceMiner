@@ -103,6 +103,10 @@ DEBUG = "DEBUG"
 
 DEFAULT_CONFIG = "Default"
 
+DEFAULT_CONFIG_CHANGE_ACCEPTED = "accepted"
+DEFAULT_CONFIG_CHANGE_DECLINED = "declined"
+SILERO_VAD_DEFAULT_CHANGE_ID = "2026.7.0:silero-vad-default"
+
 ANIMATED_SCREENSHOT_CODEC_DEFAULT = "libsvtav1"
 ANIMATED_SCREENSHOT_CODEC_LABELS = {
     "libsvtav1": "libsvtav1 (fast)",
@@ -1164,7 +1168,7 @@ class VAD:
     whisper_model: str = WHISPER_BASE
     do_vad_postprocessing: bool = True
     # vosk_url: str = VOSK_BASE
-    selected_vad_model: str = WHISPER
+    selected_vad_model: str = SILERO
     backup_vad_model: str = OFF
     trim_beginning: bool = False
     beginning_offset: float = -0.25
@@ -1193,6 +1197,40 @@ class VAD:
 
     # def is_groq(self):
     #     return self.selected_vad_model == GROQ or self.backup_vad_model == GROQ
+
+
+@dataclass(frozen=True)
+class DefaultConfigValueChange:
+    label: str
+    old_value: str
+    new_value: str
+    path: str
+
+
+@dataclass(frozen=True)
+class DefaultConfigChangeNotice:
+    change_id: str
+    version: str
+    changes: List[DefaultConfigValueChange]
+    reason: str
+
+
+SILERO_VAD_DEFAULT_CHANGE = DefaultConfigChangeNotice(
+    change_id=SILERO_VAD_DEFAULT_CHANGE_ID,
+    version="2026.7.0",
+    changes=[
+        DefaultConfigValueChange(
+            label="Voice Activation Detection Model",
+            old_value="Whisper",
+            new_value="Silero",
+            path="vad.selected_vad_model",
+        )
+    ],
+    reason=(
+        "Silero has improved a lot since GSM was created, and the Anki Confirmation Dialog can catch cases where "
+        "it is not on target. Silero is much lighter and faster than Whisper as well."
+    ),
+)
 
 
 @dataclass_json
@@ -1681,7 +1719,7 @@ class ProfileConfig:
 @dataclass
 class StatsConfig:
     session_gap_seconds: int = 1800
-    reading_time_adaptive_v2: bool = True  # v2: cap reading time by session median speed
+    reading_time_adaptive_v2: bool = True  # v2: cap reading time by conservative session median speed
     streak_requirement_hours: float = 0.01  # 1 second required per day to keep your streak by default
     reading_hours_target: int = 1500  # Target reading hours based on TMW N1 achievement data
     character_count_target: int = 25000000  # Target character count (25M) inspired by Discord server milestones
@@ -1731,6 +1769,7 @@ class Config:
     experimental: Experimental = field(default_factory=Experimental)
     discord: Discord = field(default_factory=Discord)
     version: str = ""
+    default_config_change_decisions: Dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def new(cls):
@@ -2008,6 +2047,14 @@ class Config:
             return cls.new()
 
     def __post_init__(self):
+        if not isinstance(self.default_config_change_decisions, dict):
+            self.default_config_change_decisions = {}
+        if SILERO_VAD_DEFAULT_CHANGE_ID not in self.default_config_change_decisions and not any(
+            getattr(getattr(profile, "vad", None), "selected_vad_model", None) == WHISPER
+            for profile in self.configs.values()
+        ):
+            self.default_config_change_decisions[SILERO_VAD_DEFAULT_CHANGE_ID] = DEFAULT_CONFIG_CHANGE_ACCEPTED
+
         if self.current_profile in self.configs:
             self.configs[self.current_profile].overlay = self.overlay
 
@@ -2228,6 +2275,44 @@ class Config:
             logger.error(f"AttributeError during sync of '{field_name}': {e}")
         except Exception as e:
             logger.error(f"An unexpected error occurred during sync of '{field_name}': {e}")
+
+
+def _profile_uses_old_silero_vad_default(profile: ProfileConfig) -> bool:
+    try:
+        return profile.vad.selected_vad_model == WHISPER
+    except AttributeError:
+        return False
+
+
+def get_pending_default_config_changes(config: Config) -> List[DefaultConfigChangeNotice]:
+    if not isinstance(config.default_config_change_decisions, dict):
+        config.default_config_change_decisions = {}
+
+    pending: List[DefaultConfigChangeNotice] = []
+    if SILERO_VAD_DEFAULT_CHANGE.change_id not in config.default_config_change_decisions and any(
+        _profile_uses_old_silero_vad_default(profile) for profile in config.configs.values()
+    ):
+        pending.append(SILERO_VAD_DEFAULT_CHANGE)
+    return pending
+
+
+def resolve_default_config_change(config: Config, change_id: str, accepted: bool) -> int:
+    if not isinstance(config.default_config_change_decisions, dict):
+        config.default_config_change_decisions = {}
+
+    applied_count = 0
+    if accepted and change_id == SILERO_VAD_DEFAULT_CHANGE_ID:
+        for profile in config.configs.values():
+            if _profile_uses_old_silero_vad_default(profile):
+                profile.vad.selected_vad_model = SILERO
+                if profile.vad.backup_vad_model == SILERO:
+                    profile.vad.backup_vad_model = OFF
+                applied_count += 1
+
+    config.default_config_change_decisions[change_id] = (
+        DEFAULT_CONFIG_CHANGE_ACCEPTED if accepted else DEFAULT_CONFIG_CHANGE_DECLINED
+    )
+    return applied_count
 
 
 def get_default_anki_path():

@@ -27,6 +27,7 @@ from GameSentenceMiner.util.stats.stats_util import (
     FLOOR_SECONDS as _FLOOR_SECONDS,
     ABSOLUTE_CEILING as _ABSOLUTE_CEILING,
     ADAPTIVE_FLOOR_SECONDS,
+    ADAPTIVE_MEDIAN_CPS_SCALE,
     adaptive_cap_seconds,
     session_median_cps,
 )
@@ -372,8 +373,8 @@ class TestAdaptiveCapHelpers:
         assert session_median_cps([(0.0, 20)]) == 0.0
 
     def test_adaptive_cap_scales_with_median_speed(self):
-        # 20 chars at 2 cps → expected 10s, × 2.5 tolerance = 25s.
-        assert adaptive_cap_seconds(20, 2.0) == 25.0
+        # 20 chars at 2 cps, discounted by the adaptive scale, then × 2.5 tolerance.
+        assert adaptive_cap_seconds(20, 2.0) == 20 / (2.0 * ADAPTIVE_MEDIAN_CPS_SCALE) * 2.5
 
     def test_adaptive_cap_floor_for_short_line(self):
         # 1 char at 2 cps → 1.25s, below the floor.
@@ -402,11 +403,12 @@ class TestCalculateActualReadingTimeV2:
         )
 
     def test_afk_line_trimmed_to_session_pace(self):
-        # 2 cps median; the 600s AFK gap (20-char line) caps at 25s, not v1's 60s.
+        # 2 cps median; the 600s AFK gap (20-char line) is capped to the
+        # scaled session pace, not v1's 60s and not the full AFK gap.
         timestamps = [0.0, 10.0, 20.0, 30.0, 630.0]
         line_texts = ["あ" * 20, "あ" * 20, "あ" * 20, "あ" * 20, "end"]
         result = calculate_actual_reading_time(timestamps, line_texts=line_texts)
-        assert result == 10.0 + 10.0 + 10.0 + 25.0
+        assert result == 10.0 + 10.0 + 10.0 + (20 / (2.0 * ADAPTIVE_MEDIAN_CPS_SCALE) * 2.5)
 
     def test_short_line_costs_floor_without_median(self):
         # Single short gap → no median established → fallback fixed cap.

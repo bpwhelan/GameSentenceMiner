@@ -16,6 +16,11 @@ from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.db import GameLinesTable, GoalsTable
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
+from GameSentenceMiner.util.stats.stats_util import (
+    count_cards_from_line,
+    count_cards_from_lines,
+    has_cards,
+)
 from GameSentenceMiner.web.rollup_stats import (
     calculate_live_stats_for_today,
     aggregate_rollup_data,
@@ -188,14 +193,6 @@ def get_todays_live_data(today, user_tz=None):
         live_stats = calculate_live_stats_for_today(today_lines)
 
     return today_lines, live_stats
-
-
-# Import helper function from stats_util
-from GameSentenceMiner.util.stats.stats_util import (
-    count_cards_from_lines,
-    count_cards_from_line,
-    has_cards,
-)
 
 
 def filter_stats_by_media_type(combined_stats, media_type):
@@ -660,17 +657,28 @@ def extract_game_metric_value(game_id, metric_type, start_date=None, end_date=No
     return 0
 
 
+def calculate_daily_required_for_date(total_target, progress_before_date, end_date, target_date, multiplier=1.0):
+    """Daily work needed on target_date to finish by end_date (inclusive).
+
+    The requirement for a date is based on progress before that date. Progress
+    made during the displayed day is reported separately, so the daily target
+    stays stable while the user reads.
+    """
+    remaining = max(0, (total_target or 0) - (progress_before_date or 0))
+    if remaining <= 0:
+        return 0
+    days_left = max(1, (end_date - target_date).days + 1)
+    return (remaining / days_left) * multiplier
+
+
 def calculate_finish_game_required_today(total_target, chars_done, end_date, today):
     """Daily characters needed to finish a game by end_date (inclusive).
 
     Auto-paces a "finish game by X date" goal: remaining characters spread evenly
-    over the days left (today included). Returns 0 once the target is reached.
+    over the days left (today included). `chars_done` is progress before today,
+    keeping today's displayed target stable while today's progress changes.
     """
-    remaining = max(0, (total_target or 0) - (chars_done or 0))
-    if remaining <= 0:
-        return 0
-    days_left = max(1, (end_date - today).days + 1)
-    return remaining / days_left
+    return calculate_daily_required_for_date(total_target, chars_done, end_date, today)
 
 
 def calculate_balanced_easy_day_multiplier(date, goals_settings):
@@ -905,6 +913,95 @@ def _get_goal_value(goal, snake_key, camel_key=None, default=None):
     return default
 
 
+def _game_id_has_lines(game_id):
+    if not game_id:
+        return False
+    try:
+        row = GameLinesTable._db.fetchone(
+            f"SELECT 1 FROM {GameLinesTable._table} WHERE game_id=? LIMIT 1",
+            (game_id,),
+        )
+        return bool(row)
+    except Exception:
+        return False
+
+
+def _game_id_exists(game_id):
+    if not game_id:
+        return False
+    try:
+        return GamesTable.get(game_id) is not None
+    except Exception:
+        return False
+
+
+def _resolve_game_id_from_name(game_name):
+    """Find the best current game id for a stored goal game name.
+
+    Older goals can keep a gameId that no longer exists after game metadata is
+    relinked. Prefer exact game metadata matches, ranked by line count/latest
+    activity, then fall back to raw game_lines names.
+    """
+    if not game_name:
+        return ""
+
+    name = str(game_name).strip()
+    if not name:
+        return ""
+
+    try:
+        row = GamesTable._db.fetchone(
+            f"""
+            SELECT g.id
+            FROM {GamesTable._table} g
+            LEFT JOIN {GameLinesTable._table} gl ON gl.game_id = g.id
+            WHERE lower(COALESCE(g.title_original, '')) = lower(?)
+               OR lower(COALESCE(g.title_romaji, '')) = lower(?)
+               OR lower(COALESCE(g.title_english, '')) = lower(?)
+               OR lower(COALESCE(g.obs_scene_name, '')) = lower(?)
+            GROUP BY g.id
+            ORDER BY COUNT(gl.id) DESC, COALESCE(MAX(gl.timestamp), 0) DESC
+            LIMIT 1
+            """,
+            (name, name, name, name),
+        )
+        if row and row[0]:
+            return row[0]
+    except Exception:
+        pass
+
+    try:
+        row = GameLinesTable._db.fetchone(
+            f"""
+            SELECT game_id
+            FROM {GameLinesTable._table}
+            WHERE game_id IS NOT NULL
+              AND game_id != ''
+              AND lower(COALESCE(game_name, '')) = lower(?)
+            GROUP BY game_id
+            ORDER BY COUNT(*) DESC, COALESCE(MAX(timestamp), 0) DESC
+            LIMIT 1
+            """,
+            (name,),
+        )
+        if row and row[0]:
+            return row[0]
+    except Exception:
+        pass
+
+    return ""
+
+
+def resolve_goal_game_id(goal):
+    """Return a usable game id for a game-scoped goal, repairing stale ids."""
+    game_id = _get_goal_value(goal, "game_id", "gameId", "") or ""
+    if _game_id_has_lines(game_id) or _game_id_exists(game_id):
+        return game_id
+
+    game_name = _get_goal_value(goal, "game_name", "gameName", "") or ""
+    return _resolve_game_id_from_name(game_name)
+
+
 def _build_goals_dashboard_payload(
     current_goals,
     goals_settings,
@@ -1026,14 +1123,15 @@ def _build_goals_dashboard_payload(
         start_date_str = _get_goal_value(goal, "start_date", "startDate")
         end_date_str = _get_goal_value(goal, "end_date", "endDate")
         media_type = _get_goal_value(goal, "media_type", "mediaType", "ALL")
-        game_id = _get_goal_value(goal, "game_id", "gameId")
+        raw_game_id = _get_goal_value(goal, "game_id", "gameId")
+        game_id = resolve_goal_game_id(goal) if raw_game_id or metric_type == "finish_game" else ""
 
         if not goal_id or not metric_type or metric_type == "custom":
             continue
 
         # Game-scoped goals (and the "finish game by date" type) measure progress
         # from a single game's lines instead of aggregated rollups.
-        if game_id or metric_type == "finish_game":
+        if raw_game_id or game_id or metric_type == "finish_game":
             base_metric = "characters" if metric_type == "finish_game" else metric_type.replace("_static", "")
 
             # Game-scoped static goals ("read 30 min of this game every day"):
@@ -1088,16 +1186,22 @@ def _build_goals_dashboard_payload(
                 }
             else:
                 days_remaining = (end_date - today).days + 1
+                progress_before_today = (
+                    extract_game_metric_value(game_id, base_metric, start_date, yesterday)
+                    if start_date <= yesterday
+                    else 0
+                )
                 if metric_type == "finish_game":
-                    daily_required = calculate_finish_game_required_today(target_value, total_progress, end_date, today)
+                    daily_required = calculate_finish_game_required_today(
+                        target_value, progress_before_today, end_date, today
+                    )
                     easy_day_percentage = 100
                 else:
                     easy_day_multiplier = calculate_balanced_easy_day_multiplier(today, goals_settings)
                     easy_day_percentage = int(easy_day_multiplier * 100)
-                    remaining_work = max(0, target_value - total_progress)
-                    daily_required = (
-                        remaining_work / days_remaining if days_remaining > 0 else 0
-                    ) * easy_day_multiplier
+                    daily_required = calculate_daily_required_for_date(
+                        target_value, progress_before_today, end_date, today, easy_day_multiplier
+                    )
                 today_progress[goal_id] = {
                     "required": format_metric_value(daily_required, base_metric),
                     "progress": format_metric_value(today_progress_value, base_metric),
@@ -1212,9 +1316,21 @@ def _build_goals_dashboard_payload(
                 media_type=media_type,
             )
             days_remaining = (end_date - today).days + 1
-            remaining_work = max(0, target_value - total_progress)
-            daily_required = remaining_work / days_remaining if days_remaining > 0 else 0
-            daily_required_adjusted = daily_required * easy_day_multiplier
+            progress_before_today = 0
+            if start_date <= yesterday:
+                progress_before_stats = get_cached_combined_stats(start_date, yesterday)
+                progress_before_today = extract_metric_value(
+                    progress_before_stats,
+                    metric_type,
+                    rollup_stats=rollup_stats,
+                    start_date=start_date,
+                    yesterday=yesterday,
+                    goals_settings=goals_settings,
+                    media_type=media_type,
+                )
+            daily_required_adjusted = calculate_daily_required_for_date(
+                target_value, progress_before_today, end_date, today, easy_day_multiplier
+            )
             today_progress[goal_id] = {
                 "required": format_metric_value(daily_required_adjusted, metric_type),
                 "progress": format_metric_value(today_progress_value, metric_type),
@@ -1378,7 +1494,8 @@ def get_goals_for_date(
             end_date_str = goal.get("endDate")
             goal_icon = goal.get("icon", "🎯")
             media_type = goal.get("mediaType", "ALL")
-            game_id = goal.get("gameId")
+            raw_game_id = goal.get("gameId")
+            game_id = resolve_goal_game_id(goal) if raw_game_id or metric_type == "finish_game" else ""
 
             # Custom goals remain checkbox-based and are excluded from numeric auto-completion.
             if metric_type == "custom":
@@ -1386,7 +1503,7 @@ def get_goals_for_date(
 
             # Game-scoped goals (incl. finish_game): measure from one game's lines
             # so completion isn't credited from reading other games.
-            if game_id or metric_type == "finish_game":
+            if raw_game_id or game_id or metric_type == "finish_game":
                 if not target_value:
                     continue
                 base_metric = "characters" if metric_type == "finish_game" else metric_type.replace("_static", "")
@@ -1403,18 +1520,20 @@ def get_goals_for_date(
                             continue
                         if target_date < start_date or target_date > end_date:
                             continue
-                        total_progress = extract_game_metric_value(game_id, base_metric, start_date, target_date)
+                        previous_progress = (
+                            extract_game_metric_value(game_id, base_metric, start_date, previous_date)
+                            if start_date <= previous_date
+                            else 0
+                        )
                         if metric_type == "finish_game":
                             progress_needed = calculate_finish_game_required_today(
-                                target_value, total_progress, end_date, target_date
+                                target_value, previous_progress, end_date, target_date
                             )
                         else:
                             easy_day_multiplier = calculate_balanced_easy_day_multiplier(target_date, goals_settings)
-                            days_remaining = (end_date - target_date).days + 1
-                            remaining_work = max(0, target_value - total_progress)
-                            progress_needed = (
-                                remaining_work / days_remaining if days_remaining > 0 else 0
-                            ) * easy_day_multiplier
+                            progress_needed = calculate_daily_required_for_date(
+                                target_value, previous_progress, end_date, target_date, easy_day_multiplier
+                            )
                     goals_for_date.append(
                         {
                             "goal_name": goal_name,
@@ -1488,27 +1607,26 @@ def get_goals_for_date(
                         rollup_cache[cache_key] = get_rollup_stats_for_range(start_date, previous_date)
                     rollup_stats = rollup_cache[cache_key]
 
-                combined_stats = combine_stats_with_third_party(
-                    rollup_stats,
-                    live_stats,
-                    start_date.strftime("%Y-%m-%d"),
-                    target_date.strftime("%Y-%m-%d"),
+                progress_before_date = 0
+                if start_date <= previous_date:
+                    progress_before_stats = combine_stats_with_third_party(
+                        rollup_stats,
+                        None,
+                        start_date.strftime("%Y-%m-%d"),
+                        previous_date.strftime("%Y-%m-%d"),
+                    )
+                    progress_before_date = extract_metric_value(
+                        progress_before_stats,
+                        metric_type,
+                        rollup_stats=rollup_stats,
+                        start_date=start_date,
+                        yesterday=previous_date,
+                        goals_settings=goals_settings,
+                        media_type=media_type,
+                    )
+                daily_required_adjusted = calculate_daily_required_for_date(
+                    target_value, progress_before_date, end_date, target_date, easy_day_multiplier
                 )
-
-                total_progress = extract_metric_value(
-                    combined_stats,
-                    metric_type,
-                    today_lines=date_lines,
-                    start_date=start_date if start_date <= previous_date else None,
-                    yesterday=previous_date if start_date <= previous_date else None,
-                    goals_settings=goals_settings,
-                    media_type=media_type,
-                )
-
-                days_remaining = (end_date - target_date).days + 1
-                remaining_work = max(0, target_value - total_progress)
-                daily_required = remaining_work / days_remaining if days_remaining > 0 else 0
-                daily_required_adjusted = daily_required * easy_day_multiplier
 
                 goals_for_date.append(
                     {
@@ -1576,14 +1694,20 @@ def register_goals_api_routes(app):
             end_date_str = data.get("end_date")
             goals_settings = data.get("goals_settings", {})
             media_type = data.get("media_type", "ALL")
-            game_id = data.get("game_id")
+            raw_game_id = data.get("game_id")
+            game_name = data.get("game_name")
+            game_id = (
+                resolve_goal_game_id({"game_id": raw_game_id, "game_name": game_name})
+                if raw_game_id or metric_type == "finish_game"
+                else ""
+            )
 
             # Validate required fields
             if not metric_type or not start_date_str or not end_date_str:
                 return jsonify({"error": "Missing required fields: metric_type, start_date, end_date"}), 400
 
             # Game-scoped / finish_game goals: progress from the game's lines.
-            if game_id or metric_type == "finish_game":
+            if raw_game_id or game_id or metric_type == "finish_game":
                 try:
                     start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
                 except ValueError as e:
@@ -1722,10 +1846,16 @@ def register_goals_api_routes(app):
             end_date_str = data.get("end_date")
             goals_settings = data.get("goals_settings", {})
             media_type = data.get("media_type", "ALL")
-            game_id = data.get("game_id")
+            raw_game_id = data.get("game_id")
+            game_name = data.get("game_name")
+            game_id = (
+                resolve_goal_game_id({"game_id": raw_game_id, "game_name": game_name})
+                if raw_game_id or metric_type == "finish_game"
+                else ""
+            )
 
             # Game-scoped / finish_game goals: required + progress from the game's lines.
-            if game_id or metric_type == "finish_game":
+            if raw_game_id or game_id or metric_type == "finish_game":
                 if not all([goal_id, metric_type, target_value, start_date_str, end_date_str]):
                     return jsonify({"error": "Missing required fields"}), 400
                 try:
@@ -1748,16 +1878,23 @@ def register_goals_api_routes(app):
                 total_progress = extract_game_metric_value(game_id, base_metric, start_date, today)
                 today_progress = extract_game_metric_value(game_id, base_metric, today, today)
                 days_remaining = (end_date - today).days + 1
+                yesterday = today - datetime.timedelta(days=1)
+                progress_before_today = (
+                    extract_game_metric_value(game_id, base_metric, start_date, yesterday)
+                    if start_date <= yesterday
+                    else 0
+                )
                 if metric_type == "finish_game":
-                    daily_required = calculate_finish_game_required_today(target_value, total_progress, end_date, today)
+                    daily_required = calculate_finish_game_required_today(
+                        target_value, progress_before_today, end_date, today
+                    )
                     easy_day_percentage = 100
                 else:
                     easy_day_multiplier = calculate_balanced_easy_day_multiplier(today, goals_settings)
                     easy_day_percentage = int(easy_day_multiplier * 100)
-                    remaining_work = max(0, target_value - total_progress)
-                    daily_required = (
-                        remaining_work / days_remaining if days_remaining > 0 else 0
-                    ) * easy_day_multiplier
+                    daily_required = calculate_daily_required_for_date(
+                        target_value, progress_before_today, end_date, today, easy_day_multiplier
+                    )
                 return jsonify(
                     {
                         "required": format_metric_value(daily_required, base_metric),
@@ -1891,12 +2028,28 @@ def register_goals_api_routes(app):
             # Calculate days remaining (including today)
             days_remaining = (end_date - today).days + 1
 
-            # Calculate daily requirement
-            remaining_work = max(0, target_value - total_progress)
-            daily_required = remaining_work / days_remaining if days_remaining > 0 else 0
-
-            # Apply easy day multiplier to reduce today's requirement
-            daily_required_adjusted = daily_required * easy_day_multiplier
+            # Calculate daily requirement from progress before today. Today's
+            # progress is displayed separately and should not move the target.
+            progress_before_today = 0
+            if start_date <= yesterday:
+                progress_before_stats = combine_stats_with_third_party(
+                    rollup_stats,
+                    None,
+                    start_date.strftime("%Y-%m-%d"),
+                    yesterday.strftime("%Y-%m-%d"),
+                )
+                progress_before_today = extract_metric_value(
+                    progress_before_stats,
+                    metric_type,
+                    rollup_stats=rollup_stats,
+                    start_date=start_date,
+                    yesterday=yesterday,
+                    goals_settings=goals_settings,
+                    media_type=media_type,
+                )
+            daily_required_adjusted = calculate_daily_required_for_date(
+                target_value, progress_before_today, end_date, today, easy_day_multiplier
+            )
 
             return jsonify(
                 {
@@ -2266,7 +2419,7 @@ def register_goals_api_routes(app):
             goals_settings_json = json.dumps(goals_settings)
 
             # Create historical snapshot for today (no version tracking needed)
-            new_entry = GoalsTable.create_entry(
+            GoalsTable.create_entry(
                 date_str=today_str,
                 current_goals_json=current_goals_json,
                 goals_settings_json=goals_settings_json,
@@ -2424,7 +2577,6 @@ def register_goals_api_routes(app):
             user_tz = get_user_timezone()
             today = get_today_in_timezone(user_tz)
             tomorrow = today + datetime.timedelta(days=1)
-            tomorrow_str = tomorrow.strftime("%Y-%m-%d")
 
             # Get balanced easy day multiplier for tomorrow
             tomorrow_multiplier = calculate_balanced_easy_day_multiplier(tomorrow, goals_settings)
@@ -2443,6 +2595,8 @@ def register_goals_api_routes(app):
                 end_date_str = goal.get("endDate")
                 goal_name = goal.get("name", "Unknown Goal")
                 goal_icon = goal.get("icon", "🎯")
+                raw_game_id = goal.get("gameId")
+                game_id = resolve_goal_game_id(goal) if raw_game_id or metric_type == "finish_game" else ""
                 is_static = metric_type.endswith("_static")
 
                 # For static goals, requirement is always the target value
@@ -2454,6 +2608,56 @@ def register_goals_api_routes(app):
                             "goal_icon": goal_icon,
                             "metric_type": metric_type,
                             "required_tomorrow": format_metric_value(target_value, metric_type),
+                            "formatted_required": formatted,
+                        }
+                    )
+                    continue
+
+                # Game-scoped goals (including finish_game) use the selected game's lines.
+                if raw_game_id or game_id or metric_type == "finish_game":
+                    if not all([metric_type, target_value, start_date_str, end_date_str]):
+                        continue
+
+                    try:
+                        start_date, end_date = parse_and_validate_dates(start_date_str, end_date_str)
+                    except ValueError:
+                        continue
+
+                    if tomorrow < start_date or tomorrow > end_date:
+                        continue
+
+                    days_remaining = (end_date - tomorrow).days + 1
+                    if days_remaining <= 0:
+                        continue
+
+                    base_metric = "characters" if metric_type == "finish_game" else metric_type.replace("_static", "")
+                    progress_through_today = (
+                        extract_game_metric_value(game_id, base_metric, start_date, today) if today >= start_date else 0
+                    )
+                    if metric_type == "finish_game":
+                        daily_required_adjusted = calculate_finish_game_required_today(
+                            target_value, progress_through_today, end_date, tomorrow
+                        )
+                    else:
+                        daily_required_adjusted = calculate_daily_required_for_date(
+                            target_value,
+                            progress_through_today,
+                            end_date,
+                            tomorrow,
+                            tomorrow_multiplier,
+                        )
+
+                    if daily_required_adjusted <= 0:
+                        continue
+
+                    required_value = format_metric_value(daily_required_adjusted, base_metric)
+                    formatted = format_requirement_display(daily_required_adjusted, base_metric)
+                    requirements.append(
+                        {
+                            "goal_name": goal_name,
+                            "goal_icon": goal_icon,
+                            "metric_type": metric_type,
+                            "required_tomorrow": required_value,
                             "formatted_required": formatted,
                         }
                     )
@@ -2875,7 +3079,8 @@ def register_goals_api_routes(app):
                 end_date_str = goal.get("endDate")
                 goal_icon = goal.get("icon", "🎯")
                 media_type = goal.get("mediaType", "ALL")
-                game_id = goal.get("gameId")
+                raw_game_id = goal.get("gameId")
+                game_id = resolve_goal_game_id(goal) if raw_game_id or metric_type == "finish_game" else ""
 
                 if not metric_type:
                     continue
@@ -2884,7 +3089,7 @@ def register_goals_api_routes(app):
                     # --- Game-scoped goals (incl. finish_game) ---
                     # Progress is read from a single game's lines, never aggregated
                     # rollups, so achievement isn't inflated by other games.
-                    if game_id or metric_type == "finish_game":
+                    if raw_game_id or game_id or metric_type == "finish_game":
                         if not target_value or target_value <= 0:
                             continue
                         base_metric = (
