@@ -541,6 +541,37 @@
       "updating": "Updating...",
       "unknown": "Unknown"
     },
+    "backup": {
+      "title": "Backup and Restore",
+      "description": "Back up GSM settings, overlay/Yomitan storage, OBS settings, the GSM database, and OCR configs without temp files or caches.",
+      "operationCreate": "Backup",
+      "operationRestore": "Restore",
+      "progressSummary": "{operation}: {phase}",
+      "progressPercent": "{percent}%",
+      "progressFile": "File: {file}",
+      "progressCount": "{completed} / {total} files",
+      "progress": {
+        "scanning": "Scanning files...",
+        "archiving": "Writing archive...",
+        "extracting": "Extracting archive...",
+        "stoppingObs": "Stopping OBS...",
+        "stoppingPython": "Stopping Python processes...",
+        "restoring": "Restoring files...",
+        "restartingPython": "Restarting Python backend...",
+        "done": "Done",
+        "error": "Failed"
+      },
+      "create": "Create Backup...",
+      "creating": "Creating Backup...",
+      "restore": "Restore Backup...",
+      "restoring": "Restoring Backup...",
+      "created": "Backup created: {path} ({count} files)",
+      "restored": "Backup restored.",
+      "restoredRestart": "Backup restored. Restart GSM to load the restored settings.",
+      "cancelled": "Backup action cancelled.",
+      "failed": "Backup action failed: {error}",
+      "unknownError": "Unknown error"
+    },
     "catalog": {
       "alreadyOnScreen": "Already on this screen",
       "openGSMSettings": "Open Main GSM Settings",
@@ -633,15 +664,16 @@
     "docsButton": "Auto Launcher Docs",
     "docsButtonTooltip": "Open Auto Launcher documentation",
     "infoLabel": "Game Automation Overview",
-    "overviewTooltip": "Configure shared text-hook tool paths and per-game automation. Pick one text hook mode (None/Agent/Textractor/Luna) and one OCR mode (None/Auto/Manual) for each game.",
+    "overviewTooltip": "Configure per-game OCR, overlay launch behavior, and shared automation settings. Legacy text-hook launch paths remain available at the bottom of the page.",
+    "legacyBadge": "Legacy",
     "nudge": {
       "title": "Use Texthook / Agent for text hooking",
       "description": "For Agent, Luna, or Textractor, try the Texthook / Agent tab instead of the launcher controls here."
     },
     "shared": {
-      "title": "Shared Tool Settings",
-      "collapse": "Collapse shared tool settings.",
-      "expand": "Expand shared tool settings.",
+      "title": "Shared Automation Settings",
+      "collapse": "Collapse shared settings.",
+      "expand": "Expand shared settings.",
       "agentPath": "Agent Path:",
       "agentScriptsPath": "Agent Scripts Path:",
       "textractor64": "Textractor 64-bit Path:",
@@ -656,6 +688,11 @@
       "ignoreActiveSceneForOcr": "Ignore Active OBS Scene For OCR:",
       "disclaimer": "Downloads come from official upstream GitHub releases. Please review each project's license and terms before use."
     },
+    "toolPaths": {
+      "title": "Tool Paths (Legacy)",
+      "collapse": "Collapse legacy tool paths.",
+      "expand": "Expand legacy tool paths."
+    },
     "scene": {
       "title": "Game Automation",
       "activeScene": "Active OBS Game:",
@@ -664,6 +701,7 @@
       "noScenesFound": "No games found",
       "refresh": "Refresh",
       "textHookLauncher": "Text Hook Launcher:",
+      "textHookLegacyHint": "Legacy text hook launchers are kept for existing setups. Use the Texthook / Agent tab for new hook configuration.",
       "modeNone": "None",
       "modeAgent": "Agent",
       "modeTextractor": "Textractor",
@@ -711,6 +749,8 @@
     },
     "tooltips": {
       "sharedToolSettings": "Shared paths used by Game Automation across all games in this profile.",
+      "sharedAutomationSettings": "Shared OCR automation behavior used across all games in this profile.",
+      "toolPathsLegacy": "Legacy external text-hook tool paths and downloads for older launcher-based setups.",
       "sceneAutomation": "Game-specific startup behavior. Each game can use different text hook and OCR settings.",
       "agentPath": "Path to Agent executable used when Text Hook Launcher is set to Agent.",
       "agentScriptsPath": "Folder containing Agent script files (.js). Used for Auto Detect and Browse defaults.",
@@ -1115,6 +1155,46 @@
       "agentUiFailed": "Failed to open Agent script UI.",
       "noExe": "No executable detected for the active capture."
     }
+  },
+  "sceneSwitcher": {
+    "title": "Automatic Scene Switching",
+    "description": "Switch OBS scenes from the foreground game window.",
+    "hook": {
+      "running": "Foreground hook running",
+      "starting": "Foreground hook starting",
+      "failed": "Foreground hook unavailable"
+    },
+    "collectionEnabled": "Enable automatic switching for this scene collection",
+    "migrationPending": "GSM is waiting to disable OBS's legacy auto scene switcher. Automatic switching is paused to avoid a conflict.",
+    "ruleEnabled": "Switch to this scene when its window is active",
+    "titlePattern": "Window title regular expression",
+    "titlePatternPlaceholder": ".*Game Title.*",
+    "executableName": "Executable name (optional)",
+    "executablePlaceholder": "game.exe",
+    "useCaptureSource": "Use Capture Source",
+    "testCurrent": "Test Current Window",
+    "save": "Save Rule",
+    "remove": "Remove Rule",
+    "status": {
+      "loadFailed": "Failed to load scene switching settings.",
+      "saveFailed": "Failed to save the scene switching rule.",
+      "saved": "Scene switching rule saved.",
+      "removed": "Scene switching rule removed.",
+      "noCaptureSource": "No compatible capture source was found for this scene.",
+      "sourceLoaded": "Loaded the current OBS capture source.",
+      "noForeground": "No foreground window is available yet.",
+      "matchesForeground": "The rule matches the current foreground window.",
+      "noForegroundMatch": "The rule does not match the current foreground window."
+    }
+  },
+  "sceneSwitcherPicker": {
+    "title": "Choose an OBS Scene",
+    "description": "This foreground window matches more than one scene.",
+    "windowTitle": "Window title",
+    "executable": "Executable",
+    "untitled": "Untitled window",
+    "unavailable": "Unavailable",
+    "cancel": "Cancel"
   },
   "textProcessing": {
     "title": "Text Preprocessing",

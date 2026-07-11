@@ -95,6 +95,11 @@ vi.mock('./obs-capture.js', () => ({
     buildWindowsVideoCaptureInput: buildWindowsVideoCaptureInputMock,
     getObsWindowTitle: vi.fn((title: string) => title),
     mergeObsWindowItems: mergeObsWindowItemsMock,
+    parseObsWindowValue: vi.fn((value: string) => ({
+        title: value.split(':')[0] ?? '',
+        windowClass: value.split(':')[1] ?? '',
+        executable: value.split(':').at(-1) ?? '',
+    })),
 }));
 
 vi.mock('node:fs', async () => {
@@ -133,6 +138,24 @@ async function flushPromises() {
     await Promise.resolve();
     await Promise.resolve();
 }
+
+describe('getGameInfoFromWindow', () => {
+    it('extracts game names from yuzu Early Access titles', async () => {
+        const { getGameInfoFromWindow } = await loadObsModule();
+        const rawTitle =
+            'yuzu Early Access 4175 | ANONYMOUS;CODE (64-bit) | 1.0.0 | NVIDIA';
+
+        const result = getGameInfoFromWindow(rawTitle);
+        const switcherPattern = new RegExp(result.switcherRegex, 'i');
+
+        expect(result.sceneName).toBe('ANONYMOUS;CODE');
+        expect(result.switcherRegex).not.toContain('4175');
+        expect(rawTitle).toMatch(switcherPattern);
+        expect(
+            'yuzu Early Access 5000 | ANONYMOUS;CODE (64-bit) | 1.1.0 | AMD'
+        ).toMatch(switcherPattern);
+    });
+});
 
 describe('launchOBSFromElectron', () => {
     const CONFIG_PATH = 'C:\\test-gsm\\config.json';
@@ -479,7 +502,7 @@ describe('renameOBSScene', () => {
         expect(obsCallMock).not.toHaveBeenCalled();
     });
 
-    it('updates auto-scene-switcher settings in realtime and restarts OBS when creating a window scene', async () => {
+    it('stores an in-house switch rule without restarting OBS when creating a window scene', async () => {
         vi.useFakeTimers();
 
         try {
@@ -517,6 +540,9 @@ describe('renameOBSScene', () => {
                         currentSceneCollectionName: 'Collection 1',
                     };
                 }
+                if (requestType === 'CreateScene') {
+                    return { sceneUuid: 'scene-my-game' };
+                }
                 return {};
             });
 
@@ -531,30 +557,35 @@ describe('renameOBSScene', () => {
             const createScenePromise = createSceneHandler({}, {
                 title: 'Game Window',
                 sceneName: 'My Scene',
+                captureValues: {
+                    game_capture: 'Game Window:WindowClass:game.exe',
+                },
             });
-            await vi.advanceTimersByTimeAsync(1_250);
-            await Promise.resolve();
-            await vi.runOnlyPendingTimersAsync();
-
             await expect(createScenePromise).resolves.toBeUndefined();
-
-            expect(writeFileMock).toHaveBeenCalledWith(
-                SCENE_COLLECTION_PATH,
-                expect.stringContaining('"scene": "My Scene"'),
-                'utf-8'
+            expect(storeSetMock).toHaveBeenCalledWith(
+                'windowSceneSwitcher',
+                expect.objectContaining({
+                    collections: [
+                        expect.objectContaining({
+                            collectionName: 'Collection 1',
+                            enabled: true,
+                            rules: [
+                                expect.objectContaining({
+                                    sceneUuid: 'scene-my-game',
+                                    sceneName: 'My Scene',
+                                    titlePattern: '.*Game Window.*',
+                                    executableName: 'game.exe',
+                                    source: 'gsm-generated',
+                                }),
+                            ],
+                        }),
+                    ],
+                })
             );
-            expect(writeFileMock).toHaveBeenCalledWith(
-                `${TEST_BASE_DIR}\\scene_config.json`,
-                expect.stringContaining('"scene": "My Scene"'),
-                'utf-8'
-            );
+            expect(writeFileMock).not.toHaveBeenCalled();
             expect(sendQuitOBSMock).not.toHaveBeenCalled();
             expect(sendStartOBSMock).not.toHaveBeenCalled();
-            expect(spawnMock).toHaveBeenCalledWith(
-                defaultObsPath,
-                expect.arrayContaining(['--portable', '--startreplaybuffer']),
-                expect.objectContaining({ detached: false, shell: false })
-            );
+            expect(spawnMock).not.toHaveBeenCalled();
         } finally {
             vi.useRealTimers();
         }

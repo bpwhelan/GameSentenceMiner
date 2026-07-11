@@ -6,6 +6,10 @@ import path from "path";
 import { findAgentScriptById } from "./agent_script_resolver.js";
 import { getBaseDir } from "./data_dir.js";
 import type { DesktopUpdateChangelogPendingRecord } from "../shared/changelog.js";
+import {
+    emptyWindowSceneSwitcherConfig,
+    type WindowSceneSwitcherConfig,
+} from "../shared/window_scene_switcher.js";
 
 const APP_BASE_DIR = getBaseDir();
 const DEFAULT_AGENT_SCRIPTS_PATH = path.join(APP_BASE_DIR, "agent-scripts", "scripts");
@@ -188,6 +192,7 @@ interface StoreConfig {
     consoleMode: 'simple' | 'advanced';
     setupWizardVersion: number;
     uiMode: 'basic' | 'advanced';
+    windowSceneSwitcher: WindowSceneSwitcherConfig;
 }
 
 export const store = new Store<StoreConfig>({
@@ -308,6 +313,7 @@ export const store = new Store<StoreConfig>({
         consoleMode: 'simple', // 'simple' = need-to-know only, 'advanced' = full log
         setupWizardVersion: 0,
         uiMode: 'basic',
+        windowSceneSwitcher: emptyWindowSceneSwitcherConfig(),
     },
     cwd: path.join(APP_BASE_DIR, 'electron')
 });
@@ -890,6 +896,14 @@ export function getIgnoreActiveSceneForOcr(): boolean {
 
 export function setIgnoreActiveSceneForOcr(ignore: boolean): void {
     store.set("ignoreActiveSceneForOcr", ignore);
+}
+
+export function getWindowSceneSwitcherConfig(): WindowSceneSwitcherConfig {
+    return store.get("windowSceneSwitcher", emptyWindowSceneSwitcherConfig());
+}
+
+export function setWindowSceneSwitcherConfig(config: WindowSceneSwitcherConfig): void {
+    store.set("windowSceneSwitcher", config);
 }
 
 export function getSceneLaunchProfiles(): SceneLaunchProfile[] {

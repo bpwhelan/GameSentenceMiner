@@ -66,6 +66,9 @@ class FunctionName(Enum):
     # In-house text source lifecycle (pauses clipboard while active, like a websocket).
     OCR_STATUS = "ocr_status"
     TEXTHOOK_STATUS = "texthook_status"
+    FOREGROUND_WINDOW_CHANGED = "foreground_window_changed"
+    FOREGROUND_WINDOW_HOOK_STATUS = "foreground_window_hook_status"
+    RESTORE_FOREGROUND_WINDOW = "restore_foreground_window"
 
 
 CommandHandler = Callable[[Dict[str, Any]], None]

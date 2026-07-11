@@ -112,6 +112,101 @@ def test_launch_obs_early_skips_python_launch_under_electron(monkeypatch):
     assert calls == []
 
 
+def test_run_schedules_default_config_dialog_after_backend_ready(monkeypatch):
+    calls = []
+
+    class _FakeFuture:
+        def __init__(self, name):
+            self.name = name
+
+        def result(self):
+            calls.append(f"result:{self.name}")
+
+    class _FakeRunner:
+        def __init__(self, name):
+            self.name = name
+
+        def start(self):
+            calls.append(f"runner-start:{self.name}")
+
+        def submit(self, coro):
+            name = getattr(coro, "cr_code", SimpleNamespace(co_name="unknown")).co_name
+            calls.append(f"submit:{self.name}:{name}")
+            if name == "fake_post_init_async":
+                asyncio.run(coro)
+            elif hasattr(coro, "close"):
+                coro.close()
+            return _FakeFuture(name)
+
+    class _FakeSettingsWindow:
+        def add_save_hook(self, hook):
+            calls.append(f"save-hook:{getattr(hook, '__name__', type(hook).__name__)}")
+
+        def add_profile_change_hook(self, hook):
+            calls.append(f"profile-hook:{getattr(hook, '__name__', type(hook).__name__)}")
+
+    fake_settings_window = _FakeSettingsWindow()
+    fake_qt_main = SimpleNamespace(
+        get_qt_app=lambda: calls.append("qt-app"),
+        get_config_window=lambda: calls.append("config-window") or fake_settings_window,
+        show_default_config_changes_if_needed=lambda **_kwargs: calls.append("blocking-default-dialog"),
+        schedule_default_config_changes_if_needed=lambda **_kwargs: calls.append("schedule-default-dialog"),
+        start_qt_app=lambda **_kwargs: calls.append("qt-loop"),
+    )
+
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app.state = SimpleNamespace(
+        settings_window=None,
+        async_runner=_FakeRunner("main"),
+        text_async_runner=_FakeRunner("text"),
+        overlay_async_runner=_FakeRunner("overlay"),
+    )
+    app.initialize = lambda reloading=False: calls.append("initialize")
+    app.start_background_threads = lambda: calls.append("background-threads")
+    app.register_hotkeys = lambda: calls.append("hotkeys")
+    app.on_config_changed = lambda: calls.append("config-changed")
+    app.handle_exit = lambda: lambda *_args: None
+
+    async def fake_background_tasks_async():
+        calls.append("fake_background_tasks_async")
+
+    async def fake_start_text_monitor_async():
+        calls.append("fake_start_text_monitor_async")
+
+    async def fake_async_loop_stress_test_task():
+        calls.append("fake_async_loop_stress_test_task")
+
+    async def fake_post_init_async():
+        calls.append("fake_post_init_async")
+
+    app.background_tasks_async = fake_background_tasks_async
+    app.start_text_monitor_async = fake_start_text_monitor_async
+    app.async_loop_stress_test_task = fake_async_loop_stress_test_task
+    app.post_init_async = fake_post_init_async
+    app._announce_startup_ready = lambda: None
+    app._start_thread = lambda _target, name: calls.append(f"thread:{name}")
+    app._get_profile_switcher = lambda: SimpleNamespace(record_manual_profile_switch=lambda *_args: None)
+    app._tray = SimpleNamespace(
+        start=lambda: calls.append("tray-start"), setup_detached=lambda: calls.append("tray-setup")
+    )
+
+    monkeypatch.setattr(gsm_module, "_get_qt_main_module", lambda: fake_qt_main)
+    monkeypatch.setattr(
+        gsm_module, "get_config", lambda: SimpleNamespace(general=SimpleNamespace(open_config_on_startup=False))
+    )
+    monkeypatch.setattr(gsm_module, "send_message", lambda *_args, **_kwargs: calls.append("send-initialized"))
+    monkeypatch.setattr(gsm_module, "_emit_install_stage", lambda *_args, **_kwargs: calls.append("emit-finalize"))
+    monkeypatch.setattr(gsm_module, "_is_running_under_electron", lambda: True)
+    monkeypatch.setattr(gsm_module, "is_windows", lambda: False)
+    monkeypatch.setattr(gsm_module.signal, "signal", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(gsm_module.gsm_status, "clear_words_being_processed", lambda: calls.append("clear-words"))
+
+    app.run()
+
+    assert "blocking-default-dialog" not in calls
+    assert calls.index("send-initialized") < calls.index("schedule-default-dialog") < calls.index("qt-loop")
+
+
 def test_switch_profile_delegates_to_profile_switcher():
     app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
     settings_window = object()

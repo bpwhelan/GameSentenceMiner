@@ -19,6 +19,7 @@ import { BASE_DIR } from '../util.js';
 import { isAllowedDocsUrl } from '../../shared/docs.js';
 import type { DesktopUpdateChangelogSnapshot } from '../../shared/changelog.js';
 import type { InstallSessionSnapshot } from '../../shared/install_session.js';
+import { registerWindowSceneSwitcherIPC } from './window_scene_switcher.js';
 
 interface MainIPCDependencies {
     getMainWindow: () => BrowserWindow | null;
@@ -107,6 +108,7 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
     registerAnkiBeaconIPC();
     registerTextHookIPC();
     registerTextProcessIPC();
+    registerWindowSceneSwitcherIPC();
 
     ipcMain.handle('show-error-box', async (_event, { title, message, detail }) => {
         const mainWindow = deps.getMainWindow();

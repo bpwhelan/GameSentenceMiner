@@ -518,6 +518,37 @@
       "updating": "アップデート中...",
       "unknown": "不明"
     },
+    "backup": {
+      "title": "バックアップと復元",
+      "description": "一時ファイルやキャッシュを含めずに、GSM設定、Overlay/Yomitanストレージ、OBS設定、GSMデータベース、OCR設定をバックアップします。",
+      "operationCreate": "バックアップ",
+      "operationRestore": "復元",
+      "progressSummary": "{operation}: {phase}",
+      "progressPercent": "{percent}%",
+      "progressFile": "ファイル: {file}",
+      "progressCount": "{completed} / {total}ファイル",
+      "progress": {
+        "scanning": "ファイルをスキャン中...",
+        "archiving": "アーカイブを書き込み中...",
+        "extracting": "アーカイブを展開中...",
+        "stoppingObs": "OBSを停止中...",
+        "stoppingPython": "Pythonプロセスを停止中...",
+        "restoring": "ファイルを復元中...",
+        "restartingPython": "Pythonバックエンドを再起動中...",
+        "done": "完了",
+        "error": "失敗"
+      },
+      "create": "バックアップを作成...",
+      "creating": "バックアップ作成中...",
+      "restore": "バックアップを復元...",
+      "restoring": "バックアップ復元中...",
+      "created": "バックアップを作成しました: {path} ({count}ファイル)",
+      "restored": "バックアップを復元しました。",
+      "restoredRestart": "バックアップを復元しました。復元した設定を読み込むにはGSMを再起動してください。",
+      "cancelled": "バックアップ操作をキャンセルしました。",
+      "failed": "バックアップ操作に失敗しました: {error}",
+      "unknownError": "不明なエラー"
+    },
     "catalog": {
       "alreadyOnScreen": "この画面にいます",
       "openGSMSettings": "GSMのメイン設定を開く",
@@ -610,15 +641,16 @@
     "docsButton": "自動ランチャーのドキュメント",
     "docsButtonTooltip": "自動ランチャーのドキュメントを開く",
     "infoLabel": "ゲーム自動化の概要",
-    "overviewTooltip": "共有テキストフックツールパスとゲームごとの自動化を設定します。各ゲームにテキストフックモード（なし/Agent/Textractor/Luna）とOCRモード（なし/自動/手動）を1つずつ選択してください。",
+    "overviewTooltip": "ゲームごとのOCR、オーバーレイ起動、共有自動化設定を構成します。レガシーのテキストフック起動パスはページ下部に残されています。",
+    "legacyBadge": "レガシー",
     "nudge": {
       "title": "テキストフックはTexthook / Agentタブで",
       "description": "Agent、Luna、Textractorには、ここにあるランチャー操作ではなくTexthook / Agentタブを使ってください。"
     },
     "shared": {
-      "title": "共有ツール設定",
-      "collapse": "共有ツール設定を折りたたむ。",
-      "expand": "共有ツール設定を展開する。",
+      "title": "共有自動化設定",
+      "collapse": "共有設定を折りたたむ。",
+      "expand": "共有設定を展開する。",
       "agentPath": "Agentパス:",
       "agentScriptsPath": "Agentスクリプトパス:",
       "textractor64": "Textractor 64ビットパス:",
@@ -631,6 +663,11 @@
       "launchAgentMinimized": "Agent最小化で起動:",
       "disclaimer": "ダウンロードは公式のGitHubリリースから取得されます。使用前に各プロジェクトのライセンスと規約を確認してください。"
     },
+    "toolPaths": {
+      "title": "ツールパス（レガシー）",
+      "collapse": "レガシーのツールパスを折りたたむ。",
+      "expand": "レガシーのツールパスを展開する。"
+    },
     "scene": {
       "title": "ゲーム自動化",
       "activeScene": "アクティブなOBSゲーム:",
@@ -639,6 +676,7 @@
       "noScenesFound": "ゲームが見つかりません",
       "refresh": "更新",
       "textHookLauncher": "テキストフックランチャー:",
+      "textHookLegacyHint": "レガシーのテキストフックランチャーは既存設定用に残されています。新しいフック設定にはTexthook / Agentタブを使用してください。",
       "modeNone": "なし",
       "modeAgent": "Agent",
       "modeTextractor": "Textractor",
@@ -686,6 +724,8 @@
     },
     "tooltips": {
       "sharedToolSettings": "このプロファイルのすべてのゲームで使用される共有パス。",
+      "sharedAutomationSettings": "このプロファイルのすべてのゲームで使用される共有OCR自動化動作。",
+      "toolPathsLegacy": "古いランチャーベース設定向けのレガシー外部テキストフックツールパスとダウンロード。",
       "sceneAutomation": "ゲームごとの起動動作。各ゲームで異なるテキストフックとOCR設定を使用できます。",
       "agentPath": "テキストフックランチャーがAgentに設定されている場合に使用するAgent実行ファイルのパス。",
       "agentScriptsPath": "Agentスクリプトファイル（.js）を含むフォルダ。自動検出と参照のデフォルトに使用されます。",
@@ -975,6 +1015,46 @@
       "areaConfigExported": "OCRエリア設定をクリップボードにコピーしました。",
       "exportFailed": "エクスポートに失敗しました。"
     }
+  },
+  "sceneSwitcher": {
+    "title": "自動シーン切り替え",
+    "description": "前面のゲームウィンドウに応じてOBSシーンを切り替えます。",
+    "hook": {
+      "running": "前面ウィンドウフック実行中",
+      "starting": "前面ウィンドウフックを開始中",
+      "failed": "前面ウィンドウフックを利用できません"
+    },
+    "collectionEnabled": "このシーンコレクションの自動切り替えを有効にする",
+    "migrationPending": "OBSの旧自動シーン切り替えを無効化するのを待っています。競合を防ぐため自動切り替えは一時停止中です。",
+    "ruleEnabled": "対象のウィンドウがアクティブなとき、このシーンに切り替える",
+    "titlePattern": "ウィンドウタイトル正規表現",
+    "titlePatternPlaceholder": ".*ゲームタイトル.*",
+    "executableName": "実行ファイル名（任意）",
+    "executablePlaceholder": "game.exe",
+    "useCaptureSource": "キャプチャソースを使用",
+    "testCurrent": "現在のウィンドウをテスト",
+    "save": "ルールを保存",
+    "remove": "ルールを削除",
+    "status": {
+      "loadFailed": "シーン切り替え設定の読み込みに失敗しました。",
+      "saveFailed": "シーン切り替えルールの保存に失敗しました。",
+      "saved": "シーン切り替えルールを保存しました。",
+      "removed": "シーン切り替えルールを削除しました。",
+      "noCaptureSource": "このシーンに互換性のあるキャプチャソースが見つかりません。",
+      "sourceLoaded": "現在のOBSキャプチャソースを読み込みました。",
+      "noForeground": "前面ウィンドウはまだ利用できません。",
+      "matchesForeground": "ルールは現在の前面ウィンドウに一致します。",
+      "noForegroundMatch": "ルールは現在の前面ウィンドウに一致しません。"
+    }
+  },
+  "sceneSwitcherPicker": {
+    "title": "OBSシーンを選択",
+    "description": "この前面ウィンドウは複数のシーンに一致します。",
+    "windowTitle": "ウィンドウタイトル",
+    "executable": "実行ファイル",
+    "untitled": "無題のウィンドウ",
+    "unavailable": "利用不可",
+    "cancel": "キャンセル"
   },
   "textProcessing": {
     "previewFailed": "プレビューを生成できませんでした"

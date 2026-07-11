@@ -76,6 +76,7 @@ const invokePrefixes = [
   "front.",
   "texthook.",
   "textprocess.",
+  "scene-switcher.",
   "wanakana-",
   "kuroshiro-"
 ];
@@ -103,7 +104,8 @@ const onPrefixes = [
   "settings-",
   "gsm-",
   "textprocess-",
-  "texthook."
+  "texthook.",
+  "scene-switcher."
 ];
 
 function isValidChannelName(channel: string): boolean {

@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { SceneSwitchConflictWindow } from "./components/SceneSwitchConflictWindow";
 import { I18nProvider } from "./i18n";
 import { applyTheme } from "./lib/theme";
 import "./styles.css";
@@ -38,13 +39,14 @@ async function getInitialSettings(): Promise<{ locale: string; theme?: string }>
 }
 
 const root = createRoot(document.getElementById("root")!);
+const isSceneSwitcherPicker = new URLSearchParams(window.location.search).get("window") === "scene-switcher-picker";
 
 void getInitialSettings().then(({ locale, theme }) => {
   // Apply the persisted theme before first paint to avoid a flash.
   applyTheme(theme);
   root.render(
     <I18nProvider initialLocale={locale}>
-      <App />
+      {isSceneSwitcherPicker ? <SceneSwitchConflictWindow /> : <App />}
     </I18nProvider>
   );
 });

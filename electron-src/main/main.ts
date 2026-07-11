@@ -72,10 +72,26 @@ import { bus, getBusConnectInfo, startBus, stopBus } from './runtime/bus_client.
 import {
     closeOBSFromElectron,
     ensureObsInstalledAndLaunch,
+    getCurrentOBSSceneCollectionName,
+    getCurrentScene,
+    getOBSScenesForSceneSwitcher,
+    isOBSConnected,
     launchOBSFromElectron,
     setOBSScene,
+    setOBSSceneByUuid,
     shouldRetryElectronManagedOBSLaunch,
+    suggestWindowSceneSwitcherRule,
 } from './ui/obs.js';
+import {
+    configureWindowSceneSwitcherRuntime,
+    handleForegroundWindowSnapshot,
+    setForegroundWindowHookStatus,
+    shutdownWindowSceneSwitcher,
+} from './services/window_scene_switcher.js';
+import type {
+    ForegroundWindowSnapshot,
+    WindowSceneSwitcherHookStatus,
+} from '../shared/window_scene_switcher.js';
 import {
     runWindowTransparencyTool,
     stopWindowTransparencyTool,
@@ -1280,6 +1296,31 @@ async function showOcrHookRedundantDialog(): Promise<void> {
 }
 
 function handleBackendMessage(msg: BackendMessage): void {
+    if (msg.function === 'foreground_window_changed' && msg.data) {
+        const snapshot = msg.data as Partial<ForegroundWindowSnapshot>;
+        if (
+            typeof snapshot.hwnd === 'string' &&
+            typeof snapshot.pid === 'number' &&
+            typeof snapshot.title === 'string' &&
+            typeof snapshot.capturedAt === 'number' &&
+            typeof snapshot.sequence === 'number'
+        ) {
+            handleForegroundWindowSnapshot(snapshot as ForegroundWindowSnapshot);
+        }
+    }
+    if (msg.function === 'foreground_window_hook_status') {
+        const allowedStatuses = new Set<WindowSceneSwitcherHookStatus>([
+            'unsupported',
+            'starting',
+            'running',
+            'stopped',
+            'failed',
+        ]);
+        const status = msg.data?.status as WindowSceneSwitcherHookStatus;
+        if (allowedStatuses.has(status)) {
+            setForegroundWindowHookStatus(status, String(msg.data?.error ?? ''));
+        }
+    }
     if (msg.function === 'notification' && msg.data) {
         try {
             sendNotificationFromPython(msg.data);
@@ -1497,6 +1538,28 @@ async function createWindow() {
 
     mainWindow.webContents.on('did-finish-load', () => {
         mainWindow?.setTitle(windowTitle);
+    });
+
+    configureWindowSceneSwitcherRuntime({
+        isOBSConnected,
+        getCurrentCollectionName: getCurrentOBSSceneCollectionName,
+        getScenes: async () => {
+            try {
+                return await getOBSScenesForSceneSwitcher();
+            } catch (error) {
+                console.warn(
+                    '[SceneSwitcher] Skipping rule reconciliation because OBS did not return a scene list:',
+                    error
+                );
+                return null;
+            }
+        },
+        getCurrentScene,
+        switchScene: setOBSSceneByUuid,
+        suggestRule: suggestWindowSceneSwitcherRule,
+        restoreForegroundWindow: (hwnd) => {
+            sendBackendCommand('restore_foreground_window', { hwnd });
+        },
     });
 
     registerMainIPC({
@@ -2626,8 +2689,50 @@ async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<vo
     }
 }
 
+function hasChildProcessExited(proc: ChildProcessWithoutNullStreams): boolean {
+    return proc.exitCode !== null || proc.signalCode !== null;
+}
+
+function isChildProcessActive(
+    proc: ChildProcessWithoutNullStreams | undefined
+): proc is ChildProcessWithoutNullStreams {
+    return Boolean(proc && !hasChildProcessExited(proc));
+}
+
+async function waitForChildProcessExit(
+    proc: ChildProcessWithoutNullStreams,
+    timeoutMs: number = 5000
+): Promise<boolean> {
+    if (hasChildProcessExited(proc)) {
+        return true;
+    }
+
+    return new Promise((resolve) => {
+        let settled = false;
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        const finish = (exited: boolean) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            if (timeout) {
+                clearTimeout(timeout);
+            }
+            proc.off('close', onCloseOrExit);
+            proc.off('exit', onCloseOrExit);
+            resolve(exited);
+        };
+        const onCloseOrExit = () => finish(true);
+        timeout = setTimeout(() => finish(hasChildProcessExited(proc)), timeoutMs);
+
+        proc.once('close', onCloseOrExit);
+        proc.once('exit', onCloseOrExit);
+    });
+}
+
 async function closeGSM(): Promise<void> {
-    if (!pyProc) {
+    const procToClose = pyProc;
+    if (!isChildProcessActive(procToClose)) {
         clearManagedGSMProcessState();
         return;
     }
@@ -2641,15 +2746,20 @@ async function closeGSM(): Promise<void> {
         sendBackendCommand('quit');
         console.log('Sent quit command to GSM over the bus.');
         await waitForBackendCleanup();
-        if (pyProc && !pyProc.killed && !cleanupComplete) {
-            pyProc.kill();
+        if (isChildProcessActive(procToClose) && !cleanupComplete) {
+            procToClose.kill();
             console.log('Force killed GSM after timeout.');
         } else {
             console.log('GSM closed gracefully.');
         }
     } else {
         console.log('Backend not on the bus, killing process directly.');
-        pyProc?.kill();
+        procToClose.kill();
+    }
+
+    const exited = await waitForChildProcessExit(procToClose);
+    if (!exited) {
+        console.warn('Timed out waiting for GSM process to exit.');
     }
 }
 
@@ -2669,7 +2779,8 @@ async function restartGSM(): Promise<void> {
         console.log('GSM restart already in progress. Ignoring duplicate request.');
         return;
     }
-    if (!pyProc || pyProc.killed) {
+    const procToRestart = pyProc;
+    if (!isChildProcessActive(procToRestart)) {
         await ensureAndRunGSM(pythonPath);
         console.log('GSM Successfully Restarted!');
         return;
@@ -2680,9 +2791,10 @@ async function restartGSM(): Promise<void> {
         sendBackendCommand('quit');
         await waitForBackendCleanup();
     }
-    if (pyProc && !pyProc.killed && !cleanupComplete) {
-        pyProc.kill();
+    if (isChildProcessActive(procToRestart) && !cleanupComplete) {
+        procToRestart.kill();
     }
+    await waitForChildProcessExit(procToRestart);
     await ensureAndRunGSM(pythonPath);
     console.log('GSM Successfully Restarted!');
 }
@@ -2703,6 +2815,7 @@ export async function stopScripts(): Promise<void> {
 async function runQuit(): Promise<void> {
     hideUserFacingShutdownSurfaces();
     autoLauncher.stopPolling();
+    shutdownWindowSceneSwitcher();
 
     try {
         stopOverlay();
@@ -2732,6 +2845,7 @@ async function quit(): Promise<void> {
 // data-folder relocation). Mirrors quit() minus app.quit().
 async function stopAllChildrenForRelocation(): Promise<void> {
     autoLauncher.stopPolling();
+    shutdownWindowSceneSwitcher();
     stopOverlay();
     await stopScripts();
     if (pyProc != null && !pyProc.killed) {

@@ -1,7 +1,5 @@
 import sys
 
-from GameSentenceMiner.util.clipboard import test_qt6_copy
-
 
 def handle_error_in_initialization(exc: Exception) -> None:
     boot_logger = globals().get("logger")
@@ -522,6 +520,7 @@ class GSMApplication:
         self._threads: list[threading.Thread] = []
         self._obs_connect_task: Optional[asyncio.Task] = None
         self._obs_launch_thread: Optional[threading.Thread] = None
+        self.foreground_window_hook = None
         self.profile_switcher = get_profile_switcher()
 
     def _get_profile_switcher(self) -> ProfileSwitcher:
@@ -585,7 +584,6 @@ class GSMApplication:
         # Area-select (screen-crop) ad-hoc OCR runs in the main process so it works
         # whether or not the continuous OCR subprocess is running. Hotkey value still
         # comes from the OCR tab config (get_ocr_area_select_ocr_hotkey).
-        from GameSentenceMiner.util.config.electron_config import get_ocr_area_select_ocr_hotkey
 
         # hotkey_manager.register(
         #     lambda: get_ocr_area_select_ocr_hotkey() or "ctrl+shift+o",
@@ -768,6 +766,11 @@ class GSMApplication:
             gsm_state.keep_running = False
             gsm_status.clear_words_being_processed()
 
+            foreground_window_hook = getattr(self, "foreground_window_hook", None)
+            if foreground_window_hook is not None:
+                foreground_window_hook.stop()
+                self.foreground_window_hook = None
+
             if obs.obs_connection_manager and obs.obs_connection_manager.is_alive():
                 obs.obs_connection_manager.stop()
             obs.stop_replay_buffer()
@@ -828,6 +831,16 @@ class GSMApplication:
             self.state.overlay_async_runner.stop()
             self.state.text_async_runner.stop()
             self.state.async_runner.stop()
+
+            # Drain and close the single DB writer so any queued line/stats writes
+            # are flushed before we report shutdown. Runners are already stopped, so
+            # no new foreground writes will arrive.
+            try:
+                from GameSentenceMiner.util.database.db import gsm_db
+
+                gsm_db.close()
+            except Exception as e:
+                logger.error(f"Error closing database writer: {e}")
 
             # Release the single-instance lock before notifying Electron so that
             # when Electron immediately spawns a new Python process it can acquire
@@ -1040,6 +1053,34 @@ class GSMApplication:
         start_ipc_listener_in_thread()
         register_command_handler(self.handle_ipc_command)
         announce_connected()
+        self._start_foreground_window_hook()
+
+    def _start_foreground_window_hook(self) -> None:
+        if not is_windows() or not _is_running_under_electron():
+            return
+        try:
+            from GameSentenceMiner.util.platform.foreground_window_hook import (
+                ForegroundWindowHook,
+            )
+
+            def on_snapshot(snapshot: dict) -> None:
+                send_message(FunctionName.FOREGROUND_WINDOW_CHANGED.value, snapshot)
+
+            def on_status(status: str, error: str = "") -> None:
+                send_message(
+                    FunctionName.FOREGROUND_WINDOW_HOOK_STATUS.value,
+                    {"status": status, "error": error},
+                )
+
+            hook = ForegroundWindowHook(on_snapshot, on_status)
+            self.foreground_window_hook = hook
+            hook.start()
+        except Exception as exc:
+            logger.warning(f"Failed to start foreground window hook: {exc}")
+            send_message(
+                FunctionName.FOREGROUND_WINDOW_HOOK_STATUS.value,
+                {"status": "failed", "error": str(exc)},
+            )
 
     def start_background_threads(self) -> None:
         anki = _get_anki_module()
@@ -1129,6 +1170,12 @@ class GSMApplication:
                 self._handle_inhouse_source_status("ocr", cmd.get("data") if isinstance(cmd, dict) else None)
             elif function == FunctionName.TEXTHOOK_STATUS.value:
                 self._handle_inhouse_source_status("texthook", cmd.get("data") if isinstance(cmd, dict) else None)
+            elif function == FunctionName.RESTORE_FOREGROUND_WINDOW.value:
+                data = cmd.get("data") if isinstance(cmd, dict) else {}
+                hwnd = data.get("hwnd") if isinstance(data, dict) else None
+                foreground_window_hook = getattr(self, "foreground_window_hook", None)
+                if foreground_window_hook is not None and hwnd is not None:
+                    foreground_window_hook.restore_window(hwnd)
             else:
                 logger.background(f"Unknown IPC command: {cmd}")
         except Exception as e:
@@ -1476,7 +1523,6 @@ class GSMApplication:
 
         qt_main = _get_qt_main_module()
         qt_main.get_qt_app()
-        qt_main.show_default_config_changes_if_needed()
 
         self.state.settings_window = qt_main.get_config_window()
         gsm_state.config_app = self.state.settings_window
@@ -1529,6 +1575,7 @@ class GSMApplication:
         )
         send_message(FunctionName.INITIALIZED.value, {"status": "ready"})
         self._start_thread(self._announce_startup_ready, "startup-ready-announcer")
+        qt_main.schedule_default_config_changes_if_needed(parent=self.state.settings_window)
         qt_main.start_qt_app(show_config_immediately=get_config().general.open_config_on_startup)
 
 
