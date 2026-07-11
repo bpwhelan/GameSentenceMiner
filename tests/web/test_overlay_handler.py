@@ -88,8 +88,15 @@ def test_overlay_config_accepts_batch_with_coercion(monkeypatch):
 def test_send_click_request_forwards_to_target_window(monkeypatch):
     calls = []
 
-    async def fake_send_click(*, target_pid=None, activate_window=True):
-        calls.append({"target_pid": target_pid, "activate_window": activate_window})
+    async def fake_send_click(*, target_pid=None, activate_window=True, client_x=None, client_y=None):
+        calls.append(
+            {
+                "target_pid": target_pid,
+                "activate_window": activate_window,
+                "client_x": client_x,
+                "client_y": client_y,
+            }
+        )
         return True
 
     monitor = SimpleNamespace(target_hwnd=1234, send_click_to_target_window=fake_send_click)
@@ -101,7 +108,7 @@ def test_send_click_request_forwards_to_target_window(monkeypatch):
         handler.handle_message(json.dumps({"type": "send-click-request", "source": "gamepad", "activateWindow": True}))
     )
 
-    assert calls == [{"target_pid": None, "activate_window": True}]
+    assert calls == [{"target_pid": None, "activate_window": True, "client_x": 8, "client_y": 8}]
 
 
 def test_send_click_request_ignored_without_target_window(monkeypatch):

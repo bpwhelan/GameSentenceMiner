@@ -1745,6 +1745,18 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             return None
         return x + width // 2, y + height // 2
 
+    def _get_client_screen_position(self, hwnd: int, client_x: int, client_y: int) -> Optional[Tuple[int, int]]:
+        """Convert a client-area offset to a physical-pixel screen position."""
+        geometry = get_window_client_physical_geometry(hwnd)
+        if not geometry:
+            return None
+        x, y, width, height = geometry
+        if width <= 0 or height <= 0:
+            return None
+        offset_x = min(max(0, int(client_x)), width - 1)
+        offset_y = min(max(0, int(client_y)), height - 1)
+        return x + offset_x, y + offset_y
+
     def _send_left_click_with_input(self, screen_x: int, screen_y: int) -> bool:
         """Inject a real left click at the given screen point (works for games reading raw input)."""
         if not is_windows():
@@ -1760,23 +1772,29 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         except Exception:
             return False
 
-    def _post_click_to_hwnd(self, hwnd: int) -> bool:
-        """Best-effort PostMessage click at the client-area center (often ignored by games)."""
+    def _post_click_to_hwnd(self, hwnd: int, client_x: Optional[int] = None, client_y: Optional[int] = None) -> bool:
+        """Best-effort PostMessage click in the client area (often ignored by games)."""
         if not is_windows() or not hwnd:
             return False
         geometry = get_window_client_physical_geometry(hwnd)
         if not geometry:
             return False
         _, _, width, height = geometry
-        cx = max(0, width // 2)
-        cy = max(0, height // 2)
+        cx = max(0, width // 2) if client_x is None else min(max(0, int(client_x)), max(0, width - 1))
+        cy = max(0, height // 2) if client_y is None else min(max(0, int(client_y)), max(0, height - 1))
         lparam = ((cy & 0xFFFF) << 16) | (cx & 0xFFFF)
         down_ok = bool(user32.PostMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lparam))
         up_ok = bool(user32.PostMessageW(hwnd, WM_LBUTTONUP, 0, lparam))
         return down_ok and up_ok
 
-    async def send_click_to_target_window(self, target_pid: Optional[int] = None, activate_window: bool = True) -> bool:
-        """Forward a left click to the center of the target game window's client area."""
+    async def send_click_to_target_window(
+        self,
+        target_pid: Optional[int] = None,
+        activate_window: bool = True,
+        client_x: Optional[int] = None,
+        client_y: Optional[int] = None,
+    ) -> bool:
+        """Forward a left click to a client-area position, defaulting to its center."""
         if not is_windows():
             return False
 
@@ -1786,21 +1804,25 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             return False
 
         self.target_hwnd = target_hwnd
-        center = self._get_client_center_screen(target_hwnd)
+        click_position = (
+            self._get_client_screen_position(target_hwnd, client_x, client_y)
+            if client_x is not None and client_y is not None
+            else self._get_client_center_screen(target_hwnd)
+        )
 
         if activate_window:
             focused = await self.activate_target_window()
             if not focused:
                 return False
             await asyncio.sleep(0.03)
-            if center:
-                return self._send_left_click_with_input(*center)
+            if click_position:
+                return self._send_left_click_with_input(*click_position)
             return False
 
         foreground_hwnd = user32.GetForegroundWindow()
-        if foreground_hwnd == target_hwnd and center:
-            return self._send_left_click_with_input(*center)
-        return self._post_click_to_hwnd(target_hwnd)
+        if foreground_hwnd == target_hwnd and click_position:
+            return self._send_left_click_with_input(*click_position)
+        return self._post_click_to_hwnd(target_hwnd, client_x, client_y)
 
     def post_enter_to_target_window(self, target_pid: Optional[int] = None) -> bool:
         """Backward-compatible direct PostMessage path."""

@@ -278,7 +278,7 @@ class OverlayRequestHandler:
     async def handle_send_click_request(self, message: Optional[dict] = None):
         """
         Handle a left-click-forward request from the overlay.
-        Clicks the center of the target game window's client area.
+        Clicks near the top-left corner of the game client area so the cursor stays out of the way.
         """
         try:
             payload = message if isinstance(message, dict) else {}
@@ -298,6 +298,8 @@ class OverlayRequestHandler:
             sent = await monitor.send_click_to_target_window(
                 target_pid=target_pid if target_pid > 0 else None,
                 activate_window=activate_window,
+                client_x=8,
+                client_y=8,
             )
             if not sent:
                 logger.warning(f"Failed to send click to target window (source={source})")
