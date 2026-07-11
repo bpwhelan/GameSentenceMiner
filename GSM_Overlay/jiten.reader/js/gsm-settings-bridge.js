@@ -25,15 +25,20 @@
     'markTopX',
     'markTopXCount',
     'markAllTypes',
-    'markOnlyFrequent',
+    'iPlusOneMaxFrequency',
+    'iPlusOneMaxFrequencyCount',
     'minSentenceLength',
     'newStates',
+    'markWordsInDeck',
+    'wordStyleConfig',
+    'customWordCSS',
     'activeProfile',
     'profiles',
     'showGradingActions',
     'jitenUseTwoGrades',
     'jitenDisableReviews',
   ];
+  var CHANGE_NOTIFICATION_KEYS = RELEVANT_KEYS.concat(['jitenApiKey', 'parsingPaused']);
 
   function hasOwn(obj, key) {
     return Object.prototype.hasOwnProperty.call(obj, key);
@@ -95,7 +100,7 @@
             var key = RELEVANT_KEYS[i];
             var value = getProfileValue(all, activeProfileId, key);
             if (typeof value !== 'undefined') {
-              out[key] = value;
+              out[key] = parseJson(value);
             }
           }
 
@@ -144,6 +149,40 @@
         } catch (_) {}
       });
   });
+
+  function isRelevantStorageChange(changes) {
+    if (!changes || typeof changes !== 'object') return false;
+
+    for (var key in changes) {
+      if (!hasOwn(changes, key)) continue;
+      if (key === PROFILES_STATE_KEY || CHANGE_NOTIFICATION_KEYS.indexOf(key) !== -1) return true;
+      if (key.indexOf('profile:') === 0) {
+        for (var i = 0; i < CHANGE_NOTIFICATION_KEYS.length; i++) {
+          if (key.slice(-CHANGE_NOTIFICATION_KEYS[i].length - 1) === ':' + CHANGE_NOTIFICATION_KEYS[i]) {
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  function postSettingsUpdated(reason) {
+    try {
+      window.postMessage({ type: 'gsm-jiten-settings-updated', reason: reason || 'storage' }, '*');
+    } catch (_) {}
+  }
+
+  try {
+    if (chrome.storage.onChanged && typeof chrome.storage.onChanged.addListener === 'function') {
+      chrome.storage.onChanged.addListener(function (changes, areaName) {
+        if (areaName !== 'local') return;
+        if (!isRelevantStorageChange(changes)) return;
+        postSettingsUpdated('storage');
+      });
+    }
+  } catch (_) {}
 
   try {
     window.postMessage({ type: 'gsm-jiten-settings-ready' }, '*');

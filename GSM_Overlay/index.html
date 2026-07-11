@@ -167,8 +167,9 @@ background: rgba(202, 12, 12, 0.692);
   /* Highlights are drawn as overlay boxes (one per token) by jiten_highlight.js,
      NOT by styling the per-character .text-box glyphs — a single box spanning
      the whole token reads as one highlight instead of one-per-character. The
-     overlay sits behind the (normally transparent) text glyphs. Mature/mastered
-     (known) words are subtle; i+1 is the most prominent (blue) signal. */
+     overlay sits behind the (normally transparent) text glyphs. These colors are
+     only fallback styles; once Jiten Reader's settings bridge responds, GSM
+     injects styles generated from Jiten Reader's Word Styling settings. */
   :root {
     --gsm-jiten-highlight-opacity: 0.7;
     /* Nudge the whole highlight box (and thus its bottom underline) down a few
@@ -1606,6 +1607,205 @@ background: rgba(202, 12, 12, 0.692);
     document.documentElement.style.setProperty('--gsm-jiten-highlight-offset-y', `${clamped}px`);
   }
 
+  const JITEN_GSM_STYLE_ID = 'gsm-jiten-reader-word-style';
+  const JITEN_GSM_CLASS_BY_STATE = {
+    new: 'gsm-jiten-hl--new',
+    young: 'gsm-jiten-hl--young',
+    mature: 'gsm-jiten-hl--mature',
+    mastered: 'gsm-jiten-hl--mastered',
+    due: 'gsm-jiten-hl--due',
+    blacklisted: 'gsm-jiten-hl--blacklisted',
+    suspended: 'gsm-jiten-hl--suspended',
+    redundant: 'gsm-jiten-hl--redundant',
+    frequent: 'gsm-jiten-hl--frequent',
+    'i-plus-one': 'gsm-jiten-hl--iplus1',
+  };
+  const JITEN_GSM_STYLE_ORDER = Object.keys(JITEN_GSM_CLASS_BY_STATE);
+  const JITEN_GSM_UNDERLINE_STYLES = new Set(['solid', 'dashed', 'dotted', 'wavy']);
+  const JITEN_GSM_BORDER_STYLES = new Set(['solid', 'dashed']);
+  let lastJitenWordStyleSignature = '';
+  let currentJitenWordStyleConfig = null;
+
+  function normalizeJitenWordStyleConfig(rawConfig) {
+    let config = rawConfig;
+    if (typeof config === 'string' && config.trim()) {
+      try { config = JSON.parse(config); } catch (_) { return null; }
+    }
+    if (!config || typeof config !== 'object' || !config.states || typeof config.states !== 'object') {
+      return null;
+    }
+    return config;
+  }
+
+  function clampJitenStyleNumber(value, min, max, fallback) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
+  }
+
+  function sanitizeJitenStyleColour(value) {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    return /^#[0-9a-fA-F]{3,8}$/.test(trimmed) ? trimmed : null;
+  }
+
+  function jitenHexToRgb(value) {
+    const colour = sanitizeJitenStyleColour(value);
+    if (!colour) return null;
+    const cleaned = colour.slice(1);
+    let r, g, b;
+    if (cleaned.length === 3 || cleaned.length === 4) {
+      r = parseInt(cleaned[0] + cleaned[0], 16);
+      g = parseInt(cleaned[1] + cleaned[1], 16);
+      b = parseInt(cleaned[2] + cleaned[2], 16);
+    } else {
+      r = parseInt(cleaned.slice(0, 2), 16);
+      g = parseInt(cleaned.slice(2, 4), 16);
+      b = parseInt(cleaned.slice(4, 6), 16);
+    }
+    if (![r, g, b].every(Number.isFinite)) return null;
+    return { r, g, b };
+  }
+
+  function generateGsmJitenEffectDeclarations(effects) {
+    const declarations = [];
+    const shadows = [];
+    let textColourFallback = null;
+    let hasLineOrBorder = false;
+
+    for (const effect of effects) {
+      if (!effect || typeof effect !== 'object') continue;
+
+      switch (effect.type) {
+        case 'text-colour': {
+          const colour = sanitizeJitenStyleColour(effect.colour);
+          if (colour) textColourFallback = colour;
+          break;
+        }
+        case 'background': {
+          const rgb = jitenHexToRgb(effect.colour);
+          const opacity = clampJitenStyleNumber(effect.opacity, 0, 1, 0);
+          if (rgb && opacity > 0) {
+            declarations.push(`background-color: rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity}) !important;`);
+          }
+          break;
+        }
+        case 'underline': {
+          const colour = sanitizeJitenStyleColour(effect.colour);
+          const style = JITEN_GSM_UNDERLINE_STYLES.has(effect.style) ? effect.style : 'solid';
+          const thickness = clampJitenStyleNumber(effect.thickness, 1, 10, 3);
+          if (colour) {
+            declarations.push(`border-bottom: ${thickness}px ${style} ${colour} !important;`);
+            hasLineOrBorder = true;
+          }
+          break;
+        }
+        case 'border': {
+          const colour = sanitizeJitenStyleColour(effect.colour);
+          const style = JITEN_GSM_BORDER_STYLES.has(effect.style) ? effect.style : 'solid';
+          const width = clampJitenStyleNumber(effect.width, 0, 10, 1);
+          const radius = clampJitenStyleNumber(effect.radius, 0, 20, 3);
+          if (colour) {
+            declarations.push(`border: ${width}px ${style} ${colour} !important;`);
+            declarations.push(`border-radius: ${radius}px !important;`);
+            hasLineOrBorder = true;
+          }
+          break;
+        }
+        case 'shadow': {
+          const colour = sanitizeJitenStyleColour(effect.colour);
+          if (colour) {
+            const blur = clampJitenStyleNumber(effect.blur, 0, 20, 0);
+            const offsetX = clampJitenStyleNumber(effect.offsetX, -20, 20, 0);
+            const offsetY = clampJitenStyleNumber(effect.offsetY, -20, 20, 0);
+            shadows.push(`${offsetX}px ${offsetY}px ${blur}px ${colour}`);
+          }
+          break;
+        }
+        case 'blur': {
+          const radius = clampJitenStyleNumber(effect.radius, 0, 20, 0);
+          declarations.push(`filter: blur(${radius}px) !important;`);
+          break;
+        }
+        case 'opacity': {
+          const opacity = clampJitenStyleNumber(effect.value, 0, 1, 1);
+          declarations.push(`opacity: ${opacity} !important;`);
+          break;
+        }
+        default:
+          break;
+      }
+    }
+
+    if (textColourFallback && !hasLineOrBorder) {
+      declarations.unshift(`border-bottom: 3px solid ${textColourFallback} !important;`);
+    }
+    if (shadows.length > 0) {
+      declarations.push(`box-shadow: ${shadows.join(', ')} !important;`);
+    }
+
+    return declarations;
+  }
+
+  function generateGsmJitenWordStyleCSS(config) {
+    const selectors = Object.values(JITEN_GSM_CLASS_BY_STATE).map((className) => `.${className}`).join(',\n');
+    const lines = [
+      `${selectors} {`,
+      '  background: transparent !important;',
+      '  border: 0 !important;',
+      '  box-shadow: none !important;',
+      '  filter: none !important;',
+      '  opacity: 1 !important;',
+      '}',
+    ];
+
+    for (const state of JITEN_GSM_STYLE_ORDER) {
+      const stateStyle = config.states[state];
+      const effects = stateStyle && Array.isArray(stateStyle.effects) ? stateStyle.effects : [];
+      if (effects.length === 0) continue;
+      const declarations = generateGsmJitenEffectDeclarations(effects);
+      if (declarations.length === 0) continue;
+      lines.push(`.${JITEN_GSM_CLASS_BY_STATE[state]} {`);
+      for (const declaration of declarations) {
+        lines.push(`  ${declaration}`);
+      }
+      lines.push('}');
+    }
+
+    return lines.join('\n');
+  }
+
+  function pushJitenWordStyleConfigToHighlighter() {
+    const api = window.GsmJitenHighlight;
+    if (api && typeof api.setStyleConfig === 'function') {
+      api.setStyleConfig(currentJitenWordStyleConfig);
+    }
+  }
+
+  function applyJitenWordStyleConfig(rawConfig) {
+    const config = normalizeJitenWordStyleConfig(rawConfig);
+    const signature = config ? JSON.stringify(config) : '';
+    if (signature === lastJitenWordStyleSignature) return false;
+
+    lastJitenWordStyleSignature = signature;
+    currentJitenWordStyleConfig = config;
+    pushJitenWordStyleConfigToHighlighter();
+
+    let style = document.getElementById(JITEN_GSM_STYLE_ID);
+    if (!config) {
+      if (style) style.remove();
+      return true;
+    }
+
+    if (!style) {
+      style = document.createElement('style');
+      style.id = JITEN_GSM_STYLE_ID;
+      document.head.appendChild(style);
+    }
+    style.textContent = generateGsmJitenWordStyleCSS(config);
+    return true;
+  }
+
   // Ask the Jiten Reader extension to parse the current lines and mirror SRS
   // highlights (the extension's content script does the parsing).
   function applyJitenHighlightingForLines(lines, meta) {
@@ -1656,10 +1856,16 @@ background: rgba(202, 12, 12, 0.692);
   // Initialize highlight module on page load
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-      if (window.GsmJitenHighlight) window.GsmJitenHighlight.init();
+      if (window.GsmJitenHighlight) {
+        window.GsmJitenHighlight.init();
+        pushJitenWordStyleConfigToHighlighter();
+      }
     }, { once: true });
   } else {
-    if (window.GsmJitenHighlight) window.GsmJitenHighlight.init();
+    if (window.GsmJitenHighlight) {
+      window.GsmJitenHighlight.init();
+      pushJitenWordStyleConfigToHighlighter();
+    }
   }
 
   // Mark Jiten highlighting unavailable when a toggle is turned off. Resetting the
@@ -1734,6 +1940,32 @@ background: rgba(202, 12, 12, 0.692);
     }
   }
 
+  function jitenSettingTruthy(value) {
+    return value === true || value === 'true';
+  }
+
+  function jitenSettingFalsy(value) {
+    return value === false || value === 'false';
+  }
+
+  function applyJitenReaderSettingsFromBridge(data) {
+    const d = (data && typeof data === 'object') ? data : {};
+    window.GsmJitenReaderSettings = d;
+    try {
+      window.dispatchEvent(new CustomEvent('gsm-jiten-reader-settings-updated', { detail: d }));
+    } catch (_) { /* ignore */ }
+
+    applyJitenWordStyleConfig(d.wordStyleConfig);
+
+    jitenGradingReaderSettings = {
+      showGradingActions: !jitenSettingFalsy(d.showGradingActions),
+      twoGrades: jitenSettingTruthy(d.jitenUseTwoGrades),
+      disableReviews: jitenSettingTruthy(d.jitenDisableReviews),
+    };
+
+    applyVerifiedJitenAvailability(d.hasApiKey === true, d.parsingPaused === true);
+  }
+
   // Cleanup for the in-flight verify (removes its listener + timeout) so a newer,
   // authoritative trigger can supersede a stale one instead of being dropped by
   // the pending guard. Set while a verify is in flight, null otherwise.
@@ -1763,8 +1995,8 @@ background: rgba(202, 12, 12, 0.692);
       const data = event && event.data;
       if (!data || data.type !== 'gsm-jiten-settings-response' || data.requestId !== requestId) return;
       cleanup();
-      const d = (data.data && typeof data.data === 'object') ? data.data : {};
-      applyVerifiedJitenAvailability(d.hasApiKey === true, d.parsingPaused === true);
+      applyJitenReaderSettingsFromBridge(data.data);
+      pushJitenGradingConfig();
     };
     jitenSyncCleanup = cleanup;
     window.addEventListener('message', onResponse);
@@ -1784,6 +2016,8 @@ background: rgba(202, 12, 12, 0.692);
       // Bridge just came live (e.g. extension finished loading) — supersede any
       // stale verify that was posted before it could answer.
       syncJitenSettings('bridge-ready', true);
+    } else if (data && data.type === 'gsm-jiten-settings-updated') {
+      syncJitenSettings('bridge-updated', true);
     }
   });
   // Also verify shortly after load in case the bridge announced before this
@@ -1854,23 +2088,13 @@ background: rgba(202, 12, 12, 0.692);
     if (jitenGradingSettingsRequestPending) return;
     jitenGradingSettingsRequestPending = true;
     const requestId = `gsm-grading-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const truthy = (v) => v === true || v === 'true';
-    const falsy = (v) => v === false || v === 'false';
     const onResponse = (event) => {
       const data = event && event.data;
       if (!data || data.type !== 'gsm-jiten-settings-response' || data.requestId !== requestId) return;
       window.removeEventListener('message', onResponse);
       jitenGradingSettingsRequestPending = false;
-      const d = (data.data && typeof data.data === 'object') ? data.data : {};
-      jitenGradingReaderSettings = {
-        showGradingActions: !falsy(d.showGradingActions),
-        twoGrades: truthy(d.jitenUseTwoGrades),
-        disableReviews: truthy(d.jitenDisableReviews),
-      };
+      applyJitenReaderSettingsFromBridge(data.data);
       pushJitenGradingConfig();
-      // This round-trip carries the same availability signals — use them to keep
-      // highlight availability fresh for free (e.g. when a Yomitan popup opens).
-      applyVerifiedJitenAvailability(d.hasApiKey === true, d.parsingPaused === true);
     };
     window.addEventListener('message', onResponse);
     try { window.postMessage({ type: 'gsm-jiten-settings-request', requestId }, '*'); } catch (_) { /* ignore */ }

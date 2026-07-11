@@ -10,11 +10,26 @@
 (function (root) {
   'use strict';
 
-  // All SRS states Jiten can assign to a word.
-  const JITEN_STATE_CLASSES = ['new', 'young', 'mature', 'mastered', 'blacklisted', 'due'];
+  // SRS/card state classes Jiten can assign to a word.
+  const JITEN_STATE_CLASSES = [
+    'new',
+    'young',
+    'mature',
+    'mastered',
+    'blacklisted',
+    'due',
+    'redundant',
+    'suspended',
+  ];
+  const JITEN_AUX_CLASSES = ['frequent', 'i-plus-one'];
+  const JITEN_STYLEABLE_CLASSES = JITEN_STATE_CLASSES.concat(JITEN_AUX_CLASSES);
+  const DEFAULT_RENDERED_CLASSES = new Set(['new', 'young', 'due', 'frequent', 'i-plus-one']);
+  const DRAWABLE_EFFECT_TYPES = new Set(['text-colour', 'background', 'underline', 'border', 'shadow']);
 
   // States that mean the user already knows (or has chosen to ignore) the word.
-  // These get NO highlight — only words worth studying are surfaced.
+  // Without Jiten's style config these preserve the legacy behavior: only words
+  // worth studying are surfaced. Once style config is available, that config
+  // decides which states are visible.
   const KNOWN_STATE_CLASSES = ['mature', 'mastered', 'blacklisted'];
 
   const LAYER_ID = 'jiten-highlight-layer';
@@ -27,6 +42,7 @@
   let parseTimeoutId = null;
   let enabled = true;
   let lastParsedSignature = null;
+  let configuredVisibleClasses = null;
 
   // Whether Jiten can parse right now. The overlay verifies this via the settings
   // bridge and pushes it in through setAvailable(); optimistic by default so the
@@ -302,24 +318,80 @@
     const cl = span.classList;
     if (cl.contains('unparsed') || cl.contains('misparsed')) return null;
 
-    // Known/ignored words get no highlight at all, regardless of other flags.
-    for (const s of KNOWN_STATE_CLASSES) {
-      if (cl.contains(s)) return null;
+    if (!configuredVisibleClasses) {
+      // Preserve legacy behavior until the Jiten settings bridge supplies the
+      // user's style config.
+      for (const s of KNOWN_STATE_CLASSES) {
+        if (cl.contains(s)) return null;
+      }
     }
-
-    let state = null;
-    for (const s of JITEN_STATE_CLASSES) {
-      if (cl.contains(s)) { state = s; break; }
-    }
-    const frequent = cl.contains('frequent');
-    const iplusone = cl.contains('i-plus-one');
-    if (!state && !frequent && !iplusone) return null;
 
     const classes = [SEGMENT_CLASS];
-    if (state) classes.push(SEGMENT_CLASS + '--' + state);
-    if (frequent) classes.push(SEGMENT_CLASS + '--frequent');
-    if (iplusone) classes.push(SEGMENT_CLASS + '--iplus1');
-    return classes;
+    let hasVisibleClass = false;
+    for (const s of JITEN_STATE_CLASSES) {
+      if (!cl.contains(s) || !shouldRenderClass(s)) continue;
+      classes.push(SEGMENT_CLASS + '--' + s);
+      hasVisibleClass = true;
+    }
+    if (cl.contains('frequent') && shouldRenderClass('frequent')) {
+      classes.push(SEGMENT_CLASS + '--frequent');
+      hasVisibleClass = true;
+    }
+    if (cl.contains('i-plus-one') && shouldRenderClass('i-plus-one')) {
+      classes.push(SEGMENT_CLASS + '--iplus1');
+      hasVisibleClass = true;
+    }
+
+    return hasVisibleClass ? classes : null;
+  }
+
+  function shouldRenderClass(className) {
+    if (configuredVisibleClasses) {
+      return configuredVisibleClasses.has(className);
+    }
+    return DEFAULT_RENDERED_CLASSES.has(className);
+  }
+
+  function hasDrawableEffects(stateStyle) {
+    const effects = stateStyle && Array.isArray(stateStyle.effects) ? stateStyle.effects : [];
+    for (const effect of effects) {
+      if (!effect || typeof effect !== 'object') continue;
+      if (!DRAWABLE_EFFECT_TYPES.has(effect.type)) continue;
+      if (effect.type === 'background' && !(Number(effect.opacity) > 0)) continue;
+      if (effect.type === 'border' && !(Number(effect.width) > 0)) continue;
+      if (effect.type === 'shadow') {
+        const blurValue = Number(effect.blur);
+        const offsetXValue = Number(effect.offsetX);
+        const offsetYValue = Number(effect.offsetY);
+        const blur = Number.isFinite(blurValue) ? blurValue : 0;
+        const offsetX = Number.isFinite(offsetXValue) ? offsetXValue : 0;
+        const offsetY = Number.isFinite(offsetYValue) ? offsetYValue : 0;
+        if (!(blur > 0 || offsetX !== 0 || offsetY !== 0)) continue;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function getVisibleClassesFromStyleConfig(config) {
+    if (!config || typeof config !== 'object' || !config.states || typeof config.states !== 'object') {
+      return null;
+    }
+
+    const visible = new Set();
+    for (const className of JITEN_STYLEABLE_CLASSES) {
+      if (hasDrawableEffects(config.states[className])) {
+        visible.add(className);
+      }
+    }
+    return visible;
+  }
+
+  function setStyleConfig(config) {
+    configuredVisibleClasses = getVisibleClassesFromStyleConfig(config);
+    if (enabled && parseContainer && currentLines) {
+      mirrorHighlights();
+    }
   }
 
   function getTextBoxesForRange(lineIndex, start, end) {
@@ -502,6 +574,7 @@
     clearJitenHighlighting: clearAllHighlights,
     setEnabled,
     setAvailable,
+    setStyleConfig,
     refresh,
     applyCardState,
   };
