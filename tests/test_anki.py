@@ -168,6 +168,51 @@ def test_build_sentence_audio_key_returns_none_when_empty_signature(monkeypatch)
     assert key is None
 
 
+def test_resolve_mined_line_prefers_recent_match_for_overlay_card(monkeypatch):
+    earlier_line = SimpleNamespace(id="earlier", text="earlier partial")
+    latest_matching_line = SimpleNamespace(id="latest", text="latest partial")
+    card = SimpleNamespace(
+        tags=["overlay"],
+        get_field=lambda field: {
+            "Sentence": "earlier partial latest partial",
+            "Word": "latest",
+        }[field],
+    )
+    calls = []
+
+    def fake_get_mined_line(_card, lines=None, *, prefer_recent=False):
+        calls.append((lines, prefer_recent))
+        return latest_matching_line if prefer_recent else earlier_line
+
+    monkeypatch.setattr(anki, "get_config", lambda: SimpleNamespace(anki=SimpleNamespace(sentence_field="Sentence")))
+    monkeypatch.setattr(anki, "get_mined_line", fake_get_mined_line)
+    monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", None, raising=False)
+
+    assert anki._resolve_mined_line_for_card(card, [earlier_line, latest_matching_line]) is latest_matching_line
+    assert calls == [([earlier_line, latest_matching_line], True)]
+
+
+def test_resolve_mined_line_prefers_text_event_over_injected_overlay_scan(monkeypatch):
+    text_event = SimpleNamespace(id="event", text="latest partial", source="hooker")
+    injected_scan = SimpleNamespace(id="scan", text="earlier partial latest partial", source="overlay")
+    card = SimpleNamespace(
+        tags=["overlay"],
+        get_field=lambda _field: "earlier partial latest partial",
+    )
+    calls = []
+
+    def fake_get_mined_line(_card, lines=None, *, prefer_recent=False):
+        calls.append((lines, prefer_recent))
+        return lines[-1]
+
+    monkeypatch.setattr(anki, "get_config", lambda: SimpleNamespace(anki=SimpleNamespace(sentence_field="Sentence")))
+    monkeypatch.setattr(anki, "get_mined_line", fake_get_mined_line)
+    monkeypatch.setattr(anki.gsm_state, "last_overlay_scan_line", None, raising=False)
+
+    assert anki._resolve_mined_line_for_card(card, [text_event, injected_scan]) is text_event
+    assert calls == [([text_event], True)]
+
+
 def test_set_sentence_audio_cache_entry_and_prune():
     key = ("sig", (("line-1", "sig"),), ("line-1", "sig"))
     anki._set_sentence_audio_cache_entry(key, "line-1", "word")
@@ -468,6 +513,42 @@ def test_queue_card_for_processing_stores_reusable_audio_hint(monkeypatch):
     assert anki.card_queue[0][3] is line
     assert anki.card_queue[0][4] == "line-1"
     assert anki.card_queue[0][5] is None
+
+
+def test_queue_card_for_processing_starts_timed_translation_prefetch(monkeypatch):
+    cfg = _base_config()
+    cfg.ai.add_to_anki = True
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki.obs, "save_replay_buffer", lambda: None)
+    monkeypatch.setattr(
+        anki,
+        "_get_texthooking_page_module",
+        lambda: SimpleNamespace(reset_checked_lines=lambda: None),
+    )
+
+    submitted = []
+    translation_future = object()
+
+    class ImmediateExecutor:
+        def submit(self, func, *args):
+            submitted.append((func, args))
+            func(*args)
+            return translation_future
+
+    monkeypatch.setattr(anki, "translation_prefetch_executor", ImmediateExecutor())
+    monkeypatch.setattr(anki, "prefetch_ai_translation", lambda sentence, line: f"translated:{sentence}")
+
+    line = SimpleNamespace(id="line-2", text="sentence")
+    card = SimpleNamespace(
+        noteId=42,
+        get_field=lambda field: "sentence" if field == cfg.anki.sentence_field else "word",
+    )
+
+    anki.queue_card_for_processing(card, [], line)
+
+    assert submitted[0][0] is anki.run_anki_card_timed
+    assert submitted[0][1][1] == "replay.future.prefetch_ai_translation"
+    assert anki.card_queue[-1][7] is translation_future
 
 
 def test_wait_for_reuse_result_times_out_without_activity(monkeypatch):
@@ -853,7 +934,7 @@ def test_check_and_update_note_triggers_cache_sync_after_updating_note(monkeypat
     last_note = SimpleNamespace(noteId=42, get_field=lambda _field: "語")
     anki.check_and_update_note(last_note, {"fields": {}}, tags=[], assets=None)
 
-    assert order == ["update", ("sync", [42]), "post"]
+    assert order == ["update", "post", ("sync", [42])]
 
 
 def test_check_and_update_note_reports_background_failure(monkeypatch):

@@ -240,13 +240,16 @@ def lines_match(texthooker_sentence, anki_sentence, similarity_threshold=80) -> 
     )
 
 
-def get_matching_line(last_note: AnkiCard, lines=None) -> GameLine:
+def get_matching_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = False) -> GameLine:
     """
     Find a matching GameLine for the given AnkiCard.
 
     Args:
         last_note: The AnkiCard to match against
         lines: Optional list of GameLines to search in. If None, uses all game log lines.
+        prefer_recent: Prefer the newest valid match instead of the highest text-similarity
+            score. Overlay mines use this because an NVL block can contain several recent
+            text events, while the clicked expression usually belongs to the newest one.
 
     Returns:
         GameLine: The matching line or the latest line if no match found
@@ -264,30 +267,57 @@ def get_matching_line(last_note: AnkiCard, lines=None) -> GameLine:
     if not last_note:
         return last_line
 
-    sentence = last_note.get_field(get_config().anki.sentence_field)
+    anki_config = get_config().anki
+    sentence = last_note.get_field(anki_config.sentence_field)
     if not sentence:
         return last_line
 
     anki_sentence = remove_html_and_cloze_tags(sentence)
+    normalized_anki_sentence = normalize_text_for_comparison(anki_sentence)
+    expression = ""
+    word_field = getattr(anki_config, "word_field", "")
+    if word_field:
+        try:
+            expression = remove_html_and_cloze_tags(last_note.get_field(word_field))
+        except (KeyError, TypeError, ValueError):
+            # Some note types intentionally omit the configured word field. Matching the
+            # sentence still provides the same fallback behavior as before.
+            expression = ""
+    normalized_expression = normalize_text_for_comparison(expression)
     time_window = datetime.now() - timedelta(seconds=gsm_state.replay_buffer_length) - timedelta(seconds=5)
 
-    # Don't return the first line that merely matches: a short recycled fragment
-    # (e.g. "性質を……入れ替える？") normalizes to text that is *contained* in a
-    # longer sentence the user actually mined, so it would win on recency alone.
-    # Instead, scan every candidate within the window and keep the best-scoring
-    # one. ">" keeps the most recent line on ties; an exact match short-circuits.
-    best_line = None
-    best_score = -1.0
+    # Collect every valid candidate before ranking. A short recycled fragment
+    # (e.g. "性質を……入れ替える？") can be contained in a longer mined sentence,
+    # while an NVL sentence can legitimately contain several sequential events.
+    candidates = []
     for line in reversed(lines):
         if line.time < time_window:
             break
         if lines_match(line.text, anki_sentence):
-            score = _match_score(line.text, anki_sentence)
-            if score > best_score:
-                best_score = score
-                best_line = line
-                if score >= 100:
-                    break
+            candidates.append(line)
+
+    # The clicked expression is the strongest discriminator in an NVL block. Only
+    # enforce it when it occurs literally in the Anki sentence and at least one
+    # candidate, so dictionary-form expressions do not discard a valid inflected line.
+    if normalized_expression and normalized_expression in normalized_anki_sentence:
+        expression_candidates = [
+            line for line in candidates if normalized_expression in normalize_text_for_comparison(line.text)
+        ]
+        if expression_candidates:
+            candidates = expression_candidates
+
+    if prefer_recent and candidates:
+        return candidates[0]
+
+    best_line = None
+    best_score = -1.0
+    for line in candidates:
+        score = _match_score(line.text, anki_sentence)
+        if score > best_score:
+            best_score = score
+            best_line = line
+            if score >= 100:
+                break
 
     if best_line is not None:
         return best_line
@@ -304,12 +334,12 @@ def get_text_event(last_note) -> GameLine:
     return get_matching_line(last_note, lines=None)
 
 
-def get_mined_line(last_note: AnkiCard, lines=None) -> GameLine:
+def get_mined_line(last_note: AnkiCard, lines=None, *, prefer_recent: bool = False) -> GameLine:
     """
     Legacy wrapper for get_matching_line with original behavior.
     Uses stripped text comparison and accepts custom lines.
     """
-    return get_matching_line(last_note, lines=lines)
+    return get_matching_line(last_note, lines=lines, prefer_recent=prefer_recent)
 
 
 def get_time_of_line(line):

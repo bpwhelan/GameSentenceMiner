@@ -51,3 +51,125 @@ def test_get_matching_line_does_not_let_punctuation_only_line_shadow_target(monk
     card = SimpleNamespace(get_field=lambda _field: "‥‥ま、旅は<b>道連れ</b>、世は情け。一緒に行くか。")
 
     assert text_log.get_matching_line(card, [target, punctuation]) is target
+
+
+def test_get_matching_line_prefers_candidate_containing_expression(monkeypatch):
+    monkeypatch.setattr(
+        text_log,
+        "get_config",
+        lambda: SimpleNamespace(anki=SimpleNamespace(sentence_field="Sentence", word_field="Expression")),
+    )
+    monkeypatch.setattr(text_log.gsm_state, "replay_buffer_length", 300, raising=False)
+
+    now = datetime.now()
+    earlier_long_line = text_log.GameLine(
+        id="earlier",
+        text="これは先に表示された、とても長い台詞の部分です。",
+        time=now - timedelta(seconds=2),
+        prev=None,
+        next=None,
+    )
+    mined_line = text_log.GameLine(
+        id="mined",
+        text="最後の対象語を含む行です。",
+        time=now - timedelta(seconds=1),
+        prev=earlier_long_line,
+        next=None,
+    )
+    earlier_long_line.next = mined_line
+    fields = {
+        "Sentence": f"{earlier_long_line.text}\n{mined_line.text}",
+        "Expression": "対象語",
+    }
+    card = SimpleNamespace(get_field=lambda field: fields[field])
+
+    assert text_log.get_matching_line(card, [earlier_long_line, mined_line]) is mined_line
+
+
+def test_get_matching_line_can_prefer_latest_valid_partial_match(monkeypatch):
+    monkeypatch.setattr(
+        text_log,
+        "get_config",
+        lambda: SimpleNamespace(anki=SimpleNamespace(sentence_field="Sentence", word_field="Expression")),
+    )
+    monkeypatch.setattr(text_log.gsm_state, "replay_buffer_length", 300, raising=False)
+
+    now = datetime.now()
+    earlier_long_line = text_log.GameLine(
+        id="earlier",
+        text="これは先に表示された、とても長い台詞の部分です。",
+        time=now - timedelta(seconds=3),
+        prev=None,
+        next=None,
+    )
+    latest_matching_line = text_log.GameLine(
+        id="latest-match",
+        text="最後に表示された短い台詞です。",
+        time=now - timedelta(seconds=2),
+        prev=earlier_long_line,
+        next=None,
+    )
+    unrelated_line = text_log.GameLine(
+        id="unrelated",
+        text="まったく関係のない別の文章です。",
+        time=now - timedelta(seconds=1),
+        prev=latest_matching_line,
+        next=None,
+    )
+    earlier_long_line.next = latest_matching_line
+    latest_matching_line.next = unrelated_line
+    fields = {
+        "Sentence": f"{earlier_long_line.text}\n{latest_matching_line.text}",
+        # Simulate a dictionary-form expression which is not a literal substring.
+        "Expression": "見つからない辞書形",
+    }
+    card = SimpleNamespace(get_field=lambda field: fields[field])
+
+    assert (
+        text_log.get_matching_line(
+            card,
+            [earlier_long_line, latest_matching_line, unrelated_line],
+            prefer_recent=True,
+        )
+        is latest_matching_line
+    )
+
+
+def test_expression_match_beats_recency_for_overlay_ranking(monkeypatch):
+    monkeypatch.setattr(
+        text_log,
+        "get_config",
+        lambda: SimpleNamespace(anki=SimpleNamespace(sentence_field="Sentence", word_field="Expression")),
+    )
+    monkeypatch.setattr(text_log.gsm_state, "replay_buffer_length", 300, raising=False)
+
+    now = datetime.now()
+    clicked_earlier_line = text_log.GameLine(
+        id="clicked",
+        text="対象語がある一つ目の台詞です。",
+        time=now - timedelta(seconds=2),
+        prev=None,
+        next=None,
+    )
+    newer_line = text_log.GameLine(
+        id="newer",
+        text="その後に表示された別の台詞です。",
+        time=now - timedelta(seconds=1),
+        prev=clicked_earlier_line,
+        next=None,
+    )
+    clicked_earlier_line.next = newer_line
+    fields = {
+        "Sentence": f"{clicked_earlier_line.text}\n{newer_line.text}",
+        "Expression": "対象語",
+    }
+    card = SimpleNamespace(get_field=lambda field: fields[field])
+
+    assert (
+        text_log.get_matching_line(
+            card,
+            [clicked_earlier_line, newer_line],
+            prefer_recent=True,
+        )
+        is clicked_earlier_line
+    )

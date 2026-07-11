@@ -2,7 +2,7 @@ import asyncio
 import os
 import sys
 from functools import lru_cache
-from PyQt6.QtCore import QObject, pyqtSignal, QThread, Qt
+from PyQt6.QtCore import QObject, pyqtSignal, QThread, Qt, QTimer
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QInputDialog
 from queue import Queue
@@ -26,6 +26,7 @@ from GameSentenceMiner.util.config.configuration import (
 _qt_app = None
 _config_window = None
 _dialog_manager = None
+_default_config_changes_scheduled = False
 
 
 @lru_cache(maxsize=1)
@@ -161,6 +162,7 @@ class DialogManager(QObject):
         timestamp,
         previous_timestamp,
         pending_animated,
+        translation_future,
         reusing_audio,
         reusing_screenshot,
         callback,
@@ -176,6 +178,7 @@ class DialogManager(QObject):
             screenshot_timestamp=timestamp,
             previous_screenshot_timestamp=previous_timestamp,
             pending_animated=pending_animated,
+            translation_future=translation_future,
             reusing_audio=reusing_audio,
             reusing_screenshot=reusing_screenshot,
         )
@@ -192,6 +195,7 @@ class DialogManager(QObject):
         timestamp=0,
         previous_timestamp=0,
         pending_animated=False,
+        translation_future=None,
         reusing_audio=False,
         reusing_screenshot=False,
         parent=None,
@@ -208,6 +212,7 @@ class DialogManager(QObject):
                 timestamp,
                 previous_timestamp,
                 pending_animated,
+                translation_future,
                 reusing_audio,
                 reusing_screenshot,
                 cb,
@@ -225,6 +230,7 @@ class DialogManager(QObject):
         timestamp=0,
         previous_timestamp=0,
         pending_animated=False,
+        translation_future=None,
         reusing_audio=False,
         reusing_screenshot=False,
         parent=None,
@@ -241,6 +247,7 @@ class DialogManager(QObject):
                 timestamp,
                 previous_timestamp,
                 pending_animated,
+                translation_future,
                 reusing_audio,
                 reusing_screenshot,
                 cb,
@@ -422,6 +429,22 @@ def show_default_config_changes_if_needed(parent=None):
     return _get_show_default_config_change_dialogs()(parent=parent)
 
 
+def schedule_default_config_changes_if_needed(parent=None) -> None:
+    global _default_config_changes_scheduled
+    if _default_config_changes_scheduled:
+        return
+    _default_config_changes_scheduled = True
+    get_qt_app()
+
+    def show_changes() -> None:
+        try:
+            show_default_config_changes_if_needed(parent=parent)
+        except Exception as exc:
+            logger.exception(f"Error showing default config change dialogs: {exc}")
+
+    QTimer.singleShot(0, show_changes)
+
+
 # def get_config_window():
 #     """Get or create the global ConfigWindow instance."""
 #     global _config_window
@@ -489,6 +512,7 @@ def launch_anki_confirmation(
     screenshot_timestamp=0,
     previous_screenshot_timestamp=0,
     pending_animated=False,
+    translation_future=None,
     reusing_audio=False,
     reusing_screenshot=False,
 ):
@@ -506,6 +530,7 @@ def launch_anki_confirmation(
         screenshot_timestamp,
         previous_screenshot_timestamp,
         pending_animated,
+        translation_future,
         reusing_audio,
         reusing_screenshot,
     )

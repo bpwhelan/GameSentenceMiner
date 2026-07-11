@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
@@ -16,6 +17,13 @@ from GameSentenceMiner.util.config.configuration import (
     gsm_state,
     gsm_status,
     logger,
+)
+from GameSentenceMiner.util.anki_card_timing import (
+    AnkiCardTimingContext,
+    elapsed_ms,
+    log_anki_card_timing,
+    run_anki_card_timed,
+    time_anki_card_block,
 )
 from GameSentenceMiner.util.gsm_utils import (
     combine_dialogue,
@@ -82,9 +90,11 @@ class ReplayProcessingContext:
     ss_timing: float = 0.0
     prefetched_assets: object = None
     prefetched_translation: object = None
+    translation_future: object = None
     audio_result: ReplayAudioResult | None = None
     reuse_audio_result_id: str | None = None
     reuse_screenshot_result_id: str | None = None
+    timing_context: AnkiCardTimingContext | None = None
 
     @property
     def final_audio_output(self) -> str:
@@ -208,6 +218,7 @@ class ReplayAudioExtractor:
         return last_note.get_field(sentence_field_name) if last_note else ""
 
     def process_replay(self, video_path: str) -> None:
+        process_start = time.perf_counter()
         context = ReplayProcessingContext(video_path=video_path)
         gsm_state.current_replay = video_path
         gsm_state.current_replay_context = context
@@ -232,6 +243,20 @@ class ReplayAudioExtractor:
                     context.reuse_audio_result_id = queued_card[4]
                 if len(queued_card) > 5:
                     context.reuse_screenshot_result_id = queued_card[5]
+                if len(queued_card) > 6:
+                    context.timing_context = queued_card[6]
+                if len(queued_card) > 7:
+                    context.translation_future = queued_card[7]
+                log_anki_card_timing(
+                    context.timing_context,
+                    "replay.process_replay.dequeued",
+                    video_path=video_path,
+                    video_size_bytes=os.path.getsize(video_path) if os.path.exists(video_path) else 0,
+                    queue_wait_ms=context.timing_context.elapsed_since_queue_ms() if context.timing_context else None,
+                    remaining_queue_depth=len(anki.card_queue),
+                    reuse_audio_result_id=context.reuse_audio_result_id or "",
+                    reuse_screenshot_result_id=context.reuse_screenshot_result_id or "",
+                )
             else:
                 logger.info("Replay buffer initiated externally. Skipping processing.")
                 context.skip_delete = True
@@ -240,33 +265,36 @@ class ReplayAudioExtractor:
             # Just for safety
             if not context.last_note:
                 if get_config().anki.update_anki:
-                    context.last_note = anki.get_last_anki_card()
+                    with time_anki_card_block(context.timing_context, "replay.get_last_anki_card"):
+                        context.last_note = anki.get_last_anki_card()
 
-            context.note, context.last_note = anki.get_initial_card_info(
-                context.last_note,
-                context.selected_lines,
-                game_line=context.mined_line,
-                generate_furigana=not get_config().anki.show_update_confirmation_dialog_v2,
-            )
+            with time_anki_card_block(context.timing_context, "replay.get_initial_card_info"):
+                context.note, context.last_note = anki.get_initial_card_info(
+                    context.last_note,
+                    context.selected_lines,
+                    game_line=context.mined_line,
+                    generate_furigana=not get_config().anki.show_update_confirmation_dialog_v2,
+                )
             context.tango = context.last_note.get_field(get_config().anki.word_field) if context.last_note else ""
             context.word_being_processed = context.tango
 
             # Get Info of line mined
-            context.sentence_for_translation = self._resolve_sentence_for_translation(
-                context.note,
-                context.last_note,
-                context.selected_lines,
-            )
-            if context.selected_lines:
-                context.start_line = context.selected_lines[0]
-                context.line_cutoff = context.selected_lines[-1].get_next_time()
-                context.full_text = remove_html_and_cloze_tags(context.sentence_for_translation)
-            else:
-                if context.mined_line:
-                    context.start_line = context.mined_line
-                    if context.mined_line.next_line():
-                        context.line_cutoff = context.mined_line.next_line().time
-                    context.full_text = context.mined_line.text
+            with time_anki_card_block(context.timing_context, "replay.resolve_sentence_and_lines"):
+                context.sentence_for_translation = self._resolve_sentence_for_translation(
+                    context.note,
+                    context.last_note,
+                    context.selected_lines,
+                )
+                if context.selected_lines:
+                    context.start_line = context.selected_lines[0]
+                    context.line_cutoff = context.selected_lines[-1].get_next_time()
+                    context.full_text = remove_html_and_cloze_tags(context.sentence_for_translation)
+                else:
+                    if context.mined_line:
+                        context.start_line = context.mined_line
+                        if context.mined_line.next_line():
+                            context.line_cutoff = context.mined_line.next_line().time
+                        context.full_text = context.mined_line.text
 
             gsm_state.last_mined_line = context.mined_line
 
@@ -276,21 +304,25 @@ class ReplayAudioExtractor:
             if context.last_note:
                 logger.debug(context.last_note.pretty_print())
 
-            context.ss_timing = ffmpeg.get_screenshot_time(
-                video_path,
-                context.mined_line,
-                doing_multi_line=bool(context.selected_lines),
-                anki_card_creation_time=context.anki_card_creation_time,
-            )
+            with time_anki_card_block(context.timing_context, "replay.get_screenshot_time"):
+                context.ss_timing = ffmpeg.get_screenshot_time(
+                    video_path,
+                    context.mined_line,
+                    doing_multi_line=bool(context.selected_lines),
+                    anki_card_creation_time=context.anki_card_creation_time,
+                )
 
             with ThreadPoolExecutor(max_workers=3, thread_name_prefix="gsm-card-prep") as executor:
                 audio_future = None
                 media_future = None
-                translation_future = None
+                translation_future = context.translation_future
 
                 if get_config().anki.sentence_audio_field and get_config().audio.enabled:
                     logger.debug("Attempting to get audio from video")
                     audio_future = executor.submit(
+                        run_anki_card_timed,
+                        context.timing_context,
+                        "replay.future.audio_extract_and_vad",
                         self.get_audio,
                         context.start_line,
                         context.line_cutoff,
@@ -298,6 +330,7 @@ class ReplayAudioExtractor:
                         context.anki_card_creation_time,
                         mined_line=context.mined_line,
                         full_text=context.full_text,
+                        timing_context=context.timing_context,
                     )
                 else:
                     context.audio_result = ReplayAudioResult(
@@ -315,93 +348,107 @@ class ReplayAudioExtractor:
 
                 if get_config().anki.update_anki and context.last_note:
                     media_future = executor.submit(
+                        run_anki_card_timed,
+                        context.timing_context,
+                        "replay.future.prefetch_media_assets",
                         anki.prefetch_media_assets_for_card,
                         game_line=context.mined_line,
                         video_path=video_path,
                         ss_time=context.ss_timing,
                         selected_lines=context.selected_lines,
+                        timing_context=context.timing_context,
                     )
-                    if get_config().ai.add_to_anki:
+                    if get_config().ai.add_to_anki and translation_future is None:
                         translation_future = executor.submit(
+                            run_anki_card_timed,
+                            context.timing_context,
+                            "replay.future.prefetch_ai_translation",
                             anki.prefetch_ai_translation,
                             context.sentence_for_translation,
                             context.mined_line,
                         )
 
                 if audio_future:
-                    context.audio_result = audio_future.result()
-                    gsm_state.audio_edit_context = context.audio_edit_context
-                    resolved_audio_output = context.final_audio_output or (
-                        context.vad_result.output_audio if context.vad_result else ""
-                    )
-                    if context.vad_result and resolved_audio_output and not context.vad_result.output_audio:
-                        context.vad_result.output_audio = resolved_audio_output
-                    if resolved_audio_output and not os.path.isfile(resolved_audio_output):
-                        reason = f"Audio path returned for the Anki card, but the file does not exist: {resolved_audio_output}"
-                        logger.warning(reason)
-                        _notify_anki_enhancement_failure(reason)
-                        resolved_audio_output = ""
-                    if (
-                        context.vad_result
-                        and context.vad_result.output_audio
-                        and not os.path.isfile(context.vad_result.output_audio)
-                    ):
-                        reason = f"VAD output audio path does not exist: {context.vad_result.output_audio}"
-                        logger.warning(reason)
-                        _notify_anki_enhancement_failure(reason)
-                        context.vad_result.output_audio = ""
-                    if resolved_audio_output != context.final_audio_output:
-                        context.audio_result.final_audio_output = resolved_audio_output
+                    with time_anki_card_block(context.timing_context, "replay.wait_audio_future"):
+                        context.audio_result = audio_future.result()
+                    with time_anki_card_block(context.timing_context, "replay.validate_audio_result"):
+                        gsm_state.audio_edit_context = context.audio_edit_context
+                        resolved_audio_output = context.final_audio_output or (
+                            context.vad_result.output_audio if context.vad_result else ""
+                        )
+                        if context.vad_result and resolved_audio_output and not context.vad_result.output_audio:
+                            context.vad_result.output_audio = resolved_audio_output
+                        if resolved_audio_output and not os.path.isfile(resolved_audio_output):
+                            reason = (
+                                "Audio path returned for the Anki card, but the file does not exist: "
+                                f"{resolved_audio_output}"
+                            )
+                            logger.warning(reason)
+                            _notify_anki_enhancement_failure(reason)
+                            resolved_audio_output = ""
+                        if (
+                            context.vad_result
+                            and context.vad_result.output_audio
+                            and not os.path.isfile(context.vad_result.output_audio)
+                        ):
+                            reason = f"VAD output audio path does not exist: {context.vad_result.output_audio}"
+                            logger.warning(reason)
+                            _notify_anki_enhancement_failure(reason)
+                            context.vad_result.output_audio = ""
+                        if resolved_audio_output != context.final_audio_output:
+                            context.audio_result.final_audio_output = resolved_audio_output
                 else:
                     gsm_state.audio_edit_context = None
 
                 if media_future:
                     try:
-                        context.prefetched_assets = media_future.result()
+                        with time_anki_card_block(context.timing_context, "replay.wait_media_prefetch_future"):
+                            context.prefetched_assets = media_future.result()
                     except Exception as e:
                         logger.exception(f"Failed prefetching media assets, falling back to normal generation: {e}")
                         context.prefetched_assets = None
                     if context.prefetched_assets and get_config().anki.show_update_confirmation_dialog_v2:
                         try:
-                            anki.prefetch_animated_screenshot_for_confirmation(
-                                context.prefetched_assets,
-                                video_path,
-                                context.start_time,
-                                context.vad_result,
-                            )
+                            with time_anki_card_block(
+                                context.timing_context,
+                                "replay.prefetch_animated_screenshot_for_confirmation",
+                            ):
+                                anki.prefetch_animated_screenshot_for_confirmation(
+                                    context.prefetched_assets,
+                                    video_path,
+                                    context.start_time,
+                                    context.vad_result,
+                                    timing_context=context.timing_context,
+                                )
                         except Exception as e:
                             logger.exception(f"Failed to start animated screenshot prefetch early: {e}")
 
-                if translation_future:
-                    try:
-                        context.prefetched_translation = translation_future.result()
-                    except Exception as e:
-                        logger.exception(f"Failed prefetching AI translation, falling back to sync translation: {e}")
-                        context.prefetched_translation = None
-
             if get_config().anki.update_anki and context.last_note:
-                context.background_update_started = bool(
-                    anki.update_anki_card(
-                        context.last_note,
-                        context.note,
-                        audio_path=context.final_audio_output,
-                        video_path=video_path,
-                        tango=context.tango,
-                        should_update_audio=bool(
-                            context.final_audio_output and os.path.isfile(context.final_audio_output)
-                        ),
-                        ss_time=context.ss_timing,
-                        game_line=context.mined_line,
-                        selected_lines=context.selected_lines,
-                        start_time=context.start_time,
-                        end_time=context.end_time,
-                        vad_result=context.vad_result,
-                        reuse_audio_result_id=context.reuse_audio_result_id,
-                        reuse_screenshot_result_id=context.reuse_screenshot_result_id,
-                        precomputed_assets=context.prefetched_assets,
-                        precomputed_translation=context.prefetched_translation,
+                with time_anki_card_block(context.timing_context, "replay.schedule_update_anki_card"):
+                    context.background_update_started = bool(
+                        anki.update_anki_card(
+                            context.last_note,
+                            context.note,
+                            audio_path=context.final_audio_output,
+                            video_path=video_path,
+                            tango=context.tango,
+                            should_update_audio=bool(
+                                context.final_audio_output and os.path.isfile(context.final_audio_output)
+                            ),
+                            ss_time=context.ss_timing,
+                            game_line=context.mined_line,
+                            selected_lines=context.selected_lines,
+                            start_time=context.start_time,
+                            end_time=context.end_time,
+                            vad_result=context.vad_result,
+                            reuse_audio_result_id=context.reuse_audio_result_id,
+                            reuse_screenshot_result_id=context.reuse_screenshot_result_id,
+                            precomputed_assets=context.prefetched_assets,
+                            precomputed_translation=context.prefetched_translation,
+                            translation_future=translation_future,
+                            timing_context=context.timing_context,
+                        )
                     )
-                )
             elif get_config().features.notify_on_update and context.vad_result and context.vad_result.success:
                 from GameSentenceMiner.util.platform import notification
 
@@ -419,6 +466,13 @@ class ReplayAudioExtractor:
         finally:
             if context.word_being_processed and not context.background_update_started:
                 gsm_status.remove_word_being_processed(context.word_being_processed)
+            log_anki_card_timing(
+                context.timing_context,
+                "replay.process_replay.finished",
+                elapsed_ms=elapsed_ms(process_start),
+                background_update_started=bool(context.background_update_started),
+                skip_delete=bool(context.skip_delete),
+            )
         if get_config().paths.remove_video and video_path and not context.skip_delete:
             # Don't remove video here if we have pending animated/video operations
             # The cleanup callback in anki.py will handle it after background processing
@@ -443,12 +497,15 @@ class ReplayAudioExtractor:
         timing_only: bool = False,
         mined_line=None,
         full_text: str = "",
+        timing_context: AnkiCardTimingContext | None = None,
     ) -> ReplayAudioResult | VADResult | str:
-        source_audio_path, trimmed_audio, start_time, end_time = get_audio_and_trim(
-            video_path, game_line, next_line_time, anki_card_creation_time
-        )
+        with time_anki_card_block(timing_context, "replay.audio.get_audio_and_trim", log_start=True):
+            source_audio_path, trimmed_audio, start_time, end_time = get_audio_and_trim(
+                video_path, game_line, next_line_time, anki_card_creation_time
+            )
         if temporary:
-            temporary_audio = ffmpeg.convert_audio_to_wav_lossless(trimmed_audio)
+            with time_anki_card_block(timing_context, "replay.audio.convert_temporary_wav"):
+                temporary_audio = ffmpeg.convert_audio_to_wav_lossless(trimmed_audio)
             if (
                 not use_vad_postprocessing
                 or not get_config().vad.do_vad_postprocessing
@@ -463,12 +520,13 @@ class ReplayAudioExtractor:
                         f"{obs.get_current_game(sanitize=True)}_texthooker.{get_config().audio.extension}",
                     )
                 )
-                vad_result = vad_processor.trim_audio_with_vad(
-                    temporary_audio,
-                    vad_output_path,
-                    game_line,
-                    full_text,
-                )
+                with time_anki_card_block(timing_context, "replay.audio.temporary_vad"):
+                    vad_result = vad_processor.trim_audio_with_vad(
+                        temporary_audio,
+                        vad_output_path,
+                        game_line,
+                        full_text,
+                    )
                 candidate_output = vad_result.output_audio if vad_result else ""
                 if candidate_output and os.path.isfile(candidate_output):
                     return candidate_output
@@ -479,6 +537,12 @@ class ReplayAudioExtractor:
         if not get_config().vad.do_vad_postprocessing or not vad_processor.initialized:
             if not vad_processor.initialized:
                 logger.warning("VAD Processor not initialized, skipping VAD processing.")
+            log_anki_card_timing(
+                timing_context,
+                "replay.audio.vad_skipped",
+                vad_enabled=bool(get_config().vad.do_vad_postprocessing),
+                vad_initialized=bool(vad_processor.initialized),
+            )
             final_audio_output = trimmed_audio if os.path.exists(trimmed_audio) else ""
             if not final_audio_output:
                 _notify_anki_enhancement_failure(
@@ -509,7 +573,8 @@ class ReplayAudioExtractor:
         )
         final_audio_output = ""
 
-        vad_result = vad_processor.trim_audio_with_vad(trimmed_audio, vad_trimmed_audio, game_line, full_text)
+        with time_anki_card_block(timing_context, "replay.audio.vad_postprocess", log_start=True):
+            vad_result = vad_processor.trim_audio_with_vad(trimmed_audio, vad_trimmed_audio, game_line, full_text)
         if vad_result and vad_result.success and not getattr(vad_result, "trimmed_audio_path", None):
             vad_result.trimmed_audio_path = trimmed_audio
         if timing_only:
@@ -536,7 +601,8 @@ class ReplayAudioExtractor:
                     logger.info("No voice activity detected, using TTS as fallback.")
                     text_to_tts = full_text if full_text else game_line.text
                     url = get_config().vad.tts_url.replace("$s", text_to_tts)
-                    tts_resp = requests.get(url)
+                    with time_anki_card_block(timing_context, "replay.audio.tts_fallback_request"):
+                        tts_resp = requests.get(url)
                     if not tts_resp.ok:
                         logger.error(
                             f"Error fetching TTS audio from {url}. Is it running?: {tts_resp.status_code} {tts_resp.text}"

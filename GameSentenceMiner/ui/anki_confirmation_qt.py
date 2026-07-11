@@ -222,6 +222,11 @@ class AnkiConfirmationDialog(QDialog):
         # Audio player
         self.audio_player = AudioPlayer(finished_callback=self._audio_finished)
         self.audio_finished_signal.connect(self._update_audio_buttons)
+        self._translation_future = None
+        self._translation_pending = False
+        self._translation_poll_timer = QTimer(self)
+        self._translation_poll_timer.setInterval(100)
+        self._translation_poll_timer.timeout.connect(self._poll_translation_future)
 
         self.playback_timer = QTimer(self)
         self.playback_timer.timeout.connect(self._update_playback_cursor)
@@ -352,6 +357,7 @@ class AnkiConfirmationDialog(QDialog):
         self.translation_text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.translation_text.setTabChangesFocus(True)
         self.translation_text.textChanged.connect(self._cancel_auto_accept)
+        self.translation_text.textChanged.connect(self._translation_text_edited)
         self.grid_layout.addWidget(self.translation_text, row, 1)
         row += 1
 
@@ -550,6 +556,7 @@ class AnkiConfirmationDialog(QDialog):
         screenshot_timestamp,
         previous_screenshot_timestamp,
         pending_animated=False,
+        translation_future=None,
         reusing_audio=False,
         reusing_screenshot=False,
     ):
@@ -616,13 +623,19 @@ class AnkiConfirmationDialog(QDialog):
         self._load_audio_edit_context(gsm_state.audio_edit_context)
 
         # Translation
-        has_translation = bool(translation)
+        self._translation_future = translation_future
+        self._translation_pending = bool(translation_future is not None and not translation)
+        self._translation_poll_timer.stop()
+        has_translation = bool(translation) or self._translation_pending
         self.translation_label_title.setVisible(has_translation)
         self.translation_text.setVisible(has_translation)
+        self.translation_text.setPlaceholderText("Translating…" if self._translation_pending else "")
+        self.translation_text.blockSignals(True)
+        self.translation_text.setPlainText(translation or "")
+        self.translation_text.blockSignals(False)
         if has_translation:
-            self.translation_text.blockSignals(True)
-            self.translation_text.setPlainText(translation)
-            self.translation_text.blockSignals(False)
+            if self._translation_pending:
+                self._translation_poll_timer.start()
 
         if self.reusing_screenshot:
             self.image_label.setPixmap(QPixmap())
@@ -657,6 +670,35 @@ class AnkiConfirmationDialog(QDialog):
         self._update_dialogue_line_controls(has_translation=has_translation)
 
         self._configure_tab_order()
+
+    def _poll_translation_future(self):
+        future = self._translation_future
+        if not self._translation_pending or future is None:
+            self._translation_poll_timer.stop()
+            return
+        if not future.done():
+            return
+
+        self._translation_poll_timer.stop()
+        try:
+            translation = future.result()
+        except Exception as e:
+            logger.exception(f"Failed loading prefetched translation in confirmation dialog: {e}")
+            translation = ""
+
+        self._translation_pending = False
+        self.translation_text.setPlaceholderText("")
+        if translation and not self.translation_text.toPlainText().strip():
+            self.translation_text.blockSignals(True)
+            self.translation_text.setPlainText(translation)
+            self.translation_text.blockSignals(False)
+
+    def _translation_text_edited(self):
+        # A user's edit wins over a late external-service response.
+        if self._translation_pending:
+            self._translation_pending = False
+            self._translation_poll_timer.stop()
+            self.translation_text.setPlaceholderText("")
 
     def _load_image_to_label(self, path, label_widget):
         label_widget.setStyleSheet("")
@@ -1740,6 +1782,7 @@ class AnkiConfirmationDialog(QDialog):
             "line_selection_changed": self._dialog_line_selection_changed,
             "audio_result": self._dialog_audio_result if self._dialog_line_selection_changed else None,
             "translation_regenerated": self._dialog_translation_regenerated,
+            "translation_pending": getattr(self, "_translation_pending", False),
             "audio_edit_range": audio_edit_range,
         }
 
@@ -1895,6 +1938,7 @@ def show_anki_confirmation(
     screenshot_timestamp,
     previous_screenshot_timestamp,
     pending_animated=False,
+    translation_future=None,
     reusing_audio=False,
     reusing_screenshot=False,
 ):
@@ -1941,6 +1985,7 @@ def show_anki_confirmation(
         screenshot_timestamp,
         previous_screenshot_timestamp,
         pending_animated,
+        translation_future,
         reusing_audio,
         reusing_screenshot,
     )
