@@ -18,7 +18,7 @@ MIN_SAMPLES_FOR_IQR = 10  # Minimum lines needed before applying IQR filtering
 # tracker (live_stats.py) and the historical calc (web/stats.py) so both agree.
 ADAPTIVE_FLOOR_SECONDS = 2.0  # Minimum time credited for any line in v2
 ADAPTIVE_TOLERANCE = 2.5  # Slack factor over the expected per-line time
-ADAPTIVE_MEDIAN_CPS_SCALE = 0.8  # Use a conservative 80% of session median speed
+ADAPTIVE_MEDIAN_CPS_SCALE = 0.5  # Use a conservative 50% of session median speed
 MIN_LINES_FOR_CPH = 5  # Lines required before live cph is shown (anti-spike guard)
 
 
