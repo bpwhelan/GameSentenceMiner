@@ -63,7 +63,9 @@ export type TextHookStartSource = 'user' | 'auto-launcher';
 type DetectedTextHookArchitecture = TextHookArchitecture | 'unknown';
 
 export interface TextHookProfile {
-    /** Lower-case executable name (e.g. "game.exe") used as the lookup key. */
+    /** OBS scene id used as the canonical lookup key. */
+    sceneId?: string;
+    /** Lower-case executable name, retained for display and legacy fallback. */
     exeName: string;
     engine: TextHookEngine;
     /** Auto-attach to the saved hook the moment it appears. */
@@ -652,6 +654,7 @@ function normalizeProfile(value: unknown): TextHookProfile | null {
     const engine: TextHookEngine =
         v.engine === 'textractor' || v.engine === 'agent' ? v.engine : 'luna';
     return {
+        sceneId: typeof v.sceneId === 'string' && v.sceneId.trim() ? v.sceneId.trim() : undefined,
         exeName: v.exeName.trim().toLowerCase(),
         engine,
         autoHook: v.autoHook !== false,
@@ -688,10 +691,13 @@ function saveAllProfiles(profiles: Record<string, TextHookProfile>): void {
     }
 }
 
-export function getProfileFor(exeName: string): TextHookProfile | null {
-    if (!exeName) return null;
+export function getProfileFor(exeName: string, sceneId?: string | null): TextHookProfile | null {
     const profiles = loadAllProfiles();
-    return profiles[exeName.toLowerCase()] ?? null;
+    const normalizedSceneId = sceneId?.trim().toLowerCase();
+    if (normalizedSceneId && profiles[`scene:${normalizedSceneId}`]) {
+        return profiles[`scene:${normalizedSceneId}`];
+    }
+    return exeName ? profiles[exeName.toLowerCase()] ?? null : null;
 }
 
 export function upsertProfile(profile: TextHookProfile): TextHookProfile {
@@ -702,14 +708,18 @@ export function upsertProfile(profile: TextHookProfile): TextHookProfile {
         flushDelayMs: normalizeFlushDelayMs(profile.flushDelayMs),
         lastUsed: Date.now(),
     };
-    all[normalized.exeName] = normalized;
+    const key = normalized.sceneId?.trim()
+        ? `scene:${normalized.sceneId.trim().toLowerCase()}`
+        : normalized.exeName;
+    all[key] = normalized;
     saveAllProfiles(all);
     return normalized;
 }
 
-export function deleteProfile(exeName: string): void {
+export function deleteProfile(exeName: string, sceneId?: string | null): void {
     const all = loadAllProfiles();
-    if (delete all[exeName.toLowerCase()]) {
+    const key = sceneId?.trim() ? `scene:${sceneId.trim().toLowerCase()}` : exeName.toLowerCase();
+    if (delete all[key]) {
         saveAllProfiles(all);
     }
 }
@@ -1131,6 +1141,7 @@ function queueEngineCommand(
 export interface StartHookOptions {
     engine?: TextHookEngine;
     exeName?: string | null;
+    sceneId?: string | null;
     flushDelayMs?: number;
     agentScriptPath?: string | null;
     copyToClipboard?: boolean;
@@ -1230,7 +1241,11 @@ export async function startHookSession(options: StartHookOptions = {}): Promise<
         };
     }
 
-    const profile = getProfileFor(exeName);
+    let sceneId = options.sceneId?.trim() ?? '';
+    if (!sceneId) {
+        sceneId = (await getCurrentScene())?.id ?? '';
+    }
+    const profile = getProfileFor(exeName, sceneId);
     const flushDelayMs = normalizeFlushDelayMs(options.flushDelayMs ?? profile?.flushDelayMs);
     if (engine === 'agent') {
         const scriptPath =
@@ -1697,6 +1712,7 @@ export function registerTextHookIPC(): void {
             payload:
                 | {
                       exeName?: string;
+                      sceneId?: string;
                       engine?: TextHookEngine;
                       autoHook?: boolean;
                       flushDelayMs?: number;
@@ -1715,6 +1731,7 @@ export function registerTextHookIPC(): void {
                 payload.engine === 'textractor' || payload.engine === 'agent' ? payload.engine : 'luna';
             const profile = upsertProfile({
                 exeName: payload.exeName,
+                sceneId: payload.sceneId?.trim() || undefined,
                 engine,
                 autoHook: payload.autoHook !== false,
                 flushDelayMs: normalizeFlushDelayMs(payload.flushDelayMs),
@@ -1729,12 +1746,15 @@ export function registerTextHookIPC(): void {
         },
     );
 
-    ipcMain.handle('texthook.getProfile', async (_event, exeName: string) =>
-        getProfileFor(String(exeName ?? '')),
+    ipcMain.handle('texthook.getProfile', async (_event, payload: string | { exeName?: string; sceneId?: string }) =>
+        typeof payload === 'string'
+            ? getProfileFor(payload)
+            : getProfileFor(String(payload?.exeName ?? ''), String(payload?.sceneId ?? '')),
     );
 
-    ipcMain.handle('texthook.deleteProfile', async (_event, exeName: string) => {
-        deleteProfile(String(exeName ?? ''));
+    ipcMain.handle('texthook.deleteProfile', async (_event, payload: string | { exeName?: string; sceneId?: string }) => {
+        if (typeof payload === 'string') deleteProfile(payload);
+        else deleteProfile(String(payload?.exeName ?? ''), String(payload?.sceneId ?? ''));
         return { success: true };
     });
 

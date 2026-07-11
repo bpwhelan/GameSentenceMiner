@@ -843,13 +843,14 @@ export class AutoLauncher {
     }
 
     private resolveIntegratedTextHookEngine(
-        exeName: string | null | undefined
+        exeName: string | null | undefined,
+        sceneId?: string
     ): IntegratedTextHookEngine | null {
         if (!exeName) {
             return null;
         }
 
-        const profile = getProfileFor(exeName);
+        const profile = getProfileFor(exeName, sceneId);
         if (!profile || !profile.autoHook) {
             return null;
         }
@@ -868,7 +869,8 @@ export class AutoLauncher {
     private async handleIntegratedTextHookAutomation(
         exeName: string | null | undefined,
         engine: IntegratedTextHookEngine,
-        launchDelaySeconds: number = 0
+        launchDelaySeconds: number = 0,
+        sceneId?: string
     ): Promise<void> {
         if (!exeName) {
             return;
@@ -923,6 +925,7 @@ export class AutoLauncher {
             exeName,
             pidOverride: gamePid,
             source: "auto-launcher",
+            sceneId,
         });
         const failureKey = `${engine}:${exeName}:${gamePid}:${result.error ?? "unknown"}`;
 
@@ -1315,7 +1318,7 @@ export class AutoLauncher {
         currentScene: ObsScene,
         exeName: string | null | undefined
     ): Promise<void> {
-        const savedProfileEngine = this.resolveIntegratedTextHookEngine(exeName);
+        const savedProfileEngine = this.resolveIntegratedTextHookEngine(exeName, currentScene.id);
         if (!savedProfileEngine) {
             return;
         }
@@ -1325,7 +1328,7 @@ export class AutoLauncher {
             return;
         }
 
-        await this.handleIntegratedTextHookAutomation(exeName, savedProfileEngine);
+        await this.handleIntegratedTextHookAutomation(exeName, savedProfileEngine, 0, currentScene.id);
     }
 
     private async runLauncherTextHookAutomation(

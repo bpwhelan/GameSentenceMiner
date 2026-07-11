@@ -54,6 +54,7 @@ interface ActiveCapture {
 }
 
 interface SavedProfile {
+  sceneId?: string;
   exeName: string;
   engine: TextHookEngine;
   autoHook: boolean;
@@ -139,7 +140,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
   const logScrollRef = useRef<HTMLDivElement | null>(null);
   const statusRunningRef = useRef(false);
   const flushDelayInputFocusedRef = useRef(false);
-  const lastAppliedProfileExeRef = useRef<string | null>(null);
+  const lastAppliedProfileKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     statusRunningRef.current = status.running;
@@ -188,11 +189,11 @@ export function TextHookTab({ active }: TextHookTabProps) {
     if (info?.exeName) {
       const profile = await invokeIpc<SavedProfile | null>(
         "texthook.getProfile",
-        info.exeName
+        { exeName: info.exeName, sceneId: info.sceneId }
       );
       setSavedProfile(profile ?? null);
-      if (profile && !statusRunningRef.current && info.exeName !== lastAppliedProfileExeRef.current) {
-        lastAppliedProfileExeRef.current = info.exeName;
+      if (profile && !statusRunningRef.current && info.sceneId !== lastAppliedProfileKeyRef.current) {
+        lastAppliedProfileKeyRef.current = info.sceneId;
         setEngine(profile.engine);
         setAutoHook(profile.autoHook);
         syncFlushDelayState(profile.flushDelayMs);
@@ -206,7 +207,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
       }
     } else {
       setSavedProfile(null);
-      lastAppliedProfileExeRef.current = null;
+      lastAppliedProfileKeyRef.current = null;
       if (!statusRunningRef.current) {
         syncFlushDelayState(DEFAULT_FLUSH_DELAY_MS);
       }
@@ -327,6 +328,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
         {
           engine,
           exeName: capture?.exeName ?? undefined,
+          sceneId: capture?.sceneId ?? undefined,
           flushDelayMs,
           copyToClipboard,
           agentScriptPath: engine === "agent" ? agentScriptPath.trim() : undefined,
@@ -431,6 +433,7 @@ export function TextHookTab({ active }: TextHookTabProps) {
       "texthook.saveProfile",
       {
         exeName,
+        sceneId: capture?.sceneId,
         engine,
         autoHook,
         flushDelayMs,
@@ -464,10 +467,13 @@ export function TextHookTab({ active }: TextHookTabProps) {
 
   const deleteProfile = useCallback(async () => {
     if (!savedProfile) return;
-    await invokeIpc("texthook.deleteProfile", savedProfile.exeName);
+    await invokeIpc("texthook.deleteProfile", {
+      exeName: savedProfile.exeName,
+      sceneId: savedProfile.sceneId ?? capture?.sceneId,
+    });
     setSavedProfile(null);
     showNotice(t("texthook.notices.profileDeleted"), "info");
-  }, [savedProfile, showNotice, t]);
+  }, [capture?.sceneId, savedProfile, showNotice, t]);
 
   const browseAgentScript = useCallback(async () => {
     const response = await invokeIpc<{ status?: string; path?: string }>(
