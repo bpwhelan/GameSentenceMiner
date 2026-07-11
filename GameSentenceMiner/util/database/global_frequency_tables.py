@@ -306,7 +306,8 @@ def setup_global_frequency_sources(db: SQLiteDB) -> None:
 
         refreshed = False
 
-        with db.transaction():
+        def _sync_source(conn, needs_refresh=needs_refresh, source=source, source_id=source_id):
+            did_refresh = False
             if needs_refresh:
                 rows_to_insert = [(source_id, word, rank) for word, rank in source["entries"]]
                 db.execute(
@@ -322,7 +323,7 @@ def setup_global_frequency_sources(db: SQLiteDB) -> None:
                     rows_to_insert,
                     commit=True,
                 )
-                refreshed = True
+                did_refresh = True
 
             db.execute(
                 """
@@ -342,6 +343,9 @@ def setup_global_frequency_sources(db: SQLiteDB) -> None:
                 ),
                 commit=True,
             )
+            return did_refresh
+
+        refreshed = db.run_transaction(_sync_source)
 
         if refreshed:
             try:

@@ -184,7 +184,8 @@ class KanjiTable(SQLiteDBTable):
             return {}
 
         unique_chars = list(dict.fromkeys(characters))
-        with cls._db.transaction():
+
+        def _insert(conn):
             for start in range(0, len(unique_chars), 500):
                 chunk = unique_chars[start : start + 500]
                 cls._db.executemany(
@@ -192,6 +193,8 @@ class KanjiTable(SQLiteDBTable):
                     [(char,) for char in chunk],
                     commit=False,
                 )
+
+        cls._db.run_transaction(_insert)
 
         ids: dict[str, int] = {}
         for start in range(0, len(unique_chars), 500):
@@ -349,7 +352,7 @@ def rebuild_word_stats_cache(db: SQLiteDB) -> None:
     """Rebuild the per-word cache from the raw occurrence tables."""
     create_word_stats_cache_table(db)
 
-    with db.transaction():
+    def _rebuild(conn):
         db.execute(f"DELETE FROM {WORD_STATS_CACHE_TABLE}", commit=True)
         db.execute(
             f"""
@@ -364,6 +367,8 @@ def rebuild_word_stats_cache(db: SQLiteDB) -> None:
             """,
             commit=True,
         )
+
+    db.run_transaction(_rebuild)
 
 
 def _deduplicate_table_rows(db: SQLiteDB, table: str, columns: tuple[str, ...]) -> None:
@@ -469,7 +474,8 @@ def _migrate_kanji_unique_index(db: SQLiteDB):
     if dupes:
         has_kanji_occurrences = db.table_exists("kanji_occurrences")
         has_card_kanji_links = db.table_exists("card_kanji_links")
-        with db.transaction():
+
+        def _dedup(conn):
             for character, keep_id in dupes:
                 dup_rows = db.fetchall(
                     "SELECT id FROM kanji WHERE character = ? AND id != ?",
@@ -492,6 +498,8 @@ def _migrate_kanji_unique_index(db: SQLiteDB):
 
             _deduplicate_table_rows(db, "kanji_occurrences", ("kanji_id", "line_id"))
             _deduplicate_table_rows(db, "card_kanji_links", ("card_id", "kanji_id"))
+
+        db.run_transaction(_dedup)
 
     # Drop the old non-unique index so it can be recreated as UNIQUE.
     db.execute("DROP INDEX IF EXISTS idx_kanji_character", commit=True)
@@ -616,7 +624,9 @@ def recompute_word_first_seen_metadata(
         )
 
     updated = 0
-    with db.transaction():
+
+    def _update(conn):
+        nonlocal updated
         for word_id in target_word_ids:
             first_occurrence = earliest_by_word.get(word_id)
             if first_occurrence is None:
@@ -639,6 +649,8 @@ def recompute_word_first_seen_metadata(
                 commit=True,
             )
             updated += 1
+
+    db.run_transaction(_update)
 
     return updated
 

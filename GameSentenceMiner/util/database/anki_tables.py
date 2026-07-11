@@ -236,7 +236,9 @@ class WordAnkiLinksTable(SQLiteDBTable):
             return 0
 
         inserted = 0
-        with cls._db.transaction():
+
+        def _link(conn):
+            nonlocal inserted
             for start in range(0, len(pairs), 500):
                 chunk = pairs[start : start + 500]
                 cur = cls._db.executemany(
@@ -246,6 +248,8 @@ class WordAnkiLinksTable(SQLiteDBTable):
                 )
                 if cur.rowcount is not None and cur.rowcount > 0:
                     inserted += cur.rowcount
+
+        cls._db.run_transaction(_link)
         return inserted
 
 
@@ -284,7 +288,9 @@ class CardKanjiLinksTable(SQLiteDBTable):
             return 0
 
         inserted = 0
-        with cls._db.transaction():
+
+        def _link(conn):
+            nonlocal inserted
             for start in range(0, len(pairs), 500):
                 chunk = pairs[start : start + 500]
                 cur = cls._db.executemany(
@@ -294,6 +300,8 @@ class CardKanjiLinksTable(SQLiteDBTable):
                 )
                 if cur.rowcount is not None and cur.rowcount > 0:
                     inserted += cur.rowcount
+
+        cls._db.run_transaction(_link)
         return inserted
 
 

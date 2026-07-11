@@ -144,7 +144,8 @@ class GameDailyRollupTable(SQLiteDBTable):
     ) -> None:
         db = cls._ensure_bound_db()
         rows = list(rollups)
-        with db.transaction():
+
+        def _replace(conn):
             db.execute(f"DELETE FROM {cls._table} WHERE date = ?", (date,), commit=True)
             if rows:
                 db.executemany(
@@ -176,3 +177,5 @@ class GameDailyRollupTable(SQLiteDBTable):
                     ],
                     commit=True,
                 )
+
+        db.run_transaction(_replace)

@@ -19,6 +19,7 @@ from GameSentenceMiner.util.config.feature_flags import (
     is_tokenization_enabled,
     is_tokenization_low_performance,
 )
+from GameSentenceMiner.util.database.db import DB_PRIORITY_LOW
 from GameSentenceMiner.util.text_utils import is_kanji
 
 
@@ -169,7 +170,8 @@ def tokenize_line(line_id: str, line_text: str, line_timestamp: float | None = N
         return False
 
     try:
-        with WordsTable._db.transaction():
+
+        def _tokenize(conn):
             for token in tokens:
                 # Skip punctuation and non-word tokens
                 if token.part_of_speech in (PartOfSpeech.symbol, PartOfSpeech.other):
@@ -204,6 +206,8 @@ def tokenize_line(line_id: str, line_text: str, line_timestamp: float | None = N
 
             # Mark line as tokenized (last — ensures crash recovery works)
             GameLinesTable.mark_tokenized(line_id)
+
+        WordsTable._db.run_transaction(_tokenize, priority=DB_PRIORITY_LOW)
 
         return True
 

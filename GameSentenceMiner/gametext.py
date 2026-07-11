@@ -18,7 +18,7 @@ from GameSentenceMiner.util.config.configuration import (
     gsm_state,
     is_dev,
 )
-from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.util.database.db import DB_PRIORITY_HIGH, GameLinesTable, gsm_db
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.text_processing import apply_text_processing
 from GameSentenceMiner.util.gsm_utils import SleepManager
@@ -853,16 +853,28 @@ async def add_line_to_text_log(
             )
     obs.add_longplay_srt_line(current_line_time, new_line)
 
-    # Link the new_line to the games table, but skip if 'nostatspls' in scene
+    # Persist the line off the event loop. This is submitted to the single DB
+    # writer as a HIGH-priority, fire-and-forget job so text intake is never
+    # blocked by long-running background writes (e.g. the daily Anki cache sync).
+    # Skip if 'nostatspls' in scene.
     if not exclude_from_stats and "nostatspls" not in new_line.scene.lower():
-        if new_line.scene:
-            # Get or create the game record
-            game = GamesTable.get_or_create_by_name(new_line.scene)
-            # Add the line with the game_id
-            GameLinesTable.add_line(new_line, game_id=game.id)
-        else:
-            # Fallback if no scene is set
-            GameLinesTable.add_line(new_line)
+        _persist_game_line_async(new_line)
+
+
+def _persist_game_line_async(new_line: GameLine) -> None:
+    """Persist a game line via the single DB writer without blocking the caller."""
+
+    def _op(_conn):
+        try:
+            if new_line.scene:
+                game = GamesTable.get_or_create_by_name(new_line.scene)
+                GameLinesTable.add_line(new_line, game_id=game.id)
+            else:
+                GameLinesTable.add_line(new_line)
+        except Exception as exc:
+            logger.exception(f"Failed to persist game line {new_line.id}: {exc}")
+
+    gsm_db.run_transaction(_op, priority=DB_PRIORITY_HIGH, wait=False)
 
 
 def _build_transient_output_line(text: str, line_time: datetime, source: str | None = None) -> GameLine:

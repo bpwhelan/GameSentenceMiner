@@ -527,7 +527,11 @@ class TestRunFullSync:
         assert invalidations == []
         assert AnkiNotesTable.all() == []
 
-    def test_rolls_back_partial_writes_when_card_sync_fails(self, db, monkeypatch):
+    def test_partial_writes_persist_when_card_sync_fails(self, db, monkeypatch):
+        # The full sync no longer wraps every step in one giant transaction (that
+        # held the global write lock for minutes and froze text intake). Each step
+        # now commits independently, so a mid-sync failure leaves earlier steps
+        # committed; the idempotent cache self-heals on the next run.
         import GameSentenceMiner.web.anki_api_endpoints as anki_api_mod
 
         invalidations: list[str] = []
@@ -574,4 +578,6 @@ class TestRunFullSync:
 
         assert result == {"skipped": True, "reason": "cardsInfo failed"}
         assert invalidations == []
-        assert AnkiNotesTable.get(100) is None
+        # Notes written before the card-sync failure remain committed (no whole-sync
+        # rollback); the next full sync reconciles the cache.
+        assert AnkiNotesTable.get(100) is not None

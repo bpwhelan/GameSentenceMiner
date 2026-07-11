@@ -17,6 +17,7 @@ import time
 from GameSentenceMiner.util.logging_config import logger
 from GameSentenceMiner.util.config.configuration import get_config
 from GameSentenceMiner.anki import invoke as anki_invoke
+from GameSentenceMiner.util.database.db import DB_PRIORITY_LOW
 from GameSentenceMiner.util.text_utils import is_kanji
 
 # Batch sizes per the design doc
@@ -91,7 +92,8 @@ def _fetch_and_upsert_notes(note_ids: list[int], *, strict: bool = False) -> int
                 )
 
         if rows:
-            with AnkiNotesTable._db.transaction():
+
+            def _upsert_notes(conn, rows=rows):
                 AnkiNotesTable._db.executemany(
                     "INSERT OR REPLACE INTO anki_notes "
                     "(note_id, model_name, fields_json, tags, mod, synced_at) "
@@ -99,6 +101,8 @@ def _fetch_and_upsert_notes(note_ids: list[int], *, strict: bool = False) -> int
                     rows,
                     commit=False,
                 )
+
+            AnkiNotesTable._db.run_transaction(_upsert_notes, priority=DB_PRIORITY_LOW)
 
     return upserted
 
@@ -169,7 +173,8 @@ def _fetch_and_upsert_cards(card_ids: list[int], *, strict: bool = False) -> int
                 )
 
         if rows:
-            with AnkiCardsTable._db.transaction():
+
+            def _upsert_cards(conn, rows=rows):
                 AnkiCardsTable._db.executemany(
                     "INSERT OR REPLACE INTO anki_cards "
                     "(card_id, note_id, deck_name, queue, type, due, interval, factor, reps, lapses, synced_at) "
@@ -177,6 +182,8 @@ def _fetch_and_upsert_cards(card_ids: list[int], *, strict: bool = False) -> int
                     rows,
                     commit=False,
                 )
+
+            AnkiCardsTable._db.run_transaction(_upsert_cards, priority=DB_PRIORITY_LOW)
 
     return upserted
 
@@ -268,7 +275,8 @@ def _fetch_and_upsert_reviews(card_ids: list[int], *, strict: bool = False) -> i
                     logger.error(f"Failed to upsert review for card {card_id}: {e}")
 
         if rows:
-            with AnkiCardsTable._db.transaction():
+
+            def _upsert_reviews(conn, rows=rows):
                 AnkiCardsTable._db.executemany(
                     "INSERT OR REPLACE INTO anki_reviews "
                     "(review_id, card_id, note_id, review_time, ease, interval, last_interval, time_taken, synced_at) "
@@ -276,6 +284,8 @@ def _fetch_and_upsert_reviews(card_ids: list[int], *, strict: bool = False) -> i
                     rows,
                     commit=False,
                 )
+
+            AnkiCardsTable._db.run_transaction(_upsert_reviews, priority=DB_PRIORITY_LOW)
 
     return upserted
 
@@ -664,32 +674,38 @@ def run_full_sync() -> dict:
         logger.warning("AnkiConnect unreachable during card lookup — skipping full sync")
         return {"skipped": True, "reason": "AnkiConnect unreachable"}
 
-    from GameSentenceMiner.util.database.anki_tables import AnkiNotesTable
+    from GameSentenceMiner.util.database.anki_tables import AnkiNotesTable  # noqa: F401
 
     try:
-        with AnkiNotesTable._db.transaction():
-            # Step 3: Fetch and upsert notes
-            notes_upserted = _fetch_and_upsert_notes(note_ids, strict=True)
+        # Each step below commits independently through the single DB writer as
+        # short, low-priority jobs, so foreground text-intake writes are never
+        # blocked (the old single 6-minute transaction held the global write lock
+        # for the entire sync). AnkiConnect network I/O in the fetch helpers runs
+        # off the writer thread. Whole-sync atomicity is intentionally traded away:
+        # the cache is idempotent and self-heals on the next run.
 
-            # Step 4: Fetch and upsert cards
-            cards_upserted = _fetch_and_upsert_cards(card_ids, strict=True)
+        # Step 3: Fetch and upsert notes
+        notes_upserted = _fetch_and_upsert_notes(note_ids, strict=True)
 
-            # Step 5: Fetch and upsert reviews
-            reviews_upserted = _fetch_and_upsert_reviews(card_ids, strict=True)
+        # Step 4: Fetch and upsert cards
+        cards_upserted = _fetch_and_upsert_cards(card_ids, strict=True)
 
-            # Step 6: Delete stale rows
-            deletion_counts = _delete_stale_rows(set(note_ids), set(card_ids))
+        # Step 5: Fetch and upsert reviews
+        reviews_upserted = _fetch_and_upsert_reviews(card_ids, strict=True)
 
-            # Step 7: Rebuild word links (full rebuild)
-            word_links = _rebuild_word_links()
+        # Step 6: Delete stale rows
+        deletion_counts = _delete_stale_rows(set(note_ids), set(card_ids))
 
-            # Step 8: Rebuild kanji links (full rebuild)
-            kanji_links = _rebuild_kanji_links()
+        # Step 7: Rebuild word links (full rebuild)
+        word_links = _rebuild_word_links()
 
-            # Step 9: Update in_anki flags
-            flags_updated = _update_in_anki_flags()
+        # Step 8: Rebuild kanji links (full rebuild)
+        kanji_links = _rebuild_kanji_links()
+
+        # Step 9: Update in_anki flags
+        flags_updated = _update_in_anki_flags()
     except Exception as exc:
-        logger.error(f"Full sync aborted and rolled back: {exc}")
+        logger.error(f"Full sync aborted: {exc}")
         return {"skipped": True, "reason": str(exc)}
 
     summary = {
