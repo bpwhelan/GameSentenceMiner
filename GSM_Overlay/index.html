@@ -1481,6 +1481,7 @@ background: rgba(202, 12, 12, 0.692);
   const {
     detectTextBlocks,
     getMedianValue,
+    insertBlockSeparatorAfter,
   } = BlockDetection;
   try {
     const MagpieUtils = require("./magpie.js");
@@ -2996,13 +2997,7 @@ background: rgba(202, 12, 12, 0.692);
             
             // Add line break after block ends (create a text node with newline for Yomitan)
             if (isBlockEnd && blockId < currentBlockId - 1) {
-              const lineBreak = document.createTextNode('\n');
-              const breakSpan = document.createElement('span');
-              breakSpan.className = 'block-separator';
-              breakSpan.style.position = 'absolute';
-              breakSpan.style.pointerEvents = 'none';
-              breakSpan.appendChild(lineBreak);
-              document.body.appendChild(breakSpan);
+              insertBlockSeparatorAfter(document, blockContainers.get(blockId));
             }
             
             const rect = line.bounding_rect;

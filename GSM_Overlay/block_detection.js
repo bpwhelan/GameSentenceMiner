@@ -164,6 +164,23 @@
     };
   }
 
+  // Recalibration reuses the existing block containers. Insert the newline
+  // relative to its block instead of appending it to <body>, otherwise every
+  // recreated separator ends up after all of the reused blocks.
+  function insertBlockSeparatorAfter(documentRef, blockContainer) {
+    if (!documentRef || !blockContainer || !blockContainer.parentNode) {
+      return null;
+    }
+
+    const separator = documentRef.createElement('span');
+    separator.className = 'block-separator';
+    separator.style.position = 'absolute';
+    separator.style.pointerEvents = 'none';
+    separator.appendChild(documentRef.createTextNode('\n'));
+    blockContainer.parentNode.insertBefore(separator, blockContainer.nextSibling);
+    return separator;
+  }
+
   return {
     BLOCK_DETECTION_TUNING,
     areBoxesClose,
@@ -172,5 +189,6 @@
     getAxisGap,
     getAxisOverlap,
     getMedianValue,
+    insertBlockSeparatorAfter,
   };
 }));

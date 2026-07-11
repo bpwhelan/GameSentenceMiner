@@ -3026,10 +3026,8 @@ def queue_card_for_processing(
     if timing_context is not None:
         timing_context.mark_queued()
     translation_future = None
-    config = get_config()
-    if config.ai.add_to_anki:
-        sentence_field = config.anki.sentence_field
-        sentence_to_translate = last_card.get_field(sentence_field) if last_card else ""
+    if get_config().ai.add_to_anki:
+        sentence_to_translate = last_mined_line.text if last_mined_line else ""
         if lines:
             selected_text = combine_dialogue([line.text for line in lines if line and line.text])
             if selected_text:

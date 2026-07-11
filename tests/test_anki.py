@@ -515,7 +515,7 @@ def test_queue_card_for_processing_stores_reusable_audio_hint(monkeypatch):
     assert anki.card_queue[0][5] is None
 
 
-def test_queue_card_for_processing_starts_timed_translation_prefetch(monkeypatch):
+def test_queue_card_for_processing_translates_matched_line_instead_of_raw_ocr_block(monkeypatch):
     cfg = _base_config()
     cfg.ai.add_to_anki = True
     monkeypatch.setattr(anki, "get_config", lambda: cfg)
@@ -529,25 +529,31 @@ def test_queue_card_for_processing_starts_timed_translation_prefetch(monkeypatch
     submitted = []
     translation_future = object()
 
-    class ImmediateExecutor:
+    class RecordingExecutor:
         def submit(self, func, *args):
             submitted.append((func, args))
-            func(*args)
             return translation_future
 
-    monkeypatch.setattr(anki, "translation_prefetch_executor", ImmediateExecutor())
-    monkeypatch.setattr(anki, "prefetch_ai_translation", lambda sentence, line: f"translated:{sentence}")
+    monkeypatch.setattr(anki, "translation_prefetch_executor", RecordingExecutor())
 
-    line = SimpleNamespace(id="line-2", text="sentence")
+    matched_sentence = "炭化する男『しかし『白の心臓』だけは、一度毀れたら、替えが利かない』"
+    raw_ocr_block = (
+        "炭化する男『橙、藍、黒の３つの心臓は、壊れても作り直す事が可能だ』"
+        f"{matched_sentence}"
+        "Ｉ化オス里桜頁の文明は<b>著しく</b>後退するだろう』"
+    )
+    line = SimpleNamespace(id="line-2", text=matched_sentence)
     card = SimpleNamespace(
         noteId=42,
-        get_field=lambda field: "sentence" if field == cfg.anki.sentence_field else "word",
+        get_field=lambda field: raw_ocr_block if field == cfg.anki.sentence_field else "word",
     )
 
     anki.queue_card_for_processing(card, [], line)
 
     assert submitted[0][0] is anki.run_anki_card_timed
     assert submitted[0][1][1] == "replay.future.prefetch_ai_translation"
+    assert submitted[0][1][3] == matched_sentence
+    assert raw_ocr_block not in submitted[0][1]
     assert anki.card_queue[-1][7] is translation_future
 
 
@@ -1220,6 +1226,37 @@ def test_get_initial_card_info_can_defer_furigana_until_confirmation(monkeypatch
 
     assert note["fields"]["Sentence"] == "お前が<b>感傷的</b>になった"
     assert "SentenceFurigana" not in note["fields"]
+
+
+def test_get_initial_card_info_reduces_raw_ocr_block_to_matched_sentence(monkeypatch):
+    cfg = _overlay_furigana_config()
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
+
+    matched_sentence = "炭化する男『しかし『白の心臓』だけは、一度毀れたら、替えが利かない』"
+    raw_ocr_block = (
+        "炭化する男『橙、藍、黒の３つの心臓は、壊れても作り直す事が可能だ』"
+        f"{matched_sentence}"
+        "Ｉ化オス里桜頁の文明は<b>著しく</b>後退するだろう』"
+    )
+
+    class FakeCard:
+        noteId = 1
+        tags = []
+        fields = {"Sentence": SimpleNamespace(value=raw_ocr_block)}
+
+        def get_field(self, field):
+            return self.fields.get(field, SimpleNamespace(value="")).value
+
+    note, _ = anki.get_initial_card_info(
+        FakeCard(),
+        selected_lines=[],
+        game_line=SimpleNamespace(text=matched_sentence, source="overlay", prev=None),
+        generate_furigana=False,
+    )
+
+    assert note["fields"]["Sentence"] == matched_sentence
+    assert anki._resolve_sentence_for_translation(note, FakeCard()) == matched_sentence
 
 
 def test_apply_confirmed_sentence_fields_regenerates_furigana_from_edited_sentence(monkeypatch):

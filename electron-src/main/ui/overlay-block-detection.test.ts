@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 
+import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 
 type OverlayLine = {
@@ -49,7 +50,7 @@ function makeLine(
   };
 }
 
-const { detectTextBlocks } = loadBlockDetectionModule();
+const { detectTextBlocks, insertBlockSeparatorAfter } = loadBlockDetectionModule();
 
 describe("overlay block detection", () => {
   it("merges stacked lines that are vertically close into one block", () => {
@@ -150,5 +151,24 @@ describe("overlay block detection", () => {
 
     expect(result.blockCount).toBe(2);
     expect(result.lineBlocks.get(0)).not.toBe(result.lineBlocks.get(1));
+  });
+});
+
+describe("overlay block separators", () => {
+  it("keeps a recreated newline between reused block containers", () => {
+    const dom = new JSDOM("<body></body>");
+    const { document } = dom.window;
+    const firstBlock = document.createElement("p");
+    const secondBlock = document.createElement("p");
+    firstBlock.className = "text-block-container";
+    secondBlock.className = "text-block-container";
+    firstBlock.textContent = "first";
+    secondBlock.textContent = "second";
+    document.body.append(firstBlock, secondBlock);
+
+    insertBlockSeparatorAfter(document, firstBlock);
+
+    expect(document.body.textContent).toBe("first\nsecond");
+    expect(firstBlock.nextElementSibling?.className).toBe("block-separator");
   });
 });
