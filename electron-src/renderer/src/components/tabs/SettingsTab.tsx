@@ -8,7 +8,7 @@ import {
   useState,
   type KeyboardEvent
 } from "react";
-import { invokeIpc, sendIpc } from "../../lib/ipc";
+import { invokeIpc, onIpc, sendIpc } from "../../lib/ipc";
 import type {
   AppSettings,
   ControlledTab,
@@ -120,9 +120,54 @@ const SETTINGS_QUICK_LINK_IDS = [
   "overlay-gamepad"
 ];
 
+const SETTINGS_BACKUP_PROGRESS_CHANNEL = "settings-backup-progress";
+
 interface SettingsTabProps {
   active: boolean;
 }
+
+interface SettingsBackupResult {
+  success?: boolean;
+  canceled?: boolean;
+  error?: string;
+  filePath?: string;
+  fileCount?: number;
+  restartRequired?: boolean;
+}
+
+type SettingsBackupOperation = "create" | "restore";
+
+type SettingsBackupProgressPhase =
+  | "scanning"
+  | "archiving"
+  | "extracting"
+  | "stopping-obs"
+  | "stopping-python"
+  | "restoring"
+  | "restarting-python"
+  | "done"
+  | "error";
+
+interface SettingsBackupProgressEvent {
+  operation: SettingsBackupOperation;
+  phase: SettingsBackupProgressPhase;
+  fileName?: string;
+  completed?: number;
+  total?: number;
+  progress?: number | null;
+}
+
+const BACKUP_PROGRESS_PHASE_I18N_KEYS: Record<SettingsBackupProgressPhase, string> = {
+  scanning: "settings.backup.progress.scanning",
+  archiving: "settings.backup.progress.archiving",
+  extracting: "settings.backup.progress.extracting",
+  "stopping-obs": "settings.backup.progress.stoppingObs",
+  "stopping-python": "settings.backup.progress.stoppingPython",
+  restoring: "settings.backup.progress.restoring",
+  "restarting-python": "settings.backup.progress.restartingPython",
+  done: "settings.backup.progress.done",
+  error: "settings.backup.progress.error"
+};
 
 function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppSettings {
   if (!value) {
@@ -191,6 +236,63 @@ function getDisplayLatestVersion(
   return "Unknown";
 }
 
+function isSettingsBackupOperation(value: unknown): value is SettingsBackupOperation {
+  return value === "create" || value === "restore";
+}
+
+function isSettingsBackupProgressPhase(value: unknown): value is SettingsBackupProgressPhase {
+  return (
+    value === "scanning" ||
+    value === "archiving" ||
+    value === "extracting" ||
+    value === "stopping-obs" ||
+    value === "stopping-python" ||
+    value === "restoring" ||
+    value === "restarting-python" ||
+    value === "done" ||
+    value === "error"
+  );
+}
+
+function normalizeProgressNumber(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  return Math.max(0, Math.min(1, value));
+}
+
+function normalizeOptionalCount(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return undefined;
+  }
+  return Math.floor(value);
+}
+
+function normalizeSettingsBackupProgress(
+  value: unknown
+): SettingsBackupProgressEvent | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const payload = value as Partial<SettingsBackupProgressEvent>;
+  if (
+    !isSettingsBackupOperation(payload.operation) ||
+    !isSettingsBackupProgressPhase(payload.phase)
+  ) {
+    return null;
+  }
+
+  return {
+    operation: payload.operation,
+    phase: payload.phase,
+    fileName: typeof payload.fileName === "string" ? payload.fileName : undefined,
+    completed: normalizeOptionalCount(payload.completed),
+    total: normalizeOptionalCount(payload.total),
+    progress: normalizeProgressNumber(payload.progress)
+  };
+}
+
 export function SettingsTab({ active }: SettingsTabProps) {
   const t = useTranslation();
   const platform = window.gsmEnv?.platform ?? "win32";
@@ -213,6 +315,10 @@ export function SettingsTab({ active }: SettingsTabProps) {
   const [isLoadingReleaseNotes, setIsLoadingReleaseNotes] = useState(false);
   const [settingsSearchQuery, setSettingsSearchQuery] = useState("");
   const [hubMessage, setHubMessage] = useState<string | null>(null);
+  const [backupMessage, setBackupMessage] = useState<string | null>(null);
+  const [backupBusy, setBackupBusy] = useState<"create" | "restore" | null>(null);
+  const [backupProgress, setBackupProgress] =
+    useState<SettingsBackupProgressEvent | null>(null);
 
   const isInitializedRef = useRef(false);
 
@@ -442,6 +548,94 @@ export function SettingsTab({ active }: SettingsTabProps) {
     updateStatus.app.latestVersion
   ]);
 
+  useEffect(() => {
+    return onIpc(SETTINGS_BACKUP_PROGRESS_CHANNEL, (_event, payload) => {
+      const progress = normalizeSettingsBackupProgress(payload);
+      if (progress) {
+        setBackupProgress(progress);
+      }
+    });
+  }, []);
+
+  const createSettingsBackup = useCallback(async () => {
+    setBackupBusy("create");
+    setBackupMessage(null);
+    setBackupProgress(null);
+    try {
+      const result = await invokeIpc<SettingsBackupResult>("settings.createBackup");
+      if (result?.canceled) {
+        setBackupMessage(t("settings.backup.cancelled"));
+        setBackupProgress(null);
+      } else if (result?.success) {
+        setBackupMessage(
+          t("settings.backup.created", {
+            path: result.filePath ?? "",
+            count: String(result.fileCount ?? 0)
+          })
+        );
+      } else {
+        setBackupMessage(
+          t("settings.backup.failed", {
+            error: result?.error ?? t("settings.backup.unknownError")
+          })
+        );
+      }
+    } catch (error) {
+      console.error("Failed to create settings backup:", error);
+      setBackupProgress({
+        operation: "create",
+        phase: "error",
+        progress: null
+      });
+      setBackupMessage(
+        t("settings.backup.failed", {
+          error: error instanceof Error ? error.message : t("settings.backup.unknownError")
+        })
+      );
+    } finally {
+      setBackupBusy(null);
+    }
+  }, [t]);
+
+  const restoreSettingsBackup = useCallback(async () => {
+    setBackupBusy("restore");
+    setBackupMessage(null);
+    setBackupProgress(null);
+    try {
+      const result = await invokeIpc<SettingsBackupResult>("settings.restoreBackup");
+      if (result?.canceled) {
+        setBackupMessage(t("settings.backup.cancelled"));
+        setBackupProgress(null);
+      } else if (result?.success) {
+        setBackupMessage(
+          result.restartRequired
+            ? t("settings.backup.restoredRestart")
+            : t("settings.backup.restored")
+        );
+      } else {
+        setBackupMessage(
+          t("settings.backup.failed", {
+            error: result?.error ?? t("settings.backup.unknownError")
+          })
+        );
+      }
+    } catch (error) {
+      console.error("Failed to restore settings backup:", error);
+      setBackupProgress({
+        operation: "restore",
+        phase: "error",
+        progress: null
+      });
+      setBackupMessage(
+        t("settings.backup.failed", {
+          error: error instanceof Error ? error.message : t("settings.backup.unknownError")
+        })
+      );
+    } finally {
+      setBackupBusy(null);
+    }
+  }, [t]);
+
   const hasPendingUpdates =
     updateStatus.backend.updateAvailable || updateStatus.app.updateAvailable;
   const canPreviewUpdateChangelog = Boolean(
@@ -478,6 +672,26 @@ export function SettingsTab({ active }: SettingsTabProps) {
       ),
     []
   );
+  const backupProgressLabel = backupProgress
+    ? t("settings.backup.progressSummary", {
+        operation:
+          backupProgress.operation === "create"
+            ? t("settings.backup.operationCreate")
+            : t("settings.backup.operationRestore"),
+        phase: t(BACKUP_PROGRESS_PHASE_I18N_KEYS[backupProgress.phase])
+      })
+    : null;
+  const backupProgressPercent =
+    backupProgress?.progress === null || backupProgress?.progress === undefined
+      ? null
+      : Math.round(backupProgress.progress * 100);
+  const backupProgressCount =
+    backupProgress?.total && backupProgress.total > 0
+      ? t("settings.backup.progressCount", {
+          completed: String(backupProgress.completed ?? 0),
+          total: String(backupProgress.total)
+        })
+      : null;
 
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
@@ -1003,6 +1217,90 @@ export function SettingsTab({ active }: SettingsTabProps) {
                     : t("settings.updates.updateNow")}
                 </button>
               </div>
+            </div>
+          </section>
+
+          <section className="card legacy-card">
+            <h2>{t("settings.backup.title")}</h2>
+            <div className="settings-update-panel">
+              <p className="muted">{t("settings.backup.description")}</p>
+              <div className="input-group wrap settings-update-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    void createSettingsBackup();
+                  }}
+                  disabled={backupBusy !== null}
+                >
+                  {backupBusy === "create"
+                    ? t("settings.backup.creating")
+                    : t("settings.backup.create")}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    void restoreSettingsBackup();
+                  }}
+                  disabled={backupBusy !== null}
+                >
+                  {backupBusy === "restore"
+                    ? t("settings.backup.restoring")
+                    : t("settings.backup.restore")}
+                </button>
+              </div>
+              {backupProgress && backupProgressLabel ? (
+                <div className="settings-backup-progress">
+                  <div className="settings-backup-progress-top">
+                    <strong>{backupProgressLabel}</strong>
+                    {backupProgressPercent !== null ? (
+                      <span>
+                        {t("settings.backup.progressPercent", {
+                          percent: String(backupProgressPercent)
+                        })}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div
+                    className={`settings-backup-progress-bar ${
+                      backupProgressPercent === null ? "is-running" : ""
+                    }`}
+                    role="progressbar"
+                    aria-label={backupProgressLabel}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={backupProgressPercent ?? undefined}
+                  >
+                    <div
+                      className={`settings-backup-progress-fill ${
+                        backupProgressPercent === null ? "is-indeterminate" : ""
+                      }`}
+                      style={{
+                        width:
+                          backupProgressPercent === null
+                            ? "36%"
+                            : `${backupProgressPercent}%`
+                      }}
+                    />
+                  </div>
+                  {backupProgress.fileName ? (
+                    <p className="settings-backup-progress-file">
+                      {t("settings.backup.progressFile", {
+                        file: backupProgress.fileName
+                      })}
+                    </p>
+                  ) : null}
+                  {backupProgressCount ? (
+                    <p className="settings-backup-progress-count">
+                      {backupProgressCount}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              {backupMessage ? (
+                <p className="update-version-meta">{backupMessage}</p>
+              ) : null}
             </div>
           </section>
 

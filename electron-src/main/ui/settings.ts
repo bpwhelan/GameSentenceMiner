@@ -1,5 +1,14 @@
 // settings.ts
-import { ipcMain, dialog, app, shell, type IpcMainInvokeEvent } from 'electron';
+import {
+    ipcMain,
+    dialog,
+    app,
+    shell,
+    type IpcMainInvokeEvent,
+    type MessageBoxOptions,
+    type OpenDialogOptions,
+    type SaveDialogOptions,
+} from 'electron';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -83,8 +92,11 @@ import { syncPythonDisplayLocale } from '../python_locale.js';
 import { getConfiguredSinglePort, getGsmProfileNames } from '../gsm_config.js';
 // Replaced WebSocket usage with stdout IPC helpers
 import {
+    closeAllPythonProcesses,
     isPythonLaunchBlockedByUpdate,
     mainWindow,
+    pyProc,
+    restartGSM,
     sendOpenOverlaySettings,
     sendOpenSettings,
     sendReloadSettings,
@@ -92,7 +104,11 @@ import {
 } from '../main.js';
 import { reinstallPython } from '../python/python_downloader.js';
 import { runPipInstall } from '../main.js';
-import { getExecutableNameFromSource, getWindowTitleFromSource } from './obs.js';
+import {
+    closeOBSFromElectron,
+    getExecutableNameFromSource,
+    getWindowTitleFromSource,
+} from './obs.js';
 import { listAgentScriptFiles, resolveSwitchAgentScript } from '../agent_script_resolver.js';
 import {
     ensureManagedAgentScriptsCurrent,
@@ -100,6 +116,12 @@ import {
     getManagedAgentScriptsPath,
     isManagedAgentScriptsPath,
 } from '../agent_scripts_repository.js';
+import {
+    createBackupArchive,
+    getDefaultBackupFileName,
+    restoreBackupArchive,
+    type SettingsBackupProgressEvent,
+} from '../services/settings_backup.js';
 
 export let window_transparency_process: any = null; // Process for the Window Transparency Tool
 type DownloadableTool = 'agent' | 'textractor';
@@ -128,6 +150,7 @@ type ToolDownloadProgressReporter = (
 ) => void;
 
 const TOOL_DOWNLOAD_PROGRESS_CHANNEL = 'settings-tool-download-progress';
+const SETTINGS_BACKUP_PROGRESS_CHANNEL = 'settings-backup-progress';
 
 const TOOL_RELEASES_URLS: Record<ToolName, string> = {
     agent: 'https://github.com/0xDC00/agent/releases/latest',
@@ -321,6 +344,24 @@ function emitToolDownloadProgress(
     progress: ToolDownloadProgressEvent
 ): void {
     event.sender.send(TOOL_DOWNLOAD_PROGRESS_CHANNEL, progress);
+}
+
+function emitSettingsBackupProgress(
+    event: IpcMainInvokeEvent,
+    progress: SettingsBackupProgressEvent
+): void {
+    if (!event.sender.isDestroyed()) {
+        event.sender.send(SETTINGS_BACKUP_PROGRESS_CHANNEL, progress);
+    }
+
+    const countText =
+        typeof progress.completed === 'number' && typeof progress.total === 'number'
+            ? ` ${progress.completed}/${progress.total}`
+            : '';
+    const fileText = progress.fileName ? ` ${progress.fileName}` : '';
+    console.log(
+        `[Settings Backup] ${progress.operation}:${progress.phase}${countText}${fileText}`
+    );
 }
 
 async function downloadZipFile(
@@ -932,6 +973,27 @@ function queueBackendUpdateForNextLaunch(): string {
     return updateFlagPath;
 }
 
+async function showMessageBox(options: MessageBoxOptions) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        return dialog.showMessageBox(mainWindow, options);
+    }
+    return dialog.showMessageBox(options);
+}
+
+async function showSaveDialog(options: SaveDialogOptions) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        return dialog.showSaveDialog(mainWindow, options);
+    }
+    return dialog.showSaveDialog(options);
+}
+
+async function showOpenDialog(options: OpenDialogOptions) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        return dialog.showOpenDialog(mainWindow, options);
+    }
+    return dialog.showOpenDialog(options);
+}
+
 interface SettingsIPCDependencies {
     getUpdateStatus: () => Promise<unknown>;
     checkForUpdates: () => Promise<unknown>;
@@ -1155,6 +1217,179 @@ export function registerSettingsIPC(deps?: SettingsIPCDependencies) {
         return {
             success: sendOpenOverlaySettings(),
         };
+    });
+
+    ipcMain.handle('settings.createBackup', async (event) => {
+        const reportProgress = (progress: SettingsBackupProgressEvent) => {
+            emitSettingsBackupProgress(event, progress);
+        };
+
+        try {
+            const saveResult = await showSaveDialog({
+                title: 'Save GSM Settings Backup',
+                defaultPath: path.join(app.getPath('downloads'), getDefaultBackupFileName()),
+                filters: [{ name: 'ZIP Archive', extensions: ['zip'] }],
+            });
+
+            if (saveResult.canceled || !saveResult.filePath) {
+                return { success: false, canceled: true };
+            }
+
+            const outputPath =
+                path.extname(saveResult.filePath).toLowerCase() === '.zip'
+                    ? saveResult.filePath
+                    : `${saveResult.filePath}.zip`;
+            const backup = await createBackupArchive({ outputPath, onProgress: reportProgress });
+
+            const response = await showMessageBox({
+                type: 'info',
+                title: 'Backup Created',
+                message: 'GSM settings backup created successfully.',
+                detail: `${backup.filePath}\n\nFiles: ${backup.fileCount}`,
+                buttons: ['OK', 'Open Folder'],
+                defaultId: 0,
+            });
+            if (response.response === 1) {
+                shell.showItemInFolder(backup.filePath);
+            }
+
+            return { success: true, ...backup };
+        } catch (error: any) {
+            console.error('Failed to create GSM settings backup:', error);
+            reportProgress({
+                operation: 'create',
+                phase: 'error',
+                progress: null,
+            });
+            return {
+                success: false,
+                error: error?.message ?? String(error),
+            };
+        }
+    });
+
+    ipcMain.handle('settings.restoreBackup', async (event) => {
+        const reportProgress = (progress: SettingsBackupProgressEvent) => {
+            emitSettingsBackupProgress(event, progress);
+        };
+        let stoppedPythonProcesses = false;
+
+        try {
+            const openResult = await showOpenDialog({
+                title: 'Restore GSM Settings Backup',
+                properties: ['openFile'],
+                filters: [{ name: 'ZIP Archive', extensions: ['zip'] }],
+            });
+
+            if (openResult.canceled || openResult.filePaths.length === 0) {
+                return { success: false, canceled: true };
+            }
+
+            const confirm = await showMessageBox({
+                type: 'warning',
+                title: 'Restore GSM Settings Backup',
+                message: 'Restore this GSM settings backup?',
+                detail:
+                    'This overwrites GSM settings, overlay/Yomitan storage, OCR configs, OBS config, and the GSM database from the selected backup. GSM Python processes, the overlay, and Electron-managed OBS will be stopped automatically.',
+                buttons: ['Restore', 'Cancel'],
+                defaultId: 1,
+                cancelId: 1,
+            });
+
+            if (confirm.response !== 0) {
+                return { success: false, canceled: true };
+            }
+
+            reportProgress({
+                operation: 'restore',
+                phase: 'stopping-python',
+                progress: null,
+            });
+            stoppedPythonProcesses = true;
+            await closeAllPythonProcesses();
+            await sleep(500);
+            if (pyProc && pyProc.exitCode === null && pyProc.signalCode === null) {
+                throw new Error(
+                    'Timed out waiting for the GSM Python backend to stop. Restore was not applied so the database would not be copied while locked.'
+                );
+            }
+
+            reportProgress({
+                operation: 'restore',
+                phase: 'stopping-obs',
+                progress: null,
+            });
+            const obsCloseResult = await closeOBSFromElectron({
+                ignoreCloseConfig: true,
+                reason: 'settings restore',
+            });
+            if (obsCloseResult.status === 'failed') {
+                throw new Error(
+                    `Failed to stop OBS before restore: ${obsCloseResult.error ?? 'Unknown error'}`
+                );
+            }
+            await sleep(500);
+
+            const restored = await restoreBackupArchive({
+                archivePath: openResult.filePaths[0],
+                onProgress: reportProgress,
+            });
+
+            reportProgress({
+                operation: 'restore',
+                phase: 'restarting-python',
+                progress: null,
+            });
+            await restartGSM();
+            reportProgress({
+                operation: 'restore',
+                phase: 'done',
+                completed: restored.fileCount,
+                total: restored.fileCount,
+                progress: 1,
+            });
+
+            const restart = await showMessageBox({
+                type: 'info',
+                title: 'Backup Restored',
+                message: 'GSM settings backup restored successfully.',
+                detail:
+                    'The GSM Python backend has been restarted. Restart the desktop app now so restored desktop settings are loaded.',
+                buttons: ['Restart Now', 'Later'],
+                defaultId: 0,
+                cancelId: 1,
+            });
+
+            if (restart.response === 0) {
+                app.relaunch();
+                app.exit(0);
+            }
+
+            return { success: true, restartRequired: true, ...restored };
+        } catch (error: any) {
+            console.error('Failed to restore GSM settings backup:', error);
+            if (stoppedPythonProcesses) {
+                try {
+                    reportProgress({
+                        operation: 'restore',
+                        phase: 'restarting-python',
+                        progress: null,
+                    });
+                    await restartGSM();
+                } catch (restartError) {
+                    console.error('Failed to restart GSM after restore failure:', restartError);
+                }
+            }
+            reportProgress({
+                operation: 'restore',
+                phase: 'error',
+                progress: null,
+            });
+            return {
+                success: false,
+                error: error?.message ?? String(error),
+            };
+        }
     });
 
     ipcMain.handle('settings.focusHub', async () => {
