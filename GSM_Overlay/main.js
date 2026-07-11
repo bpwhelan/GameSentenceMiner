@@ -1516,6 +1516,7 @@ let lastWebsocketData = null;
 let currentMagpieState = createMagpieState(null);
 let translationRequested = false; // Track if translation has been requested for current text
 let yomitanRecoveryVersion = 0; // Cancels stale async recovery attempts when popup state flips quickly
+let gamepadReleaseRecoveryVersion = 0; // Cancels stale Magpie recovery after navigation is re-entered
 let lastFocusRestoreRequestAt = 0;
 let suppressBackendFocusRestoreUntil = 0;
 let lastOverlayTopmostReassertAt = 0;
@@ -3276,6 +3277,7 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown", optio
   gamepadNavigationActive = nextActive;
 
   if (nextActive) {
+    gamepadReleaseRecoveryVersion += 1;
     if (isManualMode()) {
       showOverlayUsingManualFlow(`Gamepad ${triggerSource} Activate`, OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
     } else {
@@ -3307,6 +3309,34 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown", optio
 
   if ((isWindows() || isMac()) && mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) {
     blurAndRestoreFocus({ force: true });
+  }
+
+  scheduleGamepadReleaseRecovery();
+}
+
+function scheduleGamepadReleaseRecovery() {
+  if (!currentMagpieState.active || isManualMode()) return;
+
+  const version = ++gamepadReleaseRecoveryVersion;
+  // Hiding a controller-owned window can briefly make the Magpie source look
+  // obscured while Windows settles foreground and Z-order. That transient state
+  // hides GSM, and no later state change is guaranteed to show it again. Reassert
+  // the automatic overlay without taking focus back from the game.
+  for (const delay of [120, 400]) {
+    setTimeout(() => {
+      if (version !== gamepadReleaseRecoveryVersion) return;
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      if (!currentMagpieState.active || isManualMode()) return;
+      if (gamepadNavigationActive || yomitanShown || resizeMode) return;
+
+      restoreAutomaticOverlayPassThrough("gamepad-release-recovery");
+      requestOverlayTopmostReassert("gamepad-release-recovery", {
+        force: true,
+        forceShow: true,
+        moveToTop: true,
+        refreshWorkspace: true,
+      });
+    }, delay);
   }
 }
 
