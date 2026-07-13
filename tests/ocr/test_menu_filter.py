@@ -306,6 +306,51 @@ def test_check_text_is_in_black_hole_ignores_disjoint_box(monkeypatch):
     )
 
 
+def test_check_text_is_in_black_hole_filters_languages_and_short_english(monkeypatch):
+    rectangles = [
+        SimpleNamespace(
+            is_secondary=False,
+            is_excluded=False,
+            is_exclusive=False,
+            is_black_hole=True,
+            coordinates=(0, 0, 100, 100),
+        ),
+    ]
+    fake_config = SimpleNamespace(rectangles=rectangles)
+
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_config)
+    monkeypatch.setattr(run_module, "get_ocr_language", lambda: "en")
+
+    assert not run_module.check_text_is_in_black_hole(
+        (5, 5, 95, 95),
+        [(5, 5, 95, 95, "I")],
+        crop_offset=(0, 0),
+    )
+    assert run_module.check_text_is_in_black_hole(
+        (5, 5, 95, 95),
+        [(5, 5, 95, 95, "OK")],
+        crop_offset=(0, 0),
+    )
+
+    monkeypatch.setattr(run_module, "get_ocr_language", lambda: "ja")
+    assert not run_module.check_text_is_in_black_hole(
+        (5, 5, 95, 95),
+        [(5, 5, 95, 95, "Привет")],
+        crop_offset=(0, 0),
+    )
+    assert run_module.check_text_is_in_black_hole(
+        (5, 5, 95, 95),
+        [(5, 5, 95, 95, "テスト")],
+        crop_offset=(0, 0),
+    )
+
+
 def test_check_text_is_in_black_hole_matches_box_overlap(monkeypatch):
     rectangles = [
         SimpleNamespace(
@@ -445,6 +490,150 @@ def test_process_and_write_results_skips_black_hole_before_exclusive_filter(monk
     assert (orig_text, text) == ("", "")
     assert callback_calls == []
     assert run_module.BLACK_HOLE_SKIP_LOG_MESSAGE in log_messages
+
+
+def test_process_and_write_results_checks_unfiltered_english_lines_for_black_holes(monkeypatch):
+    rectangles = [
+        SimpleNamespace(
+            is_secondary=False,
+            is_excluded=False,
+            is_exclusive=False,
+            is_black_hole=True,
+            coordinates=(0, 0, 100, 100),
+        ),
+    ]
+    fake_area_config = SimpleNamespace(rectangles=rectangles)
+
+    english_line = ocr_module.Line(
+        text="Settings",
+        bounding_box=ocr_module.BoundingBox(center_x=0.125, center_y=1 / 6, width=0.2, height=0.2),
+        words=[],
+    )
+    japanese_line = ocr_module.Line(
+        text="テスト",
+        bounding_box=ocr_module.BoundingBox(center_x=0.625, center_y=1 / 6, width=0.2, height=0.2),
+        words=[],
+    )
+    ocr_result = ocr_module.OcrResult(
+        image_properties=ocr_module.ImageProperties(width=400, height=300),
+        engine_capabilities=ocr_module.ScreenAIOCR.capabilities,
+        paragraphs=[
+            ocr_module.Paragraph(
+                bounding_box=japanese_line.bounding_box,
+                lines=[english_line, japanese_line],
+            )
+        ],
+    )
+
+    monkeypatch.setattr(ocr_module, "get_ocr_language", lambda: "ja")
+    monkeypatch.setattr(run_module, "get_ocr_language", lambda: "ja")
+    engine_result = ocr_module.ocr_result_to_oneocr_tuple((True, ocr_result))
+
+    class FakeOCR:
+        name = "screenai"
+        readable_name = "ScreenAI"
+
+        def __call__(self, img, furigana_filter_sensitivity=0):
+            return engine_result
+
+    callback_calls = []
+    log_messages = []
+
+    monkeypatch.setattr(
+        run_module,
+        "config",
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+    )
+    monkeypatch.setattr(
+        run_module,
+        "logger",
+        SimpleNamespace(
+            opt=lambda **kwargs: SimpleNamespace(info=lambda message, *args, **kwargs: log_messages.append(message))
+        ),
+    )
+    monkeypatch.setattr(run_module, "engine_instances", [FakeOCR()], raising=False)
+    monkeypatch.setattr(run_module, "engine_index", 0, raising=False)
+    monkeypatch.setattr(run_module, "auto_pause_handler", None, raising=False)
+    monkeypatch.setattr(
+        run_module,
+        "txt_callback",
+        lambda *args, **kwargs: callback_calls.append({"args": args, "kwargs": kwargs}),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_area_config)
+
+    orig_text, text = run_module.process_and_write_results(
+        Image.new("RGB", (400, 300), color=0),
+        "callback",
+        None,
+        None,
+        None,
+    )
+
+    assert (orig_text, text) == ("", "")
+    assert callback_calls == []
+    assert run_module.BLACK_HOLE_SKIP_LOG_MESSAGE in log_messages
+
+
+def test_unfiltered_black_hole_coords_only_include_target_language_and_two_letter_english(monkeypatch):
+    bounding_box = {
+        "center_x": 0.5,
+        "center_y": 0.5,
+        "width": 0.5,
+        "height": 0.2,
+        "rotation_z": None,
+    }
+    raw_response = {
+        "image_properties": {"width": 400, "height": 300},
+        "paragraphs": [
+            {
+                "lines": [
+                    {"text": "OK", "words": [], "bounding_box": bounding_box},
+                    {"text": "A", "words": [], "bounding_box": bounding_box},
+                    {"text": "Привет", "words": [], "bounding_box": bounding_box},
+                    {"text": "テスト", "words": [], "bounding_box": bounding_box},
+                ]
+            }
+        ],
+    }
+    monkeypatch.setattr(run_module, "get_ocr_language", lambda: "ja")
+
+    coords = run_module._get_unfiltered_ocr_crop_coords(raw_response)
+
+    assert [coord[4] for coord in coords] == ["OK", "テスト"]
+
+
+def test_unfiltered_black_hole_coords_require_two_letter_word_when_target_is_english(monkeypatch):
+    bounding_box = {
+        "center_x": 0.5,
+        "center_y": 0.5,
+        "width": 0.5,
+        "height": 0.2,
+        "rotation_z": None,
+    }
+    raw_response = {
+        "image_properties": {"width": 400, "height": 300},
+        "paragraphs": [
+            {
+                "lines": [
+                    {"text": "I", "words": [], "bounding_box": bounding_box},
+                    {"text": "HP 120", "words": [], "bounding_box": bounding_box},
+                    {"text": "テスト", "words": [], "bounding_box": bounding_box},
+                ]
+            }
+        ],
+    }
+    monkeypatch.setattr(run_module, "get_ocr_language", lambda: "en")
+
+    coords = run_module._get_unfiltered_ocr_crop_coords(raw_response)
+
+    assert [coord[4] for coord in coords] == ["HP 120"]
 
 
 def test_process_and_write_results_skips_detector_black_hole_before_exclusive_filter(monkeypatch):

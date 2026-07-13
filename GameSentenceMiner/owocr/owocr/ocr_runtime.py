@@ -65,10 +65,10 @@ USE_MOCK_OCR = False
 
 if USE_MOCK_OCR:
     from GameSentenceMiner.owocr.owocr.mock_ocr import *  # noqa: F403
-    from GameSentenceMiner.owocr.owocr.mock_ocr import build_spatial_text, line_dict_to_spatial_entry
+    from GameSentenceMiner.owocr.owocr.mock_ocr import build_spatial_text, get_regex, line_dict_to_spatial_entry
 else:
     from GameSentenceMiner.owocr.owocr.ocr import *  # noqa: F403
-    from GameSentenceMiner.owocr.owocr.ocr import build_spatial_text, line_dict_to_spatial_entry
+    from GameSentenceMiner.owocr.owocr.ocr import build_spatial_text, get_regex, line_dict_to_spatial_entry
 
 
 _UNINITIALIZED = object()
@@ -279,6 +279,7 @@ scaled_ocr_config_cache_lock = threading.Lock()
 MAX_SCALED_OCR_CACHE_SIZE = 24
 TEXT_DETECTION_RESULT_SCHEMA = "gsm_text_detection_v1"
 BLACK_HOLE_SKIP_LOG_MESSAGE = "Text is inside a black hole OCR box, skipping further processing."
+_BLACK_HOLE_ENGLISH_WORD_REGEX = re.compile(r"(?<![A-Za-z])[A-Za-z]{2,}(?![A-Za-z])")
 _callback_signature_target = None
 _callback_signature_keywords = frozenset()
 _callback_signature_has_kwargs = False
@@ -3435,11 +3436,95 @@ def _box_overlaps_any_rectangle(box, rectangles):
     return False
 
 
+def _get_black_hole_target_language():
+    return str(get_ocr_language() or "").lower().split("-", 1)[0].split("_", 1)[0]
+
+
+def _is_allowed_black_hole_text(text, target_language=None):
+    text = str(text or "")
+    if not text.strip():
+        return False
+
+    if target_language is None:
+        target_language = _get_black_hole_target_language()
+    has_english_word = bool(_BLACK_HOLE_ENGLISH_WORD_REGEX.search(text))
+    if not target_language or target_language == "en":
+        return has_english_word
+    return has_english_word or bool(get_regex(target_language).search(text))
+
+
+def _get_unfiltered_ocr_crop_coords(raw_response_dict, crop_padding=5):
+    """Build boxes for target-language lines and English words from raw OCR."""
+    if not isinstance(raw_response_dict, dict):
+        return []
+
+    image_properties = raw_response_dict.get("image_properties")
+    paragraphs = raw_response_dict.get("paragraphs")
+    if not isinstance(image_properties, dict) or not isinstance(paragraphs, list):
+        return []
+
+    image_width = _safe_int(image_properties.get("width"))
+    image_height = _safe_int(image_properties.get("height"))
+    if image_width <= 0 or image_height <= 0:
+        return []
+
+    crop_padding = max(0, _safe_int(crop_padding, 5))
+    crop_coords = []
+    target_language = _get_black_hole_target_language()
+    for paragraph in paragraphs:
+        if not isinstance(paragraph, dict):
+            continue
+        for line in paragraph.get("lines", []) or []:
+            if not isinstance(line, dict):
+                continue
+
+            line_text = str(line.get("text") or "")
+            if not line_text:
+                line_text = "".join(
+                    f"{str(word.get('text') or '')}{str(word.get('separator') or '')}"
+                    for word in (line.get("words") or [])
+                    if isinstance(word, dict)
+                )
+            if not _is_allowed_black_hole_text(line_text, target_language):
+                continue
+
+            bounding_box = line.get("bounding_box")
+            if not isinstance(bounding_box, dict):
+                continue
+            try:
+                center_x = float(bounding_box.get("center_x", 0.0)) * image_width
+                center_y = float(bounding_box.get("center_y", 0.0)) * image_height
+                width = float(bounding_box.get("width", 0.0)) * image_width
+                height = float(bounding_box.get("height", 0.0)) * image_height
+                rotation = float(bounding_box.get("rotation_z") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if width <= 0 or height <= 0:
+                continue
+
+            cos_rotation = abs(float(np.cos(rotation)))
+            sin_rotation = abs(float(np.sin(rotation)))
+            half_width = (width * cos_rotation + height * sin_rotation) / 2.0
+            half_height = (width * sin_rotation + height * cos_rotation) / 2.0
+            crop_coords.append(
+                (
+                    int(center_x - half_width) - crop_padding,
+                    int(center_y - half_height) - crop_padding,
+                    int(center_x + half_width) + crop_padding,
+                    int(center_y + half_height) + crop_padding,
+                    line_text,
+                )
+            )
+
+    return crop_coords
+
+
 def check_text_is_in_black_hole(
     crop_coords: tuple,
     crop_coords_list: list,
     crop_offset: tuple = None,
     crop_padding: int = 5,
+    raw_response_dict=None,
 ) -> bool:
     """
     Checks if any recognized text overlaps a black-hole OCR rectangle.
@@ -3453,11 +3538,9 @@ def check_text_is_in_black_hole(
 
     coords_to_check = []
     if crop_coords_list:
-        coords_to_check = crop_coords_list
+        coords_to_check = list(crop_coords_list)
     elif crop_coords:
         coords_to_check = [tuple(crop_coords) + ("",)]
-    if not coords_to_check:
-        return False
 
     if "obs_screenshot_thread" not in globals() or not obs_screenshot_thread:
         return False
@@ -3478,7 +3561,18 @@ def check_text_is_in_black_hole(
     if not black_hole_rectangles:
         return False
 
+    coords_to_check.extend(_get_unfiltered_ocr_crop_coords(raw_response_dict, crop_padding))
+    if not coords_to_check:
+        return False
+
+    target_language = _get_black_hole_target_language()
     for coord_entry in coords_to_check:
+        if (
+            len(coord_entry) >= 5
+            and coord_entry[4]
+            and not _is_allowed_black_hole_text(coord_entry[4], target_language)
+        ):
+            continue
         original_box = _coord_entry_to_original_box(coord_entry, crop_offset, crop_padding)
         if original_box is None:
             return False
@@ -3776,6 +3870,7 @@ def process_and_write_results(
                 detection_payload.get("crop_coords_list", []),
                 crop_offset=current_crop_offset,
                 crop_padding=detection_payload.get("crop_padding", 5),
+                raw_response_dict=raw_response_dict,
             ):
                 logger.opt(ansi=True).info(BLACK_HOLE_SKIP_LOG_MESSAGE)
                 if return_payload:
@@ -3857,6 +3952,7 @@ def process_and_write_results(
             crop_coords,
             crop_coords_list,
             crop_offset=current_crop_offset,
+            raw_response_dict=raw_response_dict,
         ):
             logger.opt(ansi=True).info(BLACK_HOLE_SKIP_LOG_MESSAGE)
             if return_payload:
