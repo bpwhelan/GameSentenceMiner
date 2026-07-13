@@ -5,6 +5,7 @@ import json
 import os
 import psutil
 import queue
+import re
 import shlex
 import shutil
 import socket
@@ -207,6 +208,83 @@ def _cleanup_obs_startup_artifacts(app_directory: str = None) -> None:
         ),
         "advanced-scene-switcher running file",
     )
+
+
+def _get_ini_value(text: str, section: str, key: str) -> Optional[str]:
+    section_match = re.search(rf"(?im)^\[{re.escape(section)}\][ \t]*\r?$", text)
+    if not section_match:
+        return None
+    body_start = section_match.end()
+    next_section = re.search(r"(?m)^\[[^\]\r\n]+\][ \t]*\r?$", text[body_start:])
+    body_end = body_start + next_section.start() if next_section else len(text)
+    key_match = re.search(
+        rf"(?im)^[ \t]*{re.escape(key)}[ \t]*=[ \t]*(?P<value>[^\r\n]*)",
+        text[body_start:body_end],
+    )
+    return key_match.group("value").strip() if key_match else None
+
+
+def _set_ini_value(text: str, section: str, key: str, value: str) -> tuple[str, bool]:
+    section_match = re.search(rf"(?im)^\[{re.escape(section)}\][ \t]*\r?$", text)
+    if not section_match:
+        newline = "\r\n" if "\r\n" in text else "\n"
+        separator = "" if not text or text.endswith(("\n", "\r")) else newline
+        return f"{text}{separator}[{section}]{newline}{key}={value}{newline}", True
+
+    body_start = section_match.end()
+    next_section = re.search(r"(?m)^\[[^\]\r\n]+\][ \t]*\r?$", text[body_start:])
+    body_end = body_start + next_section.start() if next_section else len(text)
+    body = text[body_start:body_end]
+    key_match = re.search(
+        rf"(?im)^(?P<prefix>[ \t]*{re.escape(key)}[ \t]*=[ \t]*)(?P<value>[^\r\n]*)",
+        body,
+    )
+    if key_match:
+        if key_match.group("value").strip().lower() == value.lower():
+            return text, False
+        updated_body = f"{body[: key_match.start('value')]}{value}{body[key_match.end('value') :]}"
+    else:
+        newline = "\r\n" if "\r\n" in text else "\n"
+        updated_body = f"{newline}{key}={value}{body}"
+    return f"{text[:body_start]}{updated_body}{text[body_end:]}", True
+
+
+def _ensure_portable_replay_buffer_enabled(config_override=None, obs_config_directory: str = None) -> bool:
+    """Enable replay buffering in the active portable OBS profile before launch."""
+    cfg = config_override or get_config()
+    if not getattr(cfg.obs, "replay_buffer_enabled", True) or getattr(cfg.obs, "disable_recording", False):
+        return True
+
+    config_dir = obs_config_directory or os.path.join(get_base_obs_dir(), "config", "obs-studio")
+    user_ini_path = os.path.join(config_dir, "user.ini")
+    try:
+        with open(user_ini_path, "r", encoding="utf-8-sig") as user_ini_file:
+            user_ini = user_ini_file.read()
+        profile_dir_name = _get_ini_value(user_ini, "Basic", "ProfileDir")
+        if not profile_dir_name:
+            logger.warning("Could not ensure OBS replay buffer is enabled: active profile directory was not found.")
+            return False
+
+        profiles_root = os.path.realpath(os.path.join(config_dir, "basic", "profiles"))
+        profile_path = os.path.realpath(os.path.join(profiles_root, profile_dir_name))
+        if os.path.commonpath((profiles_root, profile_path)) != profiles_root:
+            logger.warning("Could not ensure OBS replay buffer is enabled: invalid active profile directory.")
+            return False
+
+        basic_ini_path = os.path.join(profile_path, "basic.ini")
+        with open(basic_ini_path, "r", encoding="utf-8-sig") as basic_ini_file:
+            basic_ini = basic_ini_file.read()
+        output_mode = _get_ini_value(basic_ini, "Output", "Mode") or "Simple"
+        output_section = "SimpleOutput" if output_mode == "Simple" else "AdvOut"
+        updated_ini, changed = _set_ini_value(basic_ini, output_section, "RecRB", "true")
+        if changed:
+            with open(basic_ini_path, "w", encoding="utf-8") as basic_ini_file:
+                basic_ini_file.write(updated_ini)
+            logger.info(f"Enabled OBS Replay Buffer in startup profile '{profile_dir_name}'.")
+        return True
+    except (OSError, UnicodeError) as e:
+        logger.warning(f"Could not ensure OBS replay buffer is enabled before launch: {e}")
+        return False
 
 
 def _build_obs_launch_command(base_cmd: list[str], config_override=None) -> list[str]:

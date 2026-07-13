@@ -541,6 +541,14 @@
           "turn_off_replay_buffer_management": {
             "label": "关闭回放缓冲区管理:",
             "tooltip": "禁用 OBS 回放缓冲区管理。如果您想在 OBS 中手动管理回放缓冲区，这将很有用。"
+          },
+          "replay_buffer_duration": {
+            "label": "回放缓冲区时长（秒）:",
+            "tooltip": "设置 OBS 的最大回放时长。GSM 会通过 OBS WebSocket 应用此设置，并在需要时重启正在运行的缓冲区。"
+          },
+          "replay_buffer_enabled": {
+            "label": "确保启用回放缓冲区:",
+            "tooltip": "GSM 启动时会检查当前 OBS 配置文件，并在需要时启用回放缓冲区。关闭此选项不会在 OBS 中禁用它。"
           }
         },
         "profiles": {

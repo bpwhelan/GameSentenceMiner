@@ -83,8 +83,16 @@ def build_obs_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     layout.addRow(window.obs_recording_fps_warning_label)
     window._update_obs_recording_fps_warning()
     layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "obs", "replay_buffer_enabled", color=LabelColor.RECOMMENDED),
+        window.obs_replay_buffer_enabled_check,
+    )
+    layout.addRow(
         window._create_labeled_widget(tabs_i18n, "obs", "auto_manage_replay_buffer", color=LabelColor.RECOMMENDED),
         window.automatically_manage_replay_buffer_check,
+    )
+    layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "obs", "replay_buffer_duration"),
+        window.obs_replay_buffer_duration_spin,
     )
 
     layout.addRow(window._create_reset_button("obs", window._create_obs_tab))

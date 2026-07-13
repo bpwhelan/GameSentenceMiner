@@ -191,25 +191,42 @@ def get_replay_buffer_max_time_seconds(client: obs.ReqClient, name="Replay Buffe
     return _get_replay_buffer_max_time_seconds_from_client(client, name=name)
 
 
-@with_obs_client(default=False, error_msg="Error enabling replay buffer")
-def enable_replay_buffer(client: obs.ReqClient):
-    response = client.set_output_settings(
-        name="Replay Buffer",
-        settings={
-            "outputFlags": {
-                "OBS_OUTPUT_AUDIO": True,
-                "OBS_OUTPUT_ENCODED": True,
-                "OBS_OUTPUT_MULTI_TRACK": True,
-                "OBS_OUTPUT_SERVICE": False,
-                "OBS_OUTPUT_VIDEO": True,
-            }
-        },
-    )
-    if response and response.ok:
-        logger.info("Replay buffer enabled.")
+@with_obs_client(default=False, error_msg="Error ensuring replay buffer is enabled")
+def ensure_replay_buffer_enabled(client: obs.ReqClient, config_override=None):
+    """Ensure the active OBS profile permits creation of the replay-buffer output."""
+    cfg = config_override or get_config()
+    if not getattr(cfg.obs, "replay_buffer_enabled", True) or _is_obs_recording_disabled(
+        config_override=config_override
+    ):
         return True
-    logger.error(f"Failed to enable replay buffer: {response.status if response else 'No response'}")
-    return False
+
+    mode_response = client.get_profile_parameter(category="Output", name="Mode")
+    output_mode = getattr(mode_response, "parameter_value", "Simple") or "Simple"
+    profile_category = "SimpleOutput" if output_mode == "Simple" else "AdvOut"
+    enabled_response = client.get_profile_parameter(category=profile_category, name="RecRB")
+    enabled = str(getattr(enabled_response, "parameter_value", "false") or "false").strip().lower() == "true"
+    if enabled:
+        return True
+
+    client.set_profile_parameter(category=profile_category, name="RecRB", value="true")
+    verified_response = client.get_profile_parameter(category=profile_category, name="RecRB")
+    verified = str(getattr(verified_response, "parameter_value", "false") or "false").strip().lower() == "true"
+    if not verified:
+        logger.warning("OBS did not retain the Replay Buffer enabled profile setting.")
+        return False
+
+    output_response = client.get_output_list()
+    outputs = output_response.outputs if output_response else []
+    replay_available = any(output.get("outputKind") == "replay_buffer" for output in outputs)
+    if replay_available:
+        logger.info("Enabled OBS Replay Buffer in the active profile.")
+    else:
+        logger.info("Enabled OBS Replay Buffer in the active profile; OBS must restart before it becomes available.")
+    return True
+
+
+# Backward-compatible public name; this now changes the real OBS profile setting.
+enable_replay_buffer = ensure_replay_buffer_enabled
 
 
 @with_obs_client(default=None, error_msg="Error getting output list")
@@ -238,6 +255,102 @@ def get_replay_buffer_output(client: Optional[obs.ReqClient] = None):
         if output.get("outputKind") == "replay_buffer":
             return output
     return None
+
+
+def _clamp_replay_buffer_duration_seconds(value: int) -> int:
+    try:
+        return max(1, min(86400, int(value)))
+    except (TypeError, ValueError):
+        return 300
+
+
+@with_obs_client(default=False, error_msg="Error applying OBS replay buffer duration")
+def apply_replay_buffer_duration(client: obs.ReqClient, config_override=None):
+    """Apply GSM's configured replay duration to OBS, preserving active state."""
+    import GameSentenceMiner.obs as _obs_pkg
+
+    if _is_obs_recording_disabled(config_override=config_override):
+        logger.info("Skipped OBS replay buffer duration apply because recording/replay is disabled in GSM settings.")
+        return True
+
+    cfg = config_override or get_config()
+    target_seconds = _clamp_replay_buffer_duration_seconds(getattr(cfg.obs, "replay_buffer_duration_seconds", 300))
+
+    response = client.get_output_list()
+    outputs = response.outputs if response else []
+    replay_output = next((output for output in outputs if output.get("outputKind") == "replay_buffer"), None)
+    if not replay_output:
+        logger.warning("Could not update OBS replay buffer duration: Replay Buffer output was not found.")
+        return False
+
+    output_name = replay_output.get("outputName") or "Replay Buffer"
+    current_response = client.get_output_settings(name=output_name)
+    current_settings = current_response.output_settings if current_response else {}
+    current_seconds = current_settings.get("max_time_sec") if current_settings else None
+
+    mode_response = client.get_profile_parameter(category="Output", name="Mode")
+    output_mode = getattr(mode_response, "parameter_value", "Simple") or "Simple"
+    profile_category = "SimpleOutput" if output_mode == "Simple" else "AdvOut"
+    profile_response = client.get_profile_parameter(category=profile_category, name="RecRBTime")
+    try:
+        profile_seconds = int(getattr(profile_response, "parameter_value", 0) or 0)
+    except (TypeError, ValueError):
+        profile_seconds = 0
+
+    if current_seconds == target_seconds and profile_seconds == target_seconds:
+        gsm_state.replay_buffer_length = target_seconds
+        return True
+
+    try:
+        replay_status = client.get_replay_buffer_status()
+        replay_was_active = bool(getattr(replay_status, "output_active", False))
+    except Exception:
+        replay_was_active = False
+
+    svc = _obs_pkg.obs_service
+    update_succeeded = False
+    try:
+        if replay_was_active:
+            if svc:
+                svc.mark_replay_buffer_action(False)
+            client.stop_replay_buffer()
+            gsm_state.replay_buffer_stopped_timestamp = time.time()
+            time.sleep(2)
+
+        client.set_profile_parameter(category=profile_category, name="RecRBTime", value=str(target_seconds))
+        client.set_output_settings(name=output_name, settings={"max_time_sec": target_seconds})
+        applied_response = client.get_output_settings(name=output_name)
+        applied_settings = applied_response.output_settings if applied_response else {}
+        applied_seconds = applied_settings.get("max_time_sec") if applied_settings else None
+        applied_profile_response = client.get_profile_parameter(category=profile_category, name="RecRBTime")
+        try:
+            applied_profile_seconds = int(getattr(applied_profile_response, "parameter_value", 0) or 0)
+        except (TypeError, ValueError):
+            applied_profile_seconds = 0
+        if applied_seconds != target_seconds or applied_profile_seconds != target_seconds:
+            logger.warning(
+                "OBS replay buffer duration verification failed: "
+                f"requested {target_seconds}, got output={applied_seconds}, profile={applied_profile_seconds}."
+            )
+            return False
+
+        gsm_state.replay_buffer_length = target_seconds
+        if svc:
+            svc._no_output_shutdown_seconds = min(target_seconds * 1.10, 1800)
+        logger.info(f"Applied OBS replay buffer duration: {target_seconds} seconds")
+        update_succeeded = True
+        return True
+    finally:
+        if replay_was_active:
+            try:
+                if svc:
+                    svc.mark_replay_buffer_action(True)
+                client.start_replay_buffer()
+                gsm_state.replay_buffer_stopped_timestamp = None
+            except Exception as e:
+                logger.warning(f"Failed to restart replay buffer after duration update: {e}")
+                if update_succeeded:
+                    logger.warning("Replay buffer duration was updated, but the buffer must be restarted manually.")
 
 
 # ---------------------------------------------------------------------------
@@ -1015,7 +1128,9 @@ def apply_recording_fps(client: obs.ReqClient, config_override=None):
 
 def apply_obs_performance_settings(config_override=None):
     cfg = config_override or get_config()
+    ensure_replay_buffer_enabled(config_override=cfg)
     apply_recording_fps(config_override=cfg)
+    apply_replay_buffer_duration(config_override=cfg)
     if getattr(cfg.obs, "disable_desktop_audio_on_connect", False):
         disable_desktop_audio()
 

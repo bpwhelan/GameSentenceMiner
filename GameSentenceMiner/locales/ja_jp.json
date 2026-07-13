@@ -540,6 +540,14 @@
             "turn_off_replay_buffer_management": {
             "label": "リプレイバッファ管理を無効化:",
             "tooltip": "OBSリプレイバッファの管理を無効化します。OBSでリプレイバッファを手動で管理したい場合に便利です。"
+            },
+            "replay_buffer_duration": {
+            "label": "リプレイバッファの長さ（秒）:",
+            "tooltip": "OBSの最大リプレイ時間を設定します。GSMがOBS WebSocket経由で適用し、必要に応じて実行中のバッファを再起動します。"
+            },
+            "replay_buffer_enabled": {
+            "label": "リプレイバッファを有効にする:",
+            "tooltip": "起動時にGSMがOBSのアクティブプロファイルを確認し、必要ならリプレイバッファを有効にします。この項目をオフにしてもOBS側では無効になりません。"
             }
         },
         "profiles": {

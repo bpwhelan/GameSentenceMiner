@@ -925,6 +925,149 @@ def test_toggle_replay_buffer_does_not_retry_non_idempotent_calls(monkeypatch):
     assert logger_errors
 
 
+def test_apply_replay_buffer_duration_updates_obs_and_runtime_state(monkeypatch):
+    set_calls = []
+    observed_settings = {"max_time_sec": 300}
+    profile_settings = {"RecRBTime": "300"}
+
+    class _FakeClient:
+        def get_output_list(self):
+            return SimpleNamespace(outputs=[{"outputKind": "replay_buffer", "outputName": "Replay Buffer"}])
+
+        def get_output_settings(self, name):
+            assert name == "Replay Buffer"
+            return SimpleNamespace(output_settings=dict(observed_settings))
+
+        def get_replay_buffer_status(self):
+            return SimpleNamespace(output_active=False)
+
+        def get_profile_parameter(self, category, name):
+            if (category, name) == ("Output", "Mode"):
+                return SimpleNamespace(parameter_value="Simple")
+            return SimpleNamespace(parameter_value=profile_settings[name])
+
+        def set_profile_parameter(self, category, name, value):
+            set_calls.append((category, name, value))
+            profile_settings[name] = value
+
+        def set_output_settings(self, name, settings):
+            set_calls.append((name, settings))
+            observed_settings.update(settings)
+
+    class _FakePool:
+        def call(self, operation, retries=0, retryable=True):
+            return operation(_FakeClient())
+
+    config = SimpleNamespace(
+        obs=SimpleNamespace(
+            disable_recording=False,
+            replay_buffer_duration_seconds=420,
+        )
+    )
+    monkeypatch.setattr(obs_module, "connection_pool", _FakePool())
+
+    assert obs_actions_module.apply_replay_buffer_duration(config_override=config) is True
+    assert set_calls == [
+        ("SimpleOutput", "RecRBTime", "420"),
+        ("Replay Buffer", {"max_time_sec": 420}),
+    ]
+    assert obs_module.gsm_state.replay_buffer_length == 420
+
+
+def test_ensure_replay_buffer_enabled_sets_active_profile_parameter(monkeypatch):
+    calls = []
+    enabled = {"value": "false"}
+
+    class _FakeClient:
+        def get_profile_parameter(self, category, name):
+            if (category, name) == ("Output", "Mode"):
+                return SimpleNamespace(parameter_value="Simple")
+            return SimpleNamespace(parameter_value=enabled["value"])
+
+        def set_profile_parameter(self, category, name, value):
+            calls.append((category, name, value))
+            enabled["value"] = value
+
+        def get_output_list(self):
+            return SimpleNamespace(outputs=[])
+
+    class _FakePool:
+        def call(self, operation, retries=0, retryable=True):
+            return operation(_FakeClient())
+
+    config = SimpleNamespace(
+        obs=SimpleNamespace(
+            disable_recording=False,
+            replay_buffer_enabled=True,
+        )
+    )
+    monkeypatch.setattr(obs_module, "connection_pool", _FakePool())
+
+    assert obs_actions_module.ensure_replay_buffer_enabled(config_override=config) is True
+    assert calls == [("SimpleOutput", "RecRB", "true")]
+
+
+def test_apply_replay_buffer_duration_restarts_active_buffer(monkeypatch):
+    calls = []
+    observed_settings = {"max_time_sec": 300}
+    profile_settings = {"RecRBTime": "300"}
+
+    class _FakeClient:
+        def get_output_list(self):
+            return SimpleNamespace(outputs=[{"outputKind": "replay_buffer", "outputName": "Replay Buffer"}])
+
+        def get_output_settings(self, name):
+            return SimpleNamespace(output_settings=dict(observed_settings))
+
+        def get_replay_buffer_status(self):
+            return SimpleNamespace(output_active=True)
+
+        def get_profile_parameter(self, category, name):
+            if (category, name) == ("Output", "Mode"):
+                return SimpleNamespace(parameter_value="Simple")
+            return SimpleNamespace(parameter_value=profile_settings[name])
+
+        def set_profile_parameter(self, category, name, value):
+            calls.append(("set_profile", category, name, value))
+            profile_settings[name] = value
+
+        def stop_replay_buffer(self):
+            calls.append("stop")
+
+        def set_output_settings(self, name, settings):
+            calls.append(("set", name, settings))
+            observed_settings.update(settings)
+
+        def start_replay_buffer(self):
+            calls.append("start")
+
+    class _FakePool:
+        def call(self, operation, retries=0, retryable=True):
+            return operation(_FakeClient())
+
+    config = SimpleNamespace(
+        obs=SimpleNamespace(
+            disable_recording=False,
+            replay_buffer_duration_seconds=180,
+        )
+    )
+    fake_service = SimpleNamespace(mark_replay_buffer_action=lambda active: calls.append(("mark", active)))
+    monkeypatch.setattr(obs_module, "connection_pool", _FakePool())
+    monkeypatch.setattr(obs_module, "obs_service", fake_service)
+    monkeypatch.setattr(obs_module.gsm_status, "obs_connected", True, raising=False)
+    monkeypatch.setattr(obs_actions_module.time, "sleep", lambda _seconds: None)
+
+    assert obs_actions_module.apply_replay_buffer_duration(config_override=config) is True
+    assert calls == [
+        ("mark", False),
+        "stop",
+        ("set_profile", "SimpleOutput", "RecRBTime", "180"),
+        ("set", "Replay Buffer", {"max_time_sec": 180}),
+        ("mark", True),
+        "start",
+    ]
+
+
 def test_obs_connection_manager_refreshes_existing_service_on_recovery(monkeypatch):
     manager = obs_module.OBSConnectionManager(check_output=False)
     refresh_calls = []

@@ -563,6 +563,14 @@
           "auto_manage_replay_buffer": {
             "label": "Auto-Manage Replay Buffer:",
             "tooltip": "Automatically start/stop OBS replay buffer management."
+          },
+          "replay_buffer_enabled": {
+            "label": "Ensure Replay Buffer Enabled:",
+            "tooltip": "When enabled, GSM checks the active OBS profile at startup and enables the Replay Buffer setting if needed. Turning this off does not disable it in OBS."
+          },
+          "replay_buffer_duration": {
+            "label": "Replay Buffer Duration (seconds):",
+            "tooltip": "Set the maximum replay duration in OBS. GSM applies this through OBS WebSocket and restarts an active replay buffer when needed."
           }
         },
         "profiles": {

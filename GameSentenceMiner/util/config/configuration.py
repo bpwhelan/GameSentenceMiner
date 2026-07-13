@@ -1131,6 +1131,8 @@ class OBS:
     allow_automatic_updates: bool = False
     disable_recording: bool = False
     automatically_manage_replay_buffer: bool = True
+    replay_buffer_enabled: bool = True
+    replay_buffer_duration_seconds: int = 300
     host: str = "127.0.0.1"
     port: int = 7274
     password: str = "your_password"
@@ -1143,6 +1145,7 @@ class OBS:
         # Force get_game_from_scene to be True
         self.get_game_from_scene = True
         self.recording_fps = max(1, min(120, int(self.recording_fps or 15)))
+        self.replay_buffer_duration_seconds = max(1, min(86400, int(self.replay_buffer_duration_seconds or 300)))
         if not self.obs_path:
             if is_windows():
                 self.obs_path = os.path.join(get_app_directory(), "obs-studio/bin/64bit/obs64.exe")

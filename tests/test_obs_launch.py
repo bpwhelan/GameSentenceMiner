@@ -49,6 +49,56 @@ def test_build_obs_launch_command_can_allow_obs_updates() -> None:
     assert "--startreplaybuffer" not in obs_cmd
 
 
+def test_ensure_portable_replay_buffer_enabled_updates_active_profile(tmp_path) -> None:
+    obs_config_dir = tmp_path / "config" / "obs-studio"
+    profile_dir = obs_config_dir / "basic" / "profiles" / "Test Profile"
+    profile_dir.mkdir(parents=True)
+    (obs_config_dir / "user.ini").write_text(
+        "[Basic]\nProfileDir=Test Profile\n",
+        encoding="utf-8",
+    )
+    basic_ini = profile_dir / "basic.ini"
+    basic_ini.write_text(
+        "[Output]\nMode=Simple\n\n[SimpleOutput]\nRecRB=false\nRecRBTime=300\n",
+        encoding="utf-8",
+    )
+    config = SimpleNamespace(obs=SimpleNamespace(replay_buffer_enabled=True, disable_recording=False))
+
+    assert (
+        obs_module._ensure_portable_replay_buffer_enabled(
+            config_override=config,
+            obs_config_directory=str(obs_config_dir),
+        )
+        is True
+    )
+    assert "RecRB=true" in basic_ini.read_text(encoding="utf-8")
+
+
+def test_ensure_portable_replay_buffer_enabled_leaves_profile_alone_when_disabled(tmp_path) -> None:
+    obs_config_dir = tmp_path / "config" / "obs-studio"
+    profile_dir = obs_config_dir / "basic" / "profiles" / "Test Profile"
+    profile_dir.mkdir(parents=True)
+    (obs_config_dir / "user.ini").write_text(
+        "[Basic]\nProfileDir=Test Profile\n",
+        encoding="utf-8",
+    )
+    basic_ini = profile_dir / "basic.ini"
+    basic_ini.write_text(
+        "[Output]\nMode=Simple\n\n[SimpleOutput]\nRecRB=false\n",
+        encoding="utf-8",
+    )
+    config = SimpleNamespace(obs=SimpleNamespace(replay_buffer_enabled=False, disable_recording=False))
+
+    assert (
+        obs_module._ensure_portable_replay_buffer_enabled(
+            config_override=config,
+            obs_config_directory=str(obs_config_dir),
+        )
+        is True
+    )
+    assert "RecRB=false" in basic_ini.read_text(encoding="utf-8")
+
+
 def test_should_skip_image_validation_for_all_helper_source_names() -> None:
     for source_name in (
         "window_getter",

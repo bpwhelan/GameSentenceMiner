@@ -549,6 +549,14 @@
           "turn_off_replay_buffer_management": {
             "label": "Desactivar Gestión de Búfer de Repetición:",
             "tooltip": "Deshabilitar la Gestión del Búfer de Repetición de OBS. Esto es útil si desea administrar manualmente el búfer de repetición en OBS."
+          },
+          "replay_buffer_duration": {
+            "label": "Duración del Búfer de Repetición (segundos):",
+            "tooltip": "Establece la duración máxima de repetición en OBS. GSM la aplica mediante OBS WebSocket y reinicia el búfer si está activo."
+          },
+          "replay_buffer_enabled": {
+            "label": "Garantizar que el Búfer de Repetición esté Habilitado:",
+            "tooltip": "GSM comprueba el perfil activo de OBS al iniciar y habilita el búfer si es necesario. Desactivar esta opción no lo deshabilita en OBS."
           }
         },
         "profiles": {
