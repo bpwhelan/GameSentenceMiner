@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import tempfile
 import types
 import uuid
 from pathlib import Path
@@ -30,6 +31,9 @@ os.environ["TMP"] = str(_TMP)
 os.environ["TEMP"] = str(_TMP)
 os.environ["TMPDIR"] = str(_TMP)
 os.environ.setdefault("GAME_SENTENCE_MINER_TESTING", "1")
+os.environ["GSM_TEST_DATA_ROOT"] = str(_TEST_ROOT)
+os.environ["GSM_DISABLE_DB_BACKUP"] = "1"
+tempfile.tempdir = str(_TMP)
 
 # ---------------------------------------------------------------------------
 # Stub out the ``keyboard`` package which fatally aborts on macOS when imported

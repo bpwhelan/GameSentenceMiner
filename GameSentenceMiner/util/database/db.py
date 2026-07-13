@@ -121,9 +121,22 @@ class SQLiteDB:
     Supports optional read-only mode.
     """
 
-    def __init__(self, db_path: str, read_only: bool = False):
+    def __init__(self, db_path: str, read_only: bool = False, force_gameline_protection: bool = False):
         self.db_path = db_path
         self.read_only = read_only
+        testing_process = os.environ.get("GAME_SENTENCE_MINER_TESTING", "0") == "1" or "pytest" in sys.modules
+        test_data_root = os.environ.get("GSM_TEST_DATA_ROOT", "").strip()
+        is_isolated_test_database = (
+            testing_process and bool(test_data_root) and self._path_is_within(db_path, test_data_root)
+        )
+        external_read_allowed = read_only and os.environ.get("GSM_ALLOW_TEST_EXTERNAL_DB_READ_ONLY", "0") == "1"
+        if testing_process and db_path != ":memory:" and not is_isolated_test_database and not external_read_allowed:
+            raise RuntimeError(f"Refusing to open database outside GSM_TEST_DATA_ROOT from a test process: {db_path}")
+        self._allow_destructive_gameline_operations = not force_gameline_protection and (
+            db_path == ":memory:"
+            or is_isolated_test_database
+            or os.environ.get("GSM_ALLOW_DESTRUCTIVE_DB_OPERATIONS", "0") == "1"
+        )
         self._resolved_uri, self._uri_mode = self._resolve_connection_target(db_path, read_only)
 
         # Per-thread read connections (WAL → concurrent with the writer).
@@ -156,6 +169,17 @@ class SQLiteDB:
         if read_only:
             return f"file:{db_path}?mode=ro", True
         return db_path, False
+
+    @staticmethod
+    def _path_is_within(path: str, root: str) -> bool:
+        if not path or not root:
+            return False
+        try:
+            normalized_path = os.path.normcase(os.path.abspath(path))
+            normalized_root = os.path.normcase(os.path.abspath(root))
+            return os.path.commonpath((normalized_path, normalized_root)) == normalized_root
+        except (OSError, ValueError):
+            return False
 
     def _create_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._resolved_uri, uri=self._uri_mode, check_same_thread=False)
@@ -364,6 +388,7 @@ class SQLiteDB:
         priority: int = DB_PRIORITY_NORMAL,
         wait: bool = True,
     ):
+        self._assert_safe_gameline_query(query)
         if self.read_only and commit:
             raise RuntimeError("Cannot commit changes in read-only mode.")
 
@@ -393,6 +418,30 @@ class SQLiteDB:
 
         return self._submit_and_maybe_wait(op, priority, wait)
 
+    def _assert_safe_gameline_query(self, query: str) -> None:
+        """Block accidental full-table gameline destruction on persistent databases."""
+        if self._allow_destructive_gameline_operations:
+            return
+
+        normalized = " ".join(str(query).strip().rstrip(";").split()).lower()
+        normalized = normalized.translate(str.maketrans("", "", '"`[]'))
+        if normalized in {"delete from game_lines", "delete from main.game_lines"}:
+            raise RuntimeError(
+                "Refusing to clear the entire game_lines table in a persistent database. "
+                "Use a scoped DELETE with a WHERE clause. For intentional maintenance only, "
+                "set GSM_ALLOW_DESTRUCTIVE_DB_OPERATIONS=1."
+            )
+        if normalized in {
+            "drop table game_lines",
+            "drop table if exists game_lines",
+            "drop table main.game_lines",
+            "drop table if exists main.game_lines",
+        }:
+            raise RuntimeError(
+                "Refusing to drop the game_lines table in a persistent database. "
+                "For intentional maintenance only, set GSM_ALLOW_DESTRUCTIVE_DB_OPERATIONS=1."
+            )
+
     def executemany(
         self,
         query: str,
@@ -401,6 +450,7 @@ class SQLiteDB:
         priority: int = DB_PRIORITY_NORMAL,
         wait: bool = True,
     ):
+        self._assert_safe_gameline_query(query)
         if self.read_only and commit:
             raise RuntimeError("Cannot commit changes in read-only mode.")
 
@@ -1756,11 +1806,19 @@ class GoalsTable(SQLiteDBTable):
 
 # Ensure database directory exists and return path
 def get_db_directory(test=False, delete_test=False) -> str:
-    if platform == "win32":  # Windows
-        appdata_dir = os.getenv("APPDATA")
-    else:  # macOS and Linux
-        appdata_dir = os.path.expanduser("~/.config")
-    config_dir = os.path.join(appdata_dir, "GameSentenceMiner")
+    testing_mode = os.environ.get("GAME_SENTENCE_MINER_TESTING", "0") == "1" or "pytest" in sys.modules
+    if testing_mode:
+        test_data_root = os.environ.get("GSM_TEST_DATA_ROOT", "").strip()
+        if not test_data_root:
+            raise RuntimeError("GSM_TEST_DATA_ROOT must be set while GAME_SENTENCE_MINER_TESTING=1")
+        config_dir = os.path.join(test_data_root, "database")
+        test = True
+    else:
+        if platform == "win32":  # Windows
+            appdata_dir = os.getenv("APPDATA")
+        else:  # macOS and Linux
+            appdata_dir = os.path.expanduser("~/.config")
+        config_dir = os.path.join(appdata_dir, "GameSentenceMiner")
     # Create the directory if it doesn't exist
     os.makedirs(config_dir, exist_ok=True)
     path = os.path.join(config_dir, "gsm.db" if not test else "gsm_test.db")

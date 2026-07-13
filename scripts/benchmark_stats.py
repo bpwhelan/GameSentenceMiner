@@ -253,6 +253,8 @@ def _configure_bootstrap_environment(bootstrap_root: Path) -> None:
     os.environ["TEMP"] = str(tmp_root)
     os.environ["TMPDIR"] = str(tmp_root)
     os.environ["GAME_SENTENCE_MINER_TESTING"] = "1"
+    os.environ["GSM_TEST_DATA_ROOT"] = str(bootstrap_root)
+    os.environ["GSM_ALLOW_TEST_EXTERNAL_DB_READ_ONLY"] = "1"
     # The bootstrap DB must stay writable; the benchmark DB itself is rebound read-only.
     os.environ["GSM_DB_READ_ONLY"] = "0"
 

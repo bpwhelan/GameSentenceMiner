@@ -5,14 +5,17 @@ import gzip
 import sqlite3
 import tempfile
 import threading
-import time
 from datetime import datetime
+from pathlib import Path
+
+import pytest
 
 from GameSentenceMiner.util.database import db as db_module
 from GameSentenceMiner.util.database.db import (
     AIModelsTable,
     SQLiteDB,
     backup_db,
+    get_db_directory,
     schedule_database_backup,
     sync_tokenization_schema_state,
 )
@@ -124,6 +127,64 @@ def test_writes_from_multiple_threads_serialize_through_the_writer():
         os.unlink(path)
 
 
+def test_persistent_database_rejects_unscoped_gameline_wipes(monkeypatch, tmp_path):
+    monkeypatch.setenv("GAME_SENTENCE_MINER_TESTING", "1")
+    test_root = tmp_path / "isolated-tests"
+    monkeypatch.setenv("GSM_TEST_DATA_ROOT", str(test_root))
+    monkeypatch.delenv("GSM_ALLOW_DESTRUCTIVE_DB_OPERATIONS", raising=False)
+    path = test_root / "persistent" / "persistent.db"
+    path.parent.mkdir(parents=True)
+    db = SQLiteDB(str(path), force_gameline_protection=True)
+
+    try:
+        db.execute("CREATE TABLE game_lines (id TEXT PRIMARY KEY)", commit=True)
+        db.execute("INSERT INTO game_lines (id) VALUES (?)", ("keep-me",), commit=True)
+
+        with pytest.raises(RuntimeError, match="Refusing to clear the entire game_lines table"):
+            db.execute("DELETE FROM game_lines", commit=True)
+
+        with pytest.raises(RuntimeError, match="Refusing to drop the game_lines table"):
+            db.execute("DROP TABLE IF EXISTS game_lines", commit=True)
+
+        assert db.fetchone("SELECT id FROM game_lines") == ("keep-me",)
+
+        db.execute("DELETE FROM game_lines WHERE id = ?", ("keep-me",), commit=True)
+        assert db.fetchone("SELECT COUNT(*) FROM game_lines") == (0,)
+    finally:
+        db.close()
+
+
+def test_pytest_process_refuses_database_outside_isolated_root(monkeypatch, tmp_path):
+    test_root = tmp_path / "isolated-tests"
+    external_path = tmp_path / "production" / "gsm.db"
+    monkeypatch.setenv("GAME_SENTENCE_MINER_TESTING", "1")
+    monkeypatch.setenv("GSM_TEST_DATA_ROOT", str(test_root))
+
+    with pytest.raises(RuntimeError, match="outside GSM_TEST_DATA_ROOT"):
+        SQLiteDB(str(external_path))
+
+    assert not external_path.exists()
+
+
+def test_testing_database_path_is_separate_from_production(monkeypatch, tmp_path):
+    test_root = tmp_path / "isolated-tests"
+    monkeypatch.setenv("GAME_SENTENCE_MINER_TESTING", "1")
+    monkeypatch.setenv("GSM_TEST_DATA_ROOT", str(test_root))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "production-appdata"))
+
+    path = get_db_directory()
+
+    assert Path(path) == test_root / "database" / "gsm_test.db"
+
+
+def test_pytest_module_database_is_inside_the_isolated_test_root():
+    test_root = Path(os.environ["GSM_TEST_DATA_ROOT"]).resolve()
+    active_db_path = Path(db_module.db_path).resolve()
+
+    assert active_db_path.is_relative_to(test_root)
+    assert active_db_path.name == "gsm_test.db"
+
+
 def test_backup_db_uses_online_snapshot_that_includes_wal_changes(tmp_path):
     db_path = tmp_path / "wal-source.db"
     restored_path = tmp_path / "restored.db"
@@ -208,6 +269,7 @@ def test_backup_db_prunes_expired_daily_backups(tmp_path):
 
 
 def test_schedule_database_backup_runs_on_daemon_thread_without_waiting(tmp_path, monkeypatch):
+    monkeypatch.delenv("GSM_DISABLE_DB_BACKUP", raising=False)
     db_path = tmp_path / "source.db"
     sqlite3.connect(db_path).close()
     backup_started = threading.Event()
