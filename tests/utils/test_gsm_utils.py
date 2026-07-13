@@ -119,6 +119,18 @@ def test_combine_dialogue_single_line_no_separator():
     assert gsm_utils.combine_dialogue(["plain line"]) == ["plain line"]
 
 
+def test_combine_dialogue_multiple_plain_lines_preserves_line_breaks(stub_config):
+    lines = ["first plain line", "second plain line"]
+
+    assert gsm_utils.combine_dialogue(lines) == ["first plain line|", "second plain line"]
+
+
+def test_combine_dialogue_plain_line_followed_by_character_dialogue(stub_config):
+    lines = ["plain narration", "キャラA「spoken line」"]
+
+    assert gsm_utils.combine_dialogue(lines) == ["plain narration|", "キャラA「spoken line」"]
+
+
 def test_combine_dialogue_merges_lines(stub_config):
     lines = ["キャラA「first」", "キャラA「second」", "キャラB「other」"]
     result = gsm_utils.combine_dialogue(lines)

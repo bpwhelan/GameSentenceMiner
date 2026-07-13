@@ -106,32 +106,34 @@ def remove_html_and_cloze_tags(text):
 
 
 def combine_dialogue(dialogue_lines, new_lines=None):
-    if not dialogue_lines:  # Handle empty input
-        return []
-
     if new_lines is None:
         new_lines = []
 
-    if len(dialogue_lines) == 1 and "「" not in dialogue_lines[0]:
-        new_lines.append(dialogue_lines[0])
+    if not dialogue_lines:
         return new_lines
 
-    character_name = dialogue_lines[0].split("「")[0]
-    text = character_name + "「"
+    line_break = get_config().advanced.multi_line_line_break
+    line_index = 0
+    while line_index < len(dialogue_lines):
+        line = dialogue_lines[line_index]
+        if "「" not in line:
+            suffix = line_break if line_index < len(dialogue_lines) - 1 else ""
+            new_lines.append(line + suffix)
+            line_index += 1
+            continue
 
-    for i, line in enumerate(dialogue_lines):
-        if not line.startswith(character_name + "「"):
-            text = text + "」" + get_config().advanced.multi_line_line_break
-            new_lines.append(text)
-            new_lines.extend(combine_dialogue(dialogue_lines[i:]))
-            break
-        else:
-            text += (
-                (get_config().advanced.multi_line_line_break if i > 0 else "") + line.split("「")[1].rstrip("」") + ""
-            )
-    else:
-        text = text + "」"
-        new_lines.append(text)
+        character_name, dialogue_text = line.split("「", 1)
+        dialogue_parts = [dialogue_text.rstrip("」")]
+        line_index += 1
+        dialogue_prefix = character_name + "「"
+        while line_index < len(dialogue_lines) and dialogue_lines[line_index].startswith(dialogue_prefix):
+            dialogue_parts.append(dialogue_lines[line_index].split("「", 1)[1].rstrip("」"))
+            line_index += 1
+
+        combined = character_name + "「" + line_break.join(dialogue_parts) + "」"
+        if line_index < len(dialogue_lines):
+            combined += line_break
+        new_lines.append(combined)
 
     return new_lines
 

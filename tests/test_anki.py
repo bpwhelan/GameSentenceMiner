@@ -557,6 +557,37 @@ def test_queue_card_for_processing_translates_matched_line_instead_of_raw_ocr_bl
     assert anki.card_queue[-1][7] is translation_future
 
 
+def test_queue_card_for_processing_prefetches_multiple_plain_selected_lines(monkeypatch):
+    cfg = _base_config()
+    cfg.ai.add_to_anki = True
+    cfg.advanced = SimpleNamespace(multi_line_line_break="<br>")
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki.obs, "save_replay_buffer", lambda: None)
+    monkeypatch.setattr(
+        anki,
+        "_get_texthooking_page_module",
+        lambda: SimpleNamespace(reset_checked_lines=lambda: None),
+    )
+
+    submitted = []
+
+    class RecordingExecutor:
+        def submit(self, func, *args):
+            submitted.append((func, args))
+            return object()
+
+    monkeypatch.setattr(anki, "translation_prefetch_executor", RecordingExecutor())
+
+    first_line = SimpleNamespace(id="line-1", text="first plain line")
+    second_line = SimpleNamespace(id="line-2", text="second plain line")
+    card = SimpleNamespace(noteId=42, get_field=lambda _field: "word")
+
+    anki.queue_card_for_processing(card, [first_line, second_line], second_line)
+
+    assert submitted[0][1][3] == "first plain line<br>second plain line"
+    assert anki.card_queue[-1][2] == [first_line, second_line]
+
+
 def test_wait_for_reuse_result_times_out_without_activity(monkeypatch):
     anki.anki_results.clear()
     cfg = SimpleNamespace(
