@@ -153,6 +153,23 @@ def api_games_management():
         # Build aggregated per-game profiles (rollup + today's live data)
         profiles = build_game_profiles()
 
+        # Search and migration operate on ``game_lines.game_name``.  That
+        # source name can differ from title_original after metadata is linked
+        # or refreshed, so expose it alongside the editable game metadata.
+        game_names_by_id: dict[str, list[str]] = {}
+        name_rows = GameLinesTable._db.fetchall(
+            f"""
+            SELECT game_id, game_name
+            FROM {GameLinesTable._table}
+            WHERE game_id IS NOT NULL AND game_id != ''
+              AND game_name IS NOT NULL AND game_name != ''
+            GROUP BY game_id, game_name
+            ORDER BY game_name COLLATE NOCASE ASC
+            """
+        )
+        for game_id, game_name in name_rows:
+            game_names_by_id.setdefault(game_id, []).append(game_name)
+
         # Get all games from the games table
         all_games = GamesTable.all_without_images()
 
@@ -198,6 +215,7 @@ def api_games_management():
                     "tags": game.tags,
                     "obs_scene_name": game.obs_scene_name,
                     "character_summary": game.character_summary,
+                    "game_names": game_names_by_id.get(game.id, []),
                 }
             )
 

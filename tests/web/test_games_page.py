@@ -159,8 +159,8 @@ class TestGamesManagementAPI:
         assert data["summary"]["total_games"] == 0
 
     def test_returns_all_games_with_metadata(self, client):
-        g1 = _create_game("Game A", game_type="VN")
-        g2 = _create_game("Game B")
+        _create_game("Game A", game_type="VN")
+        _create_game("Game B")
         resp = client.get("/api/games-management")
         data = resp.get_json()
         titles = {g["title_original"] for g in data["games"]}
@@ -1264,6 +1264,16 @@ class TestGamesManagementAPIResponseShape:
         resp = client.get("/api/games-management")
         game = resp.get_json()["games"][0]
         assert game["obs_scene_name"] == "my_game_scene"
+
+    def test_game_names_preserve_the_name_stored_on_lines(self, client):
+        """Search filters must use the line name, not mutable display metadata."""
+        game = _create_game("Original OBS Name")
+        _create_line(game)
+        game.update_all_fields_manual(title_original="Metadata Display Title")
+
+        resp = client.get("/api/games-management")
+
+        assert resp.get_json()["games"][0]["game_names"] == ["Original OBS Name"]
 
     def test_character_summary_included(self, client):
         _create_game("Char Summary", character_summary="MC is a hero.")

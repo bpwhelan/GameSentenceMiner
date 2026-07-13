@@ -280,20 +280,44 @@ class SentenceSearchApp {
             this.toggleAdvancedBtn.innerHTML = '<span id="toggleIcon">▼</span> Show Advanced Search';
         }
     }
+
+    getSearchableGames(games) {
+        const gamesByName = new Map();
+
+        games.forEach(game => {
+            // game_names is the exact name stored on game lines.  It may be
+            // different from title_original after a metadata refresh.
+            const gameNames = Array.isArray(game.game_names) && game.game_names.length > 0
+                ? game.game_names
+                : game.line_count > 0 && game.title_original
+                    ? [game.title_original]
+                    : [];
+
+            gameNames.forEach(name => {
+                const existing = gamesByName.get(name);
+                if (!existing || (game.last_played || 0) > (existing.last_played || 0)) {
+                    gamesByName.set(name, {
+                        name,
+                        lineCount: game.line_count || 0,
+                        lastPlayed: game.last_played || 0
+                    });
+                }
+            });
+        });
+
+        return [...gamesByName.values()].sort((a, b) => b.lastPlayed - a.lastPlayed);
+    }
     
     async loadGamesList() {
         try {
-            const response = await fetch('/api/games-list');
+            const response = await fetch('/api/games-management?sort=last_played');
             const data = await response.json();
             
             if (response.ok && data.games) {
                 const gameSelect = this.gameFilter;
                 gameSelect.innerHTML = '<option value="">All Games</option>';
 
-                // Sort games by most recent line received first
-                const games = [...data.games].sort(
-                    (a, b) => (b.last_entry_timestamp || 0) - (a.last_entry_timestamp || 0)
-                );
+                const games = this.getSearchableGames(data.games);
 
                 games.forEach(game => {
                     const option = document.createElement('option');
@@ -768,14 +792,14 @@ class SentenceSearchApp {
         targetGameSelect.innerHTML = '<option value="">-- Select a game --</option>';
         
         try {
-            const response = await fetch('/api/games-list');
+            const response = await fetch('/api/games-management?sort=last_played');
             const data = await response.json();
             
             if (response.ok && data.games) {
-                data.games.forEach(game => {
+                this.getSearchableGames(data.games).forEach(game => {
                     const option = document.createElement('option');
                     option.value = game.name;
-                    option.textContent = `${game.name} (${game.sentence_count.toLocaleString()} sentences)`;
+                    option.textContent = `${game.name} (${game.lineCount.toLocaleString()} sentences)`;
                     targetGameSelect.appendChild(option);
                 });
             }
