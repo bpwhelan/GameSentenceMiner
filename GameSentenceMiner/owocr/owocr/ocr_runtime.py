@@ -279,6 +279,10 @@ scaled_ocr_config_cache_lock = threading.Lock()
 MAX_SCALED_OCR_CACHE_SIZE = 24
 TEXT_DETECTION_RESULT_SCHEMA = "gsm_text_detection_v1"
 BLACK_HOLE_SKIP_LOG_MESSAGE = "Text is inside a black hole OCR box, skipping further processing."
+_callback_signature_target = None
+_callback_signature_keywords = frozenset()
+_callback_signature_has_kwargs = False
+_callback_signature_failed = False
 
 
 def _safe_int(value, default=0):
@@ -386,6 +390,37 @@ def _normalize_queue_item(item, default_filter=False):
         if len(item) == 1:
             return item[0], default_filter, None
     return item, default_filter, None
+
+
+def _get_callback_signature_support(callback):
+    """Inspect a callback once, rather than once per successful OCR frame."""
+    global _callback_signature_target
+    global _callback_signature_keywords
+    global _callback_signature_has_kwargs
+    global _callback_signature_failed
+
+    if callback is _callback_signature_target:
+        return (
+            _callback_signature_keywords,
+            _callback_signature_has_kwargs,
+            _callback_signature_failed,
+        )
+
+    try:
+        parameters = inspect.signature(callback).parameters
+        keywords = frozenset(parameters)
+        has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values())
+        failed = False
+    except Exception:
+        keywords = frozenset()
+        has_kwargs = False
+        failed = True
+
+    _callback_signature_keywords = keywords
+    _callback_signature_has_kwargs = has_kwargs
+    _callback_signature_failed = failed
+    _callback_signature_target = callback
+    return keywords, has_kwargs, failed
 
 
 def _build_pipeline_metadata(image_metadata, img_or_path, engine_name, is_second_ocr):
@@ -2158,6 +2193,7 @@ class ScreenshotThread(threading.Thread):
         self.areas = []
         self.use_periodic_queue = not screen_capture_on_combo
         self.ocr_config = ocr_config
+        self.scan_rate = get_ocr_scan_rate()
         if screen_capture_area == "":
             self.screencapture_mode = 0
         elif screen_capture_area.startswith("screen_"):
@@ -2458,6 +2494,7 @@ class ScreenshotThread(threading.Thread):
                     section_changed = bool(section_changed_result)
                 if section_changed:
                     reload_electron_config()
+                    self.scan_rate = get_ocr_scan_rate()
 
             if not screenshot_event.wait(timeout=0.1):
                 continue
@@ -2551,7 +2588,7 @@ class ScreenshotThread(threading.Thread):
 
             if last_image and are_images_identical(img, last_image, last_image_np):
                 logger.debug("Captured screenshot is identical to the last one, sleeping.")
-                time.sleep(max(0.5, get_ocr_scan_rate()))
+                time.sleep(max(0.5, self.scan_rate))
             else:
                 self.write_result(img, metadata=frame_metadata)
                 screenshot_event.clear()
@@ -2598,6 +2635,31 @@ def set_last_image(image):
     last_image, last_image_np = _update_image_comparison_cache(last_image, image)
 
 
+def _is_capture_frame_empty(image, sample_step=64):
+    """Check a PIL capture by materializing only the sampled pixels."""
+    if not isinstance(image, Image.Image):
+        return is_image_empty(image, sample_step=sample_step)
+    if image.width <= 0 or image.height <= 0:
+        return True
+
+    effective_step = max(
+        1,
+        min(
+            int(sample_step),
+            max(image.height // 4, 1),
+            max(image.width // 4, 1),
+        ),
+    )
+    try:
+        sampled_pixels = [
+            [image.getpixel((x, y)) for x in range(0, image.width, effective_step)]
+            for y in range(0, image.height, effective_step)
+        ]
+        return is_image_empty(np.asarray(sampled_pixels), sample_step=1)
+    except Exception:
+        return False
+
+
 def are_images_identical(img1, img2, img2_np=None):
     """Pixel-identical comparison. Accepts PIL or numpy for either side.
 
@@ -2606,6 +2668,24 @@ def are_images_identical(img1, img2, img2_np=None):
     """
     if img1 is None or (img2 is None and img2_np is None):
         return False
+
+    # The common capture path has a PIL candidate and a cached numpy reference.
+    # Probe PIL pixels before converting the complete candidate frame: most game
+    # frames differ immediately, so this keeps the rejection path O(1).
+    if isinstance(img1, Image.Image) and img2_np is not None:
+        if getattr(img2_np, "ndim", 0) < 2 or img1.size != (img2_np.shape[1], img2_np.shape[0]):
+            return False
+        if img1.width * img1.height >= 256:
+            sample_points = (
+                (0, 0),
+                (img1.width - 1, 0),
+                (0, img1.height - 1),
+                (img1.width - 1, img1.height - 1),
+                (img1.width // 2, img1.height // 2),
+            )
+            for x, y in sample_points:
+                if not np.array_equal(img1.getpixel((x, y)), img2_np[y, x]):
+                    return False
 
     try:
         img1_np = img1 if isinstance(img1, np.ndarray) else np.asarray(img1)
@@ -2947,16 +3027,20 @@ def apply_ocr_config_to_image(
     elif not rectangles:
         rectangles = [r for r in ocr_config.rectangles if _is_ocr_capture_rectangle(r, is_secondary)]
 
+    mask_draw = None
+    mask_fill = None
     for rectangle in ocr_config.rectangles:
         if rectangle.is_excluded:
             resolved_coordinates = resolve_rectangle_coordinates(rectangle)
             if not resolved_coordinates:
                 continue
             left, top, width, height = resolved_coordinates
-            draw = ImageDraw.Draw(img)
-            draw.rectangle(
+            if mask_draw is None:
+                mask_draw = ImageDraw.Draw(img)
+                mask_fill = _get_rectangle_mask_fill(img)
+            mask_draw.rectangle(
                 (left, top, left + width, top + height),
-                fill=_get_rectangle_mask_fill(img),
+                fill=mask_fill,
             )
     # If no rectangles to process, return the original image
     if not rectangles:
@@ -3730,17 +3814,16 @@ def process_and_write_results(
                     f"<{engine_color}>{engine_instance.readable_name}</{engine_color}>:"
                 )
                 callback_kwargs = {}
-                try:
-                    sig = inspect.signature(txt_callback)
-                    has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
-                    if "raw_text" in sig.parameters or has_kwargs:
-                        callback_kwargs["raw_text"] = ""
-                    if "meiki_boxes" in sig.parameters or has_kwargs:
-                        callback_kwargs["meiki_boxes"] = detection_payload.get("boxes", [])
-                    if "detection_boxes" in sig.parameters or has_kwargs:
-                        callback_kwargs["detection_boxes"] = detection_payload.get("boxes", [])
-                except Exception:
+                keywords, has_kwargs, signature_failed = _get_callback_signature_support(txt_callback)
+                if signature_failed:
                     callback_kwargs["meiki_boxes"] = detection_payload.get("boxes", [])
+                else:
+                    if "raw_text" in keywords or has_kwargs:
+                        callback_kwargs["raw_text"] = ""
+                    if "meiki_boxes" in keywords or has_kwargs:
+                        callback_kwargs["meiki_boxes"] = detection_payload.get("boxes", [])
+                    if "detection_boxes" in keywords or has_kwargs:
+                        callback_kwargs["detection_boxes"] = detection_payload.get("boxes", [])
                 txt_callback(
                     "",
                     "",
@@ -3803,7 +3886,8 @@ def process_and_write_results(
 
         if filtering:
             text, orig_text = filtering(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
-        if get_ocr_language() == "ja" or get_ocr_language() == "zh":
+        ocr_language = get_ocr_language()
+        if ocr_language in ("ja", "zh"):
             text = post_process(text, keep_blank_lines=get_ocr_keep_newline(source))
         if notify and config.get_general("notifications"):
             notifier.send(title="owocr", message="Text recognized: " + text)
@@ -3840,14 +3924,9 @@ def process_and_write_results(
             pyperclipfix_module.copy(text)
         elif write_to == "callback":
             callback_kwargs = {}
-            try:
-                sig = inspect.signature(txt_callback)
-                if "raw_text" in sig.parameters or any(
-                    p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-                ):
-                    callback_kwargs["raw_text"] = raw_text_for_callback
-            except Exception:
-                pass
+            keywords, has_kwargs, signature_failed = _get_callback_signature_support(txt_callback)
+            if not signature_failed and ("raw_text" in keywords or has_kwargs):
+                callback_kwargs["raw_text"] = raw_text_for_callback
             txt_callback(
                 text,
                 orig_text,
@@ -4350,8 +4429,16 @@ def run(
             f"Manual OCR Running... Press <{engine_color}>{screen_capture_combo.replace('<', '').replace('>', '')}</{engine_color}> to run OCR"
         )
 
+    base_scan_rate = get_ocr_scan_rate()
+    last_scan_rate_refresh = time.monotonic()
+
     def handle_config_changes(changes):
-        nonlocal last_result
+        nonlocal base_scan_rate, last_result, last_scan_rate_refresh
+        if any(c in changes for c in ("scanRate", "scanRate_basic", "scanRate_advanced", "advancedMode")):
+            base_scan_rate = get_ocr_scan_rate()
+            last_scan_rate_refresh = time.monotonic()
+            if screenshot_thread:
+                screenshot_thread.scan_rate = base_scan_rate
         if any(c in changes for c in ("ocr1", "ocr2", "language", "furigana_filter_sensitivity")):
             last_result = ([], engine_index)
             engine_change_handler_name(get_ocr_ocr1(), switch=True)
@@ -4384,7 +4471,6 @@ def run(
     last_result_time = time.time()
     has_seen_text_result = False
     sleep_reason = ""
-    base_scan_rate = get_ocr_scan_rate()
 
     def get_adjusted_scan_rate():
         cap = EMPTY_FRAME_SCAN_RATE_CAP if sleep_reason == "empty" else NO_TEXT_SCAN_RATE_CAP
@@ -4396,9 +4482,14 @@ def run(
         img = None
         filter_img = False
         image_metadata = None
-        # Snapshot scan rate once per iteration to avoid repeated Store.get() lookups
-        # (each call deep-copies the OCR config under an RLock).
-        base_scan_rate = get_ocr_scan_rate()
+        # Store.get() deep-copies the complete OCR config. Refresh at most once
+        # per second as a fallback; config callbacks update it immediately.
+        monotonic_now = time.monotonic()
+        if monotonic_now - last_scan_rate_refresh >= 1.0:
+            base_scan_rate = get_ocr_scan_rate()
+            last_scan_rate_refresh = monotonic_now
+            if screenshot_thread:
+                screenshot_thread.scan_rate = base_scan_rate
 
         if process_queue:
             try:
@@ -4440,13 +4531,7 @@ def run(
             if filter_img:
                 # Cheap blank-frame detector. Skips OCR when the capture is a
                 # solid color (game minimized, OBS scene blank, etc.).
-                img_np = img if isinstance(img, np.ndarray) else None
-                if img_np is None:
-                    try:
-                        img_np = np.asarray(img)
-                    except Exception:
-                        img_np = None
-                if img_np is not None and is_image_empty(img_np):
+                if _is_capture_frame_empty(img):
                     logger.background("Image is empty (all pixels same), sleeping.")
                     max_empty_add = max(0.0, EMPTY_FRAME_SCAN_RATE_CAP - base_scan_rate)
                     if sleep_reason != "empty":
@@ -4459,7 +4544,7 @@ def run(
                     sleep_time_to_add = 0.0
                     sleep_reason = ""
 
-                # if are_images_identical(img_np if img_np is not None else img, last_image, last_image_np):
+                # if are_images_identical(img, last_image, last_image_np):
                 #     logger.background("Screenshot identical to last, sleeping.")
                 #     sleep_reason = "identical"
                 #     if time.time() - last_result_time > IDLE_BACKOFF_AFTER_SECONDS:

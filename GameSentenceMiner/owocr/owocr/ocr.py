@@ -586,6 +586,13 @@ def pil_image_to_numpy_array(img):
     return np.array(img.convert("RGB"))
 
 
+def pil_image_to_rgb_numpy_array(img):
+    """Return a writable RGB array without reconverting an existing RGB image."""
+    if img.mode == "RGB":
+        return np.array(img)
+    return np.array(img.convert("RGB"))
+
+
 def _black_fill_for_mode(img):
     mode = getattr(img, "mode", "") or ""
     if mode in ("1", "L", "I", "F", "P"):
@@ -3314,7 +3321,10 @@ class ScreenAIOCR:
         return img
 
     def _perform_ocr(self, processed):
-        pixel_buffer = ctypes.create_string_buffer(processed.tobytes())
+        # Keep the immutable bytes alive for the duration of the synchronous
+        # native call. ``create_string_buffer`` made a second full-frame copy.
+        pixel_bytes = processed.tobytes()
+        pixel_buffer = ctypes.c_char_p(pixel_bytes)
 
         bitmap = _ScreenAISkBitmap()
         bitmap.fPixelRef = None
@@ -3817,13 +3827,6 @@ class MLKitOCR:
             return value.strip().lower() in ("1", "true", "yes", "on")
         return default
 
-    @staticmethod
-    def _try_float(value):
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
     def _map_script(self, lang):
         if self.script_override:
             return self.script_override
@@ -3963,7 +3966,6 @@ class MLKitOCR:
             script = self._map_script(lang)
             request_url = self._build_request_url(script if self.use_raw_upload else None)
 
-            request_start = time.perf_counter()
             requests_session = self._get_requests_session()
             try:
                 request_headers = {
@@ -4002,8 +4004,6 @@ class MLKitOCR:
                 return (False, "Connection error!")
             except Exception as e:
                 return (False, str(e))
-            response_roundtrip_ms = (time.perf_counter() - request_start) * 1000.0
-
             if response.status_code != 200:
                 return (False, f"HTTP {response.status_code}")
 
@@ -4014,38 +4014,6 @@ class MLKitOCR:
 
             if not isinstance(raw_res, dict):
                 return (False, "Invalid server response!")
-
-            timing_data = raw_res.get("timing") if isinstance(raw_res.get("timing"), dict) else {}
-            ocr_processing_ms = self._try_float(timing_data.get("ocr_ms"))
-            decode_ms = self._try_float(timing_data.get("decode_ms"))
-            result_build_ms = self._try_float(timing_data.get("build_ms"))
-            server_total_ms = self._try_float(timing_data.get("server_ms"))
-            request_read_ms = self._try_float(raw_res.get("request_read_ms"))
-            server_handle_ms = self._try_float(raw_res.get("server_handle_ms"))
-            payload_kb = len(img_processed) / 1024.0
-            if ocr_processing_ms is not None:
-
-                def _fmt_metric(value):
-                    return f"{value:.2f}" if value is not None else "n/a"
-
-                comparison_server_ms = (
-                    server_handle_ms
-                    if server_handle_ms is not None
-                    else (server_total_ms if server_total_ms is not None else ocr_processing_ms)
-                )
-                network_overhead_ms = response_roundtrip_ms - comparison_server_ms
-                # logger.info(
-                #     f"script={script}, "
-                #     f"MLKit OCR timing: processing={_fmt_metric(ocr_processing_ms)} ms, "
-                #     f"decode={_fmt_metric(decode_ms)} ms, "
-                #     f"read={_fmt_metric(request_read_ms)} ms, "
-                #     f"build={_fmt_metric(result_build_ms)} ms, "
-                #     f"server_total={_fmt_metric(server_total_ms)} ms, "
-                #     f"server_handle={_fmt_metric(server_handle_ms)} ms, "
-                #     f"round_trip={response_roundtrip_ms:.2f} ms, "
-                #     f"outside_server={network_overhead_ms:.2f} ms, "
-                #     f"upload={payload_kb:.1f} KB, format={upload_format}"
-                # )
 
             if "error" in raw_res:
                 return (False, str(raw_res.get("error")))
@@ -4090,6 +4058,8 @@ class MeikiOCR:
         self.regex = get_regex(lang)
         self.punctuation_regex = regex.compile(r"[\p{P}\p{S}]")
         self.get_furigana_sens_from_file = get_furigana_sens_from_file
+        self.debug_dump_response = bool(config.get("debug_dump_response", False))
+        self.debug_response_path = Path.home() / "GSM" / "temp" / "meikiocr_response.json"
         self.model = SharedMeikiOCRModel.get_model(force_cpu=get_config().vad.use_cpu_for_inference_v2)
         self.available = self.model is not None
         if self.available:
@@ -4154,7 +4124,7 @@ class MeikiOCR:
 
             # # convert back to PIL and save for testing
 
-            image_np = np.array(img.convert("RGB"))
+            image_np = pil_image_to_rgb_numpy_array(img)
 
             # new_img = Image.fromarray(image_np)
             # if os.path.exists(os.path.expanduser("~/GSM/temp")):
@@ -4166,12 +4136,8 @@ class MeikiOCR:
             # Convert meikiocr response to OneOCR format
             ocr_resp = self._convert_meikiocr_to_oneocr_format(read_results, img.width, img.height)
 
-            if os.path.exists(os.path.expanduser("~/GSM/temp")):
-                with open(
-                    os.path.join(os.path.expanduser("~/GSM/temp"), "meikiocr_response.json"),
-                    "w",
-                    encoding="utf-8",
-                ) as f:
+            if self.debug_dump_response and self.debug_response_path.parent.exists():
+                with self.debug_response_path.open("w", encoding="utf-8") as f:
                     json.dump(ocr_resp, f, indent=4, ensure_ascii=False)
 
             filtered_lines = [line for line in ocr_resp["lines"] if self.regex.search(line["text"])]
@@ -5540,7 +5506,7 @@ class MeikiTextDetector(BaseTextDetector):
         if not img_pil:
             return (False, "Invalid image provided")
 
-        input_image = np.array(img_pil.convert("RGB"))
+        input_image = pil_image_to_rgb_numpy_array(img_pil)
         try:
             text_boxes = self.model.run_detection(input_image, conf_threshold=threshold)
             detections = []
@@ -5723,7 +5689,7 @@ class OpenCvEastTextDetector(BaseTextDetector):
             return (False, "Invalid image provided")
 
         try:
-            rgb_image = np.array(img_pil.convert("RGB"))
+            rgb_image = pil_image_to_rgb_numpy_array(img_pil)
             bgr_image = self._cv2.cvtColor(rgb_image, self._cv2.COLOR_RGB2BGR)
             original_h, original_w = bgr_image.shape[:2]
             if original_w <= 0 or original_h <= 0:
@@ -5831,7 +5797,7 @@ class PaddleTextDetector(BaseTextDetector):
             return (False, "Invalid image provided")
 
         try:
-            input_image = np.array(img_pil.convert("RGB"))
+            input_image = pil_image_to_rgb_numpy_array(img_pil)
             detections = []
             for res in self.model.predict(input_image):
                 polys = res.get("dt_polys")

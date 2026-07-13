@@ -99,9 +99,19 @@ from GameSentenceMiner.util.text_log import TextSource
 
 CONFIG_FILE = Path("ocr_config.json")
 DEFAULT_IMAGE_PATH = r"C:\Users\Beangate\Pictures\msedge_acbl8GL7Ax.jpg"  # CHANGE THIS
-# Beangate-only OCR metrics capture switch.
-# Requires both this flag and is_beangate to be true.
-OCR_METRICS_CAPTURE_ENABLED = True
+# Expensive OCR diagnostics are opt-in. Both paths encode full images and write
+# to disk, so enabling them by default adds measurable CPU and I/O to every
+# successful OCR2 result.
+OCR_METRICS_CAPTURE_ENABLED = os.environ.get("GSM_CAPTURE_OCR_METRICS", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+SAVE_OCR_DEBUG_IMAGES = os.environ.get("GSM_SAVE_OCR_DEBUG_IMAGES", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 # Opt-in controller rewrite inspired by owocr's frame-stability flow.
 # Keep this False unless intentionally testing/enabling the v2 path.
 USE_TWO_PASS_OCR_V2 = True
@@ -2888,6 +2898,8 @@ class OCRProcessor:
 
 
 def save_result_image(img, pre_crop_image=None):
+    if not SAVE_OCR_DEBUG_IMAGES:
+        return
     try:
         if isinstance(img, bytes):
             with open(os.path.join(get_temporary_directory(), "last_successful_ocr.png"), "wb") as f:
@@ -3066,7 +3078,7 @@ def _run_second_ocr_callback(img, last_result, filtering, engine, **kw):
 def _save_image_callback(img, pre_crop_image=None):
     """Controller callback: save debug image and track for metrics."""
     global _last_metrics_img
-    _last_metrics_img = img
+    _last_metrics_img = img if _should_capture_ocr_metrics() else None
     save_result_image(img, pre_crop_image=pre_crop_image)
     try:
         ocr_runtime.set_last_image(img)
@@ -3320,8 +3332,10 @@ def ocr_result_callback(
     second-pass execution) is handled by the controller in this module.
     """
     ctrl = get_controller()
-    ctrl.config.ocr1_engine_readable = _resolve_engine_readable_name(ctrl.config.ocr1_engine)
-    ctrl.config.ocr2_engine_readable = _resolve_engine_readable_name(ctrl.config.ocr2_engine)
+    if not getattr(ctrl, "_engine_labels_resolved", False):
+        ctrl.config.ocr1_engine_readable = _resolve_engine_readable_name(ctrl.config.ocr1_engine)
+        ctrl.config.ocr2_engine_readable = _resolve_engine_readable_name(ctrl.config.ocr2_engine)
+        ctrl._engine_labels_resolved = True
     line_source = TextSource.OCR_MANUAL if manual else TextSource.OCR
 
     active_detection_boxes = detection_boxes if detection_boxes is not None else meiki_boxes
