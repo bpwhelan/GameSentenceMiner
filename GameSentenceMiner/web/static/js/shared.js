@@ -274,8 +274,9 @@ class SettingsManager {
         this.regexOutRepetitionsInput = document.getElementById('regex_out_repetitions');
         this.readingTimeAdaptiveV2Input = document.getElementById('reading_time_adaptive_v2');
         this.extraPunctuationRegexInput = document.getElementById('extra_punctuation_regex');
-        this.tadokuSessionCookieInput = document.getElementById('tadoku_session_cookie');
-        this.tadokuClearSessionCookieInput = document.getElementById('tadoku_clear_session_cookie');
+        this.tadokuUsernameInput = document.getElementById('tadoku_username');
+        this.tadokuPasswordInput = document.getElementById('tadoku_password');
+        this.tadokuClearCredentialsInput = document.getElementById('tadoku_clear_credentials');
         this.tadokuLanguageCodeInput = document.getElementById('tadoku_language_code');
         this.tadokuDailySyncEnabledInput = document.getElementById('tadoku_daily_sync_enabled');
         this.tadokuDailySyncDeduplicateInput = document.getElementById('tadoku_daily_sync_deduplicate');
@@ -286,6 +287,7 @@ class SettingsManager {
         this.tadokuPreviewRows = document.getElementById('tadokuPreviewRows');
         this.tadokuCard = document.getElementById('tadokuSyncCard');
         this.tadokuSaveSettingsBtn = document.getElementById('tadokuSaveSettingsBtn');
+        this.tadokuRefreshAuthBtn = document.getElementById('tadokuRefreshAuthBtn');
         this.tadokuSettingsError = document.getElementById('tadokuSettingsError');
         this.tadokuSettingsSuccess = document.getElementById('tadokuSettingsSuccess');
         this.tadokuConfigured = false;
@@ -311,6 +313,9 @@ class SettingsManager {
         }
         if (this.tadokuSaveSettingsBtn) {
             this.tadokuSaveSettingsBtn.addEventListener('click', () => this.saveTadokuSettings());
+        }
+        if (this.tadokuRefreshAuthBtn) {
+            this.tadokuRefreshAuthBtn.addEventListener('click', () => this.refreshTadokuAuth());
         }
         if (this.tadokuPreviewBtn) {
             this.tadokuPreviewBtn.addEventListener('click', () => this.loadTadokuPreview());
@@ -344,8 +349,9 @@ class SettingsManager {
             this.regexOutPunctuationInput,
             this.regexOutRepetitionsInput,
             this.extraPunctuationRegexInput,
-            this.tadokuSessionCookieInput,
-            this.tadokuClearSessionCookieInput,
+            this.tadokuUsernameInput,
+            this.tadokuPasswordInput,
+            this.tadokuClearCredentialsInput,
             this.tadokuLanguageCodeInput,
             this.tadokuDailySyncEnabledInput,
             this.tadokuDailySyncDeduplicateInput,
@@ -581,16 +587,19 @@ class SettingsManager {
                 return;
             }
 
-            const clearCookie = Boolean(this.tadokuClearSessionCookieInput?.checked);
+            const clearCredentials = Boolean(this.tadokuClearCredentialsInput?.checked);
             const settings = {
-                tadoku_clear_session_cookie: clearCookie,
+                tadoku_clear_credentials: clearCredentials,
                 tadoku_language_code: languageCode,
                 tadoku_daily_sync_enabled: Boolean(this.tadokuDailySyncEnabledInput?.checked),
                 tadoku_daily_sync_deduplicate: Boolean(this.tadokuDailySyncDeduplicateInput?.checked),
             };
-            const sessionCookie = this.tadokuSessionCookieInput?.value.trim();
-            if (sessionCookie && !clearCookie) {
-                settings.tadoku_session_cookie = sessionCookie;
+            if (!clearCredentials) {
+                settings.tadoku_username = this.tadokuUsernameInput?.value.trim() || '';
+            }
+            const password = this.tadokuPasswordInput?.value || '';
+            if (password && !clearCredentials) {
+                settings.tadoku_password = password;
             }
 
             this.tadokuSaveSettingsBtn.disabled = true;
@@ -607,14 +616,14 @@ class SettingsManager {
             }
 
             this.tadokuConfigured = Boolean(result.tadoku_configured);
-            if (this.tadokuSessionCookieInput) {
-                this.tadokuSessionCookieInput.value = '';
-                this.tadokuSessionCookieInput.placeholder = this.tadokuConfigured
-                    ? 'Saved cookie (leave blank to keep)'
-                    : 'ory_kratos_session value';
+            if (this.tadokuPasswordInput) {
+                this.tadokuPasswordInput.value = '';
+                this.tadokuPasswordInput.placeholder = this.tadokuConfigured
+                    ? 'Saved password (leave blank to keep)'
+                    : 'Password';
             }
-            if (this.tadokuClearSessionCookieInput) {
-                this.tadokuClearSessionCookieInput.checked = false;
+            if (this.tadokuClearCredentialsInput) {
+                this.tadokuClearCredentialsInput.checked = false;
             }
             this.showTadokuSuccess('Tadoku settings saved successfully.');
             window.dispatchEvent(new CustomEvent('settingsUpdated', {
@@ -642,14 +651,17 @@ class SettingsManager {
         }
         const settings = await response.json();
 
-        if (this.tadokuSessionCookieInput) {
-            this.tadokuSessionCookieInput.value = '';
-            this.tadokuSessionCookieInput.placeholder = settings.tadoku_configured
-                ? 'Saved cookie (leave blank to keep)'
-                : 'ory_kratos_session value';
+        if (this.tadokuUsernameInput) {
+            this.tadokuUsernameInput.value = settings.tadoku_username || '';
         }
-        if (this.tadokuClearSessionCookieInput) {
-            this.tadokuClearSessionCookieInput.checked = false;
+        if (this.tadokuPasswordInput) {
+            this.tadokuPasswordInput.value = '';
+            this.tadokuPasswordInput.placeholder = settings.tadoku_configured
+                ? 'Saved password (leave blank to keep)'
+                : 'Password';
+        }
+        if (this.tadokuClearCredentialsInput) {
+            this.tadokuClearCredentialsInput.checked = false;
         }
         if (this.tadokuLanguageCodeInput) {
             this.tadokuLanguageCodeInput.value = settings.tadoku_language_code || 'jpn';
@@ -662,6 +674,30 @@ class SettingsManager {
         }
         this.tadokuConfigured = Boolean(settings.tadoku_configured);
         await this.loadTadokuPreview();
+    }
+
+    async refreshTadokuAuth() {
+        if (!this.tadokuRefreshAuthBtn) {
+            return;
+        }
+        try {
+            this.clearTadokuMessages();
+            this.tadokuRefreshAuthBtn.disabled = true;
+            this.tadokuRefreshAuthBtn.textContent = 'Refreshing…';
+            const response = await fetch('/api/tadoku/auth/refresh', {method: 'POST'});
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || 'Failed to refresh Tadoku login');
+            }
+            this.tadokuConfigured = true;
+            this.showTadokuSuccess('Tadoku login refreshed successfully.');
+        } catch (error) {
+            console.error('Error refreshing Tadoku login:', error);
+            this.showTadokuError(error.message || 'Failed to refresh Tadoku login');
+        } finally {
+            this.tadokuRefreshAuthBtn.disabled = false;
+            this.tadokuRefreshAuthBtn.textContent = 'Refresh Tadoku login';
+        }
     }
 
     async loadTadokuPreview() {

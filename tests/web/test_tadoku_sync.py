@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import flask
 import pytest
+import requests
 
 from GameSentenceMiner.util.database.db import GameLinesTable, SQLiteDB
 from GameSentenceMiner.util.database.cron_table import CronTable
@@ -51,7 +52,9 @@ def _in_memory_db():
 
 def _config(**overrides):
     values = {
-        "tadoku_session_cookie": "session-secret",
+        "tadoku_username": "reader",
+        "tadoku_password": "password-secret",
+        "tadoku_session_cookie": "",
         "tadoku_language_code": "jpn",
         "tadoku_daily_sync_enabled": False,
         "tadoku_daily_sync_deduplicate": True,
@@ -241,8 +244,33 @@ def test_sync_excludes_duplicate_increment_without_deleting_local_lines(monkeypa
     assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 150.0
 
 
+def test_sync_reuses_and_persists_refreshed_session_cookie(monkeypatch):
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("one", "game-1", "Scene A", "abc", 110.0)
+    config = _config(tadoku_session_cookie="saved-cookie")
+    constructed = []
+    saved = []
+
+    class _RefreshingClient(_FakeClient):
+        def __init__(self, username, password, *, session_cookie):
+            super().__init__()
+            constructed.append((username, password, session_cookie))
+            self.session_cookie = "refreshed-cookie"
+
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.TadokuClient", _RefreshingClient)
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.save_stats_config", lambda value: saved.append(value))
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: 150.0)
+
+    result = run_tadoku_sync(config=config, deduplicate=False)
+
+    assert result["success"] is True
+    assert constructed == [("reader", "password-secret", "saved-cookie")]
+    assert config.tadoku_session_cookie == "refreshed-cookie"
+    assert saved == [config]
+
+
 def test_tadoku_client_prefers_language_specific_character_unit():
-    client = TadokuClient("cookie")
+    client = TadokuClient("reader", "password")
     client._request_json = lambda *_args, **_kwargs: {
         "units": [
             {"id": "fallback", "log_activity_id": 1, "name": "Character"},
@@ -261,6 +289,7 @@ def test_tadoku_client_prefers_language_specific_character_unit():
 def test_tadoku_client_uses_deployed_internal_immersion_route():
     class _Response:
         ok = True
+        status_code = 200
         content = b'{"units": []}'
 
         @staticmethod
@@ -269,24 +298,156 @@ def test_tadoku_client_uses_deployed_internal_immersion_route():
 
     class _Session:
         def __init__(self):
-            self.cookies = SimpleNamespace(set=lambda *_args: None)
-            self.request_url = ""
+            self.request_urls = []
+            self.cookies = requests.cookies.RequestsCookieJar()
 
-        def request(self, _method, url, **_kwargs):
-            self.request_url = url
+        def request(self, method, url, **kwargs):
+            self.request_urls.append((method, url, kwargs))
+            if url.endswith("/self-service/login/browser"):
+                return SimpleNamespace(
+                    ok=True,
+                    content=b"{}",
+                    json=lambda: {
+                        "ui": {
+                            "action": "https://account.tadoku.app/kratos/self-service/login?flow=id",
+                            "nodes": [{"attributes": {"name": "csrf_token", "value": "csrf-value"}}],
+                        }
+                    },
+                )
+            if "self-service/login?flow=" in url:
+                self.cookies.set("ory_kratos_session", "fresh-cookie")
+                return SimpleNamespace(
+                    ok=True,
+                    content=b"{}",
+                    json=lambda: {},
+                )
             return _Response()
 
     session = _Session()
-    client = TadokuClient("cookie", session=session)
+    client = TadokuClient("reader", "password", session=session)
 
     with pytest.raises(TadokuSyncError, match="no Character unit"):
         client.resolve_character_unit_id("jpn")
 
-    assert session.request_url == "https://tadoku.app/api/internal/immersion/logs/configuration-options"
+    method, url, kwargs = session.request_urls[-1]
+    assert method == "GET"
+    assert url == "https://tadoku.app/api/internal/immersion/logs/configuration-options"
+    assert "headers" not in kwargs
+
+
+def test_tadoku_client_exchanges_credentials_for_browser_session_cookie():
+    class _Session:
+        def __init__(self):
+            self.requests = []
+            self.cookies = requests.cookies.RequestsCookieJar()
+
+        def request(self, method, url, **kwargs):
+            self.requests.append((method, url, kwargs))
+            if url.endswith("/self-service/login/browser"):
+                return SimpleNamespace(
+                    ok=True,
+                    content=b"{}",
+                    json=lambda: {
+                        "ui": {
+                            "action": "https://account.tadoku.app/kratos/self-service/login?flow=flow-id",
+                            "nodes": [{"attributes": {"name": "csrf_token", "value": "csrf-value"}}],
+                        }
+                    },
+                )
+            self.cookies.set("ory_kratos_session", "fresh-cookie")
+            return SimpleNamespace(
+                ok=True,
+                content=b"{}",
+                json=lambda: {},
+            )
+
+    session = _Session()
+    client = TadokuClient("reader", "password-secret", session=session)
+
+    client._login()
+
+    assert session.requests[1][2]["data"] == {
+        "identifier": "reader",
+        "password": "password-secret",
+        "method": "password",
+        "csrf_token": "csrf-value",
+    }
+    assert session.cookies.get("ory_kratos_session") == "fresh-cookie"
+
+
+def test_tadoku_client_reuses_saved_cookie_without_logging_in():
+    class _Session:
+        def __init__(self):
+            self.cookies = requests.cookies.RequestsCookieJar()
+            self.requests = []
+
+        def request(self, method, url, **kwargs):
+            self.requests.append((method, url, kwargs))
+            return SimpleNamespace(
+                ok=True,
+                status_code=200,
+                content=b'{"units": []}',
+                json=lambda: {"units": []},
+            )
+
+    session = _Session()
+    client = TadokuClient("reader", "password", session_cookie="saved-cookie", session=session)
+
+    with pytest.raises(TadokuSyncError, match="no Character unit"):
+        client.resolve_character_unit_id("jpn")
+
+    assert len(session.requests) == 1
+    assert "/self-service/login/" not in session.requests[0][1]
+    assert client.session_cookie == "saved-cookie"
+
+
+def test_tadoku_client_refreshes_saved_cookie_once_after_401():
+    class _Session:
+        def __init__(self):
+            self.cookies = requests.cookies.RequestsCookieJar()
+            self.requests = []
+            self.api_calls = 0
+
+        def request(self, method, url, **kwargs):
+            self.requests.append((method, url, kwargs))
+            if url.endswith("/self-service/login/browser"):
+                return SimpleNamespace(
+                    ok=True,
+                    status_code=200,
+                    content=b"{}",
+                    json=lambda: {
+                        "ui": {
+                            "action": "https://account.tadoku.app/kratos/self-service/login?flow=id",
+                            "nodes": [{"attributes": {"name": "csrf_token", "value": "csrf-value"}}],
+                        }
+                    },
+                )
+            if "self-service/login?flow=" in url:
+                self.cookies.clear()
+                self.cookies.set("ory_kratos_session", "refreshed-cookie")
+                return SimpleNamespace(ok=True, status_code=200, content=b"{}", json=lambda: {})
+            self.api_calls += 1
+            if self.api_calls == 1:
+                return SimpleNamespace(ok=False, status_code=401, content=b"", text="")
+            return SimpleNamespace(
+                ok=True,
+                status_code=200,
+                content=b'{"units": []}',
+                json=lambda: {"units": []},
+            )
+
+    session = _Session()
+    client = TadokuClient("reader", "password", session_cookie="expired-cookie", session=session)
+
+    with pytest.raises(TadokuSyncError, match="no Character unit"):
+        client.resolve_character_unit_id("jpn")
+
+    assert session.api_calls == 2
+    assert client.session_cookie == "refreshed-cookie"
 
 
 def test_tadoku_client_selects_all_eligible_ongoing_contest_registrations():
-    client = TadokuClient("cookie")
+    client = TadokuClient("reader", "password")
     client._request_json = lambda *_args, **_kwargs: {
         "registrations": [
             {
@@ -382,3 +543,46 @@ def test_tadoku_api_previews_and_queues_inline_sync(monkeypatch):
     job = queued.get_json()
     assert job["status"] == "completed"
     assert job["result"]["characters_sent"] == 3
+
+
+def test_tadoku_api_manually_refreshes_and_persists_authentication(monkeypatch):
+    app = flask.Flask(__name__)
+    app.config["TESTING"] = True
+    register_tadoku_api_routes(app)
+    config = _config(tadoku_session_cookie="old-cookie")
+    saved = []
+
+    class _Client:
+        def __init__(self, username, password):
+            assert username == "reader"
+            assert password == "password-secret"
+            self.session_cookie = ""
+
+        def refresh_session(self):
+            self.session_cookie = "fresh-cookie"
+
+    monkeypatch.setattr("GameSentenceMiner.web.tadoku_api.get_stats_config", lambda: config)
+    monkeypatch.setattr("GameSentenceMiner.web.tadoku_api.save_stats_config", lambda value: saved.append(value))
+    monkeypatch.setattr("GameSentenceMiner.web.tadoku_api.TadokuClient", _Client)
+
+    response = app.test_client().post("/api/tadoku/auth/refresh")
+
+    assert response.status_code == 200
+    assert response.get_json() == {"authenticated": True}
+    assert config.tadoku_session_cookie == "fresh-cookie"
+    assert saved == [config]
+
+
+def test_tadoku_api_manual_auth_requires_saved_credentials(monkeypatch):
+    app = flask.Flask(__name__)
+    app.config["TESTING"] = True
+    register_tadoku_api_routes(app)
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.tadoku_api.get_stats_config",
+        lambda: _config(tadoku_username="", tadoku_password=""),
+    )
+
+    response = app.test_client().post("/api/tadoku/auth/refresh")
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "Save a Tadoku username and password first"

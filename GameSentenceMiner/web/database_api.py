@@ -1266,7 +1266,10 @@ def register_database_api_routes(app):
                     "regex_out_repetitions": config.regex_out_repetitions,
                     "reading_time_adaptive_v2": getattr(config, "reading_time_adaptive_v2", False),
                     "extra_punctuation_regex": getattr(config, "extra_punctuation_regex", ""),
-                    "tadoku_configured": bool(getattr(config, "tadoku_session_cookie", "")),
+                    "tadoku_configured": bool(
+                        getattr(config, "tadoku_username", "") and getattr(config, "tadoku_password", "")
+                    ),
+                    "tadoku_username": getattr(config, "tadoku_username", ""),
                     "tadoku_language_code": getattr(config, "tadoku_language_code", "jpn"),
                     "tadoku_daily_sync_enabled": bool(getattr(config, "tadoku_daily_sync_enabled", False)),
                     "tadoku_daily_sync_deduplicate": bool(getattr(config, "tadoku_daily_sync_deduplicate", True)),
@@ -1363,8 +1366,9 @@ def register_database_api_routes(app):
             regex_out_repetitions = data.get("regex_out_repetitions")
             reading_time_adaptive_v2 = data.get("reading_time_adaptive_v2")
             extra_punctuation_regex = data.get("extra_punctuation_regex")
-            tadoku_session_cookie = data.get("tadoku_session_cookie")
-            tadoku_clear_session_cookie = data.get("tadoku_clear_session_cookie")
+            tadoku_username = data.get("tadoku_username")
+            tadoku_password = data.get("tadoku_password")
+            tadoku_clear_credentials = data.get("tadoku_clear_credentials")
             tadoku_language_code = data.get("tadoku_language_code")
             tadoku_daily_sync_enabled = data.get("tadoku_daily_sync_enabled")
             tadoku_daily_sync_deduplicate = data.get("tadoku_daily_sync_deduplicate")
@@ -1495,20 +1499,28 @@ def register_database_api_routes(app):
                         return jsonify({"error": "extra_punctuation_regex must be a valid regex"}), 400
                 settings_to_update["extra_punctuation_regex"] = extra_punctuation_regex
 
-            if tadoku_session_cookie is not None:
-                if not isinstance(tadoku_session_cookie, str):
-                    return jsonify({"error": "tadoku_session_cookie must be a string value"}), 400
-                tadoku_session_cookie = tadoku_session_cookie.strip()
-                if len(tadoku_session_cookie) > 8192:
-                    return jsonify({"error": "Tadoku session cookie is too long"}), 400
-                if tadoku_session_cookie:
-                    settings_to_update["tadoku_session_cookie"] = tadoku_session_cookie
+            if tadoku_username is not None:
+                if not isinstance(tadoku_username, str):
+                    return jsonify({"error": "tadoku_username must be a string value"}), 400
+                tadoku_username = tadoku_username.strip()
+                if len(tadoku_username) > 320:
+                    return jsonify({"error": "Tadoku username is too long"}), 400
+                settings_to_update["tadoku_username"] = tadoku_username
 
-            if tadoku_clear_session_cookie is not None:
-                if not isinstance(tadoku_clear_session_cookie, bool):
-                    return jsonify({"error": "tadoku_clear_session_cookie must be a boolean value"}), 400
-                if tadoku_clear_session_cookie:
-                    settings_to_update["tadoku_session_cookie"] = ""
+            if tadoku_password is not None:
+                if not isinstance(tadoku_password, str):
+                    return jsonify({"error": "tadoku_password must be a string value"}), 400
+                if len(tadoku_password) > 1024:
+                    return jsonify({"error": "Tadoku password is too long"}), 400
+                if tadoku_password:
+                    settings_to_update["tadoku_password"] = tadoku_password
+
+            if tadoku_clear_credentials is not None:
+                if not isinstance(tadoku_clear_credentials, bool):
+                    return jsonify({"error": "tadoku_clear_credentials must be a boolean value"}), 400
+                if tadoku_clear_credentials:
+                    settings_to_update["tadoku_username"] = ""
+                    settings_to_update["tadoku_password"] = ""
 
             if tadoku_language_code is not None:
                 if not isinstance(tadoku_language_code, str) or not re.fullmatch(
@@ -1596,6 +1608,10 @@ def register_database_api_routes(app):
 
             # Update configuration
             config = get_stats_config()
+            tadoku_credentials_changed = "tadoku_password" in settings_to_update or (
+                "tadoku_username" in settings_to_update
+                and settings_to_update["tadoku_username"] != getattr(config, "tadoku_username", "")
+            )
 
             if "session_gap_seconds" in settings_to_update:
                 config.session_gap_seconds = settings_to_update["session_gap_seconds"]
@@ -1623,8 +1639,12 @@ def register_database_api_routes(app):
                 config.reading_time_adaptive_v2 = settings_to_update["reading_time_adaptive_v2"]
             if "extra_punctuation_regex" in settings_to_update:
                 config.extra_punctuation_regex = settings_to_update["extra_punctuation_regex"]
-            if "tadoku_session_cookie" in settings_to_update:
-                config.tadoku_session_cookie = settings_to_update["tadoku_session_cookie"]
+            if "tadoku_username" in settings_to_update:
+                config.tadoku_username = settings_to_update["tadoku_username"]
+            if "tadoku_password" in settings_to_update:
+                config.tadoku_password = settings_to_update["tadoku_password"]
+            if tadoku_credentials_changed or tadoku_clear_credentials:
+                config.tadoku_session_cookie = ""
             if "tadoku_language_code" in settings_to_update:
                 config.tadoku_language_code = settings_to_update["tadoku_language_code"]
             if "tadoku_daily_sync_enabled" in settings_to_update:
@@ -1659,10 +1679,10 @@ def register_database_api_routes(app):
             logger.info("Settings updated: %s", sorted(settings_to_update))
 
             response_data = {"message": "Settings saved successfully"}
-            response_data.update(
-                {key: value for key, value in settings_to_update.items() if key != "tadoku_session_cookie"}
+            response_data.update({key: value for key, value in settings_to_update.items() if key != "tadoku_password"})
+            response_data["tadoku_configured"] = bool(
+                getattr(config, "tadoku_username", "") and getattr(config, "tadoku_password", "")
             )
-            response_data["tadoku_configured"] = bool(getattr(config, "tadoku_session_cookie", ""))
 
             return jsonify(response_data), 200
 

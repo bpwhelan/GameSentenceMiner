@@ -10,6 +10,8 @@ def test_vad_defaults_to_silero():
 def test_tadoku_stats_defaults_are_safe_and_cleanup_daily_sync():
     stats = StatsConfig()
 
+    assert stats.tadoku_username == ""
+    assert stats.tadoku_password == ""
     assert stats.tadoku_session_cookie == ""
     assert stats.tadoku_language_code == "jpn"
     assert stats.tadoku_daily_sync_enabled is False

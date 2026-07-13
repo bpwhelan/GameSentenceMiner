@@ -39,7 +39,8 @@ def test_shared_settings_modal_does_not_render_tadoku_controls():
     template_path = TEMPLATES_DIR / "components" / "settings-modal.html"
     contents = template_path.read_text(encoding="utf-8")
 
-    assert 'id="tadoku_session_cookie"' not in contents
+    assert 'id="tadoku_username"' not in contents
+    assert 'id="tadoku_password"' not in contents
     assert 'id="tadoku_manual_sync_deduplicate"' not in contents
     assert 'id="tadoku_daily_sync_enabled"' not in contents
     assert 'id="tadokuPreviewRows"' not in contents

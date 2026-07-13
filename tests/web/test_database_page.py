@@ -111,8 +111,10 @@ def test_tools_page_renders_tadoku_sync_card(client):
 
     html = response.get_data(as_text=True)
     assert 'class="management-card tadoku-sync"' in html
-    assert 'id="tadoku_session_cookie"' in html
+    assert 'id="tadoku_username"' in html
+    assert 'id="tadoku_password"' in html
     assert 'id="tadokuSaveSettingsBtn"' in html
+    assert 'id="tadokuRefreshAuthBtn"' in html
     assert 'id="tadoku_manual_sync_deduplicate"' in html
     assert 'id="tadoku_daily_sync_enabled"' in html
     assert 'id="tadoku_daily_sync_deduplicate" checked' in html

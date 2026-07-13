@@ -7,8 +7,9 @@ from typing import Any
 
 from flask import current_app, jsonify, request
 
-from GameSentenceMiner.util.config.configuration import get_stats_config
+from GameSentenceMiner.util.config.configuration import get_stats_config, save_stats_config
 from GameSentenceMiner.util.tadoku_sync import (
+    TadokuClient,
     TadokuSyncError,
     build_tadoku_preview,
     run_tadoku_sync,
@@ -82,11 +83,30 @@ tadoku_sync_job_manager = TadokuSyncJobManager()
 
 
 def register_tadoku_api_routes(app):
+    @app.route("/api/tadoku/auth/refresh", methods=["POST"])
+    def api_tadoku_refresh_auth():
+        config = get_stats_config()
+        username = str(getattr(config, "tadoku_username", "") or "").strip()
+        password = str(getattr(config, "tadoku_password", "") or "")
+        if not username or not password:
+            return jsonify({"error": "Save a Tadoku username and password first"}), 400
+
+        try:
+            client = TadokuClient(username, password)
+            client.refresh_session()
+        except TadokuSyncError as exc:
+            return jsonify({"error": str(exc)}), 401
+
+        config.tadoku_session_cookie = client.session_cookie
+        save_stats_config(config)
+        return jsonify({"authenticated": True}), 200
+
     @app.route("/api/tadoku/preview", methods=["GET"])
     def api_tadoku_preview():
         deduplicate = request.args.get("deduplicate", "false").lower() in {"1", "true", "yes", "on"}
         preview = build_tadoku_preview(deduplicate=deduplicate)
-        preview["configured"] = bool(getattr(get_stats_config(), "tadoku_session_cookie", ""))
+        config = get_stats_config()
+        preview["configured"] = bool(getattr(config, "tadoku_username", "") and getattr(config, "tadoku_password", ""))
         return jsonify(preview), 200
 
     @app.route("/api/tadoku/sync", methods=["POST"])

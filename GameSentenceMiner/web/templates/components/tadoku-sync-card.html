@@ -8,15 +8,18 @@
     </p>
 
     <div class="form-group" style="margin: 15px 0;">
-        <label class="form-label" for="tadoku_session_cookie">Tadoku session cookie</label>
-        <input type="password" id="tadoku_session_cookie" name="tadoku_session_cookie"
-            class="form-input" autocomplete="off" placeholder="ory_kratos_session value">
+        <label class="form-label" for="tadoku_username">Tadoku username or email</label>
+        <input type="text" id="tadoku_username" name="tadoku_username"
+            class="form-input" autocomplete="username" placeholder="Username or email">
+        <label class="form-label" for="tadoku_password" style="margin-top: 10px;">Tadoku password</label>
+        <input type="password" id="tadoku_password" name="tadoku_password"
+            class="form-input" autocomplete="current-password" placeholder="Password">
         <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
-            Copy the <code>ory_kratos_session</code> cookie from a signed-in tadoku.app browser session. Leave blank to keep the saved value.
+            GSM signs in when syncing and creates a fresh Tadoku session automatically. Leave the password blank to keep the saved value.
         </small>
         <label style="display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--text-secondary); font-size: 13px;">
-            <input type="checkbox" id="tadoku_clear_session_cookie">
-            Clear the saved Tadoku session cookie
+            <input type="checkbox" id="tadoku_clear_credentials">
+            Clear the saved Tadoku login
         </label>
     </div>
 
@@ -40,6 +43,7 @@
 
     <div class="card-actions" style="margin-bottom: 16px;">
         <button type="button" id="tadokuSaveSettingsBtn" class="action-btn primary">Save Tadoku settings</button>
+        <button type="button" id="tadokuRefreshAuthBtn" class="action-btn">Refresh Tadoku login</button>
     </div>
     <div id="tadokuSettingsError" class="error-text" style="display: none; margin-bottom: 15px;"></div>
     <div id="tadokuSettingsSuccess" class="success-text" style="display: none; margin-bottom: 15px;"></div>

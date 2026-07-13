@@ -157,8 +157,12 @@ def test_post_settings_rejects_invalid_extra_punctuation_regex(client, monkeypat
     assert response.get_json()["error"] == "extra_punctuation_regex must be a valid regex"
 
 
-def test_tadoku_settings_never_return_saved_session_cookie(client, monkeypatch):
-    config = _stats_config(tadoku_session_cookie="existing-secret")
+def test_tadoku_settings_return_username_but_never_saved_secrets(client, monkeypatch):
+    config = _stats_config(
+        tadoku_username="reader",
+        tadoku_password="existing-secret",
+        tadoku_session_cookie="session-secret",
+    )
     saved = []
     monkeypatch.setattr(
         "GameSentenceMiner.web.database_api.get_stats_config",
@@ -173,7 +177,8 @@ def test_tadoku_settings_never_return_saved_session_cookie(client, monkeypatch):
     save_response = client.post(
         "/api/settings",
         json={
-            "tadoku_session_cookie": "new-secret",
+            "tadoku_username": "new-reader",
+            "tadoku_password": "new-secret",
             "tadoku_language_code": "JPN",
             "tadoku_daily_sync_deduplicate": False,
         },
@@ -181,11 +186,34 @@ def test_tadoku_settings_never_return_saved_session_cookie(client, monkeypatch):
 
     assert get_response.status_code == 200
     assert get_response.get_json()["tadoku_configured"] is True
+    assert get_response.get_json()["tadoku_username"] == "reader"
+    assert "tadoku_password" not in get_response.get_json()
     assert "tadoku_session_cookie" not in get_response.get_json()
     assert save_response.status_code == 200
     assert save_response.get_json()["tadoku_configured"] is True
+    assert "tadoku_password" not in save_response.get_json()
     assert "tadoku_session_cookie" not in save_response.get_json()
-    assert config.tadoku_session_cookie == "new-secret"
+    assert config.tadoku_username == "new-reader"
+    assert config.tadoku_password == "new-secret"
+    assert config.tadoku_session_cookie == ""
     assert config.tadoku_language_code == "jpn"
     assert config.tadoku_daily_sync_deduplicate is False
     assert saved == [config]
+
+
+def test_tadoku_settings_can_clear_saved_credentials(client, monkeypatch):
+    config = _stats_config(
+        tadoku_username="reader",
+        tadoku_password="secret",
+        tadoku_session_cookie="session-secret",
+    )
+    monkeypatch.setattr("GameSentenceMiner.web.database_api.get_stats_config", lambda: config)
+    monkeypatch.setattr("GameSentenceMiner.web.database_api.save_stats_config", lambda _config: None)
+
+    response = client.post("/api/settings", json={"tadoku_clear_credentials": True})
+
+    assert response.status_code == 200
+    assert response.get_json()["tadoku_configured"] is False
+    assert config.tadoku_username == ""
+    assert config.tadoku_password == ""
+    assert config.tadoku_session_cookie == ""
