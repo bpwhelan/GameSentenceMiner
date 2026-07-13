@@ -714,13 +714,28 @@ def get_data():
 
 @app.route("/get_ids", methods=["GET"])
 def get_ids():
+    from GameSentenceMiner import gametext
+
     asyncio.run(check_for_lines_outside_replay_buffer())
     return jsonify(
         {
             "ids": event_manager.get_ordered_ids(),
             "timed_out_ids": list(event_manager.timed_out_ids),
+            "text_intake_paused": gametext.is_text_intake_paused(),
         }
     )
+
+
+@app.route("/set_text_intake_paused", methods=["POST"])
+def set_text_intake_paused():
+    from GameSentenceMiner import gametext
+
+    data = request.get_json(silent=True)
+    paused = data.get("paused") if isinstance(data, dict) else None
+    if not isinstance(paused, bool):
+        return jsonify({"error": "'paused' must be a boolean"}), 400
+
+    return jsonify({"paused": gametext.set_text_intake_paused(paused)}), 200
 
 
 @app.route("/clear_history", methods=["POST"])

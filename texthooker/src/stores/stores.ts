@@ -231,6 +231,11 @@ export const showLineCount$ = writableBooleanSubject()(
 
 export const blurStats$ = writableBooleanSubject()('bannou-texthooker-blurStats', defaultSettings.blurStats$);
 
+export const syncTextFeedPauseWithGSMStats$ = writableBooleanSubject()(
+	'bannou-texthooker-syncTextFeedPauseWithGSMStats',
+	false,
+);
+
 export const enableLineAnimation$ = writableBooleanSubject()(
 	'bannou-texthooker-enableLineAnimation',
 	defaultSettings.enableLineAnimation$
@@ -398,6 +403,7 @@ export async function resetAllData() {
 	showCharacterCount$.next(defaultSettings.showCharacterCount$);
 	showLineCount$.next(defaultSettings.showLineCount$);
 	blurStats$.next(defaultSettings.blurStats$);
+	syncTextFeedPauseWithGSMStats$.next(false);
 	enableLineAnimation$.next(defaultSettings.enableLineAnimation$);
 	enableAfkBlur$.next(defaultSettings.enableAfkBlur$);
 	enableAfkBlurRestart$.next(defaultSettings.enableAfkBlurRestart$);

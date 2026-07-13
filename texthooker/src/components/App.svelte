@@ -10,7 +10,10 @@
 		mdiCog,
 		mdiDelete,
 		mdiDeleteForever,
+		mdiDatabase,
+		mdiDatabaseOff,
 		mdiFolderMultipleImage,
+		mdiInformationOutline,
 		mdiNoteEdit,
 		mdiPause,
 		mdiPlay,
@@ -59,6 +62,7 @@
 		secondaryWebsocketUrl$,
 		settingsOpen$,
 		showSpinner$,
+		syncTextFeedPauseWithGSMStats$,
 		theme$,
 		websocketUrl$,
 		trimAudioWithVAD$,
@@ -109,10 +113,14 @@
 	let activeAudioLineId = '';
 	let pendingAudioLineId = '';
 	let browserAudioPlaying = false;
+	let gsmTextIntakePaused: boolean | undefined;
+	let gsmTextIntakeStateRequestPending = false;
+	let timerPauseClarificationShown = false;
 	let audioCurrentTime = 0;
 	let audioDuration = 0;
 	let lastBrowserAudioStartAt = 0;
 	const AUDIO_PLAY_START_GUARD_MS = 350;
+	const TIMER_PAUSE_CLARIFICATION_KEY = 'gsm-texthooker-timer-pause-clarification-shown';
 
 	startIdPolling()
 
@@ -168,7 +176,7 @@
 			const type = newLine.at(1) || LineType.SOCKET;
 			const text = transformLine(lineContent, type !== LineType.TL);
 			const id = newLine.at(2) || generateRandomUUID();
-			const lineMeta = newLine.at(3) || {};
+			const lineMeta: Partial<LineItem> = newLine[3] ?? {};
 
 			if ($lineData$?.some(line => line.id === id)) {
 				console.warn(`Skipping new line with duplicate ID: '${id}'`);
@@ -206,7 +214,6 @@
 		tap((event: ClipboardEvent) => newLine$.next([event.clipboardData.getData('text/plain'), LineType.PASTE, ''])),
 		reduceToEmptyString(),
 	);
-
 
 	const copyBlocker$ = blockCopyOnPage$.pipe(
 		switchMap((blockCopyOnPage) => {
@@ -312,8 +319,83 @@
 		} else if (event.altKey && key === 'q') {
 			settingsComponent.handleReset(true);
 		} else if ((event.ctrlKey || event.metaKey) && key === ' ') {
-			$isPaused$ = !$isPaused$;
+			void handleTextFeedTimerToggle(false);
 		}
+	}
+
+	async function handleTextFeedTimerToggle(showClarification = true) {
+		const requestedPausedState = !$isPaused$;
+		if ($syncTextFeedPauseWithGSMStats$) {
+			const updatedPausedState = await setGSMTextIntakePaused(requestedPausedState);
+			if (updatedPausedState !== undefined) {
+				$isPaused$ = updatedPausedState;
+			}
+			return;
+		}
+
+		$isPaused$ = requestedPausedState;
+
+		if (!showClarification || timerPauseClarificationShown) {
+			return;
+		}
+
+		timerPauseClarificationShown = true;
+		try {
+			if (window.localStorage.getItem(TIMER_PAUSE_CLARIFICATION_KEY)) {
+				return;
+			}
+			window.localStorage.setItem(TIMER_PAUSE_CLARIFICATION_KEY, 'true');
+		} catch (error) {
+			console.warn('Could not save the TextFeed timer clarification state:', error);
+		}
+
+		$openDialog$ = {
+			icon: mdiInformationOutline,
+			message:
+				'This play/pause button only controls the TextFeed timer and CPH display. It does not pause GSM stats collection. Use the database button beside it to pause or resume GSM stats collection.',
+			showCancel: false,
+		};
+	}
+
+	async function setGSMTextIntakePaused(requestedPausedState: boolean): Promise<boolean | undefined> {
+		if (gsmTextIntakeStateRequestPending) {
+			return undefined;
+		}
+		gsmTextIntakeStateRequestPending = true;
+		try {
+			const response = await fetch(getGSMEndpoint('/set_text_intake_paused'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ paused: requestedPausedState }),
+			});
+			if (!response.ok) {
+				throw new Error(`HTTP error: ${response.status}`);
+			}
+
+			const data = await response.json();
+			if (typeof data.paused !== 'boolean') {
+				throw new Error('GSM returned an invalid text intake state');
+			}
+			gsmTextIntakePaused = data.paused;
+			return data.paused;
+		} catch (error) {
+			console.error('Failed to update GSM stats collection state:', error);
+			$openDialog$ = {
+				type: 'error',
+				message: 'Could not update GSM stats collection state.',
+				showCancel: false,
+			};
+			return undefined;
+		} finally {
+			gsmTextIntakeStateRequestPending = false;
+		}
+	}
+
+	async function handleGSMTextIntakeToggle() {
+		if (gsmTextIntakePaused === undefined) {
+			return;
+		}
+		await setGSMTextIntakePaused(!gsmTextIntakePaused);
 	}
 
 	function initializeAudioElement() {
@@ -544,6 +626,9 @@
 				const resp = await response.json();
 				$lineIDs$ = resp.ids;
 				$timedOutIDs$ = resp.timed_out_ids;
+				if (typeof resp.text_intake_paused === 'boolean' && !gsmTextIntakeStateRequestPending) {
+					gsmTextIntakePaused = resp.text_intake_paused;
+				}
 			} catch (error) {
 				console.error('Failed to fetch ids:', error);
 			}
@@ -984,13 +1069,32 @@
 			title="Continue"
 			class="mr-1 animate-[pulse_1.25s_cubic-bezier(0.4,0,0.6,1)_infinite] hover:text-primary sm:mr-2"
 		>
-			<Icon path={mdiPlay} width={iconSize} height={iconSize} on:click={() => ($isPaused$ = false)} />
+			<Icon path={mdiPlay} width={iconSize} height={iconSize} on:click={() => void handleTextFeedTimerToggle()} />
 		</div>
 	{:else}
 		<div role="button" title="Pause" class="mr-1 hover:text-primary sm:mr-2">
-			<Icon path={mdiPause} width={iconSize} height={iconSize} on:click={() => ($isPaused$ = true)} />
+			<Icon path={mdiPause} width={iconSize} height={iconSize} on:click={() => void handleTextFeedTimerToggle()} />
 		</div>
 	{/if}
+	<div
+		role="button"
+		title={gsmTextIntakePaused === undefined
+			? 'Checking GSM stats collection status…'
+			: gsmTextIntakePaused
+				? 'Resume GSM stats collection'
+				: 'Pause GSM stats collection'}
+		class="mr-1 hover:text-primary sm:mr-2"
+		class:animate-[pulse_1.25s_cubic-bezier(0.4,0,0.6,1)_infinite]={gsmTextIntakePaused === true}
+		class:opacity-50={gsmTextIntakePaused === undefined || gsmTextIntakeStateRequestPending}
+		class:cursor-not-allowed={gsmTextIntakePaused === undefined || gsmTextIntakeStateRequestPending}
+	>
+		<Icon
+			path={gsmTextIntakePaused ? mdiDatabaseOff : mdiDatabase}
+			width={iconSize}
+			height={iconSize}
+			on:click={handleGSMTextIntakeToggle}
+		/>
+	</div>
 	<div
 		role="button"
 		title="Delete last Line"

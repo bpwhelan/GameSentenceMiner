@@ -20,7 +20,12 @@
 </script>
 
 <div class="fixed top-12 flex justify-center w-full z-30">
-	<div class="alert shadow-lg max-w-xl" class:alert-info={type === 'info'} class:alert-error={type === 'error'}>
+	<div
+		class="alert shadow-lg max-w-xl"
+		class:alert-info={type === 'info'}
+		class:alert-warning={type === 'warning'}
+		class:alert-error={type === 'error'}
+	>
 		<div>
 			{#if icon}
 				<Icon path={icon} />

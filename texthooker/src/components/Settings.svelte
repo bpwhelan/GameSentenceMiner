@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		mdiAlert,
 		mdiClose,
 		mdiDatabaseSync,
 		mdiPickaxe,
@@ -66,6 +67,7 @@
 		showSpinner$,
 		showTimer$,
 		skipResetConfirmations$,
+		syncTextFeedPauseWithGSMStats$,
 		theme$,
 		timeValue$,
 		userNotes$,
@@ -433,6 +435,26 @@
 		}
 	}
 
+	async function handlePauseSyncChange() {
+		if (!$syncTextFeedPauseWithGSMStats$) {
+			return;
+		}
+
+		const { canceled } = await new Promise<DialogResult>((resolve) => {
+			$openDialog$ = {
+				icon: mdiAlert,
+				type: 'warning',
+				message:
+					'Only enable this if you understand the consequences. The TextFeed play/pause control will also pause or resume GSM text intake and stats collection. Lines missed while GSM collection is paused cannot be recovered.',
+				callback: resolve,
+			};
+		});
+
+		if (canceled) {
+			$syncTextFeedPauseWithGSMStats$ = false;
+		}
+	}
+
 	function handleCharacterMilestoneBlur(event) {
 		const target = event.target as HTMLInputElement;
 		const value = Number.parseInt(target.value || '0');
@@ -715,7 +737,7 @@
 					on:keyup={dummyFn}
 				>
 					<Icon path={mdiTimerEdit} />
-					<span class="label-text">Set Timer</span>
+					<span class="label-text">Set TextFeed Timer</span>
 				</div>
 				<div
 					role="button"
@@ -724,7 +746,7 @@
 					on:keyup={dummyFn}
 				>
 					<Icon path={mdiTimerCancel} />
-					<span class="label-text">Reset Timer</span>
+					<span class="label-text">Reset TextFeed Timer</span>
 				</div>
 				<div
 					role="button"
@@ -925,13 +947,13 @@
 		<input type="checkbox" class="checkbox checkbox-primary ml-2" bind:checked={$showPresetQuickSwitch$} />
 		<span class="label-text">Skip Reset Confirmations</span>
 		<input type="checkbox" class="checkbox checkbox-primary ml-2" bind:checked={$skipResetConfirmations$} />
-		<span class="label-text">Store Stats persistently</span>
+		<span class="label-text">Store TextFeed stats persistently</span>
 		<input
 			type="checkbox"
 			class="checkbox checkbox-primary ml-2"
 			bind:checked={$persistStats$}
 			on:change={() =>
-				handlePersistenceChange($persistStats$, 'Clear stored stats', 'bannou-texthooker-timeValue')}
+				handlePersistenceChange($persistStats$, 'Clear stored TextFeed stats', 'bannou-texthooker-timeValue')}
 		/>
 		<span class="label-text">Store Notes persistently</span>
 		<input
@@ -1009,15 +1031,15 @@
 			bind:checked={$removeAllWhitespace$}
 			on:change={handleRemoveAllWhiteSpaceChange}
 		/>
-		<span class="label-text">Show Timer</span>
+		<span class="label-text">Show TextFeed Timer</span>
 		<input type="checkbox" class="checkbox checkbox-primary ml-2" bind:checked={$showTimer$} />
-		<span class="label-text">Show Speed</span>
+		<span class="label-text">Show TextFeed CPH</span>
 		<input type="checkbox" class="checkbox checkbox-primary ml-2" bind:checked={$showSpeed$} />
-		<span class="label-text">Show Character Count</span>
+		<span class="label-text">Show TextFeed Character Count</span>
 		<input type="checkbox" class="checkbox checkbox-primary ml-2" bind:checked={$showCharacterCount$} />
-		<span class="label-text">Show Line Count</span>
+		<span class="label-text">Show TextFeed Line Count</span>
 		<input type="checkbox" class="checkbox checkbox-primary ml-2" bind:checked={$showLineCount$} />
-		<span class="label-text">Blur Stats</span>
+		<span class="label-text">Blur TextFeed Stats</span>
 		<input type="checkbox" class="checkbox checkbox-primary ml-2" bind:checked={$blurStats$} />
 		<span class="label-text">Enable Line Animation</span>
 		<input type="checkbox" class="checkbox checkbox-primary ml-2" bind:checked={$enableLineAnimation$} />
@@ -1044,6 +1066,21 @@
 		</div>
 		<div class="col-span-4 mb-4">
 			<div class="h-1 w-full bg-gradient-to-r from-primary to-secondary rounded"></div>
+		</div>
+
+		<!-- Stats Collection Subsection -->
+		<div class="col-span-4 mt-2 mb-1 flex items-center gap-2">
+			<Icon path={mdiDatabaseSync} class="text-secondary w-5 h-5" />
+			<h3 class="font-semibold text-base tracking-wide">Stats Collection</h3>
+		</div>
+		<div class="col-span-4 grid grid-cols-4 gap-x-2 gap-y-1 mb-2">
+			<span class="label-text col-span-2">Sync TextFeed play/pause with GSM stats collection</span>
+			<input
+				type="checkbox"
+				class="checkbox checkbox-primary ml-2 col-span-2"
+				bind:checked={$syncTextFeedPauseWithGSMStats$}
+				on:change={handlePauseSyncChange}
+			/>
 		</div>
 
 		<!-- Auto Translate Subsection -->
