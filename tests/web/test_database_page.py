@@ -104,6 +104,21 @@ def test_tools_page_renders_stats_export_card(client):
     assert 'id="statsExportStatus"' in html
 
 
+def test_tools_page_renders_tadoku_sync_card(client):
+    response = client.get("/tools")
+
+    assert response.status_code == 200
+
+    html = response.get_data(as_text=True)
+    assert 'class="management-card tadoku-sync"' in html
+    assert 'id="tadoku_session_cookie"' in html
+    assert 'id="tadokuSaveSettingsBtn"' in html
+    assert 'id="tadoku_manual_sync_deduplicate"' in html
+    assert 'id="tadoku_daily_sync_enabled"' in html
+    assert 'id="tadoku_daily_sync_deduplicate" checked' in html
+    assert 'id="tadokuPreviewRows"' in html
+
+
 def test_tools_page_renders_deduplication_filter_controls(client):
     response = client.get("/tools")
 

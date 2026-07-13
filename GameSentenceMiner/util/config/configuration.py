@@ -1738,6 +1738,10 @@ class StatsConfig:
     regex_out_punctuation: bool = True
     regex_out_repetitions: bool = False
     extra_punctuation_regex: str = ""
+    tadoku_session_cookie: str = ""
+    tadoku_language_code: str = "jpn"
+    tadoku_daily_sync_enabled: bool = False
+    tadoku_daily_sync_deduplicate: bool = True
     easy_days_settings: Dict[str, int] = field(
         default_factory=lambda: {
             "monday": 100,

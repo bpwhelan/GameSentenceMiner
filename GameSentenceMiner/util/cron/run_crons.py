@@ -38,6 +38,7 @@ class Crons(enum.Enum):
     TOKENIZE_BACKFILL = "tokenize_backfill"
     ANKI_WORD_SYNC = "anki_word_sync"
     ANKI_CARD_SYNC = "anki_card_sync"
+    TADOKU_SYNC = "tadoku_sync"
 
 
 @dataclass
@@ -128,6 +129,12 @@ def _run_anki_card_sync() -> dict:
     return run_full_sync()
 
 
+def _run_tadoku_sync() -> dict:
+    from GameSentenceMiner.util.cron.tadoku_sync import run_scheduled_tadoku_sync
+
+    return run_scheduled_tadoku_sync()
+
+
 def _skip_or(result: dict, done: str) -> str:
     if result.get("skipped"):
         return f"skipped: {result.get('reason', 'unknown')}"
@@ -179,6 +186,12 @@ _TASK_REGISTRY: dict[str, _TaskDef] = {
             r,
             f"notes={r.get('notes', 0)}, cards={r.get('cards', 0)}, reviews={r.get('reviews', 0)}",
         ),
+    ),
+    Crons.TADOKU_SYNC.value: _TaskDef(
+        runner=_run_tadoku_sync,
+        success=lambda r: bool(r.get("success", False)),
+        summary=lambda r: f"sent {r.get('characters_sent', 0)} characters in {r.get('entries_sent', 0)} game logs",
+        warn=lambda r: f"Tadoku daily sync failed: {r['error']}" if r.get("error") else None,
     ),
 }
 
@@ -321,6 +334,13 @@ class CronScheduler:
 
     def force_anki_card_sync(self):
         self.add_external_task(Crons.ANKI_CARD_SYNC)
+
+    def force_tadoku_sync(self):
+        self.add_external_task(Crons.TADOKU_SYNC)
+
+    def update_scheduled_cron(self, cron: CronTable) -> None:
+        """Make a settings-driven cron change visible without waiting for cache expiry."""
+        self._cron_cache.update_cron(cron)
 
     def start(self):
         """Start the cron scheduler in the background."""

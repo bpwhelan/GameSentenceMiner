@@ -1,10 +1,26 @@
 from GameSentenceMiner.util.config import configuration
-from GameSentenceMiner.util.config.configuration import Config, ProfileConfig, VAD
+from GameSentenceMiner.util.config.configuration import Config, OBS, ProfileConfig, StatsConfig, VAD
 
 
 def test_vad_defaults_to_silero():
     assert VAD().selected_vad_model == configuration.SILERO
     assert ProfileConfig().vad.selected_vad_model == configuration.SILERO
+
+
+def test_tadoku_stats_defaults_are_safe_and_cleanup_daily_sync():
+    stats = StatsConfig()
+
+    assert stats.tadoku_session_cookie == ""
+    assert stats.tadoku_language_code == "jpn"
+    assert stats.tadoku_daily_sync_enabled is False
+    assert stats.tadoku_daily_sync_deduplicate is True
+
+
+def test_obs_replay_buffer_duration_defaults_and_clamps():
+    assert OBS().replay_buffer_enabled is True
+    assert OBS().replay_buffer_duration_seconds == 300
+    assert OBS(replay_buffer_duration_seconds=0).replay_buffer_duration_seconds == 300
+    assert OBS(replay_buffer_duration_seconds=999999).replay_buffer_duration_seconds == 86400
 
 
 def test_missing_vad_model_uses_new_silero_default():

@@ -18,6 +18,7 @@ def register_routes() -> None:
     from GameSentenceMiner.web.third_party_stats_api import (
         register_third_party_stats_routes,
     )
+    from GameSentenceMiner.web.tadoku_api import register_tadoku_api_routes
     from GameSentenceMiner.web.tokenization_api import (
         register_tokenization_api_routes,
     )
@@ -31,6 +32,7 @@ def register_routes() -> None:
     register_goals_projection_api_routes(app)
     register_import_api_routes(app)
     register_third_party_stats_routes(app)
+    register_tadoku_api_routes(app)
     register_yomitan_api_routes(app)
     register_anki_api_endpoints(app)
     register_tokenization_api_routes(app)

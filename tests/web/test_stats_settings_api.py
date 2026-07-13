@@ -155,3 +155,37 @@ def test_post_settings_rejects_invalid_extra_punctuation_regex(client, monkeypat
 
     assert response.status_code == 400
     assert response.get_json()["error"] == "extra_punctuation_regex must be a valid regex"
+
+
+def test_tadoku_settings_never_return_saved_session_cookie(client, monkeypatch):
+    config = _stats_config(tadoku_session_cookie="existing-secret")
+    saved = []
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.database_api.get_stats_config",
+        lambda: config,
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.database_api.save_stats_config",
+        lambda updated: saved.append(updated),
+    )
+
+    get_response = client.get("/api/settings")
+    save_response = client.post(
+        "/api/settings",
+        json={
+            "tadoku_session_cookie": "new-secret",
+            "tadoku_language_code": "JPN",
+            "tadoku_daily_sync_deduplicate": False,
+        },
+    )
+
+    assert get_response.status_code == 200
+    assert get_response.get_json()["tadoku_configured"] is True
+    assert "tadoku_session_cookie" not in get_response.get_json()
+    assert save_response.status_code == 200
+    assert save_response.get_json()["tadoku_configured"] is True
+    assert "tadoku_session_cookie" not in save_response.get_json()
+    assert config.tadoku_session_cookie == "new-secret"
+    assert config.tadoku_language_code == "jpn"
+    assert config.tadoku_daily_sync_deduplicate is False
+    assert saved == [config]

@@ -862,6 +862,7 @@ class SQLiteDBTable:
         )
         cls._db.execute(f"ALTER TABLE {cls._table} DROP COLUMN {old_column}", commit=True)
         cls._column_order_cache = None  # Reset cache when schema changes
+        cls._row_field_mapping_cache = None
 
     @classmethod
     def get_actual_column_order(cls) -> List[str]:
@@ -1093,6 +1094,7 @@ class GameLinesTable(SQLiteDBTable):
         "game_id",
         "note_ids",
         "last_modified",
+        "created_at",
     ]
     _types = [
         str,  # Includes primary key type
@@ -1109,6 +1111,7 @@ class GameLinesTable(SQLiteDBTable):
         str,
         str,
         list,
+        float,
         float,
     ]
     _pk = "id"
@@ -1132,6 +1135,7 @@ class GameLinesTable(SQLiteDBTable):
         game_id: Optional[str] = None,
         note_ids: Optional[List[str]] = None,
         last_modified: Optional[float] = None,
+        created_at: Optional[float] = None,
     ):
         self.id = id
         self.game_name = game_name
@@ -1149,6 +1153,7 @@ class GameLinesTable(SQLiteDBTable):
         self.game_id = game_id if game_id is not None else ""
         self.note_ids = note_ids
         self.last_modified = last_modified if last_modified is not None else time.time()
+        self.created_at = created_at if created_at is not None else time.time()
 
     @classmethod
     def all(cls, for_stats: bool = False) -> List["GameLinesTable"]:
@@ -1276,11 +1281,12 @@ class GameLinesTable(SQLiteDBTable):
                 line.language,
                 line.game_id,
                 line.last_modified,
+                line.created_at,
             )
             for line in new_lines
         ]
         cls._db.executemany(
-            f"INSERT INTO {cls._table} (id, game_name, line_text, timestamp, screenshot_in_anki, audio_in_anki, screenshot_path, audio_path, replay_path, translation, language, game_id, last_modified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            f"INSERT INTO {cls._table} (id, game_name, line_text, timestamp, screenshot_in_anki, audio_in_anki, screenshot_path, audio_path, replay_path, translation, language, game_id, last_modified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params,
             commit=True,
         )
@@ -1482,9 +1488,9 @@ class GameLinesTable(SQLiteDBTable):
                     f"""
                     INSERT INTO {cls._table} (
                         id, game_name, line_text, language, timestamp,
-                        original_game_name, game_id, note_ids, last_modified
+                        original_game_name, game_id, note_ids, last_modified, created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         game_name=excluded.game_name,
                         line_text=excluded.line_text,
@@ -1503,6 +1509,7 @@ class GameLinesTable(SQLiteDBTable):
                         "",
                         json.dumps(cls._to_sync_note_ids(line_data.get("note_ids"))),
                         changed_at,
+                        time.time(),
                     ),
                     commit=True,
                 )
@@ -2066,6 +2073,7 @@ from GameSentenceMiner.util.database.games_table import GamesTable  # noqa: E402
 from GameSentenceMiner.util.database.cron_table import CronTable  # noqa: E402
 from GameSentenceMiner.util.database.game_daily_rollup_table import GameDailyRollupTable  # noqa: E402
 from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable  # noqa: E402
+from GameSentenceMiner.util.database.stats_export_state_table import StatsExportStateTable  # noqa: E402
 from GameSentenceMiner.util.database.third_party_stats_table import ThirdPartyStatsTable  # noqa: E402
 
 for cls in [
@@ -2076,12 +2084,20 @@ for cls in [
     CronTable,
     GameDailyRollupTable,
     StatsRollupTable,
+    StatsExportStateTable,
     ThirdPartyStatsTable,
 ]:
     cls.set_db(gsm_db)
     # Uncomment to start fresh every time
     # cls.drop()
     # cls.set_db(gsm_db)  # --- IGNORE ---
+
+if not gsm_db.read_only:
+    # This is intentionally a one-time database initialization. Successful Tadoku
+    # exports replace this value; subsequent launches leave it untouched.
+    from GameSentenceMiner.util.tadoku_sync import initialize_tadoku_cursor  # noqa: E402
+
+    initialize_tadoku_cursor()
 
 logger.background("Database initialized at {}", db_path)
 # GameLinesTable.drop_column('timestamp')
@@ -2511,6 +2527,12 @@ def check_and_run_migrations():
         else:
             logger.debug("daily_goals_completion scheduled task already exists, skipping creation.")
 
+    def migrate_tadoku_cron_job():
+        """Ensure the optional Tadoku daily task mirrors the persisted stats setting."""
+        from GameSentenceMiner.util.cron.tadoku_sync import configure_tadoku_cron
+
+        configure_tadoku_cron()
+
     def migrate_genres_and_tags():
         """
         Add genres and tags columns to games table.
@@ -2563,6 +2585,7 @@ def check_and_run_migrations():
     migrate_user_plugins_cron_job()
     migrate_jiten_upgrader_cron_job()  # Weekly check for new Jiten entries
     migrate_daily_goals_completion_cron_job()  # Hourly check for auto-completing daily goals
+    migrate_tadoku_cron_job()
 
     global _pending_tokenization_schema_sync
     if _should_defer_tokenization_schema_sync():

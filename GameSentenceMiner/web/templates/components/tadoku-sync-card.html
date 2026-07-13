@@ -1,0 +1,70 @@
+<div class="management-card tadoku-sync" id="tadokuSyncCard">
+    <div class="card-header">
+        <div class="card-icon">📚</div>
+        <h2 class="card-title">Tadoku Sync</h2>
+    </div>
+    <p class="card-description">
+        Incrementally send one Reading/Character log per game. Only lines added since the previous successful Tadoku sync are included.
+    </p>
+
+    <div class="form-group" style="margin: 15px 0;">
+        <label class="form-label" for="tadoku_session_cookie">Tadoku session cookie</label>
+        <input type="password" id="tadoku_session_cookie" name="tadoku_session_cookie"
+            class="form-input" autocomplete="off" placeholder="ory_kratos_session value">
+        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+            Copy the <code>ory_kratos_session</code> cookie from a signed-in tadoku.app browser session. Leave blank to keep the saved value.
+        </small>
+        <label style="display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--text-secondary); font-size: 13px;">
+            <input type="checkbox" id="tadoku_clear_session_cookie">
+            Clear the saved Tadoku session cookie
+        </label>
+    </div>
+
+    <div class="form-group" style="margin: 15px 0;">
+        <label class="form-label" for="tadoku_language_code">Tadoku language code</label>
+        <input type="text" id="tadoku_language_code" name="tadoku_language_code" maxlength="3"
+            class="form-input" style="width: 90px;" placeholder="jpn">
+        <small style="color: var(--text-tertiary); font-size: 12px; margin-top: 4px; display: block;">
+            Three-letter ISO 639-3 code, such as <code>jpn</code>, <code>kor</code>, or <code>zho</code>.
+        </small>
+    </div>
+
+    <label style="display: flex; align-items: center; gap: 8px; margin-top: 16px; color: var(--text-primary); font-weight: 600;">
+        <input type="checkbox" id="tadoku_daily_sync_enabled">
+        Sync to Tadoku once per day
+    </label>
+    <label style="display: flex; align-items: center; gap: 8px; margin: 10px 0 16px 24px; color: var(--text-secondary);">
+        <input type="checkbox" id="tadoku_daily_sync_deduplicate" checked>
+        Exclude repeated text from Tadoku counts (local lines are always kept)
+    </label>
+
+    <div class="card-actions" style="margin-bottom: 16px;">
+        <button type="button" id="tadokuSaveSettingsBtn" class="action-btn primary">Save Tadoku settings</button>
+    </div>
+    <div id="tadokuSettingsError" class="error-text" style="display: none; margin-bottom: 15px;"></div>
+    <div id="tadokuSettingsSuccess" class="success-text" style="display: none; margin-bottom: 15px;"></div>
+
+    <div style="padding: 14px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-tertiary);">
+        <label style="display: flex; align-items: center; gap: 8px; color: var(--text-primary); font-weight: 600;">
+            <input type="checkbox" id="tadoku_manual_sync_deduplicate">
+            Exclude repeated text from this Tadoku sync (local lines are always kept)
+        </label>
+        <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
+            <button type="button" id="tadokuPreviewBtn" class="action-btn">Refresh preview</button>
+            <button type="button" id="tadokuSyncBtn" class="action-btn primary">Queue manual sync</button>
+        </div>
+        <div id="tadokuPreviewSummary" style="color: var(--text-secondary); font-size: 13px; margin-top: 12px;">Loading Tadoku preview…</div>
+        <div style="max-height: 180px; overflow: auto; margin-top: 8px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <thead>
+                    <tr style="text-align: left; color: var(--text-secondary);">
+                        <th style="padding: 6px; border-bottom: 1px solid var(--border-color);">Game</th>
+                        <th style="padding: 6px; border-bottom: 1px solid var(--border-color); text-align: right;">Lines</th>
+                        <th style="padding: 6px; border-bottom: 1px solid var(--border-color); text-align: right;">Characters</th>
+                    </tr>
+                </thead>
+                <tbody id="tadokuPreviewRows"></tbody>
+            </table>
+        </div>
+    </div>
+</div>

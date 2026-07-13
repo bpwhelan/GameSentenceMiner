@@ -476,6 +476,10 @@ h1 {
     background: linear-gradient(90deg, var(--info-color), #4fc3f7);
 }
 
+.management-card.tadoku-sync::before {
+    background: linear-gradient(90deg, #ef5350, #ffb74d);
+}
+
 .card-header {
     display: flex;
     align-items: center;

@@ -33,3 +33,13 @@ def test_shared_settings_modal_no_longer_renders_afk_timer_setting():
     assert 'name="afk_timer_seconds"' not in contents
     assert "id=\"{{ afk_timer_id | default('afkTimer') }}\"" not in contents
     assert "AFK Timer (seconds)" not in contents
+
+
+def test_shared_settings_modal_does_not_render_tadoku_controls():
+    template_path = TEMPLATES_DIR / "components" / "settings-modal.html"
+    contents = template_path.read_text(encoding="utf-8")
+
+    assert 'id="tadoku_session_cookie"' not in contents
+    assert 'id="tadoku_manual_sync_deduplicate"' not in contents
+    assert 'id="tadoku_daily_sync_enabled"' not in contents
+    assert 'id="tadokuPreviewRows"' not in contents

@@ -1202,6 +1202,10 @@ def register_database_api_routes(app):
                     "regex_out_repetitions": config.regex_out_repetitions,
                     "reading_time_adaptive_v2": getattr(config, "reading_time_adaptive_v2", False),
                     "extra_punctuation_regex": getattr(config, "extra_punctuation_regex", ""),
+                    "tadoku_configured": bool(getattr(config, "tadoku_session_cookie", "")),
+                    "tadoku_language_code": getattr(config, "tadoku_language_code", "jpn"),
+                    "tadoku_daily_sync_enabled": bool(getattr(config, "tadoku_daily_sync_enabled", False)),
+                    "tadoku_daily_sync_deduplicate": bool(getattr(config, "tadoku_daily_sync_deduplicate", True)),
                     "easy_days_monday": getattr(config, "easy_days_settings", {}).get("monday", 100),
                     "easy_days_tuesday": getattr(config, "easy_days_settings", {}).get("tuesday", 100),
                     "easy_days_wednesday": getattr(config, "easy_days_settings", {}).get("wednesday", 100),
@@ -1295,6 +1299,11 @@ def register_database_api_routes(app):
             regex_out_repetitions = data.get("regex_out_repetitions")
             reading_time_adaptive_v2 = data.get("reading_time_adaptive_v2")
             extra_punctuation_regex = data.get("extra_punctuation_regex")
+            tadoku_session_cookie = data.get("tadoku_session_cookie")
+            tadoku_clear_session_cookie = data.get("tadoku_clear_session_cookie")
+            tadoku_language_code = data.get("tadoku_language_code")
+            tadoku_daily_sync_enabled = data.get("tadoku_daily_sync_enabled")
+            tadoku_daily_sync_deduplicate = data.get("tadoku_daily_sync_deduplicate")
 
             # Easy days settings
             easy_days_monday = data.get("easy_days_monday")
@@ -1422,6 +1431,37 @@ def register_database_api_routes(app):
                         return jsonify({"error": "extra_punctuation_regex must be a valid regex"}), 400
                 settings_to_update["extra_punctuation_regex"] = extra_punctuation_regex
 
+            if tadoku_session_cookie is not None:
+                if not isinstance(tadoku_session_cookie, str):
+                    return jsonify({"error": "tadoku_session_cookie must be a string value"}), 400
+                tadoku_session_cookie = tadoku_session_cookie.strip()
+                if len(tadoku_session_cookie) > 8192:
+                    return jsonify({"error": "Tadoku session cookie is too long"}), 400
+                if tadoku_session_cookie:
+                    settings_to_update["tadoku_session_cookie"] = tadoku_session_cookie
+
+            if tadoku_clear_session_cookie is not None:
+                if not isinstance(tadoku_clear_session_cookie, bool):
+                    return jsonify({"error": "tadoku_clear_session_cookie must be a boolean value"}), 400
+                if tadoku_clear_session_cookie:
+                    settings_to_update["tadoku_session_cookie"] = ""
+
+            if tadoku_language_code is not None:
+                if not isinstance(tadoku_language_code, str) or not re.fullmatch(
+                    r"[A-Za-z]{3}", tadoku_language_code.strip()
+                ):
+                    return jsonify({"error": "Tadoku language code must be a three-letter ISO 639-3 code"}), 400
+                settings_to_update["tadoku_language_code"] = tadoku_language_code.strip().lower()
+
+            for setting_name, setting_value in (
+                ("tadoku_daily_sync_enabled", tadoku_daily_sync_enabled),
+                ("tadoku_daily_sync_deduplicate", tadoku_daily_sync_deduplicate),
+            ):
+                if setting_value is not None:
+                    if not isinstance(setting_value, bool):
+                        return jsonify({"error": f"{setting_name} must be a boolean value"}), 400
+                    settings_to_update[setting_name] = setting_value
+
             # Validate and process easy days settings
             easy_days_settings = {}
             if easy_days_monday is not None:
@@ -1519,6 +1559,14 @@ def register_database_api_routes(app):
                 config.reading_time_adaptive_v2 = settings_to_update["reading_time_adaptive_v2"]
             if "extra_punctuation_regex" in settings_to_update:
                 config.extra_punctuation_regex = settings_to_update["extra_punctuation_regex"]
+            if "tadoku_session_cookie" in settings_to_update:
+                config.tadoku_session_cookie = settings_to_update["tadoku_session_cookie"]
+            if "tadoku_language_code" in settings_to_update:
+                config.tadoku_language_code = settings_to_update["tadoku_language_code"]
+            if "tadoku_daily_sync_enabled" in settings_to_update:
+                config.tadoku_daily_sync_enabled = settings_to_update["tadoku_daily_sync_enabled"]
+            if "tadoku_daily_sync_deduplicate" in settings_to_update:
+                config.tadoku_daily_sync_deduplicate = settings_to_update["tadoku_daily_sync_deduplicate"]
 
             # Save easy days settings if provided
             if easy_days_settings:
@@ -1537,10 +1585,20 @@ def register_database_api_routes(app):
 
             save_stats_config(config)
 
-            logger.info(f"Settings updated: {settings_to_update}")
+            if "tadoku_daily_sync_enabled" in settings_to_update:
+                from GameSentenceMiner.util.cron import cron_scheduler
+                from GameSentenceMiner.util.cron.tadoku_sync import configure_tadoku_cron
+
+                tadoku_cron = configure_tadoku_cron(config.tadoku_daily_sync_enabled)
+                cron_scheduler.update_scheduled_cron(tadoku_cron)
+
+            logger.info("Settings updated: %s", sorted(settings_to_update))
 
             response_data = {"message": "Settings saved successfully"}
-            response_data.update(settings_to_update)
+            response_data.update(
+                {key: value for key, value in settings_to_update.items() if key != "tadoku_session_cookie"}
+            )
+            response_data["tadoku_configured"] = bool(getattr(config, "tadoku_session_cookie", ""))
 
             return jsonify(response_data), 200
 

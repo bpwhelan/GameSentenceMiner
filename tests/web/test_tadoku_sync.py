@@ -1,0 +1,384 @@
+from __future__ import annotations
+
+import threading
+from types import SimpleNamespace
+
+import flask
+import pytest
+
+from GameSentenceMiner.util.database.db import GameLinesTable, SQLiteDB
+from GameSentenceMiner.util.database.cron_table import CronTable
+from GameSentenceMiner.util.database.games_table import GamesTable
+from GameSentenceMiner.util.database.stats_export_state_table import StatsExportStateTable
+from GameSentenceMiner.util.tadoku_sync import (
+    TADOKU_CURSOR_KEY,
+    TadokuClient,
+    TadokuSyncError,
+    build_tadoku_preview,
+    initialize_tadoku_cursor,
+    run_tadoku_sync,
+)
+from GameSentenceMiner.web.tadoku_api import register_tadoku_api_routes
+
+
+@pytest.fixture(autouse=True)
+def _in_memory_db():
+    for thread in threading.enumerate():
+        target = getattr(thread, "_target", None)
+        if getattr(target, "__name__", "") == "check_and_run_migrations":
+            thread.join(timeout=10)
+    original_dbs = {
+        GameLinesTable: GameLinesTable._db,
+        GamesTable: GamesTable._db,
+        StatsExportStateTable: StatsExportStateTable._db,
+        CronTable: CronTable._db,
+    }
+    db = SQLiteDB(":memory:")
+    for table in original_dbs:
+        table.set_db(db)
+    db.execute(
+        f"CREATE TABLE IF NOT EXISTS {GameLinesTable._sync_changes_table} ("
+        "line_id TEXT PRIMARY KEY, change_type TEXT NOT NULL, changed_at REAL NOT NULL)",
+        commit=True,
+    )
+
+    yield db
+
+    db.close()
+    for table, original_db in original_dbs.items():
+        table._db = original_db
+
+
+def _config(**overrides):
+    values = {
+        "tadoku_session_cookie": "session-secret",
+        "tadoku_language_code": "jpn",
+        "tadoku_daily_sync_enabled": False,
+        "tadoku_daily_sync_deduplicate": True,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def _line(line_id, game_id, scene, text, modified):
+    line = GameLinesTable(
+        id=line_id,
+        game_id=game_id,
+        game_name=scene,
+        line_text=text,
+        timestamp=modified,
+        last_modified=modified,
+        created_at=modified,
+        language="ja",
+    )
+    line.save()
+    # The repository starts its legacy migration worker at db-module import time;
+    # a first in-memory insert can overlap trigger creation on Windows.
+    if GameLinesTable.get(line_id) is None:
+        line.save()
+
+
+def test_initialize_cursor_creates_launch_placeholder_without_overwriting_it():
+    assert initialize_tadoku_cursor(now=100.0) == 100.0
+    assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 100.0
+
+    assert initialize_tadoku_cursor(now=200.0) == 100.0
+    assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 100.0
+
+
+def test_preview_groups_new_characters_into_one_entry_per_game():
+    GamesTable(id="game-1", title_original="Tsukihime", obs_scene_name="Scene A").save()
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("old", "game-1", "Scene A", "old", 90.0)
+    _line("new-a", "game-1", "Scene A", "あいう", 110.0)
+    _line("new-b", "game-1", "Scene B", "えお", 120.0)
+    _line("other", "", "Unlinked Game", "abc", 130.0)
+
+    preview = build_tadoku_preview(deduplicate=False, upper_bound=150.0)
+
+    assert preview["cursor"] == 100.0
+    assert preview["total_characters"] == 8
+    assert preview["total_entries"] == 2
+    assert preview["entries"] == [
+        {
+            "game_key": "game-1",
+            "game_name": "Tsukihime",
+            "characters": 5,
+            "lines": 2,
+        },
+        {
+            "game_key": "scene:Unlinked Game",
+            "game_name": "Unlinked Game",
+            "characters": 3,
+            "lines": 1,
+        },
+    ]
+
+
+def test_preview_does_not_resend_old_line_after_metadata_modification():
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    line = GameLinesTable(
+        id="old-line",
+        game_id="game-1",
+        game_name="Scene A",
+        line_text="already exported",
+        timestamp=80.0,
+        created_at=90.0,
+        last_modified=120.0,
+        language="ja",
+    )
+    line.save()
+
+    preview = build_tadoku_preview(deduplicate=False, upper_bound=150.0)
+
+    assert preview["entries"] == []
+    assert preview["total_characters"] == 0
+
+
+def test_deduplicated_preview_excludes_new_lines_without_deleting_them():
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("duplicate", "game-1", "Scene B", "same text", 110.0)
+    _line("unique", "game-1", "Scene B", "new", 120.0)
+    _line("old", "game-1", "Scene A", "Same Text", 90.0)
+
+    plain = build_tadoku_preview(deduplicate=False, upper_bound=150.0)
+    cleaned = build_tadoku_preview(deduplicate=True, upper_bound=150.0)
+
+    assert plain["total_characters"] == len("sametextnew")
+    assert cleaned["total_characters"] == len("new")
+    assert cleaned["duplicates_excluded"] == 1
+    assert GameLinesTable.get("duplicate") is not None
+    assert GameLinesTable.get("old") is not None
+
+
+class _FakeClient:
+    def __init__(self, fail_on_post=0):
+        self.fail_on_post = fail_on_post
+        self.payloads = []
+        self.deleted = []
+
+    def resolve_character_unit_id(self, language_code):
+        assert language_code == "jpn"
+        return "character-unit"
+
+    def get_eligible_registration_ids(self, language_code, activity_id):
+        assert language_code == "jpn"
+        assert activity_id == 1
+        return ["registration-1", "registration-2"]
+
+    def create_log(self, payload):
+        self.payloads.append(payload)
+        if self.fail_on_post and len(self.payloads) == self.fail_on_post:
+            raise TadokuSyncError("remote failure")
+        return {"id": f"log-{len(self.payloads)}"}
+
+    def delete_log(self, log_id):
+        self.deleted.append(log_id)
+
+
+def test_sync_posts_one_character_log_per_game_and_advances_frozen_cursor(monkeypatch):
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    GamesTable(id="game-1", title_original="Tsukihime").save()
+    _line("one", "game-1", "Scene A", "あいう", 110.0)
+    _line("two", "game-2", "Scene B", "えお", 120.0)
+    client = _FakeClient()
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: 150.0)
+
+    result = run_tadoku_sync(config=_config(), client=client, deduplicate=False)
+
+    assert result["success"] is True
+    assert result["entries_sent"] == 2
+    assert result["characters_sent"] == 5
+    assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 150.0
+    assert client.payloads == [
+        {
+            "language_code": "jpn",
+            "activity_id": 1,
+            "amount": 3,
+            "unit_id": "character-unit",
+            "tags": ["game", "gsm"],
+            "description": "Tsukihime",
+            "registration_ids": ["registration-1", "registration-2"],
+        },
+        {
+            "language_code": "jpn",
+            "activity_id": 1,
+            "amount": 2,
+            "unit_id": "character-unit",
+            "tags": ["game", "gsm"],
+            "description": "Scene B",
+            "registration_ids": ["registration-1", "registration-2"],
+        },
+    ]
+
+
+def test_sync_rolls_back_remote_logs_and_keeps_cursor_when_a_post_fails(monkeypatch):
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("one", "game-1", "Scene A", "abc", 110.0)
+    _line("two", "game-2", "Scene B", "def", 120.0)
+    client = _FakeClient(fail_on_post=2)
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: 150.0)
+
+    with pytest.raises(TadokuSyncError, match="remote failure"):
+        run_tadoku_sync(config=_config(), client=client, deduplicate=False)
+
+    assert client.deleted == ["log-1"]
+    assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 100.0
+
+
+def test_sync_excludes_duplicate_increment_without_deleting_local_lines(monkeypatch):
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("old", "game-1", "Scene A", "same", 90.0)
+    _line("new-duplicate", "game-1", "Scene B", "SAME", 110.0)
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: 150.0)
+
+    result = run_tadoku_sync(config=_config(), client=_FakeClient(), deduplicate=True)
+
+    assert result["entries_sent"] == 0
+    assert result["duplicates_excluded"] == 1
+    assert GameLinesTable.get("old") is not None
+    assert GameLinesTable.get("new-duplicate") is not None
+    assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 150.0
+
+
+def test_tadoku_client_prefers_language_specific_character_unit():
+    client = TadokuClient("cookie")
+    client._request_json = lambda *_args, **_kwargs: {
+        "units": [
+            {"id": "fallback", "log_activity_id": 1, "name": "Character"},
+            {
+                "id": "japanese",
+                "log_activity_id": 1,
+                "name": "Character",
+                "language_code": "jpn",
+            },
+        ]
+    }
+
+    assert client.resolve_character_unit_id("jpn") == "japanese"
+
+
+def test_tadoku_client_uses_deployed_internal_immersion_route():
+    class _Response:
+        ok = True
+        content = b'{"units": []}'
+
+        @staticmethod
+        def json():
+            return {"units": []}
+
+    class _Session:
+        def __init__(self):
+            self.cookies = SimpleNamespace(set=lambda *_args: None)
+            self.request_url = ""
+
+        def request(self, _method, url, **_kwargs):
+            self.request_url = url
+            return _Response()
+
+    session = _Session()
+    client = TadokuClient("cookie", session=session)
+
+    with pytest.raises(TadokuSyncError, match="no Character unit"):
+        client.resolve_character_unit_id("jpn")
+
+    assert session.request_url == "https://tadoku.app/api/internal/immersion/logs/configuration-options"
+
+
+def test_tadoku_client_selects_all_eligible_ongoing_contest_registrations():
+    client = TadokuClient("cookie")
+    client._request_json = lambda *_args, **_kwargs: {
+        "registrations": [
+            {
+                "id": "eligible-official",
+                "languages": [{"code": "jpn"}],
+                "contest": {"allowed_activities": [{"id": 1}]},
+            },
+            {
+                "id": "eligible-private",
+                "languages": [{"code": "jpn"}, {"code": "kor"}],
+                "contest": {"allowed_activities": [{"id": 1}, {"id": 2}]},
+            },
+            {
+                "id": "wrong-language",
+                "languages": [{"code": "kor"}],
+                "contest": {"allowed_activities": [{"id": 1}]},
+            },
+            {
+                "id": "wrong-activity",
+                "languages": [{"code": "jpn"}],
+                "contest": {"allowed_activities": [{"id": 2}]},
+            },
+        ]
+    }
+
+    assert client.get_eligible_registration_ids("jpn", 1) == [
+        "eligible-official",
+        "eligible-private",
+    ]
+
+
+def test_tadoku_cron_is_created_disabled_then_can_be_enabled(monkeypatch):
+    from GameSentenceMiner.util.cron.tadoku_sync import configure_tadoku_cron
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.cron.tadoku_sync.get_stats_config",
+        lambda: _config(tadoku_daily_sync_enabled=False),
+    )
+
+    cron = configure_tadoku_cron()
+    assert cron.name == "tadoku_sync"
+    assert cron.schedule == "daily"
+    assert cron.enabled is False
+
+    enabled = configure_tadoku_cron(True)
+    assert enabled.enabled is True
+    assert enabled.next_run > 0
+
+
+def test_scheduled_sync_reports_remote_failure_without_raising(monkeypatch):
+    from GameSentenceMiner.util.cron.tadoku_sync import run_scheduled_tadoku_sync
+
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.cron.tadoku_sync.get_stats_config",
+        lambda: _config(),
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.cron.tadoku_sync.run_tadoku_sync",
+        lambda **_kwargs: (_ for _ in ()).throw(TadokuSyncError("expired cookie")),
+    )
+
+    assert run_scheduled_tadoku_sync() == {"success": False, "error": "expired cookie"}
+
+
+def test_tadoku_api_previews_and_queues_inline_sync(monkeypatch):
+    app = flask.Flask(__name__)
+    app.config["TESTING"] = True
+    register_tadoku_api_routes(app)
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.tadoku_api.get_stats_config",
+        lambda: _config(),
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.tadoku_api.build_tadoku_preview",
+        lambda **_kwargs: {
+            "entries": [{"game_name": "Game", "characters": 3, "lines": 1}],
+            "total_entries": 1,
+            "total_characters": 3,
+        },
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.tadoku_api.run_tadoku_sync",
+        lambda **_kwargs: {"success": True, "entries_sent": 1, "characters_sent": 3},
+    )
+    client = app.test_client()
+
+    preview = client.get("/api/tadoku/preview?deduplicate=true")
+    queued = client.post("/api/tadoku/sync", json={"deduplicate": True})
+
+    assert preview.status_code == 200
+    assert preview.get_json()["configured"] is True
+    assert queued.status_code == 202
+    job = queued.get_json()
+    assert job["status"] == "completed"
+    assert job["result"]["characters_sent"] == 3
