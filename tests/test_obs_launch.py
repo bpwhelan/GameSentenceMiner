@@ -32,7 +32,7 @@ def test_build_obs_launch_command_disables_updates_by_default() -> None:
     obs_cmd = obs_module._build_obs_launch_command(["obs64.exe"], config_override=config)
 
     assert "--disable-updater" in obs_cmd
-    assert "--startreplaybuffer" in obs_cmd
+    assert "--startreplaybuffer" not in obs_cmd
 
 
 def test_build_obs_launch_command_can_allow_obs_updates() -> None:

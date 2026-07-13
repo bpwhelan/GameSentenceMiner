@@ -1463,9 +1463,9 @@ function buildOBSLaunchArgs(baseArgs: string[], config: ElectronOBSStartupConfig
     if (!config.allowAutomaticUpdates) {
         args.push('--disable-updater');
     }
-    if (!config.disableRecording) {
-        args.push('--startreplaybuffer');
-    }
+    // The backend starts the replay buffer when the capture source becomes
+    // active. Starting it with OBS would keep the display awake while GSM is
+    // sitting idle in the tray.
     return args;
 }
 

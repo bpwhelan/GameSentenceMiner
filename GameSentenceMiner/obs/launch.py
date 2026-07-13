@@ -293,8 +293,10 @@ def _build_obs_launch_command(base_cmd: list[str], config_override=None) -> list
     obs_cmd = [*base_cmd, "--disable-shutdown-check", "--portable"]
     if not getattr(obs_cfg, "allow_automatic_updates", False):
         obs_cmd.append("--disable-updater")
-    if not getattr(obs_cfg, "disable_recording", False):
-        obs_cmd.append("--startreplaybuffer")
+    # Do not start an OBS output merely because GSM launched. The OBS service
+    # starts the replay buffer once the selected source has real output and
+    # stops it again after that output disappears. Starting it here would make
+    # OBS inhibit display sleep while GSM is otherwise idle.
     return obs_cmd
 
 
@@ -345,6 +347,10 @@ def start_obs(force_restart=False):
         print(f"OBS not found at {obs_path}. Please install OBS.")
         return None
     try:
+        obs_config_directory = None
+        if base_cwd:
+            obs_config_directory = os.path.abspath(os.path.join(base_cwd, "..", "..", "config", "obs-studio"))
+        _ensure_portable_replay_buffer_enabled(obs_config_directory=obs_config_directory)
         _cleanup_obs_startup_artifacts()
         obs_cmd = _build_obs_launch_command(base_cmd)
         obs_process = subprocess.Popen(obs_cmd, cwd=base_cwd)

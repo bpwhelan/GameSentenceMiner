@@ -98,7 +98,6 @@
 	let lineElements: Line[] = [];
 	let lineInEdit = false;
 	let blockNextExternalLine = false;
-	let wakeLock = null;
 	let pipContainer: HTMLElement;
 	let pipWindow: Window | undefined;
 	let pipResizeTimeout: number;
@@ -116,8 +115,6 @@
 	const AUDIO_PLAY_START_GUARD_MS = 350;
 
 	startIdPolling()
-
-	const wakeLockAvailable = 'wakeLock' in navigator;
 
 	const cjkCharacters = /[\p{scx=Hira}\p{scx=Kana}\p{scx=Han}]/imu;
 
@@ -210,22 +207,6 @@
 		reduceToEmptyString(),
 	);
 
-	const visibilityHandler$ = fromEvent(document, 'visibilitychange').pipe(
-		tap(() => {
-			if (wakeLockAvailable && wakeLock !== null && document.visibilityState === 'visible') {
-				wakeLock = navigator.wakeLock
-					.request('screen')
-					.then((lock) => {
-						return lock;
-					})
-					.catch((error) => {
-						console.error(`Unable to aquire screen lock: ${error.message}`);
-						return null;
-					});
-			}
-		}),
-		reduceToEmptyString(),
-	);
 
 	const copyBlocker$ = blockCopyOnPage$.pipe(
 		switchMap((blockCopyOnPage) => {
@@ -282,17 +263,6 @@
 		mountFunction();
 		initializeAudioElement();
 		audioEventsSub = texthookerAudioEvents$.subscribe(handleAudioEvent);
-		if (wakeLockAvailable) {
-			wakeLock = navigator.wakeLock
-				.request('screen')
-				.then((lock) => {
-					return lock;
-				})
-				.catch((error) => {
-					console.error(`Unable to aquire screen lock: ${error.message}`);
-					return null;
-				});
-		}
 
 		return () => {
 			audioEventsSub?.unsubscribe();
@@ -988,7 +958,6 @@
 
 <svelte:window on:keyup={handleKeyPress} />
 
-{$visibilityHandler$ ?? ''}
 {$handleLine$ ?? ''}
 {$pasteHandler$ ?? ''}
 {$copyBlocker$ ?? ''}

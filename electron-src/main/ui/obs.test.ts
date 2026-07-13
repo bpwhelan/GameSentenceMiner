@@ -243,7 +243,6 @@ describe('launchOBSFromElectron', () => {
                 '--disable-shutdown-check',
                 '--portable',
                 '--disable-updater',
-                '--startreplaybuffer',
             ]),
             expect.objectContaining({
                 cwd: 'C:\\test-gsm\\obs-studio\\bin\\64bit',
@@ -252,6 +251,7 @@ describe('launchOBSFromElectron', () => {
                 stdio: 'ignore',
             })
         );
+        expect(spawnMock.mock.calls[0]?.[1]).not.toContain('--startreplaybuffer');
         expect(writeFileSyncMock).toHaveBeenCalledWith(
             'C:\\test-gsm\\obs_pid.txt',
             '4242',
