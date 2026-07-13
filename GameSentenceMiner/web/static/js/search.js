@@ -3,12 +3,20 @@ function readSearchBootstrapState(search) {
     return {
         query: urlParams.get('q') || '',
         useTokenized: urlParams.get('use_tokenized') === 'true',
+        fromDate: urlParams.get('from_date') || '',
+        toDate: urlParams.get('to_date') || '',
     };
 }
 
 function applySearchBootstrapState(app, bootstrapState, tokenizationEnabled) {
     if (bootstrapState.query) {
         app.searchInput.value = bootstrapState.query;
+    }
+    if (bootstrapState.fromDate && app.fromDateFilter) {
+        app.fromDateFilter.value = bootstrapState.fromDate;
+    }
+    if (bootstrapState.toDate && app.toDateFilter) {
+        app.toDateFilter.value = bootstrapState.toDate;
     }
 
     if (!bootstrapState.useTokenized || !tokenizationEnabled) {
@@ -94,7 +102,7 @@ class SentenceSearchApp {
         const tokenizationEnabled = await this.checkTokenizationStatus();
         applySearchBootstrapState(this, bootstrapState, tokenizationEnabled);
 
-        if (bootstrapState.query) {
+        if (bootstrapState.query || bootstrapState.fromDate || bootstrapState.toDate) {
             this.performSearch();
         }
     }

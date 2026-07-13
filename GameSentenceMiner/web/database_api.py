@@ -103,6 +103,57 @@ def _parse_local_date_timestamp(date_text: str, *, end_of_day: bool = False) -> 
     return parsed.timestamp()
 
 
+def _get_local_dates_for_line_ids(line_ids, chunk_size=500):
+    """Return local calendar dates touched by existing line IDs."""
+    unique_line_ids = [line_id for line_id in dict.fromkeys(line_ids) if line_id]
+    dates = set()
+    for chunk in _chunked(unique_line_ids, chunk_size):
+        placeholders = ",".join("?" for _ in chunk)
+        rows = GameLinesTable._db.fetchall(
+            f"""
+            SELECT DISTINCT DATE(datetime(timestamp, 'unixepoch', 'localtime'))
+            FROM {GameLinesTable._table}
+            WHERE id IN ({placeholders}) AND timestamp IS NOT NULL
+            """,
+            tuple(chunk),
+        )
+        dates.update(str(row[0]) for row in rows if row and row[0])
+    return sorted(dates)
+
+
+def _get_local_dates_for_game_names(game_names, chunk_size=200):
+    """Return local calendar dates containing lines for any requested game."""
+    unique_game_names = [name for name in dict.fromkeys(game_names) if name]
+    dates = set()
+    for chunk in _chunked(unique_game_names, chunk_size):
+        placeholders = ",".join("?" for _ in chunk)
+        rows = GameLinesTable._db.fetchall(
+            f"""
+            SELECT DISTINCT DATE(datetime(timestamp, 'unixepoch', 'localtime'))
+            FROM {GameLinesTable._table}
+            WHERE game_name IN ({placeholders}) AND timestamp IS NOT NULL
+            """,
+            tuple(chunk),
+        )
+        dates.update(str(row[0]) for row in rows if row and row[0])
+    return sorted(dates)
+
+
+def _refresh_rollups_for_dates(dates):
+    """Synchronously recompute dates affected by destructive line changes."""
+    if not dates:
+        return
+
+    from GameSentenceMiner.util.cron.daily_rollup import replace_rollup_for_date
+
+    for date_str in dates:
+        try:
+            result = replace_rollup_for_date(date_str)
+            logger.debug(f"Refreshed stats rollup after line deletion for {date_str}: {result}")
+        except Exception as rollup_error:
+            logger.error(f"Stats rollup refresh failed for {date_str} after line deletion: {rollup_error}")
+
+
 def _delete_line_ids_batched(line_ids, chunk_size=500):
     unique_line_ids = [line_id for line_id in dict.fromkeys(line_ids) if line_id]
     if not unique_line_ids:
@@ -200,6 +251,10 @@ def delete_text_lines(regex_pattern=None, exact_text=None, case_sensitive=False,
                         lines_to_delete.append(line.id)
                         break
 
+    # Capture dates before deleting; a date with no remaining lines is otherwise
+    # invisible to the scheduled rollup and its stale aggregate survives.
+    affected_dates = _get_local_dates_for_line_ids(lines_to_delete)
+
     # Delete the matching lines
     delete_result = _delete_line_ids_batched(list(set(lines_to_delete)))
     deleted_count = delete_result["deleted_count"]
@@ -207,7 +262,11 @@ def delete_text_lines(regex_pattern=None, exact_text=None, case_sensitive=False,
 
     logger.info(f"Deleted {deleted_count} lines using pattern: {regex_pattern or exact_text}")
 
-    return {"deleted_count": deleted_count, "failed_ids": failed_ids}
+    return {
+        "deleted_count": deleted_count,
+        "failed_ids": failed_ids,
+        "affected_dates": affected_dates,
+    }
 
 
 def deduplicate_lines_core(
@@ -942,6 +1001,8 @@ def register_database_api_routes(app):
             if not isinstance(line_ids, list):
                 return jsonify({"error": "line_ids must be a list"}), 400
 
+            affected_dates = _get_local_dates_for_line_ids(line_ids)
+
             # Delete the lines
             delete_result = _delete_line_ids_batched(line_ids)
             deleted_count = delete_result["deleted_count"]
@@ -961,6 +1022,7 @@ def register_database_api_routes(app):
             # Trigger stats rollup after successful deletion
             if deleted_count > 0:
                 invalidate_game_profiles_cache()
+                _refresh_rollups_for_dates(affected_dates)
                 try:
                     logger.info("Triggering stats rollup after sentence line deletion")
                     cron_scheduler.force_daily_rollup()
@@ -1049,6 +1111,7 @@ def register_database_api_routes(app):
             deletion_results = {}
             total_deleted = 0
             game_record_ids_to_delete = _get_game_record_ids_for_names(game_names)
+            affected_dates = _get_local_dates_for_game_names(game_names)
 
             placeholders = ",".join("?" for _ in game_names)
             count_rows = GameLinesTable._db.fetchall(
@@ -1126,6 +1189,7 @@ def register_database_api_routes(app):
             # Trigger stats rollup after successful deletion
             if successful_deletions:
                 invalidate_game_profiles_cache()
+                _refresh_rollups_for_dates(affected_dates)
                 try:
                     logger.info("Triggering stats rollup after game deletion")
                     cron_scheduler.force_daily_rollup()
@@ -1805,6 +1869,7 @@ def register_database_api_routes(app):
             # Trigger stats rollup after successful deletion
             if deleted_count > 0:
                 invalidate_game_profiles_cache()
+                _refresh_rollups_for_dates(result.get("affected_dates", []))
                 try:
                     logger.info("Triggering stats rollup after text line deletion")
                     cron_scheduler.force_daily_rollup()

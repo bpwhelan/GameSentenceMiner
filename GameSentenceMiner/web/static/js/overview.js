@@ -732,7 +732,8 @@ document.addEventListener('DOMContentLoaded', function () {
         containerId: 'heatmapContainer',
         metricName: 'characters',
         metricLabel: 'characters',
-        calculateStreaks: calculateActivityStreaks
+        calculateStreaks: calculateActivityStreaks,
+        getDateUrl: date => `/search?from_date=${encodeURIComponent(date)}&to_date=${encodeURIComponent(date)}`
     });
     // Expose for time-format refresh
     window.activityHeatmapRenderer = activityHeatmapRenderer;

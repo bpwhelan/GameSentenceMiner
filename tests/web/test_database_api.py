@@ -14,7 +14,7 @@ Covers:
 - Core functions: delete_text_lines(), deduplicate_lines_core()
 """
 
-import json
+import datetime
 import time
 import uuid
 from unittest.mock import patch
@@ -286,6 +286,16 @@ class TestDeleteSentenceLines:
         data = resp.get_json()
         assert data["deleted_count"] >= 1
 
+    def test_delete_refreshes_affected_historical_rollup_dates(self, client):
+        timestamp = datetime.datetime(2024, 6, 1, 12, 0, 0).timestamp()
+        line = _create_line(text="最後の行", timestamp=timestamp)
+
+        with patch("GameSentenceMiner.util.cron.daily_rollup.replace_rollup_for_date") as replace_rollup:
+            resp = client.post("/api/delete-sentence-lines", json={"line_ids": [line.id]})
+
+        assert resp.status_code == 200
+        replace_rollup.assert_called_once_with("2024-06-01")
+
 
 # ===================================================================
 # /api/delete-games
@@ -339,6 +349,16 @@ class TestDeleteGames:
         assert resp.status_code == 200
         data = resp.get_json()
         assert len(data["successful_games"]) == 2
+
+    def test_delete_game_refreshes_affected_historical_rollup_dates(self, client):
+        timestamp = datetime.datetime(2024, 6, 1, 12, 0, 0).timestamp()
+        _create_line(game_name="DeleteMe", text="最後の行", timestamp=timestamp)
+
+        with patch("GameSentenceMiner.util.cron.daily_rollup.replace_rollup_for_date") as replace_rollup:
+            resp = client.post("/api/delete-games", json={"game_names": ["DeleteMe"]})
+
+        assert resp.status_code == 200
+        replace_rollup.assert_called_once_with("2024-06-01")
 
 
 # ===================================================================

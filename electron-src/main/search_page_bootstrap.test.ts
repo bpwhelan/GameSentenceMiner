@@ -8,6 +8,8 @@ import { describe, expect, it } from 'vitest';
 type SearchBootstrapState = {
     query: string;
     useTokenized: boolean;
+    fromDate: string;
+    toDate: string;
 };
 
 type SearchBootstrapHooks = {
@@ -15,6 +17,8 @@ type SearchBootstrapHooks = {
     applySearchBootstrapState: (
         app: {
             searchInput: { value: string };
+            fromDateFilter: { value: string } | null;
+            toDateFilter: { value: string } | null;
             useTokenized: boolean;
             wordSearchToggle: { checked: boolean } | null;
             updateLastSeenSortOptions: (active: boolean) => void;
@@ -61,6 +65,8 @@ describe('search page bootstrap helpers', () => {
         expect(hooks.readSearchBootstrapState('?q=%E6%9C%AC&use_tokenized=true')).toEqual({
             query: '本',
             useTokenized: true,
+            fromDate: '',
+            toDate: '',
         });
     });
 
@@ -70,11 +76,41 @@ describe('search page bootstrap helpers', () => {
         expect(hooks.readSearchBootstrapState('?q=%E9%A3%9F%E3%81%B9%E3%82%8B')).toEqual({
             query: '食べる',
             useTokenized: false,
+            fromDate: '',
+            toDate: '',
         });
         expect(hooks.readSearchBootstrapState('?q=%E9%A3%9F%E3%81%B9%E3%82%8B&use_tokenized=false')).toEqual({
             query: '食べる',
             useTokenized: false,
+            fromDate: '',
+            toDate: '',
         });
+    });
+
+    it('reads a heatmap day from the URL and applies both date filters', () => {
+        const hooks = loadSearchBootstrapHooks();
+        const bootstrapState = hooks.readSearchBootstrapState(
+            '?from_date=2024-06-01&to_date=2024-06-01'
+        );
+        const app = {
+            searchInput: { value: '' },
+            fromDateFilter: { value: '' },
+            toDateFilter: { value: '' },
+            useTokenized: false,
+            wordSearchToggle: null,
+            updateLastSeenSortOptions: () => {},
+        };
+
+        hooks.applySearchBootstrapState(app, bootstrapState, false);
+
+        expect(bootstrapState).toEqual({
+            query: '',
+            useTokenized: false,
+            fromDate: '2024-06-01',
+            toDate: '2024-06-01',
+        });
+        expect(app.fromDateFilter.value).toBe('2024-06-01');
+        expect(app.toDateFilter.value).toBe('2024-06-01');
     });
 
     it('enables tokenized mode before the initial search when requested and available', () => {
@@ -82,6 +118,8 @@ describe('search page bootstrap helpers', () => {
         const updateCalls: boolean[] = [];
         const app = {
             searchInput: { value: '' },
+            fromDateFilter: null,
+            toDateFilter: null,
             useTokenized: false,
             wordSearchToggle: { checked: false },
             updateLastSeenSortOptions: (active: boolean) => {
@@ -89,7 +127,11 @@ describe('search page bootstrap helpers', () => {
             },
         };
 
-        hooks.applySearchBootstrapState(app, { query: '見る', useTokenized: true }, true);
+        hooks.applySearchBootstrapState(
+            app,
+            { query: '見る', useTokenized: true, fromDate: '', toDate: '' },
+            true
+        );
 
         expect(app.searchInput.value).toBe('見る');
         expect(app.useTokenized).toBe(true);
@@ -102,6 +144,8 @@ describe('search page bootstrap helpers', () => {
         const updateCalls: boolean[] = [];
         const app = {
             searchInput: { value: '' },
+            fromDateFilter: null,
+            toDateFilter: null,
             useTokenized: false,
             wordSearchToggle: { checked: false },
             updateLastSeenSortOptions: (active: boolean) => {
@@ -109,7 +153,11 @@ describe('search page bootstrap helpers', () => {
             },
         };
 
-        hooks.applySearchBootstrapState(app, { query: '見る', useTokenized: true }, false);
+        hooks.applySearchBootstrapState(
+            app,
+            { query: '見る', useTokenized: true, fromDate: '', toDate: '' },
+            false
+        );
 
         expect(app.searchInput.value).toBe('見る');
         expect(app.useTokenized).toBe(false);

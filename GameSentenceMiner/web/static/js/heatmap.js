@@ -9,6 +9,7 @@ class HeatmapRenderer {
         this.metricName = options.metricName || 'characters';
         this.metricLabel = options.metricLabel || 'characters';
         this.calculateStreaks = options.calculateStreaks || this.defaultCalculateStreaks.bind(this);
+        this.getDateUrl = options.getDateUrl || null;
         this.currentYearIndex = null; // null indicates first render
         this.allYears = [];
         this.heatmapData = null;
@@ -336,14 +337,19 @@ class HeatmapRenderer {
         // Create cells for the grid
         for (let day = 0; day < 7; day++) {
             for (let week = 0; week < 53; week++) {
-                const cell = document.createElement('div');
-                cell.className = 'heatmap-cell';
-                
                 const date = grid[day][week];
+                let dateStr = null;
+                let activity = 0;
                 if (date) {
-                    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-                    const activity = yearData[dateStr] || 0;
-                    
+                    dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                    activity = yearData[dateStr] || 0;
+                }
+
+                const isLinkedDate = dateStr && activity > 0 && this.getDateUrl;
+                const cell = document.createElement(isLinkedDate ? 'a' : 'div');
+                cell.className = 'heatmap-cell';
+
+                if (date) {
                     if (activity > 0 && maxActivity > 0) {
                         // Check if custom color function is provided
                         if (this.customColorFunction) {
@@ -374,6 +380,11 @@ class HeatmapRenderer {
                         ? `sentence${activity !== 1 ? 's' : ''} mined`
                         : `${this.metricLabel}`;
                     cell.title = `${dateStr}: ${activity} ${activityLabel}`;
+                    cell.dataset.date = dateStr;
+                    if (isLinkedDate) {
+                        cell.href = this.getDateUrl(dateStr);
+                        cell.setAttribute('aria-label', `${cell.title}. View this day in search.`);
+                    }
                 } else {
                     // Empty cell for dates outside the year
                     cell.style.backgroundColor = 'transparent';
@@ -486,4 +497,3 @@ class HeatmapRenderer {
 if (typeof window !== 'undefined') {
     window.HeatmapRenderer = HeatmapRenderer;
 }
-
