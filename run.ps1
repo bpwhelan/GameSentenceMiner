@@ -13,6 +13,22 @@ function Start-ForkedProcess {
     [System.Diagnostics.Process]::Start($processInfo) | Out-Null
 }
 
+function Start-ElevatedGsm {
+    $powershellPath = (Get-Process -Id $PID).Path
+    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+
+    try {
+        Start-Process `
+            -FilePath $powershellPath `
+            -ArgumentList $arguments `
+            -WorkingDirectory $PSScriptRoot `
+            -Verb RunAs `
+            -ErrorAction Stop
+    } catch {
+        Write-Error "Unable to start GSM as administrator: $($_.Exception.Message)"
+    }
+}
+
 if (-not $cmd -or $cmd.Count -eq 0) {
     npm run start
     return
@@ -23,6 +39,11 @@ for ($i = 0; $i -lt $cmd.Count; $i++) {
     Write-Output "Executing command: $action"
 
     switch ($action) {
+        "admin" {
+            Write-Host "Starting Main App as administrator..." -ForegroundColor Green
+            Start-ElevatedGsm
+            return
+        }
         "sync" {
             Write-Host "Syncing environment..." -ForegroundColor Cyan
             uv sync --locked --no-dev

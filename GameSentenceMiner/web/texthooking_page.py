@@ -656,7 +656,7 @@ def serve_static(filename):
 
 @app.route("/")
 def index():
-    return send_from_directory("templates", "index.html")
+    return flask.redirect("/texthooker")
 
 
 @app.route("/texthooker")

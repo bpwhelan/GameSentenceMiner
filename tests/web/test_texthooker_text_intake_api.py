@@ -2,6 +2,13 @@ from GameSentenceMiner import gametext
 from GameSentenceMiner.web import texthooking_page
 
 
+def test_root_redirects_to_texthooker():
+    response = texthooking_page.app.test_client().get("/")
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/texthooker"
+
+
 def test_get_ids_reports_current_text_intake_state(monkeypatch):
     async def no_op_check():
         return None
