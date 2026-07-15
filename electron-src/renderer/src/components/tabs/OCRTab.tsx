@@ -50,9 +50,13 @@ interface OcrStoredConfig {
   furigana_filter_sensitivity?: number;
   defaultSceneFuriganaFilterSensitivity?: number;
   manualOcrHotkey?: string;
+  manualOcrGamepad?: string;
   areaSelectOcrHotkey?: string;
+  areaSelectOcrGamepad?: string;
   wholeWindowOcrHotkey?: string;
+  wholeWindowOcrGamepad?: string;
   globalPauseHotkey?: string;
+  globalPauseGamepad?: string;
   sendToClipboard?: boolean;
   send_to_clipboard_auto?: boolean | null;
   send_to_clipboard_menu?: boolean | null;
@@ -86,9 +90,13 @@ interface OcrUiConfig {
   furiganaFilterSensitivity: number;
   defaultSceneFuriganaFilterSensitivity: number;
   manualOcrHotkey: string;
+  manualOcrGamepad: string;
   areaSelectOcrHotkey: string;
+  areaSelectOcrGamepad: string;
   wholeWindowOcrHotkey: string;
+  wholeWindowOcrGamepad: string;
   globalPauseHotkey: string;
+  globalPauseGamepad: string;
   sendToClipboardAuto: boolean;
   sendToClipboardMenu: boolean;
   sendToClipboardAreaSelect: boolean;
@@ -151,6 +159,27 @@ interface Option {
   value: string;
   label: string;
 }
+
+const GAMEPAD_HOTKEY_OPTIONS: Array<{ value: string; labelKey: string }> = [
+  { value: "", labelKey: "ocr.hotkeys.gamepadButtons.disabled" },
+  { value: "0", labelKey: "ocr.hotkeys.gamepadButtons.a" },
+  { value: "1", labelKey: "ocr.hotkeys.gamepadButtons.b" },
+  { value: "2", labelKey: "ocr.hotkeys.gamepadButtons.x" },
+  { value: "3", labelKey: "ocr.hotkeys.gamepadButtons.y" },
+  { value: "4", labelKey: "ocr.hotkeys.gamepadButtons.lb" },
+  { value: "5", labelKey: "ocr.hotkeys.gamepadButtons.rb" },
+  { value: "6", labelKey: "ocr.hotkeys.gamepadButtons.lt" },
+  { value: "7", labelKey: "ocr.hotkeys.gamepadButtons.rt" },
+  { value: "8", labelKey: "ocr.hotkeys.gamepadButtons.back" },
+  { value: "9", labelKey: "ocr.hotkeys.gamepadButtons.start" },
+  { value: "10", labelKey: "ocr.hotkeys.gamepadButtons.ls" },
+  { value: "11", labelKey: "ocr.hotkeys.gamepadButtons.rs" },
+  { value: "12", labelKey: "ocr.hotkeys.gamepadButtons.dpadUp" },
+  { value: "13", labelKey: "ocr.hotkeys.gamepadButtons.dpadDown" },
+  { value: "14", labelKey: "ocr.hotkeys.gamepadButtons.dpadLeft" },
+  { value: "15", labelKey: "ocr.hotkeys.gamepadButtons.dpadRight" },
+  { value: "16", labelKey: "ocr.hotkeys.gamepadButtons.guide" }
+];
 
 interface ComparisonFieldDefinition {
   key: ComparisonFieldKey;
@@ -676,18 +705,30 @@ function normalizeOcrConfig(
       typeof value?.manualOcrHotkey === "string"
         ? value.manualOcrHotkey
         : "Ctrl+Shift+G",
+    manualOcrGamepad:
+      typeof value?.manualOcrGamepad === "string" ? value.manualOcrGamepad : "",
     areaSelectOcrHotkey:
       typeof value?.areaSelectOcrHotkey === "string"
         ? value.areaSelectOcrHotkey
         : "Ctrl+Shift+O",
+    areaSelectOcrGamepad:
+      typeof value?.areaSelectOcrGamepad === "string"
+        ? value.areaSelectOcrGamepad
+        : "",
     wholeWindowOcrHotkey:
       typeof value?.wholeWindowOcrHotkey === "string"
         ? value.wholeWindowOcrHotkey
         : "Ctrl+Shift+W",
+    wholeWindowOcrGamepad:
+      typeof value?.wholeWindowOcrGamepad === "string"
+        ? value.wholeWindowOcrGamepad
+        : "",
     globalPauseHotkey:
       typeof value?.globalPauseHotkey === "string"
         ? value.globalPauseHotkey
         : "Ctrl+Shift+P",
+    globalPauseGamepad:
+      typeof value?.globalPauseGamepad === "string" ? value.globalPauseGamepad : "",
     sendToClipboardAuto: sendToClipboardEnabled(value, "send_to_clipboard_auto"),
     sendToClipboardMenu: sendToClipboardEnabled(value, "send_to_clipboard_menu"),
     sendToClipboardAreaSelect: sendToClipboardEnabled(
@@ -731,9 +772,13 @@ function buildPersistedConfig(
     defaultSceneFuriganaFilterSensitivity:
       config.defaultSceneFuriganaFilterSensitivity,
     manualOcrHotkey: config.manualOcrHotkey,
+    manualOcrGamepad: config.manualOcrGamepad,
     areaSelectOcrHotkey: config.areaSelectOcrHotkey,
+    areaSelectOcrGamepad: config.areaSelectOcrGamepad,
     wholeWindowOcrHotkey: config.wholeWindowOcrHotkey,
+    wholeWindowOcrGamepad: config.wholeWindowOcrGamepad,
     globalPauseHotkey: config.globalPauseHotkey,
+    globalPauseGamepad: config.globalPauseGamepad,
     sendToClipboard:
       config.sendToClipboardAuto ||
       config.sendToClipboardMenu ||
@@ -2472,6 +2517,26 @@ export function OCRTab({ active }: OcrTabProps) {
                         }));
                       }}
                     />
+                    <select
+                      className="ocr-gamepad-hotkey"
+                      value={config.manualOcrGamepad}
+                      aria-label={t("ocr.hotkeys.gamepadBindingAria", {
+                        action: t("ocr.hotkeys.manualMenu")
+                      })}
+                      title={t("ocr.hotkeys.gamepadBindingTitle")}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          manualOcrGamepad: event.target.value
+                        }));
+                      }}
+                    >
+                      {GAMEPAD_HOTKEY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {t(option.labelKey)}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       className="secondary ocr-hotkey-run"
@@ -2502,6 +2567,26 @@ export function OCRTab({ active }: OcrTabProps) {
                         }));
                       }}
                     />
+                    <select
+                      className="ocr-gamepad-hotkey"
+                      value={config.areaSelectOcrGamepad}
+                      aria-label={t("ocr.hotkeys.gamepadBindingAria", {
+                        action: t("ocr.hotkeys.areaSelect")
+                      })}
+                      title={t("ocr.hotkeys.gamepadBindingTitle")}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          areaSelectOcrGamepad: event.target.value
+                        }));
+                      }}
+                    >
+                      {GAMEPAD_HOTKEY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {t(option.labelKey)}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       className="secondary ocr-hotkey-run"
@@ -2535,6 +2620,26 @@ export function OCRTab({ active }: OcrTabProps) {
                         }));
                       }}
                     />
+                    <select
+                      className="ocr-gamepad-hotkey"
+                      value={config.wholeWindowOcrGamepad}
+                      aria-label={t("ocr.hotkeys.gamepadBindingAria", {
+                        action: t("ocr.hotkeys.wholeWindow")
+                      })}
+                      title={t("ocr.hotkeys.gamepadBindingTitle")}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          wholeWindowOcrGamepad: event.target.value
+                        }));
+                      }}
+                    >
+                      {GAMEPAD_HOTKEY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {t(option.labelKey)}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       className="secondary ocr-hotkey-run"
@@ -2551,19 +2656,41 @@ export function OCRTab({ active }: OcrTabProps) {
                   <label htmlFor="pause-hotkey" {...titleProps(ocrTooltips.pauseHotkey)}>
                     {t("ocr.hotkeys.pause")}
                   </label>
-                  <input
-                    id="pause-hotkey"
-                    type="text"
-                    readOnly
-                    value={config.globalPauseHotkey}
-                    onKeyDown={(event) => {
-                      const next = captureHotkey(event);
-                      setConfig((current) => ({
-                        ...current,
-                        globalPauseHotkey: next
-                      }));
-                    }}
-                  />
+                  <div className="ocr-hotkey-row">
+                    <input
+                      id="pause-hotkey"
+                      type="text"
+                      readOnly
+                      value={config.globalPauseHotkey}
+                      onKeyDown={(event) => {
+                        const next = captureHotkey(event);
+                        setConfig((current) => ({
+                          ...current,
+                          globalPauseHotkey: next
+                        }));
+                      }}
+                    />
+                    <select
+                      className="ocr-gamepad-hotkey"
+                      value={config.globalPauseGamepad}
+                      aria-label={t("ocr.hotkeys.gamepadBindingAria", {
+                        action: t("ocr.hotkeys.pause")
+                      })}
+                      title={t("ocr.hotkeys.gamepadBindingTitle")}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          globalPauseGamepad: event.target.value
+                        }));
+                      }}
+                    >
+                      {GAMEPAD_HOTKEY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {t(option.labelKey)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
             </section>

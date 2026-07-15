@@ -142,6 +142,7 @@ from GameSentenceMiner.util.config.configuration import (
 )
 from GameSentenceMiner.util.communication.electron_ipc import request_python_app_restart
 from GameSentenceMiner.util.database.db import AIModelsTable
+from GameSentenceMiner.util.platform.gamepad_hotkey import GAMEPAD_BUTTON_OPTIONS
 from GameSentenceMiner.util.downloader.download_tools import (
     download_ocenaudio_if_needed,
 )
@@ -947,9 +948,13 @@ class ConfigWindow(QWidget):
                 ),
                 hotkeys=Hotkeys(
                     manual_overlay_scan=self.manual_overlay_scan_hotkey_edit.keySequence().toString(),
+                    manual_overlay_scan_gamepad=str(self.manual_overlay_scan_gamepad_combo.currentData() or ""),
                     play_latest_audio=self.play_latest_audio_hotkey_edit.keySequence().toString(),
+                    play_latest_audio_gamepad=str(self.play_latest_audio_gamepad_combo.currentData() or ""),
                     process_pause=self.process_pause_hotkey_edit.keySequence().toString(),
+                    process_pause_gamepad=str(self.process_pause_gamepad_combo.currentData() or ""),
                     pause_text_intake=self.pause_text_intake_hotkey_edit.keySequence().toString(),
+                    pause_text_intake_gamepad=str(self.pause_text_intake_gamepad_combo.currentData() or ""),
                     relay_outputs_when_text_intake_paused=(
                         self.relay_outputs_when_text_intake_paused_check.isChecked()
                     ),
@@ -1376,6 +1381,20 @@ class ConfigWindow(QWidget):
         dialog.exec()
 
     # --- UI Creation Helpers ---
+    def _create_gamepad_hotkey_combo(self) -> QComboBox:
+        combo = QComboBox()
+        hotkeys_i18n = self.i18n.get("tabs", {}).get("hotkeys", {})
+        combo.addItem(hotkeys_i18n.get("gamepad_disabled", "Disabled"), "")
+        for label, button_code in GAMEPAD_BUTTON_OPTIONS:
+            combo.addItem(label, str(button_code))
+        return combo
+
+    @staticmethod
+    def _set_gamepad_hotkey_combo(combo: QComboBox, value) -> None:
+        normalized = str(value or "").strip()
+        index = combo.findData(normalized)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+
     def _create_all_widgets(self):
         """Initializes all QWidget instances used in the UI."""
         # General
@@ -1637,6 +1656,7 @@ class ConfigWindow(QWidget):
         self.number_of_local_scans_per_event_edit = QLineEdit()
         self.overlay_minimum_character_size_edit = QLineEdit()
         self.manual_overlay_scan_hotkey_edit = ClearableKeySequenceEdit()
+        self.manual_overlay_scan_gamepad_combo = self._create_gamepad_hotkey_combo()
         self.use_overlay_area_config_check = QCheckBox()
         self.use_ocr_area_config_check = QCheckBox()
         self.ocr_area_config_include_primary_areas_check = QCheckBox()
@@ -1650,12 +1670,14 @@ class ConfigWindow(QWidget):
         self.manual_mode_desktop_background_check = QCheckBox()
         self.check_previous_lines_for_recycled_indicator_check = QCheckBox()
         self.pause_text_intake_hotkey_edit = ClearableKeySequenceEdit()
+        self.pause_text_intake_gamepad_combo = self._create_gamepad_hotkey_combo()
         self.relay_outputs_when_text_intake_paused_check = QCheckBox()
 
         # Advanced
         self.audio_player_path_edit = QLineEdit()
         self.video_player_path_edit = QLineEdit()
         self.play_latest_audio_hotkey_edit = ClearableKeySequenceEdit()
+        self.play_latest_audio_gamepad_combo = self._create_gamepad_hotkey_combo()
         self.multi_line_line_break_edit = QLineEdit()
         self.texthooker_communication_websocket_port_edit = QLineEdit()
         self.plaintext_websocket_export_port_edit = QLineEdit()
@@ -1715,6 +1737,7 @@ class ConfigWindow(QWidget):
         )
 
         self.process_pause_hotkey_edit = ClearableKeySequenceEdit()
+        self.process_pause_gamepad_combo = self._create_gamepad_hotkey_combo()
         self.process_pausing_denylist_edit.setPlaceholderText("explorer.exe, steam.exe")
 
     def _register_shared_bindings(self):
@@ -3180,6 +3203,10 @@ class ConfigWindow(QWidget):
         overlay_minimum_character_size = get_overlay_minimum_character_size(default=s.overlay.minimum_character_size)
         self.overlay_minimum_character_size_edit.setText(str(overlay_minimum_character_size))
         self.manual_overlay_scan_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.manual_overlay_scan or ""))
+        self._set_gamepad_hotkey_combo(
+            self.manual_overlay_scan_gamepad_combo,
+            getattr(s.hotkeys, "manual_overlay_scan_gamepad", ""),
+        )
         self.use_overlay_area_config_check.setChecked(bool(getattr(s.overlay, "use_overlay_area_config", False)))
         self.use_ocr_area_config_check.setChecked(s.overlay.use_ocr_area_config_v2)
         self.ocr_area_config_include_primary_areas_check.setChecked(
@@ -3203,6 +3230,10 @@ class ConfigWindow(QWidget):
             bool(getattr(s.overlay, "check_previous_lines_for_recycled_indicator", True))
         )
         self.pause_text_intake_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.pause_text_intake or ""))
+        self._set_gamepad_hotkey_combo(
+            self.pause_text_intake_gamepad_combo,
+            getattr(s.hotkeys, "pause_text_intake_gamepad", ""),
+        )
         self.relay_outputs_when_text_intake_paused_check.setChecked(
             bool(getattr(s.hotkeys, "relay_outputs_when_text_intake_paused", True))
         )
@@ -3238,11 +3269,19 @@ class ConfigWindow(QWidget):
             getattr(process_cfg, "linux_target_process", ""),
         )
         self.process_pause_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.process_pause or ""))
+        self._set_gamepad_hotkey_combo(
+            self.process_pause_gamepad_combo,
+            getattr(s.hotkeys, "process_pause_gamepad", ""),
+        )
 
         # Advanced
         self._set_text_value(self.audio_player_path_edit, s.advanced.audio_player_path)
         self._set_text_value(self.video_player_path_edit, s.advanced.video_player_path)
         self.play_latest_audio_hotkey_edit.setKeySequence(QKeySequence(s.hotkeys.play_latest_audio or ""))
+        self._set_gamepad_hotkey_combo(
+            self.play_latest_audio_gamepad_combo,
+            getattr(s.hotkeys, "play_latest_audio_gamepad", ""),
+        )
         self._set_text_value(self.multi_line_line_break_edit, s.advanced.multi_line_line_break)
         self.texthooker_communication_websocket_port_edit.setText(
             str(s.advanced.texthooker_communication_websocket_port)

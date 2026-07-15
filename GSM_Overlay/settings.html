@@ -5813,6 +5813,7 @@
       ws.onopen = () => {
         if (gamepadStatusSocket !== ws) return;
         try {
+          ws.send(JSON.stringify({ type: "configure_features", features: ["keyboard"] }));
           sendGamepadDeviceBlacklistToServer();
           ws.send(JSON.stringify({ type: "get_state" }));
         } catch (e) {

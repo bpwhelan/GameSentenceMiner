@@ -16,6 +16,22 @@ def _build_group(window: "ConfigWindow", title: str, rows: list[tuple[QLabel, QW
     return group
 
 
+def _build_binding_input(
+    keyboard_widget: QWidget,
+    gamepad_widget: QWidget,
+    hotkeys_i18n: dict,
+) -> QWidget:
+    widget = QWidget()
+    layout = QHBoxLayout(widget)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(8)
+    layout.addWidget(QLabel(hotkeys_i18n.get("keyboard_label", "Keyboard")))
+    layout.addWidget(keyboard_widget, 1)
+    layout.addWidget(QLabel(hotkeys_i18n.get("gamepad_label", "Gamepad")))
+    layout.addWidget(gamepad_widget)
+    return widget
+
+
 def build_hotkeys_tab(window: "ConfigWindow", i18n: dict) -> QWidget:
     widget = QWidget()
     root_layout = QVBoxLayout(widget)
@@ -36,7 +52,14 @@ def build_hotkeys_tab(window: "ConfigWindow", i18n: dict) -> QWidget:
     intake_layout = QHBoxLayout(intake_widget)
     intake_layout.setContentsMargins(0, 0, 0, 0)
     intake_layout.setSpacing(10)
-    intake_layout.addWidget(window.pause_text_intake_hotkey_edit)
+    intake_layout.addWidget(
+        _build_binding_input(
+            window.pause_text_intake_hotkey_edit,
+            window.pause_text_intake_gamepad_combo,
+            hotkeys_i18n,
+        ),
+        1,
+    )
 
     relay_text = hotkeys_i18n.get("relay_outputs_when_paused", {}).get(
         "checkbox",
@@ -71,7 +94,11 @@ def build_hotkeys_tab(window: "ConfigWindow", i18n: dict) -> QWidget:
             [
                 (
                     window._create_labeled_widget(tabs_i18n, "overlay", "manual_overlay_scan_hotkey"),
-                    window.manual_overlay_scan_hotkey_edit,
+                    _build_binding_input(
+                        window.manual_overlay_scan_hotkey_edit,
+                        window.manual_overlay_scan_gamepad_combo,
+                        hotkeys_i18n,
+                    ),
                 )
             ],
         )
@@ -84,7 +111,11 @@ def build_hotkeys_tab(window: "ConfigWindow", i18n: dict) -> QWidget:
             [
                 (
                     window._create_labeled_widget(tabs_i18n, "advanced", "play_latest_hotkey"),
-                    window.play_latest_audio_hotkey_edit,
+                    _build_binding_input(
+                        window.play_latest_audio_hotkey_edit,
+                        window.play_latest_audio_gamepad_combo,
+                        hotkeys_i18n,
+                    ),
                 )
             ],
         )
@@ -97,7 +128,11 @@ def build_hotkeys_tab(window: "ConfigWindow", i18n: dict) -> QWidget:
             [
                 (
                     window._create_labeled_widget(tabs_i18n, "game_pausing", "hotkey"),
-                    window.process_pause_hotkey_edit,
+                    _build_binding_input(
+                        window.process_pause_hotkey_edit,
+                        window.process_pause_gamepad_combo,
+                        hotkeys_i18n,
+                    ),
                 )
             ],
         )

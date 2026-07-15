@@ -476,6 +476,9 @@
         "hotkeys": {
           "title": "ホットキー",
           "description": "GSM のホットキーをここにまとめています。空欄にすると無効になります。",
+          "keyboard_label": "キーボード",
+          "gamepad_label": "ゲームパッド",
+          "gamepad_disabled": "無効",
           "groups": {
             "input": "入力",
             "overlay": "オーバーレイ",

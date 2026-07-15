@@ -1160,9 +1160,13 @@ class OBS:
 class Hotkeys:
     open_utility: str = "ctrl+m"
     play_latest_audio: str = "f7"
+    play_latest_audio_gamepad: str = ""
     manual_overlay_scan: str = ""
+    manual_overlay_scan_gamepad: str = ""
     process_pause: str = ""
+    process_pause_gamepad: str = ""
     pause_text_intake: str = ""
+    pause_text_intake_gamepad: str = ""
     relay_outputs_when_text_intake_paused: bool = True
 
 

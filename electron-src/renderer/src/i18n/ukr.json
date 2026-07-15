@@ -831,7 +831,29 @@
       "wholeWindow": "Все вікно:",
       "pause": "Пауза:",
       "runAction": "Виконати",
-      "runActionTitle": "Виконати цю дію зараз"
+      "runActionTitle": "Виконати цю дію зараз",
+      "gamepadBindingAria": "Прив'язка геймпада для {action}",
+      "gamepadBindingTitle": "Виберіть кнопку геймпада, яку обробляє служба введення GSM",
+      "gamepadButtons": {
+        "disabled": "Без геймпада",
+        "a": "A",
+        "b": "B",
+        "x": "X",
+        "y": "Y",
+        "lb": "LB",
+        "rb": "RB",
+        "lt": "LT",
+        "rt": "RT",
+        "back": "Назад",
+        "start": "Старт",
+        "ls": "LS",
+        "rs": "RS",
+        "dpadUp": "D-Pad вгору",
+        "dpadDown": "D-Pad вниз",
+        "dpadLeft": "D-Pad ліворуч",
+        "dpadRight": "D-Pad праворуч",
+        "guide": "Guide"
+      }
     },
     "console": {
       "title": "Консоль",

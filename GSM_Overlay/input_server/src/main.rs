@@ -1,4 +1,7 @@
+mod features;
+
 use clap::Parser;
+use features::{FeatureRegistry, ServiceFeature, PROTOCOL_VERSION};
 use futures_util::{SinkExt, StreamExt};
 use gilrs::{Axis, Button, Event, EventType, GamepadId, Gilrs};
 use rdev::{
@@ -33,11 +36,10 @@ use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tracing::{debug, error, info, warn};
 use zip::ZipArchive;
 
-/// GSM Overlay Gamepad Server (Rust)
+/// GSM shared input and high-performance services host (Rust)
 ///
-/// WebSocket JSON API compatible with your Python server style.
-/// - broadcasts: gamepad_connected, button, axis
-/// - handles: ping, get_state
+/// Gamepad input is the always-on baseline. Keyboard input and tokenizer
+/// backends are optional capabilities leased by connected GSM clients.
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {
@@ -48,6 +50,11 @@ struct Args {
     /// Port for the websocket server
     #[arg(long, default_value_t = 7276)]
     port: u16,
+
+    /// Optional baseline capabilities to enable before clients connect.
+    /// Gamepad input is always enabled; other features are normally leased by clients.
+    #[arg(long = "enable", value_delimiter = ',')]
+    enable_features: Vec<String>,
 }
 
 const SUDACHI_DICT_RELEASE: &str = "20260116";
@@ -113,6 +120,13 @@ impl ServerTokenizerBackend {
         match self {
             Self::Mecab => "mecab",
             Self::Sudachi => "sudachi",
+        }
+    }
+
+    fn service_feature(self) -> ServiceFeature {
+        match self {
+            Self::Mecab => ServiceFeature::Mecab,
+            Self::Sudachi => ServiceFeature::Sudachi,
         }
     }
 }
@@ -258,6 +272,19 @@ type SharedDeviceBlacklist = Arc<StdMutex<HashSet<String>>>;
 type SharedMecab = Mutex<MecabService>;
 type SharedSudachi = Mutex<SudachiService>;
 type SharedManualHotkey = Arc<StdMutex<ManualHotkeyState>>;
+
+fn baseline_features_from_args(values: &[String]) -> Vec<ServiceFeature> {
+    values
+        .iter()
+        .filter_map(|value| {
+            let feature = ServiceFeature::parse(value);
+            if feature.is_none() {
+                warn!("ignoring unknown baseline feature: {value}");
+            }
+            feature
+        })
+        .collect()
+}
 
 fn normalize_device_blacklist_entry(value: &str) -> Option<String> {
     let trimmed = value.trim();
@@ -412,6 +439,24 @@ impl SudachiService {
             dictionary: None,
             loaded_signature: None,
         }
+    }
+
+    fn disable(&mut self) {
+        self.dictionary = None;
+        self.loaded_signature = None;
+        info!("sudachi capability released");
+    }
+
+    fn set_dictionary_kind(&mut self, dictionary_kind: SudachiDictionaryKind) {
+        if self.dictionary_kind == dictionary_kind {
+            return;
+        }
+        self.disable();
+        self.dictionary_kind = dictionary_kind;
+        info!(
+            "sudachi dictionary selection changed to {}",
+            self.dictionary_kind.as_str()
+        );
     }
 
     async fn ensure_tokenizer(&mut self) -> Result<(), String> {
@@ -620,6 +665,13 @@ impl MecabService {
             script_path,
             bridge: None,
         }
+    }
+
+    fn disable(&mut self) {
+        if let Some(mut bridge) = self.bridge.take() {
+            let _ = bridge.child.start_kill();
+        }
+        info!("mecab capability released");
     }
 
     async fn ensure_bridge(&mut self) -> Result<(), String> {
@@ -879,14 +931,6 @@ fn collect_python_attempts() -> Vec<(String, Vec<String>)> {
     push_attempt("python3".to_string(), Vec::new());
 
     attempts
-}
-
-fn preferred_server_tokenizer_backend_from_env() -> ServerTokenizerBackend {
-    ServerTokenizerBackend::from_value(
-        std::env::var("GSM_GAMEPAD_TOKENIZER_BACKEND")
-            .ok()
-            .as_deref(),
-    )
 }
 
 fn sudachi_dictionary_kind_from_env() -> SudachiDictionaryKind {
@@ -1517,8 +1561,28 @@ enum ClientMsg {
     #[serde(rename = "ping")]
     Ping,
 
+    #[serde(rename = "get_service_info")]
+    GetServiceInfo,
+
     #[serde(rename = "get_state")]
     GetState,
+
+    /// Replace this connection's optional-capability lease. Leases from other
+    /// clients remain active and are released automatically on disconnect.
+    #[serde(rename = "configure_features")]
+    ConfigureFeatures {
+        #[serde(default)]
+        features: Vec<String>,
+    },
+
+    /// Select the Sudachi system dictionary used by this shared service. This
+    /// replaces the overlay-owned process environment setting now that Electron
+    /// owns the server lifecycle.
+    #[serde(rename = "configure_sudachi")]
+    ConfigureSudachi {
+        #[serde(default)]
+        dictionary: String,
+    },
 
     #[serde(rename = "configure_manual_hotkey")]
     ConfigureManualHotkey {
@@ -1890,9 +1954,15 @@ fn rdev_key_to_string(key: &KeyboardKey) -> Option<&'static str> {
 fn handle_manual_keyboard_event(
     tx: &broadcast::Sender<String>,
     manual_hotkey: &SharedManualHotkey,
+    features: &FeatureRegistry,
     pressed_keys: &mut HashSet<KeyboardKey>,
     event: KeyboardEvent,
 ) {
+    if !features.is_enabled(ServiceFeature::Keyboard) {
+        pressed_keys.clear();
+        return;
+    }
+
     let (key, pressed) = match event.event_type {
         KeyboardEventType::KeyPress(key) => (key, true),
         KeyboardEventType::KeyRelease(key) => (key, false),
@@ -2105,6 +2175,22 @@ async fn furigana_via_sudachi(sudachi: &'static SharedSudachi, text: &str) -> (V
 
 // ------------------------------ Websocket ------------------------------------
 
+fn service_info_payload(features: &FeatureRegistry) -> Value {
+    json!({
+        "type": "service_info",
+        "service": "gsm_input_service",
+        "protocolVersion": PROTOCOL_VERSION,
+        "features": features.snapshot(),
+    })
+}
+
+fn feature_status_payload(features: &FeatureRegistry) -> Value {
+    json!({
+        "type": "service_features_changed",
+        "features": features.snapshot(),
+    })
+}
+
 async fn handle_socket(
     peer: SocketAddr,
     stream: TcpStream,
@@ -2115,6 +2201,7 @@ async fn handle_socket(
     mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
     manual_hotkey: SharedManualHotkey,
+    features: FeatureRegistry,
 ) {
     let ws = match accept_async(stream).await {
         Ok(ws) => ws,
@@ -2127,6 +2214,15 @@ async fn handle_socket(
     info!("client connected: {peer}");
 
     let (mut ws_sink, mut ws_stream) = ws.split();
+
+    if ws_sink
+        .send(Message::Text(service_info_payload(&features).to_string()))
+        .await
+        .is_err()
+    {
+        info!("client {peer} disconnected during service info snapshot");
+        return;
+    }
 
     // Immediately send current state snapshot.
     // Clone data first so we don't hold the mutex while awaiting socket writes.
@@ -2181,6 +2277,7 @@ async fn handle_socket(
     // and never sends the "off" message — otherwise the server could be left
     // broadcasting every keystroke.
     let mut enabled_capture_all = false;
+    let feature_client_id = features.register_client();
 
     loop {
         tokio::select! {
@@ -2208,6 +2305,15 @@ async fn handle_socket(
                             Ok(ClientMsg::Ping) => {
                                 let _ = ws_sink.send(Message::Text(json!({"type":"pong"}).to_string())).await;
                             }
+                            Ok(ClientMsg::GetServiceInfo) => {
+                                if ws_sink
+                                    .send(Message::Text(service_info_payload(&features).to_string()))
+                                    .await
+                                    .is_err()
+                                {
+                                    break;
+                                }
+                            }
                             Ok(ClientMsg::GetState) => {
                                 let snapshot = {
                                     let guard = states.lock().await;
@@ -2228,6 +2334,35 @@ async fn handle_socket(
                                     if ws_sink.send(Message::Text(msg.to_string())).await.is_err() {
                                         break;
                                     }
+                                }
+                            }
+                            Ok(ClientMsg::ConfigureFeatures { features: requested }) => {
+                                let requested = requested
+                                    .iter()
+                                    .filter_map(|feature| ServiceFeature::parse(feature))
+                                    .collect::<Vec<_>>();
+                                features.set_client_features(feature_client_id, requested);
+                                send_broadcast(
+                                    &_tx,
+                                    feature_status_payload(&features).to_string(),
+                                    "service_features_changed",
+                                );
+                            }
+                            Ok(ClientMsg::ConfigureSudachi { dictionary }) => {
+                                let dictionary_kind =
+                                    SudachiDictionaryKind::from_value(Some(&dictionary));
+                                let mut service = sudachi.lock().await;
+                                service.set_dictionary_kind(dictionary_kind);
+                                let payload = json!({
+                                    "type": "sudachi_configuration",
+                                    "dictionary": dictionary_kind.as_str(),
+                                });
+                                if ws_sink
+                                    .send(Message::Text(payload.to_string()))
+                                    .await
+                                    .is_err()
+                                {
+                                    break;
                                 }
                             }
                             Ok(ClientMsg::ConfigureDeviceBlacklist { devices }) => {
@@ -2273,8 +2408,12 @@ async fn handle_socket(
                             }) => {
                                 let selected_backend =
                                     ServerTokenizerBackend::from_value(backend.as_deref());
+                                let feature_disabled =
+                                    !features.is_enabled(selected_backend.service_feature());
                                 let (tokens, mecab_available, sudachi_available) = if text.is_empty() {
                                     (Vec::new(), false, false)
+                                } else if feature_disabled {
+                                    (fallback_tokens(&text), false, false)
                                 } else {
                                     match selected_backend {
                                         ServerTokenizerBackend::Mecab => {
@@ -2298,6 +2437,7 @@ async fn handle_socket(
                                     "tokenSource": selected_backend.token_source(),
                                     "mecabAvailable": mecab_available,
                                     "sudachiAvailable": sudachi_available,
+                                    "featureDisabled": feature_disabled,
                                     "yomitanApiAvailable": false,
                                 });
                                 if ws_sink.send(Message::Text(msg.to_string())).await.is_err() {
@@ -2312,8 +2452,12 @@ async fn handle_socket(
                             }) => {
                                 let selected_backend =
                                     ServerTokenizerBackend::from_value(backend.as_deref());
+                                let feature_disabled =
+                                    !features.is_enabled(selected_backend.service_feature());
                                 let (segments, mecab_available, sudachi_available) = if text.is_empty() {
                                     (Vec::new(), false, false)
+                                } else if feature_disabled {
+                                    (fallback_furigana(&text), false, false)
                                 } else {
                                     match selected_backend {
                                         ServerTokenizerBackend::Mecab => {
@@ -2336,6 +2480,7 @@ async fn handle_socket(
                                     "segments": segments,
                                     "mecabAvailable": mecab_available,
                                     "sudachiAvailable": sudachi_available,
+                                    "featureDisabled": feature_disabled,
                                     "yomitanApiAvailable": false,
                                 });
                                 if let Some(req_id) = request_id {
@@ -2373,6 +2518,13 @@ async fn handle_socket(
         guard.capture_all = false;
     }
 
+    features.release_client(feature_client_id);
+    send_broadcast(
+        &_tx,
+        feature_status_payload(&features).to_string(),
+        "service_features_changed(disconnect)",
+    );
+
     info!("client disconnected: {peer}");
 }
 
@@ -2384,6 +2536,7 @@ async fn websocket_server(
     mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
     manual_hotkey: SharedManualHotkey,
+    features: FeatureRegistry,
 ) {
     let listener = TcpListener::bind(bind).await.expect("bind failed");
     info!("server running at ws://{bind}");
@@ -2411,6 +2564,7 @@ async fn websocket_server(
             mecab,
             sudachi,
             manual_hotkey.clone(),
+            features.clone(),
         ));
     }
 }
@@ -2791,17 +2945,23 @@ async fn axis_repeat_loop(
     }
 }
 
-fn keyboard_input_thread(tx: broadcast::Sender<String>, manual_hotkey: SharedManualHotkey) {
+fn keyboard_input_thread(
+    tx: broadcast::Sender<String>,
+    manual_hotkey: SharedManualHotkey,
+    features: FeatureRegistry,
+) {
     let mut pressed_keys = HashSet::new();
     set_manual_hotkey_listener_status(&manual_hotkey, &tx, true, None);
     info!("global keyboard listener initialized");
 
     let tx_for_listener = tx.clone();
     let manual_hotkey_for_listener = manual_hotkey.clone();
+    let features_for_listener = features.clone();
     let result = listen_global_keyboard(move |event| {
         handle_manual_keyboard_event(
             &tx_for_listener,
             &manual_hotkey_for_listener,
+            &features_for_listener,
             &mut pressed_keys,
             event,
         );
@@ -2814,11 +2974,107 @@ fn keyboard_input_thread(tx: broadcast::Sender<String>, manual_hotkey: SharedMan
     }
 }
 
+fn deactivate_keyboard_capability(
+    tx: &broadcast::Sender<String>,
+    manual_hotkey: &SharedManualHotkey,
+) {
+    let (manual_release, app_releases, status) = {
+        let mut guard = manual_hotkey.lock().expect("manual hotkey mutex poisoned");
+        let manual_release = guard.active.then(|| {
+            guard.active = false;
+            json!({
+                "type": "manual_hotkey_event",
+                "state": "released",
+            })
+            .to_string()
+        });
+        let app_releases = guard
+            .app_hotkeys
+            .iter_mut()
+            .filter_map(|(id, entry)| {
+                if entry.active {
+                    entry.active = false;
+                    Some(app_hotkey_event_payload(id, "released"))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        guard.status.available = false;
+        guard.status.error = None;
+        let status = manual_hotkey_status_payload(&guard).to_string();
+        (manual_release, app_releases, status)
+    };
+
+    if let Some(payload) = manual_release {
+        send_broadcast(tx, payload, "manual_hotkey_event(feature_released)");
+    }
+    for payload in app_releases {
+        send_broadcast(tx, payload, "app_hotkey_event(feature_released)");
+    }
+    send_broadcast(tx, status, "keyboard_listener_status(feature_released)");
+}
+
+async fn optional_feature_lifecycle_loop(
+    features: FeatureRegistry,
+    tx: broadcast::Sender<String>,
+    mecab: &'static SharedMecab,
+    sudachi: &'static SharedSudachi,
+    manual_hotkey: SharedManualHotkey,
+) {
+    let mut changes = features.subscribe();
+    let mut keyboard_started = false;
+    let mut keyboard_was_enabled = false;
+    let mut mecab_was_enabled = false;
+    let mut sudachi_was_enabled = false;
+
+    loop {
+        let keyboard_enabled = features.is_enabled(ServiceFeature::Keyboard);
+        let mecab_enabled = features.is_enabled(ServiceFeature::Mecab);
+        let sudachi_enabled = features.is_enabled(ServiceFeature::Sudachi);
+
+        if keyboard_enabled && !keyboard_started {
+            keyboard_started = true;
+            let tx_for_keyboard = tx.clone();
+            let hotkey_for_keyboard = manual_hotkey.clone();
+            let features_for_keyboard = features.clone();
+            thread::spawn(move || {
+                keyboard_input_thread(tx_for_keyboard, hotkey_for_keyboard, features_for_keyboard)
+            });
+        } else if keyboard_was_enabled && !keyboard_enabled {
+            deactivate_keyboard_capability(&tx, &manual_hotkey);
+        }
+        if keyboard_enabled && !keyboard_was_enabled {
+            set_manual_hotkey_listener_status(&manual_hotkey, &tx, true, None);
+        }
+
+        if mecab_was_enabled && !mecab_enabled {
+            mecab.lock().await.disable();
+        }
+        if sudachi_was_enabled && !sudachi_enabled {
+            sudachi.lock().await.disable();
+        }
+
+        keyboard_was_enabled = keyboard_enabled;
+        mecab_was_enabled = mecab_enabled;
+        sudachi_was_enabled = sudachi_enabled;
+
+        if changes.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
 // ---------------------------------- main ------------------------------------
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
+    let _ = tracing_subscriber::fmt()
+        .with_target(false)
+        .with_writer(std::io::stderr)
+        .try_init();
     let args = Args::parse();
+    let features = FeatureRegistry::new(baseline_features_from_args(&args.enable_features));
     let bind: SocketAddr = format!("{}:{}", args.host, args.port)
         .parse()
         .expect("invalid bind addr");
@@ -2842,26 +3098,12 @@ async fn main() {
     ))));
     let manual_hotkey: SharedManualHotkey = Arc::new(StdMutex::new(ManualHotkeyState {
         status: ManualHotkeyStatus {
-            available: true,
+            available: features.is_enabled(ServiceFeature::Keyboard),
             error: None,
             configured_hotkey: None,
         },
         ..ManualHotkeyState::default()
     }));
-    match preferred_server_tokenizer_backend_from_env() {
-        ServerTokenizerBackend::Mecab => {
-            let mut svc = mecab.lock().await;
-            if let Err(e) = svc.ensure_bridge().await {
-                warn!("mecab bridge init failed; continuing without mecab: {e}");
-            }
-        }
-        ServerTokenizerBackend::Sudachi => {
-            let mut svc = sudachi.lock().await;
-            if let Err(e) = svc.ensure_tokenizer().await {
-                warn!("sudachi init failed; continuing without sudachi: {e}");
-            }
-        }
-    }
 
     let cfg = Config::default();
 
@@ -2874,12 +3116,20 @@ async fn main() {
         mecab,
         sudachi,
         manual_hotkey.clone(),
+        features.clone(),
     ));
     tokio::spawn(axis_repeat_loop(
         tx.clone(),
         states,
         device_blacklist.clone(),
         cfg.clone(),
+    ));
+    tokio::spawn(optional_feature_lifecycle_loop(
+        features.clone(),
+        tx.clone(),
+        mecab,
+        sudachi,
+        manual_hotkey.clone(),
     ));
 
     // Gilrs input loop runs on a dedicated OS thread (Gilrs isn't Send).
@@ -2889,13 +3139,7 @@ async fn main() {
         let cfg2 = cfg.clone();
         thread::spawn(move || gilrs_input_thread(tx2, states, device_blacklist2, cfg2));
     }
-    {
-        let tx2 = tx.clone();
-        let manual_hotkey2 = manual_hotkey.clone();
-        thread::spawn(move || keyboard_input_thread(tx2, manual_hotkey2));
-    }
-
-    info!("startup complete");
+    info!("startup complete: {:?}", features.snapshot());
     loop {
         time::sleep(Duration::from_secs(3600)).await;
     }
@@ -2934,6 +3178,22 @@ mod tests {
         assert_eq!(
             ServerTokenizerBackend::from_value(None),
             ServerTokenizerBackend::Sudachi
+        );
+    }
+
+    #[test]
+    fn sudachi_dictionary_selection_normalizes_protocol_values() {
+        assert_eq!(
+            SudachiDictionaryKind::from_value(Some("small")),
+            SudachiDictionaryKind::Small
+        );
+        assert_eq!(
+            SudachiDictionaryKind::from_value(Some("FULL")),
+            SudachiDictionaryKind::Full
+        );
+        assert_eq!(
+            SudachiDictionaryKind::from_value(Some("unknown")),
+            SudachiDictionaryKind::Core
         );
     }
 

@@ -5,6 +5,7 @@ import threading
 import time
 
 from GameSentenceMiner.util.logging_config import logger
+from GameSentenceMiner.util.platform.gamepad_hotkey import GamepadHotkeyDispatcher, GamepadInputClient
 
 
 class HotkeyManager:
@@ -17,6 +18,9 @@ class HotkeyManager:
         self._pynput_keyboard_module = None
         self._lock = threading.Lock()
         self._bindings = []
+        self._gamepad_bindings = []
+        self._gamepad_dispatcher = GamepadHotkeyDispatcher()
+        self._gamepad_client = None
 
         # --- TIMING CONFIGURATION ---
 
@@ -75,6 +79,11 @@ class HotkeyManager:
         self._last_signal_time.clear()
         self._last_execution_time.clear()
 
+        if self._gamepad_client is not None:
+            self._gamepad_client.stop()
+            self._gamepad_client = None
+        self._gamepad_dispatcher.clear()
+
         if self.mode == "keyboard":
             keyboard = self._load_keyboard_module()
             for hk in self._registered_hotkeys:
@@ -101,6 +110,7 @@ class HotkeyManager:
 
         if clear_bindings:
             self._bindings.clear()
+            self._gamepad_bindings.clear()
 
     def register(self, hotkey_getter, callback, _store=True):
         if self.mode == "disabled":
@@ -196,14 +206,48 @@ class HotkeyManager:
             except Exception as e:
                 logger.error(f"Failed to register pynput hotkey '{translated_key}': {e}")
 
-    def refresh(self):
-        logger.info("Refreshing hotkey registrations...")
-        if self.mode == "disabled":
+    def register_gamepad(self, binding_getter, callback, _store=True):
+        if _store:
+            already_registered = any(
+                binding[0] == binding_getter and binding[1] == callback for binding in self._gamepad_bindings
+            )
+            if not already_registered:
+                self._gamepad_bindings.append((binding_getter, callback))
+
+        try:
+            binding = binding_getter() if callable(binding_getter) else binding_getter
+        except Exception as e:
+            logger.error(f"Failed to resolve gamepad hotkey: {e}")
             return
 
+        def safe_callback():
+            if self._lock.acquire(blocking=False):
+                try:
+                    callback()
+                except Exception as e:
+                    logger.error(f"Error in gamepad hotkey callback for {binding}: {e}")
+                finally:
+                    self._lock.release()
+
+        try:
+            registered = self._gamepad_dispatcher.register(binding, safe_callback)
+        except ValueError as e:
+            logger.error(f"Failed to register gamepad hotkey '{binding}': {e}")
+            return
+
+        if registered and self._gamepad_client is None:
+            self._gamepad_client = GamepadInputClient(self._gamepad_dispatcher)
+            self._gamepad_client.start()
+
+    def refresh(self):
+        logger.info("Refreshing hotkey registrations...")
+
         self.clear(clear_bindings=False)
-        for hotkey_getter, callback in self._bindings:
-            self.register(hotkey_getter, callback, _store=False)
+        if self.mode != "disabled":
+            for hotkey_getter, callback in self._bindings:
+                self.register(hotkey_getter, callback, _store=False)
+        for binding_getter, callback in self._gamepad_bindings:
+            self.register_gamepad(binding_getter, callback, _store=False)
 
     def _normalize_hotkey_string(self, hotkey_str):
         if hotkey_str is None:

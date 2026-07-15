@@ -62,6 +62,13 @@ const VALID_LIVE_STATS_VISIBILITY_MODES = new Set(["all", "stats", "goals", "hid
 const LIVE_STATS_VISIBILITY_CYCLE_ORDER = Object.freeze(["stats", "goals", "hidden", "all"]);
 const LIVE_STATS_FIELD_KEYS = ["chars_per_hour", "total_characters", "active_reading_time", "raw_reading_time", "cards_mined"];
 const GAMEPAD_SERVER_BASE_PORT = 7276;
+const INPUT_SERVER_MANAGED_BY_GSM = process.env.GSM_INPUT_SERVER_MANAGED === "1";
+const MANAGED_INPUT_SERVER_PORT = (() => {
+  const parsed = Number.parseInt(process.env.GSM_INPUT_SERVER_PORT || "", 10);
+  return Number.isFinite(parsed) && parsed > 0 && parsed <= 65535
+    ? parsed
+    : GAMEPAD_SERVER_BASE_PORT;
+})();
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
 const OVERLAY_WS_COMMAND_OPEN_SETTINGS = "open-overlay-settings";
 const DEFAULT_MANUAL_HOTKEY = "Shift + Space";
@@ -2008,6 +2015,14 @@ function syncGamepadServerState(reason = "unknown") {
 
 // Gamepad server management
 async function startGamepadServer(reason = "unknown") {
+  if (INPUT_SERVER_MANAGED_BY_GSM) {
+    userSettings.gamepadServerPort = MANAGED_INPUT_SERVER_PORT;
+    console.log(`[InputServer] Reusing GSM-managed service on port ${MANAGED_INPUT_SERVER_PORT} (${reason})`);
+    syncManualHotkeyInputServerConnection("managed-service");
+    syncAppHotkeyInputServerConnection("managed-service");
+    return;
+  }
+
   if (!shouldRunInputServer()) {
     console.log('[InputServer] Server not required by current settings');
     return;
@@ -2160,6 +2175,11 @@ async function startGamepadServer(reason = "unknown") {
 }
 
 async function stopGamepadServer(reason = "unknown") {
+  if (INPUT_SERVER_MANAGED_BY_GSM) {
+    console.log(`[InputServer] GSM owns the shared service; overlay release only (${reason})`);
+    return;
+  }
+
   gamepadServerLifecycleVersion += 1;
   gamepadServerStarting = false;
 
@@ -2228,6 +2248,13 @@ async function stopGamepadServer(reason = "unknown") {
 }
 
 async function restartGamepadServer(reason = "unknown") {
+  if (INPUT_SERVER_MANAGED_BY_GSM) {
+    userSettings.gamepadServerPort = MANAGED_INPUT_SERVER_PORT;
+    syncManualHotkeyInputServerConnection(`managed-reconfigure:${reason}`);
+    syncAppHotkeyInputServerConnection(`managed-reconfigure:${reason}`);
+    return;
+  }
+
   console.log(`[InputServer] Restart requested (${reason})`);
   await stopGamepadServer(reason);
   if (!shouldRunInputServer()) {
@@ -2238,7 +2265,9 @@ async function restartGamepadServer(reason = "unknown") {
 }
 
 function getInputServerWebSocketUrl() {
-  const configuredPort = Number.parseInt(userSettings.gamepadServerPort, 10);
+  const configuredPort = INPUT_SERVER_MANAGED_BY_GSM
+    ? MANAGED_INPUT_SERVER_PORT
+    : Number.parseInt(userSettings.gamepadServerPort, 10);
   const port = Number.isFinite(configuredPort) && configuredPort > 0 && configuredPort <= 65535
     ? configuredPort
     : GAMEPAD_SERVER_BASE_PORT;
@@ -2274,6 +2303,10 @@ function sendManualHotkeyInputServerConfig() {
   }
 
   const enabled = isManualMode() && manualHotkeyBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER;
+  state.socket.send(JSON.stringify({
+    type: "configure_features",
+    features: enabled ? ["keyboard"] : [],
+  }));
   state.socket.send(JSON.stringify({
     type: "configure_manual_hotkey",
     enabled,
@@ -2424,6 +2457,10 @@ function sendAppHotkeyConfig() {
     return;
   }
   try {
+    state.socket.send(JSON.stringify({
+      type: "configure_features",
+      features: isRouteAllHotkeysEnabled() ? ["keyboard"] : [],
+    }));
     state.socket.send(JSON.stringify({
       type: "configure_app_hotkeys",
       hotkeys: buildAppHotkeyConfigPayload(),
@@ -3457,6 +3494,11 @@ if (hasPersistedOverlaySettings) {
     console.error("Failed to load settings.json:", error)
 
   }
+}
+
+if (INPUT_SERVER_MANAGED_BY_GSM && userSettings.gamepadServerPort !== MANAGED_INPUT_SERVER_PORT) {
+  userSettings.gamepadServerPort = MANAGED_INPUT_SERVER_PORT;
+  shouldPersistOverlaySettings = true;
 }
 
 const websocketEndpointsNormalized = enforceOverlayWebSocketUrls(userSettings);
@@ -6542,6 +6584,8 @@ app.whenReady().then(async () => {
     }
     if (key === "showRecycledIndicator") {
       value = value === true;
+    } else if (key === "gamepadServerPort" && INPUT_SERVER_MANAGED_BY_GSM) {
+      value = MANAGED_INPUT_SERVER_PORT;
     } else if (key === "gamepadTokenizerBackend") {
       value = normalizeGamepadTokenizerBackend(value);
     } else if (key === "gamepadLocalTokenizerFallbackBackend") {

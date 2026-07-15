@@ -46,10 +46,6 @@ async function findOverlayResourcesDir() {
 
 async function stageInputServerBinary() {
   const stagedServerPath = path.join(stagedResourcesDir, serverExecutableName);
-  if (await exists(stagedServerPath)) {
-    return;
-  }
-
   const candidates = [
     path.join(overlaySourceDir, 'input_server', 'bin', platform, serverExecutableName),
     path.join(overlaySourceDir, 'input_server', 'bin', serverExecutableName),
@@ -64,6 +60,12 @@ async function stageInputServerBinary() {
       console.log(`[stage-overlay-build] Staged input server ${candidate} -> ${stagedServerPath}`);
       return;
     }
+  }
+
+  // Non-Windows overlay packages may already contain a platform-native binary
+  // even when this checkout doesn't keep one under input_server/bin.
+  if (await exists(stagedServerPath)) {
+    return;
   }
 
   const searched = candidates.map((candidate) => `  - ${candidate}`).join('\n');

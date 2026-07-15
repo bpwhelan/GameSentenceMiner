@@ -117,6 +117,7 @@ import {
     registerChangelogProtocolHandler,
     registerChangelogProtocolScheme,
 } from './services/changelog_protocol.js';
+import { startInputServer, stopInputServer } from './services/input_server.js';
 import { getConfiguredSinglePort } from './gsm_config.js';
 import {
     getStatusTrayIconPath,
@@ -2452,6 +2453,10 @@ if (!app.requestSingleInstanceLock()) {
         try {
             bootstrapPreReleaseSettingsFromMetadata();
             registerChangelogProtocolHandler(getAssetsDir());
+            // The Rust input service belongs to the desktop application, not to
+            // the optional overlay. Starting it first makes gamepad hotkeys
+            // available to every child process from the beginning of startup.
+            await startInputServer();
             try {
                 await startBus();
                 wireBackendBus();
@@ -2823,6 +2828,7 @@ async function runQuit(): Promise<void> {
         if (pyProc != null && !pyProc.killed) {
             await closeAllPythonProcesses();
         }
+        await stopInputServer();
         await closeOBSFromElectron({ reason: 'app quit' });
         await stopBus().catch((err) => console.warn('Failed to stop message bus:', err));
     } catch (error) {
@@ -2851,6 +2857,7 @@ async function stopAllChildrenForRelocation(): Promise<void> {
     if (pyProc != null && !pyProc.killed) {
         await closeAllPythonProcesses();
     }
+    await stopInputServer();
     await closeOBSFromElectron({ reason: 'data relocation' });
     await stopBus().catch((err) => console.warn('Failed to stop message bus during relocation:', err));
 }

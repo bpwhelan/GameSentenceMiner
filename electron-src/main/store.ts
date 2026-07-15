@@ -60,9 +60,13 @@ interface OCRConfig {
     furigana_filter_sensitivity: number;
     defaultSceneFuriganaFilterSensitivity: number;
     manualOcrHotkey: string;
+    manualOcrGamepad: string;
     areaSelectOcrHotkey: string;
+    areaSelectOcrGamepad: string;
     wholeWindowOcrHotkey: string;
+    wholeWindowOcrGamepad: string;
     globalPauseHotkey: string;
+    globalPauseGamepad: string;
     sendToClipboard: boolean;
     send_to_clipboard_auto?: boolean | null;
     send_to_clipboard_menu?: boolean | null;
@@ -250,9 +254,13 @@ export const store = new Store<StoreConfig>({
             furigana_filter_sensitivity: 0,
             defaultSceneFuriganaFilterSensitivity: 0,
             manualOcrHotkey: "Ctrl+Shift+G",
+            manualOcrGamepad: "",
             areaSelectOcrHotkey: "Ctrl+Shift+O",
+            areaSelectOcrGamepad: "",
             wholeWindowOcrHotkey: "Ctrl+Shift+W",
+            wholeWindowOcrGamepad: "",
             globalPauseHotkey: "Ctrl+Shift+P",
+            globalPauseGamepad: "",
             sendToClipboard: false,
             send_to_clipboard_auto: null,
             send_to_clipboard_menu: null,

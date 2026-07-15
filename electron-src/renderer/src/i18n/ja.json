@@ -831,7 +831,29 @@
       "wholeWindow": "ウィンドウ全体:",
       "pause": "一時停止:",
       "runAction": "実行",
-      "runActionTitle": "このアクションを今すぐ実行します"
+      "runActionTitle": "このアクションを今すぐ実行します",
+      "gamepadBindingAria": "{action} のゲームパッド割り当て",
+      "gamepadBindingTitle": "GSM入力サービスが処理するゲームパッドボタンを選択します",
+      "gamepadButtons": {
+        "disabled": "ゲームパッドなし",
+        "a": "A",
+        "b": "B",
+        "x": "X",
+        "y": "Y",
+        "lb": "LB",
+        "rb": "RB",
+        "lt": "LT",
+        "rt": "RT",
+        "back": "Back",
+        "start": "Start",
+        "ls": "LS",
+        "rs": "RS",
+        "dpadUp": "方向パッド 上",
+        "dpadDown": "方向パッド 下",
+        "dpadLeft": "方向パッド 左",
+        "dpadRight": "方向パッド 右",
+        "guide": "Guide"
+      }
     },
     "console": {
       "title": "コンソール",

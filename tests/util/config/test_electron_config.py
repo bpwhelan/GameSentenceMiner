@@ -269,6 +269,10 @@ def test_get_ocr_hotkeys_preserve_explicit_empty_values(monkeypatch):
                 "areaSelectOcrHotkey": "",
                 "wholeWindowOcrHotkey": "",
                 "globalPauseHotkey": "",
+                "manualOcrGamepad": "",
+                "areaSelectOcrGamepad": "",
+                "wholeWindowOcrGamepad": "",
+                "globalPauseGamepad": "",
             }
         }
     )
@@ -278,6 +282,10 @@ def test_get_ocr_hotkeys_preserve_explicit_empty_values(monkeypatch):
     assert electron_config.get_ocr_area_select_ocr_hotkey() == ""
     assert electron_config.get_ocr_whole_window_ocr_hotkey() == ""
     assert electron_config.get_ocr_global_pause_hotkey() == ""
+    assert electron_config.get_ocr_manual_ocr_gamepad() == ""
+    assert electron_config.get_ocr_area_select_ocr_gamepad() == ""
+    assert electron_config.get_ocr_whole_window_ocr_gamepad() == ""
+    assert electron_config.get_ocr_global_pause_gamepad() == ""
 
 
 def test_get_ocr_hotkeys_use_defaults_when_missing(monkeypatch):
@@ -288,6 +296,10 @@ def test_get_ocr_hotkeys_use_defaults_when_missing(monkeypatch):
     assert electron_config.get_ocr_area_select_ocr_hotkey() == "Ctrl+Shift+O"
     assert electron_config.get_ocr_whole_window_ocr_hotkey() == "Ctrl+Shift+W"
     assert electron_config.get_ocr_global_pause_hotkey() == "Ctrl+Shift+P"
+    assert electron_config.get_ocr_manual_ocr_gamepad() == ""
+    assert electron_config.get_ocr_area_select_ocr_gamepad() == ""
+    assert electron_config.get_ocr_whole_window_ocr_gamepad() == ""
+    assert electron_config.get_ocr_global_pause_gamepad() == ""
 
 
 def test_has_ocr_config_changed_reports_diffs(monkeypatch):

@@ -576,9 +576,21 @@ class GSMApplication:
                 logger.warning("Overlay loop not ready yet.")
 
         hotkey_manager.register(lambda: get_config().hotkeys.play_latest_audio, self.play_most_recent_audio)
+        hotkey_manager.register_gamepad(
+            lambda: get_config().hotkeys.play_latest_audio_gamepad,
+            self.play_most_recent_audio,
+        )
         hotkey_manager.register(lambda: get_config().hotkeys.manual_overlay_scan, call_overlay_processor)
+        hotkey_manager.register_gamepad(
+            lambda: get_config().hotkeys.manual_overlay_scan_gamepad,
+            call_overlay_processor,
+        )
         hotkey_manager.register(
             lambda: get_config().hotkeys.pause_text_intake, _get_gametext_module().toggle_text_intake_paused
+        )
+        hotkey_manager.register_gamepad(
+            lambda: get_config().hotkeys.pause_text_intake_gamepad,
+            _get_gametext_module().toggle_text_intake_paused,
         )
 
         # Area-select (screen-crop) ad-hoc OCR runs in the main process so it works
@@ -593,6 +605,10 @@ class GSMApplication:
         if is_windows() or is_linux():
             hotkey_manager.register(
                 lambda: get_config().hotkeys.process_pause,
+                _get_window_state_monitor_module().toggle_active_game_pause,
+            )
+            hotkey_manager.register_gamepad(
+                lambda: get_config().hotkeys.process_pause_gamepad,
                 _get_window_state_monitor_module().toggle_active_game_pause,
             )
 

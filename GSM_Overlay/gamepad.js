@@ -882,6 +882,37 @@ class GamepadHandler {
       this.scheduleReconnect();
     }
   }
+
+  getRequestedServiceFeatures() {
+    const features = new Set();
+    if (this.config.keyboardEnabled) {
+      features.add('keyboard');
+    }
+    for (const backend of [
+      this.config.tokenizerBackend,
+      this.config.localTokenizerFallbackBackend,
+    ]) {
+      const normalized = String(backend || '').trim().toLowerCase();
+      if (normalized === 'mecab' || normalized === 'sudachi') {
+        features.add(normalized);
+      }
+    }
+    return [...features];
+  }
+
+  sendServiceFeatureConfiguration() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    this.ws.send(JSON.stringify({
+      type: 'configure_features',
+      features: this.getRequestedServiceFeatures(),
+    }));
+    this.ws.send(JSON.stringify({
+      type: 'configure_sudachi',
+      dictionary: this.config.sudachiDictionary || 'core',
+    }));
+  }
   
   onWebSocketOpen() {
     console.log('[GamepadHandler] Connected to gamepad server');
@@ -895,6 +926,8 @@ class GamepadHandler {
       this.reconnectTimer = null;
     }
     
+    this.sendServiceFeatureConfiguration();
+
     // Request current state
     this.ws.send(JSON.stringify({ type: 'get_state' }));
 
@@ -6360,6 +6393,8 @@ class GamepadHandler {
     const oldJitenApiKey = this.config.jitenApiKey;
     const oldJpdbApiKey = this.config.jpdbApiKey;
     const oldConnectToServer = this.config.connectToServer !== false;
+    const oldKeyboardEnabled = this.config.keyboardEnabled !== false;
+    const oldSudachiDictionary = this.config.sudachiDictionary;
     const oldInputSuppressed = this.config.inputSuppressed === true;
     const oldFocusOverlayOnEntry = this.config.focusOverlayOnEntry !== false;
 
@@ -6431,6 +6466,14 @@ class GamepadHandler {
       this.config.jitenApiKey !== oldJitenApiKey ||
       this.config.jpdbApiKey !== oldJpdbApiKey
     );
+    if (
+      this.wsConnected &&
+      (backendChanged ||
+        oldKeyboardEnabled !== (this.config.keyboardEnabled !== false) ||
+        oldSudachiDictionary !== this.config.sudachiDictionary)
+    ) {
+      this.sendServiceFeatureConfiguration();
+    }
     if (backendChanged) {
       this.mecabAvailable = false;
       this.sudachiAvailable = false;

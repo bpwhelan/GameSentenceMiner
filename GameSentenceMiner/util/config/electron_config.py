@@ -64,9 +64,13 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "furigana_filter_sensitivity": 0,
         "defaultSceneFuriganaFilterSensitivity": 0,
         "manualOcrHotkey": "Ctrl+Shift+G",
+        "manualOcrGamepad": "",
         "areaSelectOcrHotkey": "Ctrl+Shift+O",
+        "areaSelectOcrGamepad": "",
         "wholeWindowOcrHotkey": "Ctrl+Shift+W",
+        "wholeWindowOcrGamepad": "",
         "globalPauseHotkey": "Ctrl+Shift+P",
+        "globalPauseGamepad": "",
         "sendToClipboard": False,
         "send_to_clipboard_auto": None,
         "send_to_clipboard_menu": None,
@@ -437,16 +441,32 @@ def get_ocr_manual_ocr_hotkey() -> str:
     return _get_ocr_hotkey_value("manualOcrHotkey", "Ctrl+Shift+G")
 
 
+def get_ocr_manual_ocr_gamepad() -> str:
+    return _get_ocr_hotkey_value("manualOcrGamepad", "")
+
+
 def get_ocr_area_select_ocr_hotkey() -> str:
     return _get_ocr_hotkey_value("areaSelectOcrHotkey", "Ctrl+Shift+O")
+
+
+def get_ocr_area_select_ocr_gamepad() -> str:
+    return _get_ocr_hotkey_value("areaSelectOcrGamepad", "")
 
 
 def get_ocr_whole_window_ocr_hotkey() -> str:
     return _get_ocr_hotkey_value("wholeWindowOcrHotkey", "Ctrl+Shift+W")
 
 
+def get_ocr_whole_window_ocr_gamepad() -> str:
+    return _get_ocr_hotkey_value("wholeWindowOcrGamepad", "")
+
+
 def get_ocr_global_pause_hotkey() -> str:
     return _get_ocr_hotkey_value("globalPauseHotkey", "Ctrl+Shift+P")
+
+
+def get_ocr_global_pause_gamepad() -> str:
+    return _get_ocr_hotkey_value("globalPauseGamepad", "")
 
 
 def get_ocr_send_to_clipboard(source: str | None = None) -> bool:

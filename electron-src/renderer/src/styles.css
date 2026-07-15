@@ -4938,6 +4938,11 @@ body {
   min-width: 0;
 }
 
+.ocr-workspace .ocr-gamepad-hotkey {
+  flex: 0 0 104px;
+  min-width: 0;
+}
+
 .ocr-hotkey-run {
   flex: 0 0 auto;
   min-height: 32px;

@@ -858,7 +858,29 @@
       "wholeWindow": "Whole Window:",
       "pause": "Pause:",
       "runAction": "Run",
-      "runActionTitle": "Trigger this action now"
+      "runActionTitle": "Trigger this action now",
+      "gamepadBindingAria": "Gamepad binding for {action}",
+      "gamepadBindingTitle": "Choose a gamepad button handled by the GSM input service",
+      "gamepadButtons": {
+        "disabled": "No gamepad",
+        "a": "A",
+        "b": "B",
+        "x": "X",
+        "y": "Y",
+        "lb": "LB",
+        "rb": "RB",
+        "lt": "LT",
+        "rt": "RT",
+        "back": "Back",
+        "start": "Start",
+        "ls": "LS",
+        "rs": "RS",
+        "dpadUp": "D-Pad Up",
+        "dpadDown": "D-Pad Down",
+        "dpadLeft": "D-Pad Left",
+        "dpadRight": "D-Pad Right",
+        "guide": "Guide"
+      }
     },
     "console": {
       "title": "Console",

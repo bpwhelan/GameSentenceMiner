@@ -4240,6 +4240,9 @@ background: rgba(202, 12, 12, 0.692);
     if (newsettings.gamepadLocalTokenizerFallbackBackend !== undefined) {
       gamepadSettings.localTokenizerFallbackBackend = newsettings.gamepadLocalTokenizerFallbackBackend;
     }
+    if (newsettings.gamepadSudachiDictionary !== undefined) {
+      gamepadSettings.sudachiDictionary = newsettings.gamepadSudachiDictionary;
+    }
     if (newsettings.gamepadYomitanApiUrl !== undefined) {
       gamepadSettings.yomitanApiUrl = newsettings.gamepadYomitanApiUrl;
     }
@@ -5003,6 +5006,7 @@ background: rgba(202, 12, 12, 0.692);
     tokenMode: false, // Navigate by tokenizer word units instead of characters
     tokenizerBackend: 'sudachi', // "mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api"
     localTokenizerFallbackBackend: 'sudachi', // Local retry backend when the selected tokenizer fails
+    sudachiDictionary: 'core', // Shared service dictionary: "small", "core", or "full"
     yomitanApiUrl: 'http://127.0.0.1:19633', // Base URL for Yomitan API
     yomitanScanLength: 10, // scanLength for Yomitan /tokenize
     jitenApiKey: '', // X-Api-Key used for Jiten/api/reader/parse
@@ -5104,6 +5108,7 @@ background: rgba(202, 12, 12, 0.692);
       tokenMode: gamepadSettings.tokenMode,
       tokenizerBackend: gamepadSettings.tokenizerBackend,
       localTokenizerFallbackBackend: gamepadSettings.localTokenizerFallbackBackend,
+      sudachiDictionary: gamepadSettings.sudachiDictionary,
       yomitanApiUrl: gamepadSettings.yomitanApiUrl,
       yomitanScanLength: gamepadSettings.yomitanScanLength,
       jitenApiKey: gamepadSettings.jitenApiKey,
@@ -5548,6 +5553,10 @@ background: rgba(202, 12, 12, 0.692);
     }
     if (updatedSettings.gamepadLocalTokenizerFallbackBackend !== undefined) {
       gamepadSettings.localTokenizerFallbackBackend = updatedSettings.gamepadLocalTokenizerFallbackBackend;
+      needsLifecycleSync = true;
+    }
+    if (updatedSettings.gamepadSudachiDictionary !== undefined) {
+      gamepadSettings.sudachiDictionary = updatedSettings.gamepadSudachiDictionary;
       needsLifecycleSync = true;
     }
     if (updatedSettings.gamepadYomitanApiUrl !== undefined) {

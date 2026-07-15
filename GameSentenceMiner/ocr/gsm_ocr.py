@@ -69,6 +69,7 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_two_pass_ocr,
     get_ocr_optimize_second_scan,
     get_ocr_language,
+    get_ocr_manual_ocr_gamepad,
     get_ocr_manual_ocr_hotkey,
     get_ocr_matching_block_default_min_size,
     get_ocr_matching_block_short_chunk_char_limit,
@@ -77,6 +78,8 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_keep_newline,
     get_ocr_ocr_screenshots,
     get_ocr_area_select_ocr_hotkey,
+    get_ocr_area_select_ocr_gamepad,
+    get_ocr_global_pause_gamepad,
     get_ocr_global_pause_hotkey,
     get_ocr_subset_chunk_min_length,
     get_ocr_subset_coverage_ceiling_percent,
@@ -91,6 +94,7 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_truncation_strict_threshold_min,
     get_ocr_text_appears_instantly,
     get_ocr_whole_window_ocr_hotkey,
+    get_ocr_whole_window_ocr_gamepad,
 )
 
 # Use centralized loguru logger
@@ -3191,9 +3195,13 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
             logger.info(f"IPC: OCR config changes applied: {changes}")
             hotkey_keys = {
                 "manualOcrHotkey",
+                "manualOcrGamepad",
                 "areaSelectOcrHotkey",
+                "areaSelectOcrGamepad",
                 "wholeWindowOcrHotkey",
+                "wholeWindowOcrGamepad",
                 "globalPauseHotkey",
+                "globalPauseGamepad",
             }
             if any(key in changes for key in hotkey_keys):
                 refresh_runtime_hotkey_settings_from_config()
@@ -3688,6 +3696,13 @@ def add_ss_hotkey():
     def capture_whole_window():
         run_whole_window_ocr_once(source=TextSource.MANUAL)
 
+    def toggle_ocr_pause():
+        ocr_runtime.pause_handler(is_combo=False)
+        if ocr_runtime.paused:
+            ocr_ipc.announce_paused()
+        else:
+            ocr_ipc.announce_unpaused()
+
     hotkey_manager.clear()
 
     # Area-select (screen-crop) OCR is owned by this OCR subprocess.
@@ -3696,6 +3711,7 @@ def add_ss_hotkey():
         logger.info(f"Press {area_select_ocr_hotkey} to run Area-Select OCR.")
     else:
         logger.info("Area-select OCR hotkey is disabled.")
+    hotkey_manager.register_gamepad(get_ocr_area_select_ocr_gamepad, capture_screen_crop)
 
     if not manual:
         if manual_menu_ocr_hotkey:
@@ -3703,12 +3719,15 @@ def add_ss_hotkey():
             logger.info(f"Press {manual_menu_ocr_hotkey} to run OCR for Menu Rectangles.")
         else:
             logger.info("Menu rectangle OCR hotkey is disabled.")
+        hotkey_manager.register_gamepad(get_ocr_manual_ocr_gamepad, ocr_secondary_rectangles)
 
     if whole_window_ocr_hotkey:
         hotkey_manager.register(lambda: whole_window_ocr_hotkey, capture_whole_window)
         logger.info(f"Press {whole_window_ocr_hotkey} to run Whole Window OCR.")
     else:
         logger.info("Whole-window OCR hotkey is disabled.")
+    hotkey_manager.register_gamepad(get_ocr_whole_window_ocr_gamepad, capture_whole_window)
+    hotkey_manager.register_gamepad(get_ocr_global_pause_gamepad, toggle_ocr_pause)
 
 
 def set_force_stable_hotkey():
