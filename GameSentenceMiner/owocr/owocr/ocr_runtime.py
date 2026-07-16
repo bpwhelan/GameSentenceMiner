@@ -3583,7 +3583,25 @@ def check_text_is_in_black_hole(
         if box_left < 0 or box_top < 0 or box_right > original_width or box_bottom > original_height:
             continue
 
-        if _box_overlaps_any_rectangle(original_box, black_hole_rectangles):
+        for black_hole_rect in black_hole_rectangles:
+            if not _box_overlaps_any_rectangle(original_box, [black_hole_rect]):
+                continue
+
+            rect_left, rect_top, rect_width, rect_height = getattr(black_hole_rect, "coordinates", (0, 0, 0, 0))
+            black_hole_box = (
+                rect_left,
+                rect_top,
+                rect_left + rect_width,
+                rect_top + rect_height,
+            )
+            matched_text = coord_entry[4] if len(coord_entry) >= 5 else ""
+            match_logger = logger.opt(ansi=True) if hasattr(logger, "opt") else logger
+            (match_logger or logger).info(
+                "Black hole matched text {!r} at {}; black-hole box {}.",
+                matched_text,
+                original_box,
+                black_hole_box,
+            )
             return True
 
     return False
@@ -3784,9 +3802,10 @@ def process_and_write_results(
     apply_area_filters=None,
 ):
     global engine_index
-    # Black-hole / menu skips must run whenever we emit a result, not only when
-    # write_to is set. The second OCR pass returns via return value (write_to=None),
-    # so callers pass apply_area_filters explicitly for automatic OCR.
+    # Area filters must run whenever we emit an automatic result, not only when
+    # write_to is set. OCR2 returns via return value (write_to=None), so its caller
+    # enables area filters explicitly; scene-coordinate black-hole and menu
+    # filtering themselves remain OCR1-only.
     if apply_area_filters is None:
         apply_area_filters = write_to is not None
     # TODO Replace this at a later date
@@ -3865,12 +3884,16 @@ def process_and_write_results(
             )
             current_crop_offset = CompositeLayout.from_metadata(pipeline_metadata["processing"]["crop_offset"])
             original_size = pipeline_metadata["capture"]["scaled_size"]
-            if apply_area_filters and check_text_is_in_black_hole(
-                detection_payload.get("crop_coords", None),
-                detection_payload.get("crop_coords_list", []),
-                crop_offset=current_crop_offset,
-                crop_padding=detection_payload.get("crop_padding", 5),
-                raw_response_dict=raw_response_dict,
+            if (
+                apply_area_filters
+                and not is_second_ocr
+                and check_text_is_in_black_hole(
+                    detection_payload.get("crop_coords", None),
+                    detection_payload.get("crop_coords_list", []),
+                    crop_offset=current_crop_offset,
+                    crop_padding=detection_payload.get("crop_padding", 5),
+                    raw_response_dict=raw_response_dict,
+                )
             ):
                 logger.opt(ansi=True).info(BLACK_HOLE_SKIP_LOG_MESSAGE)
                 if return_payload:
@@ -3883,11 +3906,15 @@ def process_and_write_results(
                     original_width=original_size.get("width"),
                     original_height=original_size.get("height"),
                 )
-            if apply_area_filters and check_text_is_all_menu(
-                detection_payload.get("crop_coords", None),
-                detection_payload.get("crop_coords_list", []),
-                crop_offset=current_crop_offset,
-                crop_padding=detection_payload.get("crop_padding", 5),
+            if (
+                apply_area_filters
+                and not is_second_ocr
+                and check_text_is_all_menu(
+                    detection_payload.get("crop_coords", None),
+                    detection_payload.get("crop_coords_list", []),
+                    crop_offset=current_crop_offset,
+                    crop_padding=detection_payload.get("crop_padding", 5),
+                )
             ):
                 logger.opt(ansi=True).info("Text is identified as all menu items, skipping further processing.")
                 if return_payload:
@@ -3948,11 +3975,15 @@ def process_and_write_results(
         )
         current_crop_offset = CompositeLayout.from_metadata(pipeline_metadata["processing"]["crop_offset"])
         original_size = pipeline_metadata["capture"]["scaled_size"]
-        if apply_area_filters and check_text_is_in_black_hole(
-            crop_coords,
-            crop_coords_list,
-            crop_offset=current_crop_offset,
-            raw_response_dict=raw_response_dict,
+        if (
+            apply_area_filters
+            and not is_second_ocr
+            and check_text_is_in_black_hole(
+                crop_coords,
+                crop_coords_list,
+                crop_offset=current_crop_offset,
+                raw_response_dict=raw_response_dict,
+            )
         ):
             logger.opt(ansi=True).info(BLACK_HOLE_SKIP_LOG_MESSAGE)
             if return_payload:
@@ -3994,7 +4025,7 @@ def process_and_write_results(
             "line_count": len(coords) if isinstance(coords, list) else 0,
         }
 
-        if apply_area_filters:
+        if apply_area_filters and not is_second_ocr:
             if check_text_is_all_menu(crop_coords, crop_coords_list, crop_offset=current_crop_offset):
                 logger.opt(ansi=True).info("Text is identified as all menu items, skipping further processing.")
                 if return_payload:

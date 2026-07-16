@@ -46,6 +46,7 @@ from GameSentenceMiner.ocr.gsm_ocr_config import (
     get_ocr_config,
     get_scene_furigana_filter_sensitivity,
 )
+from GameSentenceMiner.ocr.process_logging import start_ocr_process_log
 from GameSentenceMiner.owocr.owocr import ocr_runtime
 from GameSentenceMiner.owocr.owocr.ocr import normalize_japanese_ocr_dashes, normalize_japanese_ocr_text_and_segments
 from GameSentenceMiner.owocr.owocr.ocr_runtime import TextFiltering
@@ -2830,8 +2831,9 @@ class OCRProcessor:
                 image_metadata=working_image_metadata,
                 return_payload=True,
                 source=source,
-                # Menu/black-hole skips only for automatic OCR; manual & secondary
-                # (menu-OCR hotkey) explicitly want that region's text.
+                # Area filters only apply to automatic OCR; manual & secondary
+                # (menu-OCR hotkey) explicitly want that region's text. The runtime
+                # further restricts scene-coordinate filtering to OCR1.
                 apply_area_filters=(source == TextSource.OCR),
             )
 
@@ -3726,6 +3728,11 @@ def set_force_stable_hotkey():
 
 
 if __name__ == "__main__":
+    try:
+        start_ocr_process_log(logger, get_temporary_directory(), max_files=3)
+    except Exception:
+        logger.exception("Failed to initialize the dedicated OCR process log")
+
     try:
         import sys
 

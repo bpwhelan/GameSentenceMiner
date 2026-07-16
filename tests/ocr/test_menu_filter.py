@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import pytest
 from PIL import Image
 
 from GameSentenceMiner.owocr.owocr import ocr as ocr_module
@@ -89,9 +90,9 @@ def test_check_text_is_all_menu_clamps_box_past_frame_edge(monkeypatch):
     )
 
 
-def test_process_and_write_results_applies_menu_filter_on_second_pass(monkeypatch):
-    # Second OCR pass calls with write_to=None; the menu skip must still run when
-    # apply_area_filters is set (automatic OCR), not only when write_to is set.
+def test_process_and_write_results_does_not_apply_menu_filter_on_second_pass(monkeypatch):
+    # OCR2 runs on an image cropped from OCR1, so its coordinates are not reliable
+    # against scene-level menu rectangles.
     menu_rectangles = [
         SimpleNamespace(is_secondary=True, coordinates=(0, 0, 100, 100)),
         SimpleNamespace(is_secondary=True, coordinates=(200, 0, 100, 100)),
@@ -140,6 +141,7 @@ def test_process_and_write_results_applies_menu_filter_on_second_pass(monkeypatc
         raising=False,
     )
     monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: fake_area_config)
+    monkeypatch.setattr(run_module, "get_ocr_language", lambda: "en")
 
     # write_to=None mimics do_second_ocr; apply_area_filters=True is what the OCR2
     # caller now passes for automatic OCR.
@@ -154,9 +156,9 @@ def test_process_and_write_results_applies_menu_filter_on_second_pass(monkeypatc
         apply_area_filters=True,
     )
 
-    assert text == ""
-    assert payload is None
-    assert not orig_text
+    assert orig_text == []
+    assert text == "menu\nitems"
+    assert payload is not None
     assert callback_calls == []
 
 
@@ -275,6 +277,45 @@ def test_check_text_is_in_black_hole_matches_any_detected_text_box(monkeypatch):
         crop_coords_list,
         crop_offset=(0, 0),
     )
+
+
+def test_check_text_is_in_black_hole_logs_matched_text_and_location(monkeypatch):
+    black_hole = SimpleNamespace(
+        is_secondary=False,
+        is_excluded=False,
+        is_exclusive=False,
+        is_black_hole=True,
+        coordinates=(10, 20, 100, 80),
+    )
+    log_messages = []
+
+    monkeypatch.setattr(
+        run_module,
+        "logger",
+        SimpleNamespace(info=lambda message, *args, **kwargs: log_messages.append(message.format(*args))),
+    )
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        run_module,
+        "get_scaled_scene_ocr_config",
+        lambda *_: SimpleNamespace(rectangles=[black_hole]),
+    )
+    monkeypatch.setattr(run_module, "get_ocr_language", lambda: "en")
+
+    assert run_module.check_text_is_in_black_hole(
+        (15, 25, 75, 65),
+        [(15, 25, 75, 65, "Continue")],
+        crop_offset=(0, 0),
+        crop_padding=5,
+    )
+    assert log_messages == [
+        "Black hole matched text 'Continue' at (20, 30, 70, 60); black-hole box (10, 20, 110, 100)."
+    ]
 
 
 def test_check_text_is_in_black_hole_ignores_disjoint_box(monkeypatch):
@@ -490,6 +531,67 @@ def test_process_and_write_results_skips_black_hole_before_exclusive_filter(monk
     assert (orig_text, text) == ("", "")
     assert callback_calls == []
     assert run_module.BLACK_HOLE_SKIP_LOG_MESSAGE in log_messages
+
+
+def test_process_and_write_results_does_not_apply_black_hole_on_second_pass(monkeypatch):
+    black_hole = SimpleNamespace(
+        is_secondary=False,
+        is_excluded=False,
+        is_exclusive=False,
+        is_black_hole=True,
+        coordinates=(0, 0, 100, 100),
+    )
+
+    class FakeOCR:
+        name = "fakeocr"
+        readable_name = "Fake OCR"
+
+        def __call__(self, img, furigana_filter_sensitivity=0):
+            return True, "Continue", [], [(5, 5, 95, 95, "Continue")], (5, 5, 95, 95), None
+
+    log_messages = []
+    monkeypatch.setattr(
+        run_module,
+        "config",
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+    )
+    monkeypatch.setattr(
+        run_module,
+        "logger",
+        SimpleNamespace(
+            opt=lambda **kwargs: SimpleNamespace(info=lambda message, *args, **kwargs: log_messages.append(message))
+        ),
+    )
+    monkeypatch.setattr(run_module, "engine_instances", [FakeOCR()], raising=False)
+    monkeypatch.setattr(run_module, "auto_pause_handler", None, raising=False)
+    monkeypatch.setattr(
+        run_module,
+        "obs_screenshot_thread",
+        SimpleNamespace(width=400, height=300),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        run_module,
+        "get_scaled_scene_ocr_config",
+        lambda *_: SimpleNamespace(rectangles=[black_hole]),
+    )
+    monkeypatch.setattr(run_module, "get_ocr_language", lambda: "en")
+
+    orig_text, text, payload = run_module.process_and_write_results(
+        Image.new("RGB", (400, 300), color=0),
+        None,
+        None,
+        None,
+        None,
+        engine="fakeocr",
+        return_payload=True,
+        apply_area_filters=True,
+    )
+
+    assert orig_text == []
+    assert text == "Continue"
+    assert payload is not None
+    assert run_module.BLACK_HOLE_SKIP_LOG_MESSAGE not in log_messages
 
 
 def test_process_and_write_results_checks_unfiltered_english_lines_for_black_holes(monkeypatch):
@@ -736,7 +838,11 @@ def test_build_text_detection_result_includes_per_box_crop_coords():
     assert response_dict["crop_coords_list"] == [[5, 5, 95, 95], [205, 5, 295, 95]]
 
 
-def test_process_and_write_results_skips_detector_payload_when_all_boxes_are_menu(monkeypatch):
+@pytest.mark.parametrize(
+    ("engine", "expect_skipped"),
+    [(None, True), ("meiki_text_detector", False)],
+)
+def test_process_and_write_results_applies_detector_menu_filter_only_on_first_pass(monkeypatch, engine, expect_skipped):
     menu_rectangles = [
         SimpleNamespace(is_secondary=True, coordinates=(0, 0, 100, 100)),
         SimpleNamespace(is_secondary=True, coordinates=(200, 0, 100, 100)),
@@ -772,6 +878,7 @@ def test_process_and_write_results_skips_detector_payload_when_all_boxes_are_men
         SimpleNamespace(opt=lambda **kwargs: SimpleNamespace(info=lambda *args, **kwargs: None)),
     )
     monkeypatch.setattr(run_module, "engine_instances", [FakeDetector()], raising=False)
+    monkeypatch.setattr(run_module, "engine_index", 0, raising=False)
     monkeypatch.setattr(run_module, "auto_pause_handler", None, raising=False)
     monkeypatch.setattr(
         run_module,
@@ -793,8 +900,13 @@ def test_process_and_write_results_skips_detector_payload_when_all_boxes_are_men
         None,
         None,
         None,
-        engine="meiki_text_detector",
+        engine=engine,
     )
 
-    assert (orig_text, text) == ("", "")
-    assert callback_calls == []
+    if expect_skipped:
+        assert (orig_text, text) == ("", "")
+        assert callback_calls == []
+    else:
+        assert "meiki_text_detector" in text
+        assert orig_text == text
+        assert len(callback_calls) == 1

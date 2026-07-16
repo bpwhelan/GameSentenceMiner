@@ -63,6 +63,9 @@ const LIVE_STATS_VISIBILITY_CYCLE_ORDER = Object.freeze(["stats", "goals", "hidd
 const LIVE_STATS_FIELD_KEYS = ["chars_per_hour", "total_characters", "active_reading_time", "raw_reading_time", "cards_mined"];
 const GAMEPAD_SERVER_BASE_PORT = 7276;
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
+const STARTUP_NOTIFICATION_DURATION_MS = 3200;
+const STARTUP_NOTIFICATION_WIDTH = 460;
+const STARTUP_NOTIFICATION_HEIGHT = 130;
 const OVERLAY_WS_COMMAND_OPEN_SETTINGS = "open-overlay-settings";
 const DEFAULT_MANUAL_HOTKEY = "Shift + Space";
 const DEFAULT_TEXTHOOKER_HOTKEY = "Alt+Shift+W";
@@ -1506,6 +1509,8 @@ let resizeMode = false;
 let yomitanShown = false;
 let gamepadNavigationActive = false; // True while renderer gamepad navigation keeps overlay focused
 let mainWindow = null;
+let startupNotificationWindow = null;
+let startupNotificationCloseTimer = null;
 let afkHidden = false; // true when AFK timer hid the overlay
 let websocketStates = {
   "ws1": false,
@@ -3752,6 +3757,65 @@ function getOverlayBoundsForDisplay(display) {
   };
 }
 
+function showStartupNotification(display) {
+  if (startupNotificationWindow && !startupNotificationWindow.isDestroyed()) {
+    return;
+  }
+
+  const displayBounds = getOverlayBoundsForDisplay(display || getCurrentOverlayMonitor({ logFallback: true }));
+  const x = Math.round(displayBounds.x + (displayBounds.width - STARTUP_NOTIFICATION_WIDTH) / 2);
+  const y = Math.round(displayBounds.y + (displayBounds.height - STARTUP_NOTIFICATION_HEIGHT) / 2);
+
+  startupNotificationWindow = new BrowserWindow({
+    x,
+    y,
+    width: STARTUP_NOTIFICATION_WIDTH,
+    height: STARTUP_NOTIFICATION_HEIGHT,
+    icon: getOverlayAppIconPath(),
+    transparent: true,
+    backgroundColor: "#00000000",
+    frame: false,
+    ...getWindowsFramelessWindowOptions(),
+    alwaysOnTop: true,
+    focusable: false,
+    resizable: false,
+    skipTaskbar: true,
+    show: false,
+    title: "GSM Overlay Ready",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false,
+    },
+  });
+
+  startupNotificationWindow.removeMenu();
+  startupNotificationWindow.setAlwaysOnTop(true, "screen-saver");
+  startupNotificationWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  startupNotificationWindow.setIgnoreMouseEvents(true);
+
+  startupNotificationWindow.once("ready-to-show", () => {
+    if (!startupNotificationWindow || startupNotificationWindow.isDestroyed()) return;
+    startupNotificationWindow.showInactive();
+    startupNotificationCloseTimer = setTimeout(() => {
+      startupNotificationCloseTimer = null;
+      if (startupNotificationWindow && !startupNotificationWindow.isDestroyed()) {
+        startupNotificationWindow.close();
+      }
+    }, STARTUP_NOTIFICATION_DURATION_MS);
+  });
+
+  startupNotificationWindow.on("closed", () => {
+    if (startupNotificationCloseTimer) {
+      clearTimeout(startupNotificationCloseTimer);
+      startupNotificationCloseTimer = null;
+    }
+    startupNotificationWindow = null;
+  });
+
+  loadOverlayPage(startupNotificationWindow, "startup-notification.html");
+}
+
 function normalizeDisplayRect(rect, fallback = { x: 0, y: 0, width: 1920, height: 1080 }) {
   const source = rect || fallback;
   return {
@@ -5951,6 +6015,10 @@ app.whenReady().then(async () => {
       clearTimeout(pendingOverlayTopmostReassertTimer);
       pendingOverlayTopmostReassertTimer = null;
     }
+    if (startupNotificationCloseTimer) {
+      clearTimeout(startupNotificationCloseTimer);
+      startupNotificationCloseTimer = null;
+    }
   });
 
   let display = getCurrentOverlayMonitor({ logFallback: true });
@@ -5986,7 +6054,7 @@ app.whenReady().then(async () => {
       allowFileAccessFromFileURLs: true,
       backgroundThrottling: false, // Required for gamepad polling when unfocused
     },
-    // show: false,
+    show: false,
   });
   lastDisplaySyncSignature = getOverlayDisplaySyncSignature();
 
@@ -6240,7 +6308,7 @@ app.whenReady().then(async () => {
     displayBounds = syncResult.bounds;
     lastDisplaySyncSignature = getOverlayDisplaySyncSignature();
     ensureMainWindowIsOnConnectedDisplay("ready-to-show");
-    mainWindow.show();
+    showStartupNotification(display);
     if (isDev) {
       // mainWindow.openDevTools({ mode: 'detach' });
     }
