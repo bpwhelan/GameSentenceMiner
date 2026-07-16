@@ -729,29 +729,6 @@ background: rgba(202, 12, 12, 0.692);
   }
   */
 
-  /* Startup Message */
-  #startup-message {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0, 0, 0, 0.9);
-    color: #00ff88;
-    padding: 30px 50px;
-    border-radius: 10px;
-    font-size: 24px;
-    font-weight: bold;
-    text-align: center;
-    z-index: 10000;
-    pointer-events: none;
-    box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
-    opacity: 1;
-    transition: opacity 3s ease-out;
-  }
-
-  #startup-message.fade-out {
-    opacity: 0;
-  }
 </style>
 
 <style src="shared.css"></style>
@@ -786,11 +763,6 @@ background: rgba(202, 12, 12, 0.692);
         Got it
       </button>
     </div>
-  </div>
-
-  <!-- Startup Message -->
-  <div id="startup-message">
-    GSM Overlay Loaded & Ready!
   </div>
 
   <!-- Text Loading Indicator -->
@@ -1012,20 +984,7 @@ background: rgba(202, 12, 12, 0.692);
   let dismissedRecommendationGames = []; // Permanently dismissed games
   let currentGameForRecommendation = null;
 
-  // Startup message fade-out
   window.addEventListener('DOMContentLoaded', () => {
-    const startupMessage = document.getElementById('startup-message');
-    if (startupMessage) {
-      // Start fading after page is fully loaded
-      setTimeout(() => {
-        startupMessage.classList.add('fade-out');
-        // Remove from DOM after fade completes
-        setTimeout(() => {
-          startupMessage.remove();
-        }, 3000);
-      }, 100);
-    }
-
     const ajbParseButton = document.getElementById("ajb-parse-button");
     if (ajbParseButton) {
       ajbParseButton.style.display = "none";
