@@ -156,7 +156,25 @@ def test_firered_vad_converts_onnx_probabilities_to_segments(monkeypatch):
 
     assert len(result.segments) == 1
     assert result.segments[0].start == pytest.approx(0.0)
-    assert result.segments[0].end == pytest.approx(0.04)
+    assert result.segments[0].end == pytest.approx(0.03)
+
+
+def test_firered_vad_removes_confirmed_trailing_silence_from_segment():
+    postprocessor = vad.FireRedVADPostprocessor(
+        smooth_window_size=1,
+        speech_threshold=0.5,
+        min_speech_frame=1,
+        max_speech_frame=2000,
+        min_silence_frame=3,
+        merge_silence_frame=0,
+        extend_speech_frame=0,
+    )
+
+    decisions = postprocessor.process([0.9, 0.9, 0.1, 0.1, 0.1, 0.1])
+
+    # The three-frame silence window confirms speech ended at frame two; it is
+    # not part of the extracted speech segment.
+    assert decisions == [1, 1, 0, 0, 0, 0]
 
 
 def test_firered_cmvn_parser_reads_bundled_stats():

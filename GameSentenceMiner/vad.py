@@ -625,6 +625,10 @@ class FireRedVADPostprocessor:
                 if not is_speech:
                     if frame_index - silence_start >= self.min_silence_frame:
                         state = silence
+                        # This window establishes that the preceding silence is
+                        # genuine.  It should not become trailing padding in an
+                        # offline segment that we can now end at silence_start.
+                        decisions[silence_start : frame_index + 1] = [0] * (frame_index - silence_start + 1)
                         speech_start = -1
                 else:
                     state = speech
