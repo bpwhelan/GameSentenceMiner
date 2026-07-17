@@ -78,7 +78,8 @@
     "nsis": {
       "menuCategory": "GameSentenceMiner",
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "runAfterFinish": true
     },
     "mac": {
       "target": "dmg",
