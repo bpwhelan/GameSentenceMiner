@@ -11,6 +11,7 @@ import {
 	websocketUrl$,
 } from './stores/stores';
 
+import { normalizeGSMWebSocketUrl } from './gsm';
 import { LineType } from './types';
 
 export class SocketConnection {
@@ -24,8 +25,14 @@ export class SocketConnection {
 
 	constructor(isPrimary = true) {
 		this.socketState = isPrimary ? socketState$ : secondarySocketState$;
+		const websocketUrlStore = isPrimary ? websocketUrl$ : secondaryWebsocketUrl$;
 		this.subscriptions.push(
-			(isPrimary ? websocketUrl$ : secondaryWebsocketUrl$).subscribe((websocketUrl) => {
+			websocketUrlStore.subscribe((websocketUrl) => {
+				const normalizedUrl = isPrimary ? normalizeGSMWebSocketUrl(websocketUrl) : websocketUrl;
+				if (normalizedUrl !== websocketUrl) {
+					websocketUrlStore.next(normalizedUrl);
+					return;
+				}
 				if (websocketUrl !== this.websocketUrl) {
 					this.websocketUrl = websocketUrl;
 					this.reloadSocket();
@@ -121,13 +128,16 @@ export class SocketConnection {
 		}
 
 		line = payload?.sentence || event.data;
-		const id = payload?.data?.id || '';
+		const isGSMLine = payload?.event === 'text_received' && typeof payload?.data?.id === 'string';
+		const id = isGSMLine ? payload.data.id : '';
 		const lineMeta =
 			payload?.data && typeof payload.data === 'object'
 				? {
 						excludedFromStats: Boolean(payload.data.excluded_from_stats),
+						gsmSessionId: typeof payload.data.session_id === 'string' ? payload.data.session_id : undefined,
+						gsmStatus: isGSMLine ? ('active' as const) : ('external' as const),
 				  }
-				: undefined;
+				: { gsmStatus: 'external' as const };
 
 		newLine$.next([line, LineType.SOCKET, id, lineMeta]);
 	}

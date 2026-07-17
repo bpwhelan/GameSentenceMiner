@@ -7,8 +7,6 @@ These are pure unit tests with no Flask or database dependency.
 import datetime
 from types import SimpleNamespace
 
-import pytest
-
 from GameSentenceMiner.web.events import EventItem, EventManager
 
 
@@ -49,9 +47,10 @@ class TestEventItem:
     def test_to_serializable_iso_format(self):
         line = _make_gameline()
         dt = datetime.datetime(2024, 6, 15, 12, 30, 0)
-        event = EventItem(line=line, id="e2", text="world", time=dt)
+        event = EventItem(line=line, id="e2", text="world", time=dt, session_id="session-1")
         s = event.to_serializable()
         assert s["time"] == dt.isoformat()
+        assert s["session_id"] == "session-1"
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +63,11 @@ class TestEventManagerBasic:
         em = EventManager()
         assert em.get_events() == []
         assert em.get_ordered_ids() == []
+        assert em.get_state() == {
+            "session_id": em.session_id,
+            "ids": [],
+            "timed_out_ids": [],
+        }
 
     def test_add_gameline(self):
         em = EventManager()
@@ -71,6 +75,7 @@ class TestEventManagerBasic:
         event = em.add_gameline(line)
         assert event.id == "id-1"
         assert event.text == "テスト文"
+        assert event.session_id == em.session_id
         assert len(em.get_events()) == 1
 
     def test_get_by_id(self):
@@ -133,7 +138,7 @@ class TestEventManagerRemoveAndClear:
         em = EventManager()
         line1 = _make_gameline("current")
         line2 = _make_gameline("old")
-        e1 = em.add_gameline(line1)
+        em.add_gameline(line1)
         e2 = em.add_gameline(line2)
         e2.history = True
         em.clear_history()

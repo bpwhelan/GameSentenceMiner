@@ -138,6 +138,8 @@ export enum LineType {
 	TL = 'tl',
 }
 
+export type GSMLineStatus = 'active' | 'timed_out' | 'previous_session' | 'external';
+
 export interface LineItem {
 	id: string;
 	text: string;
@@ -145,6 +147,8 @@ export interface LineItem {
 	translation?: string;
 	blurTranslation?: boolean;
 	excludedFromStats?: boolean;
+	gsmSessionId?: string;
+	gsmStatus?: GSMLineStatus;
 }
 
 export interface LineItemEditEvent {

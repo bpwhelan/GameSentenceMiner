@@ -22,7 +22,7 @@ export const defaultSettings: Settings = {
 	theme$: Theme.BUSINESS,
 	replacements$: [],
 	windowTitle$: '',
-	websocketUrl$: 'ws://localhost:7275',
+	websocketUrl$: 'ws://localhost:7275/ws/texthooker',
 	secondaryWebsocketUrl$: '',
 	fontSize$: 32,
 	characterMilestone$: 0,

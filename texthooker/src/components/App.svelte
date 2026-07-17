@@ -176,14 +176,14 @@
 			const type = newLine.at(1) || LineType.SOCKET;
 			const text = transformLine(lineContent, type !== LineType.TL);
 			const id = newLine.at(2) || generateRandomUUID();
-			const lineMeta: Partial<LineItem> = newLine[3] ?? {};
+			const lineMeta: Partial<LineItem> = { gsmStatus: 'external', ...(newLine[3] ?? {}) };
 
 			if ($lineData$?.some(line => line.id === id)) {
 				console.warn(`Skipping new line with duplicate ID: '${id}'`);
 				return;
 			}
 
-			if (type !== LineType.TL) {
+			if (lineMeta.gsmStatus === 'active') {
 				$lineIDs$ = [...$lineIDs$, id];
 			}
 
@@ -619,13 +619,17 @@
 	export function startIdPolling() {
 		setInterval(async () => {
 			try {
-				const response = await fetch(getGSMEndpoint('/get_ids'));
+				const response = await fetch(getGSMEndpoint('/get_ids'), { cache: 'no-store' });
 				if (!response.ok) {
 					throw new Error(`HTTP error! Status: ${response.status}`);
 				}
 				const resp = await response.json();
-				$lineIDs$ = resp.ids;
-				$timedOutIDs$ = resp.timed_out_ids;
+				const ids = Array.isArray(resp.ids) ? resp.ids : [];
+				const timedOutIds = Array.isArray(resp.timed_out_ids) ? resp.timed_out_ids : [];
+				const sessionId = typeof resp.session_id === 'string' ? resp.session_id : undefined;
+				updateGSMLineStatuses(ids, timedOutIds, sessionId);
+				$lineIDs$ = ids;
+				$timedOutIDs$ = timedOutIds;
 				if (typeof resp.text_intake_paused === 'boolean' && !gsmTextIntakeStateRequestPending) {
 					gsmTextIntakePaused = resp.text_intake_paused;
 				}
@@ -633,6 +637,42 @@
 				console.error('Failed to fetch ids:', error);
 			}
 		}, 1000);
+	}
+
+	function updateGSMLineStatuses(ids: string[], timedOutIds: string[], sessionId: string | undefined) {
+		const activeIds = new Set(ids);
+		const expiredIds = new Set(timedOutIds);
+		let changed = false;
+		const nextLineData = $lineData$.map((line) => {
+			if (line.gsmStatus === 'external') {
+				return line;
+			}
+
+			let gsmStatus = line.gsmStatus;
+			let gsmSessionId = line.gsmSessionId;
+			if (sessionId && gsmSessionId && gsmSessionId !== sessionId) {
+				gsmStatus = 'previous_session';
+			} else if (activeIds.has(line.id)) {
+				gsmStatus = 'active';
+				gsmSessionId ||= sessionId;
+			} else if (expiredIds.has(line.id)) {
+				gsmStatus = 'timed_out';
+				gsmSessionId ||= sessionId;
+			} else if (!gsmStatus) {
+				// Legacy persisted lines predate explicit source/session metadata.
+				gsmStatus = 'previous_session';
+			}
+
+			if (gsmStatus === line.gsmStatus && gsmSessionId === line.gsmSessionId) {
+				return line;
+			}
+			changed = true;
+			return { ...line, gsmStatus, gsmSessionId };
+		});
+
+		if (changed) {
+			$lineData$ = nextLineData;
+		}
 	}
 
 	// Assuming 'lineData' is a correctly defined array for this vanilla JS example
@@ -881,7 +921,7 @@
 			const text = transformLine(data.newText);
 
 			$lineData$[data.lineIndex] = {
-				id: data.line.id,
+				...data.line,
 				text,
 			};
 
@@ -893,7 +933,7 @@
 				tick().then(
 					() =>
 						($lineData$[data.lineIndex] = {
-							id: data.line.id,
+							...data.line,
 							text: data.originalText,
 						}),
 				);

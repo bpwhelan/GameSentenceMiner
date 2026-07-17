@@ -20,6 +20,21 @@ def test_get_ids_reports_current_text_intake_state(monkeypatch):
 
     assert response.status_code == 200
     assert response.get_json()["text_intake_paused"] is True
+    assert response.get_json()["session_id"] == texthooking_page.event_manager.session_id
+
+
+def test_get_ids_disables_caching(monkeypatch):
+    async def no_op_check():
+        return None
+
+    monkeypatch.setattr(texthooking_page, "check_for_lines_outside_replay_buffer", no_op_check)
+
+    response = texthooking_page.app.test_client().get("/get_ids")
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store, no-cache, must-revalidate, max-age=0"
+    assert response.headers["Pragma"] == "no-cache"
+    assert response.headers["Expires"] == "0"
 
 
 def test_set_text_intake_paused_requires_an_explicit_boolean(monkeypatch):

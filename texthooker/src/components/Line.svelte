@@ -57,6 +57,8 @@
 	$: isAudioLine = audioLineId === line.id;
 	$: isAudioPending = audioPendingLineId === line.id;
 	$: audioButtonTitle = isAudioPending ? 'Preparing audio...' : isAudioLine && audioIsPlaying ? 'Stop audio' : 'Play audio';
+	$: isActiveGSMLine = line.gsmStatus === 'active' || (!line.gsmStatus && $lineIDs$?.includes(line.id));
+	$: isTimedOutGSMLine = line.gsmStatus === 'timed_out' || (!line.gsmStatus && $timedOutIDs$.includes(line.id));
 
 	$: isVerticalDisplay = !pipWindow && $displayVertical$;
 
@@ -72,7 +74,7 @@
 					$enableLineAnimation$ ? 'smooth' : 'auto',
 				);
 			}
-			if ($lineIDs$ && $lineIDs$.includes(line.id) && $autoTranslateLines$) {
+			if (isActiveGSMLine && $autoTranslateLines$) {
 				handleAction(line.id, 'TL', $blurAutoTranslatedLines$);
 			}
 		}
@@ -223,7 +225,7 @@
 			<input
 				type="checkbox"
 				class="multi-line-checkbox"
-				class:invisible={!($lineIDs$ && $lineIDs$.includes(line.id))}
+				class:invisible={!isActiveGSMLine}
 				id="multi-line-checkbox-{line.id}"
 				aria-label={line.id}
 				on:change={() => toggleCheckbox(line.id)}
@@ -279,7 +281,7 @@
 					Not in GSM stats
 				</div>
 			{/if}
-			{#if $lineIDs$ && $lineIDs$.includes(line.id)}
+			{#if isActiveGSMLine}
 				<div class="textline-buttons unselectable">
 					{#if $showScreenshotButton$}
 						<button
@@ -319,7 +321,7 @@
 						</button>
 					{/if}
 				</div>
-			{:else if $timedOutIDs$.includes(line.id)}
+			{:else if isTimedOutGSMLine}
 				<div
 					class="line-indicator unselectable"
 					title="Line is outside replay buffer"
@@ -334,6 +336,17 @@
 						on:click={() => handleAction(line.id, 'TL')}
 						title="Translate"
 						style="margin-left: 5px;"
+						tabindex="-1"
+					>
+						🌐
+					</button>
+				{/if}
+			{:else if line.gsmStatus === 'external'}
+				{#if $showTranslateButton$}
+					<button
+						class="action-button"
+						on:click={() => handleAction(line.id, 'TL')}
+						title="Translate"
 						tabindex="-1"
 					>
 						🌐

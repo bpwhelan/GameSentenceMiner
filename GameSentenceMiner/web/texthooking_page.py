@@ -717,13 +717,15 @@ def get_ids():
     from GameSentenceMiner import gametext
 
     asyncio.run(check_for_lines_outside_replay_buffer())
-    return jsonify(
-        {
-            "ids": event_manager.get_ordered_ids(),
-            "timed_out_ids": list(event_manager.timed_out_ids),
-            "text_intake_paused": gametext.is_text_intake_paused(),
-        }
-    )
+    state = event_manager.get_state()
+    state["text_intake_paused"] = gametext.is_text_intake_paused()
+    response = jsonify(state)
+    # This is live state polled by the TextFeed. A cached response makes newly
+    # received WebSocket lines look as though they predate the GSM process.
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.route("/set_text_intake_paused", methods=["POST"])

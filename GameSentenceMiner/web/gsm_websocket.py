@@ -544,9 +544,9 @@ class WebsocketManager:
     Central manager for websocket transport.
 
     Primary transport is multiplexed on one ingress port with websocket paths:
-      - /ws/hooker (also /)
+      - /ws/texthooker (structured TextFeed events)
       - /ws/overlay
-      - /ws/plaintext
+      - /ws/plaintext (also / for legacy plaintext consumers)
 
     Optional legacy listeners can be enabled on separate ports for compatibility.
     """

@@ -1,4 +1,5 @@
 import datetime
+import uuid
 from dataclasses import dataclass
 
 from GameSentenceMiner.util.text_log import GameLine
@@ -13,6 +14,7 @@ class EventItem:
     checked: bool = False
     history: bool = False
     excluded_from_stats: bool = False
+    session_id: str = ""
 
     def to_dict(self):
         return {
@@ -22,6 +24,7 @@ class EventItem:
             "checked": self.checked,
             "history": self.history,
             "excluded_from_stats": self.excluded_from_stats,
+            "session_id": self.session_id,
         }
 
     def to_serializable(self):
@@ -32,6 +35,7 @@ class EventItem:
             "checked": self.checked,
             "history": self.history,
             "excluded_from_stats": self.excluded_from_stats,
+            "session_id": self.session_id,
         }
 
 
@@ -40,6 +44,7 @@ class EventManager:
     events_dict: dict[str, EventItem] = {}
 
     def __init__(self):
+        self.session_id = str(uuid.uuid4())
         self.events = []
         self.timed_out_ids = set()
         self.events_dict = {}
@@ -60,6 +65,7 @@ class EventManager:
             False,
             False,
             bool(getattr(line, "excluded_from_stats", False)),
+            self.session_id,
         )
         self.events_dict[line.id] = new_event
         self.events.append(new_event)
@@ -73,6 +79,8 @@ class EventManager:
         return self.events
 
     def add_event(self, event):
+        if not event.session_id:
+            event.session_id = self.session_id
         self.events.append(event)
         self.events_dict[event.id] = event
 
@@ -81,6 +89,13 @@ class EventManager:
 
     def get_ordered_ids(self):
         return list(self.events_dict)
+
+    def get_state(self):
+        return {
+            "session_id": self.session_id,
+            "ids": self.get_ordered_ids(),
+            "timed_out_ids": list(self.timed_out_ids),
+        }
 
     def clear_history(self):
         # Clear the in-memory events
