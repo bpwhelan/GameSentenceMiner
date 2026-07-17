@@ -49,6 +49,41 @@ const legacyGamepad = loadLegacyGamepadHandler();
 const GamepadHandler = legacyGamepad.GamepadHandler;
 const legacyGamepadContext = legacyGamepad.context;
 
+describe("legacy gamepad Sudachi requests", () => {
+  it("includes the configured dictionary in tokenization requests", () => {
+    const sent: unknown[] = [];
+    const handler = Object.create(GamepadHandler.prototype) as {
+      config: { sudachiDictionary: string };
+      wsConnected: boolean;
+      ws: { send: (payload: string) => void };
+      sudachiAvailable: boolean;
+      mecabAvailable: boolean;
+    };
+    handler.config = { sudachiDictionary: "small" };
+    handler.wsConnected = true;
+    handler.ws = { send: (payload) => sent.push(JSON.parse(payload)) };
+    handler.sudachiAvailable = true;
+    handler.mecabAvailable = false;
+
+    GamepadHandler.prototype.requestTokenizationFromServer.call(
+      handler,
+      2,
+      "食べた。",
+      "sudachi"
+    );
+
+    expect(sent).toEqual([
+      {
+        type: "tokenize",
+        blockIndex: 2,
+        text: "食べた。",
+        backend: "sudachi",
+        dictionary: "small"
+      }
+    ]);
+  });
+});
+
 describe("legacy gamepad button bindings", () => {
   it("normalizes legacy numeric buttons and human-readable combos", () => {
     expect(GamepadHandler.normalizeButtonBindingValue(8)).toMatchObject({

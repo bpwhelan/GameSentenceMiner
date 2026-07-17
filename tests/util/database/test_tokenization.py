@@ -145,17 +145,16 @@ def _insert_line(line_id: str, text: str, timestamp: float | None = None):
 
 def _make_mock_mecab(monkeypatch, token_map: dict):
     """
-    Mock MeCab so that mecab.translate(text) returns tokens from token_map.
+    Mock the shared tokenizer so that translate(text) returns tokens from token_map.
     token_map: {text: [MecabParsedToken, ...]}
     Patches at the module level so the deferred import inside tokenize_line picks it up.
     """
-    # Ensure the real mecab package is loaded (not a leftover MagicMock stub).
-    import GameSentenceMiner.mecab as mecab_mod
+    import GameSentenceMiner.tokenizer as tokenizer_mod
 
     mock_mecab = MagicMock()
     mock_mecab.translate = MagicMock(side_effect=lambda text: token_map.get(text, []))
 
-    monkeypatch.setattr(mecab_mod, "mecab", mock_mecab)
+    monkeypatch.setattr(tokenizer_mod, "tokenizer", mock_mecab)
     return mock_mecab
 
 
@@ -457,7 +456,7 @@ class TestTokenizeLine:
         mock_mecab = MagicMock()
         mock_mecab.translate = MagicMock(side_effect=RuntimeError("MeCab crashed"))
         monkeypatch.setattr(
-            "GameSentenceMiner.mecab.mecab",
+            "GameSentenceMiner.tokenizer.tokenizer",
             mock_mecab,
         )
 

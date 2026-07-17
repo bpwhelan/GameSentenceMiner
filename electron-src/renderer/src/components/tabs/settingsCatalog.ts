@@ -511,7 +511,7 @@ export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
       "manual overlay scan button",
       "tokenizer",
       "token mode",
-      "mecab",
+      "sudachi",
       "yomitan bridge",
       "yomitan api",
       "jiten api",

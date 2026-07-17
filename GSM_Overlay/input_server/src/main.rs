@@ -58,6 +58,8 @@ struct Args {
 }
 
 const SUDACHI_DICT_RELEASE: &str = "20260116";
+const SUDACHI_IDLE_UNLOAD_AFTER: Duration = Duration::from_secs(5 * 60);
+const SUDACHI_IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SudachiDictionaryKind {
@@ -70,8 +72,9 @@ impl SudachiDictionaryKind {
     fn from_value(value: Option<&str>) -> Self {
         match value.map(|v| v.trim().to_ascii_lowercase()) {
             Some(v) if v == "small" => Self::Small,
+            Some(v) if v == "core" => Self::Core,
             Some(v) if v == "full" => Self::Full,
-            _ => Self::Core,
+            _ => Self::Small,
         }
     }
 
@@ -407,6 +410,7 @@ struct SudachiService {
     dictionary_kind: SudachiDictionaryKind,
     dictionary: Option<Arc<JapaneseDictionary>>,
     loaded_signature: Option<String>,
+    last_request_at: Option<Instant>,
 }
 
 /// Emit a structured JSON progress message to stdout for Electron to parse.
@@ -438,13 +442,43 @@ impl SudachiService {
             dictionary_kind,
             dictionary: None,
             loaded_signature: None,
+            last_request_at: None,
         }
     }
 
     fn disable(&mut self) {
         self.dictionary = None;
         self.loaded_signature = None;
+        self.last_request_at = None;
         info!("sudachi capability released");
+    }
+
+    fn inactivity_expired(
+        last_request_at: Option<Instant>,
+        now: Instant,
+        idle_timeout: Duration,
+    ) -> bool {
+        last_request_at
+            .is_some_and(|last_request| now.saturating_duration_since(last_request) >= idle_timeout)
+    }
+
+    fn should_unload_for_inactivity(&self, now: Instant, idle_timeout: Duration) -> bool {
+        self.dictionary.is_some()
+            && Self::inactivity_expired(self.last_request_at, now, idle_timeout)
+    }
+
+    fn unload_if_idle(&mut self, now: Instant, idle_timeout: Duration) -> bool {
+        if !self.should_unload_for_inactivity(now, idle_timeout) {
+            return false;
+        }
+        self.dictionary = None;
+        self.loaded_signature = None;
+        self.last_request_at = None;
+        info!(
+            "sudachi dictionary unloaded after {} seconds without requests",
+            idle_timeout.as_secs()
+        );
+        true
     }
 
     fn set_dictionary_kind(&mut self, dictionary_kind: SudachiDictionaryKind) {
@@ -589,33 +623,39 @@ impl SudachiService {
     }
 
     async fn tokenize(&mut self, text: &str) -> Result<Vec<Value>, String> {
+        self.last_request_at = Some(Instant::now());
         self.ensure_tokenizer().await?;
         let dictionary = self
             .dictionary
             .as_ref()
             .ok_or_else(|| "Sudachi dictionary unavailable".to_string())?;
         let text = text.to_string();
-        tokio::task::spawn_blocking({
+        let result = tokio::task::spawn_blocking({
             let dictionary = dictionary.clone();
             move || tokenize_with_sudachi(&dictionary, &text)
         })
         .await
-        .map_err(|e| format!("Sudachi tokenization task failed: {e}"))?
+        .map_err(|e| format!("Sudachi tokenization task failed: {e}"))?;
+        self.last_request_at = Some(Instant::now());
+        result
     }
 
     async fn furigana(&mut self, text: &str) -> Result<Vec<Value>, String> {
+        self.last_request_at = Some(Instant::now());
         self.ensure_tokenizer().await?;
         let dictionary = self
             .dictionary
             .as_ref()
             .ok_or_else(|| "Sudachi dictionary unavailable".to_string())?;
         let text = text.to_string();
-        tokio::task::spawn_blocking({
+        let result = tokio::task::spawn_blocking({
             let dictionary = dictionary.clone();
             move || furigana_with_sudachi(&dictionary, &text)
         })
         .await
-        .map_err(|e| format!("Sudachi furigana task failed: {e}"))?
+        .map_err(|e| format!("Sudachi furigana task failed: {e}"))?;
+        self.last_request_at = Some(Instant::now());
+        result
     }
 }
 
@@ -1629,6 +1669,8 @@ enum ClientMsg {
         block_index: i64,
         #[serde(default)]
         backend: Option<String>,
+        #[serde(default)]
+        dictionary: Option<String>,
     },
 
     #[serde(rename = "get_furigana")]
@@ -1641,6 +1683,8 @@ enum ClientMsg {
         request_id: Option<Value>,
         #[serde(default)]
         backend: Option<String>,
+        #[serde(default)]
+        dictionary: Option<String>,
     },
 
     #[serde(other)]
@@ -2143,9 +2187,16 @@ async fn furigana_via_mecab(mecab: &'static SharedMecab, text: &str) -> (Vec<Val
     }
 }
 
-async fn tokenize_via_sudachi(sudachi: &'static SharedSudachi, text: &str) -> (Vec<Value>, bool) {
+async fn tokenize_via_sudachi(
+    sudachi: &'static SharedSudachi,
+    text: &str,
+    dictionary: Option<&str>,
+) -> (Vec<Value>, bool) {
     let response = {
         let mut service = sudachi.lock().await;
+        if let Some(dictionary) = dictionary {
+            service.set_dictionary_kind(SudachiDictionaryKind::from_value(Some(dictionary)));
+        }
         service.tokenize(text).await
     };
 
@@ -2158,9 +2209,16 @@ async fn tokenize_via_sudachi(sudachi: &'static SharedSudachi, text: &str) -> (V
     }
 }
 
-async fn furigana_via_sudachi(sudachi: &'static SharedSudachi, text: &str) -> (Vec<Value>, bool) {
+async fn furigana_via_sudachi(
+    sudachi: &'static SharedSudachi,
+    text: &str,
+    dictionary: Option<&str>,
+) -> (Vec<Value>, bool) {
     let response = {
         let mut service = sudachi.lock().await;
+        if let Some(dictionary) = dictionary {
+            service.set_dictionary_kind(SudachiDictionaryKind::from_value(Some(dictionary)));
+        }
         service.furigana(text).await
     };
 
@@ -2405,6 +2463,7 @@ async fn handle_socket(
                                 text,
                                 block_index,
                                 backend,
+                                dictionary,
                             }) => {
                                 let selected_backend =
                                     ServerTokenizerBackend::from_value(backend.as_deref());
@@ -2423,7 +2482,12 @@ async fn handle_socket(
                                         }
                                         ServerTokenizerBackend::Sudachi => {
                                             let (tokens, available) =
-                                                tokenize_via_sudachi(sudachi, &text).await;
+                                                tokenize_via_sudachi(
+                                                    sudachi,
+                                                    &text,
+                                                    dictionary.as_deref(),
+                                                )
+                                                .await;
                                             (tokens, false, available)
                                         }
                                     }
@@ -2449,6 +2513,7 @@ async fn handle_socket(
                                 line_index,
                                 request_id,
                                 backend,
+                                dictionary,
                             }) => {
                                 let selected_backend =
                                     ServerTokenizerBackend::from_value(backend.as_deref());
@@ -2467,7 +2532,12 @@ async fn handle_socket(
                                         }
                                         ServerTokenizerBackend::Sudachi => {
                                             let (segments, available) =
-                                                furigana_via_sudachi(sudachi, &text).await;
+                                                furigana_via_sudachi(
+                                                    sudachi,
+                                                    &text,
+                                                    dictionary.as_deref(),
+                                                )
+                                                .await;
                                             (segments, false, available)
                                         }
                                     }
@@ -3015,6 +3085,16 @@ fn deactivate_keyboard_capability(
     send_broadcast(tx, status, "keyboard_listener_status(feature_released)");
 }
 
+async fn sudachi_idle_unload_loop(sudachi: &'static SharedSudachi) {
+    loop {
+        time::sleep(SUDACHI_IDLE_CHECK_INTERVAL).await;
+        sudachi
+            .lock()
+            .await
+            .unload_if_idle(Instant::now(), SUDACHI_IDLE_UNLOAD_AFTER);
+    }
+}
+
 async fn optional_feature_lifecycle_loop(
     features: FeatureRegistry,
     tx: broadcast::Sender<String>,
@@ -3131,6 +3211,7 @@ async fn main() {
         sudachi,
         manual_hotkey.clone(),
     ));
+    tokio::spawn(sudachi_idle_unload_loop(sudachi));
 
     // Gilrs input loop runs on a dedicated OS thread (Gilrs isn't Send).
     {
@@ -3188,13 +3269,58 @@ mod tests {
             SudachiDictionaryKind::Small
         );
         assert_eq!(
+            SudachiDictionaryKind::from_value(Some("core")),
+            SudachiDictionaryKind::Core
+        );
+        assert_eq!(
             SudachiDictionaryKind::from_value(Some("FULL")),
             SudachiDictionaryKind::Full
         );
         assert_eq!(
             SudachiDictionaryKind::from_value(Some("unknown")),
-            SudachiDictionaryKind::Core
+            SudachiDictionaryKind::Small
         );
+        assert_eq!(
+            SudachiDictionaryKind::from_value(None),
+            SudachiDictionaryKind::Small
+        );
+    }
+
+    #[test]
+    fn tokenization_request_deserializes_request_scoped_dictionary() {
+        let message = serde_json::from_str::<ClientMsg>(
+            r#"{"type":"tokenize","text":"食べた。","dictionary":"small"}"#,
+        )
+        .expect("tokenization request should deserialize");
+
+        match message {
+            ClientMsg::Tokenize { dictionary, .. } => {
+                assert_eq!(dictionary.as_deref(), Some("small"));
+            }
+            _ => panic!("expected tokenization request"),
+        }
+    }
+
+    #[test]
+    fn sudachi_idle_unload_requires_a_loaded_dictionary_and_expired_activity() {
+        let mut service = SudachiService::new(
+            PathBuf::from("unused"),
+            PathBuf::from("unused"),
+            SudachiDictionaryKind::Small,
+        );
+        let now = Instant::now();
+        let timeout = Duration::from_secs(300);
+
+        service.last_request_at = Some(now);
+        assert!(!service.should_unload_for_inactivity(now, timeout));
+
+        service.last_request_at = now.checked_sub(timeout + Duration::from_secs(1));
+        assert!(!service.should_unload_for_inactivity(now, timeout));
+        assert!(SudachiService::inactivity_expired(
+            service.last_request_at,
+            now,
+            timeout
+        ));
     }
 
     #[test]

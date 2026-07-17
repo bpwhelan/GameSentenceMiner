@@ -185,10 +185,22 @@ def build_experimental_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             tabs_i18n,
             "experimental",
             "enable_tokenization",
-            default_tooltip="Enable MeCab-based tokenization of game lines. Tracks word/kanji frequency data.",
+            default_tooltip="Enable tokenization of game lines with the selected backend. Tracks word/kanji frequency data.",
         ),
         window.enable_tokenization_check,
     )
+    tokenizer_backend_label = QLabel("Tokenizer Backend:")
+    tokenizer_backend_label.setToolTip(
+        "Choose the tokenizer used when experimental tokenization is enabled. "
+        "Sudachi is the default; MeCab avoids loading the shared Sudachi service."
+    )
+    tokenization_layout.addRow(tokenizer_backend_label, window.tokenization_backend_combo)
+    sudachi_dictionary_label = QLabel("Sudachi Dictionary:")
+    sudachi_dictionary_label.setToolTip(
+        "Choose the Sudachi dictionary downloaded and loaded when GSM enables Sudachi. "
+        "Small is the default and uses the least disk space and memory."
+    )
+    tokenization_layout.addRow(sudachi_dictionary_label, window.tokenization_sudachi_dictionary_combo)
     weak_mode_label = QLabel("Backfill Throttle (Weak Systems, Backfill Only):")
     weak_mode_label.setToolTip(
         "Slow down tokenization backfill using adaptive pauses to reduce CPU/IO pressure "

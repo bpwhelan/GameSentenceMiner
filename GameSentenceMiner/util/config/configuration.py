@@ -966,6 +966,8 @@ class Features:
 class Experimental:
     enable_experimental_features: bool = False
     enable_tokenization: bool = False
+    tokenization_backend: str = "sudachi"
+    tokenization_sudachi_dictionary: str = "small"
     tokenize_low_performance: bool = False
 
 

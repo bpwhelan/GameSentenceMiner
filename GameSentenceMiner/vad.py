@@ -13,7 +13,7 @@ from functools import partial
 from importlib import resources
 from typing import Optional
 
-from GameSentenceMiner import mecab
+from GameSentenceMiner.tokenizer import tokenizer
 from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.config.configuration import (
     get_config,
@@ -870,8 +870,8 @@ class WhisperVADProcessor(VADProcessor):
             return 0.0
         from rapidfuzz import fuzz
 
-        text_hiragana = mecab.to_hiragana(transcript)
-        text_mined_hiragana = mecab.to_hiragana(text_mined)
+        text_hiragana = tokenizer.to_hiragana(transcript)
+        text_mined_hiragana = tokenizer.to_hiragana(text_mined)
         return fuzz.ratio(text_mined_hiragana, text_hiragana)
 
     @staticmethod

@@ -36,8 +36,8 @@ obs_stub.save_replay_buffer = lambda: None
 ai_prompting_stub = ModuleType("GameSentenceMiner.ai.ai_prompting")
 ai_prompting_stub.get_ai_prompt_result = lambda *args, **kwargs: ""
 
-mecab_pkg = ModuleType("GameSentenceMiner.mecab")
-mecab_pkg.mecab = SimpleNamespace()
+tokenizer_pkg = ModuleType("GameSentenceMiner.tokenizer")
+tokenizer_pkg.tokenizer = SimpleNamespace()
 
 db_stub = ModuleType("GameSentenceMiner.util.database.db")
 db_stub.GameLinesTable = object
@@ -86,7 +86,7 @@ _STUB_MODULES = {
     "rapidfuzz": rapidfuzz_stub,
     "GameSentenceMiner.obs": obs_stub,
     "GameSentenceMiner.ai.ai_prompting": ai_prompting_stub,
-    "GameSentenceMiner.mecab": mecab_pkg,
+    "GameSentenceMiner.tokenizer": tokenizer_pkg,
     "GameSentenceMiner.util.database.db": db_stub,
     "GameSentenceMiner.util.media": media_pkg,
     "GameSentenceMiner.util.media.ffmpeg": ffmpeg_stub,
@@ -1167,7 +1167,7 @@ def test_get_initial_card_info_preserves_html_and_wraps_furigana(monkeypatch):
 
     sentence_in_anki = "お前が<b>感傷的</b>になって殴りかかったからじゃないか？"
     furigana = "お前[まえ]が感傷的[かんしょうてき]になって殴[なぐ]りかかったからじゃないか？"
-    monkeypatch.setattr(anki.mecab, "reading", lambda _text: furigana, raising=False)
+    monkeypatch.setattr(anki.tokenizer, "reading", lambda _text: furigana, raising=False)
 
     class FakeCard:
         def __init__(self, sentence):
@@ -1201,7 +1201,7 @@ def test_get_initial_card_info_keeps_br_and_bold_in_furigana(monkeypatch):
 
     sentence_in_anki = "V:hello?<br>M:<b>ABCDE</b>FG"
     furigana = "V: hello?M: A[a]B C[c]D E[e]FG"
-    monkeypatch.setattr(anki.mecab, "reading", lambda _text: furigana, raising=False)
+    monkeypatch.setattr(anki.tokenizer, "reading", lambda _text: furigana, raising=False)
 
     class FakeCard:
         def __init__(self, sentence):
@@ -1230,7 +1230,7 @@ def test_get_initial_card_info_can_defer_furigana_until_confirmation(monkeypatch
     monkeypatch.setattr(anki, "get_config", lambda: cfg)
     monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
     monkeypatch.setattr(
-        anki.mecab,
+        anki.tokenizer,
         "reading",
         lambda _text: (_ for _ in ()).throw(AssertionError("furigana should be deferred")),
         raising=False,
@@ -1300,7 +1300,7 @@ def test_apply_confirmed_sentence_fields_regenerates_furigana_from_edited_senten
         reading_calls.append(text)
         return "編集後[へんしゅうご]の文[ぶん]"
 
-    monkeypatch.setattr(anki.mecab, "reading", fake_reading, raising=False)
+    monkeypatch.setattr(anki.tokenizer, "reading", fake_reading, raising=False)
 
     note = {
         "fields": {
@@ -1329,7 +1329,7 @@ def test_get_initial_card_info_uses_confirmed_sentence_and_reapplies_current_car
     monkeypatch.setattr(anki, "get_config", lambda: cfg)
     monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
     monkeypatch.setattr(
-        anki.mecab,
+        anki.tokenizer,
         "reading",
         lambda _text: "私[わたし]は生涯[しょうがい]を祈[いの]り続[つづ]ける",
         raising=False,
@@ -1368,7 +1368,7 @@ def test_update_card_from_same_sentence_reuses_confirmed_sentence_with_current_c
     monkeypatch.setattr(anki, "TextSource", SimpleNamespace(HOTKEY="hotkey"))
     monkeypatch.setattr(anki, "_wait_for_reuse_result", lambda *_args, **_kwargs: (True, 0.0))
     monkeypatch.setattr(
-        anki.mecab,
+        anki.tokenizer,
         "reading",
         lambda _text: "私[わたし]は生涯[しょうがい]を祈[いの]り続[つづ]ける",
         raising=False,

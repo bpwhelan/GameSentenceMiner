@@ -144,8 +144,7 @@ def tokenize_line(line_id: str, line_text: str, line_timestamp: float | None = N
     If line_timestamp is provided, updates last_seen for each word.
     Returns True on success, False on failure.
     """
-    from GameSentenceMiner.mecab import mecab
-    from GameSentenceMiner.mecab.basic_types import PartOfSpeech
+    from GameSentenceMiner.tokenizer import is_word_token, tokenizer
     from GameSentenceMiner.util.database.tokenization_tables import (
         WordsTable,
         KanjiTable,
@@ -164,9 +163,9 @@ def tokenize_line(line_id: str, line_text: str, line_timestamp: float | None = N
         return True
 
     try:
-        tokens = mecab.translate(line_text)
+        tokens = tokenizer.translate(line_text)
     except Exception as e:
-        logger.error(f"MeCab failed for line {line_id}: {e}")
+        logger.error(f"Tokenization failed for line {line_id}: {e}")
         return False
 
     try:
@@ -174,7 +173,7 @@ def tokenize_line(line_id: str, line_text: str, line_timestamp: float | None = N
         def _tokenize(conn):
             for token in tokens:
                 # Skip punctuation and non-word tokens
-                if token.part_of_speech in (PartOfSpeech.symbol, PartOfSpeech.other):
+                if not is_word_token(token):
                     continue
 
                 # Skip empty headwords (defensive)

@@ -17,7 +17,7 @@ from types import SimpleNamespace
 from typing import Dict, Any, List, Tuple, Optional
 
 from GameSentenceMiner import obs
-from GameSentenceMiner.mecab import mecab
+from GameSentenceMiner.tokenizer import tokenizer
 from GameSentenceMiner.obs import get_current_game
 from GameSentenceMiner.util.config.configuration import (
     ANIMATED_SCREENSHOT_CODEC_DEFAULT,
@@ -2061,7 +2061,7 @@ def fix_overlay_whitespace(last_note: AnkiCard, note, lines=None):
 
 def _preserve_html_tags_for_furigana(source_sentence: str, furigana_text: str) -> str:
     """
-    Preserve HTML tags from source_sentence while keeping mecab furigana bracket blocks intact.
+    Preserve HTML tags from source_sentence while keeping tokenizer furigana bracket blocks intact.
     """
     if not furigana_text:
         return furigana_text
@@ -2156,7 +2156,7 @@ def _preserve_html_tags_for_furigana(source_sentence: str, furigana_text: str) -
 
     rebuilt_text = "".join(rebuilt)
 
-    # Mecab can introduce spaces around boundaries where source HTML inserts tags.
+    # Tokenization can introduce spaces around boundaries where source HTML inserts tags.
     # Rebalance those spaces so tags stay attached to the source boundary while
     # preserving the generated furigana spacing intent.
     rebuilt_text = re.sub(r"([^\s])(\s+)(<br\s*/?>)", r"\1\3\2", rebuilt_text, flags=re.IGNORECASE)
@@ -2265,7 +2265,7 @@ def _apply_sentence_furigana_field(
         return False
 
     try:
-        furigana = mecab.reading(sentence)
+        furigana = tokenizer.reading(sentence)
         furigana_html = _preserve_html_tags_for_furigana(sentence, furigana)
         if force:
             wrote = _force_set_field_value(note, "sentence_furigana_field", furigana_html)

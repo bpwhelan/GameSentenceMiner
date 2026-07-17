@@ -910,7 +910,7 @@ class GamepadHandler {
     }));
     this.ws.send(JSON.stringify({
       type: 'configure_sudachi',
-      dictionary: this.config.sudachiDictionary || 'core',
+      dictionary: this.config.sudachiDictionary || 'small',
     }));
   }
   
@@ -1669,6 +1669,9 @@ class GamepadHandler {
         lineIndex,
         requestId,
         backend: normalizedBackend,
+        dictionary: normalizedBackend === 'sudachi'
+          ? (this.config.sudachiDictionary || 'small')
+          : undefined,
       }));
     });
   }
@@ -4529,6 +4532,9 @@ class GamepadHandler {
       blockIndex,
       text,
       backend: normalizedBackend,
+      dictionary: normalizedBackend === 'sudachi'
+        ? (this.config.sudachiDictionary || 'small')
+        : undefined,
     }));
   }
 

@@ -6033,7 +6033,12 @@ app.whenReady().then(async () => {
   registerManualShowHotkey();
 
   // Initialize backend connector
-  backend = new BackendConnector(ipcMain, () => mainWindow);
+  backend = new BackendConnector(ipcMain, () => mainWindow, {
+    // The command socket receives the authoritative post-save config echo too.
+    // Processing it here removes the old dependency on a second websocket being
+    // healthy before the settings UI can observe backend acceptance.
+    onMessage: (message) => handleOverlayWebSocketControlMessage("backend-connector", message),
+  });
   backend.connect(userSettings.weburl2);
 
   // Start the shared Rust input server if any current feature requires it.

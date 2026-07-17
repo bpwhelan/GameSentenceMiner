@@ -143,6 +143,7 @@ from GameSentenceMiner.util.config.configuration import (
 from GameSentenceMiner.util.communication.electron_ipc import request_python_app_restart
 from GameSentenceMiner.util.database.db import AIModelsTable
 from GameSentenceMiner.util.platform.gamepad_hotkey import GAMEPAD_BUTTON_OPTIONS
+from GameSentenceMiner.tokenizer import normalize_sudachi_dictionary, normalize_tokenization_backend
 from GameSentenceMiner.util.downloader.download_tools import (
     download_ocenaudio_if_needed,
 )
@@ -1112,6 +1113,10 @@ class ConfigWindow(QWidget):
             self.master_config.experimental = Experimental(
                 enable_experimental_features=self.experimental_features_enabled_check.isChecked(),
                 enable_tokenization=self.enable_tokenization_check.isChecked(),
+                tokenization_backend=str(self.tokenization_backend_combo.currentData() or "sudachi"),
+                tokenization_sudachi_dictionary=str(
+                    self.tokenization_sudachi_dictionary_combo.currentData() or "small"
+                ),
                 tokenize_low_performance=self.tokenize_low_performance_check.isChecked(),
             )
 
@@ -1719,6 +1724,13 @@ class ConfigWindow(QWidget):
         # Experimental
         self.experimental_features_enabled_check = QCheckBox()
         self.enable_tokenization_check = QCheckBox()
+        self.tokenization_backend_combo = QComboBox()
+        self.tokenization_backend_combo.addItem("Sudachi", "sudachi")
+        self.tokenization_backend_combo.addItem("MeCab", "mecab")
+        self.tokenization_sudachi_dictionary_combo = QComboBox()
+        self.tokenization_sudachi_dictionary_combo.addItem("Small", "small")
+        self.tokenization_sudachi_dictionary_combo.addItem("Core", "core")
+        self.tokenization_sudachi_dictionary_combo.addItem("Full", "full")
         self.tokenize_low_performance_check = QCheckBox()
         self.process_pausing_enabled_check = QCheckBox()
         self.process_pausing_require_game_exe_match_check = QCheckBox()
@@ -3248,6 +3260,16 @@ class ConfigWindow(QWidget):
         experimental_cfg = getattr(self.master_config, "experimental", Experimental())
         self.experimental_features_enabled_check.setChecked(experimental_cfg.enable_experimental_features)
         self.enable_tokenization_check.setChecked(getattr(experimental_cfg, "enable_tokenization", False))
+        tokenization_backend = normalize_tokenization_backend(
+            getattr(experimental_cfg, "tokenization_backend", "sudachi")
+        )
+        tokenization_backend_index = self.tokenization_backend_combo.findData(tokenization_backend)
+        self.tokenization_backend_combo.setCurrentIndex(max(0, tokenization_backend_index))
+        sudachi_dictionary = normalize_sudachi_dictionary(
+            getattr(experimental_cfg, "tokenization_sudachi_dictionary", "small")
+        )
+        sudachi_dictionary_index = self.tokenization_sudachi_dictionary_combo.findData(sudachi_dictionary)
+        self.tokenization_sudachi_dictionary_combo.setCurrentIndex(max(0, sudachi_dictionary_index))
         self.tokenize_low_performance_check.setChecked(getattr(experimental_cfg, "tokenize_low_performance", False))
         process_cfg = getattr(s, "process_pausing", ProcessPausing())
         self._set_process_pausing_enabled_from_config(process_cfg.enabled)

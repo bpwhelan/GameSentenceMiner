@@ -10,7 +10,7 @@ from typing import Any
 import requests
 
 from GameSentenceMiner.anki import _preserve_html_tags_for_furigana
-from GameSentenceMiner.mecab import mecab
+from GameSentenceMiner.tokenizer import tokenizer
 
 
 DEFAULT_QUERY = '-tag:Tool::GameSentenceMiner "deck:Sentence Mining"'
@@ -56,7 +56,7 @@ def _field_value(note: dict[str, Any], name: str) -> str:
 
 
 def _generate_sentence_furigana(sentence: str) -> str:
-    return _preserve_html_tags_for_furigana(sentence, mecab.reading(sentence))
+    return _preserve_html_tags_for_furigana(sentence, tokenizer.reading(sentence))
 
 
 def compare_notes(url: str, query: str, batch_size: int) -> tuple[list[Mismatch], int]:
