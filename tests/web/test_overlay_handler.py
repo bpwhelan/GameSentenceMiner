@@ -85,6 +85,58 @@ def test_overlay_config_accepts_batch_with_coercion(monkeypatch):
     assert len(sent_messages) == 1
 
 
+def test_overlay_config_applies_runtime_monitor_identity_before_saving(monkeypatch):
+    master_config, current_config = _build_master_config()
+    handler = overlay_handler_module.OverlayRequestHandler()
+    saved_monitor_ids = []
+
+    async def fake_send(server_id, message):
+        return None
+
+    def fake_runtime_side_effects(overlay, applied):
+        assert applied == {"monitor_to_capture": 1}
+        overlay.monitor_to_capture_id = "display-2"
+
+    monkeypatch.setattr(overlay_handler_module, "get_master_config", lambda: master_config)
+    monkeypatch.setattr(
+        overlay_handler_module,
+        "save_full_config",
+        lambda config: saved_monitor_ids.append(config.get_config().overlay.monitor_to_capture_id),
+    )
+    monkeypatch.setattr(handler, "_apply_overlay_runtime_side_effects", fake_runtime_side_effects)
+    monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", fake_send)
+
+    asyncio.run(
+        handler.handle_message(
+            json.dumps(
+                {
+                    "type": "set-gsm-overlay-config",
+                    "key": "monitor_to_capture",
+                    "value": 1,
+                }
+            )
+        )
+    )
+
+    assert current_config.overlay.monitor_to_capture_id == "display-2"
+    assert saved_monitor_ids == ["display-2"]
+
+
+def test_overlay_config_confirmation_echoes_request_id(monkeypatch):
+    _, saved_configs, sent_messages = _run_overlay_config_message(
+        monkeypatch,
+        {
+            "type": "set-gsm-overlay-config",
+            "request_id": "ocr-setting-17",
+            "key": "periodic",
+            "value": True,
+        },
+    )
+
+    assert saved_configs
+    assert sent_messages[0][1]["request_id"] == "ocr-setting-17"
+
+
 def test_send_click_request_forwards_to_target_window(monkeypatch):
     calls = []
 

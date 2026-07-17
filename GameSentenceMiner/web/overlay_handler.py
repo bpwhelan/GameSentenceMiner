@@ -343,41 +343,72 @@ class OverlayRequestHandler:
         Persist GSM-owned overlay settings changed from the Electron overlay UI.
         Accepts a single {key, value} or a batch {settings: {field: value}}.
         """
+        request_id = str(message.get("request_id", "")).strip() or None
         updates = self._extract_overlay_config_updates(message)
         if not updates:
+            if request_id:
+                await self.broadcast_gsm_owned_overlay_config(
+                    request_id=request_id,
+                    success=False,
+                    error="No supported settings were supplied.",
+                )
             return
 
         master_config = get_master_config()
         if master_config is None:
             logger.warning("Unable to save overlay config from overlay: master config is not loaded.")
+            if request_id:
+                await self.broadcast_gsm_owned_overlay_config(
+                    request_id=request_id,
+                    success=False,
+                    error="GSM configuration is not loaded.",
+                )
             return
 
         current_config = master_config.get_config()
         applied = {}
+        rejected = []
         for field_name, raw_value in updates.items():
             try:
                 value = coerce_gsm_owned_overlay_value(field_name, raw_value)
             except KeyError:
                 logger.warning(f"Ignoring unsupported GSM overlay config key from overlay: {field_name}")
+                rejected.append(field_name)
                 continue
             except (TypeError, ValueError) as e:
                 logger.warning(f"Ignoring invalid GSM overlay config value for {field_name}: {e}")
+                rejected.append(field_name)
                 continue
             setattr(current_config.overlay, field_name, value)
             applied[field_name] = value
 
         if not applied:
+            if request_id:
+                await self.broadcast_gsm_owned_overlay_config(
+                    current_config.overlay,
+                    request_id=request_id,
+                    success=False,
+                    error=f"Rejected settings: {', '.join(rejected)}",
+                )
             return
 
+        # Monitor selection resolves a stable display ID/bounds in addition to the
+        # numeric index. Apply that mutation before serializing config.json so the
+        # stable identity cannot restore the old monitor on the next launch.
+        self._apply_overlay_runtime_side_effects(current_config.overlay, applied)
         master_config.overlay = current_config.overlay
         save_full_config(master_config)
 
         if "check_previous_lines_for_recycled_indicator" in applied:
             self._sync_recycled_line_cache(applied["check_previous_lines_for_recycled_indicator"])
-        self._apply_overlay_runtime_side_effects(current_config.overlay, applied)
         logger.info(f"Updated GSM-owned overlay settings from overlay: {sorted(applied)}")
 
-        await self.broadcast_gsm_owned_overlay_config(current_config.overlay)
+        await self.broadcast_gsm_owned_overlay_config(
+            current_config.overlay,
+            request_id=request_id,
+            success=not rejected,
+            error=f"Rejected settings: {', '.join(rejected)}" if rejected else None,
+        )
 
     def _apply_overlay_runtime_side_effects(self, overlay, applied: dict) -> None:
         """Re-resolve runtime state for fields that need more than a plain config write."""
@@ -393,21 +424,34 @@ class OverlayRequestHandler:
             except Exception as e:
                 logger.debug(f"Could not re-resolve overlay monitor selection after config change: {e}")
 
-    async def broadcast_gsm_owned_overlay_config(self, overlay=None) -> None:
+    async def broadcast_gsm_owned_overlay_config(
+        self,
+        overlay=None,
+        *,
+        request_id: Optional[str] = None,
+        success: bool = True,
+        error: Optional[str] = None,
+    ) -> None:
         """Push the full GSM-owned overlay subset (+ monitor list) to the overlay UI."""
         if overlay is None:
             master_config = get_master_config()
             if master_config is None:
-                return
-            overlay = master_config.get_config().overlay
-        await websocket_manager.send(
-            ID_OVERLAY,
-            {
-                "type": "gsm-overlay-config-updated",
-                "settings": serialize_gsm_owned_overlay(overlay),
-                "monitors": list(getattr(overlay, "monitors", []) or []),
-            },
-        )
+                if request_id is None:
+                    return
+            else:
+                overlay = master_config.get_config().overlay
+
+        payload = {
+            "type": "gsm-overlay-config-updated",
+            "settings": serialize_gsm_owned_overlay(overlay) if overlay is not None else {},
+            "monitors": list(getattr(overlay, "monitors", []) or []) if overlay is not None else [],
+        }
+        if request_id is not None:
+            payload["request_id"] = request_id
+            payload["success"] = success
+            if error:
+                payload["error"] = error
+        await websocket_manager.send(ID_OVERLAY, payload)
 
     def handle_select_ocr_area_request(self, message: dict):
         """Launch the OCR/overlay area selector from the overlay settings UI."""

@@ -377,12 +377,31 @@ function applyGsmOwnedOverlayConfig(settings, monitors) {
 }
 
 // Forward a GSM-owned overlay setting change to the backend for persistence.
+let gsmOverlayConfigRequestSequence = 0;
+
 function sendGsmOwnedOverlayConfig(overlayKey, value) {
   const pythonField = GSM_OWNED_OVERLAY_FIELD_MAP[overlayKey];
   if (!pythonField || !backend) {
-    return;
+    console.warn(`[GSMSettings] Cannot persist ${overlayKey}: backend connector is unavailable.`);
+    return null;
   }
-  backend.send({ type: "set-gsm-overlay-config", key: pythonField, value });
+  gsmOverlayConfigRequestSequence += 1;
+  const requestId = `gsm-overlay-${Date.now()}-${gsmOverlayConfigRequestSequence}`;
+  const message = {
+    type: "set-gsm-overlay-config",
+    request_id: requestId,
+    key: pythonField,
+    value,
+  };
+  if (typeof backend.sendReliable === "function") {
+    backend.sendReliable(message, {
+      id: requestId,
+      coalesceKey: `gsm-overlay:${pythonField}`,
+    });
+  } else {
+    backend.send(message);
+  }
+  return requestId;
 }
 
 let manualHotkeyPressed = false;
@@ -605,7 +624,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadTokenMode": true, // Default to character mode (false) or token mode (true)
   "gamepadTokenizerBackend": "sudachi", // "mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api" for tokenization/furigana
   "gamepadLocalTokenizerFallbackBackend": "sudachi", // Local retry backend used when the selected tokenizer fails
-  "gamepadSudachiDictionary": "core", // "small", "core", or "full" for Sudachi auto-download
+  "gamepadSudachiDictionary": "small", // "small", "core", or "full" for Sudachi auto-download
   "gamepadYomitanApiUrl": DEFAULT_YOMITAN_API_URL, // Base URL for Yomitan API
   "gamepadYomitanScanLength": 10, // scanLength used for Yomitan /tokenize
   "gamepadJitenApiKey": "", // User-provided API key for Jiten/api/reader/parse
@@ -1798,6 +1817,14 @@ function handleOverlayWebSocketControlMessage(type, data) {
   }
 
   if (message.type === "gsm-overlay-config-updated") {
+    if (message.request_id && backend && typeof backend.acknowledgeReliable === "function") {
+      backend.acknowledgeReliable(message.request_id);
+    }
+    if (message.success === false) {
+      console.error(
+        `[GSMSettings] Backend rejected config request ${message.request_id || "<unknown>"}: ${message.error || "unknown error"}`
+      );
+    }
     applyGsmOwnedOverlayConfig(message.settings, message.monitors);
     return true;
   }
