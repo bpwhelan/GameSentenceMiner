@@ -318,6 +318,41 @@ def test_check_text_is_in_black_hole_logs_matched_text_and_location(monkeypatch)
     ]
 
 
+def test_check_text_is_in_black_hole_logs_once_per_continuous_match_chain(monkeypatch):
+    black_hole = SimpleNamespace(
+        is_secondary=False,
+        is_excluded=False,
+        is_exclusive=False,
+        is_black_hole=True,
+        coordinates=(10, 20, 100, 80),
+    )
+    log_messages = []
+    monkeypatch.setattr(run_module, "_last_black_hole_match", None, raising=False)
+    monkeypatch.setattr(
+        run_module,
+        "logger",
+        SimpleNamespace(info=lambda message, *args, **kwargs: log_messages.append(message.format(*args))),
+    )
+    monkeypatch.setattr(run_module, "obs_screenshot_thread", SimpleNamespace(width=400, height=300), raising=False)
+    monkeypatch.setattr(run_module, "get_scaled_scene_ocr_config", lambda *_: SimpleNamespace(rectangles=[black_hole]))
+    monkeypatch.setattr(run_module, "get_ocr_language", lambda: "en")
+
+    def check(box, text="Continue"):
+        return run_module.check_text_is_in_black_hole(
+            box,
+            [(*box, text)],
+            crop_offset=(0, 0),
+            crop_padding=5,
+        )
+
+    assert check((15, 25, 75, 65))
+    assert check((17, 26, 76, 66))
+    assert not check((200, 200, 250, 240))
+    assert check((16, 24, 74, 64))
+
+    assert len(log_messages) == 2
+
+
 def test_check_text_is_in_black_hole_ignores_disjoint_box(monkeypatch):
     rectangles = [
         SimpleNamespace(

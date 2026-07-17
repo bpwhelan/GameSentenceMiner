@@ -1,7 +1,9 @@
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 from GameSentenceMiner.ocr.process_logging import start_ocr_process_log
+from GameSentenceMiner.ocr import gsm_ocr
 
 
 class FakeLogger:
@@ -39,3 +41,28 @@ def test_start_ocr_process_log_creates_dedicated_log_and_keeps_latest_three(tmp_
     assert fake_logger.add_calls[0][1]["level"] == "DEBUG"
     assert fake_logger.add_calls[0][1]["enqueue"] is True
     assert fake_logger.info_calls == [f"OCR process log: {log_path}"]
+
+
+def test_gsm_ocr_adds_process_log_sink_after_runtime_logger_setup(monkeypatch):
+    run_kwargs = {}
+
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "init_config", lambda _parse_args: None)
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "run", lambda **kwargs: run_kwargs.update(kwargs))
+    monkeypatch.setattr(gsm_ocr, "obs_ocr", False)
+    monkeypatch.setattr(gsm_ocr, "window", None)
+    monkeypatch.setattr(gsm_ocr, "ss_clipboard", False, raising=False)
+    monkeypatch.setattr(gsm_ocr, "manual", False, raising=False)
+    monkeypatch.setattr(gsm_ocr, "global_pause_hotkey", "", raising=False)
+    monkeypatch.setattr(gsm_ocr, "ocr1", "screenai", raising=False)
+    monkeypatch.setattr(gsm_ocr, "ocr2", "glens", raising=False)
+    monkeypatch.setattr(gsm_ocr, "furigana_filter_sensitivity", 16, raising=False)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_scan_rate", lambda: 0.5)
+
+    config = SimpleNamespace(window=None)
+    gsm_ocr.run_oneocr(config, [])
+
+    assert "configure_logger" not in run_kwargs
+    callback = run_kwargs["logger_setup_callback"]
+    runtime_logger = FakeLogger()
+    callback(runtime_logger)
+    assert len(runtime_logger.add_calls) == 1

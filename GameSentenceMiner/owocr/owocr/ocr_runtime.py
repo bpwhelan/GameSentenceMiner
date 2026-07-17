@@ -279,9 +279,12 @@ scaled_ocr_config_cache_lock = threading.Lock()
 MAX_SCALED_OCR_CACHE_SIZE = 24
 TEXT_DETECTION_RESULT_SCHEMA = "gsm_text_detection_v1"
 BLACK_HOLE_SKIP_LOG_MESSAGE = "Text is inside a black hole OCR box, skipping further processing."
+_last_black_hole_match = None
 _BLACK_HOLE_ENGLISH_WORD_REGEX = re.compile(r"(?<![A-Za-z])[A-Za-z]{2,}(?![A-Za-z])")
 _callback_signature_target = None
 _callback_signature_keywords = frozenset()
+
+
 _callback_signature_has_kwargs = False
 _callback_signature_failed = False
 
@@ -3532,6 +3535,13 @@ def check_text_is_in_black_hole(
     Black-hole rectangles void the whole OCR result before exclusive filtering.
     """
 
+    global _last_black_hole_match
+
+    def no_match():
+        global _last_black_hole_match
+        _last_black_hole_match = None
+        return False
+
     crop_padding = max(0, _safe_int(crop_padding, 5))
     if crop_offset is None:
         crop_offset = globals()["crop_offset"]
@@ -3543,27 +3553,27 @@ def check_text_is_in_black_hole(
         coords_to_check = [tuple(crop_coords) + ("",)]
 
     if "obs_screenshot_thread" not in globals() or not obs_screenshot_thread:
-        return False
+        return no_match()
 
     original_width = obs_screenshot_thread.width
     original_height = obs_screenshot_thread.height
 
     if original_width is None or original_height is None:
-        return False
+        return no_match()
 
     ocr_config = get_scaled_scene_ocr_config(original_width, original_height)
 
     if not ocr_config or not any(_is_black_hole_rectangle(rect) for rect in ocr_config.rectangles):
-        return False
+        return no_match()
 
     black_hole_rectangles = [rect for rect in ocr_config.rectangles if _is_black_hole_rectangle(rect)]
 
     if not black_hole_rectangles:
-        return False
+        return no_match()
 
     coords_to_check.extend(_get_unfiltered_ocr_crop_coords(raw_response_dict, crop_padding))
     if not coords_to_check:
-        return False
+        return no_match()
 
     target_language = _get_black_hole_target_language()
     for coord_entry in coords_to_check:
@@ -3575,7 +3585,7 @@ def check_text_is_in_black_hole(
             continue
         original_box = _coord_entry_to_original_box(coord_entry, crop_offset, crop_padding)
         if original_box is None:
-            return False
+            return no_match()
 
         box_left, box_top, box_right, box_bottom = original_box
         # Reconstructed boxes (e.g. ScreenAI) can land a few px out of frame; skip
@@ -3595,16 +3605,19 @@ def check_text_is_in_black_hole(
                 rect_top + rect_height,
             )
             matched_text = coord_entry[4] if len(coord_entry) >= 5 else ""
-            match_logger = logger.opt(ansi=True) if hasattr(logger, "opt") else logger
-            (match_logger or logger).info(
-                "Black hole matched text {!r} at {}; black-hole box {}.",
-                matched_text,
-                original_box,
-                black_hole_box,
-            )
+            match_signature = (matched_text, black_hole_box)
+            if match_signature != _last_black_hole_match:
+                match_logger = logger.opt(ansi=True) if hasattr(logger, "opt") else logger
+                (match_logger or logger).info(
+                    "Black hole matched text {!r} at {}; black-hole box {}.",
+                    matched_text,
+                    original_box,
+                    black_hole_box,
+                )
+            _last_black_hole_match = match_signature
             return True
 
-    return False
+    return no_match()
 
 
 def _get_exclusive_coord_indexes(
@@ -4250,6 +4263,8 @@ def run(
     config_check_thread=None,
     disable_user_input=False,
     logger_level="INFO",
+    configure_logger=True,
+    logger_setup_callback=None,
 ):
     """
     Japanese OCR client
@@ -4311,15 +4326,20 @@ def run(
     if write_to is None:
         write_to = config.get_general("write_to")
 
-    logger.configure(
-        handlers=[
-            {
-                "sink": sys.stderr,
-                "format": config.get_general("logger_format"),
-                "level": logger_level,
-            }
-        ]
-    )
+    # Embedders can install additional Loguru sinks before starting the runtime.
+    # Replacing the global handler list here would silently remove those sinks.
+    if configure_logger:
+        logger.configure(
+            handlers=[
+                {
+                    "sink": sys.stderr,
+                    "format": config.get_general("logger_format"),
+                    "level": logger_level,
+                }
+            ]
+        )
+    if logger_setup_callback is not None:
+        logger_setup_callback(logger)
 
     if config.has_config:
         logger.success("Parsed config file")

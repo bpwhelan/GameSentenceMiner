@@ -3458,6 +3458,13 @@ def process_task_queue():
             second_ocr_queue.task_done()
 
 
+def _setup_ocr_process_logging(runtime_logger):
+    try:
+        start_ocr_process_log(runtime_logger, get_temporary_directory(), max_files=3)
+    except Exception:
+        runtime_logger.exception("Failed to initialize the dedicated OCR process log")
+
+
 def run_oneocr(ocr_config: OCRConfig, rectangles):
     global done
     screen_area = None
@@ -3500,6 +3507,9 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
             combo_pause=global_pause_hotkey,
             disable_user_input=True,  # Disable stdin user input to avoid conflicts with IPC
             logger_level="INFO",
+            # owocr replaces GSM's stdout handlers first; add the diagnostic
+            # file afterward so routine subprocess logs stay out of GSM output.
+            logger_setup_callback=_setup_ocr_process_logging,
         )  # Set logger level to INFO to suppress DEBUG messages
     except Exception as e:
         logger.exception(f"Error running OneOCR: {e}")
@@ -3748,11 +3758,6 @@ def set_force_stable_hotkey():
 
 
 if __name__ == "__main__":
-    try:
-        start_ocr_process_log(logger, get_temporary_directory(), max_files=3)
-    except Exception:
-        logger.exception("Failed to initialize the dedicated OCR process log")
-
     try:
         import sys
 

@@ -128,6 +128,11 @@ All logs are stored in the application config directory:
 - `gsm_overlay.log` - Overlay application logs
 - `error.log` - All ERROR and CRITICAL messages from all components
 
+Each OCR subprocess launch also writes a dedicated temporary log under
+`temp/ocr_logs/ocr_process_<timestamp>_<pid>.log`. The newest three OCR process
+logs are retained so individual OCR sessions can be diagnosed without entries
+from separate launches being interleaved.
+
 Compressed archives (`.zip`) are created for rotated logs.
 
 ## Log Format
