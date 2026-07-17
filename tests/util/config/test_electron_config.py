@@ -302,6 +302,35 @@ def test_get_ocr_hotkeys_use_defaults_when_missing(monkeypatch):
     assert electron_config.get_ocr_global_pause_gamepad() == ""
 
 
+def test_ocr_gamepad_hotkeys_infer_enabled_for_legacy_bindings(monkeypatch):
+    store = _DummyStore({"OCR": {"manualOcrGamepad": "0"}})
+    monkeypatch.setattr(electron_config, "electron_store", store)
+
+    assert electron_config.get_ocr_gamepad_hotkeys_enabled() is True
+    assert electron_config.get_ocr_manual_ocr_gamepad() == "0"
+
+
+def test_disabling_ocr_gamepad_hotkeys_preserves_but_suppresses_bindings(monkeypatch):
+    store = _DummyStore(
+        {
+            "OCR": {
+                "gamepadHotkeysEnabled": False,
+                "manualOcrGamepad": "0",
+                "areaSelectOcrGamepad": "1",
+                "wholeWindowOcrGamepad": "2",
+                "globalPauseGamepad": "3",
+            }
+        }
+    )
+    monkeypatch.setattr(electron_config, "electron_store", store)
+
+    assert electron_config.get_ocr_gamepad_hotkeys_enabled() is False
+    assert electron_config.get_ocr_manual_ocr_gamepad() == ""
+    assert electron_config.get_ocr_area_select_ocr_gamepad() == ""
+    assert electron_config.get_ocr_whole_window_ocr_gamepad() == ""
+    assert electron_config.get_ocr_global_pause_gamepad() == ""
+
+
 def test_has_ocr_config_changed_reports_diffs(monkeypatch):
     old = {"OCR": {"advancedMode": False, "scanRate": 0.5}}
     new = {"OCR": {"advancedMode": True, "scanRate": 0.7}}

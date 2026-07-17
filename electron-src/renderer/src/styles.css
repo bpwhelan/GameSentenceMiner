@@ -4902,22 +4902,87 @@ body {
   font-weight: 500;
 }
 
-/* Hotkey grid */
-.ocr-workspace .ocr-hotkey-grid .input-group {
-  background: var(--gsm-surface-2);
-  border: 1px solid var(--gsm-border-subtle);
-  border-radius: var(--gsm-radius-sm);
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
+/* Hotkey action cards */
+.ocr-hotkey-card-header {
+  align-items: flex-start;
+}
+
+.ocr-hotkey-card-heading {
+  min-width: 0;
+}
+
+.ocr-hotkey-card-heading p {
+  margin: 4px 0 0;
+  max-width: 52ch;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.ocr-gamepad-toggle {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.ocr-workspace .ocr-hotkey-grid {
   gap: 10px;
 }
 
-.ocr-workspace .ocr-hotkey-grid .input-group label {
-  flex: 0 0 auto;
-  min-width: 96px;
-  text-align: right;
+.ocr-workspace .ocr-hotkey-item {
+  background: var(--gsm-surface-2);
+  border: 1px solid var(--gsm-border-subtle);
+  border-radius: var(--gsm-radius-sm);
+  padding: 11px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ocr-hotkey-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.ocr-hotkey-item-header h3 {
+  margin: 0;
+  color: var(--gsm-text-primary);
+  font-size: 0.84rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.ocr-hotkey-bindings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.ocr-hotkey-grid--gamepad-visible .ocr-hotkey-bindings {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ocr-workspace .ocr-hotkey-binding {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ocr-workspace .ocr-hotkey-binding > span {
+  color: var(--gsm-text-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .ocr-workspace .ocr-hotkey-grid input[type='text'] {
@@ -4928,26 +4993,19 @@ body {
   text-align: center;
   flex: 1 1 auto;
   min-width: 0;
-}
-
-.ocr-hotkey-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1 1 auto;
-  min-width: 0;
+  width: 100%;
 }
 
 .ocr-workspace .ocr-gamepad-hotkey {
-  flex: 0 0 104px;
   min-width: 0;
+  width: 100%;
 }
 
 .ocr-hotkey-run {
   flex: 0 0 auto;
-  min-height: 32px;
-  padding: 0 12px;
-  font-size: 0.8rem;
+  min-height: 28px;
+  padding: 3px 10px;
+  font-size: 0.76rem;
   white-space: nowrap;
 }
 

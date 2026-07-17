@@ -59,6 +59,7 @@ interface OCRConfig {
     ocr_screenshots: boolean;
     furigana_filter_sensitivity: number;
     defaultSceneFuriganaFilterSensitivity: number;
+    gamepadHotkeysEnabled?: boolean;
     manualOcrHotkey: string;
     manualOcrGamepad: string;
     areaSelectOcrHotkey: string;

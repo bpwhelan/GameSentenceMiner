@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import gc
-import json
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -516,7 +513,7 @@ def test_apply_ipc_config_reload_refreshes_hotkeys_and_clipboard_toggle(monkeypa
             "reload_electron": True,
             "reload_area": False,
             "changes": {
-                "globalPauseHotkey": ("ctrl+shift+p", "ctrl+alt+p"),
+                "gamepadHotkeysEnabled": (True, False),
                 "ocr_screenshots": (False, True),
             },
         }

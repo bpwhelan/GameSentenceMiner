@@ -49,6 +49,7 @@ interface OcrStoredConfig {
   ocr_screenshots?: boolean;
   furigana_filter_sensitivity?: number;
   defaultSceneFuriganaFilterSensitivity?: number;
+  gamepadHotkeysEnabled?: boolean;
   manualOcrHotkey?: string;
   manualOcrGamepad?: string;
   areaSelectOcrHotkey?: string;
@@ -89,6 +90,7 @@ interface OcrUiConfig {
   ocrScreenshots: boolean;
   furiganaFilterSensitivity: number;
   defaultSceneFuriganaFilterSensitivity: number;
+  gamepadHotkeysEnabled: boolean;
   manualOcrHotkey: string;
   manualOcrGamepad: string;
   areaSelectOcrHotkey: string;
@@ -153,6 +155,27 @@ interface NoticeState {
 
 interface OcrTabProps {
   active: boolean;
+}
+
+type HotkeyConfigKey =
+  | "manualOcrHotkey"
+  | "areaSelectOcrHotkey"
+  | "wholeWindowOcrHotkey"
+  | "globalPauseHotkey";
+
+type GamepadConfigKey =
+  | "manualOcrGamepad"
+  | "areaSelectOcrGamepad"
+  | "wholeWindowOcrGamepad"
+  | "globalPauseGamepad";
+
+interface HotkeyActionDefinition {
+  id: string;
+  labelKey: string;
+  tooltip: string;
+  hotkeyKey: HotkeyConfigKey;
+  gamepadKey: GamepadConfigKey;
+  trigger?: () => void;
 }
 
 interface Option {
@@ -661,6 +684,15 @@ function normalizeOcrConfig(
   const defaultStability = getDefaultStabilityOcr(platform);
   const scanRate = numericValue(value?.scanRate, 0.5);
   const comparison = {} as Record<ComparisonFieldKey, number>;
+  const gamepadHotkeysEnabled =
+    typeof value?.gamepadHotkeysEnabled === "boolean"
+      ? value.gamepadHotkeysEnabled
+      : [
+          value?.manualOcrGamepad,
+          value?.areaSelectOcrGamepad,
+          value?.wholeWindowOcrGamepad,
+          value?.globalPauseGamepad
+        ].some((binding) => typeof binding === "string" && binding.length > 0);
 
   for (const field of COMPARISON_FIELDS) {
     comparison[field.key] = numericValue(
@@ -701,6 +733,7 @@ function normalizeOcrConfig(
       value?.defaultSceneFuriganaFilterSensitivity,
       0
     ),
+    gamepadHotkeysEnabled,
     manualOcrHotkey:
       typeof value?.manualOcrHotkey === "string"
         ? value.manualOcrHotkey
@@ -771,6 +804,7 @@ function buildPersistedConfig(
     furigana_filter_sensitivity: config.furiganaFilterSensitivity,
     defaultSceneFuriganaFilterSensitivity:
       config.defaultSceneFuriganaFilterSensitivity,
+    gamepadHotkeysEnabled: config.gamepadHotkeysEnabled,
     manualOcrHotkey: config.manualOcrHotkey,
     manualOcrGamepad: config.manualOcrGamepad,
     areaSelectOcrHotkey: config.areaSelectOcrHotkey,
@@ -1829,6 +1863,43 @@ export function OCRTab({ active }: OcrTabProps) {
     window.open(getLegacyAssetPath("ocr_replacements.html"), "_blank", "noopener");
   }, []);
 
+  const hotkeyActions: HotkeyActionDefinition[] = [
+    {
+      id: "manual",
+      labelKey: "ocr.hotkeys.manualMenu",
+      tooltip: ocrTooltips.manualHotkey,
+      hotkeyKey: "manualOcrHotkey",
+      gamepadKey: "manualOcrGamepad",
+      trigger: triggerManualOcr
+    },
+    {
+      id: "area",
+      labelKey: "ocr.hotkeys.areaSelect",
+      tooltip: ocrTooltips.areaSelectHotkey,
+      hotkeyKey: "areaSelectOcrHotkey",
+      gamepadKey: "areaSelectOcrGamepad",
+      trigger: triggerAreaSelectOcr
+    },
+    {
+      id: "whole-window",
+      labelKey: "ocr.hotkeys.wholeWindow",
+      tooltip: ocrTooltips.wholeWindowHotkey,
+      hotkeyKey: "wholeWindowOcrHotkey",
+      gamepadKey: "wholeWindowOcrGamepad",
+      trigger: triggerWholeWindowOcr
+    },
+    {
+      id: "pause",
+      labelKey: "ocr.hotkeys.pause",
+      tooltip: ocrTooltips.pauseHotkey,
+      hotkeyKey: "globalPauseHotkey",
+      gamepadKey: "globalPauseGamepad"
+    }
+  ];
+  const configuredGamepadHotkeyCount = hotkeyActions.filter(
+    (action) => config[action.gamepadKey]
+  ).length;
+
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
       <div className="modern-tab ocr-workspace">
@@ -2494,204 +2565,111 @@ export function OCRTab({ active }: OcrTabProps) {
           {/* ── RIGHT COLUMN: Hotkeys + Console + Debug ── */}
           <div className="ocr-col ocr-col--monitor">
             {/* Hotkeys */}
-            <section className="card legacy-card ocr-card">
-              <div className="ocr-card-header-row">
-                <h2>{t("ocr.hotkeys.title")}</h2>
+            <section className="card legacy-card ocr-card ocr-card--hotkeys">
+              <div className="ocr-card-header-row ocr-hotkey-card-header">
+                <div className="ocr-hotkey-card-heading">
+                  <h2>{t("ocr.hotkeys.title")}</h2>
+                  <p className="muted">{t("ocr.hotkeys.description")}</p>
+                </div>
+                <button
+                  type="button"
+                  className="secondary ocr-gamepad-toggle"
+                  aria-expanded={config.gamepadHotkeysEnabled}
+                  aria-controls="ocr-gamepad-bindings"
+                  onClick={() => {
+                    setConfig((current) => ({
+                      ...current,
+                      gamepadHotkeysEnabled: !current.gamepadHotkeysEnabled
+                    }));
+                  }}
+                >
+                  {t(
+                    config.gamepadHotkeysEnabled
+                      ? "ocr.hotkeys.disableGamepad"
+                      : "ocr.hotkeys.enableGamepad",
+                    { count: configuredGamepadHotkeyCount }
+                  )}
+                </button>
               </div>
-              <div className="form-group ocr-form-group ocr-hotkey-grid">
-                <div className="input-group">
-                  <label htmlFor="manual-hotkey" {...titleProps(ocrTooltips.manualHotkey)}>
-                    {t("ocr.hotkeys.manualMenu")}
-                  </label>
-                  <div className="ocr-hotkey-row">
-                    <input
-                      id="manual-hotkey"
-                      type="text"
-                      readOnly
-                      value={config.manualOcrHotkey}
-                      onKeyDown={(event) => {
-                        const next = captureHotkey(event);
-                        setConfig((current) => ({
-                          ...current,
-                          manualOcrHotkey: next
-                        }));
-                      }}
-                    />
-                    <select
-                      className="ocr-gamepad-hotkey"
-                      value={config.manualOcrGamepad}
-                      aria-label={t("ocr.hotkeys.gamepadBindingAria", {
-                        action: t("ocr.hotkeys.manualMenu")
-                      })}
-                      title={t("ocr.hotkeys.gamepadBindingTitle")}
-                      onChange={(event) => {
-                        setConfig((current) => ({
-                          ...current,
-                          manualOcrGamepad: event.target.value
-                        }));
-                      }}
-                    >
-                      {GAMEPAD_HOTKEY_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {t(option.labelKey)}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      className="secondary ocr-hotkey-run"
-                      disabled={!runningState.isRunning}
-                      title={t("ocr.hotkeys.runActionTitle")}
-                      onClick={triggerManualOcr}
-                    >
-                      {t("ocr.hotkeys.runAction")}
-                    </button>
-                  </div>
-                </div>
+              <div
+                id="ocr-gamepad-bindings"
+                className={`form-group ocr-form-group ocr-hotkey-grid${
+                  config.gamepadHotkeysEnabled
+                    ? " ocr-hotkey-grid--gamepad-visible"
+                    : ""
+                }`}
+              >
+                {hotkeyActions.map((action) => {
+                  const actionLabel = t(action.labelKey);
+                  const hotkeyInputId = `${action.id}-hotkey`;
+                  const gamepadInputId = `${action.id}-gamepad-hotkey`;
 
-                <div className="input-group">
-                  <label htmlFor="area-hotkey" {...titleProps(ocrTooltips.areaSelectHotkey)}>
-                    {t("ocr.hotkeys.areaSelect")}
-                  </label>
-                  <div className="ocr-hotkey-row">
-                    <input
-                      id="area-hotkey"
-                      type="text"
-                      readOnly
-                      value={config.areaSelectOcrHotkey}
-                      onKeyDown={(event) => {
-                        const next = captureHotkey(event);
-                        setConfig((current) => ({
-                          ...current,
-                          areaSelectOcrHotkey: next
-                        }));
-                      }}
-                    />
-                    <select
-                      className="ocr-gamepad-hotkey"
-                      value={config.areaSelectOcrGamepad}
-                      aria-label={t("ocr.hotkeys.gamepadBindingAria", {
-                        action: t("ocr.hotkeys.areaSelect")
-                      })}
-                      title={t("ocr.hotkeys.gamepadBindingTitle")}
-                      onChange={(event) => {
-                        setConfig((current) => ({
-                          ...current,
-                          areaSelectOcrGamepad: event.target.value
-                        }));
-                      }}
-                    >
-                      {GAMEPAD_HOTKEY_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {t(option.labelKey)}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      className="secondary ocr-hotkey-run"
-                      disabled={!runningState.isRunning}
-                      title={t("ocr.hotkeys.runActionTitle")}
-                      onClick={triggerAreaSelectOcr}
-                    >
-                      {t("ocr.hotkeys.runAction")}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="input-group">
-                  <label
-                    htmlFor="whole-window-hotkey"
-                    {...titleProps(ocrTooltips.wholeWindowHotkey)}
-                  >
-                    {t("ocr.hotkeys.wholeWindow")}
-                  </label>
-                  <div className="ocr-hotkey-row">
-                    <input
-                      id="whole-window-hotkey"
-                      type="text"
-                      readOnly
-                      value={config.wholeWindowOcrHotkey}
-                      onKeyDown={(event) => {
-                        const next = captureHotkey(event);
-                        setConfig((current) => ({
-                          ...current,
-                          wholeWindowOcrHotkey: next
-                        }));
-                      }}
-                    />
-                    <select
-                      className="ocr-gamepad-hotkey"
-                      value={config.wholeWindowOcrGamepad}
-                      aria-label={t("ocr.hotkeys.gamepadBindingAria", {
-                        action: t("ocr.hotkeys.wholeWindow")
-                      })}
-                      title={t("ocr.hotkeys.gamepadBindingTitle")}
-                      onChange={(event) => {
-                        setConfig((current) => ({
-                          ...current,
-                          wholeWindowOcrGamepad: event.target.value
-                        }));
-                      }}
-                    >
-                      {GAMEPAD_HOTKEY_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {t(option.labelKey)}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      className="secondary ocr-hotkey-run"
-                      disabled={!runningState.isRunning}
-                      title={t("ocr.hotkeys.runActionTitle")}
-                      onClick={triggerWholeWindowOcr}
-                    >
-                      {t("ocr.hotkeys.runAction")}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="input-group">
-                  <label htmlFor="pause-hotkey" {...titleProps(ocrTooltips.pauseHotkey)}>
-                    {t("ocr.hotkeys.pause")}
-                  </label>
-                  <div className="ocr-hotkey-row">
-                    <input
-                      id="pause-hotkey"
-                      type="text"
-                      readOnly
-                      value={config.globalPauseHotkey}
-                      onKeyDown={(event) => {
-                        const next = captureHotkey(event);
-                        setConfig((current) => ({
-                          ...current,
-                          globalPauseHotkey: next
-                        }));
-                      }}
-                    />
-                    <select
-                      className="ocr-gamepad-hotkey"
-                      value={config.globalPauseGamepad}
-                      aria-label={t("ocr.hotkeys.gamepadBindingAria", {
-                        action: t("ocr.hotkeys.pause")
-                      })}
-                      title={t("ocr.hotkeys.gamepadBindingTitle")}
-                      onChange={(event) => {
-                        setConfig((current) => ({
-                          ...current,
-                          globalPauseGamepad: event.target.value
-                        }));
-                      }}
-                    >
-                      {GAMEPAD_HOTKEY_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {t(option.labelKey)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+                  return (
+                    <div className="ocr-hotkey-item" key={action.id}>
+                      <div className="ocr-hotkey-item-header">
+                        <h3 {...titleProps(action.tooltip)}>{actionLabel}</h3>
+                        {action.trigger ? (
+                          <button
+                            type="button"
+                            className="secondary ocr-hotkey-run"
+                            disabled={!runningState.isRunning}
+                            title={t("ocr.hotkeys.runActionTitle")}
+                            onClick={action.trigger}
+                          >
+                            {t("ocr.hotkeys.runAction")}
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="ocr-hotkey-bindings">
+                        <label className="ocr-hotkey-binding" htmlFor={hotkeyInputId}>
+                          <span>{t("ocr.hotkeys.keyboard")}</span>
+                          <input
+                            id={hotkeyInputId}
+                            type="text"
+                            readOnly
+                            value={config[action.hotkeyKey]}
+                            onKeyDown={(event) => {
+                              const next = captureHotkey(event);
+                              setConfig((current) => ({
+                                ...current,
+                                [action.hotkeyKey]: next
+                              }));
+                            }}
+                          />
+                        </label>
+                        {config.gamepadHotkeysEnabled ? (
+                          <label
+                            className="ocr-hotkey-binding"
+                            htmlFor={gamepadInputId}
+                          >
+                            <span>{t("ocr.hotkeys.gamepad")}</span>
+                            <select
+                              id={gamepadInputId}
+                              className="ocr-gamepad-hotkey"
+                              value={config[action.gamepadKey]}
+                              aria-label={t("ocr.hotkeys.gamepadBindingAria", {
+                                action: actionLabel
+                              })}
+                              title={t("ocr.hotkeys.gamepadBindingTitle")}
+                              onChange={(event) => {
+                                setConfig((current) => ({
+                                  ...current,
+                                  [action.gamepadKey]: event.target.value
+                                }));
+                              }}
+                            >
+                              {GAMEPAD_HOTKEY_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {t(option.labelKey)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </section>
 

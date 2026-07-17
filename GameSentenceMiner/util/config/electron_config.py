@@ -441,7 +441,25 @@ def get_ocr_manual_ocr_hotkey() -> str:
     return _get_ocr_hotkey_value("manualOcrHotkey", "Ctrl+Shift+G")
 
 
+def get_ocr_gamepad_hotkeys_enabled() -> bool:
+    enabled = _get_ocr_value("gamepadHotkeysEnabled", None)
+    if isinstance(enabled, bool):
+        return enabled
+
+    return any(
+        _get_ocr_hotkey_value(key, "").strip()
+        for key in (
+            "manualOcrGamepad",
+            "areaSelectOcrGamepad",
+            "wholeWindowOcrGamepad",
+            "globalPauseGamepad",
+        )
+    )
+
+
 def get_ocr_manual_ocr_gamepad() -> str:
+    if not get_ocr_gamepad_hotkeys_enabled():
+        return ""
     return _get_ocr_hotkey_value("manualOcrGamepad", "")
 
 
@@ -450,6 +468,8 @@ def get_ocr_area_select_ocr_hotkey() -> str:
 
 
 def get_ocr_area_select_ocr_gamepad() -> str:
+    if not get_ocr_gamepad_hotkeys_enabled():
+        return ""
     return _get_ocr_hotkey_value("areaSelectOcrGamepad", "")
 
 
@@ -458,6 +478,8 @@ def get_ocr_whole_window_ocr_hotkey() -> str:
 
 
 def get_ocr_whole_window_ocr_gamepad() -> str:
+    if not get_ocr_gamepad_hotkeys_enabled():
+        return ""
     return _get_ocr_hotkey_value("wholeWindowOcrGamepad", "")
 
 
@@ -466,6 +488,8 @@ def get_ocr_global_pause_hotkey() -> str:
 
 
 def get_ocr_global_pause_gamepad() -> str:
+    if not get_ocr_gamepad_hotkeys_enabled():
+        return ""
     return _get_ocr_hotkey_value("globalPauseGamepad", "")
 
 

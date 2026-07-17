@@ -3204,6 +3204,7 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
                 "wholeWindowOcrGamepad",
                 "globalPauseHotkey",
                 "globalPauseGamepad",
+                "gamepadHotkeysEnabled",
             }
             if any(key in changes for key in hotkey_keys):
                 refresh_runtime_hotkey_settings_from_config()
