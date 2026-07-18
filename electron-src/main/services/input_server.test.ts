@@ -9,6 +9,7 @@ import {
     buildInputServerEnvironment,
     getInputServerExecutableCandidates,
     selectNewestInputServerExecutable,
+    shouldSuppressInputServerLine,
 } from './input_server.js';
 
 describe('input server lifecycle helpers', () => {
@@ -61,5 +62,20 @@ describe('input server lifecycle helpers', () => {
                 (candidate) => modifiedTimes[candidate]
             )
         ).toBe('release.exe');
+    });
+
+    it.each([
+        '2026-07-18T05:30:51.562859Z  INFO client connected: 127.0.0.1:52021',
+        '2026-07-18T05:30:51.563376Z  INFO client disconnected: 127.0.0.1:52021',
+    ])('suppresses routine client connection chatter: %s', (line) => {
+        expect(shouldSuppressInputServerLine(line)).toBe(true);
+    });
+
+    it.each([
+        '2026-07-18T05:30:51.562859Z  WARN client disconnected unexpectedly: 127.0.0.1:52021',
+        '2026-07-18T05:30:51.562859Z  INFO listening on 127.0.0.1:7276',
+        'client connected: 127.0.0.1:52021',
+    ])('preserves other input server output: %s', (line) => {
+        expect(shouldSuppressInputServerLine(line)).toBe(false);
     });
 });

@@ -99,10 +99,16 @@ function scheduleRestart(): void {
     }, RESTART_DELAY_MS);
 }
 
+export function shouldSuppressInputServerLine(message: string): boolean {
+    return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s+INFO\s+client (?:connected|disconnected):\s+\S+$/.test(
+        message
+    );
+}
+
 function logServerOutput(prefix: string, data: Buffer): void {
     for (const line of data.toString('utf8').split(/\r?\n/)) {
         const message = line.trim();
-        if (message) {
+        if (message && !shouldSuppressInputServerLine(message)) {
             console.log(`[InputService:${prefix}] ${message}`);
         }
     }
