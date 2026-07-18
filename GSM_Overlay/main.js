@@ -20,6 +20,10 @@ const {
   normalizeManualHotkeyMode,
   resolveManualHotkeyBackend,
 } = require('./manual_hotkey_controller');
+const {
+  normalizeConfiguredHotkeyValues,
+  registerHotkeyWithFallback,
+} = require('./hotkey_settings');
 const { URL } = require('url');
 
 // FIX: Register chrome-extension protocol as privileged to allow image loading and CORS in renderer
@@ -632,6 +636,19 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "overlaySettingsProfilesEnabled": false,
   "overlayActiveProfileName": DEFAULT_GSM_PROFILE_NAME,
 });
+const CONFIGURED_HOTKEY_SETTING_KEYS = Object.freeze([
+  "showHotkey",
+  "toggleFuriganaHotkey",
+  "toggleWindowHotkey",
+  "minimizeHotkey",
+  "yomitanSettingsHotkey",
+  "overlaySettingsHotkey",
+  "translateHotkey",
+  "liveStatsToggleHotkey",
+  "texthookerHotkey",
+  "gamepadKeyboardHotkey",
+]);
+const CONFIGURED_HOTKEY_SETTING_KEY_SET = new Set(CONFIGURED_HOTKEY_SETTING_KEYS);
 
 let userSettings = { ...DEFAULT_USER_SETTINGS, [OVERLAY_PROFILE_SETTINGS_KEY]: {} };
 let reconfigureOverlayRuntimeForSettingsChange = () => {};
@@ -767,6 +784,20 @@ function setOverlaySettingValue(key, value) {
   persistOverlaySettingForActiveProfile(key, value);
 }
 
+function normalizeOverlayHotkeySettings(settings = userSettings) {
+  const changedKeys = normalizeConfiguredHotkeyValues(
+    settings,
+    DEFAULT_USER_SETTINGS,
+    CONFIGURED_HOTKEY_SETTING_KEYS
+  );
+  if (settings === userSettings) {
+    for (const key of changedKeys) {
+      persistOverlaySettingForActiveProfile(key, settings[key]);
+    }
+  }
+  return changedKeys;
+}
+
 function applyOverlayProfileSettings(profileName, reason = "unknown", options = {}) {
   if (userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] !== true) {
     return false;
@@ -788,6 +819,7 @@ function applyOverlayProfileSettings(profileName, reason = "unknown", options = 
   }
   userSettings[OVERLAY_ACTIVE_PROFILE_KEY] = normalizedName;
 
+  normalizeOverlayHotkeySettings(userSettings);
   normalizeFuriganaSettings(userSettings);
   normalizeGamepadTokenizerSettings(userSettings);
   setOverlaySettingValue("manualModeType", normalizeManualModeType(userSettings.manualModeType));
@@ -2614,7 +2646,44 @@ function syncAppHotkeyInputServerConnection(reason = "unknown") {
 // based on the route-all setting. Always clears any prior registration for the id
 // (in both backends) first, so toggling the setting cleanly swaps backends and
 // avoids double-firing.
-function setAppHotkey(id, accelerator, handler) {
+function resetInvalidHotkeySetting(settingKey, error) {
+  if (!CONFIGURED_HOTKEY_SETTING_KEY_SET.has(settingKey)) {
+    return null;
+  }
+
+  const defaultAccelerator = DEFAULT_USER_SETTINGS[settingKey];
+  setOverlaySettingValue(settingKey, defaultAccelerator);
+  saveSettings();
+
+  const update = { [settingKey]: defaultAccelerator };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("settings-updated", update);
+  }
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.webContents.send("settings-updated", update);
+  }
+  console.warn(
+    `[Hotkeys] Reset invalid ${settingKey} to its default after Electron rejected it:`,
+    error && error.message ? error.message : error
+  );
+  return defaultAccelerator;
+}
+
+function safeUnregisterHotkey(accelerator, source) {
+  if (!accelerator) {
+    return;
+  }
+  try {
+    globalShortcut.unregister(accelerator);
+  } catch (error) {
+    console.warn(
+      `[Hotkeys] Ignoring invalid accelerator while unregistering ${source}:`,
+      error && error.message ? error.message : error
+    );
+  }
+}
+
+function setAppHotkey(id, accelerator, handler, options = {}) {
   clearAppHotkey(id);
 
   const accel = String(accelerator || "").trim();
@@ -2629,17 +2698,30 @@ function setAppHotkey(id, accelerator, handler) {
     return true;
   }
 
-  let registered = false;
-  try {
-    registered = globalShortcut.register(accel, handler);
-  } catch (err) {
-    console.warn(`[Hotkeys] Failed to register ${accel} for ${id}:`, err.message);
-    return false;
+  const fallbackAccelerator = options.settingKey
+    ? DEFAULT_USER_SETTINGS[options.settingKey]
+    : accel;
+  const result = registerHotkeyWithFallback({
+    accelerator: accel,
+    fallbackAccelerator,
+    register: (candidate) => globalShortcut.register(candidate, handler),
+  });
+  if (result.error) {
+    console.warn(`[Hotkeys] Failed to register ${accel} for ${id}:`, result.error.message);
   }
-  if (registered) {
-    appHotkeyGlobalShortcutAccelerators.set(id, accel);
+  if (result.reset && options.settingKey) {
+    resetInvalidHotkeySetting(options.settingKey, result.error);
   }
-  return registered;
+  if (result.fallbackError) {
+    console.warn(
+      `[Hotkeys] Default accelerator ${result.accelerator} also failed for ${id}:`,
+      result.fallbackError.message
+    );
+  }
+  if (result.registered) {
+    appHotkeyGlobalShortcutAccelerators.set(id, result.accelerator);
+  }
+  return result.registered;
 }
 
 function clearAppHotkey(id) {
@@ -3464,6 +3546,9 @@ if (hasPersistedOverlaySettings) {
   try {
     const data = fs.readFileSync(settingsPath, "utf-8");
     const oldUserSettings = JSON.parse(data);
+    if (!oldUserSettings || typeof oldUserSettings !== "object" || Array.isArray(oldUserSettings)) {
+      throw new TypeError("settings.json must contain a JSON object");
+    }
     userSettings = { ...DEFAULT_USER_SETTINGS, ...userSettings, ...oldUserSettings };
     const normalizedManualModeType = normalizeManualModeType(userSettings.manualModeType);
     if (userSettings.manualModeType !== normalizedManualModeType) {
@@ -3523,8 +3608,9 @@ if (hasPersistedOverlaySettings) {
       persistOverlaySettingForActiveProfile("magpieCompatibility", false);
     }
   } catch (error) {
-    console.error("Failed to load settings.json:", error)
-
+    console.warn(`[Settings] Could not load ${settingsPath}; resetting to defaults:`, error.message);
+    userSettings = { ...DEFAULT_USER_SETTINGS, [OVERLAY_PROFILE_SETTINGS_KEY]: {} };
+    shouldPersistOverlaySettings = true;
   }
 }
 
@@ -3550,6 +3636,7 @@ const overlayProfileAppliedOnLoad = syncOverlayProfileFromGSM("settings-load", {
   notify: false,
   reconfigure: false,
 });
+const normalizedHotkeySettingKeys = normalizeOverlayHotkeySettings(userSettings);
 const hotkeyConflictResolvedOnLoad = ensureManualAndTexthookerHotkeysDistinct("settings-load");
 const gsmOwnedSettingsNormalized = syncGsmOwnedOverlaySettingsFromGSM("settings-load");
 if (
@@ -3562,6 +3649,7 @@ if (
   pomodoroSettingsNormalized ||
   overlayProfilesNormalized ||
   overlayProfileAppliedOnLoad ||
+  normalizedHotkeySettingKeys.length > 0 ||
   hotkeyConflictResolvedOnLoad ||
   gsmOwnedSettingsNormalized
 ) {
@@ -4741,9 +4829,9 @@ function registerTexthookerHotkey(oldHotkey) {
   setOverlaySettingValue("texthookerHotkey", texthookerHotkey);
 
   if (oldHotkey && !hotkeysConflict(oldHotkey, userSettings.showHotkey)) {
-    globalShortcut.unregister(oldHotkey);
+    safeUnregisterHotkey(oldHotkey, "previous texthooker hotkey");
   }
-  globalShortcut.unregister(texthookerHotkey);
+  safeUnregisterHotkey(texthookerHotkey, "texthooker hotkey");
 
   if (conflictResolved) {
     console.warn(`[TexthookerMode] Hotkey conflict resolved; using ${texthookerHotkey}`);
@@ -4824,7 +4912,7 @@ function registerTexthookerHotkey(oldHotkey) {
         blurAndRestoreFocus();
       }
     }
-  });
+  }, { settingKey: "texthookerHotkey" });
 
   if (!registered) {
     console.warn(`[TexthookerMode] Failed to register texthooker hotkey: ${texthookerHotkey}`);
@@ -4832,6 +4920,8 @@ function registerTexthookerHotkey(oldHotkey) {
 }
 
 function registerManualShowHotkey(oldHotkey) {
+  const requestedHotkey = String(userSettings.showHotkey || DEFAULT_MANUAL_HOTKEY).trim() || DEFAULT_MANUAL_HOTKEY;
+  setOverlaySettingValue("showHotkey", requestedHotkey);
   const conflictResolved = ensureManualAndTexthookerHotkeysDistinct("registerManualShowHotkey");
   if (conflictResolved) {
     registerTexthookerHotkey();
@@ -4841,7 +4931,7 @@ function registerManualShowHotkey(oldHotkey) {
     console.log(`[ManualHotkey] Unregistering Electron hotkey: ${oldHotkey || userSettings.showHotkey}`);
     const unregisterTarget = oldHotkey || userSettings.showHotkey;
     if (!hotkeysConflict(unregisterTarget, userSettings.texthookerHotkey)) {
-      globalShortcut.unregister(unregisterTarget);
+      safeUnregisterHotkey(unregisterTarget, "manual hotkey");
     }
     manualIn = false;
   }
@@ -4869,15 +4959,34 @@ function registerManualShowHotkey(oldHotkey) {
 
   if (requestedBackend === MANUAL_HOTKEY_BACKEND_ELECTRON) {
     console.log(`[ManualHotkey] Registering Electron hotkey: ${userSettings.showHotkey} | Mode: ${manualModeType}`);
-    const registered = globalShortcut.register(userSettings.showHotkey, () => {
-      lastManualActivity = Date.now();
-      if (!canStartManualHotkeyActivation("electron")) {
-        return;
-      }
-      manualHotkeyController.handleElectronSignal("electron");
+    const result = registerHotkeyWithFallback({
+      accelerator: userSettings.showHotkey,
+      fallbackAccelerator: DEFAULT_MANUAL_HOTKEY,
+      register: (candidate) => globalShortcut.register(candidate, () => {
+        lastManualActivity = Date.now();
+        if (!canStartManualHotkeyActivation("electron")) {
+          return;
+        }
+        manualHotkeyController.handleElectronSignal("electron");
+      }),
     });
+    if (result.error) {
+      console.warn(
+        `[ManualHotkey] Electron rejected ${userSettings.showHotkey}:`,
+        result.error.message
+      );
+    }
+    if (result.reset) {
+      resetInvalidHotkeySetting("showHotkey", result.error);
+    }
+    if (result.fallbackError) {
+      console.warn(
+        `[ManualHotkey] Default accelerator ${result.accelerator} also failed:`,
+        result.fallbackError.message
+      );
+    }
 
-    if (registered) {
+    if (result.registered) {
       manualIn = true;
       manualHotkeyElectronFailureHotkey = null;
       syncManualHotkeyInputServerConnection("electron-registered");
@@ -4885,7 +4994,7 @@ function registerManualShowHotkey(oldHotkey) {
       return;
     }
 
-    manualHotkeyElectronFailureHotkey = userSettings.showHotkey;
+    manualHotkeyElectronFailureHotkey = result.accelerator;
     manualHotkeyBackend = MANUAL_HOTKEY_BACKEND_INPUT_SERVER;
     manualHotkeyBackendReason = "electron-registration-failed";
     console.warn(`[ManualHotkey] Electron registration failed for ${userSettings.showHotkey}; falling back to input server (${manualModeType})`);
@@ -4947,88 +5056,90 @@ function openSettings() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("force-visible", true);
   }
-  mainWindow.webContents.send("request-current-settings");
-  ipcMain.once("reply-current-settings", (event, settings) => {
-    if (settingsWindow && !settingsWindow.isDestroyed()) {
-      settingsWindow.setAlwaysOnTop(false);
-      settingsWindow.show();
-      settingsWindow.focus();
-      return;
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.setAlwaysOnTop(false);
+    settingsWindow.show();
+    settingsWindow.focus();
+    return;
+  }
+
+  const openedSettingsWindow = new BrowserWindow({
+    width: 1200,
+    height: 980,
+    icon: getOverlayAppIconPath(),
+    resizable: true,
+    title: "Overlay Settings",
+    webPreferences: {
+      preload: FIND_IN_PAGE_PRELOAD_PATH,
+      nodeIntegration: true,
+      contextIsolation: false,
+      // Own session so Yomitan/Jiten content scripts (loaded into the default
+      // session) aren't injected here — keeps dictionary lookups off settings text.
+      partition: "persist:gsm-overlay-settings",
+    },
+  });
+  settingsWindow = openedSettingsWindow;
+  enableFindInPage(openedSettingsWindow);
+
+  openedSettingsWindow.webContents.on('context-menu', () => {
+    if (isDev && !openedSettingsWindow.isDestroyed()) {
+      openedSettingsWindow.webContents.openDevTools({ mode: 'detach' });
     }
-    settingsWindow = new BrowserWindow({
+  });
+
+  openedSettingsWindow.webContents.setWindowOpenHandler(({ url }) => {
+    const child = new BrowserWindow({
+      parent: openedSettingsWindow.isDestroyed() ? undefined : openedSettingsWindow,
+      show: true,
       width: 1200,
       height: 980,
       icon: getOverlayAppIconPath(),
-      resizable: true,
-      title: "Overlay Settings",
       webPreferences: {
-        preload: FIND_IN_PAGE_PRELOAD_PATH,
         nodeIntegration: true,
         contextIsolation: false,
-        // Own session so Yomitan/Jiten content scripts (loaded into the default
-        // session) aren't injected here — keeps dictionary lookups off settings text.
-        partition: "persist:gsm-overlay-settings",
+        devTools: true,
+        nodeIntegrationInSubFrames: true,
+        backgroundThrottling: false,
       },
     });
-    enableFindInPage(settingsWindow);
+    child.setMenu(null);
+    child.loadURL(url);
+    return { action: 'deny' };
+  });
 
-    settingsWindow.webContents.on('context-menu', () => {
-      if (isDev) {
-        settingsWindow.webContents.openDevTools({ mode: 'detach' });
-      }
+  openedSettingsWindow.removeMenu();
+  loadOverlayPage(openedSettingsWindow, "settings.html");
+  openedSettingsWindow.webContents.once("did-finish-load", () => {
+    if (openedSettingsWindow.isDestroyed()) return;
+    openedSettingsWindow.webContents.send("preload-settings", {
+      userSettings: buildOverlaySettingsPayload(),
+      websocketStates,
+      defaultSettings: DEFAULT_USER_SETTINGS,
+      runtimeSettings: getManualHotkeyRuntimeStatus(),
+      profileState: getOverlayProfileState(),
     });
-    // settingsWindow.webContents.openDevTools({ mode: 'detach' });
-
-    settingsWindow.webContents.setWindowOpenHandler(({ url }) => {
-      const child = new BrowserWindow({
-        parent: settingsWindow ? settingsWindow : undefined,
-        show: true,
-        width: 1200,
-        height: 980,
-        icon: getOverlayAppIconPath(),
-        webPreferences: {
-          nodeIntegration: true,
-          contextIsolation: false,
-          devTools: true,
-          nodeIntegrationInSubFrames: true,
-          backgroundThrottling: false,
-        },
-      });
-      child.setMenu(null);
-      child.loadURL(url);
-      return { action: 'deny' };
-    });
-
-    settingsWindow.removeMenu()
-
-    loadOverlayPage(settingsWindow, "settings.html");
-    settingsWindow.webContents.once("did-finish-load", () => {
-      if (!settingsWindow || settingsWindow.isDestroyed()) return;
-      settingsWindow.webContents.send("preload-settings", {
-        userSettings: buildOverlaySettingsPayload(),
-        websocketStates,
-        defaultSettings: DEFAULT_USER_SETTINGS,
-        runtimeSettings: getManualHotkeyRuntimeStatus(),
-        profileState: getOverlayProfileState(),
-      });
-      // Populate the OCR/Capture monitor dropdown, then ask the backend to refresh it.
-      settingsWindow.webContents.send("gsm-overlay-monitors", gsmOverlayMonitors);
-      if (backend) {
-        backend.send({ type: "get-gsm-overlay-config" });
-      }
-    });
-    settingsWindow.on("closed", () => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("force-visible", false);
-      }
-    })
-    console.log(websocketStates)
-    setTimeout(() => {
-      settingsWindow.setSize(settingsWindow.getSize()[0], settingsWindow.getSize()[1]);
-      settingsWindow.webContents.invalidate();
-      settingsWindow.show();
-    }, 500);
-  })
+    // Populate the OCR/Capture monitor dropdown, then ask the backend to refresh it.
+    openedSettingsWindow.webContents.send("gsm-overlay-monitors", gsmOverlayMonitors);
+    if (backend) {
+      backend.send({ type: "get-gsm-overlay-config" });
+    }
+  });
+  openedSettingsWindow.on("closed", () => {
+    if (settingsWindow === openedSettingsWindow) {
+      settingsWindow = null;
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("force-visible", false);
+    }
+  });
+  console.log(websocketStates);
+  setTimeout(() => {
+    if (openedSettingsWindow.isDestroyed()) return;
+    const [width, height] = openedSettingsWindow.getSize();
+    openedSettingsWindow.setSize(width, height);
+    openedSettingsWindow.webContents.invalidate();
+    openedSettingsWindow.show();
+  }, 500);
 }
 
 function openYomitanSettings() {
@@ -5825,7 +5936,7 @@ app.whenReady().then(async () => {
         ensureMainWindowIsOnConnectedDisplay("hotkey-toggle-window");
         mainWindow.webContents.send('toggle-main-box');
       }
-    });
+    }, { settingKey: "toggleWindowHotkey" });
   }
   registerToggleWindowHotkey();
 
@@ -5848,7 +5959,7 @@ app.whenReady().then(async () => {
         }
         else mainWindow.minimize();
       }
-    });
+    }, { settingKey: "minimizeHotkey" });
   }
   registerMinimizeHotkey();
 
@@ -5856,7 +5967,7 @@ app.whenReady().then(async () => {
   function registerYomitanSettingsHotkey(_oldHotkey) {
     setAppHotkey("yomitanSettings", userSettings.yomitanSettingsHotkey || "Alt+Shift+Y", () => {
       openYomitanSettings();
-    });
+    }, { settingKey: "yomitanSettingsHotkey" });
   }
   registerYomitanSettingsHotkey();
 
@@ -5864,7 +5975,7 @@ app.whenReady().then(async () => {
   function registerOverlaySettingsHotkey(_oldHotkey) {
     setAppHotkey("overlaySettings", userSettings.overlaySettingsHotkey || "Alt+Shift+S", () => {
       openSettings();
-    });
+    }, { settingKey: "overlaySettingsHotkey" });
   }
   registerOverlaySettingsHotkey();
 
@@ -5890,7 +6001,7 @@ app.whenReady().then(async () => {
           }
         }
       }
-    });
+    }, { settingKey: "translateHotkey" });
   }
   registerTranslateHotkey();
 
@@ -5900,14 +6011,14 @@ app.whenReady().then(async () => {
       if (mainWindow) {
         mainWindow.webContents.send("toggle-furigana-visibility");
       }
-    });
+    }, { settingKey: "toggleFuriganaHotkey" });
   }
   registerToggleFuriganaHotkey();
 
   function registerLiveStatsToggleHotkey(_oldHotkey) {
     setAppHotkey("liveStatsToggle", userSettings.liveStatsToggleHotkey || "Alt+Shift+L", () => {
       advanceLiveStatsVisibilityMode("hotkey");
-    });
+    }, { settingKey: "liveStatsToggleHotkey" });
   }
   registerLiveStatsToggleHotkey();
   
@@ -6741,6 +6852,10 @@ app.whenReady().then(async () => {
     }
     const oldValue = userSettings[key];
     setOverlaySettingValue(key, value);
+    if (CONFIGURED_HOTKEY_SETTING_KEY_SET.has(key)) {
+      normalizeOverlayHotkeySettings(userSettings);
+      value = userSettings[key];
+    }
     switch (key) {
       case "showHotkey":
         {
@@ -6936,7 +7051,7 @@ app.whenReady().then(async () => {
       sendGsmOwnedOverlayConfig(key, value);
     }
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("settings-updated", { [key]: value });
+      mainWindow.webContents.send("settings-updated", { [key]: userSettings[key] });
     }
     saveSettings();
     updateTrayMenu();
