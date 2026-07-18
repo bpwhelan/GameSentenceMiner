@@ -72,6 +72,8 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_language,
     get_ocr_manual_ocr_gamepad,
     get_ocr_manual_ocr_hotkey,
+    get_ocr_menu_ocr_gamepad,
+    get_ocr_menu_ocr_hotkey,
     get_ocr_matching_block_default_min_size,
     get_ocr_matching_block_short_chunk_char_limit,
     get_ocr_matching_block_small_chunk_min_size,
@@ -145,8 +147,9 @@ paused = False
 shutdown_requested = False
 ocr_metrics_capture_lock = threading.Lock()
 area_select_ocr_hotkey = "ctrl+shift+o"
-manual_menu_ocr_hotkey = "ctrl+shift+g"
+manual_ocr_hotkey = "ctrl+shift+m"
 manual_ocr_hotkey_combo = None
+menu_ocr_hotkey = "ctrl+shift+g"
 whole_window_ocr_hotkey = "ctrl+shift+w"
 global_pause_hotkey = "ctrl+shift+p"
 window = None
@@ -2143,7 +2146,16 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
                 ocr_ipc.announce_status(status_data)
 
         elif command == ocr_ipc.OCRCommand.MANUAL_OCR.value:
-            if hasattr(ocr_runtime, "screenshot_event") and ocr_runtime.screenshot_event:
+            if not manual:
+                success = run_primary_rectangles_ocr_once()
+                response["success"] = bool(success)
+                if success:
+                    logger.info("IPC: Triggered manual OCR for primary rectangles")
+                else:
+                    response["error"] = "Primary rectangle OCR capture failed"
+                    if announce_ipc:
+                        ocr_ipc.announce_error(response["error"])
+            elif hasattr(ocr_runtime, "screenshot_event") and ocr_runtime.screenshot_event:
                 ocr_runtime.screenshot_event.set()
                 response["success"] = True
                 logger.info("IPC: Triggered manual OCR")
@@ -2152,6 +2164,16 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
                 logger.error("IPC: Screenshot event not available")
                 if announce_ipc:
                     ocr_ipc.announce_error("Screenshot event not available")
+
+        elif command == ocr_ipc.OCRCommand.MENU_OCR.value:
+            success = run_secondary_rectangles_ocr_once()
+            response["success"] = bool(success)
+            if success:
+                logger.info("IPC: Triggered menu OCR for secondary rectangles")
+            else:
+                response["error"] = "Secondary rectangle OCR capture failed"
+                if announce_ipc:
+                    ocr_ipc.announce_error(response["error"])
 
         elif command == ocr_ipc.OCRCommand.WHOLE_WINDOW_OCR.value:
             success = run_whole_window_ocr_once(source=TextSource.MANUAL)
@@ -2268,14 +2290,16 @@ def _to_pynput_hotkey(value: Any) -> str | None:
 def refresh_runtime_hotkey_settings_from_config() -> None:
     global \
         area_select_ocr_hotkey, \
-        manual_menu_ocr_hotkey, \
+        manual_ocr_hotkey, \
         manual_ocr_hotkey_combo, \
+        menu_ocr_hotkey, \
         whole_window_ocr_hotkey, \
         global_pause_hotkey
 
     current_manual_hotkey = get_ocr_manual_ocr_hotkey()
-    manual_menu_ocr_hotkey = _normalize_hotkey_for_keyboard(current_manual_hotkey, "ctrl+shift+g")
+    manual_ocr_hotkey = _normalize_hotkey_for_keyboard(current_manual_hotkey, "ctrl+shift+m")
     manual_ocr_hotkey_combo = _to_pynput_hotkey(current_manual_hotkey)
+    menu_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_menu_ocr_hotkey(), "ctrl+shift+g")
     area_select_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_area_select_ocr_hotkey(), "ctrl+shift+o")
     whole_window_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_whole_window_ocr_hotkey(), "ctrl+shift+w")
     global_pause_hotkey = _normalize_hotkey_for_keyboard(get_ocr_global_pause_hotkey(), "ctrl+shift+p")
@@ -3198,6 +3222,8 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
             hotkey_keys = {
                 "manualOcrHotkey",
                 "manualOcrGamepad",
+                "menuOcrHotkey",
+                "menuOcrGamepad",
                 "areaSelectOcrHotkey",
                 "areaSelectOcrGamepad",
                 "wholeWindowOcrHotkey",
@@ -3650,64 +3676,90 @@ def run_area_select_ocr_once(source=TextSource.SCREEN_CROPPER) -> bool:
     return True
 
 
+def _run_configured_rectangles_ocr_once(*, is_secondary: bool) -> bool:
+    area_name = "secondary" if is_secondary else "primary"
+    logger.info(f"Running {area_name} OCR rectangles...")
+    capture_time = datetime.now()
+    current_ocr_config = get_ocr_config()
+    img = obs.get_screenshot_PIL(compression=90, img_format="jpg")
+    if img is None:
+        logger.warning(f"{area_name.title()} OCR skipped: could not capture OBS screenshot.")
+        return False
+
+    current_ocr_config.scale_to_custom_size(img.width, img.height)
+    capture_rectangles = [
+        rectangle
+        for rectangle in current_ocr_config.rectangles
+        if bool(rectangle.is_secondary) == is_secondary
+        and not rectangle.is_excluded
+        and not getattr(rectangle, "is_black_hole", False)
+    ]
+    if not capture_rectangles:
+        logger.warning(f"{area_name.title()} OCR skipped: no configured rectangles.")
+        return False
+
+    image_metadata = {
+        "capture_source": f"{area_name}_rectangles",
+        "capture_original_size": {
+            "width": int(img.width),
+            "height": int(img.height),
+        },
+        "capture_scaled_size": {"width": int(img.width), "height": int(img.height)},
+        "coordinate_mode": "source_content",
+        "capture_origin": {"x": 0, "y": 0},
+        "ocr_area_crop_offset": {"x": 0, "y": 0},
+        "ocr_area_rectangles": [list(rectangle.coordinates) for rectangle in capture_rectangles],
+    }
+    img, crop_offset = ocr_runtime.apply_ocr_config_to_image(
+        img,
+        current_ocr_config,
+        is_secondary=is_secondary,
+        rectangles=capture_rectangles,
+        return_full_size=is_secondary,
+    )
+    image_metadata["ocr_area_crop_offset"] = {
+        "x": int(crop_offset[0]),
+        "y": int(crop_offset[1]),
+    }
+    get_second_ocr_processor().do_second_ocr(
+        "",
+        capture_time,
+        img,
+        TextFiltering(lang=get_ocr_language()),
+        ignore_furigana_filter=True,
+        ignore_previous_result=True,
+        image_metadata=image_metadata,
+        source=TextSource.SECONDARY if is_secondary else TextSource.OCR_MANUAL,
+    )
+    return True
+
+
+def run_primary_rectangles_ocr_once() -> bool:
+    """Run OCR2 directly on configured green areas, bypassing stability checks."""
+    return _run_configured_rectangles_ocr_once(is_secondary=False)
+
+
+def run_secondary_rectangles_ocr_once() -> bool:
+    """Run OCR2 directly on configured purple menu areas."""
+    return _run_configured_rectangles_ocr_once(is_secondary=True)
+
+
 def add_ss_hotkey():
     # We'll create the signal helper when the Qt app is available
     global _screen_cropper_signals
     hotkey_manager = _get_hotkey_manager()
-
-    def ocr_secondary_rectangles():
-        logger.info("Running secondary OCR rectangles...")
-        capture_time = datetime.now()
-        current_ocr_config = get_ocr_config()
-        img = obs.get_screenshot_PIL(compression=90, img_format="jpg")
-        if img is None:
-            logger.warning("Secondary OCR skipped: could not capture OBS screenshot.")
-            return
-
-        image_metadata = {
-            "capture_source": "secondary_rectangles",
-            "capture_original_size": {
-                "width": int(img.width),
-                "height": int(img.height),
-            },
-            "capture_scaled_size": {"width": int(img.width), "height": int(img.height)},
-            "coordinate_mode": "source_content",
-            "capture_origin": {"x": 0, "y": 0},
-            "ocr_area_crop_offset": {"x": 0, "y": 0},
-            "ocr_area_rectangles": [],
-        }
-        current_ocr_config.scale_to_custom_size(img.width, img.height)
-        has_secondary_rectangles = any(rectangle.is_secondary for rectangle in current_ocr_config.rectangles)
-        if has_secondary_rectangles:
-            secondary_rectangles = [
-                list(rectangle.coordinates)
-                for rectangle in current_ocr_config.rectangles
-                if rectangle.is_secondary
-                and not rectangle.is_excluded
-                and not getattr(rectangle, "is_black_hole", False)
-            ]
-            img, crop_offset = ocr_runtime.apply_ocr_config_to_image(img, current_ocr_config, is_secondary=True)
-            image_metadata["ocr_area_rectangles"] = secondary_rectangles
-            image_metadata["ocr_area_crop_offset"] = {
-                "x": int(crop_offset[0]),
-                "y": int(crop_offset[1]),
-            }
-        get_second_ocr_processor().do_second_ocr(
-            "",
-            capture_time,
-            img,
-            TextFiltering(lang=get_ocr_language()),
-            ignore_furigana_filter=True,
-            ignore_previous_result=True,
-            image_metadata=image_metadata,
-            source=TextSource.SECONDARY,
-        )
 
     def capture_screen_crop():
         run_area_select_ocr_once()
 
     def capture_whole_window():
         run_whole_window_ocr_once(source=TextSource.MANUAL)
+
+    def capture_primary_rectangles():
+        if manual and hasattr(ocr_runtime, "screenshot_event") and ocr_runtime.screenshot_event:
+            ocr_runtime.screenshot_event.set()
+            return
+        run_primary_rectangles_ocr_once()
 
     def toggle_ocr_pause():
         ocr_runtime.pause_handler(is_combo=False)
@@ -3727,12 +3779,19 @@ def add_ss_hotkey():
     hotkey_manager.register_gamepad(get_ocr_area_select_ocr_gamepad, capture_screen_crop)
 
     if not manual:
-        if manual_menu_ocr_hotkey:
-            hotkey_manager.register(lambda: manual_menu_ocr_hotkey, ocr_secondary_rectangles)
-            logger.info(f"Press {manual_menu_ocr_hotkey} to run OCR for Menu Rectangles.")
+        if manual_ocr_hotkey:
+            hotkey_manager.register(lambda: manual_ocr_hotkey, capture_primary_rectangles)
+            logger.info(f"Press {manual_ocr_hotkey} to run OCR for Primary Rectangles.")
         else:
-            logger.info("Menu rectangle OCR hotkey is disabled.")
-        hotkey_manager.register_gamepad(get_ocr_manual_ocr_gamepad, ocr_secondary_rectangles)
+            logger.info("Manual primary rectangle OCR hotkey is disabled.")
+    hotkey_manager.register_gamepad(get_ocr_manual_ocr_gamepad, capture_primary_rectangles)
+
+    if menu_ocr_hotkey:
+        hotkey_manager.register(lambda: menu_ocr_hotkey, run_secondary_rectangles_ocr_once)
+        logger.info(f"Press {menu_ocr_hotkey} to run OCR for Menu Rectangles.")
+    else:
+        logger.info("Menu rectangle OCR hotkey is disabled.")
+    hotkey_manager.register_gamepad(get_ocr_menu_ocr_gamepad, run_secondary_rectangles_ocr_once)
 
     if whole_window_ocr_hotkey:
         hotkey_manager.register(lambda: whole_window_ocr_hotkey, capture_whole_window)
@@ -3806,6 +3865,12 @@ if __name__ == "__main__":
             help="Hotkey for manual OCR (default: None)",
         )
         parser.add_argument(
+            "--menu_ocr_hotkey",
+            type=str,
+            default=None,
+            help="Hotkey for menu rectangle OCR (default: None)",
+        )
+        parser.add_argument(
             "--area_select_ocr_hotkey",
             type=str,
             default="ctrl+shift+o",
@@ -3851,8 +3916,9 @@ if __name__ == "__main__":
         window_name = args.window
         furigana_filter_sensitivity = args.furigana_filter_sensitivity
         area_select_ocr_hotkey = _normalize_hotkey_for_keyboard(args.area_select_ocr_hotkey, "ctrl+shift+o")
-        manual_menu_ocr_hotkey = _normalize_hotkey_for_keyboard(args.manual_ocr_hotkey, "ctrl+shift+g")
+        manual_ocr_hotkey = _normalize_hotkey_for_keyboard(args.manual_ocr_hotkey, "ctrl+shift+m")
         manual_ocr_hotkey_combo = _to_pynput_hotkey(args.manual_ocr_hotkey)
+        menu_ocr_hotkey = _normalize_hotkey_for_keyboard(args.menu_ocr_hotkey, "ctrl+shift+g")
         whole_window_ocr_hotkey = _normalize_hotkey_for_keyboard(args.whole_window_ocr_hotkey, "ctrl+shift+w")
         clipboard_output = args.clipboard_output
         optimize_second_scan = args.optimize_second_scan

@@ -85,6 +85,68 @@ def test_run_oneocr_uses_manual_combo_in_manual_mode(monkeypatch):
     assert captured["screen_capture_combo"] == "<alt>+b"
 
 
+def test_primary_area_hotkey_runs_ocr2_on_green_rectangles_only(monkeypatch):
+    monitor = Monitor(index=0, width=1920, height=1080)
+    green = Rectangle(monitor, [10, 20, 300, 120], is_excluded=False)
+    purple = Rectangle(monitor, [20, 200, 400, 300], is_excluded=False, is_secondary=True)
+    black_hole = Rectangle(monitor, [0, 0, 100, 100], is_excluded=False, is_black_hole=True)
+    exclusion = Rectangle(monitor, [30, 30, 40, 40], is_excluded=True)
+    config = OCRConfig(scene="test", rectangles=[green, purple, black_hole, exclusion])
+    captured = {}
+    image = Image.new("RGB", (1920, 1080), "white")
+
+    monkeypatch.setattr(gsm_ocr, "get_ocr_config", lambda: config)
+    monkeypatch.setattr(gsm_ocr.obs, "get_screenshot_PIL", lambda **_kwargs: image)
+
+    def apply_config(img, current_config, **kwargs):
+        captured["rectangles"] = kwargs.get("rectangles")
+        captured["return_full_size"] = kwargs.get("return_full_size")
+        return img, (10, 20)
+
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "apply_ocr_config_to_image", apply_config)
+    monkeypatch.setattr(
+        gsm_ocr,
+        "get_second_ocr_processor",
+        lambda: SimpleNamespace(do_second_ocr=lambda *args, **kwargs: captured.update(args=args, kwargs=kwargs)),
+    )
+
+    assert gsm_ocr.run_primary_rectangles_ocr_once() is True
+    assert captured["rectangles"] == [green]
+    assert captured["return_full_size"] is False
+    assert captured["kwargs"]["source"] == gsm_ocr.TextSource.OCR_MANUAL
+    assert captured["kwargs"]["ignore_previous_result"] is True
+    assert captured["kwargs"]["ignore_furigana_filter"] is True
+
+
+def test_manual_command_runs_primary_ocr2_directly_during_auto_mode(monkeypatch):
+    calls = []
+    monkeypatch.setattr(gsm_ocr, "manual", False)
+    monkeypatch.setattr(gsm_ocr, "run_primary_rectangles_ocr_once", lambda: calls.append("primary") or True)
+    monkeypatch.delattr(gsm_ocr.ocr_runtime, "paused", raising=False)
+
+    response = gsm_ocr._handle_command(
+        {"command": gsm_ocr.ocr_ipc.OCRCommand.MANUAL_OCR.value},
+        announce_ipc=False,
+    )
+
+    assert response["success"] is True
+    assert calls == ["primary"]
+
+
+def test_menu_command_always_runs_secondary_rectangles(monkeypatch):
+    calls = []
+    monkeypatch.setattr(gsm_ocr, "run_secondary_rectangles_ocr_once", lambda: calls.append("menu") or True)
+    monkeypatch.delattr(gsm_ocr.ocr_runtime, "paused", raising=False)
+
+    response = gsm_ocr._handle_command(
+        {"command": gsm_ocr.ocr_ipc.OCRCommand.MENU_OCR.value},
+        announce_ipc=False,
+    )
+
+    assert response["success"] is True
+    assert calls == ["menu"]
+
+
 def test_post_process_normalizes_contextual_japanese_dashes_to_choonpu():
     text = post_process("-刻も早く、ス-パ-でA-1を買う")
 

@@ -620,7 +620,8 @@
     },
     "hotkeys": {
       "title": "热键",
-      "manualMenu": "手动 / 菜单：",
+      "manual": "手动（绿色区域）：",
+      "menu": "菜单（紫色区域）：",
       "areaSelect": "区域选择：",
       "wholeWindow": "整个窗口：",
       "pause": "暂停："
@@ -693,7 +694,8 @@
       "mainOcr": "此引擎会将最终 OCR 结果发送到 websocket 或剪贴板。请选择最准确且适合该游戏的选项。",
       "optimizeSecondScan": "裁剪第二次扫描的图像以提升性能（仅限第一次为 OneOCR）。如果游戏文本比较特殊且部分文本无法捕获，请尝试关闭此项。",
       "ocrScreenshots": "启用后，OCR 也会处理从剪贴板获取的截图。",
-      "manualHotkey": "对所选区域执行手动 OCR 的快捷键。使用主 OCR 引擎，也用于菜单 OCR（在区域选择器中 Ctrl+点击）。按 Escape 清除。",
+      "manualHotkey": "在已配置的绿色区域运行一次主 OCR（OCR 2）。在自动 OCR 期间，此操作会跳过稳定性和黑洞检查。按 Escape 清除。",
+      "menuHotkey": "在已配置的紫色菜单区域运行一次主 OCR（OCR 2）。按 Escape 清除。",
       "areaSelectHotkey": "按下后可选择一个临时区域并执行一次 OCR。适合菜单。按 Escape 清除。",
       "wholeWindowHotkey": "对整个活动 OCR 源（通常是 OBS 游戏源）执行一次 OCR 扫描，绕过区域矩形。按 Escape 清除。",
       "pauseHotkey": "暂停或恢复所有 OCR 扫描。适合过场动画，或需要暂时让 OCR 停止时使用。按 Escape 清除。",

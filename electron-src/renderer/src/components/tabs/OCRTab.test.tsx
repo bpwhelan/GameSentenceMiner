@@ -110,7 +110,13 @@ describe("OCRTab hotkeys", () => {
       await flushAsyncWork();
     });
 
-    expect(container.querySelectorAll(".ocr-gamepad-hotkey")).toHaveLength(4);
+    expect(container.querySelectorAll(".ocr-gamepad-hotkey")).toHaveLength(5);
+    expect((container.querySelector("#manual-hotkey") as HTMLInputElement).value).toBe(
+      "Ctrl+Shift+M"
+    );
+    expect((container.querySelector("#menu-hotkey") as HTMLInputElement).value).toBe(
+      "A"
+    );
 
     const toggle = container.querySelector(
       'button[aria-controls="ocr-gamepad-bindings"]'
@@ -133,7 +139,8 @@ describe("OCRTab hotkeys", () => {
       "ocr.save-ocr-config",
       expect.objectContaining({
         gamepadHotkeysEnabled: false,
-        manualOcrGamepad: "0",
+        manualOcrGamepad: "",
+        menuOcrGamepad: "0",
         areaSelectOcrGamepad: "",
         wholeWindowOcrGamepad: "",
         globalPauseGamepad: "9"
@@ -146,6 +153,7 @@ describe("OCRTab hotkeys", () => {
       if (channel === "ocr.get-ocr-config") {
         return {
           manualOcrGamepad: "",
+          menuOcrGamepad: "",
           areaSelectOcrGamepad: "",
           wholeWindowOcrGamepad: "",
           globalPauseGamepad: ""
@@ -171,6 +179,6 @@ describe("OCRTab hotkeys", () => {
     });
 
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
-    expect(container.querySelectorAll(".ocr-gamepad-hotkey")).toHaveLength(4);
+    expect(container.querySelectorAll(".ocr-gamepad-hotkey")).toHaveLength(5);
   });
 });

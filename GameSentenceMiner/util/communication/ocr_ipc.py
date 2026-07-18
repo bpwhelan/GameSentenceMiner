@@ -44,6 +44,7 @@ class OCRCommand(Enum):
     TOGGLE_PAUSE = "toggle_pause"
     GET_STATUS = "get_status"
     MANUAL_OCR = "manual_ocr"
+    MENU_OCR = "menu_ocr"
     WHOLE_WINDOW_OCR = "whole_window_ocr"
     AREA_SELECT_OCR = "area_select_ocr"
     RELOAD_CONFIG = "reload_config"

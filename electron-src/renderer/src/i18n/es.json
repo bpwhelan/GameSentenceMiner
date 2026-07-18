@@ -622,7 +622,8 @@
     },
     "hotkeys": {
       "title": "Atajos de teclado",
-      "manualMenu": "Manual / Menú:",
+      "manual": "Manual (áreas verdes):",
+      "menu": "Menú (áreas moradas):",
       "areaSelect": "Seleccionar área:",
       "wholeWindow": "Ventana completa:",
       "pause": "Pausa:"
@@ -695,7 +696,8 @@
       "mainOcr": "Este motor envía el resultado OCR final al websocket o al portapapeles. Elige la opción más precisa que funcione bien con tu juego.",
       "optimizeSecondScan": "Recorta la imagen para el segundo escaneo y mejora el rendimiento (solo si el primero es OneOCR). Si el texto del juego es inusual y no se captura parte del texto, prueba a desactivarlo.",
       "ocrScreenshots": "Si está activado, OCR también procesará capturas de pantalla tomadas desde el portapapeles.",
-      "manualHotkey": "Atajo para hacer OCR manual del área seleccionada. Usa el motor OCR principal y también se usa para OCR de menú (Ctrl+clic en el selector de áreas). Pulsa Escape para borrar.",
+      "manualHotkey": "Ejecuta una vez el OCR principal (OCR 2) en las áreas verdes configuradas. Durante el OCR automático, omite las comprobaciones de estabilidad y agujero negro. Pulsa Escape para borrar.",
+      "menuHotkey": "Ejecuta una vez el OCR principal (OCR 2) en las áreas moradas de menú configuradas. Pulsa Escape para borrar.",
       "areaSelectHotkey": "Al pulsarlo, permite seleccionar un área temporal para hacer OCR una sola vez. Útil para menús. Pulsa Escape para borrar.",
       "wholeWindowHotkey": "Ejecuta un escaneo OCR único en toda la fuente OCR activa (normalmente la fuente de juego de OBS), ignorando los rectángulos de área. Pulsa Escape para borrar.",
       "pauseHotkey": "Pausa o reanuda el escaneo OCR en todas partes. Útil durante cinemáticas o cuando quieres apartar temporalmente el OCR. Pulsa Escape para borrar.",

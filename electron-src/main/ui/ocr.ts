@@ -171,6 +171,7 @@ function appendHotkeyArgs(command: string[], ocr_config: ReturnType<typeof getOC
     // Always pass explicit values so empty strings can disable hotkeys.
     command.push('--area_select_ocr_hotkey', `${ocr_config.areaSelectOcrHotkey ?? ''}`);
     command.push('--manual_ocr_hotkey', `${ocr_config.manualOcrHotkey ?? ''}`);
+    command.push('--menu_ocr_hotkey', `${ocr_config.menuOcrHotkey ?? ''}`);
     command.push('--whole_window_ocr_hotkey', `${ocr_config.wholeWindowOcrHotkey ?? ''}`);
     command.push('--global_pause_hotkey', `${ocr_config.globalPauseHotkey ?? ''}`);
 }
@@ -1202,6 +1203,10 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.on('ocr.manual-ocr', () => {
         sendOcrCommand('manual_ocr');
+    });
+
+    ipcMain.on('ocr.menu-ocr', () => {
+        sendOcrCommand('menu_ocr');
     });
 
     ipcMain.on('ocr.whole-window-ocr', () => {

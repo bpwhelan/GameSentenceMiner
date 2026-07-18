@@ -62,6 +62,8 @@ interface OCRConfig {
     gamepadHotkeysEnabled?: boolean;
     manualOcrHotkey: string;
     manualOcrGamepad: string;
+    menuOcrHotkey?: string;
+    menuOcrGamepad?: string;
     areaSelectOcrHotkey: string;
     areaSelectOcrGamepad: string;
     wholeWindowOcrHotkey: string;
@@ -1080,7 +1082,17 @@ export function setKeepNewline(keep: boolean): void {
 }
 
 export function getOCRConfig(): OCRConfig {
-    return store.get("OCR");
+    const config = store.get("OCR");
+    if (config.menuOcrHotkey === undefined) {
+        return {
+            ...config,
+            menuOcrHotkey: config.manualOcrHotkey || "Ctrl+Shift+G",
+            menuOcrGamepad: config.manualOcrGamepad || "",
+            manualOcrHotkey: "Ctrl+Shift+M",
+            manualOcrGamepad: "",
+        };
+    }
+    return config;
 }
 
 export function setOCRConfig(config: OCRConfig): void {

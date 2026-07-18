@@ -112,6 +112,7 @@ def test_get_ocr_values_advanced_mode(monkeypatch):
                 "optimize_second_scan": False,
                 "text_appears_instantly": False,
                 "manualOcrHotkey": "Alt+M",
+                "menuOcrHotkey": "Alt+G",
             }
         }
     )
@@ -128,6 +129,7 @@ def test_get_ocr_values_advanced_mode(monkeypatch):
     assert electron_config.get_ocr_optimize_second_scan() is False
     assert electron_config.get_ocr_text_appears_instantly() is False
     assert electron_config.get_ocr_manual_ocr_hotkey() == "Alt+M"
+    assert electron_config.get_ocr_menu_ocr_hotkey() == "Alt+G"
 
 
 def test_get_ocr_keep_newline_prefers_source_specific_values(monkeypatch):
@@ -266,10 +268,12 @@ def test_get_ocr_hotkeys_preserve_explicit_empty_values(monkeypatch):
         {
             "OCR": {
                 "manualOcrHotkey": "",
+                "menuOcrHotkey": "",
                 "areaSelectOcrHotkey": "",
                 "wholeWindowOcrHotkey": "",
                 "globalPauseHotkey": "",
                 "manualOcrGamepad": "",
+                "menuOcrGamepad": "",
                 "areaSelectOcrGamepad": "",
                 "wholeWindowOcrGamepad": "",
                 "globalPauseGamepad": "",
@@ -279,10 +283,12 @@ def test_get_ocr_hotkeys_preserve_explicit_empty_values(monkeypatch):
     monkeypatch.setattr(electron_config, "electron_store", store)
 
     assert electron_config.get_ocr_manual_ocr_hotkey() == ""
+    assert electron_config.get_ocr_menu_ocr_hotkey() == ""
     assert electron_config.get_ocr_area_select_ocr_hotkey() == ""
     assert electron_config.get_ocr_whole_window_ocr_hotkey() == ""
     assert electron_config.get_ocr_global_pause_hotkey() == ""
     assert electron_config.get_ocr_manual_ocr_gamepad() == ""
+    assert electron_config.get_ocr_menu_ocr_gamepad() == ""
     assert electron_config.get_ocr_area_select_ocr_gamepad() == ""
     assert electron_config.get_ocr_whole_window_ocr_gamepad() == ""
     assert electron_config.get_ocr_global_pause_gamepad() == ""
@@ -292,11 +298,13 @@ def test_get_ocr_hotkeys_use_defaults_when_missing(monkeypatch):
     store = _DummyStore({"OCR": {}})
     monkeypatch.setattr(electron_config, "electron_store", store)
 
-    assert electron_config.get_ocr_manual_ocr_hotkey() == "Ctrl+Shift+G"
+    assert electron_config.get_ocr_manual_ocr_hotkey() == "Ctrl+Shift+M"
+    assert electron_config.get_ocr_menu_ocr_hotkey() == "Ctrl+Shift+G"
     assert electron_config.get_ocr_area_select_ocr_hotkey() == "Ctrl+Shift+O"
     assert electron_config.get_ocr_whole_window_ocr_hotkey() == "Ctrl+Shift+W"
     assert electron_config.get_ocr_global_pause_hotkey() == "Ctrl+Shift+P"
     assert electron_config.get_ocr_manual_ocr_gamepad() == ""
+    assert electron_config.get_ocr_menu_ocr_gamepad() == ""
     assert electron_config.get_ocr_area_select_ocr_gamepad() == ""
     assert electron_config.get_ocr_whole_window_ocr_gamepad() == ""
     assert electron_config.get_ocr_global_pause_gamepad() == ""
@@ -307,7 +315,8 @@ def test_ocr_gamepad_hotkeys_infer_enabled_for_legacy_bindings(monkeypatch):
     monkeypatch.setattr(electron_config, "electron_store", store)
 
     assert electron_config.get_ocr_gamepad_hotkeys_enabled() is True
-    assert electron_config.get_ocr_manual_ocr_gamepad() == "0"
+    assert electron_config.get_ocr_manual_ocr_gamepad() == ""
+    assert electron_config.get_ocr_menu_ocr_gamepad() == "0"
 
 
 def test_disabling_ocr_gamepad_hotkeys_preserves_but_suppresses_bindings(monkeypatch):

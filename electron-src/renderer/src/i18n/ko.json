@@ -623,7 +623,8 @@
     },
     "hotkeys": {
       "title": "단축키",
-      "manualMenu": "수동 / 메뉴:",
+      "manual": "수동(녹색 영역):",
+      "menu": "메뉴(보라색 영역):",
       "areaSelect": "영역 선택:",
       "wholeWindow": "전체 창:",
       "pause": "일시 중지:"
@@ -697,7 +698,8 @@
       "mainOcr": "이 엔진은 최종 OCR 결과를 websocket 또는 클립보드로 보냅니다. 게임에 잘 맞는 가장 정확한 옵션을 선택하세요.",
       "optimizeSecondScan": "두 번째 스캔용 이미지를 잘라 성능을 개선합니다(첫 번째가 OneOCR일 때만). 게임 텍스트가 특이해서 일부가 캡처되지 않으면 꺼 보세요.",
       "ocrScreenshots": "활성화하면 OCR이 클립보드에서 가져온 스크린샷도 처리합니다.",
-      "manualHotkey": "선택한 영역을 수동 OCR하는 단축키입니다. 주 OCR 엔진을 사용하며 메뉴 OCR(영역 선택기에서 Ctrl+클릭)에도 사용됩니다. Escape로 지웁니다.",
+      "manualHotkey": "설정된 녹색 영역에서 주 OCR(OCR 2)을 한 번 실행합니다. 자동 OCR 중에는 안정성 및 블랙홀 검사를 건너뜁니다. Escape로 지웁니다.",
+      "menuHotkey": "설정된 보라색 메뉴 영역에서 주 OCR(OCR 2)을 한 번 실행합니다. Escape로 지웁니다.",
       "areaSelectHotkey": "누르면 임시 영역을 선택해 한 번만 OCR할 수 있습니다. 메뉴에 유용합니다. Escape로 지웁니다.",
       "wholeWindowHotkey": "활성 OCR 소스 전체(일반적으로 OBS 게임 소스)를 영역 사각형 없이 한 번 OCR 스캔합니다. Escape로 지웁니다.",
       "pauseHotkey": "모든 OCR 스캔을 일시 중지하거나 재개합니다. 컷신 중이거나 OCR을 잠시 치우고 싶을 때 유용합니다. Escape로 지웁니다.",

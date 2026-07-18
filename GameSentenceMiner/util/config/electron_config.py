@@ -63,8 +63,10 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "ocr_screenshots": False,
         "furigana_filter_sensitivity": 0,
         "defaultSceneFuriganaFilterSensitivity": 0,
-        "manualOcrHotkey": "Ctrl+Shift+G",
+        "manualOcrHotkey": "Ctrl+Shift+M",
         "manualOcrGamepad": "",
+        "menuOcrHotkey": "Ctrl+Shift+G",
+        "menuOcrGamepad": "",
         "areaSelectOcrHotkey": "Ctrl+Shift+O",
         "areaSelectOcrGamepad": "",
         "wholeWindowOcrHotkey": "Ctrl+Shift+W",
@@ -438,7 +440,14 @@ def _get_ocr_hotkey_value(key: str, default: str) -> str:
 
 
 def get_ocr_manual_ocr_hotkey() -> str:
-    return _get_ocr_hotkey_value("manualOcrHotkey", "Ctrl+Shift+G")
+    if _get_ocr_value("menuOcrHotkey", None) is None:
+        return "Ctrl+Shift+M"
+    return _get_ocr_hotkey_value("manualOcrHotkey", "Ctrl+Shift+M")
+
+
+def get_ocr_menu_ocr_hotkey() -> str:
+    legacy_manual_hotkey = _get_ocr_hotkey_value("manualOcrHotkey", "Ctrl+Shift+G")
+    return _get_ocr_hotkey_value("menuOcrHotkey", legacy_manual_hotkey)
 
 
 def get_ocr_gamepad_hotkeys_enabled() -> bool:
@@ -450,6 +459,7 @@ def get_ocr_gamepad_hotkeys_enabled() -> bool:
         _get_ocr_hotkey_value(key, "").strip()
         for key in (
             "manualOcrGamepad",
+            "menuOcrGamepad",
             "areaSelectOcrGamepad",
             "wholeWindowOcrGamepad",
             "globalPauseGamepad",
@@ -460,7 +470,16 @@ def get_ocr_gamepad_hotkeys_enabled() -> bool:
 def get_ocr_manual_ocr_gamepad() -> str:
     if not get_ocr_gamepad_hotkeys_enabled():
         return ""
+    if _get_ocr_value("menuOcrGamepad", None) is None:
+        return ""
     return _get_ocr_hotkey_value("manualOcrGamepad", "")
+
+
+def get_ocr_menu_ocr_gamepad() -> str:
+    if not get_ocr_gamepad_hotkeys_enabled():
+        return ""
+    legacy_manual_gamepad = _get_ocr_hotkey_value("manualOcrGamepad", "")
+    return _get_ocr_hotkey_value("menuOcrGamepad", legacy_manual_gamepad)
 
 
 def get_ocr_area_select_ocr_hotkey() -> str:

@@ -52,6 +52,8 @@ interface OcrStoredConfig {
   gamepadHotkeysEnabled?: boolean;
   manualOcrHotkey?: string;
   manualOcrGamepad?: string;
+  menuOcrHotkey?: string;
+  menuOcrGamepad?: string;
   areaSelectOcrHotkey?: string;
   areaSelectOcrGamepad?: string;
   wholeWindowOcrHotkey?: string;
@@ -93,6 +95,8 @@ interface OcrUiConfig {
   gamepadHotkeysEnabled: boolean;
   manualOcrHotkey: string;
   manualOcrGamepad: string;
+  menuOcrHotkey: string;
+  menuOcrGamepad: string;
   areaSelectOcrHotkey: string;
   areaSelectOcrGamepad: string;
   wholeWindowOcrHotkey: string;
@@ -159,12 +163,14 @@ interface OcrTabProps {
 
 type HotkeyConfigKey =
   | "manualOcrHotkey"
+  | "menuOcrHotkey"
   | "areaSelectOcrHotkey"
   | "wholeWindowOcrHotkey"
   | "globalPauseHotkey";
 
 type GamepadConfigKey =
   | "manualOcrGamepad"
+  | "menuOcrGamepad"
   | "areaSelectOcrGamepad"
   | "wholeWindowOcrGamepad"
   | "globalPauseGamepad";
@@ -684,11 +690,13 @@ function normalizeOcrConfig(
   const defaultStability = getDefaultStabilityOcr(platform);
   const scanRate = numericValue(value?.scanRate, 0.5);
   const comparison = {} as Record<ComparisonFieldKey, number>;
+  const hasSeparateMenuBinding = typeof value?.menuOcrHotkey === "string";
   const gamepadHotkeysEnabled =
     typeof value?.gamepadHotkeysEnabled === "boolean"
       ? value.gamepadHotkeysEnabled
       : [
           value?.manualOcrGamepad,
+          value?.menuOcrGamepad,
           value?.areaSelectOcrGamepad,
           value?.wholeWindowOcrGamepad,
           value?.globalPauseGamepad
@@ -735,11 +743,24 @@ function normalizeOcrConfig(
     ),
     gamepadHotkeysEnabled,
     manualOcrHotkey:
-      typeof value?.manualOcrHotkey === "string"
+      hasSeparateMenuBinding && typeof value?.manualOcrHotkey === "string"
+        ? value.manualOcrHotkey
+        : "Ctrl+Shift+M",
+    manualOcrGamepad:
+      hasSeparateMenuBinding && typeof value?.manualOcrGamepad === "string"
+        ? value.manualOcrGamepad
+        : "",
+    menuOcrHotkey: hasSeparateMenuBinding
+      ? value.menuOcrHotkey ?? "Ctrl+Shift+G"
+      : typeof value?.manualOcrHotkey === "string"
         ? value.manualOcrHotkey
         : "Ctrl+Shift+G",
-    manualOcrGamepad:
-      typeof value?.manualOcrGamepad === "string" ? value.manualOcrGamepad : "",
+    menuOcrGamepad:
+      typeof value?.menuOcrGamepad === "string"
+        ? value.menuOcrGamepad
+        : typeof value?.manualOcrGamepad === "string"
+          ? value.manualOcrGamepad
+          : "",
     areaSelectOcrHotkey:
       typeof value?.areaSelectOcrHotkey === "string"
         ? value.areaSelectOcrHotkey
@@ -807,6 +828,8 @@ function buildPersistedConfig(
     gamepadHotkeysEnabled: config.gamepadHotkeysEnabled,
     manualOcrHotkey: config.manualOcrHotkey,
     manualOcrGamepad: config.manualOcrGamepad,
+    menuOcrHotkey: config.menuOcrHotkey,
+    menuOcrGamepad: config.menuOcrGamepad,
     areaSelectOcrHotkey: config.areaSelectOcrHotkey,
     areaSelectOcrGamepad: config.areaSelectOcrGamepad,
     wholeWindowOcrHotkey: config.wholeWindowOcrHotkey,
@@ -949,6 +972,7 @@ const OCR_TOOLTIP_KEYS = {
   optimizeSecondScan: "ocr.tooltips.optimizeSecondScan",
   ocrScreenshots: "ocr.tooltips.ocrScreenshots",
   manualHotkey: "ocr.tooltips.manualHotkey",
+  menuHotkey: "ocr.tooltips.menuHotkey",
   areaSelectHotkey: "ocr.tooltips.areaSelectHotkey",
   wholeWindowHotkey: "ocr.tooltips.wholeWindowHotkey",
   pauseHotkey: "ocr.tooltips.pauseHotkey",
@@ -1841,6 +1865,10 @@ export function OCRTab({ active }: OcrTabProps) {
     sendIpc("ocr.manual-ocr");
   }, []);
 
+  const triggerMenuOcr = useCallback(() => {
+    sendIpc("ocr.menu-ocr");
+  }, []);
+
   const triggerWholeWindowOcr = useCallback(() => {
     sendIpc("ocr.whole-window-ocr");
   }, []);
@@ -1866,11 +1894,19 @@ export function OCRTab({ active }: OcrTabProps) {
   const hotkeyActions: HotkeyActionDefinition[] = [
     {
       id: "manual",
-      labelKey: "ocr.hotkeys.manualMenu",
+      labelKey: "ocr.hotkeys.manual",
       tooltip: ocrTooltips.manualHotkey,
       hotkeyKey: "manualOcrHotkey",
       gamepadKey: "manualOcrGamepad",
       trigger: triggerManualOcr
+    },
+    {
+      id: "menu",
+      labelKey: "ocr.hotkeys.menu",
+      tooltip: ocrTooltips.menuHotkey,
+      hotkeyKey: "menuOcrHotkey",
+      gamepadKey: "menuOcrGamepad",
+      trigger: triggerMenuOcr
     },
     {
       id: "area",
