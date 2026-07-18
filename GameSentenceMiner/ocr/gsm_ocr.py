@@ -317,6 +317,10 @@ class TwoPassOCRController:
         raw_text_string = str(raw_text if raw_text is not None else (text or ""))
         current_time = time or datetime.now()
 
+        if not manual and source == TextSource.OCR and _auto_region_suppression_reason(response_dict):
+            self._clear_pending()
+            return
+
         if came_from_ss:
             self._save_image(img)
             self._send_result(text, current_time, response_dict=response_dict, source=source)
@@ -1051,6 +1055,11 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         orig_text_list = [item for item in (orig_text or []) if item is not None]
         raw_text_string = str(raw_text if raw_text is not None else (text or ""))
         current_time = time or datetime.now()
+
+        if not manual and source == TextSource.OCR and _auto_region_suppression_reason(response_dict):
+            self._clear_v2_pending()
+            self._v2_last_box_trigger_coords = None
+            return
 
         if came_from_ss:
             self._save_image(img)
@@ -1810,6 +1819,32 @@ def _looks_like_detection_payload(response_dict: dict | None) -> bool:
     return isinstance(response_dict, dict) and isinstance(response_dict.get("boxes"), list)
 
 
+def _is_auto_region_discovery_payload(response_dict: dict | None) -> bool:
+    if not isinstance(response_dict, dict):
+        return False
+    pipeline = response_dict.get("pipeline")
+    auto_regions = pipeline.get("auto_regions") if isinstance(pipeline, dict) else None
+    return bool(auto_regions.get("discovery")) if isinstance(auto_regions, dict) else False
+
+
+def _auto_region_suppression_reason(response_dict: dict | None) -> str | None:
+    if not isinstance(response_dict, dict):
+        return None
+    pipeline = response_dict.get("pipeline")
+    auto_regions = pipeline.get("auto_regions") if isinstance(pipeline, dict) else None
+    if not isinstance(auto_regions, dict):
+        return None
+    reason = str(auto_regions.get("suppressed_reason") or "").strip()
+    return reason or None
+
+
+def _auto_region_thrashing_active() -> bool:
+    try:
+        return bool(ocr_runtime.get_auto_region_status().get("thrashing"))
+    except Exception:
+        return False
+
+
 def _iter_detection_coord_candidates(
     detection_boxes: list | None,
     response_dict: dict | None,
@@ -2026,6 +2061,7 @@ def _build_status_payload() -> dict[str, Any]:
         "scan_rate": get_ocr_scan_rate(),
         "force_stable": get_controller().force_stable,
         "manual": globals().get("manual", False),
+        "auto_regions": ocr_runtime.get_auto_region_status(),
     }
 
 
@@ -2062,6 +2098,11 @@ def request_clean_shutdown(reason: str = "unknown") -> None:
     done = True
     logger.info(f"OCR clean shutdown requested ({reason})")
     _get_hotkey_manager().clear()
+
+    try:
+        ocr_runtime.flush_auto_region_state()
+    except Exception as e:
+        logger.debug(f"Failed to flush auto-region state during shutdown: {e}")
 
     try:
         second_ocr_queue.put_nowait(None)
@@ -2209,6 +2250,14 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
             logger.info(f"IPC: Set force stable mode to {enabled}")
             if announce_ipc:
                 ocr_ipc.announce_force_stable_changed(enabled)
+
+        elif command == ocr_ipc.OCRCommand.RESET_AUTO_REGIONS.value:
+            status_data = ocr_runtime.reset_auto_region_state()
+            response["success"] = True
+            response["data"] = status_data
+            logger.info("IPC: Reset learned auto OCR regions")
+            if announce_ipc:
+                ocr_ipc.announce_status(_build_status_payload())
 
         elif command == ocr_ipc.OCRCommand.RELOAD_CONFIG.value:
             logger.info("IPC: Config reload requested")
@@ -2830,6 +2879,8 @@ class OCRProcessor:
         source=TextSource.OCR,
     ):
         ctrl = get_controller()
+        if source == TextSource.OCR and _auto_region_thrashing_active():
+            return
         detection_completion_crop = None
         should_mark_detection_completion = False
         detection_duplicate = False
@@ -2865,11 +2916,28 @@ class OCRProcessor:
                 apply_area_filters=(source == TextSource.OCR),
             )
 
+            # Thrashing may have been detected while this OCR2 request was in
+            # flight. Drop its output as well as preventing new automatic OCR2
+            # work; manual and secondary/menu hotkey OCR remain unaffected.
+            if source == TextSource.OCR and _auto_region_thrashing_active():
+                return
+
             # Area-select / ad-hoc OCR (screen cropper, whole-window, secondary)
             # passes ignore_previous_result: the user explicitly chose this region,
             # so always return text and never dedup against the last result.
             if ignore_previous_result:
                 is_duplicate = False
+            elif _is_auto_region_discovery_payload(response_dict):
+                # Discovery/healing frames OCR a much larger image than the
+                # learned-region scans. Their OCR2 block segmentation can
+                # therefore differ even when the final emitted sentence is
+                # unchanged, so compare the actual output text for this path.
+                is_duplicate = compare_ocr_results(
+                    ctrl.last_sent_result,
+                    text,
+                    threshold=ctrl.config.duplicate_threshold,
+                    settings=ctrl.config.compare_settings,
+                )
             elif ctrl.last_ocr2_result and orig_text:
                 is_duplicate = compare_ocr_results(
                     ctrl.last_ocr2_result,
@@ -3306,6 +3374,29 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
                 except Exception as e:
                     logger.debug(f"IPC: Failed to re-init OBS screenshot thread after base_scale change: {e}")
 
+            auto_region_keys = {
+                "autoConfigureAreas",
+                "ocr1",
+                "ocr2",
+                "advancedMode",
+                "_mode_switched",
+                "basic",
+                "advanced",
+            }
+            if any(key in changes for key in auto_region_keys):
+                try:
+                    obs_thread = getattr(ocr_runtime, "obs_screenshot_thread", None)
+                    if obs_thread and obs_thread.ocr_config and obs_thread.width and obs_thread.height:
+                        ocr_runtime.configure_auto_region_manager(
+                            obs_thread.current_scene,
+                            obs_thread.width,
+                            obs_thread.height,
+                            obs_thread.ocr_config,
+                        )
+                    logger.info("IPC: auto OCR area learning setting refreshed")
+                except Exception as e:
+                    logger.debug(f"IPC: Failed to refresh auto OCR area learning: {e}")
+
     if reload_area:
         try:
             from GameSentenceMiner.ocr.gsm_ocr_config import get_scene_ocr_config
@@ -3333,6 +3424,12 @@ def apply_ipc_config_reload(data: dict | None = None) -> None:
                     if new_scene_config and width and height:
                         new_scene_config.scale_to_custom_size(width, height)
                         obs_thread.ocr_config = new_scene_config
+                        ocr_runtime.configure_auto_region_manager(
+                            obs_thread.current_scene,
+                            width,
+                            height,
+                            new_scene_config,
+                        )
                     else:
                         # Dimensions not known yet -> fall back to full init.
                         obs_thread.init_config()
@@ -3466,6 +3563,9 @@ def process_task_queue():
                 response_dict,
                 source,
             ) = task
+            effective_source = source or TextSource.OCR
+            if effective_source == TextSource.OCR and _auto_region_thrashing_active():
+                continue
             get_second_ocr_processor().do_second_ocr(
                 ocr1_text,
                 stable_time,
@@ -3476,7 +3576,7 @@ def process_task_queue():
                 ignore_previous_result,
                 image_metadata,
                 response_dict,
-                source=source or TextSource.OCR,
+                source=effective_source,
             )
         except Exception as e:
             logger.exception(f"Error processing task: {e}")
@@ -3687,12 +3787,22 @@ def _run_configured_rectangles_ocr_once(*, is_secondary: bool) -> bool:
         return False
 
     current_ocr_config.scale_to_custom_size(img.width, img.height)
+    if not is_secondary:
+        effective_rectangles = ocr_runtime.get_effective_auto_capture_rectangles(
+            current_ocr_config,
+            img.width,
+            img.height,
+        )
+    else:
+        effective_rectangles = None
+    rectangle_source = effective_rectangles if effective_rectangles is not None else current_ocr_config.rectangles
     capture_rectangles = [
         rectangle
-        for rectangle in current_ocr_config.rectangles
+        for rectangle in rectangle_source
         if bool(rectangle.is_secondary) == is_secondary
         and not rectangle.is_excluded
         and not getattr(rectangle, "is_black_hole", False)
+        and not getattr(rectangle, "is_exclusive", False)
     ]
     if not capture_rectangles:
         logger.warning(f"{area_name.title()} OCR skipped: no configured rectangles.")

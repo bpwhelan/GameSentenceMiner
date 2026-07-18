@@ -11,10 +11,21 @@ os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")  # Suppress transformer
 
 from GameSentenceMiner.ocr.coordinate_math import scale_percentage_rectangle_to_even_pixels
 from GameSentenceMiner.ocr.composite_layout import CompositeLayout, pack_rectangles
-from GameSentenceMiner.ocr.gsm_ocr_config import set_dpi_awareness, get_scene_ocr_config
+from GameSentenceMiner.ocr.auto_regions import (
+    AutoRegionManager,
+    LineObservation,
+    NormalizedRect,
+    normalized_rectangles_from_config,
+)
+from GameSentenceMiner.ocr.gsm_ocr_config import (
+    get_auto_region_config_path,
+    get_scene_ocr_config,
+    set_dpi_awareness,
+)
 from GameSentenceMiner.util.gsm_utils import do_text_replacements, OCR_REPLACEMENTS_FILE
 from GameSentenceMiner.util.config.electron_config import (
     get_furigana_filter_sensitivity,
+    get_ocr_auto_configure_areas,
     get_ocr_base_scale,
     get_ocr_compact_boxes,
     get_ocr_compact_boxes_gap,
@@ -46,6 +57,7 @@ import time
 import collections
 import socket
 import socketserver
+from types import SimpleNamespace
 
 import asyncio
 import numpy as np
@@ -287,6 +299,9 @@ _callback_signature_keywords = frozenset()
 
 _callback_signature_has_kwargs = False
 _callback_signature_failed = False
+auto_region_manager = None
+auto_region_manager_lock = threading.RLock()
+SUPPORTED_AUTO_REGION_ENGINES = frozenset({"oneocr", "screenai"})
 
 
 def _safe_int(value, default=0):
@@ -457,6 +472,10 @@ def _build_pipeline_metadata(image_metadata, img_or_path, engine_name, is_second
         "source": meta.get("capture_source") or "unknown",
         "engine": str(engine_name or ""),
         "is_second_ocr": bool(is_second_ocr),
+        "auto_regions": {
+            "discovery": bool(meta.get("auto_region_discovery", False)),
+            "scene": meta.get("auto_region_scene"),
+        },
         "capture": {
             "original_size": _size_dict(capture_original_w, capture_original_h),
             "scaled_size": _size_dict(capture_scaled_w, capture_scaled_h),
@@ -581,6 +600,136 @@ def _extract_text_detection_payload(text, raw_response_dict, crop_coords, detect
 def clear_scaled_ocr_config_cache():
     with scaled_ocr_config_cache_lock:
         scaled_ocr_config_cache.clear()
+
+
+def configure_auto_region_manager(scene, width, height, ocr_config):
+    """Create the per-scene auto-region learner used by capture and filtering."""
+
+    global auto_region_manager
+    with auto_region_manager_lock:
+        if not get_ocr_auto_configure_areas():
+            if auto_region_manager is not None:
+                auto_region_manager.save()
+            auto_region_manager = None
+            return None
+
+        width = _safe_int(width)
+        height = _safe_int(height)
+        rectangles = list(getattr(ocr_config, "rectangles", []) or [])
+        primary_hints = normalized_rectangles_from_config(
+            rectangles,
+            width,
+            height,
+            lambda rect: (
+                not bool(getattr(rect, "is_excluded", False))
+                and not bool(getattr(rect, "is_secondary", False))
+                and not bool(getattr(rect, "is_exclusive", False))
+                and not bool(getattr(rect, "is_black_hole", False))
+            ),
+        )
+        secondary_regions = normalized_rectangles_from_config(
+            rectangles,
+            width,
+            height,
+            lambda rect: bool(getattr(rect, "is_secondary", False)) and not bool(getattr(rect, "is_excluded", False)),
+        )
+        black_holes = normalized_rectangles_from_config(
+            rectangles,
+            width,
+            height,
+            lambda rect: bool(getattr(rect, "is_black_hole", False)) and not bool(getattr(rect, "is_excluded", False)),
+        )
+        try:
+            active_engine = engine_instances[engine_index]
+        except (IndexError, NameError, TypeError):
+            active_engine = None
+        engine_name = str(getattr(active_engine, "name", None) or get_ocr_ocr1() or "").strip().lower()
+        supported = engine_name in SUPPORTED_AUTO_REGION_ENGINES
+        state_scene = str(getattr(ocr_config, "scene", None) or scene or "Default")
+        auto_region_manager = AutoRegionManager(
+            scene=state_scene,
+            language=get_ocr_language(),
+            state_path=get_auto_region_config_path(use_window_as_config=True, window=state_scene),
+            aspect_ratio=(width / height) if width > 0 and height > 0 else None,
+            primary_hints=primary_hints,
+            secondary_regions=secondary_regions,
+            black_holes=black_holes,
+            supported=supported,
+        )
+        if not supported:
+            logger.warning(
+                f"Experimental auto OCR areas require OneOCR or ScreenAI as OCR1; current engine is {engine_name or 'unknown'}."
+            )
+        return auto_region_manager
+
+
+def get_auto_region_status():
+    if not get_ocr_auto_configure_areas():
+        return {
+            "enabled": False,
+            "supported": False,
+            "phase": "disabled",
+            "learned_region_count": 0,
+            "confidence": 0.0,
+            "recommendations": [],
+        }
+    with auto_region_manager_lock:
+        if auto_region_manager is None:
+            return {
+                "enabled": True,
+                "supported": True,
+                "phase": "learning",
+                "learned_region_count": 0,
+                "confidence": 0.0,
+                "recommendations": [],
+            }
+        return auto_region_manager.status()
+
+
+def reset_auto_region_state():
+    with auto_region_manager_lock:
+        if auto_region_manager is not None:
+            auto_region_manager.reset()
+            return auto_region_manager.status()
+    return get_auto_region_status()
+
+
+def flush_auto_region_state():
+    with auto_region_manager_lock:
+        if auto_region_manager is not None:
+            auto_region_manager.save()
+
+
+def _auto_capture_rectangle(rect: NormalizedRect, width: int, height: int):
+    return SimpleNamespace(
+        coordinates=[
+            int(round(rect.x * width)),
+            int(round(rect.y * height)),
+            max(1, int(round(rect.width * width))),
+            max(1, int(round(rect.height * height))),
+        ],
+        is_excluded=False,
+        is_secondary=False,
+        is_exclusive=False,
+        is_black_hole=False,
+    )
+
+
+def get_effective_auto_capture_rectangles(ocr_config, width: int, height: int):
+    """Return learned/hinted primary crops plus explicit exclusive/black-hole boxes."""
+
+    with auto_region_manager_lock:
+        manager = auto_region_manager
+        if manager is None or not manager.supported:
+            return None
+        rectangles = [_auto_capture_rectangle(rect, width, height) for rect in manager.effective_regions]
+
+    for rectangle in list(getattr(ocr_config, "rectangles", []) or []):
+        if bool(getattr(rectangle, "is_excluded", False)) or bool(getattr(rectangle, "is_secondary", False)):
+            continue
+        if bool(getattr(rectangle, "is_exclusive", False)) or _is_black_hole_rectangle(rectangle):
+            rectangles.append(rectangle)
+    return rectangles
 
 
 def _build_scaled_ocr_cache_key(ocr_config, width, height):
@@ -2844,6 +2993,7 @@ class OBSScreenshotThread(threading.Thread):
             logger.error("No OCR config found for the current scene.")
             return False
         self.ocr_config.scale_to_custom_size(self.width, self.height)
+        configure_auto_region_manager(self.current_scene, self.width, self.height, self.ocr_config)
         self.last_source_refresh_ts = 0.0
         return True
 
@@ -2901,10 +3051,35 @@ class OBSScreenshotThread(threading.Thread):
                     continue
 
                 capture_width, capture_height = img.size
-                img, crop_offset = apply_ocr_config_to_image(img, self.ocr_config, return_full_size=False)
+                discovery_frame = False
+                auto_region_scene = None
+                with auto_region_manager_lock:
+                    manager = auto_region_manager
+                    if manager is not None:
+                        auto_region_scene = manager.scene
+                        if manager.should_discover():
+                            discovery_frame = True
+                            manager.mark_discovery()
+
+                effective_rectangles = get_effective_auto_capture_rectangles(
+                    self.ocr_config, capture_width, capture_height
+                )
+                if discovery_frame:
+                    img = apply_ocr_exclusion_masks(img, self.ocr_config)
+                    crop_offset = CompositeLayout((0, 0))
+                else:
+                    img, crop_offset = apply_ocr_config_to_image(
+                        img,
+                        self.ocr_config,
+                        rectangles=effective_rectangles,
+                        return_full_size=False,
+                    )
                 primary_rectangles = []
-                if self.ocr_config and getattr(self.ocr_config, "rectangles", None):
-                    for rect in self.ocr_config.rectangles:
+                metadata_rectangles = effective_rectangles
+                if metadata_rectangles is None:
+                    metadata_rectangles = getattr(self.ocr_config, "rectangles", []) or []
+                if metadata_rectangles:
+                    for rect in metadata_rectangles:
                         if rect.is_excluded or rect.is_secondary or _is_black_hole_rectangle(rect):
                             continue
                         primary_rectangles.append(list(rect.coordinates))
@@ -2915,6 +3090,8 @@ class OBSScreenshotThread(threading.Thread):
                     "ocr_area_crop_offset": CompositeLayout.from_metadata(crop_offset).to_metadata(),
                     "ocr_area_rectangles": primary_rectangles,
                     "capture_preprocess_mode": capture_preprocess_mode,
+                    "auto_region_discovery": discovery_frame,
+                    "auto_region_scene": auto_region_scene,
                 }
 
                 if img is not None:
@@ -2972,6 +3149,31 @@ def _is_ocr_capture_rectangle(rectangle, is_secondary=False):
     return not bool(getattr(rectangle, "is_excluded", False)) and bool(
         getattr(rectangle, "is_secondary", False)
     ) == bool(is_secondary)
+
+
+def apply_ocr_exclusion_masks(img, ocr_config):
+    """Mask explicit exclusion zones while retaining the full source frame."""
+
+    draw = None
+    fill = None
+    for rectangle in list(getattr(ocr_config, "rectangles", []) or []):
+        if not bool(getattr(rectangle, "is_excluded", False)):
+            continue
+        coords = list(getattr(rectangle, "coordinates", []) or [])
+        if len(coords) < 4:
+            continue
+        try:
+            if all(0.0 <= float(value) <= 1.0 for value in coords[:4]):
+                left, top, width, height = scale_percentage_rectangle_to_even_pixels(coords[:4], img.width, img.height)
+            else:
+                left, top, width, height = [int(round(float(value))) for value in coords[:4]]
+        except (TypeError, ValueError):
+            continue
+        if draw is None:
+            draw = ImageDraw.Draw(img)
+            fill = _get_rectangle_mask_fill(img)
+        draw.rectangle((left, top, left + width, top + height), fill=fill)
+    return img
 
 
 def apply_ocr_config_to_image(
@@ -3764,6 +3966,72 @@ def apply_exclusive_text_detection_filter(
     return filtered_payload, True
 
 
+def apply_auto_ocr_region_filter(
+    text,
+    coords,
+    crop_coords_list,
+    crop_coords,
+    raw_response_dict,
+    *,
+    crop_offset,
+    original_width,
+    original_height,
+    frame_id,
+    discovery,
+    expected_scene=None,
+):
+    """Learn from and filter OCR1 lines using source-space auto regions."""
+
+    with auto_region_manager_lock:
+        manager = auto_region_manager
+        if manager is None or not manager.supported:
+            return text, coords, crop_coords_list, crop_coords, raw_response_dict, None
+        if expected_scene and str(expected_scene) != manager.scene:
+            return "", [], [], None, None, None
+
+        observations = []
+        observation_to_crop_index = []
+        for crop_index, entry in enumerate(crop_coords_list or []):
+            original_box = _coord_entry_to_original_box(entry, crop_offset, crop_padding=5)
+            if original_box is None or original_width <= 0 or original_height <= 0:
+                continue
+            x1, y1, x2, y2 = original_box
+            normalized = NormalizedRect.from_xyxy(
+                x1 / original_width,
+                y1 / original_height,
+                x2 / original_width,
+                y2 / original_height,
+            )
+            line_text = str(entry[4]) if isinstance(entry, (list, tuple)) and len(entry) >= 5 else ""
+            observations.append(LineObservation(line_text, normalized))
+            observation_to_crop_index.append(crop_index)
+
+        decision = manager.observe(
+            observations,
+            frame_id=frame_id,
+            discovery=bool(discovery),
+        )
+        manager.save_if_due()
+        selected_indexes = [
+            observation_to_crop_index[index]
+            for index in decision.accepted_indexes
+            if 0 <= index < len(observation_to_crop_index)
+        ]
+
+    if decision.vetoed or not selected_indexes:
+        return "", [], [], None, None, decision
+
+    filtered_crop_coords_list = [
+        crop_coords_list[index] for index in selected_indexes if 0 <= index < len(crop_coords_list or [])
+    ]
+    filtered_coords = coords
+    if isinstance(coords, list) and coords:
+        filtered_coords = [coords[index] for index in selected_indexes if 0 <= index < len(coords)]
+    filtered_text = _build_text_from_selected_ocr_lines(text, coords, crop_coords_list, selected_indexes)
+    filtered_crop_coords = _recalculate_crop_coords(filtered_crop_coords_list)
+    return filtered_text, filtered_coords, filtered_crop_coords_list, filtered_crop_coords, None, decision
+
+
 def dict_to_ocr_result(data):
     if not data:
         return None
@@ -4015,6 +4283,33 @@ def process_and_write_results(
                     original_height=original_size.get("height"),
                 )
             )
+        if apply_area_filters and not is_second_ocr and source == "ocr" and get_ocr_auto_configure_areas():
+            frame_id = ocr_start_time.isoformat() if hasattr(ocr_start_time, "isoformat") else time.monotonic_ns()
+            (
+                text,
+                coords,
+                crop_coords_list,
+                crop_coords,
+                raw_response_dict,
+                auto_decision,
+            ) = apply_auto_ocr_region_filter(
+                text,
+                coords,
+                crop_coords_list,
+                crop_coords,
+                raw_response_dict,
+                crop_offset=current_crop_offset,
+                original_width=_safe_int(original_size.get("width")),
+                original_height=_safe_int(original_size.get("height")),
+                frame_id=frame_id,
+                discovery=pipeline_metadata["auto_regions"]["discovery"],
+                expected_scene=pipeline_metadata["auto_regions"]["scene"],
+            )
+            if auto_decision is not None:
+                pipeline_metadata["auto_regions"].update(get_auto_region_status())
+                pipeline_metadata["auto_regions"]["accepted_line_count"] = len(auto_decision.accepted_indexes)
+                if auto_decision.suppressed_reason:
+                    pipeline_metadata["auto_regions"]["suppressed_reason"] = auto_decision.suppressed_reason
 
         if isinstance(text, list):
             for i, line in enumerate(text):

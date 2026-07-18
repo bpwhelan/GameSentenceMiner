@@ -592,6 +592,31 @@ class TestTwoPassDifferentEngines:
 
     CFG = TwoPassConfig(two_pass_enabled=True, ocr1_engine="oneocr", ocr2_engine="glens")
 
+    def test_auto_region_suppression_discards_pending_text(self, sent_texts):
+        second_ocr_calls = []
+        ctrl = _make_controller(self.CFG, sent_texts, second_ocr_calls=second_ocr_calls)
+        text = "静止したメニューを誤認識した長いテキスト"
+
+        ctrl.handle_ocr_result(text, [text], _make_time(), _dummy_img())
+        ctrl.handle_ocr_result(
+            "",
+            [],
+            _make_time(1),
+            _dummy_img(),
+            response_dict={
+                "pipeline": {
+                    "auto_regions": {
+                        "suppressed_reason": "unstable_large_text",
+                    }
+                }
+            },
+        )
+        ctrl.handle_ocr_result("", [], _make_time(2), _dummy_img())
+
+        assert second_ocr_calls == []
+        assert sent_texts == []
+        assert ctrl._pending is None
+
     # -- Trigger A: text disappears --
 
     @pytest.mark.parametrize("lang", ["ja", "zh", "ko", "en", "ru", "ar", "th"])

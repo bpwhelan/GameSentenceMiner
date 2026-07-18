@@ -138,6 +138,34 @@ def test_v2_text_stability_runs_second_ocr_before_text_disappears():
     assert [item["text"] for item in sent] == ["refined"]
 
 
+def test_v2_auto_region_suppression_clears_pending_without_running_ocr2():
+    sent: list[dict] = []
+    calls: list[dict] = []
+    ctrl = _make_controller(sent, calls, ["must-not-run"])
+    text = "静止したメニューを誤認識した長いテキスト"
+    img = _image_with_text(text)
+
+    ctrl.handle_ocr_result(text, [text], _make_time(0), img)
+    ctrl.handle_ocr_result(
+        "",
+        [],
+        _make_time(1),
+        img,
+        response_dict={
+            "pipeline": {
+                "auto_regions": {
+                    "suppressed_reason": "unstable_large_text",
+                }
+            }
+        },
+    )
+    ctrl.handle_ocr_result("", [], _make_time(2), img)
+
+    assert calls == []
+    assert sent == []
+    assert ctrl._v2_pending_text is None
+
+
 def test_v2_text_appears_instantly_runs_second_ocr_on_first_text_frame():
     sent: list[dict] = []
     calls: list[dict] = []

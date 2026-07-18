@@ -70,6 +70,7 @@ interface OcrStoredConfig {
   keep_newline_menu?: boolean;
   keep_newline_area_select?: boolean;
   obs_capture_preprocess?: string;
+  autoConfigureAreas?: boolean;
   compactBoxes?: boolean;
   compactBoxesGap?: number;
   ignore_ocr_run_1_text?: boolean;
@@ -111,6 +112,7 @@ interface OcrUiConfig {
   keepNewlineMenu: boolean;
   keepNewlineAreaSelect: boolean;
   obsCapturePreprocess: string;
+  autoConfigureAreas: boolean;
   compactBoxes: boolean;
   compactBoxesGap: number;
   ignoreOcrRun1Text: boolean;
@@ -141,6 +143,26 @@ interface OcrStatusPayload {
   manual?: boolean;
   current_engine?: string;
   scan_rate?: number;
+  auto_regions?: AutoRegionStatus;
+}
+
+interface AutoRegionStatus {
+  enabled?: boolean;
+  supported?: boolean;
+  phase?: "disabled" | "unsupported" | "learning" | "active";
+  learned_region_count?: number;
+  confidence?: number;
+  recommendations?: AutoRegionRecommendation[];
+}
+
+type AutoRegionRecommendationKind = "secondary" | "black_hole";
+
+interface AutoRegionRecommendation {
+  id: string;
+  kind: AutoRegionRecommendationKind;
+  reason: "dense_text" | "recurring_ui" | "unstable_large_text";
+  confidence?: number;
+  line_count?: number;
 }
 
 interface NormalizedOcrStatus {
@@ -797,6 +819,7 @@ function normalizeOcrConfig(
       typeof value?.obs_capture_preprocess === "string"
         ? value.obs_capture_preprocess
         : "none",
+    autoConfigureAreas: value?.autoConfigureAreas === true,
     compactBoxes: value?.compactBoxes === true,
     compactBoxesGap: numericValue(value?.compactBoxesGap, 12),
     ignoreOcrRun1Text: value?.ignore_ocr_run_1_text === true,
@@ -852,6 +875,7 @@ function buildPersistedConfig(
     keep_newline_menu: config.keepNewlineMenu,
     keep_newline_area_select: config.keepNewlineAreaSelect,
     obs_capture_preprocess: config.obsCapturePreprocess,
+    autoConfigureAreas: config.autoConfigureAreas,
     compactBoxes: config.compactBoxes,
     compactBoxesGap: config.compactBoxesGap,
     ignore_ocr_run_1_text: config.ignoreOcrRun1Text,
@@ -1050,6 +1074,15 @@ export function OCRTab({ active }: OcrTabProps) {
   const [paused, setPaused] = useState(false);
   const [runtimeMessage, setRuntimeMessage] = useState("Idle");
   const [runtimeEngine, setRuntimeEngine] = useState("");
+  const [autoRegionStatus, setAutoRegionStatus] = useState<AutoRegionStatus>({
+    enabled: false,
+    phase: "disabled",
+    learned_region_count: 0,
+    confidence: 0
+  });
+  const [dismissedRecommendationIds, setDismissedRecommendationIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [debugExpanded, setDebugExpanded] = useState(false);
   const [installDependency, setInstallDependency] = useState(
@@ -1081,6 +1114,10 @@ export function OCRTab({ active }: OcrTabProps) {
 
   const configuredAreaCount = activeSceneAreaConfig?.rectangles?.length ?? 0;
   const hasConfiguredAreas = configuredAreaCount > 0;
+  const learnedAreaCount = autoRegionStatus.learned_region_count ?? 0;
+  const visibleAreaRecommendations = (autoRegionStatus.recommendations ?? []).filter(
+    (recommendation) => !dismissedRecommendationIds.has(recommendation.id)
+  );
   const effectiveScanRate = config.advancedMode
     ? config.advancedScanRate
     : config.basicScanRate;
@@ -1088,6 +1125,15 @@ export function OCRTab({ active }: OcrTabProps) {
   const effectiveStabilityEngine = config.advancedMode
     ? config.stabilityOcr
     : getDefaultStabilityOcr(platform);
+  const effectiveFirstPassEngine =
+    config.advancedMode && !config.twoPassOCR
+      ? effectiveMainEngine
+      : effectiveStabilityEngine;
+  const autoAreaEngineSupported = ["oneocr", "screenai"].includes(
+    effectiveFirstPassEngine.toLowerCase()
+  );
+  const hasAreaSetup =
+    hasConfiguredAreas || (config.autoConfigureAreas && autoAreaEngineSupported);
   const engineFlowLabel =
     config.advancedMode && !config.twoPassOCR
       ? getEngineLabel(effectiveMainEngine)
@@ -1099,7 +1145,7 @@ export function OCRTab({ active }: OcrTabProps) {
     ? paused
       ? "paused"
       : "running"
-    : hasConfiguredAreas
+    : hasAreaSetup
       ? "ready"
       : "warning";
 
@@ -1107,16 +1153,18 @@ export function OCRTab({ active }: OcrTabProps) {
     ? paused
       ? t("ocr.footer.paused")
       : t("ocr.footer.running")
-    : hasConfiguredAreas
+    : hasAreaSetup
       ? t("ocr.footer.ready")
       : t("ocr.footer.areasRecommendedLabel");
 
   const footerSummary = runningState.isRunning
     ? runtimeMessage
-    : hasConfiguredAreas
+    : hasAreaSetup
       ? (configuredAreaCount === 1
           ? t("ocr.sceneAndAreas.areaCount", { count: String(configuredAreaCount) })
-          : t("ocr.sceneAndAreas.areaCountPlural", { count: String(configuredAreaCount) }))
+          : config.autoConfigureAreas
+            ? t("ocr.sceneAndAreas.autoSummary", { count: String(learnedAreaCount) })
+            : t("ocr.sceneAndAreas.areaCountPlural", { count: String(configuredAreaCount) }))
       : t("ocr.footer.noAreasForScene", { scene: selectedScene?.name ?? t("ocr.footer.noSceneSelected") });
 
   const sceneSummary = selectedScene?.name ?? t("ocr.footer.noSceneSelected");
@@ -1652,8 +1700,12 @@ export function OCRTab({ active }: OcrTabProps) {
     });
 
     const offStatus = onIpc("ocr-ipc-status", (_event, payload) => {
+      const rawStatus = (payload ?? {}) as OcrStatusPayload;
+      if (rawStatus.auto_regions) {
+        setAutoRegionStatus(rawStatus.auto_regions);
+      }
       const status = normalizeOcrStatusPayload(
-        (payload ?? {}) as OcrStatusPayload,
+        rawStatus,
         effectiveScanRate
       );
       if (lastOcrStatusSignatureRef.current === status.signature) {
@@ -1707,6 +1759,27 @@ export function OCRTab({ active }: OcrTabProps) {
       appendTerminalLine("\x1b[36mConfiguration reloaded\x1b[0m");
     });
 
+    const offAutoRegionsReset = onIpc("ocr-auto-regions-reset", (_event, payload) => {
+      const result = (payload ?? {}) as { success?: boolean; message?: string };
+      if (result.success) {
+        setAutoRegionStatus((current) => ({
+          ...current,
+          enabled: configRef.current.autoConfigureAreas,
+          phase: configRef.current.autoConfigureAreas ? "learning" : "disabled",
+          learned_region_count: 0,
+          confidence: 0,
+          recommendations: []
+        }));
+        setDismissedRecommendationIds(new Set());
+        setNotice({ type: "success", message: t("ocr.sceneAndAreas.autoResetDone") });
+      } else {
+        setNotice({
+          type: "error",
+          message: result.message ?? t("ocr.sceneAndAreas.autoResetFailed")
+        });
+      }
+    });
+
     const offForceStable = onIpc(
       "ocr-ipc-force-stable-changed",
       (_event, payload) => {
@@ -1731,9 +1804,10 @@ export function OCRTab({ active }: OcrTabProps) {
       offStatus();
       offError();
       offConfigReloaded();
+      offAutoRegionsReset();
       offForceStable();
     };
-  }, [appendTerminalLine, effectiveScanRate, refreshRunningState]);
+  }, [appendTerminalLine, effectiveScanRate, refreshRunningState, t]);
 
   const setComparisonValue = useCallback(
     (key: ComparisonFieldKey, value: number) => {
@@ -1815,6 +1889,22 @@ export function OCRTab({ active }: OcrTabProps) {
     appendTerminalLine("\x1b[36mOpening OCR area selector...\x1b[0m");
     sendIpc("ocr.run-screen-selector");
   }, [appendTerminalLine]);
+
+  const openRecommendedAreaSelector = useCallback(
+    (kind: AutoRegionRecommendationKind) => {
+      appendTerminalLine("\x1b[36mOpening OCR area selector...\x1b[0m");
+      sendIpc("ocr.run-screen-selector", { drawMode: kind });
+    },
+    [appendTerminalLine]
+  );
+
+  const dismissAreaRecommendation = useCallback((id: string) => {
+    setDismissedRecommendationIds((current) => {
+      const next = new Set(current);
+      next.add(id);
+      return next;
+    });
+  }, []);
 
   const startOcr = useCallback(
     async (manual: boolean) => {
@@ -1958,9 +2048,11 @@ export function OCRTab({ active }: OcrTabProps) {
               <div className="ocr-card-header-row">
                 <h2>{t("ocr.sceneAndAreas.title")}</h2>
                 <span
-                  className={`ocr-area-badge ${hasConfiguredAreas ? "ocr-area-badge--ok" : "ocr-area-badge--empty"}`}
+                  className={`ocr-area-badge ${hasAreaSetup ? "ocr-area-badge--ok" : "ocr-area-badge--empty"}`}
                 >
-                  {configuredAreaCount === 1
+                  {config.autoConfigureAreas
+                    ? t("ocr.sceneAndAreas.autoBadge", { count: String(learnedAreaCount) })
+                    : configuredAreaCount === 1
                     ? t("ocr.sceneAndAreas.areaCount", { count: String(configuredAreaCount) })
                     : t("ocr.sceneAndAreas.areaCountPlural", { count: String(configuredAreaCount) })}
                 </span>
@@ -2049,6 +2141,103 @@ export function OCRTab({ active }: OcrTabProps) {
                       📖
                     </button>
                   </Tip>
+                </div>
+                <div className="ocr-auto-area-panel">
+                  <label className="ocr-auto-area-toggle" htmlFor="ocr-auto-configure-areas">
+                    <input
+                      id="ocr-auto-configure-areas"
+                      type="checkbox"
+                      checked={config.autoConfigureAreas}
+                      onChange={(event) => {
+                        const enabled = event.target.checked;
+                        setConfig((current) => ({
+                          ...current,
+                          autoConfigureAreas: enabled
+                        }));
+                        setAutoRegionStatus((current) => ({
+                          ...current,
+                          enabled,
+                          phase: enabled ? "learning" : "disabled",
+                          recommendations: []
+                        }));
+                      }}
+                    />
+                    <span>{t("ocr.sceneAndAreas.autoConfigureLabel")}</span>
+                  </label>
+                  <p>{t("ocr.sceneAndAreas.autoConfigureDescription")}</p>
+                  {config.autoConfigureAreas ? (
+                    <>
+                      <div className="ocr-auto-area-status" role="status" aria-live="polite">
+                        <span>
+                          {!autoAreaEngineSupported || autoRegionStatus.phase === "unsupported"
+                            ? t("ocr.sceneAndAreas.autoUnsupported")
+                            : autoRegionStatus.phase === "active"
+                              ? t("ocr.sceneAndAreas.autoActiveStatus", {
+                                  count: String(learnedAreaCount),
+                                  confidence: String(Math.round((autoRegionStatus.confidence ?? 0) * 100))
+                                })
+                              : t("ocr.sceneAndAreas.autoLearningStatus", {
+                                  count: String(learnedAreaCount)
+                                })}
+                        </span>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => sendIpc("ocr.reset-auto-regions")}
+                        >
+                          {t("ocr.sceneAndAreas.autoReset")}
+                        </button>
+                      </div>
+                      {visibleAreaRecommendations.map((recommendation) => {
+                        const isLore = recommendation.kind === "secondary";
+                        return (
+                          <div
+                            className={`ocr-area-recommendation ocr-area-recommendation--${recommendation.kind}`}
+                            role="alert"
+                            key={recommendation.id}
+                          >
+                            <div className="ocr-area-recommendation-copy">
+                              <strong>
+                                {t(
+                                  isLore
+                                    ? "ocr.sceneAndAreas.loreRecommendationTitle"
+                                    : "ocr.sceneAndAreas.menuRecommendationTitle"
+                                )}
+                              </strong>
+                              <p>
+                                {t(
+                                  isLore
+                                    ? "ocr.sceneAndAreas.loreRecommendationDescription"
+                                    : recommendation.reason === "unstable_large_text"
+                                      ? "ocr.sceneAndAreas.unstableMenuRecommendationDescription"
+                                      : "ocr.sceneAndAreas.menuRecommendationDescription"
+                                )}
+                              </p>
+                            </div>
+                            <div className="ocr-area-recommendation-actions">
+                              <button
+                                type="button"
+                                onClick={() => openRecommendedAreaSelector(recommendation.kind)}
+                              >
+                                {t(
+                                  isLore
+                                    ? "ocr.sceneAndAreas.selectPurpleArea"
+                                    : "ocr.sceneAndAreas.selectBlackHoleArea"
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                className="secondary"
+                                onClick={() => dismissAreaRecommendation(recommendation.id)}
+                              >
+                                {t("ocr.sceneAndAreas.dismissRecommendation")}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  ) : null}
                 </div>
               </div>
             </section>
@@ -3009,7 +3198,7 @@ export function OCRTab({ active }: OcrTabProps) {
                 <button
                   type="button"
                   title={
-                    hasConfiguredAreas
+                    hasAreaSetup
                       ? ocrTooltips.startAuto
                       : t("ocr.footer.areasRecommended", {
                           mode: t("ocr.footer.modeAuto")
@@ -3023,7 +3212,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   type="button"
                   className="secondary"
                   title={
-                    hasConfiguredAreas
+                    hasAreaSetup
                       ? ocrTooltips.startManual
                       : t("ocr.footer.areasRecommended", {
                           mode: t("ocr.footer.modeManual")

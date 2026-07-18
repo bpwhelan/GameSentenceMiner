@@ -60,6 +60,14 @@ LIVE_AREA_SAVED_MARKER = "GSM_AREA_SAVED"
 OBS_SELECTOR_CAPTURE_RETRY_COUNT = 1
 OBS_SELECTOR_SCREENSHOT_RETRY_COUNT = 3
 OBS_SELECTOR_SCREENSHOT_RETRY_DELAY_SECONDS = 1.0
+AREA_SELECTOR_DRAW_MODES = frozenset({"normal", "exclusion", "secondary", "exclusive", "black_hole"})
+
+
+def normalize_initial_draw_mode(mode, *, primary_only=False):
+    normalized = str(mode or "normal").strip().lower()
+    if primary_only or normalized not in AREA_SELECTOR_DRAW_MODES:
+        return "normal"
+    return normalized
 
 
 def describe_obs_source_selection(sources, best_source):
@@ -119,13 +127,19 @@ class SelectorToolbar(QWidget):
             self.mode_buttons[mode] = btn
             return btn
 
-        normal_btn = add_mode("🟢 Normal", "normal")
-        normal_btn.setChecked(True)
+        add_mode("🟢 Normal", "normal")
         if not sel._primary_only_mode():
             add_mode("🟠 Exclusion", "exclusion")
             add_mode("🟣 Secondary", "secondary")
             add_mode("🔷 Exclusive", "exclusive")
             add_mode("⬛ Black Hole", "black_hole")
+
+        initial_mode = normalize_initial_draw_mode(
+            sel.initial_draw_mode,
+            primary_only=sel._primary_only_mode(),
+        )
+        self.mode_buttons[initial_mode].setChecked(True)
+        sel.set_draw_mode(initial_mode)
 
         layout.addWidget(self._separator())
 
@@ -192,6 +206,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         monitor_index=None,
         overlay_config_mode=False,
         live_mode=False,
+        initial_draw_mode="normal",
     ):
         super().__init__()
         logger.debug("Initializing OWOCRAreaSelectorWidget...")
@@ -212,6 +227,10 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.target_monitor_index = monitor_index
         self.overlay_config_mode = overlay_config_mode
         self.live_mode = live_mode
+        self.initial_draw_mode = normalize_initial_draw_mode(
+            initial_draw_mode,
+            primary_only=self._primary_only_mode(),
+        )
         self.quit_app_on_close = False
 
         self.scale_factor_w = 1.0
@@ -228,6 +247,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.bounding_box = {}
         self.bounding_box_original = None
         self.rectangles = []
+        self.learned_rectangles = []
         self.monitors = []
         self.reference_screen_geometry = None
 
@@ -258,6 +278,9 @@ class OWOCRAreaSelectorWidget(QWidget):
         # Periodic OBS screenshot refresh so the background tracks the game.
         self.auto_refresh_timer = QTimer()
         self.auto_refresh_timer.timeout.connect(self.refresh_screenshot)
+
+        self.learned_refresh_timer = QTimer()
+        self.learned_refresh_timer.timeout.connect(self._load_learned_rectangles)
 
         self.long_press_timer = QTimer()
         self.long_press_timer.timeout.connect(self._show_save_menu)
@@ -327,6 +350,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                 else:
                     logger.info("Loading existing rectangles...")
                     self._load_existing_rectangles()
+                    self._load_learned_rectangles()
 
             # Convert PIL Image to QPixmap
             logger.info("Converting PIL Image to QPixmap...")
@@ -752,6 +776,52 @@ class OWOCRAreaSelectorWidget(QWidget):
         except Exception as e:
             logger.error(f"Error loading config: {e}")
 
+    def _load_learned_rectangles(self):
+        """Load read-only normalized rectangles learned by experimental auto-area OCR."""
+        if self._primary_only_mode() or not self.screenshot_img:
+            return
+
+        config_path = get_scene_ocr_config_path(self.use_window_as_config, self.window_name)
+        state_path = f"{os.path.splitext(config_path)[0]}_auto_regions.json"
+        try:
+            with open(state_path, "r", encoding="utf-8") as file:
+                state = json.load(file)
+            source_width = max(1, int(self.target_window_geometry.get("width", 1)))
+            source_height = max(1, int(self.target_window_geometry.get("height", 1)))
+            current_aspect = source_width / source_height
+            stored_aspect = float(state.get("aspect_ratio", current_aspect))
+            if abs(stored_aspect - current_aspect) / current_aspect > 0.05:
+                learned = []
+            else:
+                source_left = int(self.target_window_geometry.get("left", 0))
+                source_top = int(self.target_window_geometry.get("top", 0))
+                capture_left = int(self.bounding_box_original.get("left", 0))
+                capture_top = int(self.bounding_box_original.get("top", 0))
+                learned = []
+                for region in state.get("regions", []):
+                    x, y, width, height = map(float, region["rect"])
+                    learned.append(
+                        {
+                            "x": int((source_left + x * source_width - capture_left) / self.scale_factor_w),
+                            "y": int((source_top + y * source_height - capture_top) / self.scale_factor_h),
+                            "w": int(width * source_width / self.scale_factor_w),
+                            "h": int(height * source_height / self.scale_factor_h),
+                            "confidence": float(region.get("confidence", 0.0)),
+                        }
+                    )
+        except FileNotFoundError:
+            learned = []
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as e:
+            logger.debug(f"Ignoring invalid learned OCR-area state: {e}")
+            learned = []
+        except OSError as e:
+            logger.debug(f"Could not read learned OCR-area state: {e}")
+            return
+
+        if learned != self.learned_rectangles:
+            self.learned_rectangles = learned
+            self.update()
+
     def _resolve_monitor_geometry_for_index(self, monitor_index):
         try:
             resolved_index = int(monitor_index or 0)
@@ -1025,6 +1095,8 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.toolbar.reposition()
         self.toolbar.show()
         self.toolbar.raise_()
+        if not self._primary_only_mode():
+            self.learned_refresh_timer.start(2000)
 
     def _content_offset_y(self):
         """Vertical space reserved for the top toolbar so it never covers the image."""
@@ -1116,6 +1188,10 @@ class OWOCRAreaSelectorWidget(QWidget):
             img_rect.height() - 2,
         )
 
+        # Learned regions are a read-only preview layer and never enter hit testing or saves.
+        for rect in self.learned_rectangles:
+            self._draw_learned_rectangle(painter, rect)
+
         # Draw existing rectangles
         for rect in self.rectangles:
             self._draw_rectangle(painter, rect)
@@ -1181,6 +1257,26 @@ class OWOCRAreaSelectorWidget(QWidget):
         painter.drawRect(wx, wy, ww, wh)
 
         # Restore painter state
+        painter.restore()
+
+    def _draw_learned_rectangle(self, painter, rect):
+        painter.save()
+        color = QColor(80, 170, 255)
+        painter.setPen(QPen(color, 3, Qt.PenStyle.DashLine))
+        painter.setBrush(QBrush(QColor(color.red(), color.green(), color.blue(), 32)))
+
+        sx, sy = self._scale_xy()
+        img_rect = self._image_rect()
+        x = img_rect.x() + int(rect["x"] * sx)
+        y = img_rect.y() + int(rect["y"] * sy)
+        width = int(rect["w"] * sx)
+        height = int(rect["h"] * sy)
+        painter.drawRect(x, y, width, height)
+
+        confidence = round(float(rect.get("confidence", 0.0)) * 100)
+        painter.setPen(color)
+        painter.setFont(QFont("", 9, QFont.Weight.Bold))
+        painter.drawText(x + 5, max(img_rect.y() + 14, y - 5), f"Learned {confidence}%")
         painter.restore()
 
     def _draw_delete_badges(self, painter):
@@ -1961,8 +2057,8 @@ class OWOCRAreaSelectorWidget(QWidget):
     def set_draw_mode(self, mode: str):
         """Set the persistent drawing mode from the toolbar.
 
-        Makes the toolbar authoritative over modifier keys for subsequent drags
-        (menu_drawing_mode), so a chosen mode persists box-to-box.
+        Specialized toolbar modes persist box-to-box. Normal mode restores the
+        Shift/Ctrl/Alt drag modifiers documented by the selector.
         """
         if self._primary_only_mode():
             self.drawing_excluded = False
@@ -1976,7 +2072,7 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.drawing_exclusive = mode == "exclusive"
         self.drawing_excluded = mode == "exclusion"
         self.drawing_secondary = mode == "secondary"
-        self.menu_drawing_mode = True
+        self.menu_drawing_mode = mode != "normal"
         logger.info(f"Draw mode set to '{mode}'")
 
     def toggle_instructions(self):
@@ -2131,6 +2227,7 @@ def show_area_selector(
     on_complete=None,
     overlay_config_mode=False,
     live_mode=False,
+    initial_draw_mode="normal",
 ):
     """
     Displays a Qt-based area selector for OCR configuration.
@@ -2167,6 +2264,7 @@ def show_area_selector(
             on_complete,
             overlay_config_mode=overlay_config_mode,
             live_mode=live_mode,
+            initial_draw_mode=initial_draw_mode,
         )
         _selector.quit_app_on_close = created_app
         logger.info("OWOCRAreaSelectorWidget created successfully")
@@ -2266,6 +2364,12 @@ if __name__ == "__main__":
             action="store_true",
             help="Start in live mode: apply each change to the running OCR without closing",
         )
+        parser.add_argument(
+            "--draw-mode",
+            choices=sorted(AREA_SELECTOR_DRAW_MODES),
+            default="normal",
+            help="Drawing mode selected when the area selector opens",
+        )
 
         logger.info("Parsing command line arguments...")
         args = parser.parse_args()
@@ -2301,6 +2405,7 @@ if __name__ == "__main__":
                 on_complete,
                 overlay_config_mode=args.overlay_config,
                 live_mode=args.live,
+                initial_draw_mode=args.draw_mode,
             )
 
         logger.success("OCR Area Selector completed successfully")

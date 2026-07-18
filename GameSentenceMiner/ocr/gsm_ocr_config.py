@@ -189,6 +189,11 @@ def get_overlay_settings_path(use_window_as_config=False, window=""):
     return os.path.join(get_ocr_config_path(), f"{scene}_overlay_settings.json")
 
 
+def get_auto_region_config_path(use_window_as_config=False, window=""):
+    scene = _resolve_scene_name(use_window_as_config, window)
+    return os.path.join(get_ocr_config_path(), f"{scene}_auto_regions.json")
+
+
 OVERLAY_CONFIG_RESERVED_KEYS = {
     "scene",
     "coordinate_system",

@@ -147,6 +147,40 @@ def test_menu_command_always_runs_secondary_rectangles(monkeypatch):
     assert calls == ["menu"]
 
 
+def test_reset_auto_regions_command_resets_runtime_state(monkeypatch):
+    expected = {
+        "enabled": True,
+        "phase": "learning",
+        "learned_region_count": 0,
+        "confidence": 0.0,
+    }
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "reset_auto_region_state", lambda: expected)
+    monkeypatch.delattr(gsm_ocr.ocr_runtime, "paused", raising=False)
+
+    response = gsm_ocr._handle_command(
+        {"command": gsm_ocr.ocr_ipc.OCRCommand.RESET_AUTO_REGIONS.value},
+        announce_ipc=False,
+    )
+
+    assert response == {
+        "success": True,
+        "command": "reset_auto_regions",
+        "data": expected,
+    }
+
+
+def test_status_payload_includes_auto_region_progress(monkeypatch):
+    expected = {
+        "enabled": True,
+        "phase": "active",
+        "learned_region_count": 2,
+        "confidence": 0.75,
+    }
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "get_auto_region_status", lambda: expected)
+
+    assert gsm_ocr._build_status_payload()["auto_regions"] == expected
+
+
 def test_post_process_normalizes_contextual_japanese_dashes_to_choonpu():
     text = post_process("-刻も早く、ス-パ-でA-1を買う")
 
@@ -489,6 +523,128 @@ def test_ocr_processor_second_pass_suppresses_subset_chunk_duplicate(monkeypatch
     assert sent == []
     assert saved == []
     assert ctrl.last_sent_result == full_text
+
+
+def test_auto_region_discovery_second_pass_suppresses_repeated_text(monkeypatch):
+    sent = []
+    saved = []
+    repeated_text = "フッ、それはすまない。謝罪しよう"
+    ctrl = SimpleNamespace(
+        last_sent_result=repeated_text,
+        last_ocr2_result=["通常の領域スキャンで得た別のブロック構成"],
+        config=gsm_ocr.TwoPassConfig(duplicate_threshold=80),
+    )
+    discovery_payload = {
+        "pipeline": {
+            "auto_regions": {
+                "discovery": True,
+            }
+        }
+    }
+
+    monkeypatch.setattr(gsm_ocr, "TextFiltering", lambda lang: object())
+    monkeypatch.setattr(gsm_ocr, "get_ocr_language", lambda: "ja")
+    monkeypatch.setattr(gsm_ocr, "get_controller", lambda: ctrl)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_ocr2", lambda: "glens")
+    monkeypatch.setattr(gsm_ocr, "capture_ocr_metrics_sample", lambda *args, **kwargs: None)
+    monkeypatch.setattr(gsm_ocr, "save_result_image", lambda *args, **kwargs: saved.append(args))
+
+    async def _send_result(text, time, *, response_dict=None, source=None):
+        sent.append(text)
+
+    monkeypatch.setattr(gsm_ocr, "send_result", _send_result)
+    monkeypatch.setattr(
+        gsm_ocr.ocr_runtime,
+        "process_and_write_results",
+        lambda *args, **kwargs: (
+            ["全画面のヒールで見つかった別のブロック", repeated_text],
+            repeated_text,
+            {"engine": "glens"},
+        ),
+    )
+
+    processor = gsm_ocr.OCRProcessor()
+    processor.do_second_ocr(
+        "",
+        datetime(2026, 7, 18, 12, 0, 0),
+        Image.new("RGB", (2, 2), color=255),
+        filtering=None,
+        response_dict=discovery_payload,
+    )
+
+    assert sent == []
+    assert saved == []
+    assert ctrl.last_sent_result == repeated_text
+
+
+def test_automatic_second_ocr_is_not_started_while_auto_region_is_thrashing(monkeypatch):
+    process_calls = []
+    processor = gsm_ocr.OCRProcessor.__new__(gsm_ocr.OCRProcessor)
+    processor.filtering = None
+
+    monkeypatch.setattr(gsm_ocr, "get_controller", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        gsm_ocr.ocr_runtime,
+        "get_auto_region_status",
+        lambda: {"thrashing": True},
+    )
+    monkeypatch.setattr(
+        gsm_ocr.ocr_runtime,
+        "process_and_write_results",
+        lambda *args, **kwargs: process_calls.append((args, kwargs)),
+    )
+
+    processor.do_second_ocr(
+        "unstable",
+        datetime(2026, 7, 18, 12, 0, 0),
+        Image.new("RGB", (2, 2), color=255),
+        filtering=None,
+        source=gsm_ocr.TextSource.OCR,
+    )
+
+    assert process_calls == []
+
+
+def test_inflight_automatic_second_ocr_result_is_dropped_when_thrashing_starts(monkeypatch):
+    sent = []
+    statuses = iter((False, True))
+    ctrl = SimpleNamespace(
+        last_sent_result="",
+        last_ocr2_result=[],
+        config=gsm_ocr.TwoPassConfig(),
+    )
+    processor = gsm_ocr.OCRProcessor.__new__(gsm_ocr.OCRProcessor)
+    processor.filtering = None
+
+    monkeypatch.setattr(gsm_ocr, "get_controller", lambda: ctrl)
+    monkeypatch.setattr(
+        gsm_ocr.ocr_runtime,
+        "get_auto_region_status",
+        lambda: {"thrashing": next(statuses)},
+    )
+    monkeypatch.setattr(gsm_ocr, "get_ocr_ocr2", lambda: "glens")
+    monkeypatch.setattr(gsm_ocr, "get_ocr_language", lambda: "ja")
+    monkeypatch.setattr(
+        gsm_ocr.ocr_runtime,
+        "process_and_write_results",
+        lambda *args, **kwargs: (["hallucinated"], "hallucinated", {"engine": "glens"}),
+    )
+
+    async def _send_result(*args, **kwargs):
+        sent.append((args, kwargs))
+
+    monkeypatch.setattr(gsm_ocr, "send_result", _send_result)
+
+    processor.do_second_ocr(
+        "unstable",
+        datetime(2026, 7, 18, 12, 0, 0),
+        Image.new("RGB", (2, 2), color=255),
+        filtering=None,
+        source=gsm_ocr.TextSource.OCR,
+    )
+
+    assert sent == []
+    assert ctrl.last_sent_result == ""
 
 
 def test_describe_obs_source_selection_handles_no_valid_source():

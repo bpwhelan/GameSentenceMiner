@@ -47,6 +47,7 @@ class OCRCommand(Enum):
     MENU_OCR = "menu_ocr"
     WHOLE_WINDOW_OCR = "whole_window_ocr"
     AREA_SELECT_OCR = "area_select_ocr"
+    RESET_AUTO_REGIONS = "reset_auto_regions"
     RELOAD_CONFIG = "reload_config"
     STOP = "stop"
     TOGGLE_FORCE_STABLE = "toggle_force_stable"

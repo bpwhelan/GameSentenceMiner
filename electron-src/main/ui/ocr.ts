@@ -423,7 +423,22 @@ function ensureOcrSupervisorWired(): void {
 // can hot-reload the running OCR's areas without the selector closing.
 const LIVE_AREA_SAVED_MARKER = 'GSM_AREA_SAVED';
 
-async function runScreenSelector(options?: { live?: boolean }) {
+type AreaSelectorDrawMode = 'normal' | 'exclusion' | 'secondary' | 'exclusive' | 'black_hole';
+
+function normalizeAreaSelectorDrawMode(value: unknown): AreaSelectorDrawMode {
+    const allowed = new Set<AreaSelectorDrawMode>([
+        'normal',
+        'exclusion',
+        'secondary',
+        'exclusive',
+        'black_hole',
+    ]);
+    return typeof value === 'string' && allowed.has(value as AreaSelectorDrawMode)
+        ? (value as AreaSelectorDrawMode)
+        : 'normal';
+}
+
+async function runScreenSelector(options?: { live?: boolean; drawMode?: AreaSelectorDrawMode }) {
     if (blockOcrStartDuringUpdate('OCR screen selector')) {
         sendToMainWindowFrames('ocr-log', 'COMMAND_FINISHED');
         return;
@@ -432,6 +447,8 @@ async function runScreenSelector(options?: { live?: boolean }) {
     await new Promise((resolve, reject) => {
         let args = ['-m', 'GameSentenceMiner.ocr.owocr_area_selector_qt', '--obs'];
         if (options?.live) args.push('--live');
+        const drawMode = normalizeAreaSelectorDrawMode(options?.drawMode);
+        if (drawMode !== 'normal') args.push('--draw-mode', drawMode);
         const pythonExecutable = getWindowsNamedPythonExecutable(
             getPythonPath(),
             'OCR'
@@ -588,7 +605,13 @@ export async function startOCR(
         const ocr_config = getOCRConfig();
         const config = await getActiveOCRConfig(options?.scene);
         const twoPassOCR = ocr_config.advancedMode ? ocr_config.twoPassOCR : true;
-        if (!config && promptForAreaSelection) {
+        const ocr1 = twoPassOCR ? `${ocr_config.ocr1}` : `${ocr_config.ocr2}`;
+        const autoAreaEngineSupported = ['oneocr', 'screenai'].includes(ocr1.toLowerCase());
+        if (
+            !config &&
+            promptForAreaSelection &&
+            !(ocr_config.autoConfigureAreas && autoAreaEngineSupported)
+        ) {
             const response = await dialog.showMessageBox(mainWindow!, {
                 type: 'question',
                 buttons: ['Yes', 'No'],
@@ -604,7 +627,6 @@ export async function startOCR(
                 // Do nothing, just run OCR on the entire window
             }
         }
-        const ocr1 = twoPassOCR ? `${ocr_config.ocr1}` : `${ocr_config.ocr2}`;
         const command = [
             `${getPythonPath()}`,
             `-m`,
@@ -883,10 +905,13 @@ export function registerOCRUtilsIPC() {
         await restartGSM();
     });
 
-    ipcMain.on('ocr.run-screen-selector', async () => {
+    ipcMain.on('ocr.run-screen-selector', async (_event, options?: { drawMode?: unknown }) => {
         try {
             // Explicit selector launch supports live tuning while OCR runs.
-            await runScreenSelector({ live: true });
+            await runScreenSelector({
+                live: true,
+                drawMode: normalizeAreaSelectorDrawMode(options?.drawMode),
+            });
         } catch (error) {
             console.error('Failed to run screen selector:', error);
         }
@@ -1215,6 +1240,28 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.on('ocr.area-select-ocr', () => {
         sendOcrCommand('area_select_ocr');
+    });
+
+    ipcMain.on('ocr.reset-auto-regions', async () => {
+        try {
+            const configPath = await getActiveOCRConfigPath();
+            const extension = path.extname(configPath);
+            const learnedPath = path.join(
+                path.dirname(configPath),
+                `${path.basename(configPath, extension)}_auto_regions.json`
+            );
+            await fs.promises.rm(learnedPath, { force: true });
+            if (getProcessManager().isRunning(OCR_CLIENT_ID)) {
+                sendOcrCommand('reset_auto_regions');
+            }
+            sendToMainWindowFrames('ocr-auto-regions-reset', { success: true });
+        } catch (error: any) {
+            console.error('[OCR] Failed to reset learned OCR areas:', error.message);
+            sendToMainWindowFrames('ocr-auto-regions-reset', {
+                success: false,
+                message: error.message,
+            });
+        }
     });
 
     ipcMain.on('ocr.get-status', () => {

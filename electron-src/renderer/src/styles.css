@@ -4780,6 +4780,100 @@ body {
   background: var(--gsm-warning-soft);
 }
 
+.ocr-workspace .ocr-auto-area-panel {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--gsm-border-default);
+  border-radius: var(--gsm-radius-md);
+  background: var(--gsm-surface-2);
+}
+
+.ocr-workspace .ocr-auto-area-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--gsm-text-primary);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.ocr-workspace .ocr-auto-area-panel p {
+  margin: 6px 0 0;
+  color: var(--gsm-text-secondary);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.ocr-workspace .ocr-auto-area-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  color: var(--gsm-text-secondary);
+  font-size: 0.75rem;
+}
+
+.ocr-workspace .ocr-auto-area-status button {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  font-size: 0.72rem;
+}
+
+.ocr-workspace .ocr-area-recommendation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--gsm-border-default);
+  border-radius: var(--gsm-radius-md);
+  background: var(--gsm-surface-1);
+}
+
+.ocr-workspace .ocr-area-recommendation--secondary {
+  border-color: rgba(166, 108, 210, 0.52);
+  background: rgba(128, 55, 170, 0.1);
+}
+
+.ocr-workspace .ocr-area-recommendation--black_hole {
+  border-color: var(--gsm-border-strong);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.ocr-workspace .ocr-area-recommendation-copy {
+  min-width: 0;
+}
+
+.ocr-workspace .ocr-area-recommendation-copy strong {
+  color: var(--gsm-text-primary);
+  font-size: 0.8rem;
+}
+
+.ocr-workspace .ocr-area-recommendation-copy p {
+  margin-top: 3px;
+}
+
+.ocr-workspace .ocr-area-recommendation-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.ocr-workspace .ocr-area-recommendation-actions button {
+  padding: 5px 9px;
+  font-size: 0.72rem;
+}
+
+@media (max-width: 900px) {
+  .ocr-workspace .ocr-area-recommendation {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 /* Slider field — flatter, no inset border noise */
 .ocr-workspace .ocr-slider-field {
   border: none;

@@ -82,6 +82,7 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "keep_newline_menu": None,
         "keep_newline_area_select": None,
         "obs_capture_preprocess": "none",
+        "autoConfigureAreas": False,
         "base_scale": 0.75,
         "duplicate_similarity_threshold": 80,
         "change_detection_threshold": 20,
@@ -534,6 +535,10 @@ def get_ocr_scan_rate() -> float:
         return float(scan_rate)
     except (TypeError, ValueError):
         return 0.5
+
+
+def get_ocr_auto_configure_areas() -> bool:
+    return bool(_get_ocr_value("autoConfigureAreas", False))
 
 
 def get_ocr_requires_open_window() -> bool:

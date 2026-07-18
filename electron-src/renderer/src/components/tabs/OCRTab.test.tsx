@@ -9,6 +9,7 @@ import { OCRTab } from "./OCRTab";
 
 const invokeMock = vi.fn();
 const sendMock = vi.fn();
+const ipcListeners = new Map<string, (event: unknown, payload?: unknown) => void>();
 
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
@@ -55,6 +56,7 @@ describe("OCRTab hotkeys", () => {
     vi.useFakeTimers();
     invokeMock.mockReset();
     sendMock.mockReset();
+    ipcListeners.clear();
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "ocr.get-ocr-config") {
         return {
@@ -76,7 +78,13 @@ describe("OCRTab hotkeys", () => {
       value: {
         invoke: invokeMock,
         send: sendMock,
-        on: () => () => {}
+        on: (
+          channel: string,
+          listener: (event: unknown, payload?: unknown) => void
+        ) => {
+          ipcListeners.set(channel, listener);
+          return () => ipcListeners.delete(channel);
+        }
       }
     });
     Object.defineProperty(window, "gsmEnv", {
@@ -180,5 +188,103 @@ describe("OCRTab hotkeys", () => {
 
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
     expect(container.querySelectorAll(".ocr-gamepad-hotkey")).toHaveLength(5);
+  });
+
+  it("persists and resets experimental automatic OCR areas", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "ocr.get-ocr-config") {
+        return { autoConfigureAreas: true };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<OCRTab active={false} />);
+      await flushAsyncWork();
+    });
+
+    const toggle = container.querySelector("#ocr-auto-configure-areas") as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+
+    const resetButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Reset learned areas")
+    );
+    expect(resetButton).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => {
+      resetButton?.click();
+    });
+    expect(sendMock).toHaveBeenCalledWith("ocr.reset-auto-regions");
+
+    await act(async () => {
+      toggle.click();
+      vi.advanceTimersByTime(200);
+      await flushAsyncWork();
+    });
+    expect(sendMock).toHaveBeenCalledWith(
+      "ocr.save-ocr-config",
+      expect.objectContaining({ autoConfigureAreas: false })
+    );
+  });
+
+  it("opens the selector in the area type recommended by auto learning", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "ocr.get-ocr-config") {
+        return { autoConfigureAreas: true };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<OCRTab active={false} />);
+      await flushAsyncWork();
+    });
+
+    await act(async () => {
+      ipcListeners.get("ocr-ipc-status")?.({}, {
+        auto_regions: {
+          enabled: true,
+          phase: "active",
+          recommendations: [
+            {
+              id: "secondary:1:2:3:4",
+              kind: "secondary",
+              reason: "dense_text",
+              confidence: 0.9,
+              line_count: 4
+            },
+            {
+              id: "black_hole:5:6:7:8",
+              kind: "black_hole",
+              reason: "unstable_large_text",
+              confidence: 0.8,
+              line_count: 4
+            }
+          ]
+        }
+      });
+      await flushAsyncWork();
+    });
+
+    const purpleButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Select purple area")
+    );
+    const blackHoleButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Select black-hole area")
+    );
+    expect(purpleButton).toBeInstanceOf(HTMLButtonElement);
+    expect(blackHoleButton).toBeInstanceOf(HTMLButtonElement);
+    expect(container.textContent).toContain("OCR is repeatedly changing inside a large, stationary text area.");
+
+    await act(async () => {
+      purpleButton?.click();
+      blackHoleButton?.click();
+    });
+
+    expect(sendMock).toHaveBeenCalledWith("ocr.run-screen-selector", {
+      drawMode: "secondary"
+    });
+    expect(sendMock).toHaveBeenCalledWith("ocr.run-screen-selector", {
+      drawMode: "black_hole"
+    });
   });
 });

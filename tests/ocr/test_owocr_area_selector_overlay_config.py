@@ -4,6 +4,48 @@ from types import SimpleNamespace
 import GameSentenceMiner.ocr.owocr_area_selector_qt as selector_module
 
 
+def test_normalize_initial_draw_mode_accepts_recommendation_modes():
+    assert selector_module.normalize_initial_draw_mode("secondary") == "secondary"
+    assert selector_module.normalize_initial_draw_mode("black_hole") == "black_hole"
+    assert selector_module.normalize_initial_draw_mode("unexpected") == "normal"
+    assert selector_module.normalize_initial_draw_mode("black_hole", primary_only=True) == "normal"
+
+
+def test_normal_draw_mode_keeps_modifier_hotkeys_enabled():
+    selector = SimpleNamespace(
+        drawing_excluded=True,
+        drawing_secondary=True,
+        drawing_exclusive=True,
+        drawing_black_hole=True,
+        menu_drawing_mode=True,
+        _primary_only_mode=lambda: False,
+    )
+
+    selector_module.OWOCRAreaSelectorWidget.set_draw_mode(selector, "normal")
+
+    assert selector.drawing_excluded is False
+    assert selector.drawing_secondary is False
+    assert selector.drawing_exclusive is False
+    assert selector.drawing_black_hole is False
+    assert selector.menu_drawing_mode is False
+
+
+def test_recommended_draw_mode_stays_selected_across_drags():
+    selector = SimpleNamespace(
+        drawing_excluded=False,
+        drawing_secondary=False,
+        drawing_exclusive=False,
+        drawing_black_hole=False,
+        menu_drawing_mode=False,
+        _primary_only_mode=lambda: False,
+    )
+
+    selector_module.OWOCRAreaSelectorWidget.set_draw_mode(selector, "secondary")
+
+    assert selector.drawing_secondary is True
+    assert selector.menu_drawing_mode is True
+
+
 def test_load_existing_overlay_rectangles_translates_legacy_monitor_rects_to_window_coords(tmp_path, monkeypatch):
     overlay_config_path = tmp_path / "Scene_overlay.json"
     overlay_config_path.write_text(
@@ -59,7 +101,6 @@ def test_load_existing_overlay_rectangles_translates_legacy_monitor_rects_to_win
             "is_excluded": False,
             "is_exclusive": False,
             "is_secondary": False,
-            "is_exclusive": False,
             "is_black_hole": False,
         }
     ]
