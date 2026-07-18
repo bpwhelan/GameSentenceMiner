@@ -69,6 +69,7 @@ SAVE_DEBUG_IMAGES = False
 # Convert images to grayscale for overlay processing
 CONVERT_TO_GRAYSCALE = False
 MAX_SCALED_OCR_CACHE_SIZE = 24
+OCR_ENGINE_INACTIVITY_TIMEOUT_SECONDS = 5 * 60
 OVERLAY_VISIBLE_TEXT_REGEX = regex.compile(r"\S")
 OVERLAY_EXTENDED_CJK_MARK_REGEX = regex.compile(r"[々〆〇〻ヶヵ]")
 LOG_RESULTS_TO_JSON = False  # Set to True to log OCR results to JSON files for debugging
@@ -329,6 +330,8 @@ class OverlayProcessor:
         self._last_overlay_capture_offset_x: int = 0
         self._last_overlay_capture_offset_y: int = 0
         self._last_overlay_capture_source: str = "unknown"
+        self._ocr_engine_unload_handle: Optional[asyncio.TimerHandle] = None
+        self._ocr_engine_activity_generation = 0
 
     def _build_scaled_ocr_cache_key(self, ocr_config, width: int, height: int) -> Optional[Tuple[Any, ...]]:
         if not ocr_config:
@@ -675,16 +678,8 @@ class OverlayProcessor:
             return OverlayEngine.MEIKIOCR.value
         return engine
 
-    def _ensure_correct_engine_loaded(self):
-        """Ensures the correct OCR engine is loaded based on current configuration."""
-        effective_engine = self._get_effective_engine()
-
-        if self.current_engine_config == effective_engine:
-            return
-
-        if self.current_engine_config:
-            logger.info(f"Engine config changed from {self.current_engine_config} to {effective_engine}")
-
+    def _close_ocr_engines(self) -> None:
+        """Close and release every overlay OCR engine instance."""
         for engine in [self.oneocr, self.meikiocr, self.screenai, self.lens]:
             if engine:
                 try:
@@ -697,6 +692,57 @@ class OverlayProcessor:
         self.meikiocr = None
         self.screenai = None
         self.lens = None
+
+    def _mark_ocr_engine_active(self) -> int:
+        """Cancel a pending idle unload and return this activity's generation."""
+        self._ocr_engine_activity_generation += 1
+        if self._ocr_engine_unload_handle is not None:
+            self._ocr_engine_unload_handle.cancel()
+            self._ocr_engine_unload_handle = None
+        return self._ocr_engine_activity_generation
+
+    def _schedule_ocr_engine_unload(self, activity_generation: Optional[int] = None) -> None:
+        """Schedule loaded overlay OCR engines for release after inactivity."""
+        if activity_generation is None:
+            activity_generation = self._ocr_engine_activity_generation
+        if activity_generation != self._ocr_engine_activity_generation:
+            return
+
+        if self._ocr_engine_unload_handle is not None:
+            self._ocr_engine_unload_handle.cancel()
+
+        loop = self.processing_loop
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return
+        self._ocr_engine_unload_handle = loop.call_later(
+            OCR_ENGINE_INACTIVITY_TIMEOUT_SECONDS,
+            self._unload_ocr_engines_if_inactive,
+            activity_generation,
+        )
+
+    def _unload_ocr_engines_if_inactive(self, activity_generation: int) -> None:
+        """Release OCR resources unless newer overlay OCR activity occurred."""
+        if activity_generation != self._ocr_engine_activity_generation:
+            return
+        self._ocr_engine_unload_handle = None
+        if any([self.oneocr, self.meikiocr, self.screenai, self.lens]):
+            logger.info("Unloading overlay OCR engine after 5 minutes of inactivity")
+        self._close_ocr_engines()
+
+    def _ensure_correct_engine_loaded(self):
+        """Ensures the correct OCR engine is loaded based on current configuration."""
+        effective_engine = self._get_effective_engine()
+
+        if self.current_engine_config == effective_engine:
+            return
+
+        if self.current_engine_config:
+            logger.info(f"Engine config changed from {self.current_engine_config} to {effective_engine}")
+
+        self._close_ocr_engines()
         self.current_engine_config = effective_engine
 
     @staticmethod
@@ -935,6 +981,8 @@ class OverlayProcessor:
             logger.debug(f"Skipping outdated overlay request (sequence {sequence}, current {self._current_sequence})")
             return
 
+        activity_generation = self._mark_ocr_engine_active()
+
         if self.current_task and not self.current_task.done():
             self.current_task.cancel()
             try:
@@ -986,6 +1034,8 @@ class OverlayProcessor:
             await self.current_task
         except asyncio.CancelledError:  # NOSONAR(S7497) task gets replaced by a newer request; swallow is intended
             logger.debug("OCR task was cancelled")
+        finally:
+            self._schedule_ocr_engine_unload(activity_generation)
 
     async def find_box_for_sentence(
         self,
