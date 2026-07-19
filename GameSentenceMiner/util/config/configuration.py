@@ -1179,6 +1179,7 @@ class VAD:
     do_vad_postprocessing: bool = True
     # vosk_url: str = VOSK_BASE
     selected_vad_model: str = SILERO
+    selected_vad_model_v2: str = FIRERED
     backup_vad_model: str = OFF
     trim_beginning: bool = False
     beginning_offset: float = -0.25
@@ -1193,17 +1194,17 @@ class VAD:
     preload_vad_model: bool = True
 
     def __post_init__(self):
-        if self.selected_vad_model == self.backup_vad_model:
+        if self.selected_vad_model_v2 == self.backup_vad_model:
             self.backup_vad_model = OFF
 
     def is_firered(self):
-        return self.selected_vad_model == FIRERED or self.backup_vad_model == FIRERED
+        return self.selected_vad_model_v2 == FIRERED or self.backup_vad_model == FIRERED
 
     def is_silero(self):
-        return self.selected_vad_model == SILERO or self.backup_vad_model == SILERO
+        return self.selected_vad_model_v2 == SILERO or self.backup_vad_model == SILERO
 
     def is_whisper(self):
-        return self.selected_vad_model == WHISPER or self.backup_vad_model == WHISPER
+        return self.selected_vad_model_v2 == WHISPER or self.backup_vad_model == WHISPER
 
     # def is_vosk(self):
     #     return self.selected_vad_model == VOSK or self.backup_vad_model == VOSK

@@ -964,6 +964,7 @@ class ConfigWindow(QWidget):
                     whisper_model=self.whisper_model_combo.currentText(),
                     do_vad_postprocessing=self.do_vad_postprocessing_check.isChecked(),
                     selected_vad_model=self.selected_vad_model_combo.currentText(),
+                    selected_vad_model_v2=self.selected_vad_model_combo.currentText(),
                     backup_vad_model=self.backup_vad_model_combo.currentText(),
                     trim_beginning=self.vad_trim_beginning_check.isChecked(),
                     beginning_offset=float(self.vad_beginning_offset_edit.text() or 0.0),
@@ -3091,7 +3092,7 @@ class ConfigWindow(QWidget):
         self.whisper_model_combo.setCurrentText(s.vad.whisper_model)
         self.selected_vad_model_combo.clear()
         self.selected_vad_model_combo.addItems([SILERO, FIRERED, WHISPER])
-        self.selected_vad_model_combo.setCurrentText(s.vad.selected_vad_model)
+        self.selected_vad_model_combo.setCurrentText(s.vad.selected_vad_model_v2)
         self.backup_vad_model_combo.clear()
         self.backup_vad_model_combo.addItems([OFF, SILERO, FIRERED, WHISPER])
         self.backup_vad_model_combo.setCurrentText(s.vad.backup_vad_model)

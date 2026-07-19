@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from GameSentenceMiner import vad
+from GameSentenceMiner.util.config.configuration import FIRERED, WHISPER, VAD
 
 
 def _write_pcm16_wav(path, samples, sample_rate=16000, channels=1):
@@ -14,6 +15,24 @@ def _write_pcm16_wav(path, samples, sample_rate=16000, channels=1):
         wav_file.setsampwidth(2)
         wav_file.setframerate(sample_rate)
         wav_file.writeframes(samples.tobytes())
+
+
+def test_vad_system_uses_forced_v2_model_instead_of_legacy_selection(monkeypatch):
+    vad_config = VAD(selected_vad_model=WHISPER)
+    system = vad.VADSystem()
+    selected_models = []
+
+    monkeypatch.setattr(vad, "get_config", lambda: SimpleNamespace(vad=vad_config))
+    monkeypatch.setattr(system, "ensure_initialized", lambda: None)
+    monkeypatch.setattr(
+        system,
+        "_do_vad_processing",
+        lambda model, *_args: selected_models.append(model) or SimpleNamespace(success=True),
+    )
+
+    system.trim_audio_with_vad("input.wav", "output.wav", None, "text")
+
+    assert selected_models == [FIRERED]
 
 
 def test_load_whisper_audio_from_wav_returns_normalized_float32(tmp_path):

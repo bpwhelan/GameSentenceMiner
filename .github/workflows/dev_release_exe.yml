@@ -44,10 +44,30 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+  prepare-prerelease:
+    runs-on: ubuntu-latest
+    needs:
+      - compute-version
+    permissions:
+      contents: write
+    steps:
+      - name: Create or update pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: Pre-Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+          body: ${{ needs.compute-version.outputs.release_body }}
+          prerelease: true
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build-windows:
     runs-on: windows-latest
     needs:
       - compute-version
+      - prepare-prerelease
     permissions:
       contents: write
       id-token: write
@@ -268,27 +288,38 @@ jobs:
           node scripts/export-changelog-release-asset.mjs --version "${{ needs.compute-version.outputs.PACKAGE_VERSION }}" --repo "${{ github.repository }}" --out "dist/changelog-v${{ needs.compute-version.outputs.PACKAGE_VERSION }}.json"
 
       - name: Upload to pre-release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
-          name: Pre-Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
-          body: ${{ needs.compute-version.outputs.release_body }}
-          prerelease: true
-          overwrite_files: true
-          files: |
-            dist/*Setup*.exe
-            dist/GameSentenceMiner-*-win-unpacked.zip
-            dist/latest.yml
-            dist/*.blockmap
-            dist/changelog-v${{ needs.compute-version.outputs.PACKAGE_VERSION }}.json
-            dist/changelog-assets-*
+        shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+        run: |
+          $requiredPatterns = @(
+            "dist/*Setup*.exe",
+            "dist/GameSentenceMiner-*-win-unpacked.zip",
+            "dist/latest.yml",
+            "dist/*.blockmap",
+            "dist/changelog-v${{ needs.compute-version.outputs.PACKAGE_VERSION }}.json"
+          )
+          $files = @()
+          foreach ($pattern in $requiredPatterns) {
+            $matches = @(Get-ChildItem -Path $pattern -File -ErrorAction SilentlyContinue)
+            if ($matches.Count -eq 0) {
+              throw "Required release asset pattern did not match: $pattern"
+            }
+            $files += $matches.FullName
+          }
+          $files += @(Get-ChildItem -Path "dist/changelog-assets-*" -File -ErrorAction SilentlyContinue).FullName
+
+          gh release upload $env:RELEASE_TAG @files --clobber --repo ${{ github.repository }}
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to upload Windows pre-release assets."
+          }
 
   build-linux:
     runs-on: ubuntu-latest
     needs:
       - compute-version
+      - prepare-prerelease
     permissions:
       contents: write
 
@@ -352,23 +383,17 @@ jobs:
         run: npm run verify:overlay-package
 
       - name: Upload to pre-release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
-          name: Pre-Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
-          body: ${{ needs.compute-version.outputs.release_body }}
-          prerelease: true
-          overwrite_files: true
-          files: |
-            dist/*.AppImage
-            dist/latest-linux.yml
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+        run: |
+          gh release upload "$RELEASE_TAG" dist/*.AppImage dist/latest-linux.yml --clobber --repo ${{ github.repository }}
 
   build-mac-arm64:
     runs-on: macos-15
     needs:
       - compute-version
+      - prepare-prerelease
     permissions:
       contents: write
 
@@ -435,20 +460,11 @@ jobs:
         run: cp dist/latest-mac.yml dist/latest-mac-arm64.yml
 
       - name: Upload to pre-release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
-          name: Pre-Release v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
-          body: ${{ needs.compute-version.outputs.release_body }}
-          prerelease: true
-          overwrite_files: true
-          files: |
-            dist/*-arm64.dmg
-            dist/latest-mac.yml
-            dist/latest-mac-arm64.yml
-            dist/*-arm64.dmg.blockmap
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: v${{ needs.compute-version.outputs.PACKAGE_VERSION }}
+        run: |
+          gh release upload "$RELEASE_TAG" dist/*-arm64.dmg dist/latest-mac.yml dist/latest-mac-arm64.yml dist/*-arm64.dmg.blockmap --clobber --repo ${{ github.repository }}
 
   trim-prereleases:
     runs-on: ubuntu-latest

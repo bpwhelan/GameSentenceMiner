@@ -279,7 +279,7 @@ class VADSystem:
         if get_config().vad.do_vad_postprocessing:
             self.ensure_initialized()
             result = self._do_vad_processing(
-                get_config().vad.selected_vad_model,
+                get_config().vad.selected_vad_model_v2,
                 input_audio,
                 output_audio,
                 game_line,

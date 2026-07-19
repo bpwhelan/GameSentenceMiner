@@ -125,9 +125,9 @@ def test_v2_short_line_after_afk_costs_floor_not_15s(monkeypatch):
     before = tracker.total_reading_seconds
     tracker.add_line("next", 1350.0)  # 300s gap after the 1-char line
 
-    # The AFK gap is credited against the 1-char line → adaptive floor (2s),
-    # not v1's 15s floor.
-    assert tracker.total_reading_seconds - before == 2.0
+    # The AFK gap is credited against the 1-char line using the conservative
+    # adaptive cap (2.5s at this established pace), not v1's 15s floor.
+    assert tracker.total_reading_seconds - before == 2.5
 
 
 def test_v2_cph_guard_blocks_spike_until_enough_lines(monkeypatch):

@@ -1,3 +1,11 @@
+import sys
+
+import pytest
+
+
+if sys.platform != "win32":
+    pytest.skip("Windows window monitor behavior", allow_module_level=True)
+
 from GameSentenceMiner.util.platform import windows_window_monitor
 
 

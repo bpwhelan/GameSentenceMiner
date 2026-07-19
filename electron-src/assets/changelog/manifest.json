@@ -1,6 +1,11 @@
 {
   "releases": [
     {
+      "version": "2026.7.1",
+      "title": "What's Changed in 2026.7.1",
+      "file": "releases/2026.7.1.md"
+    },
+    {
       "version": "2026.7.0",
       "title": "What's Changed in 2026.7.0",
       "file": "releases/2026.7.0.md"

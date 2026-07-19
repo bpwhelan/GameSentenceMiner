@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -17,17 +18,23 @@ function nextTick(delay = 0) {
 }
 
 function loadOverlaySettingsPage() {
-  const html = fs.readFileSync(
-    path.resolve(process.cwd(), "GSM_Overlay/settings.html"),
-    "utf8"
-  );
+  const settingsPath = path.resolve(process.cwd(), "GSM_Overlay/settings.html");
+  const html = fs.readFileSync(settingsPath, "utf8");
   const sent: Array<{ channel: string; payload: IpcPayload }> = [];
   const listeners = new Map<string, IpcListener>();
 
   const ipcRenderer = {
     send: (channel: string, payload?: IpcPayload) => sent.push({ channel, payload }),
     invoke: async () => null,
-    on: (channel: string, handler: IpcListener) => listeners.set(channel, handler)
+    on: (channel: string, handler: IpcListener) => {
+      const existing = listeners.get(channel);
+      listeners.set(channel, existing
+        ? (event, payload) => {
+            existing(event, payload);
+            handler(event, payload);
+          }
+        : handler);
+    }
   };
 
   class FakeWebSocket {
@@ -54,7 +61,7 @@ function loadOverlaySettingsPage() {
   }
 
   const dom = new JSDOM(html, {
-    url: "file:///settings.html",
+    url: pathToFileURL(settingsPath).href,
     runScripts: "dangerously",
     resources: "usable",
     pretendToBeVisual: true,
@@ -74,8 +81,13 @@ function loadOverlaySettingsPage() {
       window.open = () => null;
     }
   });
+  const ready = dom.window.document.readyState === "complete"
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => {
+        dom.window.addEventListener("load", () => resolve(), { once: true });
+      });
 
-  return { dom, sent, listeners };
+  return { dom, ready, sent, listeners };
 }
 
 describe("overlay settings keyboard binding capture", () => {
@@ -84,7 +96,7 @@ describe("overlay settings keyboard binding capture", () => {
     async (key) => {
       const page = loadOverlaySettingsPage();
       try {
-        await nextTick(20);
+        await page.ready;
         const input = page.dom.window.document.getElementById("keyboardToggleKey") as HTMLInputElement;
 
         input.focus();
@@ -108,7 +120,7 @@ describe("overlay settings keyboard binding capture", () => {
   it("cancels a keyboard binding when the input server reports Escape", async () => {
     const page = loadOverlaySettingsPage();
     try {
-      await nextTick(20);
+      await page.ready;
       const input = page.dom.window.document.getElementById("keyboardToggleKey") as HTMLInputElement;
       const settingChangesBefore = page.sent.filter((entry) => entry.channel === "setting-changed").length;
 
@@ -129,7 +141,7 @@ describe("overlay settings keyboard binding capture", () => {
   it("shows explicit disabled keyboard bindings instead of fallback defaults", async () => {
     const page = loadOverlaySettingsPage();
     try {
-      await nextTick(20);
+      await page.ready;
       page.listeners.get("preload-settings")?.(null, {
         userSettings: { keyboardConfirmKey: "Disabled" },
         websocketStates: { ws1: false, ws2: false },
@@ -148,7 +160,7 @@ describe("overlay settings keyboard binding capture", () => {
   it("renders GSM profile state from the preload payload", async () => {
     const page = loadOverlaySettingsPage();
     try {
-      await nextTick(20);
+      await page.ready;
       page.listeners.get("preload-settings")?.(null, {
         userSettings: { overlaySettingsProfilesEnabled: true },
         websocketStates: { ws1: false, ws2: false },
@@ -185,7 +197,7 @@ describe("overlay settings keyboard binding capture", () => {
   it("opens the main GSM profile settings from the profiles tab", async () => {
     const page = loadOverlaySettingsPage();
     try {
-      await nextTick(20);
+      await page.ready;
       const button = page.dom.window.document.getElementById("openGSMProfileSettings") as HTMLButtonElement;
 
       button.click();
@@ -203,7 +215,7 @@ describe("overlay settings keyboard binding capture", () => {
   it("persists the overlay profile enable toggle through the unified settings channel", async () => {
     const page = loadOverlaySettingsPage();
     try {
-      await nextTick(20);
+      await page.ready;
       const checkbox = page.dom.window.document.getElementById("overlaySettingsProfilesEnabled") as HTMLInputElement;
 
       checkbox.checked = true;

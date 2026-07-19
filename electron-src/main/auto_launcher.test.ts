@@ -582,6 +582,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             engine: 'luna',
             exeName: 'nine_sorairo.exe',
             pidOverride: 108800,
+            sceneId: scene.id,
             source: 'auto-launcher',
         });
     });
@@ -619,6 +620,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             engine: 'textractor',
             exeName: 'nine_sorairo.exe',
             pidOverride: 108800,
+            sceneId: scene.id,
             source: 'auto-launcher',
         });
         expect(launcher.handleLunaAutomation).toHaveBeenCalledWith(
@@ -661,6 +663,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             engine: 'agent',
             exeName: 'agent_game.exe',
             pidOverride: 108800,
+            sceneId: scene.id,
             source: 'auto-launcher',
         });
         expect(launcher.handleAgentAutomation).toHaveBeenCalled();
@@ -731,6 +734,7 @@ describe('AutoLauncher OCR scene activity fallback', () => {
             engine: 'luna',
             exeName: 'nine_sorairo.exe',
             pidOverride: 108800,
+            sceneId: nextScene.id,
             source: 'auto-launcher',
         });
     });

@@ -377,8 +377,8 @@ class TestAdaptiveCapHelpers:
         assert adaptive_cap_seconds(20, 2.0) == 20 / (2.0 * ADAPTIVE_MEDIAN_CPS_SCALE) * 2.5
 
     def test_adaptive_cap_floor_for_short_line(self):
-        # 1 char at 2 cps → 1.25s, below the floor.
-        assert adaptive_cap_seconds(1, 2.0) == ADAPTIVE_FLOOR_SECONDS
+        # 1 char at 4 cps, discounted by the adaptive scale, remains below the floor.
+        assert adaptive_cap_seconds(1, 4.0) == ADAPTIVE_FLOOR_SECONDS
 
     def test_adaptive_cap_absolute_ceiling(self):
         assert adaptive_cap_seconds(100000, 2.0) == _ABSOLUTE_CEILING

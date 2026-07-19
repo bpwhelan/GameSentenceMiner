@@ -2,9 +2,9 @@ from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.config.configuration import Config, OBS, ProfileConfig, StatsConfig, VAD
 
 
-def test_vad_defaults_to_silero():
-    assert VAD().selected_vad_model == configuration.SILERO
-    assert ProfileConfig().vad.selected_vad_model == configuration.SILERO
+def test_vad_defaults_to_firered():
+    assert VAD().selected_vad_model_v2 == configuration.FIRERED
+    assert ProfileConfig().vad.selected_vad_model_v2 == configuration.FIRERED
 
 
 def test_tadoku_stats_defaults_are_safe_and_cleanup_daily_sync():
@@ -25,18 +25,24 @@ def test_obs_replay_buffer_duration_defaults_and_clamps():
     assert OBS(replay_buffer_duration_seconds=999999).replay_buffer_duration_seconds == 86400
 
 
-def test_missing_vad_model_uses_new_silero_default():
+def test_existing_vad_choice_is_forced_to_new_firered_v2_default():
     data = Config.new().to_dict()
-    data["configs"]["Default"]["vad"].pop("selected_vad_model", None)
+    data["configs"]["Default"]["vad"]["selected_vad_model"] = configuration.WHISPER
+    data["configs"]["Default"]["vad"].pop("selected_vad_model_v2")
 
     loaded = Config.from_dict(data)
 
-    assert loaded.configs["Default"].vad.selected_vad_model == configuration.SILERO
+    assert loaded.configs["Default"].vad.selected_vad_model == configuration.WHISPER
+    assert loaded.configs["Default"].vad.selected_vad_model_v2 == configuration.FIRERED
 
 
 def test_vad_model_helpers_include_firered():
-    assert VAD(selected_vad_model=configuration.FIRERED).is_firered()
+    vad = VAD(selected_vad_model=configuration.WHISPER)
+
+    assert vad.is_firered()
+    assert not vad.is_whisper()
     assert VAD(backup_vad_model=configuration.FIRERED).is_firered()
+    assert VAD(selected_vad_model_v2=configuration.SILERO).is_silero()
 
 
 def test_configs_already_on_silero_record_default_change_as_accepted():

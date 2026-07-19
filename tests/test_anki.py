@@ -120,6 +120,16 @@ def _reset_state():
         anki.reset_anki_polling_gate_state()
 
 
+def _assert_and_remove_timing_context(calls, *, line_id: str, word: str):
+    assert len(calls) == 1
+    timing_context = calls[0][1].pop("timing_context")
+    assert isinstance(timing_context, anki.AnkiCardTimingContext)
+    assert timing_context.note_id == "42"
+    assert timing_context.line_id == line_id
+    assert timing_context.word == word
+    assert timing_context.selected_line_count == 2
+
+
 def test_add_wildcards():
     assert anki.add_wildcards("abc") == "*a*b*c*"
 
@@ -275,6 +285,7 @@ def test_update_single_card_reuses_audio_only_for_same_selection_different_mined
 
     anki.update_single_card(card)
 
+    _assert_and_remove_timing_context(queue_calls, line_id=second_line.id, word="関係なし")
     assert queue_calls == [
         (
             (card, selected_lines, second_line),
@@ -330,6 +341,7 @@ def test_update_single_card_reuses_all_media_for_same_selection_different_mined_
 
     anki.update_single_card(card)
 
+    _assert_and_remove_timing_context(reuse_calls, line_id=second_line.id, word="関係なし")
     assert reuse_calls == [
         ((card,), {"lines": selected_lines, "game_line": second_line, "reuse_result_id": first_line.id})
     ]
@@ -377,6 +389,7 @@ def test_update_single_card_reuses_same_selection_and_mined_line(monkeypatch):
 
     anki.update_single_card(card)
 
+    _assert_and_remove_timing_context(reuse_calls, line_id=first_line.id, word="力を持って")
     assert reuse_calls == [
         ((card,), {"lines": selected_lines, "game_line": first_line, "reuse_result_id": first_line.id})
     ]
@@ -423,6 +436,7 @@ def test_update_single_card_does_not_use_line_result_without_matching_selection_
 
     anki.update_single_card(card)
 
+    _assert_and_remove_timing_context(queue_calls, line_id=first_line.id, word="力を持って")
     assert queue_calls == [
         (
             (card, selected_lines, first_line),
@@ -479,6 +493,7 @@ def test_update_single_card_reuses_screenshot_only_when_configured(monkeypatch):
 
     anki.update_single_card(card)
 
+    _assert_and_remove_timing_context(queue_calls, line_id=second_line.id, word="関係なし")
     assert queue_calls == [
         (
             (card, selected_lines, second_line),
