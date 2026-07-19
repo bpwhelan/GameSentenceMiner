@@ -853,6 +853,12 @@ class Anki:
     replay_audio_on_tts_generation: bool = True
     reuse_audio_for_same_selected_lines_different_mined_line: bool = True
     reuse_screenshot_for_same_selected_lines_different_mined_line: bool = False
+    field_grouping_enabled: bool = False
+    field_grouping_order: str = "front"
+    field_grouping_delete_duplicate: bool = True
+    field_grouping_additional_fields: List[str] = field(
+        default_factory=lambda: ["SentenceTranslation", "MiscInfo", "Tag"]
+    )
     tag_unvoiced_cards: bool = False
     remove_overlay_tag: bool = False
 
@@ -871,6 +877,22 @@ class Anki:
         self.overwrite_audio = bool(self.sentence_audio.overwrite)
         self.overwrite_picture = bool(self.picture.overwrite)
         self.overwrite_sentence = bool(self.sentence.overwrite)
+
+        normalized_order = str(self.field_grouping_order or "front").strip().lower()
+        self.field_grouping_order = normalized_order if normalized_order in {"front", "back"} else "front"
+        raw_grouping_fields = self.field_grouping_additional_fields
+        if isinstance(raw_grouping_fields, str):
+            raw_grouping_fields = raw_grouping_fields.split(",")
+        normalized_fields = []
+        seen_fields = set()
+        for raw_field in raw_grouping_fields or []:
+            field_name = str(raw_field or "").strip()
+            field_key = field_name.casefold()
+            if not field_name or field_key in seen_fields:
+                continue
+            seen_fields.add(field_key)
+            normalized_fields.append(field_name)
+        self.field_grouping_additional_fields = normalized_fields
 
     def _coerce_field(self, value: Any, default: AnkiField) -> AnkiField:
         if isinstance(value, AnkiField):
@@ -2219,6 +2241,10 @@ class Config:
                 profile.anki,
                 "reuse_screenshot_for_same_selected_lines_different_mined_line",
             )
+            self.sync_shared_field(config.anki, profile.anki, "field_grouping_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "field_grouping_order")
+            self.sync_shared_field(config.anki, profile.anki, "field_grouping_delete_duplicate")
+            self.sync_shared_field(config.anki, profile.anki, "field_grouping_additional_fields")
             self.sync_shared_field(config.general, profile.general, "open_config_on_startup")
             self.sync_shared_field(config.general, profile.general, "open_multimine_on_startup")
             self.sync_shared_field(config.general, profile.general, "websocket_uri")

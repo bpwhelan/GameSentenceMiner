@@ -411,5 +411,79 @@ def build_anki_tags_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     return widget
 
 
+def build_anki_field_grouping_tab(window: ConfigWindow, i18n: dict) -> QWidget:
+    widget = QWidget()
+    layout = QFormLayout(widget)
+    layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    tabs_i18n = i18n.get("tabs", {})
+
+    description = QLabel(
+        "When a newly mined note has the same word as an existing note of the same type, GSM can merge "
+        "the new context into the original note using compatible data-group-id markup."
+    )
+    description.setWordWrap(True)
+    layout.addRow(description)
+
+    docs_label = QLabel(
+        '<a href="https://kiku.youyoumu.my.id/field-grouping.html">Kiku field grouping documentation</a>'
+    )
+    docs_label.setOpenExternalLinks(True)
+    layout.addRow("Format:", docs_label)
+
+    layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "anki",
+            "field_grouping_enabled",
+            "Search for exact duplicate words and offer to merge their context fields.",
+            color=LabelColor.RECOMMENDED,
+            bold=True,
+        ),
+        window.anki_field_grouping_enabled_check,
+    )
+    layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "anki",
+            "field_grouping_order",
+            "Choose whether the newly mined context appears at the front or back by default.",
+        ),
+        window.anki_field_grouping_order_combo,
+    )
+    layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "anki",
+            "field_grouping_delete_duplicate",
+            "Preselect deletion of the new duplicate after the original note is updated successfully.",
+        ),
+        window.anki_field_grouping_delete_duplicate_check,
+    )
+    window.anki_field_grouping_additional_fields_edit.setPlaceholderText("SentenceTranslation, MiscInfo, Tag")
+    layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "anki",
+            "field_grouping_additional_fields",
+            (
+                "Comma-separated text fields to group in addition to the configured Picture, Sentence, "
+                "Sentence Audio, Sentence Furigana, and AI translation fields."
+            ),
+        ),
+        window.anki_field_grouping_additional_fields_edit,
+    )
+
+    behavior = QLabel(
+        "Every duplicate match opens a decision dialog. If several originals exist, the dialog lists all "
+        "exact matches so you can choose the merge target. Choosing “Keep as separate note” skips the merge."
+    )
+    behavior.setWordWrap(True)
+    layout.addRow(behavior)
+
+    reset_widget = window._create_reset_button("anki", window._create_anki_field_grouping_tab)
+    layout.addRow(reset_widget)
+    return widget
+
+
 def build_anki_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     return build_anki_general_tab(window, i18n)

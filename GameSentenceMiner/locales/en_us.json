@@ -288,6 +288,22 @@
             "label": "Same Selection, Different Line: Reuse Screenshot:",
             "tooltip": "When mining another word from the same selected lines but a different mined line, save a new replay and reuse the previous card's screenshot."
           },
+          "field_grouping_enabled": {
+            "label": "Enable Field Grouping:",
+            "tooltip": "When an exact duplicate word is found in the same note type, offer to merge the new context into an existing note."
+          },
+          "field_grouping_order": {
+            "label": "Default New Context Order:",
+            "tooltip": "Preselect whether newly merged context appears at the front or back of the group."
+          },
+          "field_grouping_delete_duplicate": {
+            "label": "Delete Duplicate by Default:",
+            "tooltip": "Preselect deletion of the newly created duplicate after its context has been merged successfully."
+          },
+          "field_grouping_additional_fields": {
+            "label": "Additional Grouped Fields:",
+            "tooltip": "Comma-separated text fields to group in addition to the configured sentence, audio, screenshot, furigana, and AI translation fields."
+          },
           "multi_overwrites_sentence": {
             "label": "Multi-line Mining Overwrite Sentence:",
             "tooltip": "When using Multi-line Mining, overwrite the sentence with a concatenation of the lines selected."

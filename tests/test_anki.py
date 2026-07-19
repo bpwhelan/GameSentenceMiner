@@ -134,6 +134,271 @@ def test_add_wildcards():
     assert anki.add_wildcards("abc") == "*a*b*c*"
 
 
+def test_find_field_grouping_candidates_uses_find_notes_and_filters_exact_matches(monkeypatch):
+    config = _base_config()
+    config.anki.field_grouping_enabled = True
+    config.anki.note_type = "Mining Notes"
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+
+    source = SimpleNamespace(
+        noteId=300,
+        modelName="Mining Notes",
+        get_field=lambda field: {"Word": "貢献", "Sentence": "new context"}[field],
+    )
+    calls = []
+
+    def fake_invoke(action, **kwargs):
+        calls.append((action, kwargs))
+        if action == "findNotes":
+            return [400, 300, 200, 100, 50]
+        if action == "notesInfo":
+            return [
+                {
+                    "noteId": 200,
+                    "modelName": "Mining Notes",
+                    "tags": ["mined"],
+                    "fields": {
+                        "Word": {"value": "<b>貢献</b>"},
+                        "Sentence": {"value": "second existing context"},
+                    },
+                },
+                {
+                    "noteId": 100,
+                    "modelName": "Mining Notes",
+                    "tags": [],
+                    "fields": {
+                        "Word": {"value": " 貢献 "},
+                        "Sentence": {"value": "first existing context"},
+                    },
+                },
+                {
+                    "noteId": 50,
+                    "modelName": "Mining Notes",
+                    "tags": [],
+                    "fields": {
+                        "Word": {"value": "貢献する"},
+                        "Sentence": {"value": "not an exact word match"},
+                    },
+                },
+            ]
+        raise AssertionError(action)
+
+    monkeypatch.setattr(anki, "invoke", fake_invoke)
+
+    candidates = anki._find_field_grouping_candidates(source)
+
+    assert [candidate["note_id"] for candidate in candidates] == [100, 200]
+    assert candidates[0]["sentence"] == "first existing context"
+    assert calls == [
+        ("findNotes", {"query": 'note:"Mining Notes" "Word:貢献"'}),
+        ("notesInfo", {"notes": [200, 100, 50]}),
+    ]
+
+
+def test_resolve_field_grouping_decision_is_inert_when_disabled(monkeypatch):
+    config = _base_config()
+    config.anki.field_grouping_enabled = False
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    monkeypatch.setattr(
+        anki,
+        "_find_field_grouping_candidates",
+        lambda _source: pytest.fail("disabled field grouping must not search Anki"),
+    )
+
+    assert anki._resolve_field_grouping_decision(SimpleNamespace(noteId=300)) is None
+
+
+def test_resolve_field_grouping_decision_uses_configured_defaults_and_selected_original(monkeypatch):
+    config = _base_config()
+    config.anki.field_grouping_enabled = True
+    config.anki.field_grouping_order = "back"
+    config.anki.field_grouping_delete_duplicate = False
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    candidates = [
+        {"note_id": 100, "sentence": "oldest", "tags": [], "model_name": "Mining"},
+        {"note_id": 200, "sentence": "newer", "tags": [], "model_name": "Mining"},
+    ]
+    monkeypatch.setattr(anki, "_find_field_grouping_candidates", lambda _source: candidates)
+    calls = []
+    qt_main_stub = ModuleType("GameSentenceMiner.ui.qt_main")
+
+    def launch(expression, dialog_candidates, **kwargs):
+        calls.append((expression, dialog_candidates, kwargs))
+        return {"target_note_id": 200, "order": "front", "delete_duplicate": True}
+
+    qt_main_stub.launch_anki_field_grouping = launch
+    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", qt_main_stub)
+    source = SimpleNamespace(noteId=300, get_field=lambda _field: "貢献")
+
+    decision = anki._resolve_field_grouping_decision(source)
+
+    assert decision == {"target_note_id": 200, "order": "front", "delete_duplicate": True}
+    assert calls == [
+        (
+            "貢献",
+            candidates,
+            {"default_order": "back", "default_delete_duplicate": False},
+        )
+    ]
+
+
+def test_build_field_grouping_note_groups_images_and_context_fields_at_front():
+    config = _base_config()
+    config.anki.sentence_furigana_field = "SentenceFurigana"
+    config.anki.field_grouping_additional_fields = ["SentenceTranslation", "MiscInfo"]
+    config.ai.add_to_anki = True
+    config.ai.anki_field = "SentenceTranslation"
+
+    source = SimpleNamespace(
+        noteId=200,
+        fields={
+            "Picture": SimpleNamespace(value='<img src="new.webp">'),
+            "Sentence": SimpleNamespace(value="new sentence"),
+            "SentenceAudio": SimpleNamespace(value="[sound:new.mp3]"),
+            "SentenceFurigana": SimpleNamespace(value="new furigana"),
+            "SentenceTranslation": SimpleNamespace(value="new translation"),
+        },
+        get_field=lambda field: {
+            "Picture": '<img src="new.webp">',
+            "Sentence": "new sentence",
+            "SentenceAudio": "[sound:new.mp3]",
+            "SentenceFurigana": "new furigana",
+            "SentenceTranslation": "new translation",
+        }[field],
+    )
+    target = {
+        "noteId": 100,
+        "tags": ["old"],
+        "fields": {
+            "Picture": {"value": '<img src="old.webp">'},
+            "Sentence": {"value": '<span data-group-id="90">older sentence</span>original sentence'},
+            "SentenceAudio": {"value": "[sound:old.mp3]"},
+            "SentenceFurigana": {"value": "old furigana"},
+            "SentenceTranslation": {"value": "old translation"},
+            "MiscInfo": {"value": "old info"},
+        },
+    }
+    source_patch = {
+        "id": 200,
+        "fields": {
+            "Sentence": "confirmed new sentence",
+            "SentenceTranslation": "confirmed translation",
+            "MiscInfo": "new info",
+        },
+    }
+
+    merged = anki._build_field_grouping_note(source, target, source_patch, "front", config)
+
+    assert merged == {
+        "id": 100,
+        "fields": {
+            "Picture": '<img data-group-id="200" src="new.webp">\n<img data-group-id="100" src="old.webp">',
+            "Sentence": (
+                '<span data-group-id="200">confirmed new sentence</span>\n'
+                '<span data-group-id="90">older sentence</span>'
+                '<span data-group-id="100">original sentence</span>'
+            ),
+            "SentenceAudio": (
+                '<span data-group-id="200">[sound:new.mp3]</span>\n<span data-group-id="100">[sound:old.mp3]</span>'
+            ),
+            "SentenceFurigana": (
+                '<span data-group-id="200">new furigana</span>\n<span data-group-id="100">old furigana</span>'
+            ),
+            "SentenceTranslation": (
+                '<span data-group-id="200">confirmed translation</span>\n'
+                '<span data-group-id="100">old translation</span>'
+            ),
+            "MiscInfo": ('<span data-group-id="200">new info</span>\n<span data-group-id="100">old info</span>'),
+        },
+    }
+
+
+def test_build_field_grouping_note_places_new_context_after_every_existing_group():
+    config = _base_config()
+    config.anki.field_grouping_additional_fields = []
+    source = SimpleNamespace(
+        noteId=200,
+        fields={"Sentence": SimpleNamespace(value="new")},
+        get_field=lambda field: {"Sentence": "new", "Picture": "", "SentenceAudio": ""}[field],
+    )
+    target = {
+        "noteId": 100,
+        "fields": {
+            "Sentence": {"value": '<span data-group-id="90">older</span>original'},
+            "Picture": {"value": ""},
+            "SentenceAudio": {"value": ""},
+        },
+    }
+
+    merged = anki._build_field_grouping_note(source, target, {"fields": {}}, "back", config)
+
+    assert merged["fields"]["Sentence"] == (
+        '<span data-group-id="90">older</span>'
+        '<span data-group-id="100">original</span>\n'
+        '<span data-group-id="89">new</span>'
+    )
+
+
+def test_apply_field_grouping_merge_updates_original_then_deletes_duplicate(monkeypatch):
+    config = _base_config()
+    config.anki.field_grouping_additional_fields = []
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    source = SimpleNamespace(
+        noteId=200,
+        tags=["GSM", "marked", "context"],
+        fields={"Sentence": SimpleNamespace(value="new")},
+        get_field=lambda field: {"Sentence": "new", "Picture": "", "SentenceAudio": ""}[field],
+    )
+    target = {
+        "noteId": 100,
+        "tags": ["old"],
+        "fields": {
+            "Sentence": {"value": "original"},
+            "Picture": {"value": ""},
+            "SentenceAudio": {"value": ""},
+        },
+    }
+    calls = []
+
+    def fake_invoke(action, **kwargs):
+        calls.append((action, kwargs))
+        if action == "notesInfo":
+            return [target]
+        return None
+
+    monkeypatch.setattr(anki, "invoke", fake_invoke)
+    anki.previous_note_ids = {100, 200}
+
+    merged_target = anki._apply_field_grouping_merge(
+        source,
+        {"fields": {"Sentence": "confirmed new"}},
+        ["generated"],
+        {"target_note_id": 100, "order": "front", "delete_duplicate": True},
+        config,
+    )
+
+    assert merged_target.noteId == 100
+    assert calls == [
+        ("notesInfo", {"notes": [100]}),
+        (
+            "updateNoteFields",
+            {
+                "note": {
+                    "id": 100,
+                    "fields": {
+                        "Sentence": (
+                            '<span data-group-id="200">confirmed new</span>\n<span data-group-id="100">original</span>'
+                        )
+                    },
+                }
+            },
+        ),
+        ("addTags", {"tags": "generated GSM context", "notes": [100]}),
+        ("deleteNotes", {"notes": [200]}),
+    ]
+    assert anki.previous_note_ids == {100}
+
+
 def test_normalize_for_signature_uses_html_strip_and_text_normalization(monkeypatch):
     monkeypatch.setattr(anki, "remove_html_and_cloze_tags", lambda text: "Hello, World!")
     monkeypatch.setattr(
@@ -2071,6 +2336,43 @@ def test_update_anki_card_confirmation_delete_card_deletes_note_and_skips_update
 
     assert result is False
     assert invoke_calls == [("deleteNotes", {"notes": [10]})]
+
+
+def test_update_anki_card_does_not_enter_field_grouping_path_when_disabled(monkeypatch):
+    cfg = _base_config()
+    cfg.anki.field_grouping_enabled = False
+    cfg.anki.show_update_confirmation_dialog_v2 = False
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_determine_update_conditions", lambda _note: (False, False))
+    monkeypatch.setattr(anki, "_synchronize_deferred_media_metadata", lambda *args, **kwargs: None)
+    monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args, **_kwargs: note)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda: [])
+    monkeypatch.setattr(
+        anki,
+        "_resolve_field_grouping_decision",
+        lambda _note: pytest.fail("disabled field grouping must not enter its decision path"),
+    )
+
+    worker_kwargs = {}
+    monkeypatch.setattr(
+        anki,
+        "check_and_update_note",
+        lambda *_args, **kwargs: worker_kwargs.update(kwargs),
+    )
+    monkeypatch.setattr(anki, "run_new_thread", lambda func: func())
+
+    result = anki.update_anki_card(
+        last_note=SimpleNamespace(noteId=10, get_field=lambda _field: ""),
+        note={"id": 10, "fields": {"Sentence": "sentence"}},
+        tango="word",
+        should_update_audio=False,
+        game_line=SimpleNamespace(id="line-2", text="line", TL="", prev=None),
+        selected_lines=[],
+        precomputed_assets=anki.MediaAssets(),
+    )
+
+    assert result is True
+    assert worker_kwargs["field_grouping_decision"] is None
 
 
 def test_cleanup_assets_invokes_callback():

@@ -44,6 +44,13 @@ def _get_show_anki_confirmation():
 
 
 @lru_cache(maxsize=1)
+def _get_show_anki_field_grouping_dialog():
+    from GameSentenceMiner.ui.anki_field_grouping_qt import show_anki_field_grouping_dialog
+
+    return show_anki_field_grouping_dialog
+
+
+@lru_cache(maxsize=1)
 def _get_config_window_class():
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
 
@@ -250,6 +257,43 @@ class DialogManager(QObject):
                 translation_future,
                 reusing_audio,
                 reusing_screenshot,
+                cb,
+            )
+        )
+
+    def _logic_anki_field_grouping(
+        self,
+        parent,
+        expression,
+        candidates,
+        default_order,
+        default_delete_duplicate,
+        callback,
+    ):
+        result = _get_show_anki_field_grouping_dialog()(
+            parent=parent,
+            expression=expression,
+            candidates=candidates,
+            default_order=default_order,
+            default_delete_duplicate=default_delete_duplicate,
+        )
+        callback(result)
+
+    def anki_field_grouping_sync(
+        self,
+        expression,
+        candidates,
+        default_order="front",
+        default_delete_duplicate=True,
+        parent=None,
+    ):
+        return self._run_sync(
+            lambda cb: self._logic_anki_field_grouping(
+                parent,
+                expression,
+                candidates,
+                default_order,
+                default_delete_duplicate,
                 cb,
             )
         )
@@ -533,6 +577,21 @@ def launch_anki_confirmation(
         translation_future,
         reusing_audio,
         reusing_screenshot,
+    )
+
+
+def launch_anki_field_grouping(
+    expression,
+    candidates,
+    default_order="front",
+    default_delete_duplicate=True,
+):
+    """Launch the duplicate-note field grouping decision dialog on the Qt thread."""
+    return get_dialog_manager().anki_field_grouping_sync(
+        expression,
+        candidates,
+        default_order,
+        default_delete_duplicate,
     )
 
 

@@ -127,6 +127,7 @@ class AnkiCard:
     tags: list[str]
     fields: dict[str, AnkiField]
     cards: list[int]
+    modelName: str = ""
     alternatives = {
         "word_field": ["Front", "Word", "TargetWord", "Expression"],
         "sentence_field": ["Example", "Context", "Back", "Sentence"],

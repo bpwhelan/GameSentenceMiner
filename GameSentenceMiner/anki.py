@@ -11,6 +11,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from html import unescape
 from pathlib import Path
 from queue import Empty, Queue
 from types import SimpleNamespace
@@ -129,6 +130,29 @@ anki_polling_gate_state = AnkiPollingGateState()
 MAX_BASELINE_SEED_FAILURE_LOGS = 5
 CONFIRMATION_CANCEL_ACTION_KEY = "cancel_action"
 CONFIRMATION_CANCEL_ACTION_DELETE_CARD = "delete_card"
+FIELD_GROUPING_SPECIAL_TAGS = {"leech", "marked", "potential_leech"}
+FIELD_GROUPING_ORDER_FRONT = "front"
+FIELD_GROUPING_ORDER_BACK = "back"
+_DATA_GROUP_ID_RE = re.compile(r"\bdata-group-id\s*=\s*([\"']?)(\d+)\1", re.IGNORECASE)
+_HTML_TOKEN_RE = re.compile(r"(<[^>]+>)", re.DOTALL)
+_HTML_START_TAG_RE = re.compile(r"<\s*([a-zA-Z][\w:-]*)\b", re.DOTALL)
+_HTML_END_TAG_RE = re.compile(r"<\s*/\s*([a-zA-Z][\w:-]*)\s*>", re.DOTALL)
+_HTML_VOID_TAGS = {
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
+}
 
 
 def _notify_anki_enhancement_failure(reason: str) -> None:
@@ -169,6 +193,364 @@ def _delete_cancelled_anki_note(last_note: "AnkiCard") -> bool:
         logger.exception(reason)
         _notify_anki_enhancement_failure(reason)
         return False
+
+
+def _escape_anki_search_value(value: Any) -> str:
+    return str(value or "").replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _note_info_field_value(note_info: Dict[str, Any], field_name: str) -> str:
+    raw_field = (note_info.get("fields") or {}).get(field_name)
+    if isinstance(raw_field, dict):
+        return str(raw_field.get("value") or "")
+    if hasattr(raw_field, "value"):
+        return str(raw_field.value or "")
+    return str(raw_field or "")
+
+
+def _source_note_field_value(source_note: "AnkiCard", source_patch: Dict[str, Any], field_name: str) -> str:
+    patch_fields = source_patch.get("fields") or {}
+    if field_name in patch_fields:
+        return str(patch_fields[field_name] or "")
+    try:
+        return str(source_note.get_field(field_name) or "")
+    except Exception:
+        raw_field = (getattr(source_note, "fields", {}) or {}).get(field_name)
+        if hasattr(raw_field, "value"):
+            return str(raw_field.value or "")
+        if isinstance(raw_field, dict):
+            return str(raw_field.get("value") or "")
+        return str(raw_field or "")
+
+
+def _normalize_field_grouping_word(value: str) -> str:
+    plain_text = unescape(remove_html_and_cloze_tags(str(value or "")))
+    return "".join(plain_text.split()).casefold()
+
+
+def _find_field_grouping_candidates(source_note: "AnkiCard") -> List[Dict[str, Any]]:
+    config = get_config()
+    anki_config = config.anki
+    if not bool(getattr(anki_config, "field_grouping_enabled", False)):
+        return []
+
+    word_field = str(getattr(anki_config, "word_field", "") or "").strip()
+    if not word_field:
+        return []
+    try:
+        source_word = source_note.get_field(word_field)
+    except Exception:
+        return []
+    normalized_source_word = _normalize_field_grouping_word(source_word)
+    if not normalized_source_word:
+        return []
+
+    model_name = str(getattr(source_note, "modelName", "") or getattr(anki_config, "note_type", "") or "").strip()
+    search_terms = []
+    if model_name:
+        search_terms.append(f'note:"{_escape_anki_search_value(model_name)}"')
+    search_terms.append(f'"{_escape_anki_search_value(word_field)}:{_escape_anki_search_value(source_word)}"')
+    note_ids = invoke("findNotes", query=" ".join(search_terms)) or []
+    source_note_id = int(getattr(source_note, "noteId", 0) or 0)
+    candidate_ids = [int(note_id) for note_id in note_ids if 0 < int(note_id) < source_note_id]
+    if not candidate_ids:
+        return []
+
+    note_infos = invoke("notesInfo", notes=candidate_ids) or []
+    sentence_field = str(getattr(anki_config, "sentence_field", "") or "").strip()
+    candidates = []
+    for note_info in note_infos:
+        note_id = int(note_info.get("noteId") or 0)
+        if not note_id or note_id == source_note_id:
+            continue
+        candidate_model = str(note_info.get("modelName") or "").strip()
+        if model_name and candidate_model and candidate_model != model_name:
+            continue
+        candidate_word = _note_info_field_value(note_info, word_field)
+        if _normalize_field_grouping_word(candidate_word) != normalized_source_word:
+            continue
+        sentence_html = _note_info_field_value(note_info, sentence_field) if sentence_field else ""
+        candidates.append(
+            {
+                "note_id": note_id,
+                "sentence": unescape(remove_html_and_cloze_tags(sentence_html)).strip(),
+                "tags": list(note_info.get("tags") or []),
+                "model_name": candidate_model or model_name,
+            }
+        )
+    candidates.sort(key=lambda candidate: candidate["note_id"])
+    return candidates
+
+
+def _resolve_field_grouping_decision(source_note: "AnkiCard") -> Optional[Dict[str, Any]]:
+    config = get_config()
+    if not bool(getattr(config.anki, "field_grouping_enabled", False)):
+        return None
+    try:
+        candidates = _find_field_grouping_candidates(source_note)
+    except Exception as e:
+        logger.warning(f"Could not search Anki for field-grouping duplicates: {e}")
+        return None
+    if not candidates:
+        return None
+
+    try:
+        expression = source_note.get_field(config.anki.word_field)
+        from GameSentenceMiner.ui.qt_main import launch_anki_field_grouping
+
+        result = launch_anki_field_grouping(
+            expression,
+            candidates,
+            default_order=getattr(config.anki, "field_grouping_order", FIELD_GROUPING_ORDER_FRONT),
+            default_delete_duplicate=bool(getattr(config.anki, "field_grouping_delete_duplicate", True)),
+        )
+    except Exception as e:
+        logger.warning(f"Could not show the Anki field-grouping dialog: {e}")
+        return None
+    if not isinstance(result, dict):
+        logger.info("Duplicate Anki note found; keeping it separate at the user's request.")
+        return None
+
+    candidate_ids = {int(candidate["note_id"]) for candidate in candidates}
+    target_note_id = int(result.get("target_note_id") or 0)
+    if target_note_id not in candidate_ids:
+        logger.warning("Ignoring an invalid Anki field-grouping target selection.")
+        return None
+    order = str(result.get("order") or FIELD_GROUPING_ORDER_FRONT).strip().lower()
+    if order not in {FIELD_GROUPING_ORDER_FRONT, FIELD_GROUPING_ORDER_BACK}:
+        order = FIELD_GROUPING_ORDER_FRONT
+    return {
+        "target_note_id": target_note_id,
+        "order": order,
+        "delete_duplicate": bool(result.get("delete_duplicate", True)),
+    }
+
+
+def _extract_group_ids(value: str) -> set[int]:
+    return {int(match.group(2)) for match in _DATA_GROUP_ID_RE.finditer(str(value or ""))}
+
+
+def _replace_group_ids(value: str, replacements: Dict[int, int]) -> str:
+    def replace(match: re.Match) -> str:
+        old_id = int(match.group(2))
+        new_id = replacements.get(old_id, old_id)
+        quote = match.group(1)
+        return f"data-group-id={quote}{new_id}{quote}"
+
+    return _DATA_GROUP_ID_RE.sub(replace, str(value or ""))
+
+
+def _html_fragment_has_content(value: str) -> bool:
+    text_only = re.sub(r"<[^>]+>", "", str(value or ""), flags=re.DOTALL)
+    text_only = unescape(text_only).replace("\xa0", "").strip()
+    return bool(text_only)
+
+
+def _group_text_fragment(value: str, group_id: int) -> str:
+    value = str(value or "")
+    if not value:
+        return ""
+
+    output = []
+    ungrouped = []
+    grouped = None
+    grouped_depth = 0
+
+    def flush_ungrouped() -> None:
+        if not ungrouped:
+            return
+        fragment = "".join(ungrouped)
+        ungrouped.clear()
+        if _html_fragment_has_content(fragment):
+            output.append(f'<span data-group-id="{group_id}">{fragment}</span>')
+        else:
+            output.append(fragment)
+
+    for token in _HTML_TOKEN_RE.split(value):
+        if token == "":
+            continue
+        if grouped is not None:
+            grouped.append(token)
+            start_match = _HTML_START_TAG_RE.match(token)
+            end_match = _HTML_END_TAG_RE.match(token)
+            if end_match:
+                grouped_depth -= 1
+            elif start_match:
+                tag_name = start_match.group(1).casefold()
+                if tag_name not in _HTML_VOID_TAGS and not token.rstrip().endswith("/>"):
+                    grouped_depth += 1
+            if grouped_depth <= 0:
+                output.append("".join(grouped))
+                grouped = None
+                grouped_depth = 0
+            continue
+
+        start_match = _HTML_START_TAG_RE.match(token)
+        if start_match and _DATA_GROUP_ID_RE.search(token):
+            flush_ungrouped()
+            tag_name = start_match.group(1).casefold()
+            if tag_name in _HTML_VOID_TAGS or token.rstrip().endswith("/>"):
+                output.append(token)
+            else:
+                grouped = [token]
+                grouped_depth = 1
+            continue
+        ungrouped.append(token)
+
+    if grouped is not None:
+        output.append("".join(grouped))
+    flush_ungrouped()
+    return "".join(output)
+
+
+def _group_image_fragment(value: str, group_id: int) -> str:
+    def add_group_id(match: re.Match) -> str:
+        tag = match.group(0)
+        if _DATA_GROUP_ID_RE.search(tag):
+            return tag
+        return f'{tag[:4]} data-group-id="{group_id}"{tag[4:]}'
+
+    return re.sub(r"<img\b[^>]*>", add_group_id, str(value or ""), flags=re.IGNORECASE | re.DOTALL)
+
+
+def _field_grouping_fields(config: ProfileConfig) -> List[Tuple[str, str]]:
+    anki_config = config.anki
+    fields = [
+        (str(getattr(anki_config, "picture_field", "") or "").strip(), "image"),
+        (str(getattr(anki_config, "sentence_field", "") or "").strip(), "text"),
+        (str(getattr(anki_config, "sentence_audio_field", "") or "").strip(), "text"),
+        (str(getattr(anki_config, "sentence_furigana_field", "") or "").strip(), "text"),
+    ]
+    if bool(getattr(config.ai, "add_to_anki", False)):
+        fields.append((str(getattr(config.ai, "anki_field", "") or "").strip(), "text"))
+    fields.extend(
+        (str(field_name or "").strip(), "text")
+        for field_name in (getattr(anki_config, "field_grouping_additional_fields", []) or [])
+    )
+
+    word_field = str(getattr(anki_config, "word_field", "") or "").strip().casefold()
+    result = []
+    seen = set()
+    for field_name, mode in fields:
+        field_key = field_name.casefold()
+        if not field_name or field_key == word_field or field_key in seen:
+            continue
+        seen.add(field_key)
+        result.append((field_name, mode))
+    return result
+
+
+def _build_field_grouping_note(
+    source_note: "AnkiCard",
+    target_info: Dict[str, Any],
+    source_patch: Dict[str, Any],
+    order: str,
+    config: ProfileConfig,
+) -> Dict[str, Any]:
+    source_note_id = int(getattr(source_note, "noteId", 0) or 0)
+    target_note_id = int(target_info.get("noteId") or 0)
+    if not source_note_id or not target_note_id or source_note_id == target_note_id:
+        raise ValueError("Field grouping requires two different valid Anki note IDs.")
+
+    field_specs = _field_grouping_fields(config)
+    target_values = {name: _note_info_field_value(target_info, name) for name, _mode in field_specs}
+    source_values = {name: _source_note_field_value(source_note, source_patch, name) for name, _mode in field_specs}
+    existing_group_ids = set()
+    for field_value in [*target_values.values(), *source_values.values()]:
+        existing_group_ids.update(_extract_group_ids(field_value))
+
+    target_group_id = target_note_id
+    normalized_order = str(order or FIELD_GROUPING_ORDER_FRONT).strip().lower()
+    if normalized_order == FIELD_GROUPING_ORDER_BACK:
+        smallest_group_id = min(existing_group_ids | {target_group_id})
+        if smallest_group_id <= 1:
+            replacements = {group_id: group_id + 1 for group_id in existing_group_ids}
+            target_values = {name: _replace_group_ids(value, replacements) for name, value in target_values.items()}
+            source_values = {name: _replace_group_ids(value, replacements) for name, value in source_values.items()}
+            if target_group_id <= 1:
+                target_group_id = 2
+            source_group_id = 1
+        else:
+            source_group_id = smallest_group_id - 1
+    else:
+        largest_group_id = max(existing_group_ids | {target_group_id})
+        source_group_id = source_note_id if source_note_id > largest_group_id else largest_group_id + 1
+        normalized_order = FIELD_GROUPING_ORDER_FRONT
+
+    merged_fields = {}
+    for field_name, mode in field_specs:
+        source_value = source_values[field_name]
+        if not source_value.strip():
+            continue
+        target_value = target_values[field_name]
+        if mode == "image":
+            grouped_source = _group_image_fragment(source_value, source_group_id)
+            grouped_target = _group_image_fragment(target_value, target_group_id)
+        else:
+            grouped_source = _group_text_fragment(source_value, source_group_id)
+            grouped_target = _group_text_fragment(target_value, target_group_id)
+        ordered_values = (
+            [grouped_source, grouped_target]
+            if normalized_order == FIELD_GROUPING_ORDER_FRONT
+            else [grouped_target, grouped_source]
+        )
+        merged_fields[field_name] = "\n".join(value for value in ordered_values if value)
+
+    return {"id": target_note_id, "fields": merged_fields}
+
+
+def _field_grouping_tags(source_note: "AnkiCard", generated_tags: List[str]) -> List[str]:
+    result = []
+    seen = set()
+    for raw_tag in [*(generated_tags or []), *(getattr(source_note, "tags", None) or [])]:
+        tag = str(raw_tag or "").strip()
+        tag_key = tag.casefold()
+        if not tag or tag_key in FIELD_GROUPING_SPECIAL_TAGS or tag_key in seen:
+            continue
+        seen.add(tag_key)
+        result.append(tag)
+    return result
+
+
+def _apply_field_grouping_merge(
+    source_note: "AnkiCard",
+    source_patch: Dict[str, Any],
+    generated_tags: List[str],
+    decision: Dict[str, Any],
+    config: ProfileConfig,
+):
+    source_note_id = int(getattr(source_note, "noteId", 0) or 0)
+    target_note_id = int(decision.get("target_note_id") or 0)
+    if not target_note_id or target_note_id == source_note_id:
+        raise ValueError("The selected field-grouping target is invalid.")
+
+    target_infos = invoke("notesInfo", notes=[target_note_id]) or []
+    if not target_infos:
+        raise ValueError(f"The selected original Anki note {target_note_id} no longer exists.")
+    merged_note = _build_field_grouping_note(
+        source_note,
+        target_infos[0],
+        source_patch,
+        decision.get("order", FIELD_GROUPING_ORDER_FRONT),
+        config,
+    )
+    if not merged_note["fields"]:
+        raise ValueError("No configured context fields contained data to merge.")
+    invoke("updateNoteFields", note=merged_note)
+
+    merged_tags = _field_grouping_tags(source_note, generated_tags)
+    if merged_tags:
+        invoke("addTags", tags=" ".join(merged_tags), notes=[target_note_id])
+    if bool(getattr(config.anki, "remove_overlay_tag", False)):
+        invoke("removeTags", tags="overlay", notes=[target_note_id])
+
+    if bool(decision.get("delete_duplicate", True)):
+        invoke("deleteNotes", notes=[source_note_id])
+        previous_note_ids.discard(source_note_id)
+        logger.info(f"Merged grouped context into Anki note {target_note_id} and deleted duplicate {source_note_id}.")
+    else:
+        logger.info(f"Merged grouped context into Anki note {target_note_id}; duplicate {source_note_id} was kept.")
+    return SimpleNamespace(noteId=target_note_id)
 
 
 # --- Migration Utilities ---
@@ -1257,6 +1639,11 @@ def update_anki_card(
     for extra_tag in assets.extra_tags:
         tags.append(extra_tag)
 
+    field_grouping_decision = None
+    if bool(getattr(config.anki, "field_grouping_enabled", False)):
+        with time_anki_card_block(timing_context, "anki.field_grouping.duplicate_decision"):
+            field_grouping_decision = _resolve_field_grouping_decision(last_note)
+
     # All media uploading will be handled in the background thread after processing
     # This ensures proper timing and avoids uploading raw/unprocessed media
 
@@ -1355,7 +1742,7 @@ def update_anki_card(
                 audio_in_anki=anki_audio_path,
                 screenshot_in_anki=anki_screenshot_path,
                 translation=translation,
-                note_id=str(last_note.noteId),
+                note_id=str(field_grouping_decision["target_note_id"] if field_grouping_decision else last_note.noteId),
             )
 
     log_anki_card_timing(
@@ -1380,6 +1767,7 @@ def update_anki_card(
             processing_word=tango,
             failure_result_id=game_line.id if game_line and not use_existing_files else None,
             timing_context=timing_context,
+            field_grouping_decision=field_grouping_decision,
         )
     )
     return True
@@ -1892,6 +2280,7 @@ def check_and_update_note(
     processing_word: str = "",
     failure_result_id: Optional[str] = None,
     timing_context: Optional[AnkiCardTimingContext] = None,
+    field_grouping_decision: Optional[Dict[str, Any]] = None,
 ):
     """Update note in Anki, including uploading media files."""
     worker_start = time.perf_counter()
@@ -1957,15 +2346,33 @@ def check_and_update_note(
 
         with time_anki_card_block(timing_context, "anki.background.update_anki_note"):
             selected_notes = _update_anki_note(last_note, note, tags, assets, timing_context=timing_context)
+        completed_note = last_note
+        sync_note_ids = [last_note.noteId]
+        if field_grouping_decision:
+            with time_anki_card_block(timing_context, "anki.background.merge_grouped_context"):
+                completed_note = _apply_field_grouping_merge(
+                    last_note,
+                    note,
+                    tags,
+                    field_grouping_decision,
+                    config,
+                )
+            sync_note_ids = [completed_note.noteId]
+            if not bool(field_grouping_decision.get("delete_duplicate", True)):
+                sync_note_ids.append(last_note.noteId)
+            selected_note_ids = set(selected_notes or [])
+            if last_note.noteId in selected_note_ids:
+                selected_note_ids.add(completed_note.noteId)
+            selected_notes = list(selected_note_ids)
         with time_anki_card_block(timing_context, "anki.background.post_update_actions"):
-            _perform_post_update_actions(last_note, selected_notes, config)
+            _perform_post_update_actions(completed_note, selected_notes, config)
         log_anki_card_timing(
             timing_context,
             "anki.background.user_visible_complete",
             elapsed_ms=elapsed_ms(worker_start),
         )
         with time_anki_card_block(timing_context, "anki.background.incremental_cache_sync"):
-            _trigger_incremental_anki_cache_sync([last_note.noteId])
+            _trigger_incremental_anki_cache_sync(sync_note_ids)
 
         if assets_ready_callback:
             try:

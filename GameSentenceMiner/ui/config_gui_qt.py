@@ -63,6 +63,7 @@ from GameSentenceMiner.ui.config.tabs.advanced import build_advanced_tab
 from GameSentenceMiner.ui.config.tabs.ai import build_ai_prompts_tab, build_ai_tab
 from GameSentenceMiner.ui.config.tabs.anki import (
     build_anki_confirmation_tab,
+    build_anki_field_grouping_tab,
     build_anki_general_tab,
     build_anki_tags_tab,
 )
@@ -889,6 +890,14 @@ class ConfigWindow(QWidget):
                     reuse_screenshot_for_same_selected_lines_different_mined_line=(
                         self.anki_same_selection_different_line_reuse_screenshot_check.isChecked()
                     ),
+                    field_grouping_enabled=self.anki_field_grouping_enabled_check.isChecked(),
+                    field_grouping_order=str(self.anki_field_grouping_order_combo.currentData() or "front"),
+                    field_grouping_delete_duplicate=(self.anki_field_grouping_delete_duplicate_check.isChecked()),
+                    field_grouping_additional_fields=[
+                        field_name.strip()
+                        for field_name in self.anki_field_grouping_additional_fields_edit.text().split(",")
+                        if field_name.strip()
+                    ],
                 ),
                 features=Features(
                     full_auto=self.full_auto_check.isChecked(),
@@ -1444,6 +1453,12 @@ class ConfigWindow(QWidget):
         self.anki_confirmation_replay_audio_on_tts_generation_check = QCheckBox()
         self.anki_same_selection_different_line_reuse_audio_check = QCheckBox()
         self.anki_same_selection_different_line_reuse_screenshot_check = QCheckBox()
+        self.anki_field_grouping_enabled_check = QCheckBox()
+        self.anki_field_grouping_order_combo = QComboBox()
+        self.anki_field_grouping_order_combo.addItem("Front", "front")
+        self.anki_field_grouping_order_combo.addItem("Back", "back")
+        self.anki_field_grouping_delete_duplicate_check = QCheckBox()
+        self.anki_field_grouping_additional_fields_edit = QLineEdit()
         self.anki_url_edit = QLineEdit()
         self.anki_note_type_combo = self._create_anki_field_combo()
         self.sentence_field_edit = self._create_anki_field_combo()
@@ -1819,6 +1834,30 @@ class ConfigWindow(QWidget):
                 "reuse_screenshot_for_same_selected_lines_different_mined_line",
             ),
             self.anki_same_selection_different_line_reuse_screenshot_check,
+        )
+        self.binder.bind(
+            ("profile", "anki", "field_grouping_enabled"),
+            self.anki_field_grouping_enabled_check,
+        )
+        self.binder.bind(
+            ("profile", "anki", "field_grouping_order"),
+            self.anki_field_grouping_order_combo,
+            transform=ValueTransform(
+                to_model=lambda value: str(value or "front").strip().lower(),
+                from_model=lambda value: str(value or "front").strip().title(),
+            ),
+        )
+        self.binder.bind(
+            ("profile", "anki", "field_grouping_delete_duplicate"),
+            self.anki_field_grouping_delete_duplicate_check,
+        )
+        self.binder.bind(
+            ("profile", "anki", "field_grouping_additional_fields"),
+            self.anki_field_grouping_additional_fields_edit,
+            transform=ValueTransform(
+                to_model=lambda value: [part.strip() for part in str(value or "").split(",") if part.strip()],
+                from_model=lambda value: ", ".join(value or []),
+            ),
         )
         self.binder.bind(("profile", "anki", "word_field"), self.word_field_edit)
         self.binder.bind(
@@ -2299,6 +2338,7 @@ class ConfigWindow(QWidget):
             [
                 ("general", self._create_anki_general_tab(), "General"),
                 ("confirmation", self._create_anki_confirmation_tab(), "Confirmation"),
+                ("field_grouping", self._create_anki_field_grouping_tab(), "Field Grouping"),
                 ("tags", self._create_anki_tags_tab(), "Tags"),
             ],
             root_key="anki",
@@ -2860,6 +2900,9 @@ class ConfigWindow(QWidget):
     def _create_anki_confirmation_tab(self):
         return build_anki_confirmation_tab(self, self.i18n)
 
+    def _create_anki_field_grouping_tab(self):
+        return build_anki_field_grouping_tab(self, self.i18n)
+
     def _create_anki_tags_tab(self):
         return build_anki_tags_tab(self, self.i18n)
 
@@ -2958,6 +3001,18 @@ class ConfigWindow(QWidget):
         )
         self.anki_same_selection_different_line_reuse_screenshot_check.setChecked(
             bool(getattr(s.anki, "reuse_screenshot_for_same_selected_lines_different_mined_line", False))
+        )
+        self.anki_field_grouping_enabled_check.setChecked(bool(getattr(s.anki, "field_grouping_enabled", False)))
+        field_grouping_order = str(getattr(s.anki, "field_grouping_order", "front") or "front").lower()
+        field_grouping_order_index = self.anki_field_grouping_order_combo.findData(field_grouping_order)
+        self.anki_field_grouping_order_combo.setCurrentIndex(
+            field_grouping_order_index if field_grouping_order_index >= 0 else 0
+        )
+        self.anki_field_grouping_delete_duplicate_check.setChecked(
+            bool(getattr(s.anki, "field_grouping_delete_duplicate", True))
+        )
+        self.anki_field_grouping_additional_fields_edit.setText(
+            ", ".join(getattr(s.anki, "field_grouping_additional_fields", []) or [])
         )
         self._set_text_value(self.anki_url_edit, s.anki.url)
         self._suppress_anki_field_refresh = True
