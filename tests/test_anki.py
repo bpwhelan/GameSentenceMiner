@@ -837,6 +837,37 @@ def test_queue_card_for_processing_translates_matched_line_instead_of_raw_ocr_bl
     assert anki.card_queue[-1][7] is translation_future
 
 
+def test_queue_card_for_processing_preserves_target_word_html_for_translation(monkeypatch):
+    cfg = _base_config()
+    cfg.ai.add_to_anki = True
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki.obs, "save_replay_buffer", lambda: None)
+    monkeypatch.setattr(
+        anki,
+        "_get_texthooking_page_module",
+        lambda: SimpleNamespace(reset_checked_lines=lambda: None),
+    )
+
+    submitted = []
+
+    class RecordingExecutor:
+        def submit(self, func, *args):
+            submitted.append((func, args))
+            return object()
+
+    monkeypatch.setattr(anki, "translation_prefetch_executor", RecordingExecutor())
+
+    line = SimpleNamespace(id="line-2", text="お前が感傷的になった")
+    card = SimpleNamespace(
+        noteId=42,
+        get_field=lambda field: "お前が<b>感傷的</b>になった" if field == cfg.anki.sentence_field else "感傷的",
+    )
+
+    anki.queue_card_for_processing(card, [], line)
+
+    assert submitted[0][1][3] == "お前が<b>感傷的</b>になった"
+
+
 def test_queue_card_for_processing_prefetches_multiple_plain_selected_lines(monkeypatch):
     cfg = _base_config()
     cfg.ai.add_to_anki = True
