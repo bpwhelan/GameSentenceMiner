@@ -3442,11 +3442,12 @@ def queue_card_for_processing(
         timing_context.mark_queued()
     translation_future = None
     if get_config().ai.add_to_anki:
-        sentence_to_translate = last_mined_line.text if last_mined_line else ""
         if lines:
-            selected_text = combine_dialogue([line.text for line in lines if line and line.text])
-            if selected_text:
-                sentence_to_translate = "".join(selected_text)
+            sentence_to_translate = _build_selected_lines_sentence(last_card, lines)
+        elif last_mined_line:
+            sentence_to_translate = _sentence_for_current_card_html(last_card, last_mined_line.text)
+        else:
+            sentence_to_translate = ""
         translation_future = translation_prefetch_executor.submit(
             run_anki_card_timed,
             timing_context,
