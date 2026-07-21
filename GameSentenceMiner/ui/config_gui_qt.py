@@ -891,6 +891,7 @@ class ConfigWindow(QWidget):
                         self.anki_same_selection_different_line_reuse_screenshot_check.isChecked()
                     ),
                     field_grouping_enabled=self.anki_field_grouping_enabled_check.isChecked(),
+                    field_grouping_auto_merge=self.anki_field_grouping_auto_merge_check.isChecked(),
                     field_grouping_order=str(self.anki_field_grouping_order_combo.currentData() or "front"),
                     field_grouping_delete_duplicate=(self.anki_field_grouping_delete_duplicate_check.isChecked()),
                     field_grouping_additional_fields=[
@@ -1454,6 +1455,7 @@ class ConfigWindow(QWidget):
         self.anki_same_selection_different_line_reuse_audio_check = QCheckBox()
         self.anki_same_selection_different_line_reuse_screenshot_check = QCheckBox()
         self.anki_field_grouping_enabled_check = QCheckBox()
+        self.anki_field_grouping_auto_merge_check = QCheckBox()
         self.anki_field_grouping_order_combo = QComboBox()
         self.anki_field_grouping_order_combo.addItem("Front", "front")
         self.anki_field_grouping_order_combo.addItem("Back", "back")
@@ -1838,6 +1840,10 @@ class ConfigWindow(QWidget):
         self.binder.bind(
             ("profile", "anki", "field_grouping_enabled"),
             self.anki_field_grouping_enabled_check,
+        )
+        self.binder.bind(
+            ("profile", "anki", "field_grouping_auto_merge"),
+            self.anki_field_grouping_auto_merge_check,
         )
         self.binder.bind(
             ("profile", "anki", "field_grouping_order"),
@@ -3003,6 +3009,7 @@ class ConfigWindow(QWidget):
             bool(getattr(s.anki, "reuse_screenshot_for_same_selected_lines_different_mined_line", False))
         )
         self.anki_field_grouping_enabled_check.setChecked(bool(getattr(s.anki, "field_grouping_enabled", False)))
+        self.anki_field_grouping_auto_merge_check.setChecked(bool(getattr(s.anki, "field_grouping_auto_merge", False)))
         field_grouping_order = str(getattr(s.anki, "field_grouping_order", "front") or "front").lower()
         field_grouping_order_index = self.anki_field_grouping_order_combo.findData(field_grouping_order)
         self.anki_field_grouping_order_combo.setCurrentIndex(

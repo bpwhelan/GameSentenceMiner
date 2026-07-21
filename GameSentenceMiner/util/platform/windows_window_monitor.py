@@ -1057,30 +1057,69 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             return False
         return True
 
+    def _obs_reports_output(self) -> bool:
+        """Return whether OBS recently confirmed a non-empty composited frame."""
+        import GameSentenceMiner.obs as _obs_pkg
+
+        svc = _obs_pkg.obs_service
+        if not svc:
+            return False
+
+        state = svc.state
+        checked_at = state.source_output_checked_at
+        return bool(state.source_output_active is True and checked_at and (time.time() - checked_at) <= 30.0)
+
     async def _hide_overlay_if_obs_has_no_output(self):
-        if not self._obs_reports_no_output():
+        if self._obs_reports_no_output():
+            if self.last_state in ("minimized", "closed"):
+                return
+
+            logger.info("Target window not found and OBS reports no output - hiding overlay (minimized).")
+            self.state_before_no_output_hide = self.last_state
+            self.is_fullscreen_before_no_output_hide = self.last_is_fullscreen
+            self.hidden_due_to_no_output = True
+            self.last_state = "minimized"
+            self.last_is_fullscreen = False
+
+            payload = {
+                "type": "window_state",
+                "data": "minimized",
+                "game": self.last_target_info.get("title", self.last_game_name),
+                "magpie_info": None,
+                "is_fullscreen": False,
+                "recommend_manual_mode": False,
+                "target_window_rect": None,
+                "target_client_rect": None,
+            }
+
+            if websocket_manager.has_clients(ID_OVERLAY):
+                await websocket_manager.send(ID_OVERLAY, json.dumps(payload))
+            return
+
+        if self.hidden_due_to_no_output:
             await self._restore_overlay_after_no_output()
             return
 
-        if self.last_state in ("minimized", "closed"):
+        # A capture card or camera has no HWND to drive the normal active/background
+        # state machine. Announce the first confirmed OBS frame as a showable
+        # background state so the overlay does not remain hidden after startup.
+        if self.last_state != "unknown" or not self._obs_reports_output():
             return
 
-        logger.info("Target window not found and OBS reports no output - hiding overlay (minimized).")
-        self.state_before_no_output_hide = self.last_state
-        self.is_fullscreen_before_no_output_hide = self.last_is_fullscreen
-        self.hidden_due_to_no_output = True
-        self.last_state = "minimized"
+        logger.info("OBS output detected without a target window - showing overlay for non-HWND capture.")
+        self.last_state = "background"
         self.last_is_fullscreen = False
 
         payload = {
             "type": "window_state",
-            "data": "minimized",
+            "data": "background",
             "game": self.last_target_info.get("title", self.last_game_name),
-            "magpie_info": None,
+            "magpie_info": self.magpie_info,
             "is_fullscreen": False,
             "recommend_manual_mode": False,
             "target_window_rect": None,
             "target_client_rect": None,
+            "obs_output_active": True,
         }
 
         if websocket_manager.has_clients(ID_OVERLAY):
@@ -1140,6 +1179,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             "recommend_manual_mode": False,
             "target_window_rect": None,
             "target_client_rect": None,
+            "obs_output_active": self._obs_reports_output(),
         }
 
         if websocket_manager.has_clients(ID_OVERLAY):

@@ -294,19 +294,27 @@ def _resolve_field_grouping_decision(source_note: "AnkiCard") -> Optional[Dict[s
     if not candidates:
         return None
 
-    try:
-        expression = source_note.get_field(config.anki.word_field)
-        from GameSentenceMiner.ui.qt_main import launch_anki_field_grouping
+    if bool(getattr(config.anki, "field_grouping_auto_merge", False)):
+        target = min(candidates, key=lambda candidate: int(candidate["note_id"]))
+        result = {
+            "target_note_id": int(target["note_id"]),
+            "order": getattr(config.anki, "field_grouping_order", FIELD_GROUPING_ORDER_FRONT),
+            "delete_duplicate": bool(getattr(config.anki, "field_grouping_delete_duplicate", True)),
+        }
+    else:
+        try:
+            expression = source_note.get_field(config.anki.word_field)
+            from GameSentenceMiner.ui.qt_main import launch_anki_field_grouping
 
-        result = launch_anki_field_grouping(
-            expression,
-            candidates,
-            default_order=getattr(config.anki, "field_grouping_order", FIELD_GROUPING_ORDER_FRONT),
-            default_delete_duplicate=bool(getattr(config.anki, "field_grouping_delete_duplicate", True)),
-        )
-    except Exception as e:
-        logger.warning(f"Could not show the Anki field-grouping dialog: {e}")
-        return None
+            result = launch_anki_field_grouping(
+                expression,
+                candidates,
+                default_order=getattr(config.anki, "field_grouping_order", FIELD_GROUPING_ORDER_FRONT),
+                default_delete_duplicate=bool(getattr(config.anki, "field_grouping_delete_duplicate", True)),
+            )
+        except Exception as e:
+            logger.warning(f"Could not show the Anki field-grouping dialog: {e}")
+            return None
     if not isinstance(result, dict):
         logger.info("Duplicate Anki note found; keeping it separate at the user's request.")
         return None
@@ -480,9 +488,9 @@ def _build_field_grouping_note(
     merged_fields = {}
     for field_name, mode in field_specs:
         source_value = source_values[field_name]
-        if not source_value.strip():
-            continue
         target_value = target_values[field_name]
+        if not source_value.strip() and not target_value.strip():
+            continue
         if mode == "image":
             grouped_source = _group_image_fragment(source_value, source_group_id)
             grouped_target = _group_image_fragment(target_value, target_group_id)

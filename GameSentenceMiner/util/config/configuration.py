@@ -854,6 +854,7 @@ class Anki:
     reuse_audio_for_same_selected_lines_different_mined_line: bool = True
     reuse_screenshot_for_same_selected_lines_different_mined_line: bool = False
     field_grouping_enabled: bool = False
+    field_grouping_auto_merge: bool = False
     field_grouping_order: str = "front"
     field_grouping_delete_duplicate: bool = True
     field_grouping_additional_fields: List[str] = field(
@@ -2242,6 +2243,7 @@ class Config:
                 "reuse_screenshot_for_same_selected_lines_different_mined_line",
             )
             self.sync_shared_field(config.anki, profile.anki, "field_grouping_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "field_grouping_auto_merge")
             self.sync_shared_field(config.anki, profile.anki, "field_grouping_order")
             self.sync_shared_field(config.anki, profile.anki, "field_grouping_delete_duplicate")
             self.sync_shared_field(config.anki, profile.anki, "field_grouping_additional_fields")

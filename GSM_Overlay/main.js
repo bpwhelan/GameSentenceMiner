@@ -24,6 +24,7 @@ const {
   normalizeConfiguredHotkeyValues,
   registerHotkeyWithFallback,
 } = require('./hotkey_settings');
+const { shouldRevealAutomaticOverlay } = require('./automatic_visibility');
 const { URL } = require('url');
 
 // FIX: Register chrome-extension protocol as privileged to allow image loading and CORS in renderer
@@ -4629,6 +4630,38 @@ function restoreAutomaticOverlayPassThrough(reason = "auto-reset") {
   }
 }
 
+function revealAutomaticOverlayForSignal(source, options = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+
+  if (!shouldRevealAutomaticOverlay({
+    windowState: trackedGameWindowState,
+    outputAvailable: options.outputAvailable === true,
+    manualMode: isManualMode(),
+    texthookerMode: isTexthookerMode,
+  })) {
+    return false;
+  }
+
+  if (!mainWindow.isMinimized() && mainWindow.isVisible()) {
+    return false;
+  }
+
+  ensureMainWindowIsOnConnectedDisplay(source);
+  if (!isLinux()) {
+    mainWindow.setIgnoreMouseEvents(true, { forward: true });
+  }
+  requestOverlayTopmostReassert(source, {
+    force: true,
+    forceShow: true,
+    moveToTop: options.moveToTop === true || currentMagpieState.active,
+    refreshWorkspace: true,
+    releaseFocusAfter: true,
+  });
+  return true;
+}
+
 function checkConnectivity(url) {
   return new Promise((resolve) => {
     let parsedUrl;
@@ -6570,7 +6603,7 @@ app.whenReady().then(async () => {
     }
   });
 
-  ipcMain.on("window-state-changed", (event, { state, game, magpieActive, magpieInfo, isFullscreen, cursorHidden, recommendManualMode }) => {
+  ipcMain.on("window-state-changed", (event, { state, game, magpieActive, magpieInfo, isFullscreen, cursorHidden, recommendManualMode, obsOutputActive }) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
     if (isTexthookerMode) return;
@@ -6652,8 +6685,12 @@ app.whenReady().then(async () => {
         break;
 
       case "background":
-        // Do nothing - let overlay maintain current state when game loses focus
-        console.log("[WindowState] Background - Game visible but not focused (no action)");
+        // A usable background HWND, or a confirmed OBS frame from a capture card,
+        // is enough to reveal a window that was deliberately hidden at startup.
+        console.log(
+          `[WindowState] Background - Game/OBS output is available (OBS output: ${obsOutputActive === true})`
+        );
+        revealAutomaticOverlayForSignal("window-state-background");
         break;
 
       case "obscured":
@@ -7171,6 +7208,11 @@ app.whenReady().then(async () => {
       afkHidden = false;
     }
 
+    // Text is itself proof that the capture path is producing output. This closes
+    // the startup race before the periodic OBS output probe has reported, which is
+    // especially important for capture cards and cameras without an HWND.
+    revealAutomaticOverlayForSignal("text-received-output", { outputAvailable: true });
+
     // === AUTO TRANSLATE (only for JSON-parsable array data) ===
     if (userSettings.autoRequestTranslation && backend && backend.connected) {
       let shouldTranslate = false;
@@ -7186,17 +7228,6 @@ app.whenReady().then(async () => {
         translationRequested = true;
         backend.send({ type: "translate-request" });
       }
-    }
-
-    // If window is minimized, restore it
-    if (mainWindow.isMinimized() && !isManualMode()) {
-      requestOverlayTopmostReassert("text-received-minimized", {
-        force: true,
-        forceShow: true,
-        moveToTop: true,
-        refreshWorkspace: true,
-        releaseFocusAfter: true,
-      });
     }
 
     // Magpie can steal z-order, but delayed topmost bumps after routine line
