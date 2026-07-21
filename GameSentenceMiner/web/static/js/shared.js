@@ -219,6 +219,7 @@ function syncStatsConfigFromSettings(settings) {
 
     const keyMap = {
         session_gap_seconds: 'sessionGapSeconds',
+        day_rollover_hour: 'dayRolloverHour',
         streak_requirement_hours: 'streakRequirementHours',
         reading_hours_target: 'readingHoursTarget',
         character_count_target: 'characterCountTarget',
@@ -263,6 +264,7 @@ class SettingsManager {
         
         // Optional elements that may not exist on all pages
         this.sessionGapInput = document.getElementById('sessionGap');
+        this.dayRolloverHourInput = document.getElementById('dayRolloverHour');
         this.streakRequirementInput = document.getElementById('streakRequirement');
         this.readingHoursTargetInput = document.getElementById('readingHoursTarget');
         this.characterCountTargetInput = document.getElementById('characterCountTarget');
@@ -339,6 +341,7 @@ class SettingsManager {
         // Clear messages when user starts typing
         [
             this.sessionGapInput,
+            this.dayRolloverHourInput,
             this.streakRequirementInput,
             this.readingHoursTargetInput,
             this.characterCountTargetInput,
@@ -405,6 +408,9 @@ class SettingsManager {
         if (this.sessionGapInput) {
             this.sessionGapInput.value = settings.session_gap_seconds;
         }
+        if (this.dayRolloverHourInput) {
+            this.dayRolloverHourInput.value = settings.day_rollover_hour ?? 4;
+        }
         if (this.streakRequirementInput) {
             this.streakRequirementInput.value = settings.streak_requirement_hours || 1;
         }
@@ -463,6 +469,15 @@ class SettingsManager {
                     return;
                 }
                 settings.session_gap_seconds = sessionGap;
+            }
+
+            if (this.dayRolloverHourInput) {
+                const dayRolloverHour = parseInt(this.dayRolloverHourInput.value);
+                if (isNaN(dayRolloverHour) || dayRolloverHour < 0 || dayRolloverHour > 23) {
+                    this.showError('Day rollover hour must be between 0 and 23');
+                    return;
+                }
+                settings.day_rollover_hour = dayRolloverHour;
             }
             
             if (this.streakRequirementInput) {

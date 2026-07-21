@@ -28,6 +28,7 @@ def client(app):
 def _stats_config(**overrides):
     values = {
         "session_gap_seconds": 3600,
+        "day_rollover_hour": 4,
         "streak_requirement_hours": 1.0,
         "reading_hours_target": 1500,
         "character_count_target": 25_000_000,
@@ -78,6 +79,18 @@ def test_get_settings_includes_extra_punctuation_regex(client, monkeypatch):
     assert response.status_code == 200
     data = response.get_json()
     assert data["extra_punctuation_regex"] == r"\.?【.*?】"
+
+
+def test_get_settings_includes_day_rollover_hour(client, monkeypatch):
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.database_api.get_stats_config",
+        lambda: _stats_config(day_rollover_hour=6),
+    )
+
+    response = client.get("/api/settings")
+
+    assert response.status_code == 200
+    assert response.get_json()["day_rollover_hour"] == 6
 
 
 def test_post_settings_rejects_legacy_afk_timer_only(client, monkeypatch):
@@ -138,6 +151,51 @@ def test_post_settings_updates_extra_punctuation_regex(client, monkeypatch):
     assert data["extra_punctuation_regex"] == r"\.?【.*?】"
     assert config.extra_punctuation_regex == r"\.?【.*?】"
     assert saved == [config]
+
+
+def test_post_settings_updates_day_rollover_hour(client, monkeypatch):
+    config = _stats_config()
+    saved = []
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.database_api.get_stats_config",
+        lambda: config,
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.database_api.save_stats_config",
+        lambda updated: saved.append(updated),
+    )
+
+    response = client.post("/api/settings", json={"day_rollover_hour": 6})
+
+    assert response.status_code == 200
+    assert response.get_json()["day_rollover_hour"] == 6
+    assert config.day_rollover_hour == 6
+    assert saved == [config]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected_error"),
+    [
+        (-1, "Day rollover hour must be between 0 and 23"),
+        (24, "Day rollover hour must be between 0 and 23"),
+        ("not-an-hour", "Day rollover hour must be a valid integer"),
+    ],
+)
+def test_post_settings_rejects_invalid_day_rollover_hour(client, monkeypatch, value, expected_error):
+    config = _stats_config()
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.database_api.get_stats_config",
+        lambda: config,
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.web.database_api.save_stats_config",
+        lambda _config: None,
+    )
+
+    response = client.post("/api/settings", json={"day_rollover_hour": value})
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == expected_error
 
 
 def test_post_settings_rejects_invalid_extra_punctuation_regex(client, monkeypatch):
