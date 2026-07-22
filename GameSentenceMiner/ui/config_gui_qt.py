@@ -898,11 +898,7 @@ class ConfigWindow(QWidget):
                         for field_name in self.anki_field_grouping_additional_fields_edit.text().split(",")
                         if field_name.strip()
                     ],
-                    field_grouping_overwrite_fields=[
-                        field_name.strip()
-                        for field_name in self.anki_field_grouping_overwrite_fields_edit.text().split(",")
-                        if field_name.strip()
-                    ],
+                    field_grouping_overwrite=self.anki_field_grouping_overwrite_check.isChecked(),
                 ),
                 features=Features(
                     full_auto=self.full_auto_check.isChecked(),
@@ -1464,7 +1460,7 @@ class ConfigWindow(QWidget):
         self.anki_field_grouping_order_combo.addItem("Back", "back")
         self.anki_field_grouping_delete_duplicate_check = QCheckBox()
         self.anki_field_grouping_additional_fields_edit = QLineEdit()
-        self.anki_field_grouping_overwrite_fields_edit = QLineEdit()
+        self.anki_field_grouping_overwrite_check = QCheckBox()
         self.anki_url_edit = QLineEdit()
         self.anki_note_type_combo = self._create_anki_field_combo()
         self.sentence_field_edit = self._create_anki_field_combo()
@@ -1866,12 +1862,8 @@ class ConfigWindow(QWidget):
             ),
         )
         self.binder.bind(
-            ("profile", "anki", "field_grouping_overwrite_fields"),
-            self.anki_field_grouping_overwrite_fields_edit,
-            transform=ValueTransform(
-                to_model=lambda value: [part.strip() for part in str(value or "").split(",") if part.strip()],
-                from_model=lambda value: ", ".join(value or []),
-            ),
+            ("profile", "anki", "field_grouping_overwrite"),
+            self.anki_field_grouping_overwrite_check,
         )
         self.binder.bind(("profile", "anki", "word_field"), self.word_field_edit)
         self.binder.bind(
@@ -3028,8 +3020,8 @@ class ConfigWindow(QWidget):
         self.anki_field_grouping_additional_fields_edit.setText(
             ", ".join(getattr(s.anki, "field_grouping_additional_fields", []) or [])
         )
-        self.anki_field_grouping_overwrite_fields_edit.setText(
-            ", ".join(getattr(s.anki, "field_grouping_overwrite_fields", []) or [])
+        self.anki_field_grouping_overwrite_check.setChecked(
+            bool(getattr(s.anki, "field_grouping_overwrite", False))
         )
         self._set_text_value(self.anki_url_edit, s.anki.url)
         self._suppress_anki_field_refresh = True

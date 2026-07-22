@@ -859,7 +859,7 @@ class Anki:
     field_grouping_additional_fields: List[str] = field(
         default_factory=lambda: ["SentenceTranslation", "MiscInfo", "Tag"]
     )
-    field_grouping_overwrite_fields: List[str] = field(default_factory=list)
+    field_grouping_overwrite: bool = False
     tag_unvoiced_cards: bool = False
     remove_overlay_tag: bool = False
 
@@ -894,20 +894,6 @@ class Anki:
             seen_fields.add(field_key)
             normalized_fields.append(field_name)
         self.field_grouping_additional_fields = normalized_fields
-
-        raw_overwrite_fields = self.field_grouping_overwrite_fields
-        if isinstance(raw_overwrite_fields, str):
-            raw_overwrite_fields = raw_overwrite_fields.split(",")
-        normalized_overwrite_fields = []
-        seen_overwrite_fields = set()
-        for raw_field in raw_overwrite_fields or []:
-            field_name = str(raw_field or "").strip()
-            field_key = field_name.casefold()
-            if not field_name or field_key in seen_overwrite_fields:
-                continue
-            seen_overwrite_fields.add(field_key)
-            normalized_overwrite_fields.append(field_name)
-        self.field_grouping_overwrite_fields = normalized_overwrite_fields
 
     def _coerce_field(self, value: Any, default: AnkiField) -> AnkiField:
         if isinstance(value, AnkiField):
@@ -2260,7 +2246,7 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "field_grouping_order")
             self.sync_shared_field(config.anki, profile.anki, "field_grouping_delete_duplicate")
             self.sync_shared_field(config.anki, profile.anki, "field_grouping_additional_fields")
-            self.sync_shared_field(config.anki, profile.anki, "field_grouping_overwrite_fields")
+            self.sync_shared_field(config.anki, profile.anki, "field_grouping_overwrite")
             self.sync_shared_field(config.general, profile.general, "open_config_on_startup")
             self.sync_shared_field(config.general, profile.general, "open_multimine_on_startup")
             self.sync_shared_field(config.general, profile.general, "websocket_uri")

@@ -472,20 +472,21 @@ def build_anki_field_grouping_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.anki_field_grouping_additional_fields_edit,
     )
-    window.anki_field_grouping_overwrite_fields_edit.setPlaceholderText("Picture, Sentence, SentenceAudio")
     layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,
             "anki",
-            "field_grouping_overwrite_fields",
+            "field_grouping_overwrite",
             (
-                "Comma-separated field names to fully overwrite with the newly mined note's content "
-                "instead of grouping it with the original. Useful when the original note wasn't voiced "
-                "(e.g. no TTS/audio) and the new context should replace its Picture, Sentence, and/or "
-                "Sentence Audio outright rather than being appended alongside it."
+                "Overwrite instead of merge. When enabled, every grouped field (Picture, Sentence, "
+                "Sentence Audio, Sentence Furigana, the AI translation field, and any additional fields "
+                "above) is fully replaced by the newly mined note's content instead of being combined "
+                "with the original via data-group-id markup. Useful when the original note wasn't voiced "
+                "(e.g. no TTS/audio) and the new context should replace it outright. Fields the new note "
+                "leaves empty are never blanked."
             ),
         ),
-        window.anki_field_grouping_overwrite_fields_edit,
+        window.anki_field_grouping_overwrite_check,
     )
 
     behavior = QLabel(
