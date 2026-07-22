@@ -99,7 +99,12 @@ import {
 } from './ui/settings.js';
 import { startOCR, stopOCR } from './ui/ocr.js';
 import * as fs from 'node:fs';
-import { runOverlay, runOverlayWithSource, stopOverlay } from './ui/front.js';
+import {
+    runOverlay,
+    runOverlayWithSource,
+    stopOverlay,
+    waitForOverlayShutdown,
+} from './ui/front.js';
 import { execFile } from 'node:child_process';
 import { autoLauncher } from './auto_launcher.js';
 import { registerMainIPC } from './services/main_ipc.js';
@@ -2684,6 +2689,7 @@ async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<vo
         await closeGSM();
     }
     stopOverlay();
+    await waitForOverlayShutdown();
     await stopOCR();
     await stopWindowTransparencyTool();
     try {
@@ -2824,6 +2830,7 @@ async function runQuit(): Promise<void> {
 
     try {
         stopOverlay();
+        await waitForOverlayShutdown();
         await stopScripts();
         if (pyProc != null && !pyProc.killed) {
             await closeAllPythonProcesses();
@@ -2853,6 +2860,7 @@ async function stopAllChildrenForRelocation(): Promise<void> {
     autoLauncher.stopPolling();
     shutdownWindowSceneSwitcher();
     stopOverlay();
+    await waitForOverlayShutdown();
     await stopScripts();
     if (pyProc != null && !pyProc.killed) {
         await closeAllPythonProcesses();

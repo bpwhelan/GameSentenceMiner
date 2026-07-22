@@ -242,6 +242,30 @@ def test_resolve_field_grouping_decision_uses_configured_defaults_and_selected_o
     ]
 
 
+def test_resolve_field_grouping_decision_auto_merges_oldest_match_without_gui(monkeypatch):
+    config = _base_config()
+    config.anki.field_grouping_enabled = True
+    config.anki.field_grouping_auto_merge = True
+    config.anki.field_grouping_order = "back"
+    config.anki.field_grouping_delete_duplicate = False
+    monkeypatch.setattr(anki, "get_config", lambda: config)
+    candidates = [
+        {"note_id": 100, "sentence": "oldest", "tags": [], "model_name": "Mining"},
+        {"note_id": 200, "sentence": "newer", "tags": [], "model_name": "Mining"},
+    ]
+    monkeypatch.setattr(anki, "_find_field_grouping_candidates", lambda _source: candidates)
+
+    qt_main_stub = ModuleType("GameSentenceMiner.ui.qt_main")
+    qt_main_stub.launch_anki_field_grouping = lambda *_args, **_kwargs: pytest.fail(
+        "automatic field grouping must not launch the GUI"
+    )
+    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", qt_main_stub)
+
+    decision = anki._resolve_field_grouping_decision(SimpleNamespace(noteId=300))
+
+    assert decision == {"target_note_id": 100, "order": "back", "delete_duplicate": False}
+
+
 def test_build_field_grouping_note_groups_images_and_context_fields_at_front():
     config = _base_config()
     config.anki.sentence_furigana_field = "SentenceFurigana"
@@ -311,6 +335,32 @@ def test_build_field_grouping_note_groups_images_and_context_fields_at_front():
             "MiscInfo": ('<span data-group-id="200">new info</span>\n<span data-group-id="100">old info</span>'),
         },
     }
+
+
+def test_build_field_grouping_note_groups_existing_audio_when_source_has_none():
+    config = _base_config()
+    config.anki.field_grouping_additional_fields = []
+    source = SimpleNamespace(
+        noteId=200,
+        fields={"Sentence": SimpleNamespace(value="new sentence")},
+        get_field=lambda field: {
+            "Picture": "",
+            "Sentence": "new sentence",
+            "SentenceAudio": "",
+        }[field],
+    )
+    target = {
+        "noteId": 100,
+        "fields": {
+            "Picture": {"value": ""},
+            "Sentence": {"value": "original sentence"},
+            "SentenceAudio": {"value": "[sound:old.mp3]"},
+        },
+    }
+
+    merged = anki._build_field_grouping_note(source, target, {"fields": {}}, "front", config)
+
+    assert merged["fields"]["SentenceAudio"] == '<span data-group-id="100">[sound:old.mp3]</span>'
 
 
 def test_build_field_grouping_note_places_new_context_after_every_existing_group():
@@ -835,6 +885,37 @@ def test_queue_card_for_processing_translates_matched_line_instead_of_raw_ocr_bl
     assert submitted[0][1][3] == matched_sentence
     assert raw_ocr_block not in submitted[0][1]
     assert anki.card_queue[-1][7] is translation_future
+
+
+def test_queue_card_for_processing_preserves_target_word_html_for_translation(monkeypatch):
+    cfg = _base_config()
+    cfg.ai.add_to_anki = True
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki.obs, "save_replay_buffer", lambda: None)
+    monkeypatch.setattr(
+        anki,
+        "_get_texthooking_page_module",
+        lambda: SimpleNamespace(reset_checked_lines=lambda: None),
+    )
+
+    submitted = []
+
+    class RecordingExecutor:
+        def submit(self, func, *args):
+            submitted.append((func, args))
+            return object()
+
+    monkeypatch.setattr(anki, "translation_prefetch_executor", RecordingExecutor())
+
+    line = SimpleNamespace(id="line-2", text="お前が感傷的になった")
+    card = SimpleNamespace(
+        noteId=42,
+        get_field=lambda field: "お前が<b>感傷的</b>になった" if field == cfg.anki.sentence_field else "感傷的",
+    )
+
+    anki.queue_card_for_processing(card, [], line)
+
+    assert submitted[0][1][3] == "お前が<b>感傷的</b>になった"
 
 
 def test_queue_card_for_processing_prefetches_multiple_plain_selected_lines(monkeypatch):

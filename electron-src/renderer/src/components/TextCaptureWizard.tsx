@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invokeIpc, sendIpc } from "../lib/ipc";
+import { invokeIpc, onIpc, sendIpc } from "../lib/ipc";
 import { useTranslation } from "../i18n";
-import type { ObsCaptureMode, ObsScene, SceneOcrMode, SceneTextHookMode } from "../types/models";
+import type { ObsCaptureMode, ObsScene, SceneOcrMode } from "../types/models";
 import { AgentScriptDisplay } from "./AgentScriptDisplay";
 import { AgentScriptSearchDialog } from "./AgentScriptSearchDialog";
 import {
@@ -13,6 +13,14 @@ import {
 type TextHookEngine = "luna" | "textractor" | "agent";
 type WizardStep = "preview" | "agent" | "hook" | "ocr" | "profile" | "finish";
 type WizardTextSource = "none" | TextHookEngine | "ocr";
+type OcrInitialScanState =
+  | "idle"
+  | "selecting"
+  | "starting"
+  | "scanning"
+  | "noText"
+  | "complete"
+  | "error";
 type NavigateTab = "ocr" | "texthook" | "launcher" | "settings";
 
 interface TextCaptureWizardProps {
@@ -93,6 +101,28 @@ const CAPTURE_WIZARD_STEPS: Array<{ id: WizardStep; labelKey: string }> = [
   { id: "finish", labelKey: "captureWizard.steps.finish" }
 ];
 
+const OCR_AUTOMATION_OPTIONS: Array<{
+  value: SceneOcrMode;
+  labelKey: string;
+  descriptionKey: string;
+}> = [
+  {
+    value: "none",
+    labelKey: "captureWizard.ocr.automationOff",
+    descriptionKey: "captureWizard.ocr.automationOffDescription"
+  },
+  {
+    value: "manual",
+    labelKey: "captureWizard.ocr.automationManual",
+    descriptionKey: "captureWizard.ocr.automationManualDescription"
+  },
+  {
+    value: "auto",
+    labelKey: "captureWizard.ocr.automationAuto",
+    descriptionKey: "captureWizard.ocr.automationAutoDescription"
+  }
+];
+
 const DEFAULT_FLUSH_DELAY_MS = 100;
 const NEW_PROFILE_VALUE = "__new__";
 
@@ -101,15 +131,21 @@ interface GsmProfileList {
   currentProfile?: string;
 }
 
+interface OcrRunningState {
+  isRunning?: boolean;
+}
+
+interface OcrIpcMessage {
+  event?: string;
+  data?: {
+    text?: unknown;
+    sentence?: unknown;
+  };
+}
+
 function hasHookText(hook: HookEntry): boolean {
   if (hook.preview.trim().length > 0) return true;
   return hook.samples.some((sample) => sample.trim().length > 0);
-}
-
-function toSceneLaunchTextHookMode(source: WizardTextSource, launchTextHook: boolean): SceneTextHookMode {
-  if (!launchTextHook) return "none";
-  if (source === "agent" || source === "luna" || source === "textractor") return source;
-  return "none";
 }
 
 function normalizeCaptureMode(value: unknown): ObsCaptureMode | null {
@@ -142,6 +178,8 @@ export function TextCaptureWizard({
   const [saveAutomation, setSaveAutomation] = useState(true);
   const [launchTextHook, setLaunchTextHook] = useState(true);
   const [ocrMode, setOcrMode] = useState<SceneOcrMode>("none");
+  const [ocrSamples, setOcrSamples] = useState<string[]>([]);
+  const [ocrInitialScanState, setOcrInitialScanState] = useState<OcrInitialScanState>("idle");
   const [launchOverlay, setLaunchOverlay] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -153,6 +191,10 @@ export function TextCaptureWizard({
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [assigningProfile, setAssigningProfile] = useState(false);
   const previewInFlightRef = useRef(false);
+  const ocrSelectorRequestedRef = useRef(false);
+  const pendingInitialOcrStartRef = useRef(false);
+  const awaitingInitialOcrResultRef = useRef(false);
+  const initialOcrTimeoutRef = useRef<number | null>(null);
 
   const activeScene = useMemo(() => {
     if (scene) return scene;
@@ -417,13 +459,106 @@ export function TextCaptureWizard({
     setStep("profile");
   }, [hookEngine, selectedHook]);
 
+  const clearInitialOcrTimeout = useCallback(() => {
+    if (initialOcrTimeoutRef.current !== null) {
+      window.clearTimeout(initialOcrTimeoutRef.current);
+      initialOcrTimeoutRef.current = null;
+    }
+  }, []);
+
+  const waitForInitialOcrResult = useCallback(() => {
+    clearInitialOcrTimeout();
+    awaitingInitialOcrResultRef.current = true;
+    setOcrInitialScanState("scanning");
+    initialOcrTimeoutRef.current = window.setTimeout(() => {
+      if (!awaitingInitialOcrResultRef.current) return;
+      awaitingInitialOcrResultRef.current = false;
+      setOcrInitialScanState("noText");
+    }, 15_000);
+  }, [clearInitialOcrTimeout]);
+
+  const runInitialOcrScan = useCallback(async () => {
+    clearInitialOcrTimeout();
+    pendingInitialOcrStartRef.current = false;
+    awaitingInitialOcrResultRef.current = false;
+    setOcrInitialScanState("starting");
+    try {
+      const runningState = await invokeIpc<OcrRunningState | null>("ocr.get-running-state");
+      if (runningState?.isRunning) {
+        sendIpc("ocr.manual-ocr");
+        waitForInitialOcrResult();
+        return;
+      }
+
+      pendingInitialOcrStartRef.current = true;
+      sendIpc("ocr.start-ocr-ss-only");
+    } catch {
+      setOcrInitialScanState("error");
+    }
+  }, [clearInitialOcrTimeout, waitForInitialOcrResult]);
+
+  useEffect(() => {
+    const offSelectorFinished = onIpc("ocr-screen-selector-finished", (_event, payload) => {
+      if (!ocrSelectorRequestedRef.current) return;
+      ocrSelectorRequestedRef.current = false;
+      const result = payload as { success?: boolean } | null;
+      if (result?.success === false) {
+        setOcrInitialScanState("error");
+        return;
+      }
+      void runInitialOcrScan();
+    });
+
+    const offOcrStarted = onIpc("ocr-ipc-started", () => {
+      if (!pendingInitialOcrStartRef.current) return;
+      pendingInitialOcrStartRef.current = false;
+      sendIpc("ocr.manual-ocr");
+      waitForInitialOcrResult();
+    });
+
+    const offOcrMessage = onIpc("ocr-ipc-message", (_event, payload) => {
+      if (!awaitingInitialOcrResultRef.current) return;
+      const message = payload as OcrIpcMessage | null;
+      if (message?.event !== "ocr_result") return;
+      const rawText = message.data?.text ?? message.data?.sentence;
+      const text = typeof rawText === "string" ? rawText.trim() : "";
+      if (!text) return;
+
+      awaitingInitialOcrResultRef.current = false;
+      clearInitialOcrTimeout();
+      setOcrSamples((current) => [text, ...current.filter((sample) => sample !== text)].slice(0, 3));
+      setOcrInitialScanState("complete");
+    });
+
+    const offOcrError = onIpc("ocr-ipc-error", () => {
+      if (!pendingInitialOcrStartRef.current && !awaitingInitialOcrResultRef.current) return;
+      pendingInitialOcrStartRef.current = false;
+      awaitingInitialOcrResultRef.current = false;
+      clearInitialOcrTimeout();
+      setOcrInitialScanState("error");
+    });
+
+    return () => {
+      offSelectorFinished();
+      offOcrStarted();
+      offOcrMessage();
+      offOcrError();
+      clearInitialOcrTimeout();
+    };
+  }, [clearInitialOcrTimeout, runInitialOcrScan, waitForInitialOcrResult]);
+
   const openAreaSelector = useCallback(() => {
+    clearInitialOcrTimeout();
+    ocrSelectorRequestedRef.current = true;
+    pendingInitialOcrStartRef.current = false;
+    awaitingInitialOcrResultRef.current = false;
+    setOcrSamples([]);
+    setOcrInitialScanState("selecting");
+    setStatusMessage(null);
     sendIpc("ocr.run-screen-selector");
     setTextSource("ocr");
     setLaunchTextHook(false);
-    setOcrMode("manual");
-    setStatusMessage(t("captureWizard.ocr.areaSelectorStarted"));
-  }, [t]);
+  }, [clearInitialOcrTimeout]);
 
   const saveProfileChoices = useCallback(async () => {
     setSaving(true);
@@ -431,27 +566,40 @@ export function TextCaptureWizard({
     try {
       const sceneForSave = activeScene;
       if (saveAutomation && sceneForSave) {
-        await invokeIpc("settings.saveSceneLaunchProfile", {
+        const automationResult = await invokeIpc<{ success?: boolean }>("settings.saveSceneLaunchProfile", {
           scene: sceneForSave,
-          textHookMode: toSceneLaunchTextHookMode(textSource, launchTextHook),
+          // Agent, Luna, and Textractor are all handled by the integrated
+          // text-hook profile below. Keep the legacy external launchers off.
+          textHookMode: "none",
           ocrMode,
           launchOverlay,
-          agentScriptPath: textSource === "agent" ? selectedAgentScript : "",
+          agentScriptPath: "",
           launchDelaySeconds: 0
         });
+        if (!automationResult?.success) {
+          throw new Error("Failed to save scene automation");
+        }
       }
 
-      if (exeName && (textSource === "agent" || textSource === "luna" || textSource === "textractor")) {
-        await invokeIpc("texthook.saveProfile", {
+      if (textSource === "agent" || textSource === "luna" || textSource === "textractor") {
+        if (!exeName) {
+          throw new Error("No game executable is available for the text-hook profile");
+        }
+        const profileResult = await invokeIpc<{ success?: boolean }>("texthook.saveProfile", {
           exeName,
+          sceneId: sceneForSave?.id ?? capture?.sceneId,
           engine: textSource,
-          autoHook: true,
+          autoHook: launchTextHook,
           flushDelayMs: DEFAULT_FLUSH_DELAY_MS,
+          copyToClipboard: false,
           hookId: textSource === "agent" ? null : selectedHook?.id ?? null,
           hookFunction: textSource === "agent" ? null : selectedHook?.function ?? null,
           manualHookCode: null,
-          agentScriptPath: textSource === "agent" ? selectedAgentScript : null
+          agentScriptPath: textSource === "agent" ? selectedAgentScript.trim() : null
         });
+        if (!profileResult?.success) {
+          throw new Error("Failed to save integrated text-hook profile");
+        }
       }
 
       setStatusMessage(t("captureWizard.profile.saved"));
@@ -463,6 +611,7 @@ export function TextCaptureWizard({
     }
   }, [
     activeScene,
+    capture?.sceneId,
     exeName,
     launchOverlay,
     launchTextHook,
@@ -783,33 +932,87 @@ export function TextCaptureWizard({
                 <h3>{t("captureWizard.ocr.title")}</h3>
                 <p>{t("captureWizard.ocr.description")}</p>
               </div>
-              <ul className="capture-wizard-reasons">
-                <li>{t("captureWizard.ocr.reasonStable")}</li>
-                <li>{t("captureWizard.ocr.reasonNoise")}</li>
-                <li>{t("captureWizard.ocr.reasonFallback")}</li>
-              </ul>
-              {statusMessage ? <div className="capture-wizard-note">{statusMessage}</div> : null}
+              <div className="capture-wizard-ocr-preview">
+                <div className="capture-wizard-ocr-preview-header">
+                  <strong>{t("captureWizard.ocr.sampleTitle")}</strong>
+                  <span>{t("captureWizard.ocr.sampleHint")}</span>
+                </div>
+                {ocrSamples.length > 0 ? (
+                  <div className="capture-wizard-ocr-samples">
+                    {ocrSamples.map((sample) => (
+                      <div key={sample} className="capture-wizard-ocr-sample">
+                        {sample}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="capture-wizard-ocr-placeholder">
+                    {ocrInitialScanState === "selecting"
+                      ? t("captureWizard.ocr.selecting")
+                      : ocrInitialScanState === "starting"
+                        ? t("captureWizard.ocr.starting")
+                        : ocrInitialScanState === "scanning"
+                          ? t("captureWizard.ocr.scanning")
+                          : ocrInitialScanState === "noText"
+                            ? t("captureWizard.ocr.noText")
+                            : ocrInitialScanState === "error"
+                              ? t("captureWizard.ocr.scanFailed")
+                              : t("captureWizard.ocr.noSampleYet")}
+                  </div>
+                )}
+              </div>
+              <fieldset className="capture-wizard-ocr-automation">
+                <legend>{t("captureWizard.ocr.automationTitle")}</legend>
+                <p>{t("captureWizard.ocr.automationDescription")}</p>
+                <div className="capture-wizard-ocr-automation-options">
+                  {OCR_AUTOMATION_OPTIONS.map((option) => (
+                    <label
+                      key={option.value}
+                      className={ocrMode === option.value ? "capture-wizard-ocr-automation-option--selected" : ""}
+                    >
+                      <input
+                        type="radio"
+                        name="capture-wizard-ocr-automation"
+                        value={option.value}
+                        checked={ocrMode === option.value}
+                        onChange={() => {
+                          setTextSource("ocr");
+                          setLaunchTextHook(false);
+                          setOcrMode(option.value);
+                        }}
+                      />
+                      <span>
+                        <strong>{t(option.labelKey)}</strong>
+                        <small>{t(option.descriptionKey)}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
               <div className="capture-wizard-action-row">
-                <button type="button" onClick={openAreaSelector}>
-                  {t("captureWizard.ocr.openAreaSelector")}
-                </button>
                 <button
                   type="button"
-                  className="secondary"
-                  onClick={() => {
-                    onNavigateTab?.("ocr");
-                    void closeWizard();
-                  }}
+                  disabled={ocrInitialScanState === "selecting"}
+                  onClick={openAreaSelector}
                 >
-                  {t("captureWizard.ocr.openOcrTab")}
+                  {t("captureWizard.ocr.openAreaSelector")}
                 </button>
+                {ocrInitialScanState !== "idle" && ocrInitialScanState !== "selecting" ? (
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={ocrInitialScanState === "starting" || ocrInitialScanState === "scanning"}
+                    onClick={() => void runInitialOcrScan()}
+                  >
+                    {t("captureWizard.ocr.scanAgain")}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="secondary"
                   onClick={() => {
                     setTextSource("ocr");
                     setLaunchTextHook(false);
-                    setOcrMode("manual");
                     setStep("profile");
                   }}
                 >

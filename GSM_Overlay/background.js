@@ -28,6 +28,12 @@ class BackgroundManager {
     this.running = false;
   }
 
+  reset() {
+    this.stop();
+    this.tasks.clear();
+    this.nextId = 1;
+  }
+
   registerTask(fn, intervalMs, opts = {}) {
     const id = this.nextId++;
     this.tasks.set(id, {

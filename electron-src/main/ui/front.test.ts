@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const existsSyncMock = vi.fn();
 const spawnMock = vi.fn();
 const execFileMock = vi.fn();
+const startInProcessOverlayMock = vi.fn();
+const stopInProcessOverlayMock = vi.fn();
+const isInProcessOverlayRunningMock = vi.fn();
+const waitForInProcessOverlayShutdownMock = vi.fn();
 let isDevValue = false;
+let useInProcessOverlayValue = false;
 const originalPlatform = process.platform;
 
 vi.mock('electron', () => ({
@@ -19,6 +24,19 @@ vi.mock('fs', () => ({
 vi.mock('child_process', () => ({
     execFile: execFileMock,
     spawn: spawnMock,
+}));
+
+vi.mock('../overlay_runtime_config.js', () => ({
+    get USE_IN_PROCESS_OVERLAY() {
+        return useInProcessOverlayValue;
+    },
+}));
+
+vi.mock('../overlay_runtime.js', () => ({
+    startInProcessOverlay: startInProcessOverlayMock,
+    stopInProcessOverlay: stopInProcessOverlayMock,
+    isInProcessOverlayRunning: isInProcessOverlayRunningMock,
+    waitForInProcessOverlayShutdown: waitForInProcessOverlayShutdownMock,
 }));
 
 vi.mock('../util.js', () => ({
@@ -88,9 +106,14 @@ async function loadFrontModule() {
 describe('runOverlayWithSource', () => {
     beforeEach(() => {
         isDevValue = false;
+        useInProcessOverlayValue = false;
         existsSyncMock.mockReset();
         spawnMock.mockReset();
         execFileMock.mockReset();
+        startInProcessOverlayMock.mockReset();
+        stopInProcessOverlayMock.mockReset();
+        isInProcessOverlayRunningMock.mockReset();
+        waitForInProcessOverlayShutdownMock.mockReset();
         Object.defineProperty(process, 'platform', {
             value: originalPlatform,
             configurable: true,
@@ -117,6 +140,34 @@ describe('runOverlayWithSource', () => {
             isRunning: true,
             source: 'startup',
         });
+    });
+
+    it('loads and unloads the overlay in the main Electron process when enabled', async () => {
+        useInProcessOverlayValue = true;
+        isInProcessOverlayRunningMock.mockReturnValue(false);
+        startInProcessOverlayMock.mockImplementation(async () => {
+            isInProcessOverlayRunningMock.mockReturnValue(true);
+            return true;
+        });
+        stopInProcessOverlayMock.mockReturnValue(true);
+
+        const { runOverlayWithSource, getOverlayRuntimeState, stopOverlay, waitForOverlayShutdown } = await loadFrontModule();
+
+        await expect(runOverlayWithSource('startup')).resolves.toBe(true);
+
+        expect(startInProcessOverlayMock).toHaveBeenCalledTimes(1);
+        expect(spawnMock).not.toHaveBeenCalled();
+        expect(getOverlayRuntimeState()).toEqual({
+            isRunning: true,
+            source: 'startup',
+        });
+
+        expect(stopOverlay({ onlyIfSource: 'manual' })).toBe(false);
+        expect(stopInProcessOverlayMock).not.toHaveBeenCalled();
+        expect(stopOverlay({ onlyIfSource: 'startup' })).toBe(true);
+        expect(stopInProcessOverlayMock).toHaveBeenCalledTimes(1);
+        await waitForOverlayShutdown();
+        expect(waitForInProcessOverlayShutdownMock).toHaveBeenCalledTimes(1);
     });
 
     it('stops the whole Windows process tree for source-launched overlays', async () => {

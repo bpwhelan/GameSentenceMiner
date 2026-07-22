@@ -12,9 +12,11 @@ class BackendConnector {
     this.mainWindowGetter = mainWindowGetter;
     this.WebSocket = options.WebSocket || WebSocket;
     this.onMessage = typeof options.onMessage === 'function' ? options.onMessage : null;
+    this.destroyed = false;
   }
 
   connect(url) {
+    if (this.destroyed) return;
     if (this.url === url && this.connected) return;
     this.url = url;
     this.connected = false;
@@ -105,7 +107,7 @@ class BackendConnector {
   }
 
   scheduleReconnect() {
-    if (this.reconnectInterval) return;
+    if (this.destroyed || this.reconnectInterval) return;
     this.reconnectInterval = setTimeout(() => {
       this.reconnectInterval = null;
       if (this.url) {
@@ -185,6 +187,27 @@ class BackendConnector {
 
   acknowledgeReliable(id) {
     return this.reliableOutbox.delete(String(id || ''));
+  }
+
+  destroy() {
+    this.destroyed = true;
+    this.connected = false;
+    this.url = null;
+    this.queue = [];
+    this.reliableOutbox.clear();
+    if (this.reconnectInterval) {
+      clearTimeout(this.reconnectInterval);
+      this.reconnectInterval = null;
+    }
+    if (this.ws) {
+      try {
+        this.ws.removeAllListeners();
+        this.ws.close();
+      } catch (e) {
+        console.error('BackendConnector: Error closing socket during destroy', e);
+      }
+      this.ws = null;
+    }
   }
 }
 

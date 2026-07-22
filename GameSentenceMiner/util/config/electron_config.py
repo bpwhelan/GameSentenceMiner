@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import sys
 import time
 from threading import RLock
 from typing import Any, Dict, Optional, Tuple
@@ -13,6 +14,19 @@ from GameSentenceMiner.util.config.configuration import (
 
 
 ELECTRON_CONFIG_PATH = os.path.join(get_app_directory(), "electron", "config.json")
+
+
+def get_default_stability_ocr() -> str:
+    if is_windows():
+        return "meiki_text_detector"
+    if sys.platform == "darwin":
+        return "alivetext"
+    if sys.platform.startswith("linux"):
+        return "meiki_text_detector"
+    return "oneocr"
+
+
+DEFAULT_STABILITY_OCR = get_default_stability_ocr()
 
 
 # Mirrors electron-src/main/store.ts defaults.
@@ -56,7 +70,7 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "twoPassOCR": True,
         "optimize_second_scan": True,
         "text_appears_instantly": False,
-        "ocr1": "oneocr",
+        "ocr1": DEFAULT_STABILITY_OCR,
         "ocr2": "glens",
         "scanRate": 0.5,
         "language": "ja",
@@ -102,7 +116,7 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "subset_longest_block_divisor": 4,
         "advancedMode": False,
         "scanRate_basic": 0.5,
-        "ocr1_advanced": "oneocr",
+        "ocr1_advanced": DEFAULT_STABILITY_OCR,
         "ocr2_advanced": "glens",
         "scanRate_advanced": 0.5,
         # Legacy/compat keys still consumed by Python OCR runtime.
@@ -111,7 +125,7 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "useWindowForConfig": False,
         "lastWindowSelected": "",
         "useObsAsOCRSource": True,
-        "ocr1_basic": "oneocr",
+        "ocr1_basic": DEFAULT_STABILITY_OCR,
         "ocr2_basic": "glens",
     },
     "customPythonPackage": "GameSentenceMiner",
@@ -350,16 +364,8 @@ def _resolve_ocr_engine(engine: Any) -> str:
     return engine_normalized
 
 
-def _get_basic_ocr1_engine(ocr_config: Dict[str, Any]) -> str:
-    ocr1 = ocr_config.get("ocr1")
-    if isinstance(ocr1, str) and ocr1.strip():
-        return ocr1
-
-    legacy_ocr1 = ocr_config.get("ocr1_basic")
-    if isinstance(legacy_ocr1, str) and legacy_ocr1.strip():
-        return legacy_ocr1
-
-    return "oneocr" if is_windows() else "meiki_text_detector"
+def _get_basic_ocr1_engine(_ocr_config: Dict[str, Any]) -> str:
+    return get_default_stability_ocr()
 
 
 def _get_basic_ocr2_engine(ocr_config: Dict[str, Any]) -> str:
@@ -394,7 +400,7 @@ def get_ocr_ocr1() -> str:
     ocr_config = _get_ocr_config()
     if not _is_advanced_mode():
         return _resolve_ocr_engine(_get_basic_ocr1_engine(ocr_config))
-    return _resolve_ocr_engine(ocr_config.get("ocr1", "oneocr"))
+    return _resolve_ocr_engine(ocr_config.get("ocr1", get_default_stability_ocr()))
 
 
 def get_ocr_ocr2() -> str:
