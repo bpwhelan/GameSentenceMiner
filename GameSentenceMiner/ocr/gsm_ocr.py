@@ -59,6 +59,7 @@ from GameSentenceMiner.util.config.configuration import (
     get_overlay_config,
 )
 from GameSentenceMiner.util.config.electron_config import (
+    get_default_stability_ocr,
     get_ocr_ocr2,
     get_ocr_send_to_clipboard,
     get_ocr_scan_rate,
@@ -3827,8 +3828,8 @@ if __name__ == "__main__":
         parser.add_argument(
             "--ocr1",
             type=str,
-            default="oneocr",
-            help="Primary OCR engine (default: oneocr)",
+            default=get_default_stability_ocr(),
+            help=f"Primary OCR engine (default: {get_default_stability_ocr()})",
         )
         parser.add_argument(
             "--ocr2",

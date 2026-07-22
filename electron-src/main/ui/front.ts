@@ -27,6 +27,13 @@ import { getConfiguredYuzuGames, getYuzuGames } from './yuzu.js';
 import { getOBSConnection, getOBSScenes } from './obs.js';
 import { getSceneOCRConfig } from './ocr.js';
 import { sendOpenTexthooker } from '../main.js';
+import { USE_IN_PROCESS_OVERLAY } from '../overlay_runtime_config.js';
+import {
+    isInProcessOverlayRunning,
+    startInProcessOverlay,
+    stopInProcessOverlay,
+    waitForInProcessOverlayShutdown,
+} from '../overlay_runtime.js';
 
 const OCR_CONFIG_DIR = path.join(BASE_DIR, 'ocr_config');
 let overlayProcess: ChildProcess | null = null;
@@ -130,13 +137,34 @@ export async function runOverlay() {
 }
 
 export function getOverlayRuntimeState(): OverlayRuntimeState {
+    const isRunning = USE_IN_PROCESS_OVERLAY
+        ? isInProcessOverlayRunning()
+        : Boolean(overlayProcess && overlayProcess.exitCode === null);
+    if (!isRunning) {
+        overlayLaunchSource = null;
+    }
     return {
-        isRunning: Boolean(overlayProcess && overlayProcess.exitCode === null),
+        isRunning,
         source: overlayLaunchSource,
     };
 }
 
 export function stopOverlay(options: StopOverlayOptions = {}): boolean {
+    if (USE_IN_PROCESS_OVERLAY) {
+        if (!isInProcessOverlayRunning()) {
+            overlayLaunchSource = null;
+            return false;
+        }
+        if (options.onlyIfSource && overlayLaunchSource !== options.onlyIfSource) {
+            return false;
+        }
+        const stopRequested = stopInProcessOverlay();
+        if (stopRequested) {
+            overlayLaunchSource = null;
+        }
+        return stopRequested;
+    }
+
     if (!overlayProcess || overlayProcess.exitCode !== null) {
         overlayProcess = null;
         overlayLaunchSource = null;
@@ -154,6 +182,12 @@ export function stopOverlay(options: StopOverlayOptions = {}): boolean {
     } catch (error) {
         console.error('Failed to stop overlay process:', error);
         return false;
+    }
+}
+
+export async function waitForOverlayShutdown(): Promise<void> {
+    if (USE_IN_PROCESS_OVERLAY) {
+        await waitForInProcessOverlayShutdown();
     }
 }
 
@@ -237,6 +271,16 @@ function spawnSharedOverlayRuntime(spawn: typeof import('child_process').spawn):
 export async function runOverlayWithSource(
     source: OverlayLaunchSource = 'manual'
 ): Promise<boolean> {
+    if (USE_IN_PROCESS_OVERLAY) {
+        if (isInProcessOverlayRunning()) {
+            console.log('Overlay is already running.');
+            return true;
+        }
+        const started = await startInProcessOverlay();
+        overlayLaunchSource = started ? source : null;
+        return started;
+    }
+
     if (overlayProcess && overlayProcess.exitCode === null) {
         console.log('Overlay is already running.');
         return true;

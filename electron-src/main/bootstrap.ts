@@ -2,6 +2,7 @@ import electron from 'electron';
 import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
+import { USE_IN_PROCESS_OVERLAY } from './overlay_runtime_config.js';
 
 const { app, dialog } = electron;
 const OVERLAY_CHILD_ARG = '--gsm-overlay-child';
@@ -69,6 +70,21 @@ function failOverlayBootstrap(message: string, error?: unknown): never {
     }
     app.exit(1);
     throw new Error(detail);
+}
+
+if (!isOverlayChildProcess() && USE_IN_PROCESS_OVERLAY) {
+    electron.protocol.registerSchemesAsPrivileged([
+        {
+            scheme: 'chrome-extension',
+            privileges: {
+                standard: true,
+                secure: true,
+                supportFetchAPI: true,
+                corsEnabled: true,
+                bypassCSP: true,
+            },
+        },
+    ]);
 }
 
 if (isOverlayChildProcess()) {

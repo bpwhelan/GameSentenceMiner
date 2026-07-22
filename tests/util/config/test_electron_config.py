@@ -86,9 +86,9 @@ def test_get_ocr_values_basic_mode(monkeypatch):
         }
     )
     monkeypatch.setattr(electron_config, "electron_store", store)
-    monkeypatch.setattr(electron_config, "is_windows", lambda: False)
+    monkeypatch.setattr(electron_config, "is_windows", lambda: True)
 
-    assert electron_config.get_ocr_ocr1() == "meikiocr"
+    assert electron_config.get_ocr_ocr1() == "meiki_text_detector"
     assert electron_config.get_ocr_ocr2() == "glens"
     assert electron_config.get_ocr_scan_rate() == 0.7
     assert electron_config.get_ocr_keep_newline() is True
@@ -96,6 +96,26 @@ def test_get_ocr_values_basic_mode(monkeypatch):
     assert electron_config.get_ocr_keep_newline("screen_cropper") is True
     assert electron_config.get_ocr_two_pass_ocr() is True
     assert electron_config.get_ocr_text_appears_instantly() is True
+
+
+def test_basic_mode_ignores_stored_ocr1_but_advanced_mode_preserves_it(monkeypatch):
+    store = _DummyStore({"OCR": {"advancedMode": False, "ocr1": "screenai"}})
+    monkeypatch.setattr(electron_config, "electron_store", store)
+    monkeypatch.setattr(electron_config, "is_windows", lambda: True)
+
+    assert electron_config.get_ocr_ocr1() == "meiki_text_detector"
+
+    store.data["OCR"]["advancedMode"] = True
+    assert electron_config.get_ocr_ocr1() == "screenai"
+
+
+def test_default_stability_ocr_preserves_non_windows_platforms(monkeypatch):
+    monkeypatch.setattr(electron_config, "is_windows", lambda: False)
+    monkeypatch.setattr(electron_config.sys, "platform", "darwin")
+    assert electron_config.get_default_stability_ocr() == "alivetext"
+
+    monkeypatch.setattr(electron_config.sys, "platform", "linux")
+    assert electron_config.get_default_stability_ocr() == "meiki_text_detector"
 
 
 def test_get_ocr_values_advanced_mode(monkeypatch):

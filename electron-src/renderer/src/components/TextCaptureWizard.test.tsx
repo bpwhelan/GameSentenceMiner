@@ -10,11 +10,34 @@ import { TextCaptureWizard } from "./TextCaptureWizard";
 
 const invokeMock = vi.fn();
 const sendMock = vi.fn();
+const ipcListeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
 async function flushAsyncWork() {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function emitIpc(channel: string, ...args: unknown[]) {
+  for (const listener of ipcListeners.get(channel) ?? []) {
+    listener({}, ...args);
+  }
+}
+
+function findButton(container: HTMLElement, text: string): HTMLButtonElement {
+  const buttons = Array.from(container.querySelectorAll("button"));
+  const button =
+    buttons.find((candidate) => candidate.textContent?.trim() === text) ??
+    buttons.find((candidate) => candidate.textContent?.includes(text));
+  expect(button).toBeInstanceOf(HTMLButtonElement);
+  return button as HTMLButtonElement;
+}
+
+async function clickButton(container: HTMLElement, text: string) {
+  await act(async () => {
+    findButton(container, text).click();
+    await flushAsyncWork();
+  });
 }
 
 describe("TextCaptureWizard", () => {
@@ -25,13 +48,19 @@ describe("TextCaptureWizard", () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     invokeMock.mockReset();
     sendMock.mockReset();
+    ipcListeners.clear();
 
     Object.defineProperty(window, "ipcRenderer", {
       configurable: true,
       value: {
         invoke: invokeMock,
         send: sendMock,
-        on: () => () => {},
+        on: (channel: string, listener: (...args: unknown[]) => void) => {
+          const listeners = ipcListeners.get(channel) ?? new Set();
+          listeners.add(listener);
+          ipcListeners.set(channel, listeners);
+          return () => listeners.delete(listener);
+        },
         once: () => {},
         removeListener: () => {},
         removeAllListeners: () => {},
@@ -231,5 +260,228 @@ describe("TextCaptureWizard", () => {
 
     const selectedScript = container.querySelector(".capture-wizard-script[aria-pressed='true']");
     expect(selectedScript?.textContent).toContain("Nier Replicant");
+  });
+
+  it("saves Agent as an integrated text-hook profile without enabling the external launcher", async () => {
+    const scene = { id: "scene-1", name: "Example Game" };
+    const scriptPath = "C:\\Agent\\data\\scripts\\PC_Steam_Example_Game.js";
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "obs.getActiveScene") return scene;
+      if (channel === "texthook.getActiveCapture") {
+        return {
+          sceneName: scene.name,
+          sceneId: scene.id,
+          exeName: "ExampleGame.exe",
+        };
+      }
+      if (channel === "settings.resolveAgentScriptForScene") {
+        return { status: "success", path: scriptPath };
+      }
+      if (channel === "settings.listAgentScripts") return { scripts: [scriptPath] };
+      if (channel === "settings.listGSMProfiles") return { profiles: ["Default"] };
+      if (channel === "texthook.saveProfile") return { success: true };
+      if (channel === "settings.saveSceneLaunchProfile") return { success: true };
+      return null;
+    });
+
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <TextCaptureWizard initialScene={scene} onClose={() => {}} />
+        </I18nProvider>,
+      );
+      await flushAsyncWork();
+    });
+    await clickButton(container, "Agent");
+    await clickButton(container, "Use selected script");
+    await clickButton(container, "Save setup");
+
+    expect(invokeMock).toHaveBeenCalledWith("settings.saveSceneLaunchProfile", {
+      scene,
+      textHookMode: "none",
+      ocrMode: "none",
+      launchOverlay: false,
+      agentScriptPath: "",
+      launchDelaySeconds: 0,
+    });
+    expect(invokeMock).toHaveBeenCalledWith("texthook.saveProfile", {
+      exeName: "ExampleGame.exe",
+      sceneId: scene.id,
+      engine: "agent",
+      autoHook: true,
+      flushDelayMs: 100,
+      copyToClipboard: false,
+      hookId: null,
+      hookFunction: null,
+      manualHookCode: null,
+      agentScriptPath: scriptPath,
+    });
+  });
+
+  it("saves a Luna hook with the same scene-scoped profile fields as the Text Hook tab", async () => {
+    const scene = { id: "scene-1", name: "Example Game" };
+    const hook = {
+      id: "hook-7",
+      function: "Dialogue (123:456)",
+      preview: "こんにちは",
+      samples: ["こんにちは"],
+    };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "obs.getActiveScene") return scene;
+      if (channel === "texthook.getActiveCapture") {
+        return {
+          sceneName: scene.name,
+          sceneId: scene.id,
+          exeName: "ExampleGame.exe",
+        };
+      }
+      if (channel === "texthook.getStatus") {
+        return {
+          running: true,
+          engine: "luna",
+          arch: "x64",
+          pid: 123,
+          exeName: "ExampleGame.exe",
+          selectedHookId: hook.id,
+          hookCount: 1,
+        };
+      }
+      if (channel === "texthook.listHooks") {
+        return { hooks: [hook], selectedHookId: hook.id };
+      }
+      if (channel === "settings.listGSMProfiles") return { profiles: ["Default"] };
+      if (channel === "texthook.saveProfile") return { success: true };
+      if (channel === "settings.saveSceneLaunchProfile") return { success: true };
+      return null;
+    });
+
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <TextCaptureWizard initialScene={scene} onClose={() => {}} />
+        </I18nProvider>,
+      );
+      await flushAsyncWork();
+    });
+    await clickButton(container, "Hooks");
+    await clickButton(container, "Use selected hook");
+    await clickButton(container, "Save setup");
+
+    expect(invokeMock).toHaveBeenCalledWith("texthook.saveProfile", {
+      exeName: "ExampleGame.exe",
+      sceneId: scene.id,
+      engine: "luna",
+      autoHook: true,
+      flushDelayMs: 100,
+      copyToClipboard: false,
+      hookId: hook.id,
+      hookFunction: hook.function,
+      manualHookCode: null,
+      agentScriptPath: null,
+    });
+  });
+
+  it("runs one OCR scan after area selection and previews the captured text", async () => {
+    const scene = { id: "scene-1", name: "Example Game" };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "obs.getActiveScene") return scene;
+      if (channel === "texthook.getActiveCapture") {
+        return {
+          sceneName: scene.name,
+          sceneId: scene.id,
+          exeName: "ExampleGame.exe",
+        };
+      }
+      if (channel === "ocr.get-running-state") {
+        return { isRunning: false, mode: "none", source: null };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <TextCaptureWizard initialScene={scene} onClose={() => {}} />
+        </I18nProvider>,
+      );
+      await flushAsyncWork();
+    });
+    await clickButton(container, "OCR");
+    await clickButton(container, "Select OCR area");
+
+    expect(sendMock).toHaveBeenCalledWith("ocr.run-screen-selector");
+
+    await act(async () => {
+      emitIpc("ocr-screen-selector-finished", { success: true });
+      await flushAsyncWork();
+    });
+    expect(sendMock).toHaveBeenCalledWith("ocr.start-ocr-ss-only");
+
+    await act(async () => {
+      emitIpc("ocr-ipc-started");
+      await flushAsyncWork();
+    });
+    expect(sendMock).toHaveBeenCalledWith("ocr.manual-ocr");
+
+    await act(async () => {
+      emitIpc("ocr-ipc-message", {
+        event: "ocr_result",
+        data: { text: "最初の会話サンプル" },
+      });
+      await flushAsyncWork();
+    });
+
+    expect(container.querySelector(".capture-wizard-ocr-sample")?.textContent).toBe(
+      "最初の会話サンプル",
+    );
+    expect(container.textContent).not.toContain("Smaller areas avoid menus");
+  });
+
+  it("saves the selected automatic OCR startup mode for the game", async () => {
+    const scene = { id: "scene-1", name: "Example Game" };
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "obs.getActiveScene") return scene;
+      if (channel === "texthook.getActiveCapture") {
+        return {
+          sceneName: scene.name,
+          sceneId: scene.id,
+          exeName: "ExampleGame.exe",
+        };
+      }
+      if (channel === "settings.listGSMProfiles") return { profiles: ["Default"] };
+      if (channel === "settings.saveSceneLaunchProfile") return { success: true };
+      return null;
+    });
+
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <TextCaptureWizard initialScene={scene} onClose={() => {}} />
+        </I18nProvider>,
+      );
+      await flushAsyncWork();
+    });
+    await clickButton(container, "OCR");
+
+    const autoOcr = container.querySelector<HTMLInputElement>(
+      'input[name="capture-wizard-ocr-automation"][value="auto"]',
+    );
+    expect(autoOcr).toBeInstanceOf(HTMLInputElement);
+    await act(async () => {
+      autoOcr!.click();
+      await flushAsyncWork();
+    });
+
+    await clickButton(container, "Continue");
+    await clickButton(container, "Save setup");
+
+    expect(invokeMock).toHaveBeenCalledWith("settings.saveSceneLaunchProfile", {
+      scene,
+      textHookMode: "none",
+      ocrMode: "auto",
+      launchOverlay: false,
+      agentScriptPath: "",
+      launchDelaySeconds: 0,
+    });
   });
 });

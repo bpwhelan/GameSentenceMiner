@@ -426,7 +426,7 @@ const LIVE_AREA_SAVED_MARKER = 'GSM_AREA_SAVED';
 async function runScreenSelector(options?: { live?: boolean }) {
     if (blockOcrStartDuringUpdate('OCR screen selector')) {
         sendToMainWindowFrames('ocr-log', 'COMMAND_FINISHED');
-        return;
+        return false;
     }
     const ocr_config = getOCRConfig();
     await new Promise((resolve, reject) => {
@@ -484,6 +484,7 @@ async function runScreenSelector(options?: { live?: boolean }) {
         });
     });
     sendToMainWindowFrames('ocr-log', `Running screen area selector in background...`);
+    return true;
 }
 
 /**
@@ -886,9 +887,14 @@ export function registerOCRUtilsIPC() {
     ipcMain.on('ocr.run-screen-selector', async () => {
         try {
             // Explicit selector launch supports live tuning while OCR runs.
-            await runScreenSelector({ live: true });
+            const success = await runScreenSelector({ live: true });
+            sendToMainWindowFrames('ocr-screen-selector-finished', { success });
         } catch (error) {
             console.error('Failed to run screen selector:', error);
+            sendToMainWindowFrames('ocr-screen-selector-finished', {
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+            });
         }
     });
 

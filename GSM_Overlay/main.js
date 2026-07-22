@@ -1,5 +1,10 @@
-const { app, BrowserWindow, session, screen, globalShortcut, dialog, Tray, Menu, nativeImage, protocol, Notification } = require('electron');
-const { ipcMain } = require("electron");
+const electron = require('electron');
+const { app, dialog, Tray, Menu, nativeImage, protocol, Notification } = electron;
+const NativeBrowserWindow = electron.BrowserWindow;
+const nativeIpcMain = electron.ipcMain;
+const nativeGlobalShortcut = electron.globalShortcut;
+const screen = electron.screen;
+const session = electron.session;
 const fs = require("fs");
 const path = require('path');
 const os = require('os');
@@ -27,29 +32,186 @@ const {
 const { shouldRevealAutomaticOverlay } = require('./automatic_visibility');
 const { URL } = require('url');
 
-// FIX: Register chrome-extension protocol as privileged to allow image loading and CORS in renderer
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: 'chrome-extension',
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      corsEnabled: true,
-      bypassCSP: true
-    }
-  }
-]);
+const IN_PROCESS_OVERLAY = process.env.GSM_OVERLAY_IN_PROCESS === '1';
+const OVERLAY_HOST_SYMBOL = Symbol.for('gsm.overlay.host');
+const overlayIpcListeners = [];
+const overlayIpcHandlers = new Set();
+const overlayEmitterListeners = [];
+const overlayWindows = new Set();
+const overlayGlobalShortcuts = new Set();
+const overlayTimeouts = new Set();
+const overlayIntervals = new Set();
+let overlayDefaultSession = null;
+const nativeSetTimeout = global.setTimeout;
+const nativeClearTimeout = global.clearTimeout;
+const nativeSetInterval = global.setInterval;
+const nativeClearInterval = global.clearInterval;
 
-let dataPath = process.env.APPDATA
+function setTimeout(callback, delay, ...args) {
+  let timer = null;
+  timer = nativeSetTimeout((...callbackArgs) => {
+    overlayTimeouts.delete(timer);
+    callback(...callbackArgs);
+  }, delay, ...args);
+  overlayTimeouts.add(timer);
+  return timer;
+}
+
+function clearTimeout(timer) {
+  overlayTimeouts.delete(timer);
+  return nativeClearTimeout(timer);
+}
+
+function setInterval(callback, delay, ...args) {
+  const timer = nativeSetInterval(callback, delay, ...args);
+  overlayIntervals.add(timer);
+  return timer;
+}
+
+function clearInterval(timer) {
+  overlayIntervals.delete(timer);
+  return nativeClearInterval(timer);
+}
+
+const ipcMain = {
+  on(channel, listener) {
+    overlayIpcListeners.push({ channel, listener });
+    nativeIpcMain.on(channel, listener);
+    return ipcMain;
+  },
+  once(channel, listener) {
+    overlayIpcListeners.push({ channel, listener });
+    nativeIpcMain.once(channel, listener);
+    return ipcMain;
+  },
+  handle(channel, listener) {
+    overlayIpcHandlers.add(channel);
+    nativeIpcMain.handle(channel, listener);
+  },
+  removeListener(channel, listener) {
+    nativeIpcMain.removeListener(channel, listener);
+    const index = overlayIpcListeners.findIndex(
+      (entry) => entry.channel === channel && entry.listener === listener
+    );
+    if (index >= 0) {
+      overlayIpcListeners.splice(index, 1);
+    }
+    return ipcMain;
+  },
+};
+
+function registerOverlayEmitterListener(emitter, event, listener, once = false) {
+  overlayEmitterListeners.push({ emitter, event, listener });
+  if (once) {
+    emitter.once(event, listener);
+  } else {
+    emitter.on(event, listener);
+  }
+  return listener;
+}
+
+function removeOverlayEmitterListeners() {
+  for (const { emitter, event, listener } of overlayEmitterListeners.splice(0)) {
+    emitter.removeListener(event, listener);
+  }
+}
+
+function removeOverlayIpcRegistrations() {
+  for (const { channel, listener } of overlayIpcListeners.splice(0)) {
+    nativeIpcMain.removeListener(channel, listener);
+  }
+  for (const channel of overlayIpcHandlers) {
+    nativeIpcMain.removeHandler(channel);
+  }
+  overlayIpcHandlers.clear();
+}
+
+function getOverlaySession() {
+  if (!IN_PROCESS_OVERLAY) {
+    return session.defaultSession;
+  }
+  if (!overlayDefaultSession) {
+    overlayDefaultSession = session.fromPath(dataPath);
+  }
+  return overlayDefaultSession;
+}
+
+function BrowserWindow(options = {}) {
+  let windowOptions = options;
+  const webPreferences = options.webPreferences || {};
+  if (IN_PROCESS_OVERLAY && !webPreferences.session) {
+    const windowSession = webPreferences.partition
+      ? session.fromPath(path.join(dataPath, 'Partitions', webPreferences.partition.replace(/^persist:/, '')))
+      : getOverlaySession();
+    const { partition: _partition, ...remainingWebPreferences } = webPreferences;
+    windowOptions = {
+      ...options,
+      webPreferences: {
+        ...remainingWebPreferences,
+        session: windowSession,
+      },
+    };
+  }
+  const window = new NativeBrowserWindow(windowOptions);
+  overlayWindows.add(window);
+  window.once('closed', () => overlayWindows.delete(window));
+  return window;
+}
+BrowserWindow.prototype = NativeBrowserWindow.prototype;
+Object.setPrototypeOf(BrowserWindow, NativeBrowserWindow);
+
+const globalShortcut = {
+  register(accelerator, callback) {
+    const registered = nativeGlobalShortcut.register(accelerator, callback);
+    if (registered) {
+      overlayGlobalShortcuts.add(accelerator);
+    }
+    return registered;
+  },
+  unregister(accelerator) {
+    nativeGlobalShortcut.unregister(accelerator);
+    overlayGlobalShortcuts.delete(accelerator);
+  },
+  unregisterAll() {
+    if (!IN_PROCESS_OVERLAY) {
+      nativeGlobalShortcut.unregisterAll();
+      overlayGlobalShortcuts.clear();
+      return;
+    }
+    for (const accelerator of overlayGlobalShortcuts) {
+      nativeGlobalShortcut.unregister(accelerator);
+    }
+    overlayGlobalShortcuts.clear();
+  },
+};
+
+// FIX: Register chrome-extension protocol as privileged to allow image loading and CORS in renderer
+if (!IN_PROCESS_OVERLAY) {
+  protocol.registerSchemesAsPrivileged([
+    {
+      scheme: 'chrome-extension',
+      privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        corsEnabled: true,
+        bypassCSP: true
+      }
+    }
+  ]);
+}
+
+let dataPath = process.env.GSM_OVERLAY_DATA_PATH || (process.env.APPDATA
   ? path.join(process.env.APPDATA, "gsm_overlay") // Windows
-  : path.join(os.homedir(), '.config', "gsm_overlay"); // macOS/Linux
+  : path.join(os.homedir(), '.config', "gsm_overlay")); // macOS/Linux
 
 fs.mkdirSync(dataPath, { recursive: true });
-app.setPath('userData', dataPath);
+if (!IN_PROCESS_OVERLAY) {
+  app.setPath('userData', dataPath);
+}
 
-const settingsPath = path.join(app.getPath('userData'), 'settings.json');
-const extensionsRoot = path.join(app.getPath('userData'), 'extensions');
+const settingsPath = path.join(dataPath, 'settings.json');
+const extensionsRoot = path.join(dataPath, 'extensions');
 const extensionVersionsPath = path.join(extensionsRoot, 'versions.json');
 const DEFAULT_GSM_SINGLE_PORT = 7275;
 const DEFAULT_ENFORCED_PLAINTEXT_WS_URL = `ws://127.0.0.1:${DEFAULT_GSM_SINGLE_PORT}/ws/plaintext`;
@@ -153,11 +315,33 @@ function getPackagedResourcesPath() {
 }
 
 function relaunchOverlayApp() {
+  if (IN_PROCESS_OVERLAY) {
+    const host = globalThis[OVERLAY_HOST_SYMBOL];
+    if (host && typeof host.requestStop === 'function') {
+      host.requestStop();
+    } else {
+      void stopOverlayApp();
+    }
+    return;
+  }
   const relaunchArgs = process.argv.slice(1);
   if (relaunchArgs.length > 0) {
     app.relaunch({ args: relaunchArgs });
   } else {
     app.relaunch();
+  }
+}
+
+function requestOverlayShutdown() {
+  if (!IN_PROCESS_OVERLAY) {
+    app.quit();
+    return;
+  }
+  const host = globalThis[OVERLAY_HOST_SYMBOL];
+  if (host && typeof host.requestStop === 'function') {
+    host.requestStop();
+  } else {
+    void stopOverlayApp();
   }
 }
 
@@ -1673,6 +1857,7 @@ let gamepadServerStopPromise = null;
 let gamepadServerLifecycleVersion = 0;
 let registeredGamepadKeyboardHotkey = null;
 let gamepadInputTestActive = false;
+let yomitanManifestWatcher = null;
 const findInPageStateByWebContentsId = new Map();
 const overlayWebSockets = {
   ws1: { socket: null, url: null, reconnectTimer: null },
@@ -2170,7 +2355,7 @@ async function startGamepadServer(reason = "unknown") {
         detached: false,
         env: {
           ...process.env,
-          GSM_OVERLAY_DATA_PATH: app.getPath('userData'),
+          GSM_OVERLAY_DATA_PATH: dataPath,
           GSM_GAMEPAD_TOKENIZER_BACKEND: normalizeGamepadTokenizerBackend(userSettings.gamepadTokenizerBackend),
           GSM_SUDACHI_DICT_KIND: normalizeGamepadSudachiDictionary(userSettings.gamepadSudachiDictionary),
           GSM_GAMEPAD_DEVICE_BLACKLIST: JSON.stringify(normalizeGamepadDeviceBlacklist(userSettings.gamepadDeviceBlacklist)),
@@ -2774,7 +2959,8 @@ function loadOverlayPage(win, relativePath) {
 const EXTENSION_READY_TIMEOUT_MS = 15000;
 
 function getExtensionSessionApi() {
-  const extensionsApi = session.defaultSession?.extensions;
+  const overlaySession = getOverlaySession();
+  const extensionsApi = overlaySession.extensions;
   if (extensionsApi) {
     return {
       events: extensionsApi,
@@ -2784,9 +2970,9 @@ function getExtensionSessionApi() {
   }
 
   return {
-    events: session.defaultSession,
-    loadExtension: (extensionPath, options) => session.defaultSession.loadExtension(extensionPath, options),
-    removeExtension: (extensionId) => session.defaultSession.removeExtension(extensionId),
+    events: overlaySession,
+    loadExtension: (extensionPath, options) => overlaySession.loadExtension(extensionPath, options),
+    removeExtension: (extensionId) => overlaySession.removeExtension(extensionId),
   };
 }
 
@@ -5674,7 +5860,7 @@ function updateTrayMenu() {
     {
       label: 'Quit',
       click: () => {
-        app.quit();
+        requestOverlayShutdown();
       }
     }
   ]);
@@ -5684,8 +5870,8 @@ function updateTrayMenu() {
 
 
 
-app.whenReady().then(async () => {
-  if (isMac() && app.dock) {
+async function startOverlayAppImpl() {
+  if (!IN_PROCESS_OVERLAY && isMac() && app.dock) {
     app.dock.setIcon(getOverlayAppIconPath());
   }
 
@@ -5712,9 +5898,9 @@ app.whenReady().then(async () => {
   fs.watchFile(gsmSettingsPath, { interval: 1000 }, () => {
     handleGSMSettingsFileChanged("config-watch");
   });
-  app.once("before-quit", () => {
+  registerOverlayEmitterListener(app, "before-quit", () => {
     fs.unwatchFile(gsmSettingsPath);
-  });
+  }, true);
   const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), "yomitan");
 
   // 1. Define Paths
@@ -5810,9 +5996,11 @@ app.whenReady().then(async () => {
                 fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
 
                 // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
-                relaunchOverlayApp();
-                app.exit(0);
-                return; // Halt execution
+                if (!IN_PROCESS_OVERLAY) {
+                  relaunchOverlayApp();
+                  app.exit(0);
+                  return; // Halt execution
+                }
               }
             } else {
               console.log("[Init] Linux detected. Auto-migrating without confirmation.");
@@ -5824,9 +6012,11 @@ app.whenReady().then(async () => {
               fs.writeFileSync(markerPath, JSON.stringify({ status: "migrated", date: Date.now() }));
 
               // 3. Relaunch to ensure Electron loads the new Manifest ID cleanly
-              relaunchOverlayApp();
-              app.exit(0);
-              return; // Halt execution
+              if (!IN_PROCESS_OVERLAY) {
+                relaunchOverlayApp();
+                app.exit(0);
+                return; // Halt execution
+              }
             }
           }
 
@@ -5858,7 +6048,7 @@ app.whenReady().then(async () => {
   {
     const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
     const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
-    const yomitanMtimePath = path.join(app.getPath('userData'), 'yomitan_last_mtime.json');
+    const yomitanMtimePath = path.join(dataPath, 'yomitan_last_mtime.json');
     let currentMtime = 0;
     try { currentMtime = fs.statSync(yomitanManifestPath).mtimeMs; } catch {}
     let storedMtime = 0;
@@ -5870,7 +6060,7 @@ app.whenReady().then(async () => {
     if (currentMtime > 0 && currentMtime !== storedMtime) {
       console.log(`[YomitanStartup] Extension files changed (stored=${storedMtime}, current=${currentMtime}). Clearing service worker cache...`);
       try {
-        await session.defaultSession.clearStorageData({ storages: ['serviceworkers'] });
+        await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
         console.log('[YomitanStartup] Service worker cache cleared.');
       } catch (e) {
         console.warn('[YomitanStartup] Failed to clear service worker cache:', e);
@@ -5902,7 +6092,7 @@ app.whenReady().then(async () => {
   {
     const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
     const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
-    const yomitanMtimePath = path.join(app.getPath('userData'), 'yomitan_last_mtime.json');
+    const yomitanMtimePath = path.join(dataPath, 'yomitan_last_mtime.json');
     let yomitanReloadDebounce = null;
     let yomitanLastMtime = (() => { try { return fs.statSync(yomitanManifestPath).mtimeMs; } catch { return 0; } })();
 
@@ -5919,7 +6109,7 @@ app.whenReady().then(async () => {
 
       try {
         // Clear stale service worker cache before reloading
-        await session.defaultSession.clearStorageData({ storages: ['serviceworkers'] });
+        await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
         const extensionApi = getExtensionSessionApi();
         if (yomitanExt && yomitanExt.id) {
           extensionApi.removeExtension(yomitanExt.id);
@@ -5944,7 +6134,7 @@ app.whenReady().then(async () => {
     };
 
     if (fs.existsSync(yomitanManifestPath)) {
-      fs.watch(yomitanManifestPath, { persistent: false }, (eventType) => {
+      yomitanManifestWatcher = fs.watch(yomitanManifestPath, { persistent: false }, (eventType) => {
         if (eventType === 'change' || eventType === 'rename') {
           // Debounce: build scripts may write multiple times in quick succession
           if (yomitanReloadDebounce) clearTimeout(yomitanReloadDebounce);
@@ -6219,7 +6409,7 @@ app.whenReady().then(async () => {
   // (the register* calls above populated the registry).
   syncAppHotkeyInputServerConnection("app-whenReady");
 
-  app.on('will-quit', () => {
+  registerOverlayEmitterListener(app, 'will-quit', () => {
     releaseAllOverlayPauseRequests();
     globalShortcut.unregisterAll();
     closeAppHotkeyInputServerConnection();
@@ -6314,15 +6504,15 @@ app.whenReady().then(async () => {
     scheduleOverlayDisplaySync(`electron-${changeType}:${changedDisplayId}${metricsSuffix}`);
   };
 
-  screen.on("display-added", (_event, newDisplay) => {
+  registerOverlayEmitterListener(screen, "display-added", (_event, newDisplay) => {
     onDisplayChanged("display-added", newDisplay);
   });
 
-  screen.on("display-removed", (_event, oldDisplay) => {
+  registerOverlayEmitterListener(screen, "display-removed", (_event, oldDisplay) => {
     onDisplayChanged("display-removed", oldDisplay);
   });
 
-  screen.on("display-metrics-changed", (_event, changedDisplay, changedMetrics) => {
+  registerOverlayEmitterListener(screen, "display-metrics-changed", (_event, changedDisplay, changedMetrics) => {
     onDisplayChanged("display-metrics-changed", changedDisplay, changedMetrics);
   });
 
@@ -6551,7 +6741,7 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.on("app-close", () => {
-    app.quit();
+    requestOverlayShutdown();
   });
 
   ipcMain.on("app-minimize", () => {
@@ -7381,7 +7571,7 @@ app.whenReady().then(async () => {
     }
   });
 
-  app.on("before-quit", () => {
+  registerOverlayEmitterListener(app, "before-quit", () => {
     // Clear activity timer on quit
     if (activityTimer) {
       clearTimeout(activityTimer);
@@ -7393,4 +7583,167 @@ app.whenReady().then(async () => {
     // clearInterval(alwaysOnTopInterval);
     saveSettings();
   });
-});
+}
+
+let overlayLifecycleState = 'stopped';
+let overlayLifecycleDisposed = false;
+let overlayLifecycleStartPromise = null;
+let overlayLifecycleStopPromise = null;
+
+function startOverlayApp() {
+  if (overlayLifecycleDisposed) {
+    return Promise.reject(new Error('This overlay module instance has already been unloaded.'));
+  }
+  if (overlayLifecycleState === 'running') {
+    return Promise.resolve();
+  }
+  if (overlayLifecycleStartPromise) {
+    return overlayLifecycleStartPromise;
+  }
+
+  overlayLifecycleState = 'starting';
+  overlayLifecycleStartPromise = app.whenReady()
+    .then(() => startOverlayAppImpl())
+    .then(() => {
+      overlayLifecycleState = 'running';
+    })
+    .catch((error) => {
+      overlayLifecycleState = 'stopped';
+      throw error;
+    })
+    .finally(() => {
+      overlayLifecycleStartPromise = null;
+    });
+  return overlayLifecycleStartPromise;
+}
+
+function clearOverlayTimers() {
+  for (const timer of overlayTimeouts) {
+    nativeClearTimeout(timer);
+  }
+  overlayTimeouts.clear();
+  for (const timer of overlayIntervals) {
+    nativeClearInterval(timer);
+  }
+  overlayIntervals.clear();
+}
+
+function runOverlayCleanupStep(label, callback) {
+  try {
+    return callback();
+  } catch (error) {
+    console.warn(`[OverlayLifecycle] Cleanup step failed (${label}):`, error);
+    return undefined;
+  }
+}
+
+async function stopOverlayApp() {
+  if (overlayLifecycleDisposed) {
+    return overlayLifecycleStopPromise || Promise.resolve();
+  }
+  if (overlayLifecycleStopPromise) {
+    return overlayLifecycleStopPromise;
+  }
+
+  overlayLifecycleState = 'stopping';
+  overlayLifecycleDisposed = true;
+  overlayLifecycleStopPromise = (async () => {
+    try {
+      runOverlayCleanupStep('config watcher', () => fs.unwatchFile(gsmSettingsPath));
+      runOverlayCleanupStep('Yomitan watcher', () => {
+        if (yomitanManifestWatcher) {
+          yomitanManifestWatcher.close();
+          yomitanManifestWatcher = null;
+        }
+      });
+
+      runOverlayCleanupStep('pause requests', () => releaseAllOverlayPauseRequests());
+      runOverlayCleanupStep('manual hotkey state', () => manualHotkeyController.reset('overlay-unload'));
+      runOverlayCleanupStep('overlay websockets', () => stopOverlayWebSockets());
+      runOverlayCleanupStep('manual hotkey socket', () => closeManualHotkeyInputServerConnection());
+      runOverlayCleanupStep('app hotkey socket', () => closeAppHotkeyInputServerConnection());
+      const gamepadStop = runOverlayCleanupStep(
+        'gamepad server',
+        () => stopGamepadServer('overlay-unload')
+      );
+
+      if (backend) {
+        runOverlayCleanupStep('backend connector', () => backend.destroy());
+        backend = null;
+      }
+
+      runOverlayCleanupStep('global shortcuts', () => globalShortcut.unregisterAll());
+      appHotkeyGlobalShortcutAccelerators.clear();
+      appHotkeyInputServerConnection.registry.clear();
+      runOverlayCleanupStep('background tasks', () => bg.reset());
+      runOverlayCleanupStep('pomodoro timer', () => clearPomodoroTicker());
+
+      if (tray) {
+        runOverlayCleanupStep('tray', () => tray.destroy());
+        tray = null;
+      }
+
+      for (const window of Array.from(overlayWindows)) {
+        if (!window.isDestroyed()) {
+          runOverlayCleanupStep('window', () => window.destroy());
+        }
+      }
+      overlayWindows.clear();
+      mainWindow = null;
+      startupNotificationWindow = null;
+      manualModeRecommendationWindow = null;
+      settingsWindow = null;
+      yomitanSettingsWindow = null;
+      jitenReaderSettingsWindow = null;
+      offsetHelperWindow = null;
+      texthookerWindow = null;
+
+      runOverlayCleanupStep('extensions', () => {
+        const extensionApi = getExtensionSessionApi();
+        for (const extension of [yomitanExt, jitenReaderExt]) {
+          if (extension && extension.id) {
+            try {
+              extensionApi.removeExtension(extension.id);
+            } catch (error) {
+              console.warn(`[Extensions] Failed to unload ${extension.id}:`, error);
+            }
+          }
+        }
+      });
+      yomitanExt = null;
+      jitenReaderExt = null;
+
+      runOverlayCleanupStep('IPC registrations', () => removeOverlayIpcRegistrations());
+      runOverlayCleanupStep('Electron event listeners', () => removeOverlayEmitterListeners());
+      runOverlayCleanupStep('timers', () => clearOverlayTimers());
+      findInPageStateByWebContentsId.clear();
+      runOverlayCleanupStep('settings save', () => saveSettings());
+      if (gamepadStop) {
+        await Promise.resolve(gamepadStop).catch((error) => {
+          console.warn('[OverlayLifecycle] Gamepad cleanup failed:', error);
+        });
+      }
+    } finally {
+      overlayLifecycleState = 'stopped';
+    }
+  })();
+  return overlayLifecycleStopPromise;
+}
+
+function isOverlayRunning() {
+  return overlayLifecycleState === 'starting' || overlayLifecycleState === 'running';
+}
+
+module.exports = {
+  startOverlayApp,
+  stopOverlayApp,
+  isOverlayRunning,
+};
+
+if (!IN_PROCESS_OVERLAY) {
+  void startOverlayApp().catch((error) => {
+    console.error('Failed to start GSM Overlay:', error);
+    dialog.showErrorBox('GSM Overlay Startup Failed', error && error.stack ? error.stack : String(error));
+    app.quit();
+  });
+}

@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { DOCS_URLS } from "../../../../shared/docs";
+import { getDefaultStabilityOcr } from "../../../../shared/ocr_defaults";
 import { invokeIpc, onIpc, platformFromEnv, sendIpc } from "../../lib/ipc";
 import type { ObsScene } from "../../types/models";
 import { useTranslation } from "../../i18n";
 import { getTerminalColors, THEME_CHANGED_EVENT } from "../../lib/theme";
 
-type OcrPlatform = "win32" | "darwin" | "linux" | string;
 type ProcessPriority =
   | "low"
   | "below_normal"
@@ -579,16 +579,6 @@ function normalizeProcessPriority(value: unknown): ProcessPriority {
 
   const normalized = value.toLowerCase() as ProcessPriority;
   return VALID_PROCESS_PRIORITIES.includes(normalized) ? normalized : "normal";
-}
-
-function getDefaultStabilityOcr(platform: OcrPlatform): string {
-  if (platform === "darwin") {
-    return "alivetext";
-  }
-  if (platform === "linux") {
-    return "meiki_text_detector";
-  }
-  return "oneocr";
 }
 
 function keepNewlineEnabled(
