@@ -123,11 +123,11 @@ This project includes modified versions of the following libraries, I got tired 
 
 ## Star History
 
-<a href="https://www.star-history.com/#bpwhelan/GameSentenceMiner&type=date&legend=top-left">
+<a href="https://www.star-history.com/?type=date&legend=top-left&repos=bpwhelan%2FGameSentenceMiner">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=bpwhelan/GameSentenceMiner&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=bpwhelan/GameSentenceMiner&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=bpwhelan/GameSentenceMiner&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=bpwhelan/GameSentenceMiner&type=date&theme=dark&legend=top-left&sealed_token=02fHbRdEYmJh11Ggqsl32NwcHphkyg0h-plqO3srpyrG55bj3naxHJfvO6LPn-sJuILJUcjw86l58Ar4JA8vrm7vjnZV_Dne2-Ngjb447h5PDl4cyKddMQkPDd9UJeZLP8SdlMFzQ49-K8Ar1pwjbNh66HVcUGuzCu77q5PM1M1kSxv6pZbDTeFSGEb8" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=bpwhelan/GameSentenceMiner&type=date&legend=top-left&sealed_token=02fHbRdEYmJh11Ggqsl32NwcHphkyg0h-plqO3srpyrG55bj3naxHJfvO6LPn-sJuILJUcjw86l58Ar4JA8vrm7vjnZV_Dne2-Ngjb447h5PDl4cyKddMQkPDd9UJeZLP8SdlMFzQ49-K8Ar1pwjbNh66HVcUGuzCu77q5PM1M1kSxv6pZbDTeFSGEb8" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=bpwhelan/GameSentenceMiner&type=date&legend=top-left&sealed_token=02fHbRdEYmJh11Ggqsl32NwcHphkyg0h-plqO3srpyrG55bj3naxHJfvO6LPn-sJuILJUcjw86l58Ar4JA8vrm7vjnZV_Dne2-Ngjb447h5PDl4cyKddMQkPDd9UJeZLP8SdlMFzQ49-K8Ar1pwjbNh66HVcUGuzCu77q5PM1M1kSxv6pZbDTeFSGEb8" />
  </picture>
 </a>
 
