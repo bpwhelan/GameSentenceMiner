@@ -472,6 +472,21 @@ def build_anki_field_grouping_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.anki_field_grouping_additional_fields_edit,
     )
+    window.anki_field_grouping_overwrite_fields_edit.setPlaceholderText("Picture, Sentence, SentenceAudio")
+    layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "anki",
+            "field_grouping_overwrite_fields",
+            (
+                "Comma-separated field names to fully overwrite with the newly mined note's content "
+                "instead of grouping it with the original. Useful when the original note wasn't voiced "
+                "(e.g. no TTS/audio) and the new context should replace its Picture, Sentence, and/or "
+                "Sentence Audio outright rather than being appended alongside it."
+            ),
+        ),
+        window.anki_field_grouping_overwrite_fields_edit,
+    )
 
     behavior = QLabel(
         "Every duplicate match opens a decision dialog. If several originals exist, the dialog lists all "

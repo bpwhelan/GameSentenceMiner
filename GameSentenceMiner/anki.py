@@ -440,6 +440,15 @@ def _field_grouping_fields(config: ProfileConfig) -> List[Tuple[str, str]]:
     return result
 
 
+def _field_grouping_overwrite_field_keys(config: ProfileConfig) -> set:
+    anki_config = config.anki
+    return {
+        str(field_name or "").strip().casefold()
+        for field_name in (getattr(anki_config, "field_grouping_overwrite_fields", []) or [])
+        if str(field_name or "").strip()
+    }
+
+
 def _build_field_grouping_note(
     source_note: "AnkiCard",
     target_info: Dict[str, Any],
@@ -453,6 +462,7 @@ def _build_field_grouping_note(
         raise ValueError("Field grouping requires two different valid Anki note IDs.")
 
     field_specs = _field_grouping_fields(config)
+    overwrite_field_keys = _field_grouping_overwrite_field_keys(config)
     target_values = {name: _note_info_field_value(target_info, name) for name, _mode in field_specs}
     source_values = {name: _source_note_field_value(source_note, source_patch, name) for name, _mode in field_specs}
     existing_group_ids = set()
@@ -481,6 +491,12 @@ def _build_field_grouping_note(
     for field_name, mode in field_specs:
         source_value = source_values[field_name]
         if not source_value.strip():
+            continue
+        if field_name.strip().casefold() in overwrite_field_keys:
+            # Fully replace the original note's content with the newly mined context
+            # (e.g. swapping in a voiced picture/sentence/audio for an unvoiced original)
+            # instead of grouping the two together with data-group-id markup.
+            merged_fields[field_name] = source_value
             continue
         target_value = target_values[field_name]
         if mode == "image":
