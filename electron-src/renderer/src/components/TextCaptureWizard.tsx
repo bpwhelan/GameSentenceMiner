@@ -112,14 +112,14 @@ const OCR_AUTOMATION_OPTIONS: Array<{
     descriptionKey: "captureWizard.ocr.automationOffDescription"
   },
   {
-    value: "manual",
-    labelKey: "captureWizard.ocr.automationManual",
-    descriptionKey: "captureWizard.ocr.automationManualDescription"
-  },
-  {
     value: "auto",
     labelKey: "captureWizard.ocr.automationAuto",
     descriptionKey: "captureWizard.ocr.automationAutoDescription"
+  },
+  {
+    value: "manual",
+    labelKey: "captureWizard.ocr.automationManual",
+    descriptionKey: "captureWizard.ocr.automationManualDescription"
   }
 ];
 

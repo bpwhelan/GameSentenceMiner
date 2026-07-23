@@ -3032,9 +3032,7 @@ class ConfigWindow(QWidget):
         self.anki_field_grouping_additional_fields_edit.setText(
             ", ".join(getattr(s.anki, "field_grouping_additional_fields", []) or [])
         )
-        self.anki_field_grouping_overwrite_check.setChecked(
-            bool(getattr(s.anki, "field_grouping_overwrite", False))
-        )
+        self.anki_field_grouping_overwrite_check.setChecked(bool(getattr(s.anki, "field_grouping_overwrite", False)))
         self._set_text_value(self.anki_url_edit, s.anki.url)
         self._suppress_anki_field_refresh = True
         self.anki_note_type_combo.setCurrentText(s.anki.note_type)
