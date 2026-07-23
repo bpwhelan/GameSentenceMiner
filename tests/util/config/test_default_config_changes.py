@@ -18,6 +18,10 @@ def test_tadoku_stats_defaults_are_safe_and_cleanup_daily_sync():
     assert stats.tadoku_daily_sync_deduplicate is True
 
 
+def test_stats_day_rollover_defaults_to_four_am():
+    assert StatsConfig().day_rollover_hour == 4
+
+
 def test_obs_replay_buffer_duration_defaults_and_clamps():
     assert OBS().replay_buffer_enabled is True
     assert OBS().replay_buffer_duration_seconds == 300

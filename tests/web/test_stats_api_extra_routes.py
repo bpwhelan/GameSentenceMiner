@@ -211,19 +211,25 @@ class TestTodayStatsRoute:
         def now(cls, tz=None):
             return cls(2026, 3, 12, 12, 0, 0, tzinfo=tz)
 
-    def _patch_time(self, monkeypatch):
+    class _BeforeSixDateTime(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 3, 12, 5, 0, 0, tzinfo=tz)
+
+    def _patch_time(self, monkeypatch, *, day_rollover_hour=4, datetime_type=None):
         monkeypatch.setattr(
             "GameSentenceMiner.web.stats_api.datetime.date",
             self._FixedDate,
         )
         monkeypatch.setattr(
             "GameSentenceMiner.web.stats_api.datetime.datetime",
-            self._FixedDateTime,
+            datetime_type or self._FixedDateTime,
         )
         monkeypatch.setattr(
             "GameSentenceMiner.web.stats_api.get_stats_config",
             lambda: SimpleNamespace(
                 session_gap_seconds=5000,
+                day_rollover_hour=day_rollover_hour,
             ),
         )
 
@@ -279,6 +285,51 @@ class TestTodayStatsRoute:
         assert session["totalChars"] == 6
         assert session["totalSeconds"] == 15.0
         assert session["charsPerHour"] == 1440
+
+    def test_today_stats_uses_previous_day_when_before_configured_rollover(self, client, monkeypatch):
+        self._patch_time(
+            monkeypatch,
+            day_rollover_hour=6,
+            datetime_type=self._BeforeSixDateTime,
+        )
+        lines = [
+            ("before-start", "excluded", datetime.datetime(2026, 3, 11, 5, 59).timestamp()),
+            ("at-start", "a", datetime.datetime(2026, 3, 11, 6, 0).timestamp()),
+            ("before-end", "bc", datetime.datetime(2026, 3, 12, 5, 59).timestamp()),
+            ("after-end", "excluded", datetime.datetime(2026, 3, 12, 6, 1).timestamp()),
+        ]
+        for line_id, text, timestamp in lines:
+            GameLinesTable(
+                id=line_id,
+                game_name="Test Game",
+                line_text=text,
+                timestamp=timestamp,
+            ).add()
+
+        response = client.get("/api/today-stats")
+
+        assert response.status_code == 200
+        assert response.get_json()["todayTotalChars"] == 3
+
+    def test_today_stats_uses_midnight_window_when_rollover_is_zero(self, client, monkeypatch):
+        self._patch_time(monkeypatch, day_rollover_hour=0)
+        lines = [
+            ("previous-day", "excluded", datetime.datetime(2026, 3, 11, 23, 59).timestamp()),
+            ("midnight", "a", datetime.datetime(2026, 3, 12, 0, 0).timestamp()),
+            ("today", "bc", datetime.datetime(2026, 3, 12, 10, 0).timestamp()),
+        ]
+        for line_id, text, timestamp in lines:
+            GameLinesTable(
+                id=line_id,
+                game_name="Test Game",
+                line_text=text,
+                timestamp=timestamp,
+            ).add()
+
+        response = client.get("/api/today-stats")
+
+        assert response.status_code == 200
+        assert response.get_json()["todayTotalChars"] == 3
 
     def test_today_stats_uses_preloaded_game_metadata_for_linked_lines(self, client, monkeypatch):
         self._patch_time(monkeypatch)
