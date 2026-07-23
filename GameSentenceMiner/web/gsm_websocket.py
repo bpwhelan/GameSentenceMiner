@@ -33,6 +33,40 @@ WS_PATH_OVERLAY = "/ws/overlay"
 WS_PATH_PLAINTEXT = "/ws/plaintext"
 
 
+def build_gsm_profile_state_payload(master_config=None) -> dict[str, Any]:
+    """Serialize the authoritative GSM profile list for overlay clients."""
+    if master_config is None:
+        from GameSentenceMiner.util.config.configuration import get_master_config
+
+        master_config = get_master_config()
+
+    configs = getattr(master_config, "configs", None)
+    if not isinstance(configs, dict):
+        configs = {}
+
+    profiles = []
+    for raw_name, config in configs.items():
+        name = str(raw_name or "").strip()
+        if not name or config is None:
+            continue
+        raw_scenes = config.get("scenes", []) if isinstance(config, dict) else getattr(config, "scenes", [])
+        scenes = []
+        if isinstance(raw_scenes, (list, tuple, set)):
+            scenes = [scene for raw_scene in raw_scenes if (scene := str(raw_scene or "").strip())]
+        profiles.append({"name": name, "scenes": scenes})
+
+    configured_name = str(getattr(master_config, "current_profile", "") or "").strip()
+    profile_names = {profile["name"] for profile in profiles}
+    if configured_name not in profile_names:
+        configured_name = "Default" if "Default" in profile_names else (profiles[0]["name"] if profiles else "Default")
+
+    return {
+        "type": "gsm-profile-state-updated",
+        "currentProfileName": configured_name,
+        "profiles": profiles,
+    }
+
+
 def _normalize_ws_path(path: Optional[str]) -> str:
     normalized = str(path or "/").split("?", 1)[0].strip()
     if not normalized:
@@ -410,6 +444,11 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
         except Exception as error:
             logger.debug(f"[{self.server_name}] Failed to send initial GSM overlay config: {error}")
 
+        try:
+            await websocket.send(json.dumps(build_gsm_profile_state_payload()))
+        except Exception as error:
+            logger.debug(f"[{self.server_name}] Failed to send initial GSM profile state: {error}")
+
     async def _handler(self, websocket, path=None):
         server_id = self._resolve_target_server_id(websocket, path)
         if not server_id:
@@ -712,6 +751,11 @@ def _pick_free_port() -> int:
 _internal_ws_ingress_port: int = _pick_free_port()
 
 websocket_manager = WebsocketManager()
+
+
+def broadcast_gsm_profile_state() -> None:
+    """Push a profile snapshot from the GSM process to connected overlay clients."""
+    websocket_manager.send_nowait(ID_OVERLAY, build_gsm_profile_state_payload())
 
 
 def request_overlay_settings_open() -> bool:

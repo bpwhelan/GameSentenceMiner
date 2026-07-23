@@ -530,6 +530,19 @@ class GSMApplication:
             self.profile_switcher = profile_switcher
         return profile_switcher
 
+    @staticmethod
+    def _broadcast_overlay_profile_state() -> None:
+        try:
+            from GameSentenceMiner.web.gsm_websocket import broadcast_gsm_profile_state
+
+            broadcast_gsm_profile_state()
+        except Exception as e:
+            logger.debug(f"Failed to broadcast GSM profile state to overlay: {e}")
+
+    def _handle_manual_profile_change(self, previous_profile_name: str, new_profile_name: str) -> None:
+        self._get_profile_switcher().record_manual_profile_switch(previous_profile_name, new_profile_name)
+        self._broadcast_overlay_profile_state()
+
     def _start_thread(self, target, name: str) -> threading.Thread:
         thread = threading.Thread(target=target, name=name, daemon=True)
         thread.start()
@@ -672,6 +685,7 @@ class GSMApplication:
 
     def switch_profile(self, profile_name: str) -> None:
         self._get_profile_switcher().switch_profile(profile_name, settings_window=self.state.settings_window)
+        self._broadcast_overlay_profile_state()
 
     def relate_scene_to_profile(self, scene: str, profile_name: str, create_new: bool = False) -> None:
         scene = str(scene or "").strip()
@@ -679,9 +693,10 @@ class GSMApplication:
         if not profile_name:
             return
         switcher = self._get_profile_switcher()
-        if create_new:
-            switcher.create_profile(profile_name)
-        switcher.associate_scene_with_profile(scene, profile_name, exclusive=True)
+        changed = switcher.create_profile(profile_name) if create_new else False
+        changed = switcher.associate_scene_with_profile(scene, profile_name, exclusive=True) or changed
+        if changed:
+            self._broadcast_overlay_profile_state()
         if self.state.settings_window:
             try:
                 self.state.settings_window.reload_settings()
@@ -1317,11 +1332,15 @@ class GSMApplication:
             logger.debug(f"Error getting previous lines for game: {e}")
 
     def _check_profile_for_scene_tick(self, scene: str) -> None:
+        def on_profile_switched() -> None:
+            self.get_previous_lines_for_game()
+            self._broadcast_overlay_profile_state()
+
         self._get_profile_switcher().sync_profile_for_scene(
             scene,
             interactive=False,
             settings_window=self.state.settings_window,
-            on_profile_switched=self.get_previous_lines_for_game,
+            on_profile_switched=on_profile_switched,
         )
 
     def _register_scene_observed_profile_check(self) -> None:
@@ -1355,6 +1374,7 @@ class GSMApplication:
                 scene,
                 interactive=True,
                 settings_window=self.state.settings_window,
+                on_profile_switched=self._broadcast_overlay_profile_state,
             )
 
         await obs.register_scene_change_callback(scene_switcher_callback)
@@ -1548,9 +1568,7 @@ class GSMApplication:
         self.state.settings_window.add_save_hook(self.register_hotkeys)
         self.state.settings_window.add_save_hook(self.on_config_changed)
         if hasattr(self.state.settings_window, "add_profile_change_hook"):
-            self.state.settings_window.add_profile_change_hook(
-                self._get_profile_switcher().record_manual_profile_switch
-            )
+            self.state.settings_window.add_profile_change_hook(self._handle_manual_profile_change)
 
         self.state.async_runner.start()
         self.state.text_async_runner.start()

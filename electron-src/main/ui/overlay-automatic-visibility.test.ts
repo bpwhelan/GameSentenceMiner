@@ -10,6 +10,10 @@ function loadVisibilityPolicy() {
   return requireModule(
     path.resolve(process.cwd(), "GSM_Overlay/automatic_visibility.js")
   ) as {
+    shouldShowOverlayOnReady: (options: {
+      hideOverlayOnStartup?: boolean;
+      windowState?: string;
+    }) => boolean;
     shouldRevealAutomaticOverlay: (options: {
       windowState?: string;
       outputAvailable?: boolean;
@@ -20,6 +24,39 @@ function loadVisibilityPolicy() {
 }
 
 describe("automatic overlay visibility", () => {
+  it("only performs the default startup reveal while the target state is still usable", () => {
+    const { shouldShowOverlayOnReady } = loadVisibilityPolicy();
+
+    expect(shouldShowOverlayOnReady({ windowState: "unknown" })).toBe(true);
+    expect(shouldShowOverlayOnReady({ windowState: "active" })).toBe(true);
+    expect(shouldShowOverlayOnReady({ windowState: "background" })).toBe(true);
+    expect(shouldShowOverlayOnReady({ windowState: "minimized" })).toBe(false);
+    expect(shouldShowOverlayOnReady({ windowState: "closed" })).toBe(false);
+    expect(shouldShowOverlayOnReady({ windowState: "obscured" })).toBe(false);
+    expect(shouldShowOverlayOnReady({
+      hideOverlayOnStartup: true,
+      windowState: "active",
+    })).toBe(false);
+  });
+
+  it("defers the main BrowserWindow reveal until the latest target state is known", () => {
+    const source = fs.readFileSync(
+      path.resolve(process.cwd(), "GSM_Overlay/main.js"),
+      "utf8"
+    );
+    const mainWindowOptions = source.slice(
+      source.indexOf("mainWindow = new BrowserWindow({"),
+      source.indexOf("lastDisplaySyncSignature", source.indexOf("mainWindow = new BrowserWindow({"))
+    );
+    const readyHandler = source.slice(
+      source.indexOf("mainWindow.once('ready-to-show'"),
+      source.indexOf('ipcMain.on("app-close"', source.indexOf("mainWindow.once('ready-to-show'"))
+    );
+
+    expect(mainWindowOptions).toContain("show: false");
+    expect(readyHandler).toContain("shouldShowOverlayOnReady({");
+  });
+
   it("reveals for usable foreground and background window information", () => {
     const { shouldRevealAutomaticOverlay } = loadVisibilityPolicy();
 

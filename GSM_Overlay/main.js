@@ -29,7 +29,7 @@ const {
   normalizeConfiguredHotkeyValues,
   registerHotkeyWithFallback,
 } = require('./hotkey_settings');
-const { shouldRevealAutomaticOverlay } = require('./automatic_visibility');
+const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
 const { URL } = require('url');
 
 const IN_PROCESS_OVERLAY = process.env.GSM_OVERLAY_IN_PROCESS === '1';
@@ -237,6 +237,7 @@ const MANAGED_INPUT_SERVER_PORT = (() => {
     : GAMEPAD_SERVER_BASE_PORT;
 })();
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
+const GSM_PROFILE_STATE_REFRESH_INTERVAL_MS = 30_000;
 const STARTUP_NOTIFICATION_DURATION_MS = 3200;
 const STARTUP_NOTIFICATION_WIDTH = 460;
 const STARTUP_NOTIFICATION_HEIGHT = 130;
@@ -250,9 +251,10 @@ const VALID_MANUAL_MODE_INACTIVE_BEHAVIORS = new Set([
   MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY,
   MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION,
 ]);
-const GSM_APPDATA = process.env.APPDATA
+const DEFAULT_GSM_APPDATA = process.env.APPDATA
   ? path.join(process.env.APPDATA, "GameSentenceMiner") // Windows
   : path.join(os.homedir(), '.config', "GameSentenceMiner"); // macOS/Linux
+const GSM_APPDATA = process.env.GSM_DATA_DIR || DEFAULT_GSM_APPDATA;
 const gsmSettingsPath = path.join(GSM_APPDATA, 'config.json');
 const sharedRuntimeResourcesPath = process.env.GSM_OVERLAY_RESOURCES_PATH || "";
 const FIND_IN_PAGE_PRELOAD_PATH = path.join(__dirname, 'find-in-page-preload.js');
@@ -428,6 +430,28 @@ function getCurrentGSMProfileName(gsmSettings = getGSMSettings()) {
   }
   return profiles[0]?.name || DEFAULT_GSM_PROFILE_NAME;
 }
+
+function normalizeGSMProfileState(profileState = {}) {
+  const rawProfiles = Array.isArray(profileState.profiles) ? profileState.profiles : [];
+  const profiles = rawProfiles
+    .filter((profile) => profile && typeof profile === "object" && String(profile.name || "").trim())
+    .map((profile) => ({
+      name: String(profile.name).trim(),
+      scenes: Array.isArray(profile.scenes)
+        ? profile.scenes.map((scene) => String(scene || "").trim()).filter(Boolean)
+        : [],
+    }));
+  const availableNames = new Set(profiles.map((profile) => profile.name));
+  let currentProfileName = normalizeOverlayProfileName(profileState.currentProfileName);
+  if (!availableNames.has(currentProfileName)) {
+    currentProfileName = availableNames.has(DEFAULT_GSM_PROFILE_NAME)
+      ? DEFAULT_GSM_PROFILE_NAME
+      : (profiles[0]?.name || DEFAULT_GSM_PROFILE_NAME);
+  }
+  return { currentProfileName, profiles };
+}
+
+let gsmProfileState = normalizeGSMProfileState();
 
 function getCurrentGSMProfileSettings(gsmSettings = getGSMSettings()) {
   const configs = gsmSettings && typeof gsmSettings === "object" ? gsmSettings.configs : null;
@@ -701,6 +725,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "fontSize": 42,
   "weburl1": DEFAULT_ENFORCED_PLAINTEXT_WS_URL,
   "weburl2": DEFAULT_ENFORCED_OVERLAY_WS_URL,
+  "hideOverlayOnStartup": false,
   "hideOnStartup": true,
   "openSettingsOnStartup": true,
   "focusOverlayOnYomitanLookup": false,
@@ -933,14 +958,14 @@ function normalizeOverlaySettingsProfiles(reason = "unknown") {
   return changed;
 }
 
-function ensureOverlayProfilesForGSMProfiles(gsmSettings = getGSMSettings()) {
+function ensureOverlayProfilesForGSMProfiles(profileState = gsmProfileState) {
   if (userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] !== true) {
     return false;
   }
 
   let changed = false;
-  const summaries = getGSMProfileSummaries(gsmSettings);
-  const activeProfile = getCurrentGSMProfileName(gsmSettings);
+  const summaries = profileState.profiles;
+  const activeProfile = profileState.currentProfileName;
   const sourceSnapshot = buildOverlayProfileSnapshot(userSettings);
 
   for (const profile of summaries) {
@@ -1030,9 +1055,8 @@ function syncOverlayProfileFromGSM(reason = "unknown", options = {}) {
     return false;
   }
 
-  const currentGSMSettings = getGSMSettings();
-  ensureOverlayProfilesForGSMProfiles(currentGSMSettings);
-  const targetProfileName = getCurrentGSMProfileName(currentGSMSettings);
+  ensureOverlayProfilesForGSMProfiles(gsmProfileState);
+  const targetProfileName = gsmProfileState.currentProfileName;
   const switched = applyOverlayProfileSettings(targetProfileName, reason, options);
   if (switched && options.notify !== false) {
     publishOverlaySettingsSnapshot(`overlay-profile:${reason}`);
@@ -1040,15 +1064,15 @@ function syncOverlayProfileFromGSM(reason = "unknown", options = {}) {
   return switched;
 }
 
-function getOverlayProfileState(gsmSettings = getGSMSettings()) {
+function getOverlayProfileState() {
   const profiles = getOverlayProfileSettingsContainer();
-  const currentGSMProfileName = getCurrentGSMProfileName(gsmSettings);
+  const currentGSMProfileName = gsmProfileState.currentProfileName;
   const activeProfileName = normalizeOverlayProfileName(userSettings[OVERLAY_ACTIVE_PROFILE_KEY] || currentGSMProfileName);
   return {
     enabled: userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] === true,
     activeProfileName,
     currentGSMProfileName,
-    profiles: getGSMProfileSummaries(gsmSettings).map((profile) => ({
+    profiles: gsmProfileState.profiles.map((profile) => ({
       name: profile.name,
       scenes: profile.scenes,
       active: profile.name === activeProfileName,
@@ -1056,6 +1080,25 @@ function getOverlayProfileState(gsmSettings = getGSMSettings()) {
       hasOverlaySettings: !!profiles[profile.name],
     })),
   };
+}
+
+function applyGSMProfileState(profileState, reason = "websocket") {
+  const previousProfileName = gsmProfileState.currentProfileName;
+  gsmProfileState = normalizeGSMProfileState(profileState);
+  const profilesSeeded = ensureOverlayProfilesForGSMProfiles(gsmProfileState);
+  const profileChanged = syncOverlayProfileFromGSM(reason, { notify: false });
+
+  publishOverlayProfileState();
+  if (profileChanged) {
+    console.log(
+      `[OverlayProfiles] Active GSM profile changed ${previousProfileName} -> ${gsmProfileState.currentProfileName} (${reason}).`
+    );
+    publishOverlaySettingsSnapshot(reason);
+  }
+  if (profileChanged || profilesSeeded) {
+    saveSettings();
+  }
+  return profileChanged || profilesSeeded;
 }
 
 function publishOverlayProfileState() {
@@ -1771,6 +1814,8 @@ let lastOverlayTopmostReassertAt = 0;
 let pendingOverlayTopmostReassertTimer = null;
 let lastYomitanEventAt = 0;
 let yomitanForegroundActive = false;
+let magpieYomitanCloseVisibilityGuardActive = false;
+let magpieYomitanCloseVisibilityGuardTimer = null;
 let trackedGameWindowState = "unknown";
 let trackedGameWindowStateUpdatedAt = 0;
 let manualHotkeyBackend = MANUAL_HOTKEY_BACKEND_ELECTRON;
@@ -1837,6 +1882,7 @@ const FOCUS_RESTORE_THROTTLE_MS = 150;
 const OVERLAY_TOPMOST_REASSERT_THROTTLE_MS = 1500;
 const OVERLAY_MAGPIE_TEXT_REASSERT_MIN_INTERVAL_MS = 10000;
 const YOMITAN_STATE_STALE_TIMEOUT_MS = 12000;
+const MAGPIE_YOMITAN_CLOSE_VISIBILITY_GRACE_MS = 500;
 const FIND_IN_PAGE_COMMAND_CHANNEL = 'gsm-find-in-page:command';
 const FIND_IN_PAGE_RESULT_CHANNEL = 'gsm-find-in-page:result';
 const FIND_IN_PAGE_SHORTCUT_CHANNEL = 'gsm-find-in-page:shortcut';
@@ -1850,6 +1896,7 @@ let texthookerLoadToken = 0;
 let tray = null;
 let platformOverride = null;
 let backend = null;
+let gsmProfileStateRefreshInterval = null;
 let gamepadServerProcess = null;
 let gamepadServerStarting = false;
 let gamepadServerStartPromise = null;
@@ -2008,15 +2055,19 @@ function publishOverlaySocketData(type, data) {
 }
 
 function handleOverlayWebSocketControlMessage(type, data) {
-  if (type !== "ws2" || data === "True" || data === "False") {
+  if ((type !== "ws2" && type !== "backend-connector") || data === "True" || data === "False") {
     return false;
   }
 
   let message;
-  try {
-    message = JSON.parse(data);
-  } catch (_error) {
-    return false;
+  if (data && typeof data === "object") {
+    message = data;
+  } else {
+    try {
+      message = JSON.parse(data);
+    } catch (_error) {
+      return false;
+    }
   }
 
   if (!message || typeof message !== "object") {
@@ -2047,7 +2098,24 @@ function handleOverlayWebSocketControlMessage(type, data) {
     return true;
   }
 
+  if (message.type === "gsm-profile-state-updated") {
+    applyGSMProfileState(message, `websocket:${type}`);
+    return true;
+  }
+
   return false;
+}
+
+function requestGSMProfileState(reason = "periodic", options = {}) {
+  if (!backend) {
+    return false;
+  }
+  if (!backend.connected && options.queueIfDisconnected !== true) {
+    return false;
+  }
+  backend.send({ type: "get-gsm-profile-state" });
+  console.log(`[OverlayProfiles] Requested GSM profile state (${reason}).`);
+  return true;
 }
 
 function scheduleOverlayWebSocketReconnect(type) {
@@ -3309,6 +3377,52 @@ function isYomitanStateLikelyStale() {
   return ageMs >= YOMITAN_STATE_STALE_TIMEOUT_MS;
 }
 
+function clearMagpieYomitanCloseVisibilityGuard() {
+  magpieYomitanCloseVisibilityGuardActive = false;
+  if (magpieYomitanCloseVisibilityGuardTimer) {
+    clearTimeout(magpieYomitanCloseVisibilityGuardTimer);
+    magpieYomitanCloseVisibilityGuardTimer = null;
+  }
+}
+
+function beginMagpieYomitanCloseVisibilityGuard() {
+  clearMagpieYomitanCloseVisibilityGuard();
+  if (!currentMagpieState.active || !userSettings.focusOverlayOnYomitanLookup) {
+    return;
+  }
+
+  magpieYomitanCloseVisibilityGuardActive = true;
+  magpieYomitanCloseVisibilityGuardTimer = setTimeout(() => {
+    magpieYomitanCloseVisibilityGuardTimer = null;
+    magpieYomitanCloseVisibilityGuardActive = false;
+
+    // If the game really remained obscured after focus had time to settle, apply
+    // the deferred state now. Usually focus restoration changes it back to active.
+    if (
+      !mainWindow ||
+      mainWindow.isDestroyed() ||
+      yomitanShown ||
+      trackedGameWindowState !== "obscured"
+    ) {
+      return;
+    }
+
+    console.log("[Yomitan] Magpie close grace expired while game remained obscured; hiding overlay");
+    resetOverlayInteractionStateForHiddenGameWindow("window-state:obscured-after-yomitan-close");
+    if (!resizeMode && !mainWindow.isMinimized()) {
+      mainWindow.hide();
+    }
+  }, MAGPIE_YOMITAN_CLOSE_VISIBILITY_GRACE_MS);
+}
+
+function shouldDeferObscuredStateAfterYomitanClose() {
+  return (
+    magpieYomitanCloseVisibilityGuardActive &&
+    currentMagpieState.active &&
+    userSettings.focusOverlayOnYomitanLookup
+  );
+}
+
 function requestBackendFocusRestore(source, options = {}) {
   if (!backend || !backend.connected) {
     return false;
@@ -4337,30 +4451,6 @@ function scheduleOverlayDisplaySync(reason = "unknown") {
   }, 120);
 }
 
-let gsmSettings = getGSMSettings();
-let lastObservedGSMProfileName = getCurrentGSMProfileName(gsmSettings);
-
-function handleGSMSettingsFileChanged(reason = "gsm-settings-file") {
-  const previousProfileName = lastObservedGSMProfileName;
-  gsmSettings = getGSMSettings();
-  lastObservedGSMProfileName = getCurrentGSMProfileName(gsmSettings);
-
-  const transportChanged = refreshOverlayTransportSettingsFromGSM(reason);
-  const gsmOwnedChanged = syncGsmOwnedOverlaySettingsFromGSM(reason);
-  const profileChanged = syncOverlayProfileFromGSM(reason, {
-    notify: false,
-  });
-
-  publishOverlayProfileState();
-  if (profileChanged) {
-    console.log(`[OverlayProfiles] Active GSM profile changed ${previousProfileName} -> ${lastObservedGSMProfileName} (${reason}).`);
-    publishOverlaySettingsSnapshot(reason);
-    saveSettings();
-  } else if (transportChanged || gsmOwnedChanged) {
-    publishOverlayProfileState();
-  }
-}
-
 function shouldOverlayHotkeyRequestPause(source) {
   const currentSettings = getGSMSettings();
   const profileSettings = getCurrentGSMProfileSettings(currentSettings);
@@ -5341,6 +5431,7 @@ function openSettings() {
     openedSettingsWindow.webContents.send("gsm-overlay-monitors", gsmOverlayMonitors);
     if (backend) {
       backend.send({ type: "get-gsm-overlay-config" });
+      requestGSMProfileState("settings-open", { queueIfDisconnected: true });
     }
   });
   openedSettingsWindow.on("closed", () => {
@@ -5895,12 +5986,6 @@ async function startOverlayAppImpl() {
   // ===========================================================
 
   isDev = !app.isPackaged;
-  fs.watchFile(gsmSettingsPath, { interval: 1000 }, () => {
-    handleGSMSettingsFileChanged("config-watch");
-  });
-  registerOverlayEmitterListener(app, "before-quit", () => {
-    fs.unwatchFile(gsmSettingsPath);
-  }, true);
   const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), "yomitan");
 
   // 1. Define Paths
@@ -6401,6 +6486,10 @@ async function startOverlayAppImpl() {
     onMessage: (message) => handleOverlayWebSocketControlMessage("backend-connector", message),
   });
   backend.connect(userSettings.weburl2);
+  requestGSMProfileState("startup", { queueIfDisconnected: true });
+  gsmProfileStateRefreshInterval = setInterval(() => {
+    requestGSMProfileState("periodic");
+  }, GSM_PROFILE_STATE_REFRESH_INTERVAL_MS);
 
   // Start the shared Rust input server if any current feature requires it.
   syncGamepadServerState("app-whenReady");
@@ -6462,6 +6551,8 @@ async function startOverlayAppImpl() {
       allowFileAccessFromFileURLs: true,
       backgroundThrottling: false, // Required for gamepad polling when unfocused
     },
+    // Reveal explicitly from ready-to-show so a target-state "minimized" event
+    // received during page load cannot be undone by Electron's initial show.
     show: false,
   });
   lastDisplaySyncSignature = getOverlayDisplaySyncSignature();
@@ -6620,6 +6711,7 @@ async function startOverlayAppImpl() {
     lastYomitanEventAt = Date.now();
     yomitanShown = state;
     if (state) {
+      clearMagpieYomitanCloseVisibilityGuard();
       if (userSettings.focusOverlayOnYomitanLookup) {
         focusOverlayForYomitanLookup();
       } else {
@@ -6630,6 +6722,7 @@ async function startOverlayAppImpl() {
         requestYomitanOverlayTopmostReassert("yomitan-open");
       }
     } else {
+      beginMagpieYomitanCloseVisibilityGuard();
       if (yomitanForegroundActive || userSettings.focusOverlayOnYomitanLookup) {
         restoreOverlayAfterYomitanLookup();
         return;
@@ -6733,6 +6826,16 @@ async function startOverlayAppImpl() {
       hideAndRestoreFocus();
     }
 
+    if (
+      !mainWindow.isVisible() &&
+      shouldShowOverlayOnReady({
+        hideOverlayOnStartup: userSettings.hideOverlayOnStartup,
+        windowState: trackedGameWindowState,
+      })
+    ) {
+      mainWindow.showInactive();
+    }
+
     // Start the activity timer
     if (userSettings.openSettingsOnStartup) {
       openSettings();
@@ -6803,6 +6906,13 @@ async function startOverlayAppImpl() {
     currentMagpieState = magpieInfo !== undefined
       ? createMagpieState(magpieInfo)
       : (magpieActive ? currentMagpieState : createMagpieState(null));
+
+    if (
+      magpieYomitanCloseVisibilityGuardActive &&
+      ["active", "background", "minimized", "closed"].includes(normalizedWindowState)
+    ) {
+      clearMagpieYomitanCloseVisibilityGuard();
+    }
 
     console.log(
       `Window state changed to: ${normalizedWindowState} for game: ${game}, ` +
@@ -6885,6 +6995,10 @@ async function startOverlayAppImpl() {
 
       case "obscured":
         console.log("[WindowState] Obscured - Game completely covered by other windows");
+        if (shouldDeferObscuredStateAfterYomitanClose()) {
+          console.log("[WindowState] Deferring transient Magpie obscured state after focused Yomitan close");
+          break;
+        }
         resetOverlayInteractionStateForHiddenGameWindow("window-state:obscured");
         // Game window is completely hidden by other windows - hide overlay
         if (!yomitanShown && !resizeMode && !mainWindow.isMinimized()) {
@@ -7008,7 +7122,7 @@ async function startOverlayAppImpl() {
       normalizeOverlaySettingsProfiles(`setting-changed:${key}`);
       if (userSettings[OVERLAY_SETTINGS_PROFILES_ENABLED_KEY] === true) {
         ensureOverlayProfilesForGSMProfiles();
-        applyOverlayProfileSettings(getCurrentGSMProfileName(), `setting-changed:${key}`, {
+        applyOverlayProfileSettings(gsmProfileState.currentProfileName, `setting-changed:${key}`, {
           force: true,
           reconfigure: true,
         });
@@ -7649,7 +7763,10 @@ async function stopOverlayApp() {
   overlayLifecycleDisposed = true;
   overlayLifecycleStopPromise = (async () => {
     try {
-      runOverlayCleanupStep('config watcher', () => fs.unwatchFile(gsmSettingsPath));
+      if (gsmProfileStateRefreshInterval) {
+        runOverlayCleanupStep('profile refresh timer', () => clearInterval(gsmProfileStateRefreshInterval));
+        gsmProfileStateRefreshInterval = null;
+      }
       runOverlayCleanupStep('Yomitan watcher', () => {
         if (yomitanManifestWatcher) {
           yomitanManifestWatcher.close();
@@ -7715,6 +7832,7 @@ async function stopOverlayApp() {
 
       runOverlayCleanupStep('IPC registrations', () => removeOverlayIpcRegistrations());
       runOverlayCleanupStep('Electron event listeners', () => removeOverlayEmitterListeners());
+      runOverlayCleanupStep('Magpie Yomitan close guard', () => clearMagpieYomitanCloseVisibilityGuard());
       runOverlayCleanupStep('timers', () => clearOverlayTimers());
       findInPageStateByWebContentsId.clear();
       runOverlayCleanupStep('settings save', () => saveSettings());

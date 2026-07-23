@@ -218,10 +218,26 @@ def test_switch_profile_delegates_to_profile_switcher():
 
     app.state = SimpleNamespace(settings_window=settings_window)
     app.profile_switcher = _FakeProfileSwitcher()
+    broadcasts = []
+    app._broadcast_overlay_profile_state = lambda: broadcasts.append(True)
 
     gsm_module.GSMApplication.switch_profile(app, "Default")
 
     assert calls == [("Default", settings_window)]
+    assert broadcasts == [True]
+
+
+def test_manual_profile_change_records_override_and_broadcasts():
+    calls = []
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app._get_profile_switcher = lambda: SimpleNamespace(
+        record_manual_profile_switch=lambda previous, new: calls.append((previous, new))
+    )
+    app._broadcast_overlay_profile_state = lambda: calls.append("broadcast")
+
+    gsm_module.GSMApplication._handle_manual_profile_change(app, "Default", "Visual Novel")
+
+    assert calls == [("Default", "Visual Novel"), "broadcast"]
 
 
 def test_check_profile_for_scene_tick_delegates_to_profile_switcher():
@@ -245,11 +261,15 @@ def test_check_profile_for_scene_tick_delegates_to_profile_switcher():
     app.state = SimpleNamespace(settings_window=settings_window)
     app.profile_switcher = _FakeProfileSwitcher()
     app.get_previous_lines_for_game = lambda: refreshes.append(True)
+    broadcasts = []
+    app._broadcast_overlay_profile_state = lambda: broadcasts.append(True)
 
     gsm_module.GSMApplication._check_profile_for_scene_tick(app, "Dorm")
 
-    assert calls == [("Dorm", False, settings_window, app.get_previous_lines_for_game)]
+    assert calls[0][:3] == ("Dorm", False, settings_window)
+    assert callable(calls[0][3])
     assert refreshes == [True]
+    assert broadcasts == [True]
 
 
 def test_register_scene_observed_profile_check_registers_handler_and_checks_current_scene(monkeypatch):

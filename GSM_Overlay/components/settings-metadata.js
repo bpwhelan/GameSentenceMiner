@@ -23,6 +23,7 @@
 
     // Behavior / startup
     openSettingsOnStartup: "Open this settings window automatically each time the overlay starts.",
+    hideOverlayOnStartup: "Keep the overlay window hidden until a game or capture signal reveals it.",
     showMainBoxOnStartup: "Show the floating debug box on startup. Not recommended — use the tray instead.",
     afkTimer: "Auto-minimize the overlay after this many idle minutes (0 disables).",
 

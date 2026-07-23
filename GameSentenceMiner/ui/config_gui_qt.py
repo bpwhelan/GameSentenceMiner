@@ -675,7 +675,11 @@ class ConfigWindow(QWidget):
         """Push GSM-owned overlay settings to an open overlay window so it stays in sync with PyQt edits."""
         try:
             from GameSentenceMiner.util.config.configuration import serialize_gsm_owned_overlay
-            from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
+            from GameSentenceMiner.web.gsm_websocket import (
+                ID_OVERLAY,
+                build_gsm_profile_state_payload,
+                websocket_manager,
+            )
 
             overlay = configuration.get_master_config().get_config().overlay
             websocket_manager.send_nowait(
@@ -686,8 +690,9 @@ class ConfigWindow(QWidget):
                     "monitors": list(getattr(overlay, "monitors", []) or []),
                 },
             )
+            websocket_manager.send_nowait(ID_OVERLAY, build_gsm_profile_state_payload())
         except Exception as e:
-            logger.debug(f"Failed to broadcast overlay config to overlay window: {e}")
+            logger.debug(f"Failed to broadcast overlay state to overlay window: {e}")
 
     def _did_user_facing_port_change(self, previous_config: ProfileConfig, new_config: ProfileConfig) -> bool:
         try:
