@@ -860,6 +860,7 @@ class Anki:
     field_grouping_additional_fields: List[str] = field(
         default_factory=lambda: ["SentenceTranslation", "MiscInfo", "Tag"]
     )
+    field_grouping_overwrite: bool = False
     tag_unvoiced_cards: bool = False
     remove_overlay_tag: bool = False
 
@@ -2247,6 +2248,7 @@ class Config:
             self.sync_shared_field(config.anki, profile.anki, "field_grouping_order")
             self.sync_shared_field(config.anki, profile.anki, "field_grouping_delete_duplicate")
             self.sync_shared_field(config.anki, profile.anki, "field_grouping_additional_fields")
+            self.sync_shared_field(config.anki, profile.anki, "field_grouping_overwrite")
             self.sync_shared_field(config.general, profile.general, "open_config_on_startup")
             self.sync_shared_field(config.general, profile.general, "open_multimine_on_startup")
             self.sync_shared_field(config.general, profile.general, "websocket_uri")

@@ -484,6 +484,22 @@ def build_anki_field_grouping_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.anki_field_grouping_additional_fields_edit,
     )
+    layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "anki",
+            "field_grouping_overwrite",
+            (
+                "Overwrite instead of merge. When enabled, every grouped field (Picture, Sentence, "
+                "Sentence Audio, Sentence Furigana, the AI translation field, and any additional fields "
+                "above) is fully replaced by the newly mined note's content instead of being combined "
+                "with the original via data-group-id markup. Useful when the original note wasn't voiced "
+                "(e.g. only TTS audio/no audio at all) and the new context should replace it outright. Fields the new note "
+                "leaves empty are never blanked. Generally useful when the note type in use doesn't support merging i.e. is not Kiku"
+            ),
+        ),
+        window.anki_field_grouping_overwrite_check,
+    )
 
     behavior = QLabel(
         "By default, every duplicate match opens a decision dialog. If automatic merging is enabled, GSM "

@@ -461,6 +461,7 @@ def _build_field_grouping_note(
         raise ValueError("Field grouping requires two different valid Anki note IDs.")
 
     field_specs = _field_grouping_fields(config)
+    overwrite = bool(getattr(config.anki, "field_grouping_overwrite", False))
     target_values = {name: _note_info_field_value(target_info, name) for name, _mode in field_specs}
     source_values = {name: _source_note_field_value(source_note, source_patch, name) for name, _mode in field_specs}
     existing_group_ids = set()
@@ -490,6 +491,14 @@ def _build_field_grouping_note(
         source_value = source_values[field_name]
         target_value = target_values[field_name]
         if not source_value.strip() and not target_value.strip():
+            continue
+        if overwrite and source_value.strip():
+            # Overwrite mode: fully replace the original note's content with the newly
+            # mined context (e.g. swapping in a voiced picture/sentence/audio for an
+            # unvoiced original) instead of grouping the two together with data-group-id
+            # markup. The source check keeps a field from being blanked when the new
+            # note has nothing for it.
+            merged_fields[field_name] = source_value
             continue
         if mode == "image":
             grouped_source = _group_image_fragment(source_value, source_group_id)
