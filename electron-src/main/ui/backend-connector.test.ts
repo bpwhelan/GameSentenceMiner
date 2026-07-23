@@ -23,6 +23,29 @@ class FakeWebSocket extends EventEmitter {
 }
 
 describe("BackendConnector reliable delivery", () => {
+  it("closes its socket and cancels reconnects when the overlay unloads", () => {
+    vi.useFakeTimers();
+    const sockets: FakeWebSocket[] = [];
+    const WebSocketFactory = class extends FakeWebSocket {
+      constructor() {
+        super();
+        sockets.push(this);
+      }
+    };
+    Object.assign(WebSocketFactory, { OPEN: FakeWebSocket.OPEN, CONNECTING: FakeWebSocket.CONNECTING });
+    const connector = new BackendConnector(null, () => null, { WebSocket: WebSocketFactory });
+
+    connector.connect("ws://localhost/ws/overlay");
+    sockets[0].emit("close");
+    connector.destroy();
+    vi.advanceTimersByTime(5000);
+
+    expect(sockets).toHaveLength(1);
+    expect(sockets[0].readyState).toBe(3);
+    expect(connector.connected).toBe(false);
+    vi.useRealTimers();
+  });
+
   it("resends an unconfirmed config write after reconnect and stops after its confirmation", () => {
     vi.useFakeTimers();
     const sockets: FakeWebSocket[] = [];

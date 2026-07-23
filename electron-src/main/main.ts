@@ -37,7 +37,11 @@ import {
     isRunningAsAdmin,
     restartAsAdmin,
 } from './util.js';
-import { writeDataDirRegistry } from './data_dir.js';
+import {
+    getDefaultBaseDir,
+    writeDataDirPointer,
+    writeDataDirRegistry,
+} from './data_dir.js';
 import { performDataMove, validateTargetDir, type RelocateProgress } from './services/data_relocate.js';
 import { fileURLToPath } from 'node:url';
 
@@ -99,7 +103,12 @@ import {
 } from './ui/settings.js';
 import { startOCR, stopOCR } from './ui/ocr.js';
 import * as fs from 'node:fs';
-import { runOverlay, runOverlayWithSource, stopOverlay } from './ui/front.js';
+import {
+    runOverlay,
+    runOverlayWithSource,
+    stopOverlay,
+    waitForOverlayShutdown,
+} from './ui/front.js';
 import { execFile } from 'node:child_process';
 import { autoLauncher } from './auto_launcher.js';
 import { registerMainIPC } from './services/main_ipc.js';
@@ -2684,6 +2693,7 @@ async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<vo
         await closeGSM();
     }
     stopOverlay();
+    await waitForOverlayShutdown();
     await stopOCR();
     await stopWindowTransparencyTool();
     try {
@@ -2824,6 +2834,7 @@ async function runQuit(): Promise<void> {
 
     try {
         stopOverlay();
+        await waitForOverlayShutdown();
         await stopScripts();
         if (pyProc != null && !pyProc.killed) {
             await closeAllPythonProcesses();
@@ -2853,6 +2864,7 @@ async function stopAllChildrenForRelocation(): Promise<void> {
     autoLauncher.stopPolling();
     shutdownWindowSceneSwitcher();
     stopOverlay();
+    await waitForOverlayShutdown();
     await stopScripts();
     if (pyProc != null && !pyProc.killed) {
         await closeAllPythonProcesses();
@@ -2871,6 +2883,7 @@ function registerDataRelocateIPC(): void {
     dataRelocateRegistered = true;
 
     ipcMain.handle('data.getCurrentDir', () => BASE_DIR);
+    ipcMain.handle('data.getDefaultDir', () => getDefaultBaseDir());
 
     ipcMain.handle('data.relocate', async () => {
         const win = mainWindow ?? undefined;
@@ -2891,12 +2904,12 @@ function registerDataRelocateIPC(): void {
 
         const confirm = await dialog.showMessageBox(win as BrowserWindow, {
             type: 'warning',
-            buttons: ['Move and Restart', 'Cancel'],
+            buttons: ['Copy and Restart', 'Cancel'],
             defaultId: 0,
             cancelId: 1,
-            title: 'Move GSM Data',
-            message: `Move GSM data to:\n${newDir}`,
-            detail: 'GSM will stop, move your files, rebuild its Python environment, and restart. This can take a few minutes.',
+            title: 'Change GSM Data Folder',
+            message: `Copy GSM configs and database to:\n${newDir}`,
+            detail: 'GSM will copy its desktop and overlay settings, then stop and restart. Chromium session/storage and Yomitan data will not be copied, so export/import Yomitan dictionaries yourself. Source files will not be deleted; remove them manually after verifying the new folder.',
         });
         if (confirm.response !== 0) {
             return { success: false, canceled: true };
@@ -2915,6 +2928,52 @@ function registerDataRelocateIPC(): void {
         }
 
         // New location is committed; relaunch so every path resolves to it and the venv rebuilds.
+        app.relaunch();
+        app.exit(0);
+        return { success: true };
+    });
+
+    ipcMain.handle('data.restoreDefault', async () => {
+        const defaultDir = getDefaultBaseDir();
+        if (path.resolve(BASE_DIR) === path.resolve(defaultDir)) {
+            return { success: true };
+        }
+
+        const win = mainWindow ?? undefined;
+        const confirm = await dialog.showMessageBox(win as BrowserWindow, {
+            type: 'warning',
+            buttons: ['Use Original Folder and Restart', 'Cancel'],
+            defaultId: 0,
+            cancelId: 1,
+            title: 'Use Original GSM Data Folder',
+            message: `Return to the original GSM data folder:\n${defaultDir}`,
+            detail: `GSM will use the data already stored in this folder. Changes from the current custom folder will not be copied. The custom folder will remain untouched:\n${BASE_DIR}`,
+        });
+        if (confirm.response !== 0) {
+            return { success: false, canceled: true };
+        }
+
+        const sendProgress = (p: RelocateProgress) => {
+            mainWindow?.webContents.send('data.relocate.progress', p);
+        };
+
+        try {
+            sendProgress({ phase: 'validating', message: 'Stopping GSM…' });
+            await stopAllChildrenForRelocation();
+            sendProgress({
+                phase: 'finalizing',
+                message: 'Restoring the original GSM data folder…',
+            });
+            writeDataDirPointer(defaultDir);
+            writeDataDirRegistry(defaultDir);
+            sendProgress({
+                phase: 'done',
+                message: 'Original GSM data folder restored. Restarting…',
+            });
+        } catch (err: any) {
+            return { success: false, error: err?.message ?? String(err) };
+        }
+
         app.relaunch();
         app.exit(0);
         return { success: true };

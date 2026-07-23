@@ -294,19 +294,27 @@ def _resolve_field_grouping_decision(source_note: "AnkiCard") -> Optional[Dict[s
     if not candidates:
         return None
 
-    try:
-        expression = source_note.get_field(config.anki.word_field)
-        from GameSentenceMiner.ui.qt_main import launch_anki_field_grouping
+    if bool(getattr(config.anki, "field_grouping_auto_merge", False)):
+        target = min(candidates, key=lambda candidate: int(candidate["note_id"]))
+        result = {
+            "target_note_id": int(target["note_id"]),
+            "order": getattr(config.anki, "field_grouping_order", FIELD_GROUPING_ORDER_FRONT),
+            "delete_duplicate": bool(getattr(config.anki, "field_grouping_delete_duplicate", True)),
+        }
+    else:
+        try:
+            expression = source_note.get_field(config.anki.word_field)
+            from GameSentenceMiner.ui.qt_main import launch_anki_field_grouping
 
-        result = launch_anki_field_grouping(
-            expression,
-            candidates,
-            default_order=getattr(config.anki, "field_grouping_order", FIELD_GROUPING_ORDER_FRONT),
-            default_delete_duplicate=bool(getattr(config.anki, "field_grouping_delete_duplicate", True)),
-        )
-    except Exception as e:
-        logger.warning(f"Could not show the Anki field-grouping dialog: {e}")
-        return None
+            result = launch_anki_field_grouping(
+                expression,
+                candidates,
+                default_order=getattr(config.anki, "field_grouping_order", FIELD_GROUPING_ORDER_FRONT),
+                default_delete_duplicate=bool(getattr(config.anki, "field_grouping_delete_duplicate", True)),
+            )
+        except Exception as e:
+            logger.warning(f"Could not show the Anki field-grouping dialog: {e}")
+            return None
     if not isinstance(result, dict):
         logger.info("Duplicate Anki note found; keeping it separate at the user's request.")
         return None
@@ -453,6 +461,7 @@ def _build_field_grouping_note(
         raise ValueError("Field grouping requires two different valid Anki note IDs.")
 
     field_specs = _field_grouping_fields(config)
+    overwrite = bool(getattr(config.anki, "field_grouping_overwrite", False))
     target_values = {name: _note_info_field_value(target_info, name) for name, _mode in field_specs}
     source_values = {name: _source_note_field_value(source_note, source_patch, name) for name, _mode in field_specs}
     existing_group_ids = set()
@@ -480,9 +489,17 @@ def _build_field_grouping_note(
     merged_fields = {}
     for field_name, mode in field_specs:
         source_value = source_values[field_name]
-        if not source_value.strip():
-            continue
         target_value = target_values[field_name]
+        if not source_value.strip() and not target_value.strip():
+            continue
+        if overwrite and source_value.strip():
+            # Overwrite mode: fully replace the original note's content with the newly
+            # mined context (e.g. swapping in a voiced picture/sentence/audio for an
+            # unvoiced original) instead of grouping the two together with data-group-id
+            # markup. The source check keeps a field from being blanked when the new
+            # note has nothing for it.
+            merged_fields[field_name] = source_value
+            continue
         if mode == "image":
             grouped_source = _group_image_fragment(source_value, source_group_id)
             grouped_target = _group_image_fragment(target_value, target_group_id)
@@ -3434,11 +3451,12 @@ def queue_card_for_processing(
         timing_context.mark_queued()
     translation_future = None
     if get_config().ai.add_to_anki:
-        sentence_to_translate = last_mined_line.text if last_mined_line else ""
         if lines:
-            selected_text = combine_dialogue([line.text for line in lines if line and line.text])
-            if selected_text:
-                sentence_to_translate = "".join(selected_text)
+            sentence_to_translate = _build_selected_lines_sentence(last_card, lines)
+        elif last_mined_line:
+            sentence_to_translate = _sentence_for_current_card_html(last_card, last_mined_line.text)
+        else:
+            sentence_to_translate = ""
         translation_future = translation_prefetch_executor.submit(
             run_anki_card_timed,
             timing_context,

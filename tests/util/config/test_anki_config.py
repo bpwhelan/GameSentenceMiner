@@ -12,6 +12,7 @@ def test_field_grouping_defaults_are_opt_in_and_keep_the_newest_context_first():
     config = Anki()
 
     assert config.field_grouping_enabled is False
+    assert config.field_grouping_auto_merge is False
     assert config.field_grouping_order == "front"
     assert config.field_grouping_delete_duplicate is True
     assert config.field_grouping_additional_fields == ["SentenceTranslation", "MiscInfo", "Tag"]
@@ -20,6 +21,7 @@ def test_field_grouping_defaults_are_opt_in_and_keep_the_newest_context_first():
 def test_existing_anki_config_without_field_grouping_settings_stays_opted_out():
     existing_config = Anki().to_dict()
     existing_config.pop("field_grouping_enabled")
+    existing_config.pop("field_grouping_auto_merge")
     existing_config.pop("field_grouping_order")
     existing_config.pop("field_grouping_delete_duplicate")
     existing_config.pop("field_grouping_additional_fields")
@@ -27,6 +29,7 @@ def test_existing_anki_config_without_field_grouping_settings_stays_opted_out():
     config = Anki.from_dict(existing_config)
 
     assert config.field_grouping_enabled is False
+    assert config.field_grouping_auto_merge is False
 
 
 def test_field_grouping_normalizes_invalid_order_and_additional_fields():

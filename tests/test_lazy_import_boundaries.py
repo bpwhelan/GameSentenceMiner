@@ -7,6 +7,9 @@ import textwrap
 from pathlib import Path
 
 
+_PROBE_SENTINEL = "__GSM_IMPORT_PROBE__:"
+
+
 def _run_probe(code: str) -> dict:
     repo_root = Path(__file__).resolve().parents[1]
     output = subprocess.check_output(
@@ -14,7 +17,23 @@ def _run_probe(code: str) -> dict:
         cwd=repo_root,
         text=True,
     )
-    return json.loads(output.strip().splitlines()[-1])
+    for line in reversed(output.splitlines()):
+        if line.startswith(_PROBE_SENTINEL):
+            return json.loads(line.removeprefix(_PROBE_SENTINEL))
+    raise AssertionError(f"Probe produced no result payload:\n{output}")
+
+
+def test_run_probe_ignores_output_after_payload():
+    result = _run_probe(
+        """
+        import json
+
+        print("__GSM_IMPORT_PROBE__:" + json.dumps({"ok": True}))
+        print("late shutdown log")
+        """
+    )
+
+    assert result == {"ok": True}
 
 
 def test_importing_web_package_does_not_load_texthooking_page():
@@ -27,7 +46,7 @@ def test_importing_web_package_does_not_load_texthooking_page():
         sys.path.insert(0, str(Path.cwd()))
         import GameSentenceMiner.web  # noqa: F401
 
-        print(json.dumps({
+        print("__GSM_IMPORT_PROBE__:" + json.dumps({
             "texthooking_loaded": "GameSentenceMiner.web.texthooking_page" in sys.modules,
         }))
         """
@@ -46,7 +65,7 @@ def test_importing_anki_does_not_eagerly_load_ai_prompting_or_texthooking_page()
         sys.path.insert(0, str(Path.cwd()))
         import GameSentenceMiner.anki  # noqa: F401
 
-        print(json.dumps({
+        print("__GSM_IMPORT_PROBE__:" + json.dumps({
             "ai_prompting_loaded": "GameSentenceMiner.ai.ai_prompting" in sys.modules,
             "texthooking_loaded": "GameSentenceMiner.web.texthooking_page" in sys.modules,
         }))
@@ -67,7 +86,7 @@ def test_importing_ai_registry_does_not_load_provider_sdk_modules():
         sys.path.insert(0, str(Path.cwd()))
         import GameSentenceMiner.ai.registry  # noqa: F401
 
-        print(json.dumps({
+        print("__GSM_IMPORT_PROBE__:" + json.dumps({
             "gemini_client_loaded": "GameSentenceMiner.ai.providers.gemini_client" in sys.modules,
             "groq_client_loaded": "GameSentenceMiner.ai.providers.groq_client" in sys.modules,
             "google_genai_loaded": "google.genai" in sys.modules,
@@ -92,7 +111,7 @@ def test_importing_ai_prompting_does_not_eagerly_load_ai_service_stack():
         sys.path.insert(0, str(Path.cwd()))
         import GameSentenceMiner.ai.ai_prompting  # noqa: F401
 
-        print(json.dumps({
+        print("__GSM_IMPORT_PROBE__:" + json.dumps({
             "ai_service_loaded": "GameSentenceMiner.ai.service" in sys.modules,
             "character_summary_loaded": "GameSentenceMiner.ai.features.character_summary" in sys.modules,
         }))
@@ -113,7 +132,7 @@ def test_importing_ui_package_does_not_load_pyqt():
         sys.path.insert(0, str(Path.cwd()))
         import GameSentenceMiner.ui  # noqa: F401
 
-        print(json.dumps({
+        print("__GSM_IMPORT_PROBE__:" + json.dumps({
             "pyqt_loaded": any(name.startswith("PyQt6") for name in sys.modules),
         }))
         """
@@ -132,7 +151,7 @@ def test_importing_media_package_does_not_load_pyqt():
         sys.path.insert(0, str(Path.cwd()))
         import GameSentenceMiner.util.media  # noqa: F401
 
-        print(json.dumps({
+        print("__GSM_IMPORT_PROBE__:" + json.dumps({
             "audio_player_loaded": "GameSentenceMiner.util.media.audio_player" in sys.modules,
             "pyqt_loaded": any(name.startswith("PyQt6") for name in sys.modules),
         }))
@@ -153,7 +172,7 @@ def test_importing_gsm_does_not_eagerly_load_web_stack_modules():
         sys.path.insert(0, str(Path.cwd()))
         import GameSentenceMiner.gsm  # noqa: F401
 
-        print(json.dumps({
+        print("__GSM_IMPORT_PROBE__:" + json.dumps({
             "texthooking_loaded": "GameSentenceMiner.web.texthooking_page" in sys.modules,
             "websocket_loaded": "GameSentenceMiner.web.gsm_websocket" in sys.modules,
             "web_service_loaded": "GameSentenceMiner.web.service" in sys.modules,

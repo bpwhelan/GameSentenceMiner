@@ -25,6 +25,35 @@ _NOTES_BATCH_SIZE = 500
 _CARDS_BATCH_SIZE = 500
 _REVIEWS_BATCH_SIZE = 100
 
+# ``anki_notes.fields_json`` is intentionally an allowlist, not a copy of the
+# AnkiConnect ``notesInfo.fields`` payload. To retain another field, add the
+# Anki config attribute that names it here, make its consumer read the nested
+# ``value``, and add a cache-shape regression test. A full sync will rewrite
+# existing rows in the new compact shape.
+_CACHED_NOTE_FIELD_CONFIG_ATTRIBUTES = ("word_field",)
+
+
+def _select_cached_note_fields(fields: object, anki_config: object) -> dict[str, dict[str, str]]:
+    """Keep only configured field values that GSM reads from the note cache."""
+    if not isinstance(fields, dict):
+        return {}
+
+    cached_fields: dict[str, dict[str, str]] = {}
+    for config_attribute in _CACHED_NOTE_FIELD_CONFIG_ATTRIBUTES:
+        field_name = getattr(anki_config, config_attribute, "")
+        if not isinstance(field_name, str) or not field_name:
+            continue
+
+        field_data = fields.get(field_name)
+        if not isinstance(field_data, dict):
+            continue
+
+        value = field_data.get("value")
+        if isinstance(value, str):
+            cached_fields[field_name] = {"value": value}
+
+    return cached_fields
+
 
 # ---------------------------------------------------------------------------
 # Fetch-and-upsert helpers
@@ -46,6 +75,7 @@ def _fetch_and_upsert_notes(note_ids: list[int], *, strict: bool = False) -> int
     if not note_ids:
         return 0
 
+    anki_config = get_config().anki
     upserted = 0
     now = None
     for i in range(0, len(note_ids), _NOTES_BATCH_SIZE):
@@ -73,7 +103,11 @@ def _fetch_and_upsert_notes(note_ids: list[int], *, strict: bool = False) -> int
                     (
                         note_id,
                         note_data.get("modelName", ""),
-                        json.dumps(note_data.get("fields", {})),
+                        json.dumps(
+                            _select_cached_note_fields(note_data.get("fields", {}), anki_config),
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                        ),
                         json.dumps(note_data.get("tags", [])),
                         note_data.get("mod", 0),
                         now,

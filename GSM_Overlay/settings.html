@@ -1617,6 +1617,10 @@
         <input type="checkbox" id="openSettingsOnStartup" />
       </label>
       <label>
+        <span class="label-text">Hide Overlay on Startup</span>
+        <input type="checkbox" id="hideOverlayOnStartup" />
+      </label>
+      <label>
         <span class="label-text">Show Main Box on Startup (Not Recommended)</span>
         <input type="checkbox" id="showMainBoxOnStartup" />
       </label>
@@ -3718,6 +3722,7 @@
           return Number.isFinite(numeric) ? numeric : 0;
         },
       }),
+      createCheckboxBinding("hideOverlayOnStartup", "#hideOverlayOnStartup"),
       {
         key: "hideOnStartup",
         selectors: ["#showMainBoxOnStartup"],

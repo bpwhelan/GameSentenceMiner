@@ -19,7 +19,11 @@ from GameSentenceMiner.util.config.configuration import (
 from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
 from GameSentenceMiner.util.overlay.get_overlay_coords import get_overlay_processor
 from GameSentenceMiner.util.text_log import TextSource, game_log, get_all_lines, normalize_text_for_comparison
-from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
+from GameSentenceMiner.web.gsm_websocket import (
+    ID_OVERLAY,
+    build_gsm_profile_state_payload,
+    websocket_manager,
+)
 
 
 class OverlayRequestHandler:
@@ -59,6 +63,8 @@ class OverlayRequestHandler:
                 await self.handle_gsm_overlay_config_request(message)
             elif message_type == "get-gsm-overlay-config":
                 await self.broadcast_gsm_owned_overlay_config()
+            elif message_type == "get-gsm-profile-state":
+                await self.broadcast_gsm_profile_state()
             elif message_type == "select-ocr-area":
                 self.handle_select_ocr_area_request(message)
             elif message_type == "open-gsm-settings":
@@ -452,6 +458,10 @@ class OverlayRequestHandler:
             if error:
                 payload["error"] = error
         await websocket_manager.send(ID_OVERLAY, payload)
+
+    async def broadcast_gsm_profile_state(self) -> None:
+        """Answer overlay reconciliation requests without exposing config.json paths."""
+        await websocket_manager.send(ID_OVERLAY, build_gsm_profile_state_payload())
 
     def handle_select_ocr_area_request(self, message: dict):
         """Launch the OCR/overlay area selector from the overlay settings UI."""

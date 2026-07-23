@@ -336,15 +336,32 @@
       "useHook": "選択したフックを使う"
     },
     "ocr": {
-      "title": "OCRフォールバックを設定",
-      "description": "スクリプトやフックで綺麗なゲームテキストが取れない場合、OCRが最も確実な選択肢です。",
+      "title": "OCR範囲を選択",
+      "description": "ゲームの会話を囲む範囲を描画してください。選択画面を閉じると、GSMが一度スキャンして認識したテキストを表示します。",
       "reasonStable": "OCRエリアを指定すると会話ボックスだけにスキャンを絞れます。",
       "reasonNoise": "小さい範囲はメニュー、名前欄、UIノイズを避けやすくします。",
       "reasonFallback": "コンソールゲーム、保護されたエンジン、キャプチャカードでも動作します。",
       "openAreaSelector": "OCRエリアを選択",
       "openOcrTab": "OCRタブを開く",
       "continue": "続行",
-      "areaSelectorStarted": "OCRエリア選択を開きました。"
+      "areaSelectorStarted": "OCRエリア選択を開きました。",
+      "sampleTitle": "初回スキャン結果",
+      "sampleHint": "OCRタブで現在選択されているOCRエンジンを使用します。",
+      "noSampleYet": "OCR範囲を選択するとサンプルを取得します。",
+      "selecting": "範囲選択ウィンドウでOCR範囲の描画を完了してください。",
+      "starting": "初回スキャン用のOCRを起動しています...",
+      "scanning": "選択したOCR範囲をスキャンしています...",
+      "noText": "テキストを検出できませんでした。選択範囲に会話を表示して再スキャンしてください。",
+      "scanFailed": "初回OCRスキャンを完了できませんでした。",
+      "scanAgain": "再スキャン",
+      "automationTitle": "このゲームの起動時",
+      "automationDescription": "このOBSシーンでOCRをどのように起動するかをゲーム自動化に保存します。",
+      "automationOff": "OCRを起動しない",
+      "automationOffDescription": "自分で起動するまでOCRをオフにします。",
+      "automationManual": "手動OCRを起動",
+      "automationManualDescription": "OCRを待機させ、操作またはホットキーを使ったときだけスキャンします。",
+      "automationAuto": "自動OCRを起動",
+      "automationAutoDescription": "ゲームがアクティブな間、選択範囲を継続的にスキャンします。"
     },
     "profile": {
       "title": "このゲーム設定を保存",
@@ -548,6 +565,30 @@
       "cancelled": "バックアップ操作をキャンセルしました。",
       "failed": "バックアップ操作に失敗しました: {error}",
       "unknownError": "不明なエラー"
+    },
+    "dataFolder": {
+      "title": "データフォルダー",
+      "description": "GSM設定、デスクトップアプリ設定、オーバーレイ設定、データベースをコピーします。Chromiumのセッション/ストレージおよびYomitanデータはコピーされません。変更前にYomitan辞書をエクスポートし、変更後にインポートしてください。元のファイルは削除されません。",
+      "current": "現在のフォルダー: {path}",
+      "original": "元のAppDataフォルダー: {path}",
+      "loading": "読み込み中...",
+      "change": "データフォルダーを変更...",
+      "changing": "データフォルダーを変更中...",
+      "restore": "元のAppDataフォルダーを使用",
+      "restoring": "元のAppDataフォルダーに戻しています...",
+      "restoreHint": "元のフォルダーに既にあるデータを使用します。現在のカスタムフォルダーでの変更はコピーされず、カスタムフォルダーはそのまま残ります。",
+      "cancelled": "データフォルダーの変更をキャンセルしました。",
+      "restoreCancelled": "元のAppDataフォルダーに戻す操作をキャンセルしました。",
+      "failed": "データフォルダーを変更できませんでした: {error}",
+      "restoreFailed": "元のAppDataフォルダーに戻せませんでした: {error}",
+      "loadFailed": "現在のデータフォルダーを読み込めませんでした: {error}",
+      "unknownError": "不明なエラー",
+      "progress": {
+        "validating": "データフォルダーの変更を準備中...",
+        "copying": "GSMの設定とデータベースをコピー中...",
+        "finalizing": "新しいデータフォルダーを設定中...",
+        "done": "データフォルダーを更新しました。再起動中..."
+      }
     },
     "catalog": {
       "alreadyOnScreen": "この画面にいます",

@@ -292,6 +292,14 @@
             "label": "Enable Field Grouping:",
             "tooltip": "When an exact duplicate word is found in the same note type, offer to merge the new context into an existing note."
           },
+          "field_grouping_overwrite": {
+            "label": "Overwrite Instead of Merge (Non-Kiku):",
+            "tooltip": "Overwrite instead of merge. When enabled, every grouped field is fully replaced by the newly mined note's content instead of being combined with the original via data-group-id markup. For Non-Kiku note types."
+          },
+          "field_grouping_auto_merge": {
+            "label": "Merge Automatically:",
+            "tooltip": "Merge into the oldest exact match using the configured defaults without opening the field-grouping dialog."
+          },
           "field_grouping_order": {
             "label": "Default New Context Order:",
             "tooltip": "Preselect whether newly merged context appears at the front or back of the group."

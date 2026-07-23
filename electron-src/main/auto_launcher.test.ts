@@ -263,6 +263,40 @@ describe('AutoLauncher OCR scene activity fallback', () => {
         expect(stopOverlayMock).not.toHaveBeenCalled();
     });
 
+    it('keeps an auto-launched overlay running regardless of scene inactivity', async () => {
+        const { AutoLauncher } = await loadAutoLauncherModule();
+        const launcher = new AutoLauncher() as any;
+        const scene = { id: 'scene-1', name: 'Scene 1' };
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+
+        getSceneLaunchProfileForSceneMock.mockReturnValue({
+            sceneId: scene.id,
+            sceneName: scene.name,
+            textHookMode: 'none',
+            ocrMode: 'none',
+            launchOverlay: true,
+            agentScriptPath: '',
+            launchDelaySeconds: 0,
+        });
+        getExecutableNameFromSourceMock.mockResolvedValue(null);
+        sceneHasVisibleOutputMock.mockResolvedValue(false);
+        getOverlayRuntimeStateMock.mockReturnValue({
+            isRunning: true,
+            source: 'auto-launcher',
+        });
+
+        try {
+            await launcher.runOverlayAutomation(scene);
+            nowSpy.mockReturnValue(1_000_000 + (60 * 60 * 1000));
+            await launcher.runOverlayAutomation(scene);
+
+            expect(stopOverlayMock).not.toHaveBeenCalled();
+            expect(sceneHasVisibleOutputMock).not.toHaveBeenCalled();
+        } finally {
+            nowSpy.mockRestore();
+        }
+    });
+
     it('stops auto-launched overlay when the active scene no longer enables overlay automation', async () => {
         const { AutoLauncher } = await loadAutoLauncherModule();
         const launcher = new AutoLauncher() as any;

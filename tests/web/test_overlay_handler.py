@@ -137,6 +137,26 @@ def test_overlay_config_confirmation_echoes_request_id(monkeypatch):
     assert sent_messages[0][1]["request_id"] == "ocr-setting-17"
 
 
+def test_get_gsm_profile_state_broadcasts_authoritative_snapshot(monkeypatch):
+    sent_messages = []
+    expected_payload = {
+        "type": "gsm-profile-state-updated",
+        "currentProfileName": "Visual Novel",
+        "profiles": [{"name": "Visual Novel", "scenes": ["Game"]}],
+    }
+
+    async def fake_send(server_id, message):
+        sent_messages.append((server_id, message))
+
+    monkeypatch.setattr(overlay_handler_module, "build_gsm_profile_state_payload", lambda: expected_payload)
+    monkeypatch.setattr(overlay_handler_module.websocket_manager, "send", fake_send)
+
+    handler = overlay_handler_module.OverlayRequestHandler()
+    asyncio.run(handler.handle_message(json.dumps({"type": "get-gsm-profile-state"})))
+
+    assert sent_messages == [(overlay_handler_module.ID_OVERLAY, expected_payload)]
+
+
 def test_send_click_request_forwards_to_target_window(monkeypatch):
     calls = []
 

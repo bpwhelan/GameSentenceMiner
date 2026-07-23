@@ -675,7 +675,11 @@ class ConfigWindow(QWidget):
         """Push GSM-owned overlay settings to an open overlay window so it stays in sync with PyQt edits."""
         try:
             from GameSentenceMiner.util.config.configuration import serialize_gsm_owned_overlay
-            from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
+            from GameSentenceMiner.web.gsm_websocket import (
+                ID_OVERLAY,
+                build_gsm_profile_state_payload,
+                websocket_manager,
+            )
 
             overlay = configuration.get_master_config().get_config().overlay
             websocket_manager.send_nowait(
@@ -686,8 +690,9 @@ class ConfigWindow(QWidget):
                     "monitors": list(getattr(overlay, "monitors", []) or []),
                 },
             )
+            websocket_manager.send_nowait(ID_OVERLAY, build_gsm_profile_state_payload())
         except Exception as e:
-            logger.debug(f"Failed to broadcast overlay config to overlay window: {e}")
+            logger.debug(f"Failed to broadcast overlay state to overlay window: {e}")
 
     def _did_user_facing_port_change(self, previous_config: ProfileConfig, new_config: ProfileConfig) -> bool:
         try:
@@ -891,6 +896,7 @@ class ConfigWindow(QWidget):
                         self.anki_same_selection_different_line_reuse_screenshot_check.isChecked()
                     ),
                     field_grouping_enabled=self.anki_field_grouping_enabled_check.isChecked(),
+                    field_grouping_auto_merge=self.anki_field_grouping_auto_merge_check.isChecked(),
                     field_grouping_order=str(self.anki_field_grouping_order_combo.currentData() or "front"),
                     field_grouping_delete_duplicate=(self.anki_field_grouping_delete_duplicate_check.isChecked()),
                     field_grouping_additional_fields=[
@@ -898,6 +904,7 @@ class ConfigWindow(QWidget):
                         for field_name in self.anki_field_grouping_additional_fields_edit.text().split(",")
                         if field_name.strip()
                     ],
+                    field_grouping_overwrite=self.anki_field_grouping_overwrite_check.isChecked(),
                 ),
                 features=Features(
                     full_auto=self.full_auto_check.isChecked(),
@@ -1454,11 +1461,13 @@ class ConfigWindow(QWidget):
         self.anki_same_selection_different_line_reuse_audio_check = QCheckBox()
         self.anki_same_selection_different_line_reuse_screenshot_check = QCheckBox()
         self.anki_field_grouping_enabled_check = QCheckBox()
+        self.anki_field_grouping_auto_merge_check = QCheckBox()
         self.anki_field_grouping_order_combo = QComboBox()
         self.anki_field_grouping_order_combo.addItem("Front", "front")
         self.anki_field_grouping_order_combo.addItem("Back", "back")
         self.anki_field_grouping_delete_duplicate_check = QCheckBox()
         self.anki_field_grouping_additional_fields_edit = QLineEdit()
+        self.anki_field_grouping_overwrite_check = QCheckBox()
         self.anki_url_edit = QLineEdit()
         self.anki_note_type_combo = self._create_anki_field_combo()
         self.sentence_field_edit = self._create_anki_field_combo()
@@ -1840,6 +1849,10 @@ class ConfigWindow(QWidget):
             self.anki_field_grouping_enabled_check,
         )
         self.binder.bind(
+            ("profile", "anki", "field_grouping_auto_merge"),
+            self.anki_field_grouping_auto_merge_check,
+        )
+        self.binder.bind(
             ("profile", "anki", "field_grouping_order"),
             self.anki_field_grouping_order_combo,
             transform=ValueTransform(
@@ -1858,6 +1871,10 @@ class ConfigWindow(QWidget):
                 to_model=lambda value: [part.strip() for part in str(value or "").split(",") if part.strip()],
                 from_model=lambda value: ", ".join(value or []),
             ),
+        )
+        self.binder.bind(
+            ("profile", "anki", "field_grouping_overwrite"),
+            self.anki_field_grouping_overwrite_check,
         )
         self.binder.bind(("profile", "anki", "word_field"), self.word_field_edit)
         self.binder.bind(
@@ -3003,6 +3020,7 @@ class ConfigWindow(QWidget):
             bool(getattr(s.anki, "reuse_screenshot_for_same_selected_lines_different_mined_line", False))
         )
         self.anki_field_grouping_enabled_check.setChecked(bool(getattr(s.anki, "field_grouping_enabled", False)))
+        self.anki_field_grouping_auto_merge_check.setChecked(bool(getattr(s.anki, "field_grouping_auto_merge", False)))
         field_grouping_order = str(getattr(s.anki, "field_grouping_order", "front") or "front").lower()
         field_grouping_order_index = self.anki_field_grouping_order_combo.findData(field_grouping_order)
         self.anki_field_grouping_order_combo.setCurrentIndex(
@@ -3014,6 +3032,7 @@ class ConfigWindow(QWidget):
         self.anki_field_grouping_additional_fields_edit.setText(
             ", ".join(getattr(s.anki, "field_grouping_additional_fields", []) or [])
         )
+        self.anki_field_grouping_overwrite_check.setChecked(bool(getattr(s.anki, "field_grouping_overwrite", False)))
         self._set_text_value(self.anki_url_edit, s.anki.url)
         self._suppress_anki_field_refresh = True
         self.anki_note_type_combo.setCurrentText(s.anki.note_type)

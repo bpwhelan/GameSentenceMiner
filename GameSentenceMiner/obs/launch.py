@@ -191,8 +191,11 @@ def _remove_obs_startup_artifact(path: str, label: str) -> None:
         logger.error(f"Failed to delete OBS startup {label}: {e}")
 
 
-def _cleanup_obs_startup_artifacts(app_directory: str = None) -> None:
-    base_config_dir = os.path.join(
+def _cleanup_obs_startup_artifacts(
+    app_directory: str = None,
+    obs_config_directory: str = None,
+) -> None:
+    base_config_dir = obs_config_directory or os.path.join(
         app_directory or configuration.get_app_directory(),
         "obs-studio",
         "config",
@@ -351,7 +354,7 @@ def start_obs(force_restart=False):
         if base_cwd:
             obs_config_directory = os.path.abspath(os.path.join(base_cwd, "..", "..", "config", "obs-studio"))
         _ensure_portable_replay_buffer_enabled(obs_config_directory=obs_config_directory)
-        _cleanup_obs_startup_artifacts()
+        _cleanup_obs_startup_artifacts(obs_config_directory=obs_config_directory)
         obs_cmd = _build_obs_launch_command(base_cmd)
         obs_process = subprocess.Popen(obs_cmd, cwd=base_cwd)
         _obs_pkg.obs_process_pid = obs_process.pid

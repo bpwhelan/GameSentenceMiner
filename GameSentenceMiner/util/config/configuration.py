@@ -854,11 +854,13 @@ class Anki:
     reuse_audio_for_same_selected_lines_different_mined_line: bool = True
     reuse_screenshot_for_same_selected_lines_different_mined_line: bool = False
     field_grouping_enabled: bool = False
+    field_grouping_auto_merge: bool = False
     field_grouping_order: str = "front"
     field_grouping_delete_duplicate: bool = True
     field_grouping_additional_fields: List[str] = field(
         default_factory=lambda: ["SentenceTranslation", "MiscInfo", "Tag"]
     )
+    field_grouping_overwrite: bool = False
     tag_unvoiced_cards: bool = False
     remove_overlay_tag: bool = False
 
@@ -1755,6 +1757,7 @@ class ProfileConfig:
 @dataclass
 class StatsConfig:
     session_gap_seconds: int = 1800
+    day_rollover_hour: int = 4  # Hour (0-23) when a new day starts for the Today stats card
     reading_time_adaptive_v2: bool = True  # v2: cap reading time by conservative session median speed
     streak_requirement_hours: float = 0.01  # 1 second required per day to keep your streak by default
     reading_hours_target: int = 1500  # Target reading hours based on TMW N1 achievement data
@@ -2242,9 +2245,11 @@ class Config:
                 "reuse_screenshot_for_same_selected_lines_different_mined_line",
             )
             self.sync_shared_field(config.anki, profile.anki, "field_grouping_enabled")
+            self.sync_shared_field(config.anki, profile.anki, "field_grouping_auto_merge")
             self.sync_shared_field(config.anki, profile.anki, "field_grouping_order")
             self.sync_shared_field(config.anki, profile.anki, "field_grouping_delete_duplicate")
             self.sync_shared_field(config.anki, profile.anki, "field_grouping_additional_fields")
+            self.sync_shared_field(config.anki, profile.anki, "field_grouping_overwrite")
             self.sync_shared_field(config.general, profile.general, "open_config_on_startup")
             self.sync_shared_field(config.general, profile.general, "open_multimine_on_startup")
             self.sync_shared_field(config.general, profile.general, "websocket_uri")

@@ -521,14 +521,13 @@ export class AutoLauncher {
                 return;
             }
 
-            const isSceneActive = await this.isSceneSessionActive(currentScene);
-            if (!isSceneActive) {
-                this.stopOverlayAutomation();
+            const runtime = getOverlayRuntimeState();
+            if (runtime.isRunning) {
                 return;
             }
 
-            const runtime = getOverlayRuntimeState();
-            if (runtime.isRunning) {
+            const isSceneActive = await this.isSceneSessionActive(currentScene);
+            if (!isSceneActive) {
                 return;
             }
 

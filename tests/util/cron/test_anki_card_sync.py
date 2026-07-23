@@ -96,6 +96,7 @@ class TestFetchAndUpsertNotes:
             "anki_invoke",
             lambda *a, **kw: notes_response,
         )
+        monkeypatch.setattr(sync_mod, "get_config", lambda: _make_config(word_field="Front"))
 
         count = sync_mod._fetch_and_upsert_notes([100, 200])
         assert count == 2
@@ -103,11 +104,35 @@ class TestFetchAndUpsertNotes:
         note1 = AnkiNotesTable.get(100)
         assert note1 is not None
         assert note1.model_name == "Basic"
-        assert json.loads(note1.fields_json) == notes_response[0]["fields"]
+        assert json.loads(note1.fields_json) == {"Front": {"value": "hello"}}
 
         note2 = AnkiNotesTable.get(200)
         assert note2 is not None
         assert note2.model_name == "Cloze"
+
+    def test_only_caches_the_configured_word_field_value(self, db, monkeypatch):
+        notes_response = [
+            {
+                "noteId": 100,
+                "modelName": "Basic",
+                "fields": {
+                    "Expression": {"value": "猫", "order": 0},
+                    "Reading": {"value": "ねこ", "order": 1},
+                    "Picture": {"value": "<img src=large-file.jpg>", "order": 2},
+                },
+                "tags": [],
+                "mod": 1700000000,
+            }
+        ]
+
+        monkeypatch.setattr(sync_mod, "anki_invoke", lambda *a, **kw: notes_response)
+        monkeypatch.setattr(sync_mod, "get_config", lambda: _make_config(word_field="Expression"))
+
+        assert sync_mod._fetch_and_upsert_notes([100]) == 1
+
+        note = AnkiNotesTable.get(100)
+        assert note.fields_json == '{"Expression":{"value":"猫"}}'
+        assert json.loads(note.fields_json) == {"Expression": {"value": "猫"}}
 
     def test_skips_batch_on_anki_error(self, db, monkeypatch):
         monkeypatch.setattr(sync_mod, "anki_invoke", lambda *a, **kw: None)

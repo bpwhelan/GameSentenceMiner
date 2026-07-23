@@ -1224,6 +1224,9 @@ def register_database_api_routes(app):
               properties:
                 session_gap_seconds:
                   type: integer
+                day_rollover_hour:
+                  type: integer
+                  description: Hour when a new day starts for the Today stats card (0-23)
                 streak_requirement_hours:
                   type: number
                 reading_hours_target:
@@ -1254,6 +1257,7 @@ def register_database_api_routes(app):
             return jsonify(
                 {
                     "session_gap_seconds": config.session_gap_seconds,
+                    "day_rollover_hour": getattr(config, "day_rollover_hour", 4),
                     "streak_requirement_hours": config.streak_requirement_hours,
                     "reading_hours_target": config.reading_hours_target,
                     "character_count_target": config.character_count_target,
@@ -1313,6 +1317,9 @@ def register_database_api_routes(app):
                 session_gap_seconds:
                   type: integer
                   description: Session gap in seconds (0-7200)
+                day_rollover_hour:
+                  type: integer
+                  description: Hour when a new day starts for the Today stats card (0-23)
                 streak_requirement_hours:
                   type: number
                   description: Hours required for streak (0.01-24)
@@ -1354,6 +1361,7 @@ def register_database_api_routes(app):
                 return jsonify({"error": "No data provided"}), 400
 
             session_gap = data.get("session_gap_seconds")
+            day_rollover_hour = data.get("day_rollover_hour")
             streak_requirement = data.get("streak_requirement_hours")
             reading_hours_target = data.get("reading_hours_target")
             character_count_target = data.get("character_count_target")
@@ -1393,6 +1401,15 @@ def register_database_api_routes(app):
                     settings_to_update["session_gap_seconds"] = session_gap
                 except (ValueError, TypeError):
                     return jsonify({"error": "Session gap must be a valid integer"}), 400
+
+            if day_rollover_hour is not None:
+                try:
+                    day_rollover_hour = int(day_rollover_hour)
+                    if day_rollover_hour < 0 or day_rollover_hour > 23:
+                        return jsonify({"error": "Day rollover hour must be between 0 and 23"}), 400
+                    settings_to_update["day_rollover_hour"] = day_rollover_hour
+                except (ValueError, TypeError):
+                    return jsonify({"error": "Day rollover hour must be a valid integer"}), 400
 
             if streak_requirement is not None:
                 try:
@@ -1615,6 +1632,8 @@ def register_database_api_routes(app):
 
             if "session_gap_seconds" in settings_to_update:
                 config.session_gap_seconds = settings_to_update["session_gap_seconds"]
+            if "day_rollover_hour" in settings_to_update:
+                config.day_rollover_hour = settings_to_update["day_rollover_hour"]
             if "streak_requirement_hours" in settings_to_update:
                 config.streak_requirement_hours = settings_to_update["streak_requirement_hours"]
             if "reading_hours_target" in settings_to_update:

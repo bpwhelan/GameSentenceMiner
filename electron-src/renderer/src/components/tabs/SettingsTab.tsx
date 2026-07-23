@@ -121,6 +121,7 @@ const SETTINGS_QUICK_LINK_IDS = [
 ];
 
 const SETTINGS_BACKUP_PROGRESS_CHANNEL = "settings-backup-progress";
+const DATA_RELOCATE_PROGRESS_CHANNEL = "data.relocate.progress";
 
 interface SettingsTabProps {
   active: boolean;
@@ -134,6 +135,28 @@ interface SettingsBackupResult {
   fileCount?: number;
   restartRequired?: boolean;
 }
+
+interface DataRelocateResult {
+  success?: boolean;
+  canceled?: boolean;
+  error?: string;
+}
+
+type DataRelocateProgressPhase =
+  | "validating"
+  | "copying"
+  | "finalizing"
+  | "done";
+
+const DATA_RELOCATE_PHASE_I18N_KEYS: Record<
+  DataRelocateProgressPhase,
+  string
+> = {
+  validating: "settings.dataFolder.progress.validating",
+  copying: "settings.dataFolder.progress.copying",
+  finalizing: "settings.dataFolder.progress.finalizing",
+  done: "settings.dataFolder.progress.done"
+};
 
 type SettingsBackupOperation = "create" | "restore";
 
@@ -261,6 +284,19 @@ function normalizeProgressNumber(value: unknown): number | null {
   return Math.max(0, Math.min(1, value));
 }
 
+function normalizeDataRelocatePhase(value: unknown): DataRelocateProgressPhase | null {
+  if (!value || typeof value !== "object" || !("phase" in value)) {
+    return null;
+  }
+  const phase = (value as { phase?: unknown }).phase;
+  return phase === "validating" ||
+    phase === "copying" ||
+    phase === "finalizing" ||
+    phase === "done"
+    ? phase
+    : null;
+}
+
 function normalizeOptionalCount(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     return undefined;
@@ -319,6 +355,14 @@ export function SettingsTab({ active }: SettingsTabProps) {
   const [backupBusy, setBackupBusy] = useState<"create" | "restore" | null>(null);
   const [backupProgress, setBackupProgress] =
     useState<SettingsBackupProgressEvent | null>(null);
+  const [dataDir, setDataDir] = useState<string | null>(null);
+  const [defaultDataDir, setDefaultDataDir] = useState<string | null>(null);
+  const [dataRelocationBusy, setDataRelocationBusy] = useState<
+    "change" | "restore" | null
+  >(null);
+  const [dataRelocationMessage, setDataRelocationMessage] = useState<string | null>(null);
+  const [dataRelocationPhase, setDataRelocationPhase] =
+    useState<DataRelocateProgressPhase | null>(null);
 
   const isInitializedRef = useRef(false);
 
@@ -387,6 +431,36 @@ export function SettingsTab({ active }: SettingsTabProps) {
     };
 
     void load();
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+
+    void Promise.all([
+      invokeIpc<string>("data.getCurrentDir"),
+      invokeIpc<string>("data.getDefaultDir")
+    ])
+      .then(([currentDir, originalDir]) => {
+        if (typeof currentDir === "string") {
+          setDataDir(currentDir);
+        }
+        if (typeof originalDir === "string") {
+          setDefaultDataDir(originalDir);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to load GSM data folder:", error);
+        setDataRelocationMessage(
+          t("settings.dataFolder.loadFailed", {
+            error:
+              error instanceof Error
+                ? error.message
+                : t("settings.dataFolder.unknownError")
+          })
+        );
+      });
   }, [active]);
 
   const loadUpdateStatus = useCallback(
@@ -557,6 +631,79 @@ export function SettingsTab({ active }: SettingsTabProps) {
     });
   }, []);
 
+  useEffect(() => {
+    return onIpc(DATA_RELOCATE_PROGRESS_CHANNEL, (_event, payload) => {
+      const phase = normalizeDataRelocatePhase(payload);
+      if (phase) {
+        setDataRelocationPhase(phase);
+      }
+    });
+  }, []);
+
+  const relocateDataFolder = useCallback(async () => {
+    setDataRelocationBusy("change");
+    setDataRelocationMessage(null);
+    setDataRelocationPhase("validating");
+    try {
+      const result = await invokeIpc<DataRelocateResult>("data.relocate");
+      if (result?.canceled) {
+        setDataRelocationMessage(t("settings.dataFolder.cancelled"));
+        setDataRelocationPhase(null);
+      } else if (!result?.success) {
+        setDataRelocationMessage(
+          t("settings.dataFolder.failed", {
+            error: result?.error ?? t("settings.dataFolder.unknownError")
+          })
+        );
+        setDataRelocationPhase(null);
+      }
+    } catch (error) {
+      setDataRelocationMessage(
+        t("settings.dataFolder.failed", {
+          error:
+            error instanceof Error
+              ? error.message
+              : t("settings.dataFolder.unknownError")
+        })
+      );
+      setDataRelocationPhase(null);
+    } finally {
+      setDataRelocationBusy(null);
+    }
+  }, [t]);
+
+  const restoreDefaultDataFolder = useCallback(async () => {
+    setDataRelocationBusy("restore");
+    setDataRelocationMessage(null);
+    setDataRelocationPhase("validating");
+    try {
+      const result = await invokeIpc<DataRelocateResult>("data.restoreDefault");
+      if (result?.canceled) {
+        setDataRelocationMessage(t("settings.dataFolder.restoreCancelled"));
+        setDataRelocationPhase(null);
+      } else if (!result?.success) {
+        setDataRelocationMessage(
+          t("settings.dataFolder.restoreFailed", {
+            error: result?.error ?? t("settings.dataFolder.unknownError")
+          })
+        );
+        setDataRelocationPhase(null);
+      }
+    } catch (error) {
+      setDataRelocationMessage(
+        t("settings.dataFolder.restoreFailed", {
+          error:
+            error instanceof Error
+              ? error.message
+              : t("settings.dataFolder.unknownError")
+        })
+      );
+      setDataRelocationPhase(null);
+    } finally {
+      setDataRelocationBusy(null);
+    }
+  }, [t]);
+
   const createSettingsBackup = useCallback(async () => {
     setBackupBusy("create");
     setBackupMessage(null);
@@ -692,6 +839,11 @@ export function SettingsTab({ active }: SettingsTabProps) {
           total: String(backupProgress.total)
         })
       : null;
+  const dataRelocationProgressLabel = dataRelocationPhase
+    ? t(DATA_RELOCATE_PHASE_I18N_KEYS[dataRelocationPhase])
+    : null;
+  const usingCustomDataDir =
+    dataDir !== null && defaultDataDir !== null && dataDir !== defaultDataDir;
 
   return (
     <div className={`tab-panel ${active ? "active" : ""}`}>
@@ -1300,6 +1452,62 @@ export function SettingsTab({ active }: SettingsTabProps) {
               ) : null}
               {backupMessage ? (
                 <p className="update-version-meta">{backupMessage}</p>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="card legacy-card">
+            <h2>{t("settings.dataFolder.title")}</h2>
+            <div className="settings-update-panel">
+              <p className="muted">{t("settings.dataFolder.description")}</p>
+              <p className="update-version-meta">
+                {t("settings.dataFolder.current", {
+                  path: dataDir ?? t("settings.dataFolder.loading")
+                })}
+              </p>
+              {usingCustomDataDir ? (
+                <>
+                  <p className="update-version-meta">
+                    {t("settings.dataFolder.original", {
+                      path: defaultDataDir
+                    })}
+                  </p>
+                  <p className="muted">{t("settings.dataFolder.restoreHint")}</p>
+                </>
+              ) : null}
+              <div className="input-group wrap settings-update-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    void relocateDataFolder();
+                  }}
+                  disabled={dataRelocationBusy !== null}
+                >
+                  {dataRelocationBusy === "change"
+                    ? t("settings.dataFolder.changing")
+                    : t("settings.dataFolder.change")}
+                </button>
+                {usingCustomDataDir ? (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      void restoreDefaultDataFolder();
+                    }}
+                    disabled={dataRelocationBusy !== null}
+                  >
+                    {dataRelocationBusy === "restore"
+                      ? t("settings.dataFolder.restoring")
+                      : t("settings.dataFolder.restore")}
+                  </button>
+                ) : null}
+              </div>
+              {dataRelocationProgressLabel ? (
+                <p className="update-version-meta">{dataRelocationProgressLabel}</p>
+              ) : null}
+              {dataRelocationMessage ? (
+                <p className="update-version-meta">{dataRelocationMessage}</p>
               ) : null}
             </div>
           </section>

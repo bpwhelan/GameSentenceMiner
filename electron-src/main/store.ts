@@ -10,9 +10,14 @@ import {
     emptyWindowSceneSwitcherConfig,
     type WindowSceneSwitcherConfig,
 } from "../shared/window_scene_switcher.js";
+import {
+    getDefaultStabilityOcr,
+    withBasicOcrPlatformDefaults,
+} from "../shared/ocr_defaults.js";
 
 const APP_BASE_DIR = getBaseDir();
 const DEFAULT_AGENT_SCRIPTS_PATH = path.join(APP_BASE_DIR, "agent-scripts", "scripts");
+const DEFAULT_STABILITY_OCR = getDefaultStabilityOcr(process.platform);
 
 interface YuzuConfig {
     emuPath: string;
@@ -250,7 +255,7 @@ export const store = new Store<StoreConfig>({
             twoPassOCR: true,
             optimize_second_scan: true,
             text_appears_instantly: false,
-            ocr1: "oneocr",
+            ocr1: DEFAULT_STABILITY_OCR,
             ocr2: "glens",
             language: "ja",
             ocr_screenshots: false,
@@ -298,7 +303,7 @@ export const store = new Store<StoreConfig>({
             subset_longest_block_divisor: 4,
             advancedMode: false,
             scanRate_basic: 0.5,
-            ocr1_advanced: "oneocr",
+            ocr1_advanced: DEFAULT_STABILITY_OCR,
             ocr2_advanced: "glens",
             scanRate_advanced: 0.5
         },
@@ -1082,9 +1087,9 @@ export function setKeepNewline(keep: boolean): void {
 }
 
 export function getOCRConfig(): OCRConfig {
-    const config = store.get("OCR");
+    let config = store.get("OCR");
     if (config.menuOcrHotkey === undefined) {
-        return {
+        config = {
             ...config,
             menuOcrHotkey: config.manualOcrHotkey || "Ctrl+Shift+G",
             menuOcrGamepad: config.manualOcrGamepad || "",
@@ -1092,7 +1097,7 @@ export function getOCRConfig(): OCRConfig {
             manualOcrGamepad: "",
         };
     }
-    return config;
+    return withBasicOcrPlatformDefaults(config, process.platform);
 }
 
 export function setOCRConfig(config: OCRConfig): void {
@@ -1108,7 +1113,7 @@ export function setTwoPassOCR(twoPass: boolean): void {
 }
 
 export function getOCR1(): string {
-    return store.get("OCR.ocr1");
+    return getOCRConfig().ocr1;
 }
 
 export function setOCR1(ocr: string): void {
@@ -1116,7 +1121,7 @@ export function setOCR1(ocr: string): void {
 }
 
 export function getOCR2(): string {
-    return store.get("OCR.ocr2");
+    return getOCRConfig().ocr2;
 }
 
 export function setOCR2(ocr: string): void {

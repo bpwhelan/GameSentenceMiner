@@ -1,4 +1,6 @@
+import asyncio
 import importlib
+import json
 import sys
 
 import pytest
@@ -196,3 +198,42 @@ def test_exe_names_match_normalizes_paths_case_and_extension():
         "tales of arise",
     )
     assert not window_state_monitor._exe_names_match("MarvelRivals.exe", "Tales of Arise.exe")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only window monitor")
+def test_capture_card_output_announces_showable_background_state(monkeypatch):
+    monitor = _wwm.WindowsWindowStateMonitor.__new__(_wwm.WindowsWindowStateMonitor)
+    monitor.hidden_due_to_no_output = False
+    monitor.last_state = "unknown"
+    monitor.last_game_name = "Capture Card"
+    monitor.last_target_info = {}
+    monitor.magpie_info = None
+    monitor.last_is_fullscreen = False
+
+    monkeypatch.setattr(monitor, "_obs_reports_no_output", lambda: False)
+    monkeypatch.setattr(monitor, "_obs_reports_output", lambda: True)
+
+    sent_payloads = []
+
+    async def fake_send(_client_id, payload):
+        sent_payloads.append(json.loads(payload))
+
+    monkeypatch.setattr(_wwm.websocket_manager, "has_clients", lambda _client_id: True)
+    monkeypatch.setattr(_wwm.websocket_manager, "send", fake_send)
+
+    asyncio.run(monitor._hide_overlay_if_obs_has_no_output())
+
+    assert monitor.last_state == "background"
+    assert sent_payloads == [
+        {
+            "type": "window_state",
+            "data": "background",
+            "game": "Capture Card",
+            "magpie_info": None,
+            "is_fullscreen": False,
+            "recommend_manual_mode": False,
+            "target_window_rect": None,
+            "target_client_rect": None,
+            "obs_output_active": True,
+        }
+    ]
