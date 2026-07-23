@@ -259,6 +259,40 @@ describe('launchOBSFromElectron', () => {
         );
     });
 
+    it('removes startup artifacts beside the configured portable OBS executable', async () => {
+        const movedFromObsPath =
+            'C:\\old-gsm\\obs-studio\\bin\\64bit\\obs64.exe';
+        const movedFromSentinel =
+            'C:\\old-gsm\\obs-studio\\config\\obs-studio\\.sentinel';
+        const movedFromRunningFile =
+            'C:\\old-gsm\\obs-studio\\config\\obs-studio\\plugin_config\\advanced-scene-switcher\\.running';
+        existsSyncMock.mockImplementation(
+            (targetPath: string) =>
+                targetPath === CONFIG_PATH ||
+                targetPath === movedFromObsPath ||
+                targetPath === movedFromSentinel ||
+                targetPath === movedFromRunningFile
+        );
+        readFileSyncMock.mockImplementation((targetPath: string) =>
+            targetPath === CONFIG_PATH
+                ? JSON.stringify({ obs: { obs_path: movedFromObsPath } })
+                : '{}'
+        );
+        const { launchOBSFromElectron } = await loadObsModule();
+
+        const result = await launchOBSFromElectron({ reason: 'after data move' });
+
+        expect(result).toEqual({ status: 'launched', pid: 4242 });
+        expect(rmSyncMock).toHaveBeenCalledWith(movedFromSentinel, {
+            recursive: true,
+            force: true,
+        });
+        expect(rmSyncMock).toHaveBeenCalledWith(movedFromRunningFile, {
+            recursive: true,
+            force: true,
+        });
+    });
+
     it('rechecks the managed OBS pid before using a cached launched state', async () => {
         const obsPidPath = 'C:\\test-gsm\\obs_pid.txt';
         let pidFileExists = false;

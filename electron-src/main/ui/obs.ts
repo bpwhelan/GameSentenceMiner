@@ -870,11 +870,29 @@ function removeOBSStartupArtifact(targetPath: string): void {
     }
 }
 
-function cleanupOBSStartupArtifacts(): void {
-    const baseConfigDir = path.join(BASE_DIR, 'obs-studio', 'config', 'obs-studio');
-    removeOBSStartupArtifact(path.join(baseConfigDir, '.sentinel'));
+function getPortableOBSConfigDirectory(launchCommand: OBSLaunchCommand): string {
+    const fallback = path.join(BASE_DIR, 'obs-studio', 'config', 'obs-studio');
+    if (!launchCommand.cwd) {
+        return fallback;
+    }
+
+    const pathImpl = path.win32.isAbsolute(launchCommand.cwd) ? path.win32 : path;
+    const binDirectory = pathImpl.dirname(launchCommand.cwd);
+    if (
+        pathImpl.basename(launchCommand.cwd).toLowerCase() !== '64bit' ||
+        pathImpl.basename(binDirectory).toLowerCase() !== 'bin'
+    ) {
+        return fallback;
+    }
+
+    return pathImpl.join(pathImpl.dirname(binDirectory), 'config', 'obs-studio');
+}
+
+function cleanupOBSStartupArtifacts(baseConfigDir: string): void {
+    const pathImpl = path.win32.isAbsolute(baseConfigDir) ? path.win32 : path;
+    removeOBSStartupArtifact(pathImpl.join(baseConfigDir, '.sentinel'));
     removeOBSStartupArtifact(
-        path.join(
+        pathImpl.join(
             baseConfigDir,
             'plugin_config',
             'advanced-scene-switcher',
@@ -1521,7 +1539,7 @@ async function launchOBSFromElectronInternal(
 
     try {
         await migrateLegacyWindowSceneSwitcherCollections(SCENE_CONFIG_PATH);
-        cleanupOBSStartupArtifacts();
+        cleanupOBSStartupArtifacts(getPortableOBSConfigDirectory(launchCommand));
         // For the bundled portable OBS (Windows), pick the websocket port for
         // this launch (prefer 7274, fall back into the ephemeral range if it's
         // taken) and write it before OBS binds it. System OBS elsewhere keeps

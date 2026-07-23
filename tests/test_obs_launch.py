@@ -21,6 +21,35 @@ def test_cleanup_obs_startup_artifacts_removes_sentinel_and_scene_switcher_runni
     assert not running_file.exists()
 
 
+def test_start_obs_removes_sentinel_from_the_selected_portable_install(tmp_path, monkeypatch) -> None:
+    portable_root = tmp_path / "old-data" / "obs-studio"
+    obs_executable = portable_root / "bin" / "64bit" / "obs64.exe"
+    obs_executable.parent.mkdir(parents=True)
+    obs_executable.write_bytes(b"")
+    sentinel_dir = portable_root / "config" / "obs-studio" / ".sentinel"
+    sentinel_dir.mkdir(parents=True)
+
+    monkeypatch.setattr(obs_module.gsm_status, "obs_connected", False, raising=False)
+    monkeypatch.setattr(obs_module, "obs_process_pid", None, raising=False)
+    monkeypatch.setattr(obs_module, "OBS_PID_FILE", str(tmp_path / "obs_pid.txt"))
+    monkeypatch.setattr("GameSentenceMiner.obs.launch.get_obs_path", lambda: str(obs_executable))
+    monkeypatch.setattr(
+        "GameSentenceMiner.obs.launch._ensure_portable_replay_buffer_enabled",
+        lambda **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.obs.launch._build_obs_launch_command",
+        lambda base_cmd: base_cmd,
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.obs.launch.subprocess.Popen",
+        lambda *_args, **_kwargs: SimpleNamespace(pid=4321),
+    )
+
+    assert obs_module.start_obs() == 4321
+    assert not sentinel_dir.exists()
+
+
 def test_build_obs_launch_command_disables_updates_by_default() -> None:
     config = SimpleNamespace(
         obs=SimpleNamespace(

@@ -566,6 +566,30 @@
       "failed": "バックアップ操作に失敗しました: {error}",
       "unknownError": "不明なエラー"
     },
+    "dataFolder": {
+      "title": "データフォルダー",
+      "description": "GSM設定、デスクトップアプリ設定、オーバーレイ設定、データベースをコピーします。Chromiumのセッション/ストレージおよびYomitanデータはコピーされません。変更前にYomitan辞書をエクスポートし、変更後にインポートしてください。元のファイルは削除されません。",
+      "current": "現在のフォルダー: {path}",
+      "original": "元のAppDataフォルダー: {path}",
+      "loading": "読み込み中...",
+      "change": "データフォルダーを変更...",
+      "changing": "データフォルダーを変更中...",
+      "restore": "元のAppDataフォルダーを使用",
+      "restoring": "元のAppDataフォルダーに戻しています...",
+      "restoreHint": "元のフォルダーに既にあるデータを使用します。現在のカスタムフォルダーでの変更はコピーされず、カスタムフォルダーはそのまま残ります。",
+      "cancelled": "データフォルダーの変更をキャンセルしました。",
+      "restoreCancelled": "元のAppDataフォルダーに戻す操作をキャンセルしました。",
+      "failed": "データフォルダーを変更できませんでした: {error}",
+      "restoreFailed": "元のAppDataフォルダーに戻せませんでした: {error}",
+      "loadFailed": "現在のデータフォルダーを読み込めませんでした: {error}",
+      "unknownError": "不明なエラー",
+      "progress": {
+        "validating": "データフォルダーの変更を準備中...",
+        "copying": "GSMの設定とデータベースをコピー中...",
+        "finalizing": "新しいデータフォルダーを設定中...",
+        "done": "データフォルダーを更新しました。再起動中..."
+      }
+    },
     "catalog": {
       "alreadyOnScreen": "この画面にいます",
       "openGSMSettings": "GSMのメイン設定を開く",
