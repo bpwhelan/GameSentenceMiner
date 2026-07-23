@@ -132,10 +132,12 @@ function StatsPanel({ active }: { active: boolean }) {
     try {
       const settings = await window.ipcRenderer.invoke<{
         statsEndpoint?: string;
+        localhostBindAddress?: string;
         singlePort?: number;
       }>(
         "settings.getSettings"
       );
+      const localHostBindAddress = settings?.localhostBindAddress ?? "localhost";
       const statsEndpoint = settings?.statsEndpoint ?? "overview";
       const singlePort =
         typeof settings?.singlePort === "number" &&
@@ -143,7 +145,7 @@ function StatsPanel({ active }: { active: boolean }) {
         settings.singlePort > 0
           ? Math.trunc(settings.singlePort)
           : 7275;
-      const statsUrl = `http://localhost:${singlePort}/${statsEndpoint}`;
+      const statsUrl = `http://${localHostBindAddress}:${singlePort}/${statsEndpoint}`;
 
       // If this URL already loaded, don't reset to a permanent loading state.
       if (!forceReload && loadedUrlRef.current === statsUrl) {

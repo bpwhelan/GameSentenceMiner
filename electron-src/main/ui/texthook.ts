@@ -24,7 +24,7 @@ import {
     sanitizeFilename,
 } from '../util.js';
 import { resolveWineLaunch, findLinuxGamePid, type WineLaunchContext } from './linux_wine.js';
-import { getConfiguredSinglePort } from '../gsm_config.js';
+import { getConfiguredSinglePort, getConfiguredLocalhostBindAddress } from '../gsm_config.js';
 import {
     getGameExePathForScene,
     setGameExePathForScene,
@@ -1633,7 +1633,7 @@ function notifyTextHookUserStop(status: TextHookRuntimeStatus): void {
 
 /** Build a URL to the local Python backend (single-port mode). */
 function gsmBackendUrl(routePath: string): string {
-    return `http://localhost:${getConfiguredSinglePort()}${routePath}`;
+    return `http://${getConfiguredLocalhostBindAddress()}:${getConfiguredSinglePort()}${routePath}`;
 }
 
 export function registerTextHookIPC(): void {

@@ -76,6 +76,19 @@ def _get_legacy_texthooker_port() -> int:
     return 55000 if port < 0 else port
 
 
+def _get_backend_client_host() -> str:
+    try:
+        host = str(get_config().advanced.localhost_bind_address or "localhost").strip()
+    except Exception:
+        host = "localhost"
+
+    if host in {"", "0.0.0.0", "::"}:
+        return "localhost"
+    if ":" in host and not host.startswith("["):
+        return f"[{host}]"
+    return host
+
+
 class _WebsocketInvalidUpgradeLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
@@ -1398,7 +1411,7 @@ def reset_buttons():
 
 
 def open_texthooker():
-    webbrowser.open(f"http://localhost:{_get_single_port()}")
+    webbrowser.open(f"http://{_get_backend_client_host()}:{_get_single_port()}")
 
 
 class _LegacyMovedPageHandler(BaseHTTPRequestHandler):
@@ -1406,10 +1419,10 @@ class _LegacyMovedPageHandler(BaseHTTPRequestHandler):
 
     def _send_moved_page(self, include_body: bool = True):
         current_port = _get_single_port()
-        # Pin host to localhost and strip CR/LF + leading slashes so the Host header / request
-        # path can't be reflected into the Location header (open redirect / header injection).
+        # Use the configured client host and strip CR/LF + leading slashes so the Host header / request
+        # path cannot be reflected into the Location header (open redirect / header injection).
         requested_path = "/" + (self.path or "/").replace("\r", "").replace("\n", "").lstrip("/")
-        new_url = f"http://localhost:{current_port}{requested_path}"
+        new_url = f"http://{_get_backend_client_host()}:{current_port}{requested_path}"
 
         message = textwrap.dedent(f"""
             <!DOCTYPE html>

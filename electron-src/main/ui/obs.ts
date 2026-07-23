@@ -17,6 +17,7 @@ import Store from 'electron-store';
 import * as fs from 'node:fs';
 import * as net from 'node:net';
 import { homedir } from 'node:os';
+import { getConfiguredLocalhostBindAddress } from '../gsm_config.js';
 import { inflateSync } from 'node:zlib';
 import { sendStartOBS } from '../main.js';
 import axios from 'axios';
@@ -2592,7 +2593,7 @@ export async function registerOBSIPC() {
         try {
             const texthookerPort =
                 pythonConfig?.get('configs.Default.general.texthooker_port') || 7275;
-            const response = await axios.get(`http://localhost:${texthookerPort}/get_status`);
+            const response = await axios.get(`http://${getConfiguredLocalhostBindAddress()}:${texthookerPort}/get_status`);
             return response.data;
         } catch (error) {
             // console.error('Error fetching GSM status:', error);
