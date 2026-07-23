@@ -2194,21 +2194,19 @@ def register_stats_api_routes(app):
             # Get configuration
             config = get_stats_config()
             session_gap_seconds = config.session_gap_seconds
+            rollover_hour = max(0, min(23, int(getattr(config, "day_rollover_hour", 4))))
             minimum_session_length = 0  # 5 minutes
 
-            # Get today's date range (with cheeky 4AM logic)
+            # Get today's date range using the configured rollover hour.
             now = datetime.datetime.now()
             today = datetime.date.today()
 
-            if now.hour < 4:
-                # If before 4AM, we want to show "Yesterday + Today's early hours"
-                # So we fetch from Yesterday 04:00 to Today 04:00
-                yesterday = today - datetime.timedelta(days=1, hours=4)
-                today_start = datetime.datetime.combine(yesterday, datetime.time(4, 0)).timestamp()
-                today_end = datetime.datetime.combine(today, datetime.time(4, 0)).timestamp()
+            if now.hour < rollover_hour:
+                yesterday = today - datetime.timedelta(days=1)
+                today_start = datetime.datetime.combine(yesterday, datetime.time(rollover_hour, 0)).timestamp()
+                today_end = datetime.datetime.combine(today, datetime.time(rollover_hour, 0)).timestamp()
             else:
-                # Normal behavior: Today 04:00 to Today 23:59:59
-                today_start = datetime.datetime.combine(today, datetime.time(4, 0)).timestamp()
+                today_start = datetime.datetime.combine(today, datetime.time(rollover_hour, 0)).timestamp()
                 today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
 
             # Query all game lines for today using lightweight stats records.

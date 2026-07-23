@@ -1757,6 +1757,7 @@ class ProfileConfig:
 @dataclass
 class StatsConfig:
     session_gap_seconds: int = 1800
+    day_rollover_hour: int = 4  # Hour (0-23) when a new day starts for the Today stats card
     reading_time_adaptive_v2: bool = True  # v2: cap reading time by conservative session median speed
     streak_requirement_hours: float = 0.01  # 1 second required per day to keep your streak by default
     reading_hours_target: int = 1500  # Target reading hours based on TMW N1 achievement data
