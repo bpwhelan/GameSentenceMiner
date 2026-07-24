@@ -7,9 +7,11 @@ from threading import RLock
 from typing import Any, Dict, Optional, Tuple
 
 from GameSentenceMiner.util.config.configuration import (
+    DEFAULT_OCR_WGC_CAPTURE_FPS,
     get_app_directory,
     is_windows,
     logger,
+    normalize_wgc_capture_fps,
 )
 
 
@@ -73,6 +75,7 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "ocr1": DEFAULT_STABILITY_OCR,
         "ocr2": "glens",
         "scanRate": 0.5,
+        "wgcCaptureFps": DEFAULT_OCR_WGC_CAPTURE_FPS,
         "language": "ja",
         "ocr_screenshots": False,
         "furigana_filter_sensitivity": 0,
@@ -540,6 +543,13 @@ def get_ocr_scan_rate() -> float:
         return float(scan_rate)
     except (TypeError, ValueError):
         return 0.5
+
+
+def get_ocr_wgc_capture_fps() -> int:
+    return normalize_wgc_capture_fps(
+        _get_ocr_value("wgcCaptureFps", DEFAULT_OCR_WGC_CAPTURE_FPS),
+        DEFAULT_OCR_WGC_CAPTURE_FPS,
+    )
 
 
 def get_ocr_requires_open_window() -> bool:

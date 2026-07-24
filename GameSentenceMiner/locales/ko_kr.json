@@ -397,7 +397,11 @@
           },
           "capture_backend": {
             "label": "캡처 방식:",
-            "tooltip": "스크린샷 캡처 방식입니다. auto는 빠른 Windows 캡처를 사용하고 실패하면 OBS로 전환하며, obs는 직접 Windows 캡처를 피하고, winapi는 직접 Windows 캡처를 우선합니다."
+            "tooltip": "스크린샷 캡처 방식입니다. auto는 Windows Graphics Capture(WGC)를 사용하고 실패하면 OBS로 전환하며, obs는 항상 OBS를 사용하고, wgc는 WGC를 우선합니다."
+          },
+          "wgc_capture_fps": {
+            "label": "메인 WGC 캡처 FPS:",
+            "tooltip": "GSM 메인 프로세스의 Windows Graphics Capture 프레임 속도 제한입니다. OCR에는 별도의 캡처 FPS 설정이 있습니다."
           },
           "animated": {
             "label": "애니메이션:",

@@ -388,7 +388,11 @@
           },
           "capture_backend": {
             "label": "キャプチャ方式:",
-            "tooltip": "スクリーンショットの取得方式。autoは高速なWindowsキャプチャを使い、失敗時はOBSに戻します。obsは直接Windowsキャプチャを避け、winapiは直接Windowsキャプチャを優先します。"
+            "tooltip": "スクリーンショットの取得方式。autoはWindows Graphics Capture（WGC）を使い、失敗時はOBSに戻します。obsは常にOBSを使い、wgcはWGCを優先します。"
+          },
+          "wgc_capture_fps": {
+            "label": "メインWGCキャプチャFPS:",
+            "tooltip": "GSMメインプロセスのWindows Graphics Captureフレームレート上限です。OCRには別のキャプチャFPS設定があります。"
           },
           "animated": {
             "label": "アニメーション:",

@@ -283,6 +283,21 @@ def test_get_ocr_scan_rate_invalid_value(monkeypatch):
     assert electron_config.get_ocr_scan_rate() == 0.5
 
 
+def test_get_ocr_wgc_capture_fps_is_independent_and_clamped(monkeypatch):
+    store = _DummyStore({"OCR": {"scanRate": 0.2, "wgcCaptureFps": "12"}})
+    monkeypatch.setattr(electron_config, "electron_store", store)
+    assert electron_config.get_ocr_wgc_capture_fps() == 12
+
+    store.data["OCR"]["wgcCaptureFps"] = 0
+    assert electron_config.get_ocr_wgc_capture_fps() == 1
+
+    store.data["OCR"]["wgcCaptureFps"] = 500
+    assert electron_config.get_ocr_wgc_capture_fps() == 60
+
+    store.data["OCR"]["wgcCaptureFps"] = "bad"
+    assert electron_config.get_ocr_wgc_capture_fps() == 10
+
+
 def test_get_ocr_hotkeys_preserve_explicit_empty_values(monkeypatch):
     store = _DummyStore(
         {

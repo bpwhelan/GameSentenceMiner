@@ -63,6 +63,7 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_ocr2,
     get_ocr_send_to_clipboard,
     get_ocr_scan_rate,
+    get_ocr_wgc_capture_fps,
     has_ocr_config_changed,
     reload_electron_config,
     get_ocr_change_detection_threshold,
@@ -3604,7 +3605,11 @@ def run_whole_window_ocr_once(source=TextSource.MANUAL) -> bool:
 
     try:
         if obs_ocr:
-            img = obs.get_screenshot_PIL(compression=90, img_format="jpg")
+            img = obs.get_screenshot_PIL(
+                compression=90,
+                img_format="jpg",
+                capture_fps=get_ocr_wgc_capture_fps(),
+            )
             if img is not None:
                 image_metadata = {
                     "capture_source": "whole_window_obs",
@@ -3682,7 +3687,11 @@ def _run_configured_rectangles_ocr_once(*, is_secondary: bool) -> bool:
     logger.info(f"Running {area_name} OCR rectangles...")
     capture_time = datetime.now()
     current_ocr_config = get_ocr_config()
-    img = obs.get_screenshot_PIL(compression=90, img_format="jpg")
+    img = obs.get_screenshot_PIL(
+        compression=90,
+        img_format="jpg",
+        capture_fps=get_ocr_wgc_capture_fps(),
+    )
     if img is None:
         logger.warning(f"{area_name.title()} OCR skipped: could not capture OBS screenshot.")
         return False

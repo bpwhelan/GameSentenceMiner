@@ -1,9 +1,9 @@
-"""Unified screenshot capture — OBS websocket or Win32 PrintWindow.
+"""Unified screenshot capture via OBS websocket or Windows Graphics Capture.
 
-The ScreenshotCapture singleton chooses a backend from screenshot.capture_backend:
-  - auto: on Windows, use PrintWindow via a cached HWND and fall back to OBS.
+The ScreenshotCapture singleton chooses a backend from the advanced config:
+  - auto: on Windows, use WGC via a cached HWND and fall back to OBS.
   - obs: always use OBS websocket.
-  - winapi: prefer PrintWindow and fall back to OBS if capture fails.
+  - wgc: prefer Windows Graphics Capture and fall back to OBS if capture fails.
 
 Public API (drop-in replacement for get_screenshot_PIL_from_source):
     from GameSentenceMiner.obs.screenshot_capture import screenshot_capture
@@ -15,41 +15,32 @@ from __future__ import annotations
 import base64
 import ctypes
 import io
+import threading
 import time
 from typing import Optional
-
-from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
 from GameSentenceMiner.util.config.configuration import (
+    DEFAULT_MAIN_WGC_CAPTURE_FPS,
     SCREENSHOT_CAPTURE_BACKEND_AUTO,
     SCREENSHOT_CAPTURE_BACKEND_OBS,
     get_config,
     is_windows,
     logger,
     normalize_screenshot_capture_backend,
+    normalize_wgc_capture_fps,
 )
 
 # HWND cache lifetime in seconds — balance between freshness and avoiding
 # repeated EnumWindows calls (which are ~0.5ms each but add up in hot loops).
 _HWND_CACHE_TTL = 15.0
 
-SRCCOPY = 0x00CC0020
-COLORONCOLOR = 3
-PW_RENDERFULLCONTENT = 0x00000002
-
 if is_windows():
     _USER32 = ctypes.windll.user32
-    _GDI32 = ctypes.windll.gdi32
 else:
     _USER32 = None
-    _GDI32 = None
-
-
-class WinAPICaptureUnavailable(RuntimeError):
-    """Raised when the WinAPI capture stack is unavailable on this system."""
 
 
 def _coerce_positive_dimension(value: Optional[int]) -> Optional[int]:
@@ -82,22 +73,6 @@ def _resolve_output_size(
     return target_width, target_height
 
 
-def _bitmap_to_pil_image(bitmap):
-    from PIL import Image
-
-    bmpinfo = bitmap.GetInfo()
-    bmpstr = bitmap.GetBitmapBits(True)
-    return Image.frombuffer(
-        "RGB",
-        (bmpinfo["bmWidth"], bmpinfo["bmHeight"]),
-        bmpstr,
-        "raw",
-        "BGRX",
-        0,
-        1,
-    )
-
-
 class WinGraphicsCaptureUnavailable(RuntimeError):
     pass
 
@@ -106,16 +81,69 @@ class WinGraphicsCaptureUnavailable(RuntimeError):
 # Persistent Windows Graphics Capture session
 # ---------------------------------------------------------------------------
 
-import threading
+
+class _WGCCallbackPacer:
+    """Apply backpressure to WGC's synchronous Python frame callback."""
+
+    _DELIVERY_LAG_ALPHA = 0.25
+
+    def __init__(self, fps: int):
+        self._frame_interval = 1.0 / fps
+        self._stop_event = threading.Event()
+        self._next_callback_deadline: float | None = None
+        self._last_callback_returned_at: float | None = None
+        self._delivery_lag = 0.0
+
+    def wait_after_frame(self, callback_started_at: float) -> None:
+        """Wait outside the frame lock while keeping callback starts near the FPS cap.
+
+        WGC delivers the next callback shortly after the current callback
+        returns. Account for that delivery lag instead of sleeping for the full
+        frame interval, which would make the real rate unnecessarily low.
+        """
+        now = time.perf_counter()
+        if self._last_callback_returned_at is not None:
+            observed_lag = max(0.0, callback_started_at - self._last_callback_returned_at)
+            if self._delivery_lag == 0.0:
+                self._delivery_lag = observed_lag
+            else:
+                alpha = self._DELIVERY_LAG_ALPHA
+                self._delivery_lag = (1.0 - alpha) * self._delivery_lag + alpha * observed_lag
+
+        if self._next_callback_deadline is None:
+            deadline = callback_started_at + self._frame_interval
+        else:
+            deadline = self._next_callback_deadline + self._frame_interval
+            if deadline <= callback_started_at:
+                deadline = callback_started_at + self._frame_interval
+        self._next_callback_deadline = deadline
+
+        remaining = deadline - self._delivery_lag - now
+        if remaining > 0:
+            self._stop_event.wait(remaining)
+        self._last_callback_returned_at = time.perf_counter()
+
+    def stop(self) -> None:
+        self._stop_event.set()
 
 
 class _WGCSession:
     """Keeps a WGC capture session alive and buffers the latest frame."""
 
-    def __init__(self, hwnd: int, *, include_cursor: bool = False, draw_border: bool = False):
+    def __init__(
+        self,
+        hwnd: int,
+        *,
+        include_cursor: bool = False,
+        draw_border: bool = False,
+        fps: int = DEFAULT_MAIN_WGC_CAPTURE_FPS,
+    ):
         from windows_capture import WindowsCapture, Frame, InternalCaptureControl
 
         self._hwnd = hwnd
+        self.fps = normalize_wgc_capture_fps(fps, DEFAULT_MAIN_WGC_CAPTURE_FPS)
+        self.include_cursor = include_cursor
+        self.draw_border = draw_border
         self._lock = threading.Lock()
         self._frame_buffer: np.ndarray | None = None
         self._frame_width: int = 0
@@ -123,27 +151,37 @@ class _WGCSession:
         self._ready = threading.Event()
         self._closed = False
         self._control = None
+        self._pacer = _WGCCallbackPacer(self.fps)
 
         capture = WindowsCapture(
             cursor_capture=include_cursor,
             draw_border=draw_border,
             monitor_index=None,
             window_hwnd=hwnd,
-            minimum_update_interval=167,
         )
 
         @capture.event
         def on_frame_arrived(frame: Frame, capture_control: InternalCaptureControl):
+            callback_started_at = time.perf_counter()
             with self._lock:
-                self._frame_buffer = frame.frame_buffer
+                # The extension's ndarray is backed by callback-owned native
+                # memory, so retain an owned copy after this callback returns.
+                self._frame_buffer = frame.frame_buffer.copy()
                 self._frame_width = frame.width
                 self._frame_height = frame.height
                 self._ready.set()
-                time.sleep(0.167)  # 10 FPS cap to reduce CPU usage; WGC captures at full framerate by default
+            # windows-capture invokes this handler synchronously. Waiting after
+            # publishing the frame applies backpressure to native capture
+            # without making grab() wait on the frame lock. Its native
+            # minimum_update_interval option is intentionally not used: live
+            # testing with windows-capture 2.0.0 showed that it still delivered
+            # frames at the compositor rate for intervals from 16 to 500 ms.
+            self._pacer.wait_after_frame(callback_started_at)
 
         @capture.event
         def on_closed():
             self._closed = True
+            self._pacer.stop()
             self._ready.set()
 
         self._control = capture.start_free_threaded()
@@ -158,7 +196,7 @@ class _WGCSession:
         return True
 
     def grab(self, timeout: float = 2.0) -> tuple[np.ndarray, int, int]:
-        """Return (frame_buffer_copy, width, height). Raises on timeout or closed."""
+        """Return the latest owned frame buffer and dimensions."""
         if not self._ready.wait(timeout=timeout):
             raise RuntimeError("Timed out waiting for Windows Graphics Capture frame.")
         if self._closed:
@@ -166,9 +204,10 @@ class _WGCSession:
         with self._lock:
             if self._frame_buffer is None:
                 raise RuntimeError("No frame available from WGC session.")
-            return self._frame_buffer.copy(), self._frame_width, self._frame_height
+            return self._frame_buffer, self._frame_width, self._frame_height
 
     def stop(self):
+        self._pacer.stop()
         if self._control is not None:
             try:
                 self._control.stop()
@@ -182,18 +221,35 @@ _wgc_sessions: dict[int, _WGCSession] = {}
 _wgc_sessions_lock = threading.Lock()
 
 
-def _get_wgc_session(hwnd: int, *, include_cursor: bool = False, draw_border: bool = False) -> _WGCSession:
+def _get_wgc_session(
+    hwnd: int,
+    *,
+    include_cursor: bool = False,
+    draw_border: bool = False,
+    fps: int = DEFAULT_MAIN_WGC_CAPTURE_FPS,
+) -> _WGCSession:
     """Get or create a persistent WGC session for the given hwnd."""
+    normalized_fps = normalize_wgc_capture_fps(fps, DEFAULT_MAIN_WGC_CAPTURE_FPS)
     with _wgc_sessions_lock:
         session = _wgc_sessions.get(hwnd)
-        if session is not None and session.alive:
+        if (
+            session is not None
+            and session.alive
+            and session.fps == normalized_fps
+            and session.include_cursor == include_cursor
+            and session.draw_border == draw_border
+        ):
             return session
-        # Clean up dead session
+        # Recreate dead sessions and live sessions whose capture settings changed.
         if session is not None:
             session.stop()
             del _wgc_sessions[hwnd]
-        # Create new session
-        new_session = _WGCSession(hwnd, include_cursor=include_cursor, draw_border=draw_border)
+        new_session = _WGCSession(
+            hwnd,
+            include_cursor=include_cursor,
+            draw_border=draw_border,
+            fps=normalized_fps,
+        )
         _wgc_sessions[hwnd] = new_session
         return new_session
 
@@ -258,6 +314,7 @@ def _capture_hwnd_windows_graphics_capture(
     *,
     include_cursor: bool = False,
     draw_border: bool = False,
+    fps: int = DEFAULT_MAIN_WGC_CAPTURE_FPS,
     timeout_seconds: float = 2.0,
 ) -> Image.Image:
     """
@@ -283,7 +340,12 @@ def _capture_hwnd_windows_graphics_capture(
     if win32gui.IsIconic(hwnd):
         raise RuntimeError("Cannot capture a minimized window with Windows Graphics Capture.")
 
-    session = _get_wgc_session(hwnd, include_cursor=include_cursor, draw_border=draw_border)
+    session = _get_wgc_session(
+        hwnd,
+        include_cursor=include_cursor,
+        draw_border=draw_border,
+        fps=fps,
+    )
     buf, fw, fh = session.grab(timeout=timeout_seconds)
 
     # buf is BGRA numpy array from windows-capture frame_buffer
@@ -336,109 +398,6 @@ def _capture_hwnd_windows_graphics_capture(
     return Image.fromarray(rgb)
 
 
-def _capture_hwnd_winapi(hwnd: int, width: Optional[int] = None, height: Optional[int] = None):
-    """Capture a window with PrintWindow, scaling in GDI before pixels enter Python."""
-    if _USER32 is None or _GDI32 is None:
-        raise WinAPICaptureUnavailable("WinAPI capture is only available on Windows.")
-
-    try:
-        import pywintypes
-        import win32gui
-        import win32ui
-    except ImportError as exc:
-        raise WinAPICaptureUnavailable(f"win32 dependencies not available: {exc}") from exc
-
-    src_bmp = None
-    dst_bmp = None
-    src_dc = None
-    dst_dc = None
-    mfc_dc = None
-    hwnd_dc = None
-    old_src_obj = None
-    old_dst_obj = None
-
-    try:
-        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-        source_width = right - left
-        source_height = bottom - top
-        if source_width <= 0 or source_height <= 0:
-            raise RuntimeError(f"Invalid window size: {source_width}x{source_height}")
-
-        target_width, target_height = _resolve_output_size(source_width, source_height, width, height)
-
-        hwnd_dc = win32gui.GetWindowDC(hwnd)
-        if not hwnd_dc:
-            raise RuntimeError("GetWindowDC failed / returned 0")
-
-        mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
-
-        src_dc = mfc_dc.CreateCompatibleDC()
-        src_bmp = win32ui.CreateBitmap()
-        src_bmp.CreateCompatibleBitmap(mfc_dc, source_width, source_height)
-        old_src_obj = src_dc.SelectObject(src_bmp)
-
-        ok = _USER32.PrintWindow(hwnd, src_dc.GetSafeHdc(), PW_RENDERFULLCONTENT)
-        if not ok:
-            raise RuntimeError("PrintWindow failed / returned 0")
-
-        if target_width == source_width and target_height == source_height:
-            return _bitmap_to_pil_image(src_bmp)
-
-        dst_dc = mfc_dc.CreateCompatibleDC()
-        dst_bmp = win32ui.CreateBitmap()
-        dst_bmp.CreateCompatibleBitmap(mfc_dc, target_width, target_height)
-        old_dst_obj = dst_dc.SelectObject(dst_bmp)
-
-        _GDI32.SetStretchBltMode(dst_dc.GetSafeHdc(), COLORONCOLOR)
-        ok = _GDI32.StretchBlt(
-            dst_dc.GetSafeHdc(),
-            0,
-            0,
-            target_width,
-            target_height,
-            src_dc.GetSafeHdc(),
-            0,
-            0,
-            source_width,
-            source_height,
-            SRCCOPY,
-        )
-        if not ok:
-            raise RuntimeError("StretchBlt failed / returned 0")
-
-        return _bitmap_to_pil_image(dst_bmp)
-
-    except pywintypes.error as exc:
-        raise RuntimeError(f"Win32 capture failed: {exc}") from exc
-
-    finally:
-        try:
-            if src_dc is not None and old_src_obj is not None:
-                src_dc.SelectObject(old_src_obj)
-        except Exception:
-            pass
-
-        try:
-            if dst_dc is not None and old_dst_obj is not None:
-                dst_dc.SelectObject(old_dst_obj)
-        except Exception:
-            pass
-
-        for cleanup, obj in [
-            (lambda o: win32gui.DeleteObject(o.GetHandle()), dst_bmp),
-            (lambda o: win32gui.DeleteObject(o.GetHandle()), src_bmp),
-            (lambda o: o.DeleteDC(), dst_dc),
-            (lambda o: o.DeleteDC(), src_dc),
-            (lambda o: o.DeleteDC(), mfc_dc),
-            (lambda o: win32gui.ReleaseDC(hwnd, o), hwnd_dc),
-        ]:
-            if obj is not None:
-                try:
-                    cleanup(obj)
-                except Exception:
-                    pass
-
-
 class ScreenshotCapture:
     """Singleton that captures screenshots via the configured backend."""
 
@@ -446,10 +405,10 @@ class ScreenshotCapture:
         self._hwnd: Optional[int] = None
         self._hwnd_timestamp: float = 0.0
         self._hwnd_source_name: Optional[str] = None
-        self._winapi_available: Optional[bool] = None  # None = not yet checked
-        self._winapi_failed_count: int = 0
-        # After N consecutive WinAPI failures, stop trying until next HWND refresh
-        self._winapi_max_consecutive_failures: int = 3
+        self._wgc_available: Optional[bool] = None  # None = not yet checked
+        self._wgc_failed_count: int = 0
+        # After N consecutive WGC failures, stop trying until next HWND refresh.
+        self._wgc_max_consecutive_failures: int = 3
 
     # ------------------------------------------------------------------
     # Public API
@@ -464,8 +423,9 @@ class ScreenshotCapture:
         height: Optional[int] = None,
         retry: int = 3,
         force_obs: bool = False,
+        capture_fps: Optional[int] = None,
     ):
-        """Capture a screenshot from the given OBS source, using WinAPI when possible.
+        """Capture a screenshot from the given OBS source, using WGC when possible.
 
         Returns a PIL Image or None on failure.
         """
@@ -475,14 +435,15 @@ class ScreenshotCapture:
 
         capture_backend = SCREENSHOT_CAPTURE_BACKEND_OBS if force_obs else self._get_configured_capture_backend()
 
-        # Try WinAPI first on Windows (much faster) unless the profile is configured for OBS.
-        if capture_backend != SCREENSHOT_CAPTURE_BACKEND_OBS and self._should_use_winapi(source_name):
-            img = self._capture_windows(width=width, height=height)
+        # Try WGC first on Windows unless the profile is configured for OBS.
+        if capture_backend != SCREENSHOT_CAPTURE_BACKEND_OBS and self._should_use_wgc(source_name):
+            fps = self._get_configured_wgc_fps() if capture_fps is None else capture_fps
+            img = self._capture_windows(width=width, height=height, fps=fps)
             if img is not None:
-                self._winapi_failed_count = 0
+                self._wgc_failed_count = 0
                 return img
             else:
-                self._winapi_failed_count += 1
+                self._wgc_failed_count += 1
 
         # Fallback: OBS websocket
         return self._capture_obs(source_name, compression, img_format, width, height, retry)
@@ -494,10 +455,10 @@ class ScreenshotCapture:
         self._hwnd = None
         self._hwnd_timestamp = 0.0
         self._hwnd_source_name = None
-        self._winapi_failed_count = 0
+        self._wgc_failed_count = 0
 
     # ------------------------------------------------------------------
-    # WinAPI capture
+    # Windows Graphics Capture
     # ------------------------------------------------------------------
 
     def _get_configured_capture_backend(self) -> str:
@@ -511,16 +472,28 @@ class ScreenshotCapture:
             logger.debug(f"ScreenshotCapture: failed to read capture backend config: {e}")
             return SCREENSHOT_CAPTURE_BACKEND_AUTO
 
-    def _should_use_winapi(self, source_name: str) -> bool:
-        """Determine if WinAPI capture should be attempted."""
+    def _get_configured_wgc_fps(self) -> int:
+        """Return the main-process WGC frame cap."""
+        try:
+            advanced_config = getattr(get_config(), "advanced", None)
+            return normalize_wgc_capture_fps(
+                getattr(advanced_config, "wgc_capture_fps", DEFAULT_MAIN_WGC_CAPTURE_FPS),
+                DEFAULT_MAIN_WGC_CAPTURE_FPS,
+            )
+        except Exception as e:
+            logger.debug(f"ScreenshotCapture: failed to read WGC FPS config: {e}")
+            return DEFAULT_MAIN_WGC_CAPTURE_FPS
+
+    def _should_use_wgc(self, source_name: str) -> bool:
+        """Determine if WGC capture should be attempted."""
         if not is_windows():
             return False
 
-        if self._winapi_available is False:
+        if self._wgc_available is False:
             return False
 
         # Too many consecutive failures — wait for next HWND refresh
-        if self._winapi_failed_count >= self._winapi_max_consecutive_failures:
+        if self._wgc_failed_count >= self._wgc_max_consecutive_failures:
             return False
 
         # Ensure we have a valid, fresh HWND
@@ -549,7 +522,7 @@ class ScreenshotCapture:
         self._hwnd = self._resolve_hwnd(source_name)
         self._hwnd_timestamp = now
         self._hwnd_source_name = source_name
-        self._winapi_failed_count = 0
+        self._wgc_failed_count = 0
         return self._hwnd
 
     def _resolve_hwnd(self, source_name: str) -> Optional[int]:
@@ -605,10 +578,10 @@ class ScreenshotCapture:
 
             import psutil
         except ImportError:
-            self._winapi_available = False
+            self._wgc_available = False
             return None
 
-        self._winapi_available = True
+        self._wgc_available = True
 
         # Try exact match first
         if title:
@@ -677,7 +650,12 @@ class ScreenshotCapture:
         except Exception:
             return False
 
-    def _capture_windows(self, width: Optional[int] = None, height: Optional[int] = None):
+    def _capture_windows(
+        self,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        fps: int = DEFAULT_MAIN_WGC_CAPTURE_FPS,
+    ):
         """Capture via Windows Graphics Capture. Returns a PIL Image or None."""
         hwnd = self._hwnd
         if not hwnd:
@@ -685,17 +663,19 @@ class ScreenshotCapture:
 
         try:
             return _capture_hwnd_windows_graphics_capture(
-                hwnd, width=width, height=height, include_cursor=False, draw_border=False
+                hwnd,
+                width=width,
+                height=height,
+                include_cursor=False,
+                draw_border=False,
+                fps=fps,
             )
-        except WinAPICaptureUnavailable as e:
-            self._winapi_available = False
-            logger.debug(f"ScreenshotCapture: WinAPI capture unavailable: {e}")
-            return None
         except WinGraphicsCaptureUnavailable as e:
+            self._wgc_available = False
             logger.debug(f"ScreenshotCapture: Windows Graphics Capture unavailable: {e}")
             return None
         except Exception as e:
-            logger.debug(f"ScreenshotCapture: WinAPI capture failed: {e}")
+            logger.debug(f"ScreenshotCapture: Windows Graphics Capture failed: {e}")
             return None
 
     # ------------------------------------------------------------------

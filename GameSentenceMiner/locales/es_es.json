@@ -397,7 +397,11 @@
           },
           "capture_backend": {
             "label": "Método de Captura:",
-            "tooltip": "Método de captura de pantalla. auto usa la captura rápida de Windows con fallback a OBS, obs evita la captura directa de Windows y winapi prefiere la captura directa de Windows."
+            "tooltip": "Método de captura de pantalla. auto usa Windows Graphics Capture (WGC) con OBS como alternativa, obs siempre usa OBS y wgc prefiere WGC."
+          },
+          "wgc_capture_fps": {
+            "label": "FPS de WGC principal:",
+            "tooltip": "Límite de fotogramas de Windows Graphics Capture en el proceso principal de GSM. OCR tiene un ajuste de FPS de captura separado."
           },
           "animated": {
             "label": "Animado:",

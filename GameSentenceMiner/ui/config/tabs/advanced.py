@@ -44,6 +44,10 @@ def build_advanced_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     )
     if is_windows():
         layout.addRow(
+            window._create_labeled_widget(tabs_i18n, "screenshot", "wgc_capture_fps", color=LabelColor.ADVANCED),
+            window.wgc_capture_fps_spin,
+        )
+        layout.addRow(
             window._create_labeled_widget(tabs_i18n, "advanced", "mute_game_on_minimize"),
             window.mute_game_on_minimize_check,
         )

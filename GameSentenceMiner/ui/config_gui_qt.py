@@ -1003,6 +1003,7 @@ class ConfigWindow(QWidget):
                     localhost_bind_address=self.localhost_bind_address_edit.text(),
                     longest_sleep_time=float(self.longest_sleep_time_edit.text() or 5.0),
                     screenshot_capture_backend_v2=self.screenshot_capture_backend_combo.currentText(),
+                    wgc_capture_fps=self.wgc_capture_fps_spin.value(),
                     dont_collect_stats=self.dont_collect_stats_check.isChecked(),
                     mute_game_on_minimize=self.mute_game_on_minimize_check.isChecked(),
                 ),
@@ -1524,6 +1525,8 @@ class ConfigWindow(QWidget):
         self.screenshot_quality_edit = QLineEdit()
         self.screenshot_extension_combo = QComboBox()
         self.screenshot_capture_backend_combo = QComboBox()
+        self.wgc_capture_fps_spin = QSpinBox()
+        self.wgc_capture_fps_spin.setRange(1, 60)
         self.animated_screenshot_check = QCheckBox()
         self.screenshot_custom_ffmpeg_settings_edit = QLineEdit()
         self.screenshot_timing_combo = QComboBox()
@@ -3103,6 +3106,7 @@ class ConfigWindow(QWidget):
         self.screenshot_capture_backend_combo.clear()
         self.screenshot_capture_backend_combo.addItems(list(SCREENSHOT_CAPTURE_BACKENDS))
         self.screenshot_capture_backend_combo.setCurrentText(s.advanced.screenshot_capture_backend_v2)
+        self.wgc_capture_fps_spin.setValue(s.advanced.wgc_capture_fps)
         self.animated_screenshot_check.setChecked(s.screenshot.animated)
         self._set_text_value(self.screenshot_custom_ffmpeg_settings_edit, s.screenshot.custom_ffmpeg_settings)
         self.screenshot_timing_combo.clear()

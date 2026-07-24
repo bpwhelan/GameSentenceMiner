@@ -596,7 +596,14 @@ def get_screenshot_base64(client, compression=75, width=None, height=None):
 
 
 def get_screenshot_PIL_from_source(
-    source_name, compression=75, img_format="png", width=None, height=None, retry=3, force_obs=False
+    source_name,
+    compression=75,
+    img_format="png",
+    width=None,
+    height=None,
+    retry=3,
+    force_obs=False,
+    capture_fps=None,
 ):
     from GameSentenceMiner.obs.screenshot_capture import screenshot_capture
 
@@ -608,6 +615,7 @@ def get_screenshot_PIL_from_source(
         height=height,
         retry=retry,
         force_obs=force_obs,
+        capture_fps=capture_fps,
     )
 
 
@@ -650,10 +658,11 @@ def _apply_ocr_preprocessing(img, preprocess_mode=None, grayscale=False):
     return gray.filter(ImageFilter.UnsharpMask(radius=1.0, percent=120, threshold=2))
 
 
-def get_best_source_for_screenshot(log_missing_source=True, suppress_errors=False):
+def get_best_source_for_screenshot(log_missing_source=True, suppress_errors=False, capture_fps=None):
     kwargs = {
         "return_source_dict": True,
         "log_missing_source": log_missing_source,
+        "capture_fps": capture_fps,
     }
     if suppress_errors:
         kwargs["suppress_errors"] = True
@@ -673,6 +682,7 @@ def get_screenshot_PIL(
     log_missing_source=True,
     suppress_errors=False,
     force_obs=False,
+    capture_fps=None,
 ):
     import GameSentenceMiner.obs as _obs_pkg
 
@@ -689,7 +699,14 @@ def get_screenshot_PIL(
             return None
 
         img = get_screenshot_PIL_from_source(
-            source_name, compression, img_format, width, height, retry, force_obs=force_obs
+            source_name,
+            compression,
+            img_format,
+            width,
+            height,
+            retry,
+            force_obs=force_obs,
+            capture_fps=capture_fps,
         )
         img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
         return img
@@ -737,6 +754,7 @@ def get_screenshot_PIL(
                 height,
                 retry,
                 force_obs=force_obs,
+                capture_fps=capture_fps,
             )
             if not img:
                 return None
@@ -758,6 +776,7 @@ def get_screenshot_PIL(
             height,
             retry,
             force_obs=force_obs,
+            capture_fps=capture_fps,
         )
         img = _apply_ocr_preprocessing(img, preprocess_mode=preprocess_mode, grayscale=grayscale)
         return img
@@ -768,7 +787,14 @@ def get_screenshot_PIL(
             continue
 
         img = get_screenshot_PIL_from_source(
-            found_source_name, compression, img_format, width, height, retry, force_obs=force_obs
+            found_source_name,
+            compression,
+            img_format,
+            width,
+            height,
+            retry,
+            force_obs=force_obs,
+            capture_fps=capture_fps,
         )
 
         if not img:

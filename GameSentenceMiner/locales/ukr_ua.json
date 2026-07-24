@@ -397,7 +397,11 @@
           },
           "capture_backend": {
             "label": "Метод захоплення:",
-            "tooltip": "Метод створення знімка екрана. auto використовує швидке захоплення Windows із fallback до OBS, obs уникає прямого захоплення Windows, а winapi віддає йому перевагу."
+            "tooltip": "Метод створення знімка екрана. auto використовує Windows Graphics Capture (WGC) із fallback до OBS, obs завжди використовує OBS, а wgc надає перевагу WGC."
+          },
+          "wgc_capture_fps": {
+            "label": "FPS WGC основного процесу:",
+            "tooltip": "Обмеження частоти кадрів Windows Graphics Capture в основному процесі GSM. OCR має окреме налаштування FPS захоплення."
           },
           "animated": {
             "label": "Анімований:",

@@ -389,7 +389,11 @@
           },
           "capture_backend": {
             "label": "捕获方式:",
-            "tooltip": "截图捕获方式。auto 使用快速 Windows 捕获并在失败时回退到 OBS，obs 避免直接 Windows 捕获，winapi 优先使用直接 Windows 捕获。"
+            "tooltip": "截图捕获方式。auto 使用 Windows Graphics Capture（WGC）并在失败时回退到 OBS，obs 始终使用 OBS，wgc 优先使用 WGC。"
+          },
+          "wgc_capture_fps": {
+            "label": "主进程 WGC 捕获 FPS:",
+            "tooltip": "GSM 主进程中 Windows Graphics Capture 的帧率上限。OCR 有独立的捕获 FPS 设置。"
           },
           "animated": {
             "label": "动画:",

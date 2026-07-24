@@ -539,7 +539,7 @@ def test_obs_area_selector_uses_single_fast_initial_screenshot(monkeypatch):
 
     area_selector_qt.OWOCRAreaSelectorWidget._init_obs_screenshot(selector)
 
-    assert calls == [{"compression": 90, "img_format": "jpg", "retry": 1}]
+    assert calls == [{"compression": 90, "img_format": "jpg", "retry": 1, "capture_fps": 10}]
     assert selector.fit_args == (640, 360)
     assert selector.target_window_geometry == {"left": 0, "top": 0, "width": 640, "height": 360}
 

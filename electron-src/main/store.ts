@@ -111,6 +111,7 @@ interface OCRConfig {
     ocr1_advanced?: string;
     ocr2_advanced?: string;
     scanRate_advanced?: number;
+    wgcCaptureFps?: number;
 }
 
 export enum HookableGameType {
@@ -305,7 +306,8 @@ export const store = new Store<StoreConfig>({
             scanRate_basic: 0.5,
             ocr1_advanced: DEFAULT_STABILITY_OCR,
             ocr2_advanced: "glens",
-            scanRate_advanced: 0.5
+            scanRate_advanced: 0.5,
+            wgcCaptureFps: 10
         },
         customPythonPackage: "GameSentenceMiner",
         pythonExtras: [],

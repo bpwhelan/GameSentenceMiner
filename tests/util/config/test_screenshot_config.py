@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from GameSentenceMiner.util.config.configuration import (
     ANIMATED_SCREENSHOT_CODEC_LABELS,
+    Advanced,
     AnimatedScreenshotSettings,
+    SCREENSHOT_CAPTURE_BACKENDS,
 )
 
 
@@ -47,3 +49,14 @@ def test_animated_screenshot_avif_options_round_trip():
     assert loaded.adaptive_avif is True
     assert loaded.faststart is False
     assert loaded.encoder_fallback is False
+
+
+def test_screenshot_capture_backends_expose_wgc_not_legacy_winapi():
+    assert SCREENSHOT_CAPTURE_BACKENDS == ("auto", "obs", "wgc")
+
+
+def test_main_wgc_capture_fps_is_independent_and_clamped():
+    assert Advanced(wgc_capture_fps=4).wgc_capture_fps == 4
+    assert Advanced(wgc_capture_fps=0).wgc_capture_fps == 1
+    assert Advanced(wgc_capture_fps=500).wgc_capture_fps == 60
+    assert Advanced(wgc_capture_fps="bad").wgc_capture_fps == 5

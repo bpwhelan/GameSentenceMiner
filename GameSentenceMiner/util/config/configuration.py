@@ -117,12 +117,16 @@ ANIMATED_SCREENSHOT_CODECS = tuple(ANIMATED_SCREENSHOT_CODEC_LABELS.keys())
 
 SCREENSHOT_CAPTURE_BACKEND_AUTO = "auto"
 SCREENSHOT_CAPTURE_BACKEND_OBS = "obs"
-SCREENSHOT_CAPTURE_BACKEND_WINAPI = "winapi"
+SCREENSHOT_CAPTURE_BACKEND_WGC = "wgc"
 SCREENSHOT_CAPTURE_BACKENDS = (
     SCREENSHOT_CAPTURE_BACKEND_AUTO,
     SCREENSHOT_CAPTURE_BACKEND_OBS,
-    SCREENSHOT_CAPTURE_BACKEND_WINAPI,
+    SCREENSHOT_CAPTURE_BACKEND_WGC,
 )
+DEFAULT_MAIN_WGC_CAPTURE_FPS = 5
+DEFAULT_OCR_WGC_CAPTURE_FPS = 10
+MIN_WGC_CAPTURE_FPS = 1
+MAX_WGC_CAPTURE_FPS = 60
 
 
 def normalize_screenshot_capture_backend(value: str | None) -> str:
@@ -132,14 +136,26 @@ def normalize_screenshot_capture_backend(value: str | None) -> str:
         "default": SCREENSHOT_CAPTURE_BACKEND_AUTO,
         "websocket": SCREENSHOT_CAPTURE_BACKEND_OBS,
         "obs_websocket": SCREENSHOT_CAPTURE_BACKEND_OBS,
-        "printwindow": SCREENSHOT_CAPTURE_BACKEND_WINAPI,
-        "win32": SCREENSHOT_CAPTURE_BACKEND_WINAPI,
-        "windows": SCREENSHOT_CAPTURE_BACKEND_WINAPI,
+        # Migrate the old backend names to the WGC implementation. These names
+        # are accepted for saved-config compatibility but are no longer shown.
+        "winapi": SCREENSHOT_CAPTURE_BACKEND_WGC,
+        "win32": SCREENSHOT_CAPTURE_BACKEND_WGC,
+        "windows": SCREENSHOT_CAPTURE_BACKEND_WGC,
+        "graphics_capture": SCREENSHOT_CAPTURE_BACKEND_WGC,
+        "windows_graphics_capture": SCREENSHOT_CAPTURE_BACKEND_WGC,
     }
     normalized = aliases.get(normalized, normalized)
     if normalized in SCREENSHOT_CAPTURE_BACKENDS:
         return normalized
     return SCREENSHOT_CAPTURE_BACKEND_AUTO
+
+
+def normalize_wgc_capture_fps(value: object, default: int) -> int:
+    try:
+        fps = round(float(value))
+    except (TypeError, ValueError):
+        fps = default
+    return max(MIN_WGC_CAPTURE_FPS, min(MAX_WGC_CAPTURE_FPS, fps))
 
 
 current_game = ""
@@ -1289,6 +1305,7 @@ class Advanced:
     longest_sleep_time: float = 5.0
     screenshot_capture_backend: str = SCREENSHOT_CAPTURE_BACKEND_OBS
     screenshot_capture_backend_v2: str = SCREENSHOT_CAPTURE_BACKEND_AUTO
+    wgc_capture_fps: int = DEFAULT_MAIN_WGC_CAPTURE_FPS
     mute_game_on_minimize: bool = False
     cloud_sync_enabled: bool = False
     cloud_sync_auto_sync: bool = False
@@ -1308,6 +1325,10 @@ class Advanced:
             self.plaintext_websocket_port = self.texthooker_communication_websocket_port + 1
         self.screenshot_capture_backend = normalize_screenshot_capture_backend(self.screenshot_capture_backend)
         self.screenshot_capture_backend_v2 = normalize_screenshot_capture_backend(self.screenshot_capture_backend_v2)
+        self.wgc_capture_fps = normalize_wgc_capture_fps(
+            self.wgc_capture_fps,
+            DEFAULT_MAIN_WGC_CAPTURE_FPS,
+        )
         self.cloud_sync_api_url = str(self.cloud_sync_api_url or "").strip().rstrip("/")
         self.cloud_sync_email = str(self.cloud_sync_email or "").strip()
         self.cloud_sync_api_token = str(self.cloud_sync_api_token or "").strip()

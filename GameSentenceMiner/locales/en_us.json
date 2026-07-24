@@ -431,7 +431,11 @@
           },
           "capture_backend": {
             "label": "Capture Backend:",
-            "tooltip": "Screenshot capture backend. auto uses fast Windows capture with OBS fallback, obs avoids direct Windows capture, and winapi prefers direct Windows capture."
+            "tooltip": "Screenshot capture backend. auto uses Windows Graphics Capture (WGC) with OBS fallback, obs always uses OBS, and wgc prefers WGC."
+          },
+          "wgc_capture_fps": {
+            "label": "Main WGC Capture FPS:",
+            "tooltip": "Frame-rate cap for Windows Graphics Capture in the main GSM process. OCR has a separate capture FPS setting."
           },
           "animated": {
             "label": "Animated:",

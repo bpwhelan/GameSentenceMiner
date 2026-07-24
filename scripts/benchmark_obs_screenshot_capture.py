@@ -1,10 +1,10 @@
-"""Benchmark OBS/WinAPI screenshot capture performance across a matrix of options.
+"""Benchmark OBS/WGC screenshot capture performance across a matrix of options.
 
 Three capture methods are supported:
 
   obs_source  — OBS websocket request to the best video source in the current scene
   obs_scene   — OBS websocket request using the scene name itself as the source
-  winapi      — Win32 PrintWindow API, bypassing OBS entirely (Windows only)
+  wgc         — Windows Graphics Capture, bypassing OBS entirely (Windows only)
 
 Default run compares these three with jpg q=90 source-res pp=none so you can
 see the latency difference at a glance.  Pass CLI flags to run any combination
@@ -19,8 +19,8 @@ Usage
     python scripts/benchmark_obs_screenshot_capture.py --methods obs_source obs_scene \\
         --formats jpg png --compressions 75 90 95 --preprocess none grayscale
 
-    # WinAPI only with explicit window title
-    python scripts/benchmark_obs_screenshot_capture.py --methods winapi --window "Game Title"
+    # WGC only with explicit window title
+    python scripts/benchmark_obs_screenshot_capture.py --methods wgc --window "Game Title"
 
     # custom resolution comparison
     python scripts/benchmark_obs_screenshot_capture.py --widths 1280 1920 --heights 720 1080
@@ -131,8 +131,7 @@ def ms(s: float) -> float:
 class CaptureMethod(enum.Enum):
     OBS_SOURCE = "obs_source"  # websocket → best video source auto-detected in scene
     OBS_SCENE = "obs_scene"  # websocket → scene name used directly as the OBS source
-    WINAPI = "winapi"  # Win32 PrintWindow, bypasses OBS entirely
-    GRAPHICS_CAPTURE = "graphics_capture"  # Windows Graphics Capture (WGC) via windows-capture
+    WGC = "wgc"  # Windows Graphics Capture via windows-capture
 
 
 @dataclass
@@ -154,7 +153,7 @@ class CaptureConfig:
             res = f"autox{self.height}"
         else:
             res = "source"
-        if self.method in (CaptureMethod.WINAPI, CaptureMethod.GRAPHICS_CAPTURE):
+        if self.method == CaptureMethod.WGC:
             return f"{self.method.value} {res}"
         return f"{self.method.value} {self.img_format} q={self.compression} {res} pp={self.preprocess_mode}"
 
@@ -170,7 +169,7 @@ class BenchResult:
 
 
 # ---------------------------------------------------------------------------
-# Win32 API capture
+# Windows Graphics Capture
 # ---------------------------------------------------------------------------
 
 
@@ -210,14 +209,7 @@ def _find_window_handle(window_title: str) -> tuple:
     return None, None
 
 
-def _do_winapi_capture(hwnd: int, width: int | None = None, height: int | None = None):
-    """Capture via the same optimized WinAPI helper used by production code."""
-    from GameSentenceMiner.obs.screenshot_capture import _capture_hwnd_winapi
-
-    return _capture_hwnd_winapi(hwnd, width=width, height=height)
-
-
-def _do_graphics_capture(hwnd: int, width: int | None = None, height: int | None = None):
+def _do_wgc_capture(hwnd: int, width: int | None = None, height: int | None = None):
     """Capture via Windows Graphics Capture (windows-capture package)."""
     from GameSentenceMiner.obs.screenshot_capture import _capture_hwnd_windows_graphics_capture
 
@@ -240,15 +232,10 @@ def capture_once(
     """Return (elapsed_s, image_size, decoded_png_bytes). Raises on failure."""
     t0 = time.perf_counter()
 
-    if config.method == CaptureMethod.WINAPI:
+    if config.method == CaptureMethod.WGC:
         if not window_handle:
-            raise RuntimeError("No window handle available for winapi capture.")
-        img = _do_winapi_capture(window_handle, width=config.width, height=config.height)
-
-    elif config.method == CaptureMethod.GRAPHICS_CAPTURE:
-        if not window_handle:
-            raise RuntimeError("No window handle available for graphics_capture.")
-        img = _do_graphics_capture(window_handle, width=config.width, height=config.height)
+            raise RuntimeError("No window handle available for WGC capture.")
+        img = _do_wgc_capture(window_handle, width=config.width, height=config.height)
 
     elif config.method == CaptureMethod.OBS_SCENE:
         if not scene_name:
@@ -260,7 +247,7 @@ def capture_once(
             width=config.width,
             height=config.height,
             preprocess_mode=config.preprocess_mode,
-            force_obs=True,  # scene capture doesn't support WinAPI fallback
+            force_obs=True,  # scene capture doesn't support WGC fallback
         )
 
     else:  # OBS_SOURCE
@@ -295,7 +282,7 @@ def capture_once(
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Benchmark OBS/WinAPI screenshot capture across a matrix of options.",
+        description="Benchmark OBS/WGC screenshot capture across a matrix of options.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
@@ -313,8 +300,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--methods",
         nargs="+",
-        default=["winapi", "graphics_capture", "obs_source"],
-        choices=["obs_source", "obs_scene", "winapi", "graphics_capture"],
+        default=["wgc", "obs_source"],
+        choices=["obs_source", "obs_scene", "wgc"],
         help="Capture methods to benchmark.",
     )
     p.add_argument(
@@ -361,9 +348,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--window",
         default=None,
-        help=(
-            "Window title (or partial) for winapi capture. Auto-detected from OBS source window settings if omitted."
-        ),
+        help=("Window title (or partial) for WGC capture. Auto-detected from OBS source window settings if omitted."),
     )
     p.add_argument(
         "--keep-going",
@@ -377,11 +362,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="How many fastest configs to highlight in the final ranking.",
     )
     p.add_argument(
-        "--no-pace-winapi",
+        "--no-pace-wgc",
         action="store_true",
-        default=True,
         help=(
-            "Disable pacing WinAPI/graphics_capture captures to the first measured obs_source average. "
+            "Disable pacing WGC captures to the first measured obs_source average. "
             "By default, these methods sleep max(0, obs_source_avg - capture_time) "
             "after each timed capture so wall time reflects the slower OBS cadence."
         ),
@@ -405,7 +389,7 @@ def build_configs(args: argparse.Namespace, selected_methods: list[CaptureMethod
 
     configs: list[CaptureConfig] = []
     for method in selected_methods:
-        if method in (CaptureMethod.WINAPI, CaptureMethod.GRAPHICS_CAPTURE):
+        if method == CaptureMethod.WGC:
             for w, h in resolutions:
                 configs.append(CaptureConfig(method=method, width=w, height=h))
             continue
@@ -434,8 +418,8 @@ def resolve_capture_targets(
     scene_name: str | None = None
     window_handle: int | None = None
 
-    _winapi_methods = {CaptureMethod.WINAPI, CaptureMethod.GRAPHICS_CAPTURE}
-    needs_obs = any(m not in _winapi_methods for m in selected_methods)
+    native_methods = {CaptureMethod.WGC}
+    needs_obs = any(m not in native_methods for m in selected_methods)
     if needs_obs:
         ensure_obs_connected()
         scene_name = obs.get_current_scene()
@@ -448,7 +432,7 @@ def resolve_capture_targets(
                     raise RuntimeError("No active video source found in OBS. Pass --source explicitly.")
                 source_name = best["sourceName"]
 
-    _needs_window = _winapi_methods.intersection(selected_methods)
+    _needs_window = native_methods.intersection(selected_methods)
     if _needs_window:
         window_title = args.window
         if not window_title:
@@ -606,18 +590,18 @@ def main() -> int:
     if source_name:
         print(f"Source   : {source_name}")
     print(f"Methods  : {[m.value for m in selected_methods]}")
-    _winapi_methods = {CaptureMethod.WINAPI, CaptureMethod.GRAPHICS_CAPTURE}
+    native_methods = {CaptureMethod.WGC}
     print(f"Configs  : {len(configs)}")
     print(f"Warmup   : {args.warmup} per config")
     print(f"Timed    : {args.iterations} per config")
-    pace_winapi = not args.no_pace_winapi
-    has_native_methods = bool(_winapi_methods.intersection(selected_methods))
-    needs_obs = any(m not in _winapi_methods for m in selected_methods)
-    if pace_winapi and has_native_methods and needs_obs:
-        print("Pacing   : winapi/graphics_capture sleeps to match first successful obs_source avg")
+    pace_wgc = not args.no_pace_wgc
+    has_native_methods = bool(native_methods.intersection(selected_methods))
+    needs_obs = any(m not in native_methods for m in selected_methods)
+    if pace_wgc and has_native_methods and needs_obs:
+        print("Pacing   : WGC sleeps to match first successful obs_source avg")
     elif has_native_methods and not needs_obs:
         print("Pacing   : disabled (no OBS method for reference)")
-    if any(m not in _winapi_methods for m in selected_methods):
+    if any(m not in native_methods for m in selected_methods):
         print(f"Formats  : {args.formats}")
         print(f"Compress : {args.compressions}")
         print(f"Preproc  : {args.preprocess_modes}")
@@ -631,7 +615,7 @@ def main() -> int:
         print(f"[{idx}/{total}] {config.label} ...", end="", flush=True)
         t_start = time.perf_counter()
         pacing_target_s = None
-        if pace_winapi and config.method in _winapi_methods:
+        if pace_wgc and config.method in native_methods:
             pacing_target_s = obs_source_pacing_target_s
             if pacing_target_s is None and needs_obs:
                 print("  pacing unavailable until obs_source has a successful result", end="", flush=True)

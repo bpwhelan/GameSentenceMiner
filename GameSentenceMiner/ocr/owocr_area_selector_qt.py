@@ -44,6 +44,7 @@ from GameSentenceMiner.ocr.image_scaling import (
     scale_pil_image_to_minimum_bounds,
     scale_pil_image_to_bounds,
 )
+from GameSentenceMiner.util.config.electron_config import get_ocr_wgc_capture_fps
 
 # Assuming get_config is available here based on your request
 from GameSentenceMiner.util.config.configuration import get_pickaxe_png_path
@@ -499,6 +500,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                         compression=90,
                         img_format="jpg",
                         retry=OBS_SELECTOR_CAPTURE_RETRY_COUNT,
+                        capture_fps=get_ocr_wgc_capture_fps(),
                     )
 
                     if self.screenshot_img:
@@ -1783,7 +1785,11 @@ class OWOCRAreaSelectorWidget(QWidget):
         def do_refresh():
             try:
                 # Capture new screenshot
-                new_screenshot = obs.get_screenshot_PIL(compression=90, img_format="jpg")
+                new_screenshot = obs.get_screenshot_PIL(
+                    compression=90,
+                    img_format="jpg",
+                    capture_fps=get_ocr_wgc_capture_fps(),
+                )
 
                 if not new_screenshot:
                     logger.warning("Failed to capture new screenshot")

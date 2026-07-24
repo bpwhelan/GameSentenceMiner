@@ -19,6 +19,7 @@ from GameSentenceMiner.util.config.electron_config import (
     reload_electron_config,
     get_ocr_scan_rate,
     get_ocr_two_pass_ocr,
+    get_ocr_wgc_capture_fps,
     get_ocr_keep_newline,
     get_ocr_ocr1,
     get_ocr_obs_capture_preprocess_mode,
@@ -27,6 +28,7 @@ from GameSentenceMiner.ocr.image_scaling import (
     scale_dimensions_to_minimum_bounds,
 )
 from GameSentenceMiner.util.config.electron_config import get_ocr_base_scale
+from GameSentenceMiner.obs.screenshot_capture import _capture_hwnd_windows_graphics_capture
 
 import signal
 import threading
@@ -67,7 +69,6 @@ _PSUTIL_MODULE = _UNINITIALIZED
 _DESKTOP_NOTIFIER_SYNC = _UNINITIALIZED
 
 win32gui = None
-win32ui = None
 win32api = None
 win32con = None
 win32process = None
@@ -121,7 +122,6 @@ def _load_win32_capture_dependencies():
     try:
         deps = {
             "win32gui": importlib.import_module("win32gui"),
-            "win32ui": importlib.import_module("win32ui"),
             "win32api": importlib.import_module("win32api"),
             "win32con": importlib.import_module("win32con"),
             "win32process": importlib.import_module("win32process"),
@@ -2441,49 +2441,15 @@ class ScreenshotThread(threading.Thread):
                     if _load_win32_capture_dependencies() is None:
                         return 0
                     try:
-                        coord_left, coord_top, right, bottom = win32gui.GetWindowRect(self.window_handle)
-                        coord_width = right - coord_left
-                        coord_height = bottom - coord_top
-
-                        hwnd_dc = win32gui.GetWindowDC(self.window_handle)
-                        mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
-                        save_dc = mfc_dc.CreateCompatibleDC()
-
-                        save_bitmap = win32ui.CreateBitmap()
-                        save_bitmap.CreateCompatibleBitmap(mfc_dc, coord_width, coord_height)
-                        save_dc.SelectObject(save_bitmap)
-
-                        result = ctypes.windll.user32.PrintWindow(self.window_handle, save_dc.GetSafeHdc(), 2)
-
-                        bmpinfo = save_bitmap.GetInfo()
-                        bmpstr = save_bitmap.GetBitmapBits(True)
-                    except pywintypes.error:
+                        img = _capture_hwnd_windows_graphics_capture(
+                            self.window_handle,
+                            include_cursor=False,
+                            draw_border=False,
+                            fps=get_ocr_wgc_capture_fps(),
+                        )
+                    except Exception as e:
+                        logger.debug(f"Windows Graphics Capture failed: {e}")
                         return 0
-                    img = Image.frombuffer(
-                        "RGB",
-                        (bmpinfo["bmWidth"], bmpinfo["bmHeight"]),
-                        bmpstr,
-                        "raw",
-                        "BGRX",
-                        0,
-                        1,
-                    )
-                    try:
-                        win32gui.DeleteObject(save_bitmap.GetHandle())
-                    except:
-                        pass
-                    try:
-                        save_dc.DeleteDC()
-                    except:
-                        pass
-                    try:
-                        mfc_dc.DeleteDC()
-                    except:
-                        pass
-                    try:
-                        win32gui.ReleaseDC(self.window_handle, hwnd_dc)
-                    except:
-                        pass
             else:
                 sct_img = sct.grab(self.sct_params)
                 img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
@@ -2665,6 +2631,7 @@ class OBSScreenshotThread(threading.Thread):
         source = obs.get_best_source_for_screenshot(
             log_missing_source=not suppress_errors,
             suppress_errors=suppress_errors,
+            capture_fps=get_ocr_wgc_capture_fps(),
         )
         self.current_source = source if isinstance(source, dict) else None
         self.current_source_name = self.current_source.get("sourceName") if self.current_source else None
@@ -2688,6 +2655,7 @@ class OBSScreenshotThread(threading.Thread):
                 self.current_source = obs.get_best_source_for_screenshot(
                     log_missing_source=False,
                     suppress_errors=True,
+                    capture_fps=get_ocr_wgc_capture_fps(),
                 )
             if self.current_source:
                 break
@@ -2772,6 +2740,7 @@ class OBSScreenshotThread(threading.Thread):
                     compression=90,
                     grayscale=False,
                     preprocess_mode=capture_preprocess_mode,
+                    capture_fps=get_ocr_wgc_capture_fps(),
                 )
 
                 if img is None:
