@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import numpy as np
+import pytest
 from PyQt6.QtCore import Qt
 
 from GameSentenceMiner.ui import anki_confirmation_qt
@@ -156,6 +158,171 @@ def test_calculate_audio_expanded_range_clamps_to_source_bounds():
 
     assert start == 0.0
     assert end == 25.0
+
+
+def test_calculate_audio_keep_ranges_removes_multiple_middle_cuts():
+    result = anki_confirmation_qt.AnkiConfirmationDialog._calculate_audio_keep_ranges(
+        1.0,
+        9.0,
+        [(5.0, 6.0), (2.0, 3.0)],
+    )
+
+    assert result == [(1.0, 2.0), (3.0, 5.0), (6.0, 9.0)]
+
+
+def test_preview_audio_data_omits_cut_samples():
+    data = np.arange(20)
+
+    result = anki_confirmation_qt.AnkiConfirmationDialog._build_audio_preview_data(
+        data,
+        samplerate=2,
+        start_position=1.0,
+        cut_ranges=[(2.0, 3.0), (5.0, 6.0)],
+    )
+
+    assert result.tolist() == [2, 3, 6, 7, 8, 9, 12, 13, 14, 15, 16, 17, 18, 19]
+
+
+def test_preview_elapsed_time_maps_back_across_removed_audio():
+    cuts = [(2.0, 3.0), (5.0, 6.0)]
+
+    assert anki_confirmation_qt.AnkiConfirmationDialog._source_position_for_preview_elapsed(
+        1.0, 0.5, cuts
+    ) == pytest.approx(1.5)
+    assert anki_confirmation_qt.AnkiConfirmationDialog._source_position_for_preview_elapsed(
+        1.0, 1.0, cuts
+    ) == pytest.approx(3.0)
+    assert anki_confirmation_qt.AnkiConfirmationDialog._source_position_for_preview_elapsed(
+        1.0, 3.0, cuts
+    ) == pytest.approx(6.0)
+
+
+def test_seek_while_idle_moves_cursor_without_starting_playback():
+    calls = []
+    probe = SimpleNamespace(
+        audio_player=SimpleNamespace(
+            is_playing=False,
+            stop_audio=lambda: calls.append(("stop",)),
+        ),
+        playback_timer=SimpleNamespace(stop=lambda: calls.append(("timer_stop",))),
+        waveform_widget=SimpleNamespace(
+            end_time=9.0,
+            get_selection_range=lambda: (1.0, 9.0),
+            get_cut_ranges=lambda: [(4.0, 5.0)],
+            set_playback_position=lambda position: calls.append(("cursor", position)),
+        ),
+        _cancel_auto_accept=lambda: calls.append(("cancel_auto_accept",)),
+        _normalize_audio_seek_position=lambda position: position,
+        _update_audio_buttons=lambda: calls.append(("buttons",)),
+        _start_range_playback=lambda position: calls.append(("play", position)),
+        _playback_resume_position=None,
+        _playing_full_audio=False,
+    )
+
+    anki_confirmation_qt.AnkiConfirmationDialog._seek_audio(probe, 3.25)
+
+    assert probe._playback_resume_position == 3.25
+    assert ("cursor", 3.25) in calls
+    assert not any(call[0] == "stop" for call in calls)
+    assert not any(call[0] == "play" for call in calls)
+
+
+def test_seek_while_playing_restarts_preview_at_requested_position():
+    calls = []
+    probe = SimpleNamespace(
+        audio_player=SimpleNamespace(
+            is_playing=True,
+            stop_audio=lambda: calls.append(("stop",)),
+        ),
+        playback_timer=SimpleNamespace(stop=lambda: calls.append(("timer_stop",))),
+        waveform_widget=SimpleNamespace(
+            end_time=9.0,
+            set_playback_position=lambda position: calls.append(("cursor", position)),
+        ),
+        _cancel_auto_accept=lambda: calls.append(("cancel_auto_accept",)),
+        _normalize_audio_seek_position=lambda position: position,
+        _update_audio_buttons=lambda: calls.append(("buttons",)),
+        _start_range_playback=lambda position: calls.append(("play", position)),
+        _playback_resume_position=None,
+        _playing_full_audio=False,
+    )
+
+    anki_confirmation_qt.AnkiConfirmationDialog._seek_audio(probe, 6.5)
+
+    assert ("stop",) in calls
+    assert ("timer_stop",) in calls
+    assert ("play", 6.5) in calls
+
+
+def test_play_range_restarts_from_selection_start_when_cursor_is_near_end():
+    starts = []
+    probe = SimpleNamespace(
+        audio_player=SimpleNamespace(is_playing=False),
+        waveform_widget=SimpleNamespace(get_selection_range=lambda: (1.0, 5.0)),
+        _playback_resume_position=4.995,
+        _start_range_playback=starts.append,
+    )
+
+    anki_confirmation_qt.AnkiConfirmationDialog._play_range(probe)
+
+    assert starts == [1.0]
+
+
+def test_stopped_playback_timer_resets_near_end_cursor_to_selection_start():
+    calls = []
+    probe = SimpleNamespace(
+        audio_player=SimpleNamespace(is_playing=False),
+        playback_timer=SimpleNamespace(stop=lambda: calls.append(("timer_stop",))),
+        waveform_widget=SimpleNamespace(
+            start_time=1.0,
+            end_time=5.0,
+            set_playback_position=lambda position: calls.append(("cursor", position)),
+        ),
+        _playback_resume_position=4.995,
+        _update_audio_buttons=lambda: calls.append(("buttons",)),
+    )
+
+    anki_confirmation_qt.AnkiConfirmationDialog._update_playback_cursor(probe)
+
+    assert probe._playback_resume_position == 1.0
+    assert ("cursor", 1.0) in calls
+
+
+def test_save_trimmed_audio_splices_around_middle_cuts(monkeypatch):
+    splice_calls = []
+    monkeypatch.setattr(anki_confirmation_qt, "make_unique_file_name", lambda path: path)
+    monkeypatch.setattr(anki_confirmation_qt, "get_temporary_directory", lambda: "temp")
+    monkeypatch.setattr(
+        anki_confirmation_qt,
+        "splice_audio",
+        lambda **kwargs: splice_calls.append(kwargs),
+    )
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "current_game", "Game")
+
+    probe = SimpleNamespace(
+        waveform_widget=SimpleNamespace(
+            audio_data=np.arange(10),
+            duration=10.0,
+            get_selection_range=lambda: (1.0, 9.0),
+            get_cut_ranges=lambda: [(2.0, 3.0), (5.0, 6.0)],
+        ),
+        audio_path="source.opus",
+        _sync_audio_edit_selection_to_current_clip=lambda _start, _end: None,
+        _calculate_audio_keep_ranges=anki_confirmation_qt.AnkiConfirmationDialog._calculate_audio_keep_ranges,
+    )
+
+    result = anki_confirmation_qt.AnkiConfirmationDialog._save_trimmed_audio(probe)
+
+    assert anki_confirmation_qt.os.path.basename(result).startswith("Game_trimmed_")
+    assert result.endswith(".opus")
+    assert splice_calls == [
+        {
+            "input_audio": "source.opus",
+            "output_audio": result,
+            "keep_ranges": [(1.0, 2.0), (3.0, 5.0), (6.0, 9.0)],
+            "fade_duration": 0.05,
+        }
+    ]
 
 
 def test_normalize_audio_edit_context_uses_provided_duration(monkeypatch):
@@ -453,6 +620,9 @@ def test_handle_moved_does_not_schedule_dialogue_line_expansion():
         _update_audio_expand_buttons=lambda: calls.append(("update_expand_buttons",)),
         _schedule_auto_line_expand=lambda which: calls.append(("schedule_auto_line_expand", which)),
         audio_player=SimpleNamespace(stop_audio=lambda: calls.append(("stop_audio",))),
+        waveform_widget=SimpleNamespace(
+            set_playback_position=lambda position: calls.append(("set_playback_position", position))
+        ),
         _force_autoplay=False,
         _trim_autoplay_timer=SimpleNamespace(start=lambda: calls.append(("start_autoplay_timer",))),
         autoplay_checkbox=SimpleNamespace(isChecked=lambda: True),
@@ -467,6 +637,7 @@ def test_handle_moved_does_not_schedule_dialogue_line_expansion():
     assert ("sync", 1.25, 3.75) in calls
     assert ("update_expand_buttons",) in calls
     assert ("stop_audio",) in calls
+    assert ("set_playback_position", 1.25) in calls
     assert ("start_autoplay_timer",) in calls
     assert probe._force_autoplay is True
 

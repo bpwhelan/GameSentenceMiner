@@ -1,4 +1,5 @@
 import os
+import numpy as np
 import requests
 import sys
 import time
@@ -38,7 +39,7 @@ from GameSentenceMiner.util.gsm_utils import (
     sanitize_filename,
 )
 from GameSentenceMiner.util.media.audio_player import AudioPlayer
-from GameSentenceMiner.util.media.ffmpeg import get_audio_length, get_video_duration, trim_audio
+from GameSentenceMiner.util.media.ffmpeg import get_audio_length, get_video_duration, splice_audio, trim_audio
 
 
 # -------------------------------------------------------------------------
@@ -165,6 +166,7 @@ _anki_confirmation_dialog_instance = None
 
 AUTO_ADD_DIALOGUE_LINE_EPSILON_SECONDS = 0.05
 AUTO_ADD_DIALOGUE_LINE_DEBOUNCE_MS = 175
+AUDIO_PLAYBACK_END_EPSILON_SECONDS = 0.03
 CONFIRMATION_CANCEL_ACTION_KEY = "cancel_action"
 CONFIRMATION_CANCEL_ACTION_DELETE_CARD = "delete_card"
 EXIT_CHOICE_DISCARD = "discard"
@@ -199,6 +201,10 @@ class AnkiConfirmationDialog(QDialog):
         self._audio_edit_range = None
         self._audio_edit_rebase_on_selection_trim = False
         self._has_performed_audio_expand = False
+        self._playback_resume_position = None
+        self._playback_start_offset = 0.0
+        self._playback_cut_ranges = []
+        self._playing_full_audio = False
         self._replay_context = None
         self._dialog_selected_lines = []
         self._dialog_original_selected_line_ids = ()
@@ -447,6 +453,8 @@ class AnkiConfirmationDialog(QDialog):
         self.waveform_widget.range_changed.connect(lambda _s, _e: self._cancel_auto_accept())
         # Handle start/end handle moves specifically
         self.waveform_widget.handle_moved.connect(self._on_handle_moved)
+        self.waveform_widget.seek_requested.connect(self._seek_audio)
+        self.waveform_widget.cut_ranges_changed.connect(self._on_cut_ranges_changed)
         self.waveform_widget.expand_start_requested.connect(self._cancel_auto_accept)
         self.waveform_widget.expand_start_requested.connect(self._expand_audio_start)
         self.waveform_widget.expand_end_requested.connect(self._cancel_auto_accept)
@@ -466,13 +474,34 @@ class AnkiConfirmationDialog(QDialog):
         self.play_original_button.clicked.connect(lambda: self._play_audio(self.audio_path, full=True))
         audio_controls.addWidget(self.play_original_button)
 
-        self.reset_audio_button = QPushButton("Reset Trim")
+        self.cut_audio_button = QPushButton("✂ Add Cut")
+        self.cut_audio_button.setCheckable(True)
+        self.cut_audio_button.setToolTip(
+            "Select this, then drag over unwanted audio. You can also hold Shift and drag without selecting the button."
+        )
+        self.cut_audio_button.toggled.connect(self._toggle_cut_mode)
+        self.cut_audio_button.clicked.connect(self._cancel_auto_accept)
+        audio_controls.addWidget(self.cut_audio_button)
+
+        self.undo_audio_cut_button = QPushButton("Undo Cut")
+        self.undo_audio_cut_button.setToolTip("Restore the most recently marked section.")
+        self.undo_audio_cut_button.clicked.connect(self.waveform_widget.undo_last_cut)
+        self.undo_audio_cut_button.clicked.connect(self._cancel_auto_accept)
+        self.undo_audio_cut_button.setEnabled(False)
+        audio_controls.addWidget(self.undo_audio_cut_button)
+
+        self.reset_audio_button = QPushButton("Reset Edits")
         self.reset_audio_button.clicked.connect(self._reset_audio_trim)
         self.reset_audio_button.clicked.connect(self._cancel_auto_accept)
         audio_controls.addWidget(self.reset_audio_button)
 
         audio_controls.addStretch()
         audio_layout.addLayout(audio_controls)
+
+        self.cut_status_label = QLabel()
+        self.cut_status_label.setStyleSheet("color: #ffb3ad;")
+        self.cut_status_label.setVisible(False)
+        audio_layout.addWidget(self.cut_status_label)
 
         self.grid_layout.addWidget(audio_container, row, 1, 1, 2)
         row += 1
@@ -579,6 +608,11 @@ class AnkiConfirmationDialog(QDialog):
         self._audio_edit_range = None
         self._audio_edit_rebase_on_selection_trim = False
         self._has_performed_audio_expand = False
+        self._playback_resume_position = None
+        self._playback_start_offset = 0.0
+        self._playback_cut_ranges = []
+        self._playing_full_audio = False
+        self.cut_audio_button.setChecked(False)
         self._replay_context = gsm_state.current_replay_context
         self._dialog_selected_lines = self._dialogue_lines_from_context(self._replay_context)
         self._dialog_original_selected_line_ids = self._line_ids_for_dialogue(self._dialog_selected_lines)
@@ -828,6 +862,8 @@ class AnkiConfirmationDialog(QDialog):
         self._sync_audio_edit_selection_to_current_clip(start, end)
         self._update_audio_expand_buttons()
         if which == "start":
+            self._playback_resume_position = start
+            self.waveform_widget.set_playback_position(start)
             # Stop audio and force restart (debounced)
             self.audio_player.stop_audio()
             # Force autoplay even if checkbox is off, per user request
@@ -839,6 +875,46 @@ class AnkiConfirmationDialog(QDialog):
             # Logic in _update_playback_cursor will handle stopping if we pass the new end.
             if self.autoplay_checkbox.isChecked():
                 pass  # Explicitly ignore autoplay for end trim changes to avoid restarts
+
+    def _toggle_cut_mode(self, enabled):
+        self.waveform_widget.set_cut_mode(enabled)
+        self._update_cut_controls()
+
+    def _on_cut_ranges_changed(self, _cut_ranges):
+        self._cancel_auto_accept()
+        was_playing = self.audio_player.is_playing
+        current_position = self._current_source_playback_position()
+        if was_playing:
+            self.audio_player.stop_audio()
+            self.playback_timer.stop()
+
+        position = self._normalize_audio_seek_position(current_position)
+        self._playback_resume_position = position
+        self.waveform_widget.set_playback_position(position)
+        self._update_cut_controls()
+
+        if was_playing and position < self.waveform_widget.end_time:
+            self._start_range_playback(position)
+        else:
+            self._update_audio_buttons()
+
+    def _update_cut_controls(self):
+        cut_ranges = self.waveform_widget.get_cut_ranges()
+        cut_count = len(cut_ranges)
+        cut_duration = sum(end - start for start, end in cut_ranges)
+        is_selecting = self.cut_audio_button.isChecked()
+
+        self.cut_audio_button.setText("✂ Finish Cutting" if is_selecting else "✂ Add Cut")
+        self.undo_audio_cut_button.setEnabled(bool(cut_ranges))
+        if is_selecting:
+            status = "Drag over unwanted audio. Drag again to mark another section. Shift+drag also works anytime."
+        elif cut_count:
+            noun = "section" if cut_count == 1 else "sections"
+            status = f"{cut_count} {noun} marked ({cut_duration:.2f}s removed). Playback previews the edit."
+        else:
+            status = ""
+        self.cut_status_label.setText(status)
+        self.cut_status_label.setVisible(bool(status))
 
     def _center_on_screen(self):
         screen = QApplication.primaryScreen()
@@ -1000,6 +1076,22 @@ class AnkiConfirmationDialog(QDialog):
             status_text += " Card fields will use the expanded dialogue."
         self.dialogue_tools_status.setText(status_text)
 
+    def _set_audio_cut_controls_visible(self, visible):
+        cut_button = getattr(self, "cut_audio_button", None)
+        undo_button = getattr(self, "undo_audio_cut_button", None)
+        status_label = getattr(self, "cut_status_label", None)
+
+        if cut_button is not None:
+            cut_button.setVisible(visible)
+            if not visible and cut_button.isChecked():
+                cut_button.setChecked(False)
+        if undo_button is not None:
+            undo_button.setVisible(visible)
+        if status_label is not None and not visible:
+            status_label.setVisible(False)
+        if visible:
+            AnkiConfirmationDialog._update_cut_controls(self)
+
     def _refresh_audio_controls(self, sentence_text):
         if not self.audio_player.audio_available:
             self.audio_status_label.setText("⚠ No audio player available on this platform.")
@@ -1009,6 +1101,7 @@ class AnkiConfirmationDialog(QDialog):
             self.audio_button.setVisible(False)
             self.play_original_button.setVisible(False)
             self.reset_audio_button.setVisible(False)
+            AnkiConfirmationDialog._set_audio_cut_controls_visible(self, False)
             self._update_audio_expand_buttons(allow_buttons=False)
             self.tts_button.setVisible(False)
             self.tts_status_label.setVisible(False)
@@ -1025,6 +1118,7 @@ class AnkiConfirmationDialog(QDialog):
             self.audio_button.setVisible(False)
             self.play_original_button.setVisible(False)
             self.reset_audio_button.setVisible(False)
+            AnkiConfirmationDialog._set_audio_cut_controls_visible(self, False)
             self._update_audio_expand_buttons(allow_buttons=False)
             self.tts_button.setVisible(False)
             self.tts_status_label.setVisible(False)
@@ -1075,14 +1169,18 @@ class AnkiConfirmationDialog(QDialog):
                 self.audio_button.setVisible(False)
                 self.play_original_button.setVisible(False)
                 self.reset_audio_button.setVisible(False)
+                AnkiConfirmationDialog._set_audio_cut_controls_visible(self, False)
                 self._update_audio_expand_buttons(allow_buttons=False)
             else:
                 self.codec_info_label.setVisible(False)
                 self.waveform_widget.load_audio(self.audio_path)
                 self.waveform_widget.setVisible(True)
+                self._playback_resume_position = None
+                self._playing_full_audio = False
                 self.audio_button.setVisible(True)
                 self.play_original_button.setVisible(True)
                 self.reset_audio_button.setVisible(True)
+                AnkiConfirmationDialog._set_audio_cut_controls_visible(self, True)
                 self.audio_button.setText("▶ Play Range")
                 self.audio_button.setStyleSheet("")
                 self._update_audio_expand_buttons(allow_buttons=True)
@@ -1092,6 +1190,7 @@ class AnkiConfirmationDialog(QDialog):
             self.audio_button.setVisible(False)
             self.play_original_button.setVisible(False)
             self.reset_audio_button.setVisible(False)
+            AnkiConfirmationDialog._set_audio_cut_controls_visible(self, False)
             self._update_audio_expand_buttons(allow_buttons=False)
 
         show_tts = bool(
@@ -1297,6 +1396,77 @@ class AnkiConfirmationDialog(QDialog):
         return max(0.0, start_time - expand_start), min(duration, end_time + expand_end)
 
     @staticmethod
+    def _calculate_audio_keep_ranges(start_time, end_time, cut_ranges):
+        start_time = float(start_time)
+        end_time = max(start_time, float(end_time))
+        normalized_cuts = []
+        for cut_start, cut_end in sorted(cut_ranges):
+            cut_start = max(start_time, min(float(cut_start), end_time))
+            cut_end = max(start_time, min(float(cut_end), end_time))
+            if cut_end <= cut_start:
+                continue
+            if normalized_cuts and cut_start <= normalized_cuts[-1][1]:
+                normalized_cuts[-1] = (
+                    normalized_cuts[-1][0],
+                    max(normalized_cuts[-1][1], cut_end),
+                )
+            else:
+                normalized_cuts.append((cut_start, cut_end))
+
+        keep_ranges = []
+        cursor = start_time
+        for cut_start, cut_end in normalized_cuts:
+            if cut_start > cursor:
+                keep_ranges.append((cursor, cut_start))
+            cursor = max(cursor, cut_end)
+        if cursor < end_time:
+            keep_ranges.append((cursor, end_time))
+        return keep_ranges
+
+    @staticmethod
+    def _build_audio_preview_data(data, samplerate, start_position, cut_ranges):
+        if data is None or samplerate <= 0:
+            return None
+
+        data = np.asarray(data)
+        duration = len(data) / samplerate
+        keep_ranges = AnkiConfirmationDialog._calculate_audio_keep_ranges(
+            start_position,
+            duration,
+            cut_ranges,
+        )
+        segments = [
+            data[int(start * samplerate) : int(end * samplerate)]
+            for start, end in keep_ranges
+            if int(end * samplerate) > int(start * samplerate)
+        ]
+        if not segments:
+            return np.empty((0, *data.shape[1:]), dtype=data.dtype)
+        if len(segments) == 1:
+            return segments[0]
+        return np.concatenate(segments, axis=0)
+
+    @staticmethod
+    def _source_position_for_preview_elapsed(start_position, elapsed, cut_ranges):
+        source_position = float(start_position) + max(0.0, float(elapsed))
+        merged_cuts = []
+        for cut_start, cut_end in sorted(cut_ranges):
+            cut_start = float(cut_start)
+            cut_end = float(cut_end)
+            if cut_end <= start_position or cut_end <= cut_start:
+                continue
+            cut_start = max(float(start_position), cut_start)
+            if merged_cuts and cut_start <= merged_cuts[-1][1]:
+                merged_cuts[-1] = (merged_cuts[-1][0], max(merged_cuts[-1][1], cut_end))
+            else:
+                merged_cuts.append((cut_start, cut_end))
+
+        for cut_start, cut_end in merged_cuts:
+            if source_position >= cut_start:
+                source_position += cut_end - cut_start
+        return source_position
+
+    @staticmethod
     def _audio_edit_context_value(context, key, default=None):
         if isinstance(context, dict):
             return context.get(key, default)
@@ -1407,9 +1577,14 @@ class AnkiConfirmationDialog(QDialog):
 
         self.audio_player.stop_audio()
         self.playback_timer.stop()
-        self.waveform_widget.set_playback_position(-1)
         self.waveform_widget.start_time = selection_start
         self.waveform_widget.end_time = selection_end
+        self.waveform_widget.set_cut_ranges(
+            self.waveform_widget.get_cut_ranges(),
+            clear_history=False,
+        )
+        self._playback_resume_position = selection_start
+        self.waveform_widget.set_playback_position(selection_start)
         self._sync_audio_edit_selection_to_current_clip(selection_start, selection_end)
         self._update_audio_buttons()
         self._update_audio_expand_buttons()
@@ -1446,6 +1621,9 @@ class AnkiConfirmationDialog(QDialog):
         orig_ext = os.path.splitext(self._audio_edit_source_path)[1] or ".wav"
         filename = f"{game_name}_manual_audio_expand_{int(time.time())}{orig_ext}"
         new_path = make_unique_file_name(os.path.join(get_temporary_directory(), filename))
+        previous_cut_ranges = self.waveform_widget.get_cut_ranges()
+        previous_window = self._audio_edit_source_window
+        previous_clip_duration = float(self.waveform_widget.duration or 0.0)
 
         trim_audio(
             input_audio=self._audio_edit_source_path,
@@ -1459,13 +1637,13 @@ class AnkiConfirmationDialog(QDialog):
 
         self.audio_player.stop_audio()
         self.playback_timer.stop()
-        self.waveform_widget.set_playback_position(-1)
         self.audio_path = new_path
         self.waveform_widget.load_audio(self.audio_path)
         self.waveform_widget.setVisible(True)
         self.audio_button.setVisible(True)
         self.play_original_button.setVisible(True)
         self.reset_audio_button.setVisible(True)
+        self._set_audio_cut_controls_visible(True)
         self._audio_edit_source_window = (start_time, end_time)
         clip_duration = float(self.waveform_widget.duration or 0.0)
         if selection_end is None:
@@ -1474,8 +1652,31 @@ class AnkiConfirmationDialog(QDialog):
         selection_end = max(selection_start, min(float(selection_end), clip_duration))
         self.waveform_widget.start_time = selection_start
         self.waveform_widget.end_time = selection_end
+        remapped_cut_ranges = []
+        if previous_window and previous_clip_duration > 0:
+            previous_window_start, previous_window_end = previous_window
+            previous_window_duration = previous_window_end - previous_window_start
+            scale = previous_window_duration / previous_clip_duration
+            for cut_start, cut_end in previous_cut_ranges:
+                if self._audio_edit_rebase_on_selection_trim:
+                    absolute_cut_start = previous_window_start + cut_start * scale
+                    absolute_cut_end = previous_window_start + cut_end * scale
+                else:
+                    absolute_cut_start = previous_window_start + cut_start
+                    absolute_cut_end = previous_window_start + cut_end
+                remapped_cut_ranges.append(
+                    (
+                        absolute_cut_start - start_time,
+                        absolute_cut_end - start_time,
+                    )
+                )
+        self.waveform_widget.set_cut_ranges(remapped_cut_ranges)
+        self._playback_resume_position = selection_start
+        self._playing_full_audio = False
+        self.waveform_widget.set_playback_position(selection_start)
         self._sync_audio_edit_selection_to_current_clip(selection_start, selection_end)
         self._update_audio_buttons()
+        self._update_cut_controls()
         self._update_audio_expand_buttons()
         self.waveform_widget.update()
 
@@ -1550,7 +1751,12 @@ class AnkiConfirmationDialog(QDialog):
 
     def _play_audio(self, audio_path, full=False):
         if self.audio_player.is_playing:
+            position = self._current_source_playback_position()
             self.audio_player.stop_audio()
+            self.playback_timer.stop()
+            self._playback_resume_position = self._normalize_audio_seek_position(position)
+            self.waveform_widget.set_playback_position(self._playback_resume_position)
+            self._playing_full_audio = False
             self._update_audio_buttons()
             return
 
@@ -1561,6 +1767,8 @@ class AnkiConfirmationDialog(QDialog):
         # Reset offset for full playback
         if full:
             self._playback_start_offset = 0.0
+            self._playback_cut_ranges = []
+            self._playing_full_audio = True
 
         try:
             if get_config().advanced.audio_player_path:
@@ -1576,6 +1784,7 @@ class AnkiConfirmationDialog(QDialog):
             else:
                 success = self.audio_player.play_audio_file(audio_path)
                 if success:
+                    self.waveform_widget.set_playback_position(self._playback_start_offset)
                     self._update_audio_buttons()
                     self.playback_timer.start()
         except Exception as e:
@@ -1583,18 +1792,39 @@ class AnkiConfirmationDialog(QDialog):
 
     def _play_range(self):
         if self.audio_player.is_playing:
+            position = self._current_source_playback_position()
             self.audio_player.stop_audio()
+            self.playback_timer.stop()
+            self._playback_resume_position = self._normalize_audio_seek_position(position)
+            self.waveform_widget.set_playback_position(self._playback_resume_position)
+            self._playing_full_audio = False
             self._update_audio_buttons()
             return
 
+        start, end = self.waveform_widget.get_selection_range()
+        start_position = self._playback_resume_position
+        if (
+            start_position is None
+            or not start <= start_position < end
+            or (start_position > start and end - start_position <= AUDIO_PLAYBACK_END_EPSILON_SECONDS)
+        ):
+            start_position = start
+        self._start_range_playback(start_position)
+
+    def _start_range_playback(self, start_position):
         if not self.audio_path or not os.path.isfile(self.audio_path):
             return
 
-        # Stop any existing playback (already handled by check above but for safety)
         self.audio_player.stop_audio()
         self.playback_timer.stop()
 
         start, end = self.waveform_widget.get_selection_range()
+        start_position = self._normalize_audio_seek_position(start_position)
+        if start_position >= end:
+            self._playback_resume_position = start_position
+            self.waveform_widget.set_playback_position(start_position)
+            self._update_audio_buttons()
+            return
 
         # Get data from widget directly to avoid reloading
         if self.waveform_widget.audio_data is None:
@@ -1606,48 +1836,100 @@ class AnkiConfirmationDialog(QDialog):
         if data is None:
             return
 
-        # Slice data with small padding at the end to prevent premature cutoff
-        start_sample = int(start * sr)
-        # We play until the end of the file to allow dynamic extension of the end handle
-        # The _update_playback_cursor method handles stopping at the specific end time
-        end_sample = len(data)
+        cut_ranges = self.waveform_widget.get_cut_ranges()
+        preview_data = self._build_audio_preview_data(data, sr, start_position, cut_ranges)
+        if preview_data is None or len(preview_data) == 0:
+            return
 
-        if start_sample >= len(data):
-            start_sample = 0
-
-        sliced_data = data[start_sample:end_sample]
-
-        success = self.audio_player.play_audio_data(sliced_data, sr)
+        success = self.audio_player.play_audio_data(preview_data, sr)
         if success:
+            self._playback_start_offset = start_position
+            self._playback_cut_ranges = cut_ranges
+            self._playback_resume_position = start_position
+            self._playing_full_audio = False
+            self.waveform_widget.set_playback_position(start_position)
             self._update_audio_buttons()
             self.playback_timer.start()
-            # Store start offset for cursor calculation
-            self._playback_start_offset = start
+
+    def _normalize_audio_seek_position(self, position):
+        start, end = self.waveform_widget.get_selection_range()
+        position = max(start, min(float(position), end))
+        for cut_start, cut_end in self.waveform_widget.get_cut_ranges():
+            if cut_start <= position < cut_end:
+                position = cut_end
+        return min(position, end)
+
+    def _current_source_playback_position(self):
+        if not self.audio_player.is_playing:
+            position = self._playback_resume_position
+            if position is None:
+                position = self.waveform_widget.start_time
+            return float(position)
+
+        elapsed = self.audio_player.get_current_time()
+        if self._playing_full_audio:
+            return self._playback_start_offset + elapsed
+        return self._source_position_for_preview_elapsed(
+            self._playback_start_offset,
+            elapsed,
+            self._playback_cut_ranges,
+        )
+
+    def _seek_audio(self, position):
+        self._cancel_auto_accept()
+        was_playing = self.audio_player.is_playing
+        if was_playing:
+            self.audio_player.stop_audio()
+            self.playback_timer.stop()
+
+        position = self._normalize_audio_seek_position(position)
+        self._playback_resume_position = position
+        self._playing_full_audio = False
+        self.waveform_widget.set_playback_position(position)
+        self._update_audio_buttons()
+
+        if was_playing and position < self.waveform_widget.end_time:
+            self._start_range_playback(position)
 
     def _update_playback_cursor(self):
         if self.audio_player.is_playing:
-            current_time = self.audio_player.get_current_time()
-            offset = getattr(self, "_playback_start_offset", 0.0)
-            absolute_pos = offset + current_time
+            absolute_pos = self._current_source_playback_position()
+            self._playback_resume_position = absolute_pos
             self.waveform_widget.set_playback_position(absolute_pos)
 
-            # Check if we've exceeded the end trim
-            # Add a small buffer/epsilon if needed, but strict check is usually fine
-            if absolute_pos > self.waveform_widget.end_time:
+            if not self._playing_full_audio and absolute_pos >= self.waveform_widget.end_time:
                 self.audio_player.stop_audio()
+                self.playback_timer.stop()
+                self._playback_resume_position = self.waveform_widget.start_time
+                self.waveform_widget.set_playback_position(self._playback_resume_position)
                 self._update_audio_buttons()
         else:
             self.playback_timer.stop()
-            self.waveform_widget.set_playback_position(-1)
+            resume_position = self._playback_resume_position
+            if (
+                resume_position is not None
+                and resume_position > self.waveform_widget.start_time
+                and self.waveform_widget.end_time - resume_position <= AUDIO_PLAYBACK_END_EPSILON_SECONDS
+            ):
+                self._playback_resume_position = self.waveform_widget.start_time
+                self.waveform_widget.set_playback_position(self._playback_resume_position)
             self._update_audio_buttons()
 
     def _reset_audio_trim(self):
         if self.waveform_widget.audio_data is not None:
+            self.audio_player.stop_audio()
+            self.playback_timer.stop()
+            self.cut_audio_button.setChecked(False)
             self.waveform_widget.start_time = 0.0
             self.waveform_widget.end_time = self.waveform_widget.duration
+            self.waveform_widget.clear_cut_ranges()
+            self._playback_resume_position = 0.0
+            self._playing_full_audio = False
+            self.waveform_widget.set_playback_position(0.0)
             self._sync_audio_edit_selection_to_current_clip(0.0, self.waveform_widget.duration)
             self.waveform_widget.range_changed.emit(0.0, self.waveform_widget.duration)
             self._update_audio_expand_buttons()
+            self._update_audio_buttons()
             self.waveform_widget.update()
 
     def _save_trimmed_audio(self):
@@ -1657,10 +1939,11 @@ class AnkiConfirmationDialog(QDialog):
         # Check if trimmed
         start, end = self.waveform_widget.get_selection_range()
         duration = self.waveform_widget.duration
+        cut_ranges = self.waveform_widget.get_cut_ranges()
         self._sync_audio_edit_selection_to_current_clip(start, end)
 
         # Tolerance for float comparison
-        if abs(start) < 0.01 and abs(end - duration) < 0.01:
+        if abs(start) < 0.01 and abs(end - duration) < 0.01 and not cut_ranges:
             return self.audio_path  # No significant trim
 
         game_name = sanitize_filename(gsm_state.current_game) if gsm_state.current_game else "trimmed"
@@ -1672,16 +1955,27 @@ class AnkiConfirmationDialog(QDialog):
         new_path = make_unique_file_name(os.path.join(get_temporary_directory(), filename))
 
         try:
-            # Use ffmpeg wrapper to trim which handles formats properly
-            trim_audio(
-                input_audio=self.audio_path,
-                start_time=start,
-                end_time=end,
-                output_audio=new_path,
-                trim_beginning=True,
-                fade_in_duration=0.05,
-                fade_out_duration=0.05,
-            )
+            if cut_ranges:
+                keep_ranges = self._calculate_audio_keep_ranges(start, end, cut_ranges)
+                if not keep_ranges:
+                    raise RuntimeError("Audio edits would remove the entire selected range.")
+                splice_audio(
+                    input_audio=self.audio_path,
+                    output_audio=new_path,
+                    keep_ranges=keep_ranges,
+                    fade_duration=0.05,
+                )
+            else:
+                # Use ffmpeg wrapper to trim which handles formats properly
+                trim_audio(
+                    input_audio=self.audio_path,
+                    start_time=start,
+                    end_time=end,
+                    output_audio=new_path,
+                    trim_beginning=True,
+                    fade_in_duration=0.05,
+                    fade_out_duration=0.05,
+                )
             return new_path
         except Exception as e:
             logger.error(f"Failed to save trimmed audio: {e}")
@@ -1689,7 +1983,9 @@ class AnkiConfirmationDialog(QDialog):
 
     def _audio_finished(self):
         self.playback_timer.stop()
-        self.waveform_widget.set_playback_position(-1)
+        self._playing_full_audio = False
+        self._playback_resume_position = self.waveform_widget.start_time
+        self.waveform_widget.set_playback_position(self._playback_resume_position)
         self.audio_finished_signal.emit()
 
     def _update_audio_buttons(self):
@@ -1744,6 +2040,9 @@ class AnkiConfirmationDialog(QDialog):
             self.waveform_widget.setVisible(True)
             self.play_original_button.setVisible(True)
             self.reset_audio_button.setVisible(True)
+            self._set_audio_cut_controls_visible(True)
+            self._playback_resume_position = None
+            self._playing_full_audio = False
             self._audio_edit_context = None
             self._audio_edit_source_path = None
             self._audio_edit_source_duration = 0.0
