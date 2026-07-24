@@ -34,6 +34,46 @@ def _run_overlay_config_message(monkeypatch, message, *, sync_recycled=True):
     return current_config, saved_configs, sent_messages
 
 
+def _capture_overlay_scan_call(monkeypatch, source):
+    scan_calls = []
+
+    def fake_scan(*args, **kwargs):
+        scan_calls.append((args, kwargs))
+
+        async def completed_scan():
+            return None
+
+        return completed_scan()
+
+    class FakeFuture:
+        def add_done_callback(self, callback):
+            return None
+
+    def fake_run_coroutine_threadsafe(coroutine, loop):
+        coroutine.close()
+        return FakeFuture()
+
+    processor = SimpleNamespace(
+        processing_loop=SimpleNamespace(is_running=lambda: True),
+        find_box_and_send_to_overlay=fake_scan,
+    )
+    monkeypatch.setattr(overlay_handler_module, "get_overlay_processor", lambda: processor)
+    monkeypatch.setattr(overlay_handler_module.asyncio, "run_coroutine_threadsafe", fake_run_coroutine_threadsafe)
+
+    handler = overlay_handler_module.OverlayRequestHandler()
+    asyncio.run(
+        handler.handle_message(
+            json.dumps(
+                {
+                    "type": "manual-overlay-scan-request",
+                    "source": source,
+                }
+            )
+        )
+    )
+    return scan_calls
+
+
 def test_overlay_recycled_indicator_setting_saves_and_broadcasts_full_subset(monkeypatch):
     current_config, saved_configs, sent_messages = _run_overlay_config_message(
         monkeypatch,
@@ -73,6 +113,7 @@ def test_overlay_config_accepts_batch_with_coercion(monkeypatch):
             "settings": {
                 "minimum_character_size": "12",
                 "periodic": True,
+                "scan_on_overlay_activation": "true",
                 "engine_v2": "lens",
             },
         },
@@ -80,9 +121,11 @@ def test_overlay_config_accepts_batch_with_coercion(monkeypatch):
 
     assert current_config.overlay.minimum_character_size == 12
     assert current_config.overlay.periodic is True
+    assert current_config.overlay.scan_on_overlay_activation is True
     assert current_config.overlay.engine_v2 == "lens"
     assert saved_configs  # saved once
     assert len(sent_messages) == 1
+    assert sent_messages[0][1]["settings"]["scan_on_overlay_activation"] is True
 
 
 def test_overlay_config_applies_runtime_monitor_identity_before_saving(monkeypatch):
@@ -198,6 +241,36 @@ def test_send_click_request_ignored_without_target_window(monkeypatch):
     asyncio.run(handler.handle_message(json.dumps({"type": "send-click-request"})))
 
     assert calls == []
+
+
+def test_overlay_activation_scan_requests_95_percent_dedupe(monkeypatch):
+    scan_calls = _capture_overlay_scan_call(monkeypatch, "overlay-activation:push-to-show")
+
+    assert scan_calls == [
+        (
+            (),
+            {
+                "source": overlay_handler_module.TextSource.HOTKEY,
+                "check_against_last": True,
+                "custom_threshold": 0.95,
+            },
+        )
+    ]
+
+
+def test_explicit_overlay_scan_does_not_enable_activation_dedupe(monkeypatch):
+    scan_calls = _capture_overlay_scan_call(monkeypatch, "gamepad")
+
+    assert scan_calls == [
+        (
+            (),
+            {
+                "source": overlay_handler_module.TextSource.HOTKEY,
+                "check_against_last": False,
+                "custom_threshold": None,
+            },
+        )
+    ]
 
 
 def test_overlay_config_ignores_invalid_value(monkeypatch):

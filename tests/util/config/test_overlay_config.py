@@ -16,9 +16,22 @@ def test_overlay_ocr_area_subset_defaults_preserve_existing_behavior():
     overlay = Overlay()
 
     assert overlay.use_overlay_area_config is False
+    assert overlay.scan_on_overlay_activation is False
     assert overlay.ocr_area_config_include_primary_areas is True
     assert overlay.ocr_area_config_include_secondary_areas is True
     assert overlay.ocr_area_config_use_exclusion_zones is True
+
+
+def test_overlay_scan_on_activation_round_trip_and_backward_compatibility():
+    overlay = Overlay(scan_on_overlay_activation=True)
+    data = overlay.to_dict()
+
+    assert data["scan_on_overlay_activation"] is True
+    assert Overlay.from_dict(data).scan_on_overlay_activation is True
+
+    data_without_field = dict(data)
+    data_without_field.pop("scan_on_overlay_activation", None)
+    assert Overlay.from_dict(data_without_field).scan_on_overlay_activation is False
 
 
 def test_overlay_use_ocr_result_round_trip_and_backward_compatibility():

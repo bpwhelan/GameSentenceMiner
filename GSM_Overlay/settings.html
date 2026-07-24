@@ -1667,6 +1667,18 @@
         <span class="label-text">Minimum Character Size (0 = disabled)</span>
         <input type="number" id="minimum_character_size" value="0" min="0" max="500" />
       </label>
+      <label>
+        <span class="label-text">
+          Scan on Overlay Activation
+          <div class="hotkey-info">
+            Run a fresh overlay scan when entering Push to Show or controller navigation, or when reopening the main
+            text box. The text event &rarr; overlay scan remains preferred for mining; extra scans stay out of the text
+            log unless Add Scanned Lines is enabled. Results at least 95% similar to the last overlay scan are not
+            resent.
+          </div>
+        </span>
+        <input type="checkbox" id="scan_on_overlay_activation" />
+      </label>
     </div>
 
     <div class="setting-group" data-tab="capture">
@@ -3626,6 +3638,7 @@
         max: 500,
         integer: true,
       }),
+      createCheckboxBinding("scan_on_overlay_activation", "#scan_on_overlay_activation"),
       createCheckboxBinding("periodic", "#periodic"),
       createNumberBinding("periodic_interval", "#periodic_interval", {
         fallback: 1,
@@ -3822,7 +3835,6 @@
         afterApply: () => syncDisableInteractionSubOptionsUi(),
       }),
       createCheckboxBinding("manualModeDisableInteractionFocusOverlay", "#manualModeDisableInteractionFocusOverlay"),
-      createCheckboxBinding("manualModeRescanOnShow", "#manualModeRescanOnShow"),
       createHotkeyBinding("showHotkey", "#showHotkey", {
         afterApply: () => syncManualHotkeyStatusUi(),
       }),

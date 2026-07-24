@@ -1504,6 +1504,7 @@ class Overlay:
     periodic_interval: float = 1.0
     periodic_ratio: float = 0.9
     scan_on_mouse_move: bool = True  # only scan on a periodic tick when the cursor moved and is over the game window
+    scan_on_overlay_activation: bool = False  # scan when Push to Show/navigation makes the overlay interactive
     inject_scanned_lines: bool = False  # not recommended: persist overlay scans to the log (pollutes stats/texthooker)
     minimum_character_size: int = 0
     use_overlay_area_config: bool = False
@@ -1584,6 +1585,7 @@ GSM_OWNED_OVERLAY_FIELDS: Dict[str, GsmOwnedOverlayField] = {
     "periodic_interval": GsmOwnedOverlayField("periodic_interval", float),
     "periodic_ratio": GsmOwnedOverlayField("periodic_ratio", float),
     "scan_on_mouse_move": GsmOwnedOverlayField("scan_on_mouse_move", _coerce_overlay_bool),
+    "scan_on_overlay_activation": GsmOwnedOverlayField("scan_on_overlay_activation", _coerce_overlay_bool),
     "inject_scanned_lines": GsmOwnedOverlayField("inject_scanned_lines", _coerce_overlay_bool),
     "minimum_character_size": GsmOwnedOverlayField("minimum_character_size", int),
     "use_ocr_result_v2": GsmOwnedOverlayField("use_ocr_result_v2", _coerce_overlay_bool),

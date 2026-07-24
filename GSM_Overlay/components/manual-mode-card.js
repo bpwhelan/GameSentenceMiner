@@ -335,13 +335,6 @@
     <div id="manual-hotkey-runtime-warning" class="hotkey-info" style="color: #ff6b6b; font-size: 10px; display: none;"></div>
     <label>
       <span class="label-text">
-        Re-Scan When Showing Overlay
-        <div class="hotkey-info">Trigger the same backend scan used by GSM's manual overlay scan actions</div>
-      </span>
-      <input type="checkbox" id="manualModeRescanOnShow" />
-    </label>
-    <label>
-      <span class="label-text">
         Hotkey
         <div class="hotkey-info">Used for the selected Push to Show type above</div>
         <div class="hotkey-info" style="color: #4CAF50; font-size: 10px;">Click input and press your desired key (modifiers optional)</div>
@@ -375,7 +368,6 @@
     const inactiveBehavior = get("manualModeInactiveBehavior");
     const focusOverlayLabel = get("manualModeDisableInteractionFocusOverlayLabel");
     const focusOverlayCheckbox = get("manualModeDisableInteractionFocusOverlay");
-    const rescanOnShow = get("manualModeRescanOnShow");
     const showHotkey = get("showHotkey");
     const statusEl = get("manualHotkeyBackendStatus");
     const platformWarn = get("manual-hotkey-platform-warning");
@@ -413,7 +405,6 @@
     if (manualModeType) manualModeType.value = normalizeManualModeType(initial.manualModeType);
     if (inactiveBehavior) inactiveBehavior.value = normalizeManualModeInactiveBehavior(initial.manualModeInactiveBehavior);
     if (focusOverlayCheckbox) focusOverlayCheckbox.checked = !!initial.manualModeDisableInteractionFocusOverlay;
-    if (rescanOnShow) rescanOnShow.checked = !!initial.manualModeRescanOnShow;
     if (showHotkey && typeof initial.showHotkey === "string" && initial.showHotkey) {
       showHotkey.value = initial.showHotkey;
     }
@@ -445,9 +436,6 @@
         onChange("manualModeDisableInteractionFocusOverlay", focusOverlayCheckbox.checked)
       );
     }
-    if (rescanOnShow) {
-      rescanOnShow.addEventListener("change", () => onChange("manualModeRescanOnShow", rescanOnShow.checked));
-    }
     if (showHotkey) {
       attachHotkeyCapture(showHotkey, {
         showCtrlWarning: true,
@@ -473,9 +461,6 @@
         }
         if ("manualModeDisableInteractionFocusOverlay" in partial && focusOverlayCheckbox) {
           focusOverlayCheckbox.checked = !!partial.manualModeDisableInteractionFocusOverlay;
-        }
-        if ("manualModeRescanOnShow" in partial && rescanOnShow) {
-          rescanOnShow.checked = !!partial.manualModeRescanOnShow;
         }
         if ("showHotkey" in partial && showHotkey && typeof partial.showHotkey === "string" && partial.showHotkey) {
           showHotkey.value = partial.showHotkey;

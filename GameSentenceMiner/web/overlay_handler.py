@@ -25,6 +25,9 @@ from GameSentenceMiner.web.gsm_websocket import (
     websocket_manager,
 )
 
+OVERLAY_ACTIVATION_SOURCE_PREFIX = "overlay-activation:"
+OVERLAY_ACTIVATION_DEDUPE_THRESHOLD = 0.95
+
 
 class OverlayRequestHandler:
     """Handles requests from the overlay, such as translation requests."""
@@ -165,9 +168,14 @@ class OverlayRequestHandler:
                 logger.warning(f"Overlay loop not ready yet; ignoring manual overlay scan request (source={source}).")
                 return
 
+            is_activation_scan = source.startswith(OVERLAY_ACTIVATION_SOURCE_PREFIX)
             logger.info(f"Manually triggering overlay scan via overlay request (source={source}).")
             future = asyncio.run_coroutine_threadsafe(
-                overlay_processor.find_box_and_send_to_overlay(source=TextSource.HOTKEY),
+                overlay_processor.find_box_and_send_to_overlay(
+                    source=TextSource.HOTKEY,
+                    check_against_last=is_activation_scan,
+                    custom_threshold=OVERLAY_ACTIVATION_DEDUPE_THRESHOLD if is_activation_scan else None,
+                ),
                 loop,
             )
 

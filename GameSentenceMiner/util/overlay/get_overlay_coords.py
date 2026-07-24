@@ -1932,6 +1932,32 @@ class OverlayProcessor:
 
         return full_screenshot, off_x, off_y, monitor_width, monitor_height
 
+    @staticmethod
+    def _overlay_text_similarity(previous_text: Optional[str], current_text: Optional[str]) -> float:
+        if not previous_text or not current_text:
+            return 0.0
+
+        normalized_previous = normalize_text_for_comparison(previous_text)
+        normalized_current = normalize_text_for_comparison(current_text)
+        if not normalized_previous or not normalized_current:
+            return 0.0
+        return fuzz.ratio(normalized_previous, normalized_current)
+
+    @classmethod
+    def _should_skip_similar_overlay_text(
+        cls,
+        previous_text: Optional[str],
+        current_text: Optional[str],
+        similarity_threshold: float,
+    ) -> bool:
+        if not previous_text or not current_text:
+            return False
+        try:
+            threshold = max(0.0, min(float(similarity_threshold), 1.0)) * 100
+        except (TypeError, ValueError):
+            return False
+        return cls._overlay_text_similarity(previous_text, current_text) >= threshold
+
     async def _do_work(
         self,
         line: "GameLine" = None,
@@ -2113,18 +2139,24 @@ class OverlayProcessor:
                     and self.last_oneocr_result
                     and self.last_oneocr_result in text_str
                 )
-                if self.last_oneocr_result and check_against_last and not text_grew:
+                if self.last_oneocr_result and check_against_last:
                     op_start = time.time()
-                    # Quick length check optimization before fuzzy matching
-                    if abs(len(text_str) - len(self.last_oneocr_result)) > 5:
-                        score = 0
-                    else:
-                        if custom_threshold is not None:
-                            score = fuzz.ratio(text_str, self.last_oneocr_result)
-                            threshold = custom_threshold * 100
-                            if score >= threshold:
-                                logger.display(f"Skipping update: ratio {score}% >= {threshold}%")
-                                return
+                    if custom_threshold is not None:
+                        score = self._overlay_text_similarity(self.last_oneocr_result, text_str)
+                        threshold = custom_threshold * 100
+                        if self._should_skip_similar_overlay_text(
+                            self.last_oneocr_result,
+                            text_str,
+                            custom_threshold,
+                        ):
+                            logger.debug(
+                                f"Skipping activation update: full-result ratio {score:.1f}% >= {threshold:.1f}%"
+                            )
+                            return
+                    elif not text_grew:
+                        # Quick length check optimization before fuzzy matching
+                        if abs(len(text_str) - len(self.last_oneocr_result)) > 5:
+                            score = 0
                         else:
                             score = fuzz.ratio(text_str, self.last_oneocr_result)
                             if score >= get_config().overlay.periodic_ratio * 100:
@@ -2301,10 +2333,14 @@ class OverlayProcessor:
         if self.last_lens_result and check_against_last:
             op_start = time.time()
             if custom_threshold is not None:
-                score = fuzz.partial_ratio(text_str, self.last_lens_result)
+                score = self._overlay_text_similarity(self.last_lens_result, text_str)
                 threshold = custom_threshold * 100
-                if score >= threshold:
-                    logger.debug(f"Skipping Lens update: partial_ratio {score}% >= {threshold}%")
+                if self._should_skip_similar_overlay_text(
+                    self.last_lens_result,
+                    text_str,
+                    custom_threshold,
+                ):
+                    logger.debug(f"Skipping Lens activation update: full-result ratio {score:.1f}% >= {threshold:.1f}%")
                     return
             else:
                 score = fuzz.ratio(text_str, self.last_lens_result)

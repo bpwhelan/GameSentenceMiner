@@ -283,6 +283,7 @@ const GSM_OWNED_OVERLAY_FIELD_MAP = {
   periodic_interval: "periodic_interval",
   periodic_ratio: "periodic_ratio",
   scan_on_mouse_move: "scan_on_mouse_move",
+  scan_on_overlay_activation: "scan_on_overlay_activation",
   inject_scanned_lines: "inject_scanned_lines",
   minimum_character_size: "minimum_character_size",
   use_ocr_result_v2: "use_ocr_result_v2",
@@ -733,7 +734,6 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "manualModeType": "hold",
   "manualModeInactiveBehavior": MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY,
   "manualModeDisableInteractionFocusOverlay": false,
-  "manualModeRescanOnShow": false,
   "showHotkey": DEFAULT_MANUAL_HOTKEY,
   "toggleFuriganaHotkey": "Alt+F",
   "toggleWindowHotkey": "Alt+Shift+H",
@@ -861,6 +861,7 @@ const CONFIGURED_HOTKEY_SETTING_KEYS = Object.freeze([
 const CONFIGURED_HOTKEY_SETTING_KEY_SET = new Set(CONFIGURED_HOTKEY_SETTING_KEYS);
 
 let userSettings = { ...DEFAULT_USER_SETTINGS, [OVERLAY_PROFILE_SETTINGS_KEY]: {} };
+let shouldMigrateLegacyOverlayActivationScan = false;
 let reconfigureOverlayRuntimeForSettingsChange = () => {};
 let liveStatsVisibilityMode = "all";
 
@@ -1862,8 +1863,8 @@ const manualHotkeyController = createManualHotkeyController({
       }
 
       const shown = showOverlayUsingManualFlow(`ManualHotkey ${meta.reason}`, OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
-      if (shown && userSettings.manualModeRescanOnShow) {
-        requestManualOverlayScan("manual-mode-enter");
+      if (shown) {
+        requestOverlayScanForActivation("push-to-show");
       }
       return;
     }
@@ -3245,7 +3246,6 @@ function buildManualModeRecommendationPayload(game) {
       manualMode: userSettings.manualMode,
       manualModeType: userSettings.manualModeType,
       manualModeInactiveBehavior: userSettings.manualModeInactiveBehavior,
-      manualModeRescanOnShow: userSettings.manualModeRescanOnShow,
       showHotkey: userSettings.showHotkey,
     },
     runtimeState: {
@@ -3723,12 +3723,16 @@ function requestGamepadNavigationToggleFromMain(source = "unknown") {
 
 function setGamepadNavigationModeActive(active, triggerSource = "unknown", options = {}) {
   const nextActive = !!active;
+  const wasActive = !!gamepadNavigationActive;
   const shouldFocusOverlay = options && options.focusOverlay === true;
   const keepGamepadActivationFocusNeutral =
     nextActive && isManualMode() && shouldKeepOverlayVisibleWhenManualInactive();
   gamepadNavigationActive = nextActive;
 
   if (nextActive) {
+    if (!wasActive) {
+      requestOverlayScanForActivation("controller-navigation");
+    }
     gamepadReleaseRecoveryVersion += 1;
     if (isManualMode()) {
       showOverlayUsingManualFlow(`Gamepad ${triggerSource} Activate`, OVERLAY_PAUSE_SOURCE_GAMEPAD_NAVIGATION);
@@ -3851,6 +3855,23 @@ if (hasPersistedOverlaySettings) {
       throw new TypeError("settings.json must contain a JSON object");
     }
     userSettings = { ...DEFAULT_USER_SETTINGS, ...userSettings, ...oldUserSettings };
+
+    // Consolidate the old Push-to-Show-only toggle into the GSM-owned activation
+    // setting. Only carry it forward when the new config key does not exist yet,
+    // so an explicit value in config.json always wins.
+    if (Object.prototype.hasOwnProperty.call(oldUserSettings, "manualModeRescanOnShow")) {
+      const gsmOverlaySettings = getGSMOverlaySettings();
+      if (
+        oldUserSettings.manualModeRescanOnShow === true &&
+        !Object.prototype.hasOwnProperty.call(gsmOverlaySettings, "scan_on_overlay_activation")
+      ) {
+        userSettings.scan_on_overlay_activation = true;
+        shouldMigrateLegacyOverlayActivationScan = true;
+      }
+      delete userSettings.manualModeRescanOnShow;
+      shouldPersistOverlaySettings = true;
+    }
+
     const normalizedManualModeType = normalizeManualModeType(userSettings.manualModeType);
     if (userSettings.manualModeType !== normalizedManualModeType) {
       userSettings.manualModeType = normalizedManualModeType;
@@ -4562,6 +4583,13 @@ function requestManualOverlayScan(source = "overlay") {
   });
   console.log(`[OverlayScan] Manual overlay scan requested (source=${safeSource})`);
   return true;
+}
+
+function requestOverlayScanForActivation(source) {
+  if (userSettings.scan_on_overlay_activation !== true) {
+    return false;
+  }
+  return requestManualOverlayScan(`overlay-activation:${String(source || "unknown")}`);
 }
 
 // Ask main (gsm.py) to capture + send the manual-mode desktop background. Must be called
@@ -6486,6 +6514,10 @@ async function startOverlayAppImpl() {
     onMessage: (message) => handleOverlayWebSocketControlMessage("backend-connector", message),
   });
   backend.connect(userSettings.weburl2);
+  if (shouldMigrateLegacyOverlayActivationScan) {
+    sendGsmOwnedOverlayConfig("scan_on_overlay_activation", true);
+    shouldMigrateLegacyOverlayActivationScan = false;
+  }
   requestGSMProfileState("startup", { queueIfDisconnected: true });
   gsmProfileStateRefreshInterval = setInterval(() => {
     requestGSMProfileState("periodic");
@@ -6863,6 +6895,10 @@ async function startOverlayAppImpl() {
   ipcMain.on("action-scan", () => {
     console.log("Action: Scan requested from overlay");
     requestManualOverlayScan("overlay-action-panel");
+  });
+
+  ipcMain.on("overlay-main-box-shown", () => {
+    requestOverlayScanForActivation("main-box-show");
   });
 
   ipcMain.on("action-translate", () => {
