@@ -117,7 +117,7 @@
     "cross-env": "^10.0.0",
     "daisyui": "^5.5.23",
     "electron": "^42.3.2",
-    "electron-builder": "^26.8.1",
+    "electron-builder": "^26.15.3",
     "jsdom": "^29.1.1",
     "nodemon": "^3.1.14",
     "png-to-ico": "^3.0.1",
