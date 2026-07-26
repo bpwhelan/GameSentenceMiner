@@ -45,9 +45,44 @@ function loadLegacyGamepadHandler() {
   };
 }
 
+function loadStartupGamepadSettings(settings: Record<string, unknown>) {
+  const source = fs.readFileSync(
+    path.resolve(process.cwd(), "GSM_Overlay/index.html"),
+    "utf8"
+  );
+  const start = source.indexOf("    // Load gamepad settings");
+  const end = source.indexOf("    // Apply hide furigana on startup", start);
+  if (start < 0 || end < 0) {
+    throw new Error("Unable to find startup gamepad settings in GSM_Overlay/index.html");
+  }
+
+  const module = { exports: {} as Record<string, unknown> };
+  vm.runInNewContext(
+    [
+      `const newsettings = ${JSON.stringify(settings)};`,
+      "const gamepadSettings = { enabled: true };",
+      "const KEYBOARD_SETTING_KEYS = [];",
+      source.slice(start, end),
+      "module.exports = gamepadSettings;"
+    ].join("\n"),
+    { module },
+    { filename: "GSM_Overlay/index.html#startup-gamepad-settings" }
+  );
+
+  return module.exports;
+}
+
 const legacyGamepad = loadLegacyGamepadHandler();
 const GamepadHandler = legacyGamepad.GamepadHandler;
 const legacyGamepadContext = legacyGamepad.context;
+
+describe("legacy gamepad startup settings", () => {
+  it("honors a disabled master gamepad setting before initialization", () => {
+    expect(loadStartupGamepadSettings({ gamepadEnabled: false })).toMatchObject({
+      enabled: false
+    });
+  });
+});
 
 describe("legacy gamepad Sudachi requests", () => {
   it("includes the configured dictionary in tokenization requests", () => {
