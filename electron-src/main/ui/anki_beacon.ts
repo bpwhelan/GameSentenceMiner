@@ -3,6 +3,9 @@ import { app, ipcMain, shell } from 'electron';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
+import { DEFAULT_GSM_SINGLE_PORT, getConfiguredSinglePort } from '../gsm_config.js';
+import { writeConfiguredAnkiBeaconAddon } from './anki_beacon_package.js';
+
 export const ANKI_BEACON_ADDON_URL =
     'https://github.com/bpwhelan/AnkiBeacon/releases/latest/download/Anki.Beacon.ankiaddon';
 
@@ -29,7 +32,13 @@ export async function installAnkiBeaconAddon(): Promise<AnkiBeaconInstallResult>
             responseType: 'arraybuffer',
             timeout: 60_000,
         });
-        await fs.writeFile(filePath, Buffer.from(response.data));
+        const addonBytes = Buffer.from(response.data);
+        const gsmPort = getConfiguredSinglePort();
+        if (gsmPort === DEFAULT_GSM_SINGLE_PORT) {
+            await fs.writeFile(filePath, addonBytes);
+        } else {
+            await writeConfiguredAnkiBeaconAddon(addonBytes, filePath, gsmPort);
+        }
 
         const openError = await shell.openPath(filePath);
         if (openError) {
