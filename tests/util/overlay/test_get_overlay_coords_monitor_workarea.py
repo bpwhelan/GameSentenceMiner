@@ -213,6 +213,49 @@ def test_get_screenshot_and_offset_prefers_obs_window_capture(monkeypatch):
     assert (off_x, off_y, monitor_w, monitor_h) == (330, 240, 1920, 1079)
     assert processor._last_overlay_capture_used_window_handle is True
     assert processor._last_overlay_capture_source == "obs_window"
+    assert processor._last_overlay_capture_content_width == 1280
+    assert processor._last_overlay_capture_content_height == 720
+
+
+def test_window_capture_coordinates_scale_to_client_size(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor()
+    capture_image = Image.new("RGB", (1280, 710), "white")
+
+    def fake_capture():
+        processor._last_overlay_capture_content_width = 1280
+        processor._last_overlay_capture_content_height = 720
+        return capture_image, 534, 277, 2560, 1440
+
+    monkeypatch.setattr(processor, "_get_screenshot_and_offset", fake_capture)
+    monkeypatch.setattr(processor, "_get_effective_overlay_area_config", lambda width, height: None)
+    monkeypatch.setattr(
+        get_overlay_coords.asyncio,
+        "current_task",
+        lambda: SimpleNamespace(cancelled=lambda: False),
+    )
+
+    image, off_x, off_y, monitor_w, monitor_h = processor.get_image_to_ocr()
+
+    assert image is capture_image
+    assert processor.calculated_width_scale_factor == 1.0
+    assert processor.calculated_height_scale_factor == 710 / 720
+
+    converted = processor._convert_oneocr_results_to_percentages(
+        [
+            {
+                "text": "テスト",
+                "bounding_rect": {"x1": 255, "y1": 555, "x3": 850, "y3": 624},
+                "words": [],
+            }
+        ],
+        monitor_w,
+        monitor_h,
+        off_x,
+        off_y,
+    )
+
+    box = converted[0]["bounding_rect"]
+    assert abs((box["y1"] * monitor_h) - off_y - (555 * 720 / 710)) < 0.001
 
 
 def test_get_overlay_preview_capture_uses_obs_title(monkeypatch):

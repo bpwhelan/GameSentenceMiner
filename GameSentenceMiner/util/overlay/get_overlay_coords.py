@@ -330,6 +330,8 @@ class OverlayProcessor:
         self._last_overlay_capture_offset_x: int = 0
         self._last_overlay_capture_offset_y: int = 0
         self._last_overlay_capture_source: str = "unknown"
+        self._last_overlay_capture_content_width: int = 0
+        self._last_overlay_capture_content_height: int = 0
         self._ocr_engine_unload_handle: Optional[asyncio.TimerHandle] = None
         self._ocr_engine_activity_generation = 0
 
@@ -1398,6 +1400,8 @@ class OverlayProcessor:
         """
         monitor = self.get_configured_monitor_workarea()
         monitor_w, monitor_h = monitor["width"], monitor["height"]
+        self._last_overlay_capture_content_width = monitor_w
+        self._last_overlay_capture_content_height = monitor_h
 
         # If configured to use full-screen MSS instead of OBS, prefer that method.
         try:
@@ -1456,7 +1460,7 @@ class OverlayProcessor:
                         if not window_geometry:
                             raise RuntimeError("Failed to resolve physical window client geometry")
 
-                        off_x, off_y, _, _ = window_geometry
+                        off_x, off_y, client_width, client_height = window_geometry
                         final_off_x = off_x - monitor["left"]
                         final_off_y = off_y - monitor["top"]
 
@@ -1478,6 +1482,8 @@ class OverlayProcessor:
                         self._last_overlay_capture_offset_x = final_off_x
                         self._last_overlay_capture_offset_y = final_off_y
                         self._last_overlay_capture_source = "obs_window"
+                        self._last_overlay_capture_content_width = client_width
+                        self._last_overlay_capture_content_height = client_height
                         return obs_img, final_off_x, final_off_y, monitor_w, monitor_h
                 except Exception as e:
                     logger.debug(f"OBS Window capture failed, falling back to MSS: {e}")
@@ -1877,6 +1883,14 @@ class OverlayProcessor:
 
         # Apply scaling based on SCALE_TYPE
         original_width, original_height = full_screenshot.size
+        content_width = max(
+            1,
+            int(self._last_overlay_capture_content_width or original_width),
+        )
+        content_height = max(
+            1,
+            int(self._last_overlay_capture_content_height or original_height),
+        )
 
         # Check if image needs scaling (either first time or dimensions changed)
         needs_scaling = (
@@ -1900,8 +1914,8 @@ class OverlayProcessor:
             )
 
         if scaled and (scaled.width != original_width or scaled.height != original_height):
-            self.calculated_width_scale_factor = scaled.scale_x
-            self.calculated_height_scale_factor = scaled.scale_y
+            self.calculated_width_scale_factor = scaled.width / content_width
+            self.calculated_height_scale_factor = scaled.height / content_height
             full_screenshot = scale_pil_image(full_screenshot, scaled, resample=Image.Resampling.BILINEAR)
             self.obs_width = scaled.width
             self.obs_height = scaled.height
@@ -1920,15 +1934,17 @@ class OverlayProcessor:
                     )
                 )
         elif not needs_scaling:
-            # Image is already at cached scaled size, keep existing scale factors
+            # The capture backend may return cached dimensions that differ from
+            # the live client dimensions, so refresh the coordinate scale.
+            self.calculated_width_scale_factor = original_width / content_width
+            self.calculated_height_scale_factor = original_height / content_height
             if self.ENABLE_SCALING_DEBUG:
                 logger.debug(
                     f"Using cached dimensions {self.obs_width}x{self.obs_height}, scale factors: {self.calculated_width_scale_factor:.3f}x{self.calculated_height_scale_factor:.3f}"
                 )
         else:
-            # No scaling was applied (shouldn't happen but fallback)
-            self.calculated_width_scale_factor = 1.0
-            self.calculated_height_scale_factor = 1.0
+            self.calculated_width_scale_factor = original_width / content_width
+            self.calculated_height_scale_factor = original_height / content_height
 
         return full_screenshot, off_x, off_y, monitor_width, monitor_height
 
