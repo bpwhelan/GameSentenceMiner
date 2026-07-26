@@ -5,7 +5,12 @@ from GameSentenceMiner.util.config.configuration import (
     Advanced,
     AnimatedScreenshotSettings,
     SCREENSHOT_CAPTURE_BACKENDS,
+    Screenshot,
 )
+
+
+def test_static_screenshot_defaults_to_avif():
+    assert Screenshot().extension == "avif"
 
 
 def test_animated_screenshot_codec_defaults_to_svt_av1():

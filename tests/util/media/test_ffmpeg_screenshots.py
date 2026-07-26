@@ -281,6 +281,114 @@ def test_static_webp_encode_falls_back_to_jpeg(monkeypatch, tmp_path):
     assert "-compression_level" not in commands[1]
 
 
+def test_static_avif_encode_uses_fast_svt_settings(monkeypatch, tmp_path):
+    input_image = tmp_path / "raw.png"
+    input_image.write_bytes(b"image")
+    output = tmp_path / "encoded.avif"
+    commands = []
+
+    monkeypatch.setattr(ffmpeg, "get_config", lambda: _screenshot_config(extension="avif"))
+    monkeypatch.setattr(
+        ffmpeg.FFmpegHelper,
+        "run",
+        lambda command, **_kwargs: (
+            commands.append(command) or subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        ),
+    )
+
+    result = ffmpeg.encode_screenshot(str(input_image), output_path=str(output))
+
+    assert result == str(output)
+    assert len(commands) == 1
+    command = commands[0]
+    assert command[command.index("-c:v") + 1] == "libsvtav1"
+    assert command[command.index("-preset") + 1] == "9"
+    assert command[command.index("-crf") + 1] == "26"
+    assert command[command.index("-pix_fmt") + 1] == "yuv420p10le"
+
+
+def test_static_avif_quality_curve_reserves_bits_for_high_quality():
+    assert ffmpeg._static_avif_crf(0) == 63
+    assert ffmpeg._static_avif_crf(85) == 26
+    assert ffmpeg._static_avif_crf(90) == 17
+    assert ffmpeg._static_avif_crf(95) == 9
+    assert ffmpeg._static_avif_crf(100) == 0
+
+
+def test_static_avif_encode_retries_with_fast_libaom(monkeypatch, tmp_path):
+    input_image = tmp_path / "raw.png"
+    input_image.write_bytes(b"image")
+    output = tmp_path / "encoded.avif"
+    commands = []
+
+    def fake_run(command, **_kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(
+            command,
+            1 if "libsvtav1" in command else 0,
+            stdout="",
+            stderr="SVT-AV1 unavailable",
+        )
+
+    monkeypatch.setattr(ffmpeg, "get_config", lambda: _screenshot_config(extension="avif"))
+    monkeypatch.setattr(ffmpeg.FFmpegHelper, "run", fake_run)
+
+    result = ffmpeg.encode_screenshot(str(input_image), output_path=str(output))
+
+    assert result == str(output)
+    assert [command[command.index("-c:v") + 1] for command in commands] == [
+        "libsvtav1",
+        "libaom-av1",
+    ]
+    fallback = commands[1]
+    assert fallback[fallback.index("-cpu-used") + 1] == "6"
+    assert fallback[fallback.index("-still-picture") + 1] == "1"
+    assert fallback[fallback.index("-crf") + 1] == "17"
+    assert fallback[fallback.index("-pix_fmt") + 1] == "yuv420p10le"
+
+
+def test_process_image_static_avif_uses_fast_svt_settings(monkeypatch, tmp_path):
+    input_image = tmp_path / "raw.png"
+    input_image.write_bytes(b"image")
+    commands = []
+
+    monkeypatch.setattr(ffmpeg, "get_config", lambda: _screenshot_config(extension="avif"))
+    monkeypatch.setattr(ffmpeg, "get_temporary_directory", lambda: str(tmp_path))
+    monkeypatch.setattr(ffmpeg.obs, "get_current_game", lambda sanitize=True: "game")
+    monkeypatch.setattr(
+        ffmpeg.FFmpegHelper,
+        "run",
+        lambda command, **_kwargs: (
+            commands.append(command) or subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        ),
+    )
+
+    result = ffmpeg.process_image(str(input_image))
+
+    assert result.endswith(".avif")
+    assert commands[0][commands[0].index("-c:v") + 1] == "libsvtav1"
+
+
+def test_get_screenshot_static_avif_uses_fast_svt_settings(monkeypatch, tmp_path):
+    commands = []
+
+    monkeypatch.setattr(ffmpeg, "get_config", lambda: _screenshot_config(extension="avif"))
+    monkeypatch.setattr(ffmpeg, "get_temporary_directory", lambda: str(tmp_path))
+    monkeypatch.setattr(ffmpeg.obs, "get_current_game", lambda sanitize=True: "game")
+    monkeypatch.setattr(
+        ffmpeg.FFmpegHelper,
+        "run",
+        lambda command, **_kwargs: (
+            commands.append(command) or subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        ),
+    )
+
+    result = ffmpeg.get_screenshot("source.mp4", 12.5)
+
+    assert result.endswith(".avif")
+    assert commands[0][commands[0].index("-c:v") + 1] == "libsvtav1"
+
+
 def test_static_webp_jpeg_fallback_keeps_black_bar_crop(monkeypatch, tmp_path):
     input_image = tmp_path / "raw.png"
     input_image.write_bytes(b"image")

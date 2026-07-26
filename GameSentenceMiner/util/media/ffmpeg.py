@@ -56,6 +56,13 @@ ADAPTIVE_AVIF_TIERS = (
     (5.0, 0.80, 5 / 6, 2),
     (0.0, 1.00, 1.00, 0),
 )
+# Quality 85 maps to CRF 26. Above 85 the curve becomes deliberately
+# steeper so that 90-100 behaves like the high-quality end of WebP.
+STATIC_AVIF_SVT_PRESET = 9
+STATIC_AVIF_DEFAULT_QUALITY = 85
+STATIC_AVIF_DEFAULT_CRF = 26
+STATIC_AVIF_MAX_CRF = 63
+STATIC_AVIF_AOM_CRF_SCALE = 2 / 3
 
 
 def _normalize_av1_encoder(av1_encoder: str | None) -> str:
@@ -102,6 +109,10 @@ def _is_webp_output(output_image: str | Path) -> bool:
     return Path(output_image).suffix.lower() == ".webp"
 
 
+def _is_avif_output(output_image: str | Path) -> bool:
+    return Path(output_image).suffix.lower() == ".avif"
+
+
 def _jpeg_fallback_output_path(output_image: str | Path) -> str:
     return make_unique_file_name(str(Path(output_image).with_suffix(".jpeg")))
 
@@ -122,6 +133,98 @@ def _coerce_float(value: Any, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _static_avif_crf(quality: Any) -> int:
+    """Map the static screenshot 0-100 quality scale onto SVT-AV1 CRF."""
+    quality_value = max(0, min(100, _coerce_int(quality, STATIC_AVIF_DEFAULT_QUALITY)))
+    if quality_value <= STATIC_AVIF_DEFAULT_QUALITY:
+        crf_range = STATIC_AVIF_MAX_CRF - STATIC_AVIF_DEFAULT_CRF
+        return round(STATIC_AVIF_MAX_CRF - quality_value * crf_range / STATIC_AVIF_DEFAULT_QUALITY)
+
+    high_quality_range = 100 - STATIC_AVIF_DEFAULT_QUALITY
+    return round(STATIC_AVIF_DEFAULT_CRF * (100 - quality_value) / high_quality_range)
+
+
+def _static_avif_encoder_args(av1_encoder: str, quality: Any) -> List[str]:
+    crf = _static_avif_crf(quality)
+    if av1_encoder == "libsvtav1":
+        return [
+            "-c:v",
+            "libsvtav1",
+            "-preset",
+            str(STATIC_AVIF_SVT_PRESET),
+            "-crf",
+            str(crf),
+            "-pix_fmt",
+            "yuv420p10le",
+        ]
+
+    return [
+        "-c:v",
+        "libaom-av1",
+        "-still-picture",
+        "1",
+        "-cpu-used",
+        "6",
+        "-crf",
+        str(round(crf * STATIC_AVIF_AOM_CRF_SCALE)),
+        "-pix_fmt",
+        "yuv420p10le",
+    ]
+
+
+def _run_static_avif_command_with_fallback(
+    command_base: List[str],
+    quality: Any,
+    output_path: str | Path,
+    retries: int = 0,
+) -> subprocess.CompletedProcess:
+    last_error: Exception | None = None
+    for av1_encoder in ("libsvtav1", "libaom-av1"):
+        command = command_base + _static_avif_encoder_args(av1_encoder, quality) + [str(output_path)]
+        try:
+            encoder_retries = 0 if av1_encoder == "libsvtav1" else retries
+            result = FFmpegHelper.run(command, check=False, retries=encoder_retries)
+            if result.returncode == 0:
+                return result
+            last_error = RuntimeError(f"FFmpeg command failed. Stderr: {result.stderr}")
+        except Exception as error:
+            last_error = error
+
+        try:
+            Path(output_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+        if av1_encoder == "libsvtav1":
+            logger.warning(f"Static AVIF encoding with libsvtav1 failed; retrying with libaom-av1: {last_error}")
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Static AVIF encoding failed")
+
+
+def _run_static_screenshot_command(
+    command_base: List[str],
+    output_args: List[str],
+    output_path: str | Path,
+    quality: Any,
+    *,
+    use_fast_avif: bool,
+    check: bool,
+    retries: int = 0,
+) -> subprocess.CompletedProcess:
+    if use_fast_avif and _is_avif_output(output_path):
+        return _run_static_avif_command_with_fallback(
+            command_base,
+            quality,
+            output_path,
+            retries=retries,
+        )
+
+    command = command_base + output_args + [str(output_path)]
+    return FFmpegHelper.run(command, check=check, retries=retries)
 
 
 def _fraction_to_float(value: Any) -> float:
@@ -724,17 +827,22 @@ def encode_screenshot(input_image, source_video_path=None, screenshot_timing=Non
     video_filters = _build_screenshot_video_filters(source_video_path, screenshot_timing, use_negative_two=True)
     _extend_video_filters(ffmpeg_command_base, video_filters)
 
-    # Add post-input args or defaults
-    ffmpeg_command = ffmpeg_command_base.copy()
     if get_config().screenshot.custom_ffmpeg_settings:
-        ffmpeg_command.extend(post_input_args)
+        output_args = post_input_args
     else:
-        ffmpeg_command.extend(["-q:v", str(get_config().screenshot.quality), "-pix_fmt", "yuvj420p"])
-
-    ffmpeg_command.append(output_image)
+        output_args = ["-q:v", str(get_config().screenshot.quality), "-pix_fmt", "yuvj420p"]
 
     try:
-        FFmpegHelper.run(ffmpeg_command, check=True)
+        result = _run_static_screenshot_command(
+            ffmpeg_command_base,
+            output_args,
+            output_image,
+            get_config().screenshot.quality,
+            use_fast_avif=not get_config().screenshot.custom_ffmpeg_settings,
+            check=True,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"FFmpeg command failed. Stderr: {result.stderr}")
     except Exception as e:
         if _is_webp_output(output_image):
             fallback_image = _jpeg_fallback_output_path(output_image)
@@ -788,15 +896,21 @@ def get_screenshot(video_file, screenshot_timing, try_selector=False):
     fallback_command_base = ffmpeg_command.copy()
 
     if get_config().screenshot.custom_ffmpeg_settings:
-        ffmpeg_command.extend(post_input_args)
+        output_args = post_input_args
     else:
-        ffmpeg_command.extend(["-compression_level", "6", "-q:v", str(get_config().screenshot.quality)])
-
-    ffmpeg_command.append(f"{output_image}")
+        output_args = ["-compression_level", "6", "-q:v", str(get_config().screenshot.quality)]
 
     try:
         # Retry loop using FFmpegHelper logic manually due to fallback requirements
-        result = FFmpegHelper.run(ffmpeg_command, check=False, retries=2)
+        result = _run_static_screenshot_command(
+            ffmpeg_command,
+            output_args,
+            output_image,
+            get_config().screenshot.quality,
+            use_fast_avif=not get_config().screenshot.custom_ffmpeg_settings,
+            check=False,
+            retries=2,
+        )
         if result.returncode != 0:
             raise RuntimeError(f"FFmpeg command failed. Stderr: {result.stderr}")
 
@@ -1116,16 +1230,23 @@ def process_image(image_file, source_video_path: str | Path | None = None, scree
     video_filters = _build_screenshot_video_filters(source_video_path, screenshot_timing)
     _extend_video_filters(ffmpeg_command_base, video_filters)
 
-    ffmpeg_command = ffmpeg_command_base.copy()
     if get_config().screenshot.custom_ffmpeg_settings:
-        ffmpeg_command.extend(post_input_args)
+        output_args = post_input_args
     else:
-        ffmpeg_command.extend(["-compression_level", "6", "-q:v", get_config().screenshot.quality])
-
-    ffmpeg_command.append(output_image)
+        output_args = ["-compression_level", "6", "-q:v", get_config().screenshot.quality]
 
     try:
-        FFmpegHelper.run(ffmpeg_command, check=True, retries=2)
+        result = _run_static_screenshot_command(
+            ffmpeg_command_base,
+            output_args,
+            output_image,
+            get_config().screenshot.quality,
+            use_fast_avif=not get_config().screenshot.custom_ffmpeg_settings,
+            check=True,
+            retries=2,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"FFmpeg command failed. Stderr: {result.stderr}")
     except Exception as e:
         if _is_webp_output(output_image):
             fallback_image = _jpeg_fallback_output_path(output_image)

@@ -1107,7 +1107,7 @@ class Screenshot:
     width: str = 0
     height: str = 0
     quality: str = 85
-    extension: str = "webp"
+    extension: str = "avif"
     custom_ffmpeg_settings: str = ""
     custom_ffmpeg_option_selected: str = ""
     screenshot_hotkey_updates_anki: bool = False
