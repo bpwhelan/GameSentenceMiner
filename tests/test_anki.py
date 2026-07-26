@@ -224,7 +224,12 @@ def test_resolve_field_grouping_decision_uses_configured_defaults_and_selected_o
 
     def launch(expression, dialog_candidates, **kwargs):
         calls.append((expression, dialog_candidates, kwargs))
-        return {"target_note_id": 200, "order": "front", "delete_duplicate": True}
+        return {
+            "target_note_id": 200,
+            "order": "front",
+            "delete_duplicate": True,
+            "overwrite": True,
+        }
 
     qt_main_stub.launch_anki_field_grouping = launch
     monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", qt_main_stub)
@@ -232,7 +237,12 @@ def test_resolve_field_grouping_decision_uses_configured_defaults_and_selected_o
 
     decision = anki._resolve_field_grouping_decision(source)
 
-    assert decision == {"target_note_id": 200, "order": "front", "delete_duplicate": True}
+    assert decision == {
+        "target_note_id": 200,
+        "order": "front",
+        "delete_duplicate": True,
+        "overwrite": True,
+    }
     assert calls == [
         (
             "貢献",
@@ -264,6 +274,43 @@ def test_resolve_field_grouping_decision_auto_merges_oldest_match_without_gui(mo
     decision = anki._resolve_field_grouping_decision(SimpleNamespace(noteId=300))
 
     assert decision == {"target_note_id": 100, "order": "back", "delete_duplicate": False}
+
+
+def test_build_field_grouping_note_can_overwrite_for_one_decision() -> None:
+    config = _base_config()
+    config.anki.field_grouping_additional_fields = []
+    config.anki.field_grouping_overwrite = False
+    source = SimpleNamespace(
+        noteId=200,
+        fields={"Sentence": SimpleNamespace(value="new sentence")},
+        get_field=lambda field: {
+            "Picture": "",
+            "Sentence": "new sentence",
+            "SentenceAudio": "",
+        }[field],
+    )
+    target = {
+        "noteId": 100,
+        "fields": {
+            "Picture": {"value": ""},
+            "Sentence": {"value": "original sentence"},
+            "SentenceAudio": {"value": "[sound:old.mp3]"},
+        },
+    }
+
+    updated = anki._build_field_grouping_note(
+        source,
+        target,
+        {"fields": {"Sentence": "confirmed new sentence"}},
+        "front",
+        config,
+        overwrite=True,
+    )
+
+    assert updated["fields"] == {
+        "Sentence": "confirmed new sentence",
+        "SentenceAudio": '<span data-group-id="100">[sound:old.mp3]</span>',
+    }
 
 
 def test_build_field_grouping_note_groups_images_and_context_fields_at_front():

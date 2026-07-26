@@ -76,15 +76,28 @@ class AnkiFieldGroupingDialog(QDialog):
 
         buttons = QDialogButtonBox()
         keep_separate_button = QPushButton("Keep as separate note")
+        overwrite_button = QPushButton("Overwrite with new context")
         merge_button = QPushButton("Merge contexts")
         merge_button.setDefault(True)
         buttons.addButton(keep_separate_button, QDialogButtonBox.ButtonRole.RejectRole)
+        buttons.addButton(overwrite_button, QDialogButtonBox.ButtonRole.ActionRole)
         buttons.addButton(merge_button, QDialogButtonBox.ButtonRole.AcceptRole)
+        overwrite_button.setToolTip(
+            "For this duplicate only, replace each grouped field that has new content instead of merging it. "
+            "This does not change the saved field-grouping setting."
+        )
         keep_separate_button.clicked.connect(self.reject)
+        overwrite_button.clicked.connect(self._accept_overwrite)
         merge_button.clicked.connect(self._accept_merge)
         layout.addWidget(buttons)
 
     def _accept_merge(self) -> None:
+        self._accept_selection(overwrite=False)
+
+    def _accept_overwrite(self) -> None:
+        self._accept_selection(overwrite=True)
+
+    def _accept_selection(self, *, overwrite: bool) -> None:
         target_note_id = self.target_combo.currentData()
         if target_note_id is None:
             return
@@ -93,6 +106,8 @@ class AnkiFieldGroupingDialog(QDialog):
             "order": str(self.order_combo.currentData() or "front"),
             "delete_duplicate": self.delete_duplicate_check.isChecked(),
         }
+        if overwrite:
+            self._selection_result["overwrite"] = True
         self.accept()
 
     def reject(self) -> None:

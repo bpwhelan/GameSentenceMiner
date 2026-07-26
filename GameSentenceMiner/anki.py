@@ -327,11 +327,14 @@ def _resolve_field_grouping_decision(source_note: "AnkiCard") -> Optional[Dict[s
     order = str(result.get("order") or FIELD_GROUPING_ORDER_FRONT).strip().lower()
     if order not in {FIELD_GROUPING_ORDER_FRONT, FIELD_GROUPING_ORDER_BACK}:
         order = FIELD_GROUPING_ORDER_FRONT
-    return {
+    decision = {
         "target_note_id": target_note_id,
         "order": order,
         "delete_duplicate": bool(result.get("delete_duplicate", True)),
     }
+    if bool(result.get("overwrite", False)):
+        decision["overwrite"] = True
+    return decision
 
 
 def _extract_group_ids(value: str) -> set[int]:
@@ -454,6 +457,7 @@ def _build_field_grouping_note(
     source_patch: Dict[str, Any],
     order: str,
     config: ProfileConfig,
+    overwrite: Optional[bool] = None,
 ) -> Dict[str, Any]:
     source_note_id = int(getattr(source_note, "noteId", 0) or 0)
     target_note_id = int(target_info.get("noteId") or 0)
@@ -461,7 +465,8 @@ def _build_field_grouping_note(
         raise ValueError("Field grouping requires two different valid Anki note IDs.")
 
     field_specs = _field_grouping_fields(config)
-    overwrite = bool(getattr(config.anki, "field_grouping_overwrite", False))
+    if overwrite is None:
+        overwrite = bool(getattr(config.anki, "field_grouping_overwrite", False))
     target_values = {name: _note_info_field_value(target_info, name) for name, _mode in field_specs}
     source_values = {name: _source_note_field_value(source_note, source_patch, name) for name, _mode in field_specs}
     existing_group_ids = set()
@@ -550,6 +555,7 @@ def _apply_field_grouping_merge(
         source_patch,
         decision.get("order", FIELD_GROUPING_ORDER_FRONT),
         config,
+        overwrite=True if bool(decision.get("overwrite", False)) else None,
     )
     if not merged_note["fields"]:
         raise ValueError("No configured context fields contained data to merge.")

@@ -1,11 +1,22 @@
+import os
 from types import SimpleNamespace
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 import pytest
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication
 
 from GameSentenceMiner.ui import anki_confirmation_qt
 from GameSentenceMiner.ui import audio_waveform_widget
+
+
+class _UnavailableAudioPlayer:
+    audio_available = False
+
+    def __init__(self, finished_callback=None):
+        self.finished_callback = finished_callback
 
 
 class _WindowBehaviorProbe:
@@ -58,6 +69,32 @@ class _WidgetProbe:
 
     def setVisible(self, visible):
         self.visible = visible
+
+
+def test_regenerate_sentence_meaning_is_enabled_by_default(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(anki_confirmation_qt, "AudioPlayer", _UnavailableAudioPlayer)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "current_replay_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "audio_edit_context", None)
+    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None)
+
+    dialog = anki_confirmation_qt.AnkiConfirmationDialog()
+    dialog.regen_translation_checkbox.setChecked(False)
+    dialog.populate_ui(
+        expression="",
+        sentence="",
+        screenshot_path=None,
+        previous_screenshot_path=None,
+        audio_path=None,
+        translation="",
+        screenshot_timestamp=0,
+        previous_screenshot_timestamp=0,
+    )
+
+    assert dialog.regen_translation_checkbox.isChecked()
+
+    dialog.deleteLater()
+    app.processEvents()
 
 
 def test_apply_window_behavior_preferences_sets_show_without_activating(monkeypatch):

@@ -335,6 +335,7 @@ class AnkiConfirmationDialog(QDialog):
         dialogue_tools_layout.addWidget(self.add_next_line_button)
 
         self.regen_translation_checkbox = QCheckBox("Regenerate SentenceMeaning")
+        self.regen_translation_checkbox.setChecked(True)
         self.regen_translation_checkbox.stateChanged.connect(self._cancel_auto_accept)
         dialogue_tools_layout.addWidget(self.regen_translation_checkbox)
 
@@ -637,7 +638,7 @@ class AnkiConfirmationDialog(QDialog):
 
         self.nsfw_tag_checkbox.setChecked(False)
         self.regen_translation_checkbox.blockSignals(True)
-        self.regen_translation_checkbox.setChecked(False)
+        self.regen_translation_checkbox.setChecked(True)
         self.regen_translation_checkbox.blockSignals(False)
         self.autoplay_checkbox.blockSignals(True)
         self.autoplay_checkbox.setChecked(get_config().anki.autoplay_audio)
