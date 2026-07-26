@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 
 from loguru import logger as _logger
 
+from GameSentenceMiner.util.log_paths import get_process_log_path
+
 # Remove default handler
 _logger.remove()
 
@@ -148,7 +150,11 @@ class LoggerManager:
     def _add_file_handler(self, logger_name: str = "gamesentenceminer", level: str = "DEBUG"):
         """Add a rotating file handler for the specified logger."""
         log_dir = self._get_log_directory()
-        log_file = log_dir / f"{logger_name}.log"
+        # Loguru's enqueue option serializes threads using this handler, but
+        # independently launched processes still create independent sinks. On
+        # Windows, sharing one rotating file makes rotation fail with WinError
+        # 32 while another process has the file open.
+        log_file = get_process_log_path(log_dir, logger_name)
 
         def format_with_component(record):
             component_tag = self._detect_component_tag(record)
@@ -177,7 +183,7 @@ class LoggerManager:
     def _add_error_handler(self):
         """Add a dedicated error log file for ERROR and CRITICAL messages."""
         log_dir = self._get_log_directory()
-        error_log = log_dir / "error.log"
+        error_log = get_process_log_path(log_dir, "error")
 
         def format_with_component(record):
             component_tag = self._detect_component_tag(record)

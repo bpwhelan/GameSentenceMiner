@@ -9,6 +9,7 @@ import pytest
 
 import GameSentenceMiner.gsm as gsm_module
 from GameSentenceMiner.util import text_log
+from GameSentenceMiner.util.log_paths import get_process_log_path
 
 
 def test_main_skips_run_when_existing_instance_detected(monkeypatch):
@@ -442,3 +443,20 @@ def test_main_exits_when_single_instance_lock_is_unavailable(monkeypatch):
     gsm_module.main()
 
     assert constructed == []
+
+
+def test_open_log_opens_the_current_process_log(monkeypatch, tmp_path):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    expected_log = get_process_log_path(log_dir, "gamesentenceminer")
+    expected_log.write_text("test log", encoding="utf-8")
+    opened_paths = []
+
+    monkeypatch.setattr(gsm_module, "get_app_directory", lambda: str(tmp_path))
+    monkeypatch.setattr(gsm_module.sys, "platform", "win32")
+    monkeypatch.setattr(gsm_module.os, "startfile", opened_paths.append)
+
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    app.open_log()
+
+    assert opened_paths == [str(expected_log)]

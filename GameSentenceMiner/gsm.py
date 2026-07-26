@@ -660,8 +660,10 @@ class GSMApplication:
     def open_log(self, *args) -> None:
         from pathlib import Path
 
+        from GameSentenceMiner.util.log_paths import get_process_log_path
+
         log_dir = Path(get_app_directory()) / "logs"
-        log_file_path = log_dir / "gamesentenceminer.log"
+        log_file_path = get_process_log_path(log_dir, "gamesentenceminer")
 
         if not log_file_path.exists():
             logger.error("Log file not found!")

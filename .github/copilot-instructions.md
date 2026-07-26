@@ -117,7 +117,7 @@ npm run app:dist  # Creates installer in dist/ using electron-builder
 ## Common Gotchas & Debugging
 
 ### Debugging Python Issues
-- **Logs**: Check `~/.config/GameSentenceMiner/logs/gamesentenceminer.log` (or use the logging_config module)
+- **Logs**: Check the newest `~/.config/GameSentenceMiner/logs/gamesentenceminer.<pid>.log` (or use the logging_config module)
 - **Dev mode**: Set `is_dev = True` in `configuration.py` for verbose logging
 - **Crashes**: `crash_log.txt` in project root (if `faulthandler` enabled for beangate dev)
 - **IPC issues**: Check stdout parsing in `pythonIPC.ts`, ensure messages start with `GSMMSG:`

@@ -19,8 +19,8 @@ The GameSentenceMiner logging system has been rebuilt from the ground up using [
 
 ### 📂 Multi-Component Support
 - **Context-aware logger names**: Automatically detects if running from main app, OCR utilities, or overlay
-- **Separate log files** for different components (gamesentenceminer.log, misc_ocr_utils.log, gsm_overlay.log)
-- **Dedicated error log** for ERROR and CRITICAL messages across all components
+- **Separate process log files** for different components and independently launched helpers
+- **Dedicated per-process error logs** for ERROR and CRITICAL messages
 
 ### 🔒 Thread-Safe
 - **Enqueued logging** for thread-safe operations
@@ -123,10 +123,14 @@ All logs are stored in the application config directory:
 
 ### Log Files
 
-- `gamesentenceminer.log` - Main application logs
-- `misc_ocr_utils.log` - OCR-related logs
-- `gsm_overlay.log` - Overlay application logs
-- `error.log` - All ERROR and CRITICAL messages from all components
+- `gamesentenceminer.<pid>.log` - Main application logs
+- `misc_ocr_utils.<pid>.log` - OCR-related logs
+- `gsm_overlay.<pid>.log` - Overlay application logs
+- `error.<pid>.log` - ERROR and CRITICAL messages from that process
+
+The process ID prevents independently launched Python processes from sharing a
+rotating file. This is required on Windows, where one process cannot rename a
+log for rotation while another process still has it open.
 
 Each OCR subprocess launch also writes a dedicated temporary log under
 `temp/ocr_logs/ocr_process_<timestamp>_<pid>.log`. The newest three OCR process
