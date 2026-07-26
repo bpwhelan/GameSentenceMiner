@@ -149,6 +149,21 @@ export interface LineItem {
 	excludedFromStats?: boolean;
 	gsmSessionId?: string;
 	gsmStatus?: GSMLineStatus;
+	sessionBackfill?: boolean;
+}
+
+export interface TextFeedSessionLine {
+	id: string;
+	text: string;
+	excludedFromStats: boolean;
+}
+
+export interface TextFeedSessionSync {
+	sessionId: string;
+	orderedIds: string[];
+	activeIds: string[];
+	timedOutIds: string[];
+	missingLines: TextFeedSessionLine[];
 }
 
 export interface LineItemEditEvent {

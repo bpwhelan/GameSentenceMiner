@@ -31,3 +31,12 @@ export function normalizeGSMWebSocketUrl(websocketUrl: string) {
 		return websocketUrl;
 	}
 }
+
+export function isGSMTextFeedWebSocketUrl(websocketUrl: string) {
+	try {
+		const pathname = new URL(websocketUrl).pathname.replace(/\/+$/, '').toLowerCase();
+		return pathname === GSM_TEXTHOOKER_WEBSOCKET_PATH;
+	} catch (_) {
+		return false;
+	}
+}

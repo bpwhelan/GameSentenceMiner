@@ -74,7 +74,7 @@
 					$enableLineAnimation$ ? 'smooth' : 'auto',
 				);
 			}
-			if (isActiveGSMLine && $autoTranslateLines$) {
+			if (isActiveGSMLine && !line.sessionBackfill && $autoTranslateLines$) {
 				handleAction(line.id, 'TL', $blurAutoTranslatedLines$);
 			}
 		}

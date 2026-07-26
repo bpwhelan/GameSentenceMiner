@@ -32,6 +32,38 @@ WS_PATH_HOOKER = "/ws/texthooker"
 WS_PATH_OVERLAY = "/ws/overlay"
 WS_PATH_PLAINTEXT = "/ws/plaintext"
 
+TEXTFEED_SESSION_SYNC_REQUEST = "textfeed_session_sync_request"
+TEXTFEED_SESSION_SYNC = "textfeed_session_sync"
+
+
+def build_textfeed_session_sync_payload(request_payload: dict, manager=None) -> dict:
+    """Return the ordered current-session lines a TextFeed client does not have."""
+    if manager is None:
+        from GameSentenceMiner.web.events import event_manager
+
+        manager = event_manager
+
+    sessions = request_payload.get("sessions")
+    known_ids = []
+    if isinstance(sessions, dict):
+        candidate_ids = sessions.get(manager.session_id)
+        if isinstance(candidate_ids, list):
+            known_ids = candidate_ids
+
+    state = manager.get_session_sync_state(known_ids)
+    missing_events = state.pop("missing_events")
+    return {
+        "event": TEXTFEED_SESSION_SYNC,
+        **state,
+        "lines": [
+            {
+                "sentence": event["text"],
+                "data": event,
+            }
+            for event in missing_events
+        ],
+    }
+
 
 def build_gsm_profile_state_payload(master_config=None) -> dict[str, Any]:
     """Serialize the authoritative GSM profile list for overlay clients."""
@@ -386,6 +418,16 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
         return _resolve_server_id_from_path(request_path)
 
     async def _handle_incoming_message(self, server_id: str, websocket, message: str):
+        if server_id == ID_HOOKER:
+            try:
+                request_payload = json.loads(message)
+            except (TypeError, json.JSONDecodeError):
+                request_payload = None
+
+            if isinstance(request_payload, dict) and request_payload.get("event") == TEXTFEED_SESSION_SYNC_REQUEST:
+                await websocket.send(json.dumps(build_textfeed_session_sync_payload(request_payload)))
+                return
+
         endpoint_spec = self.endpoint_specs.get(server_id)
         if not endpoint_spec:
             await websocket.send("False")
@@ -779,7 +821,9 @@ async def _overlay_message_handler(message: str):
 websocket_manager.start_multiplex_server(
     port_getter=lambda: _internal_ws_ingress_port,
     endpoint_specs={
-        ID_HOOKER: EndpointSpec(read_mode=True, enable_backup=True),
+        # TextFeed clients recover the complete in-memory session by ID on connect.
+        # The old transport backup could arrive first and trigger backfill auto-translation.
+        ID_HOOKER: EndpointSpec(read_mode=True, enable_backup=False),
         ID_OVERLAY: EndpointSpec(
             read_mode=True,
             message_callback=_overlay_message_handler,

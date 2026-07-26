@@ -1,20 +1,24 @@
 import { BehaviorSubject, NEVER, Subscription, filter, switchMap } from 'rxjs';
 import {
 	continuousReconnect$,
+	lineData$,
 	newLine$,
 	reconnectSecondarySocket$,
 	reconnectSocket$,
 	secondarySocketState$,
 	secondaryWebsocketUrl$,
 	socketState$,
+	textfeedSessionSync$,
 	texthookerAudioEvents$,
 	websocketUrl$,
 } from './stores/stores';
 
-import { normalizeGSMWebSocketUrl } from './gsm';
+import { isGSMTextFeedWebSocketUrl, normalizeGSMWebSocketUrl } from './gsm';
 import { LineType } from './types';
 
 export class SocketConnection {
+	private isPrimary: boolean;
+
 	private websocketUrl: string;
 
 	private socket: WebSocket | undefined;
@@ -24,6 +28,7 @@ export class SocketConnection {
 	private subscriptions: Subscription[] = [];
 
 	constructor(isPrimary = true) {
+		this.isPrimary = isPrimary;
 		this.socketState = isPrimary ? socketState$ : secondarySocketState$;
 		const websocketUrlStore = isPrimary ? websocketUrl$ : secondaryWebsocketUrl$;
 		this.subscriptions.push(
@@ -70,7 +75,7 @@ export class SocketConnection {
 
 		try {
 			this.socket = new WebSocket(this.websocketUrl);
-			this.socket.onopen = this.updateSocketState.bind(this);
+			this.socket.onopen = this.handleOpen.bind(this);
 			this.socket.onclose = this.updateSocketState.bind(this);
 			this.socket.onmessage = this.handleMessage.bind(this);
 		} catch (error) {
@@ -106,6 +111,29 @@ export class SocketConnection {
 		this.socketState.next(this.socket.readyState);
 	}
 
+	private handleOpen() {
+		this.updateSocketState();
+
+		if (!this.isPrimary || !this.socket || !isGSMTextFeedWebSocketUrl(this.websocketUrl)) {
+			return;
+		}
+
+		const sessions: Record<string, string[]> = {};
+		for (const line of lineData$.getValue()) {
+			if (!line.gsmSessionId || line.gsmStatus === 'external') {
+				continue;
+			}
+			(sessions[line.gsmSessionId] ||= []).push(line.id);
+		}
+
+		this.socket.send(
+			JSON.stringify({
+				event: 'textfeed_session_sync_request',
+				sessions,
+			}),
+		);
+	}
+
 	private handleMessage(event: MessageEvent) {
 		let line = event.data;
 		let payload: Record<string, any> | undefined;
@@ -117,6 +145,27 @@ export class SocketConnection {
 		}
 
 		if (payload?.event) {
+			if (payload.event === 'textfeed_session_sync') {
+				const lines = Array.isArray(payload.lines) ? payload.lines : [];
+				textfeedSessionSync$.next({
+					sessionId: typeof payload.session_id === 'string' ? payload.session_id : '',
+					orderedIds: Array.isArray(payload.ordered_ids) ? payload.ordered_ids : [],
+					activeIds: Array.isArray(payload.active_ids) ? payload.active_ids : [],
+					timedOutIds: Array.isArray(payload.timed_out_ids) ? payload.timed_out_ids : [],
+					missingLines: lines
+						.filter(
+							(item) =>
+								typeof item?.data?.id === 'string' &&
+								typeof (item?.sentence ?? item?.data?.text) === 'string',
+						)
+						.map((item) => ({
+							id: item.data.id,
+							text: item.sentence ?? item.data.text,
+							excludedFromStats: Boolean(item.data.excluded_from_stats),
+						})),
+				});
+				return;
+			}
 			if (payload.event === LineType.RESETCHECKBOXES) {
 				newLine$.next(['', LineType.RESETCHECKBOXES, '']);
 				return;

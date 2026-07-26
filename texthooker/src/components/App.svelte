@@ -63,6 +63,7 @@
 		settingsOpen$,
 		showSpinner$,
 		syncTextFeedPauseWithGSMStats$,
+		textfeedSessionSync$,
 		theme$,
 		websocketUrl$,
 		trimAudioWithVAD$,
@@ -70,7 +71,14 @@
 		showTrimmedVideoInExplorer$,
 		texthookerAudioEvents$,
 	} from '../stores/stores';
-	import { type LineItem, type LineItemEditEvent, LineType, OnlineFont, Theme } from '../types';
+	import {
+		type LineItem,
+		type LineItemEditEvent,
+		LineType,
+		OnlineFont,
+		type TextFeedSessionSync,
+		Theme,
+	} from '../types';
 	import {
 		applyAfkBlur,
 		applyCustomCSS,
@@ -113,6 +121,7 @@
 	let activeAudioLineId = '';
 	let pendingAudioLineId = '';
 	let browserAudioPlaying = false;
+	let currentGSMSessionId = '';
 	let gsmTextIntakePaused: boolean | undefined;
 	let gsmTextIntakeStateRequestPending = false;
 	let timerPauseClarificationShown = false;
@@ -206,6 +215,11 @@
 				]);
 			}
 		}),
+		reduceToEmptyString(),
+	);
+
+	const handleTextFeedSessionSync$ = textfeedSessionSync$.pipe(
+		tap((sync: TextFeedSessionSync) => applyTextFeedSessionSync(sync)),
 		reduceToEmptyString(),
 	);
 
@@ -639,6 +653,86 @@
 		}, 1000);
 	}
 
+	function applyTextFeedSessionSync(sync: TextFeedSessionSync) {
+		if (!sync.sessionId) {
+			return;
+		}
+
+		currentGSMSessionId = sync.sessionId;
+		const activeIds = new Set(sync.activeIds);
+		const timedOutIds = new Set(sync.timedOutIds);
+		const orderedIds = new Set(sync.orderedIds);
+		const existingLines = new Map($lineData$.map((line) => [line.id, line]));
+		const missingLines = new Map(sync.missingLines.map((line) => [line.id, line]));
+		const syncedLines: LineItem[] = [];
+
+		for (const id of sync.orderedIds) {
+			const existingLine = existingLines.get(id);
+			const gsmStatus = activeIds.has(id) ? 'active' : timedOutIds.has(id) ? 'timed_out' : 'active';
+			if (existingLine) {
+				syncedLines.push({
+					...existingLine,
+					gsmSessionId: sync.sessionId,
+					gsmStatus,
+				});
+				continue;
+			}
+
+			const missingLine = missingLines.get(id);
+			if (!missingLine) {
+				continue;
+			}
+			const text = normalizeLineContent(missingLine.text);
+			if (text) {
+				syncedLines.push({
+					id,
+					text,
+					excludedFromStats: missingLine.excludedFromStats,
+					gsmSessionId: sync.sessionId,
+					gsmStatus,
+					sessionBackfill: true,
+				});
+			}
+		}
+
+		// A live line can arrive after the server takes its sync snapshot. It belongs
+		// after the snapshot and must not be discarded when the ordered block is rebuilt.
+		for (const line of $lineData$) {
+			if (line.gsmSessionId === sync.sessionId && !orderedIds.has(line.id)) {
+				syncedLines.push(line);
+			}
+		}
+
+		let insertionIndex = -1;
+		const otherLines: LineItem[] = [];
+		for (const line of $lineData$) {
+			const belongsToCurrentSession =
+				line.gsmSessionId === sync.sessionId || orderedIds.has(line.id);
+			if (belongsToCurrentSession) {
+				if (insertionIndex < 0) {
+					insertionIndex = otherLines.length;
+				}
+			} else {
+				otherLines.push(line);
+			}
+		}
+		if (insertionIndex < 0) {
+			insertionIndex = otherLines.length;
+		}
+
+		$lineData$ = [
+			...otherLines.slice(0, insertionIndex),
+			...syncedLines,
+			...otherLines.slice(insertionIndex),
+		];
+		$lineIDs$ = sync.activeIds;
+		$timedOutIDs$ = sync.timedOutIds;
+
+		for (const line of syncedLines) {
+			$uniqueLines$.add(line.text);
+		}
+	}
+
 	function updateGSMLineStatuses(ids: string[], timedOutIds: string[], sessionId: string | undefined) {
 		const activeIds = new Set(ids);
 		const expiredIds = new Set(timedOutIds);
@@ -892,22 +986,25 @@
 		}, 500);
 	}
 
-	function transformLine(text: string, useReplacements = true) {
+	function normalizeLineContent(text: string, useReplacements = true) {
 		const textToAppend = useReplacements ? applyReplacements(text, $enabledReplacements$) : text;
-
-		let canAppend = true;
 		let lineToAppend = $removeAllWhitespace$ ? textToAppend.replace(/\s/gm, '').trim() : textToAppend;
 
 		if ($filterNonCJKLines$ && !lineToAppend.match(cjkCharacters)) {
 			lineToAppend = '';
 		}
 
-		if (!lineToAppend) {
-			canAppend = false;
-		} else if ($preventGlobalDuplicate$) {
+		return lineToAppend || undefined;
+	}
+
+	function transformLine(text: string, useReplacements = true) {
+		const lineToAppend = normalizeLineContent(text, useReplacements);
+		let canAppend = Boolean(lineToAppend);
+
+		if (lineToAppend && $preventGlobalDuplicate$) {
 			canAppend = !$uniqueLines$.has(lineToAppend);
 			$uniqueLines$.add(lineToAppend);
-		} else if ($preventLastDuplicate$ && $lineData$.length) {
+		} else if (lineToAppend && $preventLastDuplicate$ && $lineData$.length) {
 			canAppend = $lineData$.slice(-$preventLastDuplicate$).every((line) => line.text !== lineToAppend);
 		}
 
@@ -945,11 +1042,15 @@
 
 	function applyMaxLinesAndGetRemainingLineData(diffMod = 0) {
 		const oldLinesToRemove = new Set<string>();
-		const startIndex = $maxLines$ ? $lineData$.length - $maxLines$ + diffMod : 0;
+		let remainingToRemove = $maxLines$ ? $lineData$.length - $maxLines$ + diffMod : 0;
 		const remainingLineData =
-			startIndex > 0
-				? $lineData$.filter((oldLine, index) => {
-						if (index < startIndex) {
+			remainingToRemove > 0
+				? $lineData$.filter((oldLine) => {
+						if (
+							remainingToRemove > 0 &&
+							(!currentGSMSessionId || oldLine.gsmSessionId !== currentGSMSessionId)
+						) {
+							remainingToRemove -= 1;
 							oldLinesToRemove.add(oldLine.id);
 
 							$uniqueLines$.delete(oldLine.text);
@@ -1084,6 +1185,7 @@
 <svelte:window on:keyup={handleKeyPress} />
 
 {$handleLine$ ?? ''}
+{$handleTextFeedSessionSync$ ?? ''}
 {$pasteHandler$ ?? ''}
 {$copyBlocker$ ?? ''}
 {$resizeHandler$ ?? ''}

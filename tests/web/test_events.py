@@ -127,6 +127,23 @@ class TestEventManagerRemoveAndClear:
         em.add_gameline(_make_gameline("timeout-1"))
         em.remove_lines_by_ids(["timeout-1"], timed_out=True)
         assert "timeout-1" in em.timed_out_ids
+        assert em.get("timeout-1") is not None
+        assert [event.id for event in em.get_session_events()] == ["timeout-1"]
+
+    def test_session_sync_preserves_order_and_returns_only_missing_events(self):
+        em = EventManager()
+        em.add_gameline(_make_gameline("first", "一"))
+        em.add_gameline(_make_gameline("second", "二"))
+        em.add_gameline(_make_gameline("third", "三"))
+        em.remove_lines_by_ids(["first"], timed_out=True)
+
+        state = em.get_session_sync_state({"second"})
+
+        assert state["session_id"] == em.session_id
+        assert state["ordered_ids"] == ["first", "second", "third"]
+        assert state["active_ids"] == ["second", "third"]
+        assert state["timed_out_ids"] == ["first"]
+        assert [event["id"] for event in state["missing_events"]] == ["first", "third"]
 
     def test_remove_nonexistent_id_is_safe(self):
         em = EventManager()

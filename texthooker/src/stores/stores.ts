@@ -7,6 +7,7 @@ import {
 	type ReplacementItem,
 	type SettingPreset,
 	type Settings,
+	type TextFeedSessionSync,
 } from './../types';
 
 import { mdiHelpCircle } from '@mdi/js';
@@ -301,6 +302,7 @@ export const isPaused$ = writableSubject<boolean>(true);
 
 export const newLine$ = new Subject<[string, LineType, string, Partial<LineItem>?]>();
 export const texthookerAudioEvents$ = new Subject<Record<string, any>>();
+export const textfeedSessionSync$ = new Subject<TextFeedSessionSync>();
 
 export const reconnectSocket$ = new Subject<void>();
 
