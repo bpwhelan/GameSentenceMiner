@@ -283,19 +283,51 @@ def test_get_ocr_scan_rate_invalid_value(monkeypatch):
     assert electron_config.get_ocr_scan_rate() == 0.5
 
 
-def test_get_ocr_wgc_capture_fps_is_independent_and_clamped(monkeypatch):
+def test_get_ocr_wgc_capture_fps_is_derived_from_scan_rate(monkeypatch):
     store = _DummyStore({"OCR": {"scanRate": 0.2, "wgcCaptureFps": "12"}})
     monkeypatch.setattr(electron_config, "electron_store", store)
-    assert electron_config.get_ocr_wgc_capture_fps() == 12
+    assert electron_config.get_ocr_wgc_capture_fps() == 5
 
-    store.data["OCR"]["wgcCaptureFps"] = 0
-    assert electron_config.get_ocr_wgc_capture_fps() == 1
+    store.data["OCR"]["scanRate"] = 0.3
+    assert electron_config.get_ocr_wgc_capture_fps() == 4
 
-    store.data["OCR"]["wgcCaptureFps"] = 500
+    store.data["OCR"]["scanRate"] = 0.8
+    assert electron_config.get_ocr_wgc_capture_fps() == 2
+
+    store.data["OCR"]["scanRate"] = 0
     assert electron_config.get_ocr_wgc_capture_fps() == 60
 
-    store.data["OCR"]["wgcCaptureFps"] = "bad"
-    assert electron_config.get_ocr_wgc_capture_fps() == 10
+    store.data["OCR"]["scanRate"] = 0.001
+    assert electron_config.get_ocr_wgc_capture_fps() == 60
+
+    store.data["OCR"]["scanRate"] = "nan"
+    assert electron_config.get_ocr_wgc_capture_fps() == 2
+
+
+def test_get_manual_ocr_delay_settings_are_normalized(monkeypatch):
+    store = _DummyStore(
+        {
+            "OCR": {
+                "manualOcrDelayMs": "350",
+                "manualOcrDelayGamepadOnly": True,
+            }
+        }
+    )
+    monkeypatch.setattr(electron_config, "electron_store", store)
+
+    assert electron_config.get_ocr_manual_scan_delay_ms() == 350
+    assert electron_config.get_ocr_manual_scan_delay_gamepad_only() is True
+
+    store.data["OCR"]["manualOcrDelayMs"] = -10
+    assert electron_config.get_ocr_manual_scan_delay_ms() == 0
+
+    store.data["OCR"]["manualOcrDelayMs"] = 100_000
+    assert electron_config.get_ocr_manual_scan_delay_ms() == 100_000
+
+    store.data["OCR"]["manualOcrDelayMs"] = "bad"
+    store.data["OCR"]["manualOcrDelayGamepadOnly"] = False
+    assert electron_config.get_ocr_manual_scan_delay_ms() == 0
+    assert electron_config.get_ocr_manual_scan_delay_gamepad_only() is False
 
 
 def test_get_ocr_hotkeys_preserve_explicit_empty_values(monkeypatch):

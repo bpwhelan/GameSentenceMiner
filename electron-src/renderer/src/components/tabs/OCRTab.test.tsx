@@ -181,4 +181,135 @@ describe("OCRTab hotkeys", () => {
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
     expect(container.querySelectorAll(".ocr-gamepad-hotkey")).toHaveLength(5);
   });
+
+  it("loads and saves the manual green-area delay options", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "ocr.get-ocr-config") {
+        return {
+          gamepadHotkeysEnabled: true,
+          manualOcrGamepad: "0",
+          menuOcrHotkey: "Ctrl+Shift+G",
+          manualOcrDelayMs: 350,
+          manualOcrDelayGamepadOnly: true
+        };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<OCRTab active={false} />);
+      await flushAsyncWork();
+    });
+
+    const delayInput = container.querySelector(
+      "#manual-ocr-delay-ms"
+    ) as HTMLInputElement;
+    const gamepadOnlyInput = container.querySelector(
+      "#manual-ocr-delay-gamepad-only"
+    ) as HTMLInputElement;
+    expect(delayInput.value).toBe("350");
+    expect(gamepadOnlyInput.checked).toBe(true);
+
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value"
+      )?.set;
+      valueSetter?.call(delayInput, "500");
+      delayInput.dispatchEvent(new Event("input", { bubbles: true }));
+      await flushAsyncWork();
+      vi.advanceTimersByTime(200);
+      await flushAsyncWork();
+    });
+
+    expect(sendMock).toHaveBeenCalledWith(
+      "ocr.save-ocr-config",
+      expect.objectContaining({
+        manualOcrDelayMs: 500,
+        manualOcrDelayGamepadOnly: true
+      })
+    );
+  });
+
+  it("only shows the gamepad-only delay option while gamepad hotkeys are enabled", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "ocr.get-ocr-config") {
+        return {
+          gamepadHotkeysEnabled: false,
+          menuOcrHotkey: "Ctrl+Shift+G",
+          manualOcrDelayMs: 200,
+          manualOcrDelayGamepadOnly: true
+        };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<OCRTab active={false} />);
+      await flushAsyncWork();
+    });
+
+    expect(container.querySelector("#manual-ocr-delay-ms")).toBeInstanceOf(
+      HTMLInputElement
+    );
+    expect(
+      container.querySelector("#manual-ocr-delay-gamepad-only")
+    ).toBeNull();
+
+    const toggle = container.querySelector(
+      'button[aria-controls="ocr-gamepad-bindings"]'
+    ) as HTMLButtonElement;
+    await act(async () => {
+      toggle.click();
+      await flushAsyncWork();
+    });
+
+    expect(
+      container.querySelector("#manual-ocr-delay-gamepad-only")
+    ).toBeInstanceOf(HTMLInputElement);
+  });
+
+  it("does not expose a separate WGC capture rate setting", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "ocr.get-ocr-config") {
+        return {
+          advancedMode: true,
+          scanRate: 0.2,
+          scanRate_advanced: 0.2,
+          wgcCaptureFps: 12
+        };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<OCRTab active={false} />);
+      await flushAsyncWork();
+    });
+
+    expect(container.querySelector("#ocr-advanced-scan-rate")).toBeInstanceOf(
+      HTMLInputElement
+    );
+    expect(container.querySelector("#ocr-wgc-capture-fps")).toBeNull();
+
+    const scanRateInput = container.querySelector(
+      "#ocr-advanced-scan-rate"
+    ) as HTMLInputElement;
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value"
+      )?.set;
+      valueSetter?.call(scanRateInput, "0.3");
+      scanRateInput.dispatchEvent(new Event("input", { bubbles: true }));
+      await flushAsyncWork();
+      vi.advanceTimersByTime(200);
+      await flushAsyncWork();
+    });
+
+    const saveCall = sendMock.mock.calls.find(
+      ([channel]) => channel === "ocr.save-ocr-config"
+    );
+    expect(saveCall?.[1]).not.toHaveProperty("wgcCaptureFps");
+  });
 });

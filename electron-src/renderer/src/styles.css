@@ -5130,6 +5130,25 @@ body {
   width: 100%;
 }
 
+.ocr-manual-delay-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.ocr-workspace .ocr-manual-delay-settings input[type='number'] {
+  width: 100%;
+  min-width: 0;
+  background: var(--gsm-surface-1);
+}
+
+.ocr-workspace .ocr-manual-delay-gamepad-only {
+  margin: 0;
+  color: var(--gsm-text-secondary);
+  font-size: 0.76rem;
+}
+
 .ocr-hotkey-run {
   flex: 0 0 auto;
   min-height: 28px;

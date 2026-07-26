@@ -1,5 +1,6 @@
 import copy
 import json
+import math
 import os
 import sys
 import time
@@ -7,7 +8,7 @@ from threading import RLock
 from typing import Any, Dict, Optional, Tuple
 
 from GameSentenceMiner.util.config.configuration import (
-    DEFAULT_OCR_WGC_CAPTURE_FPS,
+    MAX_WGC_CAPTURE_FPS,
     get_app_directory,
     is_windows,
     logger,
@@ -75,13 +76,14 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "ocr1": DEFAULT_STABILITY_OCR,
         "ocr2": "glens",
         "scanRate": 0.5,
-        "wgcCaptureFps": DEFAULT_OCR_WGC_CAPTURE_FPS,
         "language": "ja",
         "ocr_screenshots": False,
         "furigana_filter_sensitivity": 0,
         "defaultSceneFuriganaFilterSensitivity": 0,
         "manualOcrHotkey": "Ctrl+Shift+M",
         "manualOcrGamepad": "",
+        "manualOcrDelayMs": 0,
+        "manualOcrDelayGamepadOnly": False,
         "menuOcrHotkey": "Ctrl+Shift+G",
         "menuOcrGamepad": "",
         "areaSelectOcrHotkey": "Ctrl+Shift+O",
@@ -484,6 +486,14 @@ def get_ocr_manual_ocr_gamepad() -> str:
     return _get_ocr_hotkey_value("manualOcrGamepad", "")
 
 
+def get_ocr_manual_scan_delay_ms() -> int:
+    return _get_ocr_int_value("manualOcrDelayMs", 0, min_value=0)
+
+
+def get_ocr_manual_scan_delay_gamepad_only() -> bool:
+    return bool(_get_ocr_value("manualOcrDelayGamepadOnly", False))
+
+
 def get_ocr_menu_ocr_gamepad() -> str:
     if not get_ocr_gamepad_hotkeys_enabled():
         return ""
@@ -546,9 +556,15 @@ def get_ocr_scan_rate() -> float:
 
 
 def get_ocr_wgc_capture_fps() -> int:
+    scan_rate = get_ocr_scan_rate()
+    if not math.isfinite(scan_rate):
+        scan_rate = 0.5
+    if scan_rate <= 0:
+        return MAX_WGC_CAPTURE_FPS
+
     return normalize_wgc_capture_fps(
-        _get_ocr_value("wgcCaptureFps", DEFAULT_OCR_WGC_CAPTURE_FPS),
-        DEFAULT_OCR_WGC_CAPTURE_FPS,
+        math.ceil(1 / scan_rate),
+        MAX_WGC_CAPTURE_FPS,
     )
 
 

@@ -4190,15 +4190,16 @@ def _resolve_requested_engines(
     requested_engine=None,
     requested_ocr1=None,
     requested_ocr2=None,
+    include_configured_engines=True,
 ):
     names = []
-    for value in (
+    requested_values = (
         requested_engine,
         requested_ocr1,
         requested_ocr2,
-        configured_ocr1,
-        configured_ocr2,
-    ):
+    )
+    configured_values = (configured_ocr1, configured_ocr2) if include_configured_engines else ()
+    for value in requested_values + configured_values:
         normalized = _normalize_engine_name(value)
         if normalized and normalized not in names:
             names.append(normalized)
@@ -4236,6 +4237,7 @@ def run(
     logger_level="INFO",
     configure_logger=True,
     logger_setup_callback=None,
+    include_configured_engines=True,
 ):
     """
     Japanese OCR client
@@ -4338,6 +4340,7 @@ def run(
         requested_engine=engine,
         requested_ocr1=ocr1,
         requested_ocr2=ocr2,
+        include_configured_engines=include_configured_engines,
     )
     preferred_default = _normalize_engine_name(engine) or _normalize_engine_name(ocr1)
 

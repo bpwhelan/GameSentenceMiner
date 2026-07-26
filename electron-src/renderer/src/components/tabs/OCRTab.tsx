@@ -45,7 +45,6 @@ interface OcrStoredConfig {
   scanRate?: number;
   scanRate_basic?: number;
   scanRate_advanced?: number;
-  wgcCaptureFps?: number;
   language?: string;
   ocr_screenshots?: boolean;
   furigana_filter_sensitivity?: number;
@@ -53,6 +52,8 @@ interface OcrStoredConfig {
   gamepadHotkeysEnabled?: boolean;
   manualOcrHotkey?: string;
   manualOcrGamepad?: string;
+  manualOcrDelayMs?: number;
+  manualOcrDelayGamepadOnly?: boolean;
   menuOcrHotkey?: string;
   menuOcrGamepad?: string;
   areaSelectOcrHotkey?: string;
@@ -84,7 +85,6 @@ interface OcrUiConfig {
   advancedMode: boolean;
   basicScanRate: number;
   advancedScanRate: number;
-  wgcCaptureFps: number;
   mainOcr: string;
   stabilityOcr: string;
   twoPassOCR: boolean;
@@ -97,6 +97,8 @@ interface OcrUiConfig {
   gamepadHotkeysEnabled: boolean;
   manualOcrHotkey: string;
   manualOcrGamepad: string;
+  manualOcrDelayMs: number;
+  manualOcrDelayGamepadOnly: boolean;
   menuOcrHotkey: string;
   menuOcrGamepad: string;
   areaSelectOcrHotkey: string;
@@ -705,10 +707,6 @@ function normalizeOcrConfig(
     advancedMode: Boolean(value?.advancedMode),
     basicScanRate: numericValue(value?.scanRate_basic, scanRate),
     advancedScanRate: numericValue(value?.scanRate_advanced, scanRate),
-    wgcCaptureFps: Math.max(
-      1,
-      Math.min(60, integerValue(value?.wgcCaptureFps, 10))
-    ),
     mainOcr:
       typeof value?.ocr2_advanced === "string"
         ? value.ocr2_advanced
@@ -746,6 +744,8 @@ function normalizeOcrConfig(
       hasSeparateMenuBinding && typeof value?.manualOcrGamepad === "string"
         ? value.manualOcrGamepad
         : "",
+    manualOcrDelayMs: Math.max(0, integerValue(value?.manualOcrDelayMs, 0)),
+    manualOcrDelayGamepadOnly: value?.manualOcrDelayGamepadOnly === true,
     menuOcrHotkey: hasSeparateMenuBinding
       ? value.menuOcrHotkey ?? "Ctrl+Shift+G"
       : typeof value?.manualOcrHotkey === "string"
@@ -816,7 +816,6 @@ function buildPersistedConfig(
     scanRate: config.advancedMode ? config.advancedScanRate : config.basicScanRate,
     scanRate_basic: config.basicScanRate,
     scanRate_advanced: config.advancedScanRate,
-    wgcCaptureFps: config.wgcCaptureFps,
     language: config.language,
     ocr_screenshots: config.ocrScreenshots,
     furigana_filter_sensitivity: config.furiganaFilterSensitivity,
@@ -825,6 +824,8 @@ function buildPersistedConfig(
     gamepadHotkeysEnabled: config.gamepadHotkeysEnabled,
     manualOcrHotkey: config.manualOcrHotkey,
     manualOcrGamepad: config.manualOcrGamepad,
+    manualOcrDelayMs: config.manualOcrDelayMs,
+    manualOcrDelayGamepadOnly: config.manualOcrDelayGamepadOnly,
     menuOcrHotkey: config.menuOcrHotkey,
     menuOcrGamepad: config.menuOcrGamepad,
     areaSelectOcrHotkey: config.areaSelectOcrHotkey,
@@ -871,6 +872,7 @@ function buildPersistedConfig(
     next[field.key] = config.comparison[field.key];
   }
 
+  delete next.wgcCaptureFps;
   return next;
 }
 
@@ -949,7 +951,6 @@ const OCR_TOOLTIP_KEYS = {
   advancedMode: "ocr.tooltips.advancedMode",
   basicScanRate: "ocr.tooltips.basicScanRate",
   advancedScanRate: "ocr.tooltips.advancedScanRate",
-  wgcCaptureFps: "ocr.tooltips.wgcCaptureFps",
   language: "ocr.tooltips.language",
   baseScale: "ocr.tooltips.baseScale",
   furiganaFilter: "ocr.tooltips.furiganaFilter",
@@ -2077,55 +2078,28 @@ export function OCRTab({ active }: OcrTabProps) {
 
               <div className="form-group ocr-form-group">
                 {config.advancedMode ? (
-                  <>
-                    <div className="input-group">
-                      <label
-                        htmlFor="ocr-advanced-scan-rate"
-                        {...titleProps(ocrTooltips.advancedScanRate)}
-                      >
-                        {t("ocr.settings.scanRate")}
-                      </label>
-                      <input
-                        id="ocr-advanced-scan-rate"
-                        type="number"
-                        min={0.1}
-                        max={10}
-                        step={0.1}
-                        value={config.advancedScanRate}
-                        onChange={(event) => {
-                          setConfig((current) => ({
-                            ...current,
-                            advancedScanRate: numericValue(event.target.value, 0.5)
-                          }));
-                        }}
-                      />
-                    </div>
-                    <div className="input-group">
-                      <label
-                        htmlFor="ocr-wgc-capture-fps"
-                        {...titleProps(ocrTooltips.wgcCaptureFps)}
-                      >
-                        {t("ocr.settings.wgcCaptureFps")}
-                      </label>
-                      <input
-                        id="ocr-wgc-capture-fps"
-                        type="number"
-                        min={1}
-                        max={60}
-                        step={1}
-                        value={config.wgcCaptureFps}
-                        onChange={(event) => {
-                          setConfig((current) => ({
-                            ...current,
-                            wgcCaptureFps: Math.max(
-                              1,
-                              Math.min(60, integerValue(event.target.value, 10))
-                            )
-                          }));
-                        }}
-                      />
-                    </div>
-                  </>
+                  <div className="input-group">
+                    <label
+                      htmlFor="ocr-advanced-scan-rate"
+                      {...titleProps(ocrTooltips.advancedScanRate)}
+                    >
+                      {t("ocr.settings.scanRate")}
+                    </label>
+                    <input
+                      id="ocr-advanced-scan-rate"
+                      type="number"
+                      min={0.1}
+                      max={10}
+                      step={0.1}
+                      value={config.advancedScanRate}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          advancedScanRate: numericValue(event.target.value, 0.5)
+                        }));
+                      }}
+                    />
+                  </div>
                 ) : (
                   <div className="input-group">
                     <label
@@ -2728,6 +2702,58 @@ export function OCRTab({ active }: OcrTabProps) {
                           </label>
                         ) : null}
                       </div>
+                      {action.id === "manual" ? (
+                        <div className="ocr-manual-delay-settings">
+                          <label
+                            className="ocr-hotkey-binding"
+                            htmlFor="manual-ocr-delay-ms"
+                            {...titleProps(t("ocr.tooltips.manualDelay"))}
+                          >
+                            <span>{t("ocr.hotkeys.manualDelay")}</span>
+                            <input
+                              id="manual-ocr-delay-ms"
+                              type="number"
+                              min="0"
+                              step="50"
+                              value={config.manualOcrDelayMs}
+                              onChange={(event) => {
+                                setConfig((current) => ({
+                                  ...current,
+                                  manualOcrDelayMs: Math.max(
+                                    0,
+                                    integerValue(event.target.value, 0)
+                                  )
+                                }));
+                              }}
+                            />
+                          </label>
+                          {config.gamepadHotkeysEnabled ? (
+                            <label
+                              className="checkbox-label ocr-manual-delay-gamepad-only"
+                              htmlFor="manual-ocr-delay-gamepad-only"
+                              {...titleProps(
+                                t("ocr.tooltips.manualDelayGamepadOnly")
+                              )}
+                            >
+                              <input
+                                id="manual-ocr-delay-gamepad-only"
+                                type="checkbox"
+                                checked={config.manualOcrDelayGamepadOnly}
+                                onChange={(event) => {
+                                  setConfig((current) => ({
+                                    ...current,
+                                    manualOcrDelayGamepadOnly:
+                                      event.target.checked
+                                  }));
+                                }}
+                              />
+                              <span>
+                                {t("ocr.hotkeys.manualDelayGamepadOnly")}
+                              </span>
+                            </label>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}

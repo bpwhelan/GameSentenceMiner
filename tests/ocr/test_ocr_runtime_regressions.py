@@ -39,6 +39,19 @@ def test_resolve_requested_engines_falls_back_to_config_values():
     assert engines == ["meikiocr", "glens"]
 
 
+def test_resolve_requested_engines_can_exclude_config_values():
+    engines = run_module._resolve_requested_engines(
+        "meiki_text_detector",
+        "glens",
+        requested_engine="glens",
+        requested_ocr1="glens",
+        requested_ocr2="glens",
+        include_configured_engines=False,
+    )
+
+    assert engines == ["glens"]
+
+
 def test_run_oneocr_disables_manual_combo_in_auto_mode(monkeypatch):
     captured = {}
 
@@ -60,13 +73,20 @@ def test_run_oneocr_disables_manual_combo_in_auto_mode(monkeypatch):
     gsm_ocr.run_oneocr(None, [])
 
     assert captured["screen_capture_combo"] == ""
+    assert captured["include_configured_engines"] is True
 
 
 def test_run_oneocr_uses_manual_combo_in_manual_mode(monkeypatch):
     captured = {}
+    activations = []
 
     monkeypatch.setattr(gsm_ocr.ocr_runtime, "init_config", lambda _parse_args: None)
-    monkeypatch.setattr(gsm_ocr.ocr_runtime, "run", lambda **kwargs: captured.update(kwargs))
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        gsm_ocr.ocr_runtime.on_screenshot_combo()
+
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "run", fake_run)
 
     monkeypatch.setattr(gsm_ocr, "obs_ocr", True)
     monkeypatch.setattr(gsm_ocr, "window", None)
@@ -79,10 +99,64 @@ def test_run_oneocr_uses_manual_combo_in_manual_mode(monkeypatch):
     monkeypatch.setattr(gsm_ocr, "furigana_filter_sensitivity", 0)
     monkeypatch.setattr(gsm_ocr, "ocr_result_callback", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(gsm_ocr, "get_ocr_scan_rate", lambda: 0.5)
+    monkeypatch.setattr(
+        gsm_ocr,
+        "trigger_manual_ocr",
+        lambda **kwargs: activations.append(kwargs) or True,
+    )
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "paused", False, raising=False)
 
     gsm_ocr.run_oneocr(None, [])
 
     assert captured["screen_capture_combo"] == "<alt>+b"
+    assert captured["include_configured_engines"] is False
+    assert activations == [{"gamepad_activation": False}]
+
+
+def test_ocr_processor_lazily_initializes_missing_engine(monkeypatch):
+    loaded_engine = SimpleNamespace(name="meiki_text_detector")
+    load_calls = []
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "engine_instances", [], raising=False)
+
+    def load_engine(name, *, switch):
+        load_calls.append((name, switch))
+        gsm_ocr.ocr_runtime.engine_instances.append(loaded_engine)
+
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "engine_change_handler_name", load_engine)
+
+    processor = object.__new__(gsm_ocr.OCRProcessor)
+
+    assert processor._get_engine_instance_by_name("meiki_text_detector") is loaded_engine
+    assert load_calls == [("meiki_text_detector", False)]
+
+
+def test_secondary_prepass_lazily_initializes_configured_ocr1(monkeypatch):
+    class FakeDetector:
+        name = "meiki_text_detector"
+
+        def __call__(self, _img, _furigana_filter_sensitivity):
+            return True, "", [], [], (1, 2, 8, 9), None
+
+    detector = FakeDetector()
+    load_calls = []
+    monkeypatch.setattr(gsm_ocr, "is_beangate", True)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_ocr1", lambda: "meiki_text_detector")
+    monkeypatch.setattr(gsm_ocr, "get_ocr_ocr2", lambda: "glens")
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "engine_instances", [], raising=False)
+    monkeypatch.setattr(gsm_ocr, "get_ocr2_image", lambda *_args, **_kwargs: "cropped")
+
+    def load_engine(name, *, switch):
+        load_calls.append((name, switch))
+        gsm_ocr.ocr_runtime.engine_instances.append(detector)
+
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "engine_change_handler_name", load_engine)
+
+    processor = object.__new__(gsm_ocr.OCRProcessor)
+    result, offset = processor._prepare_beangate_secondary_ocr2_image(Image.new("RGB", (10, 10)))
+
+    assert result == "cropped"
+    assert offset == (1, 2)
+    assert load_calls == [("meiki_text_detector", False)]
 
 
 def test_primary_area_hotkey_runs_ocr2_on_green_rectangles_only(monkeypatch):
@@ -121,6 +195,8 @@ def test_primary_area_hotkey_runs_ocr2_on_green_rectangles_only(monkeypatch):
 def test_manual_command_runs_primary_ocr2_directly_during_auto_mode(monkeypatch):
     calls = []
     monkeypatch.setattr(gsm_ocr, "manual", False)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_ms", lambda: 0)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_gamepad_only", lambda: False)
     monkeypatch.setattr(gsm_ocr, "run_primary_rectangles_ocr_once", lambda: calls.append("primary") or True)
     monkeypatch.delattr(gsm_ocr.ocr_runtime, "paused", raising=False)
 
@@ -131,6 +207,138 @@ def test_manual_command_runs_primary_ocr2_directly_during_auto_mode(monkeypatch)
 
     assert response["success"] is True
     assert calls == ["primary"]
+
+
+def test_manual_ocr_trigger_delays_keyboard_activation(monkeypatch):
+    calls = []
+    timers = []
+
+    class FakeTimer:
+        def __init__(self, interval, callback):
+            self.interval = interval
+            self.callback = callback
+            self.daemon = False
+            timers.append(self)
+
+        def start(self):
+            calls.append("scheduled")
+
+    monkeypatch.setattr(gsm_ocr, "manual", False)
+    monkeypatch.setattr(gsm_ocr.threading, "Timer", FakeTimer)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_ms", lambda: 350)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_gamepad_only", lambda: False)
+    monkeypatch.setattr(
+        gsm_ocr,
+        "run_primary_rectangles_ocr_once",
+        lambda: calls.append("captured") or True,
+    )
+
+    assert gsm_ocr.trigger_manual_ocr(gamepad_activation=False) is True
+    assert calls == ["scheduled"]
+    assert len(timers) == 1
+    assert timers[0].interval == 0.35
+    assert timers[0].daemon is True
+
+    timers[0].callback()
+    assert calls == ["scheduled", "captured"]
+
+
+def test_manual_ocr_delay_can_be_limited_to_gamepad_activation(monkeypatch):
+    calls = []
+    timers = []
+
+    class FakeTimer:
+        def __init__(self, interval, callback):
+            self.interval = interval
+            self.callback = callback
+            self.daemon = False
+            timers.append(self)
+
+        def start(self):
+            calls.append("scheduled")
+
+    monkeypatch.setattr(gsm_ocr, "manual", False)
+    monkeypatch.setattr(gsm_ocr.threading, "Timer", FakeTimer)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_ms", lambda: 250)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_gamepad_only", lambda: True)
+    monkeypatch.setattr(
+        gsm_ocr,
+        "run_primary_rectangles_ocr_once",
+        lambda: calls.append("captured") or True,
+    )
+
+    assert gsm_ocr.trigger_manual_ocr(gamepad_activation=False) is True
+    assert calls == ["captured"]
+    assert timers == []
+
+    calls.clear()
+    assert gsm_ocr.trigger_manual_ocr(gamepad_activation=True) is True
+    assert calls == ["scheduled"]
+    assert len(timers) == 1
+    assert timers[0].interval == 0.25
+
+
+def test_manual_mode_delayed_trigger_sets_screenshot_event(monkeypatch):
+    events = []
+    screenshot_event = SimpleNamespace(set=lambda: events.append("set"))
+
+    monkeypatch.setattr(gsm_ocr, "manual", True)
+    monkeypatch.setattr(
+        gsm_ocr.ocr_runtime,
+        "screenshot_event",
+        screenshot_event,
+        raising=False,
+    )
+    monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_ms", lambda: 0)
+    monkeypatch.setattr(gsm_ocr, "get_ocr_manual_scan_delay_gamepad_only", lambda: False)
+
+    assert gsm_ocr.trigger_manual_ocr(gamepad_activation=False) is True
+    assert events == ["set"]
+
+
+def test_manual_hotkeys_identify_keyboard_and_gamepad_activations(monkeypatch):
+    activations = []
+
+    class FakeHotkeyManager:
+        def __init__(self):
+            self.keyboard = []
+            self.gamepad = []
+
+        def clear(self):
+            return None
+
+        def register(self, binding_getter, callback):
+            self.keyboard.append((binding_getter, callback))
+
+        def register_gamepad(self, binding_getter, callback):
+            self.gamepad.append((binding_getter, callback))
+
+    manager = FakeHotkeyManager()
+    monkeypatch.setattr(gsm_ocr, "_get_hotkey_manager", lambda: manager)
+    monkeypatch.setattr(gsm_ocr, "manual", False)
+    monkeypatch.setattr(gsm_ocr, "area_select_ocr_hotkey", "")
+    monkeypatch.setattr(gsm_ocr, "manual_ocr_hotkey", "Ctrl+Shift+M")
+    monkeypatch.setattr(gsm_ocr, "menu_ocr_hotkey", "")
+    monkeypatch.setattr(gsm_ocr, "whole_window_ocr_hotkey", "")
+    monkeypatch.setattr(
+        gsm_ocr,
+        "trigger_manual_ocr",
+        lambda **kwargs: activations.append(kwargs) or True,
+    )
+
+    gsm_ocr.add_ss_hotkey()
+
+    assert len(manager.keyboard) == 1
+    manager.keyboard[0][1]()
+    manual_gamepad_callback = next(
+        callback for binding_getter, callback in manager.gamepad if binding_getter is gsm_ocr.get_ocr_manual_ocr_gamepad
+    )
+    manual_gamepad_callback()
+
+    assert activations == [
+        {"gamepad_activation": False},
+        {"gamepad_activation": True},
+    ]
 
 
 def test_menu_command_always_runs_secondary_rectangles(monkeypatch):
@@ -539,7 +747,7 @@ def test_obs_area_selector_uses_single_fast_initial_screenshot(monkeypatch):
 
     area_selector_qt.OWOCRAreaSelectorWidget._init_obs_screenshot(selector)
 
-    assert calls == [{"compression": 90, "img_format": "jpg", "retry": 1, "capture_fps": 10}]
+    assert calls == [{"compression": 90, "img_format": "jpg", "retry": 1, "capture_fps": 2}]
     assert selector.fit_args == (640, 360)
     assert selector.target_window_geometry == {"left": 0, "top": 0, "width": 640, "height": 360}
 

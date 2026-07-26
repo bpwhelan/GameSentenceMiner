@@ -67,6 +67,8 @@ interface OCRConfig {
     gamepadHotkeysEnabled?: boolean;
     manualOcrHotkey: string;
     manualOcrGamepad: string;
+    manualOcrDelayMs?: number;
+    manualOcrDelayGamepadOnly?: boolean;
     menuOcrHotkey?: string;
     menuOcrGamepad?: string;
     areaSelectOcrHotkey: string;
@@ -111,7 +113,6 @@ interface OCRConfig {
     ocr1_advanced?: string;
     ocr2_advanced?: string;
     scanRate_advanced?: number;
-    wgcCaptureFps?: number;
 }
 
 export enum HookableGameType {
@@ -264,6 +265,8 @@ export const store = new Store<StoreConfig>({
             defaultSceneFuriganaFilterSensitivity: 0,
             manualOcrHotkey: "Ctrl+Shift+G",
             manualOcrGamepad: "",
+            manualOcrDelayMs: 0,
+            manualOcrDelayGamepadOnly: false,
             areaSelectOcrHotkey: "Ctrl+Shift+O",
             areaSelectOcrGamepad: "",
             wholeWindowOcrHotkey: "Ctrl+Shift+W",
@@ -306,8 +309,7 @@ export const store = new Store<StoreConfig>({
             scanRate_basic: 0.5,
             ocr1_advanced: DEFAULT_STABILITY_OCR,
             ocr2_advanced: "glens",
-            scanRate_advanced: 0.5,
-            wgcCaptureFps: 10
+            scanRate_advanced: 0.5
         },
         customPythonPackage: "GameSentenceMiner",
         pythonExtras: [],

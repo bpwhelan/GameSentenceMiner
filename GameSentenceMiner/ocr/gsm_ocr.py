@@ -72,6 +72,8 @@ from GameSentenceMiner.util.config.electron_config import (
     get_ocr_two_pass_ocr,
     get_ocr_optimize_second_scan,
     get_ocr_language,
+    get_ocr_manual_scan_delay_gamepad_only,
+    get_ocr_manual_scan_delay_ms,
     get_ocr_manual_ocr_gamepad,
     get_ocr_manual_ocr_hotkey,
     get_ocr_menu_ocr_gamepad,
@@ -2148,24 +2150,15 @@ def _handle_command(cmd_data: dict, *, announce_ipc: bool) -> dict:
                 ocr_ipc.announce_status(status_data)
 
         elif command == ocr_ipc.OCRCommand.MANUAL_OCR.value:
-            if not manual:
-                success = run_primary_rectangles_ocr_once()
-                response["success"] = bool(success)
-                if success:
-                    logger.info("IPC: Triggered manual OCR for primary rectangles")
-                else:
-                    response["error"] = "Primary rectangle OCR capture failed"
-                    if announce_ipc:
-                        ocr_ipc.announce_error(response["error"])
-            elif hasattr(ocr_runtime, "screenshot_event") and ocr_runtime.screenshot_event:
-                ocr_runtime.screenshot_event.set()
-                response["success"] = True
+            success = trigger_manual_ocr(gamepad_activation=False)
+            response["success"] = bool(success)
+            if success:
                 logger.info("IPC: Triggered manual OCR")
             else:
-                response["error"] = "Screenshot event not available"
-                logger.error("IPC: Screenshot event not available")
+                response["error"] = "Manual OCR capture is not available"
+                logger.error("IPC: Manual OCR capture is not available")
                 if announce_ipc:
-                    ocr_ipc.announce_error("Screenshot event not available")
+                    ocr_ipc.announce_error(response["error"])
 
         elif command == ocr_ipc.OCRCommand.MENU_OCR.value:
             success = run_secondary_rectangles_ocr_once()
@@ -2681,11 +2674,24 @@ class OCRProcessor:
     def _get_engine_instance_by_name(self, preferred_name: str):
         if not preferred_name:
             return None
-        for instance in getattr(ocr_runtime, "engine_instances", []) or []:
-            name = getattr(instance, "name", "")
-            if preferred_name.lower() in name.lower() or name.lower() in preferred_name.lower():
-                return instance
-        return None
+
+        def find_instance():
+            for instance in getattr(ocr_runtime, "engine_instances", []) or []:
+                name = getattr(instance, "name", "")
+                if preferred_name.lower() in name.lower() or name.lower() in preferred_name.lower():
+                    return instance
+            return None
+
+        instance = find_instance()
+        if instance is not None:
+            return instance
+
+        try:
+            ocr_runtime.engine_change_handler_name(preferred_name, switch=False)
+        except Exception as e:
+            logger.debug(f"Failed to lazily initialize OCR engine '{preferred_name}': {e}")
+            return None
+        return find_instance()
 
     def _build_geometry_payload_with_local_engine(self, img, image_metadata=None, ignore_furigana_filter=False):
         """
@@ -2776,13 +2782,7 @@ class OCRProcessor:
         if not local_engine_name:
             return img, (0, 0)
 
-        local_engine = None
-        for instance in getattr(ocr_runtime, "engine_instances", []) or []:
-            name = getattr(instance, "name", "")
-            if local_engine_name.lower() in name.lower() or name.lower() in local_engine_name.lower():
-                local_engine = instance
-                break
-
+        local_engine = self._get_engine_instance_by_name(local_engine_name)
         if not local_engine:
             logger.debug(f"Beangate secondary OCR pre-pass skipped: OCR1 engine '{local_engine_name}' not initialized.")
             return img, (0, 0)
@@ -3504,6 +3504,15 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
     exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, rectangles)))
 
     ocr_runtime.init_config(False)
+    previous_screenshot_combo_handler = getattr(ocr_runtime, "on_screenshot_combo", None)
+
+    def handle_manual_keyboard_activation():
+        if not getattr(ocr_runtime, "paused", False):
+            trigger_manual_ocr(gamepad_activation=False)
+
+    if manual:
+        ocr_runtime.on_screenshot_combo = handle_manual_keyboard_activation
+
     try:
         read_from = ""
         if obs_ocr:
@@ -3538,9 +3547,15 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
             # owocr replaces GSM's stdout handlers first; add the diagnostic
             # file afterward so routine subprocess logs stay out of GSM output.
             logger_setup_callback=_setup_ocr_process_logging,
+            # Manual mode explicitly requests OCR2 for both slots. Avoid loading
+            # the configured stability engine until a menu OCR path needs it.
+            include_configured_engines=not manual,
         )  # Set logger level to INFO to suppress DEBUG messages
     except Exception as e:
         logger.exception(f"Error running OneOCR: {e}")
+    finally:
+        if manual and previous_screenshot_combo_handler is not None:
+            ocr_runtime.on_screenshot_combo = previous_screenshot_combo_handler
     done = True
     # Quit Qt app if running
     try:
@@ -3749,6 +3764,42 @@ def run_primary_rectangles_ocr_once() -> bool:
     return _run_configured_rectangles_ocr_once(is_secondary=False)
 
 
+def _run_manual_ocr_capture() -> bool:
+    if manual:
+        screenshot_event = getattr(ocr_runtime, "screenshot_event", None)
+        if screenshot_event is None:
+            return False
+        screenshot_event.set()
+        return True
+    return run_primary_rectangles_ocr_once()
+
+
+def trigger_manual_ocr(*, gamepad_activation: bool = False) -> bool:
+    """Trigger a green-area OCR scan, applying the configured activation delay."""
+    if manual and getattr(ocr_runtime, "screenshot_event", None) is None:
+        return False
+
+    delay_ms = get_ocr_manual_scan_delay_ms()
+    if get_ocr_manual_scan_delay_gamepad_only() and not gamepad_activation:
+        delay_ms = 0
+
+    if delay_ms <= 0:
+        return _run_manual_ocr_capture()
+
+    def delayed_capture():
+        try:
+            if not _run_manual_ocr_capture():
+                logger.warning("Delayed manual OCR capture was not available.")
+        except Exception:
+            logger.exception("Delayed manual OCR capture failed.")
+
+    timer = threading.Timer(delay_ms / 1000, delayed_capture)
+    timer.daemon = True
+    timer.start()
+    logger.info(f"Manual OCR scan scheduled in {delay_ms} ms.")
+    return True
+
+
 def run_secondary_rectangles_ocr_once() -> bool:
     """Run OCR2 directly on configured purple menu areas."""
     return _run_configured_rectangles_ocr_once(is_secondary=True)
@@ -3766,10 +3817,10 @@ def add_ss_hotkey():
         run_whole_window_ocr_once(source=TextSource.MANUAL)
 
     def capture_primary_rectangles():
-        if manual and hasattr(ocr_runtime, "screenshot_event") and ocr_runtime.screenshot_event:
-            ocr_runtime.screenshot_event.set()
-            return
-        run_primary_rectangles_ocr_once()
+        trigger_manual_ocr(gamepad_activation=False)
+
+    def capture_primary_rectangles_gamepad():
+        trigger_manual_ocr(gamepad_activation=True)
 
     def toggle_ocr_pause():
         ocr_runtime.pause_handler(is_combo=False)
@@ -3794,7 +3845,10 @@ def add_ss_hotkey():
             logger.info(f"Press {manual_ocr_hotkey} to run OCR for Primary Rectangles.")
         else:
             logger.info("Manual primary rectangle OCR hotkey is disabled.")
-    hotkey_manager.register_gamepad(get_ocr_manual_ocr_gamepad, capture_primary_rectangles)
+    hotkey_manager.register_gamepad(
+        get_ocr_manual_ocr_gamepad,
+        capture_primary_rectangles_gamepad,
+    )
 
     if menu_ocr_hotkey:
         hotkey_manager.register(lambda: menu_ocr_hotkey, run_secondary_rectangles_ocr_once)
