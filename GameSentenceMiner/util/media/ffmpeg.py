@@ -1102,12 +1102,15 @@ def find_black_bars(video_file, screenshot_timing):
                 crop_height = int(match.group(2))
 
                 area_ratio = (crop_width * crop_height) / (orig_width * orig_height)
+                # cropdetect rounds dimensions to multiples of two, so an odd-height
+                # source can lose one pixel even when only pillarboxing is removed.
+                is_pillarbox_only_crop = crop_height >= orig_height - 2
 
                 if area_ratio > 0.95:
                     logger.info("Detected crop would only remove minimal area. Skipping.")
                     return None
 
-                if area_ratio < 0.25:
+                if area_ratio < 0.25 and not is_pillarbox_only_crop:
                     logger.warning("Crop would remove too much of the video. Skipping.")
                     return None
 
@@ -1115,7 +1118,7 @@ def find_black_bars(video_file, screenshot_timing):
                 crop_aspect = crop_width / crop_height
                 aspect_diff = abs(orig_aspect - crop_aspect) / orig_aspect
 
-                if aspect_diff > 0.30:
+                if aspect_diff > 0.30 and not is_pillarbox_only_crop:
                     found_match = False
                     for ratio in KNOWN_ASPECT_RATIOS:
                         known_diff = abs(crop_aspect - ratio["ratio"]) / ratio["ratio"]

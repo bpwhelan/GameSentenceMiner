@@ -144,6 +144,7 @@ import {
     getBundledBackendVersion,
     getInstalledPackageVersion,
     installPackageNoDeps,
+    isBackendVersionCompatible,
     isPackageInstalled,
     resolveRequestedExtras,
     syncLockedEnvironment,
@@ -2180,23 +2181,28 @@ async function ensureAndRunGSM(
         );
     }
 
-    // The backend is version-locked to this client. Reinstall when it's missing or
-    // when the installed version doesn't match the version bundled with this client
-    // (e.g. after the user installs an older/newer client) — a cheap offline check
-    // that only touches the network on an actual mismatch. Prerelease builds track a
-    // moving branch rather than a pinned version, so skip the version comparison there.
+    // Stable builds always ask PyPI for the newest backend in this client's
+    // compatibility window. This automatically picks up PEP 440 post releases
+    // (for example 2026.7.4.post1) without accepting the backend for a newer
+    // Electron client. Prerelease builds continue to track their source branch.
     const bundledVersion = getBundledBackendVersion();
     const isPreRelease = resolvePreReleaseBranch() !== null;
     const versionMismatch =
-        isInstalled &&
+        installedVersion !== null &&
         !isPreRelease &&
         bundledVersion !== null &&
-        installedVersion !== bundledVersion;
-    if (!isInstalled || versionMismatch) {
+        !isBackendVersionCompatible(installedVersion, bundledVersion);
+    const shouldCheckForStablePostRelease =
+        !isPreRelease && bundledVersion !== null;
+    if (!isInstalled || versionMismatch || shouldCheckForStablePostRelease) {
         const packageSpecifier = getBundledBackendSpecifier();
         if (versionMismatch) {
             console.log(
-                `${APP_NAME} backend ${installedVersion} does not match bundled ${bundledVersion}. Installing ${packageSpecifier}...`
+                `${APP_NAME} backend ${installedVersion} is incompatible with bundled ${bundledVersion}. Installing ${packageSpecifier}...`
+            );
+        } else if (shouldCheckForStablePostRelease && isInstalled) {
+            console.log(
+                `Checking for the latest compatible ${APP_NAME} backend (${packageSpecifier})...`
             );
         } else {
             console.log(`${APP_NAME} is not installed. Installing ${packageSpecifier}...`);
@@ -2209,23 +2215,48 @@ async function ensureAndRunGSM(
             `Installing ${APP_NAME} backend package...`
         );
         devFaultInjector.maybeFail('startup.install_package');
-        await installPackageNoDeps(runtimePythonPath, packageSpecifier, true, (event) => {
+        try {
+            await installPackageNoDeps(
+                runtimePythonPath,
+                packageSpecifier,
+                !isInstalled || versionMismatch,
+                (event) => {
+                    updateInstallStage(
+                        'gsm_package',
+                        'running',
+                        'estimated',
+                        event.progress,
+                        event.message
+                    );
+                }
+            );
+            installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
+            console.log(
+                `Compatible backend check complete. Installed version: ${installedVersion ?? 'unknown'}.`
+            );
             updateInstallStage(
                 'gsm_package',
-                'running',
+                'completed',
                 'estimated',
-                event.progress,
-                event.message
+                1,
+                `${APP_NAME} backend package is up to date.`
             );
-        });
-        console.log('Installation complete.');
-        updateInstallStage(
-            'gsm_package',
-            'completed',
-            'estimated',
-            1,
-            `${APP_NAME} backend package installed.`
-        );
+        } catch (error) {
+            if (!isInstalled || versionMismatch) {
+                throw error;
+            }
+            console.warn(
+                `Could not check PyPI for a compatible backend hotfix; continuing with installed ${installedVersion}.`,
+                error
+            );
+            updateInstallStage(
+                'gsm_package',
+                'skipped',
+                'estimated',
+                1,
+                `Could not check for a backend hotfix; using installed ${installedVersion}.`
+            );
+        }
     } else {
         updateInstallStage(
             'gsm_package',

@@ -5,6 +5,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      post_release:
+        description: "Post-release number (for example, 1 publishes .post1); leave blank for the base version"
+        required: false
+        type: string
 
 jobs:
   build-and-publish-python:
@@ -26,6 +31,44 @@ jobs:
       - name: Install check dependencies
         run: |
           python -m pip install --upgrade pip requests
+
+      - name: Apply post-release version
+        if: github.event_name == 'workflow_dispatch' && inputs.post_release != ''
+        env:
+          POST_RELEASE: ${{ inputs.post_release }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          post_release = os.environ["POST_RELEASE"].strip()
+          if not re.fullmatch(r"[1-9]\d*", post_release):
+              raise SystemExit("post_release must be a positive integer")
+
+          base_version = json.loads(Path("package.json").read_text(encoding="utf-8"))["version"]
+          if not re.fullmatch(r"\d+(?:\.\d+)+", base_version):
+              raise SystemExit(
+                  f"Electron version {base_version!r} is not a stable numeric version"
+              )
+
+          pyproject_path = Path("pyproject.toml")
+          pyproject = pyproject_path.read_text(encoding="utf-8")
+          version_pattern = re.compile(
+              r'(\[project\][\s\S]*?\nversion\s*=\s*)"[^"]*"'
+          )
+          post_version = f"{base_version}.post{post_release}"
+          updated, replacements = version_pattern.subn(
+              rf'\g<1>"{post_version}"',
+              pyproject,
+              count=1,
+          )
+          if replacements != 1:
+              raise SystemExit("Could not update [project] version in pyproject.toml")
+          pyproject_path.write_text(updated, encoding="utf-8")
+          print(f"Publishing Python-only post release {post_version}")
+          PY
 
       - name: Read package metadata from pyproject.toml
         id: package_meta

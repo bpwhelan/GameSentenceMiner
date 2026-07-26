@@ -375,8 +375,6 @@ export async function cleanUvCache(pythonPath: string): Promise<void> {
 /**
  * The bundled uv.lock + pyproject.toml + GameSentenceMiner source live inside
  * the resources directory in production, and at the repo root in dev mode.
- * The Python backend is always installed from this bundled copy so it stays
- * locked to the shipped Electron app version (no separate PyPI/branch source).
  */
 export function getProjectPath(): string {
     return path.resolve(getResourcesDir());
@@ -399,6 +397,32 @@ export function getBundledBackendVersion(): string | null {
 }
 
 /**
+ * Return whether an installed backend is compatible with the Electron build.
+ * Stable clients accept their bundled Python version plus PEP 440 post releases
+ * of that exact version, such as 2026.7.4.post1.
+ */
+export function isBackendVersionCompatible(
+    installedVersion: string,
+    bundledVersion: string
+): boolean {
+    const escapedBundledVersion = bundledVersion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(
+        `^${escapedBundledVersion}(?:\\.post\\d+)?(?:\\+[A-Za-z0-9.-]+)?$`,
+        'i'
+    ).test(installedVersion);
+}
+
+function getNextReleaseVersion(version: string): string | null {
+    if (!/^\d+(?:\.\d+)+$/.test(version)) {
+        return null;
+    }
+
+    const parts = version.split('.').map((part) => Number.parseInt(part, 10));
+    parts[parts.length - 1] += 1;
+    return parts.join('.');
+}
+
+/**
  * Specifier for installing the GSM backend package.
  *
  * Pre-release (beta) builds are cut from a branch whose backend code is not
@@ -411,10 +435,11 @@ export function getBundledBackendVersion(): string | null {
  * also sidesteps the read-only egg-info build failure that bundled-source installs
  * hit on AppImage squashfs mounts and macOS .app bundles (issue #479).
  *
- * For stable production releases we install the published wheel from PyPI, pinned
- * to the exact version bundled with this Electron release
- * (`GameSentenceMiner==<version>`). Either way the dependency set is locked by the
- * bundled uv.lock (see {@link syncLockedEnvironment}).
+ * For stable production releases we install from PyPI within the compatible
+ * release window. For example, a client bundling 2026.7.4 installs
+ * `GameSentenceMiner>=2026.7.4,<2026.7.5`, allowing 2026.7.4.postN hotfixes
+ * without allowing the backend for a newer Electron client. Dependencies remain
+ * locked by the bundled uv.lock (see {@link syncLockedEnvironment}).
  *
  * In dev we install from the local working tree (writable, picks up local
  * changes, and the dev version usually isn't published to PyPI). We also fall
@@ -432,6 +457,10 @@ export function getBundledBackendSpecifier(): string {
 
     const version = getBundledBackendVersion();
     if (version) {
+        const nextReleaseVersion = getNextReleaseVersion(version);
+        if (nextReleaseVersion) {
+            return `${PACKAGE_NAME}>=${version},<${nextReleaseVersion}`;
+        }
         return `${PACKAGE_NAME}==${version}`;
     }
 

@@ -258,9 +258,8 @@ export class UpdateManager {
         _force: boolean = false,
         forceDev: boolean = false
     ): Promise<void> {
-        // Only check for an Electron app update here. The backend is version-locked
-        // to the app and is synced on startup when a version change is detected
-        // (see the startup flow in main.ts), so we no longer update it up front.
+        // Only check for an Electron app update here. Compatible Python post
+        // releases are applied automatically by the startup flow in main.ts.
         log.info('Starting application update check...');
         await this.autoUpdate(forceDev);
         log.info('Application update check is complete.');
@@ -386,8 +385,8 @@ export class UpdateManager {
                         'uv runtime tooling is ready.'
                     );
 
-                    // Always install the backend from the bundled source tree so
-                    // it stays locked to the shipped Electron app version.
+                    // Stable builds install the newest compatible base/post
+                    // release from PyPI; prerelease builds track their branch.
                     const packageSpecifier = getBundledBackendSpecifier();
 
                     log.info(

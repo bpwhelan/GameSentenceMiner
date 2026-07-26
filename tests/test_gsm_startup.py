@@ -454,7 +454,7 @@ def test_open_log_opens_the_current_process_log(monkeypatch, tmp_path):
 
     monkeypatch.setattr(gsm_module, "get_app_directory", lambda: str(tmp_path))
     monkeypatch.setattr(gsm_module.sys, "platform", "win32")
-    monkeypatch.setattr(gsm_module.os, "startfile", opened_paths.append)
+    monkeypatch.setattr(gsm_module.os, "startfile", opened_paths.append, raising=False)
 
     app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
     app.open_log()
