@@ -138,3 +138,5 @@ electron-src/assets/prerelease.json
 /.agent_scripts
 /.history
 /.owocr
+/native/windows-audio-capture/target
+native/windows-audio-capture/bin/x64/gsm-windows-audio-capture.exe
