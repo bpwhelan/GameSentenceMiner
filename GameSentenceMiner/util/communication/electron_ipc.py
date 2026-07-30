@@ -68,6 +68,7 @@ class FunctionName(Enum):
     TEXTHOOK_STATUS = "texthook_status"
     FOREGROUND_WINDOW_CHANGED = "foreground_window_changed"
     FOREGROUND_WINDOW_HOOK_STATUS = "foreground_window_hook_status"
+    REFRESH_FOREGROUND_WINDOW = "refresh_foreground_window"
     RESTORE_FOREGROUND_WINDOW = "restore_foreground_window"
 
 

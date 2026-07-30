@@ -1568,6 +1568,9 @@ async function createWindow() {
         getCurrentScene,
         switchScene: setOBSSceneByUuid,
         suggestRule: suggestWindowSceneSwitcherRule,
+        requestForegroundSnapshot: () => {
+            sendBackendCommand('refresh_foreground_window');
+        },
         restoreForegroundWindow: (hwnd) => {
             sendBackendCommand('restore_foreground_window', { hwnd });
         },

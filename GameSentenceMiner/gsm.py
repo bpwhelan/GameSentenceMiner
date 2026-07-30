@@ -1213,6 +1213,10 @@ class GSMApplication:
                 self._handle_inhouse_source_status("ocr", cmd.get("data") if isinstance(cmd, dict) else None)
             elif function == FunctionName.TEXTHOOK_STATUS.value:
                 self._handle_inhouse_source_status("texthook", cmd.get("data") if isinstance(cmd, dict) else None)
+            elif function == FunctionName.REFRESH_FOREGROUND_WINDOW.value:
+                foreground_window_hook = getattr(self, "foreground_window_hook", None)
+                if foreground_window_hook is not None:
+                    foreground_window_hook.emit_current(force=True)
             elif function == FunctionName.RESTORE_FOREGROUND_WINDOW.value:
                 data = cmd.get("data") if isinstance(cmd, dict) else {}
                 hwnd = data.get("hwnd") if isinstance(data, dict) else None
