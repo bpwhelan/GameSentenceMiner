@@ -968,6 +968,9 @@ class ConfigWindow(QWidget):
                     manual_overlay_scan_gamepad=str(self.manual_overlay_scan_gamepad_combo.currentData() or ""),
                     play_latest_audio=self.play_latest_audio_hotkey_edit.keySequence().toString(),
                     play_latest_audio_gamepad=str(self.play_latest_audio_gamepad_combo.currentData() or ""),
+                    mute_target_window=self.mute_target_window_hotkey_edit.keySequence().toString(),
+                    mute_target_window_gamepad=str(self.mute_target_window_gamepad_combo.currentData() or ""),
+                    unmute_target_window_on_focus=self.unmute_target_window_on_focus_check.isChecked(),
                     process_pause=self.process_pause_hotkey_edit.keySequence().toString(),
                     process_pause_gamepad=str(self.process_pause_gamepad_combo.currentData() or ""),
                     pause_text_intake=self.pause_text_intake_hotkey_edit.keySequence().toString(),
@@ -1713,6 +1716,9 @@ class ConfigWindow(QWidget):
         self.video_player_path_edit = QLineEdit()
         self.play_latest_audio_hotkey_edit = ClearableKeySequenceEdit()
         self.play_latest_audio_gamepad_combo = self._create_gamepad_hotkey_combo()
+        self.mute_target_window_hotkey_edit = ClearableKeySequenceEdit()
+        self.mute_target_window_gamepad_combo = self._create_gamepad_hotkey_combo()
+        self.unmute_target_window_on_focus_check = QCheckBox()
         self.multi_line_line_break_edit = QLineEdit()
         self.texthooker_communication_websocket_port_edit = QLineEdit()
         self.plaintext_websocket_export_port_edit = QLineEdit()
@@ -3385,6 +3391,16 @@ class ConfigWindow(QWidget):
         self._set_gamepad_hotkey_combo(
             self.play_latest_audio_gamepad_combo,
             getattr(s.hotkeys, "play_latest_audio_gamepad", ""),
+        )
+        self.mute_target_window_hotkey_edit.setKeySequence(
+            QKeySequence(getattr(s.hotkeys, "mute_target_window", "") or "")
+        )
+        self._set_gamepad_hotkey_combo(
+            self.mute_target_window_gamepad_combo,
+            getattr(s.hotkeys, "mute_target_window_gamepad", ""),
+        )
+        self.unmute_target_window_on_focus_check.setChecked(
+            bool(getattr(s.hotkeys, "unmute_target_window_on_focus", True))
         )
         self._set_text_value(self.multi_line_line_break_edit, s.advanced.multi_line_line_break)
         self.texthooker_communication_websocket_port_edit.setText(

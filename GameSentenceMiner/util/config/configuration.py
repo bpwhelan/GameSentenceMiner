@@ -1202,6 +1202,9 @@ class Hotkeys:
     open_utility: str = "ctrl+m"
     play_latest_audio: str = "f7"
     play_latest_audio_gamepad: str = ""
+    mute_target_window: str = ""
+    mute_target_window_gamepad: str = ""
+    unmute_target_window_on_focus: bool = True
     manual_overlay_scan: str = ""
     manual_overlay_scan_gamepad: str = ""
     process_pause: str = ""

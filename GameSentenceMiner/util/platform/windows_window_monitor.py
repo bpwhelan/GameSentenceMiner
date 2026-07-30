@@ -167,6 +167,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         self.last_monitor_layout_signature: Optional[Tuple[Tuple[int, int, int, int], ...]] = None
         self.last_monitor_validation_time = 0.0
         self.minimized_audio_mutes: Dict[int, Tuple[Set[str], bool]] = {}
+        self.hotkey_audio_mutes: Dict[int, Tuple[Set[str], bool]] = {}
+        self._audio_mute_lock = threading.RLock()
         self._reprocess_tasks: set = set()  # strong refs so fire-and-forget reprocess tasks aren't GC'd
 
         self.BROWSER_CLASSES = {
@@ -303,15 +305,16 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         force_all_sessions: bool = False,
         pid: Optional[int] = None,
     ) -> bool:
-        if pid is not None:
-            if pid not in self.minimized_audio_mutes:
-                return False
-            mutes_to_restore = [(pid, self.minimized_audio_mutes.pop(pid))]
-        else:
-            if not self.minimized_audio_mutes:
-                return False
-            mutes_to_restore = list(self.minimized_audio_mutes.items())
-            self.minimized_audio_mutes.clear()
+        with self._audio_mute_lock:
+            if pid is not None:
+                if pid not in self.minimized_audio_mutes:
+                    return False
+                mutes_to_restore = [(pid, self.minimized_audio_mutes.pop(pid))]
+            else:
+                if not self.minimized_audio_mutes:
+                    return False
+                mutes_to_restore = list(self.minimized_audio_mutes.items())
+                self.minimized_audio_mutes.clear()
 
         if not is_windows():
             return False
@@ -319,6 +322,17 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         restored_any = False
 
         for muted_pid, (session_ids, restore_all_sessions) in mutes_to_restore:
+            with self._audio_mute_lock:
+                hotkey_mute = self.hotkey_audio_mutes.get(muted_pid)
+                if hotkey_mute is not None and reason != "shutdown":
+                    hotkey_session_ids, hotkey_restore_all = hotkey_mute
+                    hotkey_session_ids.update(session_ids)
+                    self.hotkey_audio_mutes[muted_pid] = (
+                        hotkey_session_ids,
+                        hotkey_restore_all or restore_all_sessions,
+                    )
+                    restored_any = True
+                    continue
             try:
                 if force_all_sessions or restore_all_sessions:
                     results = set_process_mute(muted_pid, False)
@@ -341,6 +355,90 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
 
         return restored_any
 
+    def _restore_hotkey_audio_mutes_internal(
+        self,
+        reason: str = "",
+        force_all_sessions: bool = False,
+        pid: Optional[int] = None,
+    ) -> bool:
+        with self._audio_mute_lock:
+            if pid is not None:
+                if pid not in self.hotkey_audio_mutes:
+                    return False
+                mutes_to_restore = [(pid, self.hotkey_audio_mutes.pop(pid))]
+            else:
+                if not self.hotkey_audio_mutes:
+                    return False
+                mutes_to_restore = list(self.hotkey_audio_mutes.items())
+                self.hotkey_audio_mutes.clear()
+
+        restored_any = False
+        for muted_pid, (session_ids, restore_all_sessions) in mutes_to_restore:
+            with self._audio_mute_lock:
+                minimized_mute = self.minimized_audio_mutes.get(muted_pid)
+                if minimized_mute is not None and not force_all_sessions:
+                    minimized_session_ids, minimized_restore_all = minimized_mute
+                    minimized_session_ids.update(session_ids)
+                    self.minimized_audio_mutes[muted_pid] = (
+                        minimized_session_ids,
+                        minimized_restore_all or restore_all_sessions,
+                    )
+                    continue
+
+            try:
+                if force_all_sessions or restore_all_sessions:
+                    results = set_process_mute(muted_pid, False)
+                else:
+                    results = set_process_mute(muted_pid, False, session_instance_ids=session_ids)
+                    if session_ids and not results:
+                        results = set_process_mute(muted_pid, False)
+                restored_any = restored_any or bool(results)
+                if any(result.changed for result in results):
+                    logger.info(f"Unmuted target-window audio for PID {muted_pid} ({reason or 'hotkey'}).")
+            except Exception as e:
+                logger.debug(f"Failed to restore hotkey-muted target PID {muted_pid}: {e}")
+
+        return restored_any
+
+    def _toggle_target_window_mute_internal(self, hwnd: Optional[int] = None) -> bool:
+        target_hwnd = hwnd or self.target_hwnd or self.last_known_target_hwnd
+        if not target_hwnd:
+            logger.info("Target-window mute hotkey ignored because no captured window is available.")
+            return False
+
+        pid = _get_pid_for_hwnd(target_hwnd)
+        if pid <= 0:
+            logger.info("Target-window mute hotkey could not resolve the captured window process.")
+            return False
+
+        with self._audio_mute_lock:
+            is_hotkey_muted = pid in self.hotkey_audio_mutes
+
+        if is_hotkey_muted:
+            self._restore_hotkey_audio_mutes_internal("hotkey", pid=pid)
+            logger.info(f"Target-window mute disabled for PID {pid}.")
+            return True
+
+        try:
+            results = set_process_mute(pid, True)
+        except Exception as e:
+            logger.debug(f"Failed to mute target-window PID {pid}: {e}")
+            return False
+
+        changed_results = [result for result in results if result.changed]
+        session_ids = {result.session_instance_id for result in changed_results if result.session_instance_id}
+        restore_all_sessions = any(not result.session_instance_id for result in changed_results)
+        with self._audio_mute_lock:
+            minimized_mute = self.minimized_audio_mutes.pop(pid, None)
+            if minimized_mute is not None:
+                minimized_session_ids, minimized_restore_all = minimized_mute
+                session_ids.update(minimized_session_ids)
+                restore_all_sessions = restore_all_sessions or minimized_restore_all
+            self.hotkey_audio_mutes[pid] = (session_ids, restore_all_sessions)
+
+        logger.info(f"Target-window mute enabled for PID {pid}.")
+        return True
+
     def _force_unmute_current_target_audio(self, reason: str = "") -> bool:
         if not is_windows() or not self.target_hwnd:
             return False
@@ -348,6 +446,10 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         pid = _get_pid_for_hwnd(self.target_hwnd)
         if pid <= 0:
             return False
+
+        with self._audio_mute_lock:
+            if pid in self.hotkey_audio_mutes:
+                return True
 
         try:
             results = set_process_mute(pid, False)
@@ -398,8 +500,9 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         if pid <= 0:
             return
 
-        if pid in self.minimized_audio_mutes:
-            return
+        with self._audio_mute_lock:
+            if pid in self.minimized_audio_mutes or pid in self.hotkey_audio_mutes:
+                return
 
         try:
             results = set_process_mute(pid, True)
@@ -413,7 +516,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
 
         session_ids = {result.session_instance_id for result in changed_results if result.session_instance_id}
         restore_all_sessions = any(not result.session_instance_id for result in changed_results)
-        self.minimized_audio_mutes[pid] = (session_ids, restore_all_sessions)
+        with self._audio_mute_lock:
+            self.minimized_audio_mutes[pid] = (session_ids, restore_all_sessions)
         logger.debug(f"Muted audio for minimized target PID {pid}.")
 
     # --- Window info helpers ---
@@ -1320,6 +1424,9 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             current_rect = get_window_rect_physical(self.target_hwnd)
 
         self._sync_minimized_audio_mute(current_state)
+        if current_state == "active" and self.last_state != "active":
+            if getattr(getattr(get_config(), "hotkeys", None), "unmute_target_window_on_focus", True):
+                self._restore_hotkey_audio_mutes_internal("window focused", pid=_get_pid_for_hwnd(self.target_hwnd))
 
         window_moved_or_resized = current_rect != self.last_window_rect
         if window_moved_or_resized:

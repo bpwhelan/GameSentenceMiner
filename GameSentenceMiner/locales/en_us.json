@@ -540,6 +540,14 @@
             "label": "Pause GSM Text Intake Hotkey:",
             "tooltip": "Temporarily pause or resume GSM's clipboard and websocket text intake. While paused, GSM skips its own stats/history logging and overlay triggers. Leave blank to disable this shortcut; no default hotkey is assigned."
           },
+          "mute_target_window": {
+            "label": "Mute/Unmute Target Window Hotkey:",
+            "tooltip": "Toggle all audio from the currently captured target window. This is independent of Mute Game on Minimize, and GSM restores targets muted with this shortcut when GSM closes. Leave blank to disable this shortcut; no default hotkey is assigned."
+          },
+          "unmute_target_window_on_focus": {
+            "checkbox": "Unmute when the target window regains focus",
+            "tooltip": "Automatically clear the hotkey mute when the captured target window becomes active again."
+          },
           "relay_outputs_when_paused": {
             "checkbox": "Relay to Text Feed/output clients while paused",
             "tooltip": "When enabled, paused text is still forwarded to the Text Feed page and output websocket clients after text processing, but GSM still skips its own stats/history logging and overlay triggers. Disable this for a full no-op that drops incoming text entirely."

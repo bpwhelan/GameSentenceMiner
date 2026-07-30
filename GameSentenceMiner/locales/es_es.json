@@ -503,6 +503,14 @@
             "label": "Atajo para Pausar la Entrada de Texto de GSM:",
             "tooltip": "Pausa o reanuda temporalmente la entrada de texto por portapapeles y websocket de GSM. Mientras esté en pausa, GSM omite su propio registro de estadísticas/historial y no activa el overlay. Déjalo vacío para desactivar este atajo; no tiene atajo predeterminado."
           },
+          "mute_target_window": {
+            "label": "Atajo para Silenciar/Activar el Sonido de la Ventana Objetivo:",
+            "tooltip": "Alterna todo el audio de la ventana objetivo capturada actualmente. Es independiente de Silenciar el Juego al Minimizar, y GSM restaura el sonido de los objetivos silenciados con este atajo cuando se cierra. Déjalo vacío para desactivar este atajo; no tiene atajo predeterminado."
+          },
+          "unmute_target_window_on_focus": {
+            "checkbox": "Activar el sonido cuando la ventana objetivo recupere el foco",
+            "tooltip": "Elimina automáticamente el silencio del atajo cuando la ventana objetivo capturada vuelve a estar activa."
+          },
           "relay_outputs_when_paused": {
             "checkbox": "Reenviar a Text Feed/clientes de salida durante la pausa",
             "tooltip": "Si está activado, el texto pausado aún se envía a la página Text Feed y a los clientes websocket de salida después del procesamiento de texto, pero GSM sigue omitiendo sus propias estadísticas/historial y el overlay. Desáctivalo para un no-op completo que descarte todo el texto entrante."

@@ -606,6 +606,16 @@ class GSMApplication:
             _get_gametext_module().toggle_text_intake_paused,
         )
 
+        if is_windows():
+            hotkey_manager.register(
+                lambda: get_config().hotkeys.mute_target_window,
+                _get_window_state_monitor_module().toggle_target_window_mute,
+            )
+            hotkey_manager.register_gamepad(
+                lambda: get_config().hotkeys.mute_target_window_gamepad,
+                _get_window_state_monitor_module().toggle_target_window_mute,
+            )
+
         # Area-select (screen-crop) ad-hoc OCR runs in the main process so it works
         # whether or not the continuous OCR subprocess is running. Hotkey value still
         # comes from the OCR tab config (get_ocr_area_select_ocr_hotkey).
@@ -858,7 +868,7 @@ class GSMApplication:
                     logger.error(f"Error removing temporary video file {video}: {e}")
 
             window_state_monitor_module = _get_window_state_monitor_module()
-            getattr(window_state_monitor_module, "cleanup_minimized_audio_mutes", lambda: None)()
+            getattr(window_state_monitor_module, "cleanup_target_audio_mutes", lambda: None)()
             window_state_monitor_module.cleanup_suspended_processes()
             _get_qt_main_module().shutdown_qt_app()
             self.state.overlay_async_runner.stop()
