@@ -4,7 +4,11 @@ from datetime import datetime, timedelta
 
 from GameSentenceMiner.util.config.configuration import get_stats_config, logger
 from GameSentenceMiner.util.database.cron_table import CronTable
-from GameSentenceMiner.util.tadoku_sync import TadokuSyncError, run_tadoku_sync
+from GameSentenceMiner.util.tadoku_sync import (
+    TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS,
+    TadokuSyncError,
+    run_tadoku_sync,
+)
 
 
 TADOKU_CRON_NAME = "tadoku_sync"
@@ -52,6 +56,8 @@ def run_scheduled_tadoku_sync() -> dict:
         return run_tadoku_sync(
             config=config,
             deduplicate=bool(getattr(config, "tadoku_daily_sync_deduplicate", True)),
+            minimum_characters_per_game=TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS,
+            game_whitelist=set(getattr(config, "tadoku_daily_sync_game_ids", []) or []),
         )
     except TadokuSyncError as exc:
         # Reschedule for tomorrow after a remote/auth failure instead of retrying

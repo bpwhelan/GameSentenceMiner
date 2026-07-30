@@ -282,6 +282,9 @@ class SettingsManager {
         this.tadokuLanguageCodeInput = document.getElementById('tadoku_language_code');
         this.tadokuDailySyncEnabledInput = document.getElementById('tadoku_daily_sync_enabled');
         this.tadokuDailySyncDeduplicateInput = document.getElementById('tadoku_daily_sync_deduplicate');
+        this.tadokuGameWhitelist = document.getElementById('tadokuGameWhitelist');
+        this.tadokuWhitelistSelectAllBtn = document.getElementById('tadokuWhitelistSelectAllBtn');
+        this.tadokuWhitelistClearBtn = document.getElementById('tadokuWhitelistClearBtn');
         this.tadokuManualSyncDeduplicateInput = document.getElementById('tadoku_manual_sync_deduplicate');
         this.tadokuPreviewBtn = document.getElementById('tadokuPreviewBtn');
         this.tadokuSyncBtn = document.getElementById('tadokuSyncBtn');
@@ -293,6 +296,7 @@ class SettingsManager {
         this.tadokuSettingsError = document.getElementById('tadokuSettingsError');
         this.tadokuSettingsSuccess = document.getElementById('tadokuSettingsSuccess');
         this.tadokuConfigured = false;
+        this.tadokuWhitelistSelectedGameIds = new Set();
     }
     
     attachEventListeners() {
@@ -327,6 +331,16 @@ class SettingsManager {
         }
         if (this.tadokuManualSyncDeduplicateInput) {
             this.tadokuManualSyncDeduplicateInput.addEventListener('change', () => this.loadTadokuPreview());
+        }
+        if (this.tadokuWhitelistSelectAllBtn) {
+            this.tadokuWhitelistSelectAllBtn.addEventListener('click', () => {
+                this.setTadokuWhitelistSelection(true);
+            });
+        }
+        if (this.tadokuWhitelistClearBtn) {
+            this.tadokuWhitelistClearBtn.addEventListener('click', () => {
+                this.setTadokuWhitelistSelection(false);
+            });
         }
         
         // // Close modal when clicking outside
@@ -608,6 +622,7 @@ class SettingsManager {
                 tadoku_language_code: languageCode,
                 tadoku_daily_sync_enabled: Boolean(this.tadokuDailySyncEnabledInput?.checked),
                 tadoku_daily_sync_deduplicate: Boolean(this.tadokuDailySyncDeduplicateInput?.checked),
+                tadoku_daily_sync_game_ids: Array.from(this.tadokuWhitelistSelectedGameIds),
             };
             if (!clearCredentials) {
                 settings.tadoku_username = this.tadokuUsernameInput?.value.trim() || '';
@@ -687,8 +702,78 @@ class SettingsManager {
         if (this.tadokuDailySyncDeduplicateInput) {
             this.tadokuDailySyncDeduplicateInput.checked = settings.tadoku_daily_sync_deduplicate !== false;
         }
+        await this.loadTadokuWhitelistGames(settings.tadoku_daily_sync_game_ids || []);
         this.tadokuConfigured = Boolean(settings.tadoku_configured);
         await this.loadTadokuPreview();
+    }
+
+    async loadTadokuWhitelistGames(selectedGameIds) {
+        if (!this.tadokuGameWhitelist) {
+            return;
+        }
+
+        this.tadokuWhitelistSelectedGameIds = new Set(selectedGameIds);
+        this.tadokuGameWhitelist.textContent = 'Loading games…';
+        try {
+            const response = await fetch('/api/games-management?sort=title');
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to load games');
+            }
+
+            this.tadokuGameWhitelist.replaceChildren();
+            const games = Array.isArray(data.games) ? data.games : [];
+            if (games.length === 0) {
+                this.tadokuGameWhitelist.textContent = 'No games are available.';
+                return;
+            }
+
+            games.forEach(game => {
+                const gameId = String(game.id || '').trim();
+                if (!gameId) {
+                    return;
+                }
+
+                const label = document.createElement('label');
+                label.style.cssText = 'display:flex; align-items:center; gap:8px; padding:5px 4px; cursor:pointer;';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.dataset.gameId = gameId;
+                checkbox.checked = this.tadokuWhitelistSelectedGameIds.has(gameId);
+                checkbox.addEventListener('change', () => {
+                    if (checkbox.checked) {
+                        this.tadokuWhitelistSelectedGameIds.add(gameId);
+                    } else {
+                        this.tadokuWhitelistSelectedGameIds.delete(gameId);
+                    }
+                    this.clearTadokuMessages();
+                });
+
+                const text = document.createElement('span');
+                const title = game.title_original || game.title_romaji || game.title_english || '(unnamed game)';
+                const characters = Number(game.mined_character_count || 0).toLocaleString();
+                text.textContent = `${title} — ${characters} characters`;
+
+                label.append(checkbox, text);
+                this.tadokuGameWhitelist.appendChild(label);
+            });
+        } catch (error) {
+            this.tadokuGameWhitelist.textContent = error.message || 'Failed to load games.';
+        }
+    }
+
+    setTadokuWhitelistSelection(checked) {
+        this.tadokuWhitelistSelectedGameIds.clear();
+        this.tadokuGameWhitelist
+            ?.querySelectorAll('input[data-game-id]')
+            .forEach(input => {
+                input.checked = checked;
+                if (checked) {
+                    this.tadokuWhitelistSelectedGameIds.add(input.dataset.gameId);
+                }
+            });
+        this.clearTadokuMessages();
     }
 
     async refreshTadokuAuth() {

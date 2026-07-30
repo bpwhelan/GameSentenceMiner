@@ -6,6 +6,14 @@ from GameSentenceMiner.util.cron import run_crons
 from GameSentenceMiner.util.database.cron_table import CronTable
 
 
+def test_tadoku_task_summary_reports_threshold_skip_reason():
+    task = run_crons._TASK_REGISTRY[run_crons.Crons.TADOKU_SYNC.value]
+
+    assert task.summary({"skipped": True, "reason": "no whitelisted game has 5,000 queued characters"}) == (
+        "skipped: no whitelisted game has 5,000 queued characters"
+    )
+
+
 def test_scheduler_runs_initial_check_on_dedicated_thread(monkeypatch):
     calls = []
     run_entered = threading.Event()

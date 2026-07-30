@@ -190,7 +190,10 @@ _TASK_REGISTRY: dict[str, _TaskDef] = {
     Crons.TADOKU_SYNC.value: _TaskDef(
         runner=_run_tadoku_sync,
         success=lambda r: bool(r.get("success", False)),
-        summary=lambda r: f"sent {r.get('characters_sent', 0)} characters in {r.get('entries_sent', 0)} game logs",
+        summary=lambda r: _skip_or(
+            r,
+            f"sent {r.get('characters_sent', 0)} characters in {r.get('entries_sent', 0)} game logs",
+        ),
         warn=lambda r: f"Tadoku daily sync failed: {r['error']}" if r.get("error") else None,
     ),
 }

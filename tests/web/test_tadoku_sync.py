@@ -12,12 +12,15 @@ from GameSentenceMiner.util.database.cron_table import CronTable
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_export_state_table import StatsExportStateTable
 from GameSentenceMiner.util.tadoku_sync import (
+    TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS,
     TADOKU_CURSOR_KEY,
     TadokuClient,
     TadokuSyncError,
+    _tadoku_media_tag,
     build_tadoku_preview,
     initialize_tadoku_cursor,
     run_tadoku_sync,
+    tadoku_game_cursor_key,
 )
 from GameSentenceMiner.web.tadoku_api import register_tadoku_api_routes
 
@@ -106,12 +109,14 @@ def test_preview_groups_new_characters_into_one_entry_per_game():
         {
             "game_key": "game-1",
             "game_name": "Tsukihime",
+            "media_tag": "game",
             "characters": 5,
             "lines": 2,
         },
         {
             "game_key": "scene:Unlinked Game",
             "game_name": "Unlinked Game",
+            "media_tag": "game",
             "characters": 3,
             "lines": 1,
         },
@@ -154,6 +159,28 @@ def test_deduplicated_preview_excludes_new_lines_without_deleting_them():
     assert GameLinesTable.get("old") is not None
 
 
+@pytest.mark.parametrize(
+    ("media_type", "expected_tag"),
+    [
+        ("Visual Novel", "vn"),
+        ("VN", "vn"),
+        ("Video game", "game"),
+        ("VideoGame", "game"),
+        ("Anime", "anime"),
+        ("Drama", "drama"),
+        ("Movie", "movie"),
+        ("Novel", "novel"),
+        ("NonFiction", "nonfiction"),
+        ("Manga", "manga"),
+        ("Web Novel", "webnovel"),
+        ("", "game"),
+        (None, "game"),
+    ],
+)
+def test_tadoku_media_tag_uses_media_type_with_game_fallback(media_type, expected_tag):
+    assert _tadoku_media_tag(media_type) == expected_tag
+
+
 class _FakeClient:
     def __init__(self, fail_on_post=0):
         self.fail_on_post = fail_on_post
@@ -181,7 +208,7 @@ class _FakeClient:
 
 def test_sync_posts_one_character_log_per_game_and_advances_frozen_cursor(monkeypatch):
     StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
-    GamesTable(id="game-1", title_original="Tsukihime").save()
+    GamesTable(id="game-1", title_original="Tsukihime", game_type="Visual Novel").save()
     _line("one", "game-1", "Scene A", "あいう", 110.0)
     _line("two", "game-2", "Scene B", "えお", 120.0)
     client = _FakeClient()
@@ -199,7 +226,7 @@ def test_sync_posts_one_character_log_per_game_and_advances_frozen_cursor(monkey
             "activity_id": 1,
             "amount": 3,
             "unit_id": "character-unit",
-            "tags": ["game", "gsm"],
+            "tags": ["vn", "gsm"],
             "description": "Tsukihime",
             "registration_ids": ["registration-1", "registration-2"],
         },
@@ -227,6 +254,96 @@ def test_sync_rolls_back_remote_logs_and_keeps_cursor_when_a_post_fails(monkeypa
 
     assert client.deleted == ["log-1"]
     assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 100.0
+
+
+def test_sync_minimum_is_per_game_and_keeps_small_games_queued(monkeypatch):
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("main-first", "game-main", "Main Game", "a" * 5_000, 110.0)
+    _line("small-first", "game-small", "Small Game", "b" * 37, 120.0)
+    client = _FakeClient()
+    now = [150.0]
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: now[0])
+
+    first_sync = run_tadoku_sync(
+        config=_config(),
+        client=client,
+        deduplicate=False,
+        minimum_characters_per_game=TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS,
+        game_whitelist={"game-main", "game-small"},
+    )
+
+    assert first_sync["success"] is True
+    assert first_sync["characters_sent"] == 5_000
+    assert client.payloads[0]["description"] == "Main Game"
+    assert client.payloads[0]["amount"] == 5_000
+    assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 100.0
+    assert StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key("game-main")) == 150.0
+    assert StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key("game-small")) is None
+
+    _line("small-threshold", "game-small", "Small Game", "c" * 4_963, 160.0)
+    now[0] = 200.0
+    second_sync = run_tadoku_sync(
+        config=_config(),
+        client=client,
+        deduplicate=False,
+        minimum_characters_per_game=TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS,
+        game_whitelist={"game-main", "game-small"},
+    )
+
+    assert second_sync["success"] is True
+    assert second_sync["characters_sent"] == 5_000
+    assert len(client.payloads) == 2
+    assert client.payloads[1]["description"] == "Small Game"
+    assert client.payloads[1]["amount"] == 5_000
+    assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 100.0
+    assert StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key("game-small")) == 200.0
+
+
+def test_sync_whitelist_excludes_games_without_consuming_them(monkeypatch):
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("allowed", "game-allowed", "Allowed Game", "a" * 5_000, 110.0)
+    _line("blocked", "game-blocked", "Blocked Game", "b" * 5_000, 120.0)
+    client = _FakeClient()
+    now = [150.0]
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: now[0])
+
+    run_tadoku_sync(
+        config=_config(),
+        client=client,
+        game_whitelist={"game-allowed"},
+    )
+
+    assert [payload["description"] for payload in client.payloads] == ["Allowed Game"]
+    assert StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key("game-blocked")) is None
+
+    now[0] = 200.0
+    run_tadoku_sync(
+        config=_config(),
+        client=client,
+        game_whitelist={"game-blocked"},
+    )
+
+    assert [payload["description"] for payload in client.payloads] == ["Allowed Game", "Blocked Game"]
+
+
+def test_empty_whitelist_is_fail_closed_and_keeps_cursor(monkeypatch):
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("pending", "game-main", "Main Game", "a" * 10_000, 110.0)
+    client = _FakeClient()
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: 150.0)
+
+    result = run_tadoku_sync(
+        config=_config(),
+        client=client,
+        game_whitelist=set(),
+        minimum_characters_per_game=TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS,
+    )
+
+    assert result["success"] is True
+    assert result["skipped"] is True
+    assert client.payloads == []
+    assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 100.0
+    assert StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key("game-main")) is None
 
 
 def test_sync_excludes_duplicate_increment_without_deleting_local_lines(monkeypatch):
@@ -510,6 +627,34 @@ def test_scheduled_sync_reports_remote_failure_without_raising(monkeypatch):
     )
 
     assert run_scheduled_tadoku_sync() == {"success": False, "error": "expired cookie"}
+
+
+def test_scheduled_sync_requires_automatic_minimum(monkeypatch):
+    from GameSentenceMiner.util.cron.tadoku_sync import run_scheduled_tadoku_sync
+
+    calls = []
+    config = _config(
+        tadoku_daily_sync_deduplicate=False,
+        tadoku_daily_sync_game_ids=["game-main"],
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.cron.tadoku_sync.get_stats_config",
+        lambda: config,
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.cron.tadoku_sync.run_tadoku_sync",
+        lambda **kwargs: calls.append(kwargs) or {"success": True},
+    )
+
+    assert run_scheduled_tadoku_sync() == {"success": True}
+    assert calls == [
+        {
+            "config": config,
+            "deduplicate": False,
+            "minimum_characters_per_game": TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS,
+            "game_whitelist": {"game-main"},
+        }
+    ]
 
 
 def test_tadoku_api_previews_and_queues_inline_sync(monkeypatch):

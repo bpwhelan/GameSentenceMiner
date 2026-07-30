@@ -1277,6 +1277,7 @@ def register_database_api_routes(app):
                     "tadoku_language_code": getattr(config, "tadoku_language_code", "jpn"),
                     "tadoku_daily_sync_enabled": bool(getattr(config, "tadoku_daily_sync_enabled", False)),
                     "tadoku_daily_sync_deduplicate": bool(getattr(config, "tadoku_daily_sync_deduplicate", True)),
+                    "tadoku_daily_sync_game_ids": list(getattr(config, "tadoku_daily_sync_game_ids", []) or []),
                     "easy_days_monday": getattr(config, "easy_days_settings", {}).get("monday", 100),
                     "easy_days_tuesday": getattr(config, "easy_days_settings", {}).get("tuesday", 100),
                     "easy_days_wednesday": getattr(config, "easy_days_settings", {}).get("wednesday", 100),
@@ -1380,6 +1381,7 @@ def register_database_api_routes(app):
             tadoku_language_code = data.get("tadoku_language_code")
             tadoku_daily_sync_enabled = data.get("tadoku_daily_sync_enabled")
             tadoku_daily_sync_deduplicate = data.get("tadoku_daily_sync_deduplicate")
+            tadoku_daily_sync_game_ids = data.get("tadoku_daily_sync_game_ids")
 
             # Easy days settings
             easy_days_monday = data.get("easy_days_monday")
@@ -1555,6 +1557,21 @@ def register_database_api_routes(app):
                         return jsonify({"error": f"{setting_name} must be a boolean value"}), 400
                     settings_to_update[setting_name] = setting_value
 
+            if tadoku_daily_sync_game_ids is not None:
+                valid_game_ids = (
+                    isinstance(tadoku_daily_sync_game_ids, list)
+                    and len(tadoku_daily_sync_game_ids) <= 1_000
+                    and all(
+                        isinstance(game_id, str) and bool(game_id.strip()) and len(game_id.strip()) <= 512
+                        for game_id in tadoku_daily_sync_game_ids
+                    )
+                )
+                if not valid_game_ids:
+                    return jsonify({"error": "Tadoku automatic sync game whitelist must contain valid game IDs"}), 400
+                settings_to_update["tadoku_daily_sync_game_ids"] = list(
+                    dict.fromkeys(game_id.strip() for game_id in tadoku_daily_sync_game_ids)
+                )
+
             # Validate and process easy days settings
             easy_days_settings = {}
             if easy_days_monday is not None:
@@ -1670,6 +1687,8 @@ def register_database_api_routes(app):
                 config.tadoku_daily_sync_enabled = settings_to_update["tadoku_daily_sync_enabled"]
             if "tadoku_daily_sync_deduplicate" in settings_to_update:
                 config.tadoku_daily_sync_deduplicate = settings_to_update["tadoku_daily_sync_deduplicate"]
+            if "tadoku_daily_sync_game_ids" in settings_to_update:
+                config.tadoku_daily_sync_game_ids = settings_to_update["tadoku_daily_sync_game_ids"]
 
             # Save easy days settings if provided
             if easy_days_settings:

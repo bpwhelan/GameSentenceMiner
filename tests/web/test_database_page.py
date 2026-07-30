@@ -118,6 +118,9 @@ def test_tools_page_renders_tadoku_sync_card(client):
     assert 'id="tadoku_manual_sync_deduplicate"' in html
     assert 'id="tadoku_daily_sync_enabled"' in html
     assert 'id="tadoku_daily_sync_deduplicate" checked' in html
+    assert 'id="tadokuGameWhitelist"' in html
+    assert 'id="tadokuWhitelistSelectAllBtn"' in html
+    assert 'id="tadokuWhitelistClearBtn"' in html
     assert 'id="tadokuPreviewRows"' in html
 
 
