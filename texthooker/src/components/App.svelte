@@ -68,7 +68,6 @@
 		websocketUrl$,
 		trimAudioWithVAD$,
 		trimVideoWithVAD$,
-		showTrimmedVideoInExplorer$,
 		texthookerAudioEvents$,
 	} from '../stores/stores';
 	import {
@@ -79,6 +78,10 @@
 		type TextFeedSessionSync,
 		Theme,
 	} from '../types';
+	import {
+		buildTextFeedSessionSyncPlan,
+		TEXTFEED_SESSION_SYNC_BATCH_SIZE,
+	} from '../session-sync';
 	import {
 		applyAfkBlur,
 		applyCustomCSS,
@@ -119,6 +122,7 @@
 	let audioWidgetVisible = false;
 	let audioWidgetText = '';
 	let activeAudioLineId = '';
+	let textFeedSessionSyncVersion = 0;
 	let pendingAudioLineId = '';
 	let browserAudioPlaying = false;
 	let currentGSMSessionId = '';
@@ -219,7 +223,7 @@
 	);
 
 	const handleTextFeedSessionSync$ = textfeedSessionSync$.pipe(
-		tap((sync: TextFeedSessionSync) => applyTextFeedSessionSync(sync)),
+		tap((sync: TextFeedSessionSync) => void applyTextFeedSessionSync(sync)),
 		reduceToEmptyString(),
 	);
 
@@ -286,6 +290,7 @@
 		audioEventsSub = texthookerAudioEvents$.subscribe(handleAudioEvent);
 
 		return () => {
+			textFeedSessionSyncVersion += 1;
 			audioEventsSub?.unsubscribe();
 			if (audioElement) {
 				audioElement.pause();
@@ -619,7 +624,7 @@
 				body: JSON.stringify({
 					id: lineId,
 					trim_with_vad: $trimVideoWithVAD$,
-					show_in_explorer: $showTrimmedVideoInExplorer$,
+					show_in_explorer: true,
 				}),
 			});
 			if (!response.ok) {
@@ -653,84 +658,72 @@
 		}, 1000);
 	}
 
-	function applyTextFeedSessionSync(sync: TextFeedSessionSync) {
+	async function applyTextFeedSessionSync(sync: TextFeedSessionSync) {
 		if (!sync.sessionId) {
 			return;
 		}
 
+		const syncVersion = ++textFeedSessionSyncVersion;
 		currentGSMSessionId = sync.sessionId;
-		const activeIds = new Set(sync.activeIds);
-		const timedOutIds = new Set(sync.timedOutIds);
-		const orderedIds = new Set(sync.orderedIds);
-		const existingLines = new Map($lineData$.map((line) => [line.id, line]));
-		const missingLines = new Map(sync.missingLines.map((line) => [line.id, line]));
-		const syncedLines: LineItem[] = [];
-
-		for (const id of sync.orderedIds) {
-			const existingLine = existingLines.get(id);
-			const gsmStatus = activeIds.has(id) ? 'active' : timedOutIds.has(id) ? 'timed_out' : 'active';
-			if (existingLine) {
-				syncedLines.push({
-					...existingLine,
-					gsmSessionId: sync.sessionId,
-					gsmStatus,
-				});
-				continue;
-			}
-
-			const missingLine = missingLines.get(id);
-			if (!missingLine) {
-				continue;
-			}
-			const text = normalizeLineContent(missingLine.text);
-			if (text) {
-				syncedLines.push({
-					id,
-					text,
-					excludedFromStats: missingLine.excludedFromStats,
-					gsmSessionId: sync.sessionId,
-					gsmStatus,
-					sessionBackfill: true,
-				});
-			}
+		await yieldToBrowser();
+		if (syncVersion !== textFeedSessionSyncVersion) {
+			return;
 		}
 
-		// A live line can arrive after the server takes its sync snapshot. It belongs
-		// after the snapshot and must not be discarded when the ordered block is rebuilt.
-		for (const line of $lineData$) {
-			if (line.gsmSessionId === sync.sessionId && !orderedIds.has(line.id)) {
-				syncedLines.push(line);
-			}
-		}
-
-		let insertionIndex = -1;
-		const otherLines: LineItem[] = [];
-		for (const line of $lineData$) {
-			const belongsToCurrentSession =
-				line.gsmSessionId === sync.sessionId || orderedIds.has(line.id);
-			if (belongsToCurrentSession) {
-				if (insertionIndex < 0) {
-					insertionIndex = otherLines.length;
-				}
-			} else {
-				otherLines.push(line);
-			}
-		}
-		if (insertionIndex < 0) {
-			insertionIndex = otherLines.length;
-		}
-
-		$lineData$ = [
-			...otherLines.slice(0, insertionIndex),
-			...syncedLines,
-			...otherLines.slice(insertionIndex),
-		];
+		const { syncedLines, retainedLines, insertionIndex } = buildTextFeedSessionSyncPlan(
+			sync,
+			$lineData$,
+			normalizeLineContent,
+		);
 		$lineIDs$ = sync.activeIds;
 		$timedOutIDs$ = sync.timedOutIds;
 
-		for (const line of syncedLines) {
-			$uniqueLines$.add(line.text);
+		if (!syncedLines.length) {
+			$lineData$ = retainedLines;
+			return;
 		}
+
+		let batchEnd = syncedLines.length;
+		let firstRenderedId = '';
+		while (batchEnd > 0) {
+			const batchStart = Math.max(0, batchEnd - TEXTFEED_SESSION_SYNC_BATCH_SIZE);
+			const batch = syncedLines.slice(batchStart, batchEnd);
+
+			if (!firstRenderedId) {
+				$lineData$ = [
+					...retainedLines.slice(0, insertionIndex),
+					...batch,
+					...retainedLines.slice(insertionIndex),
+				];
+			} else {
+				const renderedBlockIndex = $lineData$.findIndex((line) => line.id === firstRenderedId);
+				if (renderedBlockIndex < 0) {
+					return;
+				}
+				$lineData$ = [
+					...$lineData$.slice(0, renderedBlockIndex),
+					...batch,
+					...$lineData$.slice(renderedBlockIndex),
+				];
+			}
+
+			for (const line of batch) {
+				$uniqueLines$.add(line.text);
+			}
+			firstRenderedId = batch[0].id;
+			batchEnd = batchStart;
+
+			if (batchEnd > 0) {
+				await yieldToBrowser();
+				if (syncVersion !== textFeedSessionSyncVersion) {
+					return;
+				}
+			}
+		}
+	}
+
+	function yieldToBrowser() {
+		return new Promise<void>((resolve) => window.setTimeout(resolve, 0));
 	}
 
 	function updateGSMLineStatuses(ids: string[], timedOutIds: string[], sessionId: string | undefined) {

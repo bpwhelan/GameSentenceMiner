@@ -34,6 +34,7 @@ WS_PATH_PLAINTEXT = "/ws/plaintext"
 
 TEXTFEED_SESSION_SYNC_REQUEST = "textfeed_session_sync_request"
 TEXTFEED_SESSION_SYNC = "textfeed_session_sync"
+TEXTFEED_SESSION_SYNC_MAX_LINES = 1000
 
 
 def build_textfeed_session_sync_payload(request_payload: dict, manager=None) -> dict:
@@ -50,7 +51,16 @@ def build_textfeed_session_sync_payload(request_payload: dict, manager=None) -> 
         if isinstance(candidate_ids, list):
             known_ids = candidate_ids
 
-    state = manager.get_session_sync_state(known_ids)
+    requested_max_lines = request_payload.get("max_lines")
+    try:
+        requested_max_lines = int(requested_max_lines)
+    except (TypeError, ValueError):
+        requested_max_lines = TEXTFEED_SESSION_SYNC_MAX_LINES
+    if requested_max_lines <= 0:
+        requested_max_lines = TEXTFEED_SESSION_SYNC_MAX_LINES
+    max_lines = min(requested_max_lines, TEXTFEED_SESSION_SYNC_MAX_LINES)
+
+    state = manager.get_session_sync_state(known_ids, max_lines=max_lines)
     missing_events = state.pop("missing_events")
     return {
         "event": TEXTFEED_SESSION_SYNC,

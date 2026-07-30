@@ -77,6 +77,27 @@ def test_textfeed_session_sync_uses_only_ids_from_current_server_session():
     assert [line["sentence"] for line in payload["lines"]] == ["一", "三"]
 
 
+def test_textfeed_session_sync_is_bounded_to_requested_tail():
+    manager = EventManager()
+    for line_id in ("one", "two", "three", "four", "five"):
+        manager.add_gameline(_line(line_id, line_id))
+    manager.remove_lines_by_ids(["four"], timed_out=True)
+
+    payload = build_textfeed_session_sync_payload(
+        {
+            "event": "textfeed_session_sync_request",
+            "sessions": {manager.session_id: ["five"]},
+            "max_lines": 2,
+        },
+        manager,
+    )
+
+    assert payload["ordered_ids"] == ["four", "five"]
+    assert payload["active_ids"] == ["five"]
+    assert payload["timed_out_ids"] == ["four"]
+    assert [line["data"]["id"] for line in payload["lines"]] == ["four"]
+
+
 def test_textfeed_session_sync_request_is_not_forwarded_as_game_text():
     intake_queue = queue.Queue()
     server = MultiplexWebsocketServerThread(

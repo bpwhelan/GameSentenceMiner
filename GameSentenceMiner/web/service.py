@@ -8,13 +8,18 @@ import subprocess
 import time
 
 from GameSentenceMiner import anki
-from GameSentenceMiner.util.config.configuration import gsm_state, logger, get_config
-from GameSentenceMiner.util.gsm_utils import sanitize_filename
+from GameSentenceMiner.util.config.configuration import (
+    get_config,
+    get_temporary_directory,
+    gsm_state,
+    logger,
+)
+from GameSentenceMiner.util.gsm_utils import make_unique_file_name, sanitize_filename
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.media.audio_player import AudioPlayer
 from GameSentenceMiner.util.media.ffmpeg import get_video_timings
 from GameSentenceMiner.util.platform import notification
-from GameSentenceMiner.util.text_log import GameLine
+from GameSentenceMiner.util.text_log import GameLine, TextSource
 
 
 def set_get_audio_from_video_callback(func):
@@ -177,13 +182,27 @@ def play_audio_data_safe(data, samplerate, line_id: str = ""):
 
 
 def _trim_video_for_line(line: GameLine, video_path: str, trim_with_vad: bool) -> str:
-    start_time, end_time, _, _ = get_video_timings(video_path, line)
+    start_time, line_time_in_video, _, video_length = get_video_timings(video_path, line)
+    source_padding = getattr(line, "source_padding", None)
+    if source_padding is None:
+        source_padding = TextSource.padding_seconds(getattr(line, "source", None))
+    start_time = max(0, start_time - float(source_padding))
+
+    next_line_time = getattr(getattr(line, "next", None), "time", None)
+    end_time = video_length
+    if next_line_time and next_line_time > line.time and line_time_in_video:
+        end_time = (
+            line_time_in_video + (next_line_time - line.time).total_seconds() + get_config().audio.pre_vad_end_offset
+        )
+    elif get_config().audio.pre_vad_end_offset < 0:
+        end_time = video_length + get_config().audio.pre_vad_end_offset
+    end_time = max(start_time, end_time)
 
     if trim_with_vad:
         try:
             vad_result = get_audio_from_video(
                 line,
-                getattr(line.next, "time", None),
+                next_line_time,
                 video_path,
                 temporary=False,
                 use_vad_postprocessing=True,
@@ -209,6 +228,39 @@ def _open_folder(folder_path: str):
             subprocess.Popen(["xdg-open", folder_path])
     except Exception as e:
         logger.error(f"Error opening output folder: {e}")
+
+
+def _show_item_in_folder(file_path: str):
+    """Open the platform file manager with the exported file selected when supported."""
+    try:
+        if platform.system() == "Windows":
+            subprocess.Popen(["explorer.exe", f"/select,{os.path.normpath(file_path)}"])
+        elif platform.system() == "Darwin":
+            subprocess.Popen(["open", "-R", file_path])
+        else:
+            subprocess.Popen(["xdg-open", os.path.dirname(file_path)])
+    except Exception as e:
+        logger.error(f"Error showing exported replay in file manager: {e}")
+
+
+def _save_texthooker_video_clip(trimmed_video: str, line: GameLine) -> str:
+    """Persist a text-feed replay clip in the output folder, falling back to temp."""
+    if not trimmed_video or not os.path.isfile(trimmed_video):
+        return ""
+
+    output_folder = get_config().paths.output_folder
+    if output_folder:
+        destination_folder = os.path.join(output_folder, time.strftime("%Y-%m"), time.strftime("%d"))
+    else:
+        destination_folder = get_temporary_directory()
+    os.makedirs(destination_folder, exist_ok=True)
+
+    line_name = sanitize_filename((line.text or "").strip())[:48].strip() or "replay"
+    destination = os.path.join(destination_folder, f"{time.strftime('%H-%M-%S')}_{line_name}.mp4")
+    if os.path.exists(destination):
+        destination = make_unique_file_name(destination)
+    shutil.copy2(trimmed_video, destination)
+    return destination
 
 
 def create_media_for_lines(video_path=""):
@@ -394,20 +446,20 @@ def handle_texthooker_button(video_path=""):
             line: GameLine = gsm_state.line_for_video_trim
             request = gsm_state.texthooker_video_trim_request or {}
             trim_with_vad = bool(request.get("trim_with_vad", False))
-            show_in_explorer = bool(request.get("show_in_explorer", False))
+            show_in_explorer = bool(request.get("show_in_explorer", True))
 
             gsm_state.line_for_video_trim = None
             gsm_state.texthooker_video_trim_request = {}
             gsm_state.previous_line_for_video_trim = line
 
             trimmed_video = _trim_video_for_line(line, video_path, trim_with_vad)
-            gsm_state.previous_trimmed_video_path = trimmed_video
+            saved_video = _save_texthooker_video_clip(trimmed_video, line)
+            gsm_state.previous_trimmed_video_path = saved_video
 
-            if show_in_explorer and trimmed_video and os.path.isfile(trimmed_video):
-                try:
-                    os.startfile(trimmed_video)
-                except AttributeError:
-                    logger.info(f"Trimmed video created: {trimmed_video}")
+            if show_in_explorer and saved_video:
+                _show_item_in_folder(saved_video)
+            elif saved_video:
+                logger.info(f"Trimmed video created: {saved_video}")
             return
 
         if gsm_state.line_for_screenshot:

@@ -920,7 +920,7 @@ def trim_video():
     data = request.get_json() or {}
     event_id = data.get("id")
     trim_with_vad = bool(data.get("trim_with_vad", False))
-    show_in_explorer = bool(data.get("show_in_explorer", False))
+    show_in_explorer = bool(data.get("show_in_explorer", True))
 
     if event_id is None:
         return jsonify({"error": "Missing id"}), 400

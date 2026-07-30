@@ -81,7 +81,6 @@
 		trimAudioWithVAD$,
 		showTrimVideoButton$,
 		trimVideoWithVAD$,
-		showTrimmedVideoInExplorer$,
 		showGSMCheckboxes$,
 		unblurTLTimer$,
 		settingsOpen$,
@@ -1113,20 +1112,18 @@
 			<h3 class="font-semibold text-base tracking-wide">UI Customizability</h3>
 		</div>
 		<div class="col-span-4 grid grid-cols-4 gap-x-2 gap-y-1 mb-2">
-			<span class="label-text col-span-2">Show Screenshot Button</span>
+			<span class="label-text col-span-2">Pin Screenshot Button</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showScreenshotButton$} />
-			<span class="label-text col-span-2">Show Translate Button</span>
+			<span class="label-text col-span-2">Pin Translate Button</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTranslateButton$} />
-			<span class="label-text col-span-2">Show Audio Button</span>
+			<span class="label-text col-span-2">Pin Audio Button</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showAudioButton$} />
 			<span class="label-text col-span-2">Trim Audio With VAD</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$trimAudioWithVAD$} />
-			<span class="label-text col-span-2">Show Trim Video Button</span>
+			<span class="label-text col-span-2">Pin Save Cropped Replay Button</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTrimVideoButton$} />
 			<span class="label-text col-span-2">Trim Video With VAD</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$trimVideoWithVAD$} />
-			<span class="label-text col-span-2">Show Trimmed Video In File Explorer</span>
-			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showTrimmedVideoInExplorer$} />
 			<span class="label-text col-span-2">Show Checkboxes</span>
 			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showGSMCheckboxes$} />
 		</div>

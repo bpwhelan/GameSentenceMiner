@@ -2,6 +2,7 @@ import { BehaviorSubject, NEVER, Subscription, filter, switchMap } from 'rxjs';
 import {
 	continuousReconnect$,
 	lineData$,
+	maxLines$,
 	newLine$,
 	reconnectSecondarySocket$,
 	reconnectSocket$,
@@ -14,6 +15,7 @@ import {
 } from './stores/stores';
 
 import { isGSMTextFeedWebSocketUrl, normalizeGSMWebSocketUrl } from './gsm';
+import { getTextFeedSessionSyncLineLimit } from './session-sync';
 import { LineType } from './types';
 
 export class SocketConnection {
@@ -26,6 +28,8 @@ export class SocketConnection {
 	private socketState: BehaviorSubject<number>;
 
 	private subscriptions: Subscription[] = [];
+
+	private textFeedSyncRequestedIds = new Map<string, string[]>();
 
 	constructor(isPrimary = true) {
 		this.isPrimary = isPrimary;
@@ -48,12 +52,12 @@ export class SocketConnection {
 					switchMap((continuousReconnect) =>
 						continuousReconnect
 							? (isPrimary ? reconnectSocket$ : reconnectSecondarySocket$).pipe(
-									filter(() => this.socket?.readyState === 3)
-							  )
-							: NEVER
-					)
+									filter(() => this.socket?.readyState === 3),
+								)
+							: NEVER,
+					),
 				)
-				.subscribe(() => this.reloadSocket())
+				.subscribe(() => this.reloadSocket()),
 		);
 	}
 
@@ -125,11 +129,18 @@ export class SocketConnection {
 			}
 			(sessions[line.gsmSessionId] ||= []).push(line.id);
 		}
+		this.textFeedSyncRequestedIds = new Map(
+			Object.entries(sessions).map(([sessionId, ids]) => [sessionId, [...ids]]),
+		);
+		const maxLines = getTextFeedSessionSyncLineLimit(maxLines$.getValue());
 
 		this.socket.send(
 			JSON.stringify({
 				event: 'textfeed_session_sync_request',
-				sessions,
+				sessions: Object.fromEntries(
+					Object.entries(sessions).map(([sessionId, ids]) => [sessionId, ids.slice(-maxLines)]),
+				),
+				max_lines: maxLines,
 			}),
 		);
 	}
@@ -147,8 +158,9 @@ export class SocketConnection {
 		if (payload?.event) {
 			if (payload.event === 'textfeed_session_sync') {
 				const lines = Array.isArray(payload.lines) ? payload.lines : [];
+				const sessionId = typeof payload.session_id === 'string' ? payload.session_id : '';
 				textfeedSessionSync$.next({
-					sessionId: typeof payload.session_id === 'string' ? payload.session_id : '',
+					sessionId,
 					orderedIds: Array.isArray(payload.ordered_ids) ? payload.ordered_ids : [],
 					activeIds: Array.isArray(payload.active_ids) ? payload.active_ids : [],
 					timedOutIds: Array.isArray(payload.timed_out_ids) ? payload.timed_out_ids : [],
@@ -163,7 +175,9 @@ export class SocketConnection {
 							text: item.sentence ?? item.data.text,
 							excludedFromStats: Boolean(item.data.excluded_from_stats),
 						})),
+					requestedIds: this.textFeedSyncRequestedIds.get(sessionId) ?? [],
 				});
+				this.textFeedSyncRequestedIds.delete(sessionId);
 				return;
 			}
 			if (payload.event === LineType.RESETCHECKBOXES) {
@@ -185,7 +199,7 @@ export class SocketConnection {
 						excludedFromStats: Boolean(payload.data.excluded_from_stats),
 						gsmSessionId: typeof payload.data.session_id === 'string' ? payload.data.session_id : undefined,
 						gsmStatus: isGSMLine ? ('active' as const) : ('external' as const),
-				  }
+					}
 				: { gsmStatus: 'external' as const };
 
 		newLine$.next([line, LineType.SOCKET, id, lineMeta]);

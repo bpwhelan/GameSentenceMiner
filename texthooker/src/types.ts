@@ -164,6 +164,7 @@ export interface TextFeedSessionSync {
 	activeIds: string[];
 	timedOutIds: string[];
 	missingLines: TextFeedSessionLine[];
+	requestedIds: string[];
 }
 
 export interface LineItemEditEvent {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { mdiTrophy, mdiClockOutline, mdiHistory, mdiPlay, mdiStop } from '@mdi/js';
+	import { mdiClockOutline, mdiHistory, mdiMenu, mdiPlay, mdiStop, mdiTrophy } from '@mdi/js';
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import {
@@ -54,6 +54,11 @@
 	let originalText = '';
 	let isSelected = false;
 	let isEditable = false;
+	let actionsMenuOpen = false;
+	let actionsMenuElement: HTMLElement;
+	let actionsMenuButton: HTMLButtonElement;
+	let actionsMenuPopover: HTMLElement;
+	let actionsMenuStyle = 'visibility: hidden;';
 	$: isAudioLine = audioLineId === line.id;
 	$: isAudioPending = audioPendingLineId === line.id;
 	$: audioButtonTitle = isAudioPending ? 'Preparing audio...' : isAudioLine && audioIsPlaying ? 'Stop audio' : 'Play audio';
@@ -82,8 +87,79 @@
 
 	onDestroy(() => {
 		document.removeEventListener('click', clickOutsideHandler, false);
+		removeActionsMenuListeners();
 		dispatch('edit', { inEdit: false });
 	});
+
+	function getActionsWindow() {
+		return pipWindow || window;
+	}
+
+	function getActionsDocument() {
+		return getActionsWindow().document;
+	}
+
+	function removeActionsMenuListeners() {
+		getActionsDocument().removeEventListener('click', actionsMenuClickOutsideHandler, false);
+		getActionsDocument().removeEventListener('keydown', actionsMenuKeyHandler, false);
+		getActionsWindow().removeEventListener('resize', closeActionsMenu, false);
+		getActionsDocument().removeEventListener('scroll', closeActionsMenu, true);
+	}
+
+	function closeActionsMenu() {
+		actionsMenuOpen = false;
+		actionsMenuStyle = 'visibility: hidden;';
+		removeActionsMenuListeners();
+	}
+
+	function positionActionsMenu() {
+		if (!actionsMenuButton || !actionsMenuPopover) {
+			return;
+		}
+
+		const view = getActionsWindow();
+		const buttonRect = actionsMenuButton.getBoundingClientRect();
+		const menuRect = actionsMenuPopover.getBoundingClientRect();
+		const viewportGap = 8;
+		const menuGap = 5;
+		const maxLeft = Math.max(viewportGap, view.innerWidth - menuRect.width - viewportGap);
+		const left = Math.min(maxLeft, Math.max(viewportGap, buttonRect.right - menuRect.width));
+		const fitsBelow = buttonRect.bottom + menuGap + menuRect.height <= view.innerHeight - viewportGap;
+		const top = fitsBelow
+			? buttonRect.bottom + menuGap
+			: Math.max(viewportGap, buttonRect.top - menuGap - menuRect.height);
+
+		actionsMenuStyle = `left: ${Math.round(left)}px; top: ${Math.round(top)}px; visibility: visible;`;
+	}
+
+	function toggleActionsMenu(event: MouseEvent) {
+		event.stopPropagation();
+		if (actionsMenuOpen) {
+			closeActionsMenu();
+			return;
+		}
+
+		actionsMenuOpen = true;
+		tick().then(() => {
+			positionActionsMenu();
+			getActionsDocument().addEventListener('click', actionsMenuClickOutsideHandler, false);
+			getActionsDocument().addEventListener('keydown', actionsMenuKeyHandler, false);
+			getActionsWindow().addEventListener('resize', closeActionsMenu, false);
+			getActionsDocument().addEventListener('scroll', closeActionsMenu, true);
+		});
+	}
+
+	function actionsMenuClickOutsideHandler(event: MouseEvent) {
+		if (!actionsMenuElement?.contains(event.target as Node)) {
+			closeActionsMenu();
+		}
+	}
+
+	function actionsMenuKeyHandler(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			closeActionsMenu();
+		}
+	}
 
 	function handleDblClick(event: MouseEvent) {
 		if (pipWindow) {
@@ -144,14 +220,17 @@
 	}
 
 	function handleAudioToggle() {
+		closeActionsMenu();
 		dispatch('audioToggle', { lineId: line.id, text: line.text });
 	}
 
 	function handleVideoTrim() {
+		closeActionsMenu();
 		dispatch('videoTrim', { lineId: line.id, text: line.text });
 	}
 
 	function handleAction(id: string, action: string, blurTranslate: boolean = false) {
+		closeActionsMenu();
 		const endpoints: Record<string, string> = {
 			TL: '/translate-line',
 			Screenshot: '/get-screenshot',
@@ -294,7 +373,12 @@
 						</button>
 					{/if}
 					{#if $showTrimVideoButton$}
-						<button class="hide-on-mobile action-button" on:click={handleVideoTrim} title="Trim replay video" tabindex="-1">
+						<button
+							class="hide-on-mobile action-button"
+							on:click={handleVideoTrim}
+							title="Save cropped replay"
+							tabindex="-1"
+						>
 							🎬
 						</button>
 					{/if}
@@ -320,6 +404,48 @@
 							🌐
 						</button>
 					{/if}
+					<div class="actions-menu" bind:this={actionsMenuElement}>
+						<button
+							class="action-button menu-toggle"
+							class:menu-open={actionsMenuOpen}
+							on:click={toggleActionsMenu}
+							title="More line actions"
+							aria-label="More line actions"
+							aria-expanded={actionsMenuOpen}
+							tabindex="-1"
+							bind:this={actionsMenuButton}
+						>
+							<Icon path={mdiMenu} width="16px" height="16px" />
+						</button>
+						{#if actionsMenuOpen}
+							<div
+								class="actions-menu-popover"
+								style={actionsMenuStyle}
+								bind:this={actionsMenuPopover}
+							>
+								<button on:click={() => handleAction(line.id, 'Screenshot')}>
+									<span aria-hidden="true">📷</span>
+									<span>Screenshot</span>
+								</button>
+								<button on:click={handleVideoTrim}>
+									<span aria-hidden="true">🎬</span>
+									<span>Save cropped replay</span>
+								</button>
+								<button on:click={handleAudioToggle} disabled={isAudioPending}>
+									<Icon
+										path={isAudioLine && audioIsPlaying ? mdiStop : mdiPlay}
+										width="16px"
+										height="16px"
+									/>
+									<span>{audioButtonTitle}</span>
+								</button>
+								<button on:click={() => handleAction(line.id, 'TL')}>
+									<span aria-hidden="true">🌐</span>
+									<span>Translate</span>
+								</button>
+							</div>
+						{/if}
+					</div>
 				</div>
 			{:else if isTimedOutGSMLine}
 				<div
@@ -427,6 +553,11 @@
 		border-color: #2f8a73;
 	}
 
+	.action-button.menu-open {
+		background-color: #444;
+		border-color: #777;
+	}
+
 	.action-button:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
@@ -436,6 +567,59 @@
 		margin-left: auto; /* Align buttons to the right */
 		display: flex;
 		gap: 10px;
+	}
+
+	.actions-menu {
+		position: relative;
+		display: inline-flex;
+	}
+
+	.actions-menu-popover {
+		position: fixed;
+		z-index: 70;
+		display: flex;
+		width: min(172px, calc(100vw - 16px));
+		flex-direction: column;
+		overflow: hidden;
+		border: 1px solid #555;
+		border-radius: 4px;
+		background: #222;
+		box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
+		font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+		font-size: 12px;
+		font-weight: 400;
+		line-height: 1.2;
+		letter-spacing: normal;
+		writing-mode: horizontal-tb;
+	}
+
+	.actions-menu-popover button {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		min-height: 30px;
+		border: 0;
+		border-bottom: 1px solid #444;
+		background: transparent;
+		color: #fff;
+		padding: 6px 8px;
+		font: inherit;
+		text-align: left;
+		white-space: nowrap;
+		cursor: pointer;
+	}
+
+	.actions-menu-popover button:last-child {
+		border-bottom: 0;
+	}
+
+	.actions-menu-popover button:hover {
+		background: #3a3a3a;
+	}
+
+	.actions-menu-popover button:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
 	}
 
 	/* Hide only buttons with .hide-on-mobile on mobile devices */

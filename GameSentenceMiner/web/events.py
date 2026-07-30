@@ -123,14 +123,16 @@ class EventManager:
                 "timed_out_ids": [event.id for event in self.session_events if event.id in self.timed_out_ids],
             }
 
-    def get_session_sync_state(self, known_ids) -> dict:
+    def get_session_sync_state(self, known_ids, max_lines: int | None = None) -> dict:
         """Build one ordered, consistent snapshot for a connecting TextFeed."""
         known_id_set = {str(event_id) for event_id in known_ids if event_id}
         with self._lock:
-            ordered_ids = [event.id for event in self.session_events]
-            active_ids = [event.id for event in self.events]
-            timed_out_ids = [event.id for event in self.session_events if event.id in self.timed_out_ids]
-            missing_events = [event.to_serializable() for event in self.session_events if event.id not in known_id_set]
+            session_events = self.session_events[-max_lines:] if max_lines else self.session_events
+            restored_id_set = {event.id for event in session_events}
+            ordered_ids = [event.id for event in session_events]
+            active_ids = [event.id for event in self.events if event.id in restored_id_set]
+            timed_out_ids = [event.id for event in session_events if event.id in self.timed_out_ids]
+            missing_events = [event.to_serializable() for event in session_events if event.id not in known_id_set]
 
         return {
             "session_id": self.session_id,
