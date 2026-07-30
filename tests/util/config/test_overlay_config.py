@@ -17,9 +17,22 @@ def test_overlay_ocr_area_subset_defaults_preserve_existing_behavior():
 
     assert overlay.use_overlay_area_config is False
     assert overlay.scan_on_overlay_activation is False
+    assert overlay.text_appears_instantly is False
     assert overlay.ocr_area_config_include_primary_areas is True
     assert overlay.ocr_area_config_include_secondary_areas is True
     assert overlay.ocr_area_config_use_exclusion_zones is True
+
+
+def test_overlay_text_appears_instantly_round_trip_and_backward_compatibility():
+    overlay = Overlay(text_appears_instantly=True)
+    data = overlay.to_dict()
+
+    assert data["text_appears_instantly"] is True
+    assert Overlay.from_dict(data).text_appears_instantly is True
+
+    data_without_field = dict(data)
+    data_without_field.pop("text_appears_instantly", None)
+    assert Overlay.from_dict(data_without_field).text_appears_instantly is False
 
 
 def test_overlay_scan_on_activation_round_trip_and_backward_compatibility():

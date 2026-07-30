@@ -284,6 +284,7 @@ const GSM_OWNED_OVERLAY_FIELD_MAP = {
   periodic_ratio: "periodic_ratio",
   scan_on_mouse_move: "scan_on_mouse_move",
   scan_on_overlay_activation: "scan_on_overlay_activation",
+  text_appears_instantly: "text_appears_instantly",
   inject_scanned_lines: "inject_scanned_lines",
   minimum_character_size: "minimum_character_size",
   use_ocr_result_v2: "use_ocr_result_v2",
@@ -993,6 +994,14 @@ function persistOverlaySettingForActiveProfile(key, value) {
 function setOverlaySettingValue(key, value) {
   userSettings[key] = value;
   persistOverlaySettingForActiveProfile(key, value);
+}
+
+function normalizeFloatingWindowFontSize(value) {
+  const numericValue = Number.parseInt(value, 10);
+  if (!Number.isFinite(numericValue)) {
+    return DEFAULT_USER_SETTINGS.fontSize;
+  }
+  return Math.min(200, Math.max(8, numericValue));
 }
 
 function normalizeOverlayHotkeySettings(settings = userSettings) {
@@ -7172,6 +7181,8 @@ async function startOverlayAppImpl() {
     }
     if (key === "showRecycledIndicator") {
       value = value === true;
+    } else if (key === "fontSize") {
+      value = normalizeFloatingWindowFontSize(value);
     } else if (key === "gamepadServerPort" && INPUT_SERVER_MANAGED_BY_GSM) {
       value = MANAGED_INPUT_SERVER_PORT;
     } else if (key === "gamepadTokenizerBackend") {
@@ -7427,8 +7438,17 @@ async function startOverlayAppImpl() {
     if (GSM_OWNED_OVERLAY_FIELD_MAP[key]) {
       sendGsmOwnedOverlayConfig(key, value);
     }
+    const settingUpdate = { [key]: userSettings[key] };
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("settings-updated", { [key]: userSettings[key] });
+      mainWindow.webContents.send("settings-updated", settingUpdate);
+    }
+    if (
+      key === "fontSize"
+      && settingsWindow
+      && !settingsWindow.isDestroyed()
+      && event.sender !== settingsWindow.webContents
+    ) {
+      settingsWindow.webContents.send("settings-updated", settingUpdate);
     }
     saveSettings();
     updateTrayMenu();
@@ -7442,8 +7462,12 @@ async function startOverlayAppImpl() {
 
   // Legacy handlers for backward compatibility - can be removed after transition
   ipcMain.on("fontsize-changed", (event, newsize) => {
-    setOverlaySettingValue("fontSize", newsize);
-    mainWindow.webContents.send("settings-updated", { fontSize: newsize });
+    const fontSize = normalizeFloatingWindowFontSize(newsize);
+    setOverlaySettingValue("fontSize", fontSize);
+    mainWindow.webContents.send("settings-updated", { fontSize });
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.webContents.send("settings-updated", { fontSize });
+    }
     saveSettings();
   })
   ipcMain.on("weburl1-changed", (event, newurl) => {

@@ -150,13 +150,19 @@ def _get_cursor_pos():
         return None
 
 
-def _cursor_over_target_window(processor, cursor_pos) -> bool:
-    """True when the game window is showing (and not obscured) and the cursor is over its client area."""
-    if not is_windows() or not user32 or cursor_pos is None:
+def _cursor_allows_mouse_move_scan(processor, cursor_pos) -> bool:
+    """True when this cursor position is eligible to trigger a mouse-move scan.
+
+    When the active capture source has no HWND, there is no window geometry to
+    constrain the cursor against, so movement alone is sufficient.
+    """
+    if not is_windows() or cursor_pos is None:
         return False
     monitor = getattr(processor, "window_monitor", None)
     hwnd = getattr(monitor, "target_hwnd", None) if monitor else None
-    if not hwnd or not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
+    if not hwnd:
+        return True
+    if not user32 or not user32.IsWindowVisible(hwnd) or user32.IsIconic(hwnd):
         return False
     # Match the overlay's own visibility: it shows only for "active"/"background" and hides
     # when the game is obscured/minimized/closed (see GSM_Overlay main.js window_state handling).
@@ -182,7 +188,8 @@ async def _overlay_loop():
                 if overlay_cfg.scan_on_mouse_move:
                     cursor_pos = _get_cursor_pos()
                     if cursor_pos is not None and (
-                        cursor_pos == last_cursor_pos or not _cursor_over_target_window(overlay_processor, cursor_pos)
+                        cursor_pos == last_cursor_pos
+                        or not _cursor_allows_mouse_move_scan(overlay_processor, cursor_pos)
                     ):
                         last_cursor_pos = cursor_pos
                         await asyncio.sleep(overlay_cfg.periodic_interval)
@@ -1974,6 +1981,23 @@ class OverlayProcessor:
             return False
         return cls._overlay_text_similarity(previous_text, current_text) >= threshold
 
+    @staticmethod
+    def _resolve_local_ocr_attempts(
+        source: Optional[str],
+        local_ocr_retry: int,
+        text_appears_instantly: bool,
+    ) -> int:
+        if text_appears_instantly or source in [
+            TextSource.OCR,
+            TextSource.HOTKEY,
+            TextSource.SCREEN_CROPPER,
+            TextSource.SECONDARY,
+            TextSource.MANUAL,
+            TextSource.OCR_MANUAL,
+        ]:
+            return 1
+        return max(1, local_ocr_retry)
+
     async def _do_work(
         self,
         line: "GameLine" = None,
@@ -2053,19 +2077,10 @@ class OverlayProcessor:
         if local_ocr_engine:
             # Assume Text from Source is already Stable
             source = line.source if line and line.source else source
-            tries = max(
-                1,
-                1
-                if source
-                in [
-                    TextSource.OCR,
-                    TextSource.HOTKEY,
-                    TextSource.SCREEN_CROPPER,
-                    TextSource.SECONDARY,
-                    TextSource.MANUAL,
-                    TextSource.OCR_MANUAL,
-                ]
-                else local_ocr_retry,
+            tries = self._resolve_local_ocr_attempts(
+                source,
+                local_ocr_retry,
+                get_overlay_config().text_appears_instantly,
             )
             # logger.background(f"Using local OCR engine '{local_ocr_engine.readable_name}' with {tries} tries for overlay. TextSource: {line.source if line else source or 'N/A'}")
             last_result_flattened = ""
