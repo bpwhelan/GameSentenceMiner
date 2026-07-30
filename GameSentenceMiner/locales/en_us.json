@@ -355,6 +355,10 @@
             "label": "Beginning Offset:",
             "tooltip": "Beginning offset after VAD Trim, Only active if \"Trim Beginning\" is ON. Negative values = more time at the beginning"
           },
+          "adaptive_preroll": {
+            "label": "Clean VAD Pre-roll (Experimental):",
+            "tooltip": "When a negative Beginning Offset adds audio before detected speech, move past an isolated leftover sound only if a clear quiet point exists. May shorten intentional quiet onsets."
+          },
           "cut_and_splice": {
             "label": "Condense Audio:",
             "tooltip": "Cut Detected Voice Segments and Paste them back together. More Padding = More Space between voicelines."

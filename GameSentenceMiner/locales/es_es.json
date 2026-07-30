@@ -317,6 +317,10 @@
             "label": "Desplazamiento de Inicio:",
             "tooltip": "Desplazamiento de inicio después del recorte VAD, Solo activo si \"Recortar Inicio\" está ACTIVADO. Valores negativos = más tiempo al inicio"
           },
+          "adaptive_preroll": {
+            "label": "Limpiar pre-roll de VAD (Experimental):",
+            "tooltip": "Si un desplazamiento de inicio negativo añade audio antes de la voz detectada, omite un sonido residual aislado solo cuando existe un punto de silencio claro. Puede acortar inicios intencionalmente suaves."
+          },
           "cut_and_splice": {
             "label": "Condensar Audio:",
             "tooltip": "Cortar Segmentos de Voz Detectados y Pegarlos de nuevo juntos. Más Relleno = Más Espacio entre líneas de voz."

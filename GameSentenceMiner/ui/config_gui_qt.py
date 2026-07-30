@@ -984,6 +984,7 @@ class ConfigWindow(QWidget):
                     backup_vad_model=self.backup_vad_model_combo.currentText(),
                     trim_beginning=self.vad_trim_beginning_check.isChecked(),
                     beginning_offset=float(self.vad_beginning_offset_edit.text() or 0.0),
+                    adaptive_preroll=self.adaptive_preroll_check.isChecked(),
                     add_audio_on_no_results=self.add_audio_on_no_results_check.isChecked(),
                     use_tts_as_fallback=self.use_tts_as_fallback_check.isChecked(),
                     tts_url=self.tts_url_edit.text(),
@@ -1592,6 +1593,7 @@ class ConfigWindow(QWidget):
         self.end_offset_edit = QLineEdit()
         self.vad_trim_beginning_check = QCheckBox()
         self.vad_beginning_offset_edit = QLineEdit()
+        self.adaptive_preroll_check = QCheckBox()
         self.cut_and_splice_segments_check = QCheckBox()
         self.splice_padding_edit = QLineEdit()
         self.use_cpu_for_inference_check = QCheckBox()
@@ -3180,6 +3182,7 @@ class ConfigWindow(QWidget):
         self.end_offset_edit.setText(str(s.audio.end_offset))
         self.vad_trim_beginning_check.setChecked(s.vad.trim_beginning)
         self.vad_beginning_offset_edit.setText(str(s.vad.beginning_offset))
+        self.adaptive_preroll_check.setChecked(getattr(s.vad, "adaptive_preroll", False))
         self.cut_and_splice_segments_check.setChecked(s.vad.cut_and_splice_segments)
         self.splice_padding_edit.setText(str(s.vad.splice_padding))
         self.use_cpu_for_inference_check.setChecked(

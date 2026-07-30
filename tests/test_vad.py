@@ -35,6 +35,14 @@ def test_vad_system_uses_forced_v2_model_instead_of_legacy_selection(monkeypatch
     assert selected_models == [FIRERED]
 
 
+def test_adaptive_preroll_config_defaults_off_and_round_trips():
+    assert VAD().adaptive_preroll is False
+
+    restored = VAD.from_dict(VAD(adaptive_preroll=True).to_dict())
+
+    assert restored.adaptive_preroll is True
+
+
 def test_load_whisper_audio_from_wav_returns_normalized_float32(tmp_path):
     samples = np.array([-32768, -16384, 0, 16384, 32767], dtype=np.int16)
     wav_path = tmp_path / "speech.wav"
@@ -52,6 +60,97 @@ def test_load_whisper_audio_from_wav_rejects_wrong_sample_rate(tmp_path):
 
     with pytest.raises(RuntimeError, match="16 kHz"):
         vad._load_whisper_audio_from_wav(str(wav_path))
+
+
+def test_select_clean_preroll_start_moves_past_leading_residue():
+    sample_rate = 16000
+    audio = np.full(sample_rate, 0.001, dtype=np.float32)
+    residue_start = int(0.06 * sample_rate)
+    residue_end = int(0.12 * sample_rate)
+    residue_phase = np.linspace(0, 10 * np.pi, residue_end - residue_start, endpoint=False)
+    audio[residue_start:residue_end] += 0.05 * np.sin(residue_phase)
+
+    selected_start = vad._select_clean_preroll_start(
+        audio,
+        sample_rate=sample_rate,
+        requested_start=0.06,
+        detected_start=0.31,
+    )
+
+    assert selected_start == pytest.approx(0.12)
+
+
+def test_select_clean_preroll_start_keeps_uniform_preroll():
+    audio = np.full(16000, 0.005, dtype=np.float32)
+
+    selected_start = vad._select_clean_preroll_start(
+        audio,
+        sample_rate=16000,
+        requested_start=0.06,
+        detected_start=0.31,
+    )
+
+    assert selected_start == 0.06
+
+
+def test_render_decision_uses_clean_preroll_when_enabled(monkeypatch):
+    processor = vad.SileroVADProcessor()
+    detection = vad.DetectionResult(segments=[vad.Segment(start=0.31, end=1.0)])
+    trim_calls = []
+
+    monkeypatch.setattr(
+        vad,
+        "get_config",
+        lambda: SimpleNamespace(
+            audio=SimpleNamespace(end_offset=0.2),
+            vad=SimpleNamespace(
+                adaptive_preroll=True,
+                beginning_offset=-0.25,
+                cut_and_splice_segments=False,
+                trim_beginning=True,
+            ),
+        ),
+    )
+    monkeypatch.setattr(vad, "_find_clean_preroll_start", lambda *_args: 0.22)
+    monkeypatch.setattr(vad.ffmpeg, "trim_audio", lambda *args, **kwargs: trim_calls.append((args, kwargs)))
+
+    result = processor._render_decision((0.31, 1.0), detection, "input.opus", "output.opus")
+
+    assert trim_calls[0][0][1] == 0.22
+    assert trim_calls[0][1]["fade_in_duration"] == 0.01
+    assert result.start == 0.22
+
+
+def test_render_decision_keeps_configured_preroll_when_experiment_is_disabled(monkeypatch):
+    processor = vad.SileroVADProcessor()
+    detection = vad.DetectionResult(segments=[vad.Segment(start=0.31, end=1.0)])
+    trim_calls = []
+
+    monkeypatch.setattr(
+        vad,
+        "get_config",
+        lambda: SimpleNamespace(
+            audio=SimpleNamespace(end_offset=0.2),
+            vad=SimpleNamespace(
+                adaptive_preroll=False,
+                beginning_offset=-0.25,
+                cut_and_splice_segments=False,
+                trim_beginning=True,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        vad,
+        "_find_clean_preroll_start",
+        lambda *_args: pytest.fail("clean pre-roll analysis should remain disabled"),
+    )
+    monkeypatch.setattr(vad.ffmpeg, "trim_audio", lambda *args, **kwargs: trim_calls.append((args, kwargs)))
+
+    result = processor._render_decision((0.31, 1.0), detection, "input.opus", "output.opus")
+
+    assert trim_calls[0][0][1] == pytest.approx(0.06)
+    assert trim_calls[0][1]["fade_in_duration"] == 0.05
+    assert result.start == pytest.approx(0.06)
 
 
 def test_whisper_vad_transcribes_decoded_audio_array(monkeypatch):
@@ -194,6 +293,83 @@ def test_firered_vad_removes_confirmed_trailing_silence_from_segment():
     # The three-frame silence window confirms speech ended at frame two; it is
     # not part of the extracted speech segment.
     assert decisions == [1, 1, 0, 0, 0, 0]
+
+
+def test_firered_vad_corroborates_suspicious_clip_boundary_with_silero(monkeypatch):
+    processor = vad.FireRedVADProcessor()
+    processor._postprocessor = vad.FireRedVADPostprocessor(
+        smooth_window_size=1,
+        speech_threshold=0.4,
+        min_speech_frame=20,
+        max_speech_frame=2000,
+        min_silence_frame=20,
+        merge_silence_frame=0,
+        extend_speech_frame=0,
+    )
+    firered_segments = [
+        vad.Segment(start=0.2, end=2.0),
+        vad.Segment(start=3.1, end=4.1),
+        vad.Segment(start=4.36, end=7.4),
+    ]
+    probabilities = np.full(740, 0.6, dtype=np.float32)
+    probabilities[20:200] = 0.99
+    probabilities[310:410] = 0.99
+    probabilities[436:495] = 0.99
+    decoded_audio = np.zeros(740 * 160, dtype=np.float32)
+
+    monkeypatch.setattr(
+        vad,
+        "_detect_silero_segments_from_audio",
+        lambda audio: [
+            vad.Segment(start=0.2, end=2.0),
+            vad.Segment(start=3.1, end=4.1),
+            vad.Segment(start=4.4, end=5.0),
+        ],
+    )
+
+    segments = processor._corroborate_trailing_boundary(
+        firered_segments,
+        probabilities,
+        wav_duration=7.4,
+        decoded_audio=decoded_audio,
+    )
+
+    assert segments == [
+        vad.Segment(start=0.2, end=2.0),
+        vad.Segment(start=3.1, end=4.1),
+        vad.Segment(start=4.36, end=5.0),
+    ]
+
+
+def test_firered_vad_keeps_boundary_when_it_has_later_high_confidence_speech(monkeypatch):
+    processor = vad.FireRedVADProcessor()
+    processor._postprocessor = vad.FireRedVADPostprocessor(
+        smooth_window_size=1,
+        speech_threshold=0.4,
+        min_speech_frame=20,
+        max_speech_frame=2000,
+        min_silence_frame=20,
+        merge_silence_frame=0,
+        extend_speech_frame=0,
+    )
+    firered_segments = [vad.Segment(start=0.2, end=2.0), vad.Segment(start=4.0, end=7.4)]
+    probabilities = np.full(740, 0.6, dtype=np.float32)
+    probabilities[600:625] = 0.99
+
+    monkeypatch.setattr(
+        vad,
+        "_detect_silero_segments_from_audio",
+        lambda audio: [vad.Segment(start=0.2, end=2.0), vad.Segment(start=4.0, end=5.0)],
+    )
+
+    segments = processor._corroborate_trailing_boundary(
+        firered_segments,
+        probabilities,
+        wav_duration=7.4,
+        decoded_audio=np.zeros(740 * 160, dtype=np.float32),
+    )
+
+    assert segments == firered_segments
 
 
 def test_firered_cmvn_parser_reads_bundled_stats():

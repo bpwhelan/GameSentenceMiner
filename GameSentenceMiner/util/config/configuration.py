@@ -1222,6 +1222,7 @@ class VAD:
     backup_vad_model: str = OFF
     trim_beginning: bool = False
     beginning_offset: float = -0.25
+    adaptive_preroll: bool = False
     add_audio_on_no_results: bool = False
     use_tts_as_fallback: bool = False
     tts_url: str = "http://127.0.0.1:5050/?term=$s"

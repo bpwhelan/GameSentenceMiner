@@ -67,6 +67,10 @@ def build_vad_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(tabs_i18n, "vad", "trim_beginning"),
         trim_begin_widget,
     )
+    trimming_layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "vad", "adaptive_preroll", color=LabelColor.ADVANCED),
+        window.adaptive_preroll_check,
+    )
 
     splice_widget = QWidget()
     splice_layout = QHBoxLayout(splice_widget)
