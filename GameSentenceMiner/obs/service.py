@@ -469,7 +469,10 @@ class OBSService:
 
             def _init(client):
                 response = client.get_current_program_scene()
-                scene_name = response.current_program_scene_name if response else ""
+                if not response:
+                    scene_name = ""
+                else:
+                    scene_name = getattr(response, "scene_name", None) or getattr(response, "current_program_scene_name", "")
                 with self._state_lock:
                     self.state.current_scene = scene_name
                 if scene_name:
