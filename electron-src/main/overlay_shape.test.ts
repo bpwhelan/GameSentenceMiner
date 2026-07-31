@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
-const { buildShapeRects, INTERACTIVE_ELEMENT_SELECTOR } = require(
+const { buildShapeRects, INTERACTIVE_ELEMENT_SELECTOR, shouldIgnoreOverlayMouseEvents } = require(
     path.resolve(process.cwd(), 'GSM_Overlay/overlay_shape.js')
 ) as {
     INTERACTIVE_ELEMENT_SELECTOR: string;
@@ -12,6 +12,13 @@ const { buildShapeRects, INTERACTIVE_ELEMENT_SELECTOR } = require(
         rects: Array<Record<string, number>>,
         options: { padding: number; viewportWidth: number; viewportHeight: number }
     ) => Array<{ x: number; y: number; width: number; height: number }>;
+    shouldIgnoreOverlayMouseEvents: (options: {
+        cursorPoint: { x: number; y: number };
+        windowBounds: { x: number; y: number };
+        regions: Array<{ x: number; y: number; width: number; height: number }>;
+        interactionAllowed: boolean;
+        windowVisible: boolean;
+    }) => boolean;
 };
 
 describe('overlay shape regions', () => {
@@ -53,5 +60,29 @@ describe('overlay shape regions', () => {
         expect(
             buildShapeRects([], { padding: 10, viewportWidth: 1920, viewportHeight: 1080 })
         ).toEqual([]);
+    });
+
+    it('hit-tests screen cursor coordinates against renderer-local regions', () => {
+        const base = {
+            windowBounds: { x: 100, y: 200 },
+            regions: [{ x: 20, y: 30, width: 40, height: 50 }],
+            interactionAllowed: true,
+            windowVisible: true,
+        };
+
+        expect(shouldIgnoreOverlayMouseEvents({ ...base, cursorPoint: { x: 130, y: 240 } })).toBe(false);
+        expect(shouldIgnoreOverlayMouseEvents({ ...base, cursorPoint: { x: 90, y: 240 } })).toBe(true);
+    });
+
+    it('keeps click-through authoritative when the interaction state is suppressed', () => {
+        expect(
+            shouldIgnoreOverlayMouseEvents({
+                cursorPoint: { x: 130, y: 240 },
+                windowBounds: { x: 100, y: 200 },
+                regions: [{ x: 20, y: 30, width: 40, height: 50 }],
+                interactionAllowed: false,
+                windowVisible: true,
+            })
+        ).toBe(true);
     });
 });

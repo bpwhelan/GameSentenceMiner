@@ -34,20 +34,27 @@ const {
   isWaylandSession,
 } = require('./hotkey_routing');
 const { resolveLinuxOzonePlatform } = require('./overlay_platform');
+const { shouldIgnoreOverlayMouseEvents } = require('./overlay_shape');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
 const { URL } = require('url');
 
-if (
-  process.platform === 'linux' &&
-  isWaylandSession() &&
-  !app.commandLine.hasSwitch('ozone-platform') &&
-  !process.env.ELECTRON_OZONE_PLATFORM_HINT
-) {
+const IN_PROCESS_OVERLAY = process.env.GSM_OVERLAY_IN_PROCESS === '1';
+const overlayLoadedAfterAppReady = app.isReady();
+const linuxOzonePlatform = resolveLinuxOzonePlatform({
+  platform: process.platform,
+  env: process.env,
+  argv: process.argv,
+  electronVersion: process.versions.electron,
+  ozonePlatform: app.commandLine.getSwitchValue('ozone-platform'),
+  ozonePlatformHint: app.commandLine.getSwitchValue('ozone-platform-hint'),
+  forceX11OnWayland: !IN_PROCESS_OVERLAY && !overlayLoadedAfterAppReady,
+});
+
+if (linuxOzonePlatform.appendSwitch) {
   app.commandLine.appendSwitch('ozone-platform', 'x11');
   console.log('GSM Overlay forces XWayland for click-through support; pass --ozone-platform=wayland to override.');
 }
 
-const IN_PROCESS_OVERLAY = process.env.GSM_OVERLAY_IN_PROCESS === '1';
 const OVERLAY_HOST_SYMBOL = Symbol.for('gsm.overlay.host');
 const overlayIpcListeners = [];
 const overlayIpcHandlers = new Set();
@@ -6714,43 +6721,76 @@ async function startOverlayAppImpl() {
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   mainWindow.setAlwaysOnTop(true, "screen-saver");
 
-  const linuxOzonePlatform = resolveLinuxOzonePlatform({
-    platform: process.platform,
-    env: process.env,
-    argv: process.argv,
-    electronVersion: process.versions.electron,
-    ozonePlatform: app.commandLine.getSwitchValue('ozone-platform'),
-    ozonePlatformHint: app.commandLine.getSwitchValue('ozone-platform-hint'),
-  });
-  const useLinuxWindowShape = isLinux() && linuxOzonePlatform.platform === 'x11';
-  if (isLinux() && !useLinuxWindowShape) {
+  const useLinuxX11HitTesting = isLinux() && linuxOzonePlatform.platform === 'x11';
+  if (isLinux() && !useLinuxX11HitTesting) {
     console.warn(
       `[Overlay] Native Wayland ozone detected (${linuxOzonePlatform.reason}); ` +
       "region click-through and reliable always-on-top are unavailable, keeping legacy Linux behavior."
     );
   }
 
-  function applyLinuxWindowShape(shape) {
-    if (!useLinuxWindowShape || !mainWindow || mainWindow.isDestroyed()) return;
-    const regions = Array.isArray(shape) ? shape : (shape ? [shape] : []);
+  let linuxInteractiveRegions = [];
+  let linuxMousePoller = null;
+  let linuxLastIgnoreMouseEvents = null;
+
+  function isLinuxOverlayInteractionAllowed() {
+    return !!(
+      resizeMode ||
+      yomitanShown ||
+      gamepadNavigationActive ||
+      manualHotkeyPressed ||
+      manualModeToggleState
+    );
+  }
+
+  function applyLinuxX11MouseIgnore(ignore) {
+    if (!useLinuxX11HitTesting || !mainWindow || mainWindow.isDestroyed()) return;
+    const guardedIgnore = !!ignore || !isLinuxOverlayInteractionAllowed();
+    if (linuxLastIgnoreMouseEvents === guardedIgnore) return;
     try {
-      if (regions.length === 0) {
-        const [width, height] = mainWindow.getContentSize();
-        mainWindow.setShape([{ x: 0, y: 0, width, height }]);
-        mainWindow.setIgnoreMouseEvents(true);
-      } else {
-        mainWindow.setShape(regions);
-        mainWindow.setIgnoreMouseEvents(false);
-      }
+      mainWindow.setIgnoreMouseEvents(guardedIgnore);
+      linuxLastIgnoreMouseEvents = guardedIgnore;
     } catch (error) {
-      console.warn("[Overlay] Failed to apply Linux X11 window shape:", error);
+      console.warn("[Overlay] Failed to update Linux X11 mouse hit testing:", error);
     }
   }
 
-  applyLinuxWindowShape([]);
+  function pollLinuxX11MouseHitTest() {
+    if (!useLinuxX11HitTesting || !mainWindow || mainWindow.isDestroyed()) return;
+    const windowVisible = mainWindow.isVisible() && !mainWindow.isMinimized();
+    const ignore = shouldIgnoreOverlayMouseEvents({
+      cursorPoint: screen.getCursorScreenPoint(),
+      windowBounds: mainWindow.getBounds(),
+      regions: linuxInteractiveRegions,
+      interactionAllowed: isLinuxOverlayInteractionAllowed(),
+      windowVisible,
+    });
+    applyLinuxX11MouseIgnore(ignore);
+  }
+
+  function syncLinuxX11MousePoller() {
+    if (!useLinuxX11HitTesting || !mainWindow || mainWindow.isDestroyed()) return;
+    const shouldPoll = mainWindow.isVisible() && !mainWindow.isMinimized() && linuxInteractiveRegions.length > 0;
+    if (!shouldPoll) {
+      if (linuxMousePoller) {
+        clearInterval(linuxMousePoller);
+        linuxMousePoller = null;
+      }
+      applyLinuxX11MouseIgnore(true);
+      return;
+    }
+    pollLinuxX11MouseHitTest();
+    if (!linuxMousePoller) {
+      linuxMousePoller = setInterval(pollLinuxX11MouseHitTest, 80);
+    }
+  }
+
+  applyLinuxX11MouseIgnore(true);
 
   ipcMain.on('update-window-shape', (event, shape) => {
-    applyLinuxWindowShape(shape);
+    if (!useLinuxX11HitTesting) return;
+    linuxInteractiveRegions = Array.isArray(shape) ? shape : (shape ? [shape] : []);
+    syncLinuxX11MousePoller();
   });
 
   ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
@@ -6772,7 +6812,9 @@ async function startOverlayAppImpl() {
       !yomitanShown
     ) {
       console.log("[ManualMode] Ignoring renderer request to enable overlay mouse interaction while manual mode is inactive.");
-      if (isWindows() || isMac()) {
+      if (useLinuxX11HitTesting) {
+        applyLinuxX11MouseIgnore(true);
+      } else if (isWindows() || isMac()) {
         mainWindow.setIgnoreMouseEvents(true, { forward: true });
       }
       return;
@@ -6780,7 +6822,9 @@ async function startOverlayAppImpl() {
 
     if (!resizeMode && (!yomitanShown || (forceMagpieRelease && ignore))) {
       // if ignore is false a button or element on the Overlay was clicked and we do not want to click-through
-      if (!isWindows() && !isMac()) {
+      if (useLinuxX11HitTesting) {
+        pollLinuxX11MouseHitTest();
+      } else if (!isWindows() && !isMac()) {
         // On Linux, forwarding mouse click-through is currently unsupported
         // https://www.electronjs.org/docs/latest/tutorial/custom-window-interactions#click-through-windows
 
@@ -6893,18 +6937,22 @@ async function startOverlayAppImpl() {
   // Update tray menu when window visibility changes
   mainWindow.on('show', () => {
     updateTrayMenu();
+    syncLinuxX11MousePoller();
   });
 
   mainWindow.on('hide', () => {
     updateTrayMenu();
+    syncLinuxX11MousePoller();
   });
 
   mainWindow.on('minimize', () => {
     updateTrayMenu();
+    syncLinuxX11MousePoller();
   });
 
   mainWindow.on('restore', () => {
     updateTrayMenu();
+    syncLinuxX11MousePoller();
   });
 
   loadOverlayPage(mainWindow, 'index.html');

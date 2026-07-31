@@ -20,7 +20,8 @@ function getCommandLineSwitchValue(argv, switchName) {
 }
 
 function isWaylandEnvironment(env) {
-  return normalizeOzoneValue(env.XDG_SESSION_TYPE) === "wayland";
+  return normalizeOzoneValue(env.XDG_SESSION_TYPE) === "wayland" ||
+    String(env.WAYLAND_DISPLAY || "").trim().length > 0;
 }
 
 function resolveAutomaticOzonePlatform(env, source) {
@@ -41,7 +42,7 @@ function resolveLinuxOzonePlatform(options = {}) {
     options.ozonePlatform || getCommandLineSwitchValue(argv, "ozone-platform")
   );
   if (ozonePlatform === "x11" || ozonePlatform === "wayland") {
-    return { platform: ozonePlatform, reason: `--ozone-platform=${ozonePlatform}` };
+    return { platform: ozonePlatform, reason: `--ozone-platform=${ozonePlatform}`, appendSwitch: false };
   }
   if (ozonePlatform === "auto") {
     return resolveAutomaticOzonePlatform(env, "--ozone-platform");
@@ -51,22 +52,21 @@ function resolveLinuxOzonePlatform(options = {}) {
     options.ozonePlatformHint || getCommandLineSwitchValue(argv, "ozone-platform-hint")
   );
   if (ozonePlatformHint === "x11" || ozonePlatformHint === "wayland") {
-    return { platform: ozonePlatformHint, reason: `--ozone-platform-hint=${ozonePlatformHint}` };
+    return { platform: ozonePlatformHint, reason: `--ozone-platform-hint=${ozonePlatformHint}`, appendSwitch: false };
   }
   if (ozonePlatformHint === "auto") {
     return resolveAutomaticOzonePlatform(env, "--ozone-platform-hint");
   }
 
-  const electronMajor = Number.parseInt(String(options.electronVersion || process.versions.electron || ""), 10);
-  const environmentHint = normalizeOzoneValue(env.ELECTRON_OZONE_PLATFORM_HINT);
-  const supportsEnvironmentHint = !Number.isFinite(electronMajor) || electronMajor < 38;
-  if (supportsEnvironmentHint && (environmentHint === "x11" || environmentHint === "wayland")) {
-    return { platform: environmentHint, reason: `ELECTRON_OZONE_PLATFORM_HINT=${environmentHint}` };
-  }
-  if (supportsEnvironmentHint && environmentHint === "auto") {
-    return resolveAutomaticOzonePlatform(env, "ELECTRON_OZONE_PLATFORM_HINT");
+  if (options.forceX11OnWayland && isWaylandEnvironment(env)) {
+    return {
+      platform: "x11",
+      reason: "GSM standalone XWayland compatibility default",
+      appendSwitch: true,
+    };
   }
 
+  const electronMajor = Number.parseInt(String(options.electronVersion || process.versions.electron || ""), 10);
   if (Number.isFinite(electronMajor) && electronMajor >= 38) {
     return resolveAutomaticOzonePlatform(env, "Electron default ozone platform");
   }

@@ -46,7 +46,37 @@ function buildShapeRects(rects, options = {}) {
   return shapes;
 }
 
+function pointIntersectsRegions(point, windowBounds, regions) {
+  if (!point || !windowBounds || !Array.isArray(regions)) return false;
+  const localX = Number(point.x) - Number(windowBounds.x);
+  const localY = Number(point.y) - Number(windowBounds.y);
+  if (![localX, localY].every(Number.isFinite)) return false;
+
+  return regions.some((region) => {
+    if (!region) return false;
+    const x = Number(region.x);
+    const y = Number(region.y);
+    const width = Number(region.width);
+    const height = Number(region.height);
+    return [x, y, width, height].every(Number.isFinite) &&
+      width > 0 && height > 0 &&
+      localX >= x && localX < x + width &&
+      localY >= y && localY < y + height;
+  });
+}
+
+function shouldIgnoreOverlayMouseEvents(options = {}) {
+  if (!options.windowVisible || !options.interactionAllowed) return true;
+  return !pointIntersectsRegions(
+    options.cursorPoint,
+    options.windowBounds,
+    options.regions
+  );
+}
+
 module.exports = {
   INTERACTIVE_ELEMENT_SELECTOR,
   buildShapeRects,
+  pointIntersectsRegions,
+  shouldIgnoreOverlayMouseEvents,
 };

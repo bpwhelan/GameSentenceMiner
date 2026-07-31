@@ -28,10 +28,12 @@ window.addEventListener('DOMContentLoaded', () => {
     // Make ipcRenderer available globally for the app
     window.ipcRenderer = ipcRenderer;
 
-    // Shape calculation & observer. Electron setShape uses DIP coordinates,
-    // which match renderer CSS pixels at the default page zoom.
+    // Interactive hit-test regions use DIP coordinates, which match renderer
+    // CSS pixels at the default page zoom.
     const PADDING_PX = 10;
+    const SHAPE_DEBOUNCE_MS = 50;
     let shapeUpdateFrame = null;
+    let shapeUpdateTimer = null;
     let lastShapeSignature = null;
 
     function sendWindowShape() {
@@ -57,13 +59,17 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     function scheduleWindowShape() {
-        if (shapeUpdateFrame === null) {
-            shapeUpdateFrame = window.requestAnimationFrame(sendWindowShape);
-        }
+        if (shapeUpdateTimer !== null) return;
+        shapeUpdateTimer = window.setTimeout(() => {
+            shapeUpdateTimer = null;
+            if (shapeUpdateFrame === null) {
+                shapeUpdateFrame = window.requestAnimationFrame(sendWindowShape);
+            }
+        }, SHAPE_DEBOUNCE_MS);
     }
 
     // Interactive OCR boxes and Yomitan frames are created dynamically outside
-    // #main-box, so observe the full overlay DOM and coalesce updates per frame.
+    // #main-box, so observe the full overlay DOM and coalesce mutation bursts.
     const observer = new MutationObserver(scheduleWindowShape);
     observer.observe(document.body, {
         attributes: true,
