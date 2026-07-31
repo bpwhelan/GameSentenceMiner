@@ -569,7 +569,15 @@ function setupOverlayIPC() {
     ipcMain.on('update-window-shape', (event, shape) => {
         if (process.platform !== 'win32' && overlayWindow) {
             // update clickable area on Linux
-            overlayWindow.setShape([shape]);
+            const regions = Array.isArray(shape) ? shape : [shape];
+            if (process.platform === 'linux' && regions.length === 0) {
+                overlayWindow.setIgnoreMouseEvents(true);
+            } else {
+                overlayWindow.setShape(regions);
+                if (process.platform === 'linux') {
+                    overlayWindow.setIgnoreMouseEvents(false);
+                }
+            }
         }
     });
 

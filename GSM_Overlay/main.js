@@ -33,8 +33,19 @@ const {
   isEffectiveInputServerHotkeyRouting,
   isWaylandSession,
 } = require('./hotkey_routing');
+const { resolveLinuxOzonePlatform } = require('./overlay_platform');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
 const { URL } = require('url');
+
+if (
+  process.platform === 'linux' &&
+  isWaylandSession() &&
+  !app.commandLine.hasSwitch('ozone-platform') &&
+  !process.env.ELECTRON_OZONE_PLATFORM_HINT
+) {
+  app.commandLine.appendSwitch('ozone-platform', 'x11');
+  console.log('GSM Overlay forces XWayland for click-through support; pass --ozone-platform=wayland to override.');
+}
 
 const IN_PROCESS_OVERLAY = process.env.GSM_OVERLAY_IN_PROCESS === '1';
 const OVERLAY_HOST_SYMBOL = Symbol.for('gsm.overlay.host');
@@ -6703,19 +6714,43 @@ async function startOverlayAppImpl() {
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   mainWindow.setAlwaysOnTop(true, "screen-saver");
 
-  let currentShape = {
-    x: 0,
-    y: 0,
-    width: displayBounds.width,
-    height: displayBounds.height
-  };
+  const linuxOzonePlatform = resolveLinuxOzonePlatform({
+    platform: process.platform,
+    env: process.env,
+    argv: process.argv,
+    electronVersion: process.versions.electron,
+    ozonePlatform: app.commandLine.getSwitchValue('ozone-platform'),
+    ozonePlatformHint: app.commandLine.getSwitchValue('ozone-platform-hint'),
+  });
+  const useLinuxWindowShape = isLinux() && linuxOzonePlatform.platform === 'x11';
+  if (isLinux() && !useLinuxWindowShape) {
+    console.warn(
+      `[Overlay] Native Wayland ozone detected (${linuxOzonePlatform.reason}); ` +
+      "region click-through and reliable always-on-top are unavailable, keeping legacy Linux behavior."
+    );
+  }
+
+  function applyLinuxWindowShape(shape) {
+    if (!useLinuxWindowShape || !mainWindow || mainWindow.isDestroyed()) return;
+    const regions = Array.isArray(shape) ? shape : (shape ? [shape] : []);
+    try {
+      if (regions.length === 0) {
+        const [width, height] = mainWindow.getContentSize();
+        mainWindow.setShape([{ x: 0, y: 0, width, height }]);
+        mainWindow.setIgnoreMouseEvents(true);
+      } else {
+        mainWindow.setShape(regions);
+        mainWindow.setIgnoreMouseEvents(false);
+      }
+    } catch (error) {
+      console.warn("[Overlay] Failed to apply Linux X11 window shape:", error);
+    }
+  }
+
+  applyLinuxWindowShape([]);
 
   ipcMain.on('update-window-shape', (event, shape) => {
-    // if (process.platform !== 'win32') {
-    //   currentShape = shape;
-    //   // update clickable area on Linux
-    //   mainWindow.setShape([shape]);
-    // }
+    applyLinuxWindowShape(shape);
   });
 
   ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {

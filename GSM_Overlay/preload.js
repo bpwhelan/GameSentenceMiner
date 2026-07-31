@@ -1,4 +1,5 @@
 const { ipcRenderer } = require('electron');
+const { INTERACTIVE_ELEMENT_SELECTOR, buildShapeRects } = require('./overlay_shape');
 
 // https://stackoverflow.com/questions/74464771/how-to-implement-click-through-window-except-on-element-in-electron
 let isMouseOverInteractiveElement = false;
@@ -27,42 +28,56 @@ window.addEventListener('DOMContentLoaded', () => {
     // Make ipcRenderer available globally for the app
     window.ipcRenderer = ipcRenderer;
 
-    // shape calculation & observer
-    // Use a small padding in CSS pixels so clickable area slightly exceeds the box
+    // Shape calculation & observer. Electron setShape uses DIP coordinates,
+    // which match renderer CSS pixels at the default page zoom.
     const PADDING_PX = 10;
+    let shapeUpdateFrame = null;
+    let lastShapeSignature = null;
 
     function sendWindowShape() {
-        const mainBox = document.getElementById('main-box');
-        if (!mainBox) return;
-        const rect = mainBox.getBoundingClientRect();
-        const scale = window.devicePixelRatio || 1;
-
-        const shape = {
-            x: Math.max(0, Math.floor((rect.x - PADDING_PX) * scale)),
-            y: Math.max(0, Math.floor((rect.y - PADDING_PX) * scale)),
-            width: Math.max(1, Math.ceil((rect.width + PADDING_PX * 2) * scale)),
-            height: Math.max(1, Math.ceil((rect.height + PADDING_PX * 2) * scale))
-        };
-
-        ipcRenderer.send('update-window-shape', shape);
-    }
-
-    // Observe style/DOM changes and window resize to keep the main-window shape up-to-date
-    const observer = new MutationObserver(() => sendWindowShape());
-    const mainBox = document.getElementById('main-box');
-    if (mainBox) {
-        observer.observe(mainBox, {
-            attributes: true,
-            attributeFilter: ['style'],
-            childList: true,
-            subtree: true
+        shapeUpdateFrame = null;
+        const rects = [];
+        document.querySelectorAll(INTERACTIVE_ELEMENT_SELECTOR).forEach((element) => {
+            const style = window.getComputedStyle(element);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.pointerEvents === 'none') {
+                return;
+            }
+            rects.push(...element.getClientRects());
         });
 
-        window.addEventListener('resize', sendWindowShape);
-
-        // Initial send
-        sendWindowShape();
+        const shapes = buildShapeRects(rects, {
+            padding: PADDING_PX,
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight
+        });
+        const signature = JSON.stringify(shapes);
+        if (signature === lastShapeSignature) return;
+        lastShapeSignature = signature;
+        ipcRenderer.send('update-window-shape', shapes);
     }
+
+    function scheduleWindowShape() {
+        if (shapeUpdateFrame === null) {
+            shapeUpdateFrame = window.requestAnimationFrame(sendWindowShape);
+        }
+    }
+
+    // Interactive OCR boxes and Yomitan frames are created dynamically outside
+    // #main-box, so observe the full overlay DOM and coalesce updates per frame.
+    const observer = new MutationObserver(scheduleWindowShape);
+    observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'hidden', 'disabled'],
+        childList: true,
+        characterData: true,
+        subtree: true
+    });
+
+    window.addEventListener('resize', scheduleWindowShape);
+    if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(scheduleWindowShape);
+    }
+    scheduleWindowShape();
 });
 
 // setInterval(() => {
