@@ -3688,6 +3688,15 @@ async fn wayland_portal_hotkey_loop(
         };
 
         if !bindings.is_empty() {
+            let mut binding_signature = bindings
+                .iter()
+                .map(|binding| format!("{}={}", binding.action_id, binding.trigger))
+                .collect::<Vec<_>>();
+            binding_signature.sort();
+            info!(
+                bindings = %binding_signature.join(", "),
+                "issuing Wayland GlobalShortcuts BindShortcuts"
+            );
             let shortcuts = bindings
                 .iter()
                 .map(|binding| {
@@ -3695,6 +3704,15 @@ async fn wayland_portal_hotkey_loop(
                         .preferred_trigger(Some(binding.trigger.as_str()))
                 })
                 .collect::<Vec<_>>();
+            send_broadcast(
+                &tx,
+                json!({
+                    "type": "portal_bind_state",
+                    "state": "pending",
+                })
+                .to_string(),
+                "portal_bind_state(pending)",
+            );
             let request = tokio::select! {
                 result = portal.bind_shortcuts(
                     &session,
@@ -3703,6 +3721,16 @@ async fn wayland_portal_hotkey_loop(
                     BindShortcutsOptions::default(),
                 ) => result,
                 update = rebind_rx.recv() => {
+                    send_broadcast(
+                        &tx,
+                        json!({
+                            "type": "portal_bind_state",
+                            "state": "resolved",
+                            "ok": false,
+                        })
+                        .to_string(),
+                        "portal_bind_state(resolved)",
+                    );
                     release_active_hotkeys(&tx, &manual_hotkey);
                     let _ = session.close().await;
                     if update.is_none() {
@@ -3715,6 +3743,16 @@ async fn wayland_portal_hotkey_loop(
             let response = match request.and_then(|request| request.response()) {
                 Ok(response) => response,
                 Err(err) => {
+                    send_broadcast(
+                        &tx,
+                        json!({
+                            "type": "portal_bind_state",
+                            "state": "resolved",
+                            "ok": false,
+                        })
+                        .to_string(),
+                        "portal_bind_state(resolved)",
+                    );
                     release_active_hotkeys(&tx, &manual_hotkey);
                     let _ = session.close().await;
                     let message = portal_error_message(err, port);
@@ -3739,6 +3777,16 @@ async fn wayland_portal_hotkey_loop(
                 .map(|binding| binding.action_id.as_str())
                 .collect::<Vec<_>>();
             if !missing.is_empty() {
+                send_broadcast(
+                    &tx,
+                    json!({
+                        "type": "portal_bind_state",
+                        "state": "resolved",
+                        "ok": false,
+                    })
+                    .to_string(),
+                    "portal_bind_state(resolved)",
+                );
                 release_active_hotkeys(&tx, &manual_hotkey);
                 let _ = session.close().await;
                 let message = portal_error_message(format!(
@@ -3754,6 +3802,16 @@ async fn wayland_portal_hotkey_loop(
                 );
                 continue;
             }
+            send_broadcast(
+                &tx,
+                json!({
+                    "type": "portal_bind_state",
+                    "state": "resolved",
+                    "ok": true,
+                })
+                .to_string(),
+                "portal_bind_state(resolved)",
+            );
         }
 
         info!("Wayland GlobalShortcuts portal initialized");

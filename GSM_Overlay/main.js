@@ -265,6 +265,7 @@ const MANAGED_INPUT_SERVER_PORT = (() => {
     : GAMEPAD_SERVER_BASE_PORT;
 })();
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
+const WAYLAND_HOTKEY_CONFIG_SETTLE_MS = 750;
 const GSM_PROFILE_STATE_REFRESH_INTERVAL_MS = 30_000;
 const STARTUP_NOTIFICATION_DURATION_MS = 3200;
 const STARTUP_NOTIFICATION_WIDTH = 460;
@@ -1871,6 +1872,68 @@ let appHotkeyInputServerConnection = {
   reconnectTimer: null,
   registry: new Map(),
 };
+let waylandHotkeyConfigSettleTimer = null;
+let portalBindPending = false;
+const portalBindPriorAlwaysOnTop = new Map();
+
+function getPortalDialogOverlayWindows() {
+  return [mainWindow, texthookerWindow, settingsWindow].filter(
+    (win) => win && !win.isDestroyed()
+  );
+}
+
+function setOverlayWindowAlwaysOnTop(win) {
+  if (!win || win.isDestroyed()) return;
+  if (portalBindPending) {
+    if (!portalBindPriorAlwaysOnTop.has(win)) {
+      portalBindPriorAlwaysOnTop.set(win, true);
+    }
+    win.setAlwaysOnTop(false);
+    return;
+  }
+  win.setAlwaysOnTop(true, "screen-saver");
+}
+
+function handlePortalBindState(message) {
+  if (message.state === "pending") {
+    if (portalBindPending) return;
+    portalBindPending = true;
+    for (const win of getPortalDialogOverlayWindows()) {
+      portalBindPriorAlwaysOnTop.set(win, win.isAlwaysOnTop());
+      win.setAlwaysOnTop(false);
+    }
+    return;
+  }
+
+  if (message.state !== "resolved" || !portalBindPending) return;
+  portalBindPending = false;
+  for (const [win, wasAlwaysOnTop] of portalBindPriorAlwaysOnTop) {
+    if (!win.isDestroyed()) {
+      if (wasAlwaysOnTop) {
+        win.setAlwaysOnTop(true, "screen-saver");
+      } else {
+        win.setAlwaysOnTop(false);
+      }
+    }
+  }
+  portalBindPriorAlwaysOnTop.clear();
+}
+
+function flushWaylandHotkeyConfigs() {
+  waylandHotkeyConfigSettleTimer = null;
+  sendManualHotkeyInputServerConfig({ immediate: true });
+  sendAppHotkeyConfig({ immediate: true });
+}
+
+function scheduleWaylandHotkeyConfigFlush() {
+  if (waylandHotkeyConfigSettleTimer) {
+    clearTimeout(waylandHotkeyConfigSettleTimer);
+  }
+  waylandHotkeyConfigSettleTimer = setTimeout(
+    flushWaylandHotkeyConfigs,
+    WAYLAND_HOTKEY_CONFIG_SETTLE_MS
+  );
+}
 
 const manualHotkeyController = createManualHotkeyController({
   holdReleaseTimeoutMs: MANUAL_HOTKEY_ELECTRON_RELEASE_TIMEOUT_MS,
@@ -2656,7 +2719,11 @@ function closeManualHotkeyInputServerConnection({ clearUrl = true, clearReconnec
   }
 }
 
-function sendManualHotkeyInputServerConfig() {
+function sendManualHotkeyInputServerConfig({ immediate = false } = {}) {
+  if (!immediate && isWaylandSession({ platform: process.platform, env: process.env })) {
+    scheduleWaylandHotkeyConfigFlush();
+    return;
+  }
   const state = manualHotkeyInputServerConnection;
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
     return;
@@ -2708,6 +2775,9 @@ function handleManualHotkeyInputServerMessage(rawMessage) {
       break;
     case "keyboard_listener_status":
       updateKeyboardListenerStatus(message, "manual hotkey socket");
+      break;
+    case "portal_bind_state":
+      handlePortalBindState(message);
       break;
     default:
       break;
@@ -2834,7 +2904,11 @@ function buildAppHotkeyConfigPayload() {
   return hotkeys;
 }
 
-function sendAppHotkeyConfig() {
+function sendAppHotkeyConfig({ immediate = false } = {}) {
+  if (!immediate && isWaylandSession({ platform: process.platform, env: process.env })) {
+    scheduleWaylandHotkeyConfigFlush();
+    return;
+  }
   const state = appHotkeyInputServerConnection;
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
     return;
@@ -2892,6 +2966,10 @@ function handleAppHotkeyInputServerMessage(rawMessage) {
   }
   if (message.type === "keyboard_listener_status") {
     updateKeyboardListenerStatus(message, "app hotkey socket");
+    return;
+  }
+  if (message.type === "portal_bind_state") {
+    handlePortalBindState(message);
     return;
   }
 
@@ -3586,7 +3664,7 @@ function reassertOverlayTopmostWithoutFocus(source = "overlay-reassert", options
     }
   }
 
-  mainWindow.setAlwaysOnTop(true, "screen-saver");
+  setOverlayWindowAlwaysOnTop(mainWindow);
   if (refreshWorkspace) {
     mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   }
@@ -3602,6 +3680,7 @@ function reassertOverlayTopmostWithoutFocus(source = "overlay-reassert", options
 
 function requestOverlayTopmostReassert(source = "overlay-reassert", options = {}) {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if (portalBindPending) return false;
 
   const force = !!options.force;
   const throttleMs = Number.isFinite(options.throttleMs) && options.throttleMs >= 0
@@ -4768,7 +4847,7 @@ function waitForManualBackgroundThenFocus(triggerSource) {
     cancelManualBackgroundShowWait();
     try {
       if (isOverlayVisible && mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.setAlwaysOnTop(true, "screen-saver");
+        setOverlayWindowAlwaysOnTop(mainWindow);
         if (typeof mainWindow.moveTop === "function") {
           try { mainWindow.moveTop(); } catch (e) { /* moveTop unavailable on some platforms */ }
         }
@@ -5174,7 +5253,7 @@ function createTexthookerWindow() {
   });
 
   texthookerWindow.on('show', () => {
-    texthookerWindow.setAlwaysOnTop(true, "screen-saver");
+    setOverlayWindowAlwaysOnTop(texthookerWindow);
   });
 }
 
@@ -5274,7 +5353,7 @@ function registerTexthookerHotkey(oldHotkey) {
       }
 
       texthookerWindow.show();
-      texthookerWindow.setAlwaysOnTop(true, "screen-saver");
+      setOverlayWindowAlwaysOnTop(texthookerWindow);
       texthookerWindow.focus();
 
       console.log("[TexthookerMode] ACTION: Forcing Focus");
@@ -6742,7 +6821,7 @@ async function startOverlayAppImpl() {
   }, 500);
 
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  mainWindow.setAlwaysOnTop(true, "screen-saver");
+  setOverlayWindowAlwaysOnTop(mainWindow);
 
   const useLinuxX11HitTesting = isLinux() && linuxOzonePlatform.platform === 'x11';
   if (isLinux() && !useLinuxX11HitTesting) {
@@ -6880,7 +6959,7 @@ async function startOverlayAppImpl() {
     } else {
       mainWindow.show();
     }
-    mainWindow.setAlwaysOnTop(true, 'screen-saver');
+    setOverlayWindowAlwaysOnTop(mainWindow);
     mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   });
 
@@ -7017,7 +7096,7 @@ async function startOverlayAppImpl() {
     broadcastPomodoroState();
     mainWindow.webContents.send("display-info", buildOverlayDisplayInfo(display));
     mainWindow.webContents.send("gamepad-input-test-active", { active: gamepadInputTestActive });
-    mainWindow.setAlwaysOnTop(true, 'screen-saver');
+    setOverlayWindowAlwaysOnTop(mainWindow);
 
     if (isWindows() || isMac()) {
       // Windows and macOS - use setIgnoreMouseEvents
