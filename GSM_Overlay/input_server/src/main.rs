@@ -1600,6 +1600,9 @@ fn parse_manual_hotkey_binding(hotkey: &str) -> Result<ManualHotkeyBinding, Stri
         if key.is_some() {
             return Err("manual hotkey may contain only one non-modifier key".to_string());
         }
+        if portal_symbol_requires_shift(token) {
+            modifiers.shift = true;
+        }
         key = Some(parse_manual_hotkey_key(token)?);
     }
 
@@ -2048,6 +2051,17 @@ fn trigger_hotkey_action(
     action_id: &str,
     trigger_state: TriggerState,
 ) -> Result<Vec<String>, String> {
+    if trigger_state == TriggerState::Tap {
+        if action_id == MANUAL_HOTKEY_ACTION_ID {
+            state.active = false;
+        } else {
+            state
+                .app_hotkeys
+                .get_mut(action_id)
+                .ok_or_else(|| format!("unknown hotkey action: {action_id}"))?
+                .active = false;
+        }
+    }
     let edges = match trigger_state {
         TriggerState::Tap => [Some(true), Some(false)],
         TriggerState::Press => [Some(true), None],
@@ -4140,6 +4154,14 @@ mod tests {
     }
 
     #[test]
+    fn shifted_symbol_manual_hotkey_requires_shift() {
+        let binding = parse_manual_hotkey_binding("Ctrl+!").expect("symbol hotkey should parse");
+        assert_eq!(binding.key, Some(KeyboardKey::Num1));
+        assert!(binding.modifiers.ctrl);
+        assert!(binding.modifiers.shift);
+    }
+
+    #[test]
     fn manual_hotkey_binding_activation_supports_modifier_only_and_key_bindings() {
         let modifier_only =
             parse_manual_hotkey_binding("Shift").expect("modifier-only hotkey should parse");
@@ -4315,6 +4337,7 @@ mod tests {
             },
         );
 
+        state.active = true;
         let manual = trigger_hotkey_action(&mut state, MANUAL_HOTKEY_ACTION_ID, TriggerState::Tap)
             .unwrap();
         assert_eq!(manual.len(), 2);
@@ -4339,6 +4362,20 @@ mod tests {
         );
         assert!(state.app_hotkeys["toggleWindow"].active);
 
+        let tap_while_active =
+            trigger_hotkey_action(&mut state, "toggleWindow", TriggerState::Tap).unwrap();
+        assert_eq!(tap_while_active.len(), 2);
+        assert_eq!(
+            serde_json::from_str::<Value>(&tap_while_active[0]).unwrap(),
+            json!({
+                "type": "app_hotkey_event",
+                "id": "toggleWindow",
+                "state": "pressed",
+            })
+        );
+        assert!(!state.app_hotkeys["toggleWindow"].active);
+
+        trigger_hotkey_action(&mut state, "toggleWindow", TriggerState::Press).unwrap();
         let release =
             trigger_hotkey_action(&mut state, "toggleWindow", TriggerState::Release).unwrap();
         assert_eq!(release.len(), 1);

@@ -58,6 +58,15 @@ function resolveLinuxOzonePlatform(options = {}) {
     return resolveAutomaticOzonePlatform(env, "--ozone-platform-hint");
   }
 
+  const envOzonePlatformHint = normalizeOzoneValue(env.ELECTRON_OZONE_PLATFORM_HINT);
+  if (envOzonePlatformHint === "x11" || envOzonePlatformHint === "wayland") {
+    return {
+      platform: envOzonePlatformHint,
+      reason: `ELECTRON_OZONE_PLATFORM_HINT=${envOzonePlatformHint}`,
+      appendSwitch: false,
+    };
+  }
+
   if (options.forceX11OnWayland && isWaylandEnvironment(env)) {
     return {
       platform: "x11",

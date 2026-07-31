@@ -59,7 +59,12 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     function scheduleWindowShape() {
-        if (shapeUpdateTimer !== null) return;
+        if (shapeUpdateTimer === null && shapeUpdateFrame === null) {
+            shapeUpdateFrame = window.requestAnimationFrame(sendWindowShape);
+        }
+        if (shapeUpdateTimer !== null) {
+            window.clearTimeout(shapeUpdateTimer);
+        }
         shapeUpdateTimer = window.setTimeout(() => {
             shapeUpdateTimer = null;
             if (shapeUpdateFrame === null) {

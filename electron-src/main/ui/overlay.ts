@@ -571,11 +571,8 @@ function setupOverlayIPC() {
             // update clickable area on Linux
             const regions = Array.isArray(shape) ? shape : shape ? [shape] : [];
             if (regions.length === 0) {
-                const [width, height] = overlayWindow.getContentSize();
-                overlayWindow.setShape([{ x: 0, y: 0, width, height }]);
                 overlayWindow.setIgnoreMouseEvents(true);
             } else {
-                overlayWindow.setShape(regions);
                 overlayWindow.setIgnoreMouseEvents(false);
             }
         }

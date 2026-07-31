@@ -45,8 +45,6 @@ const linuxOzonePlatform = resolveLinuxOzonePlatform({
   env: process.env,
   argv: process.argv,
   electronVersion: process.versions.electron,
-  ozonePlatform: app.commandLine.getSwitchValue('ozone-platform'),
-  ozonePlatformHint: app.commandLine.getSwitchValue('ozone-platform-hint'),
   forceX11OnWayland: !IN_PROCESS_OVERLAY && !overlayLoadedAfterAppReady,
 });
 
@@ -642,6 +640,7 @@ function sendGsmOwnedOverlayConfig(overlayKey, value) {
 
 let manualHotkeyPressed = false;
 let manualModeToggleState = false;
+let syncLinuxX11MousePoller = () => {};
 let lastManualActivity = Date.now();
 let activityTimer = null;
 let isDev = false;
@@ -1872,6 +1871,7 @@ const manualHotkeyController = createManualHotkeyController({
     const previousActive = !!(manualHotkeyPressed || manualModeToggleState);
     manualModeToggleState = snapshot.toggleLatched;
     manualHotkeyPressed = snapshot.holdActive;
+    syncLinuxX11MousePoller();
     const nextActive = !!(manualHotkeyPressed || manualModeToggleState);
 
     if (previousActive === nextActive) {
@@ -3784,6 +3784,7 @@ function setGamepadNavigationModeActive(active, triggerSource = "unknown", optio
   const keepGamepadActivationFocusNeutral =
     nextActive && isManualMode() && shouldKeepOverlayVisibleWhenManualInactive();
   gamepadNavigationActive = nextActive;
+  syncLinuxX11MousePoller();
 
   if (nextActive) {
     if (!wasActive) {
@@ -4913,6 +4914,7 @@ function clearManualActivationState(reason = "manual-reset") {
   manualHotkeyController.reset(reason);
   manualHotkeyPressed = false;
   manualModeToggleState = false;
+  syncLinuxX11MousePoller();
   isOverlayVisible = false;
 }
 
@@ -4934,6 +4936,7 @@ function resetOverlayInteractionStateForHiddenGameWindow(reason = "game-window-h
   manualHotkeyPressed = false;
   manualModeToggleState = false;
   gamepadNavigationActive = false;
+  syncLinuxX11MousePoller();
   yomitanForegroundActive = false;
 
   if (hadManualState) {
@@ -6596,6 +6599,10 @@ async function startOverlayAppImpl() {
   syncAppHotkeyInputServerConnection("app-whenReady");
 
   registerOverlayEmitterListener(app, 'will-quit', () => {
+    if (linuxMousePoller) {
+      clearInterval(linuxMousePoller);
+      linuxMousePoller = null;
+    }
     releaseAllOverlayPauseRequests();
     globalShortcut.unregisterAll();
     closeAppHotkeyInputServerConnection();
@@ -6760,7 +6767,7 @@ async function startOverlayAppImpl() {
     const windowVisible = mainWindow.isVisible() && !mainWindow.isMinimized();
     const ignore = shouldIgnoreOverlayMouseEvents({
       cursorPoint: screen.getCursorScreenPoint(),
-      windowBounds: mainWindow.getBounds(),
+      windowBounds: mainWindow.getContentBounds(),
       regions: linuxInteractiveRegions,
       interactionAllowed: isLinuxOverlayInteractionAllowed(),
       windowVisible,
@@ -6768,9 +6775,10 @@ async function startOverlayAppImpl() {
     applyLinuxX11MouseIgnore(ignore);
   }
 
-  function syncLinuxX11MousePoller() {
+  syncLinuxX11MousePoller = function () {
     if (!useLinuxX11HitTesting || !mainWindow || mainWindow.isDestroyed()) return;
-    const shouldPoll = mainWindow.isVisible() && !mainWindow.isMinimized() && linuxInteractiveRegions.length > 0;
+    const shouldPoll = mainWindow.isVisible() && !mainWindow.isMinimized() &&
+      linuxInteractiveRegions.length > 0 && isLinuxOverlayInteractionAllowed();
     if (!shouldPoll) {
       if (linuxMousePoller) {
         clearInterval(linuxMousePoller);
@@ -6783,7 +6791,7 @@ async function startOverlayAppImpl() {
     if (!linuxMousePoller) {
       linuxMousePoller = setInterval(pollLinuxX11MouseHitTest, 80);
     }
-  }
+  };
 
   applyLinuxX11MouseIgnore(true);
 
@@ -6800,6 +6808,7 @@ async function startOverlayAppImpl() {
       console.warn(`[MagpieCompat] Clearing stale Yomitan state before mouse release (age=${Date.now() - lastYomitanEventAt}ms)`);
       yomitanShown = false;
       yomitanRecoveryVersion += 1;
+      syncLinuxX11MousePoller();
     }
 
     if (
@@ -6823,7 +6832,11 @@ async function startOverlayAppImpl() {
     if (!resizeMode && (!yomitanShown || (forceMagpieRelease && ignore))) {
       // if ignore is false a button or element on the Overlay was clicked and we do not want to click-through
       if (useLinuxX11HitTesting) {
-        pollLinuxX11MouseHitTest();
+        if (ignore === false) {
+          applyLinuxX11MouseIgnore(false);
+        } else {
+          pollLinuxX11MouseHitTest();
+        }
       } else if (!isWindows() && !isMac()) {
         // On Linux, forwarding mouse click-through is currently unsupported
         // https://www.electronjs.org/docs/latest/tutorial/custom-window-interactions#click-through-windows
@@ -6857,6 +6870,7 @@ async function startOverlayAppImpl() {
 
   ipcMain.on("resize-mode", (event, state) => {
     resizeMode = state;
+    syncLinuxX11MousePoller();
   })
 
 
@@ -6868,6 +6882,7 @@ async function startOverlayAppImpl() {
     yomitanRecoveryVersion += 1;
     lastYomitanEventAt = Date.now();
     yomitanShown = state;
+    syncLinuxX11MousePoller();
     if (state) {
       clearMagpieYomitanCloseVisibilityGuard();
       if (userSettings.focusOverlayOnYomitanLookup) {
@@ -6953,6 +6968,13 @@ async function startOverlayAppImpl() {
   mainWindow.on('restore', () => {
     updateTrayMenu();
     syncLinuxX11MousePoller();
+  });
+
+  mainWindow.on('closed', () => {
+    if (linuxMousePoller) {
+      clearInterval(linuxMousePoller);
+      linuxMousePoller = null;
+    }
   });
 
   loadOverlayPage(mainWindow, 'index.html');

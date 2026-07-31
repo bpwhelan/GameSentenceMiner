@@ -54,7 +54,7 @@ describe('overlay ozone platform detection', () => {
         ).toBe('wayland');
     });
 
-    it('ignores the removed environment hint on Electron 38+', () => {
+    it('honors an explicit X11 environment hint on Electron 38+', () => {
         expect(
             resolveLinuxOzonePlatform({
                 platform: 'linux',
@@ -65,10 +65,10 @@ describe('overlay ozone platform detection', () => {
                 argv: ['electron'],
                 electronVersion: '42.3.2',
             }).platform
-        ).toBe('wayland');
+        ).toBe('x11');
     });
 
-    it('ignores the obsolete environment hint on older Electron releases too', () => {
+    it('honors an explicit Wayland environment hint before the legacy default', () => {
         expect(
             resolveLinuxOzonePlatform({
                 platform: 'linux',
@@ -79,10 +79,27 @@ describe('overlay ozone platform detection', () => {
                 argv: ['electron'],
                 electronVersion: '37.0.0',
             }).platform
-        ).toBe('x11');
+        ).toBe('wayland');
     });
 
-    it('requests XWayland only while a standalone overlay can still append a switch', () => {
+    it('ignores unsupported environment hint values', () => {
+        expect(
+            resolveLinuxOzonePlatform({
+                platform: 'linux',
+                env: {
+                    ELECTRON_OZONE_PLATFORM_HINT: 'auto',
+                    XDG_SESSION_TYPE: 'wayland',
+                },
+                argv: ['electron'],
+                electronVersion: '42.3.2',
+                forceX11OnWayland: true,
+            })
+        ).toMatchObject({ platform: 'x11', appendSwitch: true });
+    });
+
+    it('uses argv, rather than Electron’s self-injected command-line default, to choose standalone XWayland', () => {
+        // Electron 42 reports --ozone-platform=wayland through app.commandLine
+        // on Wayland sessions even when it was not present in process.argv.
         expect(
             resolveLinuxOzonePlatform({
                 platform: 'linux',
