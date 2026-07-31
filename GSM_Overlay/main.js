@@ -33,13 +33,26 @@ const {
   isEffectiveInputServerHotkeyRouting,
   isWaylandSession,
 } = require('./hotkey_routing');
-const { resolveLinuxOzonePlatform } = require('./overlay_platform');
+const { resolveLinuxOzonePlatform, resolveLinuxOzoneRelaunch } = require('./overlay_platform');
 const { shouldIgnoreOverlayMouseEvents } = require('./overlay_shape');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
 const { URL } = require('url');
 
 const IN_PROCESS_OVERLAY = process.env.GSM_OVERLAY_IN_PROCESS === '1';
 const overlayLoadedAfterAppReady = app.isReady();
+const ozoneRelaunch = resolveLinuxOzoneRelaunch(
+  process.argv,
+  process.env,
+  process.platform,
+  overlayLoadedAfterAppReady,
+  IN_PROCESS_OVERLAY
+);
+if (ozoneRelaunch.relaunch) {
+  console.log('[Overlay] Relaunching once under XWayland for click-through support.');
+  app.relaunch({ args: ozoneRelaunch.args });
+  app.exit(0);
+}
+
 const linuxOzonePlatform = resolveLinuxOzonePlatform({
   platform: process.platform,
   env: process.env,
@@ -47,11 +60,6 @@ const linuxOzonePlatform = resolveLinuxOzonePlatform({
   electronVersion: process.versions.electron,
   forceX11OnWayland: !IN_PROCESS_OVERLAY && !overlayLoadedAfterAppReady,
 });
-
-if (linuxOzonePlatform.appendSwitch) {
-  app.commandLine.appendSwitch('ozone-platform', 'x11');
-  console.log('GSM Overlay forces XWayland for click-through support; pass --ozone-platform=wayland to override.');
-}
 
 const OVERLAY_HOST_SYMBOL = Symbol.for('gsm.overlay.host');
 const overlayIpcListeners = [];
@@ -2154,6 +2162,23 @@ function scheduleOverlayWebSocketReconnect(type) {
   }, OVERLAY_WS_RECONNECT_DELAY_MS);
 }
 
+function closeWebSocketWithoutThrow(socket, description) {
+  if (!socket) {
+    return;
+  }
+  try {
+    socket.removeAllListeners();
+    if (socket.readyState === WebSocket.CONNECTING) {
+      socket.once("error", () => {});
+      socket.terminate();
+    } else if (socket.readyState === WebSocket.OPEN) {
+      socket.close();
+    }
+  } catch (error) {
+    console.warn(`${description}:`, error.message || error);
+  }
+}
+
 function closeOverlayWebSocket(type, options = {}) {
   const state = overlayWebSockets[type];
   if (!state) {
@@ -2171,12 +2196,7 @@ function closeOverlayWebSocket(type, options = {}) {
   if (state.socket) {
     const socket = state.socket;
     state.socket = null;
-    try {
-      socket.removeAllListeners();
-      socket.close();
-    } catch (e) {
-      console.warn(`[OverlayWS] Failed to close ${type} socket:`, e);
-    }
+    closeWebSocketWithoutThrow(socket, `[OverlayWS] Failed to close ${type} socket`);
   }
 
   publishOverlaySocketState(type, false);
@@ -2624,12 +2644,10 @@ function closeManualHotkeyInputServerConnection({ clearUrl = true, clearReconnec
   }
 
   if (state.socket) {
-    try {
-      state.socket.removeAllListeners();
-      state.socket.close();
-    } catch (err) {
-      console.warn("[ManualHotkey] Failed to close input server socket:", err.message);
-    }
+    closeWebSocketWithoutThrow(
+      state.socket,
+      "[ManualHotkey] Failed to close input server socket"
+    );
     state.socket = null;
   }
 
@@ -2842,12 +2860,10 @@ function closeAppHotkeyInputServerConnection({ clearUrl = true, clearReconnect =
     state.reconnectTimer = null;
   }
   if (state.socket) {
-    try {
-      state.socket.removeAllListeners();
-      state.socket.close();
-    } catch (err) {
-      console.warn("[AppHotkey] Failed to close input server socket:", err.message);
-    }
+    closeWebSocketWithoutThrow(
+      state.socket,
+      "[AppHotkey] Failed to close input server socket"
+    );
     state.socket = null;
   }
   if (clearUrl) {

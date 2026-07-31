@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
-const { resolveLinuxOzonePlatform } = require(
+const { resolveLinuxOzonePlatform, resolveLinuxOzoneRelaunch } = require(
     path.resolve(process.cwd(), 'GSM_Overlay/overlay_platform.js')
 ) as {
     resolveLinuxOzonePlatform: (options: {
@@ -15,7 +15,79 @@ const { resolveLinuxOzonePlatform } = require(
         ozonePlatformHint?: string;
         forceX11OnWayland?: boolean;
     }) => { platform: string; reason: string; appendSwitch?: boolean };
+    resolveLinuxOzoneRelaunch: (
+        argv: string[],
+        env: NodeJS.ProcessEnv,
+        platform: NodeJS.Platform,
+        appReady: boolean,
+        inProcess: boolean
+    ) => { relaunch: boolean; args: string[] };
 };
+
+describe('overlay ozone self-relaunch', () => {
+    it('injects X11 once while preserving the electron-forge app path first', () => {
+        expect(
+            resolveLinuxOzoneRelaunch(
+                ['/usr/bin/electron', '.', '--inspect=9229'],
+                { XDG_SESSION_TYPE: 'wayland' },
+                'linux',
+                false,
+                false
+            )
+        ).toEqual({
+            relaunch: true,
+            args: ['.', '--inspect=9229', '--ozone-platform=x11', '--gsm-ozone-relaunch'],
+        });
+    });
+
+    it('respects explicit user Wayland intent', () => {
+        expect(
+            resolveLinuxOzoneRelaunch(
+                ['electron', '.', '--ozone-platform=wayland'],
+                { XDG_SESSION_TYPE: 'wayland' },
+                'linux',
+                false,
+                false
+            ).relaunch
+        ).toBe(false);
+    });
+
+    it('does not relaunch again when the argv marker is present', () => {
+        expect(
+            resolveLinuxOzoneRelaunch(
+                ['electron', '.', '--ozone-platform=x11', '--gsm-ozone-relaunch'],
+                { XDG_SESSION_TYPE: 'wayland' },
+                'linux',
+                false,
+                false
+            ).relaunch
+        ).toBe(false);
+    });
+
+    it('skips relaunch in in-process mode', () => {
+        expect(
+            resolveLinuxOzoneRelaunch(
+                ['electron', '.'],
+                { XDG_SESSION_TYPE: 'wayland' },
+                'linux',
+                false,
+                true
+            ).relaunch
+        ).toBe(false);
+    });
+
+    it('skips relaunch outside a Wayland session', () => {
+        expect(
+            resolveLinuxOzoneRelaunch(
+                ['electron', '.'],
+                { XDG_SESSION_TYPE: 'x11' },
+                'linux',
+                false,
+                false
+            ).relaunch
+        ).toBe(false);
+    });
+});
 
 describe('overlay ozone platform detection', () => {
     it('honors an explicit X11 override inside a Wayland desktop session', () => {

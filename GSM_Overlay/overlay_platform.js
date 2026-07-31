@@ -83,7 +83,41 @@ function resolveLinuxOzonePlatform(options = {}) {
   return { platform: "x11", reason: "legacy Electron default ozone platform" };
 }
 
+function resolveLinuxOzoneRelaunch(argv, env, platform, appReady, inProcess) {
+  const args = Array.isArray(argv) ? argv : [];
+  const relaunchMarker = "--gsm-ozone-relaunch";
+  if (
+    platform !== "linux" ||
+    appReady ||
+    inProcess ||
+    !isWaylandEnvironment(env || {}) ||
+    args.includes(relaunchMarker)
+  ) {
+    return { relaunch: false, args: [] };
+  }
+
+  const desiredPlatform = resolveLinuxOzonePlatform({
+    platform,
+    env: env || {},
+    argv: args,
+    forceX11OnWayland: true,
+  });
+  if (desiredPlatform.platform !== "x11" || !desiredPlatform.appendSwitch) {
+    return { relaunch: false, args: [] };
+  }
+
+  return {
+    relaunch: true,
+    args: [
+      ...args.slice(1).filter((argument) => !String(argument).startsWith(relaunchMarker)),
+      "--ozone-platform=x11",
+      relaunchMarker,
+    ],
+  };
+}
+
 module.exports = {
   getCommandLineSwitchValue,
+  resolveLinuxOzoneRelaunch,
   resolveLinuxOzonePlatform,
 };
