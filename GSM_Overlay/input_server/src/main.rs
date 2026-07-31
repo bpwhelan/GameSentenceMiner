@@ -5,6 +5,8 @@ use ashpd::desktop::{
     CreateSessionOptions,
     global_shortcuts::{BindShortcutsOptions, GlobalShortcuts, NewShortcut},
 };
+#[cfg(target_os = "linux")]
+use ashpd::zbus;
 use clap::{Parser, Subcommand, ValueEnum};
 use features::{FeatureRegistry, ServiceFeature, PROTOCOL_VERSION};
 use futures_util::{SinkExt, StreamExt};
@@ -97,6 +99,33 @@ const MANUAL_HOTKEY_ACTION_ID: &str = "manual-show";
 const MANUAL_PORTAL_SHORTCUT_ID: &str = "gsm:manual-show";
 #[cfg(target_os = "linux")]
 const APP_PORTAL_SHORTCUT_PREFIX: &str = "gsm:app:";
+
+#[cfg(target_os = "linux")]
+fn portal_app_id_candidates(env_app_id: Option<String>) -> Vec<String> {
+    env_app_id
+        .into_iter()
+        .chain([
+            "gamesentenceminer".to_owned(),
+            "io.github.bpwhelan.GameSentenceMiner".to_owned(),
+        ])
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+async fn register_portal_host_app(
+    connection: &zbus::Connection,
+    app_id: &str,
+) -> zbus::Result<()> {
+    let registry = zbus::Proxy::new(
+        connection,
+        "org.freedesktop.portal.Desktop",
+        "/org/freedesktop/portal/desktop",
+        "org.freedesktop.host.portal.Registry",
+    )
+    .await?;
+    let options = HashMap::<String, zbus::zvariant::OwnedValue>::new();
+    registry.call("Register", &(app_id, options)).await
+}
 
 fn input_server_port(cli_port: Option<u16>) -> u16 {
     cli_port
@@ -2648,6 +2677,14 @@ async fn trigger_running_server(
     .map_err(|_| "timed out waiting for the input server trigger reply".to_string())?
 }
 
+struct WebsocketSender(mpsc::UnboundedSender<Message>);
+
+impl WebsocketSender {
+    async fn send(&self, message: Message) -> Result<(), mpsc::error::SendError<Message>> {
+        self.0.send(message)
+    }
+}
+
 async fn handle_socket(
     peer: SocketAddr,
     stream: TcpStream,
@@ -2671,7 +2708,57 @@ async fn handle_socket(
 
     info!("client connected: {peer}");
 
-    let (mut ws_sink, mut ws_stream) = ws.split();
+    let (mut socket_sink, mut socket_stream) = ws.split();
+    let (outbound_tx, mut outbound_rx) = mpsc::unbounded_channel::<Message>();
+    let (inbound_tx, mut inbound_rx) = mpsc::unbounded_channel();
+
+    // Keep websocket I/O independent from request processing. Tokenization and
+    // other service requests can legitimately take seconds; protocol pings must
+    // still be read and answered during those awaits.
+    let ping_outbound = outbound_tx.clone();
+    let reader = tokio::spawn(async move {
+        while let Some(message) = socket_stream.next().await {
+            match message {
+                Ok(Message::Ping(payload)) => {
+                    if ping_outbound.send(Message::Pong(payload)).is_err() {
+                        break;
+                    }
+                }
+                other => {
+                    if inbound_tx.send(other).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    let writer = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                outbound = outbound_rx.recv() => match outbound {
+                    Some(message) => {
+                        if socket_sink.send(message).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => break,
+                },
+                broadcast = rx.recv() => match broadcast {
+                    Ok(text) => {
+                        if socket_sink.send(Message::Text(text)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        warn!("client {peer} lagged; dropped {n} messages");
+                    }
+                    Err(_) => break,
+                },
+            }
+        }
+    });
+
+    let ws_sink = WebsocketSender(outbound_tx);
 
     if ws_sink
         .send(Message::Text(service_info_payload(&features).to_string()))
@@ -2738,24 +2825,7 @@ async fn handle_socket(
     let feature_client_id = features.register_client();
 
     loop {
-        tokio::select! {
-            // Server broadcast to this client
-            b = rx.recv() => {
-                match b {
-                    Ok(text) => {
-                        if ws_sink.send(Message::Text(text)).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(broadcast::error::RecvError::Lagged(n)) => {
-                        warn!("client {peer} lagged; dropped {n} messages");
-                    }
-                    Err(_) => break,
-                }
-            }
-
-            // Client -> server
-            m = ws_stream.next() => {
+            let m = inbound_rx.recv().await;
                 match m {
                     Some(Ok(Message::Text(text))) => {
                         let parsed: Result<ClientMsg, _> = serde_json::from_str(&text);
@@ -3018,9 +3088,6 @@ async fn handle_socket(
                             }
                         }
                     }
-                    Some(Ok(Message::Ping(_))) => {
-                        let _ = ws_sink.send(Message::Pong(Vec::new())).await;
-                    }
                     Some(Ok(Message::Close(_))) => break,
                     Some(Ok(_)) => {}
                     Some(Err(e)) => {
@@ -3029,9 +3096,10 @@ async fn handle_socket(
                     }
                     None => break,
                 }
-            }
-        }
     }
+
+    reader.abort();
+    writer.abort();
 
     // Fail safe: if this connection left capture-all on, turn it back off so a
     // crashed/closed settings window can't leave the server broadcasting all keys.
@@ -3500,6 +3568,40 @@ async fn wayland_portal_hotkey_loop(
     mut rebind_rx: mpsc::UnboundedReceiver<()>,
     port: u16,
 ) {
+    // Host app registration is scoped to the D-Bus connection, so create the
+    // connection ourselves and use it for both registration and every portal
+    // proxy below. Registration must precede even proxy construction because
+    // ashpd queries portal properties while constructing a proxy.
+    let portal_connection = match zbus::Connection::session().await {
+        Ok(connection) => connection,
+        Err(err) => {
+            let message = portal_error_message(err, port);
+            warn!("{message}");
+            set_manual_hotkey_listener_status(&manual_hotkey, &tx, false, Some(message));
+            return;
+        }
+    };
+    let mut registration_errors = Vec::new();
+    let mut registered = false;
+    for app_id in portal_app_id_candidates(std::env::var("GSM_INPUT_SERVER_APP_ID").ok()) {
+        match register_portal_host_app(&portal_connection, &app_id).await {
+            Ok(()) => {
+                info!(app_id, "registered host application ID with the desktop portal");
+                registered = true;
+                break;
+            }
+            Err(err) => registration_errors.push(format!("{app_id}: {err}")),
+        }
+    }
+    if !registered {
+        // xdg-desktop-portal before 1.18 has no host Registry. Some portal
+        // backends do not require an app ID, so still attempt the session.
+        warn!(
+            "could not register host application ID with the desktop portal: {}",
+            registration_errors.join("; ")
+        );
+    }
+
     let mut pending_rebind = true;
     'updates: loop {
         if !pending_rebind {
@@ -3528,7 +3630,7 @@ async fn wayland_portal_hotkey_loop(
         let bindings = configured.bindings;
         let mut skipped = configured.skipped;
 
-        let portal = match GlobalShortcuts::new().await {
+        let portal = match GlobalShortcuts::with_connection(portal_connection.clone()).await {
             Ok(portal) => portal,
             Err(err) => {
                 let message = portal_error_message(err, port);
@@ -4020,6 +4122,26 @@ async fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn portal_app_id_candidates_preserve_priority_and_plain_id() {
+        assert_eq!(
+            portal_app_id_candidates(Some("example.override.App".to_owned())),
+            vec![
+                "example.override.App",
+                "gamesentenceminer",
+                "io.github.bpwhelan.GameSentenceMiner",
+            ]
+        );
+        assert_eq!(
+            portal_app_id_candidates(None),
+            vec![
+                "gamesentenceminer",
+                "io.github.bpwhelan.GameSentenceMiner",
+            ]
+        );
+    }
 
     #[test]
     fn katakana_readings_convert_to_hiragana() {
