@@ -29,6 +29,10 @@ const {
   normalizeConfiguredHotkeyValues,
   registerHotkeyWithFallback,
 } = require('./hotkey_settings');
+const {
+  isEffectiveInputServerHotkeyRouting,
+  isWaylandSession,
+} = require('./hotkey_routing');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
 const { URL } = require('url');
 
@@ -1570,7 +1574,7 @@ function isManualHotkeyUsingInputServer(settings = userSettings) {
 
   const preferredBackend = resolveManualHotkeyBackend(settings.showHotkey, {
     forceInputServer:
-      settings.routeAllHotkeysThroughInputServer === true ||
+      isRouteAllHotkeysEnabled(settings) ||
       normalizeHotkeyForComparison(settings.showHotkey) ===
         normalizeHotkeyForComparison(manualHotkeyElectronFailureHotkey),
   });
@@ -1829,6 +1833,7 @@ let manualHotkeyInputServerConnection = {
   keyboardError: null,
 };
 let manualHotkeyElectronFailureHotkey = null;
+let lastKeyboardListenerErrorLog = null;
 
 // Route-all-hotkeys mode: a persistent connection to the input server that
 // evaluates every overlay hotkey server-side (see configure_app_hotkeys in the
@@ -2300,7 +2305,7 @@ function shouldRunInputServer(settings = userSettings) {
     return true;
   }
 
-  if (settings.routeAllHotkeysThroughInputServer) {
+  if (isRouteAllHotkeysEnabled(settings)) {
     return true;
   }
 
@@ -2666,13 +2671,33 @@ function handleManualHotkeyInputServerMessage(rawMessage) {
       }
       break;
     case "keyboard_listener_status":
-      manualHotkeyInputServerConnection.keyboardAvailable = message.available !== false;
-      manualHotkeyInputServerConnection.keyboardError = message.error || null;
-      publishManualHotkeyRuntimeStatus();
+      updateKeyboardListenerStatus(message, "manual hotkey socket");
       break;
     default:
       break;
   }
+}
+
+function updateKeyboardListenerStatus(message, source) {
+  const available = message.available !== false;
+  const error = message.error || null;
+  manualHotkeyInputServerConnection.keyboardAvailable = available;
+  manualHotkeyInputServerConnection.keyboardError = error;
+
+  if (!available && error) {
+    if (lastKeyboardListenerErrorLog !== error) {
+      if (/portal/i.test(error)) {
+        console.error(`[InputServer] Keyboard listener unavailable (${source}): ${error}`);
+      } else {
+        console.warn(`[InputServer] Keyboard listener unavailable (${source}): ${error}`);
+      }
+      lastKeyboardListenerErrorLog = error;
+    }
+  } else if (available) {
+    lastKeyboardListenerErrorLog = null;
+  }
+
+  publishManualHotkeyRuntimeStatus();
 }
 
 function syncManualHotkeyInputServerConnection(reason = "unknown") {
@@ -2750,14 +2775,17 @@ function syncManualHotkeyInputServerConnection(reason = "unknown") {
 }
 
 // ─────────────────────── App-hotkey input-server routing ───────────────────────
-// When "route all hotkeys through input server" is enabled, every overlay hotkey
-// is registered on the Rust input server (server-side combo eval) instead of
-// Electron globalShortcut, so it fires even in games that swallow global hotkeys.
+// When route-all is enabled by the setting or forced by Wayland, every overlay
+// hotkey is registered on the Rust input server (server-side combo eval) instead
+// of Electron globalShortcut, so it fires even in games that swallow global hotkeys.
 
 const appHotkeyGlobalShortcutAccelerators = new Map(); // id -> accelerator currently held by globalShortcut
 
-function isRouteAllHotkeysEnabled() {
-  return userSettings.routeAllHotkeysThroughInputServer === true;
+function isRouteAllHotkeysEnabled(settings = userSettings) {
+  return isEffectiveInputServerHotkeyRouting(
+    settings.routeAllHotkeysThroughInputServer,
+    { platform: process.platform, env: process.env }
+  );
 }
 
 function buildAppHotkeyConfigPayload() {
@@ -2828,6 +2856,11 @@ function handleAppHotkeyInputServerMessage(rawMessage) {
     console.warn("[AppHotkey] Failed to parse input server message:", rawMessage);
     return;
   }
+  if (message.type === "keyboard_listener_status") {
+    updateKeyboardListenerStatus(message, "app hotkey socket");
+    return;
+  }
+
   // Fire on the press edge only — mirrors globalShortcut, which triggers on key-down.
   if (message.type === "app_hotkey_event" && message.state === "pressed") {
     const entry = appHotkeyInputServerConnection.registry.get(message.id);
@@ -2947,6 +2980,11 @@ function setAppHotkey(id, accelerator, handler, options = {}) {
   }
 
   if (isRouteAllHotkeysEnabled()) {
+    if (isWaylandSession({ platform: process.platform, env: process.env })) {
+      console.log(
+        `[Hotkeys] Wayland session detected; routing ${id} through the input server instead of Electron globalShortcut: ${accel}`
+      );
+    }
     appHotkeyInputServerConnection.registry.set(id, { accelerator: accel, handler });
     syncAppHotkeyInputServerConnection(`register:${id}`);
     sendAppHotkeyConfig();
@@ -5280,7 +5318,9 @@ function registerManualShowHotkey(oldHotkey) {
     manualHotkeyBackend = resolveManualHotkeyBackend(userSettings.showHotkey, {
       forceInputServer: isRouteAllHotkeysEnabled(),
     });
-    manualHotkeyBackendReason = manualHotkeyBackend;
+    manualHotkeyBackendReason = isWaylandSession({ platform: process.platform, env: process.env })
+      ? "wayland"
+      : manualHotkeyBackend;
     manualHotkeyElectronFailureHotkey = null;
     syncManualHotkeyInputServerConnection("manual-mode-disabled");
     publishManualHotkeyRuntimeStatus();
@@ -5291,8 +5331,15 @@ function registerManualShowHotkey(oldHotkey) {
     forceInputServer: isRouteAllHotkeysEnabled(),
   });
   manualHotkeyBackend = requestedBackend;
-  manualHotkeyBackendReason = requestedBackend;
+  const waylandRouting = isWaylandSession({ platform: process.platform, env: process.env });
+  manualHotkeyBackendReason = waylandRouting ? "wayland" : requestedBackend;
   const manualModeType = normalizeManualModeType(userSettings.manualModeType);
+
+  if (waylandRouting) {
+    console.log(
+      `[ManualHotkey] Wayland session detected; routing manual-show through the input server instead of Electron globalShortcut: ${userSettings.showHotkey}`
+    );
+  }
 
   if (requestedBackend === MANUAL_HOTKEY_BACKEND_ELECTRON) {
     console.log(`[ManualHotkey] Registering Electron hotkey: ${userSettings.showHotkey} | Mode: ${manualModeType}`);

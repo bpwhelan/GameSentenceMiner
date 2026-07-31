@@ -157,6 +157,36 @@ describe("overlay settings keyboard binding capture", () => {
     }
   });
 
+  it("shows the Wayland portal error verbatim in the existing hotkey status", async () => {
+    const page = loadOverlaySettingsPage();
+    const portalError =
+      "Wayland GlobalShortcuts portal unavailable: interface missing. " +
+      "Configure a compositor shortcut to run `gsm_overlay_server trigger <action_id> [--port N]`.";
+    try {
+      await page.ready;
+      page.listeners.get("preload-settings")?.(null, {
+        userSettings: { manualMode: true, showHotkey: "Shift+Space" },
+        websocketStates: { ws1: false, ws2: false },
+        defaultSettings: {},
+        runtimeSettings: {
+          manualHotkeyBackend: "input_server",
+          manualHotkeyBackendReason: "wayland",
+          manualHotkeyKeyboardAvailable: false,
+          manualHotkeyKeyboardError: portalError,
+        },
+      });
+      await nextTick();
+
+      const backend = page.dom.window.document.getElementById("manualHotkeyBackendStatus");
+      const warning = page.dom.window.document.getElementById("manual-hotkey-runtime-warning") as HTMLElement;
+      expect(backend?.textContent).toBe("Backend: Input Server (Wayland)");
+      expect(warning.textContent).toBe(portalError);
+      expect(warning.style.display).toBe("block");
+    } finally {
+      page.dom.window.close();
+    }
+  });
+
   it("renders GSM profile state from the preload payload", async () => {
     const page = loadOverlaySettingsPage();
     try {

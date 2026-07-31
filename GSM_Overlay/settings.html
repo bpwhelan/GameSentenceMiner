@@ -3289,6 +3289,8 @@
       let statusText = `Backend: ${backendLabel}`;
       if (backend === "electron" && predictedBackend !== "electron") {
         statusText = "Backend: Electron (pending reconfiguration)";
+      } else if (backend === "input_server" && manualHotkeyRuntimeState.backendReason === "wayland") {
+        statusText = "Backend: Input Server (Wayland)";
       } else if (backend === "input_server" && manualHotkeyRuntimeState.backendReason === "electron-registration-failed") {
         statusText = "Backend: Input Server (Electron registration fallback)";
       }
@@ -3311,7 +3313,9 @@
           platformWarning.textContent = "Input-server manual hotkeys on macOS require Accessibility permission.";
           platformWarning.style.display = "block";
         } else if (platform === "linux") {
-          platformWarning.textContent = "Linux manual hotkeys are best-effort. Wayland may block global keyboard hooks.";
+          platformWarning.textContent = manualHotkeyRuntimeState.backendReason === "wayland"
+            ? "Wayland hotkeys use the XDG GlobalShortcuts portal through the input server."
+            : "Linux manual hotkeys are best-effort. Wayland may block global keyboard hooks.";
           platformWarning.style.display = "block";
         }
       } else if (backend === "electron" && manualModeType === "hold") {
