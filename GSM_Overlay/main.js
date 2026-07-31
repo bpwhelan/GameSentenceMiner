@@ -1,4 +1,5 @@
 const electron = require('electron');
+const { spawn } = require('node:child_process');
 const { app, dialog, Tray, Menu, nativeImage, protocol, Notification } = electron;
 const NativeBrowserWindow = electron.BrowserWindow;
 const nativeIpcMain = electron.ipcMain;
@@ -34,6 +35,7 @@ const {
   isWaylandSession,
 } = require('./hotkey_routing');
 const { resolveLinuxOzonePlatform, resolveLinuxOzoneRelaunch } = require('./overlay_platform');
+const { createPortalBindPendingTracker } = require('./portal_bind_state');
 const { shouldIgnoreOverlayMouseEvents } = require('./overlay_shape');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
 const { URL } = require('url');
@@ -49,7 +51,12 @@ const ozoneRelaunch = resolveLinuxOzoneRelaunch(
 );
 if (ozoneRelaunch.relaunch) {
   console.log('[Overlay] Relaunching once under XWayland for click-through support.');
-  app.relaunch({ args: ozoneRelaunch.args });
+  const relaunchArgs = ozoneRelaunch.args;
+  spawn(process.execPath, relaunchArgs, {
+    env: process.env,
+    detached: true,
+    stdio: 'inherit',
+  }).unref();
   app.exit(0);
 }
 
@@ -266,6 +273,8 @@ const MANAGED_INPUT_SERVER_PORT = (() => {
 })();
 const OVERLAY_WS_RECONNECT_DELAY_MS = 1000;
 const WAYLAND_HOTKEY_CONFIG_SETTLE_MS = 750;
+const WAYLAND_HOTKEY_CONFIG_MAX_WAIT_MS = 2_000;
+const PORTAL_BIND_PENDING_WATCHDOG_MS = 30_000;
 const GSM_PROFILE_STATE_REFRESH_INTERVAL_MS = 30_000;
 const STARTUP_NOTIFICATION_DURATION_MS = 3200;
 const STARTUP_NOTIFICATION_WIDTH = 460;
@@ -1857,6 +1866,7 @@ let manualHotkeyInputServerConnection = {
   reconnectTimer: null,
   keyboardAvailable: true,
   keyboardError: null,
+  configDirty: false,
 };
 let manualHotkeyElectronFailureHotkey = null;
 let lastKeyboardListenerErrorLog = null;
@@ -1871,42 +1881,19 @@ let appHotkeyInputServerConnection = {
   url: null,
   reconnectTimer: null,
   registry: new Map(),
+  configDirty: false,
 };
 let waylandHotkeyConfigSettleTimer = null;
-let portalBindPending = false;
+let waylandHotkeyConfigFirstScheduledAt = null;
 const portalBindPriorAlwaysOnTop = new Map();
 
 function getPortalDialogOverlayWindows() {
-  return [mainWindow, texthookerWindow, settingsWindow].filter(
+  return BrowserWindow.getAllWindows().filter(
     (win) => win && !win.isDestroyed()
   );
 }
 
-function setOverlayWindowAlwaysOnTop(win) {
-  if (!win || win.isDestroyed()) return;
-  if (portalBindPending) {
-    if (!portalBindPriorAlwaysOnTop.has(win)) {
-      portalBindPriorAlwaysOnTop.set(win, true);
-    }
-    win.setAlwaysOnTop(false);
-    return;
-  }
-  win.setAlwaysOnTop(true, "screen-saver");
-}
-
-function handlePortalBindState(message) {
-  if (message.state === "pending") {
-    if (portalBindPending) return;
-    portalBindPending = true;
-    for (const win of getPortalDialogOverlayWindows()) {
-      portalBindPriorAlwaysOnTop.set(win, win.isAlwaysOnTop());
-      win.setAlwaysOnTop(false);
-    }
-    return;
-  }
-
-  if (message.state !== "resolved" || !portalBindPending) return;
-  portalBindPending = false;
+function restorePortalDialogOverlayWindows() {
   for (const [win, wasAlwaysOnTop] of portalBindPriorAlwaysOnTop) {
     if (!win.isDestroyed()) {
       if (wasAlwaysOnTop) {
@@ -1919,19 +1906,84 @@ function handlePortalBindState(message) {
   portalBindPriorAlwaysOnTop.clear();
 }
 
+const portalBindTracker = createPortalBindPendingTracker({
+  watchdogMs: PORTAL_BIND_PENDING_WATCHDOG_MS,
+  onTimeout() {
+    console.error(
+      `[PortalHotkey] Bind remained pending for ${PORTAL_BIND_PENDING_WATCHDOG_MS}ms; ` +
+      "restoring overlay z-order as a fail-safe"
+    );
+  },
+  onChange(pending, details) {
+    if (pending) {
+      console.log("[PortalHotkey] Bind pending; temporarily lowering all overlay windows");
+      if (pendingOverlayTopmostReassertTimer) {
+        clearTimeout(pendingOverlayTopmostReassertTimer);
+        pendingOverlayTopmostReassertTimer = null;
+      }
+      for (const win of getPortalDialogOverlayWindows()) {
+        if (!portalBindPriorAlwaysOnTop.has(win)) {
+          portalBindPriorAlwaysOnTop.set(win, win.isAlwaysOnTop());
+        }
+        win.setAlwaysOnTop(false);
+      }
+      return;
+    }
+
+    console.log(
+      `[PortalHotkey] Bind pending cleared (${details.reason}` +
+      `${Object.hasOwn(details, "ok") ? `, ok=${details.ok}` : ""})`
+    );
+    restorePortalDialogOverlayWindows();
+  },
+});
+
+function isPortalBindPending() {
+  return portalBindTracker.isPending();
+}
+
+function resetPortalBindPending(reason) {
+  portalBindTracker.reset(reason);
+}
+
+function setOverlayWindowAlwaysOnTop(win) {
+  if (!win || win.isDestroyed()) return;
+  if (isPortalBindPending()) {
+    if (!portalBindPriorAlwaysOnTop.has(win)) {
+      portalBindPriorAlwaysOnTop.set(win, win.isAlwaysOnTop());
+    }
+    win.setAlwaysOnTop(false);
+    return;
+  }
+  win.setAlwaysOnTop(true, "screen-saver");
+}
+
+function handlePortalBindState(message) {
+  portalBindTracker.handle(message);
+}
+
 function flushWaylandHotkeyConfigs() {
   waylandHotkeyConfigSettleTimer = null;
+  waylandHotkeyConfigFirstScheduledAt = null;
   sendManualHotkeyInputServerConfig({ immediate: true });
   sendAppHotkeyConfig({ immediate: true });
 }
 
 function scheduleWaylandHotkeyConfigFlush() {
+  const now = Date.now();
+  if (waylandHotkeyConfigFirstScheduledAt === null) {
+    waylandHotkeyConfigFirstScheduledAt = now;
+  }
   if (waylandHotkeyConfigSettleTimer) {
     clearTimeout(waylandHotkeyConfigSettleTimer);
   }
+  const maxWaitRemaining = Math.max(
+    0,
+    WAYLAND_HOTKEY_CONFIG_MAX_WAIT_MS - (now - waylandHotkeyConfigFirstScheduledAt)
+  );
   waylandHotkeyConfigSettleTimer = setTimeout(
     flushWaylandHotkeyConfigs,
-    WAYLAND_HOTKEY_CONFIG_SETTLE_MS
+    Math.min(WAYLAND_HOTKEY_CONFIG_SETTLE_MS, maxWaitRemaining)
   );
 }
 
@@ -2428,14 +2480,26 @@ function shouldRunGamepadServer(settings = userSettings) {
 }
 
 function syncGamepadServerState(reason = "unknown") {
-  if (shouldRunInputServer()) {
+  const required = shouldRunInputServer();
+  console.log(
+    `[InputServer] Runtime decision (${reason}): required=${required}, ` +
+    `gamepad=${userSettings.gamepadEnabled === true}, ` +
+    `routeAllHotkeys=${isRouteAllHotkeysEnabled()}, ` +
+    `manualHotkey=${isManualHotkeyUsingInputServer()}, ` +
+    `managed=${INPUT_SERVER_MANAGED_BY_GSM}`
+  );
+  if (required) {
     console.log(`[InputServer] Ensuring server is running (${reason})`);
-    void startGamepadServer(reason);
+    void startGamepadServer(reason).catch((error) => {
+      console.error(`[InputServer] Unhandled start failure (${reason}):`, error);
+    });
     return;
   }
 
   console.log(`[InputServer] Stopping server because it is not needed (${reason})`);
-  void stopGamepadServer(reason);
+  void stopGamepadServer(reason).catch((error) => {
+    console.error(`[InputServer] Unhandled stop failure (${reason}):`, error);
+  });
 }
 
 // Gamepad server management
@@ -2580,6 +2644,7 @@ async function startGamepadServer(reason = "unknown") {
 
       console.log('[InputServer] Started successfully');
       syncManualHotkeyInputServerConnection("start-success");
+      syncAppHotkeyInputServerConnection("start-success");
     } catch (e) {
       console.error('[InputServer] Error starting server:', e);
       gamepadServerProcess = null;
@@ -2712,6 +2777,7 @@ function closeManualHotkeyInputServerConnection({ clearUrl = true, clearReconnec
       "[ManualHotkey] Failed to close input server socket"
     );
     state.socket = null;
+    resetPortalBindPending("manual-hotkey-socket-close-requested");
   }
 
   if (clearUrl) {
@@ -2720,25 +2786,39 @@ function closeManualHotkeyInputServerConnection({ clearUrl = true, clearReconnec
 }
 
 function sendManualHotkeyInputServerConfig({ immediate = false } = {}) {
+  const state = manualHotkeyInputServerConnection;
   if (!immediate && isWaylandSession({ platform: process.platform, env: process.env })) {
+    state.configDirty = true;
     scheduleWaylandHotkeyConfigFlush();
     return;
   }
-  const state = manualHotkeyInputServerConnection;
+  if (immediate && !state.configDirty) {
+    return;
+  }
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
+    state.configDirty = true;
+    if (immediate) {
+      console.warn("[ManualHotkey] Config remains dirty because the input server socket is not open");
+    }
     return;
   }
 
   const enabled = isManualMode() && manualHotkeyBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER;
-  state.socket.send(JSON.stringify({
-    type: "configure_features",
-    features: enabled ? ["keyboard"] : [],
-  }));
-  state.socket.send(JSON.stringify({
-    type: "configure_manual_hotkey",
-    enabled,
-    hotkey: enabled ? userSettings.showHotkey : "",
-  }));
+  try {
+    state.socket.send(JSON.stringify({
+      type: "configure_features",
+      features: enabled ? ["keyboard"] : [],
+    }));
+    state.socket.send(JSON.stringify({
+      type: "configure_manual_hotkey",
+      enabled,
+      hotkey: enabled ? userSettings.showHotkey : "",
+    }));
+    state.configDirty = false;
+  } catch (error) {
+    state.configDirty = true;
+    console.error("[ManualHotkey] Failed to send input server configuration:", error);
+  }
 }
 
 function scheduleManualHotkeyInputServerReconnect(reason = "unknown") {
@@ -2841,6 +2921,7 @@ function syncManualHotkeyInputServerConnection(reason = "unknown") {
 
   const socket = new WebSocket(url);
   state.socket = socket;
+  state.configDirty = true;
   state.keyboardAvailable = false;
   state.keyboardError = "Connecting to input server...";
   publishManualHotkeyRuntimeStatus();
@@ -2850,7 +2931,9 @@ function syncManualHotkeyInputServerConnection(reason = "unknown") {
     manualHotkeyInputServerConnection.keyboardAvailable = true;
     manualHotkeyInputServerConnection.keyboardError = null;
     publishManualHotkeyRuntimeStatus();
-    sendManualHotkeyInputServerConfig();
+    if (manualHotkeyInputServerConnection.configDirty) {
+      sendManualHotkeyInputServerConfig({ immediate: true });
+    }
   });
   socket.on("message", (payload) => {
     if (manualHotkeyInputServerConnection.socket !== socket) return;
@@ -2860,6 +2943,8 @@ function syncManualHotkeyInputServerConnection(reason = "unknown") {
   socket.on("close", () => {
     if (manualHotkeyInputServerConnection.socket !== socket) return;
     manualHotkeyInputServerConnection.socket = null;
+    manualHotkeyInputServerConnection.configDirty = true;
+    resetPortalBindPending("manual-hotkey-socket-closed");
     if (isManualMode() && manualHotkeyBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER) {
       manualHotkeyInputServerConnection.keyboardAvailable = false;
       if (!manualHotkeyInputServerConnection.keyboardError) {
@@ -2905,12 +2990,20 @@ function buildAppHotkeyConfigPayload() {
 }
 
 function sendAppHotkeyConfig({ immediate = false } = {}) {
+  const state = appHotkeyInputServerConnection;
   if (!immediate && isWaylandSession({ platform: process.platform, env: process.env })) {
+    state.configDirty = true;
     scheduleWaylandHotkeyConfigFlush();
     return;
   }
-  const state = appHotkeyInputServerConnection;
+  if (immediate && !state.configDirty) {
+    return;
+  }
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
+    state.configDirty = true;
+    if (immediate) {
+      console.warn("[AppHotkey] Config remains dirty because the input server socket is not open");
+    }
     return;
   }
   try {
@@ -2922,7 +3015,9 @@ function sendAppHotkeyConfig({ immediate = false } = {}) {
       type: "configure_app_hotkeys",
       hotkeys: buildAppHotkeyConfigPayload(),
     }));
+    state.configDirty = false;
   } catch (err) {
+    state.configDirty = true;
     console.warn("[AppHotkey] Failed to send app hotkey config:", err.message);
   }
 }
@@ -2939,6 +3034,7 @@ function closeAppHotkeyInputServerConnection({ clearUrl = true, clearReconnect =
       "[AppHotkey] Failed to close input server socket"
     );
     state.socket = null;
+    resetPortalBindPending("app-hotkey-socket-close-requested");
   }
   if (clearUrl) {
     state.url = null;
@@ -3019,10 +3115,13 @@ function syncAppHotkeyInputServerConnection(reason = "unknown") {
 
   const socket = new WebSocket(url);
   state.socket = socket;
+  state.configDirty = true;
   socket.on("open", () => {
     if (appHotkeyInputServerConnection.socket !== socket) return;
     console.log("[AppHotkey] Input server websocket connected");
-    sendAppHotkeyConfig();
+    if (appHotkeyInputServerConnection.configDirty) {
+      sendAppHotkeyConfig({ immediate: true });
+    }
   });
   socket.on("message", (payload) => {
     if (appHotkeyInputServerConnection.socket !== socket) return;
@@ -3032,6 +3131,8 @@ function syncAppHotkeyInputServerConnection(reason = "unknown") {
   socket.on("close", () => {
     if (appHotkeyInputServerConnection.socket !== socket) return;
     appHotkeyInputServerConnection.socket = null;
+    appHotkeyInputServerConnection.configDirty = true;
+    resetPortalBindPending("app-hotkey-socket-closed");
     if (isRouteAllHotkeysEnabled()) {
       scheduleAppHotkeyInputServerReconnect(reason);
     }
@@ -3446,7 +3547,11 @@ function maybeShowManualModeRecommendation(game) {
 
   // Already showing — just refocus it (and retarget the game it's about).
   if (manualModeRecommendationWindow && !manualModeRecommendationWindow.isDestroyed()) {
-    manualModeRecommendationWindow.focus();
+    if (isPortalBindPending()) {
+      manualModeRecommendationWindow.showInactive();
+    } else {
+      manualModeRecommendationWindow.focus();
+    }
     return;
   }
 
@@ -3474,7 +3579,7 @@ function maybeShowManualModeRecommendation(game) {
   });
   manualModeRecommendationWindow.removeMenu();
   // Sit above even fullscreen games and grab attention aggressively.
-  manualModeRecommendationWindow.setAlwaysOnTop(true, "screen-saver");
+  setOverlayWindowAlwaysOnTop(manualModeRecommendationWindow);
 
   const payload = buildManualModeRecommendationPayload(gameKey);
   loadOverlayPage(manualModeRecommendationWindow, "manual-mode-recommendation.html");
@@ -3482,6 +3587,10 @@ function maybeShowManualModeRecommendation(game) {
     if (!manualModeRecommendationWindow || manualModeRecommendationWindow.isDestroyed()) return;
     playSystemWarningSound();
     manualModeRecommendationWindow.webContents.send("preload-manual-mode-recommendation", payload);
+    if (isPortalBindPending()) {
+      manualModeRecommendationWindow.showInactive();
+      return;
+    }
     manualModeRecommendationWindow.show();
     manualModeRecommendationWindow.moveTop();
     manualModeRecommendationWindow.focus();
@@ -3680,7 +3789,7 @@ function reassertOverlayTopmostWithoutFocus(source = "overlay-reassert", options
 
 function requestOverlayTopmostReassert(source = "overlay-reassert", options = {}) {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
-  if (portalBindPending) return false;
+  if (isPortalBindPending()) return false;
 
   const force = !!options.force;
   const throttleMs = Number.isFinite(options.throttleMs) && options.throttleMs >= 0
@@ -3691,6 +3800,9 @@ function requestOverlayTopmostReassert(source = "overlay-reassert", options = {}
   );
 
   const runReassert = () => {
+    if (isPortalBindPending()) {
+      return false;
+    }
     if (!canRun()) {
       return false;
     }
@@ -4421,7 +4533,7 @@ function showStartupNotification(display) {
   });
 
   startupNotificationWindow.removeMenu();
-  startupNotificationWindow.setAlwaysOnTop(true, "screen-saver");
+  setOverlayWindowAlwaysOnTop(startupNotificationWindow);
   startupNotificationWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   startupNotificationWindow.setIgnoreMouseEvents(true);
 
@@ -5793,7 +5905,7 @@ function openOffsetHelper() {
   });
 
   offsetHelperWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  offsetHelperWindow.setAlwaysOnTop(true, "screen-saver");
+  setOverlayWindowAlwaysOnTop(offsetHelperWindow);
   if (typeof offsetHelperWindow.moveTop === "function") {
     try {
       offsetHelperWindow.moveTop();
@@ -5813,7 +5925,7 @@ function openOffsetHelper() {
 
   offsetHelperWindow.on("show", () => {
     try {
-      offsetHelperWindow.setAlwaysOnTop(true, "screen-saver");
+      setOverlayWindowAlwaysOnTop(offsetHelperWindow);
       offsetHelperWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     } catch (e) {
       console.warn("[OffsetHelper] Failed to reassert topmost state:", e);
@@ -6162,13 +6274,20 @@ async function startOverlayAppImpl() {
     const manualModeDescription = normalizeManualModeType(userSettings.manualModeType) === "toggle"
       ? "press the hotkey once to show the overlay and press it again to hide it"
       : "hold the hotkey to keep the overlay visible";
-    dialog.showMessageBoxSync({
+    console.warn(
+      "[Overlay] Non-Windows push-to-show notice scheduled asynchronously; startup will continue"
+    );
+    void dialog.showMessageBox({
       type: 'warning',
       buttons: ['OK'],
       defaultId: 0,
       title: 'GSM Overlay - Push to Show Enforced',
       message: 'Overlay requires hotkey to show text for lookups on macOS and Linux due to platform limitations.\n\n' +
         'Use the configured hotkey: ' + userSettings.showHotkey + ' and the selected Push to Show type to control the overlay. Current mode: ' + manualModeDescription + '.',
+    }).then(() => {
+      console.log("[Overlay] Non-Windows push-to-show notice dismissed");
+    }).catch((error) => {
+      console.error("[Overlay] Failed to show non-Windows push-to-show notice:", error);
     });
   }
 
