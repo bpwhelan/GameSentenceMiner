@@ -3100,6 +3100,7 @@ background: rgba(202, 12, 12, 0.692);
           const {
             lineBlocks,
             blockBoundaries,
+            blockMetadata,
             blockCount: currentBlockId,
           } = detectTextBlocks(data.data);
           const renderSignatureInfo = getOverlayTextRenderSignature(
@@ -3128,6 +3129,7 @@ background: rgba(202, 12, 12, 0.692);
             blockId,
             start: boundaries.start,
             end: boundaries.end,
+            role: blockMetadata.get(blockId)?.role || 'text',
           })));
           
           // Log the complete text of each block
@@ -3166,6 +3168,13 @@ background: rgba(202, 12, 12, 0.692);
               blockContainer.setAttribute('data-block-id', blockId);
               blockContainer.setAttribute('data-line-start', boundaries.start);
               blockContainer.setAttribute('data-line-end', boundaries.end);
+              const metadata = blockMetadata.get(blockId) || { role: 'text' };
+              blockContainer.setAttribute('data-block-role', metadata.role);
+              if (Number.isInteger(metadata.relatedBlockId)) {
+                blockContainer.setAttribute('data-related-block-id', metadata.relatedBlockId);
+              } else {
+                blockContainer.removeAttribute('data-related-block-id');
+              }
               blockContainer.style.position = 'absolute';
               blockContainer.style.pointerEvents = 'none';
               blockContainer.style.left = '0';

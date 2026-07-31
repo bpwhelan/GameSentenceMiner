@@ -3486,7 +3486,7 @@ class GamepadHandler {
     
     // Select first block if none selected
     if (this.currentBlockIndex < 0 && this.textBlocks.length > 0) {
-      this.currentBlockIndex = 0;
+      this.currentBlockIndex = this.findFirstSelectableBlockIndex();
       this.currentCursorIndex = 0;
     }
 
@@ -3852,8 +3852,13 @@ class GamepadHandler {
       return this.textBlocks.length > 0 ? 0 : -1;
     }
 
-    if (selectableBlocks.length >= 3) {
-      const rankedBlocks = [...selectableBlocks].sort((a, b) => (
+    const nonNameBlocks = selectableBlocks.filter(({ index }) => (
+      this.textBlocks[index]?.dataset?.blockRole !== 'character-name'
+    ));
+    const preferredBlocks = nonNameBlocks.length > 0 ? nonNameBlocks : selectableBlocks;
+
+    if (preferredBlocks.length >= 3) {
+      const rankedBlocks = [...preferredBlocks].sort((a, b) => (
         (b.area - a.area) ||
         (b.textLength - a.textLength) ||
         (a.index - b.index)
@@ -3871,7 +3876,7 @@ class GamepadHandler {
       }
     }
 
-    return selectableBlocks[0].index;
+    return preferredBlocks[0].index;
   }
 
   resetSelectionToSingleBlockStart() {

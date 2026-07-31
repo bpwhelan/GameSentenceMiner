@@ -234,6 +234,37 @@ def test_silero_vad_converts_sample_indices_to_seconds(monkeypatch):
     assert result.segments[0].end == 1.5
 
 
+def test_firered_vad_always_loads_with_cpu_provider(monkeypatch):
+    import onnxruntime as ort
+
+    requested_providers = []
+
+    class FakeModel:
+        def __init__(self, _model_path, providers):
+            requested_providers.append(providers)
+
+        def get_providers(self):
+            return requested_providers[-1]
+
+    monkeypatch.setattr(
+        ort,
+        "get_available_providers",
+        lambda: pytest.fail("FireRedVAD should not probe GPU providers"),
+    )
+    monkeypatch.setattr(ort, "InferenceSession", FakeModel)
+    monkeypatch.setattr(vad, "FireRedFeatureExtractor", lambda _cmvn_path: object())
+    monkeypatch.setattr(
+        vad,
+        "get_config",
+        lambda: SimpleNamespace(vad=SimpleNamespace(use_cpu_for_inference_v2=False)),
+    )
+
+    processor = vad.FireRedVADProcessor()
+    processor._ensure_model()
+
+    assert requested_providers == [["CPUExecutionProvider"]]
+
+
 def test_firered_vad_converts_onnx_probabilities_to_segments(monkeypatch):
     class FakeTempWav:
         def __init__(self, input_audio):

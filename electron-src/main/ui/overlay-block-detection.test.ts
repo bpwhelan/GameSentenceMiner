@@ -50,7 +50,10 @@ function makeLine(
   };
 }
 
-const { detectTextBlocks, insertBlockSeparatorAfter } = loadBlockDetectionModule();
+const {
+  detectTextBlocks,
+  insertBlockSeparatorAfter
+} = loadBlockDetectionModule();
 
 describe("overlay block detection", () => {
   it("merges stacked lines that are vertically close into one block", () => {
@@ -77,6 +80,83 @@ describe("overlay block detection", () => {
 
     expect(result.blockCount).toBe(1);
     expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
+  });
+
+  it("splits a short character name above a wider dialogue body", () => {
+    const lines: OverlayLine[] = [
+      makeLine("エステル", 0.061, 0.122, 0.113, 0.146),
+      makeLine("ってことは、この向こう側は", 0.068, 0.176, 0.292, 0.207),
+      makeLine("もうリベールじゃないんだ……", 0.068, 0.218, 0.310, 0.249),
+    ];
+
+    const result = detectTextBlocks(lines);
+    const nameBlockId = result.lineBlocks.get(0);
+    const dialogueBlockId = result.lineBlocks.get(1);
+
+    expect(result.blockCount).toBe(2);
+    expect(nameBlockId).not.toBe(dialogueBlockId);
+    expect(result.lineBlocks.get(2)).toBe(dialogueBlockId);
+    expect(result.blockMetadata.get(nameBlockId)).toMatchObject({
+      role: "character-name",
+      relatedBlockId: dialogueBlockId
+    });
+    expect(result.blockMetadata.get(dialogueBlockId)).toMatchObject({
+      role: "dialogue",
+      relatedBlockId: nameBlockId
+    });
+  });
+
+  it("splits a centered nameplate even when it does not overlap the short first dialogue line", () => {
+    const lines: OverlayLine[] = [
+      makeLine("衛兵", 0.485, 0.806, 0.515, 0.833),
+      makeLine("つい今しがた", 0.395, 0.855, 0.475, 0.889),
+      makeLine("将軍がお戻りになったぞ。", 0.395, 0.904, 0.595, 0.940),
+    ];
+
+    const result = detectTextBlocks(lines);
+    const nameBlockId = result.lineBlocks.get(0);
+    const dialogueBlockId = result.lineBlocks.get(1);
+
+    expect(result.blockCount).toBe(2);
+    expect(nameBlockId).not.toBe(dialogueBlockId);
+    expect(result.lineBlocks.get(2)).toBe(dialogueBlockId);
+    expect(result.blockMetadata.get(nameBlockId)).toMatchObject({
+      role: "character-name",
+      relatedBlockId: dialogueBlockId
+    });
+    expect(result.blockMetadata.get(dialogueBlockId)).toMatchObject({
+      role: "dialogue",
+      relatedBlockId: nameBlockId
+    });
+  });
+
+  it("does not treat a short first dialogue line as a name without a strong width difference", () => {
+    const lines: OverlayLine[] = [
+      makeLine("そうか。", 0.10, 0.72, 0.26, 0.79),
+      makeLine("それなら先へ進もう。", 0.10, 0.81, 0.31, 0.88),
+    ];
+
+    const result = detectTextBlocks(lines);
+
+    expect(result.blockCount).toBe(1);
+    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
+    expect(result.blockMetadata.get(result.lineBlocks.get(0))).toMatchObject({
+      role: "text"
+    });
+  });
+
+  it("keeps a short punctuation-free dialogue line when line spacing and font size match", () => {
+    const lines: OverlayLine[] = [
+      makeLine("でも", 0.10, 0.70, 0.16, 0.76),
+      makeLine("この先に何があるのか", 0.10, 0.78, 0.42, 0.84),
+      makeLine("確かめてみたいんだ", 0.10, 0.86, 0.38, 0.92),
+    ];
+
+    const result = detectTextBlocks(lines);
+
+    expect(result.blockCount).toBe(1);
+    expect(result.lineBlocks.get(0)).toBe(result.lineBlocks.get(1));
+    expect(result.lineBlocks.get(1)).toBe(result.lineBlocks.get(2));
   });
 
   it("merges tall dialogue lines even when small UI text shrinks the median height", () => {

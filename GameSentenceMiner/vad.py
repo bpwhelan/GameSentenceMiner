@@ -830,20 +830,10 @@ class FireRedVADProcessor(VADProcessor):
             import onnxruntime as ort
 
             model_path = _get_firered_asset_path("fireredvad_vad.onnx")
-            available_providers = ort.get_available_providers()
-            use_cpu = get_config().vad.use_cpu_for_inference_v2
-            providers = ["CPUExecutionProvider"]
-            if not use_cpu and "CUDAExecutionProvider" in available_providers:
-                providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-
-            try:
-                self.vad_model = ort.InferenceSession(model_path, providers=providers)
-            except Exception:
-                if providers[0] != "CPUExecutionProvider":
-                    logger.warning("FireRedVAD GPU loading failed, falling back to CPU.")
-                    self.vad_model = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-                else:
-                    raise
+            # FireRedVAD is already fast enough for GSM's short clips on CPU.
+            # Avoid probing CUDA here: missing CUDA/cuDNN DLLs produce noisy
+            # native ONNX Runtime errors before Python can fall back to CPU.
+            self.vad_model = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
 
             self._feature_extractor = FireRedFeatureExtractor(_get_firered_asset_path("cmvn.ark"))
             self._postprocessor = FireRedVADPostprocessor(

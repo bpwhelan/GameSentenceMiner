@@ -173,12 +173,36 @@ def test_deduplicated_preview_excludes_new_lines_without_deleting_them():
         ("NonFiction", "nonfiction"),
         ("Manga", "manga"),
         ("Web Novel", "webnovel"),
+        ("Unknown", "game"),
         ("", "game"),
         (None, "game"),
     ],
 )
 def test_tadoku_media_tag_uses_media_type_with_game_fallback(media_type, expected_tag):
     assert _tadoku_media_tag(media_type) == expected_tag
+
+
+def test_preview_prefers_english_game_title_when_available():
+    GamesTable(
+        id="game-english",
+        title_original="原題",
+        title_english="English Title",
+        obs_scene_name="Scene A",
+    ).save()
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("english-title-line", "game-english", "Scene A", "abc", 110.0)
+
+    preview = build_tadoku_preview(deduplicate=False, upper_bound=150.0)
+
+    assert preview["entries"] == [
+        {
+            "game_key": "game-english",
+            "game_name": "English Title",
+            "media_tag": "game",
+            "characters": 3,
+            "lines": 1,
+        }
+    ]
 
 
 class _FakeClient:

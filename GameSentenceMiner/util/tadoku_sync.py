@@ -63,6 +63,7 @@ def _tadoku_media_tag(media_type: str | None) -> str:
         "vn": "vn",
         "videogame": TADOKU_GAME_TAG,
         "game": TADOKU_GAME_TAG,
+        "unknown": TADOKU_GAME_TAG,
     }
     return aliases.get(normalized, normalized or TADOKU_GAME_TAG)
 
@@ -74,8 +75,12 @@ def _game_metadata(lines: list) -> tuple[dict[str, str], dict[str, str]]:
     for game_id in game_ids:
         game = GamesTable.get(game_id)
         if game is not None:
-            if game.title_original:
-                names[game_id] = game.title_original
+            english_title = str(getattr(game, "title_english", "") or "").strip()
+            original_title = str(getattr(game, "title_original", "") or "").strip()
+            if english_title:
+                names[game_id] = english_title
+            elif original_title:
+                names[game_id] = original_title
             media_tags[game_id] = _tadoku_media_tag(game.type)
 
     for line in lines:
