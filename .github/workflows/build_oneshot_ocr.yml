@@ -1,0 +1,75 @@
+name: Build and Sign OneShotOCR
+
+on:
+    push:
+        branches:
+            - oneshotocr
+    workflow_dispatch:
+
+concurrency:
+    group: build-oneshot-ocr-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    build-windows:
+        name: Windows x64
+        runs-on: windows-latest
+        permissions:
+            actions: read
+            contents: read
+            id-token: write
+
+        steps:
+            - name: Check out repository and submodules
+              uses: actions/checkout@v4
+              with:
+                  submodules: recursive
+                  fetch-depth: 1
+
+            - name: Install stable Rust
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Cache Rust build
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: |
+                      scripts/OneShotOCR -> scripts/OneShotOCR/target
+
+            - name: Build release executable
+              run: cargo build --release --features oneocr,screenai --locked --manifest-path scripts/OneShotOCR/Cargo.toml
+
+            - name: Prepare executable
+              shell: pwsh
+              run: |
+                  New-Item -ItemType Directory -Path dist -Force | Out-Null
+                  Copy-Item scripts/OneShotOCR/target/release/oneshot-ocr.exe dist/OneShotOCR.exe
+
+            - name: Upload unsigned executable
+              id: upload-unsigned
+              uses: actions/upload-artifact@v4
+              with:
+                  name: OneShotOCR-unsigned
+                  path: dist/OneShotOCR.exe
+                  if-no-files-found: error
+
+            - name: Submit signing request
+              uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd
+              with:
+                  api-token: ${{ secrets.SIGNPATH_APITOKEN }}
+                  organization-id: c677c167-9f3e-4577-b967-5d7730bf742d
+                  project-slug: GameSentenceMiner
+                  signing-policy-slug: release-signing
+                  artifact-configuration-slug: OneShot_OCR
+                  github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+                  wait-for-completion: true
+                  output-artifact-directory: signed_output
+
+            - name: Upload signed executable
+              uses: actions/upload-artifact@v4
+              with:
+                  name: OneShotOCR-signed
+                  path: signed_output
+                  if-no-files-found: error
