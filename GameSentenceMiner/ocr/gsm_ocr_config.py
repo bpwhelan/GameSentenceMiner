@@ -431,7 +431,7 @@ def get_overlay_area_config(window=None, use_window_for_config=False) -> OCRConf
             Rectangle(
                 monitor=Monitor(index=monitor_index),
                 coordinates=[rect_data["x"], rect_data["y"], rect_data["w"], rect_data["h"]],
-                is_excluded=False,
+                is_excluded=bool(rect_data.get("is_excluded", False)),
                 is_secondary=False,
             )
             for rect_data in config_data.get("rects", [])

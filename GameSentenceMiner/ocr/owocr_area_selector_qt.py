@@ -122,8 +122,9 @@ class SelectorToolbar(QWidget):
 
         normal_btn = add_mode("🟢 Normal", "normal")
         normal_btn.setChecked(True)
-        if not sel._primary_only_mode():
+        if sel._allows_exclusion_rectangles():
             add_mode("🟠 Exclusion", "exclusion")
+        if sel._allows_extended_rectangles():
             add_mode("🟣 Secondary", "secondary")
             add_mode("🔷 Exclusive", "exclusive")
             add_mode("⬛ Black Hole", "black_hole")
@@ -283,6 +284,12 @@ class OWOCRAreaSelectorWidget(QWidget):
 
     def _primary_only_mode(self) -> bool:
         return self.select_monitor_area or self.overlay_config_mode
+
+    def _allows_exclusion_rectangles(self) -> bool:
+        return self.overlay_config_mode or not self.select_monitor_area
+
+    def _allows_extended_rectangles(self) -> bool:
+        return not self._primary_only_mode()
 
     def _connect_to_obs(self):
         """Connect to OBS without the normal startup grace delay used by long-lived services."""
@@ -829,7 +836,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                                     "w": w_abs,
                                     "h": h_abs,
                                     "monitor_index": monitor_index,
-                                    "is_excluded": False,
+                                    "is_excluded": rect_data.get("is_excluded", False),
                                     "is_secondary": False,
                                     "is_exclusive": False,
                                     "is_black_hole": False,
@@ -851,7 +858,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                                 "w": w_scaled,
                                 "h": h_scaled,
                                 "monitor_index": self.target_monitor_index,
-                                "is_excluded": False,
+                                "is_excluded": rect_data.get("is_excluded", False),
                                 "is_secondary": False,
                                 "is_exclusive": False,
                                 "is_black_hole": False,
@@ -920,7 +927,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                                 "w": w_scaled,
                                 "h": h_scaled,
                                 "monitor_index": monitor_index,
-                                "is_excluded": False,
+                                "is_excluded": rect_data.get("is_excluded", False),
                                 "is_secondary": False,
                                 "is_exclusive": False,
                                 "is_black_hole": False,
@@ -1259,7 +1266,21 @@ class OWOCRAreaSelectorWidget(QWidget):
         y_offset = panel_y + 55
         line_height = 20
 
-        if self._primary_only_mode():
+        if self.overlay_config_mode:
+            instructions = [
+                f"Overlay Area Selection Mode (Monitor {self.target_monitor_index}):",
+                "• Left Click + Drag: Create selection area (green)",
+                "• Shift + Left Click + Drag: Exclusion area (orange)",
+                "• Ctrl + A: Select entire screen",
+                "• Right-Click on box: Delete it",
+                "   (overlapping? pick which to delete)",
+                "",
+                "Save Options:",
+                "• Double-Click empty space",
+                "• Middle Mouse Button",
+                "• Ctrl + S or use Control Panel",
+            ]
+        elif self._primary_only_mode():
             instructions = [
                 f"Primary Area Selection Mode (Monitor {self.target_monitor_index}):",
                 "• Left Click + Drag: Create selection area",
@@ -1308,13 +1329,19 @@ class OWOCRAreaSelectorWidget(QWidget):
             self.current_pos = base_pos
             self.is_drawing = True
 
-            if self._primary_only_mode():
+            if not self._allows_exclusion_rectangles():
                 # In monitor selection mode, strictly prevent specialized rectangles
                 self.drawing_excluded = False
                 self.drawing_secondary = False
                 self.drawing_exclusive = False
                 self.drawing_black_hole = False
                 self.menu_drawing_mode = False
+            elif self.overlay_config_mode:
+                if not self.menu_drawing_mode:
+                    self.drawing_excluded = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                    self.drawing_secondary = False
+                    self.drawing_exclusive = False
+                    self.drawing_black_hole = False
             else:
                 # Menu-selected mode should persist; otherwise use current modifiers for this drag.
                 if not self.menu_drawing_mode:
@@ -1534,14 +1561,15 @@ class OWOCRAreaSelectorWidget(QWidget):
         )
         menu.addAction(draw_normal_action)
 
-        # Only show specific drawing options if NOT in monitor selection mode
-        if not self._primary_only_mode():
+        if self._allows_exclusion_rectangles():
             draw_exclusion_action = QAction("🟠 Draw Exclusion Area(s)", self)
             draw_exclusion_action.triggered.connect(
                 lambda: self._start_box_drawing(pos, excluded=True, secondary=False, exclusive=False)
             )
             menu.addAction(draw_exclusion_action)
 
+        # Secondary, exclusive, and black-hole areas only apply to main OCR.
+        if self._allows_extended_rectangles():
             draw_secondary_action = QAction("🟣 Draw Secondary (Menu) Area(s)", self)
             draw_secondary_action.triggered.connect(
                 lambda: self._start_box_drawing(pos, excluded=False, secondary=True, exclusive=False)
@@ -1608,12 +1636,18 @@ class OWOCRAreaSelectorWidget(QWidget):
 
         # Set the drawing mode flags, but DON'T start drawing yet
         # The user will click/drag to actually start drawing
-        if self._primary_only_mode():
+        if not self._allows_exclusion_rectangles():
             self.drawing_excluded = False
             self.drawing_secondary = False
             self.drawing_exclusive = False
             self.drawing_black_hole = False
             self.menu_drawing_mode = False
+        elif self.overlay_config_mode:
+            self.drawing_excluded = excluded
+            self.drawing_secondary = False
+            self.drawing_exclusive = False
+            self.drawing_black_hole = False
+            self.menu_drawing_mode = True
         else:
             self.drawing_black_hole = black_hole
             self.drawing_exclusive = exclusive and not black_hole
@@ -1872,7 +1906,15 @@ class OWOCRAreaSelectorWidget(QWidget):
                 w_pct = w_orig / monitor_width if monitor_width > 0 else 0
                 h_pct = h_orig / monitor_height if monitor_height > 0 else 0
 
-                final_rects.append({"x": x_pct, "y": y_pct, "w": w_pct, "h": h_pct})
+                final_rects.append(
+                    {
+                        "x": x_pct,
+                        "y": y_pct,
+                        "w": w_pct,
+                        "h": h_pct,
+                        "is_excluded": rect["is_excluded"],
+                    }
+                )
 
             output_data = {
                 "monitor_index": self.target_monitor_index,
@@ -1970,12 +2012,21 @@ class OWOCRAreaSelectorWidget(QWidget):
         Makes the toolbar authoritative over modifier keys for subsequent drags
         (menu_drawing_mode), so a chosen mode persists box-to-box.
         """
-        if self._primary_only_mode():
+        if not self._allows_exclusion_rectangles():
             self.drawing_excluded = False
             self.drawing_secondary = False
             self.drawing_exclusive = False
             self.drawing_black_hole = False
             self.menu_drawing_mode = False
+            return
+
+        if self.overlay_config_mode:
+            self.drawing_excluded = mode == "exclusion"
+            self.drawing_secondary = False
+            self.drawing_exclusive = False
+            self.drawing_black_hole = False
+            self.menu_drawing_mode = True
+            logger.info(f"Draw mode set to '{mode}'")
             return
 
         self.drawing_black_hole = mode == "black_hole"
@@ -2073,7 +2124,7 @@ class OWOCRAreaSelectorWidget(QWidget):
                             "y": int(rect["y"] * self.scale_factor_h),
                             "width": int(rect["w"] * self.scale_factor_w),
                             "height": int(rect["h"] * self.scale_factor_h),
-                            "is_excluded": False,
+                            "is_excluded": rect["is_excluded"],
                             "is_secondary": False,
                             "is_exclusive": False,
                             "is_black_hole": False,
