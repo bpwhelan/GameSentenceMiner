@@ -1,0 +1,3 @@
+[submodule "scripts/OneShotOCR"]
+	path = scripts/OneShotOCR
+	url = https://github.com/bpwhelan/OneShotOCR
