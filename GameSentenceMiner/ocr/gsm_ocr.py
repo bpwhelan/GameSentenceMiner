@@ -152,7 +152,6 @@ shutdown_requested = False
 ocr_metrics_capture_lock = threading.Lock()
 area_select_ocr_hotkey = "ctrl+shift+o"
 manual_ocr_hotkey = "ctrl+shift+m"
-manual_ocr_hotkey_combo = None
 menu_ocr_hotkey = "ctrl+shift+g"
 whole_window_ocr_hotkey = "ctrl+shift+w"
 global_pause_hotkey = "ctrl+shift+p"
@@ -2273,27 +2272,11 @@ def _normalize_hotkey_for_keyboard(value: Any, default: str = "") -> str:
     return candidate
 
 
-def _to_pynput_hotkey(value: Any) -> str | None:
-    normalized = _normalize_hotkey_for_keyboard(value)
-    if not normalized:
-        return None
-    if normalized.startswith("<"):
-        return normalized
-    return normalized.replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")
-
-
 def refresh_runtime_hotkey_settings_from_config() -> None:
-    global \
-        area_select_ocr_hotkey, \
-        manual_ocr_hotkey, \
-        manual_ocr_hotkey_combo, \
-        menu_ocr_hotkey, \
-        whole_window_ocr_hotkey, \
-        global_pause_hotkey
+    global area_select_ocr_hotkey, manual_ocr_hotkey, menu_ocr_hotkey, whole_window_ocr_hotkey, global_pause_hotkey
 
     current_manual_hotkey = get_ocr_manual_ocr_hotkey()
     manual_ocr_hotkey = _normalize_hotkey_for_keyboard(current_manual_hotkey, "ctrl+shift+m")
-    manual_ocr_hotkey_combo = _to_pynput_hotkey(current_manual_hotkey)
     menu_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_menu_ocr_hotkey(), "ctrl+shift+g")
     area_select_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_area_select_ocr_hotkey(), "ctrl+shift+o")
     whole_window_ocr_hotkey = _normalize_hotkey_for_keyboard(get_ocr_whole_window_ocr_hotkey(), "ctrl+shift+w")
@@ -3504,14 +3487,6 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
     exclusions = list(rect.coordinates for rect in list(filter(lambda x: x.is_excluded, rectangles)))
 
     ocr_runtime.init_config(False)
-    previous_screenshot_combo_handler = getattr(ocr_runtime, "on_screenshot_combo", None)
-
-    def handle_manual_keyboard_activation():
-        if not getattr(ocr_runtime, "paused", False):
-            trigger_manual_ocr(gamepad_activation=False)
-
-    if manual:
-        ocr_runtime.on_screenshot_combo = handle_manual_keyboard_activation
 
     try:
         read_from = ""
@@ -3537,9 +3512,11 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
             gsm_ocr_config=ocr_config,
             screen_capture_areas=screen_areas,
             furigana_filter_sensitivity=furigana_filter_sensitivity,
-            # Explicit empty combo keeps auto capture in interval mode instead of
-            # inheriting owocr's default manual-combo setting.
-            screen_capture_combo=manual_ocr_hotkey_combo if manual_ocr_hotkey_combo and manual else "",
+            # GSM owns keyboard hotkeys through HotkeyManager. Keeping owocr's
+            # separate pynput listener disabled gives every OCR binding the same
+            # key-name support and refresh behavior.
+            screen_capture_combo="",
+            screen_capture_on_demand=manual,
             config_check_thread=None,
             combo_pause=global_pause_hotkey,
             disable_user_input=True,  # Disable stdin user input to avoid conflicts with IPC
@@ -3553,9 +3530,6 @@ def run_oneocr(ocr_config: OCRConfig, rectangles):
         )  # Set logger level to INFO to suppress DEBUG messages
     except Exception as e:
         logger.exception(f"Error running OneOCR: {e}")
-    finally:
-        if manual and previous_screenshot_combo_handler is not None:
-            ocr_runtime.on_screenshot_combo = previous_screenshot_combo_handler
     done = True
     # Quit Qt app if running
     try:
@@ -3839,12 +3813,11 @@ def add_ss_hotkey():
         logger.info("Area-select OCR hotkey is disabled.")
     hotkey_manager.register_gamepad(get_ocr_area_select_ocr_gamepad, capture_screen_crop)
 
-    if not manual:
-        if manual_ocr_hotkey:
-            hotkey_manager.register(lambda: manual_ocr_hotkey, capture_primary_rectangles)
-            logger.info(f"Press {manual_ocr_hotkey} to run OCR for Primary Rectangles.")
-        else:
-            logger.info("Manual primary rectangle OCR hotkey is disabled.")
+    if manual_ocr_hotkey:
+        hotkey_manager.register(lambda: manual_ocr_hotkey, capture_primary_rectangles)
+        logger.info(f"Press {manual_ocr_hotkey} to run OCR for Primary Rectangles.")
+    else:
+        logger.info("Manual primary rectangle OCR hotkey is disabled.")
     hotkey_manager.register_gamepad(
         get_ocr_manual_ocr_gamepad,
         capture_primary_rectangles_gamepad,
@@ -3981,7 +3954,6 @@ if __name__ == "__main__":
         furigana_filter_sensitivity = args.furigana_filter_sensitivity
         area_select_ocr_hotkey = _normalize_hotkey_for_keyboard(args.area_select_ocr_hotkey, "ctrl+shift+o")
         manual_ocr_hotkey = _normalize_hotkey_for_keyboard(args.manual_ocr_hotkey, "ctrl+shift+m")
-        manual_ocr_hotkey_combo = _to_pynput_hotkey(args.manual_ocr_hotkey)
         menu_ocr_hotkey = _normalize_hotkey_for_keyboard(args.menu_ocr_hotkey, "ctrl+shift+g")
         whole_window_ocr_hotkey = _normalize_hotkey_for_keyboard(args.whole_window_ocr_hotkey, "ctrl+shift+w")
         clipboard_output = args.clipboard_output

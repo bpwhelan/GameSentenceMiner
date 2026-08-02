@@ -4224,6 +4224,7 @@ def run(
     screen_capture_window=None,
     screen_capture_delay_secs=None,
     screen_capture_combo=None,
+    screen_capture_on_demand=False,
     stop_running_flag=None,
     screen_capture_event_bus=None,
     text_callback=None,
@@ -4261,6 +4262,7 @@ def run(
     :param screen_capture_delay_secs: Specifies the delay (in seconds) between screenshots when reading with screen capture.
     :param screen_capture_only_active_windows: When reading with screen capture and screen_capture_area is a window name, specifies whether to only target the window while it's active.
     :param screen_capture_combo: When reading with screen capture, specifies a combo to wait on for taking a screenshot instead of using the delay. As an example: "<ctrl>+<shift>+s". The list of keys can be found here: https://pynput.readthedocs.io/en/latest/keyboard.html#pynput.keyboard.Key
+    :param screen_capture_on_demand: Wait for the screenshot event without registering a keyboard combo. Intended for embedders that own input handling.
     """
 
     if read_from is None:
@@ -4421,7 +4423,7 @@ def run(
     if combo_pause and not combo_pause.startswith("<"):
         combo_pause = combo_pause.lower().replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")
     combo_engine_switch = config.get_general("combo_engine_switch")
-    screen_capture_on_combo = False
+    screen_capture_on_combo = bool(screen_capture_on_demand)
     notifier = _create_notifier()
     image_queue = queue.Queue()
     key_combos = {}
@@ -4448,7 +4450,7 @@ def run(
         if screen_capture_combo != "":
             screen_capture_on_combo = True
             key_combos[screen_capture_combo] = on_screenshot_combo
-        else:
+        elif not screen_capture_on_demand:
             global periodic_screenshot_queue
             periodic_screenshot_queue = queue.Queue()
 

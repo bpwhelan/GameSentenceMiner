@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from types import SimpleNamespace
 
+import pytest
 from PIL import Image
 
 import GameSentenceMiner.ocr.gsm_ocr as gsm_ocr
@@ -64,7 +65,6 @@ def test_run_oneocr_disables_manual_combo_in_auto_mode(monkeypatch):
     monkeypatch.setattr(gsm_ocr, "ocr1", "alivetext", raising=False)
     monkeypatch.setattr(gsm_ocr, "ocr2", "alivetext", raising=False)
     monkeypatch.setattr(gsm_ocr, "manual", False)
-    monkeypatch.setattr(gsm_ocr, "manual_ocr_hotkey_combo", "<alt>+b")
     monkeypatch.setattr(gsm_ocr, "global_pause_hotkey", "ctrl+shift+p")
     monkeypatch.setattr(gsm_ocr, "furigana_filter_sensitivity", 0)
     monkeypatch.setattr(gsm_ocr, "ocr_result_callback", lambda *_args, **_kwargs: None)
@@ -73,20 +73,15 @@ def test_run_oneocr_disables_manual_combo_in_auto_mode(monkeypatch):
     gsm_ocr.run_oneocr(None, [])
 
     assert captured["screen_capture_combo"] == ""
+    assert captured["screen_capture_on_demand"] is False
     assert captured["include_configured_engines"] is True
 
 
-def test_run_oneocr_uses_manual_combo_in_manual_mode(monkeypatch):
+def test_run_oneocr_leaves_manual_combo_to_shared_hotkey_manager(monkeypatch):
     captured = {}
-    activations = []
 
     monkeypatch.setattr(gsm_ocr.ocr_runtime, "init_config", lambda _parse_args: None)
-
-    def fake_run(**kwargs):
-        captured.update(kwargs)
-        gsm_ocr.ocr_runtime.on_screenshot_combo()
-
-    monkeypatch.setattr(gsm_ocr.ocr_runtime, "run", fake_run)
+    monkeypatch.setattr(gsm_ocr.ocr_runtime, "run", lambda **kwargs: captured.update(kwargs))
 
     monkeypatch.setattr(gsm_ocr, "obs_ocr", True)
     monkeypatch.setattr(gsm_ocr, "window", None)
@@ -94,23 +89,15 @@ def test_run_oneocr_uses_manual_combo_in_manual_mode(monkeypatch):
     monkeypatch.setattr(gsm_ocr, "ocr1", "alivetext", raising=False)
     monkeypatch.setattr(gsm_ocr, "ocr2", "alivetext", raising=False)
     monkeypatch.setattr(gsm_ocr, "manual", True)
-    monkeypatch.setattr(gsm_ocr, "manual_ocr_hotkey_combo", "<alt>+b")
     monkeypatch.setattr(gsm_ocr, "global_pause_hotkey", "ctrl+shift+p")
     monkeypatch.setattr(gsm_ocr, "furigana_filter_sensitivity", 0)
     monkeypatch.setattr(gsm_ocr, "ocr_result_callback", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(gsm_ocr, "get_ocr_scan_rate", lambda: 0.5)
-    monkeypatch.setattr(
-        gsm_ocr,
-        "trigger_manual_ocr",
-        lambda **kwargs: activations.append(kwargs) or True,
-    )
-    monkeypatch.setattr(gsm_ocr.ocr_runtime, "paused", False, raising=False)
-
     gsm_ocr.run_oneocr(None, [])
 
-    assert captured["screen_capture_combo"] == "<alt>+b"
+    assert captured["screen_capture_combo"] == ""
+    assert captured["screen_capture_on_demand"] is True
     assert captured["include_configured_engines"] is False
-    assert activations == [{"gamepad_activation": False}]
 
 
 def test_ocr_processor_lazily_initializes_missing_engine(monkeypatch):
@@ -296,7 +283,8 @@ def test_manual_mode_delayed_trigger_sets_screenshot_event(monkeypatch):
     assert events == ["set"]
 
 
-def test_manual_hotkeys_identify_keyboard_and_gamepad_activations(monkeypatch):
+@pytest.mark.parametrize("manual_mode", [False, True])
+def test_manual_hotkeys_identify_keyboard_and_gamepad_activations(monkeypatch, manual_mode):
     activations = []
 
     class FakeHotkeyManager:
@@ -315,7 +303,7 @@ def test_manual_hotkeys_identify_keyboard_and_gamepad_activations(monkeypatch):
 
     manager = FakeHotkeyManager()
     monkeypatch.setattr(gsm_ocr, "_get_hotkey_manager", lambda: manager)
-    monkeypatch.setattr(gsm_ocr, "manual", False)
+    monkeypatch.setattr(gsm_ocr, "manual", manual_mode)
     monkeypatch.setattr(gsm_ocr, "area_select_ocr_hotkey", "")
     monkeypatch.setattr(gsm_ocr, "manual_ocr_hotkey", "Ctrl+Shift+M")
     monkeypatch.setattr(gsm_ocr, "menu_ocr_hotkey", "")
