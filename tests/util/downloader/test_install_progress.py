@@ -86,6 +86,23 @@ def test_download_obs_if_needed_returns_skipped_for_existing_install(monkeypatch
     assert download_tools.download_obs_if_needed(stage_id="obs") == "skipped"
 
 
+def test_write_replay_buffer_configs_avoids_obs_ini_escape_sequences(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        download_tools.os.path,
+        "expanduser",
+        lambda _path: r"C:\Users\nyanspruk",
+    )
+
+    download_tools.write_replay_buffer_configs(str(tmp_path))
+
+    for profile_name in ("GSM", "Untitled"):
+        profile_ini = (
+            tmp_path / "config" / "obs-studio" / "basic" / "profiles" / profile_name / "basic.ini"
+        ).read_text(encoding="utf-8")
+        assert "FilePath=C:/Users/nyanspruk/Videos/GSM\n" in profile_ini
+        assert r"\n" not in profile_ini
+
+
 def test_install_scene_switcher_remaps_release_layout_to_obs_portable(tmp_path):
     # The release zip ships <root>/bin/64bit/* and <root>/data/*; OBS portable needs
     # the plugin under obs-plugins/64bit and its data under data/obs-plugins/<name>.

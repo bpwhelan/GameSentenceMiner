@@ -505,6 +505,9 @@ def write_websocket_configs(obs_path):
 
 
 def write_replay_buffer_configs(obs_path):
+    # OBS decodes \n and \r escape sequences in INI values. Use forward slashes
+    # so Windows usernames beginning with "n" or "r" cannot corrupt the path.
+    replay_directory = f"{os.path.expanduser('~')}/Videos/GSM".replace("\\", "/")
     basic_ini_path = os.path.join(obs_path, "config", "obs-studio", "basic", "profiles", "GSM")
     if os.path.exists(os.path.join(basic_ini_path, "basic.ini")):
         return
@@ -512,7 +515,7 @@ def write_replay_buffer_configs(obs_path):
     with open(os.path.join(basic_ini_path, "basic.ini"), "w") as basic_ini_file:
         basic_ini_file.write(
             "[SimpleOutput]\n"
-            f"FilePath={os.path.expanduser('~')}/Videos/GSM\n"
+            f"FilePath={replay_directory}\n"
             "RecRB=true\n"
             "RecRBTime=300\n"
             "RecRBSize=512\n"
@@ -527,7 +530,7 @@ def write_replay_buffer_configs(obs_path):
     with open(os.path.join(basic_ini_path, "basic.ini"), "w") as basic_ini_file:
         basic_ini_file.write(
             "[SimpleOutput]\n"
-            f"FilePath={os.path.expanduser('~')}/Videos/GSM\n"
+            f"FilePath={replay_directory}\n"
             "RecRB=true\n"
             "RecRBTime=300\n"
             "RecRBSize=512\n"

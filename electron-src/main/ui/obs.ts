@@ -32,6 +32,7 @@ import {
     buildObsGlobalIni,
     buildObsReplayBufferProfileIni,
     packObsVersion,
+    repairObsReplayBufferProfileIni,
 } from './obs_default_config.js';
 import {
     OBS_DSHOW_INPUT_KIND,
@@ -1122,9 +1123,8 @@ function writeObsSeedConfigs(packedVersion: number | null): void {
     }
 
     // Replay-buffer profiles (GSM + Untitled).
-    const profileIni = buildObsReplayBufferProfileIni(
-        `${homedir()}/Videos/GSM`
-    );
+    const videosDir = `${homedir()}/Videos/GSM`;
+    const profileIni = buildObsReplayBufferProfileIni(videosDir);
     for (const profileName of ['GSM', 'Untitled']) {
         const profileDir = path.join(
             obsStudioConfigDir,
@@ -1133,7 +1133,16 @@ function writeObsSeedConfigs(packedVersion: number | null): void {
             profileName
         );
         const target = path.join(profileDir, 'basic.ini');
-        if (!fs.existsSync(target)) {
+        if (fs.existsSync(target)) {
+            const existingProfileIni = fs.readFileSync(target, 'utf-8');
+            const repairedProfileIni = repairObsReplayBufferProfileIni(
+                existingProfileIni,
+                videosDir
+            );
+            if (repairedProfileIni !== existingProfileIni) {
+                fs.writeFileSync(target, repairedProfileIni, 'utf-8');
+            }
+        } else {
             fs.mkdirSync(profileDir, { recursive: true });
             fs.writeFileSync(target, profileIni, 'utf-8');
         }
