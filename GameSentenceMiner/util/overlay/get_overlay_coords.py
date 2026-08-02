@@ -758,6 +758,22 @@ class OverlayProcessor:
     def _is_precomputed_overlay_payload(dict_from_ocr: Any) -> bool:
         return isinstance(dict_from_ocr, dict) and dict_from_ocr.get("schema") == "gsm_overlay_coords_v1"
 
+    @staticmethod
+    def _is_absolute_screen_precomputed_payload(dict_from_ocr: Any) -> bool:
+        if not OverlayProcessor._is_precomputed_overlay_payload(dict_from_ocr):
+            return False
+        coordinate_space = dict_from_ocr.get("coordinate_space")
+        return isinstance(coordinate_space, dict) and coordinate_space.get("mode") == "absolute_screen"
+
+    def _is_magpie_scaling_active(self) -> bool:
+        return bool(self.window_monitor and getattr(self.window_monitor, "magpie_info", None))
+
+    def _should_skip_precomputed_payload_for_magpie(self, dict_from_ocr: Any) -> bool:
+        # Screen-cropper coordinates describe the already-scaled desktop image.
+        # Sending them through the normal bypass would make the renderer apply
+        # Magpie's source-to-destination transform a second time.
+        return self._is_magpie_scaling_active() and self._is_absolute_screen_precomputed_payload(dict_from_ocr)
+
     def _is_use_ocr_result_enabled(self) -> bool:
         try:
             overlay_cfg = get_overlay_config()
@@ -775,6 +791,8 @@ class OverlayProcessor:
         if not self._is_precomputed_overlay_payload(dict_from_ocr):
             return False
         if not self._is_use_ocr_result_enabled():
+            return False
+        if self._should_skip_precomputed_payload_for_magpie(dict_from_ocr):
             return False
 
         return self.window_monitor is not None and bool(self.window_monitor.target_hwnd)
@@ -1005,7 +1023,14 @@ class OverlayProcessor:
             clear_line_id = str(getattr(line, "id", "")).strip() or None
             await send_overlay_clear(clear_line_id)
 
-        has_precomputed_payload = self._should_use_precomputed_overlay_payload(dict_from_ocr)
+        skip_precomputed_for_magpie = self._should_skip_precomputed_payload_for_magpie(dict_from_ocr)
+        if skip_precomputed_for_magpie:
+            logger.info(
+                "Overlay OCR bypass: disabled for absolute-screen area-select OCR while Magpie is active; "
+                "running a fresh overlay scan."
+            )
+        eligible_precomputed_payload = None if skip_precomputed_for_magpie else dict_from_ocr
+        has_precomputed_payload = self._should_use_precomputed_overlay_payload(eligible_precomputed_payload)
 
         # In supplement mode, we need engines loaded even when precomputed payload exists
         if not has_precomputed_payload or self._is_supplement_mode_enabled():
@@ -1033,7 +1058,7 @@ class OverlayProcessor:
                 line,
                 check_against_last,
                 custom_threshold,
-                dict_from_ocr=dict_from_ocr,
+                dict_from_ocr=eligible_precomputed_payload,
                 sequence=sequence,
                 local_ocr_retry=local_ocr_retry,
                 source=source,
@@ -2034,7 +2059,11 @@ class OverlayProcessor:
         precomputed_sent = False
         precomputed_percentage_data = None
 
-        if self._is_use_ocr_result_enabled() and dict_from_ocr:
+        if (
+            self._is_use_ocr_result_enabled()
+            and dict_from_ocr
+            and not self._should_skip_precomputed_payload_for_magpie(dict_from_ocr)
+        ):
             op_start = time.time()
             used_precomputed = await self._try_send_precomputed_overlay_payload(
                 dict_from_ocr,
