@@ -122,6 +122,21 @@ from GameSentenceMiner.util.platform.monitor_selection import (
 from GameSentenceMiner.web.gsm_websocket import websocket_manager, ID_OVERLAY
 
 
+# SHQueryUserNotificationState is the one public Windows signal that explicitly
+# distinguishes a Direct3D exclusive-fullscreen application from an ordinary
+# monitor-filling (borderless) window. It is system-wide, so callers must also
+# verify that the OBS target owns the foreground before attributing the state.
+QUNS_RUNNING_D3D_FULL_SCREEN = 3
+QUNS_ACCEPTS_NOTIFICATIONS = 5
+
+if is_windows():
+    shell32 = ctypes.windll.shell32
+    shell32.SHQueryUserNotificationState.argtypes = [ctypes.POINTER(ctypes.c_int)]
+    shell32.SHQueryUserNotificationState.restype = ctypes.c_long
+else:
+    shell32 = None
+
+
 class WindowsWindowStateMonitor(BaseWindowStateMonitor):
     """
     Monitors the state of the target game window (Minimized, Active, Background)
@@ -146,6 +161,9 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         self.max_poll_interval = 1.0
         self.last_obs_check_time = 0
         self.last_is_fullscreen: bool = False
+        self.last_is_exclusive_fullscreen: bool = False
+        self.exclusive_fullscreen_since: Optional[float] = None
+        self.exclusive_fullscreen_confirm_seconds: float = 2.0
         self.last_cursor_hidden: bool = False
         self.cursor_hidden_since: Optional[float] = None
         self.cursor_hidden_confirm_seconds: float = 3.0
@@ -737,17 +755,15 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             logger.debug(f"Error checking window occlusion: {e}")
             return False
 
-    def _is_exclusive_fullscreen(self, hwnd) -> bool:
+    def _is_fullscreen_window(self, hwnd) -> bool:
+        """Return whether the target fills its nearest monitor.
+
+        Window styles cannot reliably distinguish fullscreen modes. In particular,
+        older Direct3D games can change their style while entering exclusive mode,
+        while modern borderless windows commonly use the same popup style. Keep this
+        helper geometric and use SHQueryUserNotificationState for exclusivity.
+        """
         try:
-            style = user32.GetWindowLongW(hwnd, GWL_STYLE)
-
-            has_popup = (style & WS_POPUP) != 0
-            has_no_caption = (style & WS_CAPTION) == 0
-            has_no_thickframe = (style & WS_THICKFRAME) == 0
-
-            if not (has_popup and has_no_caption and has_no_thickframe):
-                return False
-
             window_rect = get_window_rect_physical(hwnd)
             if not window_rect:
                 return False
@@ -776,7 +792,28 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             )
 
         except Exception as e:
-            logger.debug(f"Error checking exclusive fullscreen: {e}")
+            logger.debug(f"Error checking fullscreen window geometry: {e}")
+            return False
+
+    def _is_exclusive_fullscreen(self, hwnd, *, is_fullscreen_window: Optional[bool] = None) -> bool:
+        """Return whether the foreground OBS target is in Direct3D exclusive fullscreen."""
+        if not is_windows() or not user32 or not shell32 or not hwnd:
+            return False
+
+        try:
+            if user32.GetForegroundWindow() != hwnd:
+                return False
+
+            if is_fullscreen_window is None:
+                is_fullscreen_window = self._is_fullscreen_window(hwnd)
+            if not is_fullscreen_window:
+                return False
+
+            notification_state = ctypes.c_int(0)
+            result = shell32.SHQueryUserNotificationState(ctypes.byref(notification_state))
+            return result == 0 and notification_state.value == QUNS_RUNNING_D3D_FULL_SCREEN
+        except Exception as e:
+            logger.debug(f"Error checking Direct3D exclusive fullscreen state: {e}")
             return False
 
     def _target_is_uwp(self) -> bool:
@@ -1184,6 +1221,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             self.hidden_due_to_no_output = True
             self.last_state = "minimized"
             self.last_is_fullscreen = False
+            self.last_is_exclusive_fullscreen = False
+            self.exclusive_fullscreen_since = None
 
             payload = {
                 "type": "window_state",
@@ -1191,6 +1230,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 "game": self.last_target_info.get("title", self.last_game_name),
                 "magpie_info": None,
                 "is_fullscreen": False,
+                "is_exclusive_fullscreen": False,
                 "recommend_manual_mode": False,
                 "target_window_rect": None,
                 "target_client_rect": None,
@@ -1213,6 +1253,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         logger.info("OBS output detected without a target window - showing overlay for non-HWND capture.")
         self.last_state = "background"
         self.last_is_fullscreen = False
+        self.last_is_exclusive_fullscreen = False
+        self.exclusive_fullscreen_since = None
 
         payload = {
             "type": "window_state",
@@ -1220,6 +1262,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             "game": self.last_target_info.get("title", self.last_game_name),
             "magpie_info": self.magpie_info,
             "is_fullscreen": False,
+            "is_exclusive_fullscreen": False,
             "recommend_manual_mode": False,
             "target_window_rect": None,
             "target_client_rect": None,
@@ -1241,6 +1284,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         logger.info("Target window lost after being acquired - hiding overlay (closed).")
         self.last_state = "closed"
         self.last_is_fullscreen = False
+        self.last_is_exclusive_fullscreen = False
+        self.exclusive_fullscreen_since = None
 
         payload = {
             "type": "window_state",
@@ -1248,6 +1293,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             "game": self.last_target_info.get("title", self.last_game_name),
             "magpie_info": None,
             "is_fullscreen": False,
+            "is_exclusive_fullscreen": False,
             "recommend_manual_mode": False,
             "target_window_rect": None,
             "target_client_rect": None,
@@ -1272,6 +1318,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         self.retry_find_count = 0
         self.last_state = restored_state
         self.last_is_fullscreen = restored_fullscreen
+        self.last_is_exclusive_fullscreen = False
+        self.exclusive_fullscreen_since = None
         self.poll_interval = self.fast_poll_interval
 
         payload = {
@@ -1280,6 +1328,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             "game": self.last_target_info.get("title", self.last_game_name),
             "magpie_info": self.magpie_info,
             "is_fullscreen": restored_fullscreen,
+            "is_exclusive_fullscreen": False,
             "recommend_manual_mode": False,
             "target_window_rect": None,
             "target_client_rect": None,
@@ -1309,6 +1358,15 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             self.cursor_hidden_since = now
             return False
         return (now - self.cursor_hidden_since) >= self.cursor_hidden_confirm_seconds
+
+    def _update_exclusive_fullscreen_state(self, raw_exclusive: bool, now: float) -> bool:
+        if not raw_exclusive:
+            self.exclusive_fullscreen_since = None
+            return False
+        if self.exclusive_fullscreen_since is None:
+            self.exclusive_fullscreen_since = now
+            return False
+        return (now - self.exclusive_fullscreen_since) >= self.exclusive_fullscreen_confirm_seconds
 
     async def check_and_send(self):
         """Check window state and broadcast changes."""
@@ -1420,7 +1478,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
 
                 current_state = "obscured" if is_obscured else "background"
 
-            is_fullscreen = self._is_exclusive_fullscreen(self.target_hwnd)
+            is_fullscreen = self._is_fullscreen_window(self.target_hwnd)
             current_rect = get_window_rect_physical(self.target_hwnd)
 
         self._sync_minimized_audio_mute(current_state)
@@ -1466,6 +1524,13 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
 
         fullscreen_changed = is_fullscreen != self.last_is_fullscreen
 
+        raw_exclusive_fullscreen = current_state == "active" and self._is_exclusive_fullscreen(
+            self.target_hwnd,
+            is_fullscreen_window=is_fullscreen,
+        )
+        is_exclusive_fullscreen = self._update_exclusive_fullscreen_state(raw_exclusive_fullscreen, now)
+        exclusive_fullscreen_changed = is_exclusive_fullscreen != self.last_is_exclusive_fullscreen
+
         raw_cursor_hidden = current_state == "active" and self._is_cursor_hidden()
         cursor_hidden = self._update_cursor_hidden_state(raw_cursor_hidden, now)
         cursor_hidden_changed = cursor_hidden != self.last_cursor_hidden
@@ -1474,15 +1539,18 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             current_state != self.last_state
             or magpie_changed
             or fullscreen_changed
+            or exclusive_fullscreen_changed
             or window_moved_or_resized
             or cursor_hidden_changed
         ):
             logger.debug(
                 f"Window state changed: {self.last_state} -> {current_state} "
-                f"(game: {game_name_ref}, fullscreen: {is_fullscreen}, cursor_hidden: {cursor_hidden})"
+                f"(game: {game_name_ref}, fullscreen: {is_fullscreen}, "
+                f"exclusive_fullscreen: {is_exclusive_fullscreen}, cursor_hidden: {cursor_hidden})"
             )
             self.last_state = current_state
             self.last_is_fullscreen = is_fullscreen
+            self.last_is_exclusive_fullscreen = is_exclusive_fullscreen
             self.last_cursor_hidden = cursor_hidden
 
             recommend_manual = cursor_hidden
@@ -1493,6 +1561,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 "game": game_name_ref,
                 "magpie_info": self.magpie_info,
                 "is_fullscreen": is_fullscreen,
+                "is_exclusive_fullscreen": is_exclusive_fullscreen,
                 "cursor_hidden": cursor_hidden,
                 "recommend_manual_mode": recommend_manual,
                 "target_window_rect": self._build_window_rect_payload(current_rect),

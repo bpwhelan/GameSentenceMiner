@@ -231,6 +231,7 @@ def test_capture_card_output_announces_showable_background_state(monkeypatch):
             "game": "Capture Card",
             "magpie_info": None,
             "is_fullscreen": False,
+            "is_exclusive_fullscreen": False,
             "recommend_manual_mode": False,
             "target_window_rect": None,
             "target_client_rect": None,

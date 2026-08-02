@@ -307,6 +307,7 @@ const OVERLAY_NON_PROFILE_SETTING_KEYS = new Set([
   "texthookerUrl",
   "mainBoxStartupWarningAcknowledged",
   "dismissedFullscreenRecommendations",
+  "dismissedExclusiveFullscreenRecommendations",
   "gamepadServerPort",
   "gamepadDeviceBlacklist",
   "gamepadJitenApiKey",
@@ -797,7 +798,8 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "offsetX": 0,
   "offsetY": 0,
   "mainBoxStartupWarningAcknowledged": false,
-  "dismissedFullscreenRecommendations": [], // Games for which fullscreen recommendation was dismissed
+  "dismissedFullscreenRecommendations": [], // Games for which Push to Show recommendation was dismissed
+  "dismissedExclusiveFullscreenRecommendations": [], // Games for which display-mode recommendation was dismissed
   "texthookerHotkey": DEFAULT_TEXTHOOKER_HOTKEY,
   "texthookerUrl": DEFAULT_TEXTHOOKER_URL,
   "enableJitenReader": true,
@@ -3357,6 +3359,98 @@ function maybeShowManualModeRecommendation(game) {
 
   manualModeRecommendationWindow.on("closed", () => {
     manualModeRecommendationWindow = null;
+  });
+}
+
+// --- Exclusive-fullscreen recommendation (custom window) ---
+// Unlike the monitor-filling geometry flag, this is driven by Windows' explicit
+// Direct3D exclusive-fullscreen state. Exclusive mode minimizes many games when
+// the overlay or gamepad navigation takes focus, so recommend a composited mode.
+const FULLSCREEN_MODE_RESOURCE_URLS = Object.freeze({
+  magpie: "https://github.com/Blinue/Magpie",
+  specialK: "https://www.special-k.info/",
+});
+const fullscreenModeRecommendationPromptedGames = new Set();
+let fullscreenModeRecommendationWindow = null;
+
+function getDismissedFullscreenModeRecommendations() {
+  return Array.isArray(userSettings.dismissedExclusiveFullscreenRecommendations)
+    ? userSettings.dismissedExclusiveFullscreenRecommendations
+    : [];
+}
+
+function rememberDismissedFullscreenModeRecommendation(game) {
+  const dismissed = getDismissedFullscreenModeRecommendations();
+  if (game && !dismissed.includes(game)) {
+    setOverlaySettingValue("dismissedExclusiveFullscreenRecommendations", [...dismissed, game]);
+    saveSettings();
+  }
+}
+
+function maybeShowFullscreenModeRecommendation(game) {
+  if (!isWindows()) return;
+
+  const gameKey = game || "";
+  if (getDismissedFullscreenModeRecommendations().includes(gameKey)) return;
+
+  if (fullscreenModeRecommendationWindow && !fullscreenModeRecommendationWindow.isDestroyed()) {
+    fullscreenModeRecommendationWindow.focus();
+    return;
+  }
+
+  if (fullscreenModeRecommendationPromptedGames.has(gameKey)) return;
+  fullscreenModeRecommendationPromptedGames.add(gameKey);
+
+  // The display-mode warning is the actionable fix for exclusive fullscreen;
+  // avoid stacking the cursor/Push to Show recommendation on top of it.
+  if (manualModeRecommendationWindow && !manualModeRecommendationWindow.isDestroyed()) {
+    manualModeRecommendationWindow.close();
+  }
+
+  const workArea = getOverlayDisplayWorkArea();
+  const winWidth = Math.min(680, workArea.width);
+  const winHeight = Math.min(850, workArea.height);
+
+  fullscreenModeRecommendationWindow = new BrowserWindow({
+    width: winWidth,
+    height: winHeight,
+    x: Math.round(workArea.x + (workArea.width - winWidth) / 2),
+    y: Math.round(workArea.y + (workArea.height - winHeight) / 2),
+    icon: getOverlayAppIconPath(),
+    resizable: true,
+    alwaysOnTop: true,
+    show: false,
+    title: "Borderless Fullscreen Recommended",
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+  fullscreenModeRecommendationWindow.removeMenu();
+  fullscreenModeRecommendationWindow.setAlwaysOnTop(true, "screen-saver");
+
+  loadOverlayPage(fullscreenModeRecommendationWindow, "fullscreen-mode-recommendation.html");
+  fullscreenModeRecommendationWindow.webContents.once("did-finish-load", () => {
+    if (!fullscreenModeRecommendationWindow || fullscreenModeRecommendationWindow.isDestroyed()) return;
+    playSystemWarningSound();
+    fullscreenModeRecommendationWindow.webContents.send("preload-fullscreen-mode-recommendation", {
+      game: gameKey,
+    });
+    fullscreenModeRecommendationWindow.show();
+    fullscreenModeRecommendationWindow.moveTop();
+    fullscreenModeRecommendationWindow.focus();
+    fullscreenModeRecommendationWindow.flashFrame(true);
+    fullscreenModeRecommendationWindow.webContents.focus();
+  });
+
+  fullscreenModeRecommendationWindow.once("focus", () => {
+    if (fullscreenModeRecommendationWindow && !fullscreenModeRecommendationWindow.isDestroyed()) {
+      fullscreenModeRecommendationWindow.flashFrame(false);
+    }
+  });
+
+  fullscreenModeRecommendationWindow.on("closed", () => {
+    fullscreenModeRecommendationWindow = null;
   });
 }
 
@@ -6941,7 +7035,28 @@ async function startOverlayAppImpl() {
     }
   });
 
-  ipcMain.on("window-state-changed", (event, { state, game, magpieActive, magpieInfo, isFullscreen, cursorHidden, recommendManualMode, obsOutputActive }) => {
+  ipcMain.on("fullscreen-mode-recommendation-dismiss", (event, { game } = {}) => {
+    rememberDismissedFullscreenModeRecommendation(game || "");
+    if (fullscreenModeRecommendationWindow && !fullscreenModeRecommendationWindow.isDestroyed()) {
+      fullscreenModeRecommendationWindow.close();
+    }
+  });
+
+  ipcMain.on("fullscreen-mode-recommendation-close", () => {
+    if (fullscreenModeRecommendationWindow && !fullscreenModeRecommendationWindow.isDestroyed()) {
+      fullscreenModeRecommendationWindow.close();
+    }
+  });
+
+  ipcMain.on("fullscreen-mode-recommendation-open-resource", (event, { resource } = {}) => {
+    const url = FULLSCREEN_MODE_RESOURCE_URLS[resource];
+    if (!url) return;
+    void electron.shell.openExternal(url).catch((error) => {
+      console.error(`Failed to open exclusive-fullscreen resource ${resource}:`, error);
+    });
+  });
+
+  ipcMain.on("window-state-changed", (event, { state, game, magpieActive, magpieInfo, isFullscreen, isExclusiveFullscreen, cursorHidden, recommendManualMode, obsOutputActive }) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
 
     if (isTexthookerMode) return;
@@ -6961,15 +7076,18 @@ async function startOverlayAppImpl() {
 
     console.log(
       `Window state changed to: ${normalizedWindowState} for game: ${game}, ` +
-      `magpie active: ${currentMagpieState.active}, signature: ${currentMagpieState.signature || "inactive"}, fullscreen: ${isFullscreen}`
+      `magpie active: ${currentMagpieState.active}, signature: ${currentMagpieState.signature || "inactive"}, ` +
+      `fullscreen: ${isFullscreen}, exclusive fullscreen: ${isExclusiveFullscreen}`
     );
 
     // Send game state to renderer to control action panel visibility
     mainWindow.webContents.send("game-state", normalizedWindowState);
 
-    // When the game may be hiding the OS cursor the automatic overlay is awkward to
-    // use, so nudge toward manual mode via the custom recommendation window.
-    if (recommendManualMode && !isManualMode()) {
+    // Exclusive fullscreen is the more disruptive condition, so its display-mode
+    // recommendation takes priority over the cursor/Push to Show recommendation.
+    if (isExclusiveFullscreen) {
+      maybeShowFullscreenModeRecommendation(game);
+    } else if (recommendManualMode && !isManualMode()) {
       maybeShowManualModeRecommendation(game);
     }
 
@@ -7869,6 +7987,7 @@ async function stopOverlayApp() {
       mainWindow = null;
       startupNotificationWindow = null;
       manualModeRecommendationWindow = null;
+      fullscreenModeRecommendationWindow = null;
       settingsWindow = null;
       yomitanSettingsWindow = null;
       jitenReaderSettingsWindow = null;
