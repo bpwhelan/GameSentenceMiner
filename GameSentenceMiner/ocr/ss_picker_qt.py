@@ -5,8 +5,8 @@ import mss
 import mss.tools
 import sys
 from PIL import Image
-from PyQt6.QtCore import Qt, QRect, QTimer
-from PyQt6.QtGui import QPainter, QPen, QColor, QPixmap, QImage
+from PyQt6.QtCore import Qt, QRect, QTimer, QPoint
+from PyQt6.QtGui import QCursor, QPainter, QPen, QColor, QPixmap, QImage
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from GameSentenceMiner.ocr.coordinate_math import logical_box_to_even_physical_box
@@ -23,6 +23,32 @@ SWP_NOMOVE = 0x0002
 SWP_NOSIZE = 0x0001
 SWP_SHOWWINDOW = 0x0040
 SWP_FLAGS_TOPMOST = SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
+
+
+def create_high_visibility_crosshair_cursor() -> QCursor:
+    """Return a crosshair that stays visible over light and dark screenshots."""
+    size = 33
+    center = size // 2
+    gap = 4
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    segments = (
+        (QPoint(2, center), QPoint(center - gap, center)),
+        (QPoint(center + gap, center), QPoint(size - 3, center)),
+        (QPoint(center, 2), QPoint(center, center - gap)),
+        (QPoint(center, center + gap), QPoint(center, size - 3)),
+    )
+    painter = QPainter(pixmap)
+    painter.setPen(QPen(QColor("#000000"), 5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+    for start, end in segments:
+        painter.drawLine(start, end)
+    painter.setPen(QPen(QColor("#00e5ff"), 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.FlatCap))
+    for start, end in segments:
+        painter.drawLine(start, end)
+    painter.end()
+
+    return QCursor(pixmap, center, center)
 
 
 def get_monitor_dpi_scale():
@@ -110,7 +136,7 @@ class ScreenCropperWidget(QWidget):
         self.current_pos = None
         self.is_drawing = False
 
-        self.setCursor(Qt.CursorShape.CrossCursor)
+        self.setCursor(create_high_visibility_crosshair_cursor())
 
     def prepare_capture(
         self,
