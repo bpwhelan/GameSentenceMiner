@@ -1,8 +1,10 @@
 import os
 import tempfile
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import datetime
 
 import requests
 from watchdog.events import FileSystemEventHandler
@@ -121,7 +123,71 @@ class ReplayProcessingContext:
         return self.audio_result.audio_edit_context if self.audio_result else None
 
 
+@dataclass
+class DialogueReplayRefreshRequest:
+    selected_lines: list
+    mined_line: object
+    full_text: str
+    capture_time: datetime
+    timing_context: AnkiCardTimingContext | None
+    future: Future
+
+
+@dataclass
+class DialogueReplayRefreshResult:
+    video_path: str
+    capture_time: datetime
+    audio_result: ReplayAudioResult
+
+
+def request_dialogue_replay_refresh(
+    *, selected_lines, mined_line, full_text: str, timing_context: AnkiCardTimingContext | None
+) -> Future:
+    """Save a new replay and route its recalculated audio back to the open dialog."""
+    future = Future()
+    request = DialogueReplayRefreshRequest(
+        selected_lines=list(selected_lines),
+        mined_line=mined_line,
+        full_text=full_text,
+        capture_time=datetime.now(),
+        timing_context=timing_context,
+        future=future,
+    )
+    anki.card_queue.append(request)
+    try:
+        obs.save_replay_buffer()
+    except Exception as exc:
+        try:
+            anki.card_queue.remove(request)
+        except ValueError:
+            pass
+        future.set_exception(exc)
+    return future
+
+
+_REPLAY_JOB_UNCLAIMED = object()
+_TEXTHOOKER_REPLAY_JOB = object()
+_EXTERNAL_REPLAY_JOB = object()
+
+
 class ReplayAudioExtractor:
+    def __init__(self):
+        self._replay_job_lock = threading.Lock()
+
+    def claim_replay_job(self):
+        """Claim the action associated with the next OBS replay in creation order."""
+        with self._replay_job_lock:
+            if (
+                gsm_state.line_for_audio
+                or gsm_state.line_for_screenshot
+                or gsm_state.line_for_video_trim
+                or gsm_state.lines_for_media_creation
+            ):
+                return _TEXTHOOKER_REPLAY_JOB
+            if anki.card_queue:
+                return anki.card_queue.pop(0)
+            return _EXTERNAL_REPLAY_JOB
+
     @staticmethod
     def _should_rebase_audio_edit_context(vad_result) -> bool:
         if not vad_result or getattr(vad_result, "tts_used", False):
@@ -217,22 +283,65 @@ class ReplayAudioExtractor:
             return note_sentence
         return last_note.get_field(sentence_field_name) if last_note else ""
 
-    def process_replay(self, video_path: str) -> None:
+    def _process_dialogue_replay_refresh(self, video_path: str, request: DialogueReplayRefreshRequest) -> None:
+        try:
+            selected_lines = list(request.selected_lines)
+            if not selected_lines:
+                raise ValueError("Cannot refresh dialogue audio without selected lines.")
+
+            next_line = getattr(selected_lines[-1], "next", None)
+            line_cutoff = (
+                next_line.time
+                if next_line is not None and getattr(next_line, "time", request.capture_time) <= request.capture_time
+                else 0
+            )
+            audio_result = self.get_audio(
+                selected_lines[0],
+                line_cutoff,
+                video_path,
+                request.capture_time,
+                mined_line=request.mined_line,
+                full_text=request.full_text,
+                timing_context=request.timing_context,
+            )
+            if not request.future.done():
+                request.future.set_result(
+                    DialogueReplayRefreshResult(
+                        video_path=video_path,
+                        capture_time=request.capture_time,
+                        audio_result=audio_result,
+                    )
+                )
+        except Exception as exc:
+            logger.exception(f"Failed refreshing dialogue audio from follow-up replay: {exc}")
+            if not request.future.done():
+                request.future.set_exception(exc)
+        finally:
+            if get_config().paths.remove_video and video_path:
+                try:
+                    if os.path.exists(video_path):
+                        os.remove(video_path)
+                except Exception as exc:
+                    logger.exception(f"Failed removing follow-up dialogue replay {video_path}: {exc}")
+
+    def process_replay(self, video_path: str, queued_job=_REPLAY_JOB_UNCLAIMED) -> None:
         process_start = time.perf_counter()
+        if queued_job is _REPLAY_JOB_UNCLAIMED:
+            queued_job = self.claim_replay_job()
+
+        if isinstance(queued_job, DialogueReplayRefreshRequest):
+            self._process_dialogue_replay_refresh(video_path, queued_job)
+            return
+
         context = ReplayProcessingContext(video_path=video_path)
         gsm_state.current_replay = video_path
         gsm_state.current_replay_context = context
-        if (
-            gsm_state.line_for_audio
-            or gsm_state.line_for_screenshot
-            or gsm_state.line_for_video_trim
-            or gsm_state.lines_for_media_creation
-        ):
+        if queued_job is _TEXTHOOKER_REPLAY_JOB:
             _handle_texthooker_button(video_path)
             return
         try:
-            if anki.card_queue and len(anki.card_queue) > 0:
-                queued_card = anki.card_queue.pop(0)
+            if queued_job is not _EXTERNAL_REPLAY_JOB:
+                queued_card = queued_job
                 (
                     context.last_note,
                     context.anki_card_creation_time,
@@ -670,9 +779,20 @@ class ReplayAudioExtractor:
 
 
 class ReplayFileWatcher(FileSystemEventHandler):
-    def __init__(self, extractor: ReplayAudioExtractor):
+    def __init__(self, extractor: ReplayAudioExtractor, executor=None, refresh_executor=None):
         super().__init__()
         self._extractor = extractor
+        # Keep ordinary cards serialized so their shared Anki/dialog state cannot
+        # overlap. Follow-up dialogue replays get a separate lane, which is what
+        # lets them finish while the original card worker is blocked on the dialog.
+        self._executor = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix="gsm-replay")
+        self._refresh_executor = refresh_executor or ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="gsm-dialogue-replay"
+        )
+
+    def _process_created_replay(self, path, queued_job):
+        wait_for_stable_file(path)
+        self._extractor.process_replay(path, queued_job=queued_job)
 
     def on_created(self, event):
         file_name = os.path.basename(event.src_path)
@@ -682,5 +802,8 @@ class ReplayFileWatcher(FileSystemEventHandler):
             return
         if file_name.endswith(".mkv") or file_name.endswith(".mp4") or file_name.endswith(".mov"):
             logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
-            wait_for_stable_file(event.src_path)
-            self._extractor.process_replay(event.src_path)
+            queued_job = self._extractor.claim_replay_job()
+            executor = (
+                self._refresh_executor if isinstance(queued_job, DialogueReplayRefreshRequest) else self._executor
+            )
+            executor.submit(self._process_created_replay, event.src_path, queued_job)

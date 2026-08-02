@@ -3,6 +3,7 @@ import numpy as np
 import requests
 import sys
 import time
+from html import escape
 from PIL import Image
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize, QEventLoop
 from PyQt6.QtGui import QPixmap, QImage
@@ -24,6 +25,7 @@ from urllib.parse import quote
 
 from GameSentenceMiner.ui import window_state_manager, WindowId
 from GameSentenceMiner.ui.audio_waveform_widget import AUDIO_EXPAND_SECONDS, AudioWaveformWidget
+from GameSentenceMiner.replay_handler import request_dialogue_replay_refresh
 from GameSentenceMiner.util.config.configuration import (
     get_config,
     logger,
@@ -216,6 +218,9 @@ class AnkiConfirmationDialog(QDialog):
         self._replay_video_duration = 0.0
         self._replay_file_mod_time = None
         self._pending_auto_line_direction = None
+        self._dialogue_neighbor_signature = None
+        self._dialogue_replay_future = None
+        self._dialogue_replay_selected_lines = None
         self._exit_confirmed = False
         self._rejected_cleanup_done = False
 
@@ -248,6 +253,14 @@ class AnkiConfirmationDialog(QDialog):
         self._auto_line_expand_timer.setSingleShot(True)
         self._auto_line_expand_timer.setInterval(AUTO_ADD_DIALOGUE_LINE_DEBOUNCE_MS)
         self._auto_line_expand_timer.timeout.connect(self._apply_pending_auto_line_expand)
+
+        self._dialogue_line_poll_timer = QTimer(self)
+        self._dialogue_line_poll_timer.setInterval(250)
+        self._dialogue_line_poll_timer.timeout.connect(self._poll_dialogue_line_neighbors)
+
+        self._dialogue_replay_poll_timer = QTimer(self)
+        self._dialogue_replay_poll_timer.setInterval(100)
+        self._dialogue_replay_poll_timer.timeout.connect(self._poll_dialogue_replay_refresh)
 
         self.setWindowTitle("Confirm Anki Card Details")
         self._apply_window_behavior_preferences()
@@ -308,6 +321,15 @@ class AnkiConfirmationDialog(QDialog):
         self.sentence_text.setTabChangesFocus(True)
         self.sentence_text.textChanged.connect(self._cancel_auto_accept)
         self.grid_layout.addWidget(self.sentence_text, row, 1)
+        row += 1
+
+        self.dialogue_timeline = QLabel()
+        self.dialogue_timeline.setWordWrap(True)
+        self.dialogue_timeline.setTextFormat(Qt.TextFormat.RichText)
+        self.dialogue_timeline.setStyleSheet(
+            "background: palette(alternate-base); border: 1px solid palette(mid); border-radius: 6px; padding: 6px;"
+        )
+        self.grid_layout.addWidget(self.dialogue_timeline, row, 1, 1, 2)
         row += 1
 
         self.dialogue_tools_title = QLabel("Dialogue:")
@@ -625,10 +647,17 @@ class AnkiConfirmationDialog(QDialog):
         self._replay_video_duration = 0.0
         self._replay_file_mod_time = None
         self._pending_auto_line_direction = None
+        self._dialogue_neighbor_signature = None
+        self._dialogue_replay_future = None
+        self._dialogue_replay_selected_lines = None
         self._exit_confirmed = False
         self._rejected_cleanup_done = False
         self._auto_line_expand_timer.stop()
         self._initialize_dialogue_line_timeline()
+        if self._dialogue_line_expansion_enabled():
+            self._dialogue_line_poll_timer.start()
+        else:
+            self._dialogue_line_poll_timer.stop()
 
         self.expr_value_label.setText(expression)
 
@@ -1051,7 +1080,63 @@ class AnkiConfirmationDialog(QDialog):
     def _next_dialogue_line(self):
         if not self._dialog_selected_lines:
             return None
-        return self._dialog_selected_lines[-1].next_line()
+        # GameLine.next_line() intentionally hides lines which arrived after the
+        # mining timestamp. The confirmation timeline is the one place where we
+        # explicitly want to reveal that live neighbor.
+        return getattr(self._dialog_selected_lines[-1], "next", None)
+
+    @staticmethod
+    def _timeline_line_text(line):
+        text = str(getattr(line, "text", "") or "").strip()
+        return escape(text or "(empty line)")
+
+    def _refresh_dialogue_timeline(self):
+        feature_enabled = self._dialogue_line_expansion_enabled()
+        self.dialogue_timeline.setVisible(feature_enabled)
+        if not feature_enabled:
+            return
+
+        rows = []
+        previous_line = self._previous_dialogue_line()
+        next_line = self._next_dialogue_line()
+        if previous_line:
+            rows.append(
+                '<div style="color:#888"><span style="color:#777">● Previous</span> '
+                f"{self._timeline_line_text(previous_line)}</div>"
+            )
+
+        mined_line_id = getattr(getattr(self, "_replay_context", None), "mined_line", None)
+        mined_line_id = getattr(mined_line_id, "id", None)
+        for line in self._dialog_selected_lines:
+            label = "Mined" if getattr(line, "id", None) == mined_line_id else "Selected"
+            rows.append(
+                '<div style="margin:2px 0;color:palette(text)"><span style="color:#ff8c00">● '
+                f"{label}</span> {self._timeline_line_text(line)}</div>"
+            )
+
+        if next_line:
+            rows.append(
+                '<div style="color:#777"><span style="color:#4f8cff">● Next</span> '
+                f"{self._timeline_line_text(next_line)}</div>"
+            )
+        else:
+            rows.append('<div style="color:#999"><span>○ Next</span> Waiting for the next line…</div>')
+        self.dialogue_timeline.setText("".join(rows))
+
+    def _poll_dialogue_line_neighbors(self):
+        if not self._dialogue_line_expansion_enabled():
+            self._dialogue_line_poll_timer.stop()
+            return
+        previous_line = self._previous_dialogue_line()
+        next_line = self._next_dialogue_line()
+        signature = (
+            getattr(previous_line, "id", None),
+            self._line_ids_for_dialogue(self._dialog_selected_lines),
+            getattr(next_line, "id", None),
+        )
+        if signature != self._dialogue_neighbor_signature:
+            self._dialogue_neighbor_signature = signature
+            self._update_dialogue_line_controls()
 
     def _update_dialogue_line_controls(self, has_translation=None):
         has_translation = (
@@ -1060,19 +1145,28 @@ class AnkiConfirmationDialog(QDialog):
         feature_enabled = self._dialogue_line_expansion_enabled()
         prev_line = self._previous_dialogue_line() if feature_enabled else None
         next_line = self._next_dialogue_line() if feature_enabled else None
-        visible = bool(feature_enabled and (prev_line or next_line or has_translation))
+        visible = bool(feature_enabled)
+        replay_pending = self._dialogue_replay_future is not None
 
         self.dialogue_tools_title.setVisible(visible)
         self.add_prev_line_button.setVisible(bool(visible and prev_line))
-        self.add_next_line_button.setVisible(bool(visible and next_line))
+        self.add_next_line_button.setVisible(visible)
+        self.add_next_line_button.setEnabled(bool(visible and next_line and not replay_pending))
+        self.add_next_line_button.setToolTip(
+            "Add the next line to this card." if next_line else "Waiting for the next captured line."
+        )
         self.regen_translation_checkbox.setVisible(bool(visible and has_translation))
         self.dialogue_tools_status.setVisible(visible)
+        self._refresh_dialogue_timeline()
 
         if not visible:
             return
 
         line_count = len(self._dialog_selected_lines)
-        status_text = f"Experimental. {line_count} line{'s' if line_count != 1 else ''} selected."
+        if replay_pending:
+            status_text = "Saving a fresh replay and recalculating audio…"
+        else:
+            status_text = f"Experimental. {line_count} line{'s' if line_count != 1 else ''} selected."
         if self._dialog_line_selection_changed:
             status_text += " Card fields will use the expanded dialogue."
         self.dialogue_tools_status.setText(status_text)
@@ -1334,7 +1428,7 @@ class AnkiConfirmationDialog(QDialog):
             ):
                 self._add_next_dialogue_line(auto_trigger=True)
 
-    def _apply_dialogue_line_change(self, selected_lines):
+    def _apply_dialogue_line_change(self, selected_lines, audio_result_override=None):
         if not self._dialogue_line_expansion_enabled() or not selected_lines:
             return
 
@@ -1351,7 +1445,9 @@ class AnkiConfirmationDialog(QDialog):
             translation_text, translation_regenerated = self._regenerate_dialogue_translation(sentence_text)
             self._dialog_translation_regenerated = translation_regenerated
 
-            audio_result = self._regenerate_dialogue_audio(self._dialog_selected_lines, sentence_text)
+            audio_result = audio_result_override or self._regenerate_dialogue_audio(
+                self._dialog_selected_lines, sentence_text
+            )
             self._dialog_audio_result = None
             if audio_result:
                 self._dialog_audio_result = audio_result
@@ -1385,12 +1481,56 @@ class AnkiConfirmationDialog(QDialog):
             return
         self._apply_dialogue_line_change([prev_line, *self._dialog_selected_lines])
 
+    def _selection_requires_fresh_replay(self, selected_lines):
+        if not self._replay_file_mod_time:
+            return False
+        return any(
+            getattr(line, "time", self._replay_file_mod_time) > self._replay_file_mod_time for line in selected_lines
+        )
+
+    def _start_dialogue_replay_refresh(self, selected_lines):
+        if self._dialogue_replay_future is not None:
+            return
+        sentence_text = self._build_dialogue_sentence(selected_lines)
+        self._dialogue_replay_selected_lines = list(selected_lines)
+        self._dialogue_replay_future = request_dialogue_replay_refresh(
+            selected_lines=selected_lines,
+            mined_line=getattr(self._replay_context, "mined_line", None),
+            full_text=remove_html_and_cloze_tags(sentence_text),
+            timing_context=getattr(self._replay_context, "timing_context", None),
+        )
+        self._dialogue_replay_poll_timer.start()
+        self._update_dialogue_line_controls()
+
+    def _poll_dialogue_replay_refresh(self):
+        future = self._dialogue_replay_future
+        if future is None or not future.done():
+            return
+
+        self._dialogue_replay_poll_timer.stop()
+        selected_lines = self._dialogue_replay_selected_lines
+        self._dialogue_replay_future = None
+        self._dialogue_replay_selected_lines = None
+        try:
+            replay_result = future.result()
+            self._replay_file_mod_time = replay_result.capture_time
+            self._dialogue_line_start_cache = {}
+            self._apply_dialogue_line_change(selected_lines, audio_result_override=replay_result.audio_result)
+        except Exception as exc:
+            logger.exception(f"Failed refreshing dialogue replay: {exc}")
+            QMessageBox.critical(self, "Dialogue Replay Error", str(exc))
+            self._update_dialogue_line_controls()
+
     def _add_next_dialogue_line(self, checked=False, auto_trigger=False):
         del checked, auto_trigger
         next_line = self._next_dialogue_line()
         if not next_line:
             return
-        self._apply_dialogue_line_change([*self._dialog_selected_lines, next_line])
+        selected_lines = [*self._dialog_selected_lines, next_line]
+        if self._selection_requires_fresh_replay(selected_lines):
+            self._start_dialogue_replay_refresh(selected_lines)
+            return
+        self._apply_dialogue_line_change(selected_lines)
 
     @staticmethod
     def _calculate_audio_expanded_range(start_time, end_time, duration, expand_start=0.0, expand_end=0.0):
@@ -2072,6 +2212,10 @@ class AnkiConfirmationDialog(QDialog):
     def _cleanup_audio(self):
         self.audio_player.cleanup()
 
+    def _stop_dialogue_watchers(self):
+        self._dialogue_line_poll_timer.stop()
+        self._dialogue_replay_poll_timer.stop()
+
     def _build_dialog_result_metadata(self):
         audio_edit_range = None
         if self._audio_edit_range:
@@ -2087,6 +2231,7 @@ class AnkiConfirmationDialog(QDialog):
         }
 
     def _on_voice(self):
+        self._stop_dialogue_watchers()
         self._cleanup_audio()
 
         final_audio_path = self._save_trimmed_audio()
@@ -2109,6 +2254,7 @@ class AnkiConfirmationDialog(QDialog):
         self.accept()
 
     def _on_no_voice(self):
+        self._stop_dialogue_watchers()
         self._cleanup_audio()
         # UPDATE 4: Comment out access to missing checkbox
         # if self.disable_dialog_checkbox.isChecked():
@@ -2180,6 +2326,7 @@ class AnkiConfirmationDialog(QDialog):
             return
         self._cancel_auto_accept()
         self._auto_line_expand_timer.stop()
+        self._stop_dialogue_watchers()
         self._cleanup_audio()
         window_state_manager.save_geometry(self, WindowId.ANKI_CONFIRMATION)
         self._rejected_cleanup_done = True

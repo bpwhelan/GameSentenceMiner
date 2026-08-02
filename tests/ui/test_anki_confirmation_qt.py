@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -69,6 +70,12 @@ class _WidgetProbe:
 
     def setVisible(self, visible):
         self.visible = visible
+
+    def setEnabled(self, enabled):
+        self.enabled = enabled
+
+    def setToolTip(self, tooltip):
+        self.tooltip = tooltip
 
 
 def test_regenerate_sentence_meaning_is_enabled_by_default(monkeypatch):
@@ -746,3 +753,99 @@ def test_apply_dialogue_line_change_refreshes_audio_edit_context(monkeypatch):
     assert replay_context.audio_result is audio_result
     assert anki_confirmation_qt.gsm_state.audio_edit_context is audio_edit_context
     assert anki_confirmation_qt.gsm_state.vad_result is vad_result
+
+
+def test_next_dialogue_line_exposes_line_arriving_after_mine():
+    future_line = SimpleNamespace(id="future-line")
+    selected_line = SimpleNamespace(next=future_line, next_line=lambda: None)
+    probe = SimpleNamespace(_dialog_selected_lines=[selected_line])
+
+    assert anki_confirmation_qt.AnkiConfirmationDialog._next_dialogue_line(probe) is future_line
+
+
+def test_next_line_control_stays_visible_and_disabled_while_waiting():
+    title = _WidgetProbe()
+    previous_button = _WidgetProbe()
+    next_button = _WidgetProbe()
+    regenerate = _WidgetProbe()
+    status = _WidgetProbe()
+    probe = SimpleNamespace(
+        translation_text=SimpleNamespace(toPlainText=lambda: ""),
+        _dialogue_line_expansion_enabled=lambda: True,
+        _previous_dialogue_line=lambda: None,
+        _next_dialogue_line=lambda: None,
+        _dialog_selected_lines=[SimpleNamespace(id="mined")],
+        _dialog_line_selection_changed=False,
+        _dialogue_replay_future=None,
+        dialogue_tools_title=title,
+        add_prev_line_button=previous_button,
+        add_next_line_button=next_button,
+        regen_translation_checkbox=regenerate,
+        dialogue_tools_status=status,
+        _refresh_dialogue_timeline=lambda: None,
+    )
+
+    anki_confirmation_qt.AnkiConfirmationDialog._update_dialogue_line_controls(probe)
+
+    assert next_button.visible is True
+    assert next_button.enabled is False
+    assert "Waiting" in next_button.tooltip
+
+
+def test_dialogue_timeline_shows_previous_selected_and_next_lines():
+    timeline = _WidgetProbe()
+    previous_line = SimpleNamespace(id="previous", text="Previous text")
+    mined_line = SimpleNamespace(id="mined", text="Mined text")
+    next_line = SimpleNamespace(id="next", text="Next text")
+    probe = SimpleNamespace(
+        _dialogue_line_expansion_enabled=lambda: True,
+        dialogue_timeline=timeline,
+        _previous_dialogue_line=lambda: previous_line,
+        _next_dialogue_line=lambda: next_line,
+        _dialog_selected_lines=[mined_line],
+        _replay_context=SimpleNamespace(mined_line=mined_line),
+        _timeline_line_text=anki_confirmation_qt.AnkiConfirmationDialog._timeline_line_text,
+    )
+
+    anki_confirmation_qt.AnkiConfirmationDialog._refresh_dialogue_timeline(probe)
+
+    assert timeline.visible is True
+    assert "Previous text" in timeline.text
+    assert "Mined text" in timeline.text
+    assert "Next text" in timeline.text
+
+
+def test_future_next_line_requests_a_new_replay_before_updating_dialogue(monkeypatch):
+    mined_at = datetime(2026, 8, 2, 12, 0, 0)
+    future_line = SimpleNamespace(id="future", time=mined_at + timedelta(seconds=1))
+    mined_line = SimpleNamespace(id="mined", time=mined_at, next=future_line)
+    requested = []
+    future = SimpleNamespace(done=lambda: False)
+    monkeypatch.setattr(
+        anki_confirmation_qt,
+        "request_dialogue_replay_refresh",
+        lambda **kwargs: requested.append(kwargs) or future,
+    )
+    probe = SimpleNamespace(
+        _dialog_selected_lines=[mined_line],
+        _next_dialogue_line=lambda: future_line,
+        _selection_requires_fresh_replay=lambda lines: True,
+        _build_dialogue_sentence=lambda lines: "mined future",
+        _replay_context=SimpleNamespace(mined_line=mined_line, timing_context=None),
+        _dialogue_replay_future=None,
+        _dialogue_replay_selected_lines=None,
+        _dialogue_replay_poll_timer=SimpleNamespace(start=lambda: requested.append("poll")),
+        _update_dialogue_line_controls=lambda: requested.append("controls"),
+        _apply_dialogue_line_change=lambda lines: requested.append(("apply", lines)),
+    )
+    probe._start_dialogue_replay_refresh = lambda lines: (
+        anki_confirmation_qt.AnkiConfirmationDialog._start_dialogue_replay_refresh(probe, lines)
+    )
+
+    anki_confirmation_qt.AnkiConfirmationDialog._add_next_dialogue_line(probe)
+
+    assert requested[0]["selected_lines"] == [mined_line, future_line]
+    assert requested[0]["full_text"] == "mined future"
+    assert probe._dialogue_replay_future is future
+    assert "poll" in requested
+    assert not any(isinstance(call, tuple) and call[0] == "apply" for call in requested)
