@@ -52,12 +52,13 @@ def configure_tadoku_cron(enabled: bool | None = None) -> CronTable:
 
 def run_scheduled_tadoku_sync() -> dict:
     config = get_stats_config()
+    configured_game_ids = set(getattr(config, "tadoku_daily_sync_game_ids", []) or [])
     try:
         return run_tadoku_sync(
             config=config,
             deduplicate=bool(getattr(config, "tadoku_daily_sync_deduplicate", True)),
             minimum_characters_per_game=TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS,
-            game_whitelist=set(getattr(config, "tadoku_daily_sync_game_ids", []) or []),
+            game_whitelist=configured_game_ids or None,
         )
     except TadokuSyncError as exc:
         # Reschedule for tomorrow after a remote/auth failure instead of retrying

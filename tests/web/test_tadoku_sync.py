@@ -280,47 +280,50 @@ def test_sync_rolls_back_remote_logs_and_keeps_cursor_when_a_post_fails(monkeypa
     assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 100.0
 
 
-def test_sync_minimum_is_per_game_and_keeps_small_games_queued(monkeypatch):
+def test_sync_minimum_uses_total_game_characters_not_queued_characters(monkeypatch):
     StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
-    _line("main-first", "game-main", "Main Game", "a" * 5_000, 110.0)
-    _line("small-first", "game-small", "Small Game", "b" * 37, 120.0)
+    _line("historical", "game-main", "Main Game", "a" * 4_963, 90.0)
+    _line("queued", "game-main", "Main Game", "b" * 37, 110.0)
     client = _FakeClient()
-    now = [150.0]
-    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: now[0])
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: 150.0)
 
-    first_sync = run_tadoku_sync(
+    result = run_tadoku_sync(
         config=_config(),
         client=client,
         deduplicate=False,
         minimum_characters_per_game=TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS,
-        game_whitelist={"game-main", "game-small"},
+        game_whitelist={"game-main"},
     )
 
-    assert first_sync["success"] is True
-    assert first_sync["characters_sent"] == 5_000
+    assert result["success"] is True
+    assert result["characters_sent"] == 37
     assert client.payloads[0]["description"] == "Main Game"
-    assert client.payloads[0]["amount"] == 5_000
+    assert client.payloads[0]["amount"] == 37
     assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 100.0
     assert StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key("game-main")) == 150.0
-    assert StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key("game-small")) is None
 
-    _line("small-threshold", "game-small", "Small Game", "c" * 4_963, 160.0)
-    now[0] = 200.0
-    second_sync = run_tadoku_sync(
+
+def test_sync_minimum_keeps_games_below_total_character_threshold_queued(monkeypatch):
+    StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
+    _line("historical", "game-small", "Small Game", "a" * 4_962, 90.0)
+    _line("queued", "game-small", "Small Game", "b" * 37, 110.0)
+    client = _FakeClient()
+    monkeypatch.setattr("GameSentenceMiner.util.tadoku_sync.time.time", lambda: 150.0)
+
+    result = run_tadoku_sync(
         config=_config(),
         client=client,
         deduplicate=False,
         minimum_characters_per_game=TADOKU_AUTO_SYNC_MINIMUM_CHARACTERS,
-        game_whitelist={"game-main", "game-small"},
+        game_whitelist={"game-small"},
     )
 
-    assert second_sync["success"] is True
-    assert second_sync["characters_sent"] == 5_000
-    assert len(client.payloads) == 2
-    assert client.payloads[1]["description"] == "Small Game"
-    assert client.payloads[1]["amount"] == 5_000
-    assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 100.0
-    assert StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key("game-small")) == 200.0
+    assert result["success"] is True
+    assert result["skipped"] is True
+    assert result["reason"] == "no whitelisted game has 5,000 total characters"
+    assert result["pending_characters"] == 37
+    assert client.payloads == []
+    assert StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key("game-small")) is None
 
 
 def test_sync_whitelist_excludes_games_without_consuming_them(monkeypatch):
@@ -350,7 +353,7 @@ def test_sync_whitelist_excludes_games_without_consuming_them(monkeypatch):
     assert [payload["description"] for payload in client.payloads] == ["Allowed Game", "Blocked Game"]
 
 
-def test_empty_whitelist_is_fail_closed_and_keeps_cursor(monkeypatch):
+def test_empty_whitelist_does_not_restrict_automatic_sync(monkeypatch):
     StatsExportStateTable.mark_successful_export(TADOKU_CURSOR_KEY, 100.0)
     _line("pending", "game-main", "Main Game", "a" * 10_000, 110.0)
     client = _FakeClient()
@@ -364,10 +367,10 @@ def test_empty_whitelist_is_fail_closed_and_keeps_cursor(monkeypatch):
     )
 
     assert result["success"] is True
-    assert result["skipped"] is True
-    assert client.payloads == []
+    assert result["characters_sent"] == 10_000
+    assert [payload["description"] for payload in client.payloads] == ["Main Game"]
     assert StatsExportStateTable.get_last_successful_export_at(TADOKU_CURSOR_KEY) == 100.0
-    assert StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key("game-main")) is None
+    assert StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key("game-main")) == 150.0
 
 
 def test_sync_excludes_duplicate_increment_without_deleting_local_lines(monkeypatch):
@@ -679,6 +682,24 @@ def test_scheduled_sync_requires_automatic_minimum(monkeypatch):
             "game_whitelist": {"game-main"},
         }
     ]
+
+
+def test_scheduled_sync_does_not_require_a_whitelist(monkeypatch):
+    from GameSentenceMiner.util.cron.tadoku_sync import run_scheduled_tadoku_sync
+
+    calls = []
+    config = _config(tadoku_daily_sync_game_ids=[])
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.cron.tadoku_sync.get_stats_config",
+        lambda: config,
+    )
+    monkeypatch.setattr(
+        "GameSentenceMiner.util.cron.tadoku_sync.run_tadoku_sync",
+        lambda **kwargs: calls.append(kwargs) or {"success": True},
+    )
+
+    assert run_scheduled_tadoku_sync() == {"success": True}
+    assert calls[0]["game_whitelist"] is None
 
 
 def test_tadoku_api_previews_and_queues_inline_sync(monkeypatch):

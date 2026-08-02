@@ -132,6 +132,12 @@ def build_tadoku_preview(
     lines = _load_lines(cutoff)
     duplicates = _deduplication_ids(lines) if deduplicate else set()
     names, media_tags = _game_metadata(lines)
+    game_character_totals: dict[str, int] = {}
+    for line in lines:
+        text = line.line_text if isinstance(line.line_text, str) else ""
+        if text:
+            key = _game_key(line)
+            game_character_totals[key] = game_character_totals.get(key, 0) + len(text)
     game_cursors: dict[str, float] = {}
 
     def game_cursor(game_key: str) -> float:
@@ -176,6 +182,7 @@ def build_tadoku_preview(
                 if line.id in duplicates and float(line.created_at or 0) > game_cursor(_game_key(line))
             }
         ),
+        "game_character_totals": game_character_totals,
         "total_entries": len(entries),
         "total_characters": sum(entry["characters"] for entry in entries),
         "entries": entries,
@@ -389,28 +396,31 @@ def run_tadoku_sync(
         pending_entries = preview["entries"]
         duplicates_excluded = int(preview["duplicates_excluded"])
         required_characters = max(0, int(minimum_characters_per_game))
-        normalized_whitelist = (
-            None
-            if game_whitelist is None
-            else {str(game_id).strip() for game_id in game_whitelist if str(game_id).strip()}
-        )
+        normalized_whitelist = None
+        if game_whitelist:
+            normalized_whitelist = {str(game_id).strip() for game_id in game_whitelist if str(game_id).strip()} or None
         whitelisted_entries = [
             entry
             for entry in pending_entries
             if normalized_whitelist is None or entry["game_key"] in normalized_whitelist
         ]
-        entries = [entry for entry in whitelisted_entries if entry["characters"] >= required_characters]
+        game_character_totals = preview["game_character_totals"]
+        entries = [
+            entry
+            for entry in whitelisted_entries
+            if game_character_totals.get(entry["game_key"], 0) >= required_characters
+        ]
         partial_sync = normalized_whitelist is not None or required_characters > 0
 
         if not entries and partial_sync:
+            scope = "whitelisted game" if normalized_whitelist is not None else "game"
+            reason = f"no {scope} has queued characters"
+            if required_characters and whitelisted_entries:
+                reason = f"no {scope} has {required_characters:,} total characters"
             return {
                 "success": True,
                 "skipped": True,
-                "reason": (
-                    f"no whitelisted game has {required_characters:,} queued characters"
-                    if required_characters
-                    else "no whitelisted game has queued characters"
-                ),
+                "reason": reason,
                 "entries_sent": 0,
                 "characters_sent": 0,
                 "pending_characters": sum(entry["characters"] for entry in whitelisted_entries),
