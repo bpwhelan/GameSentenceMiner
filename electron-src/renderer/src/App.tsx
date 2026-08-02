@@ -94,6 +94,7 @@ function LegacyFrame({
 
 function StatsPanel({ active }: { active: boolean }) {
   const [iframeSrc, setIframeSrc] = useState<string | null>(null);
+  const [iframeReloadKey, setIframeReloadKey] = useState(0);
   const t = useTranslation();
   const [loadingMessage, setLoadingMessage] = useState(
     "app.stats.loading"
@@ -159,6 +160,9 @@ function StatsPanel({ active }: { active: boolean }) {
       const ready = await waitForStatsEndpoint(statsUrl);
       if (ready) {
         clearRetryTimer();
+        if (forceReload) {
+          setIframeReloadKey((current) => current + 1);
+        }
         setIframeSrc(statsUrl);
         return;
       }
@@ -171,6 +175,9 @@ function StatsPanel({ active }: { active: boolean }) {
             return;
           }
           clearRetryTimer();
+          if (forceReload) {
+            setIframeReloadKey((current) => current + 1);
+          }
           setIframeSrc(statsUrl);
         })();
       }, 2000);
@@ -210,6 +217,7 @@ function StatsPanel({ active }: { active: boolean }) {
         ) : null}
         {iframeSrc ? (
           <iframe
+            key={iframeReloadKey}
             className="legacy-frame"
             src={iframeSrc}
             title="stats"
