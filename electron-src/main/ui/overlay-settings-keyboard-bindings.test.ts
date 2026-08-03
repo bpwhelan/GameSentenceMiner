@@ -17,7 +17,7 @@ function nextTick(delay = 0) {
   return new Promise((resolve) => setTimeout(resolve, delay));
 }
 
-function loadOverlaySettingsPage() {
+function loadOverlaySettingsPage(platform = "win32") {
   const settingsPath = path.resolve(process.cwd(), "GSM_Overlay/settings.html");
   const html = fs.readFileSync(settingsPath, "utf8");
   const sent: Array<{ channel: string; payload: IpcPayload }> = [];
@@ -25,7 +25,7 @@ function loadOverlaySettingsPage() {
 
   const ipcRenderer = {
     send: (channel: string, payload?: IpcPayload) => sent.push({ channel, payload }),
-    invoke: async () => null,
+    invoke: async (channel: string) => channel === "get-effective-platform" ? platform : null,
     on: (channel: string, handler: IpcListener) => {
       const existing = listeners.get(channel);
       listeners.set(channel, existing
@@ -72,7 +72,7 @@ function loadOverlaySettingsPage() {
         }
         throw new Error(`Unexpected require: ${moduleName}`);
       };
-      window.process = { platform: "win32" };
+      window.process = { platform };
       window.WebSocket = FakeWebSocket;
       window.setInterval = () => 0;
       window.clearInterval = () => {};
@@ -158,7 +158,7 @@ describe("overlay settings keyboard binding capture", () => {
   });
 
   it("shows the Wayland portal error verbatim in the existing hotkey status", async () => {
-    const page = loadOverlaySettingsPage();
+    const page = loadOverlaySettingsPage("linux");
     const portalError =
       "Wayland GlobalShortcuts portal unavailable: interface missing. " +
       "Configure a compositor shortcut to run `gsm_overlay_server trigger <action_id> [--port N]`.";
@@ -170,7 +170,7 @@ describe("overlay settings keyboard binding capture", () => {
         defaultSettings: {},
         runtimeSettings: {
           manualHotkeyBackend: "input_server",
-          manualHotkeyBackendReason: "wayland",
+          manualHotkeyBackendReason: "wayland-portal",
           manualHotkeyKeyboardAvailable: false,
           manualHotkeyKeyboardError: portalError,
         },
@@ -178,8 +178,13 @@ describe("overlay settings keyboard binding capture", () => {
       await nextTick();
 
       const backend = page.dom.window.document.getElementById("manualHotkeyBackendStatus");
+      const platformWarning = page.dom.window.document.getElementById("manual-hotkey-platform-warning") as HTMLElement;
       const warning = page.dom.window.document.getElementById("manual-hotkey-runtime-warning") as HTMLElement;
-      expect(backend?.textContent).toBe("Backend: Input Server (Wayland)");
+      expect(backend?.textContent).toBe("Backend: Input Server (Wayland portal)");
+      expect(platformWarning.textContent).toBe(
+        "Wayland hotkeys use the XDG GlobalShortcuts portal through the input server."
+      );
+      expect(platformWarning.style.display).toBe("block");
       expect(warning.textContent).toBe(portalError);
       expect(warning.style.display).toBe("block");
     } finally {

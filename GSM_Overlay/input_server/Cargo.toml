@@ -24,3 +24,4 @@ rdev = "0.5.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { version = "0.13.13", default-features = false, features = ["global_shortcuts", "tokio"] }
+x11rb = "0.13"

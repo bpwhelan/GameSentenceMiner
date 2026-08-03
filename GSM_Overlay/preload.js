@@ -1,5 +1,7 @@
 const { ipcRenderer } = require('electron');
-const { INTERACTIVE_ELEMENT_SELECTOR, buildShapeRects } = require('./overlay_shape');
+const xwaylandOverlayFeaturesEnabled = process.platform === 'linux' &&
+    process.env.GSM_OVERLAY_XWAYLAND_FEATURES_ACTIVE === '1';
+const overlayShape = xwaylandOverlayFeaturesEnabled ? require('./overlay_shape') : null;
 
 // https://stackoverflow.com/questions/74464771/how-to-implement-click-through-window-except-on-element-in-electron
 let isMouseOverInteractiveElement = false;
@@ -27,6 +29,9 @@ window.addEventListener('DOMContentLoaded', () => {
     
     // Make ipcRenderer available globally for the app
     window.ipcRenderer = ipcRenderer;
+
+    if (!xwaylandOverlayFeaturesEnabled) return;
+    const { INTERACTIVE_ELEMENT_SELECTOR, buildShapeRects } = overlayShape;
 
     // Interactive hit-test regions use DIP coordinates, which match renderer
     // CSS pixels at the default page zoom.

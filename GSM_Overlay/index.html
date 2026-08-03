@@ -1406,6 +1406,7 @@ background: rgba(202, 12, 12, 0.692);
   // Try to load OverlayUtils if available (since this is an Electron renderer process)
   let OverlayUtils;
   let FuriganaUtils;
+  let OverlayCoordinateMapping;
   let BlockDetection = window.GSMBlockDetection;
   try {
     OverlayUtils = require("./overlay_utils.js");
@@ -1535,6 +1536,7 @@ background: rgba(202, 12, 12, 0.692);
   const FURIGANA_LINE_CACHE_TTL_MS = 2500;
   const MAX_FURIGANA_LINE_CACHE_ENTRIES = 200;
   let lastFuriganaRenderSignature = null;
+  let lastFuriganaLayout = null;
   const furiganaLineCache = new Map();
   // Jiten SRS Highlighting state (mirror approach)
   let jitenHighlightingEnabled = true;
@@ -2382,6 +2384,7 @@ background: rgba(202, 12, 12, 0.692);
     clearFuriganaAutoHideTimer();
     furiganaAutoHidden = false;
     lastFuriganaRenderSignature = null;
+    lastFuriganaLayout = null;
     clearFuriganaLayer();
     updateFuriganaVisibilityState();
   }
@@ -2518,6 +2521,9 @@ background: rgba(202, 12, 12, 0.692);
   const overlaySocketUrls = { ws1: null, ws2: null };
   let overlayMessageProcessing = false;
   const pendingOverlayMessages = [];
+  let lastCoordinateOverlayFrame = [];
+  let coordinateOverlayFrameGeneration = 0;
+  let coordinateRemapScheduled = false;
 
   function setupWebSocket(weburl, isPrimary) {
     try {
@@ -2526,6 +2532,34 @@ background: rgba(202, 12, 12, 0.692);
     } catch (e) {
       console.warn("Websocket setup error:", e);
     }
+  }
+
+  function scheduleCoordinateOverlayRemap() {
+    if (!usesWindowRelativeCoordinateMapping() || lastCoordinateOverlayFrame.length === 0 || coordinateRemapScheduled) return;
+    const frame = lastCoordinateOverlayFrame.slice();
+    const frameGeneration = coordinateOverlayFrameGeneration;
+    coordinateRemapScheduled = true;
+    setTimeout(async () => {
+      coordinateRemapScheduled = false;
+      if (
+        frameGeneration !== coordinateOverlayFrameGeneration ||
+        frame.length === 0
+      ) return;
+      try {
+        // Recompose the complete base + supplemental frame, but bypass every
+        // new-text/IPC/state transition performed for websocket messages.
+        for (const entry of frame) {
+          if (frameGeneration !== coordinateOverlayFrameGeneration) return;
+          await handleOverlayWebSocketData(entry.rawData, {
+            layoutOnly: true,
+            recycledState: entry.recycledState,
+          });
+        }
+        rerenderCachedFuriganaLayout();
+      } catch (err) {
+        console.error("Overlay coordinate remap failed:", err);
+      }
+    }, 0);
   }
 
   async function processOverlayMessageQueue() {
@@ -2754,7 +2788,8 @@ background: rgba(202, 12, 12, 0.692);
     updateGamepadStatusIndicator();
   }
 
-  async function handleOverlayWebSocketData(rawData) {
+  async function handleOverlayWebSocketData(rawData, options = {}) {
+        const layoutOnly = options.layoutOnly === true;
         let data = rawData;
         try {
           data = JSON.parse(rawData);
@@ -2762,7 +2797,7 @@ background: rgba(202, 12, 12, 0.692);
           data = rawData;
         }
 
-        if (data.config) {
+        if (!layoutOnly && data.config) {
           ipcRenderer.send("config-received", data.config);
         }
 
@@ -2847,6 +2882,10 @@ background: rgba(202, 12, 12, 0.692);
         }
 
         if (data.type === "overlay_clear") {
+          if (usesWindowRelativeCoordinateMapping()) {
+            lastCoordinateOverlayFrame = [];
+            coordinateOverlayFrameGeneration += 1;
+          }
           clearTextBoxes();
           return;
         }
@@ -2862,14 +2901,27 @@ background: rgba(202, 12, 12, 0.692);
         if (data.type == "word_coordinates" && Array.isArray(data.data) && data.data.every(item => item.text && item.bounding_rect)) {
           renderedTextPayload = true;
           const isSupplemental = data.supplemental === true;
-          const isSentenceRecycled = resolvePendingSentenceRecycledState(data.line_id, data.is_sentence_recycled);
-          if (!isSupplemental) {
+          const isSentenceRecycled = layoutOnly
+            ? options.recycledState === true
+            : resolvePendingSentenceRecycledState(data.line_id, data.is_sentence_recycled);
+          if (!layoutOnly && usesWindowRelativeCoordinateMapping()) {
+            const frameEntry = { rawData, recycledState: isSentenceRecycled };
+            if (isSupplemental && lastCoordinateOverlayFrame.length > 0) {
+              lastCoordinateOverlayFrame.push(frameEntry);
+            } else {
+              lastCoordinateOverlayFrame = [frameEntry];
+            }
+            coordinateOverlayFrameGeneration += 1;
+          }
+          if (!layoutOnly && !isSupplemental) {
             setImmediateSentenceRecycled(isSentenceRecycled);
           }
           // Handle array of {text, bounding_rect}
-          ipcRenderer.send("text-received", data);
+          if (!layoutOnly) ipcRenderer.send("text-received", data);
 
-          const renderGeneration = isSupplemental ? overlayRenderGeneration : ++overlayRenderGeneration;
+          const renderGeneration = layoutOnly || isSupplemental
+            ? overlayRenderGeneration
+            : ++overlayRenderGeneration;
           
           // FIRST PASS: Detect blocks by "general area" (y-first with soft x guards)
           const {
@@ -3096,11 +3148,23 @@ background: rgba(202, 12, 12, 0.692);
               if (!keepNaturalSize && uniformExtentPercent > 0) {
                 const clampedStart = Math.max(0, Math.min(100 - uniformExtentPercent, uniformStartPercent));
                 if (isVertical) {
-                  lineWordBox.box.style.left = `${clampedStart + offsetX}%`;
-                  lineWordBox.box.style.width = `${uniformExtentPercent}%`;
+                  if (usesWindowRelativeCoordinateMapping()) {
+                    const rect = getViewportRectFromPercentBounds(clampedStart, lineWordBox.y1, clampedStart + uniformExtentPercent, lineWordBox.y3);
+                    lineWordBox.box.style.left = `${rect.left}px`;
+                    lineWordBox.box.style.width = `${rect.width}px`;
+                  } else {
+                    lineWordBox.box.style.left = `${clampedStart + offsetX}%`;
+                    lineWordBox.box.style.width = `${uniformExtentPercent}%`;
+                  }
                 } else {
-                  lineWordBox.box.style.top = `${clampedStart + offsetY}%`;
-                  lineWordBox.box.style.height = `${uniformExtentPercent}%`;
+                  if (usesWindowRelativeCoordinateMapping()) {
+                    const rect = getViewportRectFromPercentBounds(lineWordBox.x1, clampedStart, lineWordBox.x1, clampedStart + uniformExtentPercent);
+                    lineWordBox.box.style.top = `${rect.top}px`;
+                    lineWordBox.box.style.height = `${rect.height}px`;
+                  } else {
+                    lineWordBox.box.style.top = `${clampedStart + offsetY}%`;
+                    lineWordBox.box.style.height = `${uniformExtentPercent}%`;
+                  }
                 }
               }
             }
@@ -3134,10 +3198,18 @@ background: rgba(202, 12, 12, 0.692);
             if (isMagpieActive && currentMagpieInfo) {
               const iaPad = 2.0; // percentage points of padding each side
               bigInteractiveArea.style.position = 'absolute';
-              bigInteractiveArea.style.left   = `${origMinx - iaPad}%`;
-              bigInteractiveArea.style.top    = `${origMiny - iaPad}%`;
-              bigInteractiveArea.style.width  = `${(origMaxx - origMinx) + iaPad * 2}%`;
-              bigInteractiveArea.style.height = `${(origMaxy - origMiny) + iaPad * 2}%`;
+              if (usesWindowRelativeCoordinateMapping()) {
+                const interactiveRect = getViewportRectFromPercentBounds(origMinx - iaPad, origMiny - iaPad, origMaxx + iaPad, origMaxy + iaPad, { includeCalibration: false });
+                bigInteractiveArea.style.left = `${interactiveRect.left}px`;
+                bigInteractiveArea.style.top = `${interactiveRect.top}px`;
+                bigInteractiveArea.style.width = `${interactiveRect.width}px`;
+                bigInteractiveArea.style.height = `${interactiveRect.height}px`;
+              } else {
+                bigInteractiveArea.style.left   = `${origMinx - iaPad}%`;
+                bigInteractiveArea.style.top    = `${origMiny - iaPad}%`;
+                bigInteractiveArea.style.width  = `${(origMaxx - origMinx) + iaPad * 2}%`;
+                bigInteractiveArea.style.height = `${(origMaxy - origMiny) + iaPad * 2}%`;
+              }
             }
 
             document.body.appendChild(bigInteractiveArea);
@@ -3158,10 +3230,18 @@ background: rgba(202, 12, 12, 0.692);
             blockBox.style.position = "absolute";
             blockBox.style.pointerEvents = "none";
             blockBox.style.zIndex = "998";
-            blockBox.style.left = `${bounds.minx}%`;
-            blockBox.style.top = `${bounds.miny}%`;
-            blockBox.style.width = `${bounds.maxx - bounds.minx}%`;
-            blockBox.style.height = `${bounds.maxy - bounds.miny}%`;
+            if (usesWindowRelativeCoordinateMapping()) {
+              const indicatorRect = getViewportRectFromPercentBounds(bounds.minx, bounds.miny, bounds.maxx, bounds.maxy, { includeCalibration: false });
+              blockBox.style.left = `${indicatorRect.left}px`;
+              blockBox.style.top = `${indicatorRect.top}px`;
+              blockBox.style.width = `${indicatorRect.width}px`;
+              blockBox.style.height = `${indicatorRect.height}px`;
+            } else {
+              blockBox.style.left = `${bounds.minx}%`;
+              blockBox.style.top = `${bounds.miny}%`;
+              blockBox.style.width = `${bounds.maxx - bounds.minx}%`;
+              blockBox.style.height = `${bounds.maxy - bounds.miny}%`;
+            }
             applyIndicatorBoxStyles(blockBox);
             document.body.appendChild(blockBox);
           });
@@ -3187,8 +3267,14 @@ background: rgba(202, 12, 12, 0.692);
               indicator.style.textShadow = '0 0 4px rgba(0, 0, 0, 0.8), 0 0 8px rgba(255, 165, 0, 0.6)';
               indicator.style.opacity = '0.85';
               indicator.style.userSelect = 'none';
-              indicator.style.left = `${lastBlockBounds.minx}%`;
-              indicator.style.top = `${(lastBlockBounds.miny + lastBlockBounds.maxy) / 2}%`;
+              if (usesWindowRelativeCoordinateMapping()) {
+                const indicatorAnchor = getViewportRectFromPercentBounds(lastBlockBounds.minx, (lastBlockBounds.miny + lastBlockBounds.maxy) / 2, lastBlockBounds.minx, (lastBlockBounds.miny + lastBlockBounds.maxy) / 2, { includeCalibration: false });
+                indicator.style.left = `${indicatorAnchor.left}px`;
+                indicator.style.top = `${indicatorAnchor.top}px`;
+              } else {
+                indicator.style.left = `${lastBlockBounds.minx}%`;
+                indicator.style.top = `${(lastBlockBounds.miny + lastBlockBounds.maxy) / 2}%`;
+              }
               indicator.style.transform = 'translate(calc(-100% - 10px), -50%)';
 
               document.body.appendChild(indicator);
@@ -3207,7 +3293,7 @@ background: rgba(202, 12, 12, 0.692);
           // *before* the next paint, so hop through a 0ms timeout to land right
           // *after* it. The generation guard drops the work if a newer frame has
           // since arrived.
-          if (!isSupplemental) {
+          if (!layoutOnly && !isSupplemental) {
             const enrichmentGeneration = renderGeneration;
             const scheduleEnrichment = () => {
               if (enrichmentGeneration !== overlayRenderGeneration) {
@@ -3244,15 +3330,15 @@ background: rgba(202, 12, 12, 0.692);
           }
         }
 
-        if (renderedTextPayload && shouldShowReadyIndicator && !(data && data.supplemental)) {
+        if (!layoutOnly && renderedTextPayload && shouldShowReadyIndicator && !(data && data.supplemental)) {
           showReadyIndicator();
         }
-        if (manualMode && !manualHotkeyPressed) {
+        if (!layoutOnly && manualMode && !manualHotkeyPressed) {
           applyManualInactivePresentation('text-received-manual-inactive');
         }
 
-        ipcRenderer.send("text-received", data);
-        if (!manualModeActivatedOnce) {
+        if (!layoutOnly) ipcRenderer.send("text-received", data);
+        if (!layoutOnly && !manualModeActivatedOnce) {
           setMouseEventHandlers();
         }
   }
@@ -3272,10 +3358,18 @@ background: rgba(202, 12, 12, 0.692);
     textBox.textContent = text;
     textBox.classList.add('interactive');
     textBox.dataset.selectable = 'true';
-    textBox.style.left = `${x1 + offsetX}%`;
-    textBox.style.top = `${y1 + offsetY}%`;
-    textBox.style.width = `${x2 - x1}%`;
-    textBox.style.height = `${y2 - y1}%`;
+    if (usesWindowRelativeCoordinateMapping()) {
+      const rect = getViewportRectFromPercentBounds(x1, y1, x2, y2);
+      textBox.style.left = `${rect.left}px`;
+      textBox.style.top = `${rect.top}px`;
+      textBox.style.width = `${rect.width}px`;
+      textBox.style.height = `${rect.height}px`;
+    } else {
+      textBox.style.left = `${x1 + offsetX}%`;
+      textBox.style.top = `${y1 + offsetY}%`;
+      textBox.style.width = `${x2 - x1}%`;
+      textBox.style.height = `${y2 - y1}%`;
+    }
     textBox.style.display = 'flex';
     textBox.style.alignItems = 'center';
     textBox.style.justifyContent = 'center';
@@ -3307,10 +3401,18 @@ background: rgba(202, 12, 12, 0.692);
     textBox.className = 'nav-char-box';
     textBox.textContent = sentence;
     textBox.dataset.selectable = 'true';
-    textBox.style.left = `${x1 + offsetX}%`;
-    textBox.style.top = `${y1 + offsetY}%`;
-    textBox.style.width = `${x2 - x1}%`;
-    textBox.style.height = `${y2 - y1}%`;
+    if (usesWindowRelativeCoordinateMapping()) {
+      const rect = getViewportRectFromPercentBounds(x1, y1, x2, y2);
+      textBox.style.left = `${rect.left}px`;
+      textBox.style.top = `${rect.top}px`;
+      textBox.style.width = `${rect.width}px`;
+      textBox.style.height = `${rect.height}px`;
+    } else {
+      textBox.style.left = `${x1 + offsetX}%`;
+      textBox.style.top = `${y1 + offsetY}%`;
+      textBox.style.width = `${x2 - x1}%`;
+      textBox.style.height = `${y2 - y1}%`;
+    }
     textBox.style.fontSize = '48px';
     return textBox;
   }
@@ -3432,19 +3534,47 @@ background: rgba(202, 12, 12, 0.692);
     return units;
   }
 
-  function getViewportRectFromPercentBounds(x1, y1, x3, y3) {
-    const left = ((x1 + offsetX) / 100) * window.innerWidth;
-    const top = ((y1 + offsetY) / 100) * window.innerHeight;
-    const right = ((x3 + offsetX) / 100) * window.innerWidth;
-    const bottom = ((y3 + offsetY) / 100) * window.innerHeight;
-    return {
-      left,
-      top,
-      right,
-      bottom,
-      width: right - left,
-      height: bottom - top,
-    };
+  function usesWindowRelativeCoordinateMapping() {
+    const explicitlyEnabled = display?.xwaylandOverlayFeatures === true &&
+      display?.coordinateMapping === 'linux-x11-window';
+    if (explicitlyEnabled && !OverlayCoordinateMapping) {
+      try {
+        OverlayCoordinateMapping = require("./overlay_coordinate_mapping.js");
+      } catch (e) {
+        console.warn("Could not require overlay_coordinate_mapping.js:", e);
+      }
+    }
+    const selector = OverlayCoordinateMapping && OverlayCoordinateMapping.shouldUseWindowRelativeCoordinateMapping;
+    return typeof selector === 'function'
+      ? selector(display)
+      : false;
+  }
+
+  function getViewportRectFromPercentBounds(x1, y1, x3, y3, options = {}) {
+    const includeCalibration = options.includeCalibration !== false;
+    const mapper = OverlayCoordinateMapping && OverlayCoordinateMapping.mapPercentBoundsToViewport;
+    if (usesWindowRelativeCoordinateMapping() && typeof mapper === 'function') {
+      const mapped = mapper({
+        x1, y1, x3, y3,
+        offsetX: includeCalibration ? offsetX : 0,
+        offsetY: includeCalibration ? offsetY : 0,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        displayInfo: display,
+      });
+      if (mapped) return mapped;
+    }
+    const calibrationX = includeCalibration ? offsetX : 0;
+    const calibrationY = includeCalibration ? offsetY : 0;
+    const legacyMapper = OverlayCoordinateMapping && OverlayCoordinateMapping.getLegacyViewportRect;
+    if (typeof legacyMapper === 'function') {
+      return legacyMapper(
+        x1, y1, x3, y3,
+        calibrationX, calibrationY,
+        window.innerWidth, window.innerHeight
+      );
+    }
+    return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
   }
 
   function estimateFontSize(word, widthPercent, heightPercent, rect, isVerticalOverride = null) {
@@ -3456,9 +3586,13 @@ background: rgba(202, 12, 12, 0.692);
     if (rect && Number.isFinite(rect.height) && rect.height > 0 && Number.isFinite(rect.width) && rect.width > 0) {
       pixelHeight = rect.height;
       pixelWidth = rect.width;
-    } else {
+    } else if (!usesWindowRelativeCoordinateMapping()) {
       pixelHeight = (heightPercent / 100) * window.innerHeight;
       pixelWidth = (widthPercent / 100) * window.innerWidth;
+    } else {
+      const mappedRect = getViewportRectFromPercentBounds(0, 0, widthPercent, heightPercent, { includeCalibration: false });
+      pixelHeight = mappedRect.height;
+      pixelWidth = mappedRect.width;
     }
 
     if (pixelHeight <= 0 || pixelWidth <= 0) return 8;
@@ -3669,25 +3803,32 @@ background: rgba(202, 12, 12, 0.692);
       const endChar = annotationChars[annotationChars.length - 1];
       const minTop = Math.min(...annotationChars.map((char) => char.y1));
       const maxHeightPercent = Math.max(...annotationChars.map((char) => Math.max(0, char.y3 - char.y1)));
-      const baseFontSize = Math.max(8, Math.min(100, Math.round((maxHeightPercent / 100) * window.innerHeight)));
+      const useWindowRelativeCoordinates = usesWindowRelativeCoordinateMapping();
+      const furiganaRect = useWindowRelativeCoordinates
+        ? getViewportRectFromPercentBounds(startChar.x1, minTop, endChar.x3, minTop + maxHeightPercent)
+        : null;
+      const baseFontSize = Math.max(8, Math.min(100, Math.round(
+        useWindowRelativeCoordinates
+          ? furiganaRect.height
+          : (maxHeightPercent / 100) * window.innerHeight
+      )));
       const segmentWidth = Math.max(0.35, endChar.x3 - startChar.x1);
-
       const left = startChar.x1 + offsetX;
       const top = minTop + offsetY;
       const furiganaBox = document.createElement('div');
       furiganaBox.className = 'furigana-box';
-      furiganaBox.style.left = `${left}%`;
-      furiganaBox.style.top = `${top}%`;
-      furiganaBox.style.width = `${segmentWidth}%`;
+      furiganaBox.style.left = useWindowRelativeCoordinates ? `${furiganaRect.left}px` : `${left}%`;
+      furiganaBox.style.top = useWindowRelativeCoordinates ? `${furiganaRect.top}px` : `${top}%`;
+      furiganaBox.style.width = useWindowRelativeCoordinates ? `${furiganaRect.width}px` : `${segmentWidth}%`;
       furiganaBox.style.setProperty('--gsm-furigana-base-font-size', `${baseFontSize}px`);
       const toneColored = readingLanguage === 'chinese'
         && pinyinToneColorsEnabled
         && Array.isArray(annotation.parts)
         && annotation.parts.length > 0;
       furiganaBox._gsmRenderSignature = [
-        roundFuriganaSignatureValue(left),
-        roundFuriganaSignatureValue(top),
-        roundFuriganaSignatureValue(segmentWidth),
+        roundFuriganaSignatureValue(useWindowRelativeCoordinates ? furiganaRect.left : left),
+        roundFuriganaSignatureValue(useWindowRelativeCoordinates ? furiganaRect.top : top),
+        roundFuriganaSignatureValue(useWindowRelativeCoordinates ? furiganaRect.width : segmentWidth),
         String(Math.round(baseFontSize)),
         reading,
         toneColored ? `t:${annotation.parts.map((p) => p.tone).join(',')}` : '',
@@ -3787,6 +3928,13 @@ background: rgba(202, 12, 12, 0.692);
       return;
     }
 
+    if (usesWindowRelativeCoordinateMapping()) {
+      lastFuriganaLayout = { resolved, usesLocalReadings };
+    }
+    renderResolvedFuriganaLayout(resolved, usesLocalReadings);
+  }
+
+  function renderResolvedFuriganaLayout(resolved, usesLocalReadings) {
     const fragment = document.createDocumentFragment();
     let renderedCount = 0;
     const renderSignatureParts = [];
@@ -3826,6 +3974,14 @@ background: rgba(202, 12, 12, 0.692);
     }
     updateFuriganaVisibilityState();
     scheduleFuriganaAutoHide();
+  }
+
+  function rerenderCachedFuriganaLayout() {
+    if (!usesWindowRelativeCoordinateMapping() || !lastFuriganaLayout) return;
+    renderResolvedFuriganaLayout(
+      lastFuriganaLayout.resolved,
+      lastFuriganaLayout.usesLocalReadings
+    );
   }
 
   function isTextInMainBox(rect, mainBoxBounds) {
@@ -4364,7 +4520,10 @@ background: rgba(202, 12, 12, 0.692);
     workAreaAdjustment = (workAreaHeight / height - 1) * -1;
     console.log("Display info updated:", display);
     console.log(`Work area adjustment factor: ${workAreaAdjustment}`);
+    scheduleCoordinateOverlayRemap();
   });
+
+  window.addEventListener('resize', scheduleCoordinateOverlayRemap);
 
   // Unified settings update handler
   ipcRenderer.on("settings-updated", (event, updatedSettings) => {

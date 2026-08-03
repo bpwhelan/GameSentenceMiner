@@ -47,16 +47,33 @@ describe('hotkey routing', () => {
         ).toBe(false);
     });
 
-    it('forces input-server routing on Wayland without changing the stored value', () => {
+    it('forces input-server routing on GNOME Wayland without changing the stored value', () => {
         const settings = { routeAllHotkeysThroughInputServer: false };
 
         expect(
             isEffectiveInputServerHotkeyRouting(settings.routeAllHotkeysThroughInputServer, {
                 platform: 'linux',
-                env: { XDG_SESSION_TYPE: 'wayland' },
+                env: { XDG_SESSION_TYPE: 'wayland', XDG_CURRENT_DESKTOP: 'ubuntu:GNOME' },
             })
         ).toBe(true);
         expect(settings.routeAllHotkeysThroughInputServer).toBe(false);
+    });
+
+    it.each(['KDE', 'sway', 'Hyprland', 'COSMIC'])(
+        'does not force portal routing on untested %s Wayland',
+        (desktop) => {
+            expect(isEffectiveInputServerHotkeyRouting(false, {
+                platform: 'linux',
+                env: { XDG_SESSION_TYPE: 'wayland', XDG_CURRENT_DESKTOP: desktop },
+            })).toBe(false);
+        }
+    );
+
+    it('honors explicit input-server routing on another Wayland compositor', () => {
+        expect(isEffectiveInputServerHotkeyRouting(true, {
+            platform: 'linux',
+            env: { XDG_SESSION_TYPE: 'wayland', XDG_CURRENT_DESKTOP: 'KDE' },
+        })).toBe(true);
     });
 
     it.each([

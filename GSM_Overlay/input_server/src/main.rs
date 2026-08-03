@@ -26,6 +26,8 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex as StdMutex};
+#[cfg(target_os = "linux")]
+use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
 use std::thread;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 use sudachi::analysis::stateless_tokenizer::StatelessTokenizer;
@@ -38,15 +40,23 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{broadcast, mpsc, Mutex};
+#[cfg(target_os = "linux")]
+use tokio::sync::oneshot;
 use tokio::time;
 use tokio_tungstenite::{accept_async, connect_async, tungstenite::Message};
 use tracing::{debug, error, info, warn};
+#[cfg(target_os = "linux")]
+use x11rb::connection::Connection;
+#[cfg(target_os = "linux")]
+use x11rb::protocol::xproto::ConnectionExt as _;
+#[cfg(target_os = "linux")]
+use x11rb::rust_connection::RustConnection;
 use zip::ZipArchive;
 
 /// GSM shared input and high-performance services host (Rust)
 ///
-/// Gamepad input is the always-on baseline. Keyboard input and tokenizer
-/// backends are optional capabilities leased by connected GSM clients.
+/// Capabilities are opt-in: gamepad can be a command-line baseline, while
+/// keyboard and tokenizer backends are normally leased by connected clients.
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {
@@ -61,10 +71,13 @@ struct Args {
     #[arg(long)]
     port: Option<u16>,
 
-    /// Optional baseline capabilities to enable before clients connect.
-    /// Gamepad input is always enabled; other features are normally leased by clients.
+    /// Baseline capabilities to enable before clients connect.
     #[arg(long = "enable", value_delimiter = ',')]
     enable_features: Vec<String>,
+
+    /// Avoid starting the Gilrs input loop for a pointer-query-only instance.
+    #[arg(long)]
+    disable_gamepad: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -97,6 +110,12 @@ const DEFAULT_INPUT_SERVER_PORT: u16 = 7276;
 const WEBSOCKET_CHANNEL_CAPACITY: usize = 256;
 const WEBSOCKET_WRITER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 const MANUAL_HOTKEY_ACTION_ID: &str = "manual-show";
+#[cfg(target_os = "linux")]
+const X11_POINTER_RECONNECT_DELAY: Duration = Duration::from_secs(5);
+#[cfg(target_os = "linux")]
+const X11_POINTER_QUERY_TIMEOUT: Duration = Duration::from_millis(250);
+#[cfg(target_os = "linux")]
+const POINTER_QUERY_PROTOCOL_VERSION: u8 = 3;
 #[cfg(target_os = "linux")]
 const MANUAL_PORTAL_SHORTCUT_ID: &str = "gsm:manual-show";
 #[cfg(target_os = "linux")]
@@ -1876,6 +1895,19 @@ enum ClientMsg {
     #[serde(rename = "get_state")]
     GetState,
 
+    /// Return the X root-window cursor position. This is intentionally a
+    /// request/response rather than a broadcast because an ignored Electron X11
+    /// window does not receive pointer events and its cursor cache goes stale.
+    #[serde(rename = "query_pointer")]
+    QueryPointer {
+        #[serde(default, rename = "requestId")]
+        request_id: Option<u64>,
+    },
+
+    /// Opt this websocket connection into the XWayland-only protocol surface.
+    #[serde(rename = "enable_xwayland_overlay_features")]
+    EnableXwaylandOverlayFeatures,
+
     /// Replace this connection's optional-capability lease. Leases from other
     /// clients remain active and are released automatically on disconnect.
     #[serde(rename = "configure_features")]
@@ -1975,6 +2007,208 @@ struct AppHotkeyConfig {
     id: String,
     #[serde(default)]
     hotkey: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PointerPosition {
+    x: i32,
+    y: i32,
+}
+
+fn pointer_position_payload(position: Option<PointerPosition>, request_id: Option<u64>) -> Value {
+    let mut payload = match position {
+        Some(position) => {
+            json!({
+                "type": "pointer_position",
+                "x": position.x,
+                "y": position.y,
+                "ok": true,
+            })
+        }
+        None => json!({
+            "type": "pointer_position",
+            "ok": false,
+        }),
+    };
+    if let Some(request_id) = request_id {
+        payload["requestId"] = Value::from(request_id);
+    }
+    payload
+}
+
+#[cfg(target_os = "linux")]
+struct X11PointerQuery {
+    display_available: bool,
+    connection: Option<RustConnection>,
+    screen_num: usize,
+    reconnect_after: Option<Instant>,
+}
+
+#[cfg(target_os = "linux")]
+impl X11PointerQuery {
+    fn new() -> Self {
+        Self {
+            display_available: std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty()),
+            connection: None,
+            screen_num: 0,
+            reconnect_after: None,
+        }
+    }
+
+    fn mark_unavailable(&mut self, reason: impl std::fmt::Display) {
+        warn!("X11 pointer query unavailable: {reason}");
+        self.connection = None;
+        self.reconnect_after = Some(Instant::now() + X11_POINTER_RECONNECT_DELAY);
+    }
+
+    fn query(&mut self) -> Option<PointerPosition> {
+        if !self.display_available {
+            return None;
+        }
+        if let Some(reconnect_after) = self.reconnect_after {
+            if Instant::now() < reconnect_after {
+                return None;
+            }
+            self.reconnect_after = None;
+        }
+        if self.connection.is_none() {
+            match RustConnection::connect(None) {
+                Ok((connection, screen_num)) => {
+                    self.connection = Some(connection);
+                    self.screen_num = screen_num;
+                }
+                Err(error) => {
+                    self.mark_unavailable(error);
+                    return None;
+                }
+            }
+        }
+
+        let query_result: Result<PointerPosition, String> = (|| {
+            let connection = self
+                .connection
+                .as_ref()
+                .ok_or_else(|| "X11 connection disappeared before query".to_string())?;
+            let screen = connection
+                .setup()
+                .roots
+                .get(self.screen_num)
+                .ok_or_else(|| format!("X server has no root screen at index {}", self.screen_num))?;
+            // QueryPointer encodes root coordinates as signed INT16. Refuse a
+            // virtual root wider/taller than that wire range instead of using a
+            // wrapped cursor position on an unusually wide desktop.
+            if screen.width_in_pixels > i16::MAX as u16
+                || screen.height_in_pixels > i16::MAX as u16
+            {
+                return Err(format!(
+                    "X root {}x{} exceeds QueryPointer INT16 coordinates",
+                    screen.width_in_pixels, screen.height_in_pixels
+                ));
+            }
+            let root = screen.root;
+            let cookie = connection.query_pointer(root).map_err(|error| error.to_string())?;
+            let reply = cookie.reply().map_err(|error| error.to_string())?;
+            pointer_position_from_x11_reply(reply.same_screen, reply.root_x, reply.root_y)
+                .ok_or_else(|| "X pointer is on a different screen".to_string())
+        })();
+        match query_result {
+            Ok(position) => Some(position),
+            Err(error) => {
+                self.mark_unavailable(error);
+                None
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn pointer_position_from_x11_reply(
+    same_screen: bool,
+    root_x: i16,
+    root_y: i16,
+) -> Option<PointerPosition> {
+    same_screen.then_some(PointerPosition {
+        x: i32::from(root_x),
+        y: i32::from(root_y),
+    })
+}
+
+#[cfg(target_os = "linux")]
+struct X11PointerRequest {
+    response: oneshot::Sender<Option<PointerPosition>>,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone)]
+struct X11PointerService {
+    sender: Arc<StdMutex<Option<SyncSender<X11PointerRequest>>>>,
+}
+
+#[cfg(target_os = "linux")]
+impl X11PointerService {
+    fn new() -> Self {
+        Self {
+            sender: Arc::new(StdMutex::new(None)),
+        }
+    }
+
+    fn get_or_start_sender(&self) -> Option<SyncSender<X11PointerRequest>> {
+        let mut sender_slot = self.sender.lock().expect("X11 pointer service mutex poisoned");
+        if let Some(existing) = sender_slot.as_ref() {
+            return Some(existing.clone());
+        }
+        let (channel_sender, receiver) = sync_channel::<X11PointerRequest>(1);
+        if let Err(error) = thread::Builder::new()
+            .name("gsm-x11-pointer".to_owned())
+            .spawn(move || {
+                // This thread intentionally owns all blocking X11 I/O. A wedged
+                // X server only consumes this worker; the bounded request queue
+                // lets websocket clients time out and degrade independently.
+                let mut query = X11PointerQuery::new();
+                while let Ok(request) = receiver.recv() {
+                    let _ = request.response.send(query.query());
+                }
+            })
+        {
+            error!("failed to start X11 pointer worker: {error}");
+            return None;
+        }
+        *sender_slot = Some(channel_sender.clone());
+        Some(channel_sender)
+    }
+
+    async fn query(&self) -> Option<PointerPosition> {
+        let sender = self.get_or_start_sender()?;
+        let (response_tx, response_rx) = oneshot::channel();
+        match sender.try_send(X11PointerRequest { response: response_tx }) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => return None,
+            Err(TrySendError::Disconnected(_)) => {
+                *self.sender.lock().expect("X11 pointer service mutex poisoned") = None;
+                return None;
+            }
+        }
+        time::timeout(X11_POINTER_QUERY_TIMEOUT, response_rx)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .flatten()
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+#[derive(Clone)]
+struct X11PointerService;
+
+#[cfg(not(target_os = "linux"))]
+impl X11PointerService {
+    fn new() -> Self {
+        Self
+    }
+
+    async fn query(&self) -> Option<PointerPosition> {
+        None
+    }
 }
 
 fn normalize_stick(v: f32, deadzone: f32) -> f32 {
@@ -2682,13 +2916,25 @@ async fn furigana_via_sudachi(
 
 // ------------------------------ Websocket ------------------------------------
 
-fn service_info_payload(features: &FeatureRegistry) -> Value {
-    json!({
+fn service_info_payload(features: &FeatureRegistry, xwayland_overlay_features_active: bool) -> Value {
+    let payload = json!({
         "type": "service_info",
         "service": "gsm_input_service",
         "protocolVersion": PROTOCOL_VERSION,
         "features": features.snapshot(),
-    })
+    });
+    #[cfg(target_os = "linux")]
+    {
+        let mut payload = payload;
+        if xwayland_overlay_features_active {
+            payload["pointerQueryProtocolVersion"] = Value::from(POINTER_QUERY_PROTOCOL_VERSION);
+        }
+        payload
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        payload
+    }
 }
 
 fn feature_status_payload(features: &FeatureRegistry) -> Value {
@@ -2752,6 +2998,7 @@ async fn trigger_running_server(
     .map_err(|_| "timed out waiting for the input server trigger reply".to_string())?
 }
 
+#[derive(Clone)]
 struct WebsocketSender(mpsc::Sender<Message>);
 
 impl WebsocketSender {
@@ -2808,6 +3055,8 @@ async fn handle_socket(
     features: FeatureRegistry,
     portal_rebind: Option<mpsc::UnboundedSender<()>>,
     portal_bind_state: SharedPortalBindState,
+    x11_pointer_query: X11PointerService,
+    xwayland_overlay_features_active: bool,
 ) {
     let ws = match accept_async(stream).await {
         Ok(ws) => ws,
@@ -2857,7 +3106,9 @@ async fn handle_socket(
     let mut broadcast_forwarder = None;
 
     if ws_sink
-        .send(Message::Text(service_info_payload(&features).to_string()))
+        .send(Message::Text(
+            service_info_payload(&features, xwayland_overlay_features_active).to_string(),
+        ))
         .await
         .is_err()
     {
@@ -2958,8 +3209,8 @@ async fn handle_socket(
     // and never sends the "off" message — otherwise the server could be left
     // broadcasting every keystroke.
     let mut enabled_capture_all = false;
+    let mut xwayland_overlay_features_enabled = xwayland_overlay_features_active;
     let feature_client_id = features.register_client();
-
     loop {
             let m = inbound_rx.recv().await;
                 match m {
@@ -2971,7 +3222,13 @@ async fn handle_socket(
                             }
                             Ok(ClientMsg::GetServiceInfo) => {
                                 if ws_sink
-                                    .send(Message::Text(service_info_payload(&features).to_string()))
+                                    .send(Message::Text(
+                                        service_info_payload(
+                                            &features,
+                                            xwayland_overlay_features_enabled,
+                                        )
+                                        .to_string(),
+                                    ))
                                     .await
                                     .is_err()
                                 {
@@ -2999,6 +3256,35 @@ async fn handle_socket(
                                         break;
                                     }
                                 }
+                            }
+                            Ok(ClientMsg::EnableXwaylandOverlayFeatures) => {
+                                xwayland_overlay_features_enabled = true;
+                                if ws_sink
+                                    .send(Message::Text(
+                                        service_info_payload(&features, true).to_string(),
+                                    ))
+                                    .await
+                                    .is_err()
+                                {
+                                    break;
+                                }
+                            }
+                            Ok(ClientMsg::QueryPointer { request_id }) => {
+                                if !xwayland_overlay_features_enabled {
+                                    continue;
+                                }
+                                // X11 I/O runs on its own bounded worker. A wedged display
+                                // cannot block this connection's inbound message loop.
+                                let pointer_query = x11_pointer_query.clone();
+                                let pointer_sink = ws_sink.clone();
+                                tokio::spawn(async move {
+                                    let position = pointer_query.query().await;
+                                    let _ = pointer_sink
+                                        .send(Message::Text(
+                                            pointer_position_payload(position, request_id).to_string(),
+                                        ))
+                                        .await;
+                                });
                             }
                             Ok(ClientMsg::ConfigureFeatures { features: requested }) => {
                                 let keyboard_was_enabled =
@@ -3276,6 +3562,8 @@ async fn websocket_server(
     features: FeatureRegistry,
     portal_rebind: Option<mpsc::UnboundedSender<()>>,
     portal_bind_state: SharedPortalBindState,
+    x11_pointer_query: X11PointerService,
+    xwayland_overlay_features_active: bool,
 ) {
     let listener = TcpListener::bind(bind).await.expect("bind failed");
     info!("server running at ws://{bind}");
@@ -3306,6 +3594,8 @@ async fn websocket_server(
             features.clone(),
             portal_rebind.clone(),
             portal_bind_state.clone(),
+            x11_pointer_query.clone(),
+            xwayland_overlay_features_active,
         ));
     }
 }
@@ -3742,6 +4032,83 @@ fn should_retry_portal_error(error: &ashpd::Error) -> bool {
     !matches!(error, ashpd::Error::Response(_))
 }
 
+const PORTAL_RETRY_INITIAL_DELAY: Duration = Duration::from_secs(1);
+const PORTAL_RETRY_MAX_DELAY: Duration = Duration::from_secs(60);
+
+fn next_portal_retry_delay(current_delay: Duration) -> Duration {
+    current_delay
+        .checked_mul(2)
+        .unwrap_or(PORTAL_RETRY_MAX_DELAY)
+        .min(PORTAL_RETRY_MAX_DELAY)
+}
+
+fn should_log_portal_failure(previous_message: Option<&str>, message: &str) -> bool {
+    previous_message != Some(message)
+}
+
+struct PortalRetryBackoff {
+    next_delay: Duration,
+    last_failure_message: Option<String>,
+}
+
+impl PortalRetryBackoff {
+    fn new() -> Self {
+        Self {
+            next_delay: PORTAL_RETRY_INITIAL_DELAY,
+            last_failure_message: None,
+        }
+    }
+
+    fn take_delay(&mut self) -> Duration {
+        let delay = self.next_delay;
+        self.next_delay = next_portal_retry_delay(delay);
+        delay
+    }
+
+    fn reset_after_success(&mut self) {
+        self.next_delay = PORTAL_RETRY_INITIAL_DELAY;
+        self.last_failure_message = None;
+    }
+
+    fn reset_after_rebind(&mut self) {
+        self.next_delay = PORTAL_RETRY_INITIAL_DELAY;
+    }
+
+    fn should_log_failure(&mut self, message: &str) -> bool {
+        let should_log = should_log_portal_failure(self.last_failure_message.as_deref(), message);
+        if should_log {
+            self.last_failure_message = Some(message.to_owned());
+        }
+        should_log
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn log_portal_failure(backoff: &mut PortalRetryBackoff, message: &str) {
+    if backoff.should_log_failure(message) {
+        warn!("{message}");
+    }
+}
+
+#[cfg(target_os = "linux")]
+async fn wait_for_portal_retry(
+    backoff: &mut PortalRetryBackoff,
+    rebind_rx: &mut mpsc::UnboundedReceiver<()>,
+) -> bool {
+    let delay = backoff.take_delay();
+    tokio::select! {
+        _ = time::sleep(delay) => true,
+        update = rebind_rx.recv() => {
+            if update.is_none() {
+                return false;
+            }
+            while rebind_rx.try_recv().is_ok() {}
+            backoff.reset_after_rebind();
+            true
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 async fn wayland_portal_hotkey_loop(
     tx: broadcast::Sender<String>,
@@ -3753,18 +4120,26 @@ async fn wayland_portal_hotkey_loop(
 ) {
     let mut portal_connection = None;
     let mut pending_rebind = true;
+    let mut retry_backoff = PortalRetryBackoff::new();
     'updates: loop {
         if !pending_rebind {
             if rebind_rx.recv().await.is_none() {
                 return;
             }
+            retry_backoff.reset_after_rebind();
         }
         pending_rebind = false;
 
         // Electron sends the manual and app configurations back-to-back. Give
         // that burst a moment to settle so one approval dialog contains both.
         time::sleep(Duration::from_millis(100)).await;
-        while rebind_rx.try_recv().is_ok() {}
+        let mut received_rebind = false;
+        while rebind_rx.try_recv().is_ok() {
+            received_rebind = true;
+        }
+        if received_rebind {
+            retry_backoff.reset_after_rebind();
+        }
 
         if !features.is_enabled(ServiceFeature::Keyboard) {
             publish_portal_bind_state(&portal_bind_state, &tx, false, false);
@@ -3790,7 +4165,7 @@ async fn wayland_portal_hotkey_loop(
                 Err(err) => {
                     publish_portal_bind_state(&portal_bind_state, &tx, false, false);
                     let message = portal_error_message(err, port);
-                    warn!("{message}");
+                    log_portal_failure(&mut retry_backoff, &message);
                     set_manual_hotkey_listener_status(
                         &manual_hotkey,
                         &tx,
@@ -3798,7 +4173,9 @@ async fn wayland_portal_hotkey_loop(
                         Some(message),
                     );
                     pending_rebind = true;
-                    time::sleep(Duration::from_secs(1)).await;
+                    if !wait_for_portal_retry(&mut retry_backoff, &mut rebind_rx).await {
+                        return;
+                    }
                     continue;
                 }
             };
@@ -3813,7 +4190,7 @@ async fn wayland_portal_hotkey_loop(
             Err(err) => {
                 publish_portal_bind_state(&portal_bind_state, &tx, false, false);
                 let message = portal_error_message(err, port);
-                warn!("{message}");
+                log_portal_failure(&mut retry_backoff, &message);
                 set_manual_hotkey_listener_status(
                     &manual_hotkey,
                     &tx,
@@ -3822,7 +4199,9 @@ async fn wayland_portal_hotkey_loop(
                 );
                 portal_connection = None;
                 pending_rebind = true;
-                time::sleep(Duration::from_secs(1)).await;
+                if !wait_for_portal_retry(&mut retry_backoff, &mut rebind_rx).await {
+                    return;
+                }
                 continue;
             }
         };
@@ -3831,7 +4210,7 @@ async fn wayland_portal_hotkey_loop(
             Err(err) => {
                 publish_portal_bind_state(&portal_bind_state, &tx, false, false);
                 let message = portal_error_message(err, port);
-                warn!("{message}");
+                log_portal_failure(&mut retry_backoff, &message);
                 set_manual_hotkey_listener_status(
                     &manual_hotkey,
                     &tx,
@@ -3840,7 +4219,9 @@ async fn wayland_portal_hotkey_loop(
                 );
                 portal_connection = None;
                 pending_rebind = true;
-                time::sleep(Duration::from_secs(1)).await;
+                if !wait_for_portal_retry(&mut retry_backoff, &mut rebind_rx).await {
+                    return;
+                }
                 continue;
             }
         };
@@ -3849,7 +4230,7 @@ async fn wayland_portal_hotkey_loop(
             Err(err) => {
                 publish_portal_bind_state(&portal_bind_state, &tx, false, false);
                 let message = portal_error_message(err, port);
-                warn!("{message}");
+                log_portal_failure(&mut retry_backoff, &message);
                 set_manual_hotkey_listener_status(
                     &manual_hotkey,
                     &tx,
@@ -3858,7 +4239,9 @@ async fn wayland_portal_hotkey_loop(
                 );
                 portal_connection = None;
                 pending_rebind = true;
-                time::sleep(Duration::from_secs(1)).await;
+                if !wait_for_portal_retry(&mut retry_backoff, &mut rebind_rx).await {
+                    return;
+                }
                 continue;
             }
         };
@@ -3867,7 +4250,7 @@ async fn wayland_portal_hotkey_loop(
             Err(err) => {
                 publish_portal_bind_state(&portal_bind_state, &tx, false, false);
                 let message = portal_error_message(err, port);
-                warn!("{message}");
+                log_portal_failure(&mut retry_backoff, &message);
                 set_manual_hotkey_listener_status(
                     &manual_hotkey,
                     &tx,
@@ -3876,7 +4259,9 @@ async fn wayland_portal_hotkey_loop(
                 );
                 portal_connection = None;
                 pending_rebind = true;
-                time::sleep(Duration::from_secs(1)).await;
+                if !wait_for_portal_retry(&mut retry_backoff, &mut rebind_rx).await {
+                    return;
+                }
                 continue;
             }
         };
@@ -3914,6 +4299,7 @@ async fn wayland_portal_hotkey_loop(
                                 updates_closed = true;
                                 break None;
                             }
+                            retry_backoff.reset_after_rebind();
 
                             time::sleep(Duration::from_millis(100)).await;
                             while rebind_rx.try_recv().is_ok() {}
@@ -3973,7 +4359,7 @@ async fn wayland_portal_hotkey_loop(
                     let _ = session.close().await;
                     let retry = should_retry_portal_error(&err);
                     let message = portal_error_message(err, port);
-                    warn!("{message}");
+                    log_portal_failure(&mut retry_backoff, &message);
                     set_manual_hotkey_listener_status(
                         &manual_hotkey,
                         &tx,
@@ -3984,8 +4370,8 @@ async fn wayland_portal_hotkey_loop(
                     // registration. Rebuild and re-register before retrying.
                     portal_connection = None;
                     pending_rebind = retry;
-                    if retry {
-                        time::sleep(Duration::from_secs(1)).await;
+                    if retry && !wait_for_portal_retry(&mut retry_backoff, &mut rebind_rx).await {
+                        return;
                     }
                     continue;
                 }
@@ -4008,7 +4394,7 @@ async fn wayland_portal_hotkey_loop(
                     "the portal did not bind action(s): {}",
                     missing.join(", ")
                 ), port);
-                warn!("{message}");
+                log_portal_failure(&mut retry_backoff, &message);
                 set_manual_hotkey_listener_status(
                     &manual_hotkey,
                     &tx,
@@ -4023,6 +4409,7 @@ async fn wayland_portal_hotkey_loop(
         }
         let last_successful_binding_signature = binding_signature;
 
+        retry_backoff.reset_after_success();
         info!("Wayland GlobalShortcuts portal initialized");
         set_manual_hotkey_listener_status(
             &manual_hotkey,
@@ -4042,7 +4429,7 @@ async fn wayland_portal_hotkey_loop(
                     ),
                     None => {
                         let message = portal_error_message("the Activated signal stream ended", port);
-                        warn!("{message}");
+                        log_portal_failure(&mut retry_backoff, &message);
                         release_active_hotkeys(&tx, &manual_hotkey);
                         set_manual_hotkey_listener_status(
                             &manual_hotkey,
@@ -4062,7 +4449,7 @@ async fn wayland_portal_hotkey_loop(
                     ),
                     None => {
                         let message = portal_error_message("the Deactivated signal stream ended", port);
-                        warn!("{message}");
+                        log_portal_failure(&mut retry_backoff, &message);
                         release_active_hotkeys(&tx, &manual_hotkey);
                         set_manual_hotkey_listener_status(
                             &manual_hotkey,
@@ -4079,6 +4466,7 @@ async fn wayland_portal_hotkey_loop(
                         let _ = session.close().await;
                         return;
                     }
+                    retry_backoff.reset_after_rebind();
 
                     // Coalesce the configuration burst, then compare the effective,
                     // normalized portal bindings before disturbing the live session.
@@ -4127,7 +4515,9 @@ async fn wayland_portal_hotkey_loop(
         publish_portal_bind_state(&portal_bind_state, &tx, false, false);
         portal_connection = None;
         pending_rebind = true;
-        time::sleep(Duration::from_secs(1)).await;
+        if !wait_for_portal_retry(&mut retry_backoff, &mut rebind_rx).await {
+            return;
+        }
     }
 }
 
@@ -4301,7 +4691,13 @@ async fn main() {
         return;
     }
     let wayland = is_wayland_session();
-    let features = FeatureRegistry::new(baseline_features_from_args(&args.enable_features));
+    let xwayland_overlay_features_active =
+        std::env::var("GSM_OVERLAY_XWAYLAND_FEATURES_ACTIVE").as_deref() == Ok("1");
+    let mut baseline_features = baseline_features_from_args(&args.enable_features);
+    if !args.disable_gamepad {
+        baseline_features.push(ServiceFeature::Gamepad);
+    }
+    let features = FeatureRegistry::new(baseline_features);
     let bind: SocketAddr = format!("{}:{}", args.host, input_server_port(args.port))
         .parse()
         .expect("invalid bind addr");
@@ -4332,6 +4728,9 @@ async fn main() {
         ..ManualHotkeyState::default()
     }));
     let portal_bind_state = Arc::new(StdMutex::new(PortalBindState::default()));
+    // Do not connect until the first query: the daemon also runs on Wayland and
+    // headless sessions, where DISPLAY may be unset or unusable.
+    let x11_pointer_query = X11PointerService::new();
 
     let cfg = Config::default();
 
@@ -4371,6 +4770,8 @@ async fn main() {
         features.clone(),
         portal_rebind,
         portal_bind_state,
+        x11_pointer_query,
+        xwayland_overlay_features_active,
     ));
     tokio::spawn(axis_repeat_loop(
         tx.clone(),
@@ -4388,8 +4789,9 @@ async fn main() {
     ));
     tokio::spawn(sudachi_idle_unload_loop(sudachi));
 
-    // Gilrs input loop runs on a dedicated OS thread (Gilrs isn't Send).
-    {
+    // Gilrs input loop runs on a dedicated OS thread (Gilrs isn't Send), but
+    // do not start it for pointer-only/hotkey-only service instances.
+    if features.is_enabled(ServiceFeature::Gamepad) {
         let tx2 = tx.clone();
         let device_blacklist2 = device_blacklist.clone();
         let cfg2 = cfg.clone();
@@ -4423,6 +4825,66 @@ mod tests {
                 "io.github.bpwhelan.GameSentenceMiner",
             ]
         );
+    }
+
+    #[test]
+    fn portal_retry_delay_doubles_and_caps_at_one_minute() {
+        let mut backoff = PortalRetryBackoff::new();
+        let delays = (0..8)
+            .map(|_| backoff.take_delay())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            delays,
+            vec![
+                Duration::from_secs(1),
+                Duration::from_secs(2),
+                Duration::from_secs(4),
+                Duration::from_secs(8),
+                Duration::from_secs(16),
+                Duration::from_secs(32),
+                Duration::from_secs(60),
+                Duration::from_secs(60),
+            ]
+        );
+        assert_eq!(
+            next_portal_retry_delay(Duration::from_secs(60)),
+            Duration::from_secs(60)
+        );
+    }
+
+    #[test]
+    fn portal_retry_delay_resets_after_success_and_rebind() {
+        let mut backoff = PortalRetryBackoff::new();
+        assert_eq!(backoff.take_delay(), Duration::from_secs(1));
+        assert_eq!(backoff.take_delay(), Duration::from_secs(2));
+        assert!(backoff.should_log_failure("portal unavailable"));
+
+        backoff.reset_after_success();
+        assert_eq!(backoff.take_delay(), Duration::from_secs(1));
+        assert!(backoff.should_log_failure("portal unavailable"));
+
+        assert_eq!(backoff.take_delay(), Duration::from_secs(2));
+        backoff.reset_after_rebind();
+        assert_eq!(backoff.take_delay(), Duration::from_secs(1));
+    }
+
+    #[test]
+    fn portal_retry_logs_only_new_failure_messages() {
+        assert!(should_log_portal_failure(None, "portal unavailable"));
+        assert!(!should_log_portal_failure(
+            Some("portal unavailable"),
+            "portal unavailable"
+        ));
+        assert!(should_log_portal_failure(
+            Some("portal unavailable"),
+            "portal connection closed"
+        ));
+
+        let mut backoff = PortalRetryBackoff::new();
+        assert!(backoff.should_log_failure("portal unavailable"));
+        assert!(!backoff.should_log_failure("portal unavailable"));
+        assert!(backoff.should_log_failure("portal connection closed"));
     }
 
     #[test]
@@ -4494,6 +4956,80 @@ mod tests {
             }
             _ => panic!("expected tokenization request"),
         }
+    }
+
+    #[test]
+    fn pointer_query_protocol_deserializes_and_formats_success_and_fallback() {
+        let message = serde_json::from_str::<ClientMsg>(r#"{"type":"query_pointer"}"#)
+            .expect("pointer request should deserialize");
+        assert!(matches!(message, ClientMsg::QueryPointer { request_id: None }));
+        let enable = serde_json::from_str::<ClientMsg>(
+            r#"{"type":"enable_xwayland_overlay_features"}"#,
+        )
+        .expect("XWayland capability opt-in should deserialize");
+        assert!(matches!(
+            enable,
+            ClientMsg::EnableXwaylandOverlayFeatures
+        ));
+        assert_eq!(
+            pointer_position_payload(Some(PointerPosition {
+                x: 1447,
+                y: 390,
+            }), Some(17)),
+            json!({"type":"pointer_position","x":1447,"y":390,"ok":true,"requestId":17})
+        );
+        assert_eq!(
+            pointer_position_payload(None, Some(18)),
+            json!({"type":"pointer_position","ok":false,"requestId":18})
+        );
+        let features = FeatureRegistry::new([]);
+        #[cfg(target_os = "linux")]
+        assert_eq!(
+            service_info_payload(&features, true)["pointerQueryProtocolVersion"],
+            json!(3)
+        );
+        #[cfg(not(target_os = "linux"))]
+        assert!(service_info_payload(&features, true)
+            .get("pointerQueryProtocolVersion")
+            .is_none());
+        assert!(service_info_payload(&features, false)
+            .get("pointerQueryProtocolVersion")
+            .is_none());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn x11_pointer_rejects_other_screen_coordinates() {
+        assert_eq!(
+            pointer_position_from_x11_reply(false, 123, 456),
+            None
+        );
+        assert_eq!(
+            pointer_position_from_x11_reply(true, -12, 34),
+            Some(PointerPosition {
+                x: -12,
+                y: 34,
+            })
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn x11_query_without_display_degrades_without_panicking() {
+        let mut query = X11PointerQuery {
+            display_available: false,
+            connection: None,
+            screen_num: 0,
+            reconnect_after: None,
+        };
+        assert_eq!(query.query(), None);
+    }
+
+    #[test]
+    fn unknown_protocol_messages_remain_ignored() {
+        let message = serde_json::from_str::<ClientMsg>(r#"{"type":"future_message"}"#)
+            .expect("unknown request should deserialize");
+        assert!(matches!(message, ClientMsg::Unknown));
     }
 
     #[test]

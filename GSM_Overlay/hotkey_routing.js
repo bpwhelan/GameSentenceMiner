@@ -10,8 +10,19 @@ function isWaylandSession(options = {}) {
   return sessionType === "wayland" || waylandDisplay.length > 0;
 }
 
+function isGnomeWaylandSession(options = {}) {
+  if (!isWaylandSession(options)) return false;
+  const env = options.env || process.env;
+  const desktopIdentity = [
+    env.XDG_CURRENT_DESKTOP,
+    env.DESKTOP_SESSION,
+    env.GNOME_DESKTOP_SESSION_ID,
+  ].filter(Boolean).join(":").toLowerCase();
+  return desktopIdentity.includes("gnome");
+}
+
 function isEffectiveInputServerHotkeyRouting(storedSetting, options = {}) {
-  return storedSetting === true || isWaylandSession(options);
+  return storedSetting === true || isGnomeWaylandSession(options);
 }
 
 module.exports = {

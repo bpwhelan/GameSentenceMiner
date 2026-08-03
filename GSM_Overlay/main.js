@@ -34,7 +34,11 @@ const {
   isEffectiveInputServerHotkeyRouting,
   isWaylandSession,
 } = require('./hotkey_routing');
-const { resolveLinuxOzonePlatform, resolveLinuxOzoneRelaunch } = require('./overlay_platform');
+const {
+  isXWaylandOverlayEnvironment,
+  resolveLinuxOzonePlatform,
+  resolveLinuxOzoneRelaunch,
+} = require('./overlay_platform');
 const { createPortalBindPendingTracker } = require('./portal_bind_state');
 const { shouldIgnoreOverlayMouseEvents } = require('./overlay_shape');
 const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./automatic_visibility');
@@ -67,6 +71,49 @@ const linuxOzonePlatform = resolveLinuxOzonePlatform({
   electronVersion: process.versions.electron,
   forceX11OnWayland: !IN_PROCESS_OVERLAY && !overlayLoadedAfterAppReady,
 });
+const xwaylandOverlayFeaturesEnabled = isXWaylandOverlayEnvironment({
+  platform: process.platform,
+  env: process.env,
+  ozonePlatform: linuxOzonePlatform.platform,
+});
+process.env.GSM_OVERLAY_XWAYLAND_FEATURES_ACTIVE = xwaylandOverlayFeaturesEnabled ? '1' : '0';
+// Keep all new compatibility modules out of the base load path. This is more
+// than a runtime no-op: packaging/loading regressions cannot affect gate-false
+// environments.
+const linuxX11PointerHelpers = xwaylandOverlayFeaturesEnabled
+  ? require('./linux_x11_pointer')
+  : null;
+const createLinuxX11BoundsRepairController = xwaylandOverlayFeaturesEnabled
+  ? require('./linux_x11_bounds_repair').createLinuxX11BoundsRepairController
+  : null;
+const getOverlayWindowBoundsForCapability = xwaylandOverlayFeaturesEnabled
+  ? require('./overlay_window_bounds').getOverlayWindowBoundsForCapability
+  : null;
+const parseExtensionManifest = xwaylandOverlayFeaturesEnabled
+  ? require('./extension_manifest').parseExtensionManifest
+  : null;
+
+// Only the detached XWayland child can outlive the shell pipeline inherited by
+// its parent. Once that pipe closes, stop writing to it. Other launches retain
+// Node's normal stream-error behavior so supervisors can observe pipe failure.
+if (
+  process.argv.includes('--gsm-ozone-relaunch') &&
+  xwaylandOverlayFeaturesEnabled
+) {
+  for (const stream of [process.stdout, process.stderr]) {
+    if (!stream || typeof stream.on !== 'function') continue;
+    const originalWrite = stream.write.bind(stream);
+    let pipeClosed = false;
+    stream.write = (...args) => pipeClosed ? false : originalWrite(...args);
+    stream.on('error', (err) => {
+      if (err && err.code === 'EPIPE') {
+        pipeClosed = true;
+        return;
+      }
+      throw err;
+    });
+  }
+}
 
 const OVERLAY_HOST_SYMBOL = Symbol.for('gsm.overlay.host');
 const overlayIpcListeners = [];
@@ -1883,6 +1930,33 @@ let appHotkeyInputServerConnection = {
   registry: new Map(),
   configDirty: false,
 };
+// A separate persistent connection serves X11 QueryPointer requests. It stays
+// independent of the optional hotkey sockets so click-through works even when
+// no hotkey or tokenizer feature currently needs the input server.
+let linuxX11PointerInputServerConnection = {
+  socket: null,
+  url: null,
+  reconnectTimer: null,
+  controller: null,
+  protocolState: xwaylandOverlayFeaturesEnabled
+    ? linuxX11PointerHelpers.createLinuxX11PointerProtocolState()
+    : null,
+  protocolSupported: null,
+  hasSuccessfulQuery: false,
+  fallbackDeadline: xwaylandOverlayFeaturesEnabled
+    ? linuxX11PointerHelpers.createLinuxX11PointerFallbackDeadline()
+    : null,
+  fallbackWarningLogger: xwaylandOverlayFeaturesEnabled
+    ? linuxX11PointerHelpers.createLinuxX11PointerFallbackWarningLogger({
+      warn: (reason) => console.warn(
+        `[LinuxX11Pointer] ${reason}; falling back to Electron cursor coordinates (which may be stale while click-through is active).`
+      ),
+    })
+    : null,
+};
+let linuxX11PointerQueryNeeded = false;
+const linuxX11BoundsRepairControllers = new Map();
+let linuxResizeModeBoundsRepairTimer = null;
 let waylandHotkeyConfigSettleTimer = null;
 let waylandHotkeyConfigFirstScheduledAt = null;
 const portalBindPriorAlwaysOnTop = new Map();
@@ -2045,6 +2119,7 @@ let platformOverride = null;
 let backend = null;
 let gsmProfileStateRefreshInterval = null;
 let gamepadServerProcess = null;
+let gamepadServerArgSignature = null;
 let gamepadServerStarting = false;
 let gamepadServerStartPromise = null;
 let gamepadServerStopPromise = null;
@@ -2475,12 +2550,32 @@ function shouldRunInputServer(settings = userSettings) {
   );
 }
 
-function shouldRunGamepadServer(settings = userSettings) {
-  return shouldRunInputServer(settings);
+function shouldRunLinuxX11PointerServer() {
+  // Once this endpoint has been needed, keep the server/socket alive for the
+  // overlay lifetime. Re-opening it for every hide/show creates an UNKNOWN
+  // protocol window in which Electron's cursor coordinates are stale.
+  if (!xwaylandOverlayFeaturesEnabled) return false;
+  const state = linuxX11PointerInputServerConnection;
+  return linuxX11PointerHelpers.shouldRequireLinuxX11PointerServer({
+    capabilityEnabled: xwaylandOverlayFeaturesEnabled,
+    pointerQueryNeeded: linuxX11PointerQueryNeeded,
+    hasSocket: !!state.socket,
+    hasUrl: !!state.url,
+  });
+}
+
+function shouldRunAnyInputServer(settings = userSettings) {
+  return shouldRunInputServer(settings) || shouldRunLinuxX11PointerServer();
+}
+
+function getRequiredInputServerArgSignature() {
+  return shouldRunLinuxX11PointerServer() && !shouldRunInputServer()
+    ? 'disable-gamepad'
+    : 'gamepad';
 }
 
 function syncGamepadServerState(reason = "unknown") {
-  const required = shouldRunInputServer();
+  const required = shouldRunAnyInputServer();
   console.log(
     `[InputServer] Runtime decision (${reason}): required=${required}, ` +
     `gamepad=${userSettings.gamepadEnabled === true}, ` +
@@ -2489,6 +2584,14 @@ function syncGamepadServerState(reason = "unknown") {
     `managed=${INPUT_SERVER_MANAGED_BY_GSM}`
   );
   if (required) {
+    const requiredArgs = getRequiredInputServerArgSignature();
+    if (gamepadServerProcess && gamepadServerArgSignature !== requiredArgs) {
+      console.log(`[InputServer] Required arguments changed (${gamepadServerArgSignature} -> ${requiredArgs}); restarting.`);
+      void restartGamepadServer(`${reason}:arguments-changed`).catch((error) => {
+        console.error(`[InputServer] Unhandled argument-change restart failure (${reason}):`, error);
+      });
+      return;
+    }
     console.log(`[InputServer] Ensuring server is running (${reason})`);
     void startGamepadServer(reason).catch((error) => {
       console.error(`[InputServer] Unhandled start failure (${reason}):`, error);
@@ -2509,10 +2612,13 @@ async function startGamepadServer(reason = "unknown") {
     console.log(`[InputServer] Reusing GSM-managed service on port ${MANAGED_INPUT_SERVER_PORT} (${reason})`);
     syncManualHotkeyInputServerConnection("managed-service");
     syncAppHotkeyInputServerConnection("managed-service");
+    if (xwaylandOverlayFeaturesEnabled) {
+      syncLinuxX11PointerInputServerConnection("managed-service");
+    }
     return;
   }
 
-  if (!shouldRunInputServer()) {
+  if (!shouldRunAnyInputServer()) {
     console.log('[InputServer] Server not required by current settings');
     return;
   }
@@ -2527,7 +2633,7 @@ async function startGamepadServer(reason = "unknown") {
       await gamepadServerStopPromise;
     }
 
-    if (!shouldRunInputServer()) {
+    if (!shouldRunAnyInputServer()) {
       console.log(`[InputServer] Start skipped because server is no longer needed (${reason})`);
       return;
     }
@@ -2539,6 +2645,12 @@ async function startGamepadServer(reason = "unknown") {
 
     if (gamepadServerProcess || gamepadServerStarting) {
       console.log('[GamepadServer] Already running');
+      // The pointer socket is requested lazily when the overlay becomes
+      // visible.  The input server normally already exists for hotkeys, so do
+      // not return before attaching that late consumer.
+      if (xwaylandOverlayFeaturesEnabled) {
+        syncLinuxX11PointerInputServerConnection("already-running");
+      }
       return;
     }
 
@@ -2549,6 +2661,8 @@ async function startGamepadServer(reason = "unknown") {
     if (!executablePath) {
       console.error('[InputServer] Rust server binary not found. Checked paths:');
       candidates.forEach((candidate) => console.error(`  - ${candidate}`));
+      if (xwaylandOverlayFeaturesEnabled) markLinuxX11PointerFailureSample();
+      if (xwaylandOverlayFeaturesEnabled) gamepadServerStarting = false;
       return;
     }
 
@@ -2559,7 +2673,7 @@ async function startGamepadServer(reason = "unknown") {
         : GAMEPAD_SERVER_BASE_PORT;
       const selectedPort = await findAvailablePort(preferredPort);
 
-      if (!shouldRunInputServer()) {
+      if (!shouldRunAnyInputServer()) {
         console.log(`[InputServer] Start aborted after port probe because server is no longer needed (${reason})`);
         return;
       }
@@ -2586,15 +2700,21 @@ async function startGamepadServer(reason = "unknown") {
       console.log(`[InputServer] Starting Rust server binary: ${executablePath}`);
       console.log(`[InputServer] Port: ${selectedPort}`);
 
-      const serverProcess = spawn(executablePath, [
+      const serverArgs = [
         '--host', '127.0.0.1',
         '--port', String(selectedPort)
-      ], {
+      ];
+      if (shouldRunLinuxX11PointerServer() && !shouldRunInputServer()) {
+        // A pointer-only Linux X11 instance must not start Gilrs polling.
+        serverArgs.push('--disable-gamepad');
+      }
+      const serverProcess = spawn(executablePath, serverArgs, {
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: false,
         env: {
           ...process.env,
           GSM_OVERLAY_DATA_PATH: dataPath,
+          GSM_OVERLAY_XWAYLAND_FEATURES_ACTIVE: xwaylandOverlayFeaturesEnabled ? '1' : '0',
           GSM_GAMEPAD_TOKENIZER_BACKEND: normalizeGamepadTokenizerBackend(userSettings.gamepadTokenizerBackend),
           GSM_SUDACHI_DICT_KIND: normalizeGamepadSudachiDictionary(userSettings.gamepadSudachiDictionary),
           GSM_GAMEPAD_DEVICE_BLACKLIST: JSON.stringify(normalizeGamepadDeviceBlacklist(userSettings.gamepadDeviceBlacklist)),
@@ -2602,6 +2722,9 @@ async function startGamepadServer(reason = "unknown") {
       });
 
       gamepadServerProcess = serverProcess;
+      gamepadServerArgSignature = serverArgs.includes('--disable-gamepad')
+        ? 'disable-gamepad'
+        : 'gamepad';
 
       serverProcess.stdout.on('data', (data) => {
         const lines = data.toString().split('\n');
@@ -2631,23 +2754,34 @@ async function startGamepadServer(reason = "unknown") {
         console.log(`[InputServer] Process exited with code ${code}`);
         if (gamepadServerProcess === serverProcess) {
           gamepadServerProcess = null;
+          gamepadServerArgSignature = null;
         }
         syncManualHotkeyInputServerConnection("process-close");
+        if (xwaylandOverlayFeaturesEnabled) {
+          syncLinuxX11PointerInputServerConnection("process-close");
+        }
       });
 
       serverProcess.on('error', (err) => {
         console.error('[InputServer] Failed to start:', err);
         if (gamepadServerProcess === serverProcess) {
           gamepadServerProcess = null;
+          gamepadServerArgSignature = null;
         }
+        if (xwaylandOverlayFeaturesEnabled) markLinuxX11PointerFailureSample();
       });
 
       console.log('[InputServer] Started successfully');
       syncManualHotkeyInputServerConnection("start-success");
       syncAppHotkeyInputServerConnection("start-success");
+      if (xwaylandOverlayFeaturesEnabled) {
+        syncLinuxX11PointerInputServerConnection("start-success");
+      }
     } catch (e) {
       console.error('[InputServer] Error starting server:', e);
       gamepadServerProcess = null;
+      gamepadServerArgSignature = null;
+      if (xwaylandOverlayFeaturesEnabled) markLinuxX11PointerFailureSample();
     } finally {
       gamepadServerStarting = false;
     }
@@ -2699,6 +2833,7 @@ async function stopGamepadServer(reason = "unknown") {
 
       if (gamepadServerProcess === serverProcess) {
         gamepadServerProcess = null;
+        gamepadServerArgSignature = null;
       }
       if (gamepadServerStopPromise === stopPromise) {
         gamepadServerStopPromise = null;
@@ -2747,7 +2882,7 @@ async function restartGamepadServer(reason = "unknown") {
 
   console.log(`[InputServer] Restart requested (${reason})`);
   await stopGamepadServer(reason);
-  if (!shouldRunInputServer()) {
+  if (!shouldRunAnyInputServer()) {
     console.log(`[InputServer] Restart skipped because server is not needed (${reason})`);
     return;
   }
@@ -2762,6 +2897,191 @@ function getInputServerWebSocketUrl() {
     ? configuredPort
     : GAMEPAD_SERVER_BASE_PORT;
   return `ws://127.0.0.1:${port}`;
+}
+
+function shouldUseLinuxX11PointerQuery() {
+  return xwaylandOverlayFeaturesEnabled;
+}
+
+// The pointer-connection helpers below are only initialized when the XWayland
+// capability is active; guard them so a future caller outside the gate cannot
+// dereference null on Windows/macOS.
+function setLinuxX11PointerFallbackState(nextState, reason) {
+  if (!xwaylandOverlayFeaturesEnabled) return;
+  const state = linuxX11PointerInputServerConnection;
+  state.fallbackWarningLogger.update(nextState, reason);
+}
+
+function markLinuxX11PointerFailureSample() {
+  if (!xwaylandOverlayFeaturesEnabled) return;
+  linuxX11PointerInputServerConnection.fallbackDeadline.beginFailure();
+}
+
+function getLinuxX11PointerController() {
+  const state = linuxX11PointerInputServerConnection;
+  if (!state.controller) {
+    state.controller = linuxX11PointerHelpers.createLinuxX11PointerController({
+      onTimeout: markLinuxX11PointerFailureSample,
+    });
+  }
+  return state.controller;
+}
+
+function closeLinuxX11PointerInputServerConnection({ clearUrl = true } = {}) {
+  if (!xwaylandOverlayFeaturesEnabled) return;
+  const state = linuxX11PointerInputServerConnection;
+  if (state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
+  if (state.socket) {
+    closeWebSocketWithoutThrow(
+      state.socket,
+      '[LinuxX11Pointer] Failed to close input server socket'
+    );
+    state.socket = null;
+  }
+  if (state.controller) {
+    if (clearUrl) state.controller.teardown();
+    else state.controller.disconnect();
+  }
+  state.protocolSupported = state.protocolState.disconnect({ clearUrl });
+  if (clearUrl) {
+    state.url = null;
+    state.hasSuccessfulQuery = false;
+    state.fallbackDeadline.reset();
+    setLinuxX11PointerFallbackState(null);
+  }
+}
+
+function scheduleLinuxX11PointerInputServerReconnect(reason = 'unknown') {
+  const state = linuxX11PointerInputServerConnection;
+  if (state.reconnectTimer || !shouldRunLinuxX11PointerServer()) {
+    return;
+  }
+  state.reconnectTimer = setTimeout(() => {
+    state.reconnectTimer = null;
+    syncLinuxX11PointerInputServerConnection(`reconnect:${reason}`);
+  }, OVERLAY_WS_RECONNECT_DELAY_MS);
+}
+
+function syncLinuxX11PointerInputServerConnection(reason = 'unknown') {
+  const state = linuxX11PointerInputServerConnection;
+  if (!xwaylandOverlayFeaturesEnabled || !shouldRunLinuxX11PointerServer()) {
+    return;
+  }
+
+  // Start the one-way fallback clock before connect/spawn activity. Socket
+  // opens and retry attempts never extend it; only a successful QueryPointer
+  // begins a new healthy period.
+  markLinuxX11PointerFailureSample();
+
+  const url = getInputServerWebSocketUrl();
+  if (
+    state.url === url &&
+    state.socket &&
+    (state.socket.readyState === WebSocket.OPEN || state.socket.readyState === WebSocket.CONNECTING)
+  ) {
+    return;
+  }
+
+  closeLinuxX11PointerInputServerConnection({ clearUrl: false });
+  state.url = url;
+  state.protocolSupported = state.protocolState.connect(url);
+  console.log(`[LinuxX11Pointer] Connecting to input server websocket (${reason}) -> ${url}`);
+  const socket = new WebSocket(url);
+  state.socket = socket;
+  socket.on('open', () => {
+    if (linuxX11PointerInputServerConnection.socket !== socket) return;
+    socket.send(JSON.stringify({ type: 'enable_xwayland_overlay_features' }));
+  });
+  socket.on('message', (payload) => {
+    if (linuxX11PointerInputServerConnection.socket !== socket) return;
+    const text = Buffer.isBuffer(payload) ? payload.toString('utf8') : String(payload);
+    const message = getLinuxX11PointerController().handleMessage(text);
+    if (message.kind === 'service-info') {
+      // Gate-false servers deliberately omit this field. The gated pointer
+      // client opts in immediately after connect and waits for the follow-up.
+      if (!Number.isFinite(message.pointerQueryProtocolVersion)) return;
+      state.protocolSupported = state.protocolState.reportServiceInfo(message.pointerQueryProtocolVersion);
+      if (!state.protocolSupported) {
+        setLinuxX11PointerFallbackState('unsupported',
+          `Input server pointer-query protocol ${Number.isFinite(message.pointerQueryProtocolVersion) ? message.pointerQueryProtocolVersion : 'unknown'} is unavailable`
+        );
+      }
+    } else if (message.kind === 'pointer-response' && message.accepted === true) {
+      if (message.position) {
+        state.hasSuccessfulQuery = true;
+        state.fallbackDeadline.markSuccess();
+        setLinuxX11PointerFallbackState(null);
+      } else {
+        markLinuxX11PointerFailureSample();
+      }
+    }
+  });
+  socket.on('close', () => {
+    if (linuxX11PointerInputServerConnection.socket !== socket) return;
+    state.socket = null;
+    if (state.controller) state.controller.disconnect();
+    // Preserve the endpoint's protocol result. A reconnect to this exact URL
+    // can query immediately, while a genuinely prolonged outage still gets a
+    // bounded Electron fallback below.
+    state.protocolSupported = state.protocolState.disconnect({ clearUrl: false });
+    markLinuxX11PointerFailureSample();
+    scheduleLinuxX11PointerInputServerReconnect(reason);
+  });
+  socket.on('error', (error) => {
+    if (linuxX11PointerInputServerConnection.socket !== socket) return;
+    console.warn('[LinuxX11Pointer] Input server websocket error:', error.message);
+  });
+}
+
+function getLinuxX11PointerCursorPoint() {
+  if (!xwaylandOverlayFeaturesEnabled) {
+    return {
+      cursorPoint: screen.getCursorScreenPoint(),
+      source: 'electron',
+      coordinateSpace: 'dip',
+    };
+  }
+  const state = linuxX11PointerInputServerConnection;
+  const socketOpen = !!state.socket && state.socket.readyState === WebSocket.OPEN;
+  const controller = getLinuxX11PointerController();
+  if (state.protocolSupported === true) {
+    try {
+      controller.request(socketOpen, (requestId) => state.socket.send(JSON.stringify({ type: 'query_pointer', requestId })));
+    } catch (error) {
+      console.warn('[LinuxX11Pointer] Failed to query input server:', error.message);
+    }
+  }
+
+  const cursorPoint = controller.getFreshPosition();
+  const fallbackDeadlineReached = state.fallbackDeadline.hasReached();
+  const read = linuxX11PointerHelpers.resolveLinuxX11PointerRead({
+    protocolSupported: state.protocolSupported,
+    hasSuccessfulQuery: state.hasSuccessfulQuery,
+    hasFreshPosition: !!cursorPoint,
+    fallbackDeadlineReached,
+  });
+  if (read.source === 'server' && cursorPoint) {
+    return { cursorPoint, source: 'server', coordinateSpace: 'physical' };
+  }
+  if (read.source === 'suppressed') {
+    return { cursorPoint: null, source: 'suppressed' };
+  }
+  setLinuxX11PointerFallbackState(
+    read.fallbackReason,
+    read.fallbackReason === 'unsupported'
+      ? 'Input server pointer protocol is unavailable'
+      : read.fallbackReason === 'starting'
+        ? 'Input server pointer query is not ready yet'
+        : 'Input server pointer connection has been unavailable for too long'
+  );
+  return {
+    cursorPoint: screen.getCursorScreenPoint(),
+    source: 'fallback',
+    coordinateSpace: 'dip',
+  };
 }
 
 function closeManualHotkeyInputServerConnection({ clearUrl = true, clearReconnect = true } = {}) {
@@ -2966,9 +3286,9 @@ function syncManualHotkeyInputServerConnection(reason = "unknown") {
 }
 
 // ─────────────────────── App-hotkey input-server routing ───────────────────────
-// When route-all is enabled by the setting or forced by Wayland, every overlay
-// hotkey is registered on the Rust input server (server-side combo eval) instead
-// of Electron globalShortcut, so it fires even in games that swallow global hotkeys.
+// When route-all is enabled by the setting or forced on GNOME Wayland, every
+// overlay hotkey is registered on the Rust input server instead of Electron
+// globalShortcut, so it fires even in games that swallow global hotkeys.
 
 const appHotkeyGlobalShortcutAccelerators = new Map(); // id -> accelerator currently held by globalShortcut
 
@@ -3277,6 +3597,7 @@ function loadOverlayPage(win, relativePath) {
 }
 
 const EXTENSION_READY_TIMEOUT_MS = 15000;
+const EXTENSION_UNLOAD_TIMEOUT_MS = 2000;
 
 function getExtensionSessionApi() {
   const overlaySession = getOverlaySession();
@@ -3294,6 +3615,43 @@ function getExtensionSessionApi() {
     loadExtension: (extensionPath, options) => overlaySession.loadExtension(extensionPath, options),
     removeExtension: (extensionId) => overlaySession.removeExtension(extensionId),
   };
+}
+
+async function removeExtensionAndWait(extension, logPrefix) {
+  if (!extension || !extension.id) return;
+  const extensionApi = getExtensionSessionApi();
+  let unloadTimer = null;
+  let resolveUnloaded;
+  const onUnloaded = (_event, unloadedExtension) => {
+    if (!unloadedExtension || unloadedExtension.id !== extension.id) return;
+    clearTimeout(unloadTimer);
+    resolveUnloaded();
+  };
+  const unloaded = new Promise((resolve) => {
+    resolveUnloaded = resolve;
+    unloadTimer = setTimeout(() => {
+      console.warn(`${logPrefix} Timed out waiting for extension ${extension.id} to unload.`);
+      resolve();
+    }, EXTENSION_UNLOAD_TIMEOUT_MS);
+  });
+  try {
+    extensionApi.events.on('extension-unloaded', onUnloaded);
+    extensionApi.removeExtension(extension.id);
+    await unloaded;
+  } finally {
+    clearTimeout(unloadTimer);
+    extensionApi.events.off('extension-unloaded', onUnloaded);
+  }
+}
+
+async function clearServiceWorkersWithWarning(logPrefix) {
+  try {
+    await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
+    return true;
+  } catch (error) {
+    console.warn(`${logPrefix} Failed to clear service worker storage:`, error);
+    return false;
+  }
 }
 
 async function loadExtension(name) {
@@ -3368,7 +3726,9 @@ function readExtensionPackageVersion(dirPath) {
   }
   try {
     const data = fs.readFileSync(pkgPath, 'utf-8');
-    const pkg = JSON.parse(data);
+    const pkg = xwaylandOverlayFeaturesEnabled
+      ? parseExtensionManifest(data)
+      : JSON.parse(data);
     return pkg && pkg.version ? String(pkg.version) : null;
   } catch (e) {
     console.warn(`Failed to read manifest.json at ${pkgPath}`, e);
@@ -4500,6 +4860,20 @@ function getOverlayBoundsForDisplay(display) {
   };
 }
 
+function isLinuxX11FullscreenBoundsRequired() {
+  return xwaylandOverlayFeaturesEnabled;
+}
+
+function getFullscreenOverlayBoundsForDisplay(display) {
+  if (!xwaylandOverlayFeaturesEnabled) {
+    return getOverlayBoundsForDisplay(display);
+  }
+  return getOverlayWindowBoundsForCapability(
+    display || getEmergencyFallbackDisplay(),
+    isLinuxX11FullscreenBoundsRequired()
+  );
+}
+
 function showStartupNotification(display) {
   if (startupNotificationWindow && !startupNotificationWindow.isDestroyed()) {
     return;
@@ -4596,6 +4970,17 @@ function buildOverlayDisplayInfo(display) {
   const dipWorkArea = normalizeDisplayRect(safeDisplay.workArea, dipBounds);
   const physicalBounds = toPhysicalDisplayRect(dipBounds);
   const physicalWorkArea = toPhysicalDisplayRect(dipWorkArea);
+  let overlayWindowBounds = null;
+  const useWindowRelativeCoordinates = xwaylandOverlayFeaturesEnabled;
+  if (useWindowRelativeCoordinates && mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      // Content bounds and Display.bounds are Electron DIP rectangles.
+      // The renderer maps those against its CSS/DIP viewport dimensions.
+      overlayWindowBounds = normalizeDisplayRect(mainWindow.getContentBounds());
+    } catch (e) {
+      console.warn("[DisplaySync] Failed to read overlay window bounds:", e);
+    }
+  }
 
   return {
     id: safeDisplay.id,
@@ -4615,6 +5000,10 @@ function buildOverlayDisplayInfo(display) {
       width: physicalWorkArea.width,
       height: physicalWorkArea.height,
     },
+    xwaylandOverlayFeatures: useWindowRelativeCoordinates,
+    ...(useWindowRelativeCoordinates
+      ? { coordinateMapping: "linux-x11-window", overlayWindowBounds }
+      : {}),
   };
 }
 
@@ -4669,6 +5058,11 @@ function applyBoundsIfNeeded(win, bounds, label, reason) {
     if (unchanged) {
       return false;
     }
+    const boundsController = linuxX11BoundsRepairControllers.get(win);
+    if (boundsController && !boundsController.state.applying) {
+      boundsController.onBoundsEvent(`sync:${label}:${reason}`);
+      return false;
+    }
     win.setBounds(bounds);
     return true;
   } catch (e) {
@@ -4685,7 +5079,7 @@ function syncOverlayWindowsToCurrentMonitor(reason = "unknown", options = {}) {
 
   const selection = resolveOverlayMonitorSelection({ logFallback: true });
   const display = selection.display || getEmergencyFallbackDisplay();
-  const bounds = getOverlayBoundsForDisplay(display);
+  const bounds = getFullscreenOverlayBoundsForDisplay(display);
   let updated = false;
 
   if (includeMain) {
@@ -4699,14 +5093,85 @@ function syncOverlayWindowsToCurrentMonitor(reason = "unknown", options = {}) {
   }
 
   if ((updated || forceSendDisplayInfo) && mainWindow && !mainWindow.isDestroyed()) {
-    try {
-      mainWindow.webContents.send("display-info", buildOverlayDisplayInfo(display));
-    } catch (e) {
-      console.warn(`[DisplaySync] Failed to send display-info (${reason}):`, e);
-    }
+    const sendDisplayInfo = () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      try {
+        mainWindow.webContents.send("display-info", buildOverlayDisplayInfo(display));
+      } catch (e) {
+        console.warn(`[DisplaySync] Failed to send display-info (${reason}):`, e);
+      }
+    };
+    // Give Electron/compositor geometry events a turn before reading content
+    // bounds after setBounds. The move/resize handlers below also publish any
+    // compositor-adjusted result.
+    if (updated && shouldUseLinuxX11PointerQuery()) setTimeout(sendDisplayInfo, 0);
+    else sendDisplayInfo();
   }
 
   return { updated, display, bounds, selection };
+}
+
+function shouldRepairLinuxX11FullscreenBounds(label) {
+  // resizeMode only controls overlay interaction today (the BrowserWindow remains
+  // non-resizable), but defer correction while it is active so a future resize
+  // workflow can own the main window geometry without this guard fighting it.
+  return isLinuxX11FullscreenBoundsRequired() && !(label === "mainWindow" && resizeMode);
+}
+
+function syncLinuxX11FullscreenOverlayBounds(win, label, reason) {
+  if (!win || win.isDestroyed() || !shouldRepairLinuxX11FullscreenBounds(label)) {
+    return false;
+  }
+
+  return syncOverlayWindowsToCurrentMonitor(reason, {
+    includeMain: label === "mainWindow",
+    includeTexthooker: label === "texthookerWindow",
+    includeOffsetHelper: label === "offsetHelperWindow",
+  }).updated;
+}
+
+function installLinuxX11FullscreenBoundsGuard(win, label) {
+  if (!win || !isLinuxX11FullscreenBoundsRequired()) {
+    return;
+  }
+
+  const controller = createLinuxX11BoundsRepairController({
+    getBounds: () => win.isDestroyed() ? null : win.getBounds(),
+    getExpectedBounds: () => getFullscreenOverlayBoundsForDisplay(getCurrentOverlayMonitor()),
+    repair: (reason) => {
+      if (shouldRepairLinuxX11FullscreenBounds(label) && !win.isDestroyed()) {
+        syncLinuxX11FullscreenOverlayBounds(win, label, `x11-${label}-${reason}`);
+      }
+    },
+    warn: (message) => console.warn(message),
+  });
+  linuxX11BoundsRepairControllers.set(win, controller);
+
+  win.on("show", () => {
+    // Mutter can apply its X11 workarea placement immediately after show. Retry
+    // after that placement has settled, while the display-sync target remains
+    // display.bounds rather than workArea.
+    if (shouldRepairLinuxX11FullscreenBounds(label)) controller.onShow();
+  });
+  win.on("move", () => {
+    if (label === "mainWindow" && !win.isDestroyed()) {
+      // The compositor may have accepted a different position from setBounds.
+      // Send it before the bounded repair attempt so renderer geometry remains
+      // correct even when that attempt is refused.
+      mainWindow.webContents.send("display-info", buildOverlayDisplayInfo(getCurrentOverlayMonitor()));
+    }
+    if (shouldRepairLinuxX11FullscreenBounds(label) && !win.isDestroyed()) controller.onBoundsEvent("move");
+  });
+  win.on("resize", () => {
+    if (label === "mainWindow" && !win.isDestroyed()) {
+      mainWindow.webContents.send("display-info", buildOverlayDisplayInfo(getCurrentOverlayMonitor()));
+    }
+    if (shouldRepairLinuxX11FullscreenBounds(label) && !win.isDestroyed()) controller.onBoundsEvent("resize");
+  });
+  win.on("closed", () => {
+    controller.teardown();
+    linuxX11BoundsRepairControllers.delete(win);
+  });
 }
 
 function ensureMainWindowIsOnConnectedDisplay(reason = "unknown") {
@@ -4909,11 +5374,14 @@ function showOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
     (currentMagpieState.active || isManualMode());
 
   isOverlayVisible = true;
+  if (xwaylandOverlayFeaturesEnabled) syncLinuxX11MousePoller();
   mainWindow.webContents.send('show-overlay-hotkey', true, { deferRevealForBackground });
 
   if (!isLinux()) {
     mainWindow.setIgnoreMouseEvents(false, { forward: true });
-  } else {
+  } else if (!xwaylandOverlayFeaturesEnabled) {
+    // Preserve the base Linux manual-show behavior outside the verified
+    // XWayland compatibility envelope.
     mainWindow.show();
   }
 
@@ -5004,6 +5472,7 @@ function hideOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
   }
 
   isOverlayVisible = false;
+  if (xwaylandOverlayFeaturesEnabled) syncLinuxX11MousePoller();
 
   const preserveYomitanDuringManualHold =
     pauseSource === OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY &&
@@ -5121,8 +5590,14 @@ function clearManualActivationState(reason = "manual-reset") {
   manualHotkeyController.reset(reason);
   manualHotkeyPressed = false;
   manualModeToggleState = false;
-  syncLinuxX11MousePoller();
-  isOverlayVisible = false;
+  if (xwaylandOverlayFeaturesEnabled) {
+    isOverlayVisible = false;
+    syncLinuxX11MousePoller();
+  } else {
+    // Base ordering matters to the legacy Electron-cursor poller.
+    syncLinuxX11MousePoller();
+    isOverlayVisible = false;
+  }
 }
 
 function resetOverlayInteractionStateForHiddenGameWindow(reason = "game-window-hidden") {
@@ -5143,7 +5618,6 @@ function resetOverlayInteractionStateForHiddenGameWindow(reason = "game-window-h
   manualHotkeyPressed = false;
   manualModeToggleState = false;
   gamepadNavigationActive = false;
-  syncLinuxX11MousePoller();
   yomitanForegroundActive = false;
 
   if (hadManualState) {
@@ -5160,7 +5634,14 @@ function resetOverlayInteractionStateForHiddenGameWindow(reason = "game-window-h
       console.warn("[OverlayState] Failed to notify renderer about forced overlay hide:", error);
     }
   }
-  isOverlayVisible = false;
+  if (xwaylandOverlayFeaturesEnabled) {
+    isOverlayVisible = false;
+    syncLinuxX11MousePoller();
+  } else {
+    // Base ordering matters to the legacy Electron-cursor poller.
+    syncLinuxX11MousePoller();
+    isOverlayVisible = false;
+  }
 }
 
 function restoreAutomaticOverlayPassThrough(reason = "auto-reset") {
@@ -5330,7 +5811,7 @@ function createTexthookerWindow() {
   refreshOverlayTransportSettingsFromGSM("createTexthookerWindow");
 
   const display = getCurrentOverlayMonitor({ logFallback: true });
-  const overlayBounds = getOverlayBoundsForDisplay(display);
+  const overlayBounds = getFullscreenOverlayBoundsForDisplay(display);
 
   texthookerWindow = new BrowserWindow({
     x: overlayBounds.x,
@@ -5367,6 +5848,7 @@ function createTexthookerWindow() {
   texthookerWindow.on('show', () => {
     setOverlayWindowAlwaysOnTop(texthookerWindow);
   });
+  installLinuxX11FullscreenBoundsGuard(texthookerWindow, 'texthookerWindow');
 }
 
 function waitForTexthookerUrl(win, targetUrl) {
@@ -5456,8 +5938,12 @@ function registerTexthookerHotkey(oldHotkey) {
 
       // Sync bounds before showing
       const display = getCurrentOverlayMonitor({ logFallback: true });
-      const overlayBounds = getOverlayBoundsForDisplay(display);
-      texthookerWindow.setBounds(overlayBounds);
+      const overlayBounds = getFullscreenOverlayBoundsForDisplay(display);
+      if (xwaylandOverlayFeaturesEnabled) {
+        applyBoundsIfNeeded(texthookerWindow, overlayBounds, "texthookerWindow", "texthooker-show");
+      } else {
+        texthookerWindow.setBounds(overlayBounds);
+      }
 
       if (!isLinux()) {
         console.log("[TexthookerMode] ACTION: setIgnoreMouseEvents(false)");
@@ -5546,8 +6032,11 @@ function registerManualShowHotkey(oldHotkey) {
     manualHotkeyBackend = resolveManualHotkeyBackend(userSettings.showHotkey, {
       forceInputServer: isRouteAllHotkeysEnabled(),
     });
-    manualHotkeyBackendReason = isWaylandSession({ platform: process.platform, env: process.env })
-      ? "wayland"
+    const waylandInputServerRouting =
+      manualHotkeyBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER &&
+      isWaylandSession({ platform: process.platform, env: process.env });
+    manualHotkeyBackendReason = waylandInputServerRouting
+      ? "wayland-portal"
       : manualHotkeyBackend;
     manualHotkeyElectronFailureHotkey = null;
     syncManualHotkeyInputServerConnection("manual-mode-disabled");
@@ -5559,8 +6048,9 @@ function registerManualShowHotkey(oldHotkey) {
     forceInputServer: isRouteAllHotkeysEnabled(),
   });
   manualHotkeyBackend = requestedBackend;
-  const waylandRouting = isWaylandSession({ platform: process.platform, env: process.env });
-  manualHotkeyBackendReason = waylandRouting ? "wayland" : requestedBackend;
+  const waylandRouting = requestedBackend === MANUAL_HOTKEY_BACKEND_INPUT_SERVER &&
+    isWaylandSession({ platform: process.platform, env: process.env });
+  manualHotkeyBackendReason = waylandRouting ? "wayland-portal" : requestedBackend;
   const manualModeType = normalizeManualModeType(userSettings.manualModeType);
 
   if (waylandRouting) {
@@ -5879,9 +6369,9 @@ function openOffsetHelper() {
     offsetHelperWindow.focus();
     return;
   }
-  // Use the same bounds as the main window
+  // Use the same full-display geometry as the main window on Linux X11.
   const display = getCurrentOverlayMonitor({ logFallback: true });
-  const overlayBounds = getOverlayBoundsForDisplay(display);
+  const overlayBounds = getFullscreenOverlayBoundsForDisplay(display);
   offsetHelperWindow = new BrowserWindow({
     x: overlayBounds.x,
     y: overlayBounds.y,
@@ -5905,6 +6395,7 @@ function openOffsetHelper() {
   });
 
   offsetHelperWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  installLinuxX11FullscreenBoundsGuard(offsetHelperWindow, 'offsetHelperWindow');
   setOverlayWindowAlwaysOnTop(offsetHelperWindow);
   if (typeof offsetHelperWindow.moveTop === "function") {
     try {
@@ -6274,21 +6765,23 @@ async function startOverlayAppImpl() {
     const manualModeDescription = normalizeManualModeType(userSettings.manualModeType) === "toggle"
       ? "press the hotkey once to show the overlay and press it again to hide it"
       : "hold the hotkey to keep the overlay visible";
-    console.warn(
-      "[Overlay] Non-Windows push-to-show notice scheduled asynchronously; startup will continue"
-    );
-    void dialog.showMessageBox({
+    const noticeOptions = {
       type: 'warning',
       buttons: ['OK'],
       defaultId: 0,
       title: 'GSM Overlay - Push to Show Enforced',
       message: 'Overlay requires hotkey to show text for lookups on macOS and Linux due to platform limitations.\n\n' +
         'Use the configured hotkey: ' + userSettings.showHotkey + ' and the selected Push to Show type to control the overlay. Current mode: ' + manualModeDescription + '.',
-    }).then(() => {
-      console.log("[Overlay] Non-Windows push-to-show notice dismissed");
-    }).catch((error) => {
-      console.error("[Overlay] Failed to show non-Windows push-to-show notice:", error);
-    });
+    };
+    if (isLinux()) {
+      console.warn("[Overlay] Linux push-to-show notice scheduled asynchronously");
+      void dialog.showMessageBox(noticeOptions).catch((error) => {
+        console.error("[Overlay] Failed to show Linux push-to-show notice:", error);
+      });
+    } else {
+      // Preserve the established macOS startup flow.
+      dialog.showMessageBoxSync(noticeOptions);
+    }
   }
 
   // ===========================================================
@@ -6438,8 +6931,8 @@ async function startOverlayAppImpl() {
   // Start background manager and register periodic tasks
   bg.start();
 
-  // Detect if yomitan extension files changed since last overlay launch (e.g. GSM app update).
-  // If so, clear Chromium's cached service workers to prevent stale compiled background scripts.
+  // The MV3 registration/clear race workaround is verified only in the gated
+  // XWayland overlay environment. Every other environment keeps base ordering.
   {
     const yomitanExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), 'yomitan');
     const yomitanManifestPath = path.join(yomitanExtDir, 'manifest.json');
@@ -6453,21 +6946,53 @@ async function startOverlayAppImpl() {
     } catch {}
 
     if (currentMtime > 0 && currentMtime !== storedMtime) {
-      console.log(`[YomitanStartup] Extension files changed (stored=${storedMtime}, current=${currentMtime}). Clearing service worker cache...`);
-      try {
-        await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
-        console.log('[YomitanStartup] Service worker cache cleared.');
-      } catch (e) {
-        console.warn('[YomitanStartup] Failed to clear service worker cache:', e);
+      if (xwaylandOverlayFeaturesEnabled) {
+        console.log(`[YomitanStartup] Extension files changed (stored=${storedMtime}, current=${currentMtime}).`);
+      } else {
+        console.log(`[YomitanStartup] Extension files changed (stored=${storedMtime}, current=${currentMtime}). Clearing service worker cache...`);
+        try {
+          await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
+          console.log('[YomitanStartup] Service worker cache cleared.');
+        } catch (e) {
+          console.warn('[YomitanStartup] Failed to clear service worker cache:', e);
+        }
       }
     }
 
     yomitanExt = await loadExtension('yomitan');
+    let linuxWorkerRecoveryComplete = true;
+
+    if (xwaylandOverlayFeaturesEnabled && currentMtime > 0 && currentMtime !== storedMtime && yomitanExt) {
+      // On Linux, first let Chromium finish registering the changed MV3
+      // extension, then unload it and wait for its worker to stop before
+      // invalidating storage. This avoids the registration/clear race while
+      // retaining a deterministic stale-worker recovery path.
+      try {
+        const initiallyLoadedYomitan = yomitanExt;
+        await removeExtensionAndWait(initiallyLoadedYomitan, '[YomitanStartup]');
+        yomitanExt = null;
+        linuxWorkerRecoveryComplete = await clearServiceWorkersWithWarning('[YomitanStartup]');
+        yomitanExt = await loadExtension('yomitan');
+        linuxWorkerRecoveryComplete = linuxWorkerRecoveryComplete && !!yomitanExt;
+      } catch (error) {
+        linuxWorkerRecoveryComplete = false;
+        console.warn('[YomitanStartup] Linux service worker recovery failed:', error);
+        if (!yomitanExt) yomitanExt = await loadExtension('yomitan');
+      }
+    }
 
     // Persist the mtime after successful load
-    try {
-      fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime }));
-    } catch {}
+    if (xwaylandOverlayFeaturesEnabled) {
+      if (yomitanExt && linuxWorkerRecoveryComplete) {
+        try {
+          fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime }));
+        } catch {}
+      }
+    } else {
+      try {
+        fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime }));
+      } catch {}
+    }
   }
 
   if (userSettings.enableJitenReader) {
@@ -6503,18 +7028,36 @@ async function startOverlayAppImpl() {
       console.log(`[YomitanHotReload] Detected yomitan update (version: ${newVersion}). Reloading extension...`);
 
       try {
-        // Clear stale service worker cache before reloading
-        await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
-        const extensionApi = getExtensionSessionApi();
-        if (yomitanExt && yomitanExt.id) {
-          extensionApi.removeExtension(yomitanExt.id);
-          console.log(`[YomitanHotReload] Unloaded old yomitan extension (id: ${yomitanExt.id})`);
+        if (xwaylandOverlayFeaturesEnabled) {
+          // Wait for the old extension/worker to unload before clearing. This
+          // avoids Chromium's fresh MV3 registration racing clearStorageData.
+          if (yomitanExt && yomitanExt.id) {
+            const oldExtension = yomitanExt;
+            await removeExtensionAndWait(oldExtension, '[YomitanHotReload]');
+            yomitanExt = null;
+            console.log(`[YomitanHotReload] Unloaded old yomitan extension (id: ${oldExtension.id})`);
+          }
+          const workerRecoveryComplete = await clearServiceWorkersWithWarning('[YomitanHotReload]');
+          yomitanExt = await loadExtension('yomitan');
+          console.log(`[YomitanHotReload] Reloaded yomitan extension (id: ${yomitanExt ? yomitanExt.id : 'null'})`);
+          if (yomitanExt && workerRecoveryComplete) {
+            try { fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime })); } catch {}
+          } else {
+            // Retry later instead of accepting a potentially stale worker.
+            yomitanLastMtime = 0;
+          }
+        } else {
+          // Exact base-commit ordering outside the capability envelope.
+          await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
+          const extensionApi = getExtensionSessionApi();
+          if (yomitanExt && yomitanExt.id) {
+            extensionApi.removeExtension(yomitanExt.id);
+            console.log(`[YomitanHotReload] Unloaded old yomitan extension (id: ${yomitanExt.id})`);
+          }
+          yomitanExt = await loadExtension('yomitan');
+          console.log(`[YomitanHotReload] Reloaded yomitan extension (id: ${yomitanExt ? yomitanExt.id : 'null'})`);
+          try { fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime })); } catch {}
         }
-        yomitanExt = await loadExtension('yomitan');
-        console.log(`[YomitanHotReload] Reloaded yomitan extension (id: ${yomitanExt ? yomitanExt.id : 'null'})`);
-
-        // Persist new mtime
-        try { fs.writeFileSync(yomitanMtimePath, JSON.stringify({ mtime: currentMtime })); } catch {}
 
         // Reload all webContents so content scripts re-inject
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -6807,6 +7350,9 @@ async function startOverlayAppImpl() {
 
   // Start the shared Rust input server if any current feature requires it.
   syncGamepadServerState("app-whenReady");
+  if (xwaylandOverlayFeaturesEnabled) {
+    syncLinuxX11PointerInputServerConnection("app-whenReady");
+  }
 
   // If route-all-hotkeys is already enabled at launch, open the app-hotkey socket
   // (the register* calls above populated the registry).
@@ -6817,9 +7363,14 @@ async function startOverlayAppImpl() {
       clearInterval(linuxMousePoller);
       linuxMousePoller = null;
     }
+    if (xwaylandOverlayFeaturesEnabled && linuxResizeModeBoundsRepairTimer) {
+      clearTimeout(linuxResizeModeBoundsRepairTimer);
+      linuxResizeModeBoundsRepairTimer = null;
+    }
     releaseAllOverlayPauseRequests();
     globalShortcut.unregisterAll();
     closeAppHotkeyInputServerConnection();
+    if (xwaylandOverlayFeaturesEnabled) closeLinuxX11PointerInputServerConnection();
     stopOverlayWebSockets();
     void stopGamepadServer("app-will-quit");
     if (pendingDisplaySyncTimer) {
@@ -6837,7 +7388,7 @@ async function startOverlayAppImpl() {
   });
 
   let display = getCurrentOverlayMonitor({ logFallback: true });
-  let displayBounds = getOverlayBoundsForDisplay(display);
+  let displayBounds = getFullscreenOverlayBoundsForDisplay(display);
 
   console.log(display);
 
@@ -6874,6 +7425,7 @@ async function startOverlayAppImpl() {
     show: false,
   });
   lastDisplaySyncSignature = getOverlayDisplaySyncSignature();
+  installLinuxX11FullscreenBoundsGuard(mainWindow, "mainWindow");
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     const child = new BrowserWindow({
@@ -6906,6 +7458,9 @@ async function startOverlayAppImpl() {
   }, 100);
 
   const onDisplayChanged = (changeType, changedDisplay, changedMetrics) => {
+    if (xwaylandOverlayFeaturesEnabled) {
+      for (const controller of linuxX11BoundsRepairControllers.values()) controller.reset();
+    }
     const changedDisplayId = changedDisplay && changedDisplay.id ? changedDisplay.id : "unknown";
     const metricsSuffix = Array.isArray(changedMetrics) && changedMetrics.length > 0
       ? `:${changedMetrics.join(",")}`
@@ -6942,7 +7497,7 @@ async function startOverlayAppImpl() {
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   setOverlayWindowAlwaysOnTop(mainWindow);
 
-  const useLinuxX11HitTesting = isLinux() && linuxOzonePlatform.platform === 'x11';
+  const useLinuxX11HitTesting = xwaylandOverlayFeaturesEnabled;
   if (isLinux() && !useLinuxX11HitTesting) {
     console.warn(
       `[Overlay] Native Wayland ozone detected (${linuxOzonePlatform.reason}); ` +
@@ -6979,8 +7534,19 @@ async function startOverlayAppImpl() {
   function pollLinuxX11MouseHitTest() {
     if (!useLinuxX11HitTesting || !mainWindow || mainWindow.isDestroyed()) return;
     const windowVisible = mainWindow.isVisible() && !mainWindow.isMinimized();
+    let dipCursorPoint = screen.getCursorScreenPoint();
+    if (xwaylandOverlayFeaturesEnabled) {
+      const { cursorPoint, source, coordinateSpace } = getLinuxX11PointerCursorPoint();
+      // After QueryPointer has worked once, retain the prior hit-test state for
+      // a short transient outage; the monotonic deadline guarantees fallback.
+      if (source === 'suppressed') return;
+      // QueryPointer is physical; Electron's cursor API is already DIP.
+      dipCursorPoint = coordinateSpace === 'physical'
+        ? linuxX11PointerHelpers.toDipPointer(cursorPoint, (point) => screen.screenToDipPoint(point))
+        : cursorPoint;
+    }
     const ignore = shouldIgnoreOverlayMouseEvents({
-      cursorPoint: screen.getCursorScreenPoint(),
+      cursorPoint: dipCursorPoint,
       windowBounds: mainWindow.getContentBounds(),
       regions: linuxInteractiveRegions,
       interactionAllowed: isLinuxOverlayInteractionAllowed(),
@@ -6992,7 +7558,19 @@ async function startOverlayAppImpl() {
   syncLinuxX11MousePoller = function () {
     if (!useLinuxX11HitTesting || !mainWindow || mainWindow.isDestroyed()) return;
     const shouldPoll = mainWindow.isVisible() && !mainWindow.isMinimized() &&
-      linuxInteractiveRegions.length > 0 && isLinuxOverlayInteractionAllowed();
+      linuxInteractiveRegions.length > 0 &&
+      isLinuxOverlayInteractionAllowed();
+    if (xwaylandOverlayFeaturesEnabled && linuxX11PointerQueryNeeded !== shouldPoll) {
+      linuxX11PointerQueryNeeded = shouldPoll;
+      if (shouldPoll) {
+        markLinuxX11PointerFailureSample();
+        // Start the shared service when the pointer is first needed. Its
+        // endpoint then remains alive across overlay hide/show transitions.
+        syncGamepadServerState('linux-x11-pointer-needed');
+      } else {
+        syncGamepadServerState('linux-x11-pointer-idle');
+      }
+    }
     if (!shouldPoll) {
       if (linuxMousePoller) {
         clearInterval(linuxMousePoller);
@@ -7085,6 +7663,15 @@ async function startOverlayAppImpl() {
   ipcMain.on("resize-mode", (event, state) => {
     resizeMode = state;
     syncLinuxX11MousePoller();
+    if (xwaylandOverlayFeaturesEnabled && !resizeMode) {
+      if (linuxResizeModeBoundsRepairTimer) {
+        clearTimeout(linuxResizeModeBoundsRepairTimer);
+      }
+      linuxResizeModeBoundsRepairTimer = setTimeout(() => {
+        linuxResizeModeBoundsRepairTimer = null;
+        syncLinuxX11FullscreenOverlayBounds(mainWindow, "mainWindow", "x11-resize-mode-ended");
+      }, 0);
+    }
   })
 
 
@@ -7188,6 +7775,10 @@ async function startOverlayAppImpl() {
     if (linuxMousePoller) {
       clearInterval(linuxMousePoller);
       linuxMousePoller = null;
+    }
+    if (xwaylandOverlayFeaturesEnabled && linuxResizeModeBoundsRepairTimer) {
+      clearTimeout(linuxResizeModeBoundsRepairTimer);
+      linuxResizeModeBoundsRepairTimer = null;
     }
   });
 
@@ -7729,7 +8320,11 @@ async function startOverlayAppImpl() {
       case "gamepadEnabled":
         console.log(`[Gamepad] Setting changed: ${key} = ${value}`);
         if (!value) {
-          stopGamepadServer();
+          if (xwaylandOverlayFeaturesEnabled) {
+            void stopGamepadServer("settings-gamepad-disabled");
+          } else {
+            stopGamepadServer();
+          }
           setGamepadNavigationModeActive(false, "settings-gamepad-disabled");
         }
         syncGamepadServerState("setting-changed:gamepadEnabled");
@@ -8181,6 +8776,19 @@ async function stopOverlayApp() {
       runOverlayCleanupStep('overlay websockets', () => stopOverlayWebSockets());
       runOverlayCleanupStep('manual hotkey socket', () => closeManualHotkeyInputServerConnection());
       runOverlayCleanupStep('app hotkey socket', () => closeAppHotkeyInputServerConnection());
+      if (xwaylandOverlayFeaturesEnabled) {
+        runOverlayCleanupStep('Linux X11 pointer socket', () => closeLinuxX11PointerInputServerConnection());
+        runOverlayCleanupStep('Linux X11 bounds repair', () => {
+          if (linuxResizeModeBoundsRepairTimer) {
+            clearTimeout(linuxResizeModeBoundsRepairTimer);
+            linuxResizeModeBoundsRepairTimer = null;
+          }
+          for (const controller of linuxX11BoundsRepairControllers.values()) {
+            controller.teardown();
+          }
+          linuxX11BoundsRepairControllers.clear();
+        });
+      }
       const gamepadStop = runOverlayCleanupStep(
         'gamepad server',
         () => stopGamepadServer('overlay-unload')
