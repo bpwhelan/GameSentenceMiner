@@ -11,7 +11,7 @@
 #include <vector>
 
 namespace gsm::hoshidicts {
-namespace {
+namespace protocol_detail {
 
 constexpr std::size_t kMaxRememberedIds = 4096;
 
@@ -145,7 +145,9 @@ void validateGeneration(std::int64_t generation) {
   }
 }
 
-}  // namespace
+}  // namespace protocol_detail
+
+using namespace protocol_detail;
 
 ProtocolHandler::ProtocolHandler(Session& session)
     : session_(session), started_(std::chrono::steady_clock::now()) {}

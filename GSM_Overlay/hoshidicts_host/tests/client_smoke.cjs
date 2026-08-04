@@ -6,7 +6,7 @@ const {
   HoshiDictsClient,
 } = require(path.resolve(__dirname, "../../hoshidicts_client.js"));
 
-const EXPECTED_COMMIT = "1aba291c2b9ef6e8465b9c18fd963cffd223d090";
+const EXPECTED_COMMIT = "14ff793b1d5cdfdfba24518bbdedc064d17d699d";
 
 function percentile(values, quantile) {
   const sorted = [...values].sort((left, right) => left - right);

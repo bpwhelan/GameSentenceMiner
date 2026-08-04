@@ -11,7 +11,7 @@
     "repository": "https://github.com/bee-san/hoshidicts.git",
     "branch": "gsm-sanitizer-fixes",
     "path": "GSM_Overlay/hoshidicts_host/vendor/hoshidicts",
-    "commit": "1aba291c2b9ef6e8465b9c18fd963cffd223d090",
+    "commit": "14ff793b1d5cdfdfba24518bbdedc064d17d699d",
     "upstreamRepository": "https://github.com/Manhhao/hoshidicts.git",
     "upstreamCommit": "af99b554cd4ab289aa65e16fd2a4eea0d3870d3b",
     "license": "MIT",

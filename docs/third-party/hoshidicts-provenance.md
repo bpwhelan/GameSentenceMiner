@@ -6,7 +6,7 @@ GameSentenceMiner's optional HoshiDicts host uses **Path A**, a minimal fork of
 the MIT-licensed `Manhhao/hoshidicts` `main-mit` line, pinned at:
 
 ```text
-bee-san/hoshidicts@1aba291c2b9ef6e8465b9c18fd963cffd223d090
+bee-san/hoshidicts@14ff793b1d5cdfdfba24518bbdedc064d17d699d
 ```
 
 The fork is based directly on
@@ -47,7 +47,7 @@ The Apache-2.0 text is retained at `external/Jiten/LICENSE`.
 
 | Dependency | Commit | License |
 | --- | --- | --- |
-| HoshiDicts | `1aba291c2b9ef6e8465b9c18fd963cffd223d090` | MIT |
+| HoshiDicts | `14ff793b1d5cdfdfba24518bbdedc064d17d699d` | MIT |
 | Jiten rules | `0146ce2f83548d81c3ec9557a4f123d30242e1d7` | Apache-2.0 |
 | glaze | `be5159d80c480ec0d97db40f685983e2f7ade2d3` | MIT |
 | libdeflate | `4b6db597a58a92cf7f1e171211d718ac1faea845` | MIT |
