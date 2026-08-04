@@ -1793,7 +1793,10 @@ function normalizeGamepadTokenizerSettings(settings) {
 let isTexthookerMode = false;
 let manualIn;
 let resizeMode = false;
-let yomitanShown = false;
+let dictionaryPopupShown = false;
+let activeDictionaryPopupGeneration = 0;
+let activeDictionaryPopupBackendId = null;
+let activeDictionaryPopupCount = 0;
 let gamepadNavigationActive = false; // True while renderer gamepad navigation keeps overlay focused
 let mainWindow = null;
 let startupNotificationWindow = null;
@@ -1807,16 +1810,16 @@ let websocketStates = {
 let lastWebsocketData = null;
 let currentMagpieState = createMagpieState(null);
 let translationRequested = false; // Track if translation has been requested for current text
-let yomitanRecoveryVersion = 0; // Cancels stale async recovery attempts when popup state flips quickly
+let dictionaryPopupRecoveryVersion = 0; // Cancels stale async recovery attempts when popup state flips quickly
 let gamepadReleaseRecoveryVersion = 0; // Cancels stale Magpie recovery after navigation is re-entered
 let lastFocusRestoreRequestAt = 0;
 let suppressBackendFocusRestoreUntil = 0;
 let lastOverlayTopmostReassertAt = 0;
 let pendingOverlayTopmostReassertTimer = null;
-let lastYomitanEventAt = 0;
-let yomitanForegroundActive = false;
-let magpieYomitanCloseVisibilityGuardActive = false;
-let magpieYomitanCloseVisibilityGuardTimer = null;
+let lastDictionaryPopupEventAt = 0;
+let dictionaryPopupForegroundActive = false;
+let magpieDictionaryPopupCloseVisibilityGuardActive = false;
+let magpieDictionaryPopupCloseVisibilityGuardTimer = null;
 let trackedGameWindowState = "unknown";
 let trackedGameWindowStateUpdatedAt = 0;
 let manualHotkeyBackend = MANUAL_HOTKEY_BACKEND_ELECTRON;
@@ -1882,8 +1885,8 @@ const manualHotkeyController = createManualHotkeyController({
 const FOCUS_RESTORE_THROTTLE_MS = 150;
 const OVERLAY_TOPMOST_REASSERT_THROTTLE_MS = 1500;
 const OVERLAY_MAGPIE_TEXT_REASSERT_MIN_INTERVAL_MS = 10000;
-const YOMITAN_STATE_STALE_TIMEOUT_MS = 12000;
-const MAGPIE_YOMITAN_CLOSE_VISIBILITY_GRACE_MS = 500;
+const DICTIONARY_POPUP_STATE_STALE_TIMEOUT_MS = 12000;
+const MAGPIE_DICTIONARY_POPUP_CLOSE_VISIBILITY_GRACE_MS = 500;
 const FIND_IN_PAGE_COMMAND_CHANNEL = 'gsm-find-in-page:command';
 const FIND_IN_PAGE_RESULT_CHANNEL = 'gsm-find-in-page:result';
 const FIND_IN_PAGE_SHORTCUT_CHANNEL = 'gsm-find-in-page:shortcut';
@@ -3364,60 +3367,60 @@ function shouldHideOverlayWindowForManualInactive() {
     !manualModeToggleState &&
     !gamepadNavigationActive &&
     !resizeMode &&
-    !yomitanShown &&
+    !dictionaryPopupShown &&
     !shouldKeepOverlayVisibleWhenManualInactive();
 }
 
-function isYomitanStateLikelyStale() {
-  if (!yomitanShown) {
+function isDictionaryPopupStateLikelyStale() {
+  if (!dictionaryPopupShown) {
     return false;
   }
 
-  const ageMs = Date.now() - lastYomitanEventAt;
-  return ageMs >= YOMITAN_STATE_STALE_TIMEOUT_MS;
+  const ageMs = Date.now() - lastDictionaryPopupEventAt;
+  return ageMs >= DICTIONARY_POPUP_STATE_STALE_TIMEOUT_MS;
 }
 
-function clearMagpieYomitanCloseVisibilityGuard() {
-  magpieYomitanCloseVisibilityGuardActive = false;
-  if (magpieYomitanCloseVisibilityGuardTimer) {
-    clearTimeout(magpieYomitanCloseVisibilityGuardTimer);
-    magpieYomitanCloseVisibilityGuardTimer = null;
+function clearMagpieDictionaryPopupCloseVisibilityGuard() {
+  magpieDictionaryPopupCloseVisibilityGuardActive = false;
+  if (magpieDictionaryPopupCloseVisibilityGuardTimer) {
+    clearTimeout(magpieDictionaryPopupCloseVisibilityGuardTimer);
+    magpieDictionaryPopupCloseVisibilityGuardTimer = null;
   }
 }
 
-function beginMagpieYomitanCloseVisibilityGuard() {
-  clearMagpieYomitanCloseVisibilityGuard();
+function beginMagpieDictionaryPopupCloseVisibilityGuard() {
+  clearMagpieDictionaryPopupCloseVisibilityGuard();
   if (!currentMagpieState.active || !userSettings.focusOverlayOnYomitanLookup) {
     return;
   }
 
-  magpieYomitanCloseVisibilityGuardActive = true;
-  magpieYomitanCloseVisibilityGuardTimer = setTimeout(() => {
-    magpieYomitanCloseVisibilityGuardTimer = null;
-    magpieYomitanCloseVisibilityGuardActive = false;
+  magpieDictionaryPopupCloseVisibilityGuardActive = true;
+  magpieDictionaryPopupCloseVisibilityGuardTimer = setTimeout(() => {
+    magpieDictionaryPopupCloseVisibilityGuardTimer = null;
+    magpieDictionaryPopupCloseVisibilityGuardActive = false;
 
     // If the game really remained obscured after focus had time to settle, apply
     // the deferred state now. Usually focus restoration changes it back to active.
     if (
       !mainWindow ||
       mainWindow.isDestroyed() ||
-      yomitanShown ||
+      dictionaryPopupShown ||
       trackedGameWindowState !== "obscured"
     ) {
       return;
     }
 
-    console.log("[Yomitan] Magpie close grace expired while game remained obscured; hiding overlay");
-    resetOverlayInteractionStateForHiddenGameWindow("window-state:obscured-after-yomitan-close");
+    console.log("[DictionaryPopup] Magpie close grace expired while game remained obscured; hiding overlay");
+    resetOverlayInteractionStateForHiddenGameWindow("window-state:obscured-after-dictionary-popup-close");
     if (!resizeMode && !mainWindow.isMinimized()) {
       mainWindow.hide();
     }
-  }, MAGPIE_YOMITAN_CLOSE_VISIBILITY_GRACE_MS);
+  }, MAGPIE_DICTIONARY_POPUP_CLOSE_VISIBILITY_GRACE_MS);
 }
 
-function shouldDeferObscuredStateAfterYomitanClose() {
+function shouldDeferObscuredStateAfterDictionaryPopupClose() {
   return (
-    magpieYomitanCloseVisibilityGuardActive &&
+    magpieDictionaryPopupCloseVisibilityGuardActive &&
     currentMagpieState.active &&
     userSettings.focusOverlayOnYomitanLookup
   );
@@ -3598,17 +3601,17 @@ function aggressivelyShowOverlayAndReturnFocus() {
   forceForegroundWindow(mainWindow);
 }
 
-function focusOverlayForYomitanLookup() {
+function focusOverlayForDictionaryLookup() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
-  yomitanForegroundActive = true;
+  dictionaryPopupForegroundActive = true;
   const focusDelays = [0, 50, 120, 240];
   for (const delay of focusDelays) {
     setTimeout(() => {
-      if (!yomitanForegroundActive || !yomitanShown) return;
+      if (!dictionaryPopupForegroundActive || !dictionaryPopupShown) return;
       if (!mainWindow || mainWindow.isDestroyed()) return;
 
-      ensureMainWindowIsOnConnectedDisplay("yomitan-lookup-focus");
+      ensureMainWindowIsOnConnectedDisplay("dictionary-lookup-focus");
       if (mainWindow.isMinimized()) {
         mainWindow.restore();
       }
@@ -3627,9 +3630,9 @@ function focusOverlayForYomitanLookup() {
   }
 }
 
-function restoreOverlayAfterYomitanLookup() {
-  const wasForegroundedForYomitan = yomitanForegroundActive;
-  yomitanForegroundActive = false;
+function restoreOverlayAfterDictionaryLookup() {
+  const wasForegroundedForDictionary = dictionaryPopupForegroundActive;
+  dictionaryPopupForegroundActive = false;
 
   if (!mainWindow || mainWindow.isDestroyed()) return;
 
@@ -3652,14 +3655,14 @@ function restoreOverlayAfterYomitanLookup() {
     return;
   }
 
-  requestYomitanOverlayTopmostReassert("yomitan-lookup-restore");
+  requestDictionaryPopupOverlayTopmostReassert("dictionary-lookup-restore");
 
-  if (mainWindow.isFocused() || wasForegroundedForYomitan) {
+  if (mainWindow.isFocused() || wasForegroundedForDictionary) {
     blurAndRestoreFocus();
   }
 
   if (currentMagpieState.active) {
-    scheduleYomitanCloseRecovery();
+    scheduleDictionaryPopupCloseRecovery();
   }
 }
 
@@ -3783,7 +3786,7 @@ function scheduleGamepadReleaseRecovery() {
       if (version !== gamepadReleaseRecoveryVersion) return;
       if (!mainWindow || mainWindow.isDestroyed()) return;
       if (!currentMagpieState.active || isManualMode()) return;
-      if (gamepadNavigationActive || yomitanShown || resizeMode) return;
+      if (gamepadNavigationActive || dictionaryPopupShown || resizeMode) return;
 
       restoreAutomaticOverlayPassThrough("gamepad-release-recovery");
       requestOverlayTopmostReassert("gamepad-release-recovery", {
@@ -3796,19 +3799,19 @@ function scheduleGamepadReleaseRecovery() {
   }
 }
 
-function scheduleYomitanCloseRecovery() {
-  const version = ++yomitanRecoveryVersion;
+function scheduleDictionaryPopupCloseRecovery() {
+  const version = ++dictionaryPopupRecoveryVersion;
   const recoveryDelays = [120];
 
   for (const delay of recoveryDelays) {
     setTimeout(() => {
-      if (version !== yomitanRecoveryVersion) return;
+      if (version !== dictionaryPopupRecoveryVersion) return;
       if (!mainWindow || mainWindow.isDestroyed()) return;
-      if (yomitanShown || resizeMode || manualHotkeyPressed || manualModeToggleState || gamepadNavigationActive) return;
+      if (dictionaryPopupShown || resizeMode || manualHotkeyPressed || manualModeToggleState || gamepadNavigationActive) return;
       if (isWindows() || isMac()) {
         mainWindow.setIgnoreMouseEvents(true, { forward: true });
       }
-      requestOverlayTopmostReassert("yomitan-close-recovery", {
+      requestOverlayTopmostReassert("dictionary-popup-close-recovery", {
         force: true,
         moveToTop: true,
         refreshWorkspace: true,
@@ -3818,7 +3821,7 @@ function scheduleYomitanCloseRecovery() {
   }
 }
 
-function shouldReassertOverlayAroundYomitan() {
+function shouldReassertOverlayAroundDictionaryPopup() {
   return (
     currentMagpieState.active ||
     shouldKeepOverlayVisibleWhenManualInactive() ||
@@ -3828,12 +3831,12 @@ function shouldReassertOverlayAroundYomitan() {
   );
 }
 
-function shouldPreserveOverlayFocusForYomitan() {
+function shouldPreserveOverlayFocusForDictionaryPopup() {
   return !!(manualHotkeyPressed || manualModeToggleState || gamepadNavigationActive);
 }
 
-function requestYomitanOverlayTopmostReassert(source) {
-  if (!shouldReassertOverlayAroundYomitan()) {
+function requestDictionaryPopupOverlayTopmostReassert(source) {
+  if (!shouldReassertOverlayAroundDictionaryPopup()) {
     return false;
   }
 
@@ -3841,7 +3844,7 @@ function requestYomitanOverlayTopmostReassert(source) {
     force: true,
     moveToTop: true,
     refreshWorkspace: true,
-    releaseFocusAfter: !shouldPreserveOverlayFocusForYomitan(),
+    releaseFocusAfter: !shouldPreserveOverlayFocusForDictionaryPopup(),
   });
 }
 
@@ -4744,7 +4747,7 @@ function hideOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
   const preserveYomitanDuringManualHold =
     pauseSource === OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY &&
     normalizeManualModeType(userSettings.manualModeType) === "hold" &&
-    yomitanShown;
+    dictionaryPopupShown;
 
   // With a desktop-background snapshot up, hiding the overlay the instant focus is handed
   // back flashes the raw desktop because the game hasn't re-taken the display yet. Keep the
@@ -4878,7 +4881,7 @@ function resetOverlayInteractionStateForHiddenGameWindow(reason = "game-window-h
   manualHotkeyPressed = false;
   manualModeToggleState = false;
   gamepadNavigationActive = false;
-  yomitanForegroundActive = false;
+  dictionaryPopupForegroundActive = false;
 
   if (hadManualState) {
     requestOverlayResumeForSource(OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY);
@@ -4902,11 +4905,11 @@ function restoreAutomaticOverlayPassThrough(reason = "auto-reset") {
     return;
   }
 
-  if (resizeMode || yomitanShown || gamepadNavigationActive || yomitanForegroundActive) {
+  if (resizeMode || dictionaryPopupShown || gamepadNavigationActive || dictionaryPopupForegroundActive) {
     console.log(
       `[OverlayReset] Skipping automatic pass-through reset (${reason}) ` +
-      `resizeMode=${resizeMode} yomitanShown=${yomitanShown} ` +
-      `gamepadNavigationActive=${gamepadNavigationActive} yomitanForegroundActive=${yomitanForegroundActive}`
+      `resizeMode=${resizeMode} dictionaryPopupShown=${dictionaryPopupShown} ` +
+      `gamepadNavigationActive=${gamepadNavigationActive} dictionaryPopupForegroundActive=${dictionaryPopupForegroundActive}`
     );
     return;
   }
@@ -5227,7 +5230,7 @@ function registerTexthookerHotkey(oldHotkey) {
           }
         } else {
           // Mirror manual mode release flow
-          if (!yomitanShown && !resizeMode) {
+          if (!dictionaryPopupShown && !resizeMode) {
             if (!isLinux()) {
               mainWindow.setIgnoreMouseEvents(true, { forward: true });
             }
@@ -6672,12 +6675,15 @@ async function startOverlayAppImpl() {
   });
 
   ipcMain.on('set-ignore-mouse-events', (event, ignore, options) => {
-    // console.log("set-ignore-mouse-events", ignore, options, resizeMode, yomitanShown);
+    // console.log("set-ignore-mouse-events", ignore, options, resizeMode, dictionaryPopupShown);
     const forceMagpieRelease = !!(options && options.forceMagpieRelease);
-    if (forceMagpieRelease && ignore && isYomitanStateLikelyStale()) {
-      console.warn(`[MagpieCompat] Clearing stale Yomitan state before mouse release (age=${Date.now() - lastYomitanEventAt}ms)`);
-      yomitanShown = false;
-      yomitanRecoveryVersion += 1;
+    if (forceMagpieRelease && ignore && isDictionaryPopupStateLikelyStale()) {
+      console.warn(`[MagpieCompat] Clearing stale dictionary popup state before mouse release (age=${Date.now() - lastDictionaryPopupEventAt}ms)`);
+      dictionaryPopupShown = false;
+      activeDictionaryPopupBackendId = null;
+      activeDictionaryPopupCount = 0;
+      activeDictionaryPopupGeneration += 1;
+      dictionaryPopupRecoveryVersion += 1;
     }
 
     if (
@@ -6687,7 +6693,7 @@ async function startOverlayAppImpl() {
       !manualModeToggleState &&
       !gamepadNavigationActive &&
       !resizeMode &&
-      !yomitanShown
+      !dictionaryPopupShown
     ) {
       console.log("[ManualMode] Ignoring renderer request to enable overlay mouse interaction while manual mode is inactive.");
       if (isWindows() || isMac()) {
@@ -6696,7 +6702,7 @@ async function startOverlayAppImpl() {
       return;
     }
 
-    if (!resizeMode && (!yomitanShown || (forceMagpieRelease && ignore))) {
+    if (!resizeMode && (!dictionaryPopupShown || (forceMagpieRelease && ignore))) {
       // if ignore is false a button or element on the Overlay was clicked and we do not want to click-through
       if (!isWindows() && !isMac()) {
         // On Linux, forwarding mouse click-through is currently unsupported
@@ -6734,36 +6740,73 @@ async function startOverlayAppImpl() {
   })
 
 
-  ipcMain.on("yomitan-event", (event, state) => {
-    // Reset the activity timer on yomitan interaction
+  const handleDictionaryPopupEvent = (_event, payload = {}) => {
+    const active = payload && typeof payload === "object"
+      ? payload.active === true
+      : payload === true;
+    const backendId = payload && typeof payload === "object" && typeof payload.backendId === "string"
+      ? payload.backendId
+      : "yomitan";
+    const generation = payload && typeof payload === "object" && Number.isSafeInteger(payload.generation)
+      ? payload.generation
+      : (
+          active && !dictionaryPopupShown
+            ? activeDictionaryPopupGeneration + 1
+            : activeDictionaryPopupGeneration
+        );
+    const popupCount = payload && typeof payload === "object" && Number.isSafeInteger(payload.popupCount)
+      ? Math.max(0, payload.popupCount)
+      : (active ? Math.max(1, activeDictionaryPopupCount) : 0);
+
+    if (
+      generation < activeDictionaryPopupGeneration ||
+      (
+        !active &&
+        dictionaryPopupShown &&
+        generation === activeDictionaryPopupGeneration &&
+        activeDictionaryPopupBackendId &&
+        backendId !== activeDictionaryPopupBackendId
+      )
+    ) {
+      console.log(
+        `[DictionaryPopup] Ignoring stale event backend=${backendId} generation=${generation} ` +
+        `activeGeneration=${activeDictionaryPopupGeneration}`
+      );
+      return;
+    }
+
+    // Reset the activity timer on dictionary interaction.
     resetActivityTimer();
 
     // Invalidate pending close-recovery attempts whenever popup state flips.
-    yomitanRecoveryVersion += 1;
-    lastYomitanEventAt = Date.now();
-    yomitanShown = state;
-    if (state) {
-      clearMagpieYomitanCloseVisibilityGuard();
+    dictionaryPopupRecoveryVersion += 1;
+    lastDictionaryPopupEventAt = Date.now();
+    activeDictionaryPopupGeneration = generation;
+    activeDictionaryPopupBackendId = active ? backendId : null;
+    activeDictionaryPopupCount = popupCount;
+    dictionaryPopupShown = active;
+    if (active) {
+      clearMagpieDictionaryPopupCloseVisibilityGuard();
       if (userSettings.focusOverlayOnYomitanLookup) {
-        focusOverlayForYomitanLookup();
+        focusOverlayForDictionaryLookup();
       } else {
-        yomitanForegroundActive = false;
+        dictionaryPopupForegroundActive = false;
         if (isWindows() || isMac()) {
           mainWindow.setIgnoreMouseEvents(false, { forward: true });
         }
-        requestYomitanOverlayTopmostReassert("yomitan-open");
+        requestDictionaryPopupOverlayTopmostReassert("dictionary-popup-open");
       }
     } else {
-      beginMagpieYomitanCloseVisibilityGuard();
-      if (yomitanForegroundActive || userSettings.focusOverlayOnYomitanLookup) {
-        restoreOverlayAfterYomitanLookup();
+      beginMagpieDictionaryPopupCloseVisibilityGuard();
+      if (dictionaryPopupForegroundActive || userSettings.focusOverlayOnYomitanLookup) {
+        restoreOverlayAfterDictionaryLookup();
         return;
       }
 
-      // Closing Yomitan should not change overlay visibility/focus state while
+      // Closing a dictionary popup should not change overlay visibility/focus state while
       // manual hold/toggle is active.
       if (manualHotkeyPressed || manualModeToggleState) {
-        requestYomitanOverlayTopmostReassert("yomitan-close-manual-active");
+        requestDictionaryPopupOverlayTopmostReassert("dictionary-popup-close-manual-active");
         return;
       }
 
@@ -6774,7 +6817,7 @@ async function startOverlayAppImpl() {
       // Controller navigation also owns overlay focus while active, so don't
       // hand focus back to the game just because a lookup closed.
       if (gamepadNavigationActive) {
-        requestYomitanOverlayTopmostReassert("yomitan-close-gamepad-active");
+        requestDictionaryPopupOverlayTopmostReassert("dictionary-popup-close-gamepad-active");
         return;
       }
 
@@ -6786,11 +6829,26 @@ async function startOverlayAppImpl() {
         blurAndRestoreFocus();
       }
       // Magpie can race z-order after popup close; reassert top layer without extra focus handoff.
-      if (requestYomitanOverlayTopmostReassert("yomitan-close")) {
-        scheduleYomitanCloseRecovery();
+      if (requestDictionaryPopupOverlayTopmostReassert("dictionary-popup-close")) {
+        scheduleDictionaryPopupCloseRecovery();
       }
     }
-  })
+  };
+
+  ipcMain.on("dictionary-popup-event", handleDictionaryPopupEvent);
+  ipcMain.on("yomitan-event", (event, state) => {
+    handleDictionaryPopupEvent(event, {
+      active: state === true,
+      backendId: "yomitan",
+      generation: (
+        state === true && !dictionaryPopupShown
+          ? activeDictionaryPopupGeneration + 1
+          : activeDictionaryPopupGeneration
+      ),
+      popupCount: state === true ? Math.max(1, activeDictionaryPopupCount) : 0,
+      compatibility: true,
+    });
+  });
 
   ipcMain.on('release-mouse', () => {
     blurAndRestoreFocus();
@@ -6944,10 +7002,10 @@ async function startOverlayAppImpl() {
       : (magpieActive ? currentMagpieState : createMagpieState(null));
 
     if (
-      magpieYomitanCloseVisibilityGuardActive &&
+      magpieDictionaryPopupCloseVisibilityGuardActive &&
       ["active", "background", "minimized", "closed"].includes(normalizedWindowState)
     ) {
-      clearMagpieYomitanCloseVisibilityGuard();
+      clearMagpieDictionaryPopupCloseVisibilityGuard();
     }
 
     console.log(
@@ -7031,13 +7089,13 @@ async function startOverlayAppImpl() {
 
       case "obscured":
         console.log("[WindowState] Obscured - Game completely covered by other windows");
-        if (shouldDeferObscuredStateAfterYomitanClose()) {
-          console.log("[WindowState] Deferring transient Magpie obscured state after focused Yomitan close");
+        if (shouldDeferObscuredStateAfterDictionaryPopupClose()) {
+          console.log("[WindowState] Deferring transient Magpie obscured state after focused dictionary popup close");
           break;
         }
         resetOverlayInteractionStateForHiddenGameWindow("window-state:obscured");
         // Game window is completely hidden by other windows - hide overlay
-        if (!yomitanShown && !resizeMode && !mainWindow.isMinimized()) {
+        if (!dictionaryPopupShown && !resizeMode && !mainWindow.isMinimized()) {
           mainWindow.hide();
         }
         break;
@@ -7266,10 +7324,10 @@ async function startOverlayAppImpl() {
         restoreAutomaticOverlayPassThrough("setting-changed:manualModeInactiveBehavior");
         break;
       case "focusOverlayOnYomitanLookup":
-        if (value && yomitanShown) {
-          focusOverlayForYomitanLookup();
+        if (value && dictionaryPopupShown) {
+          focusOverlayForDictionaryLookup();
         } else if (!value) {
-          yomitanForegroundActive = false;
+          dictionaryPopupForegroundActive = false;
         }
         break;
       case "afkTimer":
@@ -7868,7 +7926,7 @@ async function stopOverlayApp() {
 
       runOverlayCleanupStep('IPC registrations', () => removeOverlayIpcRegistrations());
       runOverlayCleanupStep('Electron event listeners', () => removeOverlayEmitterListeners());
-      runOverlayCleanupStep('Magpie Yomitan close guard', () => clearMagpieYomitanCloseVisibilityGuard());
+      runOverlayCleanupStep('Magpie Yomitan close guard', () => clearMagpieDictionaryPopupCloseVisibilityGuard());
       runOverlayCleanupStep('timers', () => clearOverlayTimers());
       findInPageStateByWebContentsId.clear();
       runOverlayCleanupStep('settings save', () => saveSettings());

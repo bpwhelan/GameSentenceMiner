@@ -712,6 +712,66 @@ describe("legacy gamepad block redraw recovery", () => {
 });
 
 describe("legacy gamepad popup routing", () => {
+  it("routes lookup and popup commands exclusively through the generic controller", () => {
+    const controllerCalls: unknown[] = [];
+    const legacyMessages: unknown[] = [];
+    legacyGamepadContext.window.postMessage = (message: unknown) => {
+      legacyMessages.push(message);
+    };
+    legacyGamepadContext.window.gsmDictionaryPopupController = {
+      lookup(intent: unknown) {
+        controllerCalls.push({ type: "lookup", intent });
+        return Promise.resolve({ status: "applied" });
+      },
+      dismiss(reason: string) {
+        controllerCalls.push({ type: "dismiss", reason });
+        return Promise.resolve({ status: "handled" });
+      },
+      command(command: string, params: unknown) {
+        controllerCalls.push({ type: "command", command, params });
+        return Promise.resolve({ status: "handled" });
+      }
+    };
+
+    const handler = Object.create(GamepadHandler.prototype) as {
+      sendYomitanControlMessage: (
+        action: string,
+        params?: Record<string, unknown>,
+      ) => void;
+    };
+
+    handler.sendYomitanControlMessage("lookup-point", {
+      x: 10,
+      y: 20,
+      anchorKey: "2:4",
+    });
+    handler.sendYomitanControlMessage("scroll", { direction: -1 });
+    handler.sendYomitanControlMessage("hide-popup");
+
+    expect(controllerCalls).toEqual([
+      {
+        type: "lookup",
+        intent: {
+          anchor: { x: 10, y: 20 },
+          anchorKey: "2:4",
+          source: "gamepad",
+        },
+      },
+      {
+        type: "command",
+        command: "scroll",
+        params: { direction: -1 },
+      },
+      {
+        type: "dismiss",
+        reason: "gamepad-dismiss",
+      },
+    ]);
+    expect(legacyMessages).toEqual([]);
+
+    delete legacyGamepadContext.window.gsmDictionaryPopupController;
+  });
+
   it("routes popup action controls only to the topmost visible popup frame", () => {
     const hostMessages: unknown[] = [];
     const parentMessages: unknown[] = [];
@@ -824,6 +884,64 @@ describe("legacy gamepad popup routing", () => {
     expect(actions.at(-1)).toBe("clear-action-selection");
   });
 
+  it("tracks backend-neutral Hoshi popup events and final-close cleanup", () => {
+    const actions: string[] = [];
+    const handler = Object.create(GamepadHandler.prototype) as any;
+    handler.dictionaryPopupCount = 0;
+    handler.dictionaryPopupVisible = false;
+    handler.dictionaryPopupBackendId = null;
+    handler.dictionaryPopupGeneration = 0;
+    handler.popupActionSelectionActive = false;
+    handler.pendingMineCandidate = { anchorKey: "0:0" };
+    handler.lastLookupAnchorKey = "0:0";
+    handler.thumbstickLatch = new Map();
+    handler.sendYomitanControlMessage = (action: string) => actions.push(action);
+    handler.setThumbstickLatch = GamepadHandler.prototype.setThumbstickLatch;
+    handler.clearPendingMineCandidate =
+      GamepadHandler.prototype.clearPendingMineCandidate;
+    handler.resetYomitanPopupActionSelection =
+      GamepadHandler.prototype.resetYomitanPopupActionSelection;
+
+    GamepadHandler.prototype.onDictionaryPopupShown.call(handler, {
+      detail: {
+        backendId: "hoshidicts",
+        generation: 9,
+        popupCount: 2,
+      },
+    });
+
+    expect(handler.dictionaryPopupCount).toBe(2);
+    expect(handler.dictionaryPopupVisible).toBe(true);
+    expect(handler.dictionaryPopupBackendId).toBe("hoshidicts");
+    expect(handler.dictionaryPopupGeneration).toBe(9);
+
+    GamepadHandler.prototype.onDictionaryPopupShown.call(handler, {
+      detail: {
+        backendId: "hoshidicts",
+        generation: 9,
+        popupCount: 1,
+        reason: "nested-popup-closed",
+      },
+    });
+    expect(handler.dictionaryPopupVisible).toBe(true);
+    expect(handler.pendingMineCandidate).not.toBeNull();
+
+    GamepadHandler.prototype.onDictionaryPopupHidden.call(handler, {
+      detail: {
+        backendId: "hoshidicts",
+        generation: 9,
+        popupCount: 0,
+      },
+    });
+
+    expect(handler.dictionaryPopupCount).toBe(0);
+    expect(handler.dictionaryPopupVisible).toBe(false);
+    expect(handler.dictionaryPopupBackendId).toBeNull();
+    expect(handler.pendingMineCandidate).toBeNull();
+    expect(handler.lastLookupAnchorKey).toBeNull();
+    expect(actions.at(-1)).toBe("clear-action-selection");
+  });
+
   it("requires an unchanged target and open popup before second-confirm mining", () => {
     const handler = Object.create(GamepadHandler.prototype) as any;
     handler.currentBlockIndex = 2;
@@ -894,7 +1012,7 @@ describe("legacy gamepad popup routing", () => {
     expect(sent).toEqual([
       {
         action: "lookup-point",
-        params: { x: 10, y: 20 }
+        params: { x: 10, y: 20, anchorKey: "1:3" }
       }
     ]);
     expect(handler.pendingMineCandidate).toEqual({

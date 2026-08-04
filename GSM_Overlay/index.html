@@ -815,9 +815,9 @@ background: rgba(202, 12, 12, 0.692);
 
 
 <script>
-  let yomitanShowing = false;
+  let dictionaryPopupShowing = false;
   let autoHide = null;
-  let hideOnYomitanClose = false;
+  let hideOnDictionaryPopupClose = false;
   // let currentX = 0;
   // let currentY = 0;
   let magpieReleaseInterval = null;
@@ -859,7 +859,7 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   function restoreOverlayPassThrough(reason = 'overlay-pass-through') {
-    if (yomitanShowing) {
+    if (dictionaryPopupShowing) {
       return;
     }
 
@@ -976,9 +976,9 @@ background: rgba(202, 12, 12, 0.692);
     };
   }
   
-  // Track multiple Yomitan popups for nested lookups
-  let yomitanPopupCount = 0;
-  let yomitanPopupIds = new Set(); // Track unique popup IDs to prevent double-counting
+  let dictionaryPopupController = null;
+  let dictionaryBackendManager = null;
+  let yomitanDictionaryBackend = null;
 
   // Manual mode recommendation state
   let dismissedRecommendationGames = []; // Permanently dismissed games
@@ -1105,25 +1105,23 @@ background: rgba(202, 12, 12, 0.692);
   let gsmCharacterDictionaryEnsureTimeoutId = null;
   let gsmCharacterDictionaryEnsureInProgress = false;
 
-  async function closeYomitanLookups(reason = 'manual-hide') {
-    if (!yomitanShowing) {
+  async function closeDictionaryLookups(reason = 'manual-hide') {
+    if (!dictionaryPopupShowing) {
       return false;
     }
 
-    hideOnYomitanClose = false;
-
-    const bridge = window.gsmYomitanBridge;
-    if (!bridge || typeof bridge.closePopups !== 'function') {
-      console.warn(`[Yomitan] closePopups bridge unavailable (${reason})`);
+    hideOnDictionaryPopupClose = false;
+    if (!dictionaryBackendManager) {
+      console.warn(`[DictionaryPopup] Backend manager unavailable (${reason})`);
       return false;
     }
 
     try {
-      await bridge.closePopups({ timeoutMs: 1500 });
-      console.log(`[Yomitan] Requested popup close (${reason})`);
-      return true;
+      const result = await dictionaryBackendManager.dismiss(reason);
+      console.log(`[DictionaryPopup] Requested popup close (${reason})`);
+      return result?.status !== 'failed';
     } catch (error) {
-      console.warn(`[Yomitan] Failed to close popups via bridge (${reason}):`, error);
+      console.warn(`[DictionaryPopup] Failed to close popups (${reason}):`, error);
       return false;
     }
   }
@@ -1208,10 +1206,15 @@ background: rgba(202, 12, 12, 0.692);
     }, delayMs);
   }
 
-  function isYomitanPopupElement(element) {
+  function isDictionaryPopupElement(element) {
     return (
       element instanceof HTMLElement &&
-      (element.classList.contains('yomitan-popup') || element.tagName === 'YOMITAN-POPUP-TAG-NAME')
+      (
+        element.classList.contains('yomitan-popup') ||
+        element.classList.contains('hoshidicts-popup') ||
+        element.id === 'hoshidicts-popup-root' ||
+        element.tagName === 'YOMITAN-POPUP-TAG-NAME'
+      )
     );
   }
 
@@ -1228,63 +1231,40 @@ background: rgba(202, 12, 12, 0.692);
       });
   }
 
-  function syncYomitanPopupStateFromDom(reason = 'dom-sync') {
-    const visiblePopupFrames = getVisibleYomitanPopupFrames();
-    if (visiblePopupFrames.length === 0) {
-      return false;
-    }
-
-    if (!yomitanShowing || yomitanPopupCount !== visiblePopupFrames.length) {
-      yomitanPopupIds.clear();
-      visiblePopupFrames.forEach((_, index) => {
-        yomitanPopupIds.add(`dom-popup-${index}`);
-      });
-      yomitanPopupCount = visiblePopupFrames.length;
-      yomitanShowing = true;
-      ipcRenderer.send('yomitan-event', true);
-      console.log(`[Yomitan] Synced visible popup state from DOM (${reason}): ${visiblePopupFrames.length}`);
-    }
-
-    lastPopupCount = yomitanPopupCount;
-    lastPopupChangeTime = Date.now();
-    return true;
-  }
-  
   setInterval(() => {
-    if (syncYomitanPopupStateFromDom('stale-check')) {
+    if (
+      !dictionaryPopupController ||
+      !yomitanDictionaryBackend ||
+      dictionaryBackendManager?.getSnapshot?.().backendId !== 'yomitan'
+    ) {
       return;
     }
 
-    // Track when count last changed
-    if (yomitanPopupCount !== lastPopupCount) {
+    const snapshot = dictionaryPopupController.getSnapshot();
+    const visiblePopupFrames = getVisibleYomitanPopupFrames();
+    if (visiblePopupFrames.length > 0) {
+      if (!snapshot.active) {
+        yomitanDictionaryBackend.syncPopupStateFromDom('dom-recovery');
+      }
+      lastPopupCount = visiblePopupFrames.length;
       lastPopupChangeTime = Date.now();
-      lastPopupCount = yomitanPopupCount;
+      return;
     }
-    
-    // If we think popups are showing but it's been a while with no changes,
-    // and user isn't actively interacting, reset the state
+
+    if (snapshot.popupCount !== lastPopupCount) {
+      lastPopupCount = snapshot.popupCount;
+      lastPopupChangeTime = Date.now();
+    }
+
     const timeSinceChange = Date.now() - lastPopupChangeTime;
-    if (yomitanPopupCount > 0 && timeSinceChange > STALE_TIMEOUT) {
-      console.warn(`Yomitan popup count appears stale (${yomitanPopupCount} popups for ${timeSinceChange}ms). Resetting...`);
-      
-      // Reset state
-      yomitanPopupCount = 0;
-      yomitanPopupIds.clear();
-      yomitanShowing = false;
+    if (snapshot.active && timeSinceChange > STALE_TIMEOUT) {
+      console.warn(
+        `[DictionaryPopup] Yomitan popup state appears stale ` +
+        `(${snapshot.popupCount} popups for ${timeSinceChange}ms). Resetting...`
+      );
       lastPopupCount = 0;
       lastPopupChangeTime = Date.now();
-      
-      // Trigger cleanup
-      console.log('Resetting stale Yomitan state - triggering cleanup');
-      ipcRenderer.send('yomitan-event', false);
-      if (isMagpieActive && !manualHotkeyPressed) {
-        requestMagpieMouseRelease('stale-yomitan-reset');
-      }
-      
-      if (hideOnYomitanClose) {
-        hideOnYomitanClose = false;
-        applyManualInactivePresentation('yomitan-stale-reset');
-      }
+      void dictionaryBackendManager.dismiss('stale-yomitan-reset');
     }
   }, 5000); // Check every 5 seconds
 
@@ -1293,76 +1273,6 @@ background: rgba(202, 12, 12, 0.692);
   //   currentX = e.clientX;
   //   currentY = e.clientY;
   // });
-
-  window.addEventListener('yomitan-popup-shown', (event) => {
-    console.log('Yomitan popup shown:', event);
-    console.log(event.detail); // This will log the value of 'this' passed above
-    
-    // Extract popup ID if available, otherwise use timestamp as unique identifier
-    const popupId = event.detail?.popupId || `popup-${Date.now()}-${Math.random()}`;
-    
-    // Only increment if this is a new popup
-    if (!yomitanPopupIds.has(popupId)) {
-      yomitanPopupIds.add(popupId);
-      yomitanPopupCount++;
-      console.log(`Yomitan popup opened. Active popups: ${yomitanPopupCount}`, Array.from(yomitanPopupIds));
-    }
-    
-    // Update state based on popup count
-    if (yomitanPopupCount > 0) {
-      yomitanShowing = true;
-      ipcRenderer.send('yomitan-event', true);
-    }
-
-    // Refresh the Jiten grading bar config for the (possibly new) popup frame.
-    requestJitenReaderGradingSettings();
-    pushJitenGradingConfig();
-    setTimeout(() => pushJitenGradingConfig(), 250);
-  });
-
-  // When popup is hidden, tell main process to ignore mouse events again
-  window.addEventListener('yomitan-popup-hidden', (event) => {
-    console.log('Yomitan popup hidden:', event);
-    
-    // Extract popup ID if available
-    const popupId = event.detail?.popupId || null;
-    
-    // Decrement count, ensuring we don't go below 0
-    if (popupId && yomitanPopupIds.has(popupId)) {
-      yomitanPopupIds.delete(popupId);
-      yomitanPopupCount--;
-    } else if (!popupId && yomitanPopupCount > 0) {
-      // Fallback: decrement by 1 if no ID provided
-      yomitanPopupCount--;
-      // Clear the oldest entry if we have IDs tracked
-      if (yomitanPopupIds.size > 0) {
-        const firstId = yomitanPopupIds.values().next().value;
-        yomitanPopupIds.delete(firstId);
-      }
-    }
-    
-    // Ensure count never goes negative
-    yomitanPopupCount = Math.max(0, yomitanPopupCount);
-    
-    console.log(`Yomitan popup closed. Remaining popups: ${yomitanPopupCount}`, Array.from(yomitanPopupIds));
-    
-    // Only trigger cleanup when ALL popups are closed
-    if (yomitanPopupCount === 0) {
-      console.log('All Yomitan popups closed, triggering cleanup');
-      yomitanShowing = false;
-      yomitanPopupIds.clear(); // Clear the set to prevent memory leaks
-      
-      ipcRenderer.send('yomitan-event', false);
-      if (isMagpieActive && !manualHotkeyPressed) {
-        requestMagpieMouseRelease('yomitan-popup-hidden');
-      }
-      
-      if (hideOnYomitanClose) {
-        hideOnYomitanClose = false;
-        applyManualInactivePresentation('yomitan-popup-hidden');
-      }
-    }
-  });
 
   const textElement = document.getElementById("text");
   const handle = document.getElementById("resize-handle");
@@ -1403,6 +1313,61 @@ background: rgba(202, 12, 12, 0.692);
 <script src="live_stats_widget.js"></script>
 <script>
   const { ipcRenderer } = require("electron");
+  const { DictionaryPopupController } = require("./dictionary_popup_controller.js");
+  const { DictionaryBackendManager } = require("./dictionary_backend_manager.js");
+  const { YomitanDictionaryBackend } = require("./yomitan_dictionary_backend.js");
+
+  dictionaryPopupController = new DictionaryPopupController({
+    publishPopupEvent(event) {
+      ipcRenderer.send("dictionary-popup-event", event);
+    },
+  });
+  yomitanDictionaryBackend = new YomitanDictionaryBackend({
+    window,
+    document,
+    getBridge: () => window.gsmYomitanBridge,
+    getGeneration: () => dictionaryPopupController.generation,
+  });
+  dictionaryBackendManager = new DictionaryBackendManager({
+    controller: dictionaryPopupController,
+    backends: [yomitanDictionaryBackend],
+  });
+
+  dictionaryPopupController.on("popup-state", (popupState) => {
+    const wasShowing = dictionaryPopupShowing;
+    dictionaryPopupShowing = popupState.active === true;
+    window.dispatchEvent(new CustomEvent(
+      dictionaryPopupShowing ? "dictionary-popup-shown" : "dictionary-popup-hidden",
+      { detail: popupState },
+    ));
+
+    if (dictionaryPopupShowing && popupState.backendId === "yomitan") {
+      requestJitenReaderGradingSettings();
+      pushJitenGradingConfig();
+      setTimeout(() => pushJitenGradingConfig(), 250);
+      return;
+    }
+    if (wasShowing && !dictionaryPopupShowing) {
+      if (isMagpieActive && !manualHotkeyPressed) {
+        requestMagpieMouseRelease("dictionary-popup-hidden");
+      }
+      if (hideOnDictionaryPopupClose) {
+        hideOnDictionaryPopupClose = false;
+        applyManualInactivePresentation("dictionary-popup-hidden");
+      }
+    }
+  });
+  dictionaryBackendManager.on("status", (status) => {
+    window.dispatchEvent(new CustomEvent("dictionary-backend-status", {
+      detail: status,
+    }));
+  });
+  window.gsmDictionaryPopupController = dictionaryPopupController;
+  window.gsmDictionaryBackendManager = dictionaryBackendManager;
+  void dictionaryBackendManager.start("yomitan").catch((error) => {
+    console.error("[DictionaryPopup] Failed to start the default Yomitan backend:", error);
+  });
+
   // Try to load OverlayUtils if available (since this is an Electron renderer process)
   let OverlayUtils;
   let FuriganaUtils;
@@ -1451,7 +1416,7 @@ background: rgba(202, 12, 12, 0.692);
         ipcRenderer.send('set-ignore-mouse-events', true, { forward: true, reason });
       },
       isYomitanShowing() {
-        return yomitanShowing;
+        return dictionaryPopupShowing;
       },
       isManualHotkeyPressed() {
         return manualHotkeyPressed;
@@ -4086,7 +4051,7 @@ background: rgba(202, 12, 12, 0.692);
   document.addEventListener("click", (event) => {
     // Use composedPath to see into Shadow DOMs
     const path = event.composedPath();
-    const isYomitanPopup = path.some(isYomitanPopupElement);
+    const isYomitanPopup = path.some(isDictionaryPopupElement);
     
     const target = event.target;
     const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');
@@ -4107,7 +4072,7 @@ background: rgba(202, 12, 12, 0.692);
   // Use mousedown to catch events earlier in the chain, giving better pass-through behavior
   document.addEventListener("mousedown", (event) => {
     const path = event.composedPath();
-    const isYomitanPopup = path.some(isYomitanPopupElement);
+    const isYomitanPopup = path.some(isDictionaryPopupElement);
     
     const target = event.target;
     // const isInteractive = target.classList.contains('interactive') || target.closest('.interactive');
@@ -4338,11 +4303,11 @@ background: rgba(202, 12, 12, 0.692);
       // Initialize magpie interval based on current websocket state (isMagpieActive)
       // This will be updated dynamically when window_state messages arrive
       if (isMagpieActive) {
-        if (!yomitanShowing && !manualHotkeyPressed) {
+        if (!dictionaryPopupShowing && !manualHotkeyPressed) {
           requestMagpieMouseRelease('settings-load');
         }
         magpieReleaseInterval = setInterval(() => {
-          if (!yomitanShowing && !manualHotkeyPressed) {
+          if (!dictionaryPopupShowing && !manualHotkeyPressed) {
             requestMagpieMouseRelease('settings-load-interval');
           }
         }, 1000);
@@ -4531,11 +4496,11 @@ background: rgba(202, 12, 12, 0.692);
     }
 
     if (newValue) {
-      if (!yomitanShowing && !manualHotkeyPressed) {
+      if (!dictionaryPopupShowing && !manualHotkeyPressed) {
         requestMagpieMouseRelease('magpie-compat-start');
       }
       magpieReleaseInterval = setInterval(() => {
-        if (!yomitanShowing && !manualHotkeyPressed) {
+        if (!dictionaryPopupShowing && !manualHotkeyPressed) {
           requestMagpieMouseRelease('magpie-compat-interval');
         }
       }, 1000);
@@ -4546,7 +4511,7 @@ background: rgba(202, 12, 12, 0.692);
     manualMode = newValue;
     manualModeActivatedOnce = false;
     manualHotkeyPressed = false;
-    hideOnYomitanClose = false;
+    hideOnDictionaryPopupClose = false;
 
     if (manualMode) {
       applyManualInactivePresentation('manual-mode-enabled');
@@ -4637,9 +4602,9 @@ background: rgba(202, 12, 12, 0.692);
         applyManualInactivePresentation('manual-hotkey-release');
       };
 
-      if (yomitanShowing) {
+      if (dictionaryPopupShowing) {
         if (manualModeType === "hold") {
-          hideOnYomitanClose = true;
+          hideOnDictionaryPopupClose = true;
           setManualInteractionSuppressed(true);
           if (shouldHideOverlayWhenManualInactive() && !pinned) {
             document.body.classList.remove('force-visible');
@@ -4648,7 +4613,7 @@ background: rgba(202, 12, 12, 0.692);
           }
           return;
         }
-        void closeYomitanLookups('manual-hotkey-release').finally(() => {
+        void closeDictionaryLookups('manual-hotkey-release').finally(() => {
           finishManualHotkeyRelease();
         });
         return;

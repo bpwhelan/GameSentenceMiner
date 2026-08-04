@@ -1626,8 +1626,8 @@
       </label>
       <label>
         <span class="label-text">
-          Focus Overlay on Yomitan Lookup
-          <div class="hotkey-info">Bring the overlay to the foreground while Yomitan popups are open, then restore the prior pass-through state when they close.</div>
+          Focus Overlay on Dictionary Lookup
+          <div class="hotkey-info">Bring the overlay to the foreground while dictionary popups are open, then restore the prior pass-through state when they close.</div>
         </span>
         <input type="checkbox" id="focusOverlayOnYomitanLookup" />
       </label>
@@ -2192,7 +2192,7 @@
       <label>
         <span class="label-text">
           Enable Gamepad Navigation
-          <div class="hotkey-info">Use controller to navigate text and trigger Yomitan lookups</div>
+          <div class="hotkey-info">Use controller to navigate text and trigger dictionary lookups</div>
         </span>
         <input type="checkbox" id="gamepadEnabled" checked />
       </label>
@@ -2303,16 +2303,16 @@
       </label>
       <label>
         <span class="label-text">
-          Next Yomitan Entry Button
-          <div class="hotkey-info">While the Yomitan popup is open, move to the next entry in the list</div>
+          Next Dictionary Entry Button
+          <div class="hotkey-info">While the dictionary popup is open, move to the next entry in the list</div>
         </span>
         <input type="text" id="gamepadNextEntryButton" class="gamepad-binding-input" value="RT" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardNextEntryKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
       </label>
       <label>
         <span class="label-text">
-          Previous Yomitan Entry Button
-          <div class="hotkey-info">While the Yomitan popup is open, move to the previous entry in the list</div>
+          Previous Dictionary Entry Button
+          <div class="hotkey-info">While the dictionary popup is open, move to the previous entry in the list</div>
         </span>
         <input type="text" id="gamepadPrevEntryButton" class="gamepad-binding-input" value="LT" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardPrevEntryKey" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
@@ -2328,7 +2328,7 @@
       <label>
         <span class="label-text">
           Mine Button
-          <div class="hotkey-info">Press to mine the current Yomitan entry</div>
+          <div class="hotkey-info">Press to mine the current dictionary entry</div>
         </span>
         <input type="text" id="gamepadMineButton" class="gamepad-binding-input" value="A" placeholder="Click and press a controller combo" readonly />
         <input type="text" id="keyboardMineButton" class="keyboard-binding-input" value="Disabled" placeholder="Click and press a key" readonly />
@@ -2425,7 +2425,7 @@
       <label>
         <span class="label-text">
           Auto-Confirm Selection
-          <div class="hotkey-info">Automatically trigger Yomitan lookup when moving cursor via gamepad</div>
+          <div class="hotkey-info">Automatically trigger a dictionary lookup when moving the cursor via gamepad</div>
         </span>
         <input type="checkbox" id="gamepadAutoConfirmSelection" checked />
       </label>
@@ -2724,8 +2724,8 @@
       gamepadPauseToggleButton: { settingKey: "gamepadPauseToggleButton", label: "Pause Button", fallbackValue: -1 },
       gamepadTokenModeToggleButton: { settingKey: "gamepadTokenModeToggleButton", label: "Token Mode Toggle Button", fallbackValue: 3 },
       gamepadMineButton: { settingKey: "gamepadMineButton", label: "Mine Button", fallbackValue: 0 },
-      gamepadNextEntryButton: { settingKey: "gamepadNextEntryButton", label: "Next Yomitan Entry Button", fallbackValue: 7 },
-      gamepadPrevEntryButton: { settingKey: "gamepadPrevEntryButton", label: "Previous Yomitan Entry Button", fallbackValue: 6 },
+      gamepadNextEntryButton: { settingKey: "gamepadNextEntryButton", label: "Next Dictionary Entry Button", fallbackValue: 7 },
+      gamepadPrevEntryButton: { settingKey: "gamepadPrevEntryButton", label: "Previous Dictionary Entry Button", fallbackValue: 6 },
     };
 
     const KEYBOARD_BINDING_INPUT_CONFIG = {
