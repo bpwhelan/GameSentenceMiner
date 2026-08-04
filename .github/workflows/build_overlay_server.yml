@@ -7,7 +7,9 @@ on:
   push:
     branches:
       - main
+      - "feat/optional-hoshidicts"
     paths:
+      - .github/workflows/build_overlay_server.yml
       - GSM_Overlay/input_server/**
   workflow_dispatch:
 
@@ -189,7 +191,6 @@ jobs:
             Not a user-facing release.
           prerelease: true
           make_latest: false
-          overwrite_files: true
           fail_on_unmatched_files: true
           files: |
             staging/gsm_overlay_server-win32.exe

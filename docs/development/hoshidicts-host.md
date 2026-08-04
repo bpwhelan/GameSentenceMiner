@@ -41,7 +41,7 @@ ctest --test-dir build/hoshidicts-host --build-config Release \
   --output-on-failure
 ```
 
-The Linux release build uses Ubuntu 22.04 and GCC 12. `libstdc++` and `libgcc`
+The Linux release build uses Ubuntu 22.04 and GCC 14. `libstdc++` and `libgcc`
 are linked into the host. Artifact verification rejects newer than
 `GLIBC_2.35` or unexpected dynamic dependencies.
 
